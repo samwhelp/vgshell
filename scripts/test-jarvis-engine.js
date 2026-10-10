@@ -307,11 +307,11 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
             const before = server.requests.length;
             w.advanceRunner(60000);
             await until(() => w.s().fault.kind === "error", "existing loading deadline is visible");
-            assert.equal(w.s().fault.reason, "speech=collect-timeout");
+            assert.equal(["speech=collect-timeout", "speech=local-ready-timeout"].includes(w.s().fault.reason), true);
             assert.equal(w.s().conversation.kind, "ended");
             assert.equal(w.s().capture.kind, "closed");
             await until(() => !alive(starts()[0].pid), "deadline reaps the failed starting child");
-            assert.equal(w.configure(w.s().settings).kind, "ready", "deadline does not become a setup refusal");
+            assert.equal(w.configure(w.s().settings).cause, "speech=local-ready-timeout", "ready timeout becomes a setup refusal");
             assert.equal(starts().length, 1, "deadline does not automatically restart");
             assert.equal(server.requests.length, before, "deadline does not replay an utterance");
             return;
@@ -2064,9 +2064,10 @@ world(async () => {
             ["loading ignores presented indicator", "Session.js", 's.indicator.kind === "shown"', "true"],
             ["loading starts a second child", "backend/ChainedEngine.js", 'if (plan.speech.lifetime === "daemon" && daemonSpeech === null) startSpeech(plan.speech);', 'if (plan.speech.lifetime === "daemon") startSpeech(plan.speech);'],
             ["replacement loading unpublished", "backend/ChainedEngine.js", 'daemonSpeech = owner;\n        configured(configuration());', 'daemonSpeech = owner;'],
+            ["ready timeout reads ready", "backend/ChainedEngine.js", ' || (speechState.kind === "starting" && error.code === "ready-timeout")', ""],
             ["loading cancellation replays", "backend/ChainedEngine.js", '            if (utterance) utterance.abort();', '            void utterance;']
         ]) {
-            const ending = name === "loading cancellation replays" ? "stop" : name === "replacement loading unpublished" ? "fault" : "ready";
+            const ending = name === "loading cancellation replays" ? "stop" : name === "replacement loading unpublished" ? "fault" : name === "ready timeout reads ready" ? "held" : "ready";
             await assert.rejects(() => loadingTalk(server, ending, [[file, needle, replacement]]), assert.AssertionError, name);
             console.log("control=" + name + " detected");
             controls++;

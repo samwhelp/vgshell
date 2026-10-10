@@ -280,7 +280,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             daemonSpeech = null;
             // A startup refusal revokes admission. An own-child fault
             // reloads on the next permitted request after the child is reaped.
-            speechState = error.kind === "refused"
+            speechState = error.kind === "refused" || (speechState.kind === "starting" && error.code === "ready-timeout")
                 ? { kind: "refused", error, publication: row.publication } : { kind: "unloaded" };
             configured(configuration());
         });

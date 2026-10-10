@@ -2415,7 +2415,7 @@ titles = {
     "jarvis: node=20.19.5 need=22": ("Jarvis needs Node 22 or later", "Use the requirement notice to install Node."),
     "jarvis: daemon=exit code=1 status=0": ("Jarvis daemon stopped", "Turn Jarvis off and on again in Settings > Jarvis."),
     "jarvis: protocol=identity": ("Jarvis received a broken daemon message", "Turn Jarvis off and on again in Settings > Jarvis."),
-    "speech=local-not-ready": ("Local voice did not get ready in time", "Set up Local voice again in Settings > Jarvis."),
+    "speech=local-ready-timeout": ("Local voice did not get ready in time", "Turn Jarvis off and on again, or set it up again in Settings > Jarvis."),
     "jarvis: setup=probe-timeout": ("Jarvis setup check timed out", "Turn Jarvis off and on again in Settings > Jarvis."),
 }
 title, action = titles[cause]
@@ -2426,7 +2426,7 @@ if phase == "before":
     rows += [("detail", None), ("daemon", {"tone": "warning", "text": "Restarting after a problem"}),
              ("setup", {"tone": "warning", "text": "Jarvis stopped after a problem", "hint": "Turn Jarvis off and on again."}),
              ("setupVoice", unchecked), ("setupModel", unchecked_model)]
-elif cause == "speech=local-not-ready":
+elif cause == "speech=local-ready-timeout":
     rows += [("daemon", {"tone": "info", "text": "Ready; no capture"}),
              ("detail", {"phase": "error", "seq": 1, "state": {"mute": {"kind": "off"}, "capture": {"kind": "closed"},
               "gate": {"kind": "up"}, "fault": {"kind": "error", "reason": cause, "retry": 0}}}),
@@ -2601,7 +2601,7 @@ scene_jarvis-causes() { # MODE
     "node-too-old|jarvis: node=20.19.5 need=22|Node too old" \
     "daemon-exit|jarvis: daemon=exit code=1 status=0|Daemon exit" \
     "wire-defect|jarvis: protocol=identity|Wire defect" \
-    "local-voice|speech=local-not-ready|Local voice not ready" \
+    "local-voice|speech=local-ready-timeout|Local voice not ready" \
     "probe-timeout|jarvis: setup=probe-timeout|Probe timeout"; do
     IFS='|' read -r slug cause label <<<"$row"
     expect "the Jarvis $label cause is planted" ok jarvis_plant_cause "$cause" "$phase"

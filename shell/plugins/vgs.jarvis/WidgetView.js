@@ -55,7 +55,7 @@ var SETUP_TEXT = [
 // pattern that matches wins. Examples are the producers' own reasons:
 // Session's thinking-timeout and device-lost, the engine's keyed brain and
 // speech causes (ChainedEngine keyed: brain=stream-error, net=timeout,
-// speech=local-not-ready), the home folder causes of a conversation's
+// speech=local-ready-timeout), the home folder causes of a conversation's
 // first turn (home=link, guidance=home-too-large) and Audio's capture and
 // playback failures (audio-start: ..., device-probe: ..., playback-busy).
 // A model its app refused carries the model's name (ClaudeCode:
@@ -67,7 +67,7 @@ var FAULT_KINDS = [
     [/^(home=|guidance=home-)/, "home"],
     [MODEL_REFUSED, "model"],
     [/^(brain|net)=/, "brain"],
-    [/^speech=local-not-ready$/, "localVoice"],
+    [/^speech=local-ready-timeout$/, "localVoice"],
     [/^speech=/, "voice"],
     [/^(audio-start|device-probe|capture|playback)/, "audio"]
 ];
@@ -84,7 +84,7 @@ var FAULT_TEXT = {
     "home": { title: "Jarvis cannot use the home folder", action: "Check AGENTS.md, MEMORY.md and the skills in the folder, or choose another folder in Settings > Jarvis." },
     "brain": { title: "The AI model did not answer", action: RESTART },
     "model": { title: "The AI app cannot use the model", action: "Choose another model in Settings > Jarvis." },
-    "localVoice": { title: "Local voice did not get ready in time", action: "Set up Local voice again in Settings > Jarvis." },
+    "localVoice": { title: "Local voice did not get ready in time", action: "Turn Jarvis off and on again, or set it up again in Settings > Jarvis." },
     "voice": { title: "Local voice stopped working", action: RESTART },
     "audio": { title: "The microphone or speaker stopped working", action: RESTART },
     "other": { title: "Jarvis stopped after a problem", action: RESTART }

@@ -471,7 +471,7 @@ PY
 
 # selftest_cold_start INDEX BOUND_MS: one disable/enable start, as JSON.
 selftest_cold_start() {
-  local index="$1" bound_ms="$2" started now status last="" changes=() reply end='{"ms":0,"place":"problem","lifetime":"missing","daemon":null,"setup":null,"cause":"selftest=unread"}'
+  local index="$1" bound_ms="$2" started now status comparable last="" changes=() reply end=""
   reply="$(ipc shell setPluginEnabled vgs.jarvis false)" || reply=unread
   [[ $reply == ok ]] || stopped jarvis-not-disabled "$reply"
   selftest_wait 10 absent ipc smoke jarvisProcess || stopped jarvis-not-disabled "$reading"
@@ -480,13 +480,17 @@ selftest_cold_start() {
   [[ $reply == ok ]] || stopped jarvis-not-enabled "$reply"
   while :; do
     now="$(now_ms)"
-    status="$(ipc smoke jarvisProcess | selftest_status "$((now - started))")" || status='{"ms":0,"place":"problem","lifetime":"missing","daemon":null,"setup":null,"cause":"selftest=unread"}'
-    if [[ $status != "$last" ]]; then changes+=("$status"); last="$status"; fi
+    status="$(ipc smoke jarvisProcess | selftest_status "$((now - started))")" || { printf 'selftest=cold-read-unread start=%s\n' "$index" >&2; return 1; }
+    comparable="$(python3 -c 'import json,sys; row=json.loads(sys.argv[1]); row.pop("ms", None); print(json.dumps(row, sort_keys=True, separators=(",", ":")))' "$status")" || return 1
+    if [[ $comparable != "$last" ]]; then changes+=("$status"); last="$comparable"; fi
     end="$status"
     case "$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["place"])' "$status")" in
       ready|setting|problem) break ;;
     esac
-    ((now - started < bound_ms)) || break
+    if ((now - started >= bound_ms)); then
+      printf 'selftest=cold-timeout start=%s bound_ms=%s\n' "$index" "$bound_ms" >&2
+      return 1
+    fi
     sleep 0.2
   done
   python3 - "$index" "$end" "${changes[@]}" <<'PY'
@@ -610,7 +614,13 @@ if ((cold_count > 0)); then
   cpu_pressure="$(tr '\n' ';' </proc/pressure/cpu)"
   cold_starts=()
   for ((cold_index = 1; cold_index <= cold_count; cold_index++)); do
-    cold_starts+=("$(selftest_cold_start "$cold_index" 120000)")
+    if cold_start_record="$(selftest_cold_start "$cold_index" 120000)"; then
+      cold_starts+=("$cold_start_record")
+    else
+      status=$?
+      [[ -z $cold_start_record ]] || printf '%s\n' "$cold_start_record" >&2
+      exit "$status"
+    fi
   done
   selftest_cold_record "$out" "$cpu_pressure" "${cold_starts[@]}" || stopped record-not-written
   printf 'selftest=cold record=%s\n' "$out"

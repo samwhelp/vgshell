@@ -45,11 +45,17 @@ const MUTED = { mute: { kind: "on" } };
 const READY = { tone: "info", text: "Ready; no capture" };
 const DEVICES = { tone: "ok", text: "Device list ready" };
 const FLOOR = { tone: "danger", text: "Stopped after a problem. Turn Jarvis off and on again." };
-const HELLO = SetupGate.startCause("jarvis: hello=timeout");
-const DAEMON_HELLO = { tone: "warning", text: HELLO.title, lines: [HELLO.action, "jarvis: hello=timeout"] };
-const FLOOR_HELLO = { tone: "danger", text: HELLO.title, lines: [HELLO.action, "jarvis: hello=timeout"] };
-const START_CAUSES = ["jarvis: hello=timeout", "jarvis: node=20.19.5 need=22", "jarvis: daemon=exit code=1 status=0",
-    "jarvis: protocol=identity", "jarvis: setup=probe-timeout"];
+const HELLO_EXPECTED = { title: "Jarvis did not answer in time", action: "Turn Jarvis off and on again in Settings > Jarvis." };
+const helloActual = SetupGate.startCause("jarvis: hello=timeout");
+const DAEMON_HELLO = { tone: "warning", text: helloActual.title, lines: [helloActual.action, "jarvis: hello=timeout"] };
+const FLOOR_HELLO = { tone: "danger", text: helloActual.title, lines: [helloActual.action, "jarvis: hello=timeout"] };
+const START_CAUSES = [
+    ["jarvis: hello=timeout", "Jarvis did not answer in time", "Turn Jarvis off and on again in Settings > Jarvis."],
+    ["jarvis: node=20.19.5 need=22", "Jarvis needs Node 22 or later", "Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis."],
+    ["jarvis: daemon=exit code=1 status=0", "Jarvis daemon stopped", "Turn Jarvis off and on again in Settings > Jarvis."],
+    ["jarvis: protocol=identity", "Jarvis and its daemon could not understand each other", "Turn Jarvis off and on again in Settings > Jarvis."],
+    ["jarvis: setup=probe-timeout", "Jarvis setup check timed out", "Turn Jarvis off and on again in Settings > Jarvis."]
+];
 const OVERFLOW = { tone: "danger", text: "capture-overflow" };
 const up = (regions, extra) => Object.assign({ daemon: READY, audio: DEVICES, detail: detail(regions) }, extra);
 
@@ -81,7 +87,7 @@ const CASES = [
     ["starting before the first state", { daemon: { tone: "info", text: "Starting" }, detail: null, audio: { tone: "info", text: "Reading devices" } },
         ["loading", "loader", "info", tip("Jarvis is starting", ["Wait for Jarvis to start.", MUTE])]],
     ["restarting", { daemon: DAEMON_HELLO, detail: null },
-        ["problem", "circle-alert", "danger", tip(HELLO.title, [HELLO.action, "jarvis: hello=timeout", MUTE])]],
+        ["problem", "circle-alert", "danger", tip(HELLO_EXPECTED.title, [HELLO_EXPECTED.action, "jarvis: hello=timeout", MUTE])]],
     ["mute pending", { daemon: { tone: "warning", text: "Mute pending; disabling Jarvis cancels the request" }, detail: null },
         ["loading", "loader", "info", tip("Jarvis is starting", ["Wait for Jarvis to start.", MUTE])]],
     ["ready", up({}), ["ready", "mic", "calm", tip("Jarvis is ready", [HOLD, MUTE])]],
@@ -97,7 +103,7 @@ const CASES = [
     ["listening over an audio problem", up(OPEN, { audio: OVERFLOW }),
         ["listening", "audio-lines", "accent", tip("Jarvis is listening", ["Speak now.", MUTE])]],
     ["permanent daemon problem", { daemon: FLOOR_HELLO, detail: null, audio: DEVICES },
-        ["problem", "circle-alert", "danger", tip(HELLO.title, [HELLO.action, "jarvis: hello=timeout", MUTE])]],
+        ["problem", "circle-alert", "danger", tip(HELLO_EXPECTED.title, [HELLO_EXPECTED.action, "jarvis: hello=timeout", MUTE])]],
     ["Session error", up({ fault: { kind: "error", reason: "thinking-timeout", retry: 0 } }),
         ["problem", "circle-alert", "danger", WITH(fault("slow"), [MUTE])]],
     ["Session retrying a lost device", up({ fault: { kind: "retrying", reason: "device-lost", retry: 1 } }),
@@ -110,7 +116,8 @@ const CASES = [
         ["problem", "circle-alert", "danger", WITH(fault("slow"), [UNMUTE])]],
     ...[["a lost device", "device-lost", "device"], ["a brain stream error", "brain=stream-error", "brain"],
         ["a harness exit", "brain=harness-exit", "brain"], ["a network refusal", "net=timeout", "brain"],
-        ["local speech not ready", "speech=local-not-ready", "localVoice"], ["another speech fault", "speech=live-key-required", "voice"],
+        ["local speech ready timeout", "speech=local-ready-timeout", "localVoice"], ["local speech not ready", "speech=local-not-ready", "voice"],
+        ["another speech fault", "speech=live-key-required", "voice"],
         ["a capture start", "audio-start: device-busy", "audio"],
         ["a device probe", "device-probe: pw-dump-exit", "audio"], ["a busy player", "playback-busy", "audio"],
         ["a home text over its bound", "guidance=home-too-large", "home"], ["a home skill list over its bound", "guidance=home-skills-too-large", "home"],
@@ -269,11 +276,11 @@ function verify(view) {
         assert.deepEqual([got.state, got.icon, got.tone], ["off", "power-off", "neutral"], causes[0]);
         assert.equal(got.tooltipDetails[0].includes(status.setupHome.hint), true, causes[0] + ": the widget says what to change in the home folder");
     }
-    for (const cause of START_CAUSES) {
+    for (const [cause, title, action] of START_CAUSES) {
         const words = SetupGate.startCause(cause);
         const got = callView(view, { daemon: { tone: "warning", text: words.title, lines: [words.action, cause] }, detail: null });
         assert.deepEqual([got.state, got.icon, got.tone, got.tooltip, got.tooltipDetails],
-            ["problem", "circle-alert", "danger", words.title, [words.action, cause, MUTE]], cause);
+            ["problem", "circle-alert", "danger", title, [action, cause, MUTE]], cause);
     }
     const idle = callView(view, up(down("unconfigured"), { ...SetupGate.readiness({ kind: "answered", causes: ["brain=unselected"] }), setupHome: { tone: "ok", text: "Done", hint: "fixture" } }));
     assert.equal(idle.tooltipDetails.join(" ").includes("fixture"), false);
@@ -315,7 +322,7 @@ const CONTROLS = [
     ["an unexpected phase reads ready", 'refuse("phase", detail.phase);', 'return look("ready", "Jarvis is ready", [readyAction(effectiveMode, effectiveKeys)], muteOn, effectiveKeys);'],
     ["a fault shows its keyed reason", 'return fault.kind === "retrying" ? RETRYING : FAULT_TEXT[kind];', 'return { title: "Problem: " + fault.reason, action: RESTART };'],
     ["a brain fault reads as another", '[/^(brain|net)=/, "brain"],', ""],
-    ["local voice timeout reads as generic speech", '[/^speech=local-not-ready$/, "localVoice"],\n', ""],
+    ["local voice timeout reads as generic speech", '[/^speech=local-ready-timeout$/, "localVoice"],\n', ""],
     ["a refused model reads as any brain fault", '    [MODEL_REFUSED, "model"],\n', ""],
     ["a refused model is not named", 'title: FAULT_TEXT.model.title + " " + MODEL_REFUSED.exec(fault.reason)[1]', "title: FAULT_TEXT.model.title"],
     ["a home folder fault reads as another", '[/^(home=|guidance=home-)/, "home"],', ""],

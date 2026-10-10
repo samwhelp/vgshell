@@ -487,8 +487,14 @@ Item {
     function broken(reason) {
         cause = reason;
         console.warn(reason);
+        if (shell !== null && lifetime.kind !== "stopped") {
+            const problem = Gate.startCause(cause);
+            publish("warning", problem.title, [Gate.RETRYING_START].concat(problem.lines));
+            publishSetup({ kind: "problem", cause, action: Gate.RETRYING_START });
+        }
         child.stdinEnabled = false;
         child.running = false;
+        stopDeadline.restart();
     }
 
     function receive(chunk) {
@@ -615,6 +621,7 @@ Item {
 
     function ended(completion) {
         helloDeadline.stop();
+        stopDeadline.stop();
         if (lifetime.kind === "stopped") return;
         if (outputTail !== "") cause = "jarvis: protocol=unterminated-line";
         if (errorTail !== "") cause = errorTail;
@@ -632,7 +639,7 @@ Item {
         if (permanent || retries === 5) {
             if (lifetime.pendingMute !== "none") refuseMute(cause);
             lifetime = { kind: "problem", pendingMute: "none" };
-            publish("danger", problem.title, [problem.action, cause]);
+            publish("danger", problem.title, [problem.action].concat(problem.lines));
             publishSetup({ kind: "problem", cause });
             notice({ title: "Jarvis daemon stopped", message: cause.slice(0, 180), tone: "danger", icon: "mic" });
             return;
@@ -642,7 +649,7 @@ Item {
         retry.interval = 250 * Math.pow(2, retries);
         retries++;
         lifetime = { kind: "retry", pendingMute: lifetime.pendingMute };
-        publish("warning", problem.title, [Gate.RETRYING_START, cause]);
+        publish("warning", problem.title, [Gate.RETRYING_START].concat(problem.lines));
         publishSetup({ kind: "problem", cause, action: Gate.RETRYING_START });
         retry.start();
     }
@@ -651,6 +658,7 @@ Item {
         lifetime = { kind: "stopped", pendingMute: "none" };
         retry.stop();
         helloDeadline.stop();
+        stopDeadline.stop();
         child.stdinEnabled = false;
     }
 
@@ -711,7 +719,8 @@ Item {
             root.ended(done);
         }
     }
-    // Start bound: 107750 ms. It is 6 hello attempts x 5000 ms plus
+    // Start bound: 108750 ms. It is 6 hello attempts x 5000 ms, six
+    // forced-stop waits x 1000 ms, plus
     // retry backoff of 250+500+1000+2000+4000 ms, plus LocalSpeech.js
     // ready bound of 60000 ms, plus the setup probe bound of 10000 ms.
     // scripts/jarvis-selftest.sh --cold 10 on this machine on 2026-10-10
@@ -719,6 +728,14 @@ Item {
     // pressure some avg10=0.00 avg60=0.17 avg300=2.16.
     Timer { id: retry; onTriggered: root.start() }
     Timer { id: helloDeadline; interval: 5000; onTriggered: root.broken("jarvis: hello=timeout") }
+    Timer {
+        id: stopDeadline
+        interval: 1000
+        // Quickshell.Io Process.signal(int) is in the installed 0.3.1
+        // quickshell-io.qmltypes. SIGKILL bounds a child that ignores the
+        // SIGTERM sent by running=false after a hello timeout.
+        onTriggered: if (child.running) child.signal(9)
+    }
     // A finished key, account or local voice step can change what the
     // engine judges, so each reader's refresh sends the daemon a fresh
     // snapshot; hello() sends none while the child is not running or broken.

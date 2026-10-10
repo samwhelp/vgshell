@@ -21,6 +21,7 @@ const settings = load(path.join(__dirname, "..", "shell", "plugins", "vgs.settin
 const protocol = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "JarvisProtocol.js"));
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "SetupGate.js");
+const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
 const ABSENT = { tone: "warning", text: "Browser needs setup", action: true };
 const READY = { tone: "ok", text: "Private browser ready", action: false };
 // [label, probe value, requires, missing, null for the probe value itself or
@@ -58,6 +59,7 @@ const READINESS = [
     ["ready", { kind: "answered", causes: [] }, "ok", [], []],
     ["nothing set up", { kind: "answered", causes: ["speech=local-not-set-up", "brain=unselected"] }, "warning", ["setupVoice", "setupModel"], ["setupVoice"]],
     ["local voice only", { kind: "answered", causes: ["speech=local-not-ready"] }, "warning", ["setupVoice"], []],
+    ["local voice ready timeout", { kind: "answered", causes: ["speech=local-ready-timeout"] }, "warning", ["setupVoice"], []],
     ["the AI model only", { kind: "answered", causes: ["brain=account-unavailable"] }, "warning", ["setupModel"], []],
     // ChainedEngine's cause while no speech row exists has no hint of its own.
     ["a cause with no hint of its own", { kind: "answered", causes: ["speech=no-adapter"] }, "warning", ["setupVoice"], ["setupVoice"]],
@@ -550,7 +552,9 @@ function verifyReadiness(gate) {
     }
     const lines = BRAIN_CAUSES.map(cause => plain(gate.readiness({ kind: "answered", causes: [cause] })).setupModel.hint);
     const localNotReady = plain(gate.readiness({ kind: "answered", causes: ["speech=local-not-ready"] })).setupVoice;
-    assert.equal(localNotReady.hint, "Local voice did not get ready in time. Set it up again in Settings > Jarvis.", "local voice timeout words");
+    assert.equal(localNotReady.hint, "Local voice did not start. Set it up again.", "local voice setup-broken words");
+    const localReadyTimeout = plain(gate.readiness({ kind: "answered", causes: ["speech=local-ready-timeout"] })).setupVoice;
+    assert.equal(localReadyTimeout.hint, "Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis.", "local voice timeout words");
     for (const cause of ["speech=local-memory-insufficient", "speech=local-memory-unavailable"]) {
         const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setup.tone, got.setupVoice.tone, got.setupVoice.action, got.setupModel.tone],
@@ -721,6 +725,16 @@ function verify(gate) {
     let fallback;
     assert.doesNotThrow(() => { fallback = gate.startCause(ARBITRARY_STDERR); }, "arbitrary stderr maps to daemon exit");
     assert.equal(fallback.kind, "daemon-exit", "arbitrary stderr maps to daemon exit");
+    for (const cause of ["jarvis: daemon=exit code=1 status=0 " + "x".repeat(240), "jarvis: protocol=bad\u0001line"]) {
+        const words = gate.startCause(cause);
+        const daemon = { tone: "danger", text: words.title, lines: [words.action].concat(words.lines) };
+        const setup = gate.readiness({ kind: "problem", cause }).setup;
+        assert.equal(judge.statusWrite(manifest, {}, "daemon", daemon).ok, true, "daemon accepts bounded cause line");
+        assert.equal(judge.statusWrite(manifest, {}, "setup", setup).ok, true, "setup accepts bounded cause line");
+        assert.equal(words.lines[0].length <= 200 && !/[\u0000-\u001f]/.test(words.lines[0]), true, "cause line is bounded and printable");
+    }
+    const answered = gate.readiness({ kind: "answered", causes: ["speech=" + "x".repeat(240) + "\u0001"] }).setup;
+    assert.equal(judge.statusWrite(manifest, {}, "setup", answered).ok, true, "answered setup accepts bounded cause line");
 }
 
 verify(load(file));
@@ -791,7 +805,8 @@ const CONTROLS = [
     ["a stopped daemon's steps read checking", 'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },\n            setupHome: HOME_READY, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };',
         'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },\n            setupHome: HOME_READY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };'],
     ["a keyed start cause has no words", '[/^jarvis: hello=timeout$/, { kind: "hello-timeout", title: "Jarvis did not answer in time", action: START_RESTART }],', ""],
-    ["an arbitrary stderr line has no words", "return { kind: DAEMON_EXIT.kind, title: DAEMON_EXIT.title, action: DAEMON_EXIT.action, lines: [cause] };", 'throw new Error("jarvis-setup: start-cause=" + cause + " has no words");'],
+    ["a status cause line is not bounded", ".slice(0, STATUS_TEXT_MAX)", ""],
+    ["an arbitrary stderr line has no words", "return { kind: DAEMON_EXIT.kind, title: DAEMON_EXIT.title, action: DAEMON_EXIT.action, lines: [line] };", 'throw new Error("jarvis-setup: start-cause=" + cause + " has no words");'],
     ["a cause naming no step is taken", 'if (!Object.prototype.hasOwnProperty.call(REQUIRED, step)) throw new Error("jarvis-setup: cause=" + cause + " names no step");', ""],
     ["a required step reads as optional", 'if (!Object.prototype.hasOwnProperty.call(OPTIONAL, key)) throw new Error("jarvis-setup: step=" + key + " is not optional");', ""]
 ];
