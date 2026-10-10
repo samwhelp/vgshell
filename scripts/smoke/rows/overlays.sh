@@ -274,16 +274,21 @@ assert text.count(keynav) == 1, "the KeyNavLogic import must occur once in Dialo
 text = text.replace(keynav, 'import "../../foundation/KeyNavLogic.js" as KeyNavLogic\n')
 (dialog_controls / "DialogOldRead.qml").write_text(planted(text, "OverlayState.outputOf(root)", "    property real availableHeight: 0\n"))
 PYEDIT
-# name -> [the member that opens it, the property that reads it open, its properties]
+# name -> [the member that opens it, the property that reads it open, its
+# properties, the opening's one argument if it takes one]
 declare -A nograb_use=(
   [popover]='open opened {"width":160}'
-  [menu]='open opened {}'
+  [menu]='open opened {} key'
   [select]='openList listOpen {"width":40,"height":20,"model":["one","two"]}'
 )
 for name in popover menu select; do
-  read -r opener reader props <<<"${nograb_use[$name]}"
+  read -r opener reader props argument <<<"${nograb_use[$name]}"
   expect "the probe builds the $name copy without the grab" ok ipc smoke popupLoad "$name-nograb" "${nograb_copy[$name]##*|}" "$ov_key" acme.overlays "$props"
-  expect "the $name copy opens" ok ipc smoke popupCall "$name-nograb" "$opener"
+  if [[ -n $argument ]]; then
+    expect "the $name copy opens" ok ipc smoke popupCallWith "$name-nograb" "$opener" "$argument"
+  else
+    expect "the $name copy opens" ok ipc smoke popupCall "$name-nograb" "$opener"
+  fi
   expect_poll "the $name copy is open" true ipc smoke popupRead "$name-nograb" "$reader"
 done
 expect "the widget opens its popover beside the copies" ok ovw openPopover
@@ -291,7 +296,7 @@ expect_poll "the popover is open beside the copies" true ovr popoverOpen
 press_outside_box "$(ovw popoverGeometry)" || fail "the click outside the copies failed"
 expect_poll "the press outside closes the grabbing popover" false ovr popoverOpen
 for name in popover menu select; do
-  read -r opener reader props <<<"${nograb_use[$name]}"
+  read -r opener reader props argument <<<"${nograb_use[$name]}"
   expect "the press outside leaves the $name copy without the grab open" true ipc smoke popupRead "$name-nograb" "$reader"
   expect "the probe drops the $name copy" ok ipc smoke popupDrop "$name-nograb"
 done

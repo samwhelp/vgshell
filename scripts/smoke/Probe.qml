@@ -2583,6 +2583,14 @@ Scope {
             copy[verb]();
             return "ok";
         }
+        // Call member VERB of copy NAME with the one argument ARG: `ok`, or
+        // `absent`.
+        function popupCallWith(name: string, verb: string, arg: string): string {
+            const copy = root.popupCopies[name];
+            if (copy === undefined) return "absent";
+            copy[verb](arg);
+            return "ok";
+        }
         // PROPERTY of copy NAME as JSON, or `absent`.
         function popupRead(name: string, property: string): string {
             const copy = root.popupCopies[name];
