@@ -165,7 +165,7 @@ function create({ session, state, dispatch, context, audit, result }) {
      * optional available() must return literal true at offer, route and start.
      * The guidance executor's optional topics() lists the help topics it can
      * read now, each one the help row's own rule admits, and its optional
-     * mailbox() must return literal true at offer for the master.request row.
+     * fleet() must return literal true at offer for the master.request row.
      */
     function register(id, executor) {
         if (closed || registry.has(id) || !Object.values(Tools.TABLE).some(row => row.executor === id)
@@ -187,13 +187,13 @@ function create({ session, state, dispatch, context, audit, result }) {
     }
 
     // A harness program proposes its own actions; no brain is offered them.
-    // Nor the master.request row while the home holds no mailbox of the
-    // master's. Other rows depend on their executor's own availability.
+    // Nor the master.request row while the home holds no mail tool to hand
+    // it with. Other rows depend on their executor's own availability.
     function offer() {
         if (closed) return [];
-        const mailbox = registry.get("guidance")?.mailbox;
+        const fleet = registry.get("guidance")?.fleet;
         return Object.entries(Tools.TABLE).filter(([id, row]) => row.proposer === undefined && available(row) !== null
-                && (id !== "master.request" || mailbox === undefined || mailbox() === true))
+                && (id !== "master.request" || fleet === undefined || fleet() === true))
             .map(([id, row]) => {
                 const parameters = structuredClone(row.schema);
                 if (id === "help" && registry.get("guidance").topics !== undefined) {

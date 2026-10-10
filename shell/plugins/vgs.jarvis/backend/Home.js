@@ -4,17 +4,15 @@
 // VGS ships, and reads its text; it never follows a link at the home or below
 // it, since a link there could hand another file to every brain. Home text
 // gives knowledge, never permission: the gate stays the only source of that.
-// It also appends a request to the master session's mailbox in the folder,
-// the one write a brain's call makes there outside state/.
+// It also finds the one program of the home Jarvis runs, the kendex mail
+// tool that writes the master session's mailbox there.
 // Contract: docs/decisions/D105-jarvis-home-folder.md.
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
-const crypto = require("node:crypto");
-const { spawnSync } = require("node:child_process");
 const Core = require("./Core.js");
 const Tools = require("./Tools.js");
-const { O_RDONLY, O_WRONLY, O_RDWR, O_APPEND, O_CREAT, O_EXCL, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK } = fs.constants;
+const { O_RDONLY, O_WRONLY, O_CREAT, O_EXCL, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK } = fs.constants;
 
 // The two harness files serve the user's own Claude Code or Codex session
 // started in the home; a brain Jarvis starts never runs there. Claude Code's
@@ -50,15 +48,10 @@ const HEAD_BYTES = 4096;
 const LINE_CHARS = 160;
 // Linux PATH_MAX, the anchored walk's own bound.
 const PATH_BYTES = 4096;
-// The master session's mailbox, as lane-mail lays one out below its root
-// (.agents/skills/orch/scripts/lane-mail): the session that runs the owner's
-// fleet reads this file with `lane-mail inbox --item overseer`.
-const MAILBOX = "tmp/lane-mail/overseer";
-const MAILBOX_FILE = "to-lane.jsonl";
-// Seconds the append waits for the mailbox lock. lane-mail holds it for one
-// read, append or rewrite of the file, so the wait only bounds a holder that
-// hung; the daemon answers nothing else while it waits.
-const LOCK_SECONDS = 1;
+// The one entry of the home Jarvis runs as a program: lane-mail, which
+// kendex installs here with its orch skill, writes the master session's
+// mailbox (D105). No other path in the home is ever a program.
+const MAIL_TOOL = ".agents/skills/orch/scripts/lane-mail";
 // A YAML block scalar's header: > or |, then an optional chomping mark and
 // indent digit in either order. Its text is on the lines below it.
 const BLOCK_SCALAR = /^[>|][-+1-9]{0,2}$/;
@@ -478,76 +471,23 @@ function notes(home) {
     });
 }
 
-/** Whether the home holds the master session's mailbox folder, no link on the way. */
-function mailbox(home) {
-    try { return within(home, MAILBOX, O_RDONLY | O_DIRECTORY, () => true); }
-    catch (error) {
-        if (/^jarvis: home=/.test(error.message)) return false;
+/**
+ * The absolute path of the home's mail tool, MAIL_TOOL reached through no
+ * link and a regular file with its owner's execute bit, or null while the
+ * home holds no such file there or cannot be read. The caller runs it by
+ * this path: the home's writers are the user, VGS and the master session
+ * (D105), and the gate keeps every model out of the folder.
+ */
+function mailTool(home) {
+    try {
+        return within(home, MAIL_TOOL, O_RDONLY | O_NONBLOCK, fd => {
+            const stat = fs.fstatSync(fd);
+            return stat.isFile() && (stat.mode & 0o100) !== 0 ? path.join(home, MAIL_TOOL) : null;
+        });
+    } catch (error) {
+        if (/^jarvis: home=/.test(error.message)) return null;
         throw error;
     }
 }
 
-// Take lane-mail's lock on the mailbox file held as FD: flock on the file
-// itself, which each of its readers and writers takes
-// (lane-mail's lib/mailbox-append.sh). flock(1) locks the descriptor it
-// inherits as its descriptor 3, and the lock belongs to the open file
-// description, so this process holds it until FD closes (flock(2)).
-// Child.run hands a child pipes alone, never a descriptor, so this start is
-// its own; flock(1) ends itself once LOCK_SECONDS pass.
-function lock(fd) {
-    const taken = spawnSync("flock", ["-w", String(LOCK_SECONDS), "-E", "75", "3"],
-        { stdio: ["ignore", "ignore", "ignore", fd], env: { PATH: process.env.PATH ?? "" } });
-    if (taken.status === 75) fail("busy");
-    if (taken.status !== 0) fail("lock");
-}
-
-/**
- * Hand TEXT to the master session: append it to the mailbox as one lane-mail
- * directive from the owner, stamped NOW, an unpaired surrogate in it
- * replaced by U+FFFD. Jarvis writes the row itself, in
- * the record form lane-mail documents, because lane-mail's own `send` cannot
- * serve: VGS ships no copy of it, and the copy in the home is home text,
- * which Jarvis never runs (D105). The append holds lane-mail's lock, closes
- * a line a killed writer left without its newline, as lane-mail's append
- * does, and ends the row on one. The mailbox folder is the master's: Jarvis
- * makes none, and makes the file where it is absent, as lane-mail's append
- * does. Returns {kind: "handed", id} once the row reads back as the file's
- * last line, and {kind: "unread", id} for a write that failed part way or
- * reads back otherwise. Throws jarvis: home=absent, link or kind for the
- * mailbox, home=busy while another holder keeps the lock past LOCK_SECONDS,
- * home=lock where flock cannot run, and home=unwritable; none of them wrote
- * a row.
- */
-function hand(home, text, now = Date.now()) {
-    const seconds = Math.floor(now / 1000);
-    // lane-mail's id form, <epoch>-<pid>-<random>, and its `at`, UTC to the second.
-    const id = seconds + "-" + process.pid + "-" + crypto.randomInt(32768);
-    // JSON.stringify writes an unpaired surrogate as a \ud escape, which jq,
-    // lane-mail's parser, refuses: the reader would count the row and never
-    // hand it over.
-    const row = Buffer.from(JSON.stringify({ id, kind: "directive",
-        at: new Date(seconds * 1000).toISOString().replace(".000Z", "Z"), from: "owner", text: text.toWellFormed() }) + "\n");
-    return within(home, MAILBOX, O_RDONLY | O_DIRECTORY, folder => {
-        const kind = kindOf(folder, MAILBOX_FILE);
-        if (kind === "link") fail(kind);
-        if (kind !== "file" && kind !== "absent") fail("kind");
-        let fd;
-        try { fd = fs.openSync(Core.anchored().child(folder, MAILBOX_FILE), O_RDWR | O_APPEND | O_CREAT | O_NOFOLLOW, 0o644); }
-        catch { return fail("unwritable"); }
-        try {
-            lock(fd);
-            try {
-                const size = fs.fstatSync(fd).size;
-                const last = Buffer.alloc(1);
-                const open = size > 0 && fs.readSync(fd, last, 0, 1, size - 1) === 1 && last[0] !== 0x0a;
-                // O_APPEND puts every byte at the file's end, where the lock lets no other in.
-                fs.writeFileSync(fd, open ? Buffer.concat([Buffer.from("\n"), row]) : row);
-                const seen = Buffer.alloc(row.length);
-                fs.readSync(fd, seen, 0, row.length, fs.fstatSync(fd).size - row.length);
-                return seen.equals(row) ? { kind: "handed", id } : { kind: "unread", id };
-            } catch { return { kind: "unread", id }; }
-        } finally { fs.closeSync(fd); }
-    });
-}
-
-module.exports = { PACKAGE, resolve, layout, guard, read, skills, skill, note, notes, mailbox, hand, directory };
+module.exports = { PACKAGE, resolve, layout, guard, read, skills, skill, note, notes, mailTool, directory };

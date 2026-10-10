@@ -309,7 +309,8 @@ function create({ environment, commandMs = COMMAND_MS, log = null }) {
 /**
  * Register only a setup-verified driver and browser. Help uses the same
  * owner; home() answers the Jarvis home folder its skills are read from, or
- * null.
+ * null, and environment is the daemon's, which help's mail tool run picks
+ * from.
  */
 function install({ router, environment, home = () => null }) {
     let registered = false;
@@ -337,7 +338,7 @@ function install({ router, environment, home = () => null }) {
         start(call, done) {
             try { done({ outcome: "completed", content: owner().guidance() }); }
             catch (error) { done({ outcome: "failed", content: error.message }); }
-        } }, home);
+        } }, home, environment);
     router.register("guidance", guidance);
     function register() {
         if (registered || closed) return;

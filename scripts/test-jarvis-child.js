@@ -102,6 +102,11 @@ world(() => {
             assert.deepEqual(await Child.run(node, script("process.exit(9)"), { ...base, signal: before.signal }),
                 { kind: "stopped", reason: "cancelled", stdout: "", stderr: "" });
         }],
+        ["cwd", async Child => {
+            const where = script("process.stdout.write(process.cwd())");
+            assert.equal((await Child.run(node, where, { ...base, cwd: root })).stdout, root, "the child runs in the folder given");
+            assert.equal((await Child.run(node, where, base)).stdout, process.cwd(), "without one, in this process's own");
+        }],
         ["spawn-error", async Child => {
             const result = await Child.run(path.join(root, "absent"), [], base);
             assert.deepEqual(result, { kind: "error", reason: "spawn", error: "ENOENT", stdout: "", stderr: "" });
@@ -114,7 +119,8 @@ world(() => {
         ["limit", 'if (bytes > limit) end("output-limit");', 'if (false) end("output-limit");', "limit", true],
         ["group-kill", 'try { process.kill(-child.pid, "SIGKILL"); }', 'try { process.kill(child.pid, "SIGKILL"); }', "group"],
         ["own-group", "detached: group,", "detached: false,", "ignored-output"],
-        ["environment", "{ env, detached: group,", "{ env: { ...process.env, ...env }, detached: group,", "exited"],
+        ["environment", "{ env, cwd, detached: group,", "{ env: { ...process.env, ...env }, cwd, detached: group,", "exited"],
+        ["cwd", "{ env, cwd, detached: group,", "{ env, detached: group,", "cwd"],
         ["input", "child.stdin.end(input);", "child.stdin.end();", "input"],
         ["ignored-output", "output, output, ...Array", '"pipe", "pipe", ...Array', "ignored-output", true],
         ["cancel", 'if (signal) signal.addEventListener("abort", cancel, { once: true });', "void cancel;", "cancel", true]

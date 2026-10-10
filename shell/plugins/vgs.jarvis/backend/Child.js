@@ -17,6 +17,7 @@ const CLOCK = { set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeou
  *     never ran, or its stdin failed other than by the child closing it.
  * Options:
  *   env       the child's whole environment; nothing is inherited.
+ *   cwd       the child's working folder; absent, this process's own.
  *   limit     bytes of stdout and stderr together, counted as the decoded text
  *             the caller receives; past it the child is ended and the text cut.
  *   deadline  milliseconds from spawn until the child is ended.
@@ -32,7 +33,7 @@ const CLOCK = { set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeou
  *   signal    an AbortSignal; abort ends the child as "cancelled".
  *   clock     {set, clear} for the deadline.
  */
-function run(file, argv, { env, limit, deadline, group, input, output = "pipe", extra = 0, attach, signal, clock = CLOCK }) {
+function run(file, argv, { env, cwd, limit, deadline, group, input, output = "pipe", extra = 0, attach, signal, clock = CLOCK }) {
     return new Promise(resolve => {
         if (signal && signal.aborted) { resolve({ kind: "stopped", reason: "cancelled", stdout: "", stderr: "" }); return; }
         let child = null;
@@ -52,7 +53,7 @@ function run(file, argv, { env, limit, deadline, group, input, output = "pipe", 
         };
         // Arm the deadline first: a clock that throws leaves no child behind.
         const timer = clock.set(() => end("timeout"), deadline);
-        child = spawn(file, argv, { env, detached: group, stdio: [input === undefined ? "ignore" : "pipe",
+        child = spawn(file, argv, { env, cwd, detached: group, stdio: [input === undefined ? "ignore" : "pipe",
             output, output, ...Array.from({ length: extra }, () => "pipe")] });
         const cancel = () => end("cancelled");
         if (signal) signal.addEventListener("abort", cancel, { once: true });

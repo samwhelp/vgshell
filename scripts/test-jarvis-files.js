@@ -236,11 +236,12 @@ world(async () => {
     }
     // The Jarvis home folder (D105): the write, move and delete tools refuse
     // every path in it and leave every byte, the master session's mailbox
-    // among them, no new file is made in it, one a harness session there
-    // would read among them, and state/ takes all three.
+    // and the kendex mail tool among them, no new file is made in it, one a
+    // harness session there would read among them, and state/ takes all
+    // three.
     const jarvis = path.join(home, "work/jarvis");
     const knowledge = ["AGENTS.md", "CLAUDE.md", "skills/own/alpha.md", "memory/MEMORY.md", "memory/inbox/note.md", ".claude/settings.json", ".codex/config.toml",
-        "tmp/lane-mail/overseer/to-lane.jsonl"];
+        "tmp/lane-mail/overseer/to-lane.jsonl", ".agents/skills/orch/scripts/lane-mail"];
     const jarvisHome = require(path.join(backend, "Home.js")).guard(jarvis);
     const homeGate = async (Files, judge = Denied) => {
         for (const name of [...knowledge, "state/handoff.md"]) {
@@ -1035,7 +1036,7 @@ world(async () => {
     // Each control drops the home on one line of its way to the help tool.
     for (const [control, edit] of [
         ["help-home-daemon", ["jarvisd.js", 'home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null });', "home: () => null });"]],
-        ["help-home-browser", ["Browser.js", "        } }, home);\n", "        } });\n"]]]) {
+        ["help-home-browser", ["Browser.js", "        } }, home, environment);\n", "        } }, undefined, environment);\n"]]]) {
         const dropped = await daemon(control, [edit]);
         assert.throws(() => skillRead(dropped["home-skill"]), assert.AssertionError, control + " control turns red");
         controls++;

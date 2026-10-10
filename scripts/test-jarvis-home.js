@@ -6,13 +6,12 @@
 // keeps, a home that holds an older package, the refusal of a link at the
 // home, at every layout path and inside skills/base, the folder a setting
 // names, the bounded read of its text, the skill index, a memory note read by
-// its path and a request handed to the master session's mailbox. Each control
-// edits a copy of Home.js, or of the Tools.js rule it asks, one rule at a
-// time, and must turn a case red; one plants a project-instructions block in a copy of
-// the package and must fail that row.
+// its path and the one program of the home, the kendex mail tool. Each
+// control edits a copy of Home.js, or of the Tools.js rule it asks, one rule
+// at a time, and must turn a case red; one plants a project-instructions
+// block in a copy of the package and must fail that row.
 "use strict";
-const cp = require("node:child_process");
-const { assert, fs, path, tree, world, seed, mutant, fsFault } = require("./fixtures/jarvis/policy.js");
+const { assert, fs, path, tree, world, seed, mutant } = require("./fixtures/jarvis/policy.js");
 const file = path.join(tree, "shell/plugins/vgs.jarvis/backend/Home.js");
 
 // The layout VGS-1194 names, independent of the production table: each file
@@ -55,12 +54,8 @@ function shipped(folder) {
         assert.deepEqual(fs.readFileSync(path.join(folder, name)), fs.readFileSync(path.join(tree, ".agents/skills", name.slice(12))), name);
 }
 const keyed = (run, cause, label) => assert.throws(run, { message: "jarvis: home=" + cause }, label);
-// The master session's mailbox below a home, as lane-mail lays it out, and a
-// row of it stamped 2026-10-10T12:00:07.900Z, epoch second 1791633607.
-const BOX = "tmp/lane-mail/overseer";
-const MAIL = BOX + "/to-lane.jsonl";
-const STAMP = Date.UTC(2026, 9, 10, 12, 0, 7, 900);
-const mailRow = (id, text) => '{"id":"' + id + '","kind":"directive","at":"2026-10-10T12:00:07Z","from":"owner","text":' + text + "}\n";
+// The kendex mail tool in a home, where kendex's orch skill installs it.
+const TOOL = ".agents/skills/orch/scripts/lane-mail";
 
 world(() => {
     const { home } = seed();
@@ -352,111 +347,42 @@ world(() => {
             for (let n = 0; n < 10001; n++) fs.writeFileSync(path.join(crowded, "memory", "n" + n + ".md"), "note\n");
             keyed(() => Home.notes(crowded), "notes-too-many");
         },
-        // A request handed to the master session is one lane-mail row at the
-        // end of its mailbox file, which is made when absent: the id of
-        // lane-mail's form, the owner as its sender, the stamp to the second
-        // and the text whole on one line. A row already there keeps every
-        // byte, a line a killed writer left open is closed first, and the
-        // home gains no other entry.
-        hands(Home) {
+        // The mail tool is the one program of the home: an executable file at
+        // TOOL is its path, and the same file anywhere else in the home is
+        // none, as is TOOL that is no executable regular file or is reached
+        // through a link.
+        mailTool(Home) {
             const folder = fresh();
             Home.layout(folder);
-            fs.mkdirSync(path.join(folder, BOX), { recursive: true });
-            assert.equal(Home.mailbox(folder), true);
-            const before = listing(folder);
-            const first = Home.hand(folder, "Rebase the lanes.\nThen \"report\".", STAMP);
-            assert.deepEqual(Object.keys(first), ["kind", "id"]);
-            assert.equal(first.kind, "handed");
-            assert.match(first.id, new RegExp("^1791633607-" + process.pid + "-[0-9]{1,5}$"), "lane-mail's id form");
-            const one = mailRow(first.id, '"Rebase the lanes.\\nThen \\"report\\"."');
-            assert.equal(fs.readFileSync(path.join(folder, MAIL), "utf8"), one);
-            assert.deepEqual(listing(folder), [...before, MAIL].sort(), "the mailbox file and no other entry");
-            fs.appendFileSync(path.join(folder, MAIL), '{"id":"cut');
-            const second = Home.hand(folder, "Second request", STAMP);
-            assert.equal(fs.readFileSync(path.join(folder, MAIL), "utf8"), one + '{"id":"cut\n' + mailRow(second.id, '"Second request"'));
-            assert.deepEqual(listing(folder), [...before, MAIL].sort());
-            // Half of a surrogate pair, which a model can send: the row holds
-            // U+FFFD in its place and no \ud escape, which lane-mail's parser
-            // refuses.
-            const third = Home.hand(folder, "Half \ud83d pair", STAMP);
-            assert.equal(third.kind, "handed");
-            const stored = fs.readFileSync(path.join(folder, MAIL), "utf8").split("\n").at(-2);
-            assert.equal(stored + "\n", mailRow(third.id, '"Half \ufffd pair"'));
-            assert.equal(stored.includes("\\ud"), false, "no surrogate escape");
-        },
-        // The append holds lane-mail's lock, flock on the mailbox file: while
-        // another holder keeps it, and where flock cannot run, no row lands.
-        handsLocked(Home) {
-            const folder = fresh();
-            Home.layout(folder);
-            fs.mkdirSync(path.join(folder, BOX), { recursive: true });
-            const kept = mailRow("1791633000-1-1", '"kept"');
-            fs.writeFileSync(path.join(folder, MAIL), kept);
-            const holder = fs.openSync(path.join(folder, MAIL), "r");
-            try {
-                assert.equal(cp.spawnSync("flock", ["-n", "3"], { stdio: ["ignore", "ignore", "ignore", holder] }).status, 0, "the test holds the lock");
-                keyed(() => Home.hand(folder, "Blocked request", STAMP), "busy");
-            } finally { fs.closeSync(holder); }
-            const search = process.env.PATH;
-            process.env.PATH = "";
-            try { keyed(() => Home.hand(folder, "No flock", STAMP), "lock"); }
-            finally { process.env.PATH = search; }
-            assert.equal(fs.readFileSync(path.join(folder, MAIL), "utf8"), kept, "no row lands without the lock");
-            assert.equal(Home.hand(folder, "Free again", STAMP).kind, "handed");
-        },
-        // A row that does not read back from the file's end is reported as
-        // unread, never as handed.
-        handsUnread(Home) {
-            const folder = fresh();
-            Home.layout(folder);
-            fs.mkdirSync(path.join(folder, BOX), { recursive: true });
-            fsFault("readSync", (original, fd, buffer, ...rest) => {
-                const count = original(fd, buffer, ...rest);
-                buffer.fill(0);
-                return count;
-            }, () => {
-                const handed = Home.hand(folder, "Request", STAMP);
-                assert.deepEqual([handed.kind, typeof handed.id], ["unread", "string"]);
-            });
-        },
-        // The mailbox is the master's: a home without the folder gets none
-        // made and no row, and a link at any part of the path, or another
-        // kind of entry there, is refused and never followed. What a link
-        // points at holds the rest of the path, so a followed link would
-        // write there; it keeps its entries.
-        handsNowhere(Home) {
-            const parts = BOX.split("/");
-            for (let made = 0; made < parts.length; made++) {
-                const folder = fresh();
-                Home.layout(folder);
-                if (made > 0) fs.mkdirSync(path.join(folder, ...parts.slice(0, made)), { recursive: true });
-                const before = listing(folder);
-                assert.equal(Home.mailbox(folder), false, "no mailbox below " + made + " parts");
-                keyed(() => Home.hand(folder, "Request", STAMP), "absent", made + " parts");
-                assert.deepEqual(listing(folder), before, "nothing is made");
-            }
-            for (const [entry, rest] of [["tmp", "lane-mail/overseer"], ["tmp/lane-mail", "overseer"], [BOX, ""], [MAIL, null], [MAIL, "dangling"]]) {
-                const folder = fresh();
-                Home.layout(folder);
-                const outside = path.join(path.dirname(folder), "outside");
-                if (rest === null) fs.writeFileSync(outside, "OUTSIDE\n");
-                else if (rest !== "dangling") fs.mkdirSync(path.join(outside, rest), { recursive: true });
-                const held = rest === null || rest === "dangling" ? null : listing(outside);
+            const plant = (entry, mode = 0o755) => {
                 fs.mkdirSync(path.dirname(path.join(folder, entry)), { recursive: true });
-                fs.symlinkSync(outside, path.join(folder, entry));
-                if (entry !== MAIL) assert.equal(Home.mailbox(folder), false, entry + ": a linked mailbox is none");
-                keyed(() => Home.hand(folder, "Request", STAMP), "link", entry);
-                if (rest === "dangling") assert.equal(fs.existsSync(outside), false, "nothing is made through the link");
-                else if (rest === null) assert.equal(fs.readFileSync(outside, "utf8"), "OUTSIDE\n", "the linked file keeps its bytes");
-                else assert.deepEqual(listing(outside), held, entry + ": nothing is made in the linked folder");
+                fs.writeFileSync(path.join(folder, entry), "#!/bin/sh\n", { mode });
+            };
+            assert.equal(Home.mailTool(folder), null, "a home without kendex");
+            for (const entry of ["skills/own/lane-mail", ".agents/skills/orch/scripts/workflow-state", ".agents/skills/other/scripts/lane-mail",
+                ".agents/skills/orch/lane-mail", "lane-mail", "state/lane-mail"]) {
+                plant(entry);
+                assert.equal(Home.mailTool(folder), null, entry + " is no program of the home");
             }
-            for (const [entry, make] of [[BOX, at => fs.writeFileSync(at, "")], [MAIL, at => fs.mkdirSync(at)]]) {
-                const folder = fresh();
-                Home.layout(folder);
-                fs.mkdirSync(path.dirname(path.join(folder, entry)), { recursive: true });
-                make(path.join(folder, entry));
-                keyed(() => Home.hand(folder, "Request", STAMP), "kind", entry);
-            }
+            // The control the refusals rest on: the same file at TOOL is admitted.
+            plant(TOOL);
+            assert.equal(Home.mailTool(folder), path.join(folder, TOOL));
+            fs.chmodSync(path.join(folder, TOOL), 0o644);
+            assert.equal(Home.mailTool(folder), null, "a tool without its execute bit");
+            fs.rmSync(path.join(folder, TOOL));
+            fs.mkdirSync(path.join(folder, TOOL), { mode: 0o755 });
+            assert.equal(Home.mailTool(folder), null, "a folder in the tool's place");
+            fs.rmSync(path.join(folder, TOOL), { recursive: true });
+            const outside = path.join(path.dirname(folder), "outside");
+            fs.mkdirSync(path.join(outside, "scripts"), { recursive: true });
+            fs.writeFileSync(path.join(outside, "scripts/lane-mail"), "#!/bin/sh\n", { mode: 0o755 });
+            fs.symlinkSync(path.join(outside, "scripts/lane-mail"), path.join(folder, TOOL));
+            assert.equal(Home.mailTool(folder), null, "a link in the tool's place");
+            fs.rmSync(path.join(folder, TOOL));
+            fs.rmSync(path.join(folder, ".agents/skills/orch/scripts"), { recursive: true });
+            fs.symlinkSync(path.join(outside, "scripts"), path.join(folder, ".agents/skills/orch/scripts"));
+            assert.equal(Home.mailTool(folder), null, "a linked folder on the way");
+            assert.equal(Home.mailTool(path.join(folder, "absent")), null, "a home that is not there");
         }
     };
 
@@ -511,25 +437,11 @@ world(() => {
         ["note-inbox", "(?!inbox/)", "", "notes", path.join(path.dirname(file), "Tools.js")],
         ["notes-list-kind", 'if (!stat.isFile() || !entry.name.endsWith(".md") || !Tools.memoryNote(id)) continue;', 'if (!stat.isFile()) continue;', "notesList"],
         ["notes-list-bound", 'if (found.length > NOTE_ENTRIES) fail("notes-too-many");', "", "notesList"],
-        ["hand-terminated", 'text: text.toWellFormed() }) + "\\n");', "text: text.toWellFormed() }));", "hands"],
-        ["hand-sender", 'from: "owner", text: text', 'from: "jarvis", text: text', "hands"],
-        ["hand-stamp", '.replace(".000Z", "Z")', "", "hands"],
-        ["hand-well-formed", "text: text.toWellFormed() })", "text })", "hands"],
-        ["hand-clock", "const seconds = Math.floor(now / 1000);", "const seconds = Math.floor(Date.now() / 1000);", "hands"],
-        ["hand-closes-line", 'open ? Buffer.concat([Buffer.from("\\n"), row]) : row', "row", "hands"],
-        ["hand-appends", "O_RDWR | O_APPEND | O_CREAT | O_NOFOLLOW", "O_RDWR | fs.constants.O_TRUNC | O_CREAT | O_NOFOLLOW", "hands"],
-        ["hand-lock", "            lock(fd);\n", "", "handsLocked"],
-        ["hand-busy", 'if (taken.status === 75) fail("busy");', "", "handsLocked"],
-        ["hand-no-flock", 'if (taken.status !== 0) fail("lock");', "", "handsLocked"],
-        ["hand-read-back", "seen.equals(row)", "true", "handsUnread"],
-        ["hand-no-folder", "    return within(home, MAILBOX, O_RDONLY | O_DIRECTORY, folder => {",
-            "    fs.mkdirSync(path.join(home, MAILBOX), { recursive: true });\n    return within(home, MAILBOX, O_RDONLY | O_DIRECTORY, folder => {", "handsNowhere"],
-        ["mailbox-present", "return within(home, MAILBOX, O_RDONLY | O_DIRECTORY, () => true); }", "return true; }", "handsNowhere"],
-        ["hand-folder-link", [['if (kind === "absent" || kind === "link") fail(kind);', 'if (kind === "absent") fail(kind);'],
-            ["(last ? flags : O_RDONLY | O_DIRECTORY) | O_NOFOLLOW", "(last ? flags : O_RDONLY | O_DIRECTORY)"]], null, "handsNowhere"],
-        ["hand-file-link", [['        if (kind === "link") fail(kind);\n', ""],
-            ["O_RDWR | O_APPEND | O_CREAT | O_NOFOLLOW", "O_RDWR | O_APPEND | O_CREAT"]], null, "handsNowhere"],
-        ["hand-kind", '        if (kind !== "file" && kind !== "absent") fail("kind");\n', "", "handsNowhere"]
+        ["tool-entry", 'const MAIL_TOOL = ".agents/skills/orch/scripts/lane-mail";', 'const MAIL_TOOL = "skills/own/lane-mail";', "mailTool"],
+        ["tool-execute", " && (stat.mode & 0o100) !== 0", "", "mailTool"],
+        ["tool-file", "stat.isFile() && (stat.mode", "(stat.mode", "mailTool"],
+        ["tool-link", [['if (kind === "absent" || kind === "link") fail(kind);', 'if (kind === "absent") fail(kind);'],
+            ["(last ? flags : O_RDONLY | O_DIRECTORY) | O_NOFOLLOW", "(last ? flags : O_RDONLY | O_DIRECTORY)"]], null, "mailTool"]
     ]) {
         const result = mutant(source, name, needle, replacement, logic => CASES[row](logic), "Home.js");
         assert.equal(result, undefined);
