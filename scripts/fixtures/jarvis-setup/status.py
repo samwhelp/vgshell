@@ -11,6 +11,9 @@ import sys
 mode = Path(sys.argv[1]).read_text().strip()
 if mode == "failed":
     sys.exit(77)
+if mode == "hang":
+    import time
+    time.sleep(60)
 if mode == "invalid":
     print("not JSON")
 else:

@@ -109,6 +109,8 @@ function report(name, value, tones) {
     if (value === null || typeof value !== "object" || typeof value.text !== "string"
             || tones.indexOf(value.tone) === -1)
         refuse(name, value);
+    if (value.lines !== undefined && (!Array.isArray(value.lines) || value.lines.some(function (line) { return typeof line !== "string"; })))
+        refuse(name, value);
     return value;
 }
 
@@ -292,6 +294,10 @@ function textLook(state, text, muteOn, keys) {
     return look(state, text.title, [text.action], muteOn, keys);
 }
 
+function reportLook(state, report, muteOn, keys) {
+    return look(state, report.text, report.lines === undefined ? [RESTART] : report.lines, muteOn, keys);
+}
+
 // The widget's { state, icon, tone, tooltip, tooltipDetails } for VALUES,
 // the plugin's status values, KEYS, the already-spelled effective shortcut
 // keys, and MODE, the talk mode. A key the service has not published yet is
@@ -310,7 +316,8 @@ function view(values, keys, mode) {
     var armed = state !== null && state.capture !== null && typeof state.capture === "object" && state.capture.kind === "open" && state.capture.mode === "armed" && detail.phase === "armed";
     if (state !== null && microphoneOpen(state.capture)) return look("listening", armed ? "Jarvis is listening for Hey Jarvis" : "Jarvis is listening",
         [armed ? "Say Hey Jarvis." : "Speak now."], muteOn, effectiveKeys);
-    if (daemon !== null && daemon.tone === "danger") return textLook("problem", DAEMON_TEXT, muteOn, effectiveKeys);
+    if (daemon !== null && daemon.tone === "danger") return reportLook("problem", daemon, muteOn, effectiveKeys);
+    if (daemon !== null && daemon.tone === "warning" && daemon.lines !== undefined) return reportLook("problem", daemon, muteOn, effectiveKeys);
     if (detail !== null && detail.phase === "error") return textLook("problem", faultText(state.fault), muteOn, effectiveKeys);
     if (audio !== null && audio.tone === "danger") return textLook("problem", AUDIO_TEXT, muteOn, effectiveKeys);
     if (state === null) return textLook("loading", GATE_TEXT.starting, muteOn, effectiveKeys);

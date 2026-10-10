@@ -19,6 +19,7 @@ Item {
     // The Setup group's step this reader's value sets, "" for none.
     property string stepKey: ""
     property bool pending: false
+    property bool timedOut: false
     property int code: -1
     property string output: ""
     readonly property var tuiState: shell === null ? null : shell.tui.state[tuiName]
@@ -35,14 +36,17 @@ Item {
         if (shell === null) return;
         if (probe.running) { pending = true; return; }
         pending = false;
+        timedOut = false;
         code = -1;
         output = "";
         probe.running = true;
+        probeDeadline.restart();
     }
     function publish() {
         let value = { tone: "warning", text: "Setup check failed", action: true };
         try {
-            if (code === 0) value = JSON.parse(output);
+            if (timedOut) value = { tone: "warning", text: "Setup check timed out", hint: "Turn Jarvis off and on again in Settings > Jarvis.", action: true, lines: ["jarvis: setup=probe-timeout"] };
+            else if (code === 0) value = JSON.parse(output);
         } catch (error) {
             value = { tone: "warning", text: "Setup check returned invalid status", action: true };
         }
@@ -71,8 +75,19 @@ Item {
         onExited: (code, status) => root.code = status === 0 ? code : -1
         onRunningChanged: {
             if (running) return;
+            probeDeadline.stop();
             root.publish();
             if (root.pending) Qt.callLater(root.refresh);
+        }
+    }
+    Timer {
+        id: probeDeadline
+        interval: 10000
+        onTriggered: {
+            root.timedOut = true;
+            // Quickshell.Io Process owns this probe child. Setting running
+            // false ends the child before the Setup page can wait forever.
+            probe.running = false;
         }
     }
 }

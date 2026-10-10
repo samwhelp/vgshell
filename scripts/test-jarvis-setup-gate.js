@@ -98,6 +98,18 @@ const VOICE = [
 // The Voice group's key row: [label, the stored keys or null for a failed
 // read, its tone and whether it offers Add key].
 const VOICE_KEY = [["no key", [], ["info", true]], ["a stored key", KEY, ["ok", false]], ["keys unread", null, ["warning", true]]];
+// The keyed start causes the service can publish before the first ready state.
+// The widget and the Setup page both read these words from SetupGate.
+const START_CAUSES = [
+    ["hello timeout", "jarvis: hello=timeout", "hello-timeout"],
+    ["Node too old", "jarvis: node=20.19.5 need=22", "node-too-old"],
+    ["Node exit", "jarvis: daemon=exit code=78 status=0", "node-too-old"],
+    ["daemon exit", "jarvis: daemon=exit code=1 status=0", "daemon-exit"],
+    ["daemon ended", "jarvis: daemon=ended", "daemon-exit"],
+    ["wire defect", "jarvis: protocol=identity", "wire-defect"],
+    ["local voice", "jarvis: speech=local-not-ready", "local-voice-timeout"],
+    ["probe timeout", "jarvis: setup=probe-timeout", "probe-timeout"]
+];
 
 // The model and effort the Jarvis page offers and saves. Each list is the
 // page's read for one sign-in, as its program's adapter narrows it: the
@@ -690,6 +702,16 @@ function verify(gate) {
     assert.deepEqual(plain(update), { ok: true, kind: "install", commands: ["pi"] }, "the AI model step's Update asks the core for Pi");
     assert.deepEqual(plain(judge.statusActionRequest(judged, "vgs.jarvis", true, { browserDriver: plain(gate.flooredValue("agent-browser", [], ["agent-browser"])) }, "browserDriver")),
         { ok: true, kind: "install", commands: ["agent-browser"] }, "the driver row's Update asks the core for the driver");
+    for (const [label, cause, kind] of START_CAUSES) {
+        const words = gate.startCause(cause);
+        assert.equal(words.kind, kind, label + ": classified");
+        assert.equal(typeof words.title, "string", label + ": title");
+        assert.equal(typeof words.action, "string", label + ": action");
+        assert.deepEqual(JSON.parse(JSON.stringify(words.lines)), [cause], label + ": detail line");
+        const setup = gate.readiness({ kind: "problem", cause }).setup;
+        assert.equal(setup.text, words.title, label + ": setup text");
+        assert.deepEqual(JSON.parse(JSON.stringify(setup.lines)), [cause], label + ": setup detail line");
+    }
 }
 
 verify(load(file));
@@ -757,7 +779,9 @@ const CONTROLS = [
     ["an optional step reads done when not ok", 'if (value.tone === "ok") return DONE;', "if (true) return DONE;"],
     ["an optional step drops its action", "action: value.action === true };", "action: false };"],
     ["the checking summary offers a step", "return { setup: CHECKING_SUMMARY,", "return { setup: CHECKING,"],
-    ["a stopped daemon's steps read checking", "setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };", "setupVoice: CHECKING, setupModel: noAction(CHECKING) };"],
+    ["a stopped daemon's steps read checking", 'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },\n            setupHome: HOME_READY, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };',
+        'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },\n            setupHome: HOME_READY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };'],
+    ["a keyed start cause has no words", '[/^jarvis: hello=timeout$/, { kind: "hello-timeout", title: "Jarvis did not answer in time", action: START_RESTART }],', ""],
     ["a cause naming no step is taken", 'if (!Object.prototype.hasOwnProperty.call(REQUIRED, step)) throw new Error("jarvis-setup: cause=" + cause + " names no step");', ""],
     ["a required step reads as optional", 'if (!Object.prototype.hasOwnProperty.call(OPTIONAL, key)) throw new Error("jarvis-setup: step=" + key + " is not optional");', ""]
 ];
@@ -915,4 +939,4 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + CHOICE.length + UNLISTED.length} controls=${CONTROLS.length + 10 + 53}`);
+console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length} controls=${CONTROLS.length + 10 + 53}`);

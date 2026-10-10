@@ -87,6 +87,28 @@ var LOADING = { tone: "info", text: "Loading", action: false };
 // judge refuses an action key on an entry without one.
 var CHECKING_SUMMARY = { tone: "info", text: "Checking" };
 var LOADING_SUMMARY = { tone: "info", text: "Loading" };
+var START_RESTART = "Turn Jarvis off and on again in Settings > Jarvis.";
+var START_CAUSES = [
+    [/^jarvis: hello=timeout$/, { kind: "hello-timeout", title: "Jarvis did not answer in time", action: START_RESTART }],
+    [/^jarvis: node=[^ ]+ need=22$/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", action: "Use the requirement notice to install Node." }],
+    [/^jarvis: daemon=exit code=78 status=/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", action: "Use the requirement notice to install Node." }],
+    [/^jarvis: daemon=(exit|ended)/, { kind: "daemon-exit", title: "Jarvis daemon stopped", action: START_RESTART }],
+    [/^jarvis: protocol=/, { kind: "wire-defect", title: "Jarvis received a broken daemon message", action: START_RESTART }],
+    [/^jarvis: speech=local-not-ready/, { kind: "local-voice-timeout", title: "Local voice did not get ready in time", action: "Set up Local voice again in Settings > Jarvis." }],
+    [/^jarvis: setup=probe-timeout$/, { kind: "probe-timeout", title: "Jarvis setup check timed out", action: START_RESTART }],
+    [/^jarvis: [a-z-]+=/, { kind: "daemon-exit", title: "Jarvis daemon stopped", action: START_RESTART }],
+    [/^(.*[ :])?(Killed|Terminated)([ ].*)?$/, { kind: "daemon-exit", title: "Jarvis daemon stopped", action: START_RESTART }]
+];
+
+function startCause(cause) {
+    for (var i = 0; i < START_CAUSES.length; i++) {
+        if (START_CAUSES[i][0].test(cause)) {
+            var words = START_CAUSES[i][1];
+            return { kind: words.kind, title: words.title, action: words.action, lines: [cause] };
+        }
+    }
+    throw new Error("jarvis-setup: start-cause=" + cause + " has no words");
+}
 // The installed voice stays verified. Reinstalling it cannot free memory.
 var MEMORY = {
     "speech=local-memory-insufficient": { tone: "warning", text: "Not enough memory",
@@ -139,6 +161,10 @@ function readiness(answer) {
         return { setup: CHECKING_SUMMARY, setupHome: HOME_READY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };
     case "stopped":
         return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },
+            setupHome: HOME_READY, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };
+    case "problem":
+        var problem = startCause(answer.cause);
+        return { setup: { tone: "danger", text: problem.title, hint: problem.action, lines: problem.lines },
             setupHome: HOME_READY, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };
     case "answered":
         var out = { setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" } : { tone: "warning", text: "Not ready" },

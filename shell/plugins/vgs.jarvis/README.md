@@ -44,11 +44,11 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 | Working | `brain` | Jarvis is thinking, waiting for confirmation or using a tool. | What Jarvis is doing and the Stop or Confirm key to use. |
 | Speaking | `volume-2` | Jarvis plays its answer. | That Jarvis is speaking and the Stop key to use. |
 | Muted | `mic-off` | Privacy mute is on. | Click or press the Mute key to unmute. |
-| Problem | `circle-alert` | Jarvis or audio stopped with a fault. | What failed and what action to take. |
+| Problem | `circle-alert` | Jarvis or audio stopped with a fault. | What failed and what action to take, from the first failed start. |
 
 ## Setup
 
-The Setup section at the top of the Jarvis page says Ready when Jarvis has an AI model it can use and the selected voice provider, and Not ready when it does not. It offers Sign in, AI model, Voice, Browser and Input. The AI model and voice steps read Done or To do. Sign in is optional. A step with a setup action shows its action beside it. The browser and input steps read Optional until they are done.
+The Setup section at the top of the Jarvis page says Ready when Jarvis has an AI model it can use and the selected voice provider, and Not ready when it does not. It offers Sign in, AI model, Voice, Browser and Input. The AI model and voice steps read Done or To do. Sign in is optional. A step with a setup action shows its action beside it. The browser and input steps read Optional until they are done. If start fails, Setup names the cause and shows the keyed cause on its detail line.
 
 Setup actions are buttons on the Jarvis page in Plugins or rows in the launcher's Jarvis group. These actions open a floating terminal. For the Realtime voice, use Add key under Setup at the top of this page to save an OpenAI key. With no OpenAI key, Jarvis uses the local voice and Setup does not ask for a key. Jarvis selects the only available OpenAI key when Realtime key is empty, and Voice provider Auto then uses the Realtime voice. With several keys, choose one under Voice.
 

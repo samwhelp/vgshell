@@ -439,6 +439,14 @@ daemon = values.get("daemon")
 setup = values.get("setup")
 lifetime = service.get("lifetime", {}).get("kind", "unknown")
 cause = service.get("cause") or None
+if cause is None:
+    causes = service.get("setupCauses")
+    if isinstance(causes, list) and causes:
+        cause = causes[0]
+if cause is None and isinstance(setup, dict):
+    lines = setup.get("lines")
+    if isinstance(lines, list) and lines:
+        cause = lines[0]
 place = "starting"
 if lifetime == "problem" or (isinstance(daemon, dict) and daemon.get("tone") == "danger"):
     place = "problem"
@@ -490,6 +498,10 @@ import json, sys
 index, end, changes = int(sys.argv[1]), json.loads(sys.argv[2]), [json.loads(word) for word in sys.argv[3:]]
 print(json.dumps({"index": index, "ms": end["ms"], "endPlace": end["place"], "keyedCause": end.get("cause"), "changes": changes}, separators=(",", ":")))
 PY
+}
+
+selftest_gpu_fence() {
+  "$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" "$self" "${argv[@]}"
 }
 
 argv=("$@")
@@ -591,7 +603,7 @@ if [[ -z $out ]]; then
 fi
 
 if ((cold_count > 0)); then
-  "$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" "$self" "${argv[@]}"
+  selftest_gpu_fence
   keep=false timeout_s=60
   source "$repo/scripts/smoke/harness.sh"
   plugin="$source_repo/shell/plugins/vgs.jarvis"
@@ -644,7 +656,7 @@ fi
 
 # No process this run starts may open an amdgpu node, so the run goes on
 # only where none is visible: scripts/smoke/gpu-fence.sh.
-"$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" "$self" "${argv[@]}"
+selftest_gpu_fence
 
 # shellcheck disable=SC2034 # the harness sourced below reads both
 keep=false timeout_s=60

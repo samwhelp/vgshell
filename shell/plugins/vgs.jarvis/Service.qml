@@ -19,6 +19,7 @@ Item {
     property string outputTail: ""
     property string errorTail: ""
     property string cause: ""
+    property var setupCauses: []
     // The daemon writes diagnostics to stderr and keeps running. The last
     // complete line becomes the cause only if the daemon then exits, even
     // when that exit writes no line of its own.
@@ -46,6 +47,11 @@ Item {
     property var taskResponse: null
     readonly property bool taskTuiRunning: shell !== null && shell.tui.state.task.running
     readonly property string daemon: String(Qt.resolvedUrl("backend/jarvisd.js")).replace(/^file:\/\//, "")
+    // scripts/jarvis-selftest.sh --cold 10 in this lane on 2026-10-10
+    // measured max setting 500 ms with CPU pressure avg10=0.00. The
+    // product bound stays at 60000 ms because LocalSpeech.js uses that
+    // ready bound before it reports speech=local-not-ready.
+    readonly property int startBoundMs: 60000
     // Quickshell builds its desktop entry index on first use and fills it
     // after that; reading it here starts the scan before a list request.
     readonly property int desktopEntryCount: DesktopEntries.applications.values.length
@@ -120,14 +126,17 @@ Item {
         return shell === null || shell.session === undefined || shell.session.locked !== false;
     }
 
-    function publish(tone, text) {
-        const reply = shell.status.set("daemon", { tone: tone, text: text });
+    function publish(tone, text, lines) {
+        const value = { tone: tone, text: text };
+        if (lines !== undefined) value.lines = lines;
+        const reply = shell.status.set("daemon", value);
         if (reply !== "ok") throw new Error("jarvis: " + reply);
     }
 
     // The Setup section's summary and required steps for ANSWER
     // (SetupGate.readiness), and the input step from its reader's VALUE.
     function publishSetup(answer) {
+        setupCauses = answer.kind === "answered" ? answer.causes.slice() : [];
         const values = Gate.readiness(answer);
         values.setupModel = Gate.modelStep(values.setupModel, shell.status.values["keys"], accountReader.modelAccess);
         for (const key of Object.keys(values)) {
@@ -626,11 +635,12 @@ Item {
         shellStatus({ kind: "unavailable", reason: "daemon-ended" });
         const stale = shell.status.set("detail", null);
         if (stale !== "ok") throw new Error("jarvis: " + stale);
+        const problem = Gate.startCause(cause);
         if (permanent || retries === 5) {
             if (lifetime.pendingMute !== "none") refuseMute(cause);
             lifetime = { kind: "problem", pendingMute: "none" };
-            publish("danger", "Stopped after a problem. Turn Jarvis off and on again.");
-            publishSetup({ kind: "stopped" });
+            publish("danger", problem.title, [problem.action, cause]);
+            publishSetup({ kind: "problem", cause });
             notice({ title: "Jarvis daemon stopped", message: cause.slice(0, 180), tone: "danger", icon: "mic" });
             return;
         }
@@ -639,7 +649,8 @@ Item {
         retry.interval = 250 * Math.pow(2, retries);
         retries++;
         lifetime = { kind: "retry", pendingMute: lifetime.pendingMute };
-        publish("warning", "Restarting after a problem");
+        publish("warning", problem.title, [problem.action, cause]);
+        publishSetup({ kind: "problem", cause });
         retry.start();
     }
 

@@ -45,6 +45,11 @@ const MUTED = { mute: { kind: "on" } };
 const READY = { tone: "info", text: "Ready; no capture" };
 const DEVICES = { tone: "ok", text: "Device list ready" };
 const FLOOR = { tone: "danger", text: "Stopped after a problem. Turn Jarvis off and on again." };
+const HELLO = SetupGate.startCause("jarvis: hello=timeout");
+const DAEMON_HELLO = { tone: "warning", text: HELLO.title, lines: [HELLO.action, "jarvis: hello=timeout"] };
+const FLOOR_HELLO = { tone: "danger", text: HELLO.title, lines: [HELLO.action, "jarvis: hello=timeout"] };
+const START_CAUSES = ["jarvis: hello=timeout", "jarvis: node=20.19.5 need=22", "jarvis: daemon=exit code=1 status=0",
+    "jarvis: protocol=identity", "jarvis: speech=local-not-ready", "jarvis: setup=probe-timeout"];
 const OVERFLOW = { tone: "danger", text: "capture-overflow" };
 const up = (regions, extra) => Object.assign({ daemon: READY, audio: DEVICES, detail: detail(regions) }, extra);
 
@@ -75,8 +80,8 @@ const CASES = [
     ["nothing published yet", {}, ["loading", "loader", "info", tip("Jarvis is starting", ["Wait for Jarvis to start.", MUTE])]],
     ["starting before the first state", { daemon: { tone: "info", text: "Starting" }, detail: null, audio: { tone: "info", text: "Reading devices" } },
         ["loading", "loader", "info", tip("Jarvis is starting", ["Wait for Jarvis to start.", MUTE])]],
-    ["restarting", { daemon: { tone: "warning", text: "Restarting after a problem" }, detail: null },
-        ["loading", "loader", "info", tip("Jarvis is starting", ["Wait for Jarvis to start.", MUTE])]],
+    ["restarting", { daemon: DAEMON_HELLO, detail: null },
+        ["problem", "circle-alert", "danger", tip(HELLO.title, [HELLO.action, "jarvis: hello=timeout", MUTE])]],
     ["mute pending", { daemon: { tone: "warning", text: "Mute pending; disabling Jarvis cancels the request" }, detail: null },
         ["loading", "loader", "info", tip("Jarvis is starting", ["Wait for Jarvis to start.", MUTE])]],
     ["ready", up({}), ["ready", "mic", "calm", tip("Jarvis is ready", [HOLD, MUTE])]],
@@ -91,8 +96,8 @@ const CASES = [
         ["listening", "audio-lines", "accent", tip("Jarvis is listening", ["Speak now.", MUTE])]],
     ["listening over an audio problem", up(OPEN, { audio: OVERFLOW }),
         ["listening", "audio-lines", "accent", tip("Jarvis is listening", ["Speak now.", MUTE])]],
-    ["permanent daemon problem", { daemon: FLOOR, detail: null, audio: DEVICES },
-        ["problem", "circle-alert", "danger", tip("Jarvis stopped after a problem", ["Turn Jarvis off and on again in Settings > Jarvis.", MUTE])]],
+    ["permanent daemon problem", { daemon: FLOOR_HELLO, detail: null, audio: DEVICES },
+        ["problem", "circle-alert", "danger", tip(HELLO.title, [HELLO.action, "jarvis: hello=timeout", MUTE])]],
     ["Session error", up({ fault: { kind: "error", reason: "thinking-timeout", retry: 0 } }),
         ["problem", "circle-alert", "danger", WITH(fault("slow"), [MUTE])]],
     ["Session retrying a lost device", up({ fault: { kind: "retrying", reason: "device-lost", retry: 1 } }),
@@ -263,6 +268,12 @@ function verify(view) {
         assert.deepEqual([got.state, got.icon, got.tone], ["off", "power-off", "neutral"], causes[0]);
         assert.equal(got.tooltipDetails[0].includes(status.setupHome.hint), true, causes[0] + ": the widget says what to change in the home folder");
     }
+    for (const cause of START_CAUSES) {
+        const words = SetupGate.startCause(cause);
+        const got = callView(view, { daemon: { tone: "warning", text: words.title, lines: [words.action, cause] }, detail: null });
+        assert.deepEqual([got.state, got.icon, got.tone, got.tooltip, got.tooltipDetails],
+            ["problem", "circle-alert", "danger", words.title, [words.action, cause, MUTE]], cause);
+    }
     const idle = callView(view, up(down("unconfigured"), { ...SetupGate.readiness({ kind: "answered", causes: ["brain=unselected"] }), setupHome: { tone: "ok", text: "Done", hint: "fixture" } }));
     assert.equal(idle.tooltipDetails.join(" ").includes("fixture"), false);
 }
@@ -285,6 +296,7 @@ const CONTROLS = [
     ["detail flag is dropped", 'detail: filePrompt && lines.length > 2', 'detail: false'],
     ["an open microphone is not listening", "microphoneOpen(state.capture)) return", "false) return"],
     ["a daemon problem is not a problem", 'daemon.tone === "danger") return', 'false) return'],
+    ["a retrying daemon problem is not a problem", 'daemon.tone === "warning" && daemon.lines !== undefined) return', 'false) return'],
     ["a Session error is not a problem", 'detail.phase === "error") return', 'false) return'],
     ["an audio problem is not a problem", 'audio.tone === "danger") return', 'false) return'],
     ["no state yet is not loading", 'if (state === null) return textLook("loading"', 'if (false) return textLook("loading"'],
@@ -418,4 +430,4 @@ const frameNeedle = "const drawn = synchronizedHold;";
 assert.equal(bubble.split(frameNeedle).length, 2, "one frame identity control match");
 assert.throws(() => approvalFrames(bubble.replace(frameNeedle, "const drawn = root.hold;")), assert.AssertionError,
     "delivery from the current hold must fail the earlier-frame assertion");
-console.log(`test-jarvis-widget: ok cases=${CASES.length} refusals=${REFUSALS.length} controls=${CONTROLS.length + 1} frame-control=detected`);
+console.log(`test-jarvis-widget: ok cases=${CASES.length + START_CAUSES.length} refusals=${REFUSALS.length} controls=${CONTROLS.length + 1} frame-control=detected`);

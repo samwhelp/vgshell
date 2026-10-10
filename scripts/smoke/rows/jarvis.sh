@@ -1,7 +1,9 @@
-# This row has no latency ceiling. It polls once per nested IPC round trip.
+# Jarvis start bound: 60000 ms. Measured with scripts/jarvis-selftest.sh
+# --cold 10 on 2026-10-10 in this lane: max setting 500 ms, CPU pressure
+# some avg10=0.00 avg60=0.25 avg300=1.85. It polls once per nested IPC round trip.
 # The real child runs inside J09, with synthetic audio commands and no
 # account, real audio or desktop endpoint.
-# inputs: shell/Core/Sounds.qml shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
+# inputs: shell/Core/Sounds.qml shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
 set -euo pipefail
 expected_errors+=('WARN qml: jarvis: stderr=.*Killed.*')
 expected_errors+=('WARN qml: jarvis: stderr=jarvis: node=21[.]0[.]0 need=22')
@@ -180,7 +182,11 @@ jarvis_exhaust() {
       sleep 0.01
     done
     if [[ $crash -lt 5 ]]; then
-      answer="$(jarvis_wait_ready "$((crash + 1))")" || return 1
+      for ((ready_attempt = 0; ready_attempt < 1000; ready_attempt++)); do
+        answer="$(jarvis_ready "$((crash + 1))")" || return 1
+        [[ $answer != pending ]] || { sleep 0.01; continue; }
+        break
+      done
       if [[ $answer != ready ]]; then
         printf 'crash=%s readiness=%s\n' "$crash" "$answer"
         return 1
@@ -195,6 +201,32 @@ ok = d["lifetime"]["kind"] == "problem" and d["retries"] == 5 and d["pid"] is No
 ok = ok and d["status"]["daemon"]["tone"] == "danger"
 print("problem" if ok else "not-problem")
 ' <<<"$answer"
+}
+
+jarvis_start_problem_words() {
+  ipc smoke jarvisProcess | py_reply '
+import json, sys
+d = json.load(sys.stdin)
+daemon = d["status"].get("daemon", {})
+setup = d["status"].get("setup", {})
+ok = d["lifetime"]["kind"] == "problem" and d["pid"] is None
+ok = ok and daemon.get("tone") == "danger" and daemon.get("text") == "Jarvis did not answer in time"
+ok = ok and "jarvis: hello=timeout" in daemon.get("lines", [])
+ok = ok and setup.get("text") == "Jarvis did not answer in time"
+ok = ok and "jarvis: hello=timeout" in setup.get("lines", [])
+print("problem-words" if ok else "pending")
+'
+}
+
+jarvis_probe_timeout_words() {
+  ipc smoke jarvisProcess | py_reply '
+import json, sys
+status = json.load(sys.stdin)["status"]
+row = status.get("localRuntime", {})
+ok = row.get("tone") == "warning" and row.get("text") == "Setup check timed out"
+ok = ok and "jarvis: setup=probe-timeout" in row.get("lines", [])
+print("probe-timeout" if ok else "pending")
+'
 }
 
 jarvis_lock_assertion() { # expect | expect_poll
@@ -441,6 +473,12 @@ expect_poll "the healthy skeleton keeps the Session gate unconfigured" session j
 expect_poll "Jarvis publishes only the fixture key presence" matched jarvis_key_value present
 expect_poll "the real audio owner publishes stable microphone and speaker offers" devices jarvis_devices
 jarvis_disable
+
+printf 'hang\n' >"$sandbox/jarvis-world/local-mode"
+expect "the hanging setup-probe fixture enables" ok ipc shell setPluginEnabled vgs.jarvis true
+expect_poll "the hanging setup-probe fixture reads its setup cause" probe-timeout jarvis_probe_timeout_words
+expect "the hanging setup-probe fixture disables" ok ipc shell setPluginEnabled vgs.jarvis false
+printf 'absent\n' >"$sandbox/jarvis-world/local-mode"
 
 jarvis_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
 jarvis_backend="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
@@ -781,6 +819,32 @@ expect "a timeout recovery fails the actual ordinary startup assertion once" 1 j
 expect "the intentional recovery still reaches ready with its explicit allowance" ready jarvis_wait_ready 1
 expect_log "the control retains its real hello timeout log" "$((jarvis_timeouts + 1))" 'jarvis: hello=timeout'
 expect "the first-reply suppression control disables" ok ipc shell setPluginEnabled vgs.jarvis false
+cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
+jarvis_rescan
+
+python3 - "$jarvis_backend" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+s=p.read_text()
+needle='if (!process.stdout.write(wire + "\\n")) process.stdin.pause();'
+assert s.count(needle)==1
+p.write_text(s.replace(needle, 'void wire;'))
+PY
+python3 - "$jarvis_service" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+s=p.read_text()
+needle='Timer { id: helloDeadline; interval: 5000; onTriggered: root.broken("jarvis: hello=timeout") }'
+assert s.count(needle)==1
+p.write_text(s.replace(needle, 'Timer { id: helloDeadline; interval: 100; onTriggered: root.broken("jarvis: hello=timeout") }'))
+PY
+jarvis_rescan
+expect "the hello-less daemon fixture enables" ok ipc shell setPluginEnabled vgs.jarvis true
+expect_poll "the hello-less daemon reads problem with words" problem-words jarvis_start_problem_words
+expect "the hello-less daemon service disables" ok ipc shell setPluginEnabled vgs.jarvis false
+cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
 cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
 jarvis_rescan
 

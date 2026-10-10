@@ -1700,7 +1700,7 @@ Scope {
             const process = Array.from(service.resources).find(resource => resource.processId !== undefined);
             if (process === undefined) return "missing";
             return JSON.stringify({ pid: process.processId, lifetime: service.lifetime, retries: service.retries,
-                cause: service.cause, audioHealth: service.audioHealth, status: service.shell.status.values });
+                cause: service.cause, setupCauses: service.setupCauses, audioHealth: service.audioHealth, status: service.shell.status.values });
         }
         function instanceGeometry(hostKey: string, id: string): string { return root.geometry(root.instance(hostKey, id)); }
         function barSectionGeometry(hostKey: string, section: string): string {
