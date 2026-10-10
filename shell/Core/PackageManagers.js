@@ -41,7 +41,9 @@
 //   owner     the query naming the package that owns a file, or null:
 //             { argv, read }, argv a template taking "{path}" and read the
 //             pattern whose first group is the package's name in the first
-//             line the query prints
+//             line the query prints; or { argv, roots: true } for a manager
+//             that prints installed roots, which ownerAnswer matches to the
+//             command path without I/O of its own
 //   installed the query naming a package's installed version, or null when
 //             VGS asks none of the manager: { argv, read }, argv a template
 //             taking "{name}" and read the pattern whose first group is the
@@ -90,7 +92,9 @@ var MANAGERS = [
         remove: [["{bin}", "-Rns", "--", "{names}"]],
         upgrade: [["{bin}", "-Sua"]],
         ignore: "--ignore",
-        owner: null,
+        // AUR packages are pacman local database entries, so pacman, not
+        // the AUR helper, owns the files they install.
+        owner: { argv: ["pacman", "-Qoq", "{path}"], read: /^(\S+)$/ },
         installed: null,
         removable: null,
         // pacman's remove picker lists the AUR's packages too.
@@ -210,7 +214,7 @@ var MANAGERS = [
         remove: [["{bin}", "unuse", "--global", "{names}"]],
         upgrade: [["env", "MISE_MINIMUM_RELEASE_AGE=0", "{bin}", "upgrade"]],
         ignore: null,
-        owner: null,
+        owner: { argv: ["{bin}", "ls", "--installed", "--json"], roots: true },
         installed: null,
         removable: null,
         picker: { install: null, remove: null }
@@ -327,12 +331,22 @@ function managersInOrder(found) {
 }
 
 // The package that provides one requirement on this system, as `{ manager,
-// name }`: the first manager of FOUND, detect's answer, taken primary, then
-// each overlay, then each source, that PACKAGES maps to a name; null when
-// it maps none of them. PACKAGES is a requirement's `packages`, manager ids
-// to package names, as PluginLogic.requirementsError accepts it.
-function packageFor(packages, found) {
+// name }`: when HOLDER, `vgshell-pkg detect --json --holders`'s fact for a
+// command, says one present manager owns the command path and PACKAGES maps
+// that manager to the same package, that manager wins. Otherwise the first
+// manager of FOUND, detect's answer, taken primary, then each overlay, then
+// each source, that PACKAGES maps to a name wins; null when it maps none of
+// them. PACKAGES is a requirement's `packages`, manager ids to package
+// names, as PluginLogic.requirementsError accepts it.
+function packageFor(packages, found, holder) {
     var order = managersInOrder(found);
+    if (holder !== undefined && holder !== null && holder.path !== null && holder.owners !== undefined) {
+        for (var h = 0; h < order.length; h++) {
+            var heldBy = order[h].id;
+            if (Object.prototype.hasOwnProperty.call(packages, heldBy) && holder.owners[heldBy] === packages[heldBy])
+                return { manager: heldBy, name: packages[heldBy] };
+        }
+    }
     for (var i = 0; i < order.length; i++)
         if (Object.prototype.hasOwnProperty.call(packages, order[i].id))
             return { manager: order[i].id, name: packages[order[i].id] };
@@ -349,7 +363,8 @@ function packageFor(packages, found) {
 // update steps. A manager without them, nix, changes the system through its
 // own configuration, so its packages are added there by hand.
 function installGroups(rows, found) {
-    var picks = rows.map(function (row) { return packageFor(row.packages, found); });
+    var holders = found.holders !== undefined ? found.holders : {};
+    var picks = rows.map(function (row) { return packageFor(row.packages, found, row.name !== undefined && Object.prototype.hasOwnProperty.call(holders, row.name) ? holders[row.name] : null); });
     var order = managersInOrder(found);
     var groups = [];
     for (var i = 0; i < order.length; i++) {
@@ -700,10 +715,61 @@ function queryArgv(id, query, value, onPath) {
     return { ok: true, argv: argv };
 }
 
+function pathHolds(root, file) {
+    if (typeof root !== "string" || root === "" || typeof file !== "string" || file === "") return false;
+    var normalized = root.charAt(root.length - 1) === "/" ? root : root + "/";
+    return file === root || file.indexOf(normalized) === 0;
+}
+
+function miseToolCommand(tool) {
+    var slash = tool.lastIndexOf("/");
+    var colon = tool.lastIndexOf(":");
+    var cut = Math.max(slash, colon);
+    return cut < 0 ? tool : tool.slice(cut + 1);
+}
+
+// What manager ID's owner query printed for COMMAND_PATH and REAL_PATH,
+// read as a package or tool name, or null when it names no owner. REALPATHOF
+// is injected by the caller so this table stays pure. For mise,
+// `install_path` roots the real executables; Unix shims are symlinks to the
+// mise binary (mise shims documentation, fetched 2026-10-10), so a command
+// whose real path is the mise binary is held by the installed tool whose
+// name matches the shim command.
+function ownerAnswer(id, stdout, commandPath, realPath, binaryPath, realpathOf) {
+    var spec = managerRow(id).owner;
+    if (spec === null) return null;
+    if (spec.roots !== true) return queryAnswer(id, "owner", stdout);
+    var doc;
+    try {
+        doc = JSON.parse(stdout);
+    } catch (e) {
+        return null;
+    }
+    if (doc === null || typeof doc !== "object" || Array.isArray(doc)) return null;
+    if (typeof realpathOf !== "function") return null;
+    var command = typeof commandPath === "string" ? commandPath.split("/").pop() : "";
+    var binaryReal = realpathOf(binaryPath);
+    var names = Object.keys(doc);
+    for (var i = 0; i < names.length; i++) {
+        var rows = doc[names[i]];
+        if (!Array.isArray(rows)) return null;
+        for (var j = 0; j < rows.length; j++) {
+            var installPath = rows[j] !== null && typeof rows[j] === "object" ? rows[j].install_path : null;
+            if (typeof installPath !== "string") return null;
+            var root = realpathOf(installPath);
+            if (pathHolds(root, realPath)) return names[i];
+            if (binaryReal !== null && realPath === binaryReal && (names[i] === command || miseToolCommand(names[i]) === command)) return names[i];
+        }
+    }
+    return null;
+}
+
 // What manager ID's QUERY, owner or installed, printed, read: the first
 // group of its pattern in the first line of STDOUT, or null when that line
 // does not match. The removable query answers by its exit status alone.
 function queryAnswer(id, query, stdout) {
-    var m = managerRow(id)[query].read.exec(stdout.split("\n")[0]);
+    var spec = managerRow(id)[query];
+    if (spec.read === undefined) return null;
+    var m = spec.read.exec(stdout.split("\n")[0]);
     return m === null ? null : m[1];
 }

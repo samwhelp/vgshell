@@ -31,7 +31,10 @@
 # 0755 beside the rule /etc/sudoers.d/vgshell-theme-browser, root:root 0440,
 # that `visudo -cf` accepts and that grants every user the writer with six
 # hex classes; `vgshell theme setup` must read the chromium setup not-detected
-# without a browser and done with a stand-in chromium on PATH. Then remove
+# without a browser and done with a stand-in chromium on PATH; the installed
+# `vgshell pkg detect --json --holders` must name the package's pacman/AUR
+# owner and a linked mise tool's root owner, with a control outside that root.
+# Then remove
 # vgshell with `pacman -R` and check it is gone, since neither recipe
 # declares conflicts, replaces or provides and both own the same files, and
 # install vgshell-git the same way: its build must have made a partial clone,
@@ -144,7 +147,7 @@ trap 'rm -rf /var/cache/pacman/pkg/download-*' EXIT
 
 mapfile -t depends < <(sed -n 's/^\tdepends = //p' /in/vgshell/.SRCINFO)
 [[ ${#depends[@]} -gt 0 ]] || refuse "depends=empty path=/in/vgshell/.SRCINFO"
-pacman -Syu --noconfirm --needed base-devel git sudo python >/tmp/setup.log 2>&1 ||
+pacman -Syu --noconfirm --needed base-devel git sudo python mise >/tmp/setup.log 2>&1 ||
   not_measured container-setup "$(tail -n 20 /tmp/setup.log)"
 useradd -m builder
 cp -a /in/. /build/
@@ -291,6 +294,47 @@ browser_policy() { # PACKAGE
   [[ $out == "setup=chromium command=vgshell-browser-policy state=done" ]] || refuse "setup=unexpected browser=chromium package=$1" "$out"
 }
 
+holder_checks() { # PACKAGE
+  local root=/tmp/pkg-holders out
+  rm -rf -- "$root"
+  mkdir -p "$root/paru" "$root/mise-source/bin" "$root/mise-outside" "$root/mise-data" "$root/mise-config" "$root/mise-state" "$root/mise-cache" "$root/home"
+  printf '#!/bin/sh\ncase "$1" in -Q*) exec pacman "$@" ;; *) exit 99 ;; esac\n' >"$root/paru/paru"
+  chmod 755 "$root/paru/paru"
+  out="$(runuser -u builder -- env PATH="$root/paru:/usr/bin" HOME=/tmp/doctor-home LC_ALL=C vgshell pkg detect --json --holders vgshell 2>/tmp/holders-aur.err)" ||
+    refuse "holders=failed manager=aur package=$1" "$(cat /tmp/holders-aur.err)"
+  python - "$out" <<'PY' || refuse "holders=aur package=$1" "$out"
+import json, sys
+doc=json.loads(sys.argv[1])
+owner=doc["holders"]["vgshell"]["owners"].get("aur")
+if owner != "vgshell":
+    raise SystemExit(f"owners.aur={owner!r}")
+PY
+  printf '#!/bin/sh\necho linked\n' >"$root/mise-source/bin/vgs-mise-probe"
+  printf '#!/bin/sh\necho outside\n' >"$root/mise-outside/vgs-mise-outside"
+  chmod 755 "$root/mise-source/bin/vgs-mise-probe" "$root/mise-outside/vgs-mise-outside"
+  runuser -u builder -- env HOME="$root/home" MISE_DATA_DIR="$root/mise-data" MISE_CONFIG_DIR="$root/mise-config" MISE_STATE_DIR="$root/mise-state" MISE_CACHE_DIR="$root/mise-cache" \
+    mise link npm:vgs-mise-probe@1.0.0 "$root/mise-source" >/tmp/mise-link.log 2>&1 ||
+    refuse "mise=link package=$1" "$(cat /tmp/mise-link.log)"
+  runuser -u builder -- env HOME="$root/home" MISE_DATA_DIR="$root/mise-data" MISE_CONFIG_DIR="$root/mise-config" MISE_STATE_DIR="$root/mise-state" MISE_CACHE_DIR="$root/mise-cache" \
+    mise use --global npm:vgs-mise-probe@1.0.0 >/tmp/mise-use.log 2>&1 ||
+    refuse "mise=use package=$1" "$(cat /tmp/mise-use.log)"
+  out="$(runuser -u builder -- env PATH="$root/mise-data/installs/npm-vgs-mise-probe/1.0.0/bin:$root/mise-outside:/usr/bin" HOME="$root/home" \
+    MISE_DATA_DIR="$root/mise-data" MISE_CONFIG_DIR="$root/mise-config" MISE_STATE_DIR="$root/mise-state" MISE_CACHE_DIR="$root/mise-cache" LC_ALL=C \
+    vgshell pkg detect --json --holders vgs-mise-probe vgs-mise-outside 2>/tmp/holders-mise.err)" ||
+    refuse "holders=failed manager=mise package=$1" "$(cat /tmp/holders-mise.err)"
+  python - "$out" <<'PY' || refuse "holders=mise package=$1" "$out"
+import json, sys
+doc=json.loads(sys.argv[1])["holders"]
+held=doc["vgs-mise-probe"]["owners"].get("mise")
+outside=doc["vgs-mise-outside"]["owners"].get("mise")
+if held != "npm:vgs-mise-probe":
+    raise SystemExit(f"owners.mise={held!r}")
+if outside is not None:
+    raise SystemExit(f"outside={outside!r}")
+PY
+  rm -rf -- "$root"
+}
+
 install_pkg "$vgs_pkg" vgshell
 vgshell_version vgshell
 doctor_holds vgshell
@@ -298,6 +342,7 @@ message_printed vgshell
 link="$(readlink /usr/bin/vgshell)" || refuse "link=missing path=/usr/bin/vgshell"
 [[ $link == ../share/vgshell/bin/vgshell ]] || refuse "link=$link path=/usr/bin/vgshell"
 browser_policy vgshell
+holder_checks vgshell
 vgs_ver="$(pacman -Q vgshell)"; vgs_ver="${vgs_ver#vgshell }"
 
 pacman -R --noconfirm vgshell >/tmp/remove-vgshell.log 2>&1 ||

@@ -21,6 +21,10 @@ const { repo, TABLE, FIXTURES } = require("./vgshell-pkg-shared.js");
 const PKG = path.join(repo, "bin", "vgshell-pkg");
 const VGSHELL = path.join(repo, "bin", "vgshell");
 
+function shellSingle(text) {
+    return "'" + text.replace(/'/g, "'\\''") + "'";
+}
+
 // A tree at DIR holding bin/vgshell-pkg, bin/vgshell and the table as the texts
 // given, and the repository's own bin/lib, which holds the loader, and the
 // shipped shell.json with the configuration judge a plan that elevates
@@ -119,6 +123,39 @@ function verifyCli(texts, tmp) {
     const voidLinux = osRelease("os-release-void", "NAME=\"Void\"\nID=\"void\"\n");
     expectCommand("detect --json reads os-release and PATH", bound(voidLinux, env.PATH, ["detect", "--json"]), 0, "{\"primary\":{\"id\":\"xbps\",\"binary\":\"xbps-install\"},\"overlays\":[],\"sources\":[]}\n", "");
     expectCommand("detect prints one line per manager", bound(voidLinux, env.PATH, ["detect"]), 0, "primary=xbps binary=xbps-install\n", "");
+    const arch = osRelease("os-release-arch", "NAME=\"Arch Linux\"\nID=arch\n");
+    const holders = path.join(tmp, "stubs-holders");
+    const miseRoot = path.join(holders, "mise-root");
+    const holderBin = path.join(holders, "bin");
+    fs.mkdirSync(path.join(miseRoot, "bin"), { recursive: true });
+    fs.mkdirSync(holderBin, { recursive: true });
+    const writeScript = (file, body) => fs.writeFileSync(file, "#!/bin/sh\n" + body + "\n", { mode: 0o755 });
+    writeScript(path.join(holders, "pacman"), "if [ \"$1\" = \"-Qoq\" ] && [ \"$2\" = \"" + path.join(holderBin, "held-aur") + "\" ]; then echo held-aur-aur; elif [ \"$1\" = \"-Qoq\" ]; then exit 1; else exit 99; fi");
+    writeScript(path.join(holders, "paru"), "exit 99");
+    writeScript(path.join(holders, "mise"), "[ \"$1 $2 $3\" = \"ls --installed --json\" ] || exit 99\nprintf '%s\\n' " + shellSingle(JSON.stringify({ "npm:held-mise": [{ install_path: miseRoot }] })));
+    writeScript(path.join(miseRoot, "bin", "held-mise"), "echo held-mise");
+    writeScript(path.join(holderBin, "held-aur"), "echo held-aur");
+    const holderPath = [holderBin, path.join(miseRoot, "bin"), holders, tools].join(path.delimiter);
+    const holderWant = {
+        primary: { id: "pacman", binary: "pacman" },
+        overlays: [{ id: "aur", binary: "paru" }],
+        sources: [{ id: "mise", binary: "mise" }],
+        holders: {
+            "held-mise": { path: path.join(miseRoot, "bin", "held-mise"), owners: { pacman: null, aur: null, mise: "npm:held-mise" } },
+            "held-aur": { path: path.join(holderBin, "held-aur"), owners: { pacman: "held-aur-aur", aur: "held-aur-aur", mise: null } },
+            "not-there": { path: null, owners: {} }
+        }
+    };
+    expectCommand("detect --json --holders names path owners and an absent command", bound(arch, holderPath, ["detect", "--json", "--holders", "held-mise", "held-aur", "not-there"]), 0, JSON.stringify(holderWant) + "\n", "");
+    const fedora = osRelease("os-release-fedora", "ID=fedora\n");
+    const unread = path.join(tmp, "stubs-holder-unread");
+    fs.mkdirSync(unread, { recursive: true });
+    writeScript(path.join(unread, "dnf5"), "exit 99");
+    writeScript(path.join(unread, "broken-owner"), "echo broken-owner");
+    const unreadWant = { primary: { id: "dnf", binary: "dnf5" }, overlays: [], sources: [], holders: { "broken-owner": { path: path.join(unread, "broken-owner"), owners: { dnf: null } } } };
+    expectCommand("detect --json --holders keeps going when an owner query cannot start", bound(fedora, unread + path.delimiter + tools, ["detect", "--json", "--holders", "broken-owner"]), 0, JSON.stringify(unreadWant) + "\n", "holder=unread command=broken-owner manager=dnf cause=ENOENT\n");
+    expectCommand("detect --json without holders stays byte-identical", bound(arch, holderPath, ["detect", "--json"]), 0, "{\"primary\":{\"id\":\"pacman\",\"binary\":\"pacman\"},\"overlays\":[{\"id\":\"aur\",\"binary\":\"paru\"}],\"sources\":[{\"id\":\"mise\",\"binary\":\"mise\"}]}\n", "");
+    expectCommand("detect --holders refuses a malformed command", bound(arch, holderPath, ["detect", "--json", "--holders", "/bin/sh"]), 2, "", "vgshell: refused: command=\"/bin/sh\"\n");
     const gentoo = osRelease("os-release-gentoo", "NAME=Gentoo\nID=gentoo\n");
     const gentooPath = stubPath(tmp, "gentoo", { emerge: "exit 99", flatpak: "cat \"" + path.join(FIXTURES, "flatpak.txt") + "\"" }, tools);
     expectCheck(expectCheckRow, "check without --source checks every detected source, emerge only on demand", bound(gentoo, gentooPath, ["check", "--json"]), [
@@ -136,7 +173,6 @@ function verifyCli(texts, tmp) {
         "xbps-install": "exit 99",
         "xbps-query": "[ \"$1 $2\" = \"-o " + owned + "\" ] || exit 99\necho \"vgshell-0.1.0_1: " + owned + "\""
     }, tools);
-    const arch = osRelease("os-release-arch", "NAME=\"Arch Linux\"\nID=arch\n");
     const suse = osRelease("os-release-suse", "ID=opensuse-tumbleweed\n");
     expectOwner("owner names the package and its installed version", bound(arch, ownerPath, ["owner", owned]), 0,
         "{\"manager\":\"pacman\",\"package\":\"vgshell-git\",\"version\":\"0.1.0.r40.gabc1234\"}\n", "");
@@ -339,6 +375,9 @@ const CONTROLS = [
     ["cli", "owner asks no installed version", PKG, "const version = table.managerRow(id).installed === null ? null : query(", "const version = null && query("],
     ["cli", "removable answers true whatever the dry run's exit", PKG, "removable: run.status === 0 }", "removable: true }"],
     ["cli", "present exits 0 with a command missing", PKG, "process.exitCode = missing.length === 0 ? 0 : 1;", "process.exitCode = 0;"],
+    ["cli", "detect ignores holder requests", PKG, "const output = holders === null ? found : Object.assign({}, found, { holders: detectHolders(found, holders) });", "const output = found;", "detect --json --holders names path owners and an absent command"],
+    ["cli", "holder commands are not validated", PKG, "        if (holders !== null) for (const command of holders)\n            if (!table.validCommand(command)) usage(\"command=\" + JSON.stringify(command));", "        if (holders !== null) for (const command of holders)\n            if (false) usage(\"command=\" + JSON.stringify(command));", "detect --holders refuses a malformed command"],
+    ["cli", "holder query failures are fatal", PKG, "        holderUnread(command, entry.id, run.error.code);\n        return null;", "        refuse(\"query=\" + q.argv[0] + \" reason=failed error=\" + run.error.code);", "detect --json --holders keeps going when an owner query cannot start"],
     ["cli", "vgshell pkg drops its arguments", VGSHELL, "exec node \"$root/bin/vgshell-pkg\" \"$@\"", "exec node \"$root/bin/vgshell-pkg\""],
     ["cli", "a timed-out query's process group lives on", PKG, "process.kill(-child.pid, signal);", "process.kill(child.pid, signal);"],
     ["cli", "check runs without the lock", PKG, "        holdCheckLock(dir);\n", ""],

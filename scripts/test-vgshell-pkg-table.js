@@ -53,7 +53,8 @@ function tableErrors(t) {
         for (const query of t.QUERIES) {
             if (row[query] === null) continue;
             templates.push([query, row[query].argv]);
-            if (query !== "removable" && Object.prototype.toString.call(row[query].read) !== "[object RegExp]") errors.push(where + " " + query + ": read is no pattern");
+            if (query !== "removable" && row[query].roots !== true && Object.prototype.toString.call(row[query].read) !== "[object RegExp]") errors.push(where + " " + query + ": read is no pattern");
+            if (query !== "owner" && row[query].roots === true) errors.push(where + " " + query + ": roots belongs to the owner query");
         }
         for (const action of ["install", "remove"]) {
             const spec = row.picker[action];
@@ -87,7 +88,7 @@ function tableErrors(t) {
             if (NAMED.includes(action)) { if (names > 1) errors.push(where + " " + action + ": {names} twice"); }
             else if (names > 0) errors.push(where + " " + action + ": {names} outside install, update and remove");
             if (step.includes("{names@latest}") && action !== "update") errors.push(where + " " + action + ": {names@latest} belongs to an update");
-            if (step.includes("{path}") !== (action === "owner")) errors.push(where + " " + action + ": {path} belongs to the owner query");
+            if (step.includes("{path}") !== (action === "owner" && row.owner.roots !== true)) errors.push(where + " " + action + ": {path} belongs to the owner query");
             if (step.includes("{name}") !== (action === "installed" || action === "removable" || action === "preview")) errors.push(where + " " + action + ": {name} belongs to the installed and removable queries and a picker's preview");
         }
         for (const action of NAMED)
@@ -232,6 +233,10 @@ const PACKAGE_FOR_ROWS = [
     ["an overlay wins over a source", { mise: "node", aur: "nodejs-bin" }, { primary: PACMAN, overlays: [PARU], sources: [MISE] }, { manager: "aur", name: "nodejs-bin" }],
     ["a source serves last", { mise: "node" }, { primary: PACMAN, overlays: [], sources: [MISE] }, { manager: "mise", name: "node" }],
     ["an overlay serves a system with no primary", { flatpak: "org.gnome.Loupe" }, { primary: null, overlays: [{ id: "flatpak", binary: "flatpak" }], sources: [] }, { manager: "flatpak", name: "org.gnome.Loupe" }],
+    ["a source holding the command wins over the first listed manager", { pacman: "agent-browser-bin", mise: "npm:agent-browser" }, { primary: PACMAN, overlays: [PARU], sources: [MISE] }, { manager: "mise", name: "npm:agent-browser" }, { path: "/home/method/.local/bin/agent-browser", owners: { pacman: null, mise: "npm:agent-browser" } }],
+    ["a holder with another package name does not win", { pacman: "agent-browser-bin", mise: "npm:agent-browser" }, { primary: PACMAN, overlays: [PARU], sources: [MISE] }, { manager: "pacman", name: "agent-browser-bin" }, { path: "/home/method/.local/bin/agent-browser", owners: { pacman: null, mise: "other-tool" } }],
+    ["an AUR package holding the command wins over the primary", { pacman: "tool", aur: "tool-bin" }, { primary: PACMAN, overlays: [PARU], sources: [] }, { manager: "aur", name: "tool-bin" }, { path: "/usr/bin/tool", owners: { pacman: null, aur: "tool-bin" } }],
+    ["a command no listed manager holds keeps the first listed package", { pacman: "tool", mise: "tool" }, { primary: PACMAN, overlays: [], sources: [MISE] }, { manager: "pacman", name: "tool" }, { path: "/opt/tool/bin/tool", owners: { pacman: null, mise: null } }],
     ["no present manager is mapped", { apt: "gum", dnf: "gum" }, { primary: PACMAN, overlays: [PARU], sources: [] }, null],
     ["no package is mapped at all", {}, { primary: PACMAN, overlays: [], sources: [] }, null]
 ];
@@ -250,6 +255,10 @@ const INSTALL_GROUP_ROWS = [
         ["pacman/coreutils", "pacman/coreutils", "pacman/gum"], [["pacman", true, ["coreutils", "gum"], true, ["coreutils", "gum"]]]],
     ["a source comes after the overlays", [{ mise: "node" }, { aur: "vsys" }], { primary: PACMAN, overlays: [PARU], sources: [MISE] },
         ["mise/node", "aur/vsys"], [["aur", false, ["vsys"], true, ["--manager", "aur", "vsys"]], ["mise", false, ["node"], true, ["--manager", "mise", "node"]]]],
+    ["a held source updates through its own manager", [{ pacman: "agent-browser-bin", mise: "npm:agent-browser" }], { primary: PACMAN, overlays: [PARU], sources: [MISE], holders: { "agent-browser": { path: "/home/method/.local/bin/agent-browser", owners: { pacman: null, mise: "npm:agent-browser" } } } },
+        ["mise/npm:agent-browser"], [["mise", false, ["npm:agent-browser"], true, ["--manager", "mise", "npm:agent-browser"]]], ["agent-browser"]],
+    ["a held AUR package updates through the overlay", [{ pacman: "vgs-smoke-old-pkg", aur: "vgs-smoke-old-aur" }], { primary: PACMAN, overlays: [PARU], sources: [], holders: { "vgs-smoke-old": { path: "/usr/bin/vgs-smoke-old", owners: { pacman: null, aur: "vgs-smoke-old-aur" } } } },
+        ["aur/vgs-smoke-old-aur"], [["aur", false, ["vgs-smoke-old-aur"], true, ["--manager", "aur", "vgs-smoke-old-aur"]]], ["vgs-smoke-old"]],
     ["a row no present manager maps is picked by none", [{ apt: "gum" }, { pacman: "fzf" }], { primary: PACMAN, overlays: [], sources: [] },
         [null, "pacman/fzf"], [["pacman", true, ["fzf"], true, ["fzf"]]]],
     ["nix installs nothing through vgshell", [{ nix: "gum" }, { flatpak: "org.flat" }], { primary: NIX, overlays: [FLATPAK], sources: [] },
@@ -361,11 +370,13 @@ const QUERY_ROWS = [
     ["dnf installed through rpm", "dnf", "installed", "vgshell", ["dnf5"], ["rpm", "-q", "--queryformat", "%{VERSION}\n", "--", "vgshell"]],
     ["xbps owner", "xbps", "owner", "/usr/share/vgshell/VERSION", ["xbps-install"], ["xbps-query", "-o", "/usr/share/vgshell/VERSION"]],
     ["emerge owner", "emerge", "owner", "/usr/share/vgshell/VERSION", ["emerge"], ["qfile", "/usr/share/vgshell/VERSION"]],
+    ["aur owner through pacman", "aur", "owner", "/usr/share/vgshell/VERSION", ["paru"], ["pacman", "-Qoq", "/usr/share/vgshell/VERSION"]],
+    ["mise owner lists every installed tool", "mise", "owner", "/home/method/.local/bin/tool", ["mise"], ["mise", "ls", "--installed", "--json"]],
     ["pacman removable is a dry run of the removal", "pacman", "removable", "vgshell-git", ["pacman"], ["pacman", "-Rs", "--print", "--", "vgshell-git"]],
     ["apt asks no removable query", "apt", "removable", "vgshell", ["apt-get"], "manager=apt query=removable reason=unsupported"],
     ["a removable name keeps the name grammar", "pacman", "removable", "-Rdd", ["pacman"], "name=\"-Rdd\" reason=grammar"],
     ["xbps asks no installed query", "xbps", "installed", "vgshell", ["xbps-install"], "manager=xbps query=installed reason=unsupported"],
-    ["aur owns no file", "aur", "owner", "/usr/share/vgshell/VERSION", ["paru"], "manager=aur query=owner reason=unsupported"],
+    ["aur still needs no helper binary for its owner query", "aur", "owner", "/usr/share/vgshell/VERSION", [], ["pacman", "-Qoq", "/usr/share/vgshell/VERSION"]],
     ["an owner path must be absolute", "pacman", "owner", "VERSION", ["pacman"], "path=\"VERSION\" reason=relative"],
     ["an installed name keeps the name grammar", "pacman", "installed", "-Qi", ["pacman"], "name=\"-Qi\" reason=grammar"],
     ["a query whose binary is absent", "pacman", "owner", "/usr/share/vgshell/VERSION", [], "manager=pacman reason=absent binaries=pacman"]
@@ -388,6 +399,18 @@ const ANSWER_ROWS = [
     ["a message is no answer", "pacman", "owner", "error: No package owns /x\n", null],
     ["the first line alone is read", "pacman", "installed", "\nvgs 0.1.0-1\n", null]
 ];
+
+// Owner answer rows for a roots owner: name, manager, stdout, command path,
+// real path, binary path, the realpath map, and answer.
+const OWNER_ANSWER_ROWS = [
+    ["mise install root holds the real command path", "mise", JSON.stringify({ "npm:agent-browser": [{ install_path: "/mise/installs/npm-agent-browser/0.38.2" }] }), "/mise/installs/npm-agent-browser/latest/bin/agent-browser", "/mise/installs/npm-agent-browser/0.38.2/bin/agent-browser", "/usr/bin/mise", {}, "npm:agent-browser"],
+    ["mise realpaths a symlinked latest directory", "mise", JSON.stringify({ "npm:agent-browser": [{ install_path: "/mise/installs/npm-agent-browser/latest" }] }), "/mise/installs/npm-agent-browser/latest/bin/agent-browser", "/mise/installs/npm-agent-browser/0.38.2/bin/agent-browser", "/usr/bin/mise", { "/mise/installs/npm-agent-browser/latest": "/mise/installs/npm-agent-browser/0.38.2" }, "npm:agent-browser"],
+    ["mise roots do not hold an outside command", "mise", JSON.stringify({ "npm:agent-browser": [{ install_path: "/mise/installs/npm-agent-browser/0.38.2" }] }), "/home/method/.local/bin/agent-browser", "/home/method/.local/bin/agent-browser", "/usr/bin/mise", {}, null],
+    ["mise malformed JSON owns nothing", "mise", "[]", "/mise/installs/npm-agent-browser/0.38.2/bin/agent-browser", "/mise/installs/npm-agent-browser/0.38.2/bin/agent-browser", "/usr/bin/mise", {}, null],
+    ["a Unix mise shim is owned by the matching tool", "mise", JSON.stringify({ "npm:agent-browser": [{ install_path: "/mise/installs/npm-agent-browser/0.38.2" }] }), "/home/method/.local/share/mise/shims/agent-browser", "/usr/bin/mise", "/usr/bin/mise", {}, "npm:agent-browser"]
+];
+
+const realpathOf = map => file => Object.prototype.hasOwnProperty.call(map, file) ? map[file] : file;
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const triples = packages => packages.map(p => [p.name, p.old, p.new]);
@@ -439,6 +462,10 @@ function verifyTable(t) {
         const got = t.queryAnswer(manager, query, stdout);
         if (got !== want) failures.push("answer: " + name + ": got " + JSON.stringify(got));
     }
+    for (const [name, manager, stdout, commandPath, realPath, binaryPath, map, want] of OWNER_ANSWER_ROWS) {
+        const got = t.ownerAnswer(manager, stdout, commandPath, realPath, binaryPath, realpathOf(map));
+        if (got !== want) failures.push("ownerAnswer: " + name + ": got " + JSON.stringify(got));
+    }
     for (const [name, manager, action, commands, want] of PICKER_ROWS) {
         const got = t.pickerFor(manager, action, onPathOf(commands));
         const expected = typeof want === "string" ? { ok: false, error: want } : Object.assign({ ok: true }, want);
@@ -450,12 +477,12 @@ function verifyTable(t) {
         const expected = want.includes("=") ? { ok: false, error: want } : { ok: true, command: want };
         if (!same(got, expected)) failures.push("elevator: " + name + ": got " + JSON.stringify(got));
     }
-    for (const [name, packages, found, want] of PACKAGE_FOR_ROWS) {
-        const got = t.packageFor(packages, found);
+    for (const [name, packages, found, want, holder] of PACKAGE_FOR_ROWS) {
+        const got = t.packageFor(packages, found, holder);
         if (!same(got, want)) failures.push("packageFor: " + name + ": got " + JSON.stringify(got));
     }
-    for (const [name, rows, found, picks, groups] of INSTALL_GROUP_ROWS) {
-        const plan = t.installGroups(rows.map(packages => ({ packages })), found);
+    for (const [name, rows, found, picks, groups, names] of INSTALL_GROUP_ROWS) {
+        const plan = t.installGroups(rows.map((packages, index) => ({ packages, name: names === undefined ? undefined : names[index] })), found);
         const gotPicks = plan.picks.map(p => p === null ? null : p.manager + "/" + p.name);
         const gotGroups = plan.groups.map(g => [g.manager, g.primary, g.names, g.installs, g.installs ? t.installArgs(g) : null]);
         if (!same(gotPicks, picks)) failures.push("installGroups: " + name + ": picks " + JSON.stringify(gotPicks));
@@ -516,6 +543,8 @@ const CONTROLS = [
     ["table", "a name may start with a dash", TABLE, " && name.charAt(0) !== \"-\"", ""],
     ["table", "the first binary wins even when absent", TABLE, "if (onPath(row.binaries[i])) return row.binaries[i];", "return row.binaries[i];"],
     ["table", "a requirement's package ignores the primary's rank", TABLE, "return (found.primary === null ? [] : [found.primary]).concat(found.overlays, found.sources);", "return found.overlays.concat(found.sources, found.primary === null ? [] : [found.primary]);"],
+    ["table", "a holder is ignored and the first listed manager wins", TABLE, "if (holder !== undefined && holder !== null && holder.path !== null && holder.owners !== undefined) {", "if (false) {"],
+    ["table", "a holder matches the wrong package name", TABLE, "holder.owners[heldBy] === packages[heldBy]", "holder.owners[heldBy] !== null"],
     ["table", "a requirement's package is picked for an unmapped manager", TABLE, "if (Object.prototype.hasOwnProperty.call(packages, order[i].id))", "if (true)"],
     ["table", "a package two commands share is installed twice", TABLE, " && names.indexOf(picks[j].name) === -1) names.push", ") names.push"],
     ["table", "the primary's install names its manager", TABLE, "return (group.primary ? [] : [\"--manager\", group.manager]).concat(group.names);", "return [\"--manager\", group.manager].concat(group.names);"],
@@ -525,6 +554,7 @@ const CONTROLS = [
     ["rule:update steps", "a manager that installs has no update", TABLE, "update: [[\"{bin}\", \"upgrade\", \"{names}\"]],", "update: null,"],
     ["table", "a removable name may start with a dash", TABLE, "if (query !== \"owner\" && !validName(value))", "if (query === \"installed\" && !validName(value))"],
     ["table", "a query's answer ignores its pattern", TABLE, "return m === null ? null : m[1];", "return stdout.split(\"\\n\")[0];"],
+    ["table", "mise roots never hold a command", TABLE, "if (pathHolds(root, realPath)) return names[i];", "if (false) return names[i];"],
     ["table", "an unlisted exit status is read as output", TABLE, "if (meaning === undefined) return { error: \"exit=\" + status };", "if (meaning === undefined) meaning = \"rows\";"],
     ["table", "a query runs for a binary it does not name", TABLE, "if (c.binary !== null && c.binary !== binary) continue;", ""],
     ["table", "an on-demand query runs unnamed", TABLE, "if (c.onDemand && !named) return { skipped: \"on-demand\" };", ""],

@@ -31,11 +31,12 @@
 # notice for it; a scan ends while the command's `--version` still hangs,
 # and its reading arrives once the command answers; its offer raises a
 # notice whose one step is Update,
-# which hands the terminal `vgshell pkg run update`; a run that ends with
-# code 0 and leaves the command below its floor brings the notice back with
-# a line naming the command, the version read and the floor, and the read
-# after a run that reaches the floor closes it, while the same offer of a
-# command at its floor answers satisfied, which is that state's control; a
+# which hands the terminal `vgshell pkg run update` for the manager that
+# owns the command path; a run that ends with code 0 and leaves the command
+# below its floor brings the notice back with a line naming the command, the
+# version read and the floor, and the read after a run that reaches the
+# floor closes it, while the same offer of a command at its floor answers
+# satisfied, which is that state's control; a
 # detection that fails shows the commands
 # alone with Close. The enable trigger's control is
 # scripts/smoke/rows/notices-control.sh, the suite's last row: a shell copy
@@ -52,10 +53,10 @@ if needs_git init -q && needs_git add -A && needs_git commit -q -m fixture; then
 # judge both run under node; each stand-in is swapped in whole.
 pkg_real="$sandbox/vgshell-pkg.real"
 cp -- "$repo/bin/vgshell-pkg" "$pkg_real"
-pkg_stub() { # DETECT_JSON, or "" for a detection that fails
-  local body
+pkg_stub() { # DETECT_JSON, or "" for a detection that fails; HOLDER aur|none
+  local body holder="${2:-none}"
   if [[ -n $1 ]]; then
-    body="if (process.argv[2] === \"detect\" && process.argv[3] === \"--json\") { process.stdout.write('$1\\n'); process.exit(0); }"
+    body="if (process.argv[2] === \"detect\" && process.argv[3] === \"--json\") { const doc = $1; const at = process.argv.indexOf(\"--holders\"); if (at !== -1) { doc.holders = {}; for (const command of process.argv.slice(at + 1)) doc.holders[command] = command === \"vgs-smoke-old\" ? { path: \"$shim/vgs-smoke-old\", owners: { pacman: null, aur: \"$([[ $holder == aur ]] && printf vgs-smoke-old-aur)\" || null } } : { path: null, owners: {} }; } process.stdout.write(JSON.stringify(doc) + \"\\n\"); process.exit(0); }"
   else
     body=""
   fi
@@ -353,7 +354,7 @@ import sys
 path = sys.argv[1]
 text = open(path).read()
 edits = [("\"id\": \"acme.needs\"", "\"id\": \"acme.floor\""),
-         ("{ \"command\": \"vgs-smoke-needs\", \"packages\": { \"pacman\": \"vgs-smoke-needs-pkg\" }, ", "{ \"command\": \"vgs-smoke-old\", \"packages\": { \"pacman\": \"vgs-smoke-old-pkg\" }, \"floor\": \"2.0.0\", ")]
+         ("{ \"command\": \"vgs-smoke-needs\", \"packages\": { \"pacman\": \"vgs-smoke-needs-pkg\" }, ", "{ \"command\": \"vgs-smoke-old\", \"packages\": { \"pacman\": \"vgs-smoke-old-pkg\", \"aur\": \"vgs-smoke-old-aur\" }, \"floor\": \"2.0.0\", ")]
 for old, new in edits:
     if text.count(old) != 1:
         sys.exit("%s occurs %d times" % (old, text.count(old)))
@@ -374,6 +375,7 @@ update_words() {
   words --app-id=org.vgs.tui "--title=VGS · Update requirements" -- "$tui_self" present --presentation full \
     --record core/requirements-update --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id org.vgs.tui --window-title "VGS · Update requirements" -- "$core_vgshell" pkg run update "$@"
 }
+not_recorded_words() { [[ "$(recorded)" != "$(update_words "$@")" ]] && echo true || echo false; }
 floor_shown='["acme.floor", ["vgs-smoke-old"], ["vgs-smoke-old"]'
 old_version 1.9.0 || fail "the stand-in below the floor is not written"
 rescan "a rescan after adding acme.floor starts"
@@ -455,6 +457,23 @@ expect_poll "the read after the update run settles the notice" settled install_s
 expect "the read that finds the floor closes the update notice" null notice_shown
 expect "the updated command reads present" '["present"]' floor_state
 expect "the capability lists no outdated command after the update" '[]' floor_plugin outdated
+pkg_stub '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"}],"sources":[]}' aur
+old_version 1.9.0 || fail "the stand-in below the floor is written for the held-manager check"
+rescan "a rescan with the command below its floor and a holder answer starts"
+expect_poll "the held-manager command reads outdated" '["outdated"]' floor_state
+expect "an offer of the held outdated command raises the notice" ok floor_plugin offer vgs-smoke-old
+expect_poll "the held-manager notice lists the outdated command" "$floor_shown, false]" notice_shown
+expect "the held-manager update notice draws the AUR package as its chip" '[["vgs-smoke-old-aur", 1]]' group_shape
+hold_runs
+forget_record
+type_keys -k Return || fail "sending Return for the held-manager update failed"
+expect_poll "Update hands the terminal the AUR package, not the first-listed package" "$(update_words --manager aur vgs-smoke-old-aur)" recorded
+expect "control: the held-manager update did not hand the terminal the first-listed package" true not_recorded_words vgs-smoke-old-pkg
+old_version 2.0.0 || fail "the held-manager stand-in is updated"
+release_runs
+expect_run_end "the held-manager update run ends" core/requirements-update
+expect_poll "the read after the held-manager update settles the notice" settled install_settled
+expect "the held-manager update notice closes" null notice_shown
 expect "disabling acme.floor is allowed" ok ipc shell setPluginEnabled acme.floor false
 floor_removed() { local out; out="$("${shell_env[@]}" "$repo/bin/vgshell" plugin remove --yes acme.floor 2>>"$sandbox/ipc.log")" || return 1; printf '%s\n' "${out%%$'\n'*}"; }
 expect "acme.floor is removed" "ok removed=acme.floor" floor_removed

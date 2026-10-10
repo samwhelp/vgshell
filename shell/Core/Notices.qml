@@ -22,8 +22,9 @@ import "PluginLogic.js" as Logic
 // commands Registry holds.
 // PluginLogic decides what each trigger asks for, whether it joins the
 // queue, and what the shown notice lists and installs; NoticeHost draws
-// it. The managers come from `bin/vgshell-pkg detect --json`, run when the
-// first notice arrives and after each install. Install opens the core TUI
+// it. The managers come from `bin/vgshell-pkg detect --json`, with
+// `--holders` for commands that have a floor, run when the first notice
+// arrives and after each install. Install opens the core TUI
 // `core/requirements-install`, and Update, for commands below their floor,
 // `core/requirements-update`; once its run ends, one rescan follows, and
 // a notice whose required commands that scan and its version read find, at
@@ -277,10 +278,29 @@ Singleton {
             if (queue.length === 0) {
                 detection = "pending";
                 detect();
+            } else if (needsHolderDetection(admitted.queue)) {
+                detect();
             }
             queue = admitted.queue;
         }
         return admitted.answer;
+    }
+
+    function holderCommands() {
+        return Logic.versionCommands(Registry.requirementOwners, {}, Object.keys(Registry.manifests).filter(id => Registry.isEnabled(id)));
+    }
+
+    function needsHolderDetection(waiting) {
+        const held = managers !== null && managers.holders !== undefined ? managers.holders : {};
+        const commands = holderCommands();
+        return waiting.some(notice => notice.commands.some(command => commands.indexOf(command) !== -1
+            && (!Logic.hasOwn(held, command) || !Object.keys(held[command].owners || {}).some(manager => held[command].owners[manager] !== null))));
+    }
+
+    function detectCommand() {
+        const commands = holderCommands();
+        const argv = [Quickshell.shellDir + "/../bin/vgshell-pkg", "detect", "--json"];
+        return commands.length === 0 ? argv : argv.concat(["--holders"], commands);
     }
 
     // The pluginInstalled IPC function: one scan, then the notice for ID
@@ -498,6 +518,7 @@ Singleton {
             return;
         }
         detector.completion = null;
+        detector.command = detectCommand();
         detector.running = true;
     }
 
@@ -572,7 +593,7 @@ Singleton {
     Process {
         id: detector
         property var completion: null
-        command: [Quickshell.shellDir + "/../bin/vgshell-pkg", "detect", "--json"]
+        command: root.detectCommand()
         stdout: StdioCollector { id: detected }
         stderr: StdioCollector { id: detectErrors }
         onExited: (code, status) => { detector.completion = { code: code, status: status }; }

@@ -90,7 +90,7 @@ function suite(ctx, check) {
         kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["requirements"],
         requirements: [
             { command: "vgs-far", packages: { aur: "far-git" }, floor: "1.2.0", purpose: "Far" },
-            { command: "vgs-old", packages: { pacman: "old" }, floor: "2.0.0", purpose: "Old" },
+            { command: "vgs-old", packages: { pacman: "old", mise: "npm:vgs-old" }, floor: "2.0.0", purpose: "Old" },
             { command: "vgs-one", packages: { pacman: "one" }, purpose: "First" },
         ],
     }, "/p").manifest;
@@ -128,6 +128,9 @@ function suite(ctx, check) {
         check("noticeUnchanged: " + name, ctx.noticeUnchanged(floored, missing, versions, three, ARCH, ran), want);
     check("noticeUnchanged: no answer from detection names nothing", ctx.noticeUnchanged(floored, [], below, three, null, { action: "update", args: ["old"] }), null);
     check("noticeUnchanged throws on a step no rule covers", (() => { try { ctx.noticeUnchanged(floored, [], below, three, ARCH, { action: "remove", args: ["old"] }); return "answered"; } catch (e) { return e.message.split(":")[0]; } })(), "notices");
+    const HELD_MISE = { primary: PACMAN, overlays: [PARU], sources: [{ id: "mise", binary: "mise" }], holders: { "vgs-old": { path: "/home/method/.local/bin/vgs-old", owners: { pacman: null, mise: "npm:vgs-old" } } } };
+    const heldView = ctx.noticeView(floored, [], below, { id: "acme.floor", commands: ["vgs-old"], required: ["vgs-old"] }, HELD_MISE);
+    check("noticeView: an outdated command held by the second manager updates through that manager", [heldView.rows.map(r => r.name + " (" + r.package.manager + "/" + r.package.name + "): " + r.purpose), heldView.update], [["vgs-old (mise/npm:vgs-old): Old"], ["--manager", "mise", "npm:vgs-old"]]);
 
     // The core's owner: the core's list, drawn under the name VGS, asked
     // for as a plugin's manifest is.
@@ -264,6 +267,10 @@ function suite(ctx, check) {
         ["an entry without a binary", ok, JSON.stringify({ primary: { id: "pacman" }, overlays: [], sources: [] }), "", "notices: detect=malformed"],
         ["overlays that are not a list", ok, JSON.stringify({ primary: null, overlays: {}, sources: [] }), "", "notices: detect=malformed"],
         ["no sources", ok, JSON.stringify({ primary: null, overlays: [] }), "", "notices: detect=malformed"],
+        ["holders are optional", ok, JSON.stringify(Object.assign({}, ARCH, { holders: { "vgs-old": { path: "/usr/bin/vgs-old", owners: { pacman: "old", aur: null } }, missing: { path: null, owners: {} } } })), "", Object.assign({}, ARCH, { holders: { "vgs-old": { path: "/usr/bin/vgs-old", owners: { pacman: "old", aur: null } }, missing: { path: null, owners: {} } } })],
+        ["a holder command must be a command name", ok, JSON.stringify(Object.assign({}, ARCH, { holders: { "/bin/sh": { path: "/bin/sh", owners: { pacman: "bash" } } } })), "", "notices: detect=malformed"],
+        ["a holder owner must be a known manager", ok, JSON.stringify(Object.assign({}, ARCH, { holders: { sh: { path: "/bin/sh", owners: { brew: "bash" } } } })), "", "notices: detect=malformed"],
+        ["a missing holder has no owners", ok, JSON.stringify(Object.assign({}, ARCH, { holders: { sh: { path: null, owners: { pacman: "bash" } } } })), "", "notices: detect=malformed"],
         ["a list for an answer", ok, "[]", "", "notices: detect=malformed"],
     ];
     for (const [name, completion, stdout, stderr, want] of detectRows) {
@@ -402,6 +409,7 @@ const CONTROLS = [
     ["a view groups the requirements one package provides", "if (held === undefined) out.push(", "if (true) out.push("],
     ["a group keeps a package apart from a requirement of its name", "g.packaged === packaged && g.chip === chip", "g.chip === chip"],
     ["a view installs only through an installing manager", ".groups.filter(function (g) { return g.installs; });\n        return runs.length", ".groups;\n        return runs.length"],
+    ["a view ignores holders", "PackageManagers.installGroups(rows.filter(function (row) { return row.state === state; }), found).groups", "PackageManagers.installGroups(rows.filter(function (row) { return row.state === state; }), Object.assign({}, found, { holders: {} })).groups"],
     ["a settle keeps the installing notice", "        if (n.id === installing)\n            return true;\n", ""],
     ["a settle drops a notice whose owner went", "        if (!hasOwn(owners, n.id))\n            return false;\n", ""],
     ["a settle drops a satisfied notice", "        return !noticeView(owners[n.id]", "        return true || !noticeView(owners[n.id]"],
@@ -412,7 +420,9 @@ const CONTROLS = [
     ["the core owner needs no enabling", "if (owner !== CORE_OWNER && enabled.indexOf(owner) === -1)", "if (enabled.indexOf(owner) === -1)"],
     ["a detection that crashed is a failure", "if (completion.status !== 0 || completion.code !== 0)\n        return { ok: false, line: \"notices: detect=failed", "if (completion.code !== 0)\n        return { ok: false, line: \"notices: detect=failed"],
     ["a detected manager is a known one", " && PackageManagers.managerRow(e.id) !== null", ""],
-    ["a detection names its sources", " || !Array.isArray(found.sources) || !found.sources.every(entry))", ")"],
+    ["a detection names its sources", " || !Array.isArray(found.sources) || !found.sources.every(entry)", ""],
+    ["a detection accepts a malformed holder command", "return PackageManagers.validCommand(command) && holder(holders[command]);", "return holder(holders[command]);"],
+    ["a detection accepts a missing holder with owners", "&& (h.path !== null || Object.keys(h.owners).length === 0)\n            && ", "&& "],
     ["a seen welcome leaves the plain question", "    if (welcomeState === \"seen\")\n", "    if (false)\n"],
     ["the welcome waits for the marker's read", "    if (welcomeState === \"reading\") return null;\n", ""],
     ["the welcome waits for the consent answer", "    if (WELCOME_WAITS.indexOf(consent.phase) !== -1) return null;\n", ""],

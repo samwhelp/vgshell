@@ -2300,7 +2300,8 @@ function noticeSettle(queue, owners, missing, versions, installing) {
 // The managers `bin/vgshell-pkg detect --json` answered the notice with, from
 // its COMPLETION, { code, status } or null for a run that never started,
 // its STDOUT and its STDERR: { ok: true, found }, detect's { primary,
-// overlays, sources } with each entry a known manager, or { ok: false,
+// overlays, sources, holders? } with each entry a known manager and
+// holders, when present, a command-to-owner map, or { ok: false,
 // line }, the log line naming why there is none.
 function noticeDetected(completion, stdout, stderr) {
     if (completion === null)
@@ -2314,7 +2315,16 @@ function noticeDetected(completion, stdout, stderr) {
         return { ok: false, line: "notices: detect=unparseable" };
     }
     var entry = function (e) { return isPlainObject(e) && typeof e.id === "string" && PackageManagers.managerRow(e.id) !== null && typeof e.binary === "string"; };
-    if (!isPlainObject(found) || !(found.primary === null || entry(found.primary)) || !Array.isArray(found.overlays) || !found.overlays.every(entry) || !Array.isArray(found.sources) || !found.sources.every(entry))
+    var knownOwner = function (owners, key) {
+        return PackageManagers.managerRow(key) !== null && (owners[key] === null || typeof owners[key] === "string");
+    };
+    var holder = function (h) {
+        return isPlainObject(h) && (h.path === null || typeof h.path === "string") && isPlainObject(h.owners)
+            && (h.path !== null || Object.keys(h.owners).length === 0)
+            && Object.keys(h.owners).every(function (key) { return knownOwner(h.owners, key); });
+    };
+    var holders = found !== null && found !== undefined && found.holders !== undefined ? found.holders : {};
+    if (!isPlainObject(found) || !(found.primary === null || entry(found.primary)) || !Array.isArray(found.overlays) || !found.overlays.every(entry) || !Array.isArray(found.sources) || !found.sources.every(entry) || !isPlainObject(holders) || !Object.keys(holders).every(function (command) { return PackageManagers.validCommand(command) && holder(holders[command]); }))
         return { ok: false, line: "notices: detect=malformed" };
     return { ok: true, found: found };
 }
