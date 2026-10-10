@@ -20,9 +20,10 @@
 # measured and the file exits 77 once the others have run.
 # The function cases run the runner's own functions, cut from its file,
 # over planted traces, audit records and folders, with the harness's own
-# py_reply. The mailbox cases run the checkout's lane-mail over a row the
-# plugin's own Home.js wrote, so the row Jarvis writes is one the master
-# session's reader hands over.
+# py_reply. The mailbox cases hand a request with the plugin's own executor
+# through a copy of the checkout's kendex mail tool in a scratch home, as
+# Jarvis does, and read it back with the checkout's lane-mail, as the run
+# does.
 # Each control plants one defect in a copy of the runner and requires the
 # case that rule owns to go red. A defect whose text the runner no longer
 # holds fails its control. The runner's call of the fence is held by
@@ -203,7 +204,7 @@ plant() { cp -- "$1" "$tree/scripts/jarvis-selftest.sh"; }
 functions="$tmp/functions.sh"
 cut_functions() { # RUNNER
   { sed -n '/^py_reply() {/,/^}/p' "$repo/scripts/smoke/harness.sh"
-    for name in selftest_tree_sum selftest_home_copy selftest_mailbox selftest_daemon selftest_last selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
+    for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
       selftest_end selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$1"; done; } >"$functions"
 }
 call() { selftest_node="$node_bin" bash -c 'set -euo pipefail; source "$1"; shift; "$@"' _ "$functions" "$@"; }
@@ -358,6 +359,21 @@ make_folder() {
   echo skill >"$folder/skills/notes/SKILL.md"
   ln -s AGENTS.md "$folder/CLAUDE.md"
 }
+# kendex_home DIR: DIR made a git repository of its own holding a copy of
+# the checkout's kendex orch skill, as the Install kendex setup leaves a
+# Jarvis home.
+kendex_home() { # DIR
+  mkdir -p "$1/.agents/skills" && git -C "$1" init -q && cp -a -- "$repo/.agents/skills/orch" "$1/.agents/skills/orch"
+}
+# workflow_get DIR EXPR: EXPR of DIR's own fleet state, read by DIR's own
+# workflow-state.
+workflow_get() { (cd -- "$1" && env -i PATH="$path" "$BASH" .agents/skills/orch/scripts/workflow-state get oversee "$2" 2>>"$tmp/err"); }
+# lane_send DIR FILE: the text in FILE sent to the master session's mailbox
+# in DIR by DIR's own lane-mail.
+lane_send() { # DIR FILE
+  (cd -- "$1" && env -i PATH="$path" "$BASH" .agents/skills/orch/scripts/lane-mail send --item overseer --directive \
+    --file "$2" --root "$1") >"$tmp/out" 2>"$tmp/err"
+}
 home_untouched() {
   local before copy="$sandbox/home/jarvis-home"
   make_folder
@@ -374,7 +390,7 @@ control plant "a runner whose settings name the folder itself" '"$devices_voice_
 # The master session's mailbox in the home copy: the run reads it before
 # Jarvis starts, as the master does, which makes it where the folder has
 # none and leaves no row the folder held to be taken as the turn's.
-mail_row='{"id":"1791633000-1-1","kind":"directive","at":"2026-10-10T11:50:00Z","from":"owner","text":"an earlier request"}'
+mail_row='{"id":"1791633000-1-1","text":"an earlier request"}'
 mail_made() {
   make_folder
   starts --home "$folder" || return 1
@@ -383,8 +399,9 @@ mail_made() {
 mail_read_before() {
   local rows
   make_folder
-  mkdir -p "$folder/tmp/lane-mail/overseer"
-  printf '%s\n' "$mail_row" >"$folder/tmp/lane-mail/overseer/to-lane.jsonl"
+  kendex_home "$folder" && call selftest_overseer "$folder" || return 1
+  printf 'an earlier request\n' >"$tmp/request.txt"
+  lane_send "$folder" "$tmp/request.txt" || return 1
   starts --home "$folder" || return 1
   rows="$(call selftest_mailbox "$repo" "$sandbox/home/jarvis-home")" || return 1
   [[ -z $rows ]]
@@ -872,66 +889,101 @@ control cut_functions "a run whose exit status is not its record's mark" '  [[ $
 control cut_functions "a record written before the run's rules are read" '"$end" "$kept" "$brain_text")"' '"$end" true "$brain_text")"'$'\n''  [[ $kept == true ]] || verdict=failed' finish_case "${finish_rows[6]}"
 
 echo "--- the mailbox"
-# hands BACKEND HOME TEXT_JSON: the text TEXT_JSON spells as a JSON string,
-# which can hold half of a surrogate pair as a model's call can, handed to
-# the master session's mailbox in HOME by the Home.js of the plugin backend
-# BACKEND, as Jarvis hands a request; prints the row's id.
-hands() { # BACKEND HOME TEXT_JSON
-  env -i PATH="$path" "$node_bin" - "$repo" "$@" <<'JS'
+# The record the run writes in the home copy: with it lane-mail's send
+# lands, an overseer record already there is kept, and a home without
+# kendex gets none. A fleet state that lies outside the copy is refused
+# before anything is written.
+overseer_dir="$tmp/overseer home"
+overseer_lands() {
+  rm -rf -- "${overseer_dir:?}"
+  kendex_home "$overseer_dir" || return 1
+  call selftest_overseer "$overseer_dir" || return 1
+  printf 'a request\n' >"$tmp/request.txt"
+  lane_send "$overseer_dir" "$tmp/request.txt"
+}
+overseer_kept() {
+  rm -rf -- "${overseer_dir:?}"
+  kendex_home "$overseer_dir" || return 1
+  call selftest_overseer "$overseer_dir" || return 1
+  (cd -- "$overseer_dir" && env -i PATH="$path" "$BASH" .agents/skills/orch/scripts/workflow-state update oversee \
+    '.overseer = {"server": "kept"}' >/dev/null) || return 1
+  call selftest_overseer "$overseer_dir" || return 1
+  [[ "$(workflow_get "$overseer_dir" .overseer.server)" == kept ]]
+}
+overseer_none() {
+  rm -rf -- "${overseer_dir:?}"
+  mkdir -p "$overseer_dir"
+  call selftest_overseer "$overseer_dir" && [[ -z "$(ls -A -- "$overseer_dir")" ]]
+}
+overseer_outside() {
+  local tool="$overseer_dir/.agents/skills/orch/scripts/workflow-state"
+  rm -rf -- "${overseer_dir:?}" "${tmp:?}/overseer-writes"
+  mkdir -p "$(dirname -- "$tool")"
+  printf '#!/usr/bin/env bash\n[[ $1 == path ]] && { echo %q; exit 0; }\necho "$@" >>%q\n' "$tmp/elsewhere/state.json" "$tmp/overseer-writes" >"$tool"
+  chmod +x "$tool"
+  ! call selftest_overseer "$overseer_dir" 2>/dev/null && [[ ! -e $tmp/overseer-writes ]]
+}
+holds "the overseer record the run writes in a kendex home lets lane-mail's send land" overseer_lands
+holds "an overseer record already in the home copy is kept" overseer_kept
+holds "a home without kendex gets no fleet state" overseer_none
+holds "a fleet state outside the home copy is refused before any write" overseer_outside
+control cut_functions "a run that records no overseer" \
+  "  (cd -- \"\$1\" && env -i PATH=\"\$PATH\" \"\$BASH\" \"\$tool\" update oversee '.overseer //= {}' >/dev/null)" '  :' overseer_lands
+control cut_functions "a run that replaces the overseer record" "'.overseer //= {}'" "'.overseer = {}'" overseer_kept
+control cut_functions "a run that writes a fleet state outside the home copy" \
+  '  [[ $file == "$1"/* || $file == "$real"/* ]] ||' '  true ||' overseer_outside
+# The runner writes the record in its copy of the home, never in the folder.
+overseer_copy() {
+  make_folder
+  kendex_home "$folder" || return 1
+  starts --home "$folder" || return 1
+  [[ "$(workflow_get "$sandbox/home/jarvis-home" '.overseer | type')" == object && ! -e $folder/tmp ]]
+}
+holds "the run records an overseer in the home copy alone" overseer_copy
+control plant "a runner that records no overseer in the home copy" '  selftest_overseer "$home_copy" || stopped overseer-unrecorded' '  :' overseer_copy
+# hands HOME TEXT_JSON: the text TEXT_JSON spells as a JSON string, which
+# can hold half of a surrogate pair as a model's call can, handed to the
+# master session's mailbox in HOME by the plugin's guidance executor with
+# HOME's kendex mail tool, as Jarvis hands a request; prints its answer.
+hands() { # HOME TEXT_JSON
+  env -i PATH="$path" HOME="$world" "$node_bin" - "$repo" "$@" <<'JS'
     const path = require("node:path");
-    const [tree, backend, home, text] = process.argv.slice(2);
+    const [tree, home, text] = process.argv.slice(2);
+    const backend = path.join(tree, "shell/plugins/vgs.jarvis/backend");
     require(path.join(backend, "Core.js")).use(tree);
-    const handed = require(path.join(backend, "Home.js")).hand(home, JSON.parse(text));
-    if (handed.kind !== "handed") process.exit(1);
-    console.log(handed.id);
+    require(path.join(backend, "ComputerHelp.js")).create(undefined, null, () => home, process.env)
+        .start({ id: "master.request", args: { text: JSON.parse(text) } }, answer => {
+            if (answer.outcome !== "completed") { process.stderr.write(JSON.stringify(answer) + "\n"); process.exitCode = 1; }
+            else console.log(answer.content);
+        });
 JS
 }
-# finish_mail BACKEND: a request the Home.js of BACKEND hands over between
-# the run's two mailbox reads is in the record with its id, as the master's
-# reader prints it, the half of a surrogate pair in it as U+FFFD. The
-# mailbox is there before either read, as in a home the master session
-# works in.
-finish_mail() { # BACKEND
-  local sum id
+# finish_mail: a request Jarvis's executor hands over between the run's two
+# mailbox reads is in the record whole, the row its answer names, the half
+# of a surrogate pair in it as U+FFFD.
+finish_mail() {
+  local sum answer
   planted_trace final
   make_folder
   sum="$(call selftest_tree_sum "$folder")" || return 1
   rm -rf -- "${finish_copy:?}"
   cp -a -- "$folder" "$finish_copy"
-  mkdir -p "$finish_copy/tmp/lane-mail/overseer"
+  kendex_home "$finish_copy" || return 1
+  call selftest_overseer "$finish_copy" || return 1
   : >"$tmp/auth.calls"
   call selftest_mailbox "$repo" "$finish_copy" >/dev/null || return 1
-  id="$(hands "$1" "$finish_copy" '"Rebase the lanes.\nThen report \ud83d."')" || return 1
+  answer="$(hands "$finish_copy" '"Rebase the lanes.\nThen report \ud83d."')" || return 1
   call selftest_finish ended=idle "$sum" "$tmp/auth.calls" 0 "$tmp/trace.json" "$tmp/audit" "$tmp/record.json" \
     idle "" type hello cli:b "$folder" local key "$repo" "$finish_copy" "$tmp/brain.jsonl" >"$tmp/out" 2>"$tmp/err" || return 1
-  python3 - "$tmp/record.json" "$id" <<'PY'
-import json, re, sys
+  python3 - "$tmp/record.json" "$answer" <<'PY'
+import json, sys
 rows = json.load(open(sys.argv[1]))["mailbox"]
-want = [{"id": sys.argv[2], "kind": "directive", "from": "owner", "text": "Rebase the lanes.\nThen report \ufffd."}]
-got = [{key: row[key] for key in row if key != "at"} for row in rows]
-sys.exit(got != want or not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", rows[0]["at"]))
+sys.exit(not (len(rows) == 1 and rows[0]["text"] == "Rebase the lanes.\nThen report �." and rows[0]["id"] in sys.argv[2]))
 PY
 }
-backend="$repo/shell/plugins/vgs.jarvis/backend"
-holds "a request Jarvis's own writer hands over during the turn is in the record, as the master's reader prints it" finish_mail "$backend"
-control cut_functions "a verdict that reads no mailbox" '    mailbox="$(selftest_mailbox "$tree" "$home_copy")" || stopped mailbox-unread' '    :' finish_mail "$backend"
-control cut_functions "a reader of another lane's mailbox" 'inbox --item overseer' 'inbox --item other' finish_mail "$backend"
-# The reader is the instrument. writer_control LABEL OLD NEW: a Home.js with
-# its one OLD replaced by NEW writes a line the master's reader does not
-# hand over.
-mkdir "$tmp/backend-mutant"
-cp -- "$backend/Core.js" "$backend/Tools.js" "$tmp/backend-mutant/"
-writer_control() {
-  if ! mutate "$backend/Home.js" "$2" "$3" "$tmp/backend-mutant/Home.js"; then
-    fail "control: $1: its defect did not apply"
-  elif finish_mail "$tmp/backend-mutant"; then
-    fail "control: $1 stayed green"
-  else
-    ok "control: $1"
-  fi
-}
-writer_control "a writer whose row ends on no newline" 'text: text.toWellFormed() }) + "\n");' 'text: text.toWellFormed() }));'
-writer_control "a writer that keeps half of a surrogate pair" 'text: text.toWellFormed() })' 'text })'
+holds "a request Jarvis's executor hands over during the turn is in the record, as the master's reader prints it" finish_mail
+control cut_functions "a verdict that reads no mailbox" '    mailbox="$(selftest_mailbox "$tree" "$home_copy")" || stopped mailbox-unread' '    :' finish_mail
+control cut_functions "a reader of another lane's mailbox" 'inbox --item overseer' 'inbox --item other' finish_mail
 
 if [[ $failures -gt 0 ]]; then
   printf 'test-jarvis-selftest: %d failure(s)\n' "$failures"
