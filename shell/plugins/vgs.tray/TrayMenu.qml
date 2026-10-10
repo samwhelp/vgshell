@@ -75,6 +75,12 @@ Item {
         for (let i = stack.length - 1; i >= 0; i--) stack[i].opener.destroy();
     }
 
+    // The shown level's first reachable entry past its Back entry, where a
+    // key opening and the first arrow land; -1 while there is none.
+    function firstEntry() {
+        return menu.items().findIndex(entry => menu.reachable(entry) && entry !== back);
+    }
+
     // The highlight on the shown level's first entry, past its Back entry,
     // once the entries are there; none while only the pointer has acted.
     function settle() {
@@ -84,8 +90,7 @@ Item {
             menu.currentIndex = -1;
             return;
         }
-        const all = menu.items();
-        const first = all.findIndex((entry, index) => menu.reachable(entry) && !(levels.length > 0 && entry === back));
+        const first = firstEntry();
         if (first === -1) return;
         settled = true;
         menu.currentIndex = -1;
@@ -109,6 +114,7 @@ Item {
 
     Menu {
         id: menu
+        home: () => root.firstEntry()
 
         onOpenedChanged: if (!opened) {
             root.reset();

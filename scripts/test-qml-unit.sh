@@ -411,6 +411,7 @@ mutations=(
   "a key opening highlights no entry|overlay/Menu.qml|currentIndex = opener === \"key\" ? homeIndex() : -1;|currentIndex = -1;|tst_overlays.qml"
   "a pointer opening highlights the opening entry|overlay/Menu.qml|currentIndex = opener === \"key\" ? homeIndex() : -1;|currentIndex = homeIndex();|tst_overlays.qml"
   "the menu opens on the first entry whatever is checked|overlay/Menu.qml|return checked !== -1 ? checked : all.findIndex(item => reachable(item));|return all.findIndex(item => reachable(item));|tst_overlays.qml"
+  "the menu ignores its owner's home|overlay/Menu.qml|if (home !== null) return home();|if (false) return home();|tst_overlays.qml"
   "the first arrow steps past the opening entry|overlay/Menu.qml|if (root.currentIndex === -1 && (action === \"prev\"|if (false && (action === \"prev\"|tst_overlays.qml"
   "the typed letters are never cleared|foundation/KeyNav.qml|onTriggered: root.typed = \"\"|onTriggered: {}|tst_overlays.qml"
   "the checked entry draws no mark|overlay/MenuItem.qml|visible: root.checked|visible: false|tst_overlays.qml"

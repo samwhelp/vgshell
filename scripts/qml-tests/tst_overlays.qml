@@ -66,6 +66,14 @@ Item {
         Menu { id: oneWord
             MenuItem { text: "Off" }
         }
+        // A menu whose owner names its first choice, past a Back entry and
+        // a checked one, as the tray's submenu does.
+        Menu { id: homed
+            home: () => 2
+            MenuItem { text: "Back" }
+            MenuItem { text: "Checked"; checked: true }
+            MenuItem { text: "Chosen" }
+        }
         Tooltip { id: tip; text: "hint" }
         Tooltip { id: longTip; text: "method=unknown path=/home/user/.local/share/vgshell/repo is where VGS runs from, and no package manager owns it" }
         Tooltip {
@@ -106,7 +114,7 @@ Item {
         name: "overlays"
         when: windowShown
 
-        function init() { tip.shown = false; longTip.shown = false; detailsTip.shown = false; host.enabled = true; host.visible = true; UnitTheme.reset(); popover.close(); menu.close(); nested.close(); long.close(); root.chosen = 4; select.choose(0); root.triggered = -1; Hyprland.monitors = {}; }
+        function init() { tip.shown = false; longTip.shown = false; detailsTip.shown = false; host.enabled = true; host.visible = true; UnitTheme.reset(); popover.close(); menu.close(); nested.close(); homed.close(); long.close(); root.chosen = 4; select.choose(0); root.triggered = -1; Hyprland.monitors = {}; }
 
         function tooltipDelay(of) {
             return of.resources.find(child => child.running !== undefined && child.interval === Theme.tooltip.delay);
@@ -538,6 +546,19 @@ Item {
             compare(items.findIndex(item => item.highlighted), data.index, "the highlighted entry");
             const plate = items[0].cursor;
             verify(plate.target === (data.index === -1 ? null : items[data.index]), "the cursor holds the highlighted entry, or none");
+        }
+
+        // An owner's `home` decides where a key opening and the first
+        // arrow from a pointer opening land, over the checked entry.
+        function test_an_owners_home_takes_the_opening_entry() {
+            homed.open("key");
+            compare(homed.currentIndex, 2, "a key opening lands on the owner's home");
+            homed.close();
+            homed.open("pointer");
+            compare(homed.currentIndex, -1);
+            focusMenu(homed);
+            keyClick(Qt.Key_Down);
+            compare(homed.currentIndex, 2, "the first arrow lands on the owner's home");
         }
 
         function test_an_opening_names_its_opener() {

@@ -38,6 +38,10 @@ Item {
     property int currentIndex: -1
     // Whether a key chose the highlighted entry since the menu opened.
     property bool keyChose: false
+    // Optional callback: the index a key opening highlights, for an owner
+    // whose entries name their own first choice; unset, the checked
+    // reachable entry, else the first reachable one.
+    property var home: null
     // The height the entries take before the menu scrolls.
     property real maxHeight: Theme.menu.maxHeight
     readonly property string typed: nav.typed
@@ -61,9 +65,11 @@ Item {
     function items() { return column.children.filter(child => child.triggered !== undefined); }
     function reachable(item) { return item.enabled && item.visible; }
 
-    // The entry a key opening highlights: the checked reachable entry,
+    // The entry a key opening highlights, and the first Up or Down from
+    // none lands on: `home`'s answer, else the checked reachable entry,
     // else the first reachable one; -1 when none is reachable.
     function homeIndex() {
+        if (home !== null) return home();
         const all = items();
         const checked = all.findIndex(item => reachable(item) && item.checked);
         return checked !== -1 ? checked : all.findIndex(item => reachable(item));
