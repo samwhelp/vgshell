@@ -342,7 +342,7 @@ placement_clock_hide_menu() {
   placement_right_click "$id" || return 1
   expect_poll "builtin right click opens the shared menu" true ipc smoke readInstance "$(bar_key)" "$id" frameMenuOpen
   expect "builtin Hide keeps the owner's independent enablement" '[true, false]' placement_clock_hide_facts "$id"
-  type_keys -k Return || return 1
+  type_keys -k Down -k Return || return 1
 }
 placement_clock_hide_facts() {
   ipc smoke barWidgetFrameFacts "$(bar_key)" "${1:-vgs.bar/center-clock}" | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d.get("builtin"),d.get("stops")]))'

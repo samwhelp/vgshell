@@ -1344,14 +1344,15 @@ print("%d %d" % (x,bar[1]+bar[3]/2))' "$bar" "$1" <<<"$sec"
 }
 spacer_read() { ipc smoke readInstance "$(bar_key)" vgs.bar "$1"; }
 spacer_entries() { spacer_read spacerMenuEntries | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
-# spacer_add SECTION KIND: the right click and the menu entry for KIND.
+# spacer_add SECTION KIND: the right click and the menu entry for KIND. The
+# menu a click opens highlights no entry; the first Down lands on the first.
 spacer_add() {
   local x y
   read -r x y < <(spacer_point "$1") && [[ $x =~ ^-?[0-9]+$ && $y =~ ^-?[0-9]+$ ]] || { fail "no empty point in the $1 section"; return 1; }
   hover "$((x + 1))" "$y" && right_click "$x" "$y" || { fail "the right click on the empty $1 bar failed"; return 1; }
   expect_poll "a right click on the empty $1 bar opens the add menu" true spacer_read spacerMenuOpen
   expect "the add menu holds its two entries" 2 spacer_entries
-  if [[ $2 == gap ]]; then type_keys -k Down -k Return; else type_keys -k Return; fi
+  if [[ $2 == gap ]]; then type_keys -k Down -k Down -k Return; else type_keys -k Down -k Return; fi
   expect_poll "choosing Add $2 closes the add menu" false spacer_read spacerMenuOpen
 }
 # The drawn spacers per section, in x order, and every box that breaks
@@ -1423,7 +1424,7 @@ spacer_remove() {
   read -r x y < <(spacer_centre "$1") || { fail "$1 has no box to right-click"; return 1; }
   hover "$((x + 1))" "$y" && right_click "$x" "$y" || { fail "the right click on $1 failed"; return 1; }
   expect_poll "a right click on $1 opens its frame menu" true ipc smoke readInstance "$(bar_key)" "$1" frameMenuOpen
-  type_keys -k Return
+  type_keys -k Down -k Return
 }
 spacer_none='{"left": [], "center": [], "right": []}'
 expect "the smoke profile starts with no spacer" "$spacer_none" spacer_layout

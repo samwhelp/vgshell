@@ -29,13 +29,18 @@ Item {
     // Whether the shown level's entries have taken the highlight, which a
     // level whose entries arrive after it opens gives them once they do.
     property bool settled: false
+    // Whether a key opened the menu. A pointer opening highlights no
+    // entry, on open or on a level change, until a key chooses one.
+    property bool openedByKey: false
     readonly property bool settling: settleTimer.running
 
     signal closed()
 
-    function open() {
+    // Open the menu from `opener`, "key" or "pointer".
+    function open(opener) {
         settled = false;
-        menu.open();
+        openedByKey = opener === "key";
+        menu.open(opener);
         Qt.callLater(settle);
     }
 
@@ -71,9 +76,14 @@ Item {
     }
 
     // The highlight on the shown level's first entry, past its Back entry,
-    // once the entries are there.
+    // once the entries are there; none while only the pointer has acted.
     function settle() {
         if (!menu.opened || settled || entries.count === 0) return;
+        if (!openedByKey && !menu.keyChose) {
+            settled = true;
+            menu.currentIndex = -1;
+            return;
+        }
         const all = menu.items();
         const first = all.findIndex((entry, index) => menu.reachable(entry) && !(levels.length > 0 && entry === back));
         if (first === -1) return;

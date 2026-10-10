@@ -14,7 +14,7 @@ BarWidget {
     readonly property string typed: input.text
     readonly property bool inputFocus: input.activeFocus
     function openPopover() { popover.open(); return "ok"; }
-    function openMenu() { menu.open(); return "ok"; }
+    function openMenu() { menu.open("key"); return "ok"; }
     function openSelect() { select.openList(); return "ok"; }
     function focusInput() { input.forceActiveFocus(); return "ok"; }
     function rect(item) { const p = item.mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, item.width, item.height]); }

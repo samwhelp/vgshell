@@ -142,8 +142,8 @@ hover_outside_box "$(ovw tipTargetGeometry)" || fail "moving the pointer away fa
 expect "the widget opens its menu" ok ovw openMenu
 expect_poll "the menu is open" true ovr menuOpen
 type_keys -k Down -k Return || fail "sending keys to the menu failed"
-# A menu opens with its first reachable entry highlighted, so one Down key
-# reaches the second entry.
+# The widget opens its menu as a key does, with its first reachable entry
+# highlighted, so one Down key reaches the second entry.
 expect_poll "the keys trigger the second entry" 1 ovr triggered
 expect_poll "a triggered entry closes the menu" false ovr menuOpen
 expect "the widget opens its menu again" ok ovw openMenu

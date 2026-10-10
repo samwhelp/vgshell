@@ -154,7 +154,7 @@ Item {
 
             function openMenu() {
                 settingsPage = root.frame.describe().page;
-                hideMenu.open();
+                hideMenu.open("pointer");
             }
 
             function ask(kind) {

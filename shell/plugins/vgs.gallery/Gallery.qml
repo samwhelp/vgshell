@@ -414,7 +414,7 @@ Item {
                         }
                         Tooltip { text: "Opens a popover under this button" }
                     }
-                    Button { text: "Open a menu"; variant: "tertiary"; iconName: "menu"; onClicked: menu.toggle()
+                    Button { id: menuButton; text: "Open a menu"; variant: "tertiary"; iconName: "menu"; onClicked: menu.toggle(KeyNavLogic.opener(menuButton))
                         Menu { id: menu
                             MenuItem { text: "Rescan plugins"; iconName: "refresh-cw"; shortcut: "R" }
                             MenuItem { text: "Open settings"; iconName: "settings" }

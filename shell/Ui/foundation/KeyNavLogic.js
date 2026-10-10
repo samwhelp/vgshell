@@ -2,7 +2,7 @@
 
 // Pure keyboard navigation rules for qs.Ui composites. `KeyNav.qml` and the
 // node control test both use this file, so key intent, roving movement,
-// type-ahead, reveal math, activation and shortcut label spelling have one
+// type-ahead, reveal math, activation, a click's opener and shortcut label spelling have one
 // implementation.
 
 var KEY = {
@@ -245,6 +245,16 @@ function activate(control) {
     }
     if (typeof control.clicked === "function") control.clicked();
     return true;
+}
+
+// The input that clicked `control`, as a Menu's `open` names it: `key`
+// while the control shows keyboard focus, which Space and `activate`
+// keep, else `pointer`. A press re-focuses a Qt Control that takes click
+// focus with the mouse focus reason, and visualFocus holds only for the
+// Tab, Backtab and Shortcut reasons
+// (https://doc.qt.io/qt-6/qml-qtquick-controls-control.html#visualFocus-prop).
+function opener(control) {
+    return control.visualFocus === true ? "key" : "pointer";
 }
 
 // Split a shortcut string into user-facing key cap labels.

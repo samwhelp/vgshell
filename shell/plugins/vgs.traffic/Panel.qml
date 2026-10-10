@@ -281,7 +281,7 @@ Item {
         id: actionMenu
         Menu {
             required property var request
-            Component.onCompleted: Qt.callLater(open)
+            Component.onCompleted: Qt.callLater(open, request.byKey ? "key" : "pointer")
             onOpenedChanged: if (!opened) Qt.callLater(root.settle, request)
             MenuItem { text: "Inspect"; iconName: "scan-search"; onTriggered: request.next = "inspect" }
             MenuItem { text: "Kill"; iconName: "octagon-x"; onTriggered: request.next = "kill" }

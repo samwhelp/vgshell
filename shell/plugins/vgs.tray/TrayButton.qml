@@ -20,24 +20,25 @@ BarItem {
     readonly property bool live: trayItem !== null && trayItem !== undefined
     readonly property bool menuOpen: menuUi.item !== null && menuUi.item.opened
 
-    function openMenu() {
+    // Open the app's menu from `opener`, "key" or "pointer".
+    function openMenu(opener) {
         if (!live || !trayItem.hasMenu) return;
         menuUi.active = true;
-        menuUi.item.open();
+        menuUi.item.open(opener);
     }
 
     enabled: live
     label: TrayLogic.labelOf(trayItem)
     tooltip: TrayLogic.tooltipOf(trayItem)
     onClicked: {
-        if (trayItem.onlyMenu) openMenu();
+        if (trayItem.onlyMenu) openMenu(KeyNavLogic.opener(root));
         else trayItem.activate();
     }
     // Shift+F10 and the Menu key open the menu, as a right click does.
     Keys.onPressed: event => {
         if (KeyNavLogic.intent(event.key, event.modifiers, "horizontal", false) !== "menu") return;
         event.accepted = true;
-        openMenu();
+        openMenu("key");
     }
 
     contentItem: TrayIcon {
@@ -57,7 +58,7 @@ BarItem {
         onPressed: mouse => mouse.accepted = mouse.button === Qt.MiddleButton || (mouse.button === Qt.RightButton && root.trayItem.hasMenu)
         onClicked: mouse => {
             if (mouse.button === Qt.MiddleButton) root.trayItem.secondaryActivate();
-            else if (mouse.button === Qt.RightButton) root.openMenu();
+            else if (mouse.button === Qt.RightButton) root.openMenu("pointer");
         }
         onWheel: wheel => {
             if (wheel.angleDelta.y !== 0) root.trayItem.scroll(wheel.angleDelta.y, false);

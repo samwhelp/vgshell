@@ -697,7 +697,7 @@ else
 fi
 if launcher_right_click; then
   expect_poll "a second right click opens the menu again" true launcher_menu frameMenuOpen
-  type_keys -k Down -k Return || fail "Down and Return on the bar entry's menu failed"
+  type_keys -k Down -k Down -k Return || fail "Down, Down and Return on the bar entry's menu failed"
   expect_poll "Open terminal opens a terminal" '[]' recorded
   expect_poll "Open terminal closes the menu" false launcher_menu frameMenuOpen
   expect "Open terminal opens no launcher" 0 layer_count vgs:overlay

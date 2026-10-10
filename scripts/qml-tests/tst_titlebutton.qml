@@ -5,7 +5,8 @@ import qs.Ui
 import qs.Unit
 
 // TitleButton: its text over an underline as wide as the text, a caret
-// after it; a click and Down open its menu, which a second click closes;
+// after it; a click opens its menu with no entry highlighted and Down
+// opens it on its checked entry, and a second click closes it;
 // the text takes `titleButton.hover` while hovered or open, and the
 // underline shows only with keyboard focus; given less width than it
 // needs, the text elides and the caret stays inside. Its focus ring stands
@@ -54,20 +55,21 @@ Item {
             mouseClick(title);
             compare(menu.opened, true);
             compare(title.menuOpen, true);
-            compare(menu.currentIndex, 1, "the checked entry is highlighted on open");
+            compare(menu.currentIndex, -1, "a click opens the menu with no entry highlighted");
             mouseClick(title);
             compare(menu.opened, false);
             root.Window.window.requestActivate();
-            title.forceActiveFocus();
+            title.forceActiveFocus(Qt.TabFocusReason);
             tryCompare(title, "activeFocus", true);
             keyClick(Qt.Key_Down);
             compare(menu.opened, true);
+            compare(menu.currentIndex, 1, "Down opens the menu on its checked entry");
             menu.close();
         }
 
         function test_hover_and_an_open_menu_take_the_hover_colour() {
             compare(String(label(title).color), String(Qt.color(Theme.titleButton.foreground)));
-            menu.open();
+            menu.open("key");
             compare(String(label(title).color), String(Qt.color(Theme.titleButton.hover)));
             menu.close();
             mouseMove(title, 5, 5);
@@ -82,7 +84,7 @@ Item {
         // capital centre on a whole pixel.
         function test_the_underline_marks_keyboard_focus_alone_and_the_caret_centres() {
             compare(underline(title).visible, false);
-            menu.open();
+            menu.open("key");
             compare(title.menuOpen, true);
             compare(underline(title).visible, false, "an open menu draws no underline");
             menu.close();

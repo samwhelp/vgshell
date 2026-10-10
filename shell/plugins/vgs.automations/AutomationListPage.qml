@@ -94,7 +94,7 @@ FocusScope {
                                 }
                             }
                         }
-                        IconButton { iconName: "chevron-down"; label: "New from template"; size: "sm"; onClicked: templateMenu.toggle() }
+                        IconButton { id: templateButton; iconName: "chevron-down"; label: "New from template"; size: "sm"; onClicked: templateMenu.toggle(KeyNavLogic.opener(templateButton)) }
                     }
                 ]
             }

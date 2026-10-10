@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // KeyNav's pure decisions, shell/Ui/foundation/KeyNavLogic.js, under node:
-// keyboard intent, roving steps, type-ahead, reveal math, activation and
-// shortcut keycap labels. The controls edit a copy under ./tmp and require
+// keyboard intent, roving steps, type-ahead, reveal math, activation, a
+// click's opener and shortcut keycap labels. The controls edit a copy under ./tmp and require
 // this suite to fail on each copy.
 "use strict";
 const assert = require("node:assert/strict");
@@ -85,6 +85,8 @@ function verify(logic) {
     assert.equal(check.checked, true, "activation toggles a checkable");
     assert.equal(check.toggledValue, true, "activation emits toggled with the new value");
     assert.equal(logic.activate({ enabled: false, clicked() { throw new Error("disabled clicked"); } }), false, "disabled controls do not activate");
+    assert.equal(logic.opener({ visualFocus: true }), "key", "a click on a control showing keyboard focus came from a key");
+    assert.equal(logic.opener({ visualFocus: false }), "pointer", "a click on a control without keyboard focus came from the pointer");
 
     assert.deepEqual(Array.from(logic.keyCaps("SUPER+SHIFT+T")), ["Super", "Shift", "T"], "keycaps normalize common modifiers");
     assert.deepEqual(Array.from(logic.keyCaps("Ctrl+PageDown")), ["Ctrl", "PageDown"], "keycaps normalize page keys");
@@ -120,6 +122,8 @@ const CONTROLS = [
     ["type-ahead fallback", "wanted = lower;\n        found = findPrefix(wanted, labels, reachable, from, false);", "wanted = lower;\n        found = -1;"],
     ["type-ahead current prefix", "var found = findPrefix(wanted, labels, reachable, from, typed !== \"\");", "var found = findPrefix(wanted, labels, reachable, from, false);"],
     ["disabled activation", "if (control === null || control === undefined || control.enabled === false) return false;", "if (control === null || control === undefined) return false;"],
+    ["key opener", "return control.visualFocus === true ? \"key\" : \"pointer\";", "return \"pointer\";"],
+    ["pointer opener", "return control.visualFocus === true ? \"key\" : \"pointer\";", "return \"key\";"],
     ["keycap modifier display", "\"SUPER\": \"Super\",", "\"SUPER\": \"SUPER\","],
     ["keycode key names", "\"CODE:108\": \"Right Alt\"", "\"CODE:108\": \"Code:108\""],
     ["keycode leading zeros", "if (/^CODE:[0-9]+$/.test(upper)) upper = \"CODE:\" + String(Number(upper.slice(5)));", ""]

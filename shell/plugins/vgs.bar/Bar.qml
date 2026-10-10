@@ -117,7 +117,7 @@ Item {
             // The menu opens under the click, which is where its entry lands.
             function openAt(clickX) {
                 x = clickX;
-                spacerMenu.open();
+                spacerMenu.open("pointer");
             }
 
             // The menu opens at this rectangle's bottom-left corner; one

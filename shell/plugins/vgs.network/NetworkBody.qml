@@ -317,7 +317,7 @@ FocusScope {
                     onMoved: index => root.currentKey = root.rows[index].key
                     onActivated: index => root.activate(root.rows[index])
                     onRemoved: index => { if (root.rows[index].known) root.action("forget", root.rows[index]); }
-                    onMenuRequested: index => wifiRepeater.itemAt(index).openMenu()
+                    onMenuRequested: index => wifiRepeater.itemAt(index).openMenu("key")
                 }
                 Column {
                     id: wifiList

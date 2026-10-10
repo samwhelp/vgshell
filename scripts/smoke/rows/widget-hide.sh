@@ -70,12 +70,13 @@ hide_right_click() {
   read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$box") || return 1
   hover "$((x - 1))" "$y" && right_click "$x" "$y"
 }
-# hide_ask ID: the right click, then Return on the menu's one entry, Hide,
-# which opens the dialog.
+# hide_ask ID: the right click, then Down and Return on the menu's first
+# entry, Hide, which opens the dialog: a menu a click opens highlights no
+# entry, and the first Down lands on the first.
 hide_ask() {
   hide_right_click "$1" || fail "the right click on $1's widget failed"
   expect_poll "a right click on $1's widget opens its menu" true hide_read "$1" frameMenuOpen
-  type_keys -k Return || fail "Return on $1's Hide entry failed"
+  type_keys -k Down -k Return || fail "Down and Return on $1's Hide entry failed"
   expect_poll "Hide closes the menu" false hide_read "$1" frameMenuOpen
   expect_poll "Hide opens the dialog" true hide_read "$1" frameDialogOpen
 }

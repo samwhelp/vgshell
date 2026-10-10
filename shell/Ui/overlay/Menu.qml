@@ -6,17 +6,21 @@ import qs.Ui
 
 // A menu of MenuItem entries under the item it is declared in, in its own
 // surface. One ListCursor draws the highlight and travels between entries.
-// Up and Down move the highlight, a hover moves it once the pointer moves
+// `open` names its opener: a key opening highlights the checked entry,
+// else the first reachable one; a pointer opening highlights none, and
+// the first Up or Down then lands where a key opening would have. Up and
+// Down move the highlight, a hover moves it once the pointer moves
 // (ListCursor), and the pointer leaving the entries returns it to the
 // entry a key chose, or clears it when no key chose one since the menu
-// opened, as a desktop menu does. Enter triggers the highlighted entry, a
+// opened, as a desktop menu does. Enter triggers the highlighted entry and
+// does nothing while none is highlighted, a
 // click triggers an entry, and a trigger closes the menu unless the entry
 // `keepsOpen`, as one that opens a submenu does; a press outside and
 // Escape close it too (DismissScope). Typing letters highlights the first
 // reachable entry whose text starts with them, the letters kept for
 // `menu.typeahead` milliseconds. Entries taller than `maxHeight` scroll
 // inside the menu, and the highlighted entry is kept in view; opening
-// shows the top and highlights the first checked entry, in view. It follows its anchor when that
+// shows the top, and a key opening's highlighted entry in view. It follows its anchor when that
 // moves and closes when it hides. The declaring item is an invisible,
 // sizeless member of its parent. The entries fill the list inside the
 // menu's border, so an entry's highlight meets the border at the top and
@@ -57,14 +61,24 @@ Item {
     function items() { return column.children.filter(child => child.triggered !== undefined); }
     function reachable(item) { return item.enabled && item.visible; }
 
-    function open() {
+    // The entry a key opening highlights: the checked reachable entry,
+    // else the first reachable one; -1 when none is reachable.
+    function homeIndex() {
+        const all = items();
+        const checked = all.findIndex(item => reachable(item) && item.checked);
+        return checked !== -1 ? checked : all.findIndex(item => reachable(item));
+    }
+
+    // Open the menu; `opener` is "key" or "pointer", the input that
+    // opened it.
+    function open(opener) {
+        if (opener !== "key" && opener !== "pointer") throw new Error("menu-opener: " + opener + " is neither key nor pointer");
         nav.typed = "";
         // The cursor lands on the opening entry rather than travelling
         // from where the last opening left it.
         plate.disarm();
         plate.snap();
-        currentIndex = items().findIndex(item => reachable(item) && item.checked);
-        if (currentIndex === -1) nav.first();
+        currentIndex = opener === "key" ? homeIndex() : -1;
         // The opening entry is the menu's, not a key's choice.
         keyChose = false;
         window.visible = true;
@@ -73,12 +87,13 @@ Item {
         reveal();
     }
     function close() { window.visible = false; }
-    function toggle() { if (opened) close(); else open(); }
+    function toggle(opener) { if (opened) close(); else open(opener); }
 
-    // Move the highlight by `step` over the reachable entries: from none,
-    // Down takes the first and Up the last.
+    // Move the highlight by `step` over the reachable entries, as Up and
+    // Down do: from none, the first step lands on the home entry.
     function move(step) {
-        nav.moveBy(step);
+        if (currentIndex === -1) nav.moveTo(homeIndex());
+        else nav.moveBy(step);
     }
 
     // Highlight the entry at `index` from a key: the pointer resting over
@@ -191,7 +206,9 @@ Item {
             Keys.onTabPressed: event => event.accepted = true
             Keys.onBacktabPressed: event => event.accepted = true
             Keys.onPressed: event => {
-                event.accepted = nav.handle(event);
+                const action = KeyNavLogic.intent(event.key, event.modifiers, nav.orientation, false);
+                if (root.currentIndex === -1 && (action === "prev" || action === "next")) event.accepted = nav.moveTo(root.homeIndex(), true);
+                else event.accepted = nav.handle(event);
             }
 
             GlassSurface {

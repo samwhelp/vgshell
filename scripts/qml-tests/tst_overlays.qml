@@ -18,7 +18,11 @@ import qs.Unit
 // highlight through one ListCursor, which a hover moves only once the
 // pointer moved since the last key; when the pointer leaves, a menu's
 // highlight goes back to the entry a key chose or clears, and a select's to
-// the entry the keyboard left it on. The first entry's highlight and a
+// the entry the keyboard left it on. A menu opened by a key highlights its
+// checked entry, else its first; one opened by the pointer highlights none
+// until the pointer enters an entry or the first Up or Down lands where a
+// key opening would have, Enter on it triggers nothing, and an opening
+// that names no opener is refused. The first entry's highlight and a
 // select's chosen fill meet the list's border at the top and both sides,
 // under a square and a rounded theme, and stay inside a rounder corner;
 // the bar of an overflowing list draws over a strip each entry keeps clear,
@@ -102,7 +106,7 @@ Item {
         name: "overlays"
         when: windowShown
 
-        function init() { tip.shown = false; longTip.shown = false; detailsTip.shown = false; host.enabled = true; host.visible = true; UnitTheme.reset(); popover.close(); menu.close(); nested.close(); select.choose(0); root.triggered = -1; Hyprland.monitors = {}; }
+        function init() { tip.shown = false; longTip.shown = false; detailsTip.shown = false; host.enabled = true; host.visible = true; UnitTheme.reset(); popover.close(); menu.close(); nested.close(); long.close(); root.chosen = 4; select.choose(0); root.triggered = -1; Hyprland.monitors = {}; }
 
         function tooltipDelay(of) {
             return of.resources.find(child => child.running !== undefined && child.interval === Theme.tooltip.delay);
@@ -142,7 +146,7 @@ Item {
         }
 
         function test_menu_moves_and_triggers_by_key() {
-            menu.open();
+            menu.open("key");
             compare(menu.opened, true);
             compare(menu.currentIndex, 0);
             menu.move(1);
@@ -154,9 +158,9 @@ Item {
         }
 
         function test_menu_skips_disabled_entries_and_starts_at_the_ends() {
-            menu.open();
+            menu.open("key");
             menu.move(-1);
-            compare(menu.currentIndex, 3, "Up from none takes the last reachable entry");
+            compare(menu.currentIndex, 3, "Up from the first entry wraps to the last reachable one");
             menu.move(1);
             compare(menu.currentIndex, 0, "the highlight wraps over the reachable entries");
             menu.move(-1);
@@ -175,7 +179,7 @@ Item {
         function test_a_press_in_the_anchor_window_closes_the_overlay() {
             const overlays = [
                 { name: "popover", open: () => popover.open(), opened: () => popover.opened },
-                { name: "menu", open: () => menu.open(), opened: () => menu.opened },
+                { name: "menu", open: () => menu.open("key"), opened: () => menu.opened },
                 { name: "select", open: () => select.openList(), opened: () => select.listOpen }
             ];
             for (const overlay of overlays) {
@@ -222,7 +226,7 @@ Item {
                 if (menu.resources[i].anchor !== undefined) window = menu.resources[i];
             verify(window !== null, "the menu holds a popup window");
             verify(wide.implicitWidth > Theme.menu.minWidth, "the wide entry passes the minimum: " + wide.implicitWidth);
-            menu.open();
+            menu.open("key");
             // Past `menu.maxWidth` the window stops growing; the entries fill
             // it inside the border.
             verify(wide.implicitWidth + 2 * Theme.border.thin > Theme.menu.maxWidth, "the wide entry passes the cap: " + wide.implicitWidth);
@@ -231,7 +235,7 @@ Item {
             menu.close();
             // Under the cap no entry elides, whatever fraction of a pixel
             // its text measures: the window rounds its width up.
-            mid.open();
+            mid.open("key");
             let midWindow = null;
             for (let i = 0; i < mid.resources.length; i++)
                 if (mid.resources[i].anchor !== undefined) midWindow = mid.resources[i];
@@ -239,7 +243,7 @@ Item {
             tryVerify(() => mid.items()[0].width >= mid.widest, 1000, "the entry takes its whole width in a window " + midWindow.width + " wide, the entry " + mid.widest);
             compare(mid.items()[0].contentItem.children[1].truncated, false);
             mid.close();
-            menu.open();
+            menu.open("key");
             // The long text elides and the shortcut keeps its trailing column.
             const title = wide.contentItem.children[1];
             const hint = wide.contentItem.children[2];
@@ -256,7 +260,7 @@ Item {
         // capitals start a side padding below the entry's top and end as far
         // above its bottom.
         function test_a_short_menu_fits_its_entries() {
-            barMenu.open();
+            barMenu.open("key");
             const window = windowOf(barMenu);
             const opening = window.width;
             const longest = settingsEntry;
@@ -284,7 +288,7 @@ Item {
             const inkCentre = longest.contentItem.y + icon.y + (icon.painted[1] + icon.painted[3]) / 2;
             verify(Math.abs(inkCentre - (baseline - capitals / 2)) <= 1, "the icon's ink centre " + inkCentre + " is within a pixel of the capitals' centre " + (baseline - capitals / 2));
             barMenu.close();
-            oneWord.open();
+            oneWord.open("key");
             verify(oneWord.items()[0].implicitWidth + 2 * Theme.border.thin < Theme.menu.minWidth, "the one word is narrower than the minimum");
             compare(windowOf(oneWord).width, Theme.menu.minWidth);
             oneWord.close();
@@ -322,7 +326,7 @@ Item {
 
         function test_a_long_menu_scrolls_inside_its_maximum() {
             compare(UnitTheme.override({ menu: { maxHeight: 90 } }), "ok");
-            long.open();
+            long.open("key");
             const window = longWindow();
             compare(window.height, 90 + 2 * Theme.border.thin);
             compare(long.scrollArea.overflowing, true);
@@ -341,7 +345,7 @@ Item {
             long.close();
             // A menu that fits keeps no strip.
             UnitTheme.reset();
-            menu.open();
+            menu.open("key");
             tryCompare(menu.items()[0], "barRoom", 0);
             compare(menu.items()[0].rightPadding, menu.items()[0].sidePadding);
             menu.close();
@@ -350,7 +354,7 @@ Item {
         function test_the_highlight_is_kept_in_view() {
             compare(UnitTheme.override({ menu: { maxHeight: 90 } }), "ok");
             root.chosen = -1;
-            long.open();
+            long.open("key");
             compare(long.scrollArea.contentY, 0);
             for (let i = 0; i < 10; i++) long.move(1);
             const item = long.items()[long.currentIndex];
@@ -366,7 +370,7 @@ Item {
         function test_opening_highlights_the_checked_entry_and_draws_its_mark() {
             compare(UnitTheme.override({ menu: { maxHeight: 90 } }), "ok");
             root.chosen = 12;
-            long.open();
+            long.open("key");
             compare(long.currentIndex, 12);
             const item = long.items()[12];
             verify(item.y + item.height <= long.scrollArea.contentY + long.scrollArea.height && item.y >= long.scrollArea.contentY, "the checked entry opens in view");
@@ -378,7 +382,7 @@ Item {
             compare(long.items()[0].rightPadding, Theme.menu.item.paddingX + Theme.scrollArea.gutter);
             long.close();
             root.chosen = -1;
-            long.open();
+            long.open("key");
             compare(long.currentIndex, 0, "with no checked entry the first reachable item is highlighted");
             long.close();
             root.chosen = 4;
@@ -388,7 +392,7 @@ Item {
         // lands the cursor on the checked entry at once, with motion on.
         function test_a_reopened_menu_lands_on_its_checked_entry() {
             compare(UnitTheme.override({ motion: { list: { travel: { duration: 2000 } } } }), "ok");
-            long.open();
+            long.open("key");
             const items = long.items();
             const plate = items[0].cursor;
             compare(long.currentIndex, 4);
@@ -399,7 +403,7 @@ Item {
             // The cursor is on its way to the moved highlight.
             tryVerify(() => plate.y > items[4].y, 1000, "the cursor left the checked entry");
             long.close();
-            long.open();
+            long.open("key");
             compare(long.currentIndex, 4);
             compare(plate.y, items[4].y, "the cursor lands on the checked entry at once");
             long.close();
@@ -453,7 +457,7 @@ Item {
         function test_typing_jumps_to_the_entry_starting_with_the_letters() {
             compare(UnitTheme.override({ menu: { typeahead: 200 } }), "ok");
             root.chosen = -1;
-            long.open();
+            long.open("key");
             compare(long.typeAhead("e"), true);
             compare(long.items()[long.currentIndex].text, "Echo", "the first entry that starts with e, not one that holds it");
             compare(long.typeAhead("T"), true, "no entry starts with et, so t starts a new prefix");
@@ -483,7 +487,7 @@ Item {
         // entry that keeps it open does; any other entry still closes it.
         function test_a_submenu_entry_keeps_the_menu_open() {
             const chevron = entry => entry.children.find(child => child.name === "chevron-right");
-            nested.open();
+            nested.open("key");
             compare(chevron(submenuEntry).visible, true);
             compare(chevron(submenuEntry).x + chevron(submenuEntry).painted[2], submenuEntry.width - submenuEntry.sidePadding - submenuEntry.barRoom, "the chevron's ink ends a side padding before the bar");
             // The chevron's ink ends as far from the window's right edge as
@@ -515,15 +519,107 @@ Item {
             tryCompare(nested, "opened", false);
         }
 
+        // Each opener's highlight: a key opening the checked entry, else the
+        // first reachable one; a pointer opening none, checked or not.
+        function test_an_opening_highlights_by_its_opener_data() {
+            return [
+                { tag: "key, nothing checked", opener: "key", chosen: -1, index: 0 },
+                { tag: "key, a checked entry", opener: "key", chosen: 4, index: 4 },
+                { tag: "pointer, nothing checked", opener: "pointer", chosen: -1, index: -1 },
+                { tag: "pointer, a checked entry", opener: "pointer", chosen: 4, index: -1 }
+            ];
+        }
+
+        function test_an_opening_highlights_by_its_opener(data) {
+            root.chosen = data.chosen;
+            long.open(data.opener);
+            const items = long.items();
+            compare(long.currentIndex, data.index);
+            compare(items.findIndex(item => item.highlighted), data.index, "the highlighted entry");
+            const plate = items[0].cursor;
+            verify(plate.target === (data.index === -1 ? null : items[data.index]), "the cursor holds the highlighted entry, or none");
+        }
+
+        function test_an_opening_names_its_opener() {
+            let refused = "";
+            try { menu.open(); } catch (error) { refused = error.message; }
+            verify(refused.startsWith("menu-opener: undefined"), "an opening with no opener is refused: " + refused);
+            compare(menu.opened, false);
+        }
+
+        // Hand the keyboard to `owner`'s open popup, as its DismissScope
+        // takes it on open.
+        function focusMenu(owner) {
+            const scope = windowOf(owner).contentItem.children.find(child => child.popup !== undefined);
+            scope.Window.window.requestActivate();
+            scope.forceActiveFocus();
+            tryCompare(scope.Window, "active", true);
+            tryCompare(scope, "activeFocus", true);
+            // One event-loop turn lets the offscreen window finish activating before the first key.
+            wait(0);
+        }
+
+        // Enter with no entry highlighted triggers nothing and leaves the
+        // menu open. The control: Down then Enter on the same menu
+        // triggers the entry Down landed on, so the keys reach it.
+        function test_enter_on_a_pointer_opening_triggers_nothing() {
+            menu.open("pointer");
+            focusMenu(menu);
+            keyClick(Qt.Key_Return);
+            compare(root.triggered, -1, "Enter with no highlight triggers nothing");
+            compare(menu.opened, true, "Enter with no highlight leaves the menu open");
+            keyClick(Qt.Key_Down);
+            compare(menu.currentIndex, 0);
+            keyClick(Qt.Key_Return);
+            compare(root.triggered, 0, "control: Enter on the highlighted entry triggers it");
+            tryCompare(menu, "opened", false);
+        }
+
+        // On a pointer opening the first Up or Down lands where a key
+        // opening would have; the next Down steps on from there.
+        function test_the_first_arrow_lands_on_the_opening_entry_data() {
+            return [
+                { tag: "Down, nothing checked", key: Qt.Key_Down, chosen: -1, index: 0 },
+                { tag: "Up, nothing checked", key: Qt.Key_Up, chosen: -1, index: 0 },
+                { tag: "Down, a checked entry", key: Qt.Key_Down, chosen: 4, index: 4 },
+                { tag: "Up, a checked entry", key: Qt.Key_Up, chosen: 4, index: 4 }
+            ];
+        }
+
+        function test_the_first_arrow_lands_on_the_opening_entry(data) {
+            root.chosen = data.chosen;
+            long.open("pointer");
+            compare(long.currentIndex, -1);
+            focusMenu(long);
+            keyClick(data.key);
+            compare(long.currentIndex, data.index, "the first arrow lands on the opening entry");
+            compare(long.items()[data.index].highlighted, true);
+            keyClick(Qt.Key_Down);
+            compare(long.currentIndex, data.index + 1, "the next Down steps on");
+        }
+
+        // On a pointer opening the entry the pointer enters takes the
+        // highlight.
+        function test_the_pointer_entering_an_entry_highlights_it() {
+            menu.open("pointer");
+            const items = menu.items();
+            compare(menu.currentIndex, -1);
+            mouseMove(items[1], 10, 5);
+            mouseMove(items[1], 12, 5);
+            compare(menu.currentIndex, 1, "the entry under the pointer is highlighted");
+            verify(items[1].cursor.target === items[1], "the cursor holds the entry under the pointer");
+            menu.close();
+        }
+
         function test_menu_click_triggers_and_closes() {
-            menu.open();
+            menu.open("key");
             menu.items()[0].clicked();
             compare(root.triggered, 0);
             tryCompare(menu, "opened", false);
         }
 
         function test_menu_highlights_through_its_cursor() {
-            menu.open();
+            menu.open("key");
             const items = menu.items();
             const plate = items[0].cursor;
             verify(plate !== null, "the menu hands its entries a cursor");
@@ -555,7 +651,7 @@ Item {
         }
 
         function test_menu_highlight_leaves_with_the_pointer() {
-            menu.open();
+            menu.open("key");
             const items = menu.items();
             const plate = items[0].cursor;
             compare(menu.currentIndex, 0, "the menu opens on its first entry");
@@ -566,7 +662,7 @@ Item {
             compare(menu.currentIndex, -1, "with no key's choice, leaving clears the highlight");
             verify(plate.target === null && plate.hovered === null, "no entry keeps the plate");
             menu.close();
-            menu.open();
+            menu.open("key");
             menu.move(1);
             compare(menu.currentIndex, 1, "a key chooses the second entry");
             mouseMove(items[0], 10, 5);
@@ -671,7 +767,7 @@ Item {
         // corner; entries less round than the corner start lower, inside it.
         function test_the_first_menu_entry_meets_the_border(data) {
             compare(UnitTheme.override(data.theme), "ok");
-            menu.open();
+            menu.open("key");
             let window = null;
             for (let i = 0; i < menu.resources.length; i++)
                 if (menu.resources[i].anchor !== undefined) window = menu.resources[i];
@@ -801,7 +897,7 @@ Item {
         function openRoundedLong() {
             compare(UnitTheme.override({ radius: { sm: 6, md: 12, lg: 16 }, menu: { maxHeight: 90 } }), "ok");
             root.chosen = -1;
-            long.open();
+            long.open("key");
             const window = longWindow();
             // The window's content item takes the window's size a turn after
             // it shows.
@@ -882,7 +978,7 @@ Item {
 
         // A square list keeps its rectangular clip and draws no layer.
         function test_a_square_list_draws_no_layer() {
-            menu.open();
+            menu.open("key");
             compare(menu.scrollArea.layer.enabled, false);
             menu.close();
             select.openList();

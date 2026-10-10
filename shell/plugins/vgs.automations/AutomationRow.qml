@@ -57,10 +57,11 @@ ListItem {
         },
         IconButton { iconName: "play"; label: "Run now"; size: "sm"; onClicked: root.runRequested() },
         IconButton {
+            id: moreButton
             iconName: "ellipsis"
             label: "More actions"
             size: "sm"
-            onClicked: rowMenu.toggle()
+            onClicked: rowMenu.toggle(KeyNavLogic.opener(moreButton))
             Menu {
                 id: rowMenu
                 MenuItem { text: "Duplicate"; iconName: "copy"; onTriggered: root.duplicateRequested() }

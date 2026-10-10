@@ -34,10 +34,11 @@ ListItem {
     readonly property real batteryShare: hasBattery ? Math.max(0, Math.min(1, battery)) : 0
     readonly property string batteryTone: batteryShare <= Theme.deviceRow.battery.danger ? "danger" : batteryShare <= Theme.deviceRow.battery.warning ? "warning" : "neutral"
 
-    // Open the overflow menu; answers whether there was one to open.
-    function openMenu() {
+    // Open the overflow menu from `opener`, "key" or "pointer"; answers
+    // whether there was one to open.
+    function openMenu(opener) {
         if (!more.visible) return false;
-        overflowMenu.open();
+        overflowMenu.open(opener);
         return true;
     }
 
@@ -45,7 +46,7 @@ ListItem {
     Keys.onPressed: event => {
         const action = KeyNavLogic.intent(event.key, event.modifiers, "vertical", false);
         if (action === "activate") event.accepted = KeyNavLogic.activate(root);
-        else if (action === "menu") event.accepted = root.openMenu();
+        else if (action === "menu") event.accepted = root.openMenu("key");
     }
 
     trailing: [
@@ -69,7 +70,7 @@ ListItem {
             label: root.menuLabel
             size: "sm"
             anchors.verticalCenter: parent.verticalCenter
-            onClicked: overflowMenu.toggle()
+            onClicked: overflowMenu.toggle(KeyNavLogic.opener(more))
 
             Menu { id: overflowMenu }
         }

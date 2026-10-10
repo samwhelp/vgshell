@@ -7,7 +7,7 @@ import qs.Ui
 // A title that names the current choice and opens a menu of the others:
 // its text in `role` with a down caret after it, centred on the text's
 // capital centre on a whole pixel. A click, Space, Enter or Down toggles
-// `menu`, a Menu the author declares inside the button, so the menu opens
+// `menu`, naming its opener (KeyNavLogic.opener), a Menu the author declares inside the button, so the menu opens
 // under the title. The text and the caret take `titleButton.hover` while
 // hovered or open, a change of colour alone; the underline under the text
 // shows only while the button holds keyboard focus, so a keyboard user
@@ -40,7 +40,7 @@ T.AbstractButton {
     // How far the ring's box reaches past the title above and below it.
     readonly property real ringReach: Math.max((Theme.textField.height - implicitContentHeight) / 2, Theme.focusRing.offset + Theme.focusRing.width)
 
-    function toggleMenu() { if (menu !== null) menu.toggle(); }
+    function toggleMenu(opener) { if (menu !== null) menu.toggle(opener); }
 
     implicitWidth: implicitContentWidth + leftPadding + rightPadding
     implicitHeight: implicitContentHeight + topPadding + bottomPadding
@@ -56,10 +56,10 @@ T.AbstractButton {
     opacity: enabled ? 1 : Theme.opacity.disabled
     Accessible.name: text
     Accessible.role: Accessible.ButtonMenu
-    onClicked: toggleMenu()
-    Keys.onReturnPressed: toggleMenu()
-    Keys.onEnterPressed: toggleMenu()
-    Keys.onDownPressed: toggleMenu()
+    onClicked: toggleMenu(KeyNavLogic.opener(root))
+    Keys.onReturnPressed: toggleMenu("key")
+    Keys.onEnterPressed: toggleMenu("key")
+    Keys.onDownPressed: toggleMenu("key")
 
     // The title takes its own width, and elides only when the button is
     // given less than the title and the caret need.
