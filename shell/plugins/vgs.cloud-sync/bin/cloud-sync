@@ -1,0 +1,999 @@
+#!/usr/bin/env node
+// cloud-sync: the vgs.cloud-sync runner. It owns the pair list, the systemd
+// user units, the per-pair locks, credential loading, the rclone calls, the
+// per-pair inventory, the conflict records and the status record. The
+// plugin and the command line start the same service; the service runs a
+// copy of this file. The plugin never runs rclone.
+//
+//   cloud-sync run [--pair <id>]
+//       the service's ExecStart: each pair, or the one named, under its own
+//       lock. Prints `pair=<id> result=<r>` per pair, r one of idle, paused,
+//       busy, offline, authorization-required, error.
+//   cloud-sync status [--quiet]
+//       renders the status record, writes it and prints it as one JSON line
+//       (nothing with --quiet: the service's ExecStopPost).
+//   cloud-sync probe
+//       the presence of every credential account, read without unlocking
+//       the store, as one JSON line.
+//   cloud-sync install
+//       writes the units, reloads the user manager when they changed and
+//       enables the timer; prints `installed=<timer> changed=<n>`.
+//   cloud-sync start
+//       `systemctl --user start --no-block` of the service: Sync now.
+//   cloud-sync pause|resume [--pair <id>]
+//       prints `paused=<id|all>` or `resumed=<id|all>`.
+//   cloud-sync pairs
+//       one JSON line, { pairs, error }.
+//   cloud-sync pair-add --definition <json> | pair-remove <id>
+//       one validated change to the pair list; prints `added=<id>` or
+//       `removed=<id>`. Removing a pair deletes no file.
+//
+// Files: the pair list is $XDG_CONFIG_HOME/vgshell/cloud-sync/pairs.json;
+// the units are $XDG_CONFIG_HOME/systemd/user/vgs-cloud-sync.service and
+// .timer; status.json, control.json (pause) and pairs/<id>/ (state.json,
+// inventory.json, conflicts/) are under $XDG_STATE_HOME/vgshell/cloud-sync/;
+// the locks are under $XDG_RUNTIME_DIR/vgshell/cloud-sync/; the copy the
+// units run is $XDG_DATA_HOME/vgshell/cloud-sync/engine/<hash>/cloud-sync,
+// since the shell runs this file from a snapshot a restart removes. Every
+// file is written whole under a temporary name and renamed into place.
+//
+// Exit 0: done, or every pair skipped as paused. 1: a refusal, or a pair
+// that did not finish. 2: a bad invocation. 75: a pair whose lock another
+// run holds, and no pair failed. A refusal is one stderr line,
+// `cloud-sync: refused: <key>=<value> ...`.
+"use strict";
+const childProcess = require("child_process");
+const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
+
+const SERVICE = "vgs-cloud-sync.service";
+const TIMER = "vgs-cloud-sync.timer";
+// The manifest's `secrets` service; the core's SecretWriter stores each
+// account under the attributes `service` and `account`.
+const SECRET_SERVICE = "vgs-cloud-sync";
+// Each direction has its own credential. The pull reads with
+// drive.readonly. The upload pair writes with drive.file, which reaches
+// only the files and folders this client created, so a leaked upload token
+// cannot read or delete the rest of the Drive; a copy that only adds files
+// needs no more.
+const DIRECTIONS = ["pull", "upload"];
+const SCOPES = { pull: "drive.readonly", upload: "drive.file" };
+const CREDENTIAL_PARTS = ["client-id", "client-secret", "token"];
+// The remote exists only in the rclone child's environment.
+const REMOTE = "vgsdrive";
+const REMOTE_ENV = "RCLONE_CONFIG_VGSDRIVE_";
+const EXPORT_FORMATS = "docx,xlsx,pptx,svg";
+// Data is current for one timer interval plus one missed run.
+const FRESH_MS = 2 * 60 * 60 * 1000;
+const EXIT_BUSY = 75;
+// What never enters a mirror or leaves the upload folder: editor temp
+// files and unfinished downloads; repository and agent state; `local/`,
+// which holds the personal design's extraction output (local/derived/);
+// credentials; and legacy backups. Conflict storage is under the state
+// directory, outside every pair, so it needs no rule. No age or size rule.
+const EXCLUDES = [
+    "~$*", ".~lock.*#", "*.swp", "*.swx", "*~", ".#*",
+    "*.partial", "*.crdownload", "*.part",
+    ".git/**", ".agents/**", "local/**", "archive/legacy-backups/**",
+    "*.pem", "*.key", "*.p12", "*.pfx", "*.kdbx", "credentials*", "token*.json", "client_secret*.json",
+    ".env", ".env.*", ".netrc", "rclone.conf", "id_rsa*", "id_ecdsa*", "id_ed25519*"
+];
+// rclone's failure text, first match wins. Lines rclone v1.75.1 printed:
+// `couldn't fetch token: Post "https://oauth2.googleapis.com/token": dial tcp
+// [...]:443: connect: cannot assign requested address` (no network),
+// `failed to create oauth client: empty token found`, `token expired and
+// there's no refresh token`. invalid_grant, invalid_client and
+// unauthorized_client are Google's OAuth error codes, which rclone repeats.
+const FAILURES = [
+    { kind: "authorization-refused", pattern: /invalid_grant|invalid_client|unauthorized_client|failed to create oauth client|empty token found|there's no refresh token|Token has been expired or revoked|insufficient authentication scopes/i },
+    { kind: "offline", pattern: /dial tcp|no such host|network is unreachable|connection refused|i\/o timeout|TLS handshake timeout|connection reset by peer|cannot assign requested address|temporary failure in name resolution/i }
+];
+// The pair state a lastError kind makes; every other kind is `error`.
+const FAILURE_STATES = {
+    "credential-absent": "authorization-required",
+    "credential-locked": "authorization-required",
+    "authorization-refused": "authorization-required",
+    offline: "offline"
+};
+const USAGE = "usage: cloud-sync run [--pair <id>] | status [--quiet] | probe | install | start | pause [--pair <id>] | resume [--pair <id>] | pairs | pair-add --definition <json> | pair-remove <id>";
+
+function bad(first) {
+    process.stderr.write("cloud-sync: refused: " + first + "\n" + USAGE + "\n");
+    process.exit(2);
+}
+
+function refuse(first) {
+    process.stderr.write("cloud-sync: refused: " + first + "\n");
+    process.exit(1);
+}
+
+function log(line) {
+    process.stderr.write("cloud-sync: " + line + "\n");
+}
+
+// ------------------------------------------------------------ the places
+
+const home = process.env.HOME || "";
+if (!home.startsWith("/")) refuse("home=unset");
+// XDG's rule: an unset or relative value takes the default.
+function absoluteOr(value, fallback) {
+    return typeof value === "string" && value.startsWith("/") ? value : fallback;
+}
+const configHome = absoluteOr(process.env.XDG_CONFIG_HOME, path.join(home, ".config"));
+const stateHome = absoluteOr(process.env.XDG_STATE_HOME, path.join(home, ".local", "state"));
+const dataHome = absoluteOr(process.env.XDG_DATA_HOME, path.join(home, ".local", "share"));
+const runtimeDir = absoluteOr(process.env.XDG_RUNTIME_DIR, "");
+const pairsFile = path.join(configHome, "vgshell", "cloud-sync", "pairs.json");
+const unitDir = path.join(configHome, "systemd", "user");
+const stateDir = path.join(stateHome, "vgshell", "cloud-sync");
+const statusFile = path.join(stateDir, "status.json");
+const controlFile = path.join(stateDir, "control.json");
+const engineRoot = path.join(dataHome, "vgshell", "cloud-sync", "engine");
+const lockDir = runtimeDir === "" ? "" : path.join(runtimeDir, "vgshell", "cloud-sync");
+
+function pairDir(id) {
+    return path.join(stateDir, "pairs", id);
+}
+
+function pairLock(id) {
+    return path.join(lockDir, id + ".lock");
+}
+
+// --------------------------------------------------------------- helpers
+
+function which(command) {
+    for (const dir of String(process.env.PATH || "").split(path.delimiter)) {
+        if (!dir.startsWith("/")) continue;
+        const candidate = path.join(dir, command);
+        try {
+            fs.accessSync(candidate, fs.constants.X_OK);
+            if (fs.statSync(candidate).isFile()) return candidate;
+        } catch (_e) {
+            // Not here; keep looking.
+        }
+    }
+    return null;
+}
+
+function requireCommand(command) {
+    const bin = which(command);
+    if (bin === null) refuse(command + "=missing");
+    return bin;
+}
+
+// Every child gets this environment and what its caller adds, never the
+// caller's whole environment: a user's RCLONE_* variables must not reach
+// the rclone call. secret-tool and systemctl need the session bus.
+function childEnv(extra) {
+    const env = { LANG: "C.UTF-8" };
+    for (const name of ["PATH", "HOME", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "TMPDIR"])
+        if (process.env[name]) env[name] = process.env[name];
+    return Object.assign(env, extra || {});
+}
+
+function run(command, args, options) {
+    return childProcess.spawnSync(command, args, Object.assign({ encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: childEnv() }, options || {}));
+}
+
+function now() {
+    return new Date().toISOString();
+}
+
+function writeAtomic(file, text, mode) {
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    const temp = path.join(path.dirname(file), "." + path.basename(file) + ".tmp-" + process.pid);
+    fs.writeFileSync(temp, text, { mode: mode || 0o600 });
+    fs.renameSync(temp, file);
+}
+
+function writeJson(file, value) {
+    writeAtomic(file, JSON.stringify(value, null, 2) + "\n");
+}
+
+// { kind: "absent" } | { kind: "ok", value } | { kind: "bad", reason }
+function readJson(file) {
+    let text;
+    try {
+        text = fs.readFileSync(file, "utf8");
+    } catch (e) {
+        if (e.code === "ENOENT") return { kind: "absent" };
+        return { kind: "bad", reason: "unreadable-" + (e.code || "error") };
+    }
+    try {
+        return { kind: "ok", value: JSON.parse(text) };
+    } catch (_e) {
+        return { kind: "bad", reason: "not-json" };
+    }
+}
+
+function readText(file) {
+    try {
+        return fs.readFileSync(file, "utf8");
+    } catch (e) {
+        if (e.code === "ENOENT") return null;
+        throw e;
+    }
+}
+
+function plain(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasOwn(object, key) {
+    return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+// Whether CHILD is PARENT or lies under it; paths, or Drive paths with no
+// leading slash.
+function within(parent, child) {
+    return child === parent || child.startsWith(parent === "/" ? "/" : parent + "/");
+}
+
+function md5File(file) {
+    const hash = crypto.createHash("md5");
+    const fd = fs.openSync(file, "r");
+    try {
+        const buffer = Buffer.alloc(1 << 20);
+        let read;
+        while ((read = fs.readSync(fd, buffer, 0, buffer.length, null)) > 0) hash.update(buffer.subarray(0, read));
+    } finally {
+        fs.closeSync(fd);
+    }
+    return hash.digest("hex");
+}
+
+// Every regular file under DIR, as paths relative to it; no symlink is
+// followed.
+function filesUnder(dir) {
+    const found = [];
+    const walk = rel => {
+        let entries;
+        try {
+            entries = fs.readdirSync(path.join(dir, rel), { withFileTypes: true });
+        } catch (e) {
+            if (e.code === "ENOENT") return;
+            throw e;
+        }
+        for (const entry of entries) {
+            const child = rel === "" ? entry.name : rel + "/" + entry.name;
+            if (entry.isDirectory()) walk(child);
+            else if (entry.isFile()) found.push(child);
+        }
+    };
+    walk("");
+    return found.sort();
+}
+
+// ------------------------------------------------------------------ locks
+
+// flock(1) locks the open file description it is handed as fd 3, which
+// this process shares, so the lock outlives the flock child and ends when
+// this process closes the descriptor or dies. Node opens files
+// close-on-exec, so no child of this process, rclone included, holds a
+// lock.
+function lockFd(file, flags) {
+    if (lockDir === "") refuse("runtime-dir=unset");
+    fs.mkdirSync(lockDir, { recursive: true, mode: 0o700 });
+    const fd = fs.openSync(file, "a", 0o600);
+    const out = run(requireCommand("flock"), flags.concat(["-E", String(EXIT_BUSY), "3"]), { stdio: ["ignore", "ignore", "pipe", fd] });
+    if (out.status === 0) return fd;
+    fs.closeSync(fd);
+    if (out.status === EXIT_BUSY) return null;
+    refuse("flock=failed exit=" + out.status + " lock=" + path.basename(file));
+}
+
+// Whether a run holds FILE's lock. lockFd opens the file afresh, so this
+// process's own lock reads as held too.
+function lockHeld(file) {
+    if (lockDir === "" || !fs.existsSync(file)) return false;
+    const fd = lockFd(file, ["-n"]);
+    if (fd === null) return true;
+    fs.closeSync(fd);
+    return false;
+}
+
+// FN under the state lock, which orders every write of the pair list, the
+// pause record, a pair's state and the status record. A run takes it only
+// while it writes, after its pair lock, never the other way round.
+function withStateLock(fn) {
+    const fd = lockFd(path.join(lockDir, "state.lock"), ["-w", "30"]);
+    if (fd === null) refuse("state-lock=timeout");
+    try {
+        return fn();
+    } finally {
+        fs.closeSync(fd);
+    }
+}
+
+// ------------------------------------------------------------------ pairs
+
+const PAIR_KEYS = ["direction", "id", "label", "local", "remote"];
+
+function refusal(pair, rule) {
+    const id = plain(pair) && typeof pair.id === "string" && /^[a-z0-9-]{1,32}$/.test(pair.id) ? pair.id : "?";
+    return "pair=" + id + " rule=" + rule;
+}
+
+// The real path of P where it exists, else P itself, so a symlink cannot
+// slip a pair past the home and overlap rules.
+function real(p) {
+    try {
+        return fs.realpathSync(p);
+    } catch (_e) {
+        return p;
+    }
+}
+
+const CONTROL = /[\u0000-\u001f\u007f]/;
+
+// The refusal of one pair alone, or null.
+function pairError(pair) {
+    if (!plain(pair) || Object.keys(pair).sort().join(",") !== PAIR_KEYS.join(",")) return refusal(pair, "shape");
+    if (typeof pair.id !== "string" || !/^[a-z0-9][a-z0-9-]{0,31}$/.test(pair.id)) return refusal(pair, "id");
+    if (typeof pair.label !== "string" || pair.label.trim() === "" || pair.label.length > 64 || CONTROL.test(pair.label)) return refusal(pair, "label");
+    if (DIRECTIONS.indexOf(pair.direction) === -1) return refusal(pair, "direction");
+    if (typeof pair.remote !== "string" || CONTROL.test(pair.remote)) return refusal(pair, "remote");
+    if (pair.remote === "") return refusal(pair, "drive-root");
+    if (pair.remote.split("/").some(part => part === "" || part === "." || part === "..")) return refusal(pair, "remote");
+    if (typeof pair.local !== "string" || !path.isAbsolute(pair.local) || path.normalize(pair.local) !== pair.local || pair.local.endsWith("/") && pair.local !== "/" || CONTROL.test(pair.local)) return refusal(pair, "local");
+    const local = real(pair.local);
+    if (within(local, real(home))) return refusal(pair, "home-or-above");
+    if (fs.existsSync(path.join(local, ".git"))) return refusal(pair, "repository-root");
+    if (within(local, real(stateDir)) || within(real(stateDir), local)) return refusal(pair, "state-overlap");
+    return null;
+}
+
+// The first refusal of a pair list, or null: each pair alone, then every
+// two pairs against each other.
+function pairsError(pairs) {
+    for (const pair of pairs) {
+        const error = pairError(pair);
+        if (error !== null) return error;
+    }
+    for (let i = 0; i < pairs.length; i++) {
+        for (let j = 0; j < i; j++) {
+            const a = pairs[i];
+            const b = pairs[j];
+            if (a.id === b.id) return refusal(a, "duplicate-id");
+            const la = real(a.local);
+            const lb = real(b.local);
+            if (within(la, lb) || within(lb, la)) return refusal(a, "local-overlap");
+            if (within(a.remote, b.remote) || within(b.remote, a.remote)) return refusal(a, "remote-overlap");
+        }
+    }
+    return null;
+}
+
+// { pairs, error }: an absent file is no pairs; a defect names itself and
+// runs no pair.
+function readPairs() {
+    const read = readJson(pairsFile);
+    if (read.kind === "absent") return { pairs: [], error: null };
+    if (read.kind === "bad") return { pairs: [], error: "pairs-file=" + read.reason };
+    if (!plain(read.value) || Object.keys(read.value).join(",") !== "pairs" || !Array.isArray(read.value.pairs))
+        return { pairs: [], error: "pairs-file=shape" };
+    const error = pairsError(read.value.pairs);
+    return error === null ? { pairs: read.value.pairs, error: null } : { pairs: [], error: error };
+}
+
+// ---------------------------------------------------------- pause record
+
+function readControl() {
+    const read = readJson(controlFile);
+    if (read.kind === "ok" && plain(read.value) && typeof read.value.paused === "boolean" && Array.isArray(read.value.pausedPairs))
+        return read.value;
+    if (read.kind === "absent") return { paused: false, pausedPairs: [] };
+    // A pause record that cannot be read holds every run back, so a pause
+    // the user set is never lost to a damaged file.
+    log("control=" + (read.kind === "bad" ? read.reason : "shape") + " paused=assumed");
+    return { paused: true, pausedPairs: [] };
+}
+
+function isPaused(control, id) {
+    return control.paused || control.pausedPairs.indexOf(id) !== -1;
+}
+
+// ----------------------------------------------------------- pair state
+
+function readPairState(id) {
+    const read = readJson(path.join(pairDir(id), "state.json"));
+    const empty = { state: "idle", startedAt: null, lastAttempt: null, lastSuccess: null, lastError: null, changes: null, localEdits: [] };
+    return read.kind === "ok" && plain(read.value) ? Object.assign(empty, read.value) : empty;
+}
+
+function writePairState(id, state) {
+    writeJson(path.join(pairDir(id), "state.json"), state);
+}
+
+function readInventory(id) {
+    const read = readJson(path.join(pairDir(id), "inventory.json"));
+    return read.kind === "ok" && plain(read.value) && plain(read.value.entries) ? read.value.entries : {};
+}
+
+// ------------------------------------------------------------ credentials
+
+// One account's secret, searched without --unlock so an unattended run
+// raises no unlock prompt. `secret-tool search` prints the first match's
+// `label = ` and, only when its collection is unlocked, `secret = <value>`
+// on stdout (libsecret tool/secret-tool.c). The value stays in this
+// process and the rclone child's environment.
+function readSecret(tool, account) {
+    const out = run(tool, ["search", "service", SECRET_SERVICE, "account", account], { timeout: 10000, killSignal: "SIGKILL" });
+    if (out.status !== 0) return { kind: "unavailable", reason: out.status === null ? "secret-tool-timeout" : "secret-tool-failed" };
+    const lines = out.stdout.split("\n");
+    const secret = lines.find(line => line.startsWith("secret = "));
+    if (secret !== undefined && secret.length > "secret = ".length) return { kind: "found", value: secret.slice("secret = ".length) };
+    if (lines.some(line => line.startsWith("label = "))) return { kind: "locked" };
+    return { kind: "absent" };
+}
+
+// { kind: "found", values: { part: value } }, or the first account that
+// failed: { kind: "absent"|"locked"|"unavailable", account, reason? }.
+function readCredential(direction) {
+    const tool = which("secret-tool");
+    const values = {};
+    for (const part of CREDENTIAL_PARTS) {
+        const account = direction + "-" + part;
+        if (tool === null) return { kind: "unavailable", account: account, reason: "secret-tool-missing" };
+        const got = readSecret(tool, account);
+        if (got.kind !== "found") return Object.assign({ account: account }, got);
+        values[part] = got.value;
+    }
+    return { kind: "found", values: values };
+}
+
+// Presence without the value: stdout goes nowhere; an item found prints its
+// `attribute.` lines on stderr, and a locked one a `secret-tool: ` line
+// naming the lock, gnome-keyring's `Cannot get secret of a locked object`.
+function probeAccount(tool, account) {
+    if (tool === null) return "unavailable";
+    const out = run(tool, ["search", "service", SECRET_SERVICE, "account", account], { stdio: ["ignore", "ignore", "pipe"], timeout: 10000, killSignal: "SIGKILL" });
+    if (out.status !== 0) return "unavailable";
+    const lines = out.stderr.split("\n");
+    const found = lines.some(line => line.startsWith("attribute."));
+    const failure = lines.find(line => line.startsWith("secret-tool: "));
+    if (!found && failure === undefined) return "absent";
+    if (found && failure === undefined) return "present";
+    if (found && /locked/i.test(failure)) return "locked";
+    return "unavailable";
+}
+
+// ----------------------------------------------------------------- rclone
+
+function filterArgs() {
+    return [].concat(...EXCLUDES.map(pattern => ["--exclude", pattern]));
+}
+
+function remotePath(pair) {
+    return REMOTE + ":" + pair.remote;
+}
+
+// The rclone child's environment: the remote defined by variables alone,
+// with no config file (`--config /dev/null` keeps rclone's configuration
+// in memory). rclone refreshes the access token in memory each run. The
+// stored refresh token does not change: Google's refresh response carries
+// no refresh_token (developers.google.com/identity/protocols/oauth2/
+// native-app, "Refreshing an access token"), and golang.org/x/oauth2 keeps
+// the one it sent (internal/token.go, RetrieveToken). So nothing is stored
+// back.
+function rcloneEnv(direction, values) {
+    const extra = {};
+    extra[REMOTE_ENV + "TYPE"] = "drive";
+    extra[REMOTE_ENV + "CLIENT_ID"] = values["client-id"];
+    extra[REMOTE_ENV + "CLIENT_SECRET"] = values["client-secret"];
+    extra[REMOTE_ENV + "TOKEN"] = values.token;
+    extra[REMOTE_ENV + "SCOPE"] = SCOPES[direction];
+    return childEnv(extra);
+}
+
+// rclone exit 3 is its documented "directory not found": a missing source.
+function failureKind(status, stderr) {
+    if (status === 3) return "source-missing";
+    const row = FAILURES.find(r => r.pattern.test(stderr));
+    return row === undefined ? "rclone-failed" : row.kind;
+}
+
+// Runs rclone ARGS: { ok, stdout } or { ok: false, kind, exit }. Its
+// stderr reaches this runner's stderr, the journal, with every secret
+// value replaced.
+function rclone(args, env, secrets) {
+    const bin = which("rclone");
+    if (bin === null) return { ok: false, kind: "rclone-missing", exit: null };
+    const out = run(bin, ["--config", "/dev/null"].concat(args), { env: env, maxBuffer: 1 << 30 });
+    let stderr = String(out.stderr || "");
+    for (const secret of secrets) stderr = stderr.split(secret).join("[secret]");
+    if (stderr.trim() !== "") process.stderr.write(stderr.length > 65536 ? stderr.slice(-65536) : stderr);
+    if (out.status === 0) return { ok: true, stdout: out.stdout };
+    return { ok: false, kind: failureKind(out.status, stderr), exit: out.status };
+}
+
+// ------------------------------------------------------- conflict records
+
+// Classifies every file rclone moved into conflict storage (--backup-dir)
+// that no record names yet. A displaced file that matches its inventory
+// baseline (size, modification time, and md5 where the baseline has one)
+// is this runner's own earlier download, which a plain `rclone copy` would
+// have overwritten in place: it is removed, the one deletion the runner
+// makes. Any other displaced file is a local edit: kept and recorded.
+// Records whose stored file is gone were resolved and are dropped.
+function classifyDisplaced(id, inventory, records) {
+    const root = path.join(pairDir(id), "conflicts");
+    const kept = records.filter(r => fs.existsSync(path.join(root, r.stored)));
+    const known = new Set(kept.map(r => r.stored));
+    for (const stored of filesUnder(root)) {
+        if (known.has(stored)) continue;
+        const rel = stored.slice(stored.indexOf("/") + 1);
+        const file = path.join(root, stored);
+        const st = fs.statSync(file);
+        const base = hasOwn(inventory, rel) ? inventory[rel] : undefined;
+        const unedited = base !== undefined && base.state === undefined && base.size === st.size && base.mtimeMs === st.mtimeMs
+            && (base.hash === null || md5File(file) === base.hash);
+        if (unedited) {
+            fs.unlinkSync(file);
+        } else {
+            kept.push({ path: rel, stored: stored, at: now() });
+            log("pair=" + id + " local-edit=kept");
+        }
+    }
+    for (const dir of fs.existsSync(root) ? fs.readdirSync(root) : []) removeEmptyDirs(path.join(root, dir));
+    return kept;
+}
+
+function removeEmptyDirs(dir) {
+    let entries;
+    try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (_e) {
+        return;
+    }
+    for (const entry of entries) if (entry.isDirectory()) removeEmptyDirs(path.join(dir, entry.name));
+    try {
+        fs.rmdirSync(dir);
+    } catch (_e) {
+        // Not empty: it holds a kept version.
+    }
+}
+
+// The inventory after a complete pull: every listed file as it now sits in
+// the mirror, and every earlier entry the listing lost whose local file is
+// still there, as `renamed` when its Drive object id is listed at a new
+// path, else `removed-on-drive`. A backend without object ids, such as
+// rclone's local one, tracks by path alone, so a rename there reads as a
+// removal and an addition. { entries, changes }
+function nextInventory(pair, listing, before) {
+    const entries = {};
+    const pathOfId = {};
+    let added = 0;
+    let updated = 0;
+    for (const item of listing) if (item.ID) pathOfId[item.ID] = item.Path;
+    for (const item of listing) {
+        let st;
+        try {
+            st = fs.lstatSync(path.join(pair.local, item.Path));
+        } catch (_e) {
+            continue;
+        }
+        if (!st.isFile()) continue;
+        const md5 = plain(item.Hashes) && typeof item.Hashes.md5 === "string" ? item.Hashes.md5 : null;
+        const matches = item.Size === st.size && Date.parse(item.ModTime) === Math.floor(st.mtimeMs);
+        const old = hasOwn(before, item.Path) ? before[item.Path] : undefined;
+        if (old === undefined || old.state !== undefined) added += 1;
+        else if (old.size !== st.size || old.mtimeMs !== st.mtimeMs) updated += 1;
+        entries[item.Path] = { size: st.size, mtimeMs: st.mtimeMs, hash: matches ? md5 : null, id: item.ID || null };
+    }
+    for (const rel of Object.keys(before)) {
+        if (hasOwn(entries, rel) || !fs.existsSync(path.join(pair.local, rel))) continue;
+        const old = before[rel];
+        const to = old.id && hasOwn(pathOfId, old.id) ? pathOfId[old.id] : null;
+        const entry = { size: old.size, mtimeMs: old.mtimeMs, hash: old.hash, id: old.id, state: to === null ? "removed-on-drive" : "renamed", since: old.since || now() };
+        if (to !== null) entry.to = to;
+        entries[rel] = entry;
+    }
+    return { entries: entries, changes: { added: added, updated: updated } };
+}
+
+// --------------------------------------------------------------- one pair
+
+function failed(state, kind, extra) {
+    return Object.assign(state, {
+        state: hasOwn(FAILURE_STATES, kind) ? FAILURE_STATES[kind] : "error",
+        lastError: Object.assign({ kind: kind, at: now() }, extra || {})
+    });
+}
+
+function rcloneFailed(state, result) {
+    return failed(state, result.kind, result.exit === null ? {} : { exit: result.exit });
+}
+
+function pull(pair, state, env, secrets) {
+    const inventory = readInventory(pair.id);
+    const stamp = now().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z") + "-" + process.pid;
+    const backup = path.join(pairDir(pair.id), "conflicts", stamp);
+    const common = filterArgs().concat(["--drive-export-formats", EXPORT_FORMATS]);
+    const listed = rclone(["lsjson", "-R", "--files-only", "--fast-list", "--hash", "--hash-type", "md5", remotePath(pair)].concat(common), env, secrets);
+    if (!listed.ok) return rcloneFailed(state, listed);
+    let listing;
+    try {
+        listing = JSON.parse(listed.stdout);
+    } catch (_e) {
+        return failed(state, "listing-unreadable");
+    }
+    // rclone's own atomic download, a `.partial` name renamed when whole,
+    // keeps a cut-off run from leaving a half file in the mirror;
+    // --backup-dir moves every local file the copy replaces into conflict
+    // storage first.
+    const copied = rclone(["copy", remotePath(pair), pair.local, "--backup-dir", backup].concat(common), env, secrets);
+    state.localEdits = classifyDisplaced(pair.id, inventory, state.localEdits);
+    if (!copied.ok) return rcloneFailed(state, copied);
+    const next = nextInventory(pair, listing, inventory);
+    writeJson(path.join(pairDir(pair.id), "inventory.json"), { entries: next.entries });
+    return Object.assign(state, { state: "idle", lastSuccess: now(), lastError: null, changes: next.changes });
+}
+
+// Never --drive-import-formats: an export stays a file on Drive.
+function upload(pair, state, env, secrets) {
+    const copied = rclone(["copy", pair.local, remotePath(pair)].concat(filterArgs()), env, secrets);
+    if (!copied.ok) return rcloneFailed(state, copied);
+    return Object.assign(state, { state: "idle", lastSuccess: now(), lastError: null, changes: null });
+}
+
+// One pair under its lock: `busy` when another run holds it.
+function runPair(pair, control) {
+    if (isPaused(control, pair.id)) return "paused";
+    const fd = lockFd(pairLock(pair.id), ["-n"]);
+    if (fd === null) return "busy";
+    try {
+        let state = withStateLock(() => {
+            const begun = Object.assign(readPairState(pair.id), { state: "running", startedAt: now(), lastAttempt: now() });
+            writePairState(pair.id, begun);
+            writeStatus();
+            return begun;
+        });
+        const credential = readCredential(pair.direction);
+        if (credential.kind === "found") {
+            const secrets = CREDENTIAL_PARTS.map(part => credential.values[part]);
+            const env = rcloneEnv(pair.direction, credential.values);
+            state = pair.direction === "pull" ? pull(pair, state, env, secrets) : upload(pair, state, env, secrets);
+        } else {
+            const kind = credential.kind === "unavailable" ? credential.reason : "credential-" + credential.kind;
+            state = failed(state, kind, { account: credential.account });
+        }
+        state.startedAt = null;
+        withStateLock(() => {
+            writePairState(pair.id, state);
+            writeStatus();
+        });
+        return state.state;
+    } finally {
+        fs.closeSync(fd);
+    }
+}
+
+// ----------------------------------------------------------------- units
+
+// One ExecStart= or Environment= word, quoted as systemd reads it back: a
+// backslash and a quote escaped, `%` and `$` doubled so nothing expands.
+function systemdQuote(arg) {
+    const s = String(arg);
+    if (CONTROL.test(s)) refuse("unit-argument=control-character");
+    return "\"" + s.replace(/\\/g, "\\\\").replace(/"/g, "\\\"").replace(/%/g, "%%").replace(/\$/g, "$$$$") + "\"";
+}
+
+function engineHash() {
+    return crypto.createHash("sha256").update(fs.readFileSync(__filename)).digest("hex").slice(0, 16);
+}
+
+function engineFile(hash) {
+    return path.join(engineRoot, hash, "cloud-sync");
+}
+
+// The service names node by its own path and the engine copy, and hands
+// the runner the directories resolved here, since a user manager's
+// environment need not hold the same ones. A busy run (75) is no failure.
+function serviceText(hash) {
+    const env = ["XDG_CONFIG_HOME=" + configHome, "XDG_STATE_HOME=" + stateHome, "XDG_DATA_HOME=" + dataHome, "XDG_RUNTIME_DIR=" + runtimeDir];
+    const runner = [process.execPath, engineFile(hash)];
+    return [
+        "# Written by vgs.cloud-sync install; install replaces it.",
+        "[Unit]",
+        "Description=VGS Cloud Sync",
+        "",
+        "[Service]",
+        "Type=oneshot",
+        "Environment=" + env.map(systemdQuote).join(" "),
+        "ExecStart=" + runner.concat(["run"]).map(systemdQuote).join(" "),
+        // Runs after any end of the run, a kill included, so the status
+        // record does not keep reading `running`.
+        "ExecStopPost=" + runner.concat(["status", "--quiet"]).map(systemdQuote).join(" "),
+        "SuccessExitStatus=" + EXIT_BUSY,
+        "Nice=10",
+        "IOSchedulingClass=idle",
+        ""
+    ].join("\n");
+}
+
+function timerText() {
+    return [
+        "# Written by vgs.cloud-sync install; install replaces it.",
+        "[Unit]",
+        "Description=VGS Cloud Sync schedule",
+        "",
+        "[Timer]",
+        "OnCalendar=hourly",
+        "Persistent=true",
+        "",
+        "[Install]",
+        "WantedBy=timers.target",
+        ""
+    ].join("\n");
+}
+
+// installed: both units as install would write them now; absent: neither;
+// stale: anything else, such as a unit naming an older runner copy or
+// another node.
+function unitsState() {
+    const service = readText(path.join(unitDir, SERVICE));
+    const timer = readText(path.join(unitDir, TIMER));
+    if (service === null && timer === null) return "absent";
+    return service === serviceText(engineHash()) && timer === timerText() ? "installed" : "stale";
+}
+
+function systemctl(args) {
+    const out = run(requireCommand("systemctl"), ["--user"].concat(args));
+    if (out.status !== 0) refuse("systemctl=failed args=" + args.join(",") + " exit=" + out.status);
+}
+
+// The runner copy the units start, written under a temporary name and
+// renamed into place, so a unit never names a half-written copy.
+function ensureEngine(hash) {
+    const file = engineFile(hash);
+    if (fs.existsSync(file)) return;
+    fs.mkdirSync(engineRoot, { recursive: true });
+    const temp = fs.mkdtempSync(path.join(engineRoot, ".tmp-"));
+    fs.writeFileSync(path.join(temp, "cloud-sync"), fs.readFileSync(__filename), { mode: 0o755 });
+    try {
+        fs.renameSync(temp, path.dirname(file));
+    } catch (e) {
+        fs.rmSync(temp, { recursive: true, force: true });
+        if (!fs.existsSync(file)) throw e;
+    }
+}
+
+function installVerb(words) {
+    if (words.length !== 0) bad("argument=" + words[0]);
+    // The service shares its locks with the plugin and the command line
+    // through this directory, so a unit without it is never written.
+    if (lockDir === "") refuse("runtime-dir=unset");
+    const hash = engineHash();
+    ensureEngine(hash);
+    const wanted = {};
+    wanted[SERVICE] = serviceText(hash);
+    wanted[TIMER] = timerText();
+    const changed = Object.keys(wanted).filter(name => readText(path.join(unitDir, name)) !== wanted[name]);
+    for (const name of changed) writeAtomic(path.join(unitDir, name), wanted[name], 0o644);
+    if (changed.length > 0) systemctl(["daemon-reload"]);
+    systemctl(["enable", "--now", TIMER]);
+    for (const name of fs.readdirSync(engineRoot))
+        if (name !== hash) fs.rmSync(path.join(engineRoot, name), { recursive: true, force: true });
+    withStateLock(writeStatus);
+    process.stdout.write("installed=" + TIMER + " changed=" + changed.length + "\n");
+}
+
+// ----------------------------------------------------------------- status
+
+const PAIR_PRECEDENCE = ["authorization-required", "error", "offline", "paused", "idle"];
+
+function staleAfter(iso) {
+    return iso === null ? null : new Date(Date.parse(iso) + FRESH_MS).toISOString();
+}
+
+// The oldest of ISO times, null when any is null or there are none.
+function oldest(values) {
+    if (values.length === 0 || values.some(v => v === null)) return null;
+    return values.slice().sort()[0];
+}
+
+function conflictsOf(pair, stored) {
+    const found = [];
+    const root = path.join(pairDir(pair.id), "conflicts");
+    for (const r of stored.localEdits)
+        if (fs.existsSync(path.join(root, r.stored)))
+            found.push({ kind: "local-edit", pair: pair.id, pairLabel: pair.label, path: r.path, localPath: path.join(pair.local, r.path), storedPath: path.join(root, r.stored), since: r.at });
+    const inventory = pair.direction === "pull" ? readInventory(pair.id) : {};
+    for (const rel of Object.keys(inventory).sort()) {
+        const e = inventory[rel];
+        if (e.state === "removed-on-drive") found.push({ kind: e.state, pair: pair.id, pairLabel: pair.label, path: rel, localPath: path.join(pair.local, rel), since: e.since });
+        if (e.state === "renamed") found.push({ kind: e.state, pair: pair.id, pairLabel: pair.label, path: rel, localPath: path.join(pair.local, rel), to: e.to, since: e.since });
+    }
+    return found;
+}
+
+// The status record, read from the pair list, the pause record, each
+// pair's state and inventory, its lock and the units. A pair stored as
+// running whose lock nobody holds was cut short: it reads as an error.
+function renderStatus() {
+    const read = readPairs();
+    const control = readControl();
+    const units = unitsState();
+    const pairs = [];
+    let conflicts = [];
+    for (const pair of read.pairs) {
+        const stored = readPairState(pair.id);
+        let state = stored.state;
+        let lastError = stored.lastError;
+        if (state === "running" && !lockHeld(pairLock(pair.id))) {
+            state = "error";
+            lastError = { kind: "interrupted", at: stored.startedAt };
+        }
+        if (state !== "running" && isPaused(control, pair.id)) state = "paused";
+        pairs.push({
+            id: pair.id, label: pair.label, direction: pair.direction, state: state,
+            lastSuccess: stored.lastSuccess, staleAfter: staleAfter(stored.lastSuccess), lastError: lastError, changes: stored.changes
+        });
+        conflicts = conflicts.concat(conflictsOf(pair, stored));
+    }
+    let state;
+    if (read.error !== null) state = "error";
+    else if (pairs.length === 0) state = "not-set-up";
+    else if (pairs.some(p => p.state === "running")) state = "running";
+    else if (units === "absent") state = "not-set-up";
+    else state = PAIR_PRECEDENCE.find(s => pairs.some(p => p.state === s));
+    const errors = pairs.filter(p => p.lastError !== null).map(p => Object.assign({ pair: p.id }, p.lastError));
+    errors.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    const lastError = read.error !== null ? { kind: "pairs-invalid", detail: read.error } : errors.length === 0 ? null : errors[0];
+    const reasons = [];
+    if (pairs.some(p => p.state === "authorization-required")) reasons.push("authorization-required");
+    if (read.error !== null || pairs.some(p => p.state === "error")) reasons.push("error");
+    if (conflicts.length > 0) reasons.push("conflicts");
+    if (units === "stale") reasons.push("units-stale");
+    // The key changes when a reason, a conflict or the last error changes,
+    // so the plugin notifies once per change that needs the user.
+    const key = crypto.createHash("sha256").update(JSON.stringify([reasons, conflicts.map(c => [c.kind, c.pair, c.path, c.since]), lastError])).digest("hex").slice(0, 16);
+    const lastSuccess = oldest(pairs.map(p => p.lastSuccess));
+    return {
+        state: state,
+        paused: control.paused,
+        units: units,
+        lastSuccess: lastSuccess,
+        staleAfter: staleAfter(lastSuccess),
+        lastError: lastError,
+        pairs: pairs,
+        conflicts: conflicts,
+        attention: reasons.length === 0 ? null : { reasons: reasons, key: key },
+        writtenAt: now()
+    };
+}
+
+// Called under the state lock.
+function writeStatus() {
+    const status = renderStatus();
+    writeJson(statusFile, status);
+    return status;
+}
+
+// ------------------------------------------------------------------ verbs
+
+function pairOption(words) {
+    if (words.length === 0) return null;
+    if (words.length !== 2 || words[0] !== "--pair") bad("argument=" + words[0]);
+    return words[1];
+}
+
+function runVerb(words) {
+    const only = pairOption(words);
+    const read = readPairs();
+    if (read.error !== null) {
+        withStateLock(writeStatus);
+        refuse(read.error);
+    }
+    const chosen = only === null ? read.pairs : read.pairs.filter(p => p.id === only);
+    if (only !== null && chosen.length === 0) refuse("pair=unknown");
+    if (chosen.length === 0) log("skipped reason=no-pairs");
+    const control = readControl();
+    let exit = 0;
+    for (const pair of chosen) {
+        const result = runPair(pair, control);
+        process.stdout.write("pair=" + pair.id + " result=" + result + "\n");
+        log("pair=" + pair.id + " result=" + result);
+        if (result === "busy" && exit === 0) exit = EXIT_BUSY;
+        else if (["idle", "paused", "busy"].indexOf(result) === -1) exit = 1;
+    }
+    withStateLock(writeStatus);
+    process.exit(exit);
+}
+
+function statusVerb(words) {
+    if (words.length > 1 || (words.length === 1 && words[0] !== "--quiet")) bad("argument=" + words[0]);
+    const status = withStateLock(writeStatus);
+    if (words.length === 0) process.stdout.write(JSON.stringify(status) + "\n");
+}
+
+function probeVerb(words) {
+    if (words.length !== 0) bad("argument=" + words[0]);
+    const tool = which("secret-tool");
+    const used = readPairs().pairs.map(p => p.direction);
+    const credentials = [];
+    for (const direction of DIRECTIONS)
+        for (const part of CREDENTIAL_PARTS) {
+            const account = direction + "-" + part;
+            credentials.push({ account: account, presence: probeAccount(tool, account), needed: used.indexOf(direction) !== -1 });
+        }
+    process.stdout.write(JSON.stringify({ credentials: credentials }) + "\n");
+}
+
+function startVerb(words) {
+    if (words.length !== 0) bad("argument=" + words[0]);
+    if (unitsState() === "absent") refuse("units=absent");
+    systemctl(["start", "--no-block", SERVICE]);
+    process.stdout.write("started=" + SERVICE + "\n");
+}
+
+function pauseVerb(words, paused) {
+    const only = pairOption(words);
+    withStateLock(() => {
+        if (only !== null && !readPairs().pairs.some(p => p.id === only)) refuse("pair=unknown");
+        const control = readControl();
+        const next = only === null
+            ? { paused: paused, pausedPairs: paused ? control.pausedPairs : [] }
+            : { paused: control.paused, pausedPairs: control.pausedPairs.filter(id => id !== only).concat(paused ? [only] : []) };
+        writeJson(controlFile, next);
+        writeStatus();
+    });
+    process.stdout.write((paused ? "paused=" : "resumed=") + (only === null ? "all" : only) + "\n");
+}
+
+function pairsVerb(words) {
+    if (words.length !== 0) bad("argument=" + words[0]);
+    process.stdout.write(JSON.stringify(readPairs()) + "\n");
+}
+
+function pairAddVerb(words) {
+    if (words.length !== 2 || words[0] !== "--definition") bad("option=--definition value=missing");
+    let pair;
+    try {
+        pair = JSON.parse(words[1]);
+    } catch (_e) {
+        bad("definition=not-json");
+    }
+    withStateLock(() => {
+        const read = readPairs();
+        if (read.error !== null) refuse(read.error);
+        const next = read.pairs.concat([pair]);
+        const error = pairsError(next);
+        if (error !== null) refuse(error);
+        writeJson(pairsFile, { pairs: next });
+        writeStatus();
+    });
+    process.stdout.write("added=" + pair.id + "\n");
+}
+
+function pairRemoveVerb(words) {
+    if (words.length !== 1) bad("argument=" + (words[1] || "missing"));
+    withStateLock(() => {
+        const read = readPairs();
+        if (read.error !== null) refuse(read.error);
+        if (!read.pairs.some(p => p.id === words[0])) refuse("pair=unknown");
+        writeJson(pairsFile, { pairs: read.pairs.filter(p => p.id !== words[0]) });
+        writeStatus();
+    });
+    process.stdout.write("removed=" + words[0] + "\n");
+}
+
+// ------------------------------------------------------------------- main
+
+const verb = process.argv[2];
+const rest = process.argv.slice(3);
+switch (verb) {
+case "run": runVerb(rest); break;
+case "status": statusVerb(rest); break;
+case "probe": probeVerb(rest); break;
+case "install": installVerb(rest); break;
+case "start": startVerb(rest); break;
+case "pause": pauseVerb(rest, true); break;
+case "resume": pauseVerb(rest, false); break;
+case "pairs": pairsVerb(rest); break;
+case "pair-add": pairAddVerb(rest); break;
+case "pair-remove": pairRemoveVerb(rest); break;
+default: bad("verb=" + (verb || "missing"));
+}
