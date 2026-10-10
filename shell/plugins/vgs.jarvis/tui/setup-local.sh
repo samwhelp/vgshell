@@ -20,4 +20,20 @@ else
   vgs_tui_header "Set up local voice" "Downloads the local voice model you chose on the Jarvis page and a private Python runtime." \
     "No microphone, speaker or system settings are opened."
 fi
+# Install removes the ready tier before it downloads, so replacing one asks
+# first. The question names the ready tier and the one to install, as
+# setup-local's choices and the tier table give them; "" when none is ready.
+answer="$(python3 -I "$VGS_PLUGIN_DIR/setup-local" choices)" || exit 1
+question="$(python3 -I -c '
+import json, sys
+from pathlib import Path
+value, tiers = json.loads(sys.argv[1]), json.loads(Path(sys.argv[2]).read_text())["tiers"]
+target, ready = sys.argv[3] or value["pick"], value["ready"]
+if ready is not None and ready != target and target in tiers:
+    print(tiers[ready]["name"] + " is ready. Replace it with " + tiers[target]["name"] + ": " + tiers[target]["description"] + "?")
+' "$answer" "$VGS_PLUGIN_DIR/artifacts.json" "${1:-}")" || exit 1
+if [[ -n $question ]] && ! vgs_tui_confirm "$question"; then
+  printf 'The ready local voice model stays.\n'
+  exit 130
+fi
 exec python3 -I "$VGS_PLUGIN_DIR/setup-local" install "$@"

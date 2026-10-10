@@ -26,6 +26,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 from urllib.parse import urlparse
 
 HERE = Path(__file__).resolve().parent
@@ -44,6 +45,11 @@ GPU_SHARE = 2
 # medium's turn time was measured only on a 32-thread machine; no reading
 # proves it on fewer.
 MEDIUM_THREADS = 32
+# How long install waits for the state lock, in seconds. A status or choices
+# read holds it shared for one verification of the ready tier, and a
+# requirement scan starts both; an install holds it for its whole download,
+# so a second install still ends busy. The bound is chosen, not measured.
+LOCK_WAIT = 30
 # One tier's environment and models. uv's cache and managed Python stay.
 RUNTIME = ("venv", "models", "requirements-cuda.lock")
 
@@ -240,10 +246,15 @@ def install(judge, state, data, tier, reading):
     """
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (state / "local-setup.lock").open("a") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise ValueError("setup=busy") from None
+        deadline = time.monotonic() + LOCK_WAIT
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise ValueError("setup=busy") from None
+                time.sleep(0.1)
         value = judge.manifest(HERE / "artifacts.json")
         artifacts, provider = selected(value, tier)
         if not runnable(provider, reading):

@@ -8,8 +8,8 @@ import "SetupGate.js" as Gate
 // every local setup run ends; its offers become the `localTiers` choices.
 // A change of `localTier` starts the wanted tier's download in the floating
 // TUI (SetupGate.tierRun); after a run ends, the setting follows the tier
-// it left ready (SetupGate.tierAfterRun). A start and the service's own
-// write start no run.
+// it left ready (SetupGate.tierAfterRun), and so it does when the TUI
+// refuses the run. A start and the service's own write start no run.
 Item {
     id: root
     property var shell: null
@@ -21,6 +21,8 @@ Item {
     property bool pending: false
     // A run ended and the read that follows it has not answered yet.
     property bool afterRun: false
+    // The setting when the last run ended: a pick made since is kept.
+    property var endedWanted: null
     property int code: -1
     property string output: ""
     readonly property string wanted: shell === null ? "" : shell.settings.localTier
@@ -31,13 +33,16 @@ Item {
     property var command: ["python3", "-I", program, "choices"]
     onShellChanged: {
         if (shell === null || decided !== null) return;
-        decided = wanted;
+        // Qt runs this handler before the `wanted` binding re-evaluates
+        // (a run on Qt 6.11.2 read "" there), so the facade gives the value.
+        decided = shell.settings.localTier;
         refresh();
     }
     onWantedChanged: decide()
     onEndedAtChanged: {
         if (endedAt === null) return;
         afterRun = true;
+        endedWanted = wanted;
         refresh();
     }
     onRequirementsRevisionChanged: refresh()
@@ -59,7 +64,23 @@ Item {
         const args = Gate.tierRun(wanted, reading.pick, reading.ready);
         if (args === null) return;
         const answer = shell.tui.run("setup-local", args);
-        if (answer !== "ok") console.warn("jarvis-tier: run=" + answer);
+        if (answer === "ok") return;
+        console.warn("jarvis-tier: run=" + answer);
+        // configure.set replaces `shell` before it returns; from this change
+        // handler of `wanted` Qt would keep the old value (Accounts.qml save).
+        Qt.callLater(follow);
+    }
+
+    // Write the setting to the tier setup left ready, "auto" for the pick,
+    // so the page shows what is installed; nothing while it already does.
+    // Answers whether it wrote.
+    function follow() {
+        if (shell === null || reading === null) return false;
+        const next = Gate.tierAfterRun(wanted, reading.pick, reading.ready);
+        if (next === null) return false;
+        // The written tier is ready, so the setting it delivers starts no run.
+        if (shell.configure.set("localTier", next) !== "ok") console.warn("jarvis-tier: setting=refused");
+        return true;
     }
 
     function answered() {
@@ -75,10 +96,9 @@ Item {
         if (pending) return;
         const ended = afterRun;
         afterRun = false;
-        const next = ended && reading !== null ? Gate.tierAfterRun(wanted, reading.pick, reading.ready) : null;
-        if (next === null) decide();
-        // The written tier is ready, so the setting it delivers starts no run.
-        else if (shell.configure.set("localTier", next) !== "ok") console.warn("jarvis-tier: setting=refused");
+        // A pick made since the run ended is judged as a change instead.
+        if (ended && wanted === endedWanted && follow()) return;
+        decide();
     }
 
     Process {

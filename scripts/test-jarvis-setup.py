@@ -297,6 +297,8 @@ class Setup(unittest.TestCase):
         self.install()
         self.ready()
         marker = (self.state / "local-ready.json").read_bytes()
+        # A copy with a one-second bound keeps the busy case short.
+        self.mutant("LOCK_WAIT = 30\n", "LOCK_WAIT = 1\n")
         with (self.state / "local-setup.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             result = self.install(1)
@@ -306,6 +308,31 @@ class Setup(unittest.TestCase):
             self.mutant("fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)",
                         "False and fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)")
             self.install()
+
+    def test_install_waits_for_a_status_reader_and_control(self):
+        # A status read holds the lock shared while it verifies; install
+        # waits for it rather than ending busy. The child must still be
+        # waiting a second after it starts: a run that ends busy exits at
+        # once, well inside that second.
+        def held_install():
+            with (self.state / "local-setup.lock").open("a") as lock:
+                fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                child = subprocess.Popen([sys.executable, "-I", str(self.plugin / "setup-local"), "install", "small"],
+                                         env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                deadline = time.monotonic() + 1
+                while time.monotonic() < deadline and child.poll() is None:
+                    time.sleep(0.05)
+                waited = child.poll() is None
+            out, err = child.communicate(timeout=60)
+            return waited, child.returncode, err
+        self.state.mkdir(parents=True, exist_ok=True)
+        waited, code, err = held_install()
+        self.assertEqual([waited, code], [True, 0], err)
+        self.ready()
+        self.mutant("                if time.monotonic() >= deadline:", "                if True or time.monotonic() >= deadline:")
+        waited, code, err = held_install()
+        self.assertEqual([waited, code], [False, 1], err)
+        self.assertIn("setup=busy", err)
 
     def test_archive_path_control(self):
         archive = self.root / "unsafe.tar"
@@ -449,9 +476,13 @@ class Setup(unittest.TestCase):
     def test_tui_and_control(self):
         # Neutral core presentation double. The actual TUI executes the real
         # installer with the tier it is handed, or none for the pick.
+        # The confirmation double records each question and answers CONFIRM.
         library = self.root / "tui-lib.sh"
-        library.write_text('vgs_tui_header() { :; }\nvgs_tui_error() { :; }\n')
-        env = dict(self.env, VGS_TUI_LIB=str(library), VGS_PLUGIN_DIR=str(self.plugin))
+        questions = self.root / "questions"
+        library.write_text('vgs_tui_header() { :; }\nvgs_tui_error() { :; }\n'
+                           'vgs_tui_confirm() { printf "%s\\n" "$1" >>"$QUESTIONS"; return "$CONFIRM"; }\n')
+        env = dict(self.env, VGS_TUI_LIB=str(library), VGS_PLUGIN_DIR=str(self.plugin),
+                   QUESTIONS=str(questions), CONFIRM="0")
         script = self.plugin / "tui/setup-local.sh"
         run = lambda *args: subprocess.run(["bash", str(script), *args],
             env=env, capture_output=True, text=True, check=False, timeout=30)
@@ -463,9 +494,29 @@ class Setup(unittest.TestCase):
         # The page's choice reaches the installer.
         self.config["tier"] = "medium"
         self.write_config()
+        self.assertFalse(questions.exists(), "nothing was ready, so nothing is replaced")
         result = run("medium")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.ready()
+        self.assertEqual(len(questions.read_text().splitlines()), 1, "replacing small asks once")
+        # A No keeps the ready tier and installs nothing.
+        source = script.read_text()
+        for name, changed in (("shipped", source),
+                              ("control", source.replace('if [[ -n $question ]] && ! vgs_tui_confirm', 'if false && ! vgs_tui_confirm'))):
+            with self.subTest(case=name):
+                self.assertNotEqual(name == "control", changed == source)
+                script.write_text(changed)
+                # The double's probe accepts small, so a run that ignores
+                # the No replaces medium.
+                self.config["tier"] = "small"
+                self.write_config()
+                env["CONFIRM"] = "1"
+                result = run("small")
+                env["CONFIRM"] = "0"
+                self.assertEqual(self.report()["text"], "Ready: " + ("medium" if name == "shipped" else "small"))
+                if name == "shipped":
+                    self.assertEqual(result.returncode, 130, result.stdout + result.stderr)
+        script.write_text(source)
         self.assertEqual(run("medium", "small").returncode, 2)
         (self.commands / "uv").unlink()
         self.assertEqual(run().returncode, 77)

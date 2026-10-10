@@ -12,11 +12,12 @@
 # chosen as the AI model, the daemon refuses it, the AI model step offers
 # Update Pi, the Setup section draws it beside the step, and a click on it
 # raises the core's notice for pi; the same Pi at its floor offers no
-# update, which is the control. The Local voice setting: a change opens
-# local setup with the wanted tier, Automatic with none; the run's end
-# writes back the tier it left ready, which opens nothing, and nor does a
-# wanted tier that is ready. Its control is a LocalTier copy that opens no
-# run.
+# update, which is the control. The Local voice setting: a start opens no
+# local setup, which a reader copy that reads its start setting from the
+# binding breaks; a change opens local setup with the wanted tier,
+# Automatic with none; the run's end writes back the tier it left ready,
+# which opens nothing, and nor does a wanted tier that is ready. Its
+# control is a LocalTier copy that opens no run.
 # inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-local-speech/standin.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js
 set -euo pipefail
 local_reader="$repo/shell/plugins/vgs.jarvis/LocalRuntime.qml"
@@ -42,6 +43,7 @@ setup_pi_standin="$sandbox/jarvis-world/standins/pi"
 printf '#!/bin/bash\n[[ $# == 1 && $1 == --version ]] || exit 2\nexec cat %q\n' "$setup_pi_version" >"$setup_pi_standin" && chmod 755 "$setup_pi_standin" ||
   fail "the daemon's Pi stand-in is not written"
 jarvis_rescan
+forget_record
 jarvis_enable
 settings_page_open vgs.jarvis
 
@@ -268,6 +270,37 @@ setup_tier_opens_none() { # LABEL RUN_ID
   expect "$1: no terminal opened" "$2" setup_run_id
 }
 setup_tier_reader="$repo/shell/plugins/vgs.jarvis/LocalTier.qml"
+# A start with the default answer, small the pick and nothing ready, opens
+# no local setup: the reader acts only on a change of the setting.
+setup_tier_start_none() {
+  expect_poll "the Local voice reader reads the default answer at start" '["small", null]' setup_tier_reading
+  expect_run_end "no local setup is pending after the start" vgs.jarvis/setup-local
+  expect "the start opened no local setup" absent recorded
+}
+setup_tier_start_none
+# Control: a reader copy that takes the start setting from its binding,
+# which still reads "" when the shell arrives, opens local setup at start.
+cp -- "$setup_tier_reader" "$sandbox/local-tier-original"
+python3 - "$setup_tier_reader" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+assert not p.is_symlink()
+s=p.read_text()
+needle="decided = shell.settings.localTier;"
+assert s.count(needle)==1
+p.write_text(s.replace(needle, "decided = wanted;"))
+PY
+forget_record
+jarvis_rescan
+setup_tier_start_control() {
+  (failures=0 behaviour_failures=0
+   setup_tier_start_none >"$sandbox/tier-start-control.log"
+   echo "$failures")
+}
+expect "a start setting read from the binding opens local setup" 1 local_control_count setup_tier_start_control
+cp -- "$sandbox/local-tier-original" "$setup_tier_reader"
+jarvis_rescan
 local_open() { # manager action or listed launcher entry
   local revision snapshot
   revision="$(jarvis_revision)" || return 1
