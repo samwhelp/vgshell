@@ -45,6 +45,12 @@ const DEFAULTS = [
     // alpha(#ff5a36, 0.35): 255 * 0.35 = 89.25
     ["color.selection", "#ff5a3659"],
     ["color.dangerSubtle", "#f43f5e24"],
+    // A badge's text: its role moved 0.28 toward contrast(#000000) =
+    // #ffffff. mix(#b4c96f, #ffffff, 0.28): 180 + 75 * 0.28 = 201,
+    // 201 + 54 * 0.28 = 216.12, 111 + 144 * 0.28 = 151.32.
+    ["badge.tone.success.foreground", "#c9d897ff"],
+    // mix(#aaaaab, #ffffff, 0.1): 170 + 85 * 0.1 = 178.5, 171 + 84 * 0.1 = 179.4.
+    ["badge.tone.neutral.foreground", "#b3b3b3ff"],
     ["space.xxs", 2],
     ["space.sm", 6],
     ["space.xxxl", 32],
@@ -642,7 +648,8 @@ const catalogTheme = (name, mode, accent) => JSON.stringify({ schemaVersion: 1, 
 const READABILITY_ROLES = ["color.text", "color.textHeading", "color.textMuted", "color.textFaint", "color.accent", "color.success", "color.warning", "color.danger", "color.info"];
 const READABILITY_SURFACES = ["color.background", "color.surface", "color.surfaceRaised", "color.surfaceSunken"];
 const BOUNDARY_ROLES = ["checkbox.borderColor", "radio.borderColor", "textField.borderColor", "toggle.off", "checkbox.checked", "radio.checked", "toggle.on"];
-const READABILITY_PAIRS = [["segmented.foreground", "segmented.background"], ["segmented.selectedForeground", "segmented.selected"]];
+const READABILITY_PAIRS = [["segmented.foreground", "segmented.background"], ["segmented.selectedForeground", "segmented.selected"],
+    ...["neutral", "accent", "success", "warning", "danger", "info"].map(tone => [`badge.tone.${tone}.foreground`, `badge.tone.${tone}.background`])];
 const BOUNDARY_PAIRS = [["toggle.knobOff", "toggle.off"], ["toggle.knobOn", "toggle.on"], ["checkbox.mark", "checkbox.checked"], ["segmented.indicatorColor", "segmented.selected"], ["segmented.indicatorColor", "segmented.background"]];
 const truncateRatio = value => Math.floor(value * 100) / 100;
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -721,6 +728,24 @@ function verify(judge) {
         assert.equal(segmentedFailure.ok, true, segmentedFailure.ok ? "" : judge.refusalLine(segmentedFailure));
         assert.deepEqual(plain(judge.readabilityShortfalls(segmentedFailure.values).map(row => [row.text, row.surface, row.floor])), rows, JSON.stringify(segmented));
     }
+
+    // A badge's text on its translucent fill is judged on the fill laid
+    // over each resting surface, by the ratio of that blend; an opaque
+    // fill is judged as it is.
+    const badgeFailure = judge.accept(TOKENS, document({ badge: { tone: { success: { foreground: "#3a3a3a" } } } }));
+    assert.equal(badgeFailure.ok, true, badgeFailure.ok ? "" : judge.refusalLine(badgeFailure));
+    const blend = surface => {
+        const fill = judge.parseColor(at(badgeFailure.values, "badge.tone.success.background"));
+        const base = judge.parseColor(at(badgeFailure.values, surface));
+        const mixed = channel => fill[channel] * fill.a + base[channel] * (1 - fill.a);
+        return { r: mixed("r"), g: mixed("g"), b: mixed("b"), a: 1 };
+    };
+    assert.deepEqual(plain(judge.readabilityShortfalls(badgeFailure.values).map(row => [row.text, row.surface, truncateRatio(row.ratio), row.floor])),
+        READABILITY_SURFACES.map(surface => ["badge.tone.success.foreground", "badge.tone.success.background over " + surface,
+            truncateRatio(judge.contrastRatio(judge.parseColor("#3a3a3a"), blend(surface))), 4.5]));
+    const opaqueFill = judge.accept(TOKENS, document({ badge: { tone: { success: { background: "#c9d897" } } } }));
+    assert.equal(opaqueFill.ok, true, opaqueFill.ok ? "" : judge.refusalLine(opaqueFill));
+    assert.deepEqual(plain(judge.readabilityShortfalls(opaqueFill.values)), [{ text: "badge.tone.success.foreground", surface: "badge.tone.success.background", ratio: 1, floor: 4.5 }]);
 
     // The resolved tree holds exactly the table's tokens, each with a value
     // of its type's portable form.
@@ -1371,6 +1396,10 @@ const CONTROLS = [
     ["readability surfaces", "    \"color.surfaceRaised\",\n", ""],
     ["readability floor", "var READABILITY_FLOOR = 4.5;", "var READABILITY_FLOOR = 1;"],
     ["readability pairs", "    [\"segmented.foreground\", \"segmented.background\"],\n", ""],
+    ["readability badge pairs", "    [\"badge.tone.success.foreground\", \"badge.tone.success.background\"],\n", ""],
+    ["readability translucent fill over a surface", "if (fill === null || fill.a === 1)", "if (true)"],
+    ["readability fill blend", "r: fill.r * fill.a + base.r * (1 - fill.a),", "r: fill.r,"],
+    ["readability fill named with its surface", 'pairs[q][1] + " over " + under', "pairs[q][1]"],
     ["readability pair floor", "pairs.push([READABILITY_PAIRS[p][0], READABILITY_PAIRS[p][1], READABILITY_FLOOR]);", "pairs.push([READABILITY_PAIRS[p][0], READABILITY_PAIRS[p][1], BOUNDARY_FLOOR]);"],
     ["readability translucency", "var ratio = text === null || surface === null || text.a < 1 || surface.a < 1\n            ? null\n            : contrastRatio(text, surface);", "var ratio = contrastRatio(text, surface);"],
     ["boundary roles", "    \"checkbox.borderColor\",\n", ""],

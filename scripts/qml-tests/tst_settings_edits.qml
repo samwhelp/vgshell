@@ -361,6 +361,46 @@ Item {
             }
         }
 
+        // The status sections: the Setup group's first entry under its own
+        // label in Status, a group that lists keys in its own section, the
+        // first offered step that is no danger as the one primary Button, a
+        // danger step and a stored key's Remove as danger RowActions, and
+        // no hairline on the tab.
+        function test_status_sections_draw_one_primary_and_no_divider() {
+            const original = root.pageRow;
+            const screen = { requires: null };
+            const manifest = {
+                secrets: { service: "acme-unit", label: "Key" }, requirements: [],
+                tui: { pairs: screen, connect: screen, out: screen },
+                status: {
+                    sync: { type: "state", label: "Cloud Sync", group: "Setup" },
+                    pairs: { type: "state", label: "Folder pairs", group: "Setup", action: { label: "Add a pair", tui: "pairs" } },
+                    keys: { type: "presenceList", label: "Keys", group: "Download" },
+                    down: { type: "state", label: "Sign-in", group: "Download", actions: { signIn: { label: "Sign in", tui: "connect" }, signOut: { label: "Sign out", tui: "out", tone: "danger" } } }
+                }
+            };
+            const values = {
+                sync: { tone: "ok", text: "Up to date" },
+                pairs: { tone: "warning", text: "None", action: true },
+                keys: [{ label: "Client ID", value: "present", secret: "acme:id" }],
+                down: { tone: "ok", text: "Signed in", action: "signOut" }
+            };
+            root.pageRow = Object.assign({}, original, { binds: [], status: PluginLogic.statusRows(manifest, values, []) });
+            const page = createTemporaryObject(pluginPageComponent, root);
+            try {
+                verify(page !== null);
+                const shown = type => descendants(page).filter(child => child instanceof type && child.visible);
+                tryVerify(() => shown(StatusRow).length === 1, 1000, "the key list is drawn");
+                compare(shown(SectionHeader).map(header => header.text).filter(text => ["Status", "Setup", "Download"].indexOf(text) !== -1), ["Status", "Setup", "Download"]);
+                verify(shown(Field).some(row => row.label === "Cloud Sync"), "the Status section draws its entry under its own label");
+                compare(shown(Button).filter(button => button.variant === "primary").map(button => button.text), ["Add a pair"], "one primary action");
+                compare(shown(RowAction).map(action => action.text + " " + action.tone).sort(), ["Remove danger", "Replace accent", "Sign out danger"]);
+                compare(shown(GroupList).filter(list => list.hairlines.length > 0).length, 0, "no row of the tab draws a divider");
+            } finally {
+                releasePage(page, original);
+            }
+        }
+
         function test_builtin_and_matching_schema_group_share_one_section() {
             const original = root.pageRow;
             root.pageRow = Object.assign({}, original, {

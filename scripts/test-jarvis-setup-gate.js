@@ -19,6 +19,8 @@ const cp = require("node:child_process");
 const { load } = require("../bin/lib/qml-library.js");
 const judge = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
 const settings = load(path.join(__dirname, "..", "shell", "plugins", "vgs.settings", "Steps.js"));
+// Every row the Settings tab's status sections draw, in drawn order.
+const settingsRows = sections => sections.reduce((all, section) => all.concat(section.items), []);
 const protocol = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "JarvisProtocol.js"));
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "SetupGate.js");
@@ -438,7 +440,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
             assert.deepEqual([values.setupModel.tone, values.setupModel.action], row.want, row.name);
             const entry = judge.statusRows(manifest, values, []).find(item => item.key === "setupModel");
             assert.equal(entry.action.offered, row.want[1] !== undefined, row.name + ": the actual row action");
-            const setupRow = settings.setupRows([{ name: "add-key" }, { name: "sign-in" }], judge.statusRows(manifest, values, []))
+            const setupRow = settingsRows(settings.settingsSections([{ name: "add-key" }, { name: "sign-in" }], judge.statusRows(manifest, values, [])))
                 .find(item => item.entry.key === "setupModel");
             assert.equal(setupRow.button === null ? undefined : setupRow.button.name, MODEL_TUI[row.want[1]], row.name + ": Settings link");
             // A signed-out app replaces the cause's hint with its own.
@@ -541,7 +543,7 @@ function verifyVoiceConsumers(gate, pageSource) {
             localRuntime: { tone: "warning", text: "Not set up", action: true } };
         const row = { status: judge.statusRows(manifest, values, []) };
         const detailsEntry = vm.runInNewContext("(" + accessor[0] + ")", { row })("setupVoice");
-        const settingsEntry = settings.setupRows([], row.status).find(item => item.entry.key === "setupVoice").entry;
+        const settingsEntry = settingsRows(settings.settingsSections([], row.status)).find(item => item.entry.key === "setupVoice").entry;
         try {
             assert.equal(detailsEntry, settingsEntry);
             assert.deepEqual(plain([detailsEntry.tone, detailsEntry.action.offered]), expected);

@@ -2,13 +2,16 @@
 # The vgs.cloud-sync floating TUIs, shell/plugins/vgs.cloud-sync/tui/,
 # against a stand-in runner that logs its argv and a stand-in gum that
 # answers each question from a list. It proves that Set up Cloud Sync runs
-# the runner's install; that Connect Google Drive and Connect the upload
-# folder run its authorize for their own direction and turn this run's
+# the runner's install; that Sign in for Download and Sign in for Upload
+# run its authorize for their own direction and turn this run's
 # refusal, never an earlier run's, into a plain sentence; that Add a folder
 # pair hands the runner the answers as one JSON definition, a quote and a
 # backslash in a name included, and turns a refused rule into a sentence;
 # that Remove a folder pair lists the pairs and removes only the one chosen
-# after a yes; and that each script refuses an argument. Each run has a
+# after a yes, or with an id removes that pair after a yes and refuses an id
+# the runner does not list; that Sign out runs the runner's sign-out for its
+# own direction only after a yes and turns this run's refusal into a plain
+# sentence; and that each script refuses an extra argument. Each run has a
 # terminal of its own from script(1), since the library asks only on a
 # terminal, an empty environment but for the names the presenter hands a
 # script, and a PATH of the stand-ins and a few host tools, so no run
@@ -76,6 +79,7 @@ case "\$1" in
   pairs) printf 'docs\tDocuments\ninbox\tAgent uploads\n' ;;
   pair-add) echo "added=x" ;;
   pair-remove) echo "removed=\$2" ;;
+  sign-out) echo "signed-out=\$2" ;;
 esac
 SH
 chmod 755 "$tools/gum" "$plugin/bin/cloud-sync"
@@ -116,7 +120,7 @@ copy_scripts() { cp -- "$plugin_src"/tui/*.sh "$plugin/tui/"; }
 # the plugin copy's script it runs, which a control replaces.
 case_setup_installs() {
   tui "$1" "" ""
-  [[ $status == 0 && $calls == '[["install"]]' ]] && shows "Cloud Sync runs every hour."
+  [[ $status == 0 && $calls == '[["install"]]' ]] && shows "Cloud Sync runs every hour while you are logged in."
 }
 case_setup_failure_reads_plainly() {
   tui "$1" "fail cloud-sync: refused: systemctl=failed args=daemon-reload exit=1" ""
@@ -130,10 +134,10 @@ case_connect_runs_its_direction() {
 }
 case_connect_reads_this_runs_refusal() {
   tui "$1" "fail cloud-sync: refused: credential=absent account=pull-client-secret" "" pull
-  [[ $status == 1 ]] && shows "Add the client ID and the client secret for downloads under Setup first." || return 1
+  [[ $status == 1 ]] && shows "Add the client ID and the client secret in the Download group on the Cloud Sync page in Settings first." || return 1
   # An earlier run's refusal stays in the log; this run's failure has none.
   tui "$1" "fail" "" pull
-  [[ $status == 1 ]] && shows "VGS could not connect Google Drive." && ! shows "under Setup first"
+  [[ $status == 1 ]] && shows "VGS could not sign you in to Google Drive." && ! shows "Settings first"
 }
 case_add_pair_defines_the_answers() {
   tui "$1" "" "$(printf '%s\n' 'My "Docs" \ 2026' pull '/Docs/Taxes/' "$home/gdrive/")"
@@ -150,15 +154,43 @@ case_remove_pair_removes_the_chosen_after_yes() {
   tui "$1" "" "$(printf '%s\n' inbox no)"
   [[ $status == 0 && $calls == '[["pairs", "--lines"]]' ]]
 }
+case_remove_pair_removes_the_named_after_yes() {
+  tui "$1" "" yes docs
+  [[ $status == 0 && $calls == '[["pairs", "--lines"], ["pair-remove", "docs"]]' ]] && shows "Documents" || return 1
+  tui "$1" "" no docs
+  [[ $status == 0 && $calls == '[["pairs", "--lines"]]' ]] || return 1
+  tui "$1" "" yes nope
+  [[ $status == 1 && $calls == '[["pairs", "--lines"]]' ]] && grep -q -x -F "cloud-sync: refused: pair=unknown id=nope" -- "$log"
+}
+case_sign_out_runs_its_direction_after_yes() {
+  tui "$plugin/tui/sign-out-drive.sh" "" yes
+  [[ $status == 0 && $calls == '[["sign-out", "pull"]]' ]] || return 1
+  tui "$plugin/tui/sign-out-upload.sh" "" yes
+  [[ $status == 0 && $calls == '[["sign-out", "upload"]]' ]] || return 1
+  tui "$plugin/tui/sign-out-drive.sh" "" no
+  [[ $status == 0 && $calls == '[]' ]]
+}
+case_sign_out_reads_this_runs_refusal() {
+  tui "$1" "fail cloud-sync: refused: credential=locked account=pull-token" yes pull
+  [[ $status == 1 ]] && shows "Your keyring is locked. Unlock it, then try again." && ! shows "credential=locked" || return 1
+  tui "$1" "fail" yes pull
+  [[ $status == 1 ]] && shows "VGS could not sign out of Google Drive." && ! shows "keyring is locked"
+}
 case_refuses_an_argument() {
   local script
-  for script in setup add-pair remove-pair connect-drive connect-upload; do
+  for script in setup add-pair connect-drive connect-upload sign-out-drive sign-out-upload; do
     tui "$plugin/tui/$script.sh" "" "" extra
     [[ $status == 2 && $calls == '[]' ]] || return 1
   done
+  tui "$plugin/tui/remove-pair.sh" "" "" docs extra
+  [[ $status == 2 && $calls == '[]' ]] || return 1
+  tui "$plugin/tui/sign-out.sh" "" "" both
+  [[ $status == 2 && $calls == '[]' ]]
 }
 CASES=(case_setup_installs:setup case_setup_failure_reads_plainly:setup case_connect_runs_its_direction:connect case_connect_reads_this_runs_refusal:connect
-  case_add_pair_defines_the_answers:add-pair case_add_pair_refusal_reads_plainly:add-pair case_remove_pair_removes_the_chosen_after_yes:remove-pair case_refuses_an_argument:setup)
+  case_add_pair_defines_the_answers:add-pair case_add_pair_refusal_reads_plainly:add-pair case_remove_pair_removes_the_chosen_after_yes:remove-pair
+  case_remove_pair_removes_the_named_after_yes:remove-pair case_sign_out_runs_its_direction_after_yes:sign-out case_sign_out_reads_this_runs_refusal:sign-out
+  case_refuses_an_argument:setup)
 copy_scripts
 for entry in "${CASES[@]}"; do
   case="${entry%%:*}"
@@ -167,10 +199,12 @@ done
 
 # Controls: a case, its script, the text in that script it needs, and a
 # replacement without the rule.
-CONTROL_CASES=(case_setup_installs case_connect_reads_this_runs_refusal case_add_pair_defines_the_answers case_add_pair_refusal_reads_plainly case_remove_pair_removes_the_chosen_after_yes)
-CONTROL_SCRIPTS=(setup connect add-pair add-pair remove-pair)
-CONTROL_NEEDLES=('"$runner" install >>"$log"' 'tail -c "+$((logged + 1))" -- "$log"' 's="${s//\"/\\\"}";' '*rule=local-overlap* | *rule=remote-overlap*)' 'vgs_tui_confirm "Remove this folder pair? Its files stay." || status=$?')
-CONTROL_REPLACEMENTS=('true >>"$log"' 'cat -- "$log"' ':;' '*rule=no-such-rule*)' 'true')
+CONTROL_CASES=(case_setup_installs case_connect_reads_this_runs_refusal case_add_pair_defines_the_answers case_add_pair_refusal_reads_plainly case_remove_pair_removes_the_chosen_after_yes
+  case_remove_pair_removes_the_named_after_yes case_sign_out_runs_its_direction_after_yes case_sign_out_reads_this_runs_refusal)
+CONTROL_SCRIPTS=(setup connect add-pair add-pair remove-pair remove-pair sign-out sign-out)
+CONTROL_NEEDLES=('"$runner" install >>"$log"' 'tail -c "+$((logged + 1))" -- "$log"' 's="${s//\"/\\\"}";' '*rule=local-overlap* | *rule=remote-overlap*)' 'vgs_tui_confirm "Remove this folder pair? Its files stay." || status=$?'
+  '[[ $listed != "$id" ]] || label="$name"' 'vgs_tui_confirm "Sign out of Google Drive for $group?" || status=$?' '*credential=locked*)')
+CONTROL_REPLACEMENTS=('true >>"$log"' 'cat -- "$log"' ':;' '*rule=no-such-rule*)' 'true' 'label="$name"' 'true' '*credential=no-such*)')
 for i in "${!CONTROL_CASES[@]}"; do
   case="${CONTROL_CASES[i]}"
   script="$plugin/tui/${CONTROL_SCRIPTS[i]}.sh"

@@ -18,10 +18,9 @@ import "Steps.js" as Steps
 // list draws its label and hint alone, "None detected" while the list is
 // empty, then one line per item: the item's label beside a Badge of its
 // presence, its hint, and, for an item that is a secret's presence, Add key
-// in the chip's place while nothing is stored, or Change key and Disconnect
-// after the chip (Steps.itemView). Each line is one
-// group of the row's GroupList, divided from the next as the rows of a
-// section are. No row takes an edit of a value: a step goes to the manager
+// in the chip's place while nothing is stored, or Replace and Remove after
+// the chip (Steps.itemView). Each line is one group of the row's GroupList,
+// divided from the next as the rows of a section are while `divided`. No row takes an edit of a value: a step goes to the manager
 // through `panel` (D061).
 GroupList {
     id: row
@@ -65,6 +64,7 @@ GroupList {
         muted: row.view.muted
         actionLabel: row.entry === null || row.entry.action === null ? "" : row.entry.action.label
         actionOffered: row.view.offered
+        actionTone: row.entry === null || row.entry.action === null ? "" : row.entry.action.tone
         error: row.replyOf()
         onAct: row.panel.act(row.pluginId, row.entry.key)
     }

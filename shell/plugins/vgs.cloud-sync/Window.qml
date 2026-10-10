@@ -4,19 +4,21 @@ import qs.Ui
 import "CloudSyncLogic.js" as Logic
 
 // The Cloud Sync window: where the sync stands, from the status the service
-// publishes. Its Status rows give the state, the last complete sync, how
-// current the data is and the last problem; Folder pairs lists each pair
-// by its label, direction and state; To review lists each file Cloud Sync
-// kept, a local edit, a Drive deletion or a Drive rename, with Open for
-// review, which opens the folders that hold its versions. The footer holds
-// Sync now, or Set up Cloud Sync while the hourly sync is not set up,
-// over Pause or Resume and Add a folder pair. It runs nothing itself:
-// Sync now, Pause and Resume ask the service through the plugin's own IPC,
-// setup opens the plugin's floating TUIs, and Open for review hands each
-// folder to xdg-open. The window asks to be `size.panel.lg` wide and
-// `size.panel.maxHeight` tall, or the room its screen leaves when that is
-// less; an Escape nothing here takes goes on to the window host, which
-// closes the window. It takes no payload.
+// publishes. Its subtitle is the headline (CloudSyncLogic.headline, which
+// the bar and the Settings page also read) in its tone's colour, then the
+// last complete sync, the pause and the last problem. Folder pairs lists
+// each pair by its label, direction and state, with Remove, which opens
+// the remove TUI for that pair; To review lists each file Cloud Sync kept,
+// a local edit, a Drive deletion or a Drive rename, under its folder
+// pair's label, with Open folders, which opens the folders that hold its
+// versions. The footer holds Sync now, or Set up Cloud Sync while the
+// hourly sync is not set up, over Pause or Resume and Add a folder pair.
+// It runs nothing itself: Sync now, Pause and Resume ask the service
+// through the plugin's own IPC, setup opens the plugin's floating TUIs,
+// and Open folders hands each folder to xdg-open. The window asks to be
+// `size.panel.lg` wide and `size.panel.maxHeight` tall, or the room its
+// screen leaves when that is less; an Escape nothing here takes goes on to
+// the window host, which closes the window. It takes no payload.
 FocusScope {
     id: root
 
@@ -27,8 +29,11 @@ FocusScope {
     readonly property var cloud: shell === null ? undefined : shell.status.values.cloud
     readonly property bool known: cloud !== undefined
     readonly property double now: Time.now.getTime()
-    readonly property var view: known ? Logic.stateView(cloud.state, cloud.staleAfter, now) : null
+    readonly property var standing: known ? Logic.windowStatus(cloud, now, Timestamp.text) : null
     readonly property bool setUp: known && cloud.units === "installed"
+    // While the runner cannot read the pair list it refuses every pair
+    // change, so the window offers none; the subtitle says why.
+    readonly property bool pairsValid: known && Logic.pairListValid(cloud)
     // The refusal the last action was answered with, "" for none.
     property string problem: ""
     property Item initialFocus: primary
@@ -43,9 +48,13 @@ FocusScope {
         return answered(shell.ipc.call(name, ""), "VGS could not reach Cloud Sync.");
     }
 
-    // Open the plugin's TUI NAME; answers the capability's reply.
-    function run(name) {
-        return answered(shell.tui.run(name, []), "VGS could not open the setup window.");
+    // Open the plugin's TUI NAME with ARGS; answers the capability's reply.
+    function run(name, args) {
+        return answered(shell.tui.run(name, args === undefined ? [] : args), "VGS could not open the setup window.");
+    }
+
+    function toneColor(tone) {
+        return tone === "danger" ? Theme.color.danger : tone === "warning" ? Theme.color.warning : Theme.color.textMuted;
     }
 
     // Open each folder that holds a version of the file under review.
@@ -81,15 +90,26 @@ FocusScope {
                 Label {
                     width: parent.width
                     role: "hint"
-                    text: !root.known ? "Reading the sync status" : root.cloud.paused ? "Paused. The hourly sync copies nothing until you resume it." : root.view.text
-                    color: root.view !== null && root.view.tone === "danger" ? Theme.color.danger : root.view !== null && root.view.tone === "warning" ? Theme.color.warning : Theme.color.textMuted
+                    text: root.known ? root.standing.text : "Reading the sync status"
+                    color: root.known ? root.toneColor(root.standing.tone) : Theme.color.textMuted
                     wrapMode: Text.Wrap
+                }
+                Repeater {
+                    model: root.known ? root.standing.lines : []
+                    Label {
+                        required property var modelData
+                        width: parent.width
+                        role: "hint"
+                        text: modelData.text
+                        color: modelData.tone === "danger" ? Theme.color.danger : Theme.color.textFaint
+                        wrapMode: Text.Wrap
+                    }
                 }
                 Label {
                     width: parent.width
                     role: "hint"
                     visible: text !== ""
-                    text: root.problem !== "" ? root.problem : root.known ? root.cloud.problem : ""
+                    text: root.problem
                     color: Theme.color.danger
                     wrapMode: Text.Wrap
                 }
@@ -102,34 +122,9 @@ FocusScope {
             visible: root.known
 
             Section {
-                title: "Status"
-                Repeater {
-                    model: root.known ? Logic.statusRows(root.cloud, root.now, Timestamp.text) : []
-                    FormRow {
-                        required property var modelData
-                        width: parent.width
-                        label: modelData.label
-                        Badge {
-                            visible: modelData.tone !== ""
-                            size: "md"
-                            text: modelData.text
-                            tone: modelData.tone === "" ? "neutral" : modelData.tone
-                        }
-                        Label {
-                            visible: modelData.tone === ""
-                            width: parent.width
-                            role: "value"
-                            text: modelData.text
-                            wrapMode: Text.Wrap
-                        }
-                    }
-                }
-            }
-
-            Section {
                 title: "Folder pairs"
                 Repeater {
-                    model: root.known ? root.cloud.pairs.map(p => Logic.pairRow(p, root.now, Timestamp.text)) : []
+                    model: root.known ? root.cloud.pairs.map(p => Logic.pairRow(p, root.now)) : []
                     ListItem {
                         id: pairRow
                         required property var modelData
@@ -142,13 +137,19 @@ FocusScope {
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: pairRow.modelData.text
                                 tone: pairRow.modelData.tone
+                            },
+                            RowAction {
+                                anchors.verticalCenter: parent.verticalCenter
+                                tone: "danger"
+                                text: "Remove"
+                                onClicked: root.run("remove-pair", [pairRow.modelData.id])
                             }
                         ]
                     }
                 }
                 EmptyState {
                     width: parent.width
-                    visible: root.known && root.cloud.pairs.length === 0
+                    visible: root.pairsValid && root.cloud.pairs.length === 0
                     iconName: "folder-sync"
                     text: "No folder pairs yet. Add one to choose what Cloud Sync keeps in step."
                     actionText: "Add a folder pair"
@@ -159,24 +160,40 @@ FocusScope {
             Section {
                 visible: root.known && root.cloud.conflictCount > 0
                 title: "To review"
-                description: "Cloud Sync kept these files and deleted nothing. Open a file's folders to compare its versions."
+                description: "Cloud Sync kept these files and deleted nothing. Open folders shows the folders that hold each version."
+                // A pair's label on its own line over its files, since a
+                // ListItem's secondary line elides and would cut it.
                 Repeater {
-                    model: root.known ? root.cloud.conflicts : []
-                    ListItem {
-                        id: conflictRow
+                    model: root.known ? Logic.conflictGroups(root.cloud.conflicts) : []
+                    Column {
+                        id: conflictGroup
                         required property var modelData
-                        readonly property var row: Logic.conflictRow(modelData)
                         width: parent.width
-                        iconName: "file-exclamation-point"
-                        text: row.label
-                        secondary: row.secondary
-                        trailing: [
-                            RowAction {
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: "Open for review"
-                                onClicked: root.review(conflictRow.modelData.dirs)
+                        spacing: Theme.stack.row
+                        Label {
+                            width: parent.width
+                            role: "bodyStrong"
+                            text: conflictGroup.modelData.label
+                            wrapMode: Text.Wrap
+                        }
+                        Repeater {
+                            model: conflictGroup.modelData.rows
+                            ListItem {
+                                id: conflictRow
+                                required property var modelData
+                                width: parent.width
+                                iconName: "file-exclamation-point"
+                                text: modelData.label
+                                secondary: modelData.secondary
+                                trailing: [
+                                    RowAction {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: "Open folders"
+                                        onClicked: root.review(conflictRow.modelData.dirs)
+                                    }
+                                ]
                             }
-                        ]
+                        }
                     }
                 }
                 Label {
@@ -222,6 +239,7 @@ FocusScope {
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
                         variant: "tertiary"
+                        enabled: root.pairsValid
                         text: "Add a folder pair"
                         iconName: "folder-plus"
                         onClicked: root.run("add-pair")

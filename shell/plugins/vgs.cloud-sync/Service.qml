@@ -17,8 +17,11 @@ import "CloudSyncLogic.js" as Logic
 // The service asks the runner to render it afresh at start and after each
 // of its setup TUIs ends, which also reads a run cut short as interrupted.
 // The keys are probed at start, after each write the core makes from the
-// Settings page's masked fields, after a Connect TUI ends and when the
-// pairs' directions change.
+// Settings page's masked fields, after a sign-in or sign-out TUI ends and
+// when the pairs' directions change. The probe's account address reaches
+// the published sign-in values alone, `download` and `upload`, which the
+// Settings page draws and the `status` IPC answer returns with every
+// published value; never the bar, the window or a log line.
 //
 //   vgshell ipc call vgs.cloud-sync invoke <name> ""   with <name>:
 //     status    the published values, JSON
@@ -41,8 +44,8 @@ Item {
     property string problem: ""
     property string problemLine: ""
     property var reported: ({})
-    // The attention key last notified, so each change that needs the user
-    // notifies once.
+    // The attention key this service last notified, so a record read again
+    // before the runner writes `notified` sends no second notification.
     property string notifiedKey: ""
     property string directions: ""
     // The first `status` answered: the record exists, so its directory
@@ -52,7 +55,7 @@ Item {
     readonly property int secretRevision: shell === null ? 0 : shell.secrets.revision
     // The end of each setup TUI's last run, whoever opened it: Settings,
     // the window or the launcher.
-    readonly property string tuiEnds: shell === null ? "" : JSON.stringify(["setup", "add-pair", "remove-pair", "connect-drive", "connect-upload"]
+    readonly property string tuiEnds: shell === null ? "" : JSON.stringify(["setup", "add-pair", "remove-pair", "connect-drive", "connect-upload", "sign-out-drive", "sign-out-upload"]
         .map(name => shell.tui.state[name] ? shell.tui.state[name].endedAt : null))
 
     onShellChanged: start()
@@ -161,17 +164,27 @@ Item {
         reported = next;
     }
 
+    // The runner keeps whether a change that needs the user was notified
+    // (`attention.notified`), so a restart of the shell notifies no change
+    // twice: the service notifies while it is false, then has the runner
+    // record the key, whether the core delivered the notification or
+    // dropped it by its own rule.
     function notifyOnce() {
         if (record.attention === null) {
             notifiedKey = "";
             return;
         }
-        if (record.attention.key === notifiedKey) return;
-        notifiedKey = record.attention.key;
+        if (record.attention.notified || record.attention.key === notifiedKey) return;
+        const key = record.attention.key;
+        notifiedKey = key;
         const message = Logic.notification(record);
-        if (message === null) return;
-        const reply = shell.notify.send({ title: message.title, message: message.message, tone: message.tone, icon: "cloud-alert" });
-        if (reply !== "ok") console.warn("cloud-sync: notify " + reply);
+        if (message !== null) {
+            const reply = shell.notify.send({ title: message.title, message: message.message, tone: message.tone, icon: "cloud-alert" });
+            if (reply !== "ok") console.warn("cloud-sync: notify " + reply);
+        }
+        client.request(["attention-seen", key], (ok, out, line) => {
+            if (!ok) console.warn("cloud-sync: " + line);
+        });
     }
 
     // Idle data turns old with no write, so the values are published again

@@ -79,9 +79,14 @@ function variant(path, background, fontWeight, hoverToward, pressedToward) {
     };
 }
 
-// One badge tone: a faint fill of the role with the role as its text.
+// One badge tone: a faint fill of the role, with the role moved 0.28
+// toward black or white, whichever the background contrasts with, as its
+// text, so the text holds the readability floor on the fill over every
+// resting surface (ThemeLogic.READABILITY_PAIRS) and stays near the role.
+// On 2026-10-10 the judge's ratios over the shipped and every catalog
+// theme held from 0.26, least 4.58 at 0.28.
 function tone(role) {
-    return { background: color("{color." + role + "Subtle}"), foreground: color("{color." + role + "}") };
+    return { background: color("{color." + role + "Subtle}"), foreground: color("mix({color." + role + "}, contrast({palette.background}), 0.28)") };
 }
 
 function merge() {
@@ -683,8 +688,10 @@ var TOKENS = {
         gap: length("{space.xs}"),
         tone: {
             // A step above a raised surface, so a neutral chip keeps a
-            // fill beside a toned one on every container.
-            neutral: { background: color("{color.surfaceHover}"), foreground: color("{color.textMuted}") },
+            // fill beside a toned one on every container; its text is the
+            // muted text moved 0.1 toward black or white, which holds the
+            // readability floor on that step in every catalog theme.
+            neutral: { background: color("{color.surfaceHover}"), foreground: color("mix({color.textMuted}, contrast({palette.background}), 0.1)") },
             accent: tone("accent"),
             success: tone("success"),
             warning: tone("warning"),

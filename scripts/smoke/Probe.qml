@@ -333,6 +333,12 @@ Scope {
         return found;
     }
 
+    // The shown Status and Setup sections of a plugin page, in drawn
+    // order: the Setup group's headline and its steps, keys and screens.
+    function setupSections(item) {
+        return descendants(item).filter(child => typeName(child) === "Section" && child.visible && (child.title === "Status" || child.title === "Setup"));
+    }
+
     function titledPanes(item) {
         return item === null ? [] : descendants(item).filter(child => child instanceof Ui.Pane && child.hasTitle && visibleInTree(child));
     }
@@ -2266,55 +2272,59 @@ Scope {
         // Every item named `type` under an instance, in tree order, as the
         // values of its comma-separated `properties`, a colour as its
         // #aarrggbb name, as layerItems reads a layer's.
-        // A plugin page's shown Setup section, as { chips, lines, buttons }:
-        // each visible Badge as [text, tone], every other visible line of
-        // text outside a Badge or a RowAction, and each visible RowAction
-        // as [text, tone, enabled, its Tooltip's text or ""], each in tree
-        // order, which is the drawn order; "absent" while no Setup section
-        // shows.
+        // A plugin page's shown Status and Setup sections, as { chips,
+        // lines, buttons }: each visible Badge as [text, tone], every other
+        // visible line of text outside a Badge or an action, and each
+        // visible RowAction as [text, tone, enabled, its Tooltip's text or
+        // ""], and the page's primary Button as [text, "primary", enabled,
+        // ""], each in tree order, which is the drawn order; "absent" while
+        // neither section shows.
         function setupSection(hostKey: string, id: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
-            const section = root.descendants(item).find(child => root.typeName(child) === "Section" && child.visible && child.title === "Setup");
-            if (section === undefined) return "absent";
-            const shown = root.descendants(section).filter(child => child.visible);
+            const sections = root.setupSections(item);
+            if (sections.length === 0) return "absent";
+            const shown = [].concat(...sections.map(section => root.descendants(section))).filter(child => child.visible);
             const badges = shown.filter(child => root.typeName(child) === "Badge");
-            const buttons = shown.filter(child => root.typeName(child) === "RowAction");
+            const buttons = shown.filter(child => root.typeName(child) === "RowAction" || root.typeName(child) === "Button");
             const inside = (child, owners) => owners.some(owner => owner !== child && root.descendants(owner).indexOf(child) !== -1);
-            const lines = shown.filter(child => root.typeName(child) === "Label" && child.text !== "" && !inside(child, badges) && !inside(child, buttons) && child.text !== section.title && child.text !== section.description);
+            const titled = text => sections.some(section => text === section.title || text === section.description);
+            const lines = shown.filter(child => root.typeName(child) === "Label" && child.text !== "" && !inside(child, badges) && !inside(child, buttons) && !titled(child.text));
             return root.json({
                 chips: badges.map(badge => [badge.text, badge.tone]),
                 lines: lines.map(line => line.text),
                 buttons: buttons.map(button => {
                     const tip = root.descendants(button).find(child => root.typeName(child) === "Tooltip");
-                    return [button.text, button.tone, button.enabled, tip === undefined ? "" : tip.text];
+                    return [button.text, root.typeName(button) === "Button" ? "primary" : button.tone, button.enabled, tip === undefined ? "" : tip.text];
                 })
             });
         }
-        // A plugin page's shown Setup section by row, as [{ label, chips,
-        // buttons, lines }]: each shown step row of the section, a Field
-        // drawn for one of Steps.setupRows, its label, its Badges as [text,
-        // tone], its RowActions as { tui, tone, enabled }, tui the screen
-        // the row's step opens (its Steps.setupRows button), and the shown
-        // lines of text the Field draws under its value, each in tree
-        // order; "absent" while no Setup section shows.
+        // A plugin page's shown Status and Setup sections by row, as
+        // [{ label, chips, buttons, lines }]: each shown step row of the
+        // sections, a Field drawn for one row of Steps.settingsSections,
+        // its label, its Badges as [text, tone], its actions as { tui,
+        // tone, enabled }, tui the screen the row's step opens (its
+        // Steps.settingsSections button) and tone "primary" for the page's
+        // primary Button, and the shown lines of text the Field draws under
+        // its value, each in tree order; "absent" while neither section
+        // shows.
         function setupRows(hostKey: string, id: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
-            const section = root.descendants(item).find(child => root.typeName(child) === "Section" && child.visible && child.title === "Setup");
-            if (section === undefined) return "absent";
-            const fields = root.descendants(section).filter(child => root.typeName(child) === "Field" && child.visible && child.modelData !== undefined);
+            const sections = root.setupSections(item);
+            if (sections.length === 0) return "absent";
+            const fields = [].concat(...sections.map(section => root.descendants(section))).filter(child => root.typeName(child) === "Field" && child.visible && child.button !== undefined);
             return root.json(fields.map(field => {
                 const shown = root.descendants(field).filter(child => child.visible);
                 const value = shown.find(child => root.typeName(child) === "FormRow");
                 const inValue = value === undefined ? [] : root.descendants(value);
                 const under = shown.filter(child => root.typeName(child) === "Label" && child.text !== "" && inValue.indexOf(child) === -1);
-                const step = field.modelData.button;
+                const step = field.button;
                 return {
                     label: field.label,
                     chips: shown.filter(child => root.typeName(child) === "Badge").map(badge => [badge.text, badge.tone]),
-                    buttons: shown.filter(child => root.typeName(child) === "RowAction").map(button => ({
-                        tui: step === null || step === undefined ? "" : step.name, tone: button.tone, enabled: button.enabled })),
+                    buttons: shown.filter(child => root.typeName(child) === "RowAction" || root.typeName(child) === "Button").map(button => ({
+                        tui: step === null ? "" : step.name, tone: root.typeName(button) === "Button" ? "primary" : button.tone, enabled: button.enabled })),
                     lines: under.map(line => line.text)
                 };
             }));

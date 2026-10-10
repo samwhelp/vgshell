@@ -11,20 +11,24 @@
 # the sandbox's directories, and reads what the shell's service publishes.
 #
 # Rows: the service publishes its declared status, its record and IPC
-# target go with a disable, and it reads the stand-in keyring's presence;
-# the Settings page offers Set up Cloud Sync while no unit is installed and
-# its press hands the terminal the setup TUI; the window maps with the
-# record and its Sync now asks systemd to start the one service, which the
-# systemctl stand-in logs, and runs no rclone; a Drive-side add and change
-# reach the mirror after one run; a local edit since the last download
-# keeps both versions and reads `local-edit` in the published status, and
-# the service asks for one notification for it, which the core delivers
-# or drops by its own rule (rows/notify.sh); a Drive deletion keeps the
-# file and reads `removed-on-drive`; a run during another is `busy` and
-# starts no copy;
+# target go with a disable, and it reads the stand-in keyring's presence
+# into each direction's key list and sign-in, the download sign-in naming
+# the account its token carries; the Settings page offers Set up hourly
+# sync while no unit is installed and its press hands the terminal the
+# setup TUI; the window maps with the record and its Sync now asks systemd
+# to start the one service, which the systemctl stand-in logs, and runs no
+# rclone, and its Remove beside a pair hands the terminal the remove TUI
+# for that pair; a Drive-side add and change reach the mirror after one
+# run; a local edit since the last download keeps both versions and reads
+# `local-edit` in the published status, and the service asks for one
+# notification for it, which the core delivers or drops by its own rule
+# (rows/notify.sh), and has the runner record it as notified; a Drive
+# deletion keeps the file and reads `removed-on-drive`; a run during
+# another is `busy` and starts no copy;
 # pause stops the next run's copy and survives a shell restart, read
-# through the published status; the bar widget stays hidden until a folder
-# pair exists, then derives its tooltip from the published labels and
+# through the published status, whose headline still names the files to
+# review; the bar widget stays hidden until a folder pair exists, then
+# takes the headline as its tooltip title over the published labels and
 # states, never a file name. Must-fail controls:
 # runner copies with a dry-run copy, with every displaced file taken as
 # the runner's own and with the pair lock always granted each fail their
@@ -73,22 +77,32 @@ for part in sys.argv[1].split("."):
     v = v[part]
 print(json.dumps(v))' "$1"; }
 cs_last_sync() { cs_value lastSync | py_reply 'import sys; t=sys.stdin.read().strip(); print("set" if t.isdigit() else t)'; }
-cs_sync() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin).get("sync"); print(json.dumps(v if v is None else [v["tone"], v["text"], v.get("action")]))'; }
+# The state value KEY's tone and text, and with `action` the action it
+# offers.
+cs_state() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin).get(sys.argv[1]); print(json.dumps(v if v is None else [v["tone"], v["text"]] + ([v.get("action")] if sys.argv[2] == "action" else [])))' "$1" "${2:-}"; }
+cs_sync() { cs_state sync; }
+cs_schedule() { cs_state schedule action; }
+cs_pairs() { cs_state pairs action; }
+# Each direction's sign-in: its text and the action it offers.
+cs_signin() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([[v[k]["text"], v[k].get("action")] if k in v else None for k in ("download", "upload")]))'; }
 cs_published_conflicts() { cs_values | py_reply 'import json,sys; c=json.load(sys.stdin).get("cloud", {}).get("conflicts", []); print(json.dumps(sorted([x["kind"], x["path"]] for x in c)))'; }
-cs_keys() { cs_values | py_reply 'import json,sys; print(json.dumps([[k["secret"], k["value"]] for k in json.load(sys.stdin).get("keys", [])]))'; }
+cs_keys() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([[k["secret"], k["value"]] for k in v.get("downloadKeys", []) + v.get("uploadKeys", [])]))'; }
 cs_lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); r=d["status"].get("vgs.cloud-sync"); print(json.dumps([sorted(r["keys"]) if r else None, "vgs.cloud-sync" in d["ipcTargets"]]))'; }
 # The systemctl calls the stand-in logged for Cloud Sync: a reload and
 # each call that names one of its units.
 cs_systemctl() { if [[ -f $cs_stub/systemd/systemctl.calls ]]; then py_reply 'import json,sys; print(json.dumps([c for c in map(json.loads, sys.stdin) if "daemon-reload" in c or any(a.startswith("vgs-cloud-sync.") for a in c)]))' <"$cs_stub/systemd/systemctl.calls"; else echo '[]'; fi; }
 cs_click_sync() { click_in "window:Cloud Sync" window vgs.cloud-sync Button "Sync now" && echo ok; }
+cs_click_remove() { click_in "window:Cloud Sync" window vgs.cloud-sync RowAction Remove && echo ok; }
 cs_dropped() { ipc smoke readInstance service vgs.cloud-sync smokeDropped; }
 cs_dropped_after() { local now; now="$(cs_dropped)" || return; [[ $now =~ ^[0-9]+$ && $now -gt $1 ]] && echo read || echo "$now"; }
 # The attention key the runner's record holds, and the one the service
 # last asked a notification for.
 cs_attention() { cs status | py_reply 'import json,sys; a=json.load(sys.stdin)["attention"]; print(a["key"] if a else "none")'; }
 cs_notified() { ipc smoke readInstance service vgs.cloud-sync notifiedKey | py_reply 'import json,sys; print(json.load(sys.stdin) or "none")'; }
+# Whether the runner's record holds its attention as notified.
+cs_record_notified() { cs status | py_reply 'import json,sys; a=json.load(sys.stdin)["attention"]; print(json.dumps(a["notified"] if a else None))'; }
 cs_widget_shown() { ipc smoke readInstance "$(bar_key)" vgs.cloud-sync visible; }
-cs_widget() { ipc smoke readInstance "$(bar_key)" vgs.cloud-sync tip | py_reply 'import json,sys; t=json.load(sys.stdin); print(json.dumps([t["title"], t["details"].split("\n")[:2]]))'; }
+cs_widget() { ipc smoke readInstance "$(bar_key)" vgs.cloud-sync tip | py_reply 'import json,sys; t=json.load(sys.stdin); print(json.dumps([t["title"], t["details"].split("\n")[:1]]))'; }
 cs_widget_names_files() { ipc smoke readInstance "$(bar_key)" vgs.cloud-sync tip | py_reply 'import json,sys; t=json.load(sys.stdin); print(any(n in t["title"] + t["details"] for n in sys.argv[1:]))' a.txt b.txt; }
 
 # The checks the controls replay against a broken runner: each runs in the
@@ -207,6 +221,7 @@ if [[ \${1:-} == search && \${2:-} == service && \${3:-} == vgs-cloud-sync && \$
   if [[ -f "$cs_stub/secrets/\$5" ]]; then
     printf '[/1]\\nlabel = VGS Cloud Sync %s\\nsecret = %s\\n' "\$5" "\$(<"$cs_stub/secrets/\$5")"
     printf 'attribute.service = vgs-cloud-sync\\nattribute.account = %s\\n' "\$5" >&2
+    if [[ -f "$cs_stub/secrets/\$5.user" ]]; then printf 'attribute.user = %s\\n' "\$(<"$cs_stub/secrets/\$5.user")" >&2; fi
   fi
   exit 0
 fi
@@ -224,47 +239,56 @@ SH
   expect "Cloud Sync starts disabled" '[null, false]' cs_lent
   expect "enabling Cloud Sync is allowed" ok ipc shell setPluginEnabled vgs.cloud-sync true
   expect "placing Cloud Sync's widget is allowed" ok ipc shell setPluginPlaced vgs.cloud-sync true
-  expect_poll "the service holds its status record and IPC target" '[["cloud", "keys", "sync"], true]' cs_lent
-  expect_poll "with no pair and no unit the sync reads not set up and offers Set up" '["warning", "Not set up", "setup"]' cs_sync
+  expect_poll "the service holds its status record and IPC target" '[["cloud", "download", "downloadKeys", "pairs", "schedule", "sync", "upload", "uploadKeys"], true]' cs_lent
+  expect_poll "with no pair and no unit the sync reads not set up" '["warning", "Not set up"]' cs_sync
+  expect_poll "with no unit the hourly sync offers Set up" '["warning", "Not set up", true]' cs_schedule
+  expect_poll "with no folder pair the pairs offer Add" '["warning", "None", "add"]' cs_pairs
   expect_poll "with no folder pair the widget is hidden" false cs_widget_shown
-  expect_poll "with no key stored every key reads absent" '[["pull-client-id", "absent"], ["pull-client-secret", "absent"], ["pull-token", "absent"], ["upload-client-id", "absent"], ["upload-client-secret", "absent"], ["upload-token", "absent"]]' cs_keys
+  expect_poll "with no key stored every key reads absent" '[["pull-client-id", "absent"], ["pull-client-secret", "absent"], ["upload-client-id", "absent"], ["upload-client-secret", "absent"]]' cs_keys
+  expect_poll "with no client stored no sign-in is offered" '[["Not signed in", null], ["Not signed in", null]]' cs_signin
   printf 'fixture-client' >"$cs_stub/secrets/pull-client-id"
   printf 'fixture-secret' >"$cs_stub/secrets/pull-client-secret"
   printf '{"access_token":"fixture","token_type":"Bearer","refresh_token":"fixture-refresh"}' >"$cs_stub/secrets/pull-token"
+  printf 'a.person@example.com' >"$cs_stub/secrets/pull-token.user"
   expect "the service reads the keys again on request" ok ipc vgs.cloud-sync invoke refresh ""
-  expect_poll "the stored download keys read present" '[["pull-client-id", "present"], ["pull-client-secret", "present"], ["pull-token", "present"], ["upload-client-id", "absent"], ["upload-client-secret", "absent"], ["upload-token", "absent"]]' cs_keys
+  expect_poll "the stored download keys read present" '[["pull-client-id", "present"], ["pull-client-secret", "present"], ["upload-client-id", "absent"], ["upload-client-secret", "absent"]]' cs_keys
+  expect_poll "the download sign-in reads signed in and offers Sign out" '[["Signed in", "signOut"], ["Not signed in", null]]' cs_signin
+  expect_poll "the download sign-in names the account its token carries" '"Signed in as a.person@example.com."' cs_value download.hint
 
-  # Set up Cloud Sync, D061: the Settings page offers the step while no
+  # Set up hourly sync, D061: the Settings page offers the step while no
   # unit is installed, and its press opens the setup TUI. The stand-in
   # terminal runs no shipped script, so the row runs the install the
   # script runs.
   settings_page_open vgs.cloud-sync
   forget_record
-  expect "Set up Cloud Sync is pressed" ok settings_act vgs.cloud-sync sync
+  expect "Set up hourly sync is pressed" ok settings_act vgs.cloud-sync schedule
   expect_poll "Set up hands the terminal the setup TUI" "$(words vgs.cloud-sync/setup tui/setup.sh)" recorded_tail
   expect_run_end "the setup run ends" vgs.cloud-sync/setup
   settings_page_close vgs.cloud-sync
   expect "the install the setup TUI runs writes the units" "installed=vgs-cloud-sync.timer changed=2 exit=0" cs_answer install
   expect "install reloads the stand-in manager and enables the timer" '[["--user", "daemon-reload"], ["--user", "enable", "--now", "vgs-cloud-sync.timer"]]' cs_systemctl
   expect "the service reads the record again after the setup run" ok ipc vgs.cloud-sync invoke refresh ""
-  expect_poll "with the units installed and no pair nothing is offered" '["warning", "Not set up", null]' cs_sync
+  expect_poll "with the units installed and no pair the sync reads no folder pairs" '["warning", "No folder pairs"]' cs_sync
+  expect_poll "with the units installed the hourly sync reads on" '["ok", "On", null]' cs_schedule
 
   # A Drive-side add and change, a local edit and a Drive deletion, each
   # after one run, and the service's reading of each.
   check_copy
   expect_poll "the service publishes the pair's state" '["Documents: Up to date"]' cs_value sync.lines
+  expect_poll "the service publishes the pair and its direction" '["Documents: Download"]' cs_value pairs.lines
   expect_poll "the service publishes the last sync" set cs_last_sync
   check_local_edit
   expect_poll "the service publishes the local edit" '[["local-edit", "a.txt"]]' cs_published_conflicts
   expected_errors+=('notify: unsent plugin=vgs\.cloud-sync')
   expect_poll "the service asks for one notification for the local edit" "$(cs_attention)" cs_notified
+  expect_poll "the service has the runner record the local edit as notified" true cs_record_notified
   check_removed
   expect_poll "the service publishes the Drive deletion" '[["local-edit", "a.txt"], ["removed-on-drive", "b.txt"]]' cs_published_conflicts
   check_lock
 
   # The widget names the pair and its state, never a file.
   expect "with a folder pair the widget shows" true cs_widget_shown
-  expect_poll "the widget's tooltip names the pair and the files to review" '["Cloud Sync: Up to date", ["Documents: Up to date", "2 files to review"]]' cs_widget
+  expect_poll "the widget's tooltip leads with the files to review and names the pair" '["Cloud Sync: 2 files to review", ["Documents: Up to date"]]' cs_widget
   expect "the widget's tooltip names no file" False cs_widget_names_files
 
   # The window, and Sync now through the one service.
@@ -277,6 +301,10 @@ SH
   expect "Sync now is clicked" ok cs_click_sync
   expect_poll "Sync now asks systemd to start the one service" '[["--user", "start", "--no-block", "vgs-cloud-sync.service"]]' cs_systemctl
   expect "Sync now runs no rclone of its own" "$copies" cs_copies
+  forget_record
+  expect "Remove beside the folder pair is clicked" ok cs_click_remove
+  expect_poll "Remove hands the terminal the remove TUI for that pair" "$(words vgs.cloud-sync/remove-pair tui/remove-pair.sh docs)" recorded_tail
+  expect_run_end "the remove run ends" vgs.cloud-sync/remove-pair
   expect "the window is hidden" ok ipc shell hide window vgs.cloud-sync
   expect_poll "the window is gone" 0 window_count "Cloud Sync"
 
@@ -289,7 +317,8 @@ SH
   stop_shell || fail "cloudsync: the shell stops before the restart"
   start_shell "$repo" "$sandbox/qs-cloudsync.log" || return 0
   expect_poll "after a restart the service publishes the pause" true cs_value cloud.paused
-  expect_poll "after a restart the sync reads paused" '["info", "Paused", null]' cs_sync
+  expect_poll "after a restart the sync still names the files to review" '["warning", "2 files to review"]' cs_sync
+  expect_poll "after a restart the pair reads paused" '["Documents: Paused"]' cs_value sync.lines
   expect "Resume through the service" ok ipc vgs.cloud-sync invoke resume ""
   expect_poll "the service publishes the resume" false cs_value cloud.paused
   expect "a resumed run copies the add" "pair=docs result=idle exit=0" cs_answer run
@@ -327,7 +356,8 @@ SH
   expect "the pair is removed" removed=docs cs pair-remove docs
   rm -f -- "$home/.config/systemd/user/vgs-cloud-sync.service" "$home/.config/systemd/user/vgs-cloud-sync.timer"
   expect "the service reads the record again" ok ipc vgs.cloud-sync invoke refresh ""
-  expect_poll "with no pair and no unit the sync reads not set up" '["warning", "Not set up", "setup"]' cs_sync
+  expect_poll "with no pair and no unit the sync reads not set up" '["warning", "Not set up"]' cs_sync
+  expect_poll "with no unit the hourly sync offers Set up again" '["warning", "Not set up", true]' cs_schedule
   expect "unplacing Cloud Sync's widget is allowed" ok ipc shell setPluginPlaced vgs.cloud-sync false
   expect "disabling Cloud Sync is allowed" ok ipc shell setPluginEnabled vgs.cloud-sync false
   expect_poll "the disabled plugin holds no status record or IPC target" '[null, false]' cs_lent

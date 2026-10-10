@@ -5,15 +5,13 @@ import "CloudSyncLogic.js" as Logic
 
 // The Cloud Sync icon in the bar. It draws the status the service
 // publishes and runs nothing itself: nothing until a folder pair exists,
-// then a calm cloud while the folders are
-// current, paused or syncing, the warning tone while the data is old, the
-// sync is offline or not set up, or files wait for review, with their
-// count, and the danger tone while a sign-in is needed or the sync failed;
-// a spinner while a sync runs (CloudSyncLogic.widgetView decides). The
-// tooltip names each folder pair by its label and state, and the last
-// sync's time in the shell's one wording of a past moment (Timestamp); it
-// never shows a file name or an account. A click opens or closes the
-// Cloud Sync window.
+// then the headline's icon and tone (CloudSyncLogic.headline, which the
+// window and the Settings page also read), calm while the sync is fine,
+// with the count of files to review and a spinner while a sync runs. The
+// tooltip's title is the headline; its lines name each folder pair by its
+// label and state, and the last sync's time in the shell's one wording of
+// a past moment (Timestamp); it never shows a file name or an account. A
+// click opens or closes the Cloud Sync window.
 BarWidget {
     id: widget
 

@@ -10,13 +10,17 @@ import qs.Ui
 // hidden or has no width or height takes no gap and no hairline, as a
 // Column skips it. A group list inside another is one group of the outer
 // one and divides its own groups the same way, so every group of a section
-// is divided alike whatever holds it.
+// is divided alike whatever holds it. With `divided` false the groups keep
+// their gap and draw no hairline, for a page whose rows carry none, such as
+// the Settings tab.
 Item {
     id: root
 
     default property alias groups: column.data
+    property bool divided: true
     // The y of each hairline, one per gap between two shown groups.
     readonly property var hairlines: {
+        if (!divided) return [];
         const shown = column.children.filter(child => child.visible && child.width > 0 && child.height > 0);
         return shown.slice(1).map(child => Math.round(child.y - (Theme.groupList.gap + Theme.divider.thickness) / 2));
     }

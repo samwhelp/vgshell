@@ -12,13 +12,27 @@
 //   cloud-sync status [--quiet]
 //       renders the status record, writes it and prints it as one JSON line
 //       (nothing with --quiet: the service's ExecStopPost).
+//       The record's `attention`, when set, is { reasons, key, notified }:
+//       notified is true once `attention-seen` named that key.
+//   cloud-sync attention-seen <key>
+//       records that the plugin notified the user of attention KEY, so no
+//       later render or shell start notifies again; prints `seen=<key>`.
 //   cloud-sync probe
 //       the presence of every credential account, read without unlocking
-//       the store, as one JSON line.
+//       the store, as one JSON line; a token's row carries `user`, the
+//       Google account's address, when its keyring item names one.
 //   cloud-sync authorize pull|upload
 //       Google's consent for the direction's OAuth client, in the browser
-//       rclone opens, and the token it returns stored in the keyring;
-//       prints `authorized=<direction>`. The Connect floating TUIs run it.
+//       rclone opens, and the token it returns stored in the keyring as the
+//       account's one token item, with the account's address as its `user`
+//       attribute when Google names it; the direction's pairs that waited
+//       for a sign-in read idle; prints `authorized=<direction>`. The Sign
+//       in floating TUIs run it.
+//   cloud-sync sign-out pull|upload
+//       clears the direction's token from the keyring and records each pair
+//       of that direction as needing a sign-in, an attention the user's
+//       own action notifies of; prints `signed-out=<direction>`. The client
+//       keys and every file stay.
 //   cloud-sync install
 //       writes the units, reloads the user manager when they changed and
 //       enables the timer; prints `installed=<timer> changed=<n>`.
@@ -35,12 +49,13 @@
 //
 // Files: the pair list is $XDG_CONFIG_HOME/vgshell/cloud-sync/pairs.json;
 // the units are $XDG_CONFIG_HOME/systemd/user/vgs-cloud-sync.service and
-// .timer; status.json, control.json (pause) and pairs/<id>/ (state.json,
-// inventory.json, conflicts/) are under $XDG_STATE_HOME/vgshell/cloud-sync/;
-// the locks are under $XDG_RUNTIME_DIR/vgshell/cloud-sync/; the copy the
-// units run is $XDG_DATA_HOME/vgshell/cloud-sync/engine/<hash>/cloud-sync,
-// since the shell runs this file from a snapshot a restart removes. Every
-// file is written whole under a temporary name and renamed into place.
+// .timer; status.json, control.json (pause and the notified attention
+// key) and pairs/<id>/ (state.json, inventory.json, conflicts/) are under
+// $XDG_STATE_HOME/vgshell/cloud-sync/; the locks are under
+// $XDG_RUNTIME_DIR/vgshell/cloud-sync/; the copy the units run is
+// $XDG_DATA_HOME/vgshell/cloud-sync/engine/<hash>/cloud-sync, since the
+// shell runs this file from a snapshot a restart removes. Every file is
+// written whole under a temporary name and renamed into place.
 //
 // Exit 0: done, or every pair skipped as paused. 1: a refusal, or a pair
 // that did not finish. 2: a bad invocation. 75: a pair whose lock another
@@ -103,7 +118,7 @@ const FAILURE_STATES = {
     "authorization-refused": "authorization-required",
     offline: "offline"
 };
-const USAGE = "usage: cloud-sync run [--pair <id>] | status [--quiet] | probe | authorize pull|upload | install | start | pause [--pair <id>] | resume [--pair <id>] | pairs [--lines] | pair-add --definition <json> | pair-remove <id>";
+const USAGE = "usage: cloud-sync run [--pair <id>] | status [--quiet] | attention-seen <key> | probe | authorize pull|upload | sign-out pull|upload | install | start | pause [--pair <id>] | resume [--pair <id>] | pairs [--lines] | pair-add --definition <json> | pair-remove <id>";
 
 function bad(first) {
     process.stderr.write("cloud-sync: refused: " + first + "\n" + USAGE + "\n");
@@ -410,15 +425,17 @@ function readPairs() {
 
 // ---------------------------------------------------------- pause record
 
+// { paused, pausedPairs, notifiedKey }: notifiedKey is the attention key
+// the plugin last notified of, or null.
 function readControl() {
     const read = readJson(controlFile);
     if (read.kind === "ok" && plain(read.value) && typeof read.value.paused === "boolean" && Array.isArray(read.value.pausedPairs))
-        return read.value;
-    if (read.kind === "absent") return { paused: false, pausedPairs: [] };
+        return { paused: read.value.paused, pausedPairs: read.value.pausedPairs, notifiedKey: typeof read.value.notifiedKey === "string" ? read.value.notifiedKey : null };
+    if (read.kind === "absent") return { paused: false, pausedPairs: [], notifiedKey: null };
     // A pause record that cannot be read holds every run back, so a pause
     // the user set is never lost to a damaged file.
     log("control=" + (read.kind === "bad" ? read.reason : "shape") + " paused=assumed");
-    return { paused: true, pausedPairs: [] };
+    return { paused: true, pausedPairs: [], notifiedKey: null };
 }
 
 function isPaused(control, id) {
@@ -474,20 +491,42 @@ function readCredential(direction) {
     return { kind: "found", values: values };
 }
 
-// Presence without the value: stdout goes nowhere; an item found prints its
-// `attribute.` lines on stderr, and a locked one a `secret-tool: ` line
-// naming the lock, gnome-keyring's `Cannot get secret of a locked object`.
+// A Google account address as the keyring's `user` attribute and the
+// Settings line hold it: printable, at most 254 characters, one `@` with
+// text on each side.
+function validAddress(value) {
+    return typeof value === "string" && value.length <= 254 && /^[^@\s\u0000-\u001f\u007f-\u009f]+@[^@\s\u0000-\u001f\u007f-\u009f]+$/.test(value);
+}
+
+// Presence without the value: stdout goes nowhere; an item found, locked
+// or not, prints its `attribute.` lines on stderr, and a locked one also a
+// `secret-tool: ` line naming the lock, gnome-keyring's `Cannot get secret
+// of a locked object`. { presence, user }: user is the item's `user`
+// attribute when it holds an address, else null.
 function probeAccount(tool, account) {
-    if (tool === null) return "unavailable";
+    if (tool === null) return { presence: "unavailable", user: null };
     const out = run(tool, ["search", "service", SECRET_SERVICE, "account", account], { stdio: ["ignore", "ignore", "pipe"], timeout: 10000, killSignal: "SIGKILL" });
-    if (out.status !== 0) return "unavailable";
+    if (out.status !== 0) return { presence: "unavailable", user: null };
     const lines = out.stderr.split("\n");
     const found = lines.some(line => line.startsWith("attribute."));
     const failure = lines.find(line => line.startsWith("secret-tool: "));
-    if (!found && failure === undefined) return "absent";
-    if (found && failure === undefined) return "present";
-    if (found && /locked/i.test(failure)) return "locked";
-    return "unavailable";
+    const named = lines.find(line => line.startsWith("attribute.user = "));
+    const user = named !== undefined && validAddress(named.slice("attribute.user = ".length)) ? named.slice("attribute.user = ".length) : null;
+    if (!found && failure === undefined) return { presence: "absent", user: null };
+    if (found && failure === undefined) return { presence: "present", user: user };
+    if (found && /locked/i.test(failure)) return { presence: "locked", user: user };
+    return { presence: "unavailable", user: null };
+}
+
+// Removes every item of ACCOUNT that is unlocked: libsecret's clear leaves
+// a locked item (secret_service_clear), so a caller that needs it gone
+// probes after. secret-tool clear exits 1 with nothing on stderr when no
+// item matched (tool/secret-tool.c, libsecret 0.21.8), which is nothing
+// to clear; an error it prints is a failure.
+function clearAccount(tool, account) {
+    const out = run(tool, ["clear", "service", SECRET_SERVICE, "account", account], { timeout: 30000, killSignal: "SIGKILL" });
+    if (out.status === 1 && out.stderr === "") return;
+    if (out.status !== 0) refuse("clear=failed exit=" + out.status + " account=" + account);
 }
 
 // ----------------------------------------------------------------- rclone
@@ -634,9 +673,13 @@ function nextInventory(pair, listing, before) {
 
 // --------------------------------------------------------------- one pair
 
+function failureState(kind) {
+    return hasOwn(FAILURE_STATES, kind) ? FAILURE_STATES[kind] : "error";
+}
+
 function failed(state, kind, extra) {
     return Object.assign(state, {
-        state: hasOwn(FAILURE_STATES, kind) ? FAILURE_STATES[kind] : "error",
+        state: failureState(kind),
         lastError: Object.assign({ kind: kind, at: now() }, extra || {})
     });
 }
@@ -881,16 +924,22 @@ function renderStatus() {
     const errors = pairs.filter(p => p.lastError !== null).map(p => Object.assign({ pair: p.id }, p.lastError));
     errors.sort((a, b) => String(b.at).localeCompare(String(a.at)));
     const lastError = read.error !== null ? { kind: "pairs-invalid", detail: read.error } : errors.length === 0 ? null : errors[0];
+    // A running pair stands as its run left it before, which runPair keeps
+    // in lastError, so a run's own renders do not change the reasons.
+    const standing = pairs.map(p => ({ pair: p, state: p.state === "running" && p.lastError !== null ? failureState(p.lastError.kind) : p.state }));
+    const failing = standing.filter(s => s.state === "authorization-required" || s.state === "error").map(s => s.pair)
+        .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
     const reasons = [];
-    if (pairs.some(p => p.state === "authorization-required")) reasons.push("authorization-required");
-    if (read.error !== null || pairs.some(p => p.state === "error")) reasons.push("error");
+    if (standing.some(s => s.state === "authorization-required")) reasons.push("authorization-required");
+    if (read.error !== null || standing.some(s => s.state === "error")) reasons.push("error");
     if (conflicts.length > 0) reasons.push("conflicts");
     if (units === "stale") reasons.push("units-stale");
     // The key changes when a reason, a conflict or the cause of a failure
-    // that needs the user changes, never with the time a failure repeats,
-    // so the plugin notifies once per change that needs the user.
-    const cause = lastError !== null && (reasons.indexOf("error") !== -1 || reasons.indexOf("authorization-required") !== -1)
-        ? [lastError.kind, lastError.pair || null, lastError.account || null, lastError.detail || null] : null;
+    // that needs the user changes, never with the time a failure repeats or
+    // the order pairs run in, so the plugin notifies once per change that
+    // needs the user. The cause is every failing pair's, by pair id.
+    const cause = read.error !== null ? [["pairs-invalid", null, null, read.error]]
+        : failing.map(p => [p.lastError.kind, p.id, p.lastError.account || null, p.lastError.detail || null]);
     const key = crypto.createHash("sha256").update(JSON.stringify([reasons, conflicts.map(c => [c.kind, c.pair, c.path, c.since]), cause])).digest("hex").slice(0, 16);
     const lastSuccess = oldest(pairs.map(p => p.lastSuccess));
     return {
@@ -902,14 +951,20 @@ function renderStatus() {
         lastError: lastError,
         pairs: pairs,
         conflicts: conflicts,
-        attention: reasons.length === 0 ? null : { reasons: reasons, key: key },
+        attention: reasons.length === 0 ? null : { reasons: reasons, key: key, notified: control.notifiedKey === key },
         writtenAt: now()
     };
 }
 
-// Called under the state lock.
+// Called under the state lock. A settled record that needs nothing clears
+// the notified key, so a cause that returns after a recovery notifies
+// again; a render while a pair runs leaves it.
 function writeStatus() {
     const status = renderStatus();
+    if (status.attention === null && !status.pairs.some(p => p.state === "running")) {
+        const control = readControl();
+        if (control.notifiedKey !== null) writeJson(controlFile, Object.assign(control, { notifiedKey: null }));
+    }
     writeJson(statusFile, status);
     return status;
 }
@@ -951,6 +1006,17 @@ function statusVerb(words) {
     if (words.length === 0) process.stdout.write(JSON.stringify(status) + "\n");
 }
 
+// The service runs this once it has notified of KEY. A key that is no
+// longer the record's is written all the same: it marks nothing notified.
+function attentionSeenVerb(words) {
+    if (words.length !== 1 || !/^[0-9a-f]{16}$/.test(words[0])) bad("key=" + (words[0] || "missing"));
+    withStateLock(() => {
+        writeJson(controlFile, Object.assign(readControl(), { notifiedKey: words[0] }));
+        writeStatus();
+    });
+    process.stdout.write("seen=" + words[0] + "\n");
+}
+
 function probeVerb(words) {
     if (words.length !== 0) bad("argument=" + words[0]);
     const tool = which("secret-tool");
@@ -959,7 +1025,10 @@ function probeVerb(words) {
     for (const direction of DIRECTIONS)
         for (const part of CREDENTIAL_PARTS) {
             const account = direction + "-" + part;
-            credentials.push({ account: account, presence: probeAccount(tool, account), needed: used.indexOf(direction) !== -1 });
+            const probed = probeAccount(tool, account);
+            const row = { account: account, presence: probed.presence, needed: used.indexOf(direction) !== -1 };
+            if (part === "token" && probed.user !== null) row.user = probed.user;
+            credentials.push(row);
         }
     process.stdout.write(JSON.stringify({ credentials: credentials }) + "\n");
 }
@@ -992,6 +1061,36 @@ function pastedToken(stdout) {
     return text;
 }
 
+// Drive's `about` resource names the account a token belongs to; both
+// scopes may read it (developers.google.com/drive/api/reference/rest/v3/
+// about/get, Authorization scopes). A read longer than this is given up.
+const ABOUT_URL = "https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)";
+const ABOUT_SECONDS = 20;
+
+// The address of the Google account TOKEN, rclone's token JSON, signs in:
+// { kind: "read", address } | { kind: "unread", reason }. The access token
+// reaches curl as a header line on its stdin (`--header @-`, curl 7.55.0
+// and later), never argv; -q, first, keeps a user's .curlrc out; curl's
+// stderr is dropped.
+function accountAddress(token) {
+    const access = JSON.parse(token).access_token;
+    if (typeof access !== "string" || !/^[\x21-\x7e]+$/.test(access)) return { kind: "unread", reason: "access-token" };
+    const bin = which("curl");
+    if (bin === null) return { kind: "unread", reason: "curl-missing" };
+    const out = childProcess.spawnSync(bin, ["-q", "--silent", "--fail", "--proto", "=https", "--max-time", String(ABOUT_SECONDS), "--header", "@-", ABOUT_URL],
+        { input: "Authorization: Bearer " + access + "\n", encoding: "utf8", stdio: ["pipe", "pipe", "ignore"], env: childEnv(), timeout: (ABOUT_SECONDS + 10) * 1000, killSignal: "SIGKILL" });
+    if (out.status === null) return { kind: "unread", reason: "curl-timeout" };
+    if (out.status !== 0) return { kind: "unread", reason: "curl-failed exit=" + out.status };
+    let about;
+    try {
+        about = JSON.parse(out.stdout);
+    } catch (_e) {
+        return { kind: "unread", reason: "not-json" };
+    }
+    const address = plain(about) && plain(about.user) ? about.user.emailAddress : undefined;
+    return validAddress(address) ? { kind: "read", address: address } : { kind: "unread", reason: "address-invalid" };
+}
+
 // `rclone authorize drive` for the direction's own client, which rclone
 // reads from RCLONE_DRIVE_CLIENT_ID and RCLONE_DRIVE_CLIENT_SECRET in its
 // environment (fs/configmap.go, optionEnvVars), never from argv, with the
@@ -1022,10 +1121,54 @@ function authorizeVerb(words) {
     const token = pastedToken(out.stdout);
     if (token === null) refuse("authorize=no-token");
     const account = direction + "-token";
-    const stored = childProcess.spawnSync(tool, ["store", "--label=" + SECRET_LABEL + " " + account, "service", SECRET_SERVICE, "account", account],
+    const read = accountAddress(token);
+    if (read.kind === "unread") log("account=unread reason=" + read.reason);
+    // The account's older items go before the store, so one item remains:
+    // an item without `user` matches every search of the account, so it
+    // could not be cleared after the store without the new one. A store
+    // that fails after this leaves the direction signed out.
+    clearAccount(tool, account);
+    const attributes = ["service", SECRET_SERVICE, "account", account].concat(read.kind === "read" ? ["user", read.address] : []);
+    const stored = childProcess.spawnSync(tool, ["store", "--label=" + SECRET_LABEL + " " + account].concat(attributes),
         { input: token, encoding: "utf8", stdio: ["pipe", "ignore", "pipe"], env: childEnv(), timeout: 30000, killSignal: "SIGKILL" });
     if (stored.status !== 0) refuse("store=failed exit=" + stored.status + " account=" + account);
+    // With every credential of the direction now stored, its pairs that
+    // waited for a sign-in no longer read so until a run says otherwise.
+    withStateLock(() => {
+        for (const pair of readPairs().pairs) {
+            if (pair.direction !== direction || lockHeld(pairLock(pair.id))) continue;
+            const state = readPairState(pair.id);
+            if (state.state === "authorization-required") writePairState(pair.id, Object.assign(state, { state: "idle", lastError: null }));
+        }
+        writeStatus();
+    });
     process.stdout.write("authorized=" + direction + "\n");
+}
+
+// Each pair of the direction that no run holds reads as credential-absent
+// from now on, as its next run would record; a running pair records what
+// its run read. The user asked for this, so the attention it makes counts
+// as notified, unless the record held one not yet notified.
+function signOutVerb(words) {
+    if (words.length !== 1 || DIRECTIONS.indexOf(words[0]) === -1) bad("direction=" + (words[0] || "missing"));
+    const direction = words[0];
+    const tool = requireCommand("secret-tool");
+    const account = direction + "-token";
+    clearAccount(tool, account);
+    const left = probeAccount(tool, account).presence;
+    if (left === "locked") refuse("credential=locked account=" + account);
+    if (left !== "absent") refuse("sign-out=incomplete presence=" + left + " account=" + account);
+    withStateLock(() => {
+        const before = renderStatus().attention;
+        for (const pair of readPairs().pairs) {
+            if (pair.direction !== direction || lockHeld(pairLock(pair.id))) continue;
+            writePairState(pair.id, failed(readPairState(pair.id), "credential-absent", { account: account }));
+        }
+        const after = renderStatus().attention;
+        if (after !== null && (before === null || before.notified)) writeJson(controlFile, Object.assign(readControl(), { notifiedKey: after.key }));
+        writeStatus();
+    });
+    process.stdout.write("signed-out=" + direction + "\n");
 }
 
 function startVerb(words) {
@@ -1041,8 +1184,8 @@ function pauseVerb(words, paused) {
         if (only !== null && !readPairs().pairs.some(p => p.id === only)) refuse("pair=unknown");
         const control = readControl();
         const next = only === null
-            ? { paused: paused, pausedPairs: paused ? control.pausedPairs : [] }
-            : { paused: control.paused, pausedPairs: control.pausedPairs.filter(id => id !== only).concat(paused ? [only] : []) };
+            ? { paused: paused, pausedPairs: paused ? control.pausedPairs : [], notifiedKey: control.notifiedKey }
+            : { paused: control.paused, pausedPairs: control.pausedPairs.filter(id => id !== only).concat(paused ? [only] : []), notifiedKey: control.notifiedKey };
         writeJson(controlFile, next);
         writeStatus();
     });
@@ -1098,8 +1241,10 @@ const rest = process.argv.slice(3);
 switch (verb) {
 case "run": runVerb(rest); break;
 case "status": statusVerb(rest); break;
+case "attention-seen": attentionSeenVerb(rest); break;
 case "probe": probeVerb(rest); break;
 case "authorize": authorizeVerb(rest); break;
+case "sign-out": signOutVerb(rest); break;
 case "install": installVerb(rest); break;
 case "start": startVerb(rest); break;
 case "pause": pauseVerb(rest, true); break;

@@ -233,10 +233,17 @@ var READABILITY_SURFACES = [
 ];
 var READABILITY_FLOOR = 4.5;
 // Text drawn on a control's own fill rather than on a resting surface, at
-// the same floor.
+// the same floor. A translucent fill, such as a badge's faint tone, is
+// judged laid over each resting surface, as it is drawn.
 var READABILITY_PAIRS = [
     ["segmented.foreground", "segmented.background"],
-    ["segmented.selectedForeground", "segmented.selected"]
+    ["segmented.selectedForeground", "segmented.selected"],
+    ["badge.tone.neutral.foreground", "badge.tone.neutral.background"],
+    ["badge.tone.accent.foreground", "badge.tone.accent.background"],
+    ["badge.tone.success.foreground", "badge.tone.success.background"],
+    ["badge.tone.warning.foreground", "badge.tone.warning.background"],
+    ["badge.tone.danger.foreground", "badge.tone.danger.background"],
+    ["badge.tone.info.foreground", "badge.tone.info.background"]
 ];
 // An input that shows its state by its outline or indicator must meet WCAG
 // 2.2 SC 1.4.11 non-text contrast, 3:1: each boundary and selected
@@ -270,15 +277,23 @@ function valueAt(values, path) {
 
 // Every pair of the readability table below its floor, as { text,
 // surface, ratio, floor }: text roles on resting surfaces and text on a
-// control's fill at 4.5, then input boundaries, selected indicators and
-// knobs at 3. A translucent colour has no ratio and is a shortfall.
+// control's fill at 4.5, a translucent fill laid over each resting surface
+// and named `<fill> over <surface>`, then input boundaries, selected
+// indicators and knobs at 3. Any other translucent colour has no ratio and
+// is a shortfall.
 function readabilityShortfalls(values) {
     var pairs = [];
     for (var i = 0; i < READABILITY_TEXT_ROLES.length; i++)
         for (var j = 0; j < READABILITY_SURFACES.length; j++)
             pairs.push([READABILITY_TEXT_ROLES[i], READABILITY_SURFACES[j], READABILITY_FLOOR]);
-    for (var p = 0; p < READABILITY_PAIRS.length; p++)
-        pairs.push([READABILITY_PAIRS[p][0], READABILITY_PAIRS[p][1], READABILITY_FLOOR]);
+    for (var p = 0; p < READABILITY_PAIRS.length; p++) {
+        var fill = parseColor(valueAt(values, READABILITY_PAIRS[p][1]));
+        if (fill === null || fill.a === 1)
+            pairs.push([READABILITY_PAIRS[p][0], READABILITY_PAIRS[p][1], READABILITY_FLOOR]);
+        else
+            for (var u = 0; u < READABILITY_SURFACES.length; u++)
+                pairs.push([READABILITY_PAIRS[p][0], READABILITY_PAIRS[p][1], READABILITY_FLOOR, READABILITY_SURFACES[u]]);
+    }
     for (var k = 0; k < BOUNDARY_ROLES.length; k++)
         for (var m = 0; m < READABILITY_SURFACES.length; m++)
             pairs.push([BOUNDARY_ROLES[k], READABILITY_SURFACES[m], BOUNDARY_FLOOR]);
@@ -286,15 +301,31 @@ function readabilityShortfalls(values) {
         pairs.push([BOUNDARY_PAIRS[n][0], BOUNDARY_PAIRS[n][1], BOUNDARY_FLOOR]);
     var out = [];
     for (var q = 0; q < pairs.length; q++) {
+        var under = pairs[q][3];
         var text = parseColor(valueAt(values, pairs[q][0]));
         var surface = parseColor(valueAt(values, pairs[q][1]));
+        if (under !== undefined)
+            surface = overlay(surface, parseColor(valueAt(values, under)));
         var ratio = text === null || surface === null || text.a < 1 || surface.a < 1
             ? null
             : contrastRatio(text, surface);
         if (ratio === null || ratio < pairs[q][2])
-            out.push({ text: pairs[q][0], surface: pairs[q][1], ratio: ratio, floor: pairs[q][2] });
+            out.push({ text: pairs[q][0], surface: under === undefined ? pairs[q][1] : pairs[q][1] + " over " + under, ratio: ratio, floor: pairs[q][2] });
     }
     return out;
+}
+
+// FILL laid over the opaque colour BASE, as the screen shows it, or null
+// while BASE is missing or translucent itself.
+function overlay(fill, base) {
+    if (base === null || base.a < 1)
+        return null;
+    return {
+        r: fill.r * fill.a + base.r * (1 - fill.a),
+        g: fill.g * fill.a + base.g * (1 - fill.a),
+        b: fill.b * fill.a + base.b * (1 - fill.a),
+        a: 1
+    };
 }
 
 // --- expressions

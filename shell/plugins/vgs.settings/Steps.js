@@ -7,7 +7,8 @@
 // failing state its writer gives no action shows none. The core decides when
 // a step applies (PluginLogic.statusActionOffered, SECRET_ACCESS,
 // requirementRows); this file decides what the page then draws, and where:
-// a stored key in the Setup section, a state on Details.
+// a stored key on the Settings tab, in the Setup section or its group's
+// own section, and a state on Details.
 
 // What the line of ENTRY, one row of PluginLogic.statusRows, draws of its
 // step: { offered }, whether the action's button shows.
@@ -103,10 +104,13 @@ function itemsKeyed(items) {
     });
 }
 
-// The status group a page draws at the top of its Setup section, with the
-// setup actions under it, so the state a setup step changes reads beside
-// the step.
+// The status group whose first entry a page draws as its own Status
+// section, the plugin's headline state, and whose further entries open its
+// Setup section as step rows, so the state a setup step changes reads
+// beside the step.
 var SETUP_GROUP = "Setup";
+// The title of the section that holds SETUP_GROUP's first entry.
+var STATUS_TITLE = "Status";
 
 // Whether ENTRY, one of a manager row's status rows, lists keys and tokens
 // the plugin stores: the presence list of a manifest that declares
@@ -118,73 +122,138 @@ function listsKeys(entry) {
 }
 
 // The entries of STATUS, a manager row's status rows, that list the
-// plugin's stored keys and tokens: a page draws each in its Setup section,
-// where a key is added, changed and removed (keyEntries), and every other
-// entry read-only on Details (detailEntries).
+// plugin's stored keys and tokens: a page draws each on its Settings tab,
+// where a key is added, replaced and removed, and every other entry
+// read-only on Details (detailEntries), but for the states of a keyed
+// group (keyedGroups), which the Settings tab draws beside its keys.
 function keyEntries(status) {
     return status.filter(listsKeys);
 }
 function detailEntries(status) {
-    return status.filter(function (entry) { return !listsKeys(entry); });
-}
-
-// The entries of STATUS, a manager row's status rows, in SETUP_GROUP, but
-// for the stored keys, which the section draws after them (keyEntries).
-function setupEntries(status) {
-    return status.filter(function (entry) { return entry.group === SETUP_GROUP && !listsKeys(entry); });
-}
-
-// The Setup section's rows for TUIS, a manager row's listed TUIs, and
-// STATUS, its status rows, in drawn order: the first SETUP_GROUP entry is
-// the section's "Status" row, and each further one a step row under its own
-// label, with its offered action beside it, `button` null while it offers
-// none. Each { entry, label, step, button }, a button { key, name, label },
-// `name` the TUI the action opens, "" for one the manager acts on.
-function setupRows(tuis, status) {
-    return setupEntries(status).map(function (entry, index) {
-        var step = index > 0;
-        return { entry: entry, label: step ? entry.label : "Status", step: step, button: step ? stepButton(tuis, entry) : null };
+    var keyed = keyedGroups(status);
+    return status.filter(function (entry) {
+        if (inKeyedGroup(entry, keyed)) return false;
+        return !listsKeys(entry);
     });
 }
 
-// The action beside step ENTRY, with the action's label, or null: the
-// listed TUI of TUIS its offered action opens (a row's action names a TUI
-// only while it is offered), or, for an offered action that opens none, the
-// plugin's own requirement commands or a system step, a button with no
-// `name`, whose press the page hands the manager's act.
-function stepButton(tuis, entry) {
-    if (entry.action === null || !entry.action.offered) return null;
-    if (entry.action.tui === "") return { key: entry.key + " " + entry.action.label, name: "", label: entry.action.label };
-    var tui = tuis.filter(function (t) { return t.name === entry.action.tui; })[0];
-    if (tui === undefined) return null;
-    return { key: tui.name + " " + entry.action.label, name: tui.name, label: entry.action.label };
+// The groups of STATUS, other than "" and SETUP_GROUP, that hold a key
+// list, in the order of their first entry: each is a section of the
+// Settings tab, titled with the group, so a key and the step that uses it
+// read under one heading.
+function keyedGroups(status) {
+    var out = [];
+    keyEntries(status).forEach(function (entry) {
+        if (entry.group !== "" && entry.group !== SETUP_GROUP && out.indexOf(entry.group) === -1) out.push(entry.group);
+    });
+    return out;
 }
 
-// The Setup section's actions for TUIS, a manager row's listed TUIs
-// (PluginLogic.listedTuiRows), and STATUS, its status rows, in drawn order,
-// leaving out each TUI a step row draws beside it (setupRows): first each
-// TUI an offered action opens (a row's action names a TUI only while it is
-// offered), in status order, as that step, with the action's label; then
-// every other TUI in manifest order, with its entry's label. Such another
-// TUI that lacks a requirement takes no press and reads the core's reason,
-// the TUI's `withheld`: its press would only raise the notice the step
-// installs from; an offered step always takes its press. Each { key, name,
-// label, enabled, reason }, `key` naming the action as drawn, so a change
-// of label or state draws it anew.
-function setupButtons(tuis, status) {
+// Whether ENTRY draws in the section of one of KEYED, keyedGroups' groups:
+// a key list or a state of such a group. Another type stays on Details.
+function inKeyedGroup(entry, keyed) {
+    return keyed.indexOf(entry.group) !== -1 && (listsKeys(entry) || entry.type === "state");
+}
+
+// The status sections of the Settings tab for TUIS, a manager row's listed
+// TUIs (PluginLogic.listedTuiRows), and STATUS, its status rows, in drawn
+// order, each { title, items, buttons }:
+// - STATUS_TITLE: SETUP_GROUP's first entry, under its own label, with no
+//   step;
+// - SETUP_GROUP: each further entry of that group as a step row, then the
+//   key lists of group "" or SETUP_GROUP, then `buttons`, the screens no
+//   step row draws (flowButtons);
+// - each keyed group (keyedGroups): its key lists and states in manifest
+//   order, each state a step row.
+// A section with no item and no button is left out. Each item is { key,
+// keys, entry, label, step, button }: `key` the entry's, `keys` whether it
+// draws as a key list, `step` whether its offered action draws beside it,
+// `button` that action (stepButton) or null. The page's one primary action
+// is the first offered one in that order whose tone is not danger
+// (markPrimary).
+function settingsSections(tuis, status) {
+    var keyed = keyedGroups(status);
+    var setup = status.filter(function (entry) { return entry.group === SETUP_GROUP && !listsKeys(entry); });
+    function row(entry, step) {
+        return { key: entry.key, keys: false, entry: entry, label: entry.label, step: step, button: step ? stepButton(tuis, entry) : null };
+    }
+    function keys(entry) {
+        return { key: entry.key, keys: true, entry: entry, label: entry.label, step: false, button: null };
+    }
+    var setupItems = setup.slice(1).map(function (entry) { return row(entry, true); })
+        .concat(keyEntries(status).filter(function (entry) { return keyed.indexOf(entry.group) === -1; }).map(keys));
+    var groups = keyed.map(function (group) {
+        return { title: group, buttons: [], items: status.filter(function (entry) { return entry.group === group && inKeyedGroup(entry, keyed); })
+            .map(function (entry) { return listsKeys(entry) ? keys(entry) : row(entry, true); }) };
+    });
+    var beside = [];
+    setupItems.concat.apply(setupItems, groups.map(function (section) { return section.items; })).forEach(function (item) {
+        if (item.button !== null && item.button.name !== "") beside.push(item.button.name);
+    });
     var out = [];
-    var beside = setupRows(tuis, status).filter(function (row) { return row.button !== null; })
-        .map(function (row) { return row.button.name; });
+    if (setup.length > 0) out.push({ title: STATUS_TITLE, items: [row(setup[0], false)], buttons: [] });
+    var buttons = flowButtons(tuis, status, beside);
+    if (setupItems.length > 0 || buttons.length > 0) out.push({ title: SETUP_GROUP, items: setupItems, buttons: buttons });
+    out = out.concat(groups);
+    markPrimary(out);
+    return out;
+}
+
+// The action beside step ENTRY, or null while its value offers none:
+// { key, name, label, tone, primary }, `name` the listed TUI of TUIS the
+// offered action opens, a press the manager's openTui, or "" for an action
+// that opens no listed screen, such as a screen with no `entry`, the
+// plugin's own requirement commands or a system step, whose press the page
+// hands the manager's act; `tone` "" or "danger"; `primary` markPrimary's.
+function stepButton(tuis, entry) {
+    if (entry.action === null || !entry.action.offered) return null;
+    var tui = entry.action.tui === "" ? undefined : tuis.filter(function (t) { return t.name === entry.action.tui; })[0];
+    var name = tui === undefined ? "" : tui.name;
+    return { key: entry.key + " " + entry.action.label, name: name, label: entry.action.label, tone: entry.action.tone, primary: false };
+}
+
+// The Setup section's actions for TUIS and STATUS, in drawn order, leaving
+// out each listed TUI a step row draws beside it, BESIDE: first each TUI
+// an offered action opens (a row's action names a TUI only while it is
+// offered), in status order, as that step, with the action's label and
+// tone; then every other TUI in manifest order, with its entry's label.
+// Such another TUI that lacks a requirement takes no press and reads the
+// core's reason, the TUI's `withheld`: its press would only raise the
+// notice the step installs from; an offered step always takes its press.
+// Each { key, name, label, tone, offered, primary, enabled, reason }, `key`
+// naming the action as drawn, so a change of label, state or weight draws
+// it anew (markPrimary sets it).
+function flowButtons(tuis, status, beside) {
+    var out = [];
     function has(name) { return beside.indexOf(name) !== -1 || out.some(function (button) { return button.name === name; }); }
-    function add(tui, label, offered) {
+    function add(tui, label, tone, offered) {
         var enabled = offered || tui.withheld === "";
-        out.push({ key: tui.name + " " + label + " " + enabled, name: tui.name, label: label, enabled: enabled, reason: enabled ? "" : tui.withheld });
+        out.push({ key: "", name: tui.name, label: label, tone: tone, offered: offered, primary: false, enabled: enabled, reason: enabled ? "" : tui.withheld });
     }
     status.forEach(function (entry) {
         if (entry.action === null || entry.action.tui === "") return;
         var tui = tuis.filter(function (t) { return t.name === entry.action.tui; })[0];
-        if (tui !== undefined && !has(tui.name)) add(tui, entry.action.label, true);
+        if (tui !== undefined && !has(tui.name)) add(tui, entry.action.label, entry.action.tone, true);
     });
-    tuis.forEach(function (tui) { if (!has(tui.name)) add(tui, tui.label, false); });
+    tuis.forEach(function (tui) { if (!has(tui.name)) add(tui, tui.label, "", false); });
     return out;
+}
+
+// Mark the one primary action of SECTIONS, settingsSections' list: the
+// first offered step action in drawn order, the step rows of a section and
+// then its offered buttons, whose tone is not danger, so the next step
+// reads first and a removal is never the page's main action. Each button
+// of a section's `buttons` then takes its key.
+function markPrimary(sections) {
+    var found = false;
+    function mark(button) {
+        if (found || button.tone === "danger") return;
+        button.primary = true;
+        found = true;
+    }
+    sections.forEach(function (section) {
+        section.items.forEach(function (item) { if (item.button !== null) mark(item.button); });
+        section.buttons.forEach(function (button) { if (button.offered) mark(button); });
+        section.buttons.forEach(function (button) { button.key = button.name + " " + button.label + " " + button.enabled + " " + button.tone + " " + button.primary; });
+    });
 }

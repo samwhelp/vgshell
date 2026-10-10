@@ -14,12 +14,13 @@ import qs.Ui
 // label's row, so a line that names a group never leaves its value column
 // empty. Its lines sit `field.gap` apart: one group of the row's GroupList.
 //
-// The step is one of: `actionLabel` while `actionOffered`, an action that
-// emits `act`; or, for a line that is the presence of a secret, by
-// `access`: `connect`, an Add key action, and `disconnect`, a Change key
-// icon button before a Disconnect action that emits `clearSecret`. Add key
-// and Change key open a masked field under the line whose Save, or Enter,
-// emits `storeSecret` with what was typed and closes it. A line with no
+// The step is one of: `actionLabel` while `actionOffered`, an action in
+// `actionTone` that emits `act`; or, for a line that is the presence of a
+// secret, by `access`: `connect`, an Add key action, and `disconnect`, a
+// Replace action before a Remove action in the danger tone that emits
+// `clearSecret`. Add key and Replace open a masked field under the line
+// whose Save, or Enter, emits `storeSecret` with what was typed and closes
+// it. A line with no
 // value, such as a secret nothing is stored for, starts its step on the
 // value column. `busy` disables the step while its write runs; `error`,
 // when set, reads in the hint's place in the error colour.
@@ -36,6 +37,8 @@ Column {
     property bool muted: false
     property string actionLabel: ""
     property bool actionOffered: false
+    // "" or "danger", the declared action's tone (PluginLogic.statusRowAction).
+    property string actionTone: ""
     property string access: ""
     property bool busy: false
     property string error: ""
@@ -43,8 +46,7 @@ Column {
     property string secretLabel: ""
     // Whether the masked field is open.
     property bool entering: false
-    // What the line offers for its secret: Add key, or Change key and
-    // Disconnect.
+    // What the line offers for its secret: Add key, or Replace and Remove.
     readonly property bool adds: access === "connect"
     readonly property bool stored: access === "disconnect"
     readonly property bool stepShown: (actionLabel !== "" && actionOffered) || adds || stored
@@ -119,29 +121,21 @@ Column {
                 y: valueRow.stepBelow ? 0 : Math.round(valueRow.centre - valueRow.firstLine / 2)
                 sourceComponent: line.tone !== "" ? badge : line.text !== "" ? plain : line.hint !== "" ? hintValue : null
             }
-            // A Row places only its visible children, so a line with no
-            // stored secret draws its actions alone.
+            // RowActions places only its visible actions, so a line draws
+            // the steps that apply to it alone.
             Row {
                 id: step
                 x: valueRow.stepBelow ? 0 : value.width > 0 ? value.width + Theme.stack.inline : 0
                 y: valueRow.stepBelow ? value.height + Theme.field.gap : Math.round(valueRow.centre - height / 2)
                 spacing: Theme.stack.inline
                 visible: line.stepShown && !line.entering
-                IconButton {
-                    anchors.verticalCenter: parent.verticalCenter
-                    visible: line.stored
-                    enabled: !line.busy
-                    size: "sm"
-                    iconName: "pencil"
-                    label: "Change key"
-                    onClicked: line.entering = true
-                }
                 RowActions {
                     anchors.verticalCenter: parent.verticalCenter
                     RowAction {
                         visible: line.actionLabel !== "" && line.actionOffered
                         enabled: !line.busy
                         text: line.actionLabel
+                        tone: line.actionTone === "danger" ? "danger" : "accent"
                         onClicked: line.act()
                     }
                     RowAction {
@@ -153,7 +147,14 @@ Column {
                     RowAction {
                         visible: line.stored
                         enabled: !line.busy
-                        text: "Disconnect"
+                        text: "Replace"
+                        onClicked: line.entering = true
+                    }
+                    RowAction {
+                        visible: line.stored
+                        enabled: !line.busy
+                        text: "Remove"
+                        tone: "danger"
                         onClicked: line.clearSecret()
                     }
                 }
@@ -161,7 +162,7 @@ Column {
         }
     }
 
-    // The masked field of Add key and Change key, built while it is open
+    // The masked field of Add key and Replace, built while it is open
     // and destroyed on Save or Cancel, so a closed line holds no input and a
     // typed secret outlives neither. What is typed stays in the field
     // alone until Save hands it to the core, which stores it through

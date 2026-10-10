@@ -7,20 +7,21 @@ import "../../shell/plugins/vgs.settings"
 
 // GroupList: the groups it holds sit `groupList.gap` apart with one
 // hairline in `groupList.divider` centred in each gap, a hidden group takes
-// neither, a group list inside another divides its own groups alike, and a
+// neither, a group list inside another divides its own groups alike, a
+// list that is not `divided` keeps the gap and draws no hairline, and a
 // theme moves both. The groups are the Settings page's own Status lines
 // and Requirements rows, so the page's rhythm is read where it is drawn:
 // a line's own lines, its value and its hint sit `field.gap` apart, less
 // than the gap between groups. A state too long for the value column
 // elides inside its chip, and its sentence wraps under it, both inside
-// the line. A line that is a secret's presence draws Change key and
-// Disconnect after its chip, or Add key on the value column while nothing
-// is stored, and either opens the masked field, whose Save hands on what
-// was typed.
+// the line. A line that is a secret's presence draws Replace and Remove,
+// in the danger tone, after its chip, or Add key on the value column while
+// nothing is stored, and Replace or Add key opens the masked field, whose
+// Save hands on what was typed. A step declared danger draws in that tone.
 Item {
     id: root
     width: 480
-    height: 1560
+    height: 1760
 
     GroupList {
         id: list
@@ -44,6 +45,15 @@ Item {
         }
     }
 
+    GroupList {
+        id: plainList
+        y: 1600
+        width: 400
+        divided: false
+        StatusLine { id: plainFirst; width: plainList.width; label: "Client ID"; tone: "success"; text: "Present" }
+        StatusLine { id: plainSecond; width: plainList.width; label: "Client secret"; tone: "success"; text: "Present" }
+    }
+
     // Status lines with a step: a short chip keeps the step beside it, a
     // chip too long for both puts the step under it.
     StatusLine { id: shortStep; x: 0; y: 760; width: 400; label: "Token"; tone: "warning"; text: "Absent"; actionLabel: "Set up token"; actionOffered: true }
@@ -56,6 +66,7 @@ Item {
 
     StatusLine { id: storedKey; x: 0; y: 1420; width: 400; label: "Acme"; tone: "success"; text: "Present"; access: "disconnect"; secretLabel: "Acme key" }
     StatusLine { id: absentKey; x: 0; y: 1480; width: 400; label: "Globex"; access: "connect"; secretLabel: "Acme key" }
+    StatusLine { id: dangerStep; x: 0; y: 1540; width: 400; label: "Sign-in"; tone: "success"; text: "Signed in"; actionLabel: "Sign out"; actionOffered: true; actionTone: "danger" }
     SignalSpy { id: stores; target: storedKey; signalName: "storeSecret" }
 
     TestCase {
@@ -117,6 +128,15 @@ Item {
             checkDivided(inner);
             compare(hairlinesOf(outer).length, 1);
             compare(hairlinesOf(inner).length, 1);
+        }
+
+        // A list that is not divided keeps the gap between its groups and
+        // draws no hairline.
+        function test_an_undivided_list_keeps_the_gap_and_draws_no_hairline() {
+            compare(hairlinesOf(plainList).length, 0);
+            const groups = shownGroups(plainList);
+            compare(groups.length, 2);
+            tryVerify(() => groups[1].y - (groups[0].y + groups[0].height) === Theme.groupList.gap, 1000, "the groups keep the gap");
         }
 
         function test_a_theme_moves_the_gap_and_the_hairline() {
@@ -222,39 +242,59 @@ Item {
             verify(sentenceBox.bottom <= longState.height + 0.5, "the line holds every wrapped line of the sentence");
         }
 
-        // A stored secret's line: its chip, Change key and Disconnect on
-        // one centre, `stack.inline` apart. A secret nothing is stored for
-        // draws no chip, and Add key starts on the value column.
+        // The shown RowActions of a status line, in drawn order.
+        function actionsOf(line) {
+            const out = [];
+            const stack = [line];
+            while (stack.length > 0) {
+                const at = stack.shift();
+                if (at instanceof RowAction && at.visible) out.push(at);
+                for (const child of at.children) stack.push(child);
+            }
+            return out.sort((a, b) => box(a, line).x - box(b, line).x);
+        }
+
+        // A stored secret's line: its chip, Replace and Remove on one
+        // centre, Replace right after the chip and Remove `rowAction.gap`
+        // after it in the danger tone, and no icon button. A secret nothing
+        // is stored for draws no chip, and Add key starts on the value
+        // column.
         function test_a_secret_line_draws_its_steps() {
             const chip = box(chipOf(storedKey), storedKey);
-            const change = findChild(storedKey, IconButton), disconnect = stepOf(storedKey);
-            verify(change !== null, "a stored secret's line draws Change key");
-            verify(disconnect !== null && disconnect.text === "Disconnect", "a stored secret's line draws Disconnect");
-            const changeBox = box(change, storedKey), actionBox = box(disconnect, storedKey);
-            compare(changeBox.x, chip.right + Theme.stack.inline, "Change key stands right after the chip");
-            compare(actionBox.x, changeBox.right + Theme.stack.inline, "Disconnect stands right after Change key");
-            fuzzyCompare(changeBox.y + (changeBox.bottom - changeBox.y) / 2, chip.y + (chip.bottom - chip.y) / 2, 1);
-            fuzzyCompare(actionBox.y + (actionBox.bottom - actionBox.y) / 2, chip.y + (chip.bottom - chip.y) / 2, 1);
+            const actions = actionsOf(storedKey);
+            compare(actions.map(action => [action.text, action.tone]), [["Replace", "accent"], ["Remove", "danger"]]);
+            compare(findChild(storedKey, IconButton), null, "a stored secret's line draws no icon button");
+            const replaceBox = box(actions[0], storedKey), removeBox = box(actions[1], storedKey);
+            compare(replaceBox.x, chip.right + Theme.stack.inline, "Replace stands right after the chip");
+            compare(removeBox.x, replaceBox.right + Theme.rowAction.gap, "Remove stands right after Replace");
+            fuzzyCompare(replaceBox.y + (replaceBox.bottom - replaceBox.y) / 2, chip.y + (chip.bottom - chip.y) / 2, 1);
+            fuzzyCompare(removeBox.y + (removeBox.bottom - removeBox.y) / 2, chip.y + (chip.bottom - chip.y) / 2, 1);
             compare(chipOf(absentKey), null, "a secret nothing is stored for draws no chip");
-            compare(findChild(absentKey, IconButton), null, "it draws no Change key");
+            compare(actionsOf(absentKey).map(action => action.text), ["Add key"], "it draws Add key alone");
             const add = stepOf(absentKey);
             verify(add !== null && add.text === "Add key", "it draws Add key");
             const field = absentKey.children.find(child => child.valueX !== undefined);
             compare(box(add, absentKey).x, field.valueX, "Add key starts on the value column");
         }
 
-        // Change key and Add key open the masked field in the steps'
-        // place; Enter hands on what was typed and closes it, and Escape
-        // closes it with nothing handed on.
+        // A step declared danger draws in the danger tone.
+        function test_a_danger_step_draws_in_the_danger_tone() {
+            compare(actionsOf(dangerStep).map(action => [action.text, action.tone]), [["Sign out", "danger"]]);
+            compare(actionsOf(shortStep).map(action => action.tone), ["accent"], "a step with no tone draws as an accent action");
+        }
+
+        // Replace and Add key open the masked field in the steps' place;
+        // Enter hands on what was typed and closes it, and Escape closes it
+        // with nothing handed on.
         function test_a_secret_step_opens_the_masked_field() {
             stores.clear();
             compare(findChild(storedKey, TextField), null, "a closed line holds no field");
-            findChild(storedKey, IconButton).clicked();
-            tryVerify(() => findChild(storedKey, TextField) !== null, 1000, "Change key opens the field");
+            actionsOf(storedKey)[0].clicked();
+            tryVerify(() => findChild(storedKey, TextField) !== null, 1000, "Replace opens the field");
             const field = findChild(storedKey, TextField);
             verify(field.password, "the field masks what is typed");
             compare(field.text, "", "the field opens empty");
-            compare(findChild(storedKey, IconButton), null, "the steps hide while the field is open");
+            compare(actionsOf(storedKey), [], "the steps hide while the field is open");
             field.text = "typed-key";
             field.accepted();
             compare(stores.count, 1);

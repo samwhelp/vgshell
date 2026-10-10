@@ -85,7 +85,7 @@ function suite(ctx, check) {
                 { ok: true, kind: "install" });
             check("Settings withholds local voice and offers install while " + absent + " is absent",
                 ctx.statusRows(jarvis, voiceValues, missing).find(row => row.key === "localRuntime").action,
-                { label: "Install requirements", offered: true, tui: "setup-local" });
+                { label: "Install requirements", tone: "", offered: true, tui: "setup-local" });
             fs.writeFileSync(file, "#!/bin/sh\nexit 99\n", { mode: 0o700 });
         }
     } finally {
@@ -185,11 +185,11 @@ function suite(ctx, check) {
         const texts = [].concat(...rows.map(row => [row.hint, row.value.text].concat(row.value.lines || [])));
         return ["Add key", "Accounts"].filter(step => !offered.includes(step) && texts.some(text => text.includes(step)));
     };
-    check("Jarvis offers Add key and Accounts while only tesseract is missing", pageRows(["tesseract"]).map(row => row.action), [{ label: "Add key", offered: true, tui: "add-key" }, { label: "Accounts", offered: true, tui: "accounts" }]);
+    check("Jarvis offers Add key and Accounts while only tesseract is missing", pageRows(["tesseract"]).map(row => row.action), [{ label: "Add key", tone: "", offered: true, tui: "add-key" }, { label: "Accounts", tone: "", offered: true, tui: "accounts" }]);
     check("Jarvis opens add-key while only tesseract is missing",
         ctx.tuiRunFor(jarvis, true, "/sources", runner, "add-key", ["tesseract"]).key, "vgs.jarvis/add-key");
     const withheld = pageRows(["tesseract", "secret-tool"]);
-    check("Jarvis withholds Add key and Accounts while secret-tool is missing", withheld.map(row => row.action), [{ label: "Install requirements", offered: true, tui: "add-key" }, { label: "Install requirements", offered: true, tui: "accounts" }]);
+    check("Jarvis withholds Add key and Accounts while secret-tool is missing", withheld.map(row => row.action), [{ label: "Install requirements", tone: "", offered: true, tui: "add-key" }, { label: "Install requirements", tone: "", offered: true, tui: "accounts" }]);
     check("a withheld row's hint names the command its step needs and not the one it does not",
         withheld.map(row => [row.hint.includes("secret-tool"), row.hint.includes("tesseract")]), [[true, false], [true, false]]);
     check("a withheld state reads a warning and keeps its action",
@@ -203,7 +203,7 @@ function suite(ctx, check) {
         ctx.statusRows(m, {}, ["acme-sync"])[0].action.offered, false);
     check("missing requirements preserve an existing install action",
         ctx.statusRows(m, { check: { tone: "warning", text: "Missing", action: true } }, ["acme-sync"])[2].action,
-        { label: "Install sync", offered: true, tui: "" });
+        { label: "Install sync", tone: "", offered: true, tui: "" });
 
     // statusWrite: [name, key, value, want], `want` the error line or "ok".
     const writeRows = [
@@ -367,7 +367,7 @@ function suite(ctx, check) {
     const values = ctx.statusWrite(m, ctx.statusWrite(m, ctx.statusWrite(m, {}, "token", "locked").values, "check", { tone: "ok", text: "Up to date" }).values, "pending", 0).values;
     const rows = ctx.statusRows(m, values, []);
     check("statusRows: one row per displayable entry, in manifest order", rows.map(r => r.key), ["token", "tokens", "check", "note", "pending", "lastCheck", "health"]);
-    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", hint: "Needed", info: "Explains this status", link: null, secrets: false, action: { label: "Set up token", offered: false, tui: "" }, report: "reported", value: "locked", tone: "info" });
+    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", hint: "Needed", info: "Explains this status", link: null, secrets: false, action: { label: "Set up token", tone: "", offered: false, tui: "" }, report: "reported", value: "locked", tone: "info" });
     check("statusRows: a declaration carries info", rows[0].info, "Explains this status");
     check("statusRows: a declaration carries its hint's link", rows[6].link, { text: "vendor page", url: "https://vendor.example/health" });
     check("statusRows: a reported state carries its tone", [rows[2].report, rows[2].value, rows[2].tone], ["reported", { tone: "ok", text: "Up to date" }, "success"]);
@@ -573,8 +573,16 @@ function suite(ctx, check) {
     ]) check("statusWrite: " + name, named(key, value), want);
     const namedValues = action => ctx.statusWrite(mNamed, {}, "agent", action === null ? { tone: "ok", text: "t" } : { tone: "warning", text: "t", action }).values;
     const agentAction = values => ctx.statusRows(mNamed, values, [])[0].action;
-    check("statusRows: a named action carries its own label", [agentAction(namedValues("remove")), agentAction(namedValues("get"))], [{ label: "Uninstall", offered: true, tui: "remove" }, { label: "Install", offered: true, tui: "" }]);
-    check("statusRows: named actions none of which applies offer nothing", [agentAction(namedValues(null)), agentAction({})], [{ label: "", offered: false, tui: "" }, { label: "", offered: false, tui: "" }]);
+    check("statusRows: a named action carries its own label", [agentAction(namedValues("remove")), agentAction(namedValues("get"))], [{ label: "Uninstall", tone: "", offered: true, tui: "remove" }, { label: "Install", tone: "", offered: true, tui: "" }]);
+    check("statusRows: named actions none of which applies offer nothing", [agentAction(namedValues(null)), agentAction({})], [{ label: "", tone: "", offered: false, tui: "" }, { label: "", tone: "", offered: false, tui: "" }]);
+    // A danger action carries its tone to the row, offered or not, but
+    // while withheld, when its press installs what its screen lacks.
+    const mTone = ctx.validateManifest({ schemaVersion: 1, id: "acme.drive", name: "D", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["status", "tui"], tui: { connect: { script: "tui/connect.sh", title: "Sign in" }, out: { script: "tui/out.sh", title: "Sign out" } }, requirements: [{ command: "acme-sync", purpose: "p" }],
+        status: { drive: { type: "state", label: "Sign-in", actions: { signIn: { label: "Sign in", tui: "connect" }, signOut: { label: "Sign out", tui: "out", tone: "danger" } } }, plain: { type: "state", label: "Plain", action: { label: "Sign out", tui: "out", tone: "danger" } } } }, "/p").manifest;
+    const toneOf = (key, value, missing) => ctx.statusRows(mTone, ctx.statusWrite(mTone, {}, key, value).values, missing)[key === "drive" ? 0 : 1].action.tone;
+    check("statusRows: a danger action carries its tone, a plain one none, a withheld one none",
+        [toneOf("drive", { tone: "ok", text: "t", action: "signOut" }, []), toneOf("drive", { tone: "warning", text: "t", action: "signIn" }, []), toneOf("plain", { tone: "ok", text: "t" }, []), toneOf("drive", { tone: "ok", text: "t", action: "signOut" }, ["acme-sync"])],
+        ["danger", "", "danger", ""]);
     check("statusActionRequest: a named TUI action opens it", ctx.statusActionRequest(mNamed, "acme.agent", true, namedValues("remove"), "agent"), { ok: true, kind: "tui", name: "remove" });
     check("statusActionRequest: a named install action installs its commands", ctx.statusActionRequest(mNamed, "acme.agent", true, namedValues("get"), "agent"), { ok: true, kind: "install", commands: ["acme-sync"] });
     check("statusActionRequest: named actions none of which applies are refused", ctx.statusActionRequest(mNamed, "acme.agent", true, namedValues(null), "agent"), { ok: false, answer: "refused: action=agent reason=not-offered" });
@@ -652,7 +660,10 @@ const CONTROLS = [
     ["a script's requires decides what it needs", "var needed = requires !== null ? requires : manifest", "var needed = false ? requires : manifest"],
     ["an empty requires needs nothing", "var needed = requires !== null ? requires : manifest", "var needed = requires !== null && requires.length > 0 ? requires : manifest"],
     ["a missing required command routes setup to install", "if (tuiMissingRequirements(manifest, name, missing).length > 0) return { ok: true, kind: \"install\" };", ""],
-    ["the row withholds the TUI label while requirements are missing", "{ label: lacking.length > 0 ? STATUS_WITHHELD_LABEL : offered.label, offered: true,", "{ label: offered.label, offered: true,"],
+    ["the row withholds the TUI label while requirements are missing", "{ label: lacking.length > 0 ? STATUS_WITHHELD_LABEL : offered.label,", "{ label: offered.label,"],
+    ["an offered action carries its tone", "tone: lacking.length > 0 ? \"\" : statusActionTone(offered),", "tone: \"\","],
+    ["a withheld action keeps its danger tone", "tone: lacking.length > 0 ? \"\" : statusActionTone(offered)", "tone: statusActionTone(offered)"],
+    ["an action not offered drops its tone", "tone: entry.action === undefined ? \"\" : statusActionTone(entry.action),", "tone: \"\","],
     ["a listed screen that lacks a command is not withheld", "withheld: lacking.length === 0 ? \"\" : tuiWithheldReason(lacking)", "withheld: \"\""],
     ["a withheld screen's reason names one command", "return \"Needs \" + requirementNames(lacking) + \". \"", "return \"Needs \" + lacking[0] + \". \""],
     ["a row names the TUI its offered action opens", "tui: offered.tui === undefined ? \"\" : offered.tui }", "tui: \"\" }"],

@@ -15,18 +15,21 @@ import "Steps.js" as Steps
 // switch of a plugin with a bar widget and another kind besides bar and
 // bar-widget, which stays enabled once unplaced, the switch turning only
 // while the plugin is enabled (for a widget-only plugin Enabled is the
-// placement), a Setup section with the plugin's status entries of the
-// `Setup` group at its top, the first a Status row and each further one a
-// step row under its own label, whose value is a Badge chip in its tone,
-// beside it a step's offered screen or action as a RowAction, with its lines and
-// hint under it (Steps.setupRows), then the plugin's stored keys and
-// tokens, each entry a StatusRow with one line per key, whose steps add,
-// change and remove a key the core stores (Steps.keyEntries), then, one
-// group space below, on an
-// unlabelled row from the value column, one RowAction per other setup
-// screen the manifest lists, which opens it through the manager: a screen
-// an offered status action opens first, with the action's label, then the
-// others (Steps.setupButtons), one settings section
+// placement), then the status sections (Steps.settingsSections): a Status
+// section with the `Setup` group's first entry under its own label; a
+// Setup section with each further entry of that group as a step row under
+// its own label, whose value is a Badge chip in its tone, beside it a
+// step's offered screen or action, with its lines and hint under it, then
+// the plugin's stored keys and tokens of no group or of `Setup`, each entry
+// a StatusRow with one line per key, whose steps add, replace and remove a
+// key the core stores, then, on an unlabelled row from the value column,
+// one action per other setup screen the manifest lists, which opens it
+// through the manager: a screen an offered status action opens first, with
+// the action's label, then the others; then one section per other status
+// group that holds a key list, its keys and states in manifest order. The
+// first offered step that is no danger draws as the page's one primary
+// Button, every other action as a RowAction, a danger one in the danger
+// tone. Then one settings section
 // per schema group (entries without a group have no heading), one
 // section per `list` entry, titled with its label, and the Keys section,
 // then, for a plugin of kind `pane` while a panes holder is enabled, a
@@ -40,7 +43,7 @@ import "Steps.js" as Steps
 // the muted colour, the capabilities, the listing metadata, the Update and
 // Remove actions of an installed plugin, one status section per status
 // group (entries without a group first, under `Status`), but for the
-// entries that list stored keys (Steps.detailEntries), whose values are
+// entries the Settings tab draws (Steps.detailEntries), whose values are
 // read-only and whose setup steps run through the manager (D061), and the
 // Requirements section with an Install all missing button while one is
 // missing, and Update all outdated once the rest are only outdated. A disabled plugin's status rows say it has not reported.
@@ -51,7 +54,8 @@ import "Steps.js" as Steps
 // share one content edge, the scroll bar sits in the window's right inset,
 // and each inline value draws at line height 1, centred on its label. The
 // switches, and the listing metadata with Manage, are each one key/value
-// group `stack.row` apart, with one key/value row height.
+// group `stack.row` apart, with one key/value row height. No row of the
+// Settings tab draws a divider: a section heading parts its groups.
 //
 // A text field and a key typed as text wait for a save (EditSet): while one
 // holds an unsaved edit the footer shows the save bar, whose Save, and
@@ -85,7 +89,7 @@ FocusScope {
     // or null.
     readonly property var paneHolder: row === null || row.paneHolder === "" ? null : panel.plugins.find(p => p.id === row.paneHolder) || null
     // Whether the Settings page holds nothing below its switches.
-    readonly property bool bare: row !== null && row.builtins.length === 0 && row.tuis.length === 0 && setupEntries.length === 0 && keyEntries.length === 0 && sections.length === 0 && lists.length === 0 && row.binds.length === 0 && paneHolder === null
+    readonly property bool bare: row !== null && row.builtins.length === 0 && row.tuis.length === 0 && settingsSections.length === 0 && sections.length === 0 && lists.length === 0 && row.binds.length === 0 && paneHolder === null
     // Whether a field of the page holds an unsaved edit.
     readonly property bool dirty: unsaved.edited
 
@@ -112,13 +116,9 @@ FocusScope {
     }
 
     readonly property var lists: row === null ? [] : Object.keys(row.schema).filter(key => row.schema[key].type === "list")
-    // The status entries the Setup section draws at its top, but for the
-    // stored keys, and its actions in drawn order.
-    readonly property var setupEntries: row === null ? [] : Steps.setupEntries(row.status)
-    readonly property var setupRows: row === null ? [] : Steps.setupRows(row.tuis, row.status)
-    readonly property var setupButtons: row === null ? [] : Steps.setupButtons(row.tuis, row.status)
-    // The keys of the status entries that list the plugin's stored keys.
-    readonly property var keyEntries: row === null ? [] : Steps.keyEntries(row.status).map(entry => entry.key)
+    // The Settings tab's status sections in drawn order, with their rows,
+    // keys and setup actions.
+    readonly property var settingsSections: row === null ? [] : Steps.settingsSections(row.tuis, row.status)
 
     // The keys of the status entries Details draws, by section, as
     // `sections` holds the schema's: [{ group, keys }], ungrouped first,
@@ -327,155 +327,204 @@ FocusScope {
                         wrapMode: Text.Wrap
                     }
 
-                    // The plugin's own setup screens, each a TUI its
-                    // manifest lists, opened through the manager as a status
-                    // step is, under the state they set up. A keyed model
-                    // keeps each action while the rows are replaced, and a
-                    // refusal reads under them. The state and the actions
-                    // are two groups, so the rows sit `stack.group` apart.
-                    Section {
-                        id: setup
-                        width: parent.width
-                        visible: page.row !== null && (page.row.tuis.length > 0 || page.setupEntries.length > 0 || page.keyEntries.length > 0)
-                        title: "Setup"
-                        rowSpacing: Theme.stack.group
+                    // The status sections. Keyed by title, by entry and
+                    // by action as drawn, so a status write, which hands
+                    // the page new rows, keeps each row in place and a
+                    // masked field open on a key line. Each row is one
+                    // group of the section's GroupList, `groupList.gap`
+                    // apart with no divider.
+                    Repeater {
+                        model: ScriptModel {
+                            values: page.settingsSections
+                            objectProp: "title"
+                        }
+                        Section {
+                            id: statusPart
+                            required property var modelData
+                            width: body.width
+                            title: modelData.title
 
-                        // Each entry (Steps.setupRows): the first a
-                        // "Status" row, each further one a step row under
-                        // its own label, in the page's key/value style
-                        // whose value is the entry's chip in its tone, or
-                        // its text while it has no tone, so the label sits
-                        // level with the chip, and a step's offered screen
-                        // as a RowAction beside it, the chip no wider than
-                        // the value column less that action, eliding a long
-                        // state; then its lines and its hint under the
-                        // value, as a field draws them, the words of the
-                        // hint its entry's `link` names opening that
-                        // address.
-                        // Unkeyed, so each status write draws the entry
-                        // anew.
-                        Column {
-                            width: setup.width
-                            spacing: Theme.stack.row
-                            visible: page.setupEntries.length > 0
-                            Repeater {
-                                model: ScriptModel {
-                                    values: page.setupRows
-                                }
-                                Field {
-                                    id: setupState
-                                    required property var modelData
-                                    readonly property var view: Steps.statusView(modelData.entry, ms => Timestamp.text(ms, Time.now.getTime()))
-                                    width: setup.width
-                                    label: modelData.label
-                                    inline: true
-                                    lines: view.lines
-                                    hint: view.hint
-                                    hintLink: view.link === null ? "" : view.link.text
-                                    onHintLinkActivated: page.panel.openLink(page.row.id, view.link.url)
-                                    // A Row places only its visible
-                                    // children, so a row with no action
-                                    // draws as the chip alone.
-                                    Row {
-                                        spacing: Theme.stack.inline
-                                        Badge {
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            width: Math.min(implicitWidth, setupState.bodyWidth - (setupState.valueX - setupState.leftPadding) - (setupAction.visible ? setupAction.implicitWidth + parent.spacing : 0))
-                                            visible: setupState.view.tone !== ""
-                                            text: setupState.view.text
-                                            tone: setupState.view.tone === "" ? "neutral" : setupState.view.tone
+                            GroupList {
+                                id: statusGroups
+                                width: statusPart.width
+                                divided: false
+
+                                Repeater {
+                                    model: ScriptModel {
+                                        values: statusPart.modelData.items
+                                        objectProp: "key"
+                                    }
+                                    Loader {
+                                        id: statusItem
+                                        required property var modelData
+                                        width: statusGroups.width
+                                        sourceComponent: modelData.keys ? keyList : stepRow
+
+                                        // The stored keys, beside the
+                                        // screen that gets one.
+                                        Component {
+                                            id: keyList
+                                            StatusRow {
+                                                divided: statusGroups.divided
+                                                entry: statusItem.modelData.entry
+                                                panel: page.panel
+                                                pluginId: page.row === null ? "" : page.row.id
+                                                secretLabel: page.row === null ? "" : page.row.secretLabel
+                                                onOpenLink: url => { if (page !== null && page.row !== null) page.panel.openLink(page.row.id, url); }
+                                            }
                                         }
-                                        Label {
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            role: setupState.view.muted ? "itemHint" : "value"
-                                            visible: setupState.view.tone === "" && setupState.view.text !== ""
-                                            text: setupState.view.text
-                                        }
-                                        RowAction {
-                                            id: setupAction
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            visible: setupState.modelData.button !== null
-                                            text: visible ? setupState.modelData.button.label : ""
-                                            enabled: page.editable
-                                            onClicked: setupState.modelData.button.name !== ""
-                                                ? page.panel.openTui(page.row.id, setupState.modelData.button.name)
-                                                : page.panel.act(page.row.id, setupState.modelData.entry.key)
+
+                                        // A row in the page's key/value
+                                        // style whose value is the entry's
+                                        // chip in its tone, or its text
+                                        // while it has no tone, so the
+                                        // label sits level with the chip,
+                                        // and a step's offered action
+                                        // beside it, the chip no wider than
+                                        // the value column less that
+                                        // action, eliding a long state;
+                                        // then its lines and its hint under
+                                        // the value, as a field draws them,
+                                        // the words of the hint its entry's
+                                        // `link` names opening that
+                                        // address, and the last refusal of
+                                        // its step.
+                                        Component {
+                                            id: stepRow
+                                            Field {
+                                                id: stepState
+                                                readonly property var view: Steps.statusView(statusItem.modelData.entry, ms => Timestamp.text(ms, Time.now.getTime()))
+                                                readonly property var button: statusItem.modelData.button
+                                                label: statusItem.modelData.label
+                                                inline: true
+                                                lines: view.lines
+                                                hint: view.hint
+                                                hintLink: view.link === null ? "" : view.link.text
+                                                onHintLinkActivated: page.panel.openLink(page.row.id, view.link.url)
+                                                // The last refusal of the route its
+                                                // press takes.
+                                                error: page.row === null || page.panel === null ? ""
+                                                    : button !== null && button.name !== "" ? page.panel.replyOf(page.row.id, page.panel.tuiKey(button.name))
+                                                    : page.panel.replyOf(page.row.id, statusItem.modelData.key)
+
+                                                function press() {
+                                                    if (button.name !== "") page.panel.openTui(page.row.id, button.name);
+                                                    else page.panel.act(page.row.id, statusItem.modelData.key);
+                                                }
+
+                                                // A Row places only its
+                                                // visible children, so a row
+                                                // with no action draws as
+                                                // the chip alone.
+                                                Row {
+                                                    id: stepValue
+                                                    spacing: Theme.stack.inline
+                                                    readonly property real actionWidth: primaryStep.visible ? primaryStep.implicitWidth + spacing : plainStep.visible ? plainStep.implicitWidth + spacing : 0
+                                                    Badge {
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        width: Math.min(implicitWidth, stepState.bodyWidth - (stepState.valueX - stepState.leftPadding) - stepValue.actionWidth)
+                                                        visible: stepState.view.tone !== ""
+                                                        text: stepState.view.text
+                                                        tone: stepState.view.tone === "" ? "neutral" : stepState.view.tone
+                                                    }
+                                                    Label {
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        role: stepState.view.muted ? "itemHint" : "value"
+                                                        visible: stepState.view.tone === "" && stepState.view.text !== ""
+                                                        text: stepState.view.text
+                                                    }
+                                                    Button {
+                                                        id: primaryStep
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        visible: stepState.button !== null && stepState.button.primary
+                                                        text: visible ? stepState.button.label : ""
+                                                        variant: "primary"
+                                                        enabled: page.editable
+                                                        onClicked: stepState.press()
+                                                    }
+                                                    RowAction {
+                                                        id: plainStep
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        visible: stepState.button !== null && !stepState.button.primary
+                                                        text: visible ? stepState.button.label : ""
+                                                        tone: stepState.button !== null && stepState.button.tone === "danger" ? "danger" : "accent"
+                                                        enabled: page.editable
+                                                        onClicked: stepState.press()
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
-                            }
-                        }
 
-                        // The stored keys, beside the screen that gets
-                        // one. Keyed by entry, so a status write keeps
-                        // each line and a masked field open on it.
-                        GroupList {
-                            width: setup.width
-                            visible: page.keyEntries.length > 0
-                            Repeater {
-                                model: ScriptModel {
-                                    values: page.keyEntries
-                                }
-                                StatusRow {
-                                    required property string modelData
-                                    width: setup.width
-                                    entry: page.statusEntry(modelData)
-                                    panel: page.panel
-                                    pluginId: page.row === null ? "" : page.row.id
-                                    secretLabel: page.row === null ? "" : page.row.secretLabel
-                                }
-                            }
-                        }
-
-                        Column {
-                            width: setup.width
-                            spacing: Theme.field.gap
-
-                            // An unlabelled row, so the actions start on the
-                            // value column with the step rows' chips.
-                            Field {
-                                width: parent.width
-                                inline: true
-                                visible: page.setupButtons.length > 0
-                                Flow {
-                                    width: parent.width
-                                    spacing: Theme.rowAction.gap
+                                // The setup screens no step row draws,
+                                // with the last refusal of each open
+                                // under them.
+                                Column {
+                                    width: statusGroups.width
+                                    spacing: Theme.field.gap
+                                    visible: statusPart.modelData.buttons.length > 0
+                                    // An unlabelled row, so the setup screens
+                                    // start on the value column with the step
+                                    // rows' chips.
+                                    Field {
+                                        width: parent.width
+                                        inline: true
+                                        Flow {
+                                            width: parent.width
+                                            spacing: Theme.rowAction.gap
+                                            Repeater {
+                                                model: ScriptModel {
+                                                    values: statusPart.modelData.buttons
+                                                    objectProp: "key"
+                                                }
+                                                // A withheld screen's action
+                                                // takes no press and no Tab
+                                                // stop; its reason opens on
+                                                // hover, which reaches a
+                                                // disabled item in Qt Quick,
+                                                // and the Status section names
+                                                // what is missing for a
+                                                // keyboard user.
+                                                Loader {
+                                                    id: setupScreen
+                                                    required property var modelData
+                                                    sourceComponent: modelData.primary ? primaryScreen : plainScreen
+                                                    Component {
+                                                        id: primaryScreen
+                                                        Button {
+                                                            text: setupScreen.modelData.label
+                                                            variant: "primary"
+                                                            enabled: page.editable && setupScreen.modelData.enabled
+                                                            onClicked: page.panel.openTui(page.row.id, setupScreen.modelData.name)
+                                                        }
+                                                    }
+                                                    Component {
+                                                        id: plainScreen
+                                                        RowAction {
+                                                            text: setupScreen.modelData.label
+                                                            tone: setupScreen.modelData.tone === "danger" ? "danger" : "accent"
+                                                            enabled: page.editable && setupScreen.modelData.enabled
+                                                            onClicked: page.panel.openTui(page.row.id, setupScreen.modelData.name)
+                                                            Tooltip { text: setupScreen.modelData.reason }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                     Repeater {
-                                        model: ScriptModel {
-                                            values: page.setupButtons
-                                            objectProp: "key"
-                                        }
-                                        // A withheld screen's action takes
-                                        // no press and no Tab stop; its
-                                        // reason opens on hover, which
-                                        // reaches a disabled item in Qt
-                                        // Quick, and the Setup state above
-                                        // names what is missing for a
-                                        // keyboard user.
-                                        RowAction {
-                                            required property var modelData
-                                            text: modelData.label
-                                            enabled: page.editable && modelData.enabled
-                                            onClicked: page.panel.openTui(page.row.id, modelData.name)
-                                            Tooltip { text: modelData.reason }
+                                        model: statusPart.modelData.buttons.map(button => button.name)
+                                        Label {
+                                            required property string modelData
+                                            role: "hint"
+                                            color: Theme.color.danger
+                                            text: page.row === null || page.panel === null ? "" : page.panel.replyOf(page.row.id, page.panel.tuiKey(modelData))
+                                            visible: text !== ""
+                                            width: parent.width
+                                            wrapMode: Text.Wrap
                                         }
                                     }
-                                }
-                            }
-
-                            Repeater {
-                                model: ScriptModel {
-                                    values: page.row === null ? [] : page.row.tuis
-                                    objectProp: "name"
-                                }
-                                Label {
-                                    required property var modelData
-                                    role: "hint"
-                                    color: Theme.color.danger
-                                    text: page.row === null ? "" : page.panel.replyOf(page.row.id, page.panel.tuiKey(modelData.name))
-                                    visible: text !== ""
-                                    width: setup.width
-                                    wrapMode: Text.Wrap
                                 }
                             }
                         }

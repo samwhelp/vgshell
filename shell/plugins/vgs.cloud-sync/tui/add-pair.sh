@@ -33,7 +33,7 @@ vgs_tui_header "Add a folder pair" "Cloud Sync keeps a Google Drive folder and a
 label="$(vgs_tui_input --header "A name for this folder pair. The bar shows it." --placeholder "for example Documents")" || exit 130
 [[ -n $label ]] || exit 130
 direction="$(vgs_tui_choose --label-delimiter=$'\t' --header "Select the direction." \
-  <<<$'Download from Google Drive to this computer\tpull\nUpload from this computer to Google Drive\tupload')" || exit 130
+  <<<$'Download: Google Drive to this computer\tpull\nUpload: this computer to Google Drive\tupload')" || exit 130
 [[ -n $direction ]] || exit 130
 remote="$(vgs_tui_input --header "The Google Drive folder, from the top of your Drive." --placeholder "for example Documents/Taxes")" || exit 130
 [[ -n $remote ]] || exit 130

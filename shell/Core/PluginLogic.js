@@ -197,9 +197,12 @@ var LAUNCHER_ROW_KEYS = ["id", "label", "icon", "description", "aliases", "menu"
 // type in STATUS_ACTION_TYPES takes one. A `state`
 // entry whose step differs by what its writer found declares `actions`
 // instead: two or more such steps by name, a STATUS_KEY_PATTERN
-// identifier, of which a value names at most one.
+// identifier, of which a value names at most one. An action that removes
+// what the user set up, such as a sign-out, carries `tone`, one of
+// STATUS_ACTION_TONES, and a page draws it in the danger style.
 var STATUS_ACTION_ROUTES = ["tui", "install", "system", "undo"];
-var STATUS_ACTION_KEYS = ["label"].concat(STATUS_ACTION_ROUTES);
+var STATUS_ACTION_KEYS = ["label", "tone"].concat(STATUS_ACTION_ROUTES);
+var STATUS_ACTION_TONES = ["danger"];
 var STATUS_ACTION_TYPES = ["presence", "state"];
 // The refusal reasons of the `manager` capability's `act`.
 var STATUS_ACTION_REASONS = ["undeclared", "disabled", "not-offered"];
@@ -232,7 +235,7 @@ var SECRET_ACCOUNT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/;
 var SECRET_VALUE_MAX = 4096;
 // What the Settings page offers a `presenceList` item with a `secret`, by
 // its presence: `connect`, Add key, while nothing is stored; `disconnect`,
-// a change of the key and Disconnect, while something is; and nothing
+// Replace and Remove, while something is; and nothing
 // while the store cannot be asked. A signed-out account takes a new
 // credential, so it offers Add key. SECRET_VERBS names the accesses that
 // offer each write: a store also replaces a stored key, since a store whose
@@ -727,7 +730,8 @@ function statusEntryActions(entry) {
 // The first defect of ACTION, one action of a status entry of type TYPE,
 // AT its path, or "": an object of STATUS_ACTION_KEYS on an entry whose
 // type is in STATUS_ACTION_TYPES, a printable `label` of at most STATUS_LABEL_MAX
-// characters, and exactly one of STATUS_ACTION_ROUTES: `tui`, a name the
+// characters, an optional `tone` of STATUS_ACTION_TONES, and exactly one
+// of STATUS_ACTION_ROUTES: `tui`, a name the
 // manifest's TUI key declares; `install`, a non-empty list of requirements the
 // manifest's REQUIREMENTS declare, each once; `system` or `undo`, a step
 // the manifest's SYSTEM, its `systemSteps`, declares.
@@ -743,6 +747,8 @@ function statusActionError(type, action, at, tui, requirements, system) {
     }
     if (!isPrintableLine(action.label, STATUS_LABEL_MAX))
         return at + ".label must be a printable line of 1 to " + STATUS_LABEL_MAX + " characters";
+    if (action.tone !== undefined && STATUS_ACTION_TONES.indexOf(action.tone) === -1)
+        return at + ".tone must be one of " + STATUS_ACTION_TONES.join(", ") + ", got " + JSON.stringify(action.tone);
     if (STATUS_ACTION_ROUTES.filter(function (route) { return action[route] !== undefined; }).length !== 1)
         return at + " must name exactly one of " + STATUS_ACTION_ROUTES.join(", ");
     var stepRoute = action.system !== undefined ? "system" : action.undo !== undefined ? "undo" : null;
@@ -1295,16 +1301,23 @@ function statusActionOffered(entry, value) {
 
 // What a Status row carries of ENTRY's step for its published VALUE, null
 // while unreported: null for an entry that declares none, else { label,
-// offered, tui }, the label of the action that applies, STATUS_WITHHELD_LABEL
+// offered, tui, tone }, the label of the action that applies, STATUS_WITHHELD_LABEL
 // while that action's TUI lacks the requirements LACKING, or of the entry's one
 // `action` while it does not, "" for `actions` none of which applies, and
 // `tui` the plugin's own TUI the offered action opens, "" while none is
-// offered or it opens none, so a page can draw that TUI's button as the step.
+// offered or it opens none, so a page can draw that TUI's button as the step,
+// and `tone` the labelled action's, "" or one of STATUS_ACTION_TONES, ""
+// while withheld, since the press then installs.
 function statusRowAction(entry, value, lacking) {
     if (entry.action === undefined && entry.actions === undefined) return null;
     var offered = value === null ? null : statusActionOffered(entry, value);
-    if (offered !== null) return { label: lacking.length > 0 ? STATUS_WITHHELD_LABEL : offered.label, offered: true, tui: offered.tui === undefined ? "" : offered.tui };
-    return { label: entry.action === undefined ? "" : entry.action.label, offered: false, tui: "" };
+    if (offered !== null) return { label: lacking.length > 0 ? STATUS_WITHHELD_LABEL : offered.label, tone: lacking.length > 0 ? "" : statusActionTone(offered), offered: true, tui: offered.tui === undefined ? "" : offered.tui };
+    return { label: entry.action === undefined ? "" : entry.action.label, tone: entry.action === undefined ? "" : statusActionTone(entry.action), offered: false, tui: "" };
+}
+
+// The tone a page draws declared ACTION in: its `tone`, else "".
+function statusActionTone(action) {
+    return action.tone === undefined ? "" : action.tone;
 }
 
 // The label a Status row's button reads while the TUI its action opens
@@ -1350,7 +1363,7 @@ function tuiWithheldReason(lacking) {
 // holds for the entry that lists the plugin's stored keys, a `presenceList`
 // of a manifest that declares `secrets`, which a page draws with its setup.
 // `action` is
-// statusRowAction's: null for an entry without one, else { label, offered },
+// statusRowAction's: null for an entry without one, else { label, tone, offered, tui },
 // `offered` false while unreported. `report` is `reported` with the published `value`
 // (statusRowValue) and its `tone`, or `unreported` with `value` null and
 // `tone` "" while `values` holds nothing for the key. While the offered

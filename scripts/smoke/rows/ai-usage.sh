@@ -19,7 +19,7 @@
 # send no request; a refused token's expired warning and a failed
 # request's stale figures; that no read changed a credential file's
 # bytes or modification time; and the AI Gateway key's line in the Setup
-# section of the Settings tab, whose Add key, Change key and Disconnect
+# section of the Settings tab, whose Add key, Replace and Remove
 # write the row's libsecret stand-in through the core, the key on stdin
 # alone, with no key line on Details.
 # Controls: a widget copy shown with no account, a panel copy capped at its
@@ -673,8 +673,8 @@ cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
 # for the gateway's credits, so each check sends it the stored key, which
 # the endpoint logs as a hash. With no key, Setup draws the key's line with
 # Add key, whose masked field stores what was typed; the stored key's line
-# reads Present with Change key, whose field stores another key over the
-# first, and Disconnect, which clears it. Details draws no key line, and
+# reads Present with Replace, whose field stores another key over the
+# first, and Remove, which clears it. Details draws no key line, and
 # neither typed key enters an argv, a status record, a manager row, a reply
 # or the log.
 cp -- "$usage_dir/usage.js.stand-in" "$usage_helper"
@@ -709,15 +709,15 @@ usage_key_want() {
   python3 - "$usage_plugin/manifest.json" "$1" <<'PY'
 import json, sys
 entry = json.load(open(sys.argv[1]))["status"]["gatewayKey"]
-steps = {"absent": ["Add key"], "present": ["Present", "Disconnect"]}
+steps = {"absent": ["Add key"], "present": ["Present", "Replace", "Remove"]}
 print(json.dumps([entry["label"], entry["hint"], "AI Gateway"] + steps[sys.argv[2]]))
 PY
 }
 usage_key_row() { status_row vgs.ai-usage gatewayKey | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([[i["label"], i["value"], i["secret"], i["access"]] for i in r["value"] or []]))'; }
 usage_key_drawn() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; label=json.load(open(sys.argv[1]))["status"]["gatewayKey"]["label"]; r=[r for r in json.load(sys.stdin) if r and r[0] == label]; print(json.dumps(r[0]) if len(r) == 1 else "rows=%d" % len(r))' "$usage_plugin/manifest.json"; }
 usage_key_inputs() { ipc smoke statusRowInputs window vgs.settings | py_reply 'import json,sys; print(json.dumps([name for row in json.load(sys.stdin) for name in row]))'; }
-usage_key_change() { [[ $(ipc smoke scopedWindowGeometry window vgs.settings StatusLine "AI Gateway" IconButton "Change key") == \[* ]] && echo true || echo false; }
-# usage_key_line: whether the key's line draws Change key, then the inputs
+usage_key_change() { [[ $(ipc smoke scopedWindowGeometry window vgs.settings StatusLine "AI Gateway" RowAction "Replace") == \[* ]] && echo true || echo false; }
+# usage_key_line: whether the key's line draws Replace, then the inputs
 # its row holds.
 usage_key_line() { printf '%s %s\n' "$(usage_key_change)" "$(usage_key_inputs)"; }
 usage_key_call_count() { wc -l <"$usage_key_calls"; }
@@ -738,7 +738,7 @@ expect "Settings opens on AI Usage's page for its key" ok ipc shell summon windo
 expect_poll "the page opens on its Settings tab" 0 settings_tab
 expect_poll "the service lists the key absent, with Add key" '[["AI Gateway", "absent", "ai-gateway", "connect"]]' usage_key_row
 expect_poll "with no key Setup draws the key's line with Add key" "$(usage_key_want absent)" usage_key_drawn
-expect "an absent key's line draws no Change key and takes no edit" 'false []' usage_key_line
+expect "an absent key's line draws no Replace and takes no edit" 'false []' usage_key_line
 expect "with no key the gateway was asked nothing" none usage_gateway_token
 settings_press --type RowAction "Add key" StatusLine "AI Gateway" || fail "the click on the key's Add key failed"
 expect_poll "Add key opens one masked field on the line" '["TextField"]' usage_key_inputs
@@ -746,18 +746,18 @@ type_keys "$usage_typed_key" || fail "typing the key failed"
 type_keys -k Return || fail "sending Enter to the key's field failed"
 expect_poll "Add key stores the key through secret-tool store, naming the account" "store --label=VGS AI Usage AI Gateway key ai-gateway service vgs-ai-usage account ai-gateway" usage_key_last_call
 expect "the key reached secret-tool on stdin alone, whole, with no newline" "b'$usage_typed_key'" usage_key_bytes
-expect_poll "the write's end probes again: the line reads Present with Disconnect" "$(usage_key_want present)" usage_key_drawn
-expect "the stored key's line draws Change key and holds no input" 'true []' usage_key_line
+expect_poll "the write's end probes again: the line reads Present with Replace and Remove" "$(usage_key_want present)" usage_key_drawn
+expect "the stored key's line draws Replace and holds no input" 'true []' usage_key_line
 expect_poll "the check after the store asks the gateway with the stored key" "$(usage_key_hash "$usage_typed_key")" usage_gateway_token
-settings_press --type IconButton "Change key" StatusLine "AI Gateway" || fail "the click on the key's Change key failed"
-expect_poll "Change key opens one masked field on the stored line" '["TextField"]' usage_key_inputs
+settings_press --type RowAction "Replace" StatusLine "AI Gateway" || fail "the click on the key's Replace failed"
+expect_poll "Replace opens one masked field on the stored line" '["TextField"]' usage_key_inputs
 type_keys "$usage_changed_key" || fail "typing the second key failed"
-type_keys -k Return || fail "sending Enter to the field of Change key failed"
-expect_poll "Change key stores over the same account" 2 usage_key_call_count
+type_keys -k Return || fail "sending Enter to the field of Replace failed"
+expect_poll "Replace stores over the same account" 2 usage_key_call_count
 expect "the second store names the same account" "store --label=VGS AI Usage AI Gateway key ai-gateway service vgs-ai-usage account ai-gateway" usage_key_last_call
 expect "the second key replaced the first on stdin, whole, with no newline" "b'$usage_changed_key'" usage_key_bytes
 expect_poll "the check after the change asks the gateway with the changed key" "$(usage_key_hash "$usage_changed_key")" usage_gateway_token
-expect_poll "the changed key's line still reads Present with Disconnect" "$(usage_key_want present)" usage_key_drawn
+expect_poll "the changed key's line still reads Present with Replace and Remove" "$(usage_key_want present)" usage_key_drawn
 # Both typed keys start with the first, so one search finds either.
 usage_key_leaks() {
   local text
@@ -767,8 +767,8 @@ usage_key_leaks() {
 }
 expect "no secret-tool argv, status record, manager row or reply holds a typed key" 0 usage_key_leaks
 expect "the shell's log holds no typed key" 0 log_lines "$usage_typed_key"
-settings_press --type RowAction "Disconnect" StatusLine "AI Gateway" || fail "the click on the key's Disconnect failed"
-expect_poll "Disconnect clears the account through secret-tool clear" "clear service vgs-ai-usage account ai-gateway" usage_key_last_call
+settings_press --type RowAction "Remove" StatusLine "AI Gateway" || fail "the click on the key's Remove failed"
+expect_poll "Remove clears the account through secret-tool clear" "clear service vgs-ai-usage account ai-gateway" usage_key_last_call
 expect_poll "the write's end probes again: the line offers Add key" "$(usage_key_want absent)" usage_key_drawn
 expect "the cleared key is gone from the stand-in" "b''" usage_key_bytes
 settings_details

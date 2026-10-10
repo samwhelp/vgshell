@@ -942,7 +942,7 @@ voice_notice_groups() { ipc smoke noticeDrawn | py_reply 'import json,sys; print
 voice_setup_section() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps({"chips": d["chips"], "buttons": [[b[0], b[1], b[2], "voxtype" in b[3]] for b in d["buttons"]]}))'; }
 # Whether a line of the Setup section holds TEXT.
 voice_setup_line() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; print(str(any(sys.argv[1] in l for l in json.load(sys.stdin)["lines"])).lower())' "$1"; }
-voice_setup_missing='{"chips": [["Requirements missing", "warning"]], "buttons": [["Install requirements", "accent", true, false], ["Configure", "accent", false, true], ["Choose model", "accent", false, true]]}'
+voice_setup_missing='{"chips": [["Requirements missing", "warning"]], "buttons": [["Install requirements", "primary", true, false], ["Configure", "accent", false, true], ["Choose model", "accent", false, true]]}'
 voice_setup_ready='{"chips": [["Ready", "success"]], "buttons": [["Configure", "accent", true, false], ["Choose model", "accent", true, false], ["Set up again", "accent", true, false]]}'
 voice_engine_installed() {
   cp -- "$sandbox/voice-voxtype.stub" "$voice_stub" && cp -- "$sandbox/voice-bridge.stub" "$voice_bridge_stub" && chmod 755 "$voice_stub" "$voice_bridge_stub"
@@ -1163,7 +1163,7 @@ expect "the Setup section names voxtype's version and the model" true voice_setu
 # reading red: Set up needed, and Set up first.
 device_reply systemctl 3 inactive --user is-active voxtype
 rescan "the Voice rescan reads a stopped service"
-expect_poll "control: a stopped service draws Set up needed with Set up first" '{"chips": [["Set up needed", "warning"]], "buttons": [["Set up", "accent", true, false], ["Configure", "accent", true, false], ["Choose model", "accent", true, false]]}' voice_setup_section
+expect_poll "control: a stopped service draws Set up needed with Set up first" '{"chips": [["Set up needed", "warning"]], "buttons": [["Set up", "primary", true, false], ["Configure", "accent", true, false], ["Choose model", "accent", true, false]]}' voice_setup_section
 expect "control: the Setup section names the stopped service" true voice_setup_line "The Voice service is not running."
 device_reply systemctl 0 active --user is-active voxtype
 rescan "the Voice rescan reads the running service again"

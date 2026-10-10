@@ -9,17 +9,23 @@
 // and a paused run copies nothing; an edit saved as a copy ends is kept as
 // `local-edit` by the next run; offline and authorization failures keep
 // the last success; the exclusions; pair validation; install, start, probe
-// and status; authorize stores the token Google's consent returns through
-// secret-tool's stdin; and no credential value reaches an argv, a log
-// line, a unit or the status record.
+// and status; the probe names a token's account; authorize stores the
+// token Google's consent returns through secret-tool's stdin as the
+// account's one item, named for the account Drive's about read returns,
+// with the access token on curl's stdin; sign-out clears one direction;
+// attention-seen keeps a notified key across renders until the key
+// changes or a settled record needs nothing; two failing pairs keep one
+// key through a run; and no credential value reaches an argv, a log line, a unit or
+// the status record.
 //
 // Every case runs in its own scratch home and runtime directory with a PATH
-// of stand-ins: `secret-tool` answers from fake values under the case's
-// stub directory, `systemctl` records its calls, and `rclone` records its
-// argv and RCLONE_* environment, swaps the drive remote for the local
-// backend rooted at the case's fixture Drive and runs the host's rclone,
-// except for `authorize`, which it answers itself with a fixture token, so
-// no browser opens and no consent leaves the machine.
+// of stand-ins: `secret-tool` keeps items as files under the case's stub
+// directory, `systemctl` records its calls, `curl` records its argv and
+// stdin and answers Drive's about read, and `rclone` records its argv and
+// RCLONE_* environment, swaps the drive remote for the local backend
+// rooted at the case's fixture Drive and runs the host's rclone, except
+// for `authorize`, which it answers itself with a fixture token, so no
+// browser opens and no consent leaves the machine.
 // No case reaches the user's keyring, systemd manager, rclone config or
 // network.
 //
@@ -70,6 +76,10 @@ const SECRETS = {
 // The token the rclone stand-in's `authorize` prints, as rclone v1.75.1
 // prints one: its JSON on one line between the paste lines.
 const CONSENT_TOKEN = "{\"access_token\":\"fake-consent-access-c0de\",\"token_type\":\"Bearer\",\"refresh_token\":\"fake-consent-refresh-f00d\",\"expiry\":\"2026-10-10T13:00:00Z\"}";
+const CONSENT_VALUES = ["fake-consent-access-c0de", "fake-consent-refresh-f00d"];
+// The address the curl stand-in's about read answers with.
+const ACCOUNT = "someone@example.com";
+const ABOUT_URL = "https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)";
 // Text every log, record and unit of every case is checked against.
 const SEEN = [];
 
@@ -120,34 +130,74 @@ function world(options) {
     fs.symlinkSync(HOST.flock, path.join(w.bin, "flock"));
     for (const account of opts.secrets) write(path.join(w.stub, "secrets", account), SECRETS[account]);
     if (opts.ids) write(path.join(w.stub, "ids"), "");
-    write(path.join(w.bin, "secret-tool"), `#!${HOST.bash}
-store=${JSON.stringify(path.join(w.stub, "secrets"))}
-if [[ $1 == store ]]; then
-  [[ $2 == --label=* && $3 == service && $4 == vgs-cloud-sync && $5 == account && $# -eq 6 ]] || exit 2
-  printf '%s\n' "$*" >>${JSON.stringify(path.join(w.stub, "secret-tool.calls"))}
-  # The stand-ins' PATH holds no cat; read keeps every byte but NUL.
-  IFS= read -r -d '' value || true
-  printf '%s' "$value" >"$store/$6"
-  exit 0
-fi
-[[ $1 == search && $2 == service && $3 == vgs-cloud-sync && $4 == account && $# -eq 5 ]] || exit 2
-account=$5
-if [[ -f $store/$account.locked ]]; then
-  printf '[/org/freedesktop/secrets/collection/login/1]\\nlabel = VGS Cloud Sync %s\\n' "$account"
-  printf 'attribute.service = vgs-cloud-sync\\nattribute.account = %s\\nsecret-tool: Cannot get secret of a locked object\\n' "$account" >&2
-elif [[ -f $store/$account ]]; then
-  printf '[/org/freedesktop/secrets/collection/login/1]\\nlabel = VGS Cloud Sync %s\\nsecret = %s\\n' "$account" "$(<"$store/$account")"
-  printf 'attribute.service = vgs-cloud-sync\\nattribute.account = %s\\n' "$account" >&2
-fi
-exit 0
+    // Each item is a file of the store: <account> holds one without a
+    // `user` attribute, <account>.user.<address> one with it, and
+    // <account>.locked marks the account's items locked. It prints as
+    // libsecret's secret-tool does: the label and an unlocked item's secret
+    // on stdout, the attributes and a lock failure on stderr.
+    write(path.join(w.bin, "secret-tool"), `#!${process.execPath}
+const fs = require("fs");
+const path = require("path");
+const store = ${JSON.stringify(path.join(w.stub, "secrets"))};
+const calls = ${JSON.stringify(path.join(w.stub, "secret-tool.calls"))};
+const args = process.argv.slice(2);
+const items = account => fs.readdirSync(store).filter(n => n === account || n.startsWith(account + ".user.")).sort();
+const keyed = (rest, more) => rest.length === 4 + more && rest[0] === "service" && rest[1] === "vgs-cloud-sync" && rest[2] === "account";
+if (args[0] === "store") {
+    const rest = args.slice(2);
+    if (!String(args[1]).startsWith("--label=") || !(keyed(rest, 0) || keyed(rest, 2) && rest[4] === "user")) process.exit(2);
+    fs.appendFileSync(calls, args.join(" ") + "\\n");
+    fs.writeFileSync(path.join(store, rest.length === 6 ? rest[3] + ".user." + rest[5] : rest[3]), fs.readFileSync(0));
+    process.exit(0);
+}
+if (args[0] === "clear") {
+    const rest = args.slice(1);
+    if (!keyed(rest, 0)) process.exit(2);
+    fs.appendFileSync(calls, args.join(" ") + "\\n");
+    // libsecret clears unlocked items alone, and exits 1 with no output
+    // when it cleared none.
+    const cleared = fs.existsSync(path.join(store, rest[3] + ".locked")) ? [] : items(rest[3]);
+    for (const name of cleared) fs.unlinkSync(path.join(store, name));
+    process.exit(cleared.length === 0 ? 1 : 0);
+}
+const all = args[1] === "--all";
+const rest = args.slice(all ? 2 : 1);
+if (args[0] !== "search" || !keyed(rest, 0)) process.exit(2);
+const account = rest[3];
+const locked = fs.existsSync(path.join(store, account + ".locked"));
+let found = items(account);
+if (locked && found.length === 0) found = [account];
+for (const name of all ? found : found.slice(0, 1)) {
+    process.stdout.write("[/org/freedesktop/secrets/collection/login/1]\\nlabel = VGS Cloud Sync " + account + "\\n" + (locked ? "" : "secret = " + fs.readFileSync(path.join(store, name), "utf8") + "\\n"));
+    process.stderr.write("attribute.service = vgs-cloud-sync\\nattribute.account = " + account + "\\n" + (name === account ? "" : "attribute.user = " + name.slice(account.length + ".user.".length) + "\\n")
+        + (locked ? "secret-tool: Cannot get secret of a locked object\\n" : ""));
+}
+`, 0o755);
+    // Drive's about read: records its argv and stdin, then answers from
+    // curl-mode: `fail` as curl does for a refused token, `bad` with an
+    // address the judge refuses, else with ACCOUNT.
+    write(path.join(w.bin, "curl"), `#!${process.execPath}
+const fs = require("fs");
+const stub = ${JSON.stringify(w.stub)};
+fs.appendFileSync(stub + "/curl.calls", JSON.stringify({ argv: process.argv.slice(2), stdin: fs.readFileSync(0, "utf8") }) + "\\n");
+const mode = fs.existsSync(stub + "/curl-mode") ? fs.readFileSync(stub + "/curl-mode", "utf8") : "";
+if (mode === "fail") {
+    process.stderr.write("curl: (22) The requested URL returned error: 401\\n");
+    process.exit(22);
+}
+process.stdout.write(JSON.stringify({ user: { emailAddress: mode === "bad" ? "two@at@example.com" : ${JSON.stringify(ACCOUNT)} } }));
 `, 0o755);
     write(path.join(w.bin, "systemctl"), `#!${HOST.bash}
 printf '%s\\n' "$*" >>${JSON.stringify(path.join(w.stub, "systemctl.calls"))}
 `, 0o755);
+    // Each rclone call also records the status record's attention as the
+    // run's own render left it.
     write(path.join(w.stub, "record.js"), `const fs = require("fs");
 const env = {};
 for (const name of Object.keys(process.env)) if (name.startsWith("RCLONE_")) env[name] = process.env[name];
-fs.appendFileSync(${JSON.stringify(path.join(w.stub, "rclone.calls"))}, JSON.stringify({ argv: process.argv.slice(2), env }) + "\\n");
+const status = ${JSON.stringify(path.join(w.state, "status.json"))};
+const attention = fs.existsSync(status) ? JSON.parse(fs.readFileSync(status, "utf8")).attention : null;
+fs.appendFileSync(${JSON.stringify(path.join(w.stub, "rclone.calls"))}, JSON.stringify({ argv: process.argv.slice(2), env, attention }) + "\\n");
 `);
     write(path.join(w.stub, "ids.js"), `const fs = require("fs");
 const path = require("path");
@@ -220,9 +270,17 @@ function status(w, runner) {
     return parsed;
 }
 
-function rcloneCalls(w) {
-    const file = path.join(w.stub, "rclone.calls");
+function jsonLines(file) {
     return fs.existsSync(file) ? read(file).trim().split("\n").map(line => JSON.parse(line)) : [];
+}
+
+function rcloneCalls(w) {
+    return jsonLines(path.join(w.stub, "rclone.calls"));
+}
+
+// The stand-in keyring's items of DIRECTION's token, as their file names.
+function tokenItems(w, direction) {
+    return fs.readdirSync(path.join(w.stub, "secrets")).filter(n => n === direction + "-token" || n.startsWith(direction + "-token.user.")).sort();
 }
 
 function drive(w, rel, text, mtimeSeconds) {
@@ -704,21 +762,33 @@ function caseInstall(runner) {
     assert.deepEqual(s.attention.reasons, ["units-stale"]);
 }
 
-// The probe reads presence alone, a locked item included.
+// The probe reads presence alone, a locked item included, and a token's
+// `user` attribute when it holds an address, a locked item's too.
 function caseProbe(runner) {
-    const w = world({ secrets: ["pull-client-id", "pull-client-secret", "pull-token"] });
+    const w = world({ secrets: ["pull-client-id", "pull-client-secret"] });
+    write(path.join(w.stub, "secrets", "pull-token.user." + ACCOUNT), SECRETS["pull-token"]);
     write(path.join(w.stub, "secrets", "pull-token.locked"), "");
     addPair(w, runner);
-    const out = cli(w, ["probe"], runner);
+    let out = cli(w, ["probe"], runner);
     assert.equal(out.status, 0, out.stderr);
     assert.deepEqual(JSON.parse(out.stdout), { credentials: [
         { account: "pull-client-id", presence: "present", needed: true },
         { account: "pull-client-secret", presence: "present", needed: true },
-        { account: "pull-token", presence: "locked", needed: true },
+        { account: "pull-token", presence: "locked", needed: true, user: ACCOUNT },
         { account: "upload-client-id", presence: "absent", needed: false },
         { account: "upload-client-secret", presence: "absent", needed: false },
         { account: "upload-token", presence: "absent", needed: false }
     ] });
+    // A token without `user`, and one whose `user` is no address, carry none.
+    const v = world({ secrets: ["pull-token"] });
+    write(path.join(v.stub, "secrets", "upload-token.user.not an address"), SECRETS["upload-token"]);
+    out = cli(v, ["probe"], runner);
+    assert.equal(out.status, 0, out.stderr);
+    const rows = JSON.parse(out.stdout).credentials.filter(c => c.account.endsWith("-token"));
+    assert.deepEqual(rows, [
+        { account: "pull-token", presence: "present", needed: false },
+        { account: "upload-token", presence: "present", needed: false }
+    ]);
 }
 
 // authorize reads the direction's client from the keyring, hands it to
@@ -726,13 +796,31 @@ function caseProbe(runner) {
 // scope, and stores the token rclone prints through secret-tool's stdin,
 // byte for byte, never printing it. A missing client secret starts no
 // consent, and a token without a refresh token is not stored.
+//
+// The token item names the account Drive's about read returns as its
+// `user`, and is the account's one item: an older one without `user`, or
+// of another user, is gone. The access token reaches curl on stdin alone.
+// A failed read, or an address the judge refuses, still stores the token,
+// without `user`, and logs one keyed line.
 function caseAuthorize(runner) {
     const w = world({ secrets: ["pull-client-id", "pull-client-secret", "upload-client-id", "upload-client-secret"] });
+    write(path.join(w.stub, "secrets", "pull-token"), "an older sign-in");
+    write(path.join(w.stub, "secrets", "pull-token.user.other@example.com"), "another account's sign-in");
     for (const direction of ["pull", "upload"]) {
         const out = cli(w, ["authorize", direction], runner);
         assert.equal(out.stdout, "authorized=" + direction + "\n", out.stderr);
-        assert.equal(read(path.join(w.stub, "secrets", direction + "-token")), CONSENT_TOKEN);
+        assert.deepEqual(tokenItems(w, direction), [direction + "-token.user." + ACCOUNT]);
+        assert.equal(read(path.join(w.stub, "secrets", direction + "-token.user." + ACCOUNT)), CONSENT_TOKEN);
         assert.ok(!out.stdout.includes("fake-consent") && !out.stderr.includes("fake-consent"), "the token is printed");
+        assert.ok(!/^cloud-sync: account=/m.test(out.stderr), out.stderr);
+    }
+    const reads = jsonLines(path.join(w.stub, "curl.calls"));
+    assert.equal(reads.length, 2);
+    for (const call of reads) {
+        assert.ok(!call.argv.some(a => CONSENT_VALUES.some(v => a.includes(v))), "the token is in curl's argv: " + JSON.stringify(call.argv));
+        assert.equal(call.stdin, "Authorization: Bearer " + CONSENT_VALUES[0] + "\n");
+        assert.deepEqual([call.argv[0], call.argv[call.argv.length - 1]], ["-q", ABOUT_URL]);
+        assert.ok(call.argv.includes("--max-time"));
     }
     const calls = rcloneCalls(w);
     assert.deepEqual(calls.map(c => c.argv), [["--config", "/dev/null", "authorize", "drive"], ["--config", "/dev/null", "authorize", "drive"]]);
@@ -742,7 +830,20 @@ function caseAuthorize(runner) {
         RCLONE_DRIVE_SCOPE: d === "pull" ? "drive.readonly" : "drive.file"
     })));
     const stores = read(path.join(w.stub, "secret-tool.calls")).trim().split("\n");
-    assert.deepEqual(stores, ["pull", "upload"].map(d => "store --label=VGS Cloud Sync " + d + "-token service vgs-cloud-sync account " + d + "-token"));
+    assert.deepEqual(stores, [].concat(...["pull", "upload"].map(d => [
+        "clear service vgs-cloud-sync account " + d + "-token",
+        "store --label=VGS Cloud Sync " + d + "-token service vgs-cloud-sync account " + d + "-token user " + ACCOUNT
+    ])));
+    for (const row of [{ mode: "fail", reason: "curl-failed exit=22" }, { mode: "bad", reason: "address-invalid" }]) {
+        const u = world({ secrets: ["pull-client-id", "pull-client-secret"] });
+        write(path.join(u.stub, "secrets", "pull-token.user.other@example.com"), "another account's sign-in");
+        write(path.join(u.stub, "curl-mode"), row.mode);
+        const out = cli(u, ["authorize", "pull"], runner);
+        assert.equal(out.stdout, "authorized=pull\n", out.stderr);
+        assert.deepEqual(tokenItems(u, "pull"), ["pull-token"], row.mode);
+        assert.equal(read(path.join(u.stub, "secrets", "pull-token")), CONSENT_TOKEN, row.mode);
+        assert.deepEqual(out.stderr.split("\n").filter(l => l.startsWith("cloud-sync: account=")), ["cloud-sync: account=unread reason=" + row.reason], row.mode);
+    }
     const v = world({ secrets: ["pull-client-id"] });
     let out = cli(v, ["authorize", "pull"], runner);
     assert.equal(out.status, 1);
@@ -755,18 +856,138 @@ function caseAuthorize(runner) {
     assert.ok(!fs.existsSync(path.join(x.stub, "secrets", "pull-token")));
 }
 
+// sign-out clears every item of one direction's token and leaves the other
+// direction and the client keys; that direction's pairs read as needing a
+// sign-in at once, their last success kept. A locked item is not cleared,
+// and sign-out says so.
+function caseSignOut(runner) {
+    const w = world();
+    write(path.join(w.stub, "secrets", "pull-token.user." + ACCOUNT), SECRETS["pull-token"]);
+    assert.equal(cli(w, ["install"], runner).status, 0);
+    addPair(w, runner);
+    const uploads = path.join(w.home, "inbox");
+    fs.mkdirSync(uploads, { recursive: true });
+    addPair(w, runner, { id: "uploads", label: "Agent uploads", direction: "upload", remote: "Inbox", local: uploads });
+    drive(w, "a.txt", "one\n", 1700000000);
+    const ran = cli(w, ["run"], runner);
+    assert.equal(ran.status, 0, ran.stderr);
+    const before = status(w, runner);
+    const out = cli(w, ["sign-out", "pull"], runner);
+    assert.equal(out.stdout, "signed-out=pull\n", out.stderr);
+    assert.deepEqual(tokenItems(w, "pull"), []);
+    assert.deepEqual(tokenItems(w, "upload"), ["upload-token"]);
+    for (const account of ["pull-client-id", "pull-client-secret"]) assert.ok(fs.existsSync(path.join(w.stub, "secrets", account)), account);
+    const s = JSON.parse(read(path.join(w.state, "status.json")));
+    const docs = s.pairs.find(p => p.id === "docs");
+    assert.equal(docs.state, "authorization-required");
+    assert.deepEqual([docs.lastError.kind, docs.lastError.account], ["credential-absent", "pull-token"]);
+    assert.equal(docs.lastSuccess, before.pairs.find(p => p.id === "docs").lastSuccess);
+    assert.deepEqual(s.pairs.find(p => p.id === "uploads"), before.pairs.find(p => p.id === "uploads"));
+    assert.deepEqual(status(w, runner).pairs, s.pairs, "the next render keeps it");
+    assert.deepEqual([s.attention.reasons, s.attention.notified], [["authorization-required"], true], "the user's own sign-out notifies nothing");
+    assert.deepEqual(mirrorFiles(w), ["a.txt"]);
+    // A sign-in again: the direction's pairs leave the sign-in state at
+    // once, their last success kept; the other direction stays as it was.
+    const back = cli(w, ["authorize", "pull"], runner);
+    assert.equal(back.stdout, "authorized=pull\n", back.stderr);
+    const t = JSON.parse(read(path.join(w.state, "status.json")));
+    const signedIn = t.pairs.find(p => p.id === "docs");
+    assert.deepEqual([signedIn.state, signedIn.lastError, signedIn.lastSuccess], ["idle", null, docs.lastSuccess]);
+    assert.deepEqual(t.pairs.find(p => p.id === "uploads"), before.pairs.find(p => p.id === "uploads"));
+    assert.equal(t.attention, null);
+    const v = world();
+    write(path.join(v.stub, "secrets", "pull-token.locked"), "");
+    const locked = cli(v, ["sign-out", "pull"], runner);
+    assert.equal(locked.status, 1);
+    assert.match(locked.stderr, /^cloud-sync: refused: credential=locked account=pull-token$/m);
+    assert.equal(cli(v, ["sign-out", "both"], runner).status, 2);
+}
+
+// attention-seen marks the record's key notified across renders, pause
+// and resume, and a process that reads it afresh; a new key reads
+// notified=false again.
+function caseAttention(runner) {
+    const w = world();
+    assert.equal(cli(w, ["install"], runner).status, 0);
+    addPair(w, runner);
+    drive(w, "a.txt", "one\n", 1700000000);
+    runOk(w, runner);
+    assert.equal(status(w, runner).attention, null);
+    write(path.join(w.mirror, "a.txt"), "edited here, longer than before\n");
+    runOk(w, runner);
+    const first = status(w, runner).attention;
+    assert.deepEqual([first.reasons, first.notified], [["conflicts"], false]);
+    const out = cli(w, ["attention-seen", first.key], runner);
+    assert.equal(out.stdout, "seen=" + first.key + "\n", out.stderr);
+    const seen = Object.assign({}, first, { notified: true });
+    assert.deepEqual(JSON.parse(read(path.join(w.state, "status.json"))).attention, seen, "attention-seen rewrites the record");
+    assert.deepEqual(status(w, runner).attention, seen, "a second render keeps it");
+    for (const args of [["pause"], ["resume"], ["pause", "--pair", "docs"], ["resume", "--pair", "docs"]]) {
+        assert.equal(cli(w, args, runner).status, 0);
+        assert.deepEqual(status(w, runner).attention, seen, args.join(" ") + " keeps it");
+    }
+    write(path.join(w.stub, "mode"), "auth");
+    cli(w, ["run"], runner);
+    const next = status(w, runner).attention;
+    assert.notEqual(next.key, first.key);
+    assert.equal(next.notified, false, "a new key is not notified");
+    for (const bad of [[], ["nope"], [first.key, "extra"]]) assert.equal(cli(w, ["attention-seen"].concat(bad), runner).status, 2, JSON.stringify(bad));
+    // A failure that recovers and returns the same way notifies again.
+    const u = world();
+    assert.equal(cli(u, ["install"], runner).status, 0);
+    addPair(u, runner);
+    drive(u, "a.txt", "one\n", 1700000000);
+    runOk(u, runner);
+    write(path.join(u.stub, "mode"), "auth");
+    cli(u, ["run"], runner);
+    const refused = status(u, runner).attention;
+    assert.equal(cli(u, ["attention-seen", refused.key], runner).status, 0);
+    assert.equal(status(u, runner).attention.notified, true);
+    fs.unlinkSync(path.join(u.stub, "mode"));
+    runOk(u, runner);
+    assert.equal(status(u, runner).attention, null);
+    write(path.join(u.stub, "mode"), "auth");
+    cli(u, ["run"], runner);
+    const again = status(u, runner).attention;
+    assert.deepEqual([again.key, again.notified], [refused.key, false], "a returned failure is not notified");
+}
+
+// Two pairs refused at once keep one attention key through a whole run:
+// the renders as each pair starts and ends, which the rclone stand-in
+// records, and the one after it.
+function caseRunKey(runner) {
+    const w = world();
+    assert.equal(cli(w, ["install"], runner).status, 0);
+    addPair(w, runner);
+    const uploads = path.join(w.home, "inbox");
+    fs.mkdirSync(uploads, { recursive: true });
+    addPair(w, runner, { id: "up", label: "Agent uploads", direction: "upload", remote: "Inbox", local: uploads });
+    write(path.join(w.stub, "mode"), "auth");
+    cli(w, ["run"], runner);
+    const settled = status(w, runner).attention;
+    assert.deepEqual(settled.reasons, ["authorization-required"]);
+    const before = rcloneCalls(w).length;
+    const out = cli(w, ["run"], runner);
+    assert.equal(out.stdout, "pair=docs result=authorization-required\npair=up result=authorization-required\n", out.stderr);
+    const during = rcloneCalls(w).slice(before).map(c => c.attention === null ? null : c.attention.key);
+    assert.equal(during.length, 2);
+    assert.deepEqual(during.concat([status(w, runner).attention.key]), [settled.key, settled.key, settled.key]);
+}
+
 // No credential value in any argv, log line, unit or status record.
 function caseNoLeak() {
     for (const dir of fs.readdirSync(scratch)) {
         const statusFile = path.join(scratch, dir, "home", ".local", "state", "vgshell", "cloud-sync", "status.json");
         if (fs.existsSync(statusFile)) SEEN.push(read(statusFile));
-        const calls = path.join(scratch, dir, "stub", "rclone.calls");
-        if (fs.existsSync(calls)) for (const line of read(calls).trim().split("\n")) SEEN.push(JSON.stringify(JSON.parse(line).argv));
+        for (const name of ["rclone.calls", "curl.calls"])
+            for (const call of jsonLines(path.join(scratch, dir, "stub", name))) SEEN.push(JSON.stringify(call.argv));
     }
     assert.ok(SEEN.length > 50);
-    for (const text of SEEN)
+    for (const text of SEEN) {
         for (const [account, value] of Object.entries(SECRETS))
             assert.ok(!String(text).includes(value), "the value of " + account + " leaked");
+        for (const value of CONSENT_VALUES) assert.ok(!String(text).includes(value), "the consent token leaked");
+    }
 }
 
 // ----------------------------------------------------------- the controls
@@ -806,6 +1027,24 @@ async function controls() {
     await mustFail("failure table", mutant("failure table", "const row = FAILURES.find(r => r.pattern.test(stderr));", "const row = undefined;"), caseFailures);
     await mustFail("authorize store", mutant("authorize store", "{ input: token, encoding", "{ input: token + \"\\n\", encoding"), caseAuthorize);
     await mustFail("authorize scope", mutant("authorize scope", "RCLONE_DRIVE_SCOPE: SCOPES[direction]", "RCLONE_DRIVE_SCOPE: \"drive\""), caseAuthorize);
+    await mustFail("token off curl's argv", mutant("token off curl's argv", "\"--header\", \"@-\", ABOUT_URL]", "\"--header\", \"Authorization: Bearer \" + access, ABOUT_URL]"), caseAuthorize);
+    await mustFail("user attribute", mutant("user attribute", ".concat(read.kind === \"read\" ? [\"user\", read.address] : [])", ".concat([])"), caseAuthorize);
+    await mustFail("one token item", mutant("one token item", "clearAccount(tool, account);\n    const attributes", "const attributes"), caseAuthorize);
+    await mustFail("unread logged", mutant("unread logged", "if (read.kind === \"unread\") log(\"account=unread reason=\" + read.reason);", ""), caseAuthorize);
+    await mustFail("address judge", mutant("address judge", "function validAddress(value) {\n    return ", "function validAddress(value) {\n    return typeof value === \"string\" || "), caseAuthorize);
+    await mustFail("probe user", mutant("probe user", "if (part === \"token\" && probed.user !== null) row.user = probed.user;", ""), caseProbe);
+    await mustFail("sign-out clears", mutant("sign-out clears", "clearAccount(tool, account);\n    const left", "const left"), caseSignOut);
+    await mustFail("sign-out direction", mutant("sign-out direction", "if (pair.direction !== direction || lockHeld(pairLock(pair.id))) continue;\n            writePairState(pair.id, failed(", "if (lockHeld(pairLock(pair.id))) continue;\n            writePairState(pair.id, failed("), caseSignOut);
+    await mustFail("sign-out locked", mutant("sign-out locked", "if (left === \"locked\") refuse(\"credential=locked account=\" + account);", ""), caseSignOut);
+    await mustFail("notified", mutant("notified", "notified: control.notifiedKey === key", "notified: false"), caseAttention);
+    await mustFail("attention-seen writes", mutant("attention-seen writes", "writeJson(controlFile, Object.assign(readControl(), { notifiedKey: words[0] }));", ""), caseAttention);
+    await mustFail("nothing to clear", mutant("nothing to clear", "if (out.status === 1 && out.stderr === \"\") return;", ""), caseAuthorize);
+    await mustFail("running pair stands", mutant("running pair stands", "p.state === \"running\" && p.lastError !== null ? failureState(p.lastError.kind) : p.state", "p.state"), caseRunKey);
+    await mustFail("cause by pair id", mutant("cause by pair id", ".sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);", ".sort((a, b) => String(b.lastError.at).localeCompare(String(a.lastError.at))).slice(0, 1);"), caseRunKey);
+    await mustFail("re-arm", mutant("re-arm", "if (control.notifiedKey !== null) writeJson(controlFile, Object.assign(control, { notifiedKey: null }));", ""), caseAttention);
+    await mustFail("sign-out notified", mutant("sign-out notified", "if (after !== null && (before === null || before.notified)) writeJson(", "if (false) writeJson("), caseSignOut);
+    await mustFail("sign-in resets", mutant("sign-in resets", "if (state.state === \"authorization-required\") writePairState(", "if (false) writePairState("), caseSignOut);
+    await mustFail("pause keeps notified", mutant("pause keeps notified", "paused ? control.pausedPairs : [], notifiedKey: control.notifiedKey }", "paused ? control.pausedPairs : [] }"), caseAttention);
     await mustFail("child environment", mutant("child environment", "const env = { LANG: \"C.UTF-8\" };", "const env = Object.assign({ LANG: \"C.UTF-8\" }, process.env);"), caseCopy);
     const rules = [...new Set(validationRows(world()).map(row => row.rule).filter(rule => rule !== null))];
     for (const rule of rules) {
@@ -829,6 +1068,9 @@ async function main() {
     caseInstall();
     caseProbe();
     caseAuthorize();
+    caseSignOut();
+    caseAttention();
+    caseRunKey();
     caseNoLeak();
     await controls();
     console.log("test-cloud-sync-runner: ok");
