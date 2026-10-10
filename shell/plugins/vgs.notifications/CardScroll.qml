@@ -10,12 +10,11 @@ import qs.Ui
 // Qt 6.11's GridLayout puts a child with a row at that row as given and
 // fills the rest in order (QQuickGridLayout::insertLayoutItems), and it
 // lays them out at polish, once a Repeater has renumbered every card.
-// Each edge fades the content's alpha across a band `fadeExtent` tall,
-// which grows in as content comes to lie beyond that edge, so an end the
-// view rests at shows its cards in full. The two edges share that one
-// rule, and it is the same for every card: nothing lifts the fade, so a
-// hovered, pressed or selected card in a band fades as the content around
-// it does.
+// Each edge fades the content's alpha across a band, which grows in as
+// content comes to lie beyond that edge, so an end the view rests at shows
+// its cards in full. The band is the same for every card: nothing lifts the
+// fade, so a hovered, pressed or selected card in a band fades as the
+// content around it does.
 Item {
     id: root
 
@@ -37,17 +36,22 @@ Item {
     property bool holding: false
     property string scrollObjectName: "notificationScrollBar"
     // Room above the first card, such as the panel's gutter under its
-    // header: the cards start this far down the view. It places the cards
-    // and sizes no fade, so a card scrolled up through it fades across the
-    // same band as one leaving the bottom.
+    // header: the cards start this far down the view.
     property real topGutter: 0
     default property alias content: cards.data
     readonly property real textColumn: Math.ceil(Inset.clearing(look.card.pad, look.radius.full, look.card.width, look.card.maxHeight, look.radius.clearance, look.card.pad))
     readonly property alias flickable: view
     readonly property alias cards: cards
     readonly property real fadeExtent: Math.min(look.stack.fadeHeight, view.height / 2)
-    readonly property real topStrength: fadeStrength(view.contentY)
-    readonly property real bottomStrength: fadeStrength(view.contentHeight - view.height - view.contentY)
+    // Under a header, where the cards start below a gutter, the top band is
+    // the look's header band. It reaches its strength across the gutter,
+    // as the first card's top meets the view's edge, so the first card
+    // crosses the band every later card crosses. A band grown in over its
+    // own height would meet the first card at a fraction of its strength.
+    // With no gutter the top edge fades as the bottom does.
+    readonly property real topExtent: topGutter > 0 ? Math.min(look.stack.headerFadeHeight, view.height / 2) : fadeExtent
+    readonly property real topStrength: fadeStrength(view.contentY, topGutter > 0 ? topGutter : topExtent)
+    readonly property real bottomStrength: fadeStrength(view.contentHeight - view.height - view.contentY, fadeExtent)
 
     implicitWidth: cards.implicitWidth + look.stack.pad * 2
     implicitHeight: Math.min(cards.implicitHeight + look.stack.tail + topGutter, maxHeight)
@@ -73,19 +77,21 @@ Item {
     }
 
     // Sample the look's cubic curve in space, rather than time, across a
-    // band: the stop's distance from the view's edge as a share of the
-    // view, and its alpha. The mask changes only content alpha, so the
-    // wallpaper receives no colour band.
-    function fadePoint(t) {
+    // band `extent` tall: the stop's distance from the view's edge as a
+    // share of the view, and its alpha. The mask changes only content
+    // alpha, so the wallpaper receives no colour band.
+    function fadePoint(t, extent) {
         const curve = look.stack.fadeCurve;
         const back = 1 - t;
         const x = 3 * back * back * t * curve.x1 + 3 * back * t * t * curve.x2 + t * t * t;
         const y = 3 * back * back * t * curve.y1 + 3 * back * t * t * curve.y2 + t * t * t;
-        return { position: fadeExtent / Math.max(1, view.height) * (1 - x), alpha: 1 - y };
+        return { position: extent / Math.max(1, view.height) * (1 - x), alpha: 1 - y };
     }
 
-    function fadeStrength(distance) {
-        const t = Math.max(0, Math.min(1, distance / Math.max(1, fadeExtent)));
+    // The strength of a band with `distance` of content beyond its edge,
+    // grown in over `ramp`.
+    function fadeStrength(distance, ramp) {
+        const t = Math.max(0, Math.min(1, distance / Math.max(1, ramp)));
         const curve = look.stack.fadeCurve;
         const back = 1 - t;
         return 3 * back * back * t * curve.y1 + 3 * back * t * t * curve.y2 + t * t * t;
@@ -149,14 +155,14 @@ Item {
         layer.smooth: true
         gradient: Gradient {
             GradientStop { position: 0; color: root.maskColor(root.edgeAlpha(0, root.topStrength)) }
-            GradientStop { position: root.fadePoint(0.75).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.75).alpha, root.topStrength)) }
-            GradientStop { position: root.fadePoint(0.5).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.5).alpha, root.topStrength)) }
-            GradientStop { position: root.fadePoint(0.25).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.25).alpha, root.topStrength)) }
-            GradientStop { position: root.fadePoint(0).position; color: root.maskColor(1) }
-            GradientStop { position: 1 - root.fadePoint(0).position; color: root.maskColor(1) }
-            GradientStop { position: 1 - root.fadePoint(0.25).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.25).alpha, root.bottomStrength)) }
-            GradientStop { position: 1 - root.fadePoint(0.5).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.5).alpha, root.bottomStrength)) }
-            GradientStop { position: 1 - root.fadePoint(0.75).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.75).alpha, root.bottomStrength)) }
+            GradientStop { position: root.fadePoint(0.75, root.topExtent).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.75, root.topExtent).alpha, root.topStrength)) }
+            GradientStop { position: root.fadePoint(0.5, root.topExtent).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.5, root.topExtent).alpha, root.topStrength)) }
+            GradientStop { position: root.fadePoint(0.25, root.topExtent).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.25, root.topExtent).alpha, root.topStrength)) }
+            GradientStop { position: root.fadePoint(0, root.topExtent).position; color: root.maskColor(1) }
+            GradientStop { position: 1 - root.fadePoint(0, root.fadeExtent).position; color: root.maskColor(1) }
+            GradientStop { position: 1 - root.fadePoint(0.25, root.fadeExtent).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.25, root.fadeExtent).alpha, root.bottomStrength)) }
+            GradientStop { position: 1 - root.fadePoint(0.5, root.fadeExtent).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.5, root.fadeExtent).alpha, root.bottomStrength)) }
+            GradientStop { position: 1 - root.fadePoint(0.75, root.fadeExtent).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.75, root.fadeExtent).alpha, root.bottomStrength)) }
             GradientStop { position: 1; color: root.maskColor(root.edgeAlpha(0, root.bottomStrength)) }
         }
     }

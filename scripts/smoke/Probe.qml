@@ -1907,7 +1907,7 @@ Scope {
             const title = root.descendants(target).find(child => child.objectName === "notificationTitleText");
             if (title === undefined) return "title-absent";
             const inset = scroll.look.card.gap;
-            const desired = edge === "top" ? scroll.fadeExtent / 2 - title.mapToItem(target, 0, title.height / 2).y : view.height - target.height - inset;
+            const desired = edge === "top" ? scroll.topExtent / 2 - title.mapToItem(target, 0, title.height / 2).y : view.height - target.height - inset;
             const position = target.mapToItem(view, 0, 0);
             view.contentY = Math.max(0, Math.min(view.contentHeight - view.height, view.contentY + position.y - desired));
             return "ok";

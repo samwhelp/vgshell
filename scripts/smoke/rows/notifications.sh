@@ -3311,6 +3311,8 @@ fade_active_faded_value() {
 s=json.load(sys.stdin)
 print(s["referenceInkPixels"]>0 and s["matchedInkPixels"]<s["referenceInkPixels"] and s["cardPixels"]>0 and s["matchedCardPixels"]<s["cardPixels"]*0.98)' <<<"$1"
 }
+# The height of the list's band at EDGE: the header band at the top.
+fade_band() { if [[ $1 == top ]]; then printf '%s\n' "$note_header_fade_height"; else printf '%s\n' "$note_fade_height"; fi; }
 fade_active_intersection() { # ITEMS VIEW SUMMARY EDGE BAND
   python3 - "$@" <<'PY_ACTIVE_INTERSECTION'
 import json,sys
@@ -3329,7 +3331,7 @@ fade_active_pair() { # PREFIX SUMMARY EDGE
   fade_inventory || return
   [[ $summary == "$fade_middle" ]] || { echo 'notification-capture: selected-inventory-changed' >&2; return 1; }
   view="$(fade_current_view)" && surface="$(surface_box vgs:panel)" && ink="$(look_at text.foreground)" || return
-  [[ $(fade_active_intersection "$items" "$view" "$summary" "$edge" "$note_fade_height") == True ]] || { echo 'notification-capture: insufficient-fade-intersection' >&2; return 1; }
+  [[ $(fade_active_intersection "$items" "$view" "$summary" "$edge" "$(fade_band "$edge")") == True ]] || { echo 'notification-capture: insufficient-fade-intersection' >&2; return 1; }
   fade_output "$prefix.png" || return
   if fade_paint_wait notificationFadeReference true; then fade_output "$prefix-reference.png" || rc=$?; else rc=$?; fi
   fade_paint_wait notificationFadeReference false || rc=$?
@@ -3338,15 +3340,15 @@ fade_active_pair() { # PREFIX SUMMARY EDGE
   ipc smoke descendantGeometry panel vgs.notifications >"$restore_items" || return
   same="$(fade_capture_geometry_same "$items" "$restore_items")" || return
   [[ $same == True ]] || { echo 'notification-capture: card-geometry-changed' >&2; return 1; }
-  saved="$(fade_active_value "$prefix-restored.png" "$prefix.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$note_fade_height" "$mon_w" "$mon_h")" || return
+  saved="$(fade_active_value "$prefix-restored.png" "$prefix.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
   [[ $saved == \{* ]] || { printf 'notification-capture: saved-paint=%s\n' "$saved" >&2; return 1; }
   printf '%s\n' "$saved" >"$prefix-saved-restoration.json"
   [[ $(py_reply 'import json,sys
 s=json.load(sys.stdin);print(s["matchedInkPixels"]==s["referenceInkPixels"] and s["cardPixels"]>0 and s["matchedCardPixels"]>=s["cardPixels"]*0.98)' <<<"$saved") == True ]] || { echo 'notification-capture: saved-paint-not-restored' >&2; return 1; }
   printf 'notification-capture-restored: geometry=stable saved-paint=restored path=%s\n' "$prefix-saved-restoration.json" >&2
   ((rc==0)) || return "$rc"
-  sample="$(fade_active_value "$prefix.png" "$prefix-reference.png" "$items" "$view" "$surface" "$ink" "$summary" "$edge" "$note_fade_height" "$mon_w" "$mon_h")" || return
-  restored="$(fade_active_value "$prefix-restored.png" "$prefix-reference.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$note_fade_height" "$mon_w" "$mon_h")" || return
+  sample="$(fade_active_value "$prefix.png" "$prefix-reference.png" "$items" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
+  restored="$(fade_active_value "$prefix-restored.png" "$prefix-reference.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
   [[ $sample == \{* && $restored == \{* ]] || { printf 'notification-capture: sample=%s restored=%s\n' "$sample" "$restored" >&2; return 1; }
   printf '%s\n' "$sample" >"$prefix.json"
   printf '%s\n' "$restored" >"$prefix-restored.json"
@@ -3573,6 +3575,7 @@ expect "the pixel probe enables its wallpaper host" ok ipc shell setPluginEnable
 "${shell_env[@]}" "$repo/bin/vgshell" theme apply fade-probe >/dev/null || fail "the pixel probe wallpaper applies"
 expect_poll "the pixel probe wallpaper is drawn" 1 layer_count vgs:background
 note_fade_height="$(look_at stack.fadeHeight)" || fail "the fade height is unreadable"
+note_header_fade_height="$(look_at stack.headerFadeHeight)" || fail "the header fade height is unreadable"
 for fade_mode in dark light; do
   if [[ $fade_mode == light ]]; then
     fade_light_theme="$(cat "$repo/themes/catalog/flexoki-light/theme.json")" || fail "the light theme is unreadable"

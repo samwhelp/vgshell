@@ -127,6 +127,8 @@ var TOKENS = {
         tail: length(24),
         // The mask band reserves no layout space.
         fadeHeight: length(96),
+        // The top band of the panel's list, under its header.
+        headerFadeHeight: length(48),
         fadeCurve: curve(0.4, 0, 0.6, 1),
         far: length(12)
     },

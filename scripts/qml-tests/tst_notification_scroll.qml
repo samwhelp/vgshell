@@ -9,8 +9,9 @@ import "../../shell/plugins/vgs.notifications/Appearance.js" as Appearance
 // Both the notification panel and toast stack instantiate this component.
 // In the panel the list's view starts at the header's bottom edge and its
 // first card below the gutter under the header; the top edge fades across
-// the same band as the bottom, with no strength while the view rests at its
-// start; nothing lifts the fade from a hovered or keyboard-selected card, a
+// the look's header band, which has no strength while the view rests at its
+// start and its whole strength once the first card meets the header, so
+// every card crosses the same band; nothing lifts the fade from a hovered or keyboard-selected card, a
 // pointer crossing the gap between two cards moves the hover from one to
 // the other once, and a keyboard move reveals the selected card clear of
 // both bands.
@@ -132,10 +133,10 @@ Item {
                 { tag: "mid scroll", progress: 0.5, height: 300 },
                 { tag: "short top end", progress: 0, height: 180 },
                 { tag: "short mid scroll", progress: 0.5, height: 180 },
-                // The top band grows in as the view leaves its start, so
-                // a card that has just started under the header has
+                // The top band grows in across the gutter as the view
+                // leaves its start, so a view that has just left it has
                 // barely begun to fade.
-                { tag: "just left the top", offset: 12, height: 300, growing: true }
+                { tag: "just left the top", offset: 2, height: 300, growing: true }
             ];
         }
 
@@ -175,7 +176,7 @@ Item {
                 const painted = grabPanel();
                 const x = Math.floor(view.mapToItem(scene, 10, 0).x);
                 const edge = Math.floor(view.mapToItem(scene, 0, 0).y);
-                const band = Math.ceil(scroll.fadeExtent);
+                const band = Math.ceil(scroll.topExtent);
                 for (const distance of [1, 8, 15]) {
                     compare(painted.red(x, edge - distance), 0, "no painted card strip escapes above the header's bottom edge");
                     compare(painted.blue(x, edge - distance), 0);
@@ -184,7 +185,7 @@ Item {
                     // The top band has no strength at the view's start:
                     // the gutter and the first card paint in full, down
                     // to the bottom band.
-                    for (let y = edge + 1; y < edge + view.height - band; y += 2)
+                    for (let y = edge + 1; y < edge + view.height - Math.ceil(scroll.fadeExtent); y += 2)
                         compare(painted.red(x, y), 255, "at rest the top of the list paints in full at " + (y - edge));
                 } else {
                     const near = painted.red(x, edge + 1);
@@ -236,7 +237,7 @@ Item {
             // header's edge, or its bottom just above the view's bottom.
             const faceTop = row.top ? 2 : view.height - face.height - 2;
             view.contentY = face.mapToItem(view.contentItem, 0, 0).y - faceTop;
-            const band = parts.scroll.fadeExtent;
+            const band = row.top ? parts.scroll.topExtent : parts.scroll.fadeExtent;
             verify(view.contentY > 0 && view.contentY < view.contentHeight - view.height);
             const ink = inkOver(slot);
             try {
@@ -278,7 +279,7 @@ Item {
         function test_scrolled_card_fades_in_the_top_band() {
             const parts = showPanel(440);
             const view = parts.view;
-            const band = parts.scroll.fadeExtent;
+            const band = parts.scroll.topExtent;
             verify(band > 2 * parts.gutter, "the band is taller than the gutter: " + [band, parts.gutter]);
             const faded = parts.faces[5];
             view.contentY = faded.mapToItem(view.contentItem, 0, faded.height / 2).y - band / 2;
@@ -298,6 +299,66 @@ Item {
                     "a card halfway through the top band is half faded: " + middle(faded));
             } finally {
                 inks.forEach(ink => ink.destroy());
+            }
+        }
+
+        function test_every_row_meets_the_same_band_data() {
+            return [
+                { tag: "top, slot at the header", top: true, past: 0 },
+                { tag: "top, slot under the header", top: true, past: 12 },
+                { tag: "bottom, slot at the view's end", top: false, past: 0 },
+                { tag: "bottom, slot past the view's end", top: false, past: 12 }
+            ];
+        }
+
+        // Rows 1, 2 and 3 each scrolled the same distance past the header
+        // paint the same fade over their slots, row by row of the view, and
+        // the band ends at the look's header fade height for each. Three
+        // rows placed alike at the bottom edge paint the bottom band, the
+        // look's fade height tall, half faded at its middle. Test ink stands
+        // in for the card, so the pixels read the mask alone.
+        function test_every_row_meets_the_same_band(row) {
+            const parts = showPanel(440);
+            const view = parts.view;
+            const travel = view.contentHeight - view.height;
+            const expected = row.top ? panel.look.stack.headerFadeHeight : panel.look.stack.fadeHeight;
+            verify(expected < view.height / 2, "the band fits the view: " + [expected, view.height]);
+            const profiles = [];
+            for (const index of row.top ? [0, 1, 2] : [5, 6, 7]) {
+                const slot = parts.faces[index].parent;
+                const slotTop = slot.mapToItem(view.contentItem, 0, 0).y;
+                view.contentY = row.top ? slotTop + row.past : slotTop + slot.height + row.past - view.height;
+                verify(view.contentY > 0 && travel - view.contentY >= expected, "row " + (index + 1) + " lies inside the travel");
+                // Ink over the slot, and at the bottom over the content
+                // above it across the band.
+                const slotX = slot.mapToItem(view.contentItem, 0, 0).x;
+                const inkTop = row.top ? slotTop : slotTop + slot.height - row.past - expected - 8;
+                verify(!row.top || slot.height >= row.past + expected + 4, "the slot covers the band");
+                const ink = boundaryInk.createObject(view.contentItem, { x: slotX, y: inkTop, width: slot.width, height: slotTop + slot.height - inkTop });
+                verify(ink !== null);
+                try {
+                    const painted = grabPanel();
+                    const x = Math.floor(slot.mapToItem(scene, slot.width / 2, 0).x);
+                    const edge = row.top ? Math.floor(view.mapToItem(scene, 0, 0).y) : Math.ceil(view.mapToItem(scene, 0, view.height).y) - 1;
+                    const profile = [];
+                    for (let depth = 1; depth <= expected + 4; depth++)
+                        profile.push(painted.red(x, row.top ? edge + depth : edge - depth));
+                    profiles.push({ row: index + 1, values: profile, end: profile.findIndex((value, at) => profile.slice(at).every(rest => rest >= 254)) + 1 });
+                } finally {
+                    ink.destroy();
+                }
+            }
+            // Qt's MultiEffect smoothsteps the mask's alpha, so the band's
+            // last tenth already paints full ink.
+            for (const profile of profiles) {
+                verify(profile.end >= expected * 0.9 && profile.end <= expected + 1,
+                    "row " + profile.row + "'s band ends at the look's height: " + [profile.end, expected]);
+                verify(Math.abs(profile.end - profiles[0].end) <= 1,
+                    "row " + profile.row + "'s band matches row " + profiles[0].row + "'s: " + [profile.end, profiles[0].end]);
+                const middle = profile.values[Math.round(expected / 2) - 1];
+                verify(middle >= 95 && middle <= 160, "row " + profile.row + " is half faded halfway through the band: " + middle);
+                profile.values.forEach((value, at) => verify(Math.abs(value - profiles[0].values[at]) <= 2,
+                    "row " + profile.row + " paints as row " + profiles[0].row + " does at depth " + (at + 1) + ": " + [value, profiles[0].values[at]]));
             }
         }
 
