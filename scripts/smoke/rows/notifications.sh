@@ -3696,7 +3696,7 @@ expect_poll "the pixel probe notifications leave" 0 on_screen
 # until look.motion.noActionHold ends it. The control: a copy of the service
 # whose key reaches no click fails the delivery check.
 act_binds() { hypr -j binds | py_reply 'import json,sys; print(json.dumps([[b["modmask"], b["key"], b["description"]] for b in json.load(sys.stdin) if b["description"] == "vgs.notifications:act" and (b.get("submap", "") or "default") == "default"]))'; }
-act_keys() { python3 -c 'import json,sys; rows=[r for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"] == "vgs.notifications"]; print(json.dumps(rows[0].get("keys", "absent") if rows else "absent"))' "$home/.config/vgshell/shell.json"; }
+act_keys() { python3 -c 'import json,sys; rows=[r for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"] == "vgs.notifications"]; k=rows[0].get("keys") if rows else None; print("absent" if k is None else json.dumps(k))' "$home/.config/vgshell/shell.json"; }
 act_row() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; b=[[x["description"], x["key"]] for p in json.load(sys.stdin) if p["id"] == "vgs.notifications" for x in p["binds"] if x["shortcut"] == "act"]; print(json.dumps(b[0]) if b else "absent")'; }
 act_apply() { ipc smoke invokeInstance window vgs.settings applyKey "{\"id\":\"vgs.notifications\",\"shortcut\":\"act\"${1:+,\"key\":$1}}"; }
 press_act() { hypr dispatch 'hl.dsp.global("vgs.notifications:act")'; }
@@ -3711,7 +3711,7 @@ expect "the Keys row clears the act shortcut" applied act_apply null
 expect_poll "the cleared key is stored as null" '{"act": null}' act_keys
 expect_poll "the compositor holds no act bind once it is cleared" '[]' act_binds
 expect "the Keys row resets the act shortcut" applied act_apply
-expect_poll "the reset leaves no key stored" '{}' act_keys
+expect_poll "the reset leaves no key stored" absent act_keys
 expect_poll "the compositor binds SUPER+SHIFT+N again" '[[65, "N", "vgs.notifications:act"]]' act_binds
 expect "the Settings window closes after the act keys" ok ipc shell hide window vgs.settings
 

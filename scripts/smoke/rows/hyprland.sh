@@ -282,6 +282,8 @@ PY
 }
 both_binds='[[64, "M", "__lua", "vgs.settings:toggle"], [64, "N", "__lua", "vgs.notifications:inbox"], [64, "SPACE", "__lua", "vgs.launcher:toggle"], [65, "N", "__lua", "vgs.notifications:act"]]'
 rebound='[[64, "M", "__lua", "vgs.settings:toggle"], [65, "N", "__lua", "vgs.notifications:act"], [72, "SPACE", "__lua", "vgs.launcher:toggle"]]'
+# The same once the notifications are disabled.
+rebound_alone='[[64, "M", "__lua", "vgs.settings:toggle"], [72, "SPACE", "__lua", "vgs.launcher:toggle"]]'
 
 # The consent row's Connect answer.
 expect "consent wired the loading line first in the sandbox's hyprland.lua" "$wire_line" head -n 1 -- "$hypr_lua"
@@ -572,7 +574,7 @@ expect_poll "without the line the nested instance holds no vgs bind" '[]' vgs_bi
 expect "vgshell hypr wire keeps the line again" "ok hypr=wired path=$hypr_lua" vgshell_run hypr wire
 expect "the line is first again" "$wire_line" head -n 1 -- "$hypr_lua"
 expect "the nested instance reloads with the line" ok hypr reload config-only
-expect_poll "with the line the launcher's bind is back" "$rebound" vgs_binds
+expect_poll "with the line the launcher's bind is back" "$rebound_alone" vgs_binds
 
 # Leave the sandbox as the row found it: shell.json as before the row, which
 # disables both plugins again, and hyprland.lua as the consent row left it.

@@ -1400,13 +1400,14 @@ function newestKey(live, history) {
 }
 
 // Whether the act shortcut runs a click on ROW's card: true when that click
-// reaches something, its hinted file (clickRoute) or, while the service
-// holds the notification, the sender's primary action among `offered`;
-// false for a card whose click only dismisses or would deliver nothing.
-function actReaches(row, offered) {
+// reaches something, its hinted file (clickRoute), the sender's primary
+// action among `offered` while the service holds the notification, or,
+// as the card's Show does, the sender's open window (`canRaise`); false
+// for a card whose click only dismisses or would reach nothing.
+function actReaches(row, offered, canRaise) {
     var route = clickRoute("open", row);
     if (route !== "default") return route === "open";
-    return primaryAction(offered) !== "";
+    return primaryAction(offered) !== "" || canRaise;
 }
 
 // What becomes of the notification the service holds for a row that

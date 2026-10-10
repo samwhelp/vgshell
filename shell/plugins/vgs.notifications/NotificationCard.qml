@@ -54,7 +54,7 @@ Item {
     // The last caption, which the tray keeps drawing while it fades out
     // after the caption ends, so the actions do not show for that fade.
     property string heldCaption: ""
-    onCaptionChanged: if (caption !== "" || tray.opacity === 0) heldCaption = caption
+    onCaptionChanged: if (caption !== "" || trayShown || tray.opacity === 0) heldCaption = caption
     readonly property bool captionMode: caption !== "" || (heldCaption !== "" && !(showActions && actions.length > 0))
     property int actionIndex: -1
     property bool keyboardActions: false
@@ -285,7 +285,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             visible: card.captionMode
             textFormat: Text.PlainText
-            text: card.heldCaption
+            text: card.caption !== "" ? card.caption : card.heldCaption
             color: card.look.text.subtitle.color
             font.family: card.look.font.family.sans
             font.pixelSize: card.look.text.subtitle.size

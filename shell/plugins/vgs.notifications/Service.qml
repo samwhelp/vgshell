@@ -327,7 +327,7 @@ Item {
             console.info("notifications: act refused=no-notification");
             return;
         }
-        if (!Logic.actReaches(entry, offered(key).map(a => a.identifier))) {
+        if (!Logic.actReaches(entry, offered(key).map(a => a.identifier), Logic.senderWindows(windows(), entry).length > 0)) {
             console.info("notifications: act refused=no-action");
             const at = indexOf(key);
             if (at !== -1 && rowModel.get(at).leaving === "") {
