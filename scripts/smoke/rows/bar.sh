@@ -242,9 +242,9 @@ calendar_back() {
 # The calendar's month row: the clock's right-click menu opens the bar's
 # Settings, so the calendar draws no gear, and Previous and Next month sit
 # on the pane's edges at its padding token, within 1 px of each other, the
-# month's ink centred across the pane and its capitals' centre, halfway
-# from its ink top to its baseline, level with both buttons' centres within
-# 1 px. calendar_header prints the measures, calendar_header_off the ones
+# month's ink centred across the pane and the middle of its ink top and
+# its baseline, its capitals' centre within the height a lowercase
+# ascender adds, level with both buttons' centres within 1 px. calendar_header prints the measures, calendar_header_off the ones
 # that miss, so [] is the pass.
 calendar_header() {
   local rows prev next gear labels inks padding
