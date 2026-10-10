@@ -298,9 +298,10 @@ holder_checks() { # PACKAGE
   local root=/tmp/pkg-holders out
   rm -rf -- "$root"
   mkdir -p "$root/paru" "$root/mise-source/bin" "$root/mise-outside" "$root/mise-data" "$root/mise-config" "$root/mise-state" "$root/mise-cache" "$root/home"
+  chown -R builder:builder "$root"
   printf '#!/bin/sh\ncase "$1" in -Q*) exec pacman "$@" ;; *) exit 99 ;; esac\n' >"$root/paru/paru"
   chmod 755 "$root/paru/paru"
-  out="$(runuser -u builder -- env PATH="$root/paru:/usr/bin" HOME=/tmp/doctor-home LC_ALL=C vgshell pkg detect --json --holders vgshell 2>/tmp/holders-aur.err)" ||
+  out="$(runuser -u builder -- env PATH="$root/paru:/usr/bin" HOME="$root/home" LC_ALL=C vgshell pkg detect --json --holders vgshell 2>/tmp/holders-aur.err)" ||
     refuse "holders=failed manager=aur package=$1" "$(cat /tmp/holders-aur.err)"
   python - "$out" <<'PY' || refuse "holders=aur package=$1" "$out"
 import json, sys
