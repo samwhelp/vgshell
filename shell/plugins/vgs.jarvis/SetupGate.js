@@ -235,6 +235,16 @@ function voiceKey(offered) {
     return offered.length === 0 ? { tone: "info", text: "No key stored", action: true } : { tone: "ok", text: "Key stored", action: false };
 }
 
+// The Agent fleet row (the manifest's setupFleet) for HOME, the home folder
+// the setting names or null, and TOOL, the kendex mail tool Home.mailTool
+// finds there or null: hidden while no home is chosen, which the home row
+// covers, and once the tool is found; else offering its setup, which the
+// core withholds behind the requirement notice while kendex is missing.
+function fleetStep(home, tool) {
+    if (home === null || tool !== null) return { hidden: true };
+    return { tone: "info", text: "Optional", action: true };
+}
+
 // The optional steps, by their status key. Their guidance is declared by
 // the manifest and does not change with their state.
 var OPTIONAL = {

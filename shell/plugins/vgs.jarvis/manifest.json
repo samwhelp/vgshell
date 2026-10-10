@@ -103,7 +103,9 @@
     { "command": "grim", "packages": { "pacman": "grim", "apt": "grim", "dnf": "grim", "nix": "grim" }, "optional": false, "purpose": "Takes the screenshots Jarvis reads; screen tools also need magick" },
     { "command": "slurp", "packages": { "pacman": "slurp", "apt": "slurp", "dnf": "slurp", "nix": "slurp" }, "optional": false, "purpose": "Lets you draw the screen area Jarvis reads" },
     { "command": "magick", "packages": { "pacman": "imagemagick", "dnf": "ImageMagick", "nix": "imagemagick" }, "optional": false, "purpose": "Paints private windows black before a screenshot leaves Jarvis" },
-    { "command": "tesseract", "packages": { "pacman": "tesseract", "apt": "tesseract-ocr", "dnf": "tesseract", "nix": "tesseract" }, "optional": false, "purpose": "Reads screen text for a brain that takes no image" }
+    { "command": "tesseract", "packages": { "pacman": "tesseract", "apt": "tesseract-ocr", "dnf": "tesseract", "nix": "tesseract" }, "optional": false, "purpose": "Reads screen text for a brain that takes no image" },
+    { "command": "git", "packages": { "pacman": "git", "apt": "git", "dnf": "git", "nix": "git" }, "optional": true, "purpose": "Makes the home folder a repository for the agent fleet's mail tool" },
+    { "command": "kendex", "packages": { "aur": "kendex-bin" }, "optional": true, "purpose": "Installs the mail tool Jarvis hands a request for your agent fleet with" }
   ],
   "status": {
     "shell": { "type": "state", "label": "Shell tools", "hint": "Commands are offered only when kernel confinement and protected paths are ready. Install Bubblewrap adds it when it is missing.", "action": { "label": "Install Bubblewrap", "install": ["bwrap"] } },
@@ -143,6 +145,7 @@
     "setupVoice": { "type": "state", "label": "Voice", "group": "Setup", "hint": "Jarvis uses the selected voice provider to hear you and speak.", "action": { "label": "Set up local voice", "tui": "setup-local" } },
     "setupBrowser": { "type": "state", "label": "Browser", "group": "Setup", "hint": "Set up the browser so Jarvis can use websites for you.", "action": { "label": "Set up browser", "tui": "setup-browser" } },
     "setupInput": { "type": "state", "label": "Input", "group": "Setup", "hint": "Check input so Jarvis can type and click for you.", "action": { "label": "Check input", "tui": "setup-input" } },
+    "setupFleet": { "type": "state", "label": "Agent fleet", "group": "Setup", "hint": "Jarvis can hand a request for your agent fleet to its master session.", "action": { "label": "Install kendex", "tui": "setup-fleet" } },
     "memory": { "type": "state", "label": "Memory search", "group": "Setup" },
     "copilotMemory": { "type": "state", "label": "Copilot Memory", "group": "Setup",
       "hint": "Open GitHub Copilot settings and set Copilot Memory to Disabled. GitHub keeps this memory in your account, where only you can turn it off.",
@@ -160,6 +163,7 @@
     "accounts": { "script": "tui/accounts.sh", "title": "Jarvis accounts", "requires": ["gum", "node", "secret-tool", "busctl", "setpriv", "ss"],
       "entry": { "label": "Accounts", "icon": "users", "group": "Jarvis" } },
     "task": { "script": "tui/task.sh", "title": "Jarvis coding task", "presentation": "plain" },
-    "setup-input": {"script": "tui/setup-input.sh", "title": "Check Jarvis input", "entry": {"label": "Check input", "icon": "mouse-pointer", "group": "Jarvis"}}
+    "setup-input": {"script": "tui/setup-input.sh", "title": "Check Jarvis input", "entry": {"label": "Check input", "icon": "mouse-pointer", "group": "Jarvis"}},
+    "setup-fleet": { "script": "tui/setup-fleet.sh", "title": "Set up Jarvis agent fleet", "requires": ["gum", "node", "git", "kendex"] }
   }
 }

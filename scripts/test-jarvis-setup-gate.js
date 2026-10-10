@@ -15,6 +15,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const vm = require("node:vm");
+const cp = require("node:child_process");
 const { load } = require("../bin/lib/qml-library.js");
 const judge = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
 const settings = load(path.join(__dirname, "..", "shell", "plugins", "vgs.settings", "Steps.js"));
@@ -34,6 +35,13 @@ const SETUP = [
     ["required and missing", ABSENT, ["agent-browser"], ["bwrap", "agent-browser"], ["agent-browser"]],
     ["ready yet missing", READY, ["agent-browser"], ["agent-browser"], ["agent-browser"]],
     ["two of three missing", ABSENT, ["node", "agent-browser", "chromium"], ["chromium", "node"], ["node", "chromium"]]
+];
+// The Agent fleet row: [label, the home folder, the mail tool found in it,
+// whether the row shows].
+const FLEET = [
+    ["no home chosen", null, null, false],
+    ["a home without the mail tool", "/h/Jarvis", null, true],
+    ["a home with the mail tool", "/h/Jarvis", "/h/Jarvis/.agents/skills/orch/scripts/lane-mail", false]
 ];
 // A command with a floor: [label, missing, outdated, expected value]. Its
 // row names the action that applies, and none once it is found at its floor.
@@ -741,6 +749,25 @@ function verify(gate) {
     assert.deepEqual(plain(update), { ok: true, kind: "install", commands: ["pi"] }, "the AI model step's Update asks the core for Pi");
     assert.deepEqual(plain(judge.statusActionRequest(judged, "vgs.jarvis", true, { browserDriver: plain(gate.flooredValue("agent-browser", [], ["agent-browser"])) }, "browserDriver")),
         { ok: true, kind: "install", commands: ["agent-browser"] }, "the driver row's Update asks the core for the driver");
+    // The Agent fleet row: hidden with no home or once the home's mail tool
+    // is found, else offering its setup terminal, whose press the core
+    // turns into the requirement notice while kendex or another command
+    // that terminal needs is missing.
+    for (const [label, home, tool, shown] of FLEET) {
+        const value = plain(gate.fleetStep(home, tool));
+        assert.equal(judge.statusWrite(judged, {}, "setupFleet", value).ok, true, label + ": the manifest judge accepts the row");
+        for (const missing of [[], ["kendex"]]) {
+            const row = judge.statusRows(judged, { setupFleet: value }, missing).find(entry => entry.key === "setupFleet");
+            assert.equal(row !== undefined, shown, label + ": the row shows");
+            if (!shown) continue;
+            assert.deepEqual([row.action.offered, row.action.tui], [true, "setup-fleet"], label + ": the row offers its setup");
+            assert.equal(row.action.label === judge.STATUS_WITHHELD_LABEL, missing.length > 0, label + ": the press installs kendex first while it is missing");
+        }
+    }
+    assert.deepEqual(plain(judge.tuiMissingRequirements(judged, "setup-fleet", ["kendex", "git", "tmux"])), ["git", "kendex"],
+        "the setup terminal needs git and kendex");
+    for (const command of ["git", "kendex"])
+        assert.equal(judged.requirements.find(row => row.name === command).optional, true, command + " is optional: Jarvis works without the fleet");
     verifyProbeTimeoutConsumer(fs.readFileSync(localRuntimeFile, "utf8"));
     for (const [label, cause, kind] of START_CAUSES) {
         const words = gate.startCause(cause);
@@ -800,6 +827,9 @@ const CONTROLS = [
     ["no key offers no Add key", 'text: "No key stored", action: true }', 'text: "No key stored", action: false }'],
     ["a stored key still offers Add key", 'text: "Key stored", action: false }', 'text: "Key stored", action: true }'],
     ["a failed key read offers no Add key", 'text: "Could not check", action: true }', 'text: "Could not check", action: false }'],
+    ["the fleet row shows with no home", "if (home === null || tool !== null)", "if (tool !== null)", "no home chosen: the row shows"],
+    ["the fleet row shows once the tool is found", "if (home === null || tool !== null)", "if (home === null)", "a home with the mail tool: the row shows"],
+    ["the fleet row offers no setup", 'return { tone: "info", text: "Optional", action: true };', 'return { tone: "info", text: "Optional", action: false };'],
     ["a missing command does not withhold setup", "return missing.indexOf(command) !== -1; });", "return false; });"],
     ["the withheld step keeps its action", 'lacking.join(" and "), action: false', 'lacking.join(" and "), action: value.action'],
     ["any missing command withholds setup", "var lacking = requires.filter(", "var lacking = missing.filter("],
@@ -992,6 +1022,53 @@ try {
     assert.equal(failure.check, "setup-voice-consumer-source");
     assert.equal(failure.provider, "realtime");
     console.log("test-jarvis-setup-gate: control=second-voice-source check=setup-voice-consumer-source provider=realtime rejected=true");
+    // The Agent fleet row's reader, backend/fleet-setup.js, run as the
+    // service and the setup terminal run it, over a scratch HOME: no home,
+    // a home without the mail tool, then the same home with it. Its control
+    // is a copy whose status reads no tool.
+    const backendDir = path.join(path.dirname(file), "backend");
+    const fleetReader = helperFile => {
+        const scratch = fs.mkdtempSync(path.join(temp, "fleet-home-"));
+        const run = (verb, setting) => cp.spawnSync(process.execPath, [helperFile, "--tree", path.join(__dirname, ".."), verb, setting],
+            { env: { PATH: process.env.PATH, HOME: scratch }, encoding: "utf8" });
+        const status = setting => {
+            const result = run("status", setting);
+            assert.equal(result.status, 0, result.stderr);
+            const value = JSON.parse(result.stdout);
+            return value.hidden === true ? "hidden" : value.action === true ? "offered" : "other";
+        };
+        const answer = (verb, setting) => {
+            const result = run(verb, setting);
+            return [result.status, result.status === 0 ? result.stdout : result.stderr];
+        };
+        const folder = path.join(scratch, "Jarvis");
+        const tool = path.join(folder, ".agents/skills/orch/scripts/lane-mail");
+        for (const setting of ["", "Jarvis"]) {
+            assert.equal(status(setting), "hidden", JSON.stringify(setting) + ": no home, no row");
+            assert.deepEqual(answer("folder", setting), [1, "jarvis: fleet-setup=home-unchosen\n"]);
+        }
+        assert.equal(status("~/Jarvis"), "offered", "a home without the mail tool offers its setup");
+        assert.deepEqual(answer("folder", "~/Jarvis"), [0, folder + "\n"]);
+        assert.deepEqual(answer("tool", "~/Jarvis"), [1, "jarvis: fleet-setup=tool-absent\n"]);
+        fs.mkdirSync(path.dirname(tool), { recursive: true });
+        fs.writeFileSync(tool, "#!/bin/sh\n", { mode: 0o755 });
+        assert.equal(status("~/Jarvis"), "hidden", "a home with the mail tool needs no setup");
+        assert.deepEqual(answer("tool", "~/Jarvis"), [0, tool + "\n"]);
+        assert.deepEqual(answer("bogus", "~/Jarvis"), [2, "jarvis: fleet-setup=arguments\n"]);
+    };
+    fleetReader(path.join(backendDir, "fleet-setup.js"));
+    {
+        const plugin = path.join(temp, "fleet-plugin");
+        fs.mkdirSync(path.join(plugin, "backend"), { recursive: true });
+        for (const name of ["Core.js", "Home.js", "Tools.js"]) fs.copyFileSync(path.join(backendDir, name), path.join(plugin, "backend", name));
+        fs.copyFileSync(file, path.join(plugin, "SetupGate.js"));
+        const reader = fs.readFileSync(path.join(backendDir, "fleet-setup.js"), "utf8");
+        const needle = "const tool = folder === null ? null : Home.mailTool(folder);";
+        assert.equal(reader.split(needle).length, 2, "the fleet reader control's text occurs once");
+        fs.writeFileSync(path.join(plugin, "backend/fleet-setup.js"), reader.replace(needle, "const tool = null;"));
+        assert.throws(() => fleetReader(path.join(plugin, "backend/fleet-setup.js")), assert.AssertionError, "a reader that finds no tool turns red");
+        console.log("test-jarvis-setup-gate: control=fleet-reader-tool rejected=true");
+    }
     for (const [label, needle, replacement, assertion] of CONTROLS) {
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);
         const changed = source.replace(needle, () => replacement);
@@ -1011,7 +1088,7 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length} controls=${CONTROLS.length + 10 + 54}`);
+console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length + FLEET.length} controls=${CONTROLS.length + 10 + 54}`);
 function verifyProbeTimeoutConsumer(source) {
     assert.equal(source.includes('Gate.startCause("jarvis: setup=probe-timeout")'), true,
         "probe timeout words come from SetupGate");

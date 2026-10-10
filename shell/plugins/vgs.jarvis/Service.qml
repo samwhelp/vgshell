@@ -747,5 +747,18 @@ Item {
     Jarvis.LocalRuntime { shell: root.shell; onRefreshed: root.hello() }
     Jarvis.LocalTier { shell: root.shell }
     Jarvis.BrowserRuntime { shell: root.shell; stepKey: "setupBrowser" }
+    // The Agent fleet row (SetupGate.fleetStep), read again after its setup
+    // terminal ends and after each requirement scan. Qt defines no order
+    // between this command's binding and LocalRuntime's own handler of a
+    // new shell, which a changed home setting brings, so a changed command
+    // reads again.
+    Jarvis.LocalRuntime {
+        shell: root.shell
+        statusKey: "setupFleet"
+        tuiName: "setup-fleet"
+        program: String(Qt.resolvedUrl("backend/fleet-setup.js")).replace(/^file:\/\//, "")
+        command: ["node", program, "--tree", Quickshell.shellDir + "/..", "status", shell === null ? "" : shell.settings.home]
+        onCommandChanged: refresh()
+    }
     Jarvis.Accounts { id: accountReader; shell: root.shell; onRefreshed: root.hello() }
 }
