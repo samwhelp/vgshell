@@ -7,11 +7,14 @@
 # with the plugin disabled and every registration released.
 # The notification sound: with a sound chosen for the plugin's `notification`
 # event in the sandbox's shell.json, a notification that shows on screen
-# starts the player once with that sound's file, and one that Silence keeps
-# off the screen starts none. A critical notification that passes Silence
-# shows and starts none either; with Silence off it starts one. The player
-# is the pw-play stand-in of scripts/smoke/devices.sh, which records the
-# file and plays nothing.
+# starts the player once with that sound's file, and one that Silence, the
+# header's Do Not Disturb, keeps off the screen starts none. With Sound off
+# a notification shows and starts none. A critical notification that passes
+# Silence shows and starts none either; with Silence off it starts one. The
+# player is the pw-play stand-in of scripts/smoke/devices.sh, which records
+# the file and plays nothing. The Sound control runs in the row: a copy of
+# the service whose one sound call does not read Sound starts a player with
+# Sound off.
 # Control run on 2026-10-09, host cachy, through this row on a source_tree
 # copy of the service that plays the event for a silenced notification and
 # not for a shown one: "a shown notification starts one player" failed,
@@ -206,8 +209,6 @@ note_header_gap="$(look_at header.gap)" || fail "the notification header gap tok
 note_scrollbar_width="$(look_at scrollbar.width)" || fail "the notification scrollbar width token is unreadable"
 note_media_compact_size="$(look_at media.compact.size)" || fail "the notification compact media size is unreadable"
 note_media_regular_size="$(look_at media.regular.size)" || fail "the notification regular media size is unreadable"
-note_toggle_hit_height="$(look_at toggle.hitHeight)" || fail "the notification toggle hit-height token is unreadable"
-note_toggle_height="$(look_at toggle.height)" || fail "the notification toggle height token is unreadable"
 # rest_on_card SUMMARY: the pointer left on the centre of the card
 # SUMMARY once the card reports it, through point_item.
 rest_on_card() { point_item vgs:layer vgs.notifications NotificationCard summary "$1" >/dev/null; }
@@ -1099,9 +1100,9 @@ screen, (x, y, w, h) = card
 mine = lambda items, name: [r for s, r, v in json.loads(items) if s == screen and v["visible"] and v.get("objectName", name) == name and x <= r[0] < x + w and y <= r[1] < y + h]
 print(json.dumps({"texts": mine(sys.argv[3], "notificationTitleText"), "bodies": mine(sys.argv[4], "notificationBodyText"), "pills": mine(sys.argv[5], "")}))' "$1" "$cards" "$texts" "$bodies" "$pills" | pill_clear_value
 }
-# The header's title and subtitle and its rightmost pill, as `left=<px>
-# top=<px> height=<px> control=<px> centre=<px>`: the titles' inset and top
-# in the header, and the pill's inset from the right end and its centre.
+# The header's title and subtitle and its pill, as `left=<px> top=<px>
+# height=<px> control=<px> centre=<px>`: the titles' inset and top in the
+# header, and the pill's inset from the right end and its centre.
 header_space() {
   ipc smoke descendantGeometry panel vgs.notifications | py_reply 'import json,sys
 t = sys.stdin.read().strip()
@@ -1112,7 +1113,7 @@ header = next((r for r in rows if r["type"] == "InboxHeader" and r["box"][3] > 0
 if header is None: print("absent"); sys.exit()
 x, y, w, h = header["box"]
 lines = [r["box"] for r in rows if r["type"] == "QQuickText" and r.get("text") in ("Notifications", "History") and x <= r["box"][0] < x + w and y <= r["box"][1] < y + h]
-buttons = [(r["box"], r.get("text")) for r in rows if r["type"] == "PillButton" and r.get("text") in ("Mark read", "History", "Clear history", "Unread") and x <= r["box"][0] < x + w and y <= r["box"][1] < y + h]
+buttons = [(r["box"], r.get("text")) for r in rows if r["type"] == "PillButton" and r.get("text") in ("Mark all read", "Clear history") and x <= r["box"][0] < x + w and y <= r["box"][1] < y + h]
 if not lines or not buttons: print("incomplete"); sys.exit()
 left = min(r[0] for r in lines) - x
 top = min(r[1] for r in lines) - y
@@ -1122,7 +1123,7 @@ centre = control + right_button[3] / 2
 print("left=%d top=%d height=%d control=%d centre=%.1f" % (left, top, h, control, centre))'
 }
 # The header's title starts where a card's text alone does, its corner
-# keeps the step inside the header's own rounded end, and its pills sit
+# keeps the step inside the header's own rounded end, and its pill sits
 # centred on that end. CARD is text_space's reading of a card without a
 # slot, measured in the same run.
 header_contract_value() { # CARD
@@ -1252,25 +1253,136 @@ render expect "the glass predicate rejects glass drawn outside the capsule" viol
 header_card_reading="$(text_space "Even two")" || header_card_reading=""
 expect "the inbox opens for header geometry" ok notes inbox
 expect_poll "the inbox header title starts on a card's text column and clears its rounded end" ok checked_header "Even two"
-# The Silence toggle takes a press over the pills' height, a strip above
-# and below its 20 px track: a click 2 px above the track turns Silence on,
-# and a click past the strip, 2 px above its top, changes nothing, so the
-# strip is the look's `toggle.hitHeight` and no taller.
-toggle_press() { # DY: one click DY px above the shown toggle's track top
-  local rect x y
-  rect="$(ipc smoke itemGeometry panel vgs.notifications Toggle Silence)" && [[ $rect == \[* ]] || return 1
-  read -r x y < <(panel_point "$rect" - "$((toggle_strip - $1))") || return 1
-  hover "$((x - 1))" "$y" && click "$x" "$y"
+# The header's controls: the Settings gear on the title's line, then the
+# Sound, Do Not Disturb and History icons and one pill, and no switch.
+# header_controls reads them from the open panel as one JSON line: `header`,
+# `title` and `subtitle`, their boxes; `icons`, the label, the box and the
+# glyphStart (IconButton.qml) of each icon button in the order the panel
+# holds them, the order Tab takes; and `pills`, the text and box of each
+# pill inside the header. A state word, such as `absent`, prints as it is.
+header_controls() {
+  local icons
+  icons="$(ipc smoke itemValues panel vgs.notifications IconButton label,glyphStart)" && [[ $icons == \[* ]] || { echo "${icons:-unread}"; return; }
+  ipc smoke descendantGeometry panel vgs.notifications | py_reply 'import json,sys
+rows = json.load(sys.stdin)
+labels = [[v["label"], v["glyphStart"]] for v in json.loads(sys.argv[1])]
+header = next((r["box"] for r in rows if r["type"] == "InboxHeader" and r["box"][3] > 0), None)
+if header is None: print("absent"); sys.exit()
+inside = lambda b: header[0] <= b[0] and b[0] + b[2] <= header[0] + header[2] and header[1] <= b[1] and b[1] + b[3] <= header[1] + header[3]
+named = lambda name: next((r["box"] for r in rows if r["name"] == name and r["visible"]), None)
+boxes = [r["box"] for r in rows if r["type"] == "IconButton"]
+if len(boxes) != len(labels): print("unsettled"); sys.exit()
+print(json.dumps({"header": header, "title": named("notificationHeaderTitleText"), "subtitle": named("notificationHeaderSubtitleText"),
+    "icons": [[l, b, g] for (l, g), b in zip(labels, boxes) if inside(b)],
+    "pills": [[r["text"], r["box"]] for r in rows if r["type"] == "PillButton" and r["visible"] and inside(r["box"])]}))' "$icons"
 }
-toggle_strip="$(python3 -c 'import json,sys; print(round((json.loads(sys.argv[1]) - json.loads(sys.argv[2])) / 2))' "$note_toggle_hit_height" "$note_toggle_height")" || fail "the Silence toggle strip is unreadable"
-toggle_probe="$((toggle_strip > 1 ? toggle_strip / 2 : 1))"
-toggle_press "$toggle_probe" || fail "the click in the Silence toggle's strip failed"
-expect_poll "a click in the toggle's strip above its track turns Silence on" true read_notes silenced
-expect "Silence turns off before the strip's edge" off notes silence off
-toggle_press "$((toggle_strip + toggle_probe))" || fail "the click past the Silence toggle's strip failed"
-read -r marker_x marker_y <<<"$pointer_at"
-pointer_hover_marker "the marker hover after the click past the Silence toggle reaches the compositor" "$((marker_x - 1))" "$marker_y"
-expect "a click past the strip leaves Silence off" false read_notes silenced
+# The contract over that reading, `ok` or `violation` with each rule it
+# breaks: `gear`, the first icon is Settings, its glyph starts GAP px, the
+# look's `header.titleGap`, after the title's end within a pixel and its
+# box is centred on the title's line within a pixel; `subtitle`, the
+# subtitle starts where the title does, on its own line under the title's;
+# `icons`, the icons after the gear are Sound, Do Not Disturb and History;
+# `pill`, the header holds one pill, PILL; `order`, those three icons and
+# the pill stand left to right without overlap, each centred on the header
+# within a pixel.
+header_controls_value() { # PILL GAP
+  py_reply 'import json,sys
+v = json.load(sys.stdin)
+if v["title"] is None or v["subtitle"] is None: print("incomplete"); sys.exit()
+mid = lambda b: b[1] + b[3] / 2
+problems = []
+title, subtitle, icons, pills = v["title"], v["subtitle"], v["icons"], v["pills"]
+gear = icons[0] if icons else ["", [0, 0, 0, 0], 0]
+if gear[0] != "Settings" or abs(gear[1][0] + gear[2] - (title[0] + title[2]) - float(sys.argv[2])) > 1 or abs(mid(gear[1]) - mid(title)) > 1: problems.append("gear")
+if abs(subtitle[0] - title[0]) > 1 or subtitle[1] < title[1] + title[3]: problems.append("subtitle")
+if [i[0] for i in icons[1:]] != ["Notification sound", "Do Not Disturb", "History"]: problems.append("icons")
+if [p[0] for p in pills] != [sys.argv[1]]: problems.append("pill")
+run = [i[1] for i in icons[1:]] + [p[1] for p in pills]
+if any(a[0] + a[2] > b[0] for a, b in zip(run, run[1:])) or any(abs(mid(b) - mid(v["header"])) > 1 for b in run): problems.append("order")
+print("ok" if not problems else "violation " + ",".join(problems))' "$1" "$2"
+}
+note_title_gap="$(look_at header.titleGap)" || fail "the notification header title gap token is unreadable"
+checked_header_controls() { header_controls | header_controls_value "$1" "$note_title_gap"; }
+# A planted reading the contract passes, with EDIT, Python statements over
+# its document `v`, applied: the control for each rule.
+header_controls_planted() { # EDIT
+  python3 -c 'import json,sys
+box = lambda x, y, w, h: [x, y, w, h]
+v = {"header": box(0, 0, 420, 48), "title": box(20, 8, 96, 17), "subtitle": box(20, 26, 90, 15),
+     "icons": [["Settings", box(115, 4, 24, 24), 7], ["Notification sound", box(222, 12, 24, 24), 7], ["Do Not Disturb", box(250, 12, 24, 24), 7], ["History", box(278, 12, 24, 24), 7]],
+     "pills": [["Mark all read", box(310, 10, 100, 28)]]}
+exec(sys.argv[1])
+print(json.dumps(v))' "$1"
+}
+expect "the header contract passes its planted reading" ok header_controls_value "Mark all read" 6 < <(header_controls_planted "")
+expect "control: the contract refuses a gear centred on both lines" "violation gear" header_controls_value "Mark all read" 6 < <(header_controls_planted 'v["icons"][0][1][1] = 12')
+expect "control: the contract refuses a gear under the title" "violation gear" header_controls_value "Mark all read" 6 < <(header_controls_planted 'v["icons"][0][1][0] = 20')
+expect "control: the contract refuses a gear whose box, not its glyph, stands the gap after the title" "violation gear" header_controls_value "Mark all read" 6 < <(header_controls_planted 'v["icons"][0][1][0] = 122')
+expect "control: the contract refuses a subtitle on the title's line" "violation subtitle" header_controls_value "Mark all read" 6 < <(header_controls_planted 'v["subtitle"][1] = 10')
+expect "control: the contract refuses a missing icon" "violation icons" header_controls_value "Mark all read" 6 < <(header_controls_planted 'del v["icons"][2]')
+expect "control: the contract refuses a second pill" "violation pill" header_controls_value "Mark all read" 6 < <(header_controls_planted 'v["pills"].append(["History", [411, 10, 8, 28]])')
+expect "control: the contract refuses another view's pill" "violation pill" header_controls_value "Clear history" 6 < <(header_controls_planted "")
+expect "control: the contract refuses an icon after the pill" "violation order" header_controls_value "Mark all read" 6 < <(header_controls_planted 'v["icons"][3][1][0] = 412')
+expect "control: the contract refuses an icon off the header's centre" "violation order" header_controls_value "Mark all read" 6 < <(header_controls_planted 'v["icons"][1][1][1] = 4')
+expect_poll "the inbox header holds its gear on the title's line, three icons and one pill" ok checked_header_controls "Mark all read"
+# Each icon shows its state and names it in its tooltip, and a click
+# changes the state: Sound and Do Not Disturb are stored, and History
+# shows the History, whose header keeps the same places with Clear history
+# as its pill, and shows the Inbox again. No sound is chosen for the
+# notification event here, which the Sound icon's tooltip says while Sound
+# is on. header_icon LABEL PROPERTY reads one property of an icon as JSON,
+# and header_icon_state LABEL its icon and whether it draws checked.
+header_icon() { ipc smoke readMatchingDescendant panel vgs.notifications IconButton label "$1" "$2"; }
+header_icon_state() { ipc smoke itemValues panel vgs.notifications IconButton label,iconName,checked | py_reply 'import json,sys; print(next((json.dumps([v["iconName"], v["checked"]]) for v in json.load(sys.stdin) if v["label"] == sys.argv[1]), "absent"))' "$1"; }
+click_header_icon() { # LABEL
+  local rect x y
+  rect="$(ipc smoke labelledGeometry panel vgs.notifications IconButton "$1")" && [[ $rect == \[* ]] || return 1
+  summon_drawn panel vgs.notifications || return 1
+  read -r x y < <(panel_point "$rect" - -) || return 1
+  hover "$((x + 1))" "$y" && click "$x" "$y"
+}
+# Whether two tooltip readings are both text and differ, so each state has
+# its own.
+tips_differ() { [[ $1 == \"?*\" && $2 == \"?*\" && $1 != "$2" ]] && echo True || echo False; }
+# The text of the tooltip that is open in the panel, as JSON; `closed`
+# while none is.
+header_tip_open() { ipc smoke itemValues panel vgs.notifications Tooltip text,opened | py_reply 'import json,sys; print(next((json.dumps(v["text"]) for v in json.load(sys.stdin) if v["opened"]), "closed"))'; }
+expect "the Sound icon shows Sound on" '["volume-2", false]' header_icon_state "Notification sound"
+header_tip_sound_unchosen="$(header_icon "Notification sound" tooltip)" || header_tip_sound_unchosen=unread
+header_tip_dnd_off="$(header_icon "Do Not Disturb" tooltip)" || header_tip_dnd_off=unread
+header_tip_inbox="$(header_icon History tooltip)" || header_tip_inbox=unread
+point_header_icon() { # LABEL: the pointer resting on that icon
+  local rect x y
+  rect="$(ipc smoke labelledGeometry panel vgs.notifications IconButton "$1")" && [[ $rect == \[* ]] || return 1
+  read -r x y < <(panel_point "$rect" - -) || return 1
+  hover "$((x + 1))" "$y" && hover "$x" "$y"
+}
+point_header_icon "Do Not Disturb" || fail "the pointer never rested on the Do Not Disturb icon"
+expect_poll "the pointer resting on the Do Not Disturb icon opens its tooltip" "$header_tip_dnd_off" header_tip_open
+click_header_icon "Notification sound" || fail "the click on the Sound icon failed"
+expect_poll "a click on the Sound icon turns Sound off" false note_status sound
+expect_poll "Sound off is stored" false state_at sound
+expect_poll "the Sound icon shows Sound off" '["volume-off", false]' header_icon_state "Notification sound"
+expect "the Sound icon's tooltip names each state" True tips_differ "$header_tip_sound_unchosen" "$(header_icon "Notification sound" tooltip)"
+click_header_icon "Notification sound" || fail "the second click on the Sound icon failed"
+expect_poll "a second click on the Sound icon turns Sound on" true state_at sound
+expect "the Do Not Disturb icon shows it off" '["bell", false]' header_icon_state "Do Not Disturb"
+click_header_icon "Do Not Disturb" || fail "the click on the Do Not Disturb icon failed"
+expect_poll "a click on the Do Not Disturb icon turns it on" true state_at dnd
+expect_poll "the Do Not Disturb icon shows it on, checked" '["bell-off", true]' header_icon_state "Do Not Disturb"
+expect "the Do Not Disturb icon's tooltip names each state" True tips_differ "$header_tip_dnd_off" "$(header_icon "Do Not Disturb" tooltip)"
+click_header_icon "Do Not Disturb" || fail "the second click on the Do Not Disturb icon failed"
+expect_poll "a second click on the Do Not Disturb icon turns it off" false state_at dnd
+expect_poll "the Do Not Disturb icon shows it off again" '["bell", false]' header_icon_state "Do Not Disturb"
+expect "the History icon is not checked over the Inbox" '["rotate-ccw-clock", false]' header_icon_state History
+click_header_icon History || fail "the click on the History icon failed"
+expect_poll "a click on the History icon shows the History" '"history"' read_notes panelMode
+expect_poll "the History icon is checked over the History" '["rotate-ccw-clock", true]' header_icon_state History
+expect_poll "the History's header keeps the same places, with Clear history as its pill" ok checked_header_controls "Clear history"
+expect "the History icon's tooltip names each view" True tips_differ "$header_tip_inbox" "$(header_icon History tooltip)"
+click_header_icon History || fail "the second click on the History icon failed"
+expect_poll "a second click on the History icon shows the Inbox again" '"inbox"' read_notes panelMode
+expect_poll "the Inbox's header holds Mark all read again" ok checked_header_controls "Mark all read"
 note_card_reading "one-line card geometry measured" "Even one"
 note_card_reading "two-line card geometry measured" "Even two"
 note_card_reading "multiline card geometry measured" "Even multi"
@@ -1723,7 +1835,7 @@ expect "dismissing every toast is allowed" ok notes dismiss-all
 expect_poll "every toast left the screen" 0 on_screen
 expect_poll "the layer goes with the last toast" 0 layer_count vgs:layer
 
-# The Inbox: what arrived since the last Mark read, over the stack, with
+# The Inbox: what arrived since the last Mark all read, over the stack, with
 # the toasts held while it is open.
 kept="$(note_status history)"
 expect "the inbox opens over IPC" ok notes inbox
@@ -1734,10 +1846,10 @@ notify smoke-app 0 "While open" "" '[]' '{"urgency": <byte 0>}' 0 >/dev/null
 expect_poll "a toast arriving with the panel open is listed" True has_row live "While open"
 expect_poll "the toast layer stays hidden while the panel is open" 0 layer_count vgs:layer
 expect_poll "its clock does not run while the panel is open" paused clock_state "While open"
-click_pill "Mark read" || fail "the click on Mark read failed"
-expect_poll "Mark read closes the panel" '""' read_notes panelMode
+click_pill "Mark all read" || fail "the click on Mark all read failed"
+expect_poll "Mark all read closes the panel" '""' read_notes panelMode
 read_before_set() { state_at readBefore | python3 -c 'import sys; print(float(sys.stdin.read()) > 0)'; }
-expect_poll "Mark read persists its cutoff" True read_before_set
+expect_poll "Mark all read persists its cutoff" True read_before_set
 expect_poll "the live toast stayed through the panel" True has_row live "While open"
 expect_poll "the panel's rows went with it" '[]' row_summaries panel
 expect "dismissing the toast held through the panel is allowed" ok notes dismiss-all
@@ -1745,7 +1857,7 @@ expect_poll "no toast is left before the inbox opens again" 0 on_screen
 all_rows() { ipc smoke modelRows vgs.notifications rows key | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 expect_poll "every exit has played before the inbox opens again" 0 all_rows
 expect "the inbox opens again" ok notes inbox
-expect_poll "an inbox after Mark read is caught up" '"No unread notifications"' panel_subtitle
+expect_poll "an inbox after Mark all read is caught up" '"No unread notifications"' panel_subtitle
 expect "the history panel opens" ok notes history
 kept="$(note_status history)"
 expect_poll "the history lists every kept notification" "$kept" panel_count
@@ -1761,8 +1873,9 @@ expect "the shortcut closes it again" ok hypr dispatch 'hl.dsp.global("vgs.notif
 expect_poll "the shortcut closed the inbox" '""' read_notes panelMode
 
 # The header gear uses the summon host's Settings route. Read the actual
-# open page after a pointer click and after Tab and Enter. An invisible
-# gear in the sandbox copy turns the same pointer assertion red.
+# open page after a pointer click, after Tab and Enter and after Tab and
+# Space. An invisible gear in the sandbox copy turns the same pointer
+# assertion red.
 drawer_settings_page() { ipc smoke readInstance window vgs.settings page; }
 drawer_settings_click() {
   local rect x y
@@ -1788,6 +1901,13 @@ done
 expect "Tab reaches the Settings gear" true drawer_settings_focus
 type_keys -k Return || fail "Enter on the Settings gear failed"
 expect_poll "Enter opens Settings on Notifications" '"vgs.notifications"' drawer_settings_page
+settings_page_close vgs.notifications
+expect "the inbox opens for Space on its Settings gear" ok notes inbox
+expect_poll "Space on the gear starts on the notification list" True panel_focus_on_list
+type_keys -k Tab || fail "Tab to the Settings gear for Space failed"
+expect_poll "Tab reaches the Settings gear again" true drawer_settings_focus
+type_keys -k Space || fail "Space on the Settings gear failed"
+expect_poll "Space opens Settings on Notifications" '"vgs.notifications"' drawer_settings_page
 settings_page_close vgs.notifications
 header_qml="$repo/shell/plugins/vgs.notifications/InboxHeader.qml"
 cp -- "$header_qml" "$sandbox/InboxHeader.qml.kept"
@@ -2087,15 +2207,49 @@ expect_poll "Down selects the last live row" "Keyboard first" panel_selected_sum
 type_keys -k Left -k Right -k Right -k Space || fail "sending Left, Right and Space to the inbox action pill failed"
 expect_poll "Space on a selected pill delivers its action" 1 delivered "$keyboard_first_id" reply
 expect_poll "Space on a selected pill removes its row" none key_of "Keyboard first"
-type_keys -k Tab || fail "sending Tab to the notification header failed"
-expect_poll "Tab reaches the Settings gear before Silence" true drawer_settings_focus
-type_keys -k Tab || fail "sending Tab to the Silence switch failed"
-expect_poll "Tab reaches the Silence switch" Silence panel_focus_name
-type_keys -k Space || fail "sending Space to the Silence switch failed"
-expect_poll "Space toggles Silence from the keyboard" true state_at dnd
-expect "Silence turns off after the keyboard path" off notes silence off
-type_keys -k Escape || fail "sending Escape after the keyboard path failed"
-expect_poll "Escape closes the keyboard inbox" '""' read_notes panelMode
+# The header by keyboard: Tab leaves the list for the gear, then Sound, Do
+# Not Disturb, History and the pill, each with its focus ring shown, and
+# Space and Enter run each one; the gear's two keys are read above, where
+# Settings opens. header_focus reads the control that holds the keys as
+# [type, label, focus shown, ring shown, in view].
+header_focus() { ipc smoke focused panel vgs.notifications | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
+header_tab() { # LABEL TYPE NAME: one Tab, then the keys on control NAME with its ring shown
+  type_keys -k Tab || fail "sending Tab to $1 failed"
+  expect_poll "Tab reaches $1, its focus ring shown" "[\"$2\", \"$3\", true, true, true]" header_focus
+}
+header_tab "the Settings gear" IconButton Settings
+header_tab "the Sound icon" IconButton "Notification sound"
+type_keys -k Space || fail "sending Space to the Sound icon failed"
+expect_poll "Space on the Sound icon turns Sound off" false state_at sound
+type_keys -k Return || fail "sending Enter to the Sound icon failed"
+expect_poll "Enter on the Sound icon turns Sound on" true state_at sound
+header_tab "the Do Not Disturb icon" IconButton "Do Not Disturb"
+type_keys -k Space || fail "sending Space to the Do Not Disturb icon failed"
+expect_poll "Space on the Do Not Disturb icon turns it on" true state_at dnd
+type_keys -k Return || fail "sending Enter to the Do Not Disturb icon failed"
+expect_poll "Enter on the Do Not Disturb icon turns it off" false state_at dnd
+header_tab "the History icon" IconButton History
+type_keys -k Space || fail "sending Space to the History icon failed"
+expect_poll "Space on the History icon shows the History" '"history"' read_notes panelMode
+expect_poll "the History icon keeps the keys over the History" '["IconButton", "History", true, true, true]' header_focus
+type_keys -k Return || fail "sending Enter to the History icon failed"
+expect_poll "Enter on the History icon shows the Inbox again" '"inbox"' read_notes panelMode
+header_tab "the pill" PillButton "Mark all read"
+keyboard_read_before="$(state_at readBefore)" || keyboard_read_before=unread
+read_before_moved() { python3 -c 'import sys; print(float(sys.argv[2]) > float(sys.argv[1]))' "$1" "$(state_at readBefore)"; }
+type_keys -k Space || fail "sending Space to Mark all read failed"
+expect_poll "Space on Mark all read closes the inbox" '""' read_notes panelMode
+expect_poll "Space on Mark all read moves the read cutoff" True read_before_moved "$keyboard_read_before"
+expect "the inbox opens again for Enter on Mark all read" ok notes inbox
+expect_poll "Enter on the pill starts on the notification list" True panel_focus_on_list
+for keyboard_stop in "the Settings gear:IconButton:Settings" "the Sound icon:IconButton:Notification sound" "the Do Not Disturb icon:IconButton:Do Not Disturb" "the History icon:IconButton:History" "the pill:PillButton:Mark all read"; do
+  IFS=: read -r keyboard_label keyboard_type keyboard_name <<<"$keyboard_stop"
+  header_tab "$keyboard_label again" "$keyboard_type" "$keyboard_name"
+done
+keyboard_read_before="$(state_at readBefore)" || keyboard_read_before=unread
+type_keys -k Return || fail "sending Enter to Mark all read failed"
+expect_poll "Enter on Mark all read closes the inbox" '""' read_notes panelMode
+expect_poll "Enter on Mark all read moves the read cutoff" True read_before_moved "$keyboard_read_before"
 expect_poll "the keyboard path leaves no live rows" 0 note_status onScreen
 
 # The notification sound, with a sound chosen for the event.
@@ -2120,6 +2274,61 @@ expect_poll "a shown notification starts one player" "$((note_sound_before + 1))
 expect "the player is handed the chosen sound's file" pop.wav note_sound_last
 close_note "$note_sound_id"
 expect_poll "the notification with a sound closes" 0 note_status onScreen
+# With a sound chosen, the Sound icon's tooltip no longer says none is.
+expect "the inbox opens over the chosen sound" ok notes inbox
+expect_poll "the Sound icon's tooltip names the chosen sound's state" True tips_differ "$header_tip_sound_unchosen" "$(header_icon "Notification sound" tooltip)"
+expect "the inbox over the chosen sound closes" ok notes close
+expect_poll "the inbox over the chosen sound closed" '""' read_notes panelMode
+# Sound off: a notification shows and starts no player; with Sound on
+# again the next one starts one, and the count read after it also holds a
+# late player from the one under Sound off.
+expect "Sound turns off over IPC" off notes sound off
+expect_poll "Sound off over IPC is stored" false state_at sound
+expect "an empty Sound argument reads Sound" off notes sound
+expect "a malformed Sound argument is refused" 'refused: sound="loud" want=on|off|toggle' notes sound loud
+note_sound_before="$(note_sound_calls)" || note_sound_before=unread
+note_sound_id="$(notify smoke-app 0 "Hush" "" '[]' '{}' 0)" || fail "the notification with Sound off was not sent"
+expect_poll "a notification with Sound off shows on screen" True has_row live "Hush"
+expect "a notification with Sound off starts no player" "$note_sound_before" note_sound_calls
+close_note "$note_sound_id"
+expect_poll "the notification with Sound off closes" 0 note_status onScreen
+expect "Sound turns on over IPC" on notes sound on
+note_sound_id="$(notify smoke-app 0 "Chirp again" "" '[]' '{}' 0)" || fail "the notification with Sound on again was not sent"
+expect_poll "a notification with Sound on again shows on screen" True has_row live "Chirp again"
+expect_poll "a notification with Sound on again starts one player" "$((note_sound_before + 1))" note_sound_calls
+close_note "$note_sound_id"
+expect_poll "the notification with Sound on again closes" 0 note_status onScreen
+expect "only the notification with Sound on again started a player" "$((note_sound_before + 1))" note_sound_calls
+# The control: a copy of the service whose one sound call does not read
+# Sound. The rebuilt service reads Sound off from the state file, and the
+# same notification then starts a player, which the two counts above read.
+expect "Sound turns off for the control" off notes sound off
+expect_poll "Sound off for the control is stored" false state_at sound
+service_qml="$repo/shell/plugins/vgs.notifications/Service.qml"
+cp -- "$service_qml" "$sandbox/Service.qml.kept"
+python3 - "$service_qml" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+needle = "if (store.sound && !store.dnd) {"
+assert text.count(needle) == 1, "the sound gate occurs once"
+path.write_text(text.replace(needle, "if (!store.dnd) {"))
+PY
+rescan "a rescan builds the service without the Sound gate"
+expect_poll "the control service is built" True record_exists vgs.notifications
+expect_poll "a rebuild keeps Sound off" false note_status sound
+note_sound_before="$(note_sound_calls)" || note_sound_before=unread
+note_sound_id="$(notify smoke-app 0 "Hush control" "" '[]' '{}' 0)" || fail "the control's notification with Sound off was not sent"
+expect_poll "the control's notification with Sound off shows on screen" True has_row live "Hush control"
+expect_poll "control: a service that does not read Sound starts a player with Sound off" "$((note_sound_before + 1))" note_sound_calls
+close_note "$note_sound_id"
+expect_poll "the control's notification closes" 0 note_status onScreen
+cp -- "$sandbox/Service.qml.kept" "$service_qml"
+rescan "a rescan restores the Sound gate"
+expect_poll "the restored service is built" True record_exists vgs.notifications
+expect_poll "the restored service reads Sound off" false note_status sound
+expect "Sound turns on after the control" on notes sound on
+expect_poll "Sound on after the control is stored" true state_at sound
 
 # Silence: a notification goes into the history instead of the screen, bar
 # a critical one from the bare command line; one from the bare command line
@@ -2408,12 +2617,13 @@ expect "the history panel over the aged entry closes" ok notes close
 expect_poll "the history panel over the aged entry closed" '""' read_notes panelMode
 
 # Reboot: a file from another boot comes back without its toasts and its
-# history, written once for this boot, and keeps Silence and Mark read.
+# history, written once for this boot, and keeps Sound, Silence and Mark
+# read.
 expect "disabling the notifications before the earlier boot is allowed" ok ipc shell setPluginEnabled vgs.notifications false
 expect_poll "the service is gone before the earlier boot" False record_exists vgs.notifications
 earlier_read_before="$(state_at readBefore)"
 expect "Mark read is set before the earlier boot" True python3 -c 'import sys; print(float(sys.argv[1]) > 0)' "$earlier_read_before"
-plant_state 'd["boot"] = "smoke-earlier-boot"; d["dnd"] = True; d["live"] = [entry("Earlier boot toast", 903, now - 1000)]; d["history"] = [entry("Earlier boot entry", 904, now - 2000)]'
+plant_state 'd["boot"] = "smoke-earlier-boot"; d["sound"] = False; d["dnd"] = True; d["live"] = [entry("Earlier boot toast", 903, now - 1000)]; d["history"] = [entry("Earlier boot entry", 904, now - 2000)]'
 expect "re-enabling over the earlier boot is allowed" ok ipc shell setPluginEnabled vgs.notifications true
 expect_poll "the service over the earlier boot is built" True record_exists vgs.notifications
 expect_poll "control: the start after a reboot writes the file for this boot" "\"$host_boot\"" state_at boot
@@ -2421,6 +2631,8 @@ expect "control: the earlier boot's toasts are gone" '[]' live_summaries
 expect "control: the earlier boot's history is gone" 0 history_count
 expect "no earlier boot's toast shows" none key_of "Earlier boot toast"
 expect "control: Silence stays after a reboot" true note_status silence
+expect "control: Sound stays off after a reboot" false note_status sound
+expect "Sound turns on after the reboot" on notes sound on
 expect "control: Mark read stays after a reboot" "$earlier_read_before" state_at readBefore
 expect_log "the cleared earlier boot is logged with its count" 1 'notifications: history from an earlier boot cleared: entries=2'
 
@@ -3791,6 +4003,23 @@ expect_poll "the restored act service is built" True record_exists vgs.notificat
 act_silence_back=off
 [[ $act_silenced == true ]] && act_silence_back=on
 expect "Silence is put back after the act shortcut" "$act_silence_back" notes silence "$act_silence_back"
+
+# A shell restart keeps Sound and Do Not Disturb: each is set away from its
+# default, the shell stops and starts over the same state file, and the new
+# service reads both back.
+expect "Sound turns off before the shell restart" off notes sound off
+expect "Do Not Disturb turns on before the shell restart" on notes silence on
+expect_poll "Sound off is stored before the shell restart" false state_at sound
+expect_poll "Do Not Disturb on is stored before the shell restart" true state_at dnd
+if stop_shell && start_shell "$repo" "$sandbox/notifications-restart-qs.log"; then
+  expect_poll "the restarted shell built the notification service" True record_exists vgs.notifications
+  expect_poll "a shell restart keeps Sound off" false note_status sound
+  expect "a shell restart keeps Do Not Disturb on" true note_status silence
+  expect "Sound turns on after the shell restart" on notes sound on
+  expect "Do Not Disturb turns off after the shell restart" off notes silence off
+else
+  fail "the shell did not stop and start again for the Sound and Do Not Disturb restart"
+fi
 
 # Disabling and enabling again, three times over, leaves nothing behind.
 for round in 1 2 3; do

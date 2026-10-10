@@ -3,7 +3,7 @@ import Quickshell
 import Quickshell.Io
 import "NotificationLogic.js" as Logic
 
-// The notifications' persistent state: Silence, the last Mark read, the
+// The notifications' persistent state: Sound, Silence, the last Mark read, the
 // toasts on screen and the history, in one file under the XDG state
 // directory, and the image copies the stored entries own beside it. The
 // file is read once when the store is built, after the kernel's boot id,
@@ -37,6 +37,9 @@ Item {
     property string problem: ""
     // This boot's id, "" until it is read or when it cannot be.
     property string boot: ""
+    // Whether a notification that shows may play the shell's sound, and
+    // Silence, which the header draws as Do Not Disturb.
+    property bool sound: true
     property bool dnd: false
     property real readBefore: 0
     // The toasts on screen and the history, as the file stores them: newest
@@ -69,6 +72,7 @@ Item {
             return;
         }
         const current = Logic.fromBoot(judged.state, boot);
+        sound = current.state.sound;
         dnd = current.state.dnd;
         readBefore = current.state.readBefore;
         live = current.state.live;
@@ -183,7 +187,7 @@ Item {
             return;
         }
         dirty = false;
-        file.setText(Logic.serializeState({ boot: boot, dnd: dnd, readBefore: readBefore, live: live, history: history }));
+        file.setText(Logic.serializeState({ boot: boot, sound: sound, dnd: dnd, readBefore: readBefore, live: live, history: history }));
         sweep();
     }
 
@@ -194,6 +198,12 @@ Item {
         console.warn("notifications: state reset by the user: file=" + path + " was " + status);
         problem = "";
         status = "absent";
+        changed();
+    }
+
+    function setSound(value) {
+        if (sound === value) return;
+        sound = value;
         changed();
     }
 

@@ -33,7 +33,7 @@ function ink(alpha) { return color("alpha({text.foreground}, " + alpha + ")"); }
 
 var TOKENS = {
     // The theme's accent replaces this default. It lights the edge
-    // reflection of a critical notification and the Silence switch while on.
+    // reflection of a critical notification.
     palette: {
         accent: color("#ff5a36")
     },
@@ -265,32 +265,18 @@ var TOKENS = {
         idle: share(0.8)
     },
 
-    toggle: {
-        width: length(36),
-        height: length(20),
-        // The height the toggle takes a press over, the pills' height, so
-        // it lines up with them and a press beside the track still lands.
-        hitHeight: length(28),
-        track: ink(0.12),
-        border: ink(0.08),
-        borderWidth: length(1),
-        inset: length(2),
-        knob: color("#ffffff"),
-        knobShadow: color("alpha(#000000, 0.22)"),
-        knobShadowGrow: length(2),
-        knobShadowDrop: length(1),
-        pressScale: share(0.9)
-    },
-
     header: {
         width: length(420),
         height: length(48),
         gap: length(4),
         drop: length(10),
         lineGap: length(1),
+        // From the title's end to the gear's glyph on its line.
+        titleGap: length(6),
         controlsInset: length(10),
+        // Between the icons and the pill, and between two icons.
         controlsGap: length(8),
-        labelGap: length(7)
+        iconGap: length(4)
     },
 
     // The slim bar a scrolling stack shows in its side room, as the

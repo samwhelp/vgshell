@@ -42,7 +42,7 @@ function stored(timestamp, id, extra) {
 }
 const BOOT = "4b1c0e2a-6d55-4d2e-9a0f-3f1b2c4d5e6f";
 function stateText(value) {
-    return JSON.stringify(Object.assign({ version: 2, boot: BOOT, dnd: false, readBefore: 0, live: [], history: [] }, value));
+    return JSON.stringify(Object.assign({ version: 3, boot: BOOT, sound: true, dnd: false, readBefore: 0, live: [], history: [] }, value));
 }
 
 // Bodies: [label, body, app, what the card renders].
@@ -75,7 +75,10 @@ const STATE_REFUSED = [
     ["not JSON", "{ nope", "not-json"],
     ["a list", "[]", "not-object"],
     ["an unknown key", stateText({ extra: 1 }), "extra unknown"],
-    ["the first version, which named no boot", stateText({ version: 1, boot: undefined }), "version want=2"],
+    ["the first version, which named no boot", stateText({ version: 1, boot: undefined }), "version want=3"],
+    ["the second version, which named no Sound", stateText({ version: 2, sound: undefined }), "version want=3"],
+    ["no Sound", stateText({ sound: undefined }), "sound want=boolean"],
+    ["a Sound that is no boolean", stateText({ sound: "on" }), "sound want=boolean"],
     ["no boot", stateText({ boot: undefined }), "boot want=string"],
     ["an empty boot", stateText({ boot: "" }), "boot want=string"],
     ["a boot that is no string", stateText({ boot: 7 }), "boot want=string"],
@@ -370,21 +373,22 @@ function verify(logic) {
     // The state file's judge.
     for (const [label, text, want] of STATE_REFUSED)
         same(logic.parseState(text), { ok: false, error: want }, "state: " + label);
-    const good = { version: 2, boot: BOOT, dnd: true, readBefore: 50, live: [stored(9, 2, { deadline: 99 })], history: [stored(5, 1)] };
-    same(logic.parseState(JSON.stringify(good)), { ok: true, state: { boot: BOOT, dnd: true, readBefore: 50, live: good.live, history: good.history } });
+    const good = { version: 3, boot: BOOT, sound: false, dnd: true, readBefore: 50, live: [stored(9, 2, { deadline: 99 })], history: [stored(5, 1)] };
+    same(logic.parseState(JSON.stringify(good)), { ok: true, state: { boot: BOOT, sound: false, dnd: true, readBefore: 50, live: good.live, history: good.history } });
     // An entry stored before senders could add hints has no hint roles,
     // and reads back with each one empty.
     const unhinted = (timestamp, id) => (({ hintIcon, hintTone, hintOpen, hintClick, ...rest }) => rest)(stored(timestamp, id));
-    same(logic.parseState(stateText({ live: [unhinted(8, 4)], history: [unhinted(7, 3)] })), { ok: true, state: { boot: BOOT, dnd: false, readBefore: 0, live: [stored(8, 4)], history: [stored(7, 3)] } }, "entries without hint roles read back with each empty");
-    same(logic.parseState(logic.serializeState(logic.emptyState(BOOT))), { ok: true, state: { boot: BOOT, dnd: false, readBefore: 0, live: [], history: [] } }, "an empty state reads back");
-    same(logic.parseState(logic.serializeState({ boot: BOOT, dnd: true, readBefore: 50, live: good.live, history: good.history })).state, { boot: BOOT, dnd: true, readBefore: 50, live: good.live, history: good.history }, "a state reads back as written");
+    same(logic.parseState(stateText({ live: [unhinted(8, 4)], history: [unhinted(7, 3)] })), { ok: true, state: { boot: BOOT, sound: true, dnd: false, readBefore: 0, live: [stored(8, 4)], history: [stored(7, 3)] } }, "entries without hint roles read back with each empty");
+    same(logic.parseState(logic.serializeState(logic.emptyState(BOOT))), { ok: true, state: { boot: BOOT, sound: true, dnd: false, readBefore: 0, live: [], history: [] } }, "an empty state reads back");
+    same(logic.parseState(logic.serializeState({ boot: BOOT, sound: false, dnd: true, readBefore: 50, live: good.live, history: good.history })).state, { boot: BOOT, sound: false, dnd: true, readBefore: 50, live: good.live, history: good.history }, "a state reads back as written");
 
     // A start after a reboot: the same boot keeps everything; another boot
-    // clears the toasts and the history and keeps Silence and Mark read.
-    const earlier = { boot: "other-boot", dnd: true, readBefore: 50, live: [stored(9, 2)], history: [stored(5, 1), stored(4, 3)] };
+    // clears the toasts and the history and keeps Sound, Silence and Mark
+    // read.
+    const earlier = { boot: "other-boot", sound: false, dnd: true, readBefore: 50, live: [stored(9, 2)], history: [stored(5, 1), stored(4, 3)] };
     same(logic.fromBoot(earlier, "other-boot"), { state: earlier, cleared: 0 }, "the same boot keeps the state");
-    same(logic.fromBoot(earlier, BOOT), { state: { boot: BOOT, dnd: true, readBefore: 50, live: [], history: [] }, cleared: 3 }, "another boot clears the toasts and the history");
-    same(logic.fromBoot(Object.assign({}, earlier, { dnd: false, readBefore: 0 }), BOOT).state, { boot: BOOT, dnd: false, readBefore: 0, live: [], history: [] }, "another boot keeps Silence off and no Mark read");
+    same(logic.fromBoot(earlier, BOOT), { state: { boot: BOOT, sound: false, dnd: true, readBefore: 50, live: [], history: [] }, cleared: 3 }, "another boot clears the toasts and the history");
+    same(logic.fromBoot(Object.assign({}, earlier, { sound: true, dnd: false, readBefore: 0 }), BOOT).state, { boot: BOOT, sound: true, dnd: false, readBefore: 0, live: [], history: [] }, "another boot keeps Sound on, Silence off and no Mark read");
 
     // Restart: a toast whose time ran out goes into the history; one that
     // survives restarts with a whole lifetime as a deadline.
@@ -539,9 +543,9 @@ function verify(logic) {
     same(logic.nextExpiry(clocks, 6100), { key: "b", wait: 0 }, "an overdue clock waits no longer");
     same(logic.settleClocks(clocks, () => true, 9999), JSON.parse(JSON.stringify(clocks)), "a running clock that keeps running is left");
 
-    // Silence over IPC.
-    for (const [arg, current, want] of [["on", false, { ok: true, dnd: true }], ["OFF", true, { ok: true, dnd: false }], ["toggle", true, { ok: true, dnd: false }], ["", true, { ok: true, dnd: true }], ["loud", false, { ok: false }]])
-        same(logic.silenceArgument(arg, current), want, "silence " + JSON.stringify(arg));
+    // Sound and Silence over IPC.
+    for (const [arg, current, want] of [["on", false, { ok: true, on: true }], ["OFF", true, { ok: true, on: false }], ["toggle", true, { ok: true, on: false }], ["toggle", false, { ok: true, on: true }], ["", true, { ok: true, on: true }], ["", false, { ok: true, on: false }], ["loud", false, { ok: false }]])
+        same(logic.switchArgument(arg, current), want, "switch " + JSON.stringify(arg) + " from " + current);
 
     // Enrichment: what a card draws for a sender a rule reads.
     for (const [label, app, entry, summary, body, want] of ENRICHED)
@@ -935,12 +939,19 @@ const CONTROLS = [
     ["history limit", "if (list.length > limits[lists[l]]) return", "if (false) return"],
     ["entry key identity", 'if (value.key !== keyOf(value.timestamp, value.originalId)) return where + ".key want="', 'if (false) return where + ".key want="'],
     ["duplicate key", 'if (seen[list[i].key]) return { ok: false, error: lists[l] + "." + i + ".key duplicate" };', ""],
-    ["unknown state key", 'if (["version", "boot", "dnd", "readBefore", "live", "history"].indexOf(keys[k]) === -1) return', "if (false) return"],
+    ["unknown state key", 'if (["version", "boot", "sound", "dnd", "readBefore", "live", "history"].indexOf(keys[k]) === -1) return', "if (false) return"],
+    ["a state names its Sound", 'if (typeof parsed.sound !== "boolean") return { ok: false, error: "sound want=boolean" };', ""],
+    ["the state file keeps its Sound", "        sound: state.sound,\n", ""],
+    ["a read state keeps its Sound", "state: { boot: parsed.boot, sound: parsed.sound,", "state: { boot: parsed.boot, sound: true,"],
+    ["a new state starts with Sound on", "return { boot: boot, sound: true, dnd: false,", "return { boot: boot, sound: false, dnd: false,"],
     ["a state names its boot", 'if (typeof parsed.boot !== "string" || parsed.boot === "") return', "if (false) return"],
     ["a state's boot is not empty", 'if (typeof parsed.boot !== "string" || parsed.boot === "") return', 'if (typeof parsed.boot !== "string") return'],
     ["the state file keeps its boot", "        boot: state.boot,\n", ""],
     ["another boot clears the history", "if (state.boot === boot) return { state: state, cleared: 0 };", "return { state: state, cleared: 0 };"],
-    ["another boot keeps Silence", "state: { boot: boot, dnd: state.dnd,", "state: { boot: boot, dnd: false,"],
+    ["another boot keeps Sound", "state: { boot: boot, sound: state.sound,", "state: { boot: boot, sound: true,"],
+    ["another boot keeps Silence", "sound: state.sound, dnd: state.dnd,", "sound: state.sound, dnd: false,"],
+    ["a toggle turns the switch", "if (v === \"toggle\") return { ok: true, on: !current };", "if (v === \"toggle\") return { ok: true, on: true };"],
+    ["an empty argument changes nothing", "if (v === \"\") return { ok: true, on: current };", "if (v === \"\") return { ok: true, on: true };"],
     ["another boot keeps Mark read", "readBefore: state.readBefore, live: [], history: [] },", "readBefore: 0, live: [], history: [] },"],
     ["another boot counts what it cleared", "cleared: state.live.length + state.history.length", "cleared: state.history.length"],
     ["deadline outranks arrival", ": entry.deadline !== undefined ? now >= entry.deadline", ": false"],

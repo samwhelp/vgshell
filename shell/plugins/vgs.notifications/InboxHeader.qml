@@ -3,9 +3,12 @@ import qs.Commons
 import qs.Ui
 
 // The panel's header over the stack while the Inbox or the History is open:
-// its title and subtitle, the Silence switch, Mark read (Inbox) or Clear
-// history (History), and the switch between the two. Its caller supplies
-// state and handles each request.
+// its title with the Settings gear on the title's line and the subtitle
+// under it, then the Sound, Do Not Disturb and History icons and one pill,
+// Mark all read (Inbox) or Clear history (History). The History icon stays
+// in its place in both views and is checked while the History shows, where
+// a click goes back to the Inbox. Its caller supplies state and handles
+// each request.
 Item {
     id: header
 
@@ -15,12 +18,18 @@ Item {
     property bool glassChoice: false
     property string mode: "inbox"
     property string subtitle: ""
-    property bool silenced: false
+    // Whether a notification that shows may play the shell's sound, and
+    // whether the user chose a sound for it on the Sounds page: with none
+    // chosen nothing plays, which the Sound icon's tooltip says.
+    property bool sound: true
+    property bool soundChosen: false
+    property bool dnd: false
     property bool shown: false
     readonly property bool history: mode === "history"
     // The stack's text column, which the cards' text starts on.
     required property real textColumn
-    signal silenceRequested(bool on)
+    signal soundRequested(bool on)
+    signal dndRequested(bool on)
     signal clearRequested()
     signal markReadRequested()
     signal modeRequested(string mode)
@@ -52,6 +61,7 @@ Item {
         spacing: header.look.header.lineGap
 
         Text {
+            id: title
             objectName: "notificationHeaderTitleText"
             textFormat: Text.PlainText
             text: header.history ? "History" : "Notifications"
@@ -73,11 +83,13 @@ Item {
         }
     }
 
+    // On the title's line: the gear's glyph, not its box, stands the title
+    // gap after the title, and the box is centred on the title's line on a
+    // whole pixel, so the icon draws sharp.
     IconButton {
         objectName: "notificationSettingsGear"
-        anchors.left: titles.right
-        anchors.leftMargin: header.look.header.controlsGap
-        anchors.verticalCenter: titles.verticalCenter
+        x: Math.round(titles.x + title.width + header.look.header.titleGap - glyphStart)
+        y: Math.round(titles.y + title.y + (title.height - height) / 2)
         size: "sm"
         iconName: "settings"
         label: "Settings"
@@ -92,39 +104,44 @@ Item {
 
         Row {
             anchors.verticalCenter: parent.verticalCenter
-            spacing: header.look.header.labelGap
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                textFormat: Text.PlainText
-                text: "Silence"
-                color: header.look.text.foreground
-                opacity: header.look.text.label.opacity
-                font.family: header.look.font.family.sans
-                font.pixelSize: header.look.text.label.size
+            spacing: header.look.header.iconGap
+
+            // The shell's own sound alone: an application's sound is not
+            // the shell's to stop, and the tooltip claims no more.
+            IconButton {
+                size: "sm"
+                iconName: header.sound ? "volume-2" : "volume-off"
+                label: "Notification sound"
+                tooltip: !header.sound ? "The VGS notification sound is off. Click to turn it on."
+                    : header.soundChosen ? "The VGS notification sound is on. Click to turn it off."
+                    : "The VGS notification sound is on. No sound plays until you select one in System Settings → Sounds. Click to turn it off."
+                onClicked: header.soundRequested(!header.sound)
             }
-            Toggle {
-                anchors.verticalCenter: parent.verticalCenter
-                height: header.look.toggle.hitHeight
-                look: header.look
-                checked: header.silenced
-                text: "Silence"
-                onClicked: header.silenceRequested(!header.silenced)
+            IconButton {
+                size: "sm"
+                iconName: header.dnd ? "bell-off" : "bell"
+                label: "Do Not Disturb"
+                tooltip: header.dnd ? "Do Not Disturb is on. New notifications go to History and do not show. Click to turn it off."
+                    : "Do Not Disturb is off. Click to keep new notifications in History without showing them."
+                checked: header.dnd
+                onClicked: header.dndRequested(!header.dnd)
+            }
+            IconButton {
+                size: "sm"
+                iconName: "rotate-ccw-clock"
+                label: "History"
+                tooltip: header.history ? "The panel shows History. Click to show unread notifications."
+                    : "The panel shows unread notifications. Click to show History."
+                checked: header.history
+                onClicked: header.modeRequested(header.history ? "inbox" : "history")
             }
         }
 
         PillButton {
             anchors.verticalCenter: parent.verticalCenter
             look: header.look
-            text: header.history ? "Clear history" : "Mark read"
+            text: header.history ? "Clear history" : "Mark all read"
             onClicked: header.history ? header.clearRequested() : header.markReadRequested()
-        }
-
-        PillButton {
-            anchors.verticalCenter: parent.verticalCenter
-            look: header.look
-            text: header.history ? "Unread" : "History"
-            emphasized: header.history
-            onClicked: header.modeRequested(header.history ? "inbox" : "history")
         }
     }
 }

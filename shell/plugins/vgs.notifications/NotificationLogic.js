@@ -34,7 +34,7 @@ var BODY_MAX = 4096;
 var LOW_LIFETIME = 5000;
 var MAX_LIFETIME = 30000;
 // The state file's format.
-var STATE_VERSION = 2;
+var STATE_VERSION = 3;
 // The entry roles an image can sit in, each owned as a copy by a stored
 // entry, named <key>-<role> in the images directory.
 var IMAGE_ROLES = ["appIcon", "image"];
@@ -1130,6 +1130,7 @@ function serializeState(state) {
     return JSON.stringify({
         version: STATE_VERSION,
         boot: state.boot,
+        sound: state.sound,
         dnd: state.dnd,
         readBefore: state.readBefore,
         live: state.live,
@@ -1177,9 +1178,10 @@ function parseState(text) {
     if (!isPlainObject(parsed)) return { ok: false, error: "not-object" };
     var keys = Object.keys(parsed);
     for (var k = 0; k < keys.length; k++)
-        if (["version", "boot", "dnd", "readBefore", "live", "history"].indexOf(keys[k]) === -1) return { ok: false, error: keys[k] + " unknown" };
+        if (["version", "boot", "sound", "dnd", "readBefore", "live", "history"].indexOf(keys[k]) === -1) return { ok: false, error: keys[k] + " unknown" };
     if (parsed.version !== STATE_VERSION) return { ok: false, error: "version want=" + STATE_VERSION };
     if (typeof parsed.boot !== "string" || parsed.boot === "") return { ok: false, error: "boot want=string" };
+    if (typeof parsed.sound !== "boolean") return { ok: false, error: "sound want=boolean" };
     if (typeof parsed.dnd !== "boolean") return { ok: false, error: "dnd want=boolean" };
     if (typeof parsed.readBefore !== "number" || !isFinite(parsed.readBefore)) return { ok: false, error: "readBefore want=number" };
     var lists = ["live", "history"];
@@ -1196,7 +1198,7 @@ function parseState(text) {
             seen[list[i].key] = true;
         }
     }
-    return { ok: true, state: { boot: parsed.boot, dnd: parsed.dnd, readBefore: parsed.readBefore, live: parsed.live.map(withHintRoles), history: parsed.history.map(withHintRoles) } };
+    return { ok: true, state: { boot: parsed.boot, sound: parsed.sound, dnd: parsed.dnd, readBefore: parsed.readBefore, live: parsed.live.map(withHintRoles), history: parsed.history.map(withHintRoles) } };
 }
 
 // A stored entry with every hint role, "" for one it leaves out.
@@ -1210,16 +1212,16 @@ function withHintRoles(entry) {
 }
 
 function emptyState(boot) {
-    return { boot: boot, dnd: false, readBefore: 0, live: [], history: [] };
+    return { boot: boot, sound: true, dnd: false, readBefore: 0, live: [], history: [] };
 }
 
 // The stored state as this boot, `boot`, reads it: { state, cleared }. A
 // state from another boot loses its toasts and its history, `cleared`
-// counting them, and keeps Silence and the last Mark read.
+// counting them, and keeps Sound, Silence and the last Mark read.
 function fromBoot(state, boot) {
     if (state.boot === boot) return { state: state, cleared: 0 };
     return {
-        state: { boot: boot, dnd: state.dnd, readBefore: state.readBefore, live: [], history: [] },
+        state: { boot: boot, sound: state.sound, dnd: state.dnd, readBefore: state.readBefore, live: [], history: [] },
         cleared: state.live.length + state.history.length
     };
 }
@@ -1620,14 +1622,15 @@ function nextExpiry(clocks, now) {
 
 // ---------------------------------------------------------------- IPC
 
-// The Silence an IPC argument asks for, given the current one: `on`, `off`,
-// `toggle`, or empty for no change. Answers { ok, dnd } or { ok: false }.
-function silenceArgument(arg, current) {
+// What an IPC argument asks of an on and off state, `sound` or `silence`,
+// given the current one: `on`, `off`, `toggle`, or empty for no change.
+// Answers { ok, on } or { ok: false }.
+function switchArgument(arg, current) {
     var v = String(arg || "").trim().toLowerCase();
-    if (v === "") return { ok: true, dnd: current };
-    if (v === "on") return { ok: true, dnd: true };
-    if (v === "off") return { ok: true, dnd: false };
-    if (v === "toggle") return { ok: true, dnd: !current };
+    if (v === "") return { ok: true, on: current };
+    if (v === "on") return { ok: true, on: true };
+    if (v === "off") return { ok: true, on: false };
+    if (v === "toggle") return { ok: true, on: !current };
     return { ok: false };
 }
 

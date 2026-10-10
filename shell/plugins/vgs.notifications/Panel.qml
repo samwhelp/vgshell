@@ -20,6 +20,8 @@ FocusScope {
     readonly property bool glassChoice: shell !== null && shell.settings.glass === true
     property string mode: "inbox"
     property string subtitle: ""
+    property bool sound: true
+    property bool soundChosen: false
     property bool silenced: false
     property var rows: []
     readonly property int rowCount: rows.length
@@ -167,6 +169,8 @@ FocusScope {
             const previousRows = rows;
             mode = state.mode === "history" ? "history" : "inbox";
             subtitle = String(state.subtitle || "");
+            sound = state.sound === true;
+            soundChosen = state.soundChosen === true;
             silenced = state.silenced === true;
             refreshing = true;
             rows = Array.isArray(state.rows) ? state.rows : [];
@@ -349,13 +353,19 @@ FocusScope {
                 settingsHost: root.settingsHost
                 mode: root.mode
                 subtitle: root.subtitle
-                silenced: root.silenced
+                sound: root.sound
+                soundChosen: root.soundChosen
+                dnd: root.silenced
                 textColumn: listScroll.textColumn
                 glassChoice: root.glassChoice
                 shown: true
                 width: implicitWidth
                 x: (parent.width - width) / 2
-                onSilenceRequested: on => {
+                onSoundRequested: on => {
+                    root.call("sound", on ? "on" : "off");
+                    root.refresh();
+                }
+                onDndRequested: on => {
                     root.call("silence", on ? "on" : "off");
                     root.refresh();
                 }

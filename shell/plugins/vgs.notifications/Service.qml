@@ -22,9 +22,11 @@ import "NotificationLogic.js" as Logic
 // own. Each is delivered while the service still holds the notification,
 // brings the sender's window into view (NotificationLogic.choicePlan) and
 // closes the notification on the server; its history entry stays. Opening
-// a Slack card also opens its message in Slack (readMessage). Silence
-// keeps notifications off the screen and records them in the history, bar
-// a critical one from the bare command line, which shows. The service owns
+// a Slack card also opens its message in Slack (readMessage). Silence,
+// which the header draws as Do Not Disturb, keeps notifications off the
+// screen and records them in the history, bar a critical one from the bare
+// command line, which shows. A notification that shows plays the shell's
+// sound only with Sound on and Silence off. The service owns
 // the rows, their clocks, the notification objects it holds and the store;
 // the stack its layer draws on each screen is only a view of them.
 // Everything it registers is the core's to release.
@@ -108,6 +110,11 @@ Item {
     readonly property string panelSubtitle: Logic.panelSubtitle(panelMode, shownCount, store.status)
     property int shownCount: 0
     readonly property bool silenced: store.dnd
+    // Whether the user chose a sound for the `notification` event, so the
+    // header can say that Sound on plays none yet. `choices` is frozen and
+    // bindable (vgs-plugin references/api.md, `shell.sounds`).
+    readonly property bool soundChosen: shell !== null && shell.sounds.choices.notification !== ""
+    onSoundChosenChanged: bumpPanel()
     property int panelRevision: 0
 
     // The exit's and the entrance's whole length, as CardSlot.qml plays
@@ -259,10 +266,16 @@ Item {
         shell.ipc.handle("hover", arg => root.hoverFromPanel(arg));
         shell.ipc.handle("choose", arg => root.chooseFromPanel(arg));
         shell.ipc.handle("silence", arg => {
-            const judged = Logic.silenceArgument(arg, store.dnd);
+            const judged = Logic.switchArgument(arg, store.dnd);
             if (!judged.ok) return "refused: silence=" + JSON.stringify(arg) + " want=on|off|toggle";
-            root.setSilence(judged.dnd);
+            store.setDnd(judged.on);
             return store.dnd ? "on" : "off";
+        });
+        shell.ipc.handle("sound", arg => {
+            const judged = Logic.switchArgument(arg, store.sound);
+            if (!judged.ok) return "refused: sound=" + JSON.stringify(arg) + " want=on|off|toggle";
+            store.setSound(judged.on);
+            return store.sound ? "on" : "off";
         });
         shell.ipc.handle("dismiss-all", () => {
             const keys = root.rowKeys(() => true);
@@ -407,9 +420,9 @@ Item {
         store.putLive(stored.entry);
         rowModel.insert(0, rowOf(entry, "live"));
         bumpPanel();
-        // Silence quiets the sound also for a critical notification that
-        // passes it and shows.
-        if (!store.dnd) {
+        // The one sound call: Sound off quiets it, and Silence quiets it
+        // also for a critical notification that passes it and shows.
+        if (store.sound && !store.dnd) {
             const sounded = shell.sounds.play("notification");
             if (["ok", "off", "busy"].indexOf(sounded) === -1) console.warn("notifications: sound " + sounded);
         }
@@ -1007,6 +1020,8 @@ Item {
         return {
             mode: panelMode === "history" ? "history" : "inbox",
             subtitle: Logic.panelSubtitle(panelMode === "" ? "inbox" : panelMode, entries.length, store.status),
+            sound: store.sound,
+            soundChosen: soundChosen,
             silenced: store.dnd,
             rows: entries.map(panelRow)
         };
@@ -1066,11 +1081,8 @@ Item {
             root.bumpPanel();
         }
         function onReadBeforeChanged() { root.bumpPanel(); }
+        function onSoundChanged() { root.bumpPanel(); }
         function onDndChanged() { root.bumpPanel(); }
-    }
-
-    function setSilence(on) {
-        store.setDnd(on);
     }
 
     // --------------------------------------------------------- readback
@@ -1078,6 +1090,7 @@ Item {
     // The service's state as one JSON line, for `invoke status`.
     function status() {
         return JSON.stringify({
+            sound: store.sound,
             silence: store.dnd,
             panel: panelMode,
             store: { state: store.status, problem: store.problem },

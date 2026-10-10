@@ -1931,6 +1931,47 @@ for screen, (x, y, w, h), v in json.load(sys.stdin):
 on_screen() { notes status | python3 -c 'import json,sys; print(json.load(sys.stdin)["onScreen"])'; }
 acme_emoji() { notes status | python3 -c 'import json,sys; print(json.load(sys.stdin)["slack"]["emoji"]["teams"].get("T0ACME", 0))'; }
 slack_badges() { ipc smoke layerItems vgs.notifications NotificationCard showsBadge,app | python3 -c 'import json,sys; print(json.dumps([v["showsBadge"] for _, _, v in json.load(sys.stdin) if v["app"] == "Slack"][:3]))'; }
+# notification_header_shot NAME: one shot of the open panel, with its
+# header's box on the output recorded for a crop.
+notification_header_box() {
+  local layer
+  layer="$(surface_box vgs:panel)" || return 1
+  ipc smoke descendantGeometry panel vgs.notifications | py_reply 'import json,sys
+t = sys.stdin.read().strip()
+rows = json.loads(t) if t.startswith("[") else []
+box = next((r["box"] for r in rows if r["type"] == "InboxHeader" and r["box"][3] > 0), None)
+layer = json.loads(sys.argv[1])
+print("absent" if box is None else json.dumps([layer[0] + box[0], layer[1] + box[1], box[2], box[3]]))' "$layer"
+}
+notification_header_shot() { # NAME
+  take "$1"
+  record_item "$1" "$(notification_header_box)"
+}
+# notification_header_shots MODE: the open inbox's header in each state of
+# its controls, then the History's. A tree whose header holds the Sound
+# and Do Not Disturb icons takes their four pairs; an older one takes its
+# Silence switch off and on.
+notification_header_shots() { # MODE
+  local state sound dnd states=(:off :on)
+  ! tree_has shell/plugins/vgs.notifications/InboxHeader.qml "signal soundRequested" || states=(on:off off:off on:on off:on)
+  for state in "${states[@]}"; do
+    sound="${state%%:*}" dnd="${state#*:}"
+    if [[ -n $sound ]]; then
+      expect "Sound turns $sound for the header" "$sound" notes sound "$sound"
+      expect_poll "the header reads Sound $sound" "$([[ $sound == on ]] && echo true || echo false)" ipc smoke readInstance panel vgs.notifications sound
+    fi
+    expect "Do Not Disturb turns $dnd for the header" "$dnd" notes silence "$dnd"
+    expect_poll "the header reads Do Not Disturb $dnd" "$([[ $dnd == on ]] && echo true || echo false)" ipc smoke readInstance panel vgs.notifications silenced
+    notification_header_shot "notifications-$1-header${sound:+-sound-$sound}-dnd-$dnd"
+  done
+  [[ -z $sound ]] || expect "Sound turns on after the header shots" on notes sound on
+  expect "Do Not Disturb turns off after the header shots" off notes silence off
+  expect "the History opens for its header" ok notes history
+  expect_poll "the panel is the History" '"history"' ipc smoke readInstance panel vgs.notifications mode
+  notification_header_shot "notifications-$1-header-history"
+  expect "the inbox opens again after the History's header" ok notes panel
+  expect_poll "the panel is the inbox again" '"inbox"' ipc smoke readInstance panel vgs.notifications mode
+}
 scene_notifications() { # MODE
   local ids=() at
   ids+=("$(notify smoke-build "Build finished" "vgs main is green in 2 min" '[]' '{}')")
@@ -1956,6 +1997,7 @@ scene_notifications() { # MODE
   expect "a click on the newest notification is allowed" ok notes invoke-latest
   expect_poll "the clicked toast leaves the screen" 2 on_screen
   take "notifications-$1-inbox-clicked"
+  notification_header_shots "$1"
   expect "the inbox closes" ok notes close
   for id in "${ids[@]}"; do
     "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \

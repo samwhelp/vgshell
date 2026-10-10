@@ -1,6 +1,6 @@
 # Notifications
 
-Notifications shows application notifications on each screen and keeps them in a panel to read later. Silence keeps new notifications in History without showing them on screen.
+Notifications shows application notifications on each screen and keeps them in a panel to read later. Do Not Disturb keeps new notifications in History without showing them on screen.
 
 ![Three notifications on screen](../../../docs/images/plugins/vgs.notifications-toasts.webp)
 
@@ -12,10 +12,11 @@ Screenshots come from `scripts/readme-shots.sh` in the nested sandbox, with the 
 
 - Super+N opens and closes the panel. Escape closes it too.
 - Super+Shift+N does what a click on the newest notification does, also after it leaves the screen. A notification with no action shows No action. Change or clear both keys under Keys on the plugin's Settings page.
-- Unread shows the notifications received since the last Mark read. History shows the saved ones.
+- The panel shows the notifications received since the last Mark all read. The History icon shows the saved ones, and shows the unread ones again.
 - History keeps every notification that leaves the screen for 24 hours, at most the newest 100, and shows every one. Clear history or a restart of the computer removes them sooner.
-- Mark read marks the current notifications as read and closes the panel. Clear history removes the saved ones.
-- Silence keeps new notifications in History without showing them on screen.
+- Mark all read marks the current notifications as read and closes the panel. Clear history removes the saved ones.
+- The Do Not Disturb icon keeps new notifications in History without showing them on screen. They play no VGS sound.
+- The Sound icon turns the VGS notification sound on or off. The sound plays only when you select one in System Settings → Sounds. An app can still play its own sound.
 - A normal notification stays on screen for at least the Notification duration. A critical one stays until closed. Pointing at a notification pauses its timer.
 - Pointing at a notification shows its actions. A click runs its main action, such as View in Slack, and brings the application's window into view. An action removes the notification from the screen. Dismiss, or a right click, removes it from the screen.
 - Enter opens the selected notification in the panel, which keeps it. Delete, or Dismiss on its card, removes it from the panel and from History.
