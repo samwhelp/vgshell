@@ -13,7 +13,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Google Docs, Sheets, Slides and Drawings arrive as Word, Excel, PowerPoint and SVG files. A file that Cloud Sync sends to Drive stays a file.
 - Nothing is deleted. A file you changed on this computer since the last download is kept in Cloud Sync's records, and the Drive version takes its place. A file that Drive removed stays on this computer. The window lists each one under To review, with Open for review, which opens the folders that hold its versions.
 - Editor temporary files, unfinished downloads, Git and agent folders, `local/`, keys and credential files and old backups are never copied.
-- A bar icon shows the state: up to date, syncing, paused, offline, sign-in needed or failed, with the count of files to review. Its tooltip names each folder pair and its state. It never shows a file name or an account.
+- Once a folder pair exists, a bar icon shows the state: up to date, syncing, paused, offline, sign-in needed or failed, with the count of files to review. Its tooltip names each folder pair and its state. It never shows a file name or an account.
 - A window with the state, the last complete sync, how current the files are, the last problem, the folder pairs and the files to review, with Sync now, Pause and Resume.
 - A notification when Cloud Sync needs you: a sign-in, a failed sync or files to review.
 - Pause stays on after VGS or the computer restarts. Disabling the plugin does not stop the hourly sync.

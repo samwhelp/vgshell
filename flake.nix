@@ -46,6 +46,7 @@
         pkgs.pulseaudio
         pkgs.python3
         pkgs.qrencode
+        pkgs.rclone
         pkgs.quickshell
         pkgs.gnused
         pkgs.slurp

@@ -58,6 +58,7 @@ Requires:       pipewire-utils
 Requires:       playerctl
 Requires:       pulseaudio-utils
 Requires:       qrencode
+Requires:       rclone
 Requires:       sed
 Requires:       slurp
 Requires:       systemd

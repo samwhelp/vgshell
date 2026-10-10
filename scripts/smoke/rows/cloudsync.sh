@@ -1,15 +1,14 @@
-# Cloud Sync, vgs.cloud-sync. The harness starts it enabled, as every
-# first-party service; this row disables it, stands in every command it
-# and its runner reach in the shell's own PATH directory, and enables it
-# again: automations_stand_ins' systemctl, which logs every verb, and its
-# notify-send; a secret-tool that answers the plugin's accounts from files
-# under the row's directory and every other call as the harness's sentinel
-# does; and an rclone that logs its argv, swaps the drive remote for
-# rclone's `local` backend rooted at a fixture Drive beside the run's home
-# and runs the host's rclone. No call reaches the host's systemd user
-# manager, keyring, Google Drive or network. The row runs the runner,
-# bin/cloud-sync, as the systemd service runs it, with the sandbox's
-# directories, and reads what the shell's service publishes.
+# Cloud Sync, vgs.cloud-sync. The harness starts it disabled; this row
+# stands in every command it and its runner reach in the shell's own PATH
+# directory, then enables it: automations_stand_ins' systemctl, which logs
+# every verb, and its notify-send; a secret-tool that answers the plugin's
+# accounts from files under the row's directory and every other call as the
+# harness's sentinel does; and an rclone that logs its argv, swaps the
+# drive remote for rclone's `local` backend rooted at a fixture Drive
+# beside the run's home and runs the host's rclone. No call reaches the
+# host's systemd user manager, keyring, Google Drive or network. The row
+# runs the runner, bin/cloud-sync, as the systemd service runs it, with
+# the sandbox's directories, and reads what the shell's service publishes.
 #
 # Rows: the service publishes its declared status, its record and IPC
 # target go with a disable, and it reads the stand-in keyring's presence;
@@ -18,19 +17,21 @@
 # record and its Sync now asks systemd to start the one service, which the
 # systemctl stand-in logs, and runs no rclone; a Drive-side add and change
 # reach the mirror after one run; a local edit since the last download
-# keeps both versions and reads `local-edit` in the published status, with
-# a notification; a Drive deletion keeps the file and reads
-# `removed-on-drive`; a run during another is `busy` and starts no copy;
+# keeps both versions and reads `local-edit` in the published status, and
+# the service asks for one notification for it, which the core delivers
+# or drops by its own rule (rows/notify.sh); a Drive deletion keeps the
+# file and reads `removed-on-drive`; a run during another is `busy` and
+# starts no copy;
 # pause stops the next run's copy and survives a shell restart, read
-# through the published status; the bar widget derives its tooltip from
-# the published labels and states, never a file name. Must-fail controls:
+# through the published status; the bar widget stays hidden until a folder
+# pair exists, then derives its tooltip from the published labels and
+# states, never a file name. Must-fail controls:
 # runner copies with a dry-run copy, with every displaced file taken as
 # the runner's own and with the pair lock always granted each fail their
 # check in a world of their own; a plugin copy whose service drops every
 # read of the record leaves a pause the runner writes unpublished. The row
-# ends with the pair removed, the units gone, the widget unplaced and the
-# plugin enabled, as it found it, and its stand-ins removed. No latency
-# reading.
+# ends with the pair removed, the units gone and the plugin disabled, as
+# it found it, and its stand-ins removed. No latency reading.
 # inputs: shell/plugins/vgs.cloud-sync/* shell/plugins/vgs.settings/* shell/Commons/WatchedFile.qml shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui
 set -euo pipefail
 cs_dir="$sandbox/cloudsync"
@@ -82,7 +83,11 @@ cs_systemctl() { if [[ -f $cs_stub/systemd/systemctl.calls ]]; then py_reply 'im
 cs_click_sync() { click_in "window:Cloud Sync" window vgs.cloud-sync Button "Sync now" && echo ok; }
 cs_dropped() { ipc smoke readInstance service vgs.cloud-sync smokeDropped; }
 cs_dropped_after() { local now; now="$(cs_dropped)" || return; [[ $now =~ ^[0-9]+$ && $now -gt $1 ]] && echo read || echo "$now"; }
-cs_notified() { if [[ -f $cs_stub/systemd/notify-send.calls ]]; then py_reply 'import json,sys; print(any(sys.argv[1] in a for a in map(json.loads, sys.stdin)))' "$1" <"$cs_stub/systemd/notify-send.calls"; else echo False; fi; }
+# The attention key the runner's record holds, and the one the service
+# last asked a notification for.
+cs_attention() { cs status | py_reply 'import json,sys; a=json.load(sys.stdin)["attention"]; print(a["key"] if a else "none")'; }
+cs_notified() { ipc smoke readInstance service vgs.cloud-sync notifiedKey | py_reply 'import json,sys; print(json.load(sys.stdin) or "none")'; }
+cs_widget_shown() { ipc smoke readInstance "$(bar_key)" vgs.cloud-sync visible; }
 cs_widget() { ipc smoke readInstance "$(bar_key)" vgs.cloud-sync tip | py_reply 'import json,sys; t=json.load(sys.stdin); print(json.dumps([t["title"], t["details"].split("\n")[:2]]))'; }
 cs_widget_names_files() { ipc smoke readInstance "$(bar_key)" vgs.cloud-sync tip | py_reply 'import json,sys; t=json.load(sys.stdin); print(any(n in t["title"] + t["details"] for n in sys.argv[1:]))' a.txt b.txt; }
 
@@ -192,14 +197,13 @@ SH
   expect "the rclone command resolves to the row's stand-in on the shell's PATH" "$shim/rclone" shell_resolves rclone
   cs_use "$home" "$rt_dir" "$cs_runner"
 
-  # The service, rebuilt over the stand-ins.
-  expect "Cloud Sync starts enabled" True record_exists vgs.cloud-sync
-  expect "disabling Cloud Sync is allowed" ok ipc shell setPluginEnabled vgs.cloud-sync false
-  expect_poll "the disabled plugin holds no status record or IPC target" '[null, false]' cs_lent
+  # The service, built over the stand-ins.
+  expect "Cloud Sync starts disabled" '[null, false]' cs_lent
   expect "enabling Cloud Sync is allowed" ok ipc shell setPluginEnabled vgs.cloud-sync true
   expect "placing Cloud Sync's widget is allowed" ok ipc shell setPluginPlaced vgs.cloud-sync true
   expect_poll "the service holds its status record and IPC target" '[["cloud", "keys", "sync"], true]' cs_lent
   expect_poll "with no pair and no unit the sync reads not set up and offers Set up" '["warning", "Not set up", "setup"]' cs_sync
+  expect_poll "with no folder pair the widget is hidden" false cs_widget_shown
   expect_poll "with no key stored every key reads absent" '[["pull-client-id", "absent"], ["pull-client-secret", "absent"], ["pull-token", "absent"], ["upload-client-id", "absent"], ["upload-client-secret", "absent"], ["upload-token", "absent"]]' cs_keys
   printf 'fixture-client' >"$cs_stub/secrets/pull-client-id"
   printf 'fixture-secret' >"$cs_stub/secrets/pull-client-secret"
@@ -229,12 +233,14 @@ SH
   expect_poll "the service publishes the last sync" set cs_last_sync
   check_local_edit
   expect_poll "the service publishes the local edit" '[["local-edit", "a.txt"]]' cs_published_conflicts
-  expect_poll "the local edit sends a notification" True cs_notified "Cloud Sync kept files for review"
+  expected_errors+=('notify: unsent plugin=vgs\.cloud-sync')
+  expect_poll "the service asks for one notification for the local edit" "$(cs_attention)" cs_notified
   check_removed
   expect_poll "the service publishes the Drive deletion" '[["local-edit", "a.txt"], ["removed-on-drive", "b.txt"]]' cs_published_conflicts
   check_lock
 
   # The widget names the pair and its state, never a file.
+  expect "with a folder pair the widget shows" true cs_widget_shown
   expect_poll "the widget's tooltip names the pair and the files to review" '["Cloud Sync: Up to date", ["Documents: Up to date", "2 files to review"]]' cs_widget
   expect "the widget's tooltip names no file" False cs_widget_names_files
 
@@ -300,6 +306,8 @@ SH
   expect "the service reads the record again" ok ipc vgs.cloud-sync invoke refresh ""
   expect_poll "with no pair and no unit the sync reads not set up" '["warning", "Not set up", "setup"]' cs_sync
   expect "unplacing Cloud Sync's widget is allowed" ok ipc shell setPluginPlaced vgs.cloud-sync false
+  expect "disabling Cloud Sync is allowed" ok ipc shell setPluginEnabled vgs.cloud-sync false
+  expect_poll "the disabled plugin holds no status record or IPC target" '[null, false]' cs_lent
   sentinel_restore "$shim/secret-tool"
   rm -f -- "$shim/rclone"
   automations_stand_ins_restore "$cs_stub/systemd"

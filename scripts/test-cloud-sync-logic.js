@@ -147,10 +147,11 @@ function verify(L) {
     same(L.changedKeys({ lastSync: null }, { lastSync: null }), []);
 
     // The widget and its tooltip: labels and states, never a file name.
-    same(L.widgetView(cloud, NOW), { icon: "cloud-alert", tone: "danger", spinning: false, badge: "3" });
-    same(L.widgetView(L.cloudValue(record({ state: "running", conflicts: [] }), ""), NOW), { icon: "cloud-sync", tone: "calm", spinning: true, badge: "" }, "no file to review draws no count");
-    same(L.widgetView(L.cloudValue(record({ state: "idle", attention: null }), ""), NOW), { icon: "cloud-check", tone: "warning", spinning: false, badge: "3" }, "files to review warn");
-    same(L.widgetView(undefined, NOW), { icon: "cloud", tone: "calm", spinning: false, badge: "" });
+    same(L.widgetView(cloud, NOW), { hidden: false, icon: "cloud-alert", tone: "danger", spinning: false, badge: "3" });
+    same(L.widgetView(L.cloudValue(record({ state: "running", conflicts: [] }), ""), NOW), { hidden: false, icon: "cloud-sync", tone: "calm", spinning: true, badge: "" }, "no file to review draws no count");
+    same(L.widgetView(L.cloudValue(record({ state: "idle", attention: null }), ""), NOW), { hidden: false, icon: "cloud-check", tone: "warning", spinning: false, badge: "3" }, "files to review warn");
+    same(L.widgetView(undefined, NOW), { hidden: true, icon: "cloud", tone: "calm", spinning: false, badge: "" });
+    assert.equal(L.widgetView(L.cloudValue(record({ state: "not-set-up", pairs: [], conflicts: [] }), ""), NOW).hidden, true, "no folder pair hides the icon");
     const tip = L.widgetTooltip(cloud, NOW, Timestamp.text);
     assert.equal(tip.title, "Cloud Sync: Sign-in needed");
     same(tip.details.split("\n"), ["Documents: Up to date", "Agent uploads: Sign-in needed", "3 files to review", "Last sync " + Timestamp.text(NOW - HOUR, NOW)]);
@@ -197,6 +198,7 @@ const controls = [
     ["the tooltip names pairs, not files", "var lines = pairLines(cloud.pairs, now);\n    if (cloud.conflictCount > 0) lines.push(reviewLine(cloud.conflictCount));\n    if (cloud.lastSuccess", "var lines = pairLines(cloud.pairs, now).concat(cloud.conflicts.map(function (c) { return c.path; }));\n    if (cloud.conflictCount > 0) lines.push(reviewLine(cloud.conflictCount));\n    if (cloud.lastSuccess"],
     ["a sign-in notifies first", "if (reasons.indexOf(\"authorization-required\") !== -1)\n", "if (false)\n"],
     ["no file to review draws no count", "cloud.conflictCount > 0 ? String(cloud.conflictCount) : \"\"", "String(cloud.conflictCount)"],
+    ["no folder pair hides the icon", "if (cloud === undefined || cloud.pairs.length === 0) return", "if (cloud === undefined) return"],
     ["with no folder pair no key reads unused", "if (anyNeeded && !presence[account].needed)", "if (!presence[account].needed)"]
 ];
 

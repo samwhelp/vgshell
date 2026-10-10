@@ -313,15 +313,16 @@ function changedKeys(previous, next) {
     return keys;
 }
 
-// The bar widget: { icon, tone, spinning, badge }, tone one of calm,
-// warning and danger, and badge the count of files to review as BarItem's
-// `count` text, "" for none. CLOUD is the published value, undefined
-// before the first.
+// The bar widget: { hidden, icon, tone, spinning, badge }, tone one of
+// calm, warning and danger, and badge the count of files to review as
+// BarItem's `count` text, "" for none. The icon is hidden until a folder
+// pair exists, so a bar that places it before setup shows nothing to act
+// on. CLOUD is the published value, undefined before the first.
 function widgetView(cloud, now) {
-    if (cloud === undefined) return { icon: "cloud", tone: "calm", spinning: false, badge: "" };
+    if (cloud === undefined || cloud.pairs.length === 0) return { hidden: true, icon: "cloud", tone: "calm", spinning: false, badge: "" };
     var view = stateView(cloud.state, cloud.staleAfter, now);
     var tone = view.tone === "danger" ? "danger" : view.tone === "warning" || cloud.conflictCount > 0 ? "warning" : "calm";
-    return { icon: view.icon, tone: tone, spinning: cloud.state === "running", badge: cloud.conflictCount > 0 ? String(cloud.conflictCount) : "" };
+    return { hidden: false, icon: view.icon, tone: tone, spinning: cloud.state === "running", badge: cloud.conflictCount > 0 ? String(cloud.conflictCount) : "" };
 }
 
 // The widget's tooltip: its title and one line per pair, its label and

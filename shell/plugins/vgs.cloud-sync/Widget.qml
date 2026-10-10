@@ -4,7 +4,8 @@ import qs.Ui
 import "CloudSyncLogic.js" as Logic
 
 // The Cloud Sync icon in the bar. It draws the status the service
-// publishes and runs nothing itself: a calm cloud while the folders are
+// publishes and runs nothing itself: nothing until a folder pair exists,
+// then a calm cloud while the folders are
 // current, paused or syncing, the warning tone while the data is old, the
 // sync is offline or not set up, or files wait for review, with their
 // count, and the danger tone while a sign-in is needed or the sync failed;
@@ -20,7 +21,8 @@ BarWidget {
     readonly property var view: Logic.widgetView(cloud, Time.now.getTime())
     readonly property var tip: Logic.widgetTooltip(cloud, Time.now.getTime(), Timestamp.text)
 
-    implicitWidth: button.implicitWidth
+    visible: !view.hidden
+    implicitWidth: view.hidden ? 0 : button.implicitWidth
     implicitHeight: barSize
 
     function toneColor(tone) {
