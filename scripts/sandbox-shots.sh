@@ -20,7 +20,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, outdated, jarvis-causes, plugin-messages, traffic, ai-usage, sysmon, appearance, sounds or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, jarvis-fleet, outdated, jarvis-causes, plugin-messages, traffic, ai-usage, sysmon, appearance, sounds or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -82,6 +82,8 @@
 # notice where the tree offers that step, over a stand-in bin/vgshell-pkg
 # that answers pacman, paru and mise whatever the host runs, and that
 # notice once a run of its step that changed nothing has ended, taken only
+# when named; jarvis-fleet is the Settings tab's Setup section with a
+# Jarvis home folder chosen that holds no kendex mail tool, taken only
 # when named; jarvis-causes plants each Jarvis start cause and
 # captures its bar widget tooltip and Setup section, taken only when named;
 # plugin-messages is a plugin's message to the
@@ -241,7 +243,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
+    sysmon|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -368,7 +370,7 @@ scene_ships() {
     voice-setup) ships_plugin vgs.voice vgs.settings ;;
     plugin-messages) ships_plugin vgs.clipboard vgs.lock vgs.notifications ;;
     voice-keys) [[ $manager_scene == settings ]] && ships_plugin vgs.voice ;;
-    jarvis-setup|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
+    jarvis-setup|jarvis-fleet|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
     ai-usage) ships_plugin vgs.ai-usage ;;
     traffic) ships_plugin vgs.traffic vgs.settings ;;
     devtools) ships_plugin vgs.devtools ;;
@@ -2473,6 +2475,46 @@ scene_jarvis-setup() { # MODE
   settings_close
   expect "disabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
   expect_poll "vgs.jarvis is gone" absent ipc smoke jarvisProcess
+}
+
+# jarvis_home_setting CONFIG VALUE: the Jarvis home folder setting in the
+# user's shell.json, "" for none, delivered by a reload.
+jarvis_home_setting() {
+  python3 - "$1" "$2" <<'PY' || fail "the Jarvis home folder setting is not written"
+import json,os,sys
+value=json.load(open(sys.argv[1])) if os.path.exists(sys.argv[1]) else {"version": 1}
+row=next((r for r in value.setdefault("plugins",[]) if r["id"]=="vgs.jarvis"),None)
+if row is None:
+    row={"id":"vgs.jarvis"}; value["plugins"].append(row)
+if sys.argv[2]: row["home"]=sys.argv[2]
+else: row.pop("home",None)
+open(sys.argv[1],"w").write(json.dumps(value))
+PY
+  expect "the Jarvis home folder setting is delivered" ok ipc shell reloadConfig
+}
+# The Setup section with a home folder chosen whose kendex mail tool is
+# absent, where the tree offers its Agent fleet row.
+scene_jarvis-fleet() { # MODE
+  local config="$home/.config/vgshell/shell.json"
+  jarvis_home_setting "$config" "~/jarvis-home"
+  expect "enabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect_poll "the Jarvis daemon answers hello without a restart" ready jarvis_started
+  for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
+  close_notices
+  expect "the Settings window opens for the Jarvis page" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings window maps for the Jarvis page" 1 settings_count
+  expect "the window opens the Jarvis page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
+  expect_poll "the Jarvis page is shown" '"vgs.jarvis"' settings_page
+  page_details
+  expect_poll "the Jarvis page shows its daemon ready" True jarvis_page_ready
+  settings_tab_click Settings || fail "the click on the Settings tab failed"
+  expect_poll "the Jarvis page shows Settings" 0 settings_tab
+  expect_poll "the Jarvis Setup section draws its rows" True jarvis_setup_drawn
+  jarvis_anchor_shot "jarvis-fleet-$1" SectionHeader Setup
+  settings_close
+  expect "disabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "vgs.jarvis is gone" absent ipc smoke jarvisProcess
+  jarvis_home_setting "$config" ""
 }
 
 # A command below its version floor on the Jarvis page. The daemon's world
