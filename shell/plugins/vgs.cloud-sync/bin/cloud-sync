@@ -15,6 +15,10 @@
 //   cloud-sync probe
 //       the presence of every credential account, read without unlocking
 //       the store, as one JSON line.
+//   cloud-sync authorize pull|upload
+//       Google's consent for the direction's OAuth client, in the browser
+//       rclone opens, and the token it returns stored in the keyring;
+//       prints `authorized=<direction>`. The Connect floating TUIs run it.
 //   cloud-sync install
 //       writes the units, reloads the user manager when they changed and
 //       enables the timer; prints `installed=<timer> changed=<n>`.
@@ -22,8 +26,9 @@
 //       `systemctl --user start --no-block` of the service: Sync now.
 //   cloud-sync pause|resume [--pair <id>]
 //       prints `paused=<id|all>` or `resumed=<id|all>`.
-//   cloud-sync pairs
-//       one JSON line, { pairs, error }.
+//   cloud-sync pairs [--lines]
+//       one JSON line, { pairs, error }; with --lines, one `<id>\t<label>`
+//       line per pair, for the Remove a folder pair TUI's list.
 //   cloud-sync pair-add --definition <json> | pair-remove <id>
 //       one validated change to the pair list; prints `added=<id>` or
 //       `removed=<id>`. Removing a pair deletes no file.
@@ -49,9 +54,11 @@ const path = require("path");
 
 const SERVICE = "vgs-cloud-sync.service";
 const TIMER = "vgs-cloud-sync.timer";
-// The manifest's `secrets` service; the core's SecretWriter stores each
-// account under the attributes `service` and `account`.
+// The manifest's `secrets` service and label; the core's SecretWriter
+// stores each account under the attributes `service` and `account`, with
+// the label and the account as its item label, and authorize does the same.
 const SECRET_SERVICE = "vgs-cloud-sync";
+const SECRET_LABEL = "VGS Cloud Sync";
 // Each direction has its own credential. The pull reads with
 // drive.readonly. The upload pair writes with drive.file, which reaches
 // only the files and folders this client created, so a leaked upload token
@@ -96,7 +103,7 @@ const FAILURE_STATES = {
     "authorization-refused": "authorization-required",
     offline: "offline"
 };
-const USAGE = "usage: cloud-sync run [--pair <id>] | status [--quiet] | probe | install | start | pause [--pair <id>] | resume [--pair <id>] | pairs | pair-add --definition <json> | pair-remove <id>";
+const USAGE = "usage: cloud-sync run [--pair <id>] | status [--quiet] | probe | authorize pull|upload | install | start | pause [--pair <id>] | resume [--pair <id>] | pairs [--lines] | pair-add --definition <json> | pair-remove <id>";
 
 function bad(first) {
     process.stderr.write("cloud-sync: refused: " + first + "\n" + USAGE + "\n");
@@ -922,6 +929,70 @@ function probeVerb(words) {
     process.stdout.write(JSON.stringify({ credentials: credentials }) + "\n");
 }
 
+// rclone prints the token between these lines on stdout
+// (fs/config/authorize.go, Authorize, rclone v1.75.1).
+const PASTE_START = "Paste the following into your remote machine --->";
+const PASTE_END = "<---End paste";
+// rclone waits for Google's answer without end; a consent left open this
+// long is given up, so the terminal can close.
+const AUTHORIZE_MS = 15 * 60 * 1000;
+// What xdg-open, which rclone runs to open the consent page, and the
+// browser it starts read from the graphical session.
+const BROWSER_ENV = ["DISPLAY", "WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP", "XDG_SESSION_TYPE", "XDG_DATA_DIRS", "XDG_CONFIG_DIRS", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "BROWSER"];
+
+// The token JSON between rclone's paste lines, or null. A token without a
+// refresh token would stop working after an hour, so it is refused.
+function pastedToken(stdout) {
+    const lines = String(stdout).split("\n");
+    const at = lines.indexOf(PASTE_START);
+    if (at === -1 || lines[at + 2] !== PASTE_END) return null;
+    const text = lines[at + 1];
+    let token;
+    try {
+        token = JSON.parse(text);
+    } catch (_e) {
+        return null;
+    }
+    if (!plain(token) || typeof token.refresh_token !== "string" || token.refresh_token === "" || CONTROL.test(text)) return null;
+    return text;
+}
+
+// `rclone authorize drive` for the direction's own client, which rclone
+// reads from RCLONE_DRIVE_CLIENT_ID and RCLONE_DRIVE_CLIENT_SECRET in its
+// environment (fs/configmap.go, optionEnvVars), never from argv, with the
+// direction's scope. rclone's link and messages reach the terminal on
+// stderr; its stdout, the token, stays in this process and reaches
+// secret-tool on stdin alone, with no newline, as SecretWriter writes.
+function authorizeVerb(words) {
+    if (words.length !== 1 || DIRECTIONS.indexOf(words[0]) === -1) bad("direction=" + (words[0] || "missing"));
+    const direction = words[0];
+    const tool = requireCommand("secret-tool");
+    const client = {};
+    for (const part of ["client-id", "client-secret"]) {
+        const account = direction + "-" + part;
+        const got = readSecret(tool, account);
+        if (got.kind !== "found") refuse("credential=" + (got.kind === "unavailable" ? got.reason : got.kind) + " account=" + account);
+        client[part] = got.value;
+    }
+    const session = {};
+    for (const name of BROWSER_ENV) if (process.env[name]) session[name] = process.env[name];
+    const env = childEnv(Object.assign(session, {
+        RCLONE_DRIVE_CLIENT_ID: client["client-id"],
+        RCLONE_DRIVE_CLIENT_SECRET: client["client-secret"],
+        RCLONE_DRIVE_SCOPE: SCOPES[direction]
+    }));
+    const out = childProcess.spawnSync(requireCommand("rclone"), ["--config", "/dev/null", "authorize", "drive"],
+        { encoding: "utf8", stdio: ["inherit", "pipe", "inherit"], env: env, timeout: AUTHORIZE_MS, killSignal: "SIGTERM" });
+    if (out.status !== 0) refuse("authorize=failed exit=" + out.status);
+    const token = pastedToken(out.stdout);
+    if (token === null) refuse("authorize=no-token");
+    const account = direction + "-token";
+    const stored = childProcess.spawnSync(tool, ["store", "--label=" + SECRET_LABEL + " " + account, "service", SECRET_SERVICE, "account", account],
+        { input: token, encoding: "utf8", stdio: ["pipe", "ignore", "pipe"], env: childEnv(), timeout: 30000, killSignal: "SIGKILL" });
+    if (stored.status !== 0) refuse("store=failed exit=" + stored.status + " account=" + account);
+    process.stdout.write("authorized=" + direction + "\n");
+}
+
 function startVerb(words) {
     if (words.length !== 0) bad("argument=" + words[0]);
     if (unitsState() === "absent") refuse("units=absent");
@@ -943,9 +1014,14 @@ function pauseVerb(words, paused) {
     process.stdout.write((paused ? "paused=" : "resumed=") + (only === null ? "all" : only) + "\n");
 }
 
+// A label holds no control character (pairError), so a tab parts the
+// fields of a line.
 function pairsVerb(words) {
-    if (words.length !== 0) bad("argument=" + words[0]);
-    process.stdout.write(JSON.stringify(readPairs()) + "\n");
+    if (words.length > 1 || (words.length === 1 && words[0] !== "--lines")) bad("argument=" + words[0]);
+    const read = readPairs();
+    if (words.length === 0) process.stdout.write(JSON.stringify(read) + "\n");
+    else if (read.error !== null) refuse(read.error);
+    else for (const pair of read.pairs) process.stdout.write(pair.id + "\t" + pair.label + "\n");
 }
 
 function pairAddVerb(words) {
@@ -988,6 +1064,7 @@ switch (verb) {
 case "run": runVerb(rest); break;
 case "status": statusVerb(rest); break;
 case "probe": probeVerb(rest); break;
+case "authorize": authorizeVerb(rest); break;
 case "install": installVerb(rest); break;
 case "start": startVerb(rest); break;
 case "pause": pauseVerb(rest, true); break;

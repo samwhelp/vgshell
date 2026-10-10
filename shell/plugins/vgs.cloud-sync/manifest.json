@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.cloud-sync",
+  "name": "Cloud Sync",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Keep Google Drive folders on this computer, and send one folder to Google Drive.",
+  "license": "MIT",
+  "icon": "cloud-sync",
+  "kinds": ["service", "bar-widget", "window"],
+  "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "window": "Window.qml" },
+  "capabilities": ["ipc", "notify", "run", "screens", "secrets", "status", "surfaces", "tui"],
+  "defaultSection": "right",
+  "requirements": [
+    { "command": "node", "packages": { "pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "nix": "nodejs" }, "optional": false, "purpose": "Runs the sync and reads its status" },
+    { "command": "rclone", "packages": { "pacman": "rclone", "apt": "rclone", "dnf": "rclone", "nix": "rclone" }, "optional": false, "purpose": "Copies the files to and from Google Drive" },
+    { "command": "flock", "packages": { "pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux", "nix": "util-linux" }, "optional": false, "purpose": "Lets only one sync of a folder pair run at a time" },
+    { "command": "systemctl", "packages": { "pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd" }, "optional": false, "purpose": "Runs the sync every hour, also while VGS is closed" },
+    { "command": "secret-tool", "packages": { "pacman": "libsecret", "apt": "libsecret-tools", "dnf": "libsecret", "nix": "libsecret" }, "optional": false, "purpose": "Reads the Google Drive keys from the keyring" },
+    { "command": "notify-send", "packages": { "pacman": "libnotify", "apt": "libnotify-bin", "dnf": "libnotify", "nix": "libnotify" }, "optional": false, "purpose": "Tells you when Cloud Sync needs you" },
+    { "command": "gum", "packages": { "pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum" }, "optional": false, "purpose": "Asks the setup questions in the setup window" },
+    { "command": "xdg-open", "packages": { "pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils" }, "optional": true, "purpose": "Opens the Google sign-in page and the folders to review" }
+  ],
+  "tui": {
+    "setup": { "script": "tui/setup.sh", "title": "Set up Cloud Sync", "requires": ["node", "systemctl"], "entry": { "label": "Set up Cloud Sync", "icon": "cloud-cog", "group": "Cloud Sync" } },
+    "add-pair": { "script": "tui/add-pair.sh", "title": "Add a folder pair", "requires": ["node", "gum"], "entry": { "label": "Add a folder pair", "icon": "folder-plus", "group": "Cloud Sync" } },
+    "remove-pair": { "script": "tui/remove-pair.sh", "title": "Remove a folder pair", "requires": ["node", "gum"], "entry": { "label": "Remove a folder pair", "icon": "folder-minus", "group": "Cloud Sync" } },
+    "connect-drive": { "script": "tui/connect-drive.sh", "title": "Connect Google Drive", "requires": ["node", "rclone", "secret-tool", "xdg-open"], "entry": { "label": "Connect Google Drive", "icon": "cloud-download", "group": "Cloud Sync" } },
+    "connect-upload": { "script": "tui/connect-upload.sh", "title": "Connect the upload folder", "requires": ["node", "rclone", "secret-tool", "xdg-open"], "entry": { "label": "Connect the upload folder", "icon": "cloud-upload", "group": "Cloud Sync" } }
+  },
+  "settings": {},
+  "status": {
+    "sync": {
+      "type": "state",
+      "label": "Cloud Sync",
+      "group": "Setup",
+      "info": "Cloud Sync copies each Google Drive folder of a folder pair to this computer every hour, and copies the upload folder to Google Drive. It never deletes a file. A file you changed here, or that Google Drive removed, stays and shows in the Cloud Sync window for review.",
+      "actions": {
+        "setup": { "label": "Set up Cloud Sync", "tui": "setup" },
+        "connectDrive": { "label": "Connect Google Drive", "tui": "connect-drive" },
+        "connectUpload": { "label": "Connect the upload folder", "tui": "connect-upload" }
+      }
+    },
+    "keys": {
+      "type": "presenceList",
+      "label": "Google Drive keys",
+      "hint": "Get a client ID and secret for each direction from Google Cloud credentials.",
+      "link": { "text": "Google Cloud credentials", "url": "https://console.cloud.google.com/apis/credentials" },
+      "info": "In Google Cloud, create an OAuth client ID of type Desktop app for downloads, and a second one for the upload folder. Add each client ID and secret here. Then select Connect Google Drive and Connect the upload folder to sign in. VGS stores every key in your keyring."
+    },
+    "lastSync": { "type": "time", "label": "Last sync" },
+    "cloud": { "type": "data", "label": "Cloud Sync status" }
+  },
+  "secrets": { "service": "vgs-cloud-sync", "label": "VGS Cloud Sync" }
+}

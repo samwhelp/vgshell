@@ -1,0 +1,233 @@
+import QtQuick
+import qs.Commons
+import qs.Ui
+import "CloudSyncLogic.js" as Logic
+
+// The Cloud Sync window: where the sync stands, from the status the service
+// publishes. Its Status rows give the state, the last complete sync, how
+// current the data is and the last problem; Folder pairs lists each pair
+// by its label, direction and state; To review lists each file Cloud Sync
+// kept, a local edit, a Drive deletion or a Drive rename, with Open for
+// review, which opens the folders that hold its versions. The footer holds
+// Sync now, or Set up Cloud Sync while the hourly sync is not set up,
+// over Pause or Resume and Add a folder pair. It runs nothing itself:
+// Sync now, Pause and Resume ask the service through the plugin's own IPC,
+// setup opens the plugin's floating TUIs, and Open for review hands each
+// folder to xdg-open. The window asks to be `size.panel.lg` wide and
+// `size.panel.maxHeight` tall, or the room its screen leaves when that is
+// less; an Escape nothing here takes goes on to the window host, which
+// closes the window. It takes no payload.
+FocusScope {
+    id: root
+
+    // The core assigns the plugin's scoped shell object after creation, and
+    // again when the plugin's settings change.
+    property var shell: null
+    readonly property var screen: shell === null ? null : shell.screens.current
+    readonly property var cloud: shell === null ? undefined : shell.status.values.cloud
+    readonly property bool known: cloud !== undefined
+    readonly property double now: Time.now.getTime()
+    readonly property var view: known ? Logic.stateView(cloud.state, cloud.staleAfter, now) : null
+    readonly property bool setUp: known && cloud.units === "installed"
+    // The refusal the last action was answered with, "" for none.
+    property string problem: ""
+    property Item initialFocus: primary
+
+    function open(payloadJson) {
+        problem = "";
+    }
+    function close() {}
+
+    // Sync now, Pause or Resume through the service; answers its reply.
+    function ask(name) {
+        return answered(shell.ipc.call(name, ""), "VGS could not reach Cloud Sync.");
+    }
+
+    // Open the plugin's TUI NAME; answers the capability's reply.
+    function run(name) {
+        return answered(shell.tui.run(name, []), "VGS could not open the setup window.");
+    }
+
+    // Open each folder that holds a version of the file under review.
+    function review(dirs) {
+        for (const dir of dirs) {
+            const reply = answered(shell.run.detached(["xdg-open", dir]), "VGS could not open the folder.");
+            if (reply !== "ok") return reply;
+        }
+        return "ok";
+    }
+
+    function answered(reply, sentence) {
+        problem = reply === "ok" ? "" : sentence;
+        if (reply !== "ok") console.warn("cloud-sync window: " + reply);
+        return reply;
+    }
+
+    implicitWidth: Math.floor(Math.min(Theme.size.panel.lg, OverlayState.room(screen).width))
+    implicitHeight: Math.floor(Math.min(Theme.size.panel.maxHeight, OverlayState.room(screen).height))
+    focus: true
+
+    Pane {
+        id: layout
+        anchors.fill: parent
+        container: "window"
+
+        title: "Cloud Sync"
+        subtitle: [
+            Column {
+                width: layout.contentWidth
+                spacing: Theme.row.lineGap
+
+                Label {
+                    width: parent.width
+                    role: "hint"
+                    text: !root.known ? "Reading the sync status" : root.cloud.paused ? "Paused. The hourly sync copies nothing until you resume it." : root.view.text
+                    color: root.view !== null && root.view.tone === "danger" ? Theme.color.danger : root.view !== null && root.view.tone === "warning" ? Theme.color.warning : Theme.color.textMuted
+                    wrapMode: Text.Wrap
+                }
+                Label {
+                    width: parent.width
+                    role: "hint"
+                    visible: text !== ""
+                    text: root.problem !== "" ? root.problem : root.known ? root.cloud.problem : ""
+                    color: Theme.color.danger
+                    wrapMode: Text.Wrap
+                }
+            }
+        ]
+
+        Column {
+            width: layout.contentWidth
+            spacing: Theme.stack.group
+            visible: root.known
+
+            Section {
+                title: "Status"
+                Repeater {
+                    model: root.known ? Logic.statusRows(root.cloud, root.now, Timestamp.text) : []
+                    FormRow {
+                        required property var modelData
+                        width: parent.width
+                        label: modelData.label
+                        Badge {
+                            visible: modelData.tone !== ""
+                            size: "md"
+                            text: modelData.text
+                            tone: modelData.tone === "" ? "neutral" : modelData.tone
+                        }
+                        Label {
+                            visible: modelData.tone === ""
+                            width: parent.width
+                            role: "value"
+                            text: modelData.text
+                            wrapMode: Text.Wrap
+                        }
+                    }
+                }
+            }
+
+            Section {
+                title: "Folder pairs"
+                Repeater {
+                    model: root.known ? root.cloud.pairs.map(p => Logic.pairRow(p, root.now, Timestamp.text)) : []
+                    ListItem {
+                        id: pairRow
+                        required property var modelData
+                        width: parent.width
+                        iconName: modelData.icon
+                        text: modelData.label
+                        secondary: modelData.secondary
+                        trailing: [
+                            Badge {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: pairRow.modelData.text
+                                tone: pairRow.modelData.tone
+                            }
+                        ]
+                    }
+                }
+                EmptyState {
+                    width: parent.width
+                    visible: root.known && root.cloud.pairs.length === 0
+                    iconName: "folder-sync"
+                    text: "No folder pairs yet. Add one to choose what Cloud Sync keeps in step."
+                    actionText: "Add a folder pair"
+                    onActivated: root.run("add-pair")
+                }
+            }
+
+            Section {
+                visible: root.known && root.cloud.conflictCount > 0
+                title: "To review"
+                description: "Cloud Sync kept these files and deleted nothing. Open a file's folders to compare its versions."
+                Repeater {
+                    model: root.known ? root.cloud.conflicts : []
+                    ListItem {
+                        id: conflictRow
+                        required property var modelData
+                        readonly property var row: Logic.conflictRow(modelData)
+                        width: parent.width
+                        iconName: "file-exclamation-point"
+                        text: row.label
+                        secondary: row.secondary
+                        trailing: [
+                            RowAction {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "Open for review"
+                                onClicked: root.review(conflictRow.modelData.dirs)
+                            }
+                        ]
+                    }
+                }
+                Label {
+                    width: parent.width
+                    visible: text !== ""
+                    role: "hint"
+                    text: root.known ? Logic.moreConflicts(root.cloud) : ""
+                }
+            }
+        }
+
+        footer: [
+            Column {
+                width: layout.contentWidth
+                spacing: Theme.stack.group
+
+                Button {
+                    id: primary
+                    width: parent.width
+                    variant: "primary"
+                    enabled: root.known
+                    text: root.setUp || !root.known ? "Sync now" : "Set up Cloud Sync"
+                    iconName: root.setUp || !root.known ? "refresh-cw" : "cloud-cog"
+                    onClicked: root.setUp ? root.ask("sync") : root.run("setup")
+                }
+
+                Item {
+                    width: parent.width
+                    height: Math.max(pauseButton.implicitHeight, addButton.implicitHeight)
+
+                    Button {
+                        id: pauseButton
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        variant: "tertiary"
+                        enabled: root.known
+                        text: root.known && root.cloud.paused ? "Resume" : "Pause"
+                        iconName: root.known && root.cloud.paused ? "play" : "pause"
+                        onClicked: root.ask(root.cloud.paused ? "resume" : "pause")
+                    }
+                    Button {
+                        id: addButton
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        variant: "tertiary"
+                        text: "Add a folder pair"
+                        iconName: "folder-plus"
+                        onClicked: root.run("add-pair")
+                    }
+                }
+            }
+        ]
+    }
+}

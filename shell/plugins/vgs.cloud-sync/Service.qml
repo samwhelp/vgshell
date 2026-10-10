@@ -1,0 +1,211 @@
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import qs.Commons
+import "CloudSyncLogic.js" as Logic
+
+// Owns vgs.cloud-sync's runtime side: the one runner door (RunnerClient),
+// the one watch of the runner's status record, the presence probe of the
+// Google Drive keys, the notification when Cloud Sync needs the user, IPC
+// and every status write. The widget and the window read status only.
+// The plugin never runs rclone: Sync now asks systemd for the same service
+// the hourly timer and the command line start (bin/cloud-sync start), and
+// that run writes the status record this service watches.
+//
+// The record is read again whenever the runner writes it: a run's start
+// and end, a pause or resume from any caller, install and a pair change.
+// The service asks the runner to render it afresh at start and after each
+// of its setup TUIs ends, which also reads a run cut short as interrupted.
+// The keys are probed at start, after each write the core makes from the
+// Settings page's masked fields, after a Connect TUI ends and when the
+// pairs' directions change.
+//
+//   vgshell ipc call vgs.cloud-sync invoke <name> ""   with <name>:
+//     status    the published values, JSON
+//     sync      Sync now: starts the service through systemd; `ok`
+//     pause     pauses every pair; `ok`
+//     resume    resumes every pair; `ok`
+//     refresh   renders the record and probes the keys again; `ok`
+//     open      opens the Cloud Sync window; shell.surfaces.summon's reply
+// A request that fails is logged and shown in the window as `problem`.
+Item {
+    id: root
+
+    property var shell: null
+    property bool registered: false
+    // The runner's last accepted status record and probe answer, null
+    // before the first.
+    property var record: null
+    property var presence: null
+    // The operation of the last request that failed, and its log line.
+    property string problem: ""
+    property string problemLine: ""
+    property var reported: ({})
+    // The attention key last notified, so each change that needs the user
+    // notifies once.
+    property string notifiedKey: ""
+    property string directions: ""
+    // The first `status` answered: the record exists, so its directory
+    // does, which the watch needs.
+    property bool statusReady: false
+    readonly property string statusFile: Paths.stateDir + "/cloud-sync/status.json"
+    readonly property int secretRevision: shell === null ? 0 : shell.secrets.revision
+    // The end of each setup TUI's last run, whoever opened it: Settings,
+    // the window or the launcher.
+    readonly property string tuiEnds: shell === null ? "" : JSON.stringify(["setup", "add-pair", "remove-pair", "connect-drive", "connect-upload"]
+        .map(name => shell.tui.state[name] ? shell.tui.state[name].endedAt : null))
+
+    onShellChanged: start()
+    onSecretRevisionChanged: if (registered) probe()
+    onTuiEndsChanged: if (registered) {
+        refresh();
+        probe();
+    }
+
+    function start() {
+        if (shell === null || registered) return;
+        registered = true;
+        shell.ipc.handle("status", () => JSON.stringify(shell.status.values));
+        shell.ipc.handle("sync", () => root.act("start"));
+        shell.ipc.handle("pause", () => root.act("pause"));
+        shell.ipc.handle("resume", () => root.act("resume"));
+        shell.ipc.handle("refresh", () => {
+            root.refresh();
+            root.probe();
+            return "ok";
+        });
+        shell.ipc.handle("open", arg => shell.surfaces.summon("window", arg || "{}"));
+        refresh();
+        probe();
+    }
+
+    function failed(operation, line) {
+        console.warn("cloud-sync: " + line);
+        problem = operation;
+        problemLine = line;
+        publish();
+    }
+
+    function succeeded(operation) {
+        if (problem !== operation) return;
+        problem = "";
+        problemLine = "";
+        publish();
+    }
+
+    // The runner writes the record; the watch reads it.
+    function refresh() {
+        client.request(["status", "--quiet"], (ok, out, line) => {
+            if (!ok) {
+                root.failed("status", line);
+                return;
+            }
+            root.statusReady = true;
+            root.succeeded("status");
+        });
+    }
+
+    function probe() {
+        client.request(["probe"], (ok, out, line) => {
+            if (!ok) {
+                root.failed("probe", line);
+                return;
+            }
+            const judged = Logic.parseProbe(out);
+            if (!judged.ok) {
+                root.failed("probe", "probe answer refused: " + judged.error);
+                return;
+            }
+            root.presence = judged.presence;
+            root.succeeded("probe");
+            root.publish();
+        });
+    }
+
+    // start, pause or resume; the runner's record write shows its effect.
+    function act(operation) {
+        client.request([operation], (ok, out, line) => {
+            if (ok) root.succeeded(operation);
+            else root.failed(operation, line);
+        });
+        return "ok";
+    }
+
+    function accept(content) {
+        const judged = Logic.parseStatus(content);
+        if (!judged.ok) {
+            console.warn("cloud-sync: status record refused: " + judged.error);
+            return;
+        }
+        record = judged.record;
+        const now = record.pairs.map(p => p.direction).sort().join(",");
+        if (now !== directions) {
+            directions = now;
+            probe();
+        }
+        publish();
+        notifyOnce();
+        schedule();
+    }
+
+    function publish() {
+        if (shell === null) return;
+        const values = Logic.statusValues(record, presence, Logic.problemText(problem, problemLine), Date.now());
+        const next = Object.assign({}, reported);
+        for (const key of Logic.changedKeys(reported, values)) {
+            const value = values[key] === undefined ? null : values[key];
+            const reply = shell.status.set(key, value);
+            if (reply !== "ok") console.error("cloud-sync: " + reply);
+            else next[key] = value;
+        }
+        reported = next;
+    }
+
+    function notifyOnce() {
+        if (record.attention === null) {
+            notifiedKey = "";
+            return;
+        }
+        if (record.attention.key === notifiedKey) return;
+        notifiedKey = record.attention.key;
+        const message = Logic.notification(record);
+        if (message === null) return;
+        const reply = shell.notify.send({ title: message.title, message: message.message, tone: message.tone, icon: "cloud-alert" });
+        if (reply !== "ok") console.warn("cloud-sync: notify " + reply);
+    }
+
+    // Idle data turns old with no write, so the values are published again
+    // when it does.
+    function schedule() {
+        const at = Logic.nextStale(record, Date.now());
+        if (at === null) {
+            stale.stop();
+            return;
+        }
+        stale.interval = Math.min(at - Date.now() + 1000, 2147483647);
+        stale.restart();
+    }
+
+    RunnerClient { id: client }
+
+    // The runner replaces the record by rename; WatchedFile reads it again
+    // on every change and drops no change that lands during a read.
+    LazyLoader {
+        active: root.statusReady
+        WatchedFile {
+            path: root.statusFile
+            onChanged: read()
+            onLoaded: content => root.accept(content)
+            onLoadFailed: error => console.warn("cloud-sync: status record unreadable: " + FileViewError.toString(error))
+        }
+    }
+
+    Timer {
+        id: stale
+        repeat: false
+        onTriggered: {
+            root.publish();
+            root.schedule();
+        }
+    }
+}

@@ -8,14 +8,17 @@
 // run killed mid-copy reads as interrupted; pause persists across processes
 // and a paused run copies nothing; offline and authorization failures keep
 // the last success; the exclusions; pair validation; install, start, probe
-// and status; and no credential value reaches an argv, a log line, a unit
-// or the status record.
+// and status; authorize stores the token Google's consent returns through
+// secret-tool's stdin; and no credential value reaches an argv, a log
+// line, a unit or the status record.
 //
 // Every case runs in its own scratch home and runtime directory with a PATH
 // of stand-ins: `secret-tool` answers from fake values under the case's
 // stub directory, `systemctl` records its calls, and `rclone` records its
 // argv and RCLONE_* environment, swaps the drive remote for the local
-// backend rooted at the case's fixture Drive and runs the host's rclone.
+// backend rooted at the case's fixture Drive and runs the host's rclone,
+// except for `authorize`, which it answers itself with a fixture token, so
+// no browser opens and no consent leaves the machine.
 // No case reaches the user's keyring, systemd manager, rclone config or
 // network.
 //
@@ -63,6 +66,9 @@ const SECRETS = {
     "upload-client-secret": "fake-upload-secret-2e90",
     "upload-token": "{\"access_token\":\"fake-access-77bb\",\"token_type\":\"Bearer\",\"refresh_token\":\"fake-refresh-a4c1\",\"expiry\":\"2026-01-01T00:00:00Z\"}"
 };
+// The token the rclone stand-in's `authorize` prints, as rclone v1.75.1
+// prints one: its JSON on one line between the paste lines.
+const CONSENT_TOKEN = "{\"access_token\":\"fake-consent-access-c0de\",\"token_type\":\"Bearer\",\"refresh_token\":\"fake-consent-refresh-f00d\",\"expiry\":\"2026-10-10T13:00:00Z\"}";
 // Text every log, record and unit of every case is checked against.
 const SEEN = [];
 
@@ -115,6 +121,14 @@ function world(options) {
     if (opts.ids) write(path.join(w.stub, "ids"), "");
     write(path.join(w.bin, "secret-tool"), `#!${HOST.bash}
 store=${JSON.stringify(path.join(w.stub, "secrets"))}
+if [[ $1 == store ]]; then
+  [[ $2 == --label=* && $3 == service && $4 == vgs-cloud-sync && $5 == account && $# -eq 6 ]] || exit 2
+  printf '%s\n' "$*" >>${JSON.stringify(path.join(w.stub, "secret-tool.calls"))}
+  # The stand-ins' PATH holds no cat; read keeps every byte but NUL.
+  IFS= read -r -d '' value || true
+  printf '%s' "$value" >"$store/$6"
+  exit 0
+fi
 [[ $1 == search && $2 == service && $3 == vgs-cloud-sync && $4 == account && $# -eq 5 ]] || exit 2
 account=$5
 if [[ -f $store/$account.locked ]]; then
@@ -148,6 +162,12 @@ stub=${JSON.stringify(w.stub)}
 ${JSON.stringify(process.execPath)} "$stub/record.js" "$@"
 mode=""
 [[ -f $stub/mode ]] && mode=$(<"$stub/mode")
+if [[ $3 == authorize ]]; then
+  printf 'Waiting for code...\\n' >&2
+  [[ $mode == no-refresh ]] && token='{"access_token":"x","token_type":"Bearer"}' || token=${JSON.stringify(CONSENT_TOKEN)}
+  printf 'Paste the following into your remote machine --->\\n%s\\n<---End paste\\n' "$token"
+  exit 0
+fi
 case "$mode" in
   offline) printf '%s\\n' ${JSON.stringify(OFFLINE_LINE)} >&2; exit 1 ;;
   auth) printf '%s\\n' ${JSON.stringify(AUTH_LINE)} >&2; exit 1 ;;
@@ -593,6 +613,7 @@ function caseInstall(runner) {
     assert.ok(timer.split("\n").includes("Persistent=true"));
     assert.deepEqual(read(path.join(w.stub, "systemctl.calls")).trim().split("\n"), ["--user daemon-reload", "--user enable --now vgs-cloud-sync.timer"]);
     addPair(w, runner);
+    assert.equal(cli(w, ["pairs", "--lines"], runner).stdout, "docs\tDocuments\n", "the Remove a folder pair list");
     assert.equal(status(w, runner).units, "installed");
     out = cli(w, ["install"], runner);
     assert.equal(out.stdout, "installed=vgs-cloud-sync.timer changed=0\n");
@@ -620,6 +641,40 @@ function caseProbe(runner) {
         { account: "upload-client-secret", presence: "absent", needed: false },
         { account: "upload-token", presence: "absent", needed: false }
     ] });
+}
+
+// authorize reads the direction's client from the keyring, hands it to
+// `rclone authorize drive` in the environment alone with the direction's
+// scope, and stores the token rclone prints through secret-tool's stdin,
+// byte for byte, never printing it. A missing client secret starts no
+// consent, and a token without a refresh token is not stored.
+function caseAuthorize(runner) {
+    const w = world({ secrets: ["pull-client-id", "pull-client-secret", "upload-client-id", "upload-client-secret"] });
+    for (const direction of ["pull", "upload"]) {
+        const out = cli(w, ["authorize", direction], runner);
+        assert.equal(out.stdout, "authorized=" + direction + "\n", out.stderr);
+        assert.equal(read(path.join(w.stub, "secrets", direction + "-token")), CONSENT_TOKEN);
+        assert.ok(!out.stdout.includes("fake-consent") && !out.stderr.includes("fake-consent"), "the token is printed");
+    }
+    const calls = rcloneCalls(w);
+    assert.deepEqual(calls.map(c => c.argv), [["--config", "/dev/null", "authorize", "drive"], ["--config", "/dev/null", "authorize", "drive"]]);
+    assert.deepEqual(calls.map(c => c.env), ["pull", "upload"].map(d => ({
+        RCLONE_DRIVE_CLIENT_ID: SECRETS[d + "-client-id"],
+        RCLONE_DRIVE_CLIENT_SECRET: SECRETS[d + "-client-secret"],
+        RCLONE_DRIVE_SCOPE: d === "pull" ? "drive.readonly" : "drive.file"
+    })));
+    const stores = read(path.join(w.stub, "secret-tool.calls")).trim().split("\n");
+    assert.deepEqual(stores, ["pull", "upload"].map(d => "store --label=VGS Cloud Sync " + d + "-token service vgs-cloud-sync account " + d + "-token"));
+    const v = world({ secrets: ["pull-client-id"] });
+    let out = cli(v, ["authorize", "pull"], runner);
+    assert.equal(out.status, 1);
+    assert.match(out.stderr, /^cloud-sync: refused: credential=absent account=pull-client-secret$/m);
+    assert.deepEqual(rcloneCalls(v), []);
+    const x = world({ secrets: ["pull-client-id", "pull-client-secret"] });
+    write(path.join(x.stub, "mode"), "no-refresh");
+    out = cli(x, ["authorize", "pull"], runner);
+    assert.match(out.stderr, /^cloud-sync: refused: authorize=no-token$/m);
+    assert.ok(!fs.existsSync(path.join(x.stub, "secrets", "pull-token")));
 }
 
 // No credential value in any argv, log line, unit or status record.
@@ -668,6 +723,8 @@ async function controls() {
     await mustFail("exclusions", mutant("exclusions", "return [].concat(...EXCLUDES.map(pattern => [\"--exclude\", pattern]));", "return [];"), caseExclusions);
     await mustFail("renamed", mutant("renamed", "for (const item of listing) if (item.ID) pathOfId[item.ID] = item.Path;", ""), caseRemovedAndRenamed);
     await mustFail("failure table", mutant("failure table", "const row = FAILURES.find(r => r.pattern.test(stderr));", "const row = undefined;"), caseFailures);
+    await mustFail("authorize store", mutant("authorize store", "{ input: token, encoding", "{ input: token + \"\\n\", encoding"), caseAuthorize);
+    await mustFail("authorize scope", mutant("authorize scope", "RCLONE_DRIVE_SCOPE: SCOPES[direction]", "RCLONE_DRIVE_SCOPE: \"drive\""), caseAuthorize);
     await mustFail("child environment", mutant("child environment", "const env = { LANG: \"C.UTF-8\" };", "const env = Object.assign({ LANG: \"C.UTF-8\" }, process.env);"), caseCopy);
     const rules = [...new Set(validationRows(world()).map(row => row.rule).filter(rule => rule !== null))];
     for (const rule of rules) {
@@ -689,6 +746,7 @@ async function main() {
     caseValidation();
     caseInstall();
     caseProbe();
+    caseAuthorize();
     caseNoLeak();
     await controls();
     console.log("test-cloud-sync-runner: ok");

@@ -68,6 +68,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Bluetooth](shell/plugins/vgs.bluetooth/README.md) | Pair and connect your Bluetooth devices. |
 | [Capture](shell/plugins/vgs.capture/README.md) | Save screenshots, record the screen and copy text from an area. |
 | [Clipboard](shell/plugins/vgs.clipboard/README.md) | Find and paste anything you copied earlier. Your history is saved on disk, and Shift+Delete in the Clipboard list clears it. |
+| [Cloud Sync](shell/plugins/vgs.cloud-sync/README.md) | Keep Google Drive folders on this computer, and send one folder to Google Drive. |
 | [Dev Tools](shell/plugins/vgs.devtools/README.md) | Install and update developer tools. |
 | [Displays](shell/plugins/vgs.displays/README.md) | Set each display's mode, scale, orientation and brightness. |
 | [Fonts](shell/plugins/vgs.fonts/README.md) | Set the font of the shell and of your terminals. |
