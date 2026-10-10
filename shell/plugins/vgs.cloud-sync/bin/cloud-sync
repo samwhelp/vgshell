@@ -276,9 +276,10 @@ function filesUnder(dir) {
 
 // flock(1) locks the open file description it is handed as fd 3, which
 // this process shares, so the lock outlives the flock child and ends when
-// this process closes the descriptor or dies. Node opens files
-// close-on-exec, so no child of this process, rclone included, holds a
-// lock.
+// every process holding that description closes it or dies. Node opens
+// files close-on-exec, so no child holds a lock but the rclone of a pair
+// run, which is handed the pair's lock (rclone): a runner killed while its
+// rclone still copies leaves the pair locked until that copy ends.
 function lockFd(file, flags) {
     if (lockDir === "") refuse("runtime-dir=unset");
     fs.mkdirSync(lockDir, { recursive: true, mode: 0o700 });
@@ -348,7 +349,30 @@ function pairError(pair) {
     if (within(local, real(home))) return refusal(pair, "home-or-above");
     if (fs.existsSync(path.join(local, ".git"))) return refusal(pair, "repository-root");
     if (within(local, real(stateDir)) || within(real(stateDir), local)) return refusal(pair, "state-overlap");
+    // What runs as code here: the runner copy and installed plugins, the
+    // shell's configuration and the user's units. Drive content written
+    // there would run on this computer.
+    for (const dir of [path.join(dataHome, "vgshell"), path.join(configHome, "vgshell")])
+        if (within(local, real(dir)) || within(real(dir), local)) return refusal(pair, "vgs-overlap");
+    if (within(local, real(unitDir)) || within(real(unitDir), local)) return refusal(pair, "unit-overlap");
+    if (pair.direction === "pull" && holdsRepository(local)) return refusal(pair, "repository-inside");
     return null;
+}
+
+// Whether a directory under DIR, symlinks not followed, holds `.git`.
+function holdsRepository(dir) {
+    let entries;
+    try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (_e) {
+        return false;
+    }
+    for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const child = path.join(dir, entry.name);
+        if (fs.existsSync(path.join(child, ".git")) || holdsRepository(child)) return true;
+    }
+    return false;
 }
 
 // The first refusal of a pair list, or null: each pair alone, then every
@@ -501,13 +525,13 @@ function failureKind(status, stderr) {
     return row === undefined ? "rclone-failed" : row.kind;
 }
 
-// Runs rclone ARGS: { ok, stdout } or { ok: false, kind, exit }. Its
-// stderr reaches this runner's stderr, the journal, with every secret
-// value replaced.
-function rclone(args, env, secrets) {
+// Runs rclone ARGS holding LOCK, the pair's lock descriptor, as its fd 3:
+// { ok, stdout } or { ok: false, kind, exit }. Its stderr reaches this
+// runner's stderr, the journal, with every secret value replaced.
+function rclone(args, env, secrets, lock) {
     const bin = which("rclone");
     if (bin === null) return { ok: false, kind: "rclone-missing", exit: null };
-    const out = run(bin, ["--config", "/dev/null"].concat(args), { env: env, maxBuffer: 1 << 30 });
+    const out = run(bin, ["--config", "/dev/null"].concat(args), { env: env, maxBuffer: 1 << 30, stdio: ["ignore", "pipe", "pipe", lock] });
     let stderr = String(out.stderr || "");
     for (const secret of secrets) stderr = stderr.split(secret).join("[secret]");
     if (stderr.trim() !== "") process.stderr.write(stderr.length > 65536 ? stderr.slice(-65536) : stderr);
@@ -534,7 +558,7 @@ function classifyDisplaced(id, inventory, records) {
         const file = path.join(root, stored);
         const st = fs.statSync(file);
         const base = hasOwn(inventory, rel) ? inventory[rel] : undefined;
-        const unedited = base !== undefined && base.state === undefined && base.size === st.size && base.mtimeMs === st.mtimeMs
+        const unedited = base !== undefined && base.state === undefined && base.size === st.size && base.mtimeMs === Math.floor(st.mtimeMs)
             && (base.hash === null || md5File(file) === base.hash);
         if (unedited) {
             fs.unlinkSync(file);
@@ -571,6 +595,7 @@ function removeEmptyDirs(dir) {
 function nextInventory(pair, listing, before) {
     const entries = {};
     const pathOfId = {};
+    const listed = new Set(listing.map(item => item.Path));
     let added = 0;
     let updated = 0;
     for (const item of listing) if (item.ID) pathOfId[item.ID] = item.Path;
@@ -582,15 +607,22 @@ function nextInventory(pair, listing, before) {
             continue;
         }
         if (!st.isFile()) continue;
+        // The baseline is what Drive listed, and only a local file that
+        // matches it is the runner's own download. A file saved during the
+        // copy matches nothing: it keeps its earlier baseline, or none, so
+        // its next displacement reads as a local edit and is kept.
         const md5 = plain(item.Hashes) && typeof item.Hashes.md5 === "string" ? item.Hashes.md5 : null;
-        const matches = item.Size === st.size && Date.parse(item.ModTime) === Math.floor(st.mtimeMs);
-        const old = hasOwn(before, item.Path) ? before[item.Path] : undefined;
-        if (old === undefined || old.state !== undefined) added += 1;
-        else if (old.size !== st.size || old.mtimeMs !== st.mtimeMs) updated += 1;
-        entries[item.Path] = { size: st.size, mtimeMs: st.mtimeMs, hash: matches ? md5 : null, id: item.ID || null };
+        const modTime = Date.parse(item.ModTime);
+        const matches = item.Size === st.size && modTime === Math.floor(st.mtimeMs);
+        const old = hasOwn(before, item.Path) && before[item.Path].state === undefined ? before[item.Path] : undefined;
+        const baseline = matches ? { size: item.Size, mtimeMs: modTime, hash: md5, id: item.ID || null } : old;
+        if (baseline === undefined) continue;
+        if (old === undefined) added += 1;
+        else if (old.size !== baseline.size || old.mtimeMs !== baseline.mtimeMs) updated += 1;
+        entries[item.Path] = baseline;
     }
     for (const rel of Object.keys(before)) {
-        if (hasOwn(entries, rel) || !fs.existsSync(path.join(pair.local, rel))) continue;
+        if (listed.has(rel) || !fs.existsSync(path.join(pair.local, rel))) continue;
         const old = before[rel];
         const to = old.id && hasOwn(pathOfId, old.id) ? pathOfId[old.id] : null;
         const entry = { size: old.size, mtimeMs: old.mtimeMs, hash: old.hash, id: old.id, state: to === null ? "removed-on-drive" : "renamed", since: old.since || now() };
@@ -613,12 +645,12 @@ function rcloneFailed(state, result) {
     return failed(state, result.kind, result.exit === null ? {} : { exit: result.exit });
 }
 
-function pull(pair, state, env, secrets) {
+function pull(pair, state, env, secrets, lock) {
     const inventory = readInventory(pair.id);
     const stamp = now().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z") + "-" + process.pid;
     const backup = path.join(pairDir(pair.id), "conflicts", stamp);
     const common = filterArgs().concat(["--drive-export-formats", EXPORT_FORMATS]);
-    const listed = rclone(["lsjson", "-R", "--files-only", "--fast-list", "--hash", "--hash-type", "md5", remotePath(pair)].concat(common), env, secrets);
+    const listed = rclone(["lsjson", "-R", "--files-only", "--fast-list", "--hash", "--hash-type", "md5", remotePath(pair)].concat(common), env, secrets, lock);
     if (!listed.ok) return rcloneFailed(state, listed);
     let listing;
     try {
@@ -630,7 +662,7 @@ function pull(pair, state, env, secrets) {
     // keeps a cut-off run from leaving a half file in the mirror;
     // --backup-dir moves every local file the copy replaces into conflict
     // storage first.
-    const copied = rclone(["copy", remotePath(pair), pair.local, "--backup-dir", backup].concat(common), env, secrets);
+    const copied = rclone(["copy", remotePath(pair), pair.local, "--backup-dir", backup].concat(common), env, secrets, lock);
     state.localEdits = classifyDisplaced(pair.id, inventory, state.localEdits);
     if (!copied.ok) return rcloneFailed(state, copied);
     const next = nextInventory(pair, listing, inventory);
@@ -639,8 +671,8 @@ function pull(pair, state, env, secrets) {
 }
 
 // Never --drive-import-formats: an export stays a file on Drive.
-function upload(pair, state, env, secrets) {
-    const copied = rclone(["copy", pair.local, remotePath(pair)].concat(filterArgs()), env, secrets);
+function upload(pair, state, env, secrets, lock) {
+    const copied = rclone(["copy", pair.local, remotePath(pair)].concat(filterArgs()), env, secrets, lock);
     if (!copied.ok) return rcloneFailed(state, copied);
     return Object.assign(state, { state: "idle", lastSuccess: now(), lastError: null, changes: null });
 }
@@ -661,7 +693,7 @@ function runPair(pair, control) {
         if (credential.kind === "found") {
             const secrets = CREDENTIAL_PARTS.map(part => credential.values[part]);
             const env = rcloneEnv(pair.direction, credential.values);
-            state = pair.direction === "pull" ? pull(pair, state, env, secrets) : upload(pair, state, env, secrets);
+            state = pair.direction === "pull" ? pull(pair, state, env, secrets, fd) : upload(pair, state, env, secrets, fd);
         } else {
             const kind = credential.kind === "unavailable" ? credential.reason : "credential-" + credential.kind;
             state = failed(state, kind, { account: credential.account });
@@ -854,9 +886,12 @@ function renderStatus() {
     if (read.error !== null || pairs.some(p => p.state === "error")) reasons.push("error");
     if (conflicts.length > 0) reasons.push("conflicts");
     if (units === "stale") reasons.push("units-stale");
-    // The key changes when a reason, a conflict or the last error changes,
+    // The key changes when a reason, a conflict or the cause of a failure
+    // that needs the user changes, never with the time a failure repeats,
     // so the plugin notifies once per change that needs the user.
-    const key = crypto.createHash("sha256").update(JSON.stringify([reasons, conflicts.map(c => [c.kind, c.pair, c.path, c.since]), lastError])).digest("hex").slice(0, 16);
+    const cause = lastError !== null && (reasons.indexOf("error") !== -1 || reasons.indexOf("authorization-required") !== -1)
+        ? [lastError.kind, lastError.pair || null, lastError.account || null, lastError.detail || null] : null;
+    const key = crypto.createHash("sha256").update(JSON.stringify([reasons, conflicts.map(c => [c.kind, c.pair, c.path, c.since]), cause])).digest("hex").slice(0, 16);
     const lastSuccess = oldest(pairs.map(p => p.lastSuccess));
     return {
         state: state,

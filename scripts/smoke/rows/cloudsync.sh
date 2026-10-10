@@ -117,22 +117,45 @@ check_removed() {
   expect "the file Drive removed stays" "added on Drive" cs_read b.txt
   expect "the record reads removed-on-drive" '[["local-edit", "a.txt"], ["removed-on-drive", "b.txt"]]' cs_conflicts
 }
+# cs_release: the held copy let go, through a write that waits at most
+# 10 s for the stand-in to open the pipe, so a copy that never reached its
+# wait fails the row instead of hanging it.
+cs_release() { timeout 10 bash -c 'printf "go\n" >"$1"' _ "$cs_stub/release"; }
+# cs_finished PID: `ended` once the held runner PID has exited, within
+# 60 s; past that it is killed and reads `killed`.
+cs_finished() {
+  local n
+  for n in $(seq 1 600); do
+    kill -0 "$1" 2>/dev/null || { echo ended; return; }
+    sleep 0.1
+  done
+  kill "$1" 2>/dev/null || true
+  echo killed
+}
 check_lock() {
-  local held held_out="$cs_dir/held.out" before
+  local held held_out="$cs_dir/held.out" before released=no
   cs_put c.txt "held"
-  rm -f -- "$cs_stub/blocked" "$cs_stub/release"
+  rm -f -- "${cs_stub:?}/blocked" "${cs_stub:?}/release"
   mkfifo -- "$cs_stub/release"
   : >"$cs_stub/block"
-  cs run >"$held_out" &
+  # Started without the cs function, so $! is the runner itself (env
+  # execs node), whose PID the row may signal.
+  env -i HOME="$cs_home" PATH="$shell_start_path" LANG=C.UTF-8 XDG_RUNTIME_DIR="$cs_rt" XDG_CONFIG_HOME="$cs_home/.config" \
+    XDG_STATE_HOME="$cs_home/.local/state" XDG_DATA_HOME="$cs_home/.local/share" node "$cs_file" run >"$held_out" 2>>"$cs_err" &
   held=$!
   expect_poll "the first run holds its copy" yes cs_blocked
   before="$(cs_copies)"
   expect "a run during another is busy" "pair=docs result=busy exit=75" cs_answer run
   expect "the busy run starts no copy" "$before" cs_copies
-  rm -f -- "$cs_stub/block"
-  printf 'go\n' >"$cs_stub/release"
+  rm -f -- "${cs_stub:?}/block"
+  if [[ $(cs_blocked) == yes ]]; then
+    if cs_release; then released=yes; else fail "the held copy took no release within 10 s"; fi
+  fi
+  expect "the held run ends" ended cs_finished "$held"
   wait "$held" || true
-  rm -f -- "$cs_stub/release" "$cs_stub/blocked"
+  # A runner killed past its deadline leaves its copy waiting on the pipe.
+  [[ $released == yes || $(cs_blocked) == no ]] || cs_release || true
+  rm -f -- "${cs_stub:?}/release" "${cs_stub:?}/blocked"
   expect "the held run finishes" "pair=docs result=idle" cat -- "$held_out"
 }
 # control_red NAME CHECK...: the checks against a runner copy whose FROM

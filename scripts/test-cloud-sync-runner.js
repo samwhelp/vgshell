@@ -6,7 +6,8 @@
 // reads `removed-on-drive`; a rename reads `renamed` where the backend has
 // object ids; a run during another is `busy` and starts no second copy; a
 // run killed mid-copy reads as interrupted; pause persists across processes
-// and a paused run copies nothing; offline and authorization failures keep
+// and a paused run copies nothing; an edit saved as a copy ends is kept as
+// `local-edit` by the next run; offline and authorization failures keep
 // the last success; the exclusions; pair validation; install, start, probe
 // and status; authorize stores the token Google's consent returns through
 // secret-tool's stdin; and no credential value reaches an argv, a log
@@ -186,6 +187,11 @@ if [[ -f $stub/ids && $3 == lsjson ]]; then
 fi
 ${JSON.stringify(HOST.rclone)} "$@"
 status=$?
+# A user's save landing as the copy ends: once, the file the trigger names.
+if [[ -f $stub/edit-after-copy && ! -e $stub/edited && $3 == copy ]]; then
+  printf 'edited during the copy\n' >"$5/$(<"$stub/edit-after-copy")"
+  : >"$stub/edited"
+fi
 : >"$stub/exited"
 exit $status
 `, 0o755);
@@ -359,6 +365,24 @@ function caseLocalEdit(runner) {
     assert.deepEqual(status(w, runner).conflicts, []);
 }
 
+// A local edit saved as a run's copy ends matches nothing Drive listed, so
+// it does not become the baseline: the next run, which replaces it with
+// Drive's version, keeps it as `local-edit`.
+function caseEditDuringCopy(runner) {
+    const w = world();
+    addPair(w, runner);
+    drive(w, "a.txt", "drive v1\n", 1700000000);
+    runOk(w, runner);
+    write(path.join(w.stub, "edit-after-copy"), "a.txt");
+    runOk(w, runner);
+    assert.equal(read(path.join(w.mirror, "a.txt")), "edited during the copy\n");
+    runOk(w, runner);
+    assert.equal(read(path.join(w.mirror, "a.txt")), "drive v1\n");
+    const s = status(w, runner);
+    assert.deepEqual(s.conflicts.map(c => [c.kind, c.path]), [["local-edit", "a.txt"]]);
+    assert.equal(read(s.conflicts[0].storedPath), "edited during the copy\n");
+}
+
 // A Drive deletion keeps the local file and reads `removed-on-drive`; a
 // rename reads `renamed` where the backend has object ids, and as a
 // removal where it tracks by path.
@@ -405,24 +429,41 @@ async function caseBusy(runner) {
     assert.deepEqual(mirrorFiles(w), ["a.txt"]);
 }
 
-// A run killed mid-copy leaves no `running` behind: the lock dies with it.
+// A runner killed mid-copy leaves its rclone holding the pair's lock: the
+// pair reads `running` and a second run is busy while that copy goes on.
+// Once it ends, the pair reads as interrupted, not done.
 async function caseInterrupted(runner) {
     const w = world();
     addPair(w, runner);
     drive(w, "a.txt", "one\n", 1700000000);
     const first = startBlocked(w, runner);
+    let released = false;
     try {
         await waitFor(path.join(w.stub, "blocked"), "the copy");
         first.child.kill("SIGKILL");
-        // The orphaned stand-in holds the dead runner's pipes open, so its
-        // exit, not their close, ends the run.
         await first.exited;
-        const s = status(w, runner);
+        assert.equal(status(w, runner).pairs[0].state, "running", "the orphaned copy holds the lock");
+        const before = rcloneCalls(w).length;
+        const second = cli(w, ["run"], runner);
+        assert.equal(second.status, 75, second.stderr);
+        assert.equal(second.stdout, "pair=docs result=busy\n");
+        assert.equal(rcloneCalls(w).length, before, "no second copy starts beside the orphaned one");
+        released = release(w);
+        assert.ok(released, "the orphaned copy waits for its release");
+        await waitFor(path.join(w.stub, "exited"), "the orphaned copy");
+        // The stand-in writes its mark just before it exits and drops the
+        // lock; the lock is read again until it is free.
+        const deadline = Date.now() + 30000;
+        let s = status(w, runner);
+        while (s.pairs[0].state === "running" && Date.now() < deadline) {
+            await sleep(20);
+            s = status(w, runner);
+        }
         assert.equal(s.pairs[0].state, "error");
         assert.equal(s.pairs[0].lastError.kind, "interrupted");
         assert.equal(s.pairs[0].lastSuccess, null);
     } finally {
-        if (release(w)) await waitFor(path.join(w.stub, "exited"), "the orphaned copy");
+        if (!released && release(w)) await waitFor(path.join(w.stub, "exited"), "the orphaned copy");
     }
 }
 
@@ -482,7 +523,39 @@ function caseFailures(runner) {
         assert.equal(s.pairs[0].lastError.kind, row.kind, row.name);
         if (row.account !== undefined) assert.equal(s.pairs[0].lastError.account, row.account, row.name);
         if (row.state === "authorization-required") assert.deepEqual(s.attention.reasons, ["authorization-required"], row.name);
+        // The same cause again keeps the attention key, so the plugin does
+        // not notify again for it.
+        assert.equal(cli(w, ["run"], runner).stdout, "pair=docs result=" + row.state + "\n", row.name);
+        assert.deepEqual(status(w, runner).attention, s.attention, row.name + ": a repeated failure keeps the key");
     }
+    // Another cause changes the key.
+    const w = world();
+    assert.equal(cli(w, ["install"], runner).status, 0);
+    addPair(w, runner);
+    drive(w, "a.txt", "one\n", 1700000000);
+    runOk(w, runner);
+    write(path.join(w.stub, "mode"), "auth");
+    cli(w, ["run"], runner);
+    const refused = status(w, runner).attention.key;
+    fs.unlinkSync(path.join(w.stub, "mode"));
+    fs.unlinkSync(path.join(w.stub, "secrets", "pull-token"));
+    cli(w, ["run"], runner);
+    assert.notEqual(status(w, runner).attention.key, refused, "a new cause changes the key");
+    // Offline with a kept conflict: the conflict alone needs the user, so
+    // repeated offline runs keep the key.
+    const v = world();
+    assert.equal(cli(v, ["install"], runner).status, 0);
+    addPair(v, runner);
+    drive(v, "a.txt", "one\n", 1700000000);
+    runOk(v, runner);
+    write(path.join(v.mirror, "a.txt"), "edited here, longer than before\n");
+    runOk(v, runner);
+    const kept = status(v, runner).attention;
+    assert.deepEqual(kept.reasons, ["conflicts"]);
+    write(path.join(v.stub, "mode"), "offline");
+    cli(v, ["run"], runner);
+    cli(v, ["run"], runner);
+    assert.deepEqual(status(v, runner).attention, kept, "offline runs keep the conflicts' key");
 }
 
 const EXCLUDED = ["~$draft.docx", ".~lock.sheet.ods#", "notes.swp", "notes.txt~", ".#notes.txt", "big.iso.partial", "file.crdownload",
@@ -526,6 +599,7 @@ function caseExclusions(runner) {
 function validationRows(w) {
     const repoDir = path.join(w.home, "repo");
     fs.mkdirSync(path.join(repoDir, ".git"), { recursive: true });
+    fs.mkdirSync(path.join(w.home, "projects", "deep", "personal", ".git"), { recursive: true });
     return [
         { rule: null, def: { id: "uploads", direction: "upload", remote: "Inbox/agent-uploads", local: path.join(w.home, "inbox") } },
         { rule: "shape", def: { extra: true } },
@@ -540,6 +614,10 @@ function validationRows(w) {
         { rule: "home-or-above", def: { local: path.dirname(w.home) } },
         { rule: "repository-root", def: { local: repoDir } },
         { rule: "state-overlap", def: { local: path.join(w.state, "elsewhere") } },
+        { rule: "vgs-overlap", def: { local: path.join(w.home, ".local", "share", "vgshell", "cloud-sync", "engine") } },
+        { rule: "vgs-overlap", def: { local: path.join(w.home, ".config") } },
+        { rule: "unit-overlap", def: { local: path.join(w.home, ".config", "systemd", "user") } },
+        { rule: "repository-inside", def: { local: w.home + "/projects" } },
         { rule: "duplicate-id", def: { id: "docs" } },
         { rule: "local-overlap", def: { local: path.join(w.mirror, "sub") } },
         { rule: "remote-overlap", def: { remote: "Docs/Sub" } }
@@ -717,6 +795,9 @@ async function mustFail(name, runner, fn) {
 
 async function controls() {
     await mustFail("copy", mutant("copy", "rclone([\"copy\", remotePath(pair), pair.local,", "rclone([\"copy\", \"--dry-run\", remotePath(pair), pair.local,"), caseCopy);
+    await mustFail("edit during the copy", mutant("edit during the copy", "const baseline = matches ? { size: item.Size, mtimeMs: modTime, hash: md5, id: item.ID || null } : old;", "const baseline = { size: st.size, mtimeMs: Math.floor(st.mtimeMs), hash: matches ? md5 : null, id: item.ID || null };"), caseEditDuringCopy);
+    await mustFail("attention key", mutant("attention key", "conflicts.map(c => [c.kind, c.pair, c.path, c.since]), cause])", "conflicts.map(c => [c.kind, c.pair, c.path, c.since]), lastError])"), caseFailures);
+    await mustFail("orphaned copy lock", mutant("orphaned copy lock", "stdio: [\"ignore\", \"pipe\", \"pipe\", lock] });", "stdio: [\"ignore\", \"pipe\", \"pipe\"] });"), caseInterrupted);
     await mustFail("local-edit", mutant("local-edit", "const unedited = base !== undefined", "const unedited = true || base !== undefined"), caseLocalEdit);
     await mustFail("lock", mutant("lock", "if (out.status === 0) return fd;", "if (out.status === 0 || true) return fd;"), caseBusy);
     await mustFail("pause", mutant("pause", "if (isPaused(control, pair.id)) return \"paused\";", ""), casePause);
@@ -729,7 +810,7 @@ async function controls() {
     const rules = [...new Set(validationRows(world()).map(row => row.rule).filter(rule => rule !== null))];
     for (const rule of rules) {
         const text = read(RUNNER);
-        const target = rule === "duplicate-id" || rule.endsWith("-overlap") && rule !== "state-overlap" ? "return refusal(a, \"" + rule + "\")" : "return refusal(pair, \"" + rule + "\")";
+        const target = ["duplicate-id", "local-overlap", "remote-overlap"].indexOf(rule) !== -1 ? "return refusal(a, \"" + rule + "\")" : "return refusal(pair, \"" + rule + "\")";
         await mustFail("rule " + rule, mutant("rule " + rule, target, "(0)", text.split(target).length - 1 || 1), r => caseValidation(r, rule));
     }
 }
@@ -737,6 +818,7 @@ async function controls() {
 async function main() {
     caseCopy();
     caseLocalEdit();
+    caseEditDuringCopy();
     caseRemovedAndRenamed();
     await caseBusy();
     await caseInterrupted();

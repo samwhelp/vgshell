@@ -53,6 +53,8 @@ refusal="$(tail -c "+$((logged + 1))" -- "$log" | grep '^cloud-sync: refused: ' 
 case "$refusal" in
   *rule=home-or-above*) sentence="Choose a folder inside your home folder, not your home folder itself." ;;
   *rule=repository-root*) sentence="Choose a folder that is not a Git repository." ;;
+  *rule=repository-inside*) sentence="Choose a folder that holds no Git repository." ;;
+  *rule=vgs-overlap* | *rule=unit-overlap*) sentence="Choose a folder outside the folders that hold VGS and your system services." ;;
   *rule=drive-root*) sentence="Choose a Google Drive folder, not the whole Drive." ;;
   *rule=local-overlap* | *rule=remote-overlap*) sentence="This folder overlaps a folder of another folder pair." ;;
   *rule=state-overlap*) sentence="Choose a folder outside the folder where Cloud Sync keeps its records." ;;

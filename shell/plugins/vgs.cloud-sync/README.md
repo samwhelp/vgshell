@@ -27,7 +27,7 @@ Open the Cloud Sync page in Settings. The Setup section holds every step.
 2. Get the Google Drive keys from [Google Cloud credentials](https://console.cloud.google.com/apis/credentials). Create an OAuth client ID of type Desktop app for downloads, and a second one for the upload folder. Downloads only read your Drive. The upload client reaches only the files and folders that Cloud Sync made.
 3. Under Google Drive keys, select Add key beside each client ID and client secret, and paste it into the masked field. VGS stores every key in your keyring.
 4. Select Connect Google Drive, and Connect the upload folder when you use one. Google opens in your browser. Sign in and allow access. VGS stores the sign-in in your keyring.
-5. Select Add a folder pair. A setup window asks for a name, the direction, the Google Drive folder and the folder on this computer. A folder pair cannot be your home folder, a Git repository or the whole Drive, and two pairs cannot overlap.
+5. Select Add a folder pair. A setup window asks for a name, the direction, the Google Drive folder and the folder on this computer. A folder pair cannot be your home folder, a folder that holds a Git repository, a folder of VGS or your system services, or the whole Drive, and two pairs cannot overlap.
 
 Remove a folder pair stops the sync of a pair. Its files stay on this computer and on Drive.
 
