@@ -89,6 +89,13 @@ const APP_SECTION = [
     "-- Application windows: the shell's windows float, centred, at the size they ask.",
     "hl.window_rule({ name = \"vgs:window\", match = { class = \"^org\\\\.vgs\\\\.shell$\" }, float = true, center = true })"
 ];
+// The shell's windows' opacity rule while window glass is written, byte for
+// byte: an absolute 1 active and inactive, so Hyprland's window opacity
+// leaves the glass they draw themselves.
+const APP_GLASS_SECTION = [
+    "-- Window glass: the shell's windows draw their own glass, at Hyprland's full opacity.",
+    "hl.window_rule({ name = \"vgs:window-glass\", match = { class = \"^org\\\\.vgs\\\\.shell$\" }, opacity = \"1 override 1 override\" })"
+];
 const TAP_SECTION = [
     "-- Tap shortcuts: a lone key press and release inside Hyprland's repeat delay sends the shortcut.",
     "do",
@@ -810,6 +817,9 @@ function verify(logic, layer, shellText) {
     same(glassy.appearance, [{ id: "", setting: "borderWidth", path: "general.border_size", value: 4 }, { id: "", setting: "windowGlass", path: "decoration.active_opacity", value: 0.9 }], "a written glass group reports the active opacity it wrote");
     same(lines(glassy)[APPLIED_AT + 4], "    for _, path in ipairs({ \"general.border_size\", \"decoration.active_opacity\" }) do options.start[path] = hl.get_config(path) end", "the recorder reads the active opacity while window glass is written");
     assert.ok(!lines(glassy).includes(UNWRITTEN.glass), "written window glass leaves no comment");
+    const glassyLines = lines(glassy);
+    same(glassyLines.slice(glassyLines.indexOf(APP_SECTION[0]), glassyLines.indexOf(APP_SECTION[0]) + APP_SECTION.length + APP_GLASS_SECTION.length + 1), [...APP_SECTION, ...APP_GLASS_SECTION, ""], "written window glass holds the shell's windows at full opacity, after their window rule, at the top level, byte for byte");
+    assert.ok(!bareLines.some(line => /vgs:window-glass|override/.test(line)), "unwritten window glass writes no opacity rule for the shell's windows");
     assert.ok(!bareLines.some(line => /active_opacity|blur = \{|render_power/.test(line)), "unwritten window glass sets nothing of Hyprland's decoration");
     same(layer.readType("decoration.active_opacity"), "float", "getoption reads the active opacity as a float");
     // Window glow, written: Hyprland's decoration.glow from the theme's
@@ -915,7 +925,7 @@ function verify(logic, layer, shellText) {
     same(layer.overlayCaptureDirections(), ["left", "right", "up", "down"], "the overlay capture direction list");
     assert.equal(layer.overlayCaptureGlobal("left"), "vgs:overlay-left", "the overlay capture global is derived");
     assert.throws(() => layer.overlayCaptureGlobal("next"), /overlay direction/, "unknown overlay directions are refused");
-    same(layer.APP_WINDOW, { appId: "org.vgs.shell", rule: "vgs:window" }, "the application windows' app-id and rule name");
+    same(layer.APP_WINDOW, { appId: "org.vgs.shell", rule: "vgs:window", glassRule: "vgs:window-glass" }, "the application windows' app-id and rule names");
     same(pragmaAppId(shellText), layer.APP_WINDOW.appId, "shell.qml's AppId pragma is the application windows' app-id");
     assert.ok(lines(bare).some(line => line.includes("`" + layer.REGENERATE + "`")), "the header names the regenerate command");
     assert.strictEqual(layer.REGENERATE, "vgshell hypr render", "the regenerate command is the runner's verb");
@@ -1529,6 +1539,10 @@ function verifyAppearanceLayer(layer) {
     same(surfaceLines(render({ glass: "off", windowGlass: true })), [], "glass off everywhere blurs no popup and no shell layer");
     const offEverywhere = render({ glass: "off", windowGlass: true });
     same([glassLines(offEverywhere), offEverywhere.text.split("\n").includes(UNWRITTEN.glass)], [[], true], "glass off everywhere leaves window decoration to the user, whatever the windows' own choice");
+    // The shell's windows' opacity rule comes and goes with window glass.
+    const shellOpacity = out => out.text.split("\n").filter(line => /vgs:window-glass/.test(line));
+    for (const [values, want, label] of [[{ windowGlass: true }, [APP_GLASS_SECTION[1]], "the windows' own glass"], [{ glass: "on" }, [APP_GLASS_SECTION[1]], "glass on everywhere"], [undefined, [], "no Appearance value"], [{ glass: "off", windowGlass: true }, [], "glass off everywhere"]])
+        same(shellOpacity(render(values)), want, label + ": the shell's windows' opacity rule");
     // Window glow from the shipped Tokens.js, written only while window
     // glass is: the vgs palette's background mixed toward its accent and
     // its foreground, and a transparent inactive colour.
@@ -1669,6 +1683,9 @@ const CONTROLS = [
     [layerFile, "window glow follows window glass", "var APPLIED_GROUPS = [\"borders\", \"radius\", \"motion\", \"glass\", \"glow\"];", "var APPLIED_GROUPS = [\"borders\", \"radius\", \"motion\", \"glow\", \"glass\"];"],
     [layerFile, "glass on everywhere blurs popups", "if (surfaces)\n        lines.push(\"            popups = true,\"", "if (false)\n        lines.push(\"            popups = true,\""],
     [layerFile, "glass on everywhere blurs the shell's layers", "if (theme.groups.surfaceBlur === true) lines", "if (false) lines"],
+    [layerFile, "window glass holds the shell's windows opaque", "    if (glass)\n        lines.push(", "    if (false)\n        lines.push("],
+    [layerFile, "the shell's windows stay opaque without window glass", "    if (glass)\n        lines.push(", "    if (true)\n        lines.push("],
+    [layerFile, "the shell's opacity is absolute", "opacity = \\\"1 override 1 override\\\"", "opacity = \\\"1 1\\\""],
     [layerFile, "the windows' own glass blurs no shell layer", "if (theme.groups.surfaceBlur === true) lines", "if (theme.groups.glass) lines"],
     [layerFile, "the windows' own glass leaves popups and shell layers", "var surfaces = theme.groups.surfaceBlur === true;", "var surfaces = true;"],
     [layerFile, "the shell's layers blur their popups", "blur = true, blur_popups = true, \" + alpha", "blur = true, \" + alpha"],
@@ -1696,8 +1713,8 @@ const CONTROLS = [
     [layerFile, "zero gaps are a workspace rule", "\"hl.workspace_rule({ workspace = \\\"\\\", gaps_in = 0, gaps_out = 0 })\"", "\"hl.config({ general = { gaps_in = 0, gaps_out = 0 } })\""],
     [layerFile, "the gap rule matches every workspace", "workspace = \\\"\\\", gaps_in", "workspace = \\\"s[false]\\\", gaps_in"],
     [layerFile, "appearance owner sorted", "}).sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });", "});"],
-    [layerFile, "floating TUI rules written", "[\"\"], tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], appWindowLines());", "[\"\"], appWindowLines());"],
-    [layerFile, "floating TUI rules after appearance", "var lines = [\"\"].concat(groups, [\"\"], tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], appWindowLines());", "var lines = [\"\"].concat(tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], groups, [\"\"], appWindowLines());"],
+    [layerFile, "floating TUI rules written", "[\"\"], tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], appWindowLines(theme.groups.glass));", "[\"\"], appWindowLines(theme.groups.glass));"],
+    [layerFile, "floating TUI rules after appearance", "var lines = [\"\"].concat(groups, [\"\"], tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], appWindowLines(theme.groups.glass));", "var lines = [\"\"].concat(tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], groups, [\"\"], appWindowLines(theme.groups.glass));"],
     [layerFile, "floating TUI width keeps the gutter", "var across = luaNumber(2 * tuiMargin(margins, \"gutter\"));", "var across = luaNumber(0 * tuiMargin(margins, \"gutter\"));"],
     [layerFile, "floating TUI height keeps the bar", "var down = luaNumber(tuiMargin(margins, \"bar\") + 2 * tuiMargin(margins, \"gutter\"));", "var down = luaNumber(0 * tuiMargin(margins, \"bar\") + 2 * tuiMargin(margins, \"gutter\"));"],
     [layerFile, "floating TUI size is clamped", "return \"\\\"min(max(\" + axis + \"*\" + luaNumber(share) + \",\" + floor + \"),max(\" + axis + \"-\" + margin + \",min(\" + floor + \",\" + axis + \"-\" + hard + \")))\\\"\";", "return \"\\\"max(\" + axis + \"*\" + luaNumber(share) + \",\" + floor + \")\\\"\";"],
@@ -1719,8 +1736,8 @@ const CONTROLS = [
     [layerFile, "a negative TUI margin is refused", "if (typeof value !== \"number\" || !isFinite(value) || value < 0)", "if (typeof value !== \"number\" || !isFinite(value))"],
     [layerFile, "floating TUI class escapes each dot", ".join(\"\\\\\\\\.\")", ".join(\".\")"],
     [layerFile, "floating TUI class anchored", "return \"\\\"^\" + appId.split(\".\").join(\"\\\\\\\\.\") + \"$\\\"\";", "return \"\\\"\" + appId.split(\".\").join(\"\\\\\\\\.\") + \"\\\"\";"],
-    [layerFile, "application window rule written", "tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], appWindowLines());", "tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size));"],
-    [layerFile, "application window rule after the TUIs", "tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], appWindowLines());", "appWindowLines(), [\"\"], tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size));"],
+    [layerFile, "application window rule written", "tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], appWindowLines(theme.groups.glass));", "tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size));"],
+    [layerFile, "application window rule after the TUIs", "tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], appWindowLines(theme.groups.glass));", "appWindowLines(theme.groups.glass), [\"\"], tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size));"],
     [layerFile, "session lock restore written", "keyPassthroughLines(), [\"\"], sessionLockLines());", "keyPassthroughLines());"],
     [layerFile, "user binds' recorder written", "[\"\"], userBindLines(), [\"\"], overlayCaptureLines(plan)", "[\"\"], overlayCaptureLines(plan)"],
     [layerFile, "user binds' recorder records the user's call sites", "binds.rows[#binds.rows + 1] = { file = ", "local _ = { file = "],

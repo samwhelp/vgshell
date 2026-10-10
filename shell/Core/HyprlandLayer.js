@@ -86,8 +86,10 @@ var TUI_PADDING = { columns: 2, rows: 1 };
 // shell.qml's `//@ pragma AppId` line sets and Quickshell 0.3.1 gives no
 // window its own, so the class is the shell's and the title names the
 // window. The layer writes one window rule, named `rule`, that floats the
-// shell's windows and centres them; each keeps the size it asks for.
-var APP_WINDOW = { appId: "org.vgs.shell", rule: "vgs:window" };
+// shell's windows and centres them; each keeps the size it asks for. While
+// window glass is written, a second, named `glassRule`, holds their
+// opacity at 1 (appWindowLines).
+var APP_WINDOW = { appId: "org.vgs.shell", rule: "vgs:window", glassRule: "vgs:window-glass" };
 
 // Every shell window class comes from these existing declarations.
 function inputProtectedClass(value) {
@@ -658,11 +660,28 @@ function tuiWindowLines(margins, cell, border) {
     }));
 }
 
-function appWindowLines() {
-    return [
+// GLASS is whether the window glass group is written (theme.groups.glass).
+// The shell's windows draw their own glass, AppWindow.qml's glass fill as
+// their colour, and the surfaces in them draw the solid glass, which must
+// stay opaque, so window glass's `decoration.active_opacity` and
+// `inactive_opacity` must not reach them:
+// an opacity rule value followed by `override` sets the window's alpha
+// instead of multiplying the option, its two values the active and the
+// inactive window's (Hyprland 0.56.2 WindowRule.cpp parseOpacityRule; the
+// wiki's window-rules page, `opacity`). It stands at the top level, before
+// the user's lines, so a user's own later opacity rule for the class wins.
+function appWindowLines(glass) {
+    var match = "match = { class = " + classLiteral(APP_WINDOW.appId) + " }";
+    var lines = [
         "-- Application windows: the shell's windows float, centred, at the size they ask.",
-        "hl.window_rule({ name = \"" + APP_WINDOW.rule + "\", match = { class = " + classLiteral(APP_WINDOW.appId) + " }, float = true, center = true })"
+        "hl.window_rule({ name = \"" + APP_WINDOW.rule + "\", " + match + ", float = true, center = true })"
     ];
+    if (glass)
+        lines.push(
+            "-- Window glass: the shell's windows draw their own glass, at Hyprland's full opacity.",
+            "hl.window_rule({ name = \"" + APP_WINDOW.glassRule + "\", " + match + ", opacity = \"1 override 1 override\" })"
+        );
+    return lines;
 }
 
 
@@ -1373,7 +1392,7 @@ function appliedLines(values, paths) {
 // Appearance member that decides it, and `noGaps` follows them, written
 // where it stands, as its switch says. The floating
 // TUIs' window rules follow them, then the shell's application window
-// rule, the user binds' recorder (userBindLines), the overlay capture, the
+// rules (appWindowLines), the user binds' recorder (userBindLines), the overlay capture, the
 // key capture pass-through and the session lock's restore, before any
 // plugin section, whatever the sections. A
 // section whose plugins row sets options is preceded by its options
@@ -1408,7 +1427,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     });
     if (switches.groups.noGaps.enabled) groups = groups.concat(noGapsLines());
     else groups.push(disabledGroupLine("noGaps", switches.groups.noGaps.setting));
-    var lines = [""].concat(groups, [""], tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [""], appWindowLines());
+    var lines = [""].concat(groups, [""], tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [""], appWindowLines(theme.groups.glass));
     if (theme.groups.surfaceBlur === true) lines = lines.concat([""], surfaceBlurLines());
     if (tapTrackerWanted(plan)) lines = lines.concat([""], tapTrackerLines());
     lines = lines.concat([""], userBindLines(), [""], overlayCaptureLines(plan), [""], keyPassthroughLines(), [""], sessionLockLines());

@@ -12,8 +12,10 @@ import qs.Commons
 // curve. The compositor blurs what is behind it when a layer rule asks it
 // to, which reaches only what lies under the surface's own window: glass
 // is `drawn` where it is `on` and nothing its window draws lies under it.
-// Glass that is `on` but not drawn is `solid`: the same fill at full
-// opacity, corner and hairline, with no shadow or sheen. While glass is
+// Glass that is `on` but not drawn is `solid`: the glass material's own
+// opaque fill and corner, `Theme.glass.glass.solidFill` and `solidRadius`,
+// under the hairline, with no shadow or sheen, whatever fill and radius the
+// surface hands, so every such surface draws one material. While glass is
 // off, it draws `standard`, the surface's own look without glass: a token
 // group's `background` and `border` at its `radius`, the raised surface's
 // unless the surface hands its own, such as `Theme.popover`, with no
@@ -35,9 +37,9 @@ Item {
     // `on` comes first, so a surface without glass reads none of its
     // window's items.
     readonly property bool drawn: on && Window.window !== null && Window.window.color.a === 0 && !overContent()
-    // Glass that is on but not drawn: its fill at full opacity hides the
-    // content under it, and every such surface draws the one glass material
-    // whatever `standard` it hands.
+    // Glass that is on but not drawn: the glass material's opaque fill
+    // hides the content under it, and every such surface draws that one
+    // material whatever fill, radius and `standard` it hands.
     readonly property bool solid: on && !drawn
     // The markers overContent reads to find a GlassSurface among the items
     // under another, and Scrim.qml has its own `scrim`.
@@ -57,10 +59,11 @@ Item {
     property Item follow: null
     property real padding: 0
     readonly property real contentInset: padding
-    // The corner the body rounds to while glass is on: the handed radius
-    // as a real radius, which a pill-shaped radius larger than a side needs
-    // for the shadow; while it is off, the standard look's.
-    readonly property real corner: on ? Math.min(radius, width / 2, height / 2) : standard.radius
+    // The corner the body rounds to while glass is on: drawn, the handed
+    // radius, solid, the glass material's own, each as a real radius, which
+    // a pill-shaped radius larger than a side needs for the shadow; while it
+    // is off, the standard look's.
+    readonly property real corner: on ? Math.min(solid ? Theme.glass.glass.solidRadius : radius, width / 2, height / 2) : standard.radius
 
     // Whether this window draws something glass would show unblurred under
     // this surface. Walking from the surface up through its ancestors: an
@@ -124,7 +127,7 @@ Item {
         id: body
         anchors.fill: parent
         radius: glass.corner
-        color: glass.drawn ? glass.fill : glass.solid ? Theme.glassSolid(glass.fill) : glass.standard.background
+        color: glass.drawn ? glass.fill : glass.solid ? Theme.glass.glass.solidFill : glass.standard.background
         clip: true
 
         // Light falling on the top of the glass, fading out `sheenHeight`

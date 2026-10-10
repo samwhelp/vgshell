@@ -42,6 +42,12 @@ var TOKENS = {
     glass: {
         // The fill a surface takes when it hands none of its own.
         fill: color("alpha(#101010, 0.8)"),
+        // The glass drawn solid, over content its own window draws, which
+        // no compositor blur reaches: every such surface draws this opaque
+        // fill at this corner, whatever fill and radius it hands, so it
+        // hides that content and one material shows. The launcher flyout's.
+        solidFill: color("#1c1c1c"),
+        solidRadius: length(16),
         sheen: ink(0.045),
         sheenEnd: ink(0),
         sheenHeight: length(48),
@@ -77,6 +83,7 @@ var LIGHT = {
     },
     glass: {
         fill: "alpha(#f2f2f2, 0.85)",
+        solidFill: "#f5f5f5",
         sheen: "alpha({text.foreground}, 0.35)",
         hairline: "alpha({text.foreground}, 0.1)"
     },

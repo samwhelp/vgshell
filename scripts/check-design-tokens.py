@@ -43,8 +43,8 @@ fixed geometry is what a placement row measures:
                      shell/Hosts and shell/plugins, never a second list, and
                      a walk that finds none is unreadable. Not judged: a
                      surface level, `Theme.surface.level.<level>.background`,
-                     which an application window draws under Hyprland's own
-                     window glass
+                     which an application window draws as its colour while
+                     Hyprland's window glass is off
 A value that is more than one literal, such as `2 * inset`, is layout and
 passes. Comments are blanked and strings kept, through scripts/qml_source.py.
 Appearance rules, on a plugin whose manifest declares `appearance` (each

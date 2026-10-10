@@ -6,8 +6,9 @@ import qs.Unit
 
 // GlassSurface: with glass on it draws the shadow, the handed fill and
 // radius, the sheen and the hairline, from Theme.glass and the elevation it
-// is handed; with glass on over its window's own content, the same fill at
-// full opacity, radius and hairline; with glass off it draws the standard
+// is handed; with glass on over its window's own content, the glass
+// material's own opaque fill and corner under the hairline, whatever fill
+// and radius it hands; with glass off it draws the standard
 // look it is handed, the raised surface's by default, and none of the
 // glass. The surface's own choice decides until the user's `glass`
 // Appearance value turns glass on or off everywhere, for the qs.Ui surfaces
@@ -18,11 +19,12 @@ import qs.Unit
 // made transparent before each test. The groups below y 300 stand for the
 // shell's callers: an inline dialog over its page (clipboard, themes), a
 // modal dialog in its own layer, a launcher card with a flyout over it,
-// cards side by side, a scrim shown only while a dialog asks, and a menu
-// and a dialog of different standard looks over content. `follow` lays it
+// cards side by side, a scrim shown only while a dialog asks, and the
+// launcher's menu beside the Settings window's dialog. `follow` lays it
 // under another item. Expected
 // values are worked by hand from Glass.js and Tokens.js, never read from
-// Theme: the hairline is #e8e8e8 at alpha 0.09,
+// Theme: the solid fill #1c1c1c, #f5f5f5 in light mode, at a corner of 16;
+// the hairline is #e8e8e8 at alpha 0.09,
 // round(22.95) = 23 = 0x17; the tight shadow black at 0.45, round(114.75) =
 // 115 = 0x73; the wide one at 0.55, round(140.25) = 140 = 0x8c; the default
 // fill #101010 at 0.8, 204 = 0xcc; the raised surface neutral(0.075),
@@ -128,9 +130,11 @@ Item {
         Dialog { id: askingDialog; anchors.centerIn: parent; width: 200; title: "Asking" }
     }
 
-    // A menu over a glass card, as the launcher's, and a dialog over a
-    // scrim over its page, as Settings', handing the same fill and radius
-    // and standard looks of other colours and corners.
+    // The launcher's menu over its glass card, handing its own fill and
+    // radius, and the Settings window's dialog: its page, a scrim and the
+    // dialog, which hands a standard look at radius 0, as Theme.dialog, and
+    // no fill. Their standard looks differ from each other in colour and
+    // corner.
     Item {
         x: 0; y: 1650; width: 400; height: 200
         GlassSurface { id: menuCard; x: 0; y: 0; width: 180; height: 200; optIn: true }
@@ -139,7 +143,7 @@ Item {
             x: 20; y: 20; width: 120; height: 80
             fill: "#99d0c8b8"
             radius: 14
-            standard: ({ background: "#edeadf", border: "#c0b8a8", radius: 0 })
+            standard: ({ background: "#edeadf", border: "#c0b8a8", radius: 6 })
         }
         Item {
             x: 200; y: 0; width: 200; height: 200
@@ -148,9 +152,7 @@ Item {
             GlassSurface {
                 id: dialogOver
                 x: 20; y: 20; width: 120; height: 80
-                fill: "#99d0c8b8"
-                radius: 14
-                standard: ({ background: "#ebebe8", border: "#a0a0a0", radius: 6 })
+                standard: ({ background: "#ebebe8", border: "#a0a0a0", radius: 0 })
             }
         }
     }
@@ -233,20 +235,20 @@ Item {
         }
 
         // Under glass on everywhere, a surface over its window's own
-        // content draws its fill at full opacity with no shadow: one inside
-        // another GlassSurface, its default #cc101010 as #101010, and every
-        // one in a window whose colour is not transparent, #33445566 as
-        // #445566. Its `on` still answers the user's and its own choice.
+        // content draws the solid fill with no shadow: one inside another
+        // GlassSurface, and every one in a window whose colour is not
+        // transparent, whatever fill it hands. Its `on` still answers the
+        // user's and its own choice.
         function test_glass_is_drawn_only_over_a_transparent_window() {
             Theme.appearanceInput = JSON.stringify({ glass: "on" });
             compare([outer.on, outer.drawn], [true, true]);
             compare([inner.on, inner.drawn], [true, false]);
             verify(!shadowOf(inner).visible);
-            compare(String(bodyOf(inner).color), "#101010");
+            compare(String(bodyOf(inner).color), "#1c1c1c");
             root.Window.window.color = "#ffffff";
             compare([chosen.on, chosen.drawn], [true, false]);
             verify(!shadowOf(chosen).visible);
-            compare(String(bodyOf(chosen).color), "#445566");
+            compare(String(bodyOf(chosen).color), "#1c1c1c");
             root.Window.window.color = "transparent";
             verify(chosen.drawn);
             compare(String(bodyOf(chosen).color), "#33445566");
@@ -286,27 +288,41 @@ Item {
             verify(asking.drawn, "transparent");
         }
 
-        // Under glass on everywhere, a surface over its window's own
-        // content draws one material whatever standard look it hands: the
-        // handed fill at full opacity, #99d0c8b8 as #d0c8b8, at its own
-        // radius under the hairline. With glass off the same two draw their
-        // own standard looks, which differ from it and from each other, so
-        // the comparison tells the glass from either look.
+        // Under glass on everywhere, the launcher's menu and the Settings
+        // dialog draw one material, in a transparent window and in one
+        // whose colour is the glass fill, as AppWindow.qml's is while
+        // window glass is on, in either mode: the solid fill at a corner of 16 under the
+        // hairline, neither the fill and radius the menu hands nor the
+        // dialog's radius 0. With glass off the same two draw their own
+        // standard looks, which differ from it and from each other, so the
+        // comparison tells the glass from either look. Each row: [window
+        // colour, mode, fill, hairline].
         function test_glass_over_content_draws_one_material_whatever_standard() {
             function look(surface) {
                 const edge = edgeOf(surface);
                 return [String(bodyOf(surface).color), bodyOf(surface).radius, edge.border.width, String(edge.border.color), edge.radius];
             }
             Theme.appearanceInput = JSON.stringify({ glass: "on" });
-            for (const [name, surface] of [["menu", menuOver], ["dialog", dialogOver]]) {
-                compare([surface.on, surface.drawn], [true, false], name);
-                verify(!shadowOf(surface).visible, name + " shadow");
-                verify(!sheenOf(surface).visible, name + " sheen");
-                compare(look(surface), ["#d0c8b8", 14, 1, "#17e8e8e8", 14], name);
+            const rows = [
+                ["transparent", "dark", "#1c1c1c", "#17e8e8e8"],
+                ["#cc101010", "dark", "#1c1c1c", "#17e8e8e8"],
+                ["transparent", "light", "#f5f5f5", "#1a2a2a2a"]
+            ];
+            for (const [colour, mode, fill, hairline] of rows) {
+                root.Window.window.color = colour;
+                compare(UnitTheme.override({ scheme: { mode: mode } }), "ok");
+                for (const [name, surface] of [["menu", menuOver], ["dialog", dialogOver]]) {
+                    const row = name + " window=" + colour + " mode=" + mode;
+                    compare([surface.on, surface.drawn], [true, false], row);
+                    verify(!shadowOf(surface).visible, row + " shadow");
+                    verify(!sheenOf(surface).visible, row + " sheen");
+                    compare(look(surface), [fill, 16, 1, hairline, 16], row);
+                }
             }
+            UnitTheme.reset();
             Theme.appearanceInput = JSON.stringify({ glass: "off" });
-            compare(look(menuOver), ["#edeadf", 0, 1, "#c0b8a8", 0], "menu without glass");
-            compare(look(dialogOver), ["#ebebe8", 6, 1, "#a0a0a0", 6], "dialog without glass");
+            compare(look(menuOver), ["#edeadf", 6, 1, "#c0b8a8", 6], "menu without glass");
+            compare(look(dialogOver), ["#ebebe8", 0, 1, "#a0a0a0", 0], "dialog without glass");
         }
 
         function test_the_default_fill_and_elevation() {

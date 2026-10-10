@@ -1,4 +1,4 @@
-{ "schemaVersion": 1, "id": "acme.needs", "name": "Needs", "version": "0.1.0", "author": "acme", "description": "smoke fixture missing commands it declares",
+{ "schemaVersion": 1, "id": "acme.needs", "name": "Acme Sync", "version": "0.1.0", "author": "acme", "description": "smoke fixture missing commands it declares",
   "kinds": ["service"], "entryPoints": { "service": "Service.qml" }, "capabilities": ["requirements", "ipc"],
   "requirements": [
     { "command": "vgs-smoke-needs", "packages": { "pacman": "vgs-smoke-needs-pkg" }, "purpose": "The command the fixture runs" },

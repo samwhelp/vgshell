@@ -34,10 +34,6 @@ Item {
     implicitWidth: Theme.size.panel.lg
     implicitHeight: Theme.size.panel.maxHeight
 
-    Surface {
-        anchors.fill: parent
-    }
-
     Pane {
         id: layout
         anchors.fill: parent

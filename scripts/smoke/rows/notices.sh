@@ -396,7 +396,7 @@ expect_poll "a command below its floor reads outdated again" '["outdated"]' floo
 expect "an offer of the outdated command raises the notice" ok floor_plugin offer vgs-smoke-old
 expect_poll "the notice lists the outdated command" "$floor_shown, false]" notice_shown
 expect_poll "the update notice holds the keyboard" true ipc smoke noticeFocused
-expect "the update notice counts its update" '"Needs needs one update"' drawn title
+expect "the update notice counts its update" '"Acme Sync needs one update"' drawn title
 expect "the update notice draws the package as its chip" '[["vgs-smoke-old-pkg", 1]]' group_shape
 expect "the update notice offers Update" '["Update", "Not now"]' drawn actions
 expect "the notice names no run before one ended" null notice_failure

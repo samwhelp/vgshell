@@ -9,7 +9,12 @@ import qs.Ui
 // pragma sets, and its title is the plugin's manifest name, so the user's
 // window rules and keybinds find it; the Hyprland layer's `vgs:window` rule
 // floats it and centres it. It draws no border and no radius of its own, so
-// Hyprland's decoration is the frame. The window maps once the plugin is
+// Hyprland's decoration is the frame. Its colour is the raised surface, and
+// while Hyprland's window glass is on, the glass fill, through which
+// Hyprland blurs what lies behind the window; the layer's
+// `vgs:window-glass` rule keeps Hyprland's window opacity from fading it
+// further. A GlassSurface the plugin draws then sits in a window whose
+// colour is not transparent and draws solid. The window maps once the plugin is
 // built, at the larger of the plugin's request and its window Pane's
 // content height, capped at that Pane's maximumHeight when it sets one and
 // bounded by the output's room. Quickshell sends a floating window
@@ -34,7 +39,14 @@ FloatingWindow {
     visible: false
     implicitWidth: slot.instance ? Math.max(1, slot.instance.implicitWidth) : 1
     implicitHeight: slot.instance ? Math.max(1, Math.min(Math.max(slot.instance.implicitHeight, paneHeight(slot.instance)), OverlayState.room(screen).height)) : 1
-    color: Theme.surface.level.raised.background
+    // The glass fill while window glass is on (ThemeLogic `hyprland.glass`),
+    // so the window takes glass exactly when other windows do. The surface
+    // is requested non-opaque, since the colour may turn translucent after
+    // the window is created, and an opaque surface format cannot change
+    // later (Quickshell 0.3.1 QsWindow `color` and `surfaceFormat`,
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/).
+    color: Theme.appearanceState.hyprland.glass ? Theme.glass.glass.fill : Theme.surface.level.raised.background
+    surfaceFormat.opaque: false
     onClosed: dismissed()
 
     function focusInitial() {

@@ -104,11 +104,9 @@ Item {
     GlassSurface {
         id: panel
         optIn: menu.glass
-        fill: menu.look.flyout.fill
         width: menu.look.flyout.width
         height: implicitHeight
         implicitHeight: column.implicitHeight + 2 * menu.look.flyout.padding
-        radius: menu.look.flyout.radius
         elevation: "tight"
         opacity: menu.opened ? 1 : 0
         scale: menu.opened ? 1 : menu.look.flyout.openScale
@@ -137,8 +135,9 @@ Item {
             ListCursor {
                 id: plate
                 motion: menu.motion
-                // Concentric with the flyout: its radius less the padding.
-                background: Highlight { look: menu.look; radius: Math.max(0, menu.look.flyout.radius - menu.look.flyout.padding) }
+                // Concentric with the flyout: the corner its surface draws
+                // less the padding.
+                background: Highlight { look: menu.look; radius: Math.max(0, panel.corner - menu.look.flyout.padding) }
             }
 
             Column {
