@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Run one real Jarvis turn in the nested sandbox and write one record of it.
 #
-# Usage: scripts/jarvis-selftest.sh (--wav FILE | --tts TEXT | --type TEXT)
+# Usage: scripts/jarvis-selftest.sh --cold N [--out FILE]
+#        scripts/jarvis-selftest.sh (--wav FILE | --tts TEXT | --type TEXT)
 #                                   --brain ID [--home PATH]
 #                                   [--voice local|realtime]
 #                                   [--confirm key|none] [--out FILE]
@@ -60,7 +61,12 @@
 # .../local/venv/bin/python, and the run reads that setup's ready marker,
 # <HOME>/.local/state/vgshell/jarvis/local-ready.json.
 #
-# The record is one JSON object: `input` {kind, value}, `brain`, `home`,
+# With --cold N, the record is one JSON object: `kind: "cold-starts"`,
+# `starts` and `cpuPressure`. Each start disables and enables Jarvis and
+# records each status change as {ms, lifetime, daemon, setup, cause}, then
+# ends at ready, setting or problem.
+#
+# Otherwise the record is one JSON object: `input` {kind, value}, `brain`, `home`,
 # `voice`, `confirm`, `heard` (the text Session committed as the user turn),
 # `sentences` (each sentence released to speech as {ms, text}; with --voice
 # realtime, whose transcript of its own speech arrives in fragments, each
@@ -415,9 +421,81 @@ print("passed" if passed else "failed")
 PY
 }
 
+# selftest_status SUMMARY_MS: the cold-start status word from the probe's
+# jarvisProcess reply on stdin, as one JSON object. The end place is ready
+# when Setup is ready, setting when Setup names a user step, and problem
+# when the daemon's lifetime or row names one.
+selftest_status() {
+  py_reply '
+import json, sys
+ms = int(sys.argv[1])
+text = sys.stdin.read()
+if text.strip() in ("absent", "missing", ""):
+    print(json.dumps({"ms": ms, "place": "starting", "lifetime": text.strip() or "absent", "daemon": None, "setup": None, "cause": None}, separators=(",", ":")))
+    sys.exit(0)
+service = json.loads(text)
+values = service.get("status", {})
+daemon = values.get("daemon")
+setup = values.get("setup")
+lifetime = service.get("lifetime", {}).get("kind", "unknown")
+cause = service.get("cause") or None
+place = "starting"
+if lifetime == "problem" or (isinstance(daemon, dict) and daemon.get("tone") == "danger"):
+    place = "problem"
+elif lifetime == "ready" and isinstance(setup, dict) and setup.get("tone") == "ok":
+    place = "ready"
+elif lifetime == "ready" and isinstance(setup, dict) and setup.get("tone") in ("warning", "danger"):
+    place = "setting" if setup.get("tone") == "warning" else "problem"
+print(json.dumps({"ms": ms, "place": place, "lifetime": lifetime, "daemon": daemon, "setup": setup, "cause": cause}, separators=(",", ":")))
+' "$1"
+}
+
+# selftest_cold_record OUT CPU START_JSON...: write the cold-start record by
+# rename. START_JSON values are complete start records.
+selftest_cold_record() {
+  python3 - "$@" <<'PY'
+import json, os, sys
+out, cpu, starts = sys.argv[1], sys.argv[2], [json.loads(word) for word in sys.argv[3:]]
+record = {"kind": "cold-starts", "cpuPressure": cpu, "starts": starts}
+os.makedirs(os.path.dirname(out), exist_ok=True)
+with open(out + ".next", "w") as file:
+    json.dump(record, file, indent=2, ensure_ascii=False)
+    file.write("\n")
+os.replace(out + ".next", out)
+PY
+}
+
+# selftest_cold_start INDEX BOUND_MS: one disable/enable start, as JSON.
+selftest_cold_start() {
+  local index="$1" bound_ms="$2" started now status last="" changes=() reply end='{"ms":0,"place":"problem","lifetime":"missing","daemon":null,"setup":null,"cause":"selftest=unread"}'
+  reply="$(ipc shell setPluginEnabled vgs.jarvis false)" || reply=unread
+  [[ $reply == ok ]] || stopped jarvis-not-disabled "$reply"
+  selftest_wait 10 absent ipc smoke jarvisProcess || stopped jarvis-not-disabled "$reading"
+  started="$(now_ms)"
+  reply="$(ipc shell setPluginEnabled vgs.jarvis true)" || reply=unread
+  [[ $reply == ok ]] || stopped jarvis-not-enabled "$reply"
+  while :; do
+    now="$(now_ms)"
+    status="$(ipc smoke jarvisProcess | selftest_status "$((now - started))")" || status='{"ms":0,"place":"problem","lifetime":"missing","daemon":null,"setup":null,"cause":"selftest=unread"}'
+    if [[ $status != "$last" ]]; then changes+=("$status"); last="$status"; fi
+    end="$status"
+    case "$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["place"])' "$status")" in
+      ready|setting|problem) break ;;
+    esac
+    ((now - started < bound_ms)) || break
+    sleep 0.2
+  done
+  python3 - "$index" "$end" "${changes[@]}" <<'PY'
+import json, sys
+index, end, changes = int(sys.argv[1]), json.loads(sys.argv[2]), [json.loads(word) for word in sys.argv[3:]]
+print(json.dumps({"index": index, "ms": end["ms"], "endPlace": end["place"], "keyedCause": end.get("cause"), "changes": changes}, separators=(",", ":")))
+PY
+}
+
 argv=("$@")
 input_kind=""
 input_value=""
+cold_count=0
 brain=""
 home_source=""
 voice=local
@@ -465,6 +543,9 @@ selftest_finish() {
 }
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --cold)
+      [[ $# -ge 2 && $2 =~ ^[1-9][0-9]*$ ]] || refuse "argument=--cold value=${2-}"
+      cold_count="$2"; shift 2 ;;
     --wav|--tts|--type)
       [[ $# -ge 2 && -n $2 ]] || refuse "argument=$1 value=${2-}"
       [[ -z $input_kind ]] || refuse "argument=$1 reason=one-input"
@@ -483,8 +564,16 @@ while [[ $# -gt 0 ]]; do
     *) refuse "argument=$1" ;;
   esac
 done
-[[ -n $input_kind ]] || refuse "argument=input reason=missing want=--wav|--tts|--type"
-[[ -n $brain ]] || refuse "argument=--brain reason=missing"
+if ((cold_count > 0)); then
+  [[ -z $input_kind ]] || refuse "argument=--cold reason=exclusive-with-input"
+  [[ -z $brain ]] || refuse "argument=--cold reason=exclusive-with-brain"
+  [[ -z $home_source ]] || refuse "argument=--cold reason=exclusive-with-home"
+  [[ $voice == local ]] || refuse "argument=--cold reason=exclusive-with-voice"
+  [[ $confirm == none ]] || refuse "argument=--cold reason=exclusive-with-confirm"
+else
+  [[ -n $input_kind ]] || refuse "argument=input reason=missing want=--wav|--tts|--type"
+  [[ -n $brain ]] || refuse "argument=--brain reason=missing"
+fi
 if [[ $input_kind == wav ]]; then
   [[ -f $input_value && -r $input_value ]] || refuse "argument=--wav value=$input_value reason=unreadable"
   input_value="$(readlink -f -- "$input_value")"
@@ -493,7 +582,32 @@ if [[ -n $home_source ]]; then
   [[ -d $home_source ]] || refuse "argument=--home value=$home_source reason=not-a-directory"
   home_source="$(cd -- "$home_source" && pwd -P)"
 fi
-[[ -n $out ]] || out="$repo/tmp/selftest-records/selftest-$(date -u +%Y%m%dT%H%M%SZ).json"
+if [[ -z $out ]]; then
+  if ((cold_count > 0)); then
+    out="$repo/tmp/selftest-records/cold-$(date -u +%Y%m%dT%H%M%SZ).json"
+  else
+    out="$repo/tmp/selftest-records/selftest-$(date -u +%Y%m%dT%H%M%SZ).json"
+  fi
+fi
+
+if ((cold_count > 0)); then
+  "$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" "$self" "${argv[@]}"
+  keep=false timeout_s=60
+  source "$repo/scripts/smoke/harness.sh"
+  plugin="$source_repo/shell/plugins/vgs.jarvis"
+  stop_shell || stopped shell-not-stopped
+  rm -rf -- "${repo:?}/shell/plugins/vgs.jarvis"
+  cp -R -- "$plugin" "$repo/shell/plugins/vgs.jarvis"
+  start_shell "$repo" "$sandbox/cold-shell.log" bar || stopped shell-not-started
+  cpu_pressure="$(tr '\n' ';' </proc/pressure/cpu)"
+  cold_starts=()
+  for ((cold_index = 1; cold_index <= cold_count; cold_index++)); do
+    cold_starts+=("$(selftest_cold_start "$cold_index" 120000)")
+  done
+  selftest_cold_record "$out" "$cpu_pressure" "${cold_starts[@]}" || stopped record-not-written
+  printf 'selftest=cold record=%s\n' "$out"
+  exit 0
+fi
 
 # node on PATH may be a version manager's shim, which fails under an
 # environment that is not the caller's; a child runs the binary itself.

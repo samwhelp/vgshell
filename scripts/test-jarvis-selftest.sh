@@ -270,6 +270,8 @@ holds "an id no account has is refused" refused "jarvis-selftest: refused: argum
 holds "a second input is refused" refused "jarvis-selftest: refused: argument=--tts reason=one-input" --type hello --tts hello --brain "$sign_in"
 holds "no input is refused" refused "jarvis-selftest: refused: argument=input reason=missing want=--wav|--tts|--type" --brain "$sign_in"
 holds "a WAV that is not there is refused" refused "jarvis-selftest: refused: argument=--wav value=$tmp/absent.wav reason=unreadable" --wav "$tmp/absent.wav" --brain "$sign_in"
+holds "cold start mode rejects a turn input" refused "jarvis-selftest: refused: argument=--cold reason=exclusive-with-input" --cold 1 --type hello
+holds "cold start mode rejects a brain" refused "jarvis-selftest: refused: argument=--cold reason=exclusive-with-brain" --cold 1 --brain "$sign_in"
 # What a key read ends on with nothing started. Each case saves its own
 # references and leaves the one OpenAI key and the Anthropic key behind.
 unsaved_voice() {
