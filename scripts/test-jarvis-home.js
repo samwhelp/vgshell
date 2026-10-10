@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 // The Jarvis home folder owner, backend/Home.js, on real folders in J09's
 // scratch HOME: the layout an empty folder gets with the base package VGS
-// ships, what a folder that already holds files keeps, a home that holds an
-// older package, the refusal of a link at the home, at every layout path and
-// inside skills/base, the folder a setting names, the bounded read of its
-// text, the skill index, a memory note read by its path and a request handed
-// to the master session's mailbox. Each control edits
-// a copy of Home.js, or of the Tools.js rule it asks, one rule at a time, and
-// must turn a case red.
+// ships, kendex's render of the jarvis skill with no project-instructions
+// block of this repository's own, what a folder that already holds files
+// keeps, a home that holds an older package, the refusal of a link at the
+// home, at every layout path and inside skills/base, the folder a setting
+// names, the bounded read of its text, the skill index, a memory note read by
+// its path and a request handed to the master session's mailbox. Each control
+// edits a copy of Home.js, or of the Tools.js rule it asks, one rule at a
+// time, and must turn a case red; one plants a project-instructions block in a copy of
+// the package and must fail that row.
 "use strict";
 const cp = require("node:child_process");
 const { assert, fs, path, tree, world, seed, mutant, fsFault } = require("./fixtures/jarvis/policy.js");
@@ -40,9 +42,15 @@ function listing(folder) {
     return fs.readdirSync(folder, { recursive: true }).map(name => String(name)).sort();
 }
 // skills/base holds the shipped package and nothing else, byte for byte.
+// The package is the kendex render of the jarvis skill, which a Jarvis home
+// takes as its base: the developer policy kendex renders into this
+// repository's own skills as a project-instructions block is not for it.
+const PROJECT_INSTRUCTIONS = "kendex:project-instructions";
+const NO_PROJECT_INSTRUCTIONS = "the home's jarvis skill carries no project instructions";
 function shipped(folder) {
     assert.equal(fs.lstatSync(path.join(folder, "skills/base"), { throwIfNoEntry: false })?.isDirectory(), true, "skills/base");
     assert.deepEqual(listing(path.join(folder, "skills/base")), PACKAGE.map(name => name.slice("skills/base/".length)).sort());
+    assert.equal(fs.readFileSync(path.join(folder, "skills/base/jarvis/SKILL.md"), "utf8").includes(PROJECT_INSTRUCTIONS), false, NO_PROJECT_INSTRUCTIONS);
     for (const name of PACKAGE.filter(entry => fs.lstatSync(path.join(tree, ".agents/skills", entry.slice(12))).isFile()))
         assert.deepEqual(fs.readFileSync(path.join(folder, name)), fs.readFileSync(path.join(tree, ".agents/skills", name.slice(12))), name);
 }
@@ -528,5 +536,25 @@ world(() => {
         controls++;
         console.log("control=" + name + " detected");
     }
+    // The project-instructions row: a home whose package copy carries a
+    // well-formed block after the frontmatter fails that row, not the byte
+    // comparison after it.
+    const planted = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "planted-"));
+    try {
+        fs.cpSync(SHIPPED, path.join(planted, "skills/base/jarvis"), { recursive: true });
+        const skill = path.join(planted, "skills/base/jarvis/SKILL.md");
+        const text = fs.readFileSync(skill, "utf8");
+        const close = text.indexOf("\n---\n", 4) + "\n---\n".length;
+        assert.equal(text.startsWith("---\n") && close > "\n---\n".length, true, "project-instructions frontmatter");
+        fs.writeFileSync(skill, text.slice(0, close) + "\n<!-- " + PROJECT_INSTRUCTIONS + ":start -->\n## Project Instructions\n\nPlanted policy.\n<!-- "
+            + PROJECT_INSTRUCTIONS + ":end -->\n" + text.slice(close));
+        assert.notEqual(fs.readFileSync(skill, "utf8"), text);
+        // An assertion's message carries its diff after the first line.
+        assert.throws(() => shipped(planted),
+            error => error instanceof assert.AssertionError && error.message.split("\n")[0] === NO_PROJECT_INSTRUCTIONS,
+            "project-instructions must turn red");
+    } finally { fs.rmSync(planted, { recursive: true, force: true }); }
+    controls++;
+    console.log("control=project-instructions detected");
     console.log("test-jarvis-home: ok cases=" + Object.keys(CASES).length + " controls=" + controls);
 });
