@@ -370,8 +370,12 @@ Item {
         store.putLive(stored.entry);
         rowModel.insert(0, rowOf(entry, "live"));
         bumpPanel();
-        const sounded = shell.sounds.play("notification");
-        if (["ok", "off", "busy"].indexOf(sounded) === -1) console.warn("notifications: sound " + sounded);
+        // Silence quiets the sound also for a critical notification that
+        // passes it and shows.
+        if (!store.dnd) {
+            const sounded = shell.sounds.play("notification");
+            if (["ok", "off", "busy"].indexOf(sounded) === -1) console.warn("notifications: sound " + sounded);
+        }
         startClock(entry.key, Logic.lifetimeFor(entry.urgency, entry.expireTimeout, root.normalLifetime));
         const onScreen = rowKeys(() => true);
         if (onScreen.length > Logic.LIVE_MAX) {

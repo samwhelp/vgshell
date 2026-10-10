@@ -8,13 +8,18 @@
 # The notification sound: with a sound chosen for the plugin's `notification`
 # event in the sandbox's shell.json, a notification that shows on screen
 # starts the player once with that sound's file, and one that Silence keeps
-# off the screen starts none. The player is the pw-play stand-in of
-# scripts/smoke/devices.sh, which records the file and plays nothing.
+# off the screen starts none. A critical notification that passes Silence
+# shows and starts none either; with Silence off it starts one. The player
+# is the pw-play stand-in of scripts/smoke/devices.sh, which records the
+# file and plays nothing.
 # Control run on 2026-10-09, host cachy, through this row on a source_tree
 # copy of the service that plays the event for a silenced notification and
 # not for a shown one: "a shown notification starts one player" failed,
 # reading 0, and "a silenced notification starts no player" failed, reading
-# one player more.
+# one player more. Control run on 2026-10-10, host cachy, through this row
+# on a source_tree copy whose service plays the event whatever Silence
+# says: "a critical notification under Silence starts no player" failed,
+# reading one player more.
 # inputs: shell/Core/Sounds.qml shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
@@ -2126,6 +2131,23 @@ notify smoke-app 0 "Quiet" "" '[]' '{}' 0 >/dev/null
 expect_poll "a silenced notification goes into the history" '"Quiet"' state_at history.0.summary
 expect "a silenced notification shows no toast" none key_of Quiet
 expect "a silenced notification starts no player" "$note_sound_before" note_sound_calls
+# A critical notification from the bare command line passes Silence and
+# shows, and still starts no player; with Silence off the same one does.
+# The second count, after the one with Silence off played, also holds a
+# late player from the one under Silence.
+note_sound_id="$(notify notify-send 0 "Urgent chirp" "" '[]' '{"urgency": <byte 2>}' 0)" || fail "the critical notification under Silence was not sent"
+expect_poll "a critical notification under Silence shows on screen" True has_row live "Urgent chirp"
+expect "a critical notification under Silence starts no player" "$note_sound_before" note_sound_calls
+close_note "$note_sound_id"
+expect_poll "the critical notification under Silence closes" 0 note_status onScreen
+expect "Silence turns off for the critical sound" off notes silence off
+note_sound_id="$(notify notify-send 0 "Urgent ring" "" '[]' '{"urgency": <byte 2>}' 0)" || fail "the critical notification without Silence was not sent"
+expect_poll "a critical notification without Silence shows on screen" True has_row live "Urgent ring"
+expect_poll "a critical notification without Silence starts one player" "$((note_sound_before + 1))" note_sound_calls
+close_note "$note_sound_id"
+expect_poll "the critical notification without Silence closes" 0 note_status onScreen
+expect "only the critical notification without Silence started a player" "$((note_sound_before + 1))" note_sound_calls
+expect "Silence turns back on after the critical sound" on notes silence on
 cp -- "$sandbox/shell-before-notification-sound.json" "$note_sound_config.next" && mv -T -- "$note_sound_config.next" "$note_sound_config"
 expect "the shell.json the sound part found is reloaded" ok ipc shell reloadConfig
 expect_poll "the shell reads no notification sound choice" unset note_sound_chosen
