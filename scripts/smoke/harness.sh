@@ -1626,25 +1626,44 @@ adopt_shell() { # KILLED
 # its focus, and the old log. For each report no earlier call read, FILE
 # gets one line `crash=<instance> report=<path>` and the report's stack
 # trace, each line indented. Once it found one, it stops the shell, ends
-# each process that still maps a window of the shell's class and is no
-# running instance, and starts shell_tree again. Returns 1 when it found one.
-# shell_strays: the pid of each mapped client of the shell's class that no
-# running instance owns, one a line.
+# each process that still maps a window shell_strays names, and starts
+# shell_tree again. Returns 1 when it found one.
+# The reporter and the shell that starts again read the crashed instance's
+# record through one file position (Quickshell 4f508be5: the handler's dup
+# of infoFd in src/crash/handler.cpp; seek(0) then read in
+# src/launch/main.cpp and src/crash/main.cpp). A reporter that reads after
+# the shell took the record reads an empty one: its report then stands at
+# crashes/report.txt, a path every such crash writes again, and its window
+# carries Quickshell's default app id. That form reads as
+# `crash=empty-instance-record`, and a report counts as read by its path
+# and its modification time.
+# shell_crash_reports: the path of each crash report that holds text, one a
+# line, in both forms; the reporter makes the file before it writes it.
+# shell_strays: the pid of each mapped client of the shell's class, or of
+# Quickshell's default one, that no running instance owns, one a line.
+shell_reporter_class=org.quickshell
+shell_crash_reports() {
+  local report
+  for report in "$home/.cache/quickshell/crashes"/report.txt "$home/.cache/quickshell/crashes"/*/report.txt; do
+    if [[ -s $report ]]; then printf '%s\n' "$report"; fi
+  done
+}
 shell_strays() {
-  hypr -j clients | py_reply 'import json,sys; owned=set(i["pid"] for i in (json.loads(sys.argv[2]) if sys.argv[2] != "none" else [])); print("\n".join(sorted(set(str(c["pid"]) for c in json.load(sys.stdin) if c["class"] == sys.argv[1] and c["mapped"] and c["pid"] not in owned))))' "$shell_class" "$(qs_list --all)"
+  hypr -j clients | py_reply 'import json,sys; owned=set(i["pid"] for i in (json.loads(sys.argv[3]) if sys.argv[3] != "none" else [])); print("\n".join(sorted(set(str(c["pid"]) for c in json.load(sys.stdin) if c["class"] in sys.argv[1:3] and c["mapped"] and c["pid"] not in owned))))' "$shell_class" "$shell_reporter_class" "$(qs_list --all)"
 }
 shell_crash_check() { # FILE
-  local seen="$sandbox/crash-reports.seen" report instance="" strays pid
+  local seen="$sandbox/crash-reports.seen" report key instance="" strays pid
   : >"$1"
   touch -- "$seen"
-  for report in "$home/.cache/quickshell/crashes"/*/report.txt; do
-    [[ -f $report ]] || continue
-    ! grep -q -x -F -- "$report" "$seen" || continue
-    printf '%s\n' "$report" >>"$seen"
+  while IFS= read -r report; do
+    key="$(stat -c '%n %.9Y' -- "$report")" || continue
+    ! grep -q -x -F -- "$key" "$seen" || continue
+    printf '%s\n' "$key" >>"$seen"
     instance="$(basename -- "$(dirname -- "$report")")"
+    [[ $instance != crashes ]] || instance=empty-instance-record
     { printf 'crash=%s report=%s\n' "$instance" "$report"
       sed -n '/^===== Stacktrace =====$/,/^===== /{/^=====/d;s/^/        /;p}' "$report"; } >>"$1"
-  done
+  done < <(shell_crash_reports)
   [[ -n $instance ]] || return 0
   stop_shell || true
   if strays="$(shell_strays)"; then

@@ -25,7 +25,12 @@
 # here too: a crash signal to the shell leaves a Quickshell crash report
 # and its reporter's window; the check names the report once with its
 # stack trace, ends the reporter and starts a new shell with its own log,
-# and a second check reads nothing.
+# and a second check reads nothing. Quickshell's reporter can read an empty
+# instance record (shell_crash_check's header), so the planted crash counts
+# in either form, and the empty-record form has its own controls: a report
+# planted at the path that form writes, beside a toplevel with Quickshell's
+# default app id, reads as one crash named for the form and the check ends
+# the toplevel; the same path written again reads as a crash again.
 # smoke_row puts the pointer at rest before every row it runs outside
 # another row: a planted row run so, with the pointer moved away first,
 # reads the pointer at rest when it starts.
@@ -176,7 +181,7 @@ expect "control: the failure names the unreadable class and the end" 1 lc_failed
 
 # The crash control: a crash signal past Quickshell's 10 s restart floor.
 lc_ran() { local secs; secs="$(ps -o etimes= -p "$shell_qs_pid")" || { echo gone; return; }; secs="${secs// /}"; if ((secs >= 11)); then echo ran; else echo "secs=$secs"; fi; }
-lc_reports() { local n=0 report; for report in "$home/.cache/quickshell/crashes"/*/report.txt; do [[ -f $report ]] && n=$((n + 1)); done; echo "$n"; }
+lc_reports() { shell_crash_reports | grep -c . || true; }
 lc_strays() { shell_strays | grep -c . || true; }
 lc_crashes="$sandbox/leak-plant-crash.crashes"
 lc_reports_before="$(lc_reports)"
@@ -192,7 +197,7 @@ kill -SEGV -- "$shell_qs_pid" || fail "the planted crash signal was not sent"
 expect_poll "the planted crash leaves a crash report" "$((lc_reports_before + 1))" lc_reports
 expect_poll "the planted crash maps Quickshell's crash reporter window" 1 lc_strays
 if shell_crash_check "$lc_crashes"; then fail "control: the crash check read no crash after the planted one"; fi
-expect "control: the crash check names the planted crash once" 1 grep -c -E -- "^crash=[0-9a-z]+ report=.*/report\\.txt\$" "$lc_crashes"
+expect "control: the crash check names the planted crash once" 1 grep -c -E -- "^crash=[0-9a-z-]+ report=.*/report\\.txt\$" "$lc_crashes"
 expect "control: the crash check prints the crash's stack trace" 1 grep -c -E -- "^        #0 " "$lc_crashes"
 expect "the crash check leaves no crash reporter window" 0 lc_strays
 lc_new_shell() { [[ $shell_qs_pid != "$lc_crashed_pid" && $instance_log != "$lc_crashed_log" ]] && echo new || echo "pid=$shell_qs_pid log=$instance_log"; }
@@ -200,6 +205,32 @@ expect "the crash check starts a new shell with its own log" new lc_new_shell
 expect "the new shell answers" ok ipc shell ping
 lc_check_again() { if shell_crash_check "$sandbox/leak-plant-crash-again.crashes"; then echo none; else echo found; fi; }
 expect "a second crash check reads no crash" none lc_check_again
+
+# The empty-record controls: the planted crash's own report, copied to the
+# path a reporter with an empty record writes.
+lc_empty="$home/.cache/quickshell/crashes/report.txt"
+lc_empty_crashes="$sandbox/leak-plant-empty-record.crashes"
+lc_report_copy="$sandbox/leak-plant-report.txt"
+lc_empty_named() { grep -c -E -- "^crash=empty-instance-record report=.*/crashes/report\\.txt\$" "$lc_empty_crashes" || true; }
+lc_report="$(shell_crash_reports | head -n 1)"
+if [[ -n $lc_report ]] && cp -- "$lc_report" "$lc_report_copy" && cp -- "$lc_report_copy" "$lc_empty"; then
+  spawn "$sandbox/leak-plant-reporter.log" "${shell_env[@]}" "$sandbox/toplevel" "$shell_reporter_class"
+  lc_reporter="$spawn_pid"
+  expect_poll "the planted reporter window maps" 1 lc_strays
+  if shell_crash_check "$lc_empty_crashes"; then fail "control: the crash check read no crash from an empty-record report"; fi
+  expect "control: the crash check names the empty-record crash once, by its form" 1 lc_empty_named
+  expect "control: the crash check prints the empty-record crash's stack trace" 1 grep -c -E -- "^        #0 " "$lc_empty_crashes"
+  expect "the crash check leaves no window of Quickshell's default class" 0 lc_strays
+  expect_poll "the crash check ended the planted reporter" gone lc_comm "$lc_reporter"
+  expect "the shell answers after the empty-record crash" ok ipc shell ping
+  expect "a crash check after the empty-record one reads no crash" none lc_check_again
+  cp -- "$lc_report_copy" "$lc_empty" || fail "the empty-record report could not be written again"
+  if shell_crash_check "$lc_empty_crashes"; then fail "control: the crash check read no crash from an empty-record report written again"; fi
+  expect "control: the crash check names the empty-record crash written again" 1 lc_empty_named
+  expect "the shell answers after the second empty-record crash" ok ipc shell ping
+else
+  fail "the planted crash's report could not be copied to the empty-record path: $lc_report"
+fi
 
 cat >"$lc_plants/leak-plant-rest.sh" <<'SH'
 expect "the row starts with the pointer at rest" "10 $((mon_h - 10))" lc_pointer
