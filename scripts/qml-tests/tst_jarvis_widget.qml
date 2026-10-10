@@ -69,7 +69,7 @@ Item {
                 [root.ready({ turn: { kind: "thinking", gen: 1, op: 3, deadline: 70 } }), "brain", Theme.badge.tone.info.foreground, "Jarvis is thinking\nPress Super+Alt+Period to stop.\nClick or press Super+Shift+Right Alt to mute."],
                 [root.ready({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } }), "volume-2", Theme.badge.tone.accent.foreground, "Jarvis is speaking\nPress Super+Alt+Period to stop.\nClick or press Super+Shift+Right Alt to mute."],
                 [root.ready({ mute: { kind: "on" } }), "mic-off", Theme.badge.tone.neutral.foreground, "Jarvis is muted\nClick or press Super+Shift+Right Alt to unmute."],
-                [{ daemon: { tone: "danger", text: "Problem: jarvis: node=21.0.0 need=22" }, detail: null }, "circle-alert", Theme.badge.tone.danger.foreground, "Jarvis stopped after a problem\nTurn Jarvis off and on again in Settings > Jarvis.\nClick or press Super+Shift+Right Alt to mute."]
+                [{ daemon: { tone: "danger", text: "Jarvis needs Node 22 or later", lines: ["Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis.", "jarvis: node=21.0.0 need=22"] }, detail: null }, "circle-alert", Theme.badge.tone.danger.foreground, "Jarvis needs Node 22 or later\nUpdate Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis.\njarvis: node=21.0.0 need=22\nClick or press Super+Shift+Right Alt to mute."]
             ];
             for (const [values, name, colour, text] of rows) {
                 const tip = text.split("\n");
