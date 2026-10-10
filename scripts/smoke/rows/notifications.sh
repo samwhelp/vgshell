@@ -20,7 +20,7 @@
 # on a source_tree copy whose service plays the event whatever Silence
 # says: "a critical notification under Silence starts no player" failed,
 # reading one player more.
-# inputs: shell/Core/Sounds.qml shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
+# inputs: shell/Core/Sounds.qml shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 note_state="$home/.local/state/vgshell/notifications/state.json"
@@ -179,7 +179,7 @@ expect "the Slack photo helper resolves the stub secret-tool first" "$shim/secre
 file_url_json() { python3 -c 'import hashlib,json,pathlib,sys; p=pathlib.Path(sys.argv[1]); print(json.dumps("file://" + str(p) + "?v=" + hashlib.sha256(p.read_bytes()).hexdigest()[:16]))' "$1"; }
 expect "enabling the notifications is allowed" ok ipc shell setPluginEnabled vgs.notifications true
 expect_poll "the notification service is built" True record_exists vgs.notifications
-expect_poll "the service registered its shortcut, IPC target and subscriber and holds no layer" '[["vgs.notifications:inbox"], ["vgs.notifications"], ["vgs.notifications"], []]' lent_notes
+expect_poll "the service registered its shortcuts, IPC target and subscriber and holds no layer" '[["vgs.notifications:act", "vgs.notifications:inbox"], ["vgs.notifications"], ["vgs.notifications"], []]' lent_notes
 expect_poll "the compositor lists the inbox shortcut" 1 note_shortcuts
 expect "the notification server exists" true lent notificationServer
 expect "a first start finds no state file" '"absent"' note_status store.state
@@ -3682,6 +3682,113 @@ expect_poll "the pixel probe restores the dark look" '"#ffe8e8e8"' look_at text.
 expect "the pixel probe notifications dismiss" ok notes dismiss-all
 expect_poll "the pixel probe notifications leave" 0 on_screen
 
+# The act shortcut, vgs.notifications:act. The manifest binds it to
+# SUPER+SHIFT+N; the notifications' Settings page draws it in its Keys row
+# as "Act on the last notification", whose edits go to the plugin's `keys`
+# in shell.json beside its inbox key, and the nested compositor holds the
+# bind each edit leaves. The row presses it as the bind does, through the
+# compositor's global dispatcher. It runs what a click on the newest
+# notification's card runs: the sender's default action reaches the
+# stand-in's signals log once, while the toast shows, after it expired into
+# the history and under Silence, and a newer notification takes the key
+# from an older one. A newest notification that offers no action, and an
+# empty store, send nothing; the first shows its toast's No action caption
+# until look.motion.noActionHold ends it. The control: a copy of the service
+# whose key reaches no click fails the delivery check.
+act_binds() { hypr -j binds | py_reply 'import json,sys; print(json.dumps([[b["modmask"], b["key"], b["description"]] for b in json.load(sys.stdin) if b["description"] == "vgs.notifications:act" and (b.get("submap", "") or "default") == "default"]))'; }
+act_keys() { python3 -c 'import json,sys; rows=[r for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"] == "vgs.notifications"]; print(json.dumps(rows[0].get("keys", "absent") if rows else "absent"))' "$home/.config/vgshell/shell.json"; }
+act_row() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; b=[[x["description"], x["key"]] for p in json.load(sys.stdin) if p["id"] == "vgs.notifications" for x in p["binds"] if x["shortcut"] == "act"]; print(json.dumps(b[0]) if b else "absent")'; }
+act_apply() { ipc smoke invokeInstance window vgs.settings applyKey "{\"id\":\"vgs.notifications\",\"shortcut\":\"act\"${1:+,\"key\":$1}}"; }
+press_act() { hypr dispatch 'hl.dsp.global("vgs.notifications:act")'; }
+expect "the notifications' Settings page opens for its keys" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
+expect_poll "the page reads the act shortcut with its default key" '["Act on the last notification", "SUPER+SHIFT+N"]' act_row
+expect_poll "the Keys row draws the act shortcut's default key" '"SUPER+SHIFT+N"' key_field vgs.notifications act key
+expect_poll "the compositor binds SUPER+SHIFT+N to the act shortcut" '[[65, "N", "vgs.notifications:act"]]' act_binds
+expect "the Keys row rebinds the act shortcut" applied act_apply '"SUPER+ALT+N"'
+expect_poll "the rebound key is stored with the plugin's keys" '{"act": "SUPER+ALT+N"}' act_keys
+expect_poll "the compositor binds the rebound key" '[[72, "N", "vgs.notifications:act"]]' act_binds
+expect "the Keys row clears the act shortcut" applied act_apply null
+expect_poll "the cleared key is stored as null" '{"act": null}' act_keys
+expect_poll "the compositor holds no act bind once it is cleared" '[]' act_binds
+expect "the Keys row resets the act shortcut" applied act_apply
+expect_poll "the reset leaves no key stored" '{}' act_keys
+expect_poll "the compositor binds SUPER+SHIFT+N again" '[[65, "N", "vgs.notifications:act"]]' act_binds
+expect "the Settings window closes after the act keys" ok ipc shell hide window vgs.settings
+
+act_silenced="$(read_notes silenced)" || fail "the Silence state is unreadable before the act shortcut"
+expect "Silence is off for the act shortcut" off notes silence off
+expect "the inbox is closed for the act shortcut" ok notes close
+act_older="$(notify smoke-chat 0 "Act older" "" '["default", "View"]' '{}' 0)"
+act_newer="$(notify smoke-chat 0 "Act newer" "" '["default", "View"]' '{}' 0)"
+expect_poll "the newer toast to act on shows" True has_row live "Act newer"
+expect "the act shortcut's dispatch is allowed" ok press_act
+expect_poll "the key runs the newest toast's default action once" 1 delivered "$act_newer" default
+expect "the key leaves the older toast's action unsent" 0 delivered "$act_older" default
+expect_poll "the toast acted on leaves" none key_of "Act newer"
+left_into_history "the toast acted on stays in the history" "Act newer"
+expect "the older toast is dismissed" ok notes dismiss-latest
+expect_poll "the older toast leaves" none key_of "Act older"
+
+act_expired="$(notify smoke-chat 0 "Act expired" "" '["default", "View"]' '{"urgency": <byte 0>}' 0)"
+expect_poll "the toast to expire before the key shows" True has_row live "Act expired"
+hover "$((mon_w - 5))" "$((mon_h - 5))" || fail "moving the pointer off the toast to expire failed"
+wait_for "the toast to act on from the history expires" none 9 key_of "Act expired"
+expect_poll "the expired toast is in the history" True in_history "Act expired"
+expect "the act shortcut's dispatch on the history is allowed" ok press_act
+expect_poll "the key runs the expired notification's default action once" 1 delivered "$act_expired" default
+
+expect "Silence turns on for the act shortcut" on notes silence on
+act_silent="$(notify smoke-chat 0 "Act silenced" "" '["default", "View"]' '{}' 0)"
+expect_poll "the silenced notification goes into the history" True in_history "Act silenced"
+expect "the silenced notification shows no toast" none key_of "Act silenced"
+expect "the act shortcut's dispatch under Silence is allowed" ok press_act
+expect_poll "under Silence the key runs the newest notification's default action once" 1 delivered "$act_silent" default
+expect "Silence turns off after the act shortcut" off notes silence off
+
+act_refused_before="$(log_lines 'notifications: act refused=no-action')" || fail "the instance log is unreadable before the act with no action"
+act_bare="$(notify smoke-chat 0 "Act with no action" "" '[]' '{}' 0)"
+expect_poll "the toast with no action shows" True has_row live "Act with no action"
+expect "the act shortcut's dispatch with no action is allowed" ok press_act
+expect_poll "that toast shows its no-action caption" '"No action"' card_value "Act with no action" caption
+expect_log "the key on a notification with no action sends nothing" "$((act_refused_before + 1))" 'notifications: act refused=no-action'
+expect "the no-action toast stays on screen" True has_row live "Act with no action"
+expect "the key delivers nothing to the toast with no action" 0 delivered "$act_bare" default
+expect_poll "the caption ends after its hold" '""' card_value "Act with no action" caption
+
+expect "the act rows' toasts are dismissed" ok notes dismiss-all
+expect "the history is cleared for the empty act" ok notes clear-history
+act_stored() { printf '[%s, %s]\n' "$(live_summaries)" "$(history_summaries)"; }
+expect_poll "nothing is stored before the empty act" '[[], []]' act_stored
+act_empty_before="$(log_lines 'notifications: act refused=no-notification')" || fail "the instance log is unreadable before the empty act"
+expect "the act shortcut's dispatch with nothing stored is allowed" ok press_act
+expect_log "the key with nothing stored sends nothing" "$((act_empty_before + 1))" 'notifications: act refused=no-notification'
+
+# The control: a service copy whose key runs no click.
+act_service="$repo/shell/plugins/vgs.notifications/Service.qml"
+cp -- "$act_service" "$sandbox/Service.act-kept.qml"
+python3 - "$act_service" <<'PY_ACT'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]); text=p.read_text(); needle='        choose(key, "open");\n    }\n\n    Timer {\n        id: noActionClock'
+assert text.count(needle)==1
+p.write_text(text.replace(needle, needle.replace('        choose(key, "open");\n', '')))
+PY_ACT
+rescan "a rescan builds the service whose key runs no click"
+expect_poll "the no-click control service is built" True record_exists vgs.notifications
+act_control="$(notify smoke-chat 0 "Act control" "" '["default", "View"]' '{}' 0)"
+expect_poll "the control toast shows" True has_row live "Act control"
+expect "the control's act dispatch is allowed" ok press_act
+act_unsent_control() {
+  (failures=0; behaviour_failures=0; expect_poll "the key runs the newest toast's default action once" 1 delivered "$act_control" default >"$sandbox/act-unsent-control.log"; echo "$failures")
+}
+expect "control: a key that runs no click fails the delivery check" 1 act_unsent_control
+expect "the control toast is dismissed" ok notes dismiss-all
+cp -- "$sandbox/Service.act-kept.qml" "$act_service"
+rescan "a rescan restores the service whose key runs the click"
+expect_poll "the restored act service is built" True record_exists vgs.notifications
+act_silence_back=off
+[[ $act_silenced == true ]] && act_silence_back=on
+expect "Silence is put back after the act shortcut" "$act_silence_back" notes silence "$act_silence_back"
+
 # Disabling and enabling again, three times over, leaves nothing behind.
 for round in 1 2 3; do
   expect "disable round $round is allowed" ok ipc shell setPluginEnabled vgs.notifications false
@@ -3692,7 +3799,7 @@ for round in 1 2 3; do
   if [[ $round -lt 3 ]]; then
     expect "enable round $round is allowed" ok ipc shell setPluginEnabled vgs.notifications true
     expect_poll "enable round $round built the service" True record_exists vgs.notifications
-    expect_poll "enable round $round registered again" '[["vgs.notifications:inbox"], ["vgs.notifications"], ["vgs.notifications"], []]' lent_notes
+    expect_poll "enable round $round registered again" '[["vgs.notifications:act", "vgs.notifications:inbox"], ["vgs.notifications"], ["vgs.notifications"], []]' lent_notes
   fi
 done
 expect "the disabled plugin holds no layers capability" null lent holders.layers

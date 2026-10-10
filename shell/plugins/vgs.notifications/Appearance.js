@@ -62,7 +62,9 @@ var TOKENS = {
         // How many rows of a panel cascade carry their own delay, and the
         // wait after the last row fades before the rows go.
         staggerRows: number(10, 0, 64),
-        settle: wait(40)
+        settle: wait(40),
+        // How long a toast shows its no-action caption.
+        noActionHold: wait(1600)
     },
 
     // The interface font replaces this default, the shipped theme's own

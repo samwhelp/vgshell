@@ -154,6 +154,7 @@ Item {
         emoji: slot.service !== null ? slot.service.emojiFor(face.card.enrichment, face.card.workspace) : null
         actions: slot.actions
         showActions: face.card.hovered && slot.leaving === ""
+        caption: slot.service !== null && slot.service.noActionKey === slot.key && slot.leaving === "" ? "No action" : ""
         orb: slot.orbness * slot.orbness
         edgeVisible: slot.hover > 0 || (slot.service !== null && !slot.service.panelOpen)
         edgeSpin: slot.look.edge.spin * slot.orbness

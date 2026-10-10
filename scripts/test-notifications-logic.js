@@ -466,6 +466,29 @@ function verify(logic) {
     ])
         same(logic.choicePlan(choice, offered), want, "choice: " + label);
 
+    // The act shortcut's target: [label, live, history, key]. The newest by
+    // arrival, on screen or in the history; a toast on screen wins a tie.
+    for (const [label, live, history, want] of [
+        ["a newer toast replaces a history entry", [stored(30, 3, { key: "t" })], [stored(20, 2, { key: "h" })], "t"],
+        ["a newer history entry beats an older toast", [stored(10, 1, { key: "t" })], [stored(40, 4, { key: "h2" }), stored(20, 2, { key: "h" })], "h2"],
+        ["the history alone, newest not first", [], [stored(20, 2, { key: "a" }), stored(50, 5, { key: "b" })], "b"],
+        ["a tie keeps the toast", [stored(20, 2, { key: "t" })], [stored(20, 1, { key: "h" })], "t"],
+        ["nothing stored", [], [], ""]
+    ])
+        assert.equal(logic.newestKey(live, history), want, "newest: " + label);
+
+    // Whether the act shortcut runs the click: [label, row hints, offered, reaches].
+    for (const [label, hints, offered, want] of [
+        ["a default action", {}, ["default"], true],
+        ["a first action with no default", {}, ["reply"], true],
+        ["nothing held or offered", {}, [], false],
+        ["only an action with no identifier", {}, [""], false],
+        ["a hinted file opens with nothing offered", { hintClick: "open", hintOpen: "/tmp/report.txt" }, [], true],
+        ["a click that only dismisses", { hintClick: "none" }, ["default"], false],
+        ["an open hint with no file runs the sender's action", { hintClick: "open", hintOpen: "" }, ["default"], true]
+    ])
+        assert.equal(logic.actReaches(Object.assign({ hintClick: "", hintOpen: "" }, hints), offered), want, "act reaches: " + label);
+
     // Holding: [reason, transient, fate].
     for (const [reason, transient, want] of [
         ["expire", false, "keep"], ["expire", true, "expire"], ["invoke", false, "dismiss"], ["invoke", true, "dismiss"],
@@ -944,6 +967,11 @@ const CONTROLS = [
     ["another action raises too", "raise: true, leave: \"invoke\"", "raise: id === \"default\", leave: \"invoke\""],
     ["dismiss delivers nothing", 'if (c === "dismiss") return { deliver: "", raise: false, leave: "dismiss" };', ""],
     ["an unknown choice is refused", 'if (id === "" && c !== "open") return null;', ""],
+    ["the act target is the newest", "if (all[i].timestamp > newest) {", "if (all[i].timestamp < newest || i === 0) {"],
+    ["the act target reads the history", "var all = live.concat(history);", "var all = live;"],
+    ["a toast wins an act tie", "if (all[i].timestamp > newest) {", "if (all[i].timestamp >= newest) {"],
+    ["the act shortcut follows a hinted click", 'if (route !== "default") return route === "open";', ""],
+    ["the act shortcut needs a primary action", 'return primaryAction(offered) !== "";', "return true;"],
     ["an expired toast is held", 'if (reason === "expire") return transient ? "expire" : "keep";', 'if (reason === "expire") return "expire";'],
     ["a transient notification is never held", 'if (reason === "expire") return transient ? "expire" : "keep";', 'if (reason === "expire") return "keep";'],
     ["an invoked notification is closed on the server", 'if (reason === "invoke") return "dismiss";', 'if (reason === "invoke") return transient ? "dismiss" : "keep";'],

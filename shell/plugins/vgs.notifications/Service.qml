@@ -30,6 +30,8 @@ import "NotificationLogic.js" as Logic
 // Everything it registers is the core's to release.
 //   shortcut vgs.notifications:inbox     SUPER+N from the manifest's
 //                                        `hyprland` binds (README)
+//   shortcut vgs.notifications:act       SUPER+SHIFT+N, a click on the
+//                                        newest notification (actOnLast)
 //   vgshell ipc call vgs.notifications invoke <name> <arg>, names in the README
 Item {
     id: root
@@ -100,6 +102,9 @@ Item {
     property string panelMode: ""
     readonly property bool panelOpen: panelMode !== ""
     property bool panelFocused: false
+    // The toast that shows its no-action caption, "" while none does
+    // (actOnLast); noActionClock ends it.
+    property string noActionKey: ""
     readonly property string panelSubtitle: Logic.panelSubtitle(panelMode, shownCount, store.status)
     property int shownCount: 0
     readonly property bool silenced: store.dnd
@@ -240,6 +245,7 @@ Item {
         restore();
         shell.status.set("panelRevision", panelRevision);
         shell.shortcut.register("inbox", "Notification inbox", () => root.togglePanel());
+        shell.shortcut.register("act", "Act on the last notification", () => root.actOnLast());
         shell.ipc.handle("inbox", () => root.togglePanel());
         shell.ipc.handle("panel", () => root.showPanel("inbox"));
         shell.ipc.handle("history", () => root.showPanel("history"));
@@ -306,6 +312,37 @@ Item {
         if (keys.length === 0) return "none";
         act(keys[0]);
         return "ok";
+    }
+
+    // The act shortcut: a click on the newest notification's card
+    // (choose), whether its toast shows or it is only in the history, and
+    // under Silence too, since the user pressed the key. A card whose click
+    // reaches nothing (NotificationLogic.actReaches) sends nothing; its
+    // toast, while one shows, says so in its caption for a moment. Logs
+    // what it found, with no content.
+    function actOnLast() {
+        const key = Logic.newestKey(store.live, store.history);
+        const entry = key === "" ? null : entryFor(key);
+        if (entry === null) {
+            console.info("notifications: act refused=no-notification");
+            return;
+        }
+        if (!Logic.actReaches(entry, offered(key).map(a => a.identifier))) {
+            console.info("notifications: act refused=no-action");
+            const at = indexOf(key);
+            if (at !== -1 && rowModel.get(at).leaving === "") {
+                noActionKey = key;
+                noActionClock.restart();
+            }
+            return;
+        }
+        choose(key, "open");
+    }
+
+    Timer {
+        id: noActionClock
+        interval: root.look === null ? 0 : root.look.motion.noActionHold
+        onTriggered: root.noActionKey = ""
     }
 
     function rowOf(entry, origin) {

@@ -280,8 +280,8 @@ with open(path + ".next", "w") as f:
 os.replace(path + ".next", path)
 PY
 }
-both_binds='[[64, "M", "__lua", "vgs.settings:toggle"], [64, "N", "__lua", "vgs.notifications:inbox"], [64, "SPACE", "__lua", "vgs.launcher:toggle"]]'
-rebound='[[64, "M", "__lua", "vgs.settings:toggle"], [72, "SPACE", "__lua", "vgs.launcher:toggle"]]'
+both_binds='[[64, "M", "__lua", "vgs.settings:toggle"], [64, "N", "__lua", "vgs.notifications:inbox"], [64, "SPACE", "__lua", "vgs.launcher:toggle"], [65, "N", "__lua", "vgs.notifications:act"]]'
+rebound='[[64, "M", "__lua", "vgs.settings:toggle"], [65, "N", "__lua", "vgs.notifications:act"], [72, "SPACE", "__lua", "vgs.launcher:toggle"]]'
 
 # The consent row's Connect answer.
 expect "consent wired the loading line first in the sandbox's hyprland.lua" "$wire_line" head -n 1 -- "$hypr_lua"
@@ -429,7 +429,7 @@ expect "no plugin reports a Hyprland problem" '[]' hypr_problems
 # removed and
 # Hyprland reloaded while no shell runs, so the binds the census reads after
 # the restart are the ones the restarted shell's own write and reload made.
-once_census='["default vgs.bar:toggle x1", "default vgs.launcher:toggle x1", "default vgs.notifications:inbox x1", "default vgs.settings:toggle x1", "vgs:capture vgs.bar:toggle x1", "vgs:capture vgs.launcher:toggle x1", "vgs:capture vgs.notifications:inbox x1", "vgs:capture vgs.settings:toggle x1", "vgs:passthrough vgs:passthrough-cancel x1", "vgs:selection vgs.bar:toggle x1", "vgs:selection vgs.launcher:toggle x1", "vgs:selection vgs.notifications:inbox x1", "vgs:selection vgs.settings:toggle x1", "vgs:selection vgs:selection-cancel x4"]'
+once_census='["default vgs.bar:toggle x1", "default vgs.launcher:toggle x1", "default vgs.notifications:act x1", "default vgs.notifications:inbox x1", "default vgs.settings:toggle x1", "vgs:capture vgs.bar:toggle x1", "vgs:capture vgs.launcher:toggle x1", "vgs:capture vgs.notifications:act x1", "vgs:capture vgs.notifications:inbox x1", "vgs:capture vgs.settings:toggle x1", "vgs:passthrough vgs:passthrough-cancel x1", "vgs:selection vgs.bar:toggle x1", "vgs:selection vgs.launcher:toggle x1", "vgs:selection vgs.notifications:act x1", "vgs:selection vgs.notifications:inbox x1", "vgs:selection vgs.settings:toggle x1", "vgs:selection vgs:selection-cancel x4"]'
 expect_poll "before the restart each vgs bind is registered once in its submap" "$once_census" bind_census
 if stop_shell; then
   rm -- "${hypr_layer:?}"
@@ -450,7 +450,7 @@ fi
 # generation, and the census reads each bind twice.
 printf '%s\n' "$wire_line" >>"$hypr_lua"
 expect "the nested instance reloads with the layer loaded twice" ok hypr reload config-only
-expect_poll "control: a layer run twice in one generation registers each vgs bind twice" '["default vgs.bar:toggle x2", "default vgs.launcher:toggle x2", "default vgs.notifications:inbox x2", "default vgs.settings:toggle x2", "vgs:capture vgs.bar:toggle x2", "vgs:capture vgs.launcher:toggle x2", "vgs:capture vgs.notifications:inbox x2", "vgs:capture vgs.settings:toggle x2", "vgs:passthrough vgs:passthrough-cancel x2", "vgs:selection vgs.bar:toggle x2", "vgs:selection vgs.launcher:toggle x2", "vgs:selection vgs.notifications:inbox x2", "vgs:selection vgs.settings:toggle x2", "vgs:selection vgs:selection-cancel x8"]' bind_census
+expect_poll "control: a layer run twice in one generation registers each vgs bind twice" '["default vgs.bar:toggle x2", "default vgs.launcher:toggle x2", "default vgs.notifications:act x2", "default vgs.notifications:inbox x2", "default vgs.settings:toggle x2", "vgs:capture vgs.bar:toggle x2", "vgs:capture vgs.launcher:toggle x2", "vgs:capture vgs.notifications:act x2", "vgs:capture vgs.notifications:inbox x2", "vgs:capture vgs.settings:toggle x2", "vgs:passthrough vgs:passthrough-cancel x2", "vgs:selection vgs.bar:toggle x2", "vgs:selection vgs.launcher:toggle x2", "vgs:selection vgs.notifications:act x2", "vgs:selection vgs.notifications:inbox x2", "vgs:selection vgs.settings:toggle x2", "vgs:selection vgs:selection-cancel x8"]' bind_census
 restore_hypr_lua || fail "hyprland.lua is put back after the bind census control"
 expect "the nested instance reloads the consent-wired hyprland.lua after the bind census control" ok hypr reload config-only
 expect_poll "with one loading line again each vgs bind is registered once in its submap" "$once_census" bind_census

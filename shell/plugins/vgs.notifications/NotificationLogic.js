@@ -1383,6 +1383,32 @@ function primaryAction(offered) {
     return "";
 }
 
+// The key of the notification the act shortcut acts on: the newest one
+// stored, by arrival, a toast on screen (`live`) or a history entry; ""
+// when none is. A newer notification replaces it as it arrives.
+function newestKey(live, history) {
+    var key = "";
+    var newest = -Infinity;
+    var all = live.concat(history);
+    for (var i = 0; i < all.length; i++) {
+        if (all[i].timestamp > newest) {
+            newest = all[i].timestamp;
+            key = all[i].key;
+        }
+    }
+    return key;
+}
+
+// Whether the act shortcut runs a click on ROW's card: true when that click
+// reaches something, its hinted file (clickRoute) or, while the service
+// holds the notification, the sender's primary action among `offered`;
+// false for a card whose click only dismisses or would deliver nothing.
+function actReaches(row, offered) {
+    var route = clickRoute("open", row);
+    if (route !== "default") return route === "open";
+    return primaryAction(offered) !== "";
+}
+
 // What becomes of the notification the service holds for a row that
 // leaves for `reason`: `keep` while its history entry can still reach its
 // sender, after it expired or a full stack let it go; `dismiss` or

@@ -11,6 +11,7 @@ Screenshots come from `scripts/readme-shots.sh` in the nested sandbox, with the 
 ## Features
 
 - Super+N opens and closes the panel. Escape closes it too.
+- Super+Shift+N does what a click on the newest notification does, also after it leaves the screen. A notification with no action shows No action. Change or clear both keys under Keys on the plugin's Settings page.
 - Unread shows the notifications received since the last Mark read. History shows the saved ones.
 - History keeps every notification that leaves the screen for 24 hours, at most the newest 100, and shows every one. Clear history or a restart of the computer removes them sooner.
 - Mark read marks the current notifications as read and closes the panel. Clear history removes the saved ones.

@@ -8,7 +8,7 @@ import "NotificationLogic.js" as Logic
 // One notification as a glass capsule: its image, the Lucide icon its
 // x-vgs-icon hint names in the tone its x-vgs-tone hint names, or its
 // application icon, its summary and its body, and the hover actions at
-// its right end, beside the text. A sender
+// its right end, beside the text, or in their place a muted caption. A sender
 // a NotificationLogic rule reads shows the people it names as faces in the
 // icon's place, and the workspace it belongs to as that workspace's icon,
 // when there is one, before the rule's title in place of the summary. It draws no fill of its
@@ -48,6 +48,14 @@ Item {
     // [{ id, label }] shown as pills at the right edge while `showActions`.
     property var actions: []
     property bool showActions: false
+    // A short muted line at the right end in the actions' place, such as
+    // the no-action state the act shortcut leaves; "" for none.
+    property string caption: ""
+    // The last caption, which the tray keeps drawing while it fades out
+    // after the caption ends, so the actions do not show for that fade.
+    property string heldCaption: ""
+    onCaptionChanged: if (caption !== "" || tray.opacity === 0) heldCaption = caption
+    readonly property bool captionMode: caption !== "" || (heldCaption !== "" && !(showActions && actions.length > 0))
     property int actionIndex: -1
     property bool keyboardActions: false
     readonly property bool hovered: hoverTracker.hovered
@@ -98,8 +106,8 @@ Item {
     // tray.gap before the first pill, so no line runs under a pill. The
     // card grows with the lines that adds, up to maxHeight, as at rest.
     // Without actions the text keeps the whole column.
-    readonly property bool trayShown: showActions && actions.length > 0
-    readonly property real trayReserve: trayShown ? Math.max(0, actionRow.width + look.tray.gap + pad - textColumn) : 0
+    readonly property bool trayShown: caption !== "" || (showActions && actions.length > 0)
+    readonly property real trayReserve: trayShown ? Math.max(0, tray.width + look.tray.gap + pad - textColumn) : 0
     // The summary as drawn: the rule's title once the workspace's icon
     // stands in for the workspace.
     readonly property string title: showsBadge ? enrichment.title : summary
@@ -257,21 +265,35 @@ Item {
     }
 
     // The hover actions at the right end, beside the text, the card's pad
-    // in from its end.
+    // in from its end, or the caption while there is one.
     Item {
         id: tray
         anchors.right: parent.right
         anchors.rightMargin: card.pad
         anchors.verticalCenter: parent.verticalCenter
-        width: actionRow.width
-        height: actionRow.height
+        width: card.captionMode ? captionText.implicitWidth : actionRow.width
+        height: card.captionMode ? captionText.implicitHeight : actionRow.height
         visible: opacity > 0
         opacity: card.trayShown && card.contentOpacity >= 1 ? 1 : 0
         Behavior on opacity { Anim { duration: card.look.motion.duration.short4; curve: card.look.motion.curve.standard } }
+        onOpacityChanged: if (opacity === 0 && card.caption === "") card.heldCaption = ""
         transform: Translate { x: (1 - tray.opacity) * card.look.tray.slide }
+
+        Text {
+            id: captionText
+            objectName: "notificationCaption"
+            anchors.verticalCenter: parent.verticalCenter
+            visible: card.captionMode
+            textFormat: Text.PlainText
+            text: card.heldCaption
+            color: card.look.text.subtitle.color
+            font.family: card.look.font.family.sans
+            font.pixelSize: card.look.text.subtitle.size
+        }
 
         Row {
             id: actionRow
+            visible: !card.captionMode
             spacing: card.look.tray.spacing
             Repeater {
                 model: card.actions
