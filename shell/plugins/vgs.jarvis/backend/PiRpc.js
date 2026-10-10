@@ -45,8 +45,6 @@ function prompt(id, message) { return command(id, "prompt", { message }); }
 function abort(id) { return command(id, "abort"); }
 function models(id) { return command(id, "get_available_models"); }
 function state(id) { return command(id, "get_state"); }
-/** Jarvis never lets Pi summarise its history: the context bound refuses instead. */
-function noCompaction(id) { return command(id, "set_auto_compaction", { enabled: false }); }
 function setModel(id, model) { return command(id, "set_model", { provider: model.provider, modelId: model.id }); }
 function thinkingLevels(id) { return command(id, "get_available_thinking_levels"); }
 function setThinkingLevel(id, value) { return command(id, "set_thinking_level", { level: value }); }
@@ -95,6 +93,15 @@ function levels(result) {
 function modelOf(value) {
     if (!plain(value) || !string(value.provider) || value.provider.includes("/") || !string(value.id)) fail("model-list");
     return Object.freeze({ provider: value.provider, id: value.id });
+}
+
+/**
+ * Jarvis never lets Pi summarise its history: the context bound refuses
+ * instead. current is get_state's data, whose autoCompactionEnabled Pi
+ * reports (rpc-commands.md, "get_state"); anything but false is refused.
+ */
+function compactionOff(current) {
+    if (!plain(current) || current.autoCompactionEnabled !== false) fail("compaction-on");
 }
 
 /**
@@ -171,5 +178,5 @@ function accept(line) {
     }
 }
 
-module.exports = { LINE_BYTES, SERVER, TOOL_PREFIX, prompt, abort, models, state, noCompaction, setModel, thinkingLevels,
+module.exports = { LINE_BYTES, SERVER, TOOL_PREFIX, prompt, abort, models, state, compactionOff, setModel, thinkingLevels,
     setThinkingLevel, cancelDialog, model, reference, level, levels, menu, started, accept };

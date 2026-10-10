@@ -8,6 +8,14 @@
 // that folder, with Pi's environment; their tools are not declared to the
 // model, the tripwire refuses them, and the bridge's token is not in that
 // environment.
+// Pi's history is never compacted, and the user's own Pi settings stay
+// unwritten: Pi 1.1.0 saves set_auto_compaction into the folder's
+// settings.json, so a conversation turns compaction off in its private
+// folder's .pi/settings.json instead, which Pi merges over the user's own
+// for that run alone (https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/settings.md, "Project
+// settings override agent-directory settings"; security.md, project trust),
+// and get_state proves it took. A bare run sends at most one prompt, with
+// no earlier history to compact, and sets nothing.
 // Contract: docs/architecture/jarvis.md § Adapters.
 "use strict";
 const cp = require("node:child_process");
@@ -94,6 +102,7 @@ async function open({ directory, env, runtime, model, effort, instructions, brid
         fs.writeFileSync(prompt, instructions, { flag: "wx", mode: 0o600 });
         if (bridge !== null) {
             fs.mkdirSync(path.join(cwd, ".pi"), { mode: 0o700 });
+            fs.writeFileSync(path.join(cwd, ".pi", "settings.json"), JSON.stringify({ compaction: { enabled: false } }), { flag: "wx", mode: 0o600 });
             const server = { command: bridge.command, args: [...bridge.args], exposure: "direct", env: { ...bridge.env } };
             fs.writeFileSync(path.join(cwd, ".pi", "mcp.json"), JSON.stringify({ mcpServers: { [Pi.SERVER]: server } }),
                 { flag: "wx", mode: 0o600 });
@@ -108,7 +117,8 @@ async function open({ directory, env, runtime, model, effort, instructions, brid
             else if (session !== null) hooks.ended(value.error);
         });
         timer = setTimeout(() => p.close(), HANDSHAKE_MS);
-        await p.call(id => Pi.noCompaction(id));
+        const current = await p.call(id => Pi.state(id));
+        if (bridge !== null) Pi.compactionOff(current);
         if (model !== "") await p.call(id => Pi.setModel(id, Pi.model(model)));
         if (effort !== "") await p.call(id => Pi.setThinkingLevel(id, Pi.level(effort)));
         session = { program: p, cwd };

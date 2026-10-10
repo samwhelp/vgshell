@@ -14,7 +14,8 @@
 // /scratch and system prompts are cut.
 // It speaks the RPC subset Jarvis uses on stdio and replays a scenario the
 // test writes to $XDG_STATE_HOME/pi-scenario.json:
-//   { crash: "handshake", hang: "handshake", refuse: command type (answered
+//   { crash: "handshake", hang: "handshake" (at the first command),
+//     untrusted: true (cwd/.pi/settings.json left unread), refuse: command type (answered
 //     success false), models: [model], state: {get_state data},
 //     levels: {"provider/id": [level]} (the thinking levels of the model
 //     set_model named; a model it leaves out answers ["off"], as Pi 1.1.0
@@ -26,7 +27,10 @@
 // server cwd/.pi/mcp.json names, with its environment, tools/list first,
 // then its execution events), {dialog: method} (waits for the answer), {notice: text}, {abort:
 // true} (waits for abort), {stop: reason} (the reply's message_end and the
-// settled run), {exit: code} or {raw: bytes}. With leak, the key in
+// settled run), {exit: code} or {raw: bytes}. As Pi 1.1.0 does, get_state
+// reports compaction from cwd/.pi/settings.json under --approve, else from
+// $PI_CODING_AGENT_DIR/settings.json, on by default, and set_auto_compaction
+// saves into the latter. With leak, the key in
 // $PI_CODING_AGENT_DIR/auth.json goes into every field Jarvis must leave
 // unread: stderr, each model's extra fields, a refusal's error, a notice, a
 // reply's errorMessage and a tool's result. Every line is appended to
@@ -53,7 +57,7 @@ const read = file => fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
 const prompt = args.includes("--system-prompt") ? args[args.indexOf("--system-prompt") + 1] : null;
 fs.appendFileSync(path.join(state, "pi-calls"), JSON.stringify({ args, env: process.env, cwd: process.cwd(), pid: process.pid,
     parent: process.ppid, deathsig, instructions: prompt === null ? null : read(prompt),
-    mcp: read(path.join(process.cwd(), ".pi/mcp.json")),
+    mcp: read(path.join(process.cwd(), ".pi/mcp.json")), settings: read(path.join(process.cwd(), ".pi/settings.json")),
     mcpMode: fs.existsSync(path.join(process.cwd(), ".pi/mcp.json")) ? fs.statSync(path.join(process.cwd(), ".pi/mcp.json")).mode & 0o777 : null }) + "\n");
 if (args.length === 1 && args[0] === "--version") {
     process.stdout.write((JSON.parse(fs.readFileSync(path.join(state, "pi-scenario.json"), "utf8")).version ?? "1.1.0") + "\n");
@@ -68,7 +72,11 @@ const auth = read(path.join(process.env.PI_CODING_AGENT_DIR ?? "", "auth.json"))
 const key = scenario.leak && auth !== null ? JSON.parse(auth).stub.key : null;
 if (key !== null) process.stderr.write("pi: using key " + key + "\n");
 const answers = new Map();
-let prompts = 0, uiId = 0, aborted = null, abortSeen = false, selected = null;
+let prompts = 0, uiId = 0, aborted = null, abortSeen = false, selected = null, first = true;
+const userSettings = path.join(process.env.PI_CODING_AGENT_DIR ?? "", "settings.json");
+const settingsOf = file => JSON.parse(read(file) ?? "{}");
+let autoCompaction = [args.includes("--approve") && !scenario.untrusted ? settingsOf(path.join(process.cwd(), ".pi/settings.json")) : {}, settingsOf(userSettings)]
+    .map(settings => settings.compaction?.enabled).find(enabled => enabled !== undefined) ?? true;
 const recordedModel = recorded.find(row => row.direction === "out" && row.line.command === "get_available_models").line.data.models[0];
 
 function auditLines() {
@@ -155,16 +163,23 @@ function models() {
 
 function handle(message) {
     if (message.type === "extension_ui_response") { answers.get(message.id)?.(message); answers.delete(message.id); return; }
+    if (first) {
+        first = false;
+        if (scenario.crash === "handshake") process.exit(3);
+        if (scenario.hang === "handshake") { keepalive(); return; }
+    }
     if (message.type === scenario.refuse) {
         write({ id: message.id, type: "response", command: message.type, success: false, error: "fixture refused " + (key ?? "") });
         return;
     }
     switch (message.type) {
-    case "set_auto_compaction":
-        if (scenario.crash === "handshake") process.exit(3);
-        if (scenario.hang === "handshake") { keepalive(); return; }
+    case "set_auto_compaction": {
+        const saved = settingsOf(userSettings);
+        fs.writeFileSync(userSettings, JSON.stringify({ ...saved, compaction: { ...saved.compaction, enabled: message.enabled } }));
+        autoCompaction = message.enabled;
         respond(message);
         return;
+    }
     case "set_model":
         selected = message.provider + "/" + message.modelId;
         respond(message, { ...recordedModel, provider: message.provider, id: message.modelId });
@@ -173,7 +188,10 @@ function handle(message) {
     // Pi 1.1.0 answers a level with no data, known to the model or not.
     case "set_thinking_level": respond(message); return;
     case "get_available_models": respond(message, { models: models() }); return;
-    case "get_state": respond(message, scenario.state ?? recorded.find(row => row.direction === "out" && row.line.command === "get_state").line.data); return;
+    case "get_state":
+        respond(message, { ...(scenario.state ?? recorded.find(row => row.direction === "out" && row.line.command === "get_state").line.data),
+            autoCompactionEnabled: autoCompaction });
+        return;
     case "prompt": {
         respond(message, { disposition: "started" });
         const steps = scenario.reply !== undefined ? [{ text: scenario.reply }, { stop: "stop" }] : scenario.turns[prompts];

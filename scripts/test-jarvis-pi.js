@@ -185,12 +185,21 @@ world(async () => {
             } finally { delete env.FIXTURE_JARVIS_HOME; }
         },
         // The lockdown argv, the scrubbed environment, the bridge as the one
-        // MCP server, compaction off before the first prompt and streamed text.
+        // MCP server, compaction off before the first prompt in the private
+        // folder alone, the user's own Pi settings untouched, and streamed text.
         async turn(folder) {
             scenario({ turns: [[chunk("Hel"), chunk("lo."), { stop: "stop" }], [chunk("Again."), { stop: "stop" }]] });
+            const own = path.join(account, "settings.json");
+            const planted = JSON.stringify({ compaction: { enabled: true }, defaultThinkingLevel: "low" });
+            fs.writeFileSync(own, planted);
+            owners.push(() => fs.rmSync(own, { force: true }));
             const w = make(folder);
-            assert.deepEqual(await drain(w.say("hi")), [{ kind: "text", text: "Hel" }, { kind: "text", text: "lo." }, { kind: "done", reason: "stop" }]);
+            // A refused handshake is this case's failure, not the program's.
+            assert.deepEqual(await drain(w.say("hi")).catch(error => assert.fail(error.message)),
+                [{ kind: "text", text: "Hel" }, { kind: "text", text: "lo." }, { kind: "done", reason: "stop" }]);
+            assert.equal(fs.readFileSync(own, "utf8"), planted, "a Jarvis start leaves the user's Pi settings.json unchanged");
             const call = program();
+            assert.deepEqual(JSON.parse(call.settings), { compaction: { enabled: false } }, "compaction is off in the private folder");
             assert.deepEqual(call.args.slice(0, LOCKDOWN.length), LOCKDOWN);
             assert.deepEqual(call.args.slice(LOCKDOWN.length, -2), ["--extension", "builtin:mcp", "--approve", "--tools", "mcp__vgs_jarvis__*"],
                 "only the built-in MCP support and the bridge's tools");
@@ -214,8 +223,7 @@ world(async () => {
             assert.equal(JSON.stringify([call.args, call.env]).includes(token), false, "the token stays out of argv and environment");
             assert.deepEqual(await drain(w.say("more")), [{ kind: "text", text: "Again." }, { kind: "done", reason: "stop" }]);
             const commands = read("pi-log").filter(row => row.direction === "in").map(row => row.message.type);
-            assert.deepEqual(commands, ["set_auto_compaction", "prompt", "prompt"]);
-            assert.equal(received("set_auto_compaction")[0].enabled, false);
+            assert.deepEqual(commands, ["get_state", "prompt", "prompt"]);
             assert.deepEqual(received("prompt").map(m => m.message), ["hi", "more"]);
             assert.equal(read("pi-calls").length, 1, "one program per conversation");
             validWrites();
@@ -251,7 +259,7 @@ world(async () => {
             assert.deepEqual(received("set_model").map(m => [m.provider, m.modelId]), [["openrouter", "openai/gpt-5"]]);
             assert.deepEqual(received("set_thinking_level").map(m => m.level), ["high"]);
             assert.deepEqual(read("pi-log").filter(row => row.direction === "in").map(row => row.message.type),
-                ["set_auto_compaction", "set_model", "set_thinking_level", "prompt"]);
+                ["get_state", "set_model", "set_thinking_level", "prompt"]);
             assert.throws(() => make(folder, { model: "no-slash" }), { message: "jarvis: brain=pi-model" });
             // A saved effort that is none of Pi's levels starts no program.
             for (const effort of ["ultra", "High", "--thinking"])
@@ -343,6 +351,14 @@ world(async () => {
             await assert.rejects(drain(h.say("x")), { message: "jarvis: brain=pi-exited code=3 signal=null" });
             assert.deepEqual(received("prompt"), [], "a failed handshake sends no prompt");
             await noProgramOrDir(h.runtime, "failed handshake");
+        },
+        // A Pi that reports compaction on after the handshake gets no prompt.
+        async compactionOn(folder) {
+            scenario({ untrusted: true, turns: [[{ stop: "stop" }]] });
+            const w = make(folder);
+            await assert.rejects(drain(w.say("x")), { message: "jarvis: brain=pi-compaction-on" });
+            assert.deepEqual(received("prompt"), []);
+            await noProgramOrDir(w.runtime, "compaction on");
         },
         // A refused command fails with its command alone.
         async refused(folder) {
@@ -618,7 +634,10 @@ world(async () => {
             ["home-folder", H, [["extra: { PI_CODING_AGENT_DIR: directory }, cwd,", "extra: { PI_CODING_AGENT_DIR: directory }, cwd: env.FIXTURE_JARVIS_HOME,"]], "home"],
             ["token-environment", H, [["extra: { PI_CODING_AGENT_DIR: directory }", "extra: { PI_CODING_AGENT_DIR: directory, ...(bridge === null ? {} : bridge.env) }"]], "turn"],
             ["system-prompt", H, [["fs.writeFileSync(prompt, instructions,", 'fs.writeFileSync(prompt, "",']], "turn"],
-            ["no-compaction", H, [["await p.call(id => Pi.noCompaction(id));", ""]], "turn"],
+            ["project-settings", H, [['fs.writeFileSync(path.join(cwd, ".pi", "settings.json"), JSON.stringify({ compaction: { enabled: false } }), { flag: "wx", mode: 0o600 });', ""]], "turn"],
+            ["compaction-judged", H, [["if (bridge !== null) Pi.compactionOff(current);", ""]], "compactionOn"],
+            ["user-settings", H, [["const current = await p.call(id => Pi.state(id));",
+                'await p.call(id => ({ id: "j" + id, type: "set_auto_compaction", enabled: false }));\n        const current = await p.call(id => Pi.state(id));']], "turn"],
             ["set-model", H, [['if (model !== "") await p.call(id => Pi.setModel(id, Pi.model(model)));', ""]], "model"],
             ["model-shape", H, [['if (model !== "") Pi.model(model);', ""]], "model"],
             ["set-effort", H, [['if (effort !== "") await p.call(id => Pi.setThinkingLevel(id, Pi.level(effort)));', ""]], "model"],
