@@ -41,9 +41,10 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // never narrower than it is tall, and an item that draws an icon alone is
 // square, its icon centred. The tooltip reads `tooltip` as its title and
 // `tooltipDetails` as its quieter detail lines. `active` fills it with
-// `bar.active`, as the focused workspace; otherwise hover and press fill
-// it with `bar.item.hover` and `bar.item.pressed`. The template owns the
-// click, hover and focus, and the ring shows for keyboard focus.
+// `bar.active`, as the focused workspace; otherwise a press fills it with
+// `bar.item.pressed`, and hover draws no fill, so the bar stays still
+// under a passing pointer. The template owns the click, hover and focus,
+// and the ring shows for keyboard focus.
 T.AbstractButton {
     id: root
 
@@ -255,7 +256,7 @@ T.AbstractButton {
 
     background: Rectangle {
         radius: Theme.bar.item.radius
-        color: root.active ? Theme.bar.active : root.down ? Theme.bar.item.pressed : root.hovered ? Theme.bar.item.hover : "transparent"
+        color: root.active ? Theme.bar.active : root.down ? Theme.bar.item.pressed : "transparent"
         Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
         FocusRing { target: root }
     }

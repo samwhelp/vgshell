@@ -33,7 +33,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 - Never give the table or the judge an import, a Qt object or I/O, so a script runs the shell's own judge. `scripts/test-theme-logic.js` runs both under node.
 - Do keep the shipped layout scale on the 4 px grid. `GRID_EXCEPTIONS` in `scripts/test-theme-logic.js` names the permitted classes, and that test walks every length token. Keep row heights independent of the control size scale, so changing buttons does not resize every list.
 - Do keep the shipped theme and every catalog entry readable at the floors `ThemeLogic.readabilityShortfalls` states. `scripts/check-theme-contrast.js` judges them.
-- Do draw rest, hover, pressed, focus, disabled and checked from their own tokens, each different from rest, and never draw hover or press on an item a click cannot change. Review holds it; `scripts/qml-tests/tst_button.qml` and `tst_toggles.qml` pin the shipped controls.
+- Do draw rest, hover, pressed, focus, disabled and checked from their own tokens, each different from rest, and never draw hover or press on an item a click cannot change. A bar item is the one exception: hover draws no fill, so the bar stays still under a passing pointer. Review holds it; `scripts/qml-tests/tst_button.qml`, `tst_toggles.qml` and `tst_baritem.qml` pin the shipped controls.
 
 ### Appearance values
 

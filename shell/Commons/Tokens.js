@@ -1031,7 +1031,7 @@ var TOKENS = {
         // One item of the bar, a workspace pill or a widget's BarItem: its
         // height, its horizontal padding, the gap between items of one
         // widget, its icon's size, the gap between that icon and its text,
-        // its corner, and its fills under hover and a press.
+        // its corner, and its fill under a press. Hover draws no fill.
         item: {
             height: length("{size.control.sm}"),
             paddingX: length("{space.md}"),
@@ -1039,7 +1039,6 @@ var TOKENS = {
             gap: length("{space.xs}"),
             iconGap: length("{control.gap}"),
             radius: length("{radius.sm}"),
-            hover: color("{color.surfaceHover}"),
             pressed: color("{color.border}"),
             // The separator between paired readings: the bar text at a
             // quarter strength, never a state colour.

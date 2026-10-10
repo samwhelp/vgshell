@@ -24,8 +24,8 @@ import qs.Unit
 // each line draws its own label there instead, in that line's colour, in
 // one column so both readings start at one edge, and no single caption
 // stands before the block; a spinner stays the item gap before the
-// block; with one reading shown it stays one line; `active` fills it with `bar.active`; hover and press fill it
-// with their own tokens; a click emits `clicked`.
+// block; with one reading shown it stays one line; `active` fills it with `bar.active`; hover draws no fill and a
+// press fills it with `bar.item.pressed`; a click emits `clicked`.
 Item {
     id: root
     width: 300
@@ -101,7 +101,10 @@ Item {
             compare(String(pill.background.color), String(Qt.color(Theme.bar.active)));
             compare(String(labels(pill)[0].color), String(Qt.color(Theme.bar.onActive)));
             mouseMove(icon, icon.width / 2, icon.height / 2);
-            tryCompare(icon.background, "color", Qt.color(Theme.bar.item.hover));
+            tryCompare(icon, "hovered", true);
+            // Past the fill's colour animation, so a hover fill has landed.
+            wait(Theme.motion.duration.fast + 50);
+            compare(String(icon.background.color), String(Qt.color("transparent")), "hover draws no fill");
             mousePress(icon, icon.width / 2, icon.height / 2);
             tryCompare(icon.background, "color", Qt.color(Theme.bar.item.pressed));
             mouseRelease(icon, icon.width / 2, icon.height / 2);
