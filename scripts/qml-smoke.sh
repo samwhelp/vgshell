@@ -37,8 +37,11 @@
 # harness exited non-zero or read no bar. The last line is
 # `qml-smoke: first-bar runs=<N> measured=<M> highest_ms=<H> budget_ms=<2H>
 # highest_waited_ms=<W> deadline_ms=<2W>`, W over the runs released on a
-# first frame. Exit 0 when every run measured; otherwise a line naming how
-# many did not and where their logs are, then exit 77. One run takes about
+# first frame. A run whose nested compositor stopped answering prints
+# `run=<i> status=failed reason=compositor-stalled log=<path>` and the
+# mode exits 1 (scripts/smoke/hypr-call.sh). Exit 0 when every run
+# measured; otherwise a line naming how many did not and where their logs
+# are, then exit 77. One run takes about
 # 2 s. --plugin-set picks the set each run starts with: `smoke`, the rows'
 # own and the default, or `default`, every first-party plugin enabled as
 # in a live session (scripts/smoke/harness.sh); it needs --first-bar-runs.
@@ -202,6 +205,7 @@ if [[ -n $first_bar_runs ]]; then
     exit 1
   fi
   measured=0
+  stalled=0
   highest=0
   highest_waited=""
   for ((run = 1; run <= first_bar_runs; run++)); do
@@ -225,6 +229,9 @@ if [[ -n $first_bar_runs ]]; then
       if ((ms > highest)); then highest=$ms; fi
       if [[ $reason == first-frame ]] && { [[ -z $highest_waited ]] || ((waited > highest_waited)); }; then highest_waited=$waited; fi
       printf 'run=%d latency_first_bar_ms=%d cpu_some_pct=%s services_released=%s waited_ms=%s nested_monitor_ready_secs=%s\n' "$run" "$ms" "$pct" "$reason" "$waited" "$ready"
+    elif grep -qF -- '  FAIL  the nested compositor stopped answering: ' "$log"; then
+      stalled=$((stalled + 1))
+      printf 'run=%d status=failed reason=compositor-stalled log=%s\n' "$run" "$log"
     else
       printf 'run=%d status=not-measured exit=%d log=%s\n' "$run" "$status" "$log"
     fi
@@ -234,6 +241,10 @@ if [[ -n $first_bar_runs ]]; then
       "${highest_waited:-unmeasured}" "$([[ -n $highest_waited ]] && echo $((highest_waited * 2)) || echo unmeasured)"
   else
     printf 'qml-smoke: first-bar runs=%d measured=0 highest_ms=unmeasured budget_ms=unmeasured\n' "$first_bar_runs"
+  fi
+  if ((stalled > 0)); then
+    printf 'qml-smoke: failed first-bar-stalled=%d logs=%s\n' "$stalled" "$first_bar_logs"
+    exit 1
   fi
   if ((measured < first_bar_runs)); then
     printf 'qml-smoke: status=not-measured first-bar-unmeasured=%d logs=%s\n' $((first_bar_runs - measured)) "$first_bar_logs"
