@@ -78,8 +78,11 @@ Item {
         anchors.fill: parent
         container: "panel"
         fitToContent: true
-        // The month row is the header, so the Settings gear the panel host
-        // adds sits at its end, not on a row of its own.
+        // The clock's right-click menu opens the bar's Settings, so the
+        // calendar draws no gear and the month row spans the pane: Previous
+        // and Next month on its edges, the month between them on the
+        // panel's centre, its capitals centred on the buttons.
+        settingsGear: false
         header: [
             Row {
                 width: layout.headerWidth
@@ -91,7 +94,7 @@ Item {
                     text: grid.locale.standaloneMonthName(root.shownMonth, Locale.LongFormat) + " " + root.shownYear
                     width: parent.width - previous.width - next.width - 2 * parent.spacing
                     horizontalAlignment: Text.AlignHCenter
-                    anchors.verticalCenter: parent.verticalCenter
+                    y: topForCapCenter(previous.height)
                 }
                 IconButton { id: next; iconName: "chevron-right"; label: "Next month"; onClicked: root.showMonth(1) }
             }

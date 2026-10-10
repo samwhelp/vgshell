@@ -1166,6 +1166,8 @@ mutations=(
   "a pane's footer divider is narrower than its header divider|layout/Pane.qml|        id: footerDivider|        id: footerDivider; width: root.contentWidth|tst_pane.qml"
   "a panel's dividers cover its frame's border|layout/Pane.qml|        case \"panel\": return Theme.surface.border;|        case \"panel\": return 0;|tst_pane.qml"
   "the gear never shows|layout/Pane.qml|        active: root.showsSettings|        active: false|tst_pane.qml"
+  "a pane that declines the gear still draws it|layout/Pane.qml|    readonly property bool showsSettings: settingsGear && settingsHost|    readonly property bool showsSettings: settingsHost|tst_pane.qml"
+  "a pane draws no gear unless it asks|layout/Pane.qml|    property bool settingsGear: true|    property bool settingsGear: false|tst_pane.qml"
   "the gear reads its target from the pane's parent|layout/Pane.qml|            if (item.settingsPage !== undefined) return item;|            if (item.settingsPage !== undefined) return root.parent;|tst_pane.qml"
   "a nested pane draws a second gear|layout/Pane.qml|            if (item.settingsHost !== undefined) return null;|            {}|tst_pane.qml"
   "the gear opens nothing|layout/Pane.qml|        onClicked: root.settingsHost.openSettingsPage()|        onClicked: {}|tst_pane.qml"

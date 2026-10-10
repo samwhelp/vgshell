@@ -848,6 +848,20 @@ Item {
             host.destroy();
         }
 
+        // A pane that declines the gear, as the calendar does, holds none
+        // under a host that names a page and gives the header the whole
+        // content width; another pane under that host keeps its gear.
+        function test_a_pane_that_declines_the_gear_draws_none() {
+            const host = settingsHost.createObject(root);
+            host.pane.settingsGear = false;
+            compare(gear(host.pane), null, "a pane that declines the gear holds none");
+            compare(host.pane.headerWidth, host.pane.contentWidth);
+            compare(headerSlot(host.pane).width, host.pane.contentWidth);
+            verify(gear(host.titled) !== null && gear(host.titled).visible, "another pane keeps its gear");
+            verify(host.titled.headerWidth < host.titled.contentWidth, "another pane's header leaves the gear its room");
+            host.destroy();
+        }
+
         // A pane with no header still keeps the gear's row: the body starts
         // a gap below it.
         function test_the_gear_keeps_its_row_without_a_header() {

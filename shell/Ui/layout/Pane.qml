@@ -26,7 +26,10 @@ import qs.Ui
 // hairline to the ScrollArea. Inside a summoned plugin whose host names
 // a Settings page (PluginSlot's `settingsPage`), the outermost pane draws
 // a gear at the header's end that opens that page, and the header takes
-// `headerWidth`, which leaves the gear its room. `padding`
+// `headerWidth`, which leaves the gear its room. A panel whose Settings
+// open another way, such as the clock's calendar from the clock's
+// right-click menu, sets `settingsGear` false: no gear, and the header
+// takes the whole content width. `padding`
 // and `cornerRadius` default to the container class's tokens; a plugin that
 // owns its look (design-system.md § Appearance) hands its own. The `overlay` class is a
 // full-screen surface over a scrim, which draws no container and so has
@@ -52,6 +55,7 @@ Item {
     property bool switchChecked: false
     property bool switchEnabled: true
     property string switchName: title
+    property bool settingsGear: true
     // The width of a divider under the header while the body is scrolled,
     // and its colour.
     property real dividerWidth: Theme.divider.thickness
@@ -79,7 +83,7 @@ Item {
         }
         return null;
     }
-    readonly property bool showsSettings: settingsHost !== null && settingsHost.settingsPage !== ""
+    readonly property bool showsSettings: settingsGear && settingsHost !== null && settingsHost.settingsPage !== ""
     // True while the SurfaceHeight card holding this pane grows toward its
     // content: the body is short only until the card lands, so it shows no
     // scroll bar or footer divider for that.

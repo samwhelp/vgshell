@@ -239,11 +239,65 @@ calendar_back() {
   done
   echo unmoved
 }
+# The calendar's month row: the clock's right-click menu opens the bar's
+# Settings, so the calendar draws no gear, and Previous and Next month sit
+# on the pane's edges at its padding token, within 1 px of each other, the
+# month's ink centred across the pane and its capitals' centre, halfway
+# from its ink top to its baseline, level with both buttons' centres within
+# 1 px. calendar_header prints the measures, calendar_header_off the ones
+# that miss, so [] is the pass.
+calendar_header() {
+  local rows prev next gear labels inks padding
+  rows="$(ipc smoke descendantGeometry panel vgs.bar)" || return
+  prev="$(ipc smoke labelledGeometry panel vgs.bar IconButton "Previous month")" || return
+  next="$(ipc smoke labelledGeometry panel vgs.bar IconButton "Next month")" || return
+  gear="$(ipc smoke labelledGeometry panel vgs.bar IconButton Settings)" || return
+  labels="$(ipc smoke itemValues panel vgs.bar Label objectName,text,baselineOffset)" || return
+  inks="$(ipc smoke textInk panel vgs.bar Label)" || return
+  padding="$(ipc smoke themeValue surface.padding)" || return
+  python3 - "$rows" "$prev" "$next" "$gear" "$labels" "$inks" "$padding" <<'PY2'
+import json, sys
+rows, prev, next_, gear, labels, inks, padding = sys.argv[1:]
+if "absent" in (rows, prev, next_, labels, inks):
+    print("closed")
+    sys.exit()
+rows, prev, next_, labels, inks = (json.loads(a) for a in (rows, prev, next_, labels, inks))
+pane = next(r["box"] for r in rows if r["type"] == "Pane")
+title = next(r for r in rows if r["name"] == "calendarTitle")
+text = next(l["text"] for l in labels if l["objectName"] == "calendarTitle")
+baseline = title["box"][1] + next(l["baselineOffset"] for l in labels if l["objectName"] == "calendarTitle")
+ink = next(i["ink"] for i in inks if i["text"] == text)
+title_mid = (ink[1] + baseline) / 2
+print(json.dumps({
+    "gear": gear != "absent",
+    "padding": float(padding),
+    "left": round(prev[0] - pane[0], 2),
+    "right": round(pane[0] + pane[2] - next_[0] - next_[2], 2),
+    "titleDx": round(ink[0] + ink[2] / 2 - (pane[0] + pane[2] / 2), 2),
+    "previousDy": round(prev[1] + prev[3] / 2 - title_mid, 2),
+    "nextDy": round(next_[1] + next_[3] / 2 - title_mid, 2),
+}))
+PY2
+}
+calendar_header_off() {
+  calendar_header | py_reply 'import json,sys
+t=sys.stdin.read().strip()
+if t=="closed": print("closed"); sys.exit()
+m=json.loads(t); out=[]
+if m["gear"]: out.append("gear")
+if abs(m["left"]-m["right"])>1: out.append(["left-right", m["left"], m["right"]])
+for side in ("left","right"):
+    if abs(m[side]-m["padding"])>1: out.append([side, m[side], m["padding"]])
+for key in ("titleDx","previousDy","nextDy"):
+    if abs(m[key])>1: out.append([key, m[key]])
+print(json.dumps(out))'
+}
 calendar_button() { calendar_click_box "$(ipc smoke labelledGeometry panel vgs.bar IconButton "$1")"; }
 calendar_day() { calendar_click_box "$(ipc smoke itemGeometry panel vgs.bar Button "$1")"; }
 expect "a click on the clock reaches it" ok clock_click
 expect_poll "the calendar opens on this month with today marked" "$(calendar_want 0)" calendar_read
 geometry expect_poll "every day's number sits at its square's centre both ways" '[]' calendar_off_centre
+geometry expect_poll "the month row holds no gear, its buttons on the pane's padding and the month centred between them" '[]' calendar_header_off
 expect "Right reaches the calendar" ok calendar_keys -k Right
 expect_poll "Right shows the next month with no day marked" "$(calendar_want 1)" calendar_read
 expect "Left twice reaches the calendar" ok calendar_keys -k Left -k Left
