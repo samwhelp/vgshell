@@ -131,9 +131,10 @@ else: print("%s floating=%s" % (cs[0]["class"], str(cs[0]["floating"]).lower()))
 # tui_area TARGET CLASS [MODE]: how a floating TUI of app-id CLASS sits on
 # a monitor's work area: its logical box less the reserved space, [left,
 # top, right, bottom], and less general:float_gaps, CSS order, where
-# Hyprland v0.56.2 centres a floating window. The monitor, the clients
-# and the gaps come from one batched request, which the compositor answers
-# from one state. Given MODE, the mode a row holds, a monitor at another
+# Hyprland v0.56.2 centres a floating window. The monitor, the clients,
+# the gaps and general:border_size, the border Hyprland draws outside each
+# window, come from one batched request, which the compositor answers from
+# one state. Given MODE, the mode a row holds, a monitor at another
 # mode reads ["mode=<WxH> want=<MODE>"] and nothing is measured on it.
 #
 # The class's share and floor come from its rule in the written layer,
@@ -155,10 +156,12 @@ else: print("%s floating=%s" % (cs[0]["class"], str(cs[0]["floating"]).lower()))
 #            own size does not
 #   cells    the floor, which passes the gutters and fits what the axis
 #            keeps
-#   edge     what the axis keeps, which the floor passes
+#   edge     what the axis keeps less the border a side, which the floor
+#            passes
 #
-# TARGET pid:<n>, a client: [] when each axis is that length, its whole box
-# lies inside the work area and it is centred on it, each within one pixel,
+# TARGET pid:<n>, a client: [] when each axis is that length, its box and
+# the border around it lie inside the work area and it is centred on it,
+# each within one pixel,
 # since hyprctl prints whole pixels and a share is seldom one; else the
 # misfits.
 # TARGET monitor:<name>, no client: `w=<name> h=<name>`, which of the four
@@ -166,15 +169,16 @@ else: print("%s floating=%s" % (cs[0]["class"], str(cs[0]["floating"]).lower()))
 tui_area() {
   local gutter
   gutter="$(ipc smoke themeValue size.window.gutter)" || return
-  hypr --batch 'j/monitors; j/clients; j/getoption general:float_gaps' | py_reply '
+  hypr --batch 'j/monitors; j/clients; j/getoption general:float_gaps; j/getoption general:border_size' | py_reply '
 import json, re, sys
 text = sys.stdin.read()
 decoder, at, parts = json.JSONDecoder(), 0, []
-while len(parts) < 3:
+while len(parts) < 4:
     while text[at].isspace(): at += 1
     part, at = decoder.raw_decode(text, at)
     parts.append(part)
-monitors, clients, gaps = parts
+monitors, clients, gaps, border = parts
+border = border["int"]
 target, tui_class, held, gutter, layer = sys.argv[1], sys.argv[2], sys.argv[3], json.loads(sys.argv[4]), sys.argv[5]
 kind, _, key = target.partition(":")
 if kind == "pid":
@@ -214,8 +218,8 @@ def fit(share, floor, keeps):
     own, inside = max(share, floor), keeps - 2 * gutter
     if own <= inside: return "own", own
     if floor <= inside: return "gutters", inside
-    if floor <= keeps: return "cells", floor
-    return "edge", keeps
+    if floor <= keeps - 2 * border: return "cells", floor
+    return "edge", keeps - 2 * border
 (name_w, want_w), (name_h, want_h) = fit(mw * share_w, floor_w, mw), fit(mh * share_h, floor_h, mh - rt - rb)
 if kind == "monitor":
     print("w=%s h=%s" % (name_w, name_h)); sys.exit()
@@ -223,7 +227,7 @@ x, y, w, h = cs[0]["at"] + cs[0]["size"]
 out = []
 for key, got, want in (("w", w, want_w), ("h", h, want_h), ("x", x, area_x + (area_w - want_w) / 2), ("y", y, area_y + (area_h - want_h) / 2)):
     if abs(got - want) > 1: out.append("%s=%s want=%s" % (key, got, want))
-for key, box, area, inward in (("left", x, area_x, 1), ("top", y, area_y, 1), ("right", x + w, area_x + area_w, -1), ("bottom", y + h, area_y + area_h, -1)):
+for key, box, area, inward in (("left", x - border, area_x, 1), ("top", y - border, area_y, 1), ("right", x + w + border, area_x + area_w, -1), ("bottom", y + h + border, area_y + area_h, -1)):
     if (box - area) * inward < -1: out.append("%s=%s area=%s" % (key, box, area))
 print(json.dumps(out))' "$1" "$2" "${3:-}" "$gutter" "$hypr_layer"
 }

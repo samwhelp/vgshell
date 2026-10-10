@@ -612,9 +612,10 @@ function tuiCell(cell, name) {
 // CELLS cells of CELL logical pixels each, rounded up to a whole pixel,
 // and never over the output less MARGIN while those cells fit there.
 // Where they do not, the axis gives up as much of MARGIN as the cells
-// need and never more than leaves HARD, the part of MARGIN it keeps. A
-// 1366x768 output leaves 716 px under a 28 px bar and inside a 12 px
-// gutter a side, and a terminal with 20 px rows opened there with 35 of
+// need and never more than leaves HARD, the part of MARGIN it keeps: the
+// bar, if any, and the border Hyprland draws outside the window on each
+// side. A 1366x768 output leaves 716 px under a 28 px bar and inside a
+// 12 px gutter a side, and a terminal with 20 px rows opened there with 35 of
 // them where btop asks 36 (the `default` and `wide` classes in the nested
 // sandbox, 2026-10-10). Hyprland v0.56.2 evaluates the text with muParser
 // (Math::CExpression, src/helpers/math/Expression.cpp), whose `min`,
@@ -632,24 +633,27 @@ function tuiLength(axis, share, cells, cell, margin, hard) {
 
 // MARGINS is { bar, gutter }: Theme.bar.height and size.window.gutter. CELL
 // is { width, height }, one terminal cell as HyprlandLayer.qml estimates
-// it. Each size is two Hyprland expressions (tuiLength), which v0.56.2
-// evaluates against the monitor's logical size when the window maps: the
-// class's share of the output, never under its cells with TUI_PADDING's,
-// never wider than the output less `gutter` a side, nor taller than the
-// output less the bar and `gutter` a side, while its cells fit there. A
-// class whose cells do not fit there takes the gutters on that axis as far
-// as they need: the whole width at most, and never the bar's height.
+// it. BORDER is the theme's window border, `general.border_size`, which
+// Hyprland draws outside the window's size. Each size is two Hyprland
+// expressions (tuiLength), which v0.56.2 evaluates against the monitor's
+// logical size when the window maps: the class's share of the output,
+// never under its cells with TUI_PADDING's, never wider than the output
+// less `gutter` a side, nor taller than the output less the bar and
+// `gutter` a side, while its cells fit there. A class whose cells do not
+// fit there takes the gutters on that axis as far as they need, and keeps
+// BORDER a side so its frame stays on the output and off the bar.
 // Hyprland offers no reserved-area variable, so the bar's height is taken
 // whether or not a bar is up, and a screen with no bar leaves a clamped
 // TUI that many pixels short.
-function tuiWindowLines(margins, cell) {
+function tuiWindowLines(margins, cell, border) {
     var across = luaNumber(2 * tuiMargin(margins, "gutter"));
-    var bar = luaNumber(tuiMargin(margins, "bar"));
+    var keptAcross = luaNumber(2 * border);
+    var keptDown = luaNumber(tuiMargin(margins, "bar") + 2 * border);
     var down = luaNumber(tuiMargin(margins, "bar") + 2 * tuiMargin(margins, "gutter"));
     return ["-- Floating TUIs: each size class's app-id floats, centred, at its share of its output or its cells, inside the gutters where its cells fit there, never past the bar."].concat(Object.keys(TUI_WINDOWS).map(function (size) {
         var row = TUI_WINDOWS[size];
-        var width = tuiLength("monitor_w", row.widthShare, row.columns + TUI_PADDING.columns, tuiCell(cell, "width"), across, "0");
-        var height = tuiLength("monitor_h", row.heightShare, row.rows + TUI_PADDING.rows, tuiCell(cell, "height"), down, bar);
+        var width = tuiLength("monitor_w", row.widthShare, row.columns + TUI_PADDING.columns, tuiCell(cell, "width"), across, keptAcross);
+        var height = tuiLength("monitor_h", row.heightShare, row.rows + TUI_PADDING.rows, tuiCell(cell, "height"), down, keptDown);
         return "hl.window_rule({ name = \"" + row.rule + "\", match = { class = " + classLiteral(row.appId) + " }, float = true, center = true, size = { " + width + ", " + height + " } })";
     }));
 }
@@ -1404,7 +1408,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     });
     if (switches.groups.noGaps.enabled) groups = groups.concat(noGapsLines());
     else groups.push(disabledGroupLine("noGaps", switches.groups.noGaps.setting));
-    var lines = [""].concat(groups, [""], tuiWindowLines(theme.tuiMargins, theme.tuiCell), [""], appWindowLines());
+    var lines = [""].concat(groups, [""], tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [""], appWindowLines());
     if (theme.groups.surfaceBlur === true) lines = lines.concat([""], surfaceBlurLines());
     if (tapTrackerWanted(plan)) lines = lines.concat([""], tapTrackerLines());
     lines = lines.concat([""], userBindLines(), [""], overlayCaptureLines(plan), [""], keyPassthroughLines(), [""], sessionLockLines());
