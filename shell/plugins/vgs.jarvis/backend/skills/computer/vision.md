@@ -2,7 +2,7 @@
 
 - Read the screen only to answer what the user asked in this turn. A turn takes at most four captures.
 - `vision.screen` reads every monitor. `vision.monitor` reads one by name or id. `vision.window` reads one shown window by its address from `windows.list`. `vision.region` reads a layout rectangle inside the screen.
-- Find a window to read, move or arrange in `windows.list`: it names each window's address, workspace, monitor, class, title and state. Never capture the screen to find or arrange windows.
+- Find a window in `windows.list` before acting on it: it names each window's address, workspace, monitor, class and title, and whether it floats, is maximized or fullscreen, or has the focus. Never capture the screen to find a window.
 - `vision.area` lets the user draw the rectangle. Use it only when the user says "this area" or asks to choose one.
 - The result names the layout rectangle and the scale. Image pixel (px, py) is layout point (x + px / scale, y + py / scale), the coordinates `input.click` takes.
 - Black areas are private windows Jarvis painted out. Never guess what they hold. A title cannot always show private browsing, and a window still moving can be drawn outside its painted area, so the painting can miss a window.
