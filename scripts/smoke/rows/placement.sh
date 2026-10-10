@@ -1108,13 +1108,15 @@ placement_edge_tip_note() { printf '  placement-tips seen=[%s] label=%s\n' "$(so
 # zone's middle, then to X on the bar's middle line, and no motion after
 # it. The zones keep their room while the drag is held, so the zone's
 # ends stay where placement_edge_point read them. The drag's pipes are
-# placement_edge_out and placement_edge_in and its pid placement_edge_pid.
+# placement_edge_out and placement_edge_in, its pid placement_edge_pid, and
+# the clock at its press, in ms, placement_edge_pressed.
 placement_edge_hold() {
   local x y mx line
   read -r x y < <(placement_point acme.probe) && read -r mx _ < <(placement_edge_point middle) || return 1
   hover "$((x + 1))" "$y" || return 1
   : >"$placement_edge_tip_file"
   placement_edge_to="$1 $y"
+  placement_edge_pressed="$(now_ms)"
   coproc placement_edge_press { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$mx" "$y" "$1" "$y" hold; }
   placement_edge_out="${placement_edge_press[0]}" placement_edge_in="${placement_edge_press[1]}" placement_edge_pid="$placement_edge_press_PID"
   read -r -t 10 line <&"$placement_edge_out" && [[ $line == "holding $1 $y" ]]
@@ -1130,20 +1132,30 @@ placement_edge_release() {
   return "$status"
 }
 # placement_edge_reach SLOT DEPTH: `reached` once the held drag's preview
-# names the zone section's SLOT, polled as expect_poll polls under
-# smoke_poll_tries' DEPTH; at the bound `short` for a preview on another
-# slot of that section, else `elsewhere`. Each poll adds the tooltips
-# open then to placement_edge_tips.
+# names the zone section's SLOT, polled until the bound smoke_poll_tries
+# gives DEPTH has passed on the clock since the press; at the bound `short`
+# for a preview on another slot of that section, `no-drag` when no drag is
+# held, else `elsewhere`. The bound is time since the press, never a count
+# of reads: Hyprland ends a held drag's key capture
+# HyprlandLayer.KEY_PASSTHROUGH.timeoutMs, 10 s, after it began and the
+# shell then cancels the drag, so a control, whose poll runs to its 5 s
+# bound, takes its last reading and releases while the drag is still held.
+# Counted as 25 reads that poll took 14.7 s to 17.1 s at a 1-minute load of
+# 65 to 95 (this row under stress-ng --cpu 32 on 32 threads, 2026-10-10,
+# VGS-1291), and read a drag the shell had cancelled at 10.0 s.
+# Each poll adds the tooltips open then to placement_edge_tips.
 placement_edge_reach() {
-  local got
+  local got bound
   smoke_poll_tries 200 "$2"
-  for _ in $(seq 1 "$smoke_poll_n"); do
+  bound=$((placement_edge_pressed + smoke_poll_n * 200))
+  while :; do
     placement_edge_open_tips >>"$placement_edge_tip_file" || return 1
     got="$(placement_preview_slot)" || return 1
     [[ $got == "[\"$placement_edge_side\", $1]" ]] && { echo reached; return; }
+    (( $(now_ms) < bound )) || break
     sleep 0.2
   done
-  if [[ $got == "[\"$placement_edge_side\", "* ]]; then echo short; else echo elsewhere; fi
+  case $got in "[\"$placement_edge_side\", "*) echo short ;; absent) echo no-drag ;; *) echo elsewhere ;; esac
 }
 # placement_edge_scrolls start|end DEPTH: True once the zone shows no
 # button at that end, having scrolled all the way there, or False at the
