@@ -20,6 +20,11 @@ const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
 keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } };
+// The rows of a file another process appends to. Every writer ends a row
+// with a newline, so the text after the last one is a row still being
+// written: a poll skips it rather than parse half a row.
+const lines = file => fs.existsSync(file)
+    ? fs.readFileSync(file, "utf8").split("\n").slice(0, -1).filter(Boolean).map(line => JSON.parse(line)) : [];
 
 async function inside() {
     process.chdir(process.env.JARVIS_TEST_ROOT);
@@ -622,9 +627,8 @@ async function inside() {
     const deniedCheck = async (file, expected, error = "") => {
         fs.mkdirSync(deniedResults, { recursive: true });
         fs.rmSync(path.join(deniedResults, "results.jsonl"), { force: true });
-        const routed = id => fs.existsSync(path.join(deniedResults, "results.jsonl"))
-            ? fs.readFileSync(path.join(deniedResults, "results.jsonl"), "utf8").trim().split("\n").map(JSON.parse)
-                .find(row => row.id === id && row.route !== undefined) : undefined;
+        const routed = id => lines(path.join(deniedResults, "results.jsonl"))
+            .find(row => row.id === id && row.route !== undefined);
         await conversation(file, async w => {
             for (const [id, target] of [["protected", path.join(process.env.HOME, ".ssh/id_fixture")],
                 ["workspace", path.join(process.env.HOME, "project/new")]]) {
@@ -751,31 +755,39 @@ async function inside() {
         controls++;
     }
 
-    await conversation(scripted, async w => {
+    // The runner publishes the thinking frame before it hands the turn to the
+    // brain port, so the brain-send row lands after that frame: the case
+    // waits for the row its say adds, within the conversation's read bound.
+    const typedSay = (file, effectsRoot) => conversation(file, async w => {
+        const sends = () => lines(path.join(effectsRoot, "effects.jsonl")).filter(row => row.kind === "brain-send");
+        const before = sends().length;
         w.raw({ v: 1, type: "intent", gen: 0, revision: hello.revision, intent: "say", text: "typed daemon words" });
         await w.wait(m => m.phase === "thinking" && w.messages.some(row => row.type === "transcript" && row.role === "user"));
         assert.deepEqual(w.messages.filter(m => m.type === "transcript").map(m => [m.role, m.stage, m.text]),
             [["user", "final", "typed daemon words"]]);
-        const sent = fs.readFileSync(path.join(gates, "effects.jsonl"), "utf8").trim().split("\n").map(JSON.parse)
-            .filter(row => row.kind === "brain-send").at(-1);
-        assert.deepEqual([sent.kind, sent.text], ["brain-send", "typed daemon words"]);
+        await w.wait(() => sends().length > before);
+        assert.deepEqual(sends().slice(before).map(row => row.text), ["typed daemon words"]);
     });
+    await typedSay(scripted, gates);
     await control("say-text-dispatch", 'message.intent === "say" ? { type: "say", text: message.text }',
         'message.intent === "say" ? { type: "say", text: "wrong" }', async file => {
             const sayGates = path.join(root, "say-text-dispatch-gates");
             instrument(file, sayGates);
-            await conversation(file, async w => {
-                w.raw({ v: 1, type: "intent", gen: 0, revision: hello.revision, intent: "say", text: "typed daemon words" });
-                await w.wait(m => m.phase === "thinking" && w.messages.some(row => row.type === "transcript" && row.role === "user"));
-                const transcript = w.messages.find(m => m.type === "transcript" && m.role === "user");
-                assert.ok(transcript);
-                assert.equal(transcript.text, "typed daemon words");
-                const sent = fs.readFileSync(path.join(sayGates, "effects.jsonl"), "utf8").trim().split("\n").map(JSON.parse)
-                    .filter(row => row.kind === "brain-send").at(-1);
-                assert.ok(sent);
-                assert.equal(sent.text, "typed daemon words");
-            });
+            await typedSay(file, sayGates);
         });
+    {
+        // The user's words stay right and only the brain hears others.
+        const file = daemonCopy("say-brain-text");
+        const runnerFile = path.join(path.dirname(file), "session-runner.js");
+        const needle = 'case "brain-send": this.ports.brain.send(e, ';
+        const before = fs.readFileSync(runnerFile, "utf8");
+        assert.equal(before.split(needle).length - 1, 1, "say-brain-text mutation match");
+        fs.writeFileSync(runnerFile, before.replace(needle, 'case "brain-send": this.ports.brain.send({ ...e, text: "wrong" }, '));
+        const sayGates = path.join(root, "say-brain-text-gates");
+        instrument(file, sayGates);
+        await assert.rejects(() => typedSay(file, sayGates), assert.AssertionError, "say-brain-text must turn red");
+        controls++;
+    }
     // Stop's settled frame: the flush acknowledgement publishes the idle
     // playback after the flushing frame, so a reader waits for it.
     const stopSettled = m => m.state.conversation.kind === "ended" && m.phase === "idle"
@@ -987,7 +999,6 @@ async function inside() {
         fs.writeFileSync(file, changed);
         return file;
     }
-    const lines = file => fs.existsSync(file) ? fs.readFileSync(file, "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line)) : [];
     const alive = pid => {
         try { process.kill(pid, 0); return true; }
         catch (error) { if (error.code === "ESRCH") return false; throw error; }
