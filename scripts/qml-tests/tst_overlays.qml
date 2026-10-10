@@ -249,8 +249,9 @@ Item {
         // A short menu is as wide as its longest entry: that entry's text
         // ends as far from the right edge as it starts from the left. Only a
         // menu of one short word takes the minimum width. An entry's icon is
-        // as tall as its text's capitals, and the capitals start a side
-        // padding below the entry's top.
+        // as tall as its text's capitals and centred on them, and the
+        // capitals start a side padding below the entry's top and end as far
+        // above its bottom.
         function test_a_short_menu_fits_its_entries() {
             barMenu.open();
             const window = windowOf(barMenu);
@@ -272,8 +273,13 @@ Item {
                 const ink = glyph.painted[3] - glyph.painted[1];
                 verify(Math.abs(ink - capitals) <= 1, entry.text + "'s icon ink " + ink + " is within a pixel of the capitals " + capitals);
             }
-            const capTop = longest.contentItem.y + title.y + title.baselineOffset - capitals;
+            const baseline = longest.contentItem.y + title.y + title.baselineOffset;
+            const capTop = baseline - capitals;
             verify(Math.abs(capTop - longest.sidePadding) <= 1, "the capitals start " + capTop + " below the entry's top, its side padding " + longest.sidePadding);
+            const below = longest.height - baseline;
+            verify(Math.abs(below - capTop) <= 1, "the baseline stands " + below + " above the entry's bottom, the capitals " + capTop + " below its top");
+            const inkCentre = longest.contentItem.y + icon.y + (icon.painted[1] + icon.painted[3]) / 2;
+            verify(Math.abs(inkCentre - (baseline - capitals / 2)) <= 1, "the icon's ink centre " + inkCentre + " is within a pixel of the capitals' centre " + (baseline - capitals / 2));
             barMenu.close();
             oneWord.open();
             verify(oneWord.items()[0].implicitWidth + 2 * Theme.border.thin < Theme.menu.minWidth, "the one word is narrower than the minimum");

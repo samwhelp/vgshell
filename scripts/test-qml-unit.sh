@@ -414,6 +414,7 @@ mutations=(
   "a submenu entry draws no chevron|overlay/MenuItem.qml|visible: root.opensSubmenu|visible: false|tst_overlays.qml"
   "a checked submenu entry draws its check mark over the chevron|overlay/MenuItem.qml|visible: root.checked && !root.opensSubmenu|visible: root.checked|tst_overlays.qml"
   "a menu entry's text runs under the bar|overlay/MenuItem.qml|rightPadding: sidePadding + barRoom + (|rightPadding: sidePadding + (|tst_overlays.qml"
+  "a menu entry centres its text's line box, not its capitals|overlay/MenuItem.qml|elide: Text.ElideRight|elide: Text.ElideRight; anchors.verticalCenter: parent.verticalCenter|tst_overlays.qml"
   "a menu entry's check mark sits under the bar|overlay/MenuItem.qml|x: root.width - root.sidePadding - root.barRoom - painted[2]|x: root.width - root.sidePadding - painted[2]|tst_overlays.qml"
   "a menu entry's check mark box, not its ink, ends a side padding from the end|overlay/MenuItem.qml|x: root.width - root.sidePadding - root.barRoom - painted[2]|x: root.width - root.sidePadding - root.barRoom - width|tst_overlays.qml"
   "a submenu chevron's box, not its ink, ends a side padding from the end|overlay/MenuItem.qml|x: root.indicator.x + root.indicator.painted[2] - painted[2]|x: root.indicator.x + root.indicator.painted[2] - width|tst_overlays.qml"

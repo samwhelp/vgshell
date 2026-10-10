@@ -6,9 +6,12 @@ import qs.Ui
 // One entry of a Menu: an optional icon, the text, an optional key
 // shortcut hint in a trailing column, and a check mark at the end while
 // `checked` holds, which marks the current choice. The text elides when
-// the menu is narrower than the entry, and the shortcut keeps its column. The template owns the click, `triggered` and
-// the hover; the menu sets `highlighted` for the keyboard. `shortcut` is a
-// hint drawn after the text, not a binding; a click never toggles
+// the menu is narrower than the entry, and the shortcut keeps its column.
+// The text and the shortcut centre their capitals on the entry, as a
+// button's label does, since a line box's centre lies below its capitals'
+// centre. The template owns the click, `triggered` and the hover; the
+// menu sets `highlighted` for the keyboard. `shortcut` is a hint drawn
+// after the text, not a binding; a click never toggles
 // `checked`, which the author binds. The menu hands every entry its
 // ListCursor as `cursor`: the cursor then draws the highlight, and a hover
 // it lets through emits `pointed` for the menu to highlight the entry. The
@@ -80,7 +83,7 @@ T.MenuItem {
             x: parent.lead
             width: Math.max(0, parent.width - parent.lead - parent.tail)
             elide: Text.ElideRight
-            anchors.verticalCenter: parent.verticalCenter
+            y: topForCapCenter(parent.height)
         }
         Label {
             id: hint
@@ -89,7 +92,7 @@ T.MenuItem {
             visible: root.shortcut !== ""
             color: Theme.menu.item.shortcut
             x: parent.width - width
-            anchors.verticalCenter: parent.verticalCenter
+            y: topForCapCenter(parent.height)
         }
     }
 
