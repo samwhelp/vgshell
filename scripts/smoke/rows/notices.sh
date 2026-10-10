@@ -54,9 +54,12 @@ if needs_git init -q && needs_git add -A && needs_git commit -q -m fixture; then
 pkg_real="$sandbox/vgshell-pkg.real"
 cp -- "$repo/bin/vgshell-pkg" "$pkg_real"
 pkg_stub() { # DETECT_JSON, or "" for a detection that fails; HOLDER aur|none
-  local body holder="${2:-none}"
+  local body holder="${2:-none}" aur_owner=null
+  if [[ $holder == aur ]]; then
+    aur_owner='"vgs-smoke-old-aur"'
+  fi
   if [[ -n $1 ]]; then
-    body="if (process.argv[2] === \"detect\" && process.argv[3] === \"--json\") { const doc = $1; const at = process.argv.indexOf(\"--holders\"); if (at !== -1) { doc.holders = {}; for (const command of process.argv.slice(at + 1)) doc.holders[command] = command === \"vgs-smoke-old\" ? { path: \"$shim/vgs-smoke-old\", owners: { pacman: null, aur: \"$([[ $holder == aur ]] && printf vgs-smoke-old-aur)\" || null } } : { path: null, owners: {} }; } process.stdout.write(JSON.stringify(doc) + \"\\n\"); process.exit(0); }"
+    body="if (process.argv[2] === \"detect\" && process.argv[3] === \"--json\") { const doc = $1; const at = process.argv.indexOf(\"--holders\"); if (at !== -1) { doc.holders = {}; for (const command of process.argv.slice(at + 1)) doc.holders[command] = command === \"vgs-smoke-old\" ? { path: \"$shim/vgs-smoke-old\", owners: { pacman: null, aur: $aur_owner } } : { path: null, owners: {} }; } process.stdout.write(JSON.stringify(doc) + \"\\n\"); process.exit(0); }"
   else
     body=""
   fi
