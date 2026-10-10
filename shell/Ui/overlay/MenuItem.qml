@@ -48,6 +48,16 @@ T.MenuItem {
     readonly property bool endMark: checked ? true : opensSubmenu
     rightPadding: sidePadding + barRoom + (endMark ? Theme.menu.item.icon + spacing : 0)
     spacing: Theme.menu.item.gap
+
+    // The top, in the entry's coordinates, that puts `glyph`'s ink centre
+    // on the text's capital centre, on a whole device pixel: the text
+    // centres its capitals on the entry (Label.topForCapCenter), and the
+    // icon, the check mark and the chevron centre their ink on them, so
+    // no size takes an offset of its own.
+    function inkTop(glyph) {
+        const centre = contentItem.y + title.y + title.capCentre - (glyph.painted[1] + glyph.painted[3]) / 2;
+        return Math.round(centre * Screen.devicePixelRatio) / Screen.devicePixelRatio;
+    }
     hoverEnabled: true
     focusPolicy: Qt.NoFocus
     PointerCursor {}
@@ -73,7 +83,7 @@ T.MenuItem {
             name: root.iconName
             size: Theme.menu.item.icon
             color: Theme.menu.item.foreground
-            anchors.verticalCenter: parent.verticalCenter
+            y: root.inkTop(icon) - parent.y
         }
         Label {
             id: title
@@ -101,23 +111,25 @@ T.MenuItem {
     // from the end, as the text's starts a side padding from the start: a
     // Lucide glyph's ink sits inside its box by an amount each shape sets.
     indicator: Icon {
+        id: check
         name: "check"
         visible: root.checked && !root.opensSubmenu
         size: Theme.menu.item.icon
         color: Theme.menu.item.check
         x: root.width - root.sidePadding - root.barRoom - painted[2]
-        y: Math.round((root.height - height) / 2)
+        y: root.inkTop(check)
     }
 
     // The submenu's chevron stands where the check mark would, its own ink
     // ending where the check mark's does.
     Icon {
+        id: chevron
         name: "chevron-right"
         visible: root.opensSubmenu
         size: Theme.menu.item.icon
         color: Theme.menu.item.shortcut
         x: root.indicator.x + root.indicator.painted[2] - painted[2]
-        y: root.indicator.y
+        y: root.inkTop(chevron)
     }
 
     background: Rectangle {

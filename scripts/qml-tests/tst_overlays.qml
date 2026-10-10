@@ -95,6 +95,7 @@ Item {
         }
     }
     Component { id: transientTooltip; Tooltip { text: "Transient" } }
+    Component { id: scaledWindow; Window { width: 400; height: 120; color: "black" } }
     property int chosen: 4
     Select { id: select; y: 40; model: ["one", "two", "three"] }
     Select { id: roled; y: 80; textRole: "name"; model: [{ name: "alpha" }, { name: "beta" }] }
@@ -267,6 +268,44 @@ Item {
         // as tall as its text's capitals and centred on them, and the
         // capitals start a side padding below the entry's top and end as far
         // above its bottom.
+        function test_entry_glyphs_centre_on_the_capitals_data() {
+            return [{ tag: "1x", scale: 1 }, { tag: "2x", scale: 2 }];
+        }
+
+        // An entry's icon, check mark and submenu chevron centre their ink
+        // on the text's capitals within half a device pixel, each on a
+        // whole device pixel, at 1x and at 2x.
+        function test_entry_glyphs_centre_on_the_capitals(data) {
+            const screen = Qt.application.screens[data.scale - 1];
+            const window = scaledWindow.createObject(null, { screen: screen, x: screen.virtualX + 10, y: screen.virtualY + 10 });
+            window.visible = true;
+            const submenu = Qt.createQmlObject("import qs.Ui\nMenuItem { x: 8; y: 8; width: 200; text: \"Accounts\"; iconName: \"eye-off\"; opensSubmenu: true }", window.contentItem);
+            const ticked = Qt.createQmlObject("import qs.Ui\nMenuItem { x: 8; y: 60; width: 200; text: \"Hide\"; iconName: \"settings\"; checked: true }", window.contentItem);
+            const ratio = submenu.Screen.devicePixelRatio;
+            const rows = [
+                ["the icon", submenu, submenu.contentItem.children[0]],
+                ["the chevron", submenu, submenu.children.find(child => child.name === "chevron-right")],
+                ["the check mark", ticked, ticked.indicator],
+                ["the checked entry's icon", ticked, ticked.contentItem.children[0]]
+            ];
+            const found = [];
+            for (const [name, entry, glyph] of rows) {
+                const title = entry.contentItem.children[1];
+                const capitals = title.mapToItem(window.contentItem, 0, title.capCentre).y;
+                const top = glyph.mapToItem(window.contentItem, 0, 0).y;
+                const ink = top + (glyph.painted[1] + glyph.painted[3]) / 2;
+                found.push([name, ratio, Math.abs(ink - capitals) * ratio <= 0.5, Math.abs(top * ratio - Math.round(top * ratio)) < 0.01, ink, capitals, top]);
+            }
+            submenu.destroy();
+            ticked.destroy();
+            window.destroy();
+            for (const [name, at, centred, whole, ink, capitals, top] of found) {
+                compare(at, data.scale, "the window draws at its screen's scale");
+                verify(centred, name + "'s ink centre " + ink + " lies within half a device pixel of the capitals' centre " + capitals);
+                verify(whole, name + "'s top " + top + " is on a whole device pixel");
+            }
+        }
+
         function test_a_short_menu_fits_its_entries() {
             barMenu.open("key");
             const window = windowOf(barMenu);
