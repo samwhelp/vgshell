@@ -73,6 +73,8 @@ function suite(ctx, check) {
         ["an offer holding a number", allMissing, "offered", ["vgs-one", 7], ["refused: requirements=malformed", [], []]],
         ["an offer of seventeen commands", allMissing, "offered", Array(17).fill("vgs-one"), ["refused: requirements=malformed", [], []]],
         ["an offer of sixteen commands", allMissing, "offered", Array(16).fill("vgs-one"), ["ok", ["vgs-one"], ["vgs-one"]]],
+        ["a suggestion lists and requires its missing commands, optional ones too", allMissing, "suggested", ["vgs-two", "vgs-one"], ["ok", ["vgs-one", "vgs-two"], ["vgs-one", "vgs-two"]]],
+        ["a suggestion that is not a list", allMissing, "suggested", "vgs-one", ["refused: requirements=malformed", [], []]],
         ["a choice lists and requires its missing commands, optional ones too", allMissing, "chosen", ["vgs-bare"], ["ok", ["vgs-bare"], ["vgs-bare"]]],
         ["a choice of a command the owner did not declare", allMissing, "chosen", ["pacman"], ["refused: requirement=pacman reason=undeclared", [], []]],
         ["a choice that is not a list", allMissing, "chosen", "vgs-one", ["refused: requirements=malformed", [], []]],
@@ -81,7 +83,7 @@ function suite(ctx, check) {
         const r = ctx.noticeRequest(needs, missing, {}, trigger, commands);
         check("noticeRequest: " + name, [r.answer, r.commands, r.required], want);
     }
-    check("noticeRequest throws on a trigger no rule covers", (() => { try { ctx.noticeRequest(needs, [], {}, "asked", undefined); return "answered"; } catch (e) { return e.message; } })(), "notices: trigger \"asked\" is not one of installed, enabled, offered, requested, chosen");
+    check("noticeRequest throws on a trigger no rule covers", (() => { try { ctx.noticeRequest(needs, [], {}, "asked", undefined); return "answered"; } catch (e) { return e.message; } })(), "notices: trigger \"asked\" is not one of installed, enabled, offered, suggested, requested, chosen");
 
     // The triggers over a command below its floor: [name, missing, trigger,
     // commands, want]. vgs-old reads 1.9.0 under the floor 2.0.0.
@@ -163,14 +165,15 @@ function suite(ctx, check) {
         ["a first notice joins the queue", [], {}, "acme.needs", n("", ["a", "b"], ["a"]), "installed", ["ok", ["acme.needs: a,b / a"]]],
         ["a second plugin waits behind the first", [n("acme.x", ["x"], ["x"])], {}, "acme.needs", n("", ["a"], ["a"]), "enabled", ["ok", ["acme.x: x / x", "acme.needs: a / a"]]],
         ["a plugin holding a notice gets the new commands merged", [n("acme.x", ["x"], ["x"]), n("acme.needs", ["a"], ["a"])], {}, "acme.needs", n("", ["b", "a"], ["b"]), "offered", ["ok", ["acme.x: x / x", "acme.needs: a,b / a,b"]]],
-        ["a resting plugin's offer is refused", [], { "acme.needs": 1500 }, "acme.needs", n("", ["a"], ["a"]), "offered", ["refused: requirements=acme.needs reason=resting retry-ms=500", []]],
-        ["a rest that ended refuses nothing", [], { "acme.needs": 1000 }, "acme.needs", n("", ["a"], ["a"]), "offered", ["ok", ["acme.needs: a / a"]]],
+        ["a resting plugin's suggestion is refused", [], { "acme.needs": 1500 }, "acme.needs", n("", ["a"], ["a"]), "suggested", ["refused: requirements=acme.needs reason=resting retry-ms=500", []]],
+        ["a rest that ended refuses nothing", [], { "acme.needs": 1000 }, "acme.needs", n("", ["a"], ["a"]), "suggested", ["ok", ["acme.needs: a / a"]]],
+        ["an offer, a user's press, is never refused for a rest", [], { "acme.needs": 1500 }, "acme.needs", n("", ["a"], ["a"]), "offered", ["ok", ["acme.needs: a / a"]]],
         ["an install is never refused for a rest", [], { "acme.needs": 1500 }, "acme.needs", n("", ["a"], ["a"]), "installed", ["ok", ["acme.needs: a / a"]]],
         ["an enable is never refused for a rest", [], { "acme.needs": 1500 }, "acme.needs", n("", ["a"], ["a"]), "enabled", ["ok", ["acme.needs: a / a"]]],
         ["a request is never refused for a rest", [], { "acme.needs": 1500 }, "acme.needs", n("", ["a"], ["a"]), "requested", ["ok", ["acme.needs: a / a"]]],
         ["a choice is never refused for a rest", [], { "acme.needs": 1500 }, "acme.needs", n("", ["a"], ["a"]), "chosen", ["ok", ["acme.needs: a / a"]]],
-        ["another plugin's rest refuses nothing", [], { "acme.other": 1500 }, "acme.needs", n("", ["a"], ["a"]), "offered", ["ok", ["acme.needs: a / a"]]],
-        ["a resting plugin's offer merges into its held notice", [n("acme.needs", ["a"], ["a"])], { "acme.needs": 1500 }, "acme.needs", n("", ["b"], ["b"]), "offered", ["ok", ["acme.needs: a,b / a,b"]]],
+        ["another plugin's rest refuses nothing", [], { "acme.other": 1500 }, "acme.needs", n("", ["a"], ["a"]), "suggested", ["ok", ["acme.needs: a / a"]]],
+        ["a resting plugin's suggestion merges into its held notice", [n("acme.needs", ["a"], ["a"])], { "acme.needs": 1500 }, "acme.needs", n("", ["b"], ["b"]), "suggested", ["ok", ["acme.needs: a,b / a,b"]]],
         ["a full queue refuses a ninth plugin", full, {}, "acme.needs", n("", ["a"], ["a"]), "installed", ["refused: notices=full limit=8", shown(full)]],
         ["a full queue still merges a held plugin", full, {}, "acme.p3", n("", ["d"], ["d"]), "installed", ["ok", shown(full).map(line => line.startsWith("acme.p3:") ? "acme.p3: c,d / c,d" : line)]],
     ];
@@ -180,7 +183,7 @@ function suite(ctx, check) {
         check("noticeAdmit: " + name, [r.answer, shown(r.queue)], want);
         check("noticeAdmit leaves the queue it was handed alone: " + name, JSON.stringify(queue), before);
     }
-    check("noticeAdmit throws on a trigger no rule covers", (() => { try { ctx.noticeAdmit([], {}, "acme.needs", n("", ["a"], ["a"]), "asked", 0); return "answered"; } catch (e) { return e.message; } })(), "notices: trigger \"asked\" is not one of installed, enabled, offered, requested, chosen");
+    check("noticeAdmit throws on a trigger no rule covers", (() => { try { ctx.noticeAdmit([], {}, "acme.needs", n("", ["a"], ["a"]), "asked", 0); return "answered"; } catch (e) { return e.message; } })(), "notices: trigger \"asked\" is not one of installed, enabled, offered, suggested, requested, chosen");
     check("the queue holds eight plugins and an offer names sixteen commands", [ctx.NOTICE_QUEUE_MAX, ctx.NOTICE_OFFER_MAX], [8, 16]);
     check("a plugin's offers rest ten minutes after Not now", ctx.NOTICE_OFFER_REST_MS, 600000);
 
@@ -399,8 +402,10 @@ const CONTROLS = [
     ["nothing required is satisfied", "answer: required.length === 0 ? \"satisfied\" : \"ok\"", "answer: \"ok\""],
     ["a held plugin's notice is merged", "    if (at !== -1) {\n", "    if (false) {\n"],
     ["a merge keeps the held commands", "var union = function (held, added) { return held.concat(", "var union = function (held, added) { return [].concat(added, "],
-    ["an offer rests", "if (trigger === \"offered\" && hasOwn(rest, id) && rest[id] > now)", "if (false)"],
-    ["only an offer rests", "if (trigger === \"offered\" && hasOwn(rest, id)", "if (hasOwn(rest, id)"],
+    ["a suggestion rests", "if (trigger === \"suggested\" && hasOwn(rest, id) && rest[id] > now)", "if (false)"],
+    ["only a suggestion rests", "if (trigger === \"suggested\" && hasOwn(rest, id)", "if (hasOwn(rest, id)"],
+    ["a press offer never rests", "if (trigger === \"suggested\" && hasOwn(rest, id)", "if ((trigger === \"suggested\" || trigger === \"offered\") && hasOwn(rest, id)"],
+    ["a suggestion lists as an offer", "    case \"offered\":\n    case \"suggested\":\n", "    case \"offered\":\n"],
     ["a rest ends", "hasOwn(rest, id) && rest[id] > now)", "hasOwn(rest, id))"],
     ["the queue has a ceiling", "if (queue.length >= NOTICE_QUEUE_MAX)", "if (false)"],
     ["the queue is not changed in place", "var merged = queue.slice();", "var merged = queue;"],
@@ -413,7 +418,7 @@ const CONTROLS = [
     ["a settle keeps the installing notice", "        if (n.id === installing)\n            return true;\n", ""],
     ["a settle drops a notice whose owner went", "        if (!hasOwn(owners, n.id))\n            return false;\n", ""],
     ["a settle drops a satisfied notice", "        return !noticeView(owners[n.id]", "        return true || !noticeView(owners[n.id]"],
-    ["a choice lists as an offer", "    case \"offered\":\n    case \"chosen\":\n", "    case \"offered\":\n"],
+    ["a choice lists as an offer", "    case \"suggested\":\n    case \"chosen\":\n", "    case \"suggested\":\n"],
     ["an owner is a string", "    if (typeof owner !== \"string\")\n        return \"refused: owner=malformed\";\n", ""],
     ["an owner is known", "    if (!hasOwn(owners, owner))\n        return \"refused: owner=\"", "    if (false)\n        return \"refused: owner=\""],
     ["a plugin owner is enabled", "if (owner !== CORE_OWNER && enabled.indexOf(owner) === -1)", "if (false)"],

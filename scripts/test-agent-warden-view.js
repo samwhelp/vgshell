@@ -171,8 +171,6 @@ const REPLIES = [
     ["missing launcher", "refused: tui=setup reason=launcher-missing", "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it."],
     ["failed launcher", "refused: tui=setup reason=launcher-failed", "VGS could not open this action. Try again."],
     ["vsys already found", "satisfied", "vsys is already installed."],
-    ["a rest", "refused: requirements=vgs.agent-warden reason=resting retry-ms=300001", "You chose Not now. Ask again in 6m."],
-    ["a rest about to end", "refused: requirements=vgs.agent-warden reason=resting retry-ms=10", "You chose Not now. Ask again in 1m."],
     ["a full queue", "refused: notices=full limit=8", "Too many install requests are waiting. Try again later."],
     ["anything else, as it came", "refused: argv=empty", "VGS could not open this action. Try again."]
 ];

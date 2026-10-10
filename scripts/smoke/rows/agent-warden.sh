@@ -769,8 +769,7 @@ if [[ $vsys_first == missing ]]; then
   # reads Missing, the Warden row offers no Set up, since
   # setup needs vsys first, and the Requirements section's Install all
   # missing raises the core's notice for vsys. A scan that finds vsys closes the
-  # notice and rests nothing, where Not now would rest the plugin's own
-  # offers and hold back the panel's Get vsys below.
+  # notice and rests nothing.
   settings_page_open vgs.agent-warden
   settings_details
   expect_poll "a warden not set up without vsys offers no Set up" '[["warden", "Set up", false]]' offered_actions vgs.agent-warden
@@ -794,6 +793,16 @@ if [[ $vsys_first == missing ]]; then
   click_item panel vgs.agent-warden Button "Install vsys" || fail "the click on Get vsys failed"
   expect_poll "Get vsys raises the notice for vsys" '["vgs.agent-warden", ["vsys"]]' warden_notice
   expect_poll "the Get vsys hand-off closes the panel" hidden warden_panel_shown
+  # Get vsys is a press, which no Not now rests, so a second press after
+  # Not now shows the notice again.
+  expect_poll "the Get vsys notice holds the keyboard" true ipc smoke noticeFocused
+  type_keys -k Escape || fail "sending Escape to the Get vsys notice failed"
+  expect_poll "Not now closes the Get vsys notice" null warden_notice
+  expect "Not now on the Get vsys notice rests the plugin" true notice_rests vgs.agent-warden
+  warden_open "after Not now"
+  click_item panel vgs.agent-warden Button "Install vsys" || fail "the second click on Get vsys failed"
+  expect_poll "a second Get vsys after Not now raises the notice again" '["vgs.agent-warden", ["vsys"]]' warden_notice
+  expect_poll "the second Get vsys hand-off closes the panel" hidden warden_panel_shown
   warden_vsys_stub
   rescan "a rescan after vsys arrives starts"
   expect_poll "the scan that finds vsys closes the notice" null warden_notice

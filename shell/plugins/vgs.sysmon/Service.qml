@@ -89,7 +89,7 @@ Item {
             shell.status.set("cpuSensors", cpuSensors.map(sensor => ({ value: sensor.value, label: sensor.label })));
             devices = Logic.orderGpus(cards);
             publishChoices();
-            if (!nvidiaPresent && devices.some(card => card.driver === "nvidia")) shell.requirements.offer(["nvidia-smi"]);
+            if (!nvidiaPresent && devices.some(card => card.driver === "nvidia")) shell.requirements.suggest(["nvidia-smi"]);
             shell.status.set("graphics", devices.length ? { text: "Available", tone: "ok" } : { text: "Not found", hint: "No supported graphics card found.", tone: "info" });
             discovered = true;
             if (leaseCount > 0) tick();

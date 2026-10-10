@@ -15,9 +15,10 @@
 # the acme.layers fixture's layer below, which rows/layers.sh installed and
 # left disabled, and a click on the dialog's title does not, which is the
 # mask's control;
-# Escape closes it and rests the plugin's own offers;
+# Escape closes it and rests the offers the plugin raises with no press;
 # enabling the plugin raises it again; the plugin's offer merges into a
-# held notice and is refused while it rests, for a command it did not
+# held notice, a suggestion is refused while it rests and an offer, a
+# press, is not, and an offer is refused for a command it did not
 # declare and for a value that is no list of commands; Install hands the
 # terminal `vgshell pkg run install` with the primary's package, the notice
 # has no surface while the run is live, and comes back with the keyboard,
@@ -233,7 +234,8 @@ expect_poll "enabling a plugin that misses a command raises the notice" "[\"acme
 expect_poll "the needs fixture's service is built" True record_exists acme.needs
 
 # The requirements capability: an offer merges into the plugin's held
-# notice, and while the notice is gone and the plugin rests, it is refused.
+# notice. While the notice is gone and the plugin rests, a suggestion, raised
+# with no press, is refused, and an offer, a user's press, raises the notice.
 # `missing` lists the declared commands the last scan did not find; the
 # rows after the install and after the command goes read it change.
 expect "the capability lists the declared commands the scan did not find" '["vgs-smoke-needs","vgs-smoke-extra","vgs-smoke-unmapped"]' needs missing
@@ -245,9 +247,14 @@ expect "the merged notice is still the one notice" "[\"acme.needs\", $all_needs,
 expect_poll "the notice holds the keyboard again" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes the enabled notice" null notice_shown
-resting_offer() { needs offer vgs-smoke-needs | sed -E 's/retry-ms=[0-9]+$/retry-ms=N/'; }
-expect "an offer while the plugin rests is refused" "refused: requirements=acme.needs reason=resting retry-ms=N" resting_offer
-expect "a refused offer raises no notice" 0 layer_count vgs:notice
+resting_suggestion() { needs suggest vgs-smoke-needs | sed -E 's/retry-ms=[0-9]+$/retry-ms=N/'; }
+expect "a suggestion while the plugin rests is refused" "refused: requirements=acme.needs reason=resting retry-ms=N" resting_suggestion
+expect "a refused suggestion raises no notice" 0 layer_count vgs:notice
+expect "an offer while the plugin rests is admitted" ok needs offer vgs-smoke-needs
+expect_poll "the offer after Not now shows the notice" '["acme.needs", ["vgs-smoke-needs"], ["vgs-smoke-needs"], false]' notice_shown
+expect_poll "the offer's notice holds the keyboard" true ipc smoke noticeFocused
+type_keys -k Escape || fail "sending Escape failed"
+expect_poll "Escape closes the offer's notice" null notice_shown
 
 # Install: the primary's package through the core's TUI. While hold_runs
 # holds the core run open (terminal_stand_in in harness.sh), the notice has

@@ -296,7 +296,6 @@ var REFUSALS = [
     [/^refused: tui=[a-z0-9-]+ reason=busy$/, function () { return ""; }],
     [/^refused: tui=[a-z0-9-]+ reason=launcher-missing$/, function () { return "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it."; }],
     [/^satisfied$/, function () { return "vsys is already installed."; }],
-    [/^refused: requirements=\S+ reason=resting retry-ms=(\d+)$/, function (m) { return "You chose Not now. Ask again in " + Commons.Duration.format(Math.max(1, Math.ceil(Number(m[1]) / 60000)) * 60, 1) + "."; }],
     [/^refused: notices=full limit=\d+$/, function () { return "Too many install requests are waiting. Try again later."; }]
 ];
 

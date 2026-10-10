@@ -2074,22 +2074,26 @@ function versionCommands(owners, missing, enabled) {
 // The requirement notice, shell/Core/Notices.qml
 // (docs/architecture/commands-are-data.md § Consent). At most NOTICE_QUEUE_MAX plugins hold a notice at once, the
 // first shown and the rest waiting. After the user answers a plugin's
-// notice Not now, the plugin's own offers are refused for
-// NOTICE_OFFER_REST_MS; the install and enable triggers are the user's own
-// acts, which no rest refuses. An offer names 1 to NOTICE_OFFER_MAX
+// notice Not now, the offers the plugin raises on its own, `suggested`, are
+// refused for NOTICE_OFFER_REST_MS; every other trigger is the user's own
+// act, which no rest refuses. An offer names 1 to NOTICE_OFFER_MAX
 // commands. Core policy, like the notify run ceiling.
 var NOTICE_QUEUE_MAX = 8;
 var NOTICE_OFFER_REST_MS = 600000;
 var NOTICE_OFFER_MAX = 16;
 // What raises a notice: `installed`, the pluginInstalled IPC function
 // `vgshell plugin add` calls; `enabled`, setPluginEnabled turning a plugin on;
-// `offered`, the plugin's own `requirements` capability; `requested`, the
+// `offered`, the `requirements` capability's offer, a user's press on the
+// plugin's own control; `suggested`, the same capability's suggest, an offer
+// the plugin raises with no press, the one trigger a rest refuses. The
+// capability member a plugin calls is how the core tells the two apart: the
+// core sees no press itself. `requested`, the
 // `manager` capability's installRequirements, the Settings window's
 // Install; `chosen`, a user's press asking for the core's or an enabled
 // plugin's requirements: the `doctor` capability, a view of every owner's
 // requirements, and the `manager` capability's act on a status action that
 // installs (D061).
-var NOTICE_TRIGGERS = ["installed", "enabled", "offered", "requested", "chosen"];
+var NOTICE_TRIGGERS = ["installed", "enabled", "offered", "suggested", "requested", "chosen"];
 // The owner a notice is raised for when it is the core's own requirements,
 // config/requirements.json, rather than a plugin's. A plugin id is dotted,
 // so no plugin can take it.
@@ -2129,7 +2133,7 @@ function noticeOwnerError(owner, owners, enabled) {
 // lack is an outdated command raises no notice by them, and its page offers
 // the update. A request lists and requires every missing or outdated
 // requirement, optional ones included, since the user asked to install
-// them. An offer, and a choice, lists and requires each of COMMANDS still
+// them. An offer, a suggestion and a choice list and require each of COMMANDS still
 // missing or outdated, and is refused as
 // `refused: requirements=malformed` for anything but a list of 1 to
 // NOTICE_OFFER_MAX strings, then as `refused: requirement=<name>
@@ -2148,6 +2152,7 @@ function noticeRequest(manifest, missing, versions, trigger, commands) {
         required = trigger === "requested" ? listed : listed.filter(function (row) { return !row.optional; });
         break;
     case "offered":
+    case "suggested":
     case "chosen":
         if (!Array.isArray(commands) || commands.length === 0 || commands.length > NOTICE_OFFER_MAX || !commands.every(function (c) { return typeof c === "string"; }))
             return { answer: "refused: requirements=malformed", commands: [], required: [] };
@@ -2170,7 +2175,7 @@ function noticeRequest(manifest, missing, versions, trigger, commands) {
 // TRIGGER at NOW, in ms since the epoch: { answer, queue }. A plugin
 // holding a notice gets REQUEST's commands merged into it, after those it
 // holds, and answers "ok" whatever the trigger, since the user sees one
-// notice either way. Otherwise an offer while REST, plugin id -> the end
+// notice either way. Otherwise a suggestion while REST, plugin id -> the end
 // of its rest in ms, holds a later end for ID is refused as
 // `refused: requirements=<id> reason=resting retry-ms=<ms>`; a queue
 // holding NOTICE_QUEUE_MAX notices refuses as
@@ -2188,7 +2193,7 @@ function noticeAdmit(queue, rest, id, request, trigger, now) {
         merged[at] = { id: id, commands: union(queue[at].commands, request.commands), required: union(queue[at].required, request.required) };
         return { answer: "ok", queue: merged };
     }
-    if (trigger === "offered" && hasOwn(rest, id) && rest[id] > now)
+    if (trigger === "suggested" && hasOwn(rest, id) && rest[id] > now)
         return { answer: "refused: requirements=" + id + " reason=resting retry-ms=" + (rest[id] - now), queue: queue };
     if (queue.length >= NOTICE_QUEUE_MAX)
         return { answer: "refused: notices=full limit=" + NOTICE_QUEUE_MAX, queue: queue };

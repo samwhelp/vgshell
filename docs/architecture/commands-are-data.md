@@ -66,7 +66,7 @@ A string that reaches a shell becomes code, and a plugin's or a catalog's text w
 ### Consent
 
 - Do start every install, root change and plugin or theme change from the user's own press, and show every root command before it runs, then run only the plan shown. `scripts/test-vgshell-system.sh` and `scripts/test-vgshell-sudo-grant.sh` pin it.
-- Do let the package manager ask for root in the floating terminal, never in the shell: the requirement notice's Install opens the core TUI `core/requirements-install`, one manager per press. `scripts/smoke/rows/notices.sh` pins the Install run, and `scripts/test-vgshell-pkg-run.sh` refuses `vgshell pkg run` in a shell process. `PluginLogic.noticeRequest` decides which requirements a notice lists, and `PluginLogic.noticeAdmit` decides when a plugin's offer rests.
+- Do let the package manager ask for root in the floating terminal, never in the shell: the requirement notice's Install opens the core TUI `core/requirements-install`, one manager per press. `scripts/smoke/rows/notices.sh` pins the Install run, and `scripts/test-vgshell-pkg-run.sh` refuses `vgshell pkg run` in a shell process. `PluginLogic.noticeRequest` decides which requirements a notice lists, and `PluginLogic.noticeAdmit` decides when an offer a plugin raises with no press rests; an offer a press raises never rests.
 - Do keep the question a command asks on its terminal: a core TUI that adds, updates or removes a plugin or a theme runs without `--yes`, and the prompted theme add asks before it applies the new theme ([D007](../decisions/D007-install-runs-no-plugin-code.md)).
 - Do open the requirement notice instead of a plugin's script while a command the script needs is missing. `scripts/test-tui-logic.js` pins it.
 

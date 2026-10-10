@@ -264,7 +264,7 @@ Singleton {
     }
 
     // Owner ID's notice for TRIGGER, one of PluginLogic.NOTICE_TRIGGERS,
-    // and, for an offer or a request, COMMANDS: PluginLogic.noticeRequest's
+    // and, for an offer, a suggestion or a choice, COMMANDS: PluginLogic.noticeRequest's
     // answer, then noticeAdmit's.
     function raise(id, trigger, commands) {
         const owners = Registry.requirementOwners;
@@ -319,11 +319,24 @@ Singleton {
         if (answer !== "ok" && answer !== "satisfied") console.warn("notices: enabled=" + id + " " + answer);
     }
 
-    // The `requirements` capability's offer, for the instance CTX belongs to.
-    // The notice outlives that instance: only the user's answer, or a scan
-    // that finds its commands, closes it.
-    function offer(ctx, commands) {
-        return raise(ctx.id, "offered", commands);
+    // The `requirements` capability's offer, a user's press, for the
+    // instance CTX belongs to; no rest holds it back. TUI, when given, is
+    // one of the plugin's own declared TUIs the press goes on to, which the
+    // notice opens once it closes with its commands found (resume). The
+    // notice outlives that instance: only the user's answer, or a scan that
+    // finds its commands, closes it.
+    function offer(ctx, commands, tui) {
+        if (tui !== undefined && (typeof tui !== "string" || !Logic.hasOwn(ctx.manifest.tui, tui)))
+            return "refused: tui=" + Logic.tuiLabel(tui) + " reason=undeclared";
+        const answer = raise(ctx.id, "offered", commands);
+        if (answer === "ok" && tui !== undefined) resumes = Object.assign({}, resumes, { [ctx.id]: tui });
+        return answer;
+    }
+
+    // The `requirements` capability's suggest: an offer the plugin raises
+    // with no press, which rests after Not now (PluginLogic.noticeAdmit).
+    function suggest(ctx, commands) {
+        return raise(ctx.id, "suggested", commands);
     }
 
     // The `manager` capability's installRequirements: plugin ID's notice
@@ -466,8 +479,8 @@ Singleton {
         if (showingResetDone) resetBackup = "";
     }
 
-    // Not now, Escape or Close: the shown notice goes, and its owner's own
-    // offers rest; a `doctor` request, the user's press, never rests. The
+    // Not now, Escape or Close: the shown notice goes, and the offers its
+    // owner suggests with no press rest; a press never rests. The
     // restart notice goes until another refused first build raises it, and
     // the reset question until the next ask. Keep these on the "VGS was
     // reset" notice removes the marker, so the notice does not come back;

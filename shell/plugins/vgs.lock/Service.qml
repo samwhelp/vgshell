@@ -265,7 +265,8 @@ Item {
         else if (state === "off" || state === "missing") state = "starting";
         publish("sleep", LockModel.sleepStatus(state, detail));
         // The requirement notice installs what the hook needs in one click.
-        if (state === "missing") shell.requirements.offer(sleepMissing);
+        // No press raises it, so it rests after Not now.
+        if (state === "missing") shell.requirements.suggest(sleepMissing);
     }
 
     function retrySleep() {

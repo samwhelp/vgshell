@@ -261,15 +261,17 @@ function suite(logic, service = serviceSource) {
     const importBody = /function importWireguard\(\) \{([\s\S]*?)\n    \}/.exec(service);
     assert.ok(importBody);
     const importRun = new Function("profiles", "shell", "root", importBody[1]);
-    for (const [state, missing, refusal, offered, launched] of [
-        ["available", [], undefined, [], 1],
-        ["available", ["gum"], "refused: import=missing-tool", [["gum"]], 0],
-        ["available", ["nmcli", "gum"], "refused: import=missing-tool", [["nmcli", "gum"]], 0],
-        ["unavailable", [], "refused: import=unavailable", [], 0]
+    // A shown notice answers the press and opens the import once it installs.
+    for (const [state, missing, offerAnswer, refusal, offered, launched] of [
+        ["available", [], "ok", undefined, [], 1],
+        ["available", ["gum"], "ok", undefined, [[["gum"], "import-wireguard"]], 0],
+        ["available", ["nmcli", "gum"], "ok", undefined, [[["nmcli", "gum"], "import-wireguard"]], 0],
+        ["available", ["gum"], "refused: notices=full limit=8", "refused: import=missing-tool", [[["gum"], "import-wireguard"]], 0],
+        ["unavailable", [], "ok", "refused: import=unavailable", [], 0]
     ]) {
         const offers = [], launches = [];
         let refreshed = 0;
-        const answer = importRun({ state }, { requirements: { missing, offer(commands) { offers.push(plain(commands)); return "ok"; } },
+        const answer = importRun({ state }, { requirements: { missing, offer(commands, tui) { offers.push([plain(commands), tui]); return offerAnswer; } },
             tui: { run(name, args, done) { launches.push([name, args]); done(); return "ok"; } } }, { readProfiles() { refreshed++; } });
         assert.equal(answer, refusal === undefined ? "ok" : refusal);
         assert.deepEqual(offers, offered);

@@ -262,7 +262,8 @@ Singleton {
         // `outdated`: those it read below the floor the manifest gives them,
         // read alike.
         requirements: ctx => ({
-            offer: commands => Notices.offer(ctx, commands),
+            offer: (commands, tui) => Notices.offer(ctx, commands, tui),
+            suggest: commands => Notices.suggest(ctx, commands),
             get missing() { return Notices.missingOf(ctx.id).slice(); },
             get outdated() { return Notices.outdatedOf(ctx.id); },
             get revision() { return Registry.requirementsRevision; }

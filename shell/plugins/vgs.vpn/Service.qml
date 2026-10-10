@@ -451,10 +451,10 @@ Item {
     function importWireguard() {
         if (profiles.state !== "available") return "refused: import=unavailable";
         const needed = ["nmcli", "gum"].filter(command => shell.requirements.missing.indexOf(command) !== -1);
-        if (needed.length > 0) {
-            shell.requirements.offer(needed);
-            return "refused: import=missing-tool";
-        }
+        // The notice opens the import once it installs what is missing, so
+        // a notice that shows is the press's answer.
+        if (needed.length > 0)
+            return shell.requirements.offer(needed, "import-wireguard") === "ok" ? "ok" : "refused: import=missing-tool";
         return shell.tui.run("import-wireguard", [], () => root.readProfiles());
     }
 
