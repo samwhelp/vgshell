@@ -445,7 +445,7 @@ function suite(ctx, check) {
     // shows on a pacman system.
     const pacmanOnly = { primary: { id: "pacman", binary: "pacman" }, overlays: [], sources: [] };
     const floorNotices = [
-        ["an install trigger lists and requires an outdated command", [], "1.9.12", "installed", undefined, ["ok", ["vgs-tool"], ["vgs-tool"]]],
+        ["a request lists and requires an outdated command", [], "1.9.12", "requested", undefined, ["ok", ["vgs-tool"], ["vgs-tool"]]],
         ["a choice of an outdated command raises its notice", [], "1.9.12", "chosen", ["vgs-tool"], ["ok", ["vgs-tool"], ["vgs-tool"]]],
         ["a command at its floor is satisfied", [], "1.10.1", "chosen", ["vgs-tool"], ["satisfied", [], []]],
         ["a command above its floor is satisfied", [], "2.0.0", "installed", undefined, ["satisfied", [], []]],

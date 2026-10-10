@@ -18,15 +18,21 @@
 # held notice and is refused while it rests, for a command it did not
 # declare and for a value that is no list of commands; Install hands the
 # terminal `vgshell pkg run install` with the primary's package, the notice
-# has no surface while the run is live, and comes back with the keyboard
-# when the rescan after the run still misses the command; a scan that finds
+# has no surface while the run is live, and comes back with the keyboard,
+# naming the command the run left missing, when the rescan after the run
+# still misses it; a scan that finds
 # the command while the run is live keeps the installing notice in front of
 # a second plugin's waiting one, and the scan after the run closes it and
 # brings the waiting one forward; a command below the floor its manifest
 # gives it reads outdated once the read enabling its plugin starts has
-# ended, its offer raises a notice whose one step is Update,
-# which hands the terminal `vgshell pkg run update`, and the scan after
-# that run reads the floor and closes it, while the same offer of a
+# ended, and neither that enable nor turning the plugin off and on raises a
+# notice for it; a scan ends while the command's `--version` still hangs,
+# and its reading arrives once the command answers; its offer raises a
+# notice whose one step is Update,
+# which hands the terminal `vgshell pkg run update`; a run that ends with
+# code 0 and leaves the command below its floor brings the notice back with
+# a line naming the command, the version read and the floor, and the read
+# after a run that reaches the floor closes it, while the same offer of a
 # command at its floor answers satisfied, which is that state's control; a
 # detection that fails shows the commands
 # alone with Close. The enable trigger's control is
@@ -115,6 +121,10 @@ needs_groups='[["vgs-smoke-needs-pkg", 1], ["vgs-smoke-extra-git", 1], ["vgs-smo
 rows_hold() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(str(any(sys.argv[1] in r for r in json.load(sys.stdin)["rows"])).lower())' "$1"; }
 row_drawn() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(str(sys.argv[1] in json.load(sys.stdin)["rows"]).lower())' "$1"; }
 all_needs='["vgs-smoke-needs", "vgs-smoke-extra", "vgs-smoke-unmapped"]'
+# What the shown notice's last run left, Notices.failure in the lending
+# record, and whether one line the notice draws holds every WORD.
+notice_failure() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["notices"]["shown"]; print(json.dumps(None if s is None else s["failure"]))'; }
+line_holds() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(str(any(all(w in r for w in sys.argv[1:]) for r in json.load(sys.stdin)["rows"])).lower())' "$@"; }
 
 expect "no notice shows at first" null notice_shown
 expect "the notice host has no surface at first" 0 layer_count vgs:notice
@@ -223,8 +233,11 @@ notice_waiting() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(
 notice_front() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["notices"]["shown"]; print(json.dumps(None if s is None else s["plugin"]))'; }
 # `settled` once no install is in flight: the notice in front is not
 # installing, or none shows. After a run ends, Notices.qml starts one scan,
-# and that scan's end clears the install and settles the queue in one
-# callback, so the rows read right after it need no poll. The chain from
+# and that scan's version read clears the install, settles the queue and
+# judges what the run left in one callback, so the rows read right after it
+# need no poll. No enabled plugin gives a command a floor while the install
+# rows run, so that read starts no process and follows the scan's end in
+# the same turn. The chain from
 # the run's end being read to that callback, one scan, is bounded by
 # install_settle_ceiling_ms, read as latency_install_settle_ms: twice the
 # highest of 12 readings, 245 ms, from the six runs that measured
@@ -247,6 +260,7 @@ release_runs
 expect_run_end "the install run ends" core/requirements-install
 expect_within "the scan after the install run settles the notice" install_settle settled "$install_settle_ceiling_ms" install_settled
 expect "the rescan after an install that left the command missing keeps the notice" "[\"acme.needs\", $all_needs, [\"vgs-smoke-needs\"], false]" notice_shown
+expect "the kept notice names the command the install left missing" '{"kind": "missing", "name": "vgs-smoke-needs"}' notice_failure
 expect_poll "the kept notice maps its surface again" 1 layer_count vgs:notice
 expect_poll "the kept notice holds the keyboard after the install" true ipc smoke noticeFocused
 expect "the notice still offers Install" '["Install", "Not now"]' drawn actions
@@ -309,7 +323,8 @@ expect_poll "the capability lists the removed command again" '["vgs-smoke-needs"
 # stand-in prints the version old_version wrote. No row here rescans
 # between the enable and the first read of the state: enabling a plugin
 # that gives a present command a floor starts the read of its version,
-# with no scan (Registry.qml).
+# with no scan (Registry.qml). A scan's version read returns after the scan
+# has ended, so a state that follows a rescan is polled.
 floor_dir="$home/.config/vgshell/plugins/acme.floor"
 mkdir -p -- "$floor_dir"
 cp -R -- "$repo/scripts/smoke/fixtures/plugins/acme.needs/." "$floor_dir/"
@@ -326,6 +341,12 @@ for old, new in edits:
 open(path, "w").write(text)' "$floor_dir/manifest.json"; then ok "acme.floor is acme.needs under another id, with a floor on its command"; else fail "acme.floor's manifest could not be derived from acme.needs"; fi
 old_version() { # VERSION
   printf '#!/bin/sh\necho "vgs-smoke-old %s"\n' "$1" >"$shim/vgs-smoke-old.next" && chmod 755 "$shim/vgs-smoke-old.next" && mv -T -- "$shim/vgs-smoke-old.next" "$shim/vgs-smoke-old"
+}
+# A stand-in that answers nothing until old_gate exists, then VERSION. The
+# reader's own bound ends one the row never releases.
+old_gate="$sandbox/vgs-smoke-old.gate"
+old_version_held() { # VERSION
+  printf '#!/bin/sh\nwhile [ ! -e %q ]; do sleep 0.05; done\necho "vgs-smoke-old %s"\n' "$old_gate" "$1" >"$shim/vgs-smoke-old.next" && chmod 755 "$shim/vgs-smoke-old.next" && mv -T -- "$shim/vgs-smoke-old.next" "$shim/vgs-smoke-old"
 }
 floor_state() { ipc shell listPlugins | py_reply 'import json,sys; print(json.dumps([r["state"] for p in json.load(sys.stdin)["plugins"] if p["id"]=="acme.floor" for r in p["requirements"] if r["name"]=="vgs-smoke-old"]))'; }
 floor_plugin() { ipc acme.floor invoke "$1" "${2:-}"; }
@@ -345,40 +366,80 @@ expect "enabling the plugin started no scan" "$floor_scans" ipc shell scanRevisi
 expect "the capability lists the outdated command" '["vgs-smoke-old"]' floor_plugin outdated
 expect "the capability lists no outdated command as missing" '["vgs-smoke-extra","vgs-smoke-unmapped"]' floor_plugin missing
 expect "a scan raises no notice for the outdated command" null notice_shown
-# The control: the same offer of the command at its floor raises nothing.
-old_version 2.0.0 || fail "the stand-in at the floor is not written"
-rescan "a rescan with the command at its floor starts"
-expect "a command at its floor reads present" '["present"]' floor_state
+# Off and on with the reading still held: Notices.enabled runs before
+# setPluginEnabled replies, so the read after the reply is decisive, and
+# the state read after it shows the trigger judged an outdated command.
+expect "disabling acme.floor with its command outdated is allowed" ok ipc shell setPluginEnabled acme.floor false
+expect "enabling acme.floor again is allowed" ok ipc shell setPluginEnabled acme.floor true
+expect "a plugin turned off and on with its command outdated raises no notice" null notice_shown
+expect "the reading was held across the off and on" '["outdated"]' floor_state
+expect_poll "acme.floor's service is built again" True record_exists acme.floor
+# A scan does not wait for the version read. The stand-in answers nothing
+# while old_gate is absent, so once the scan has landed the state still
+# reads the last reading: a scan that waited would land only when the
+# reader's bound ended the stand-in, with no reading and the state present.
+# The released stand-in answers the floor, which that same read then holds,
+# and the same offer of the command at its floor raises nothing, the
+# control of the offer below.
+rm -f -- "${old_gate:?}"
+old_version_held 2.0.0 || fail "the held stand-in is not written"
+rescan "a rescan lands while the command's version read hangs"
+expect "the scan ended before its version read: the last reading stands" '["outdated"]' floor_state
+: >"$old_gate"
+expect_poll "the reading arrives once the command answers, and reads its floor" '["present"]' floor_state
 expect "an offer of a command at its floor is satisfied" satisfied floor_plugin offer vgs-smoke-old
 expect "the satisfied offer raises no notice" null notice_shown
 old_version 1.9.0 || fail "the stand-in below the floor is not written again"
+rm -f -- "${old_gate:?}"
 rescan "a rescan with the command below its floor starts"
-expect "a command below its floor reads outdated again" '["outdated"]' floor_state
+expect_poll "a command below its floor reads outdated again" '["outdated"]' floor_state
 expect "an offer of the outdated command raises the notice" ok floor_plugin offer vgs-smoke-old
 expect_poll "the notice lists the outdated command" "$floor_shown, false]" notice_shown
 expect_poll "the update notice holds the keyboard" true ipc smoke noticeFocused
 expect "the update notice counts its update" '"Needs needs one update"' drawn title
 expect "the update notice draws the package as its chip" '[["vgs-smoke-old-pkg", 1]]' group_shape
 expect "the update notice offers Update" '["Update", "Not now"]' drawn actions
+expect "the notice names no run before one ended" null notice_failure
+expect "control: no line holds the command, its version and its floor before a run" false line_holds vgs-smoke-old 1.9.0 2.0.0
 expect "no update ran before the rows" idle key_idle core/requirements-update
+# An update that changes nothing: the stand-in terminal runs the core's
+# command as `true`, which ends with code 0, and the command stays at 1.9.0,
+# as it does when the package manager holds nothing newer.
 hold_runs
 forget_record
 type_keys -k Return || fail "sending Return failed"
 expect_poll "Update hands the terminal vgshell pkg run update with the primary's package" "$(update_words vgs-smoke-old-pkg)" recorded
 expect_poll "the notice records its update running" "$floor_shown, true]" notice_shown
 expect_poll "a live update leaves the notice no surface" 0 layer_count vgs:notice
+release_runs
+expect_run_end "the update run that changes nothing ends" core/requirements-update
+expect_poll "the read after that run settles the notice" settled install_settled
+expect "an update that left the command below its floor keeps the notice" "$floor_shown, false]" notice_shown
+expect "the kept notice names the command, the version read and the floor" '{"kind": "outdated", "name": "vgs-smoke-old", "version": "1.9.0", "floor": "2.0.0"}' notice_failure
+expect_poll "the kept update notice maps its surface again" 1 layer_count vgs:notice
+expect_poll "the kept update notice holds the keyboard" true ipc smoke noticeFocused
+expect "one line of the notice holds the command, its version and its floor" true line_holds vgs-smoke-old 1.9.0 2.0.0
+expect "no line of the notice draws a command line" false rows_hold "pkg run"
+expect "the kept notice still offers Update" '["Update", "Not now"]' drawn actions
+# The same press with a run that reaches the floor: no line, and no notice.
+hold_runs
+forget_record
+type_keys -k Return || fail "sending Return for the second update failed"
+expect_poll "the second Update reaches the terminal" "$(update_words vgs-smoke-old-pkg)" recorded
+expect_poll "the notice records its second update running" "$floor_shown, true]" notice_shown
+expect "a second press clears what the first run left" null notice_failure
 old_version 2.0.0 || fail "the updated stand-in is not written"
 release_runs
 expect_run_end "the update run ends" core/requirements-update
-expect_poll "the scan after the update run settles the notice" settled install_settled
-expect_poll "the scan that reads the floor closes the update notice" null notice_shown
+expect_poll "the read after the update run settles the notice" settled install_settled
+expect "the read that finds the floor closes the update notice" null notice_shown
 expect "the updated command reads present" '["present"]' floor_state
 expect "the capability lists no outdated command after the update" '[]' floor_plugin outdated
 expect "disabling acme.floor is allowed" ok ipc shell setPluginEnabled acme.floor false
 floor_removed() { local out; out="$("${shell_env[@]}" "$repo/bin/vgshell" plugin remove --yes acme.floor 2>>"$sandbox/ipc.log")" || return 1; printf '%s\n' "${out%%$'\n'*}"; }
 expect "acme.floor is removed" "ok removed=acme.floor" floor_removed
 expect_poll "acme.floor leaves the list" False plugin_known acme.floor
-rm -f -- "${shim:?}/vgs-smoke-old"
+rm -f -- "${shim:?}/vgs-smoke-old" "${old_gate:?}"
 
 # A detection that fails: the notice lists the commands with no package
 # and offers Close alone.

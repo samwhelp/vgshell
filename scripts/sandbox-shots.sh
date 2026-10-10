@@ -80,7 +80,8 @@
 # section, the Settings tab's Setup section, and the
 # screen after the driver line's step is pressed, the core's requirement
 # notice where the tree offers that step, over a stand-in bin/vgshell-pkg
-# that answers pacman, paru and mise whatever the host runs, taken only
+# that answers pacman, paru and mise whatever the host runs, and that
+# notice once a run of its step that changed nothing has ended, taken only
 # when named; plugin-messages is a plugin's message to the
 # user as the tree draws it, a core toast where the tree ships
 # shell/Core/Toasts.qml and else its card in vgs.notifications with
@@ -2434,6 +2435,9 @@ scene_jarvis-setup() { # MODE
 # account list by hand and chosen as the AI model. The driver line's step
 # is asked for through the Settings window's own act; a tree that offers no
 # step there refuses it, and its third shot is the page with no notice.
+# Where the notice shows, its step is then run: the stand-in terminal runs
+# the update as `true`, which ends with code 0, the driver stays below its
+# floor, and the last shot is the notice that comes back.
 scene_outdated() { # MODE
   local state="$home/.local/state/vgshell/jarvis" pi_dir="$home/.pi/agent" config="$home/.config/vgshell/shell.json"
   local pkg_real="$sandbox/outdated-vgshell-pkg.real" world_pi="$sandbox/jarvis-world/standins/pi" pi_line="$sandbox/jarvis-world/pi-version"
@@ -2468,7 +2472,7 @@ EOF_PKG
     XDG_DATA_HOME="$home/.local/share" "$node_bin" "$repo/shell/plugins/vgs.jarvis/backend/accounts.js" --tree "$repo" list |
     py_reply 'import json,sys; print(next(a["id"] for a in json.load(sys.stdin) if a["source"].get("directory")==sys.argv[1]))' "$pi_dir")" ||
     fail "the account helper lists no id for the Pi folder"
-  outdated_brain "$config" "$brain/stub/stub-1"
+  outdated_brain "$config" "$brain"
   expect "enabling vgs.jarvis for the outdated scene is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
   expect_poll "the Jarvis daemon answers hello over the outdated stand-ins" ready jarvis_started
   for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
@@ -2490,6 +2494,14 @@ EOF_PKG
   for _ in $(seq 1 25); do [[ $(layer_count vgs:notice) == 1 ]] && break; sleep 0.2; done
   park_pointer
   take "outdated-$1-notice"
+  if [[ $(layer_count vgs:notice) == 1 ]]; then
+    terminal_stand_in
+    forget_record
+    expect_poll "the driver's notice holds the keyboard for its step" true ipc smoke noticeFocused
+    type_keys -k Return || fail "Enter on the driver's notice failed"
+    expect_poll "the driver's notice is back after a run that changed nothing" back outdated_notice_back
+    take "outdated-$1-notice-unchanged"
+  fi
   close_notices
   settings_close
   expect "disabling vgs.jarvis after the outdated scene is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
@@ -2500,6 +2512,12 @@ EOF_PKG
   [[ ! -e $accounts_before ]] || cp -- "$accounts_before" "$state/accounts.json"
   rm -f -- "${pi_dir:?}/auth.json"
   jarvis_restore_requirements
+}
+# `back` once the notice's step reached the terminal, its run ended and
+# the notice shows again with no run in flight.
+outdated_notice_back() {
+  [[ $(recorded) != absent && $(key_idle core/requirements-update) == idle && $(layer_count vgs:notice) == 1 ]] || { echo waiting; return; }
+  ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["notices"]["shown"]; print("back" if s is not None and not s["installing"] else "waiting")'
 }
 # outdated_brain CONFIG BRAIN: the Jarvis AI model setting in the user's
 # shell.json, "" for none, delivered by a reload.

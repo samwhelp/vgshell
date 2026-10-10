@@ -83,6 +83,52 @@ function suite(ctx, check) {
     }
     check("noticeRequest throws on a trigger no rule covers", (() => { try { ctx.noticeRequest(needs, [], {}, "asked", undefined); return "answered"; } catch (e) { return e.message; } })(), "notices: trigger \"asked\" is not one of installed, enabled, offered, requested, chosen");
 
+    // The triggers over a command below its floor: [name, missing, trigger,
+    // commands, want]. vgs-old reads 1.9.0 under the floor 2.0.0.
+    const floored = ctx.validateManifest({
+        schemaVersion: 1, id: "acme.floor", name: "Floor", version: "1", author: "a", description: "d",
+        kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["requirements"],
+        requirements: [
+            { command: "vgs-far", packages: { aur: "far-git" }, floor: "1.2.0", purpose: "Far" },
+            { command: "vgs-old", packages: { pacman: "old" }, floor: "2.0.0", purpose: "Old" },
+            { command: "vgs-one", packages: { pacman: "one" }, purpose: "First" },
+        ],
+    }, "/p").manifest;
+    const below = { "vgs-old": "vgs-old 1.9.0", "vgs-far": "1.2.0" };
+    const outdatedRows = [
+        ["enabling a plugin whose only lack is an outdated command raises no notice", [], "enabled", undefined, ["satisfied", [], []]],
+        ["installing one raises none either", [], "installed", undefined, ["satisfied", [], []]],
+        ["enabled lists a missing command beside an outdated one, and not the outdated one", ["vgs-one"], "enabled", undefined, ["ok", ["vgs-one"], ["vgs-one"]]],
+        ["a request lists and requires the outdated command", [], "requested", undefined, ["ok", ["vgs-old"], ["vgs-old"]]],
+        ["an offer lists and requires the outdated command", [], "offered", ["vgs-old", "vgs-far"], ["ok", ["vgs-old"], ["vgs-old"]]],
+        ["a choice lists and requires the outdated command", [], "chosen", ["vgs-old"], ["ok", ["vgs-old"], ["vgs-old"]]],
+    ];
+    for (const [name, missing, trigger, commands, want] of outdatedRows) {
+        const r = ctx.noticeRequest(floored, missing, below, trigger, commands);
+        check("noticeRequest: " + name, [r.answer, r.commands, r.required], want);
+    }
+
+    // noticeUnchanged: [name, missing, versions, the step that ran, want].
+    // The notice lists all three commands; on ARCH pacman provides vgs-old
+    // and vgs-one, and paru provides vgs-far, which the manifest declares
+    // first and the primary's group still precedes.
+    const three = { commands: ["vgs-old", "vgs-one", "vgs-far"], required: ["vgs-old", "vgs-one", "vgs-far"] };
+    const farBelow = { "vgs-old": "2.0.0", "vgs-far": "far 1.1.9 (linux)" };
+    const unchangedRows = [
+        ["an update that left the version it read is named with that version and the floor", [], below, { action: "update", args: ["old"] }, { kind: "outdated", name: "vgs-old", version: "1.9.0", floor: "2.0.0" }],
+        ["the primary's update is named by its own requirement, behind an overlay's declared first", [], { "vgs-old": "1.9.0", "vgs-far": "1.1.9" }, { action: "update", args: ["old"] }, { kind: "outdated", name: "vgs-old", version: "1.9.0", floor: "2.0.0" }],
+        ["an update that reached the floor left nothing", [], { "vgs-old": "2.0.0", "vgs-far": "1.2.0" }, { action: "update", args: ["old"] }, null],
+        ["an update whose notice now offers the next manager's left nothing", [], farBelow, { action: "update", args: ["old"] }, null],
+        ["an overlay's update that left its version is named by its own requirement", [], farBelow, { action: "update", args: ["--manager", "aur", "far-git"] }, { kind: "outdated", name: "vgs-far", version: "1.1.9", floor: "1.2.0" }],
+        ["an install that left its command missing is named", ["vgs-one"], below, { action: "install", args: ["one"] }, { kind: "missing", name: "vgs-one" }],
+        ["an install that found its command left nothing, with an update still owed", [], below, { action: "install", args: ["one"] }, null],
+        ["a step is not judged against the other step's arguments", ["vgs-one"], below, { action: "update", args: ["one"] }, null],
+    ];
+    for (const [name, missing, versions, ran, want] of unchangedRows)
+        check("noticeUnchanged: " + name, ctx.noticeUnchanged(floored, missing, versions, three, ARCH, ran), want);
+    check("noticeUnchanged: no answer from detection names nothing", ctx.noticeUnchanged(floored, [], below, three, null, { action: "update", args: ["old"] }), null);
+    check("noticeUnchanged throws on a step no rule covers", (() => { try { ctx.noticeUnchanged(floored, [], below, three, ARCH, { action: "remove", args: ["old"] }); return "answered"; } catch (e) { return e.message.split(":")[0]; } })(), "notices");
+
     // The core's owner: the core's list, drawn under the name VGS, asked
     // for as a plugin's manifest is.
     const core = ctx.coreOwner([{ name: "gum", bus: null, packages: { pacman: "gum" }, optional: true, purpose: "Dialogs" }, { name: "git", bus: null, packages: { pacman: "git" }, optional: false, purpose: "Plugins" }]);
@@ -329,6 +375,14 @@ const CONTROLS = [
     ["installed requires only the needed commands", ": listed.filter(function (row) { return !row.optional; });", ": listed;"],
     ["a request requires its optional commands", "required = trigger === \"requested\" ? listed : ", "required = "],
     ["installed lists only missing commands", "var lacking = rows.filter(function (row) { return row.state !== \"present\"; });", "var lacking = rows;"],
+    ["an install or enable trigger lists no outdated command", "listed = trigger === \"requested\" ? lacking : lacking.filter(function (row) { return row.state === \"missing\"; });", "listed = lacking;"],
+    ["a run that left its step owed is named", "if (JSON.stringify(shown[ran.action]) !== JSON.stringify(ran.args)) return null;", "return null;"],
+    ["a run whose step moved on left nothing", "if (JSON.stringify(shown[ran.action]) !== JSON.stringify(ran.args)) return null;", ""],
+    ["an unchanged run names a requirement of the manager that ran", " && r.package.manager === manager; })[0];", "; })[0];"],
+    ["an unchanged run names a requirement in the state its step serves", "return r.state === states[ran.action] && r.package !== null", "return r.package !== null"],
+    ["an unchanged install is named missing", "if (ran.action === \"install\") return { kind: \"missing\", name: row.name };", ""],
+    ["an unchanged update names the version its command printed", "VERSION_IN_LINE.exec(versions[row.name]).slice(1, 4).join(\".\")", "versions[row.name]"],
+    ["an unchanged run is an install or an update", "    if (!hasOwn(states, ran.action))\n", "    if (false)\n"],
     ["an offer is a list", "if (!Array.isArray(commands) || commands.length === 0", "if (commands.length === 0"],
     ["an offer is not empty", " || commands.length === 0 || commands.length > NOTICE_OFFER_MAX", " || commands.length > NOTICE_OFFER_MAX"],
     ["an offer names at most sixteen commands", " || commands.length > NOTICE_OFFER_MAX || ", " || "],

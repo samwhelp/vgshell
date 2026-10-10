@@ -58,28 +58,31 @@ Singleton {
     // is one of `errors`.
     property var coreRequirements: []
     property var coreMissing: []
-    // The commands a scan reads the version of, PluginLogic.versionCommands:
+    // The commands the version reader reads, PluginLogic.versionCommands:
     // those the core and the enabled plugins give a floor and the last scan
     // found on PATH.
     readonly property var versionCommands: Logic.versionCommands(requirementOwners, ownerMissing, enabledIds)
     // command -> the line its `--version` printed at its last read, null
-    // for a read that failed, for every command of versionCommands when
-    // the last scan ended and each one read since; replaced whole on every
-    // change. The judge reads a requirement's `outdated` state from it.
+    // for a read that failed; replaced whole on every change. A scan's read
+    // returns after the scan has ended, so until then a command holds the
+    // reading of the scan before, and one that scan first found holds none.
+    // The judge reads a requirement's `outdated` state from it.
     property var commandVersions: ({})
-    // From rescan until the scan it started has ended, its version read
-    // included.
-    property bool scanning: false
-    // What the version reader's run is for: `scan`, a scan's last step, or
-    // `added`, the commands of `readerAsked` alone, read between scans.
-    property string readerRun: "scan"
+    // The requirementsRevision of the last scan whose version read has
+    // returned, or that asked for none. What needs a scan's readings waits
+    // for it to reach that scan (Notices.afterVersions).
+    property int versionsRevision: 0
+    // The scan the version reader's run follows, by its
+    // requirementsRevision, or 0 for a run that reads `readerAsked` alone,
+    // the commands a plugin enabled between scans gave a floor.
+    property int readerScan: 0
     property var readerAsked: []
-    // Whether a scan's manifests are published and its version read waits
-    // for an `added` read to end.
-    property bool scanAwaitsReader: false
     // A plugin enabled since the last scan can give a floor to a command
-    // that scan read no version of.
-    onVersionCommandsChanged: readAdded()
+    // that scan read no version of. A scan publishes its manifests before
+    // it ends and its own read follows that end, so this one is asked for
+    // once the change has settled: Qt.callLater runs when control returns
+    // to the event loop, as refreshLending relies on below.
+    onVersionCommandsChanged: Qt.callLater(readAdded)
     // The core's source revision, from the watcher that hashes the shell's
     // own files without plugins/: as it armed, and as the later change it
     // saw. An edit between the engine's start and the watch's arming is not
@@ -118,8 +121,7 @@ Singleton {
     property bool scanned: false
     property bool rescanPending: false
     property var completion: null
-    // Raised when each plugin and requirements scan ends, its version read
-    // included, whether or not
+    // Raised when each plugin and requirements scan ends, whether or not
     // the manifest set changed. The requirements capability exposes it so
     // a plugin can re-read its own environment after PATH changes.
     property int requirementsRevision: 0
@@ -143,7 +145,7 @@ Singleton {
     // requirementsRevision at which a scan that read the files after this
     // call has ended, the running one's end and then the queued one's.
     function rescan() {
-        if (scanning) {
+        if (scanner.running) {
             rescanPending = true;
             return { answer: "busy", scan: requirementsRevision + 2 };
         }
@@ -157,61 +159,47 @@ Singleton {
         // Read before the start: a start that fails can end the scan, and
         // raise the revision, inside the assignment.
         const scan = requirementsRevision + 1;
-        scanning = true;
         scanner.running = true;
         return { answer: "ok", scan: scan };
     }
 
-    // The scan's last step: the version of each command of versionCommands,
-    // read by one `vgshell-scan --versions` after the manifests are
-    // published, so the first bar never waits for a program's `--version`.
-    // A scan that asks for none starts no process, and one that produced no
-    // result keeps the last readings. The reader runs one read at a time,
-    // so this one follows an `added` read still in flight.
+    // The step after a scan's end: the version of each command of
+    // versionCommands, read by one `vgshell-scan --versions`, which
+    // commandVersions takes when it returns. Nothing that waits for the
+    // scan waits for it: scanFinished is raised first, so a program that
+    // never answers `--version` holds the reader to the reader's own bound
+    // and the scan to nothing. A scan that asks for none starts no process,
+    // and one that produced no result keeps the last readings. One reader
+    // runs at a time: a scan that ends while it runs is read when it
+    // returns, and a scan queued behind this one is read at its own end.
     function readVersions() {
-        if (versionReader.running) {
-            scanAwaitsReader = true;
-            return;
-        }
+        if (scanner.running || versionReader.running) return;
         const wanted = scanError === "" ? versionCommands : [];
         if (wanted.length === 0) {
             if (scanError === "" && Object.keys(commandVersions).length > 0) commandVersions = ({});
-            finishScan();
+            versionsRevision = requirementsRevision;
             return;
         }
-        startReader("scan", wanted);
+        startReader(requirementsRevision, wanted);
     }
 
     // Between scans, the version of each command of versionCommands that
     // holds no reading: one reader run and no scan, so nothing that follows
     // a scan runs for it. Every command a run asked for holds a reading or
     // null afterwards, so a read that fails is not asked for again before
-    // the next scan. A scan in flight reads them itself.
+    // the next scan. A scan in flight is read at its end.
     function readAdded() {
-        if (!scanned || scanning || versionReader.running) return;
+        if (!scanned || scanner.running || versionReader.running) return;
         const unread = versionCommands.filter(command => !Logic.hasOwn(commandVersions, command));
-        if (unread.length > 0) startReader("added", unread);
+        if (unread.length > 0) startReader(0, unread);
     }
 
-    function startReader(run, commands) {
-        readerRun = run;
+    function startReader(scan, commands) {
+        readerScan = scan;
         readerAsked = commands;
         versionReader.completion = null;
         versionReader.command = [Quickshell.shellDir + "/../bin/vgshell-scan", "--versions"].concat(commands);
         versionReader.running = true;
-    }
-
-    function finishScan() {
-        scanning = false;
-        requirementsRevision += 1;
-        scanFinished();
-        if (rescanPending) {
-            rescanPending = false;
-            rescan();
-        } else {
-            // A plugin enabled while this scan read its versions.
-            readAdded();
-        }
     }
 
     // The IPC reply to a scan request, REQUEST being rescan's answer:
@@ -340,6 +328,12 @@ Singleton {
                 root.scanError = "vgshell-scan exited " + root.completion.code + " status=" + root.completion.status;
             else root.applyScan(output.text);
             if (root.scanError !== "") console.error("plugins: " + root.scanError);
+            root.requirementsRevision += 1;
+            root.scanFinished();
+            if (root.rescanPending) {
+                root.rescanPending = false;
+                root.rescan();
+            }
             root.readVersions();
         }
     }
@@ -363,16 +357,12 @@ Singleton {
             const read = {};
             for (const command of root.readerAsked)
                 read[command] = answer.ok && typeof answer.versions[command] === "string" ? answer.versions[command] : null;
-            const next = root.readerRun === "scan" ? read : Object.assign({}, root.commandVersions, read);
+            const next = root.readerScan > 0 ? read : Object.assign({}, root.commandVersions, read);
             if (JSON.stringify(next) !== JSON.stringify(root.commandVersions)) root.commandVersions = next;
-            if (root.readerRun === "scan") {
-                root.finishScan();
-            } else if (root.scanAwaitsReader) {
-                root.scanAwaitsReader = false;
-                root.readVersions();
-            } else {
-                root.readAdded();
-            }
+            // After the readings, so what waits for the revision reads them.
+            if (root.readerScan > 0) root.versionsRevision = root.readerScan;
+            if (root.versionsRevision < root.requirementsRevision) root.readVersions();
+            else root.readAdded();
         }
     }
 

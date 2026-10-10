@@ -40,7 +40,7 @@ else
   fail "the control copy could not drop the enable trigger from $plugins_qml"
 fi
 notices_qml="$mutant/shell/Core/Notices.qml"
-due='            const due = root.afterScans.filter(a => a.scan <= revision);
+due='        const due = afterScans.filter(a => a.versions === versions && a.scan <= revision);
 '
 cp -- "$notices_qml" "$sandbox/notice-mutant-Notices.qml.orig"
 if python3 -c '

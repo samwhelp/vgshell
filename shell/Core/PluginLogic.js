@@ -2122,10 +2122,13 @@ function noticeOwnerError(owner, owners, enabled) {
 // requirement names the notice lists and `required` those that keep it open
 // while missing or outdated. `answer` is "ok",
 // "satisfied" when `required` is empty and no notice is due, or a refusal.
-// The install and enable triggers list every missing or outdated requirement
-// and require those the plugin does not mark optional, so a plugin lacking
-// only optional requirements raises none. A request lists and requires every
-// such requirement, optional ones included, since the user asked to install
+// The install and enable triggers list every missing requirement and require
+// those the plugin does not mark optional, so a plugin lacking only optional
+// requirements raises none. Neither lists an outdated one: both judge
+// before the version read they start has returned, so a plugin whose only
+// lack is an outdated command raises no notice by them, and its page offers
+// the update. A request lists and requires every missing or outdated
+// requirement, optional ones included, since the user asked to install
 // them. An offer, and a choice, lists and requires each of COMMANDS still
 // missing or outdated, and is refused as
 // `refused: requirements=malformed` for anything but a list of 1 to
@@ -2141,7 +2144,7 @@ function noticeRequest(manifest, missing, versions, trigger, commands) {
     case "installed":
     case "enabled":
     case "requested":
-        listed = lacking;
+        listed = trigger === "requested" ? lacking : lacking.filter(function (row) { return row.state === "missing"; });
         required = trigger === "requested" ? listed : listed.filter(function (row) { return !row.optional; });
         break;
     case "offered":
@@ -2250,6 +2253,31 @@ function noticeGroups(rows) {
         }
     });
     return out;
+}
+
+// What a run of RAN left as it was, or null: RAN is { action, args }, the
+// `install` or `update` step a press on NOTICE ran to code 0 with
+// noticeView's arguments of that name, and the other arguments are
+// noticeView's, read once the version read after the run returned. A notice
+// that still offers RAN's step with RAN's arguments was changed by nothing
+// the run did: a package manager with nothing newer ends an update with
+// code 0, and so does one that installs a copy behind the one PATH finds
+// first. The answer names the first listed requirement that step is owed
+// for: { kind: "missing", name } after an install, and { kind: "outdated",
+// name, version, floor } after an update, `version` the three numbers its
+// command printed and `floor` the one its owner needs.
+function noticeUnchanged(manifest, missing, versions, notice, found, ran) {
+    var states = { install: "missing", update: "outdated" };
+    if (!hasOwn(states, ran.action))
+        throw new Error("notices: step " + JSON.stringify(ran.action) + " is not one of " + Object.keys(states).join(", "));
+    var shown = noticeView(manifest, missing, versions, notice, found);
+    if (JSON.stringify(shown[ran.action]) !== JSON.stringify(ran.args)) return null;
+    // PackageManagers.installArgs names every manager but the primary.
+    var manager = ran.args[0] === "--manager" ? ran.args[1] : found.primary.id;
+    var row = shown.rows.filter(function (r) { return r.state === states[ran.action] && r.package !== null && r.package.manager === manager; })[0];
+    if (ran.action === "install") return { kind: "missing", name: row.name };
+    var floor = manifest.requirements.filter(function (entry) { return entry.name === row.name; })[0].floor;
+    return { kind: "outdated", name: row.name, version: VERSION_IN_LINE.exec(versions[row.name]).slice(1, 4).join("."), floor: floor };
 }
 
 // QUEUE after a scan, the notices of OWNERS, the core's owner and each

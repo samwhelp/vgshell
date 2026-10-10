@@ -403,7 +403,7 @@ open(sys.argv[1],"w").write(json.dumps(held + [{"provider": "pi", "directory": s
 PY
 pi_version 1.0.2 || fail "the Pi stand-in below its floor is not written"
 rescan "a rescan after the Pi stand-in appears starts"
-setup_pi_brain="$(setup_pi_id)/stub/stub-1" || fail "the account helper lists no id for the Pi folder"
+setup_pi_brain="$(setup_pi_id)" || fail "the account helper lists no id for the Pi folder"
 setup_brain "$setup_pi_brain"
 expect_poll "the daemon holds Pi as the chosen AI model" "\"$setup_pi_brain\"" setup_daemon_brain
 expect_poll "a Pi below its floor offers Update Pi on the AI model step" '["update", "Update Pi", true]' setup_model_step

@@ -50,6 +50,21 @@ Scope {
         return shown.install !== null ? "Install" : shown.update !== null ? "Update" : "";
     }
 
+    // The line under SHOWN's entries for FAILURE, Notices.failure: why its
+    // last run did not finish, or what a run that finished left as it was,
+    // the command still missing or still below the floor its owner needs.
+    function failureLine(shown, failure) {
+        switch (failure.kind) {
+        case "failed":
+            return "The last " + (step(shown) === "Update" ? "update" : "install") + " did not finish: " + failure.reason;
+        case "missing":
+            return failure.name + " is still missing after the install.";
+        case "outdated":
+            return failure.name + " is still version " + failure.version + " after the update. " + shown.name + " needs version " + failure.floor + " or later.";
+        }
+        throw new Error("notices: failure kind " + JSON.stringify(failure.kind) + " has no line");
+    }
+
     function message(shown) {
         if (step(shown) !== "") return step(shown) + " opens a terminal. The package manager asks for your password there.";
         if (shown.byHand.length > 0) return "Add these packages to the system configuration: " + shown.byHand.map(g => g.manager + " " + g.names.join(" ")).join(", ") + ".";
@@ -207,8 +222,8 @@ Scope {
                     role: Theme.dialog.bodyRole
                     width: parent.width
                     wrapMode: Text.Wrap
-                    visible: win.consentMode ? win.consent.failure !== "" : Notices.failure !== ""
-                    text: win.consentMode ? "The last connection did not finish: " + win.consent.failure : "The last " + (host.step(win.shown) === "Update" ? "update" : "install") + " did not finish: " + Notices.failure
+                    visible: win.consentMode ? win.consent.failure !== "" : Notices.failure !== null
+                    text: win.consentMode ? "The last connection did not finish: " + win.consent.failure : win.shown !== null && Notices.failure !== null ? host.failureLine(win.shown, Notices.failure) : ""
                 }
             }
 

@@ -26,7 +26,8 @@ import "PluginLogic.js" as Logic
 // first notice arrives and after each install. Install opens the core TUI
 // `core/requirements-install`, and Update, for commands below their floor,
 // `core/requirements-update`; once its run ends, one rescan follows, and
-// a notice whose required commands the scan finds, at their floor, is closed. A notice a
+// a notice whose required commands that scan and its version read find, at
+// their floor, is closed, while one the run left as it was says so. A notice a
 // plugin's setup TUI raised in place of itself (TuiRunner.runFor) opens
 // that TUI once it closes so, so one press of Set up ends set up (D061).
 // The core never elevates: the package manager asks in the terminal (D034).
@@ -49,11 +50,14 @@ Singleton {
     // state on screen while it runs.
     property string detection: "pending"
     property bool detectAgain: false
-    // The id of the notice whose install runs, from Install until the scan
-    // after its TUI ended, or "".
+    // The id of the notice whose install or update runs, from the press
+    // until the version read of the scan after its TUI ended, or "".
     property string installingId: ""
-    // Why the shown notice's last install did not end with code 0, or "".
-    property string failure: ""
+    // Why the shown notice's last run left it open, or null: { kind:
+    // "failed", reason } for a run that did not start or did not end with
+    // code 0, or what a run that ended with code 0 left as it was,
+    // PluginLogic.noticeUnchanged's answer, of kind `missing` or `outdated`.
+    property var failure: null
     // Plugin id -> the name of its own TUI a press asked for while a
     // command it needs was missing: opened once that plugin's notice
     // closes with the commands found, dropped by Not now. Replaced whole.
@@ -109,8 +113,9 @@ Singleton {
         busy: false
     })
     // Callbacks waiting for a scan that starts after they were asked for,
-    // each { scan, fn }, `scan` the Registry.requirementsRevision at which
-    // that scan has ended (Registry.rescan).
+    // each { scan, versions, fn }: `scan` the Registry.requirementsRevision
+    // at which that scan has ended (Registry.rescan), and `versions` whether
+    // FN waits for that scan's version read as well.
     property var afterScans: []
 
     readonly property var current: queue.length > 0 ? queue[0] : null
@@ -147,7 +152,7 @@ Singleton {
     signal consentAnswered(string answer)
 
     onShownIdChanged: {
-        failure = "";
+        failure = null;
         settleScreen(true);
     }
 
@@ -160,7 +165,9 @@ Singleton {
 
     // A scan drops every notice whose plugin went or whose required
     // commands it found, the installing one excepted, then runs the
-    // callbacks it was due for; the install's callback settles that one.
+    // callbacks it was due for. Its version read returns later and does the
+    // same with the versions it read, so a notice an update satisfied goes
+    // then; the run's callback settles the installing one.
     Connections {
         target: Registry
         function onCoreChangedChanged() {
@@ -169,10 +176,12 @@ Singleton {
 
         function onScanFinished() {
             root.settle();
-            const revision = Registry.requirementsRevision;
-            const due = root.afterScans.filter(a => a.scan <= revision);
-            root.afterScans = root.afterScans.filter(a => a.scan > revision);
-            for (const a of due) a.fn();
+            root.runDue(false, Registry.requirementsRevision);
+        }
+
+        function onVersionsRevisionChanged() {
+            root.settle();
+            root.runDue(true, Registry.versionsRevision);
         }
     }
 
@@ -227,10 +236,30 @@ Singleton {
     // so FN then runs on the next turn. Answers Registry.rescan's
     // { answer, scan }.
     function afterScan(fn) {
+        return awaitScan(fn, false);
+    }
+
+    // As afterScan, once that scan's version read has returned as well
+    // (Registry.versionsRevision), for an FN that reads which commands are
+    // outdated: the scan's end alone leaves the readings of the scan before.
+    function afterVersions(fn) {
+        return awaitScan(fn, true);
+    }
+
+    function awaitScan(fn, versions) {
         const request = Registry.rescan();
-        if (request.scan <= Registry.requirementsRevision) Qt.callLater(fn);
-        else afterScans = afterScans.concat([{ scan: request.scan, fn: fn }]);
+        if (request.scan <= (versions ? Registry.versionsRevision : Registry.requirementsRevision)) Qt.callLater(fn);
+        else afterScans = afterScans.concat([{ scan: request.scan, versions: versions, fn: fn }]);
         return request;
+    }
+
+    // Run the callbacks due at REVISION: those waiting for a scan's version
+    // read when VERSIONS, else those waiting for its end alone.
+    function runDue(versions, revision) {
+        const due = afterScans.filter(a => a.versions === versions && a.scan <= revision);
+        if (due.length === 0) return;
+        afterScans = afterScans.filter(a => due.indexOf(a) === -1);
+        for (const a of due) a.fn();
     }
 
     // Owner ID's notice for TRIGGER, one of PluginLogic.NOTICE_TRIGGERS,
@@ -293,17 +322,18 @@ Singleton {
     // plugin's: the `doctor` capability's, and the `manager` capability's
     // act on a status action that installs (D061). The owner and the
     // commands are judged at once; the notice is raised after a scan this
-    // choice starts, since the value that offered it read PATH later than
-    // the last scan did (a removal through mise rescans nothing, and a
-    // plugin's own probe is its own), so a command that value lists missing
-    // or outdated is judged by the same PATH and the version read then.
+    // choice starts and that scan's version read, since the value that
+    // offered it read PATH later than the last scan did (a removal through
+    // mise rescans nothing, and a plugin's own probe is its own), so a
+    // command that value lists missing or outdated is judged by the same
+    // PATH and the version read from it.
     // Answers `ok` once that scan is asked for; the notice shows after it
     // only while a command is missing or outdated, and no offer's rest holds
     // it back.
     function chosen(owner, commands) {
         const refusal = choiceRefusal(owner, commands);
         if (refusal !== "") return refusal;
-        afterScan(() => {
+        afterVersions(() => {
             const late = root.choiceRefusal(owner, commands);
             const answer = late !== "" ? late : root.raise(owner, "chosen", commands);
             if (answer !== "ok" && answer !== "satisfied") console.warn("notices: chosen=" + owner + " " + answer);
@@ -330,26 +360,34 @@ Singleton {
         const shown = view;
         if (shown === null || (shown.install === null && shown.update === null) || installing) return "refused: install=none";
         const id = shown.id;
-        failure = "";
-        const answer = shown.install !== null
-            ? Capabilities.tuis.openCore("requirements-install", shown.install, result => root.installEnded(id, result))
-            : Capabilities.tuis.openCore("requirements-update", shown.update, result => root.installEnded(id, result));
+        const ran = { action: shown.install !== null ? "install" : "update", args: shown.install !== null ? shown.install : shown.update };
+        failure = null;
+        const answer = Capabilities.tuis.openCore("requirements-" + ran.action, ran.args, result => root.installEnded(id, ran, result));
         if (answer === "ok") installingId = id;
         else {
-            failure = answer;
+            failure = { kind: "failed", reason: answer };
             console.error("notices: install=" + id + " " + answer);
         }
         return answer;
     }
 
-    function installEnded(id, result) {
-        if (result.code !== 0 && root.current !== null && root.current.id === id)
-            failure = result.code === null ? result.reason : "exited " + result.code;
+    // The run of RAN, accept's { action, args }, for ID's notice ended with
+    // RESULT. A run that did not end with code 0 says why at once. One
+    // rescan follows, and its version read settles the notice, since only
+    // that read says whether an update reached the floor; a run that ended
+    // with code 0 and left its own step owed is judged then
+    // (PluginLogic.noticeUnchanged), so the notice that comes back says why.
+    function installEnded(id, ran, result) {
+        const ended = result.code === 0;
+        if (!ended && root.current !== null && root.current.id === id)
+            failure = { kind: "failed", reason: result.code === null ? result.reason : "exited " + result.code };
         detect();
-        afterScan(() => {
+        afterVersions(() => {
             if (root.installingId !== id) return;
             root.installingId = "";
             root.settle();
+            if (ended && root.current !== null && root.current.id === id)
+                root.failure = Logic.noticeUnchanged(Registry.requirementOwners[id], root.missingOf(id), Registry.commandVersions, root.current, root.managers, ran);
         });
     }
 
