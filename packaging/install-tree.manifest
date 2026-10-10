@@ -367,6 +367,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/Conversation.js
 f share/vgshell/shell/plugins/vgs.jarvis/JarvisProtocol.js
 f share/vgshell/shell/plugins/vgs.jarvis/Keys.qml
 f share/vgshell/shell/plugins/vgs.jarvis/LocalRuntime.qml
+f share/vgshell/shell/plugins/vgs.jarvis/LocalTier.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Service.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Session.js
 f share/vgshell/shell/plugins/vgs.jarvis/SetupGate.js
