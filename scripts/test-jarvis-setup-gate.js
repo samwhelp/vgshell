@@ -52,8 +52,8 @@ const REQUIREMENT = [
 // tone, the steps still to do, the steps to do that keep their declared
 // hint, the AI model's named action while to do, "key" when left out]. A
 // step to do is a warning with its action and, unless its action already
-// says what it asks, a hint of its own; a done step is ok with neither. No
-// step draws lines: what it asks is description, its hint.
+// says what it asks, a hint of its own; a done step is ok with neither.
+// The summary draws keyed cause detail lines for setting-place causes.
 const READINESS = [
     ["ready", { kind: "answered", causes: [] }, "ok", [], []],
     ["nothing set up", { kind: "answered", causes: ["speech=local-not-set-up", "brain=unselected"] }, "warning", ["setupVoice", "setupModel"], ["setupVoice"]],
@@ -107,9 +107,9 @@ const START_CAUSES = [
     ["daemon exit", "jarvis: daemon=exit code=1 status=0", "daemon-exit"],
     ["daemon ended", "jarvis: daemon=ended", "daemon-exit"],
     ["wire defect", "jarvis: protocol=identity", "wire-defect"],
-    ["local voice", "jarvis: speech=local-not-ready", "local-voice-timeout"],
     ["probe timeout", "jarvis: setup=probe-timeout", "probe-timeout"]
 ];
+const ARBITRARY_STDERR = "SyntaxError: fixture";
 
 // The model and effort the Jarvis page offers and saves. Each list is the
 // page's read for one sign-in, as its program's adapter narrows it: the
@@ -535,6 +535,8 @@ function verifyReadiness(gate) {
         assert.deepEqual(got.setupHome, { hidden: true }, label + ": the home folder step stays off the page");
         assert.equal(got.setup.tone, tone, label + ": the summary");
         assert.equal(got.setup.action, undefined, label + ": the summary offers no step");
+        if (answer.kind === "answered" && answer.causes.length > 0 && !(answer.causes.length === 1 && answer.causes[0] === "speech=local-loading"))
+            assert.deepEqual(got.setup.lines, answer.causes, label + ": the summary detail lines");
         for (const key of ["setupVoice", "setupModel"]) {
             const step = got[key];
             const open = todo.includes(key);
@@ -546,6 +548,8 @@ function verifyReadiness(gate) {
         }
     }
     const lines = BRAIN_CAUSES.map(cause => plain(gate.readiness({ kind: "answered", causes: [cause] })).setupModel.hint);
+    const localNotReady = plain(gate.readiness({ kind: "answered", causes: ["speech=local-not-ready"] })).setupVoice;
+    assert.equal(localNotReady.hint, "Local voice did not get ready in time. Set it up again in Settings > Jarvis.", "local voice timeout words");
     for (const cause of ["speech=local-memory-insufficient", "speech=local-memory-unavailable"]) {
         const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setup.tone, got.setupVoice.tone, got.setupVoice.action, got.setupModel.tone],
@@ -712,6 +716,9 @@ function verify(gate) {
         assert.equal(setup.text, words.title, label + ": setup text");
         assert.deepEqual(JSON.parse(JSON.stringify(setup.lines)), [cause], label + ": setup detail line");
     }
+    let fallback;
+    assert.doesNotThrow(() => { fallback = gate.startCause(ARBITRARY_STDERR); }, "arbitrary stderr maps to daemon exit");
+    assert.equal(fallback.kind, "daemon-exit", "arbitrary stderr maps to daemon exit");
 }
 
 verify(load(file));
@@ -782,6 +789,7 @@ const CONTROLS = [
     ["a stopped daemon's steps read checking", 'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },\n            setupHome: HOME_READY, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };',
         'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },\n            setupHome: HOME_READY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };'],
     ["a keyed start cause has no words", '[/^jarvis: hello=timeout$/, { kind: "hello-timeout", title: "Jarvis did not answer in time", action: START_RESTART }],', ""],
+    ["an arbitrary stderr line has no words", "return { kind: DAEMON_EXIT.kind, title: DAEMON_EXIT.title, action: DAEMON_EXIT.action, lines: [cause] };", 'throw new Error("jarvis-setup: start-cause=" + cause + " has no words");'],
     ["a cause naming no step is taken", 'if (!Object.prototype.hasOwnProperty.call(REQUIRED, step)) throw new Error("jarvis-setup: cause=" + cause + " names no step");', ""],
     ["a required step reads as optional", 'if (!Object.prototype.hasOwnProperty.call(OPTIONAL, key)) throw new Error("jarvis-setup: step=" + key + " is not optional");', ""]
 ];

@@ -49,7 +49,7 @@ const HELLO = SetupGate.startCause("jarvis: hello=timeout");
 const DAEMON_HELLO = { tone: "warning", text: HELLO.title, lines: [HELLO.action, "jarvis: hello=timeout"] };
 const FLOOR_HELLO = { tone: "danger", text: HELLO.title, lines: [HELLO.action, "jarvis: hello=timeout"] };
 const START_CAUSES = ["jarvis: hello=timeout", "jarvis: node=20.19.5 need=22", "jarvis: daemon=exit code=1 status=0",
-    "jarvis: protocol=identity", "jarvis: speech=local-not-ready", "jarvis: setup=probe-timeout"];
+    "jarvis: protocol=identity", "jarvis: setup=probe-timeout"];
 const OVERFLOW = { tone: "danger", text: "capture-overflow" };
 const up = (regions, extra) => Object.assign({ daemon: READY, audio: DEVICES, detail: detail(regions) }, extra);
 

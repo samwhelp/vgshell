@@ -95,8 +95,8 @@ for index, r in enumerate(rows):
 print(json.dumps(out))
 ' "$repo/shell/plugins/vgs.jarvis/manifest.json"
 }
-setup_fresh='[["setup", ["warning"], [], 1], ["setupModel", ["warning"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupBrowser", true], ["setupInput", true]]'
-setup_voice_left='[["setup", ["warning"], [], 1], ["setupModel", ["success"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupBrowser", true], ["setupInput", true]]'
+setup_fresh='[["setup", ["warning"], [], 3], ["setupModel", ["warning"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupBrowser", true], ["setupInput", true]]'
+setup_voice_left='[["setup", ["warning"], [], 2], ["setupModel", ["success"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupBrowser", true], ["setupInput", true]]'
 setup_ready='[["setup", ["success"], [], 1], ["setupModel", ["success"], [], 1], ["setupVoice", ["success"], [], 1], ["setupBrowser", true], ["setupInput", true]]'
 # BRAIN as the Jarvis AI model setting, "" for none, delivered by a reload.
 setup_brain() { # BRAIN

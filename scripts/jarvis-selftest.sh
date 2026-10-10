@@ -439,10 +439,6 @@ daemon = values.get("daemon")
 setup = values.get("setup")
 lifetime = service.get("lifetime", {}).get("kind", "unknown")
 cause = service.get("cause") or None
-if cause is None:
-    causes = service.get("setupCauses")
-    if isinstance(causes, list) and causes:
-        cause = causes[0]
 if cause is None and isinstance(setup, dict):
     lines = setup.get("lines")
     if isinstance(lines, list) and lines:

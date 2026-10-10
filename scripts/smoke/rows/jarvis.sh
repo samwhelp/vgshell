@@ -1,6 +1,8 @@
-# Jarvis start bound: 60000 ms. Measured with scripts/jarvis-selftest.sh
-# --cold 10 on 2026-10-10 in this lane: max setting 500 ms, CPU pressure
-# some avg10=0.00 avg60=0.25 avg300=1.85. It polls once per nested IPC round trip.
+# Jarvis start bound: 107750 ms, from Service.qml's hello and retry timers,
+# LocalSpeech.js's ready bound and LocalRuntime.qml's probe bound. Measured
+# with scripts/jarvis-selftest.sh --cold 10 on 2026-10-10 in this lane:
+# max setting 478 ms, CPU pressure some avg10=0.00 avg60=0.17 avg300=2.16.
+# It polls once per nested IPC round trip.
 # The real child runs inside J09, with synthetic audio commands and no
 # account, real audio or desktop endpoint.
 # inputs: shell/Core/Sounds.qml shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
@@ -215,6 +217,22 @@ ok = ok and "jarvis: hello=timeout" in daemon.get("lines", [])
 ok = ok and setup.get("text") == "Jarvis did not answer in time"
 ok = ok and "jarvis: hello=timeout" in setup.get("lines", [])
 print("problem-words" if ok else "pending")
+'
+}
+
+jarvis_start_retry_words() {
+  ipc smoke jarvisProcess | py_reply '
+import json, sys
+d = json.load(sys.stdin)
+daemon = d["status"].get("daemon", {})
+setup = d["status"].get("setup", {})
+ok = d["lifetime"]["kind"] == "retry"
+ok = ok and daemon.get("tone") == "warning" and daemon.get("text") == "Jarvis did not answer in time"
+ok = ok and daemon.get("lines") == ["Jarvis is trying again by itself.", "jarvis: hello=timeout"]
+ok = ok and setup.get("text") == "Jarvis did not answer in time"
+ok = ok and setup.get("hint") == "Jarvis is trying again by itself."
+ok = ok and setup.get("lines") == ["jarvis: hello=timeout"]
+print("retry-words" if ok else "pending")
 '
 }
 
@@ -831,20 +849,11 @@ needle='if (!process.stdout.write(wire + "\\n")) process.stdin.pause();'
 assert s.count(needle)==1
 p.write_text(s.replace(needle, 'void wire;'))
 PY
-python3 - "$jarvis_service" <<'PY'
-from pathlib import Path
-import sys
-p=Path(sys.argv[1])
-s=p.read_text()
-needle='Timer { id: helloDeadline; interval: 5000; onTriggered: root.broken("jarvis: hello=timeout") }'
-assert s.count(needle)==1
-p.write_text(s.replace(needle, 'Timer { id: helloDeadline; interval: 100; onTriggered: root.broken("jarvis: hello=timeout") }'))
-PY
 jarvis_rescan
 expect "the hello-less daemon fixture enables" ok ipc shell setPluginEnabled vgs.jarvis true
+expect_poll "the hello-less daemon names the first failed start" retry-words jarvis_start_retry_words
 expect_poll "the hello-less daemon reads problem with words" problem-words jarvis_start_problem_words
 expect "the hello-less daemon service disables" ok ipc shell setPluginEnabled vgs.jarvis false
-cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
 cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
 jarvis_rescan
 

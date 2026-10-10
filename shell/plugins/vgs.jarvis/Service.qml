@@ -19,7 +19,6 @@ Item {
     property string outputTail: ""
     property string errorTail: ""
     property string cause: ""
-    property var setupCauses: []
     // The daemon writes diagnostics to stderr and keeps running. The last
     // complete line becomes the cause only if the daemon then exits, even
     // when that exit writes no line of its own.
@@ -47,11 +46,6 @@ Item {
     property var taskResponse: null
     readonly property bool taskTuiRunning: shell !== null && shell.tui.state.task.running
     readonly property string daemon: String(Qt.resolvedUrl("backend/jarvisd.js")).replace(/^file:\/\//, "")
-    // scripts/jarvis-selftest.sh --cold 10 in this lane on 2026-10-10
-    // measured max setting 500 ms with CPU pressure avg10=0.00. The
-    // product bound stays at 60000 ms because LocalSpeech.js uses that
-    // ready bound before it reports speech=local-not-ready.
-    readonly property int startBoundMs: 60000
     // Quickshell builds its desktop entry index on first use and fills it
     // after that; reading it here starts the scan before a list request.
     readonly property int desktopEntryCount: DesktopEntries.applications.values.length
@@ -136,7 +130,6 @@ Item {
     // The Setup section's summary and required steps for ANSWER
     // (SetupGate.readiness), and the input step from its reader's VALUE.
     function publishSetup(answer) {
-        setupCauses = answer.kind === "answered" ? answer.causes.slice() : [];
         const values = Gate.readiness(answer);
         values.setupModel = Gate.modelStep(values.setupModel, shell.status.values["keys"], accountReader.modelAccess);
         for (const key of Object.keys(values)) {
@@ -649,8 +642,8 @@ Item {
         retry.interval = 250 * Math.pow(2, retries);
         retries++;
         lifetime = { kind: "retry", pendingMute: lifetime.pendingMute };
-        publish("warning", problem.title, [problem.action, cause]);
-        publishSetup({ kind: "problem", cause });
+        publish("warning", problem.title, [Gate.RETRYING_START, cause]);
+        publishSetup({ kind: "problem", cause, action: Gate.RETRYING_START });
         retry.start();
     }
 
@@ -718,6 +711,12 @@ Item {
             root.ended(done);
         }
     }
+    // Start bound: 107750 ms. It is 6 hello attempts x 5000 ms plus
+    // retry backoff of 250+500+1000+2000+4000 ms, plus LocalSpeech.js
+    // ready bound of 60000 ms, plus the setup probe bound of 10000 ms.
+    // scripts/jarvis-selftest.sh --cold 10 on this machine on 2026-10-10
+    // measured the setting place only: median 427.5 ms, max 478 ms, CPU
+    // pressure some avg10=0.00 avg60=0.17 avg300=2.16.
     Timer { id: retry; onTriggered: root.start() }
     Timer { id: helloDeadline; interval: 5000; onTriggered: root.broken("jarvis: hello=timeout") }
     // A finished key, account or local voice step can change what the

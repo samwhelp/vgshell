@@ -83,7 +83,7 @@ var FAULT_TEXT = {
     "home": { title: "Jarvis cannot use the home folder", action: "Check AGENTS.md, MEMORY.md and the skills in the folder, or choose another folder in Settings > Jarvis." },
     "brain": { title: "The AI model did not answer", action: RESTART },
     "model": { title: "The AI app cannot use the model", action: "Choose another model in Settings > Jarvis." },
-    "voice": { title: "Local voice stopped working", action: RESTART },
+    "voice": { title: "Local voice did not get ready in time", action: "Set up Local voice again in Settings > Jarvis." },
     "audio": { title: "The microphone or speaker stopped working", action: RESTART },
     "other": { title: "Jarvis stopped after a problem", action: RESTART }
 };
