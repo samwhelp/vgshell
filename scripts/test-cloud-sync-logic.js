@@ -105,7 +105,9 @@ function verify(L) {
     same(values.keys.map(k => [k.secret, k.value]), [["pull-client-id", "present"], ["pull-client-secret", "present"], ["pull-token", "locked"], ["upload-client-id", "present"], ["upload-client-secret", "present"], ["upload-token", "absent"]]);
     assert.ok(values.keys.every(k => k.hint === undefined), "every key is needed");
     const unused = L.parseProbe(JSON.stringify({ credentials: PROBE.credentials.map(c => Object.assign({}, c, { needed: !c.account.startsWith("upload") })) }));
-    assert.ok(L.statusValues(null, unused.presence, "", NOW).keys.filter(k => k.hint !== undefined).every(k => k.secret.startsWith("upload")), "an unused key says so");
+    same(L.statusValues(null, unused.presence, "", NOW).keys.filter(k => k.hint !== undefined).map(k => k.secret), ["upload-client-id", "upload-client-secret", "upload-token"], "an unused key says so");
+    const none = L.parseProbe(JSON.stringify({ credentials: PROBE.credentials.map(c => Object.assign({}, c, { needed: false })) }));
+    assert.ok(L.statusValues(null, none.presence, "", NOW).keys.every(k => k.hint === undefined), "with no folder pair no key reads unused");
     same(Object.keys(L.statusValues(null, null, "", NOW)), [], "nothing is published before the first answers");
 
     // The Setup step: Set up while the units are not installed; Connect for
@@ -145,10 +147,10 @@ function verify(L) {
     same(L.changedKeys({ lastSync: null }, { lastSync: null }), []);
 
     // The widget and its tooltip: labels and states, never a file name.
-    same(L.widgetView(cloud, NOW), { icon: "cloud-alert", tone: "danger", spinning: false, badge: 3 });
-    same(L.widgetView(L.cloudValue(record({ state: "running", conflicts: [] }), ""), NOW), { icon: "cloud-sync", tone: "calm", spinning: true, badge: 0 });
-    same(L.widgetView(L.cloudValue(record({ state: "idle", attention: null }), ""), NOW), { icon: "cloud-check", tone: "warning", spinning: false, badge: 3 }, "files to review warn");
-    same(L.widgetView(undefined, NOW), { icon: "cloud", tone: "calm", spinning: false, badge: 0 });
+    same(L.widgetView(cloud, NOW), { icon: "cloud-alert", tone: "danger", spinning: false, badge: "3" });
+    same(L.widgetView(L.cloudValue(record({ state: "running", conflicts: [] }), ""), NOW), { icon: "cloud-sync", tone: "calm", spinning: true, badge: "" }, "no file to review draws no count");
+    same(L.widgetView(L.cloudValue(record({ state: "idle", attention: null }), ""), NOW), { icon: "cloud-check", tone: "warning", spinning: false, badge: "3" }, "files to review warn");
+    same(L.widgetView(undefined, NOW), { icon: "cloud", tone: "calm", spinning: false, badge: "" });
     const tip = L.widgetTooltip(cloud, NOW, Timestamp.text);
     assert.equal(tip.title, "Cloud Sync: Sign-in needed");
     same(tip.details.split("\n"), ["Documents: Up to date", "Agent uploads: Sign-in needed", "3 files to review", "Last sync " + Timestamp.text(NOW - HOUR, NOW)]);
@@ -193,7 +195,9 @@ const controls = [
     ["a cleared key is written as null", "if (!hasOwn(next, k) && previous[k] !== null) keys.push(k);", ""],
     ["files to review warn in the bar", "view.tone === \"warning\" || cloud.conflictCount > 0 ? \"warning\"", "view.tone === \"warning\" ? \"warning\""],
     ["the tooltip names pairs, not files", "var lines = pairLines(cloud.pairs, now);\n    if (cloud.conflictCount > 0) lines.push(reviewLine(cloud.conflictCount));\n    if (cloud.lastSuccess", "var lines = pairLines(cloud.pairs, now).concat(cloud.conflicts.map(function (c) { return c.path; }));\n    if (cloud.conflictCount > 0) lines.push(reviewLine(cloud.conflictCount));\n    if (cloud.lastSuccess"],
-    ["a sign-in notifies first", "if (reasons.indexOf(\"authorization-required\") !== -1)\n", "if (false)\n"]
+    ["a sign-in notifies first", "if (reasons.indexOf(\"authorization-required\") !== -1)\n", "if (false)\n"],
+    ["no file to review draws no count", "cloud.conflictCount > 0 ? String(cloud.conflictCount) : \"\"", "String(cloud.conflictCount)"],
+    ["with no folder pair no key reads unused", "if (anyNeeded && !presence[account].needed)", "if (!presence[account].needed)"]
 ];
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "test-cloud-sync-logic-"));

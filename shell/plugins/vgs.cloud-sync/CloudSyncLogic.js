@@ -291,12 +291,13 @@ var KEY_LABELS = {
 };
 
 // The `keys` presence list: one item per account, its presence and the
-// account the Setup section's masked field stores. A key no folder pair
-// uses says so.
+// account the Setup section's masked field stores. Once a folder pair
+// exists, a key no folder pair uses says so.
 function keyItems(presence) {
+    var anyNeeded = ACCOUNTS.some(function (account) { return presence[account].needed; });
     return ACCOUNTS.map(function (account) {
         var item = { label: KEY_LABELS[account], value: presence[account].presence, secret: account };
-        if (!presence[account].needed) item.hint = "No folder pair uses this key now.";
+        if (anyNeeded && !presence[account].needed) item.hint = "No folder pair uses this key now.";
         return item;
     });
 }
@@ -313,13 +314,14 @@ function changedKeys(previous, next) {
 }
 
 // The bar widget: { icon, tone, spinning, badge }, tone one of calm,
-// warning and danger. CLOUD is the published value, undefined before the
-// first.
+// warning and danger, and badge the count of files to review as BarItem's
+// `count` text, "" for none. CLOUD is the published value, undefined
+// before the first.
 function widgetView(cloud, now) {
-    if (cloud === undefined) return { icon: "cloud", tone: "calm", spinning: false, badge: 0 };
+    if (cloud === undefined) return { icon: "cloud", tone: "calm", spinning: false, badge: "" };
     var view = stateView(cloud.state, cloud.staleAfter, now);
     var tone = view.tone === "danger" ? "danger" : view.tone === "warning" || cloud.conflictCount > 0 ? "warning" : "calm";
-    return { icon: view.icon, tone: tone, spinning: cloud.state === "running", badge: cloud.conflictCount };
+    return { icon: view.icon, tone: tone, spinning: cloud.state === "running", badge: cloud.conflictCount > 0 ? String(cloud.conflictCount) : "" };
 }
 
 // The widget's tooltip: its title and one line per pair, its label and
