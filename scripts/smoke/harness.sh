@@ -1,5 +1,5 @@
 # Sourced by qml-smoke.sh; owns the sandbox and shared readers.
-# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/leaks.sh bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/lock/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh
+# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/leaks.sh bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/hypr-call.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/lock/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh
 set -euo pipefail
 source "$repo/scripts/smoke/verdict.sh"
 source "$repo/scripts/smoke/mode-hold.sh"
@@ -206,7 +206,11 @@ if logs then logs:close() end
 hl.config({
     misc = { disable_hyprland_logo = true, disable_splash_rendering = true, disable_autoreload = true },
     animations = { enabled = false },
-    debug = { disable_logs = logs == nil },
+    -- Hyprland 0.56.2 with hyprgraphics 0.5.1 draws the configuration
+    -- error overlay's text through the async resource gatherer, which can
+    -- lose its wakeup and stop the compositor; the rows read every error
+    -- through `hyprctl configerrors`, which lists them with the overlay off.
+    debug = { disable_logs = logs == nil, suppress_errors = true },
 })
 -- Empty workspaces the compositor keeps alive, so the bar draws more than
 -- one workspace pill and one whose label is wider than the pill's floor.
@@ -601,7 +605,22 @@ ok "nested compositor up: socket=$nested_socket"
 
 shell_env=("${sandbox_env[@]}" WAYLAND_DISPLAY="$nested_socket" HYPRLAND_INSTANCE_SIGNATURE="$signature"
   DBUS_SESSION_BUS_ADDRESS="unix:path=$rt_dir/bus" DBUS_SYSTEM_BUS_ADDRESS="unix:path=$rt_dir/system-bus")
-hypr() { "${shell_env[@]}" hyprctl -i "$signature" "$@"; }
+# smoke_finish: the run's closing verdict, after the log tails of a run
+# that failed; a run that does not pass exits with the verdict's status.
+# Defined before hypr-call.sh, whose stall handler ends the run through it
+# from the first call on.
+smoke_finish() {
+if [[ $failures -gt 0 ]]; then
+  echo "--- instance log tail"; tail -n 40 "${instance_log:-$sandbox/qs.log}" 2>/dev/null || true
+  # Hyprland ends its log without a newline; sed adds the one the verdict
+  # line after it needs.
+  echo "--- nested compositor log tail"; tail -n 40 "$rt_dir"/hypr/*/hyprland.log 2>/dev/null | sed '$a\' || true
+fi
+local status=0
+smoke_verdict "$failures" "$behaviour_failures" "$stalled_render" "$mode_resets" "$rt_dir"/hypr/*/hyprland.log || status=$?
+[[ $status -eq 0 ]] || exit "$status"
+}
+source "$repo/scripts/smoke/hypr-call.sh"
 
 # The nested output can take a moment to appear. The shell starts once the
 # compositor lists monitors and every one has a size, so no bar is built
@@ -3001,18 +3020,6 @@ smoke_row() { # NAME [DIR]
   fi
   leak_row_end "$smoke_row_name" "$smoke_row_dir"
   printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"
-}
-
-smoke_finish() {
-if [[ $failures -gt 0 ]]; then
-  echo "--- instance log tail"; tail -n 40 "${instance_log:-$sandbox/qs.log}" 2>/dev/null || true
-  # Hyprland ends its log without a newline; sed adds the one the verdict
-  # line after it needs.
-  echo "--- nested compositor log tail"; tail -n 40 "$rt_dir"/hypr/*/hyprland.log 2>/dev/null | sed '$a\' || true
-fi
-local status=0
-smoke_verdict "$failures" "$behaviour_failures" "$stalled_render" "$mode_resets" "$rt_dir"/hypr/*/hyprland.log || status=$?
-[[ $status -eq 0 ]] || exit "$status"
 }
 
 # What rows read whichever rows the run holds, set once the first shell is
