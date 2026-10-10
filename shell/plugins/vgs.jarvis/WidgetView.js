@@ -12,11 +12,12 @@
 //   muted      privacy mute is on, or turning on
 //   off        a refused home folder needs a settings action
 //   loading    setup checks or local voice loads
-//   off        a gate reason or setup step needs an action before Jarvis can listen;
-//              an offered step with a cause hint shows that hint.
+//   off        a gate reason or setup step needs an action before Jarvis can listen
 //   working    Jarvis thinks, waits for confirmation or runs a task
 //   speaking   playback is speaking
 //   ready      Session is idle
+// An offered setup step with a cause hint keeps its setup title and shows
+// that hint, whether Jarvis is off or ready.
 // A tone is `calm` or a group of Theme.badge.tone. A value outside the
 // shapes the service and Session.js produce throws a keyed error; nothing
 // falls back.
@@ -229,11 +230,22 @@ function homeText(values) {
 function unconfiguredText(values) {
     for (var i = 0; i < SETUP_TEXT.length; i++) {
         var step = values[SETUP_TEXT[i][0]];
-        if (step && step.tone === "warning" && step.hint)
+        if (step && step.tone === "warning" && offered(step) && step.hint)
+            return { title: SETUP_TEXT[i][1].title, action: step.hint };
+        if (step && step.tone === "warning" && !offered(step) && step.hint)
             return { title: step.text, action: "Open Settings > Jarvis. " + step.hint };
         if (step !== undefined && step !== null && offered(step)) return SETUP_TEXT[i][1];
     }
     return GATE_TEXT.unconfigured;
+}
+
+function setupCauseHint(values) {
+    for (var i = 0; i < SETUP_TEXT.length; i++) {
+        var step = values[SETUP_TEXT[i][0]];
+        if (step && step.tone === "warning" && offered(step) && step.hint)
+            return step.hint;
+    }
+    return null;
 }
 
 // Only the published Checking and Done steps can explain a closed gate
@@ -344,7 +356,9 @@ function view(values, keys, mode) {
     case "speaking":
         return look("speaking", "Jarvis is speaking", [stopAction(effectiveKeys)], muteOn, effectiveKeys);
     case "idle":
-        return look("ready", "Jarvis is ready", [readyAction(effectiveMode, effectiveKeys)], muteOn, effectiveKeys);
+        var hint = setupCauseHint(values);
+        return look("ready", "Jarvis is ready", hint === null ? [readyAction(effectiveMode, effectiveKeys)]
+            : [readyAction(effectiveMode, effectiveKeys), hint], muteOn, effectiveKeys);
     default:
         // Listening and armed hold capture open, which reads listening above;
         // down holds the gate down.

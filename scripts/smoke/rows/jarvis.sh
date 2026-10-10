@@ -251,7 +251,7 @@ ok = row.get("tone") == "warning" and row.get("text") == "Jarvis setup check tim
 ok = ok and "jarvis: setup=probe-timeout" in row.get("lines", [])
 ok = ok and setup.get("tone") == "warning" and "jarvis: setup=probe-timeout" in setup.get("lines", [])
 ok = ok and voice.get("tone") == "warning" and "Jarvis setup check timed out" in voice.get("hint", "")
-ok = ok and widget.get("state") == "off" and "Jarvis setup check timed out" in "\n".join([widget.get("tooltip", "")] + widget.get("tooltipDetails", []))
+ok = ok and widget.get("state") == "ready" and "Jarvis setup check timed out" in "\n".join([widget.get("tooltip", "")] + widget.get("tooltipDetails", []))
 print("probe-timeout" if ok else "pending")
 PY
 }
