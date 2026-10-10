@@ -355,6 +355,7 @@ function verifyListRead(providers, accountsSource) {
 const pageFile = path.join(path.dirname(file), "..", "vgs.settings", "PluginPage.qml");
 const serviceFile = path.join(path.dirname(file), "Service.qml");
 const accountsFile = path.join(path.dirname(file), "Accounts.qml");
+const localRuntimeFile = path.join(path.dirname(file), "LocalRuntime.qml");
 const providersFile = path.join(path.dirname(file), "AccountProviders.js");
 const words = require(path.join(path.dirname(file), "AccountStatus.js"));
 const UNSELECTED = { kind: "answered", causes: ["brain=unselected"] };
@@ -706,6 +707,7 @@ function verify(gate) {
     assert.deepEqual(plain(update), { ok: true, kind: "install", commands: ["pi"] }, "the AI model step's Update asks the core for Pi");
     assert.deepEqual(plain(judge.statusActionRequest(judged, "vgs.jarvis", true, { browserDriver: plain(gate.flooredValue("agent-browser", [], ["agent-browser"])) }, "browserDriver")),
         { ok: true, kind: "install", commands: ["agent-browser"] }, "the driver row's Update asks the core for the driver");
+    verifyProbeTimeoutConsumer(fs.readFileSync(localRuntimeFile, "utf8"));
     for (const [label, cause, kind] of START_CAUSES) {
         const words = gate.startCause(cause);
         assert.equal(words.kind, kind, label + ": classified");
@@ -799,6 +801,16 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-setup-gate-control-")
 try {
     const serviceSource = fs.readFileSync(serviceFile, "utf8");
     const accountsSource = fs.readFileSync(accountsFile, "utf8");
+    const localRuntimeSource = fs.readFileSync(localRuntimeFile, "utf8");
+    {
+        const needle = 'const problem = Gate.startCause("jarvis: setup=probe-timeout");';
+        assert.equal(localRuntimeSource.split(needle).length, 2);
+        let failure = null;
+        try { verifyProbeTimeoutConsumer(localRuntimeSource.replace(needle, 'const problem = { title: "Setup check timed out", action: "Turn Jarvis off and on again in Settings > Jarvis.", lines: ["jarvis: setup=probe-timeout"] };')); }
+        catch (error) { failure = error; }
+        assert.ok(failure instanceof assert.AssertionError);
+        console.log("test-jarvis-setup-gate: control=LocalRuntime.qml check=probe-timeout-owner rejected=true");
+    }
     for (const [target, original, needle, replacement] of [
         ["Service.qml", serviceSource, 'values.setupModel = Gate.modelStep(values.setupModel, shell.status.values["keys"], accountReader.modelAccess);', 'values.setupModel = values.setupModel;'],
         ["Accounts.qml", accountsSource, 'modelAccess = Gate.accountAccess(value.accounts);', 'modelAccess = { kind: "absent" };']
@@ -948,3 +960,7 @@ try {
     fs.rmSync(temp, { recursive: true, force: true });
 }
 console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length} controls=${CONTROLS.length + 10 + 53}`);
+function verifyProbeTimeoutConsumer(source) {
+    assert.equal(source.includes('Gate.startCause("jarvis: setup=probe-timeout")'), true,
+        "probe timeout words come from SetupGate");
+}

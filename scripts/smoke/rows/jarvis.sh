@@ -241,7 +241,7 @@ jarvis_probe_timeout_words() {
 import json, sys
 status = json.load(sys.stdin)["status"]
 row = status.get("localRuntime", {})
-ok = row.get("tone") == "warning" and row.get("text") == "Setup check timed out"
+ok = row.get("tone") == "warning" and row.get("text") == "Jarvis setup check timed out"
 ok = ok and "jarvis: setup=probe-timeout" in row.get("lines", [])
 print("probe-timeout" if ok else "pending")
 '

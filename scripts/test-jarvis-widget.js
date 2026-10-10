@@ -110,7 +110,8 @@ const CASES = [
         ["problem", "circle-alert", "danger", WITH(fault("slow"), [UNMUTE])]],
     ...[["a lost device", "device-lost", "device"], ["a brain stream error", "brain=stream-error", "brain"],
         ["a harness exit", "brain=harness-exit", "brain"], ["a network refusal", "net=timeout", "brain"],
-        ["local speech", "speech=local-not-ready", "voice"], ["a capture start", "audio-start: device-busy", "audio"],
+        ["local speech not ready", "speech=local-not-ready", "localVoice"], ["another speech fault", "speech=live-key-required", "voice"],
+        ["a capture start", "audio-start: device-busy", "audio"],
         ["a device probe", "device-probe: pw-dump-exit", "audio"], ["a busy player", "playback-busy", "audio"],
         ["a home text over its bound", "guidance=home-too-large", "home"], ["a home skill list over its bound", "guidance=home-skills-too-large", "home"],
         ["a link in the home folder", "home=link", "home"],
@@ -249,7 +250,7 @@ function verify(view) {
         assert.deepEqual(copy(got), expected(want, view), label);
         if (typeof got !== "string") assert.equal(/[a-z-]+=[a-z0-9-]/.test(got[3]), false, label + ": no keyed cause on screen");
     }
-    for (const kind of ["slow", "device", "home", "brain", "voice", "audio", "other"])
+    for (const kind of ["slow", "device", "home", "brain", "localVoice", "voice", "audio", "other"])
         assert.equal(typeof view.FAULT_TEXT[kind].title === "string" && typeof view.FAULT_TEXT[kind].action === "string", true, kind);
     const words = [view.GATE_TEXT.unconfigured.action, ...view.SETUP_TEXT.map(([, line]) => line.action)];
     assert.equal(new Set(words).size, words.length, "each remaining step says its own sentence");
@@ -314,6 +315,7 @@ const CONTROLS = [
     ["an unexpected phase reads ready", 'refuse("phase", detail.phase);', 'return look("ready", "Jarvis is ready", [readyAction(effectiveMode, effectiveKeys)], muteOn, effectiveKeys);'],
     ["a fault shows its keyed reason", 'return fault.kind === "retrying" ? RETRYING : FAULT_TEXT[kind];', 'return { title: "Problem: " + fault.reason, action: RESTART };'],
     ["a brain fault reads as another", '[/^(brain|net)=/, "brain"],', ""],
+    ["local voice timeout reads as generic speech", '[/^speech=local-not-ready$/, "localVoice"],\n', ""],
     ["a refused model reads as any brain fault", '    [MODEL_REFUSED, "model"],\n', ""],
     ["a refused model is not named", 'title: FAULT_TEXT.model.title + " " + MODEL_REFUSED.exec(fault.reason)[1]', "title: FAULT_TEXT.model.title"],
     ["a home folder fault reads as another", '[/^(home=|guidance=home-)/, "home"],', ""],

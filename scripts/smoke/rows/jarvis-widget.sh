@@ -108,8 +108,8 @@ p.write_text(s)
 PY
   jarvis_rescan
 }
-# The widget during the retry wait: `restarting` for the loading look while
-# the service waits to retry and its daemon row warns, otherwise the
+# The widget during the retry wait: `restarting` for the problem look while
+# the service waits to retry and its daemon row says it is trying again, otherwise the
 # reading itself.
 jarvis_widget_restarting() {
   local widget process
@@ -119,8 +119,9 @@ import json, sys
 t, p = sys.argv[1], sys.argv[2]
 r = None if t == "absent" else json.loads(t)
 d = None if p in ("absent", "missing") else json.loads(p)
-ok = (r is not None and d is not None and r[:2] == ["loader", "info"]
-      and d["lifetime"]["kind"] == "retry" and d["status"]["daemon"]["tone"] == "warning")
+ok = (r is not None and d is not None and r[:2] == ["circle-alert", "danger"]
+      and d["lifetime"]["kind"] == "retry" and d["status"]["daemon"]["tone"] == "warning"
+      and "Jarvis is trying again by itself." in d["status"]["daemon"].get("lines", []))
 print("restarting" if ok else t)
 PY
 }
@@ -220,13 +221,14 @@ expect_poll "the restarted daemon answers after one retry" ready jarvis_ready 1
 expect_poll "the widget reads ready after the restart" "$jarvis_widget_ready" jarvis_widget
 jarvis_widget_restore Service.qml
 
-# Keep the retry and its report. Drop only the clear of the ended state.
+# Keep the retry. Drop only the report lines that make a retry a problem
+# with plain action text.
 jarvis_widget_plant Service.qml "$jarvis_widget_retry_needle" "$jarvis_widget_retry_delay" \
-  'const stale = shell.status.set("detail", null);' 'const stale = "ok";'
+  'publish("warning", problem.title, [Gate.RETRYING_START, cause]);' 'publish("warning", problem.title);'
 jarvis_enable
 expect_poll "the clear control draws the ready widget" "$jarvis_widget_ready" jarvis_widget
 jarvis_widget_kill
-expect "a service that keeps the ended state fails the restarting assertion" 1 jarvis_widget_restart_control
+expect "a retry report with no action line fails the restarting assertion" 1 jarvis_widget_restart_control
 expect_poll "the clear control's daemon answers after one retry" ready jarvis_ready 1
 jarvis_widget_restore Service.qml
 

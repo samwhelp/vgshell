@@ -20,6 +20,7 @@ Item {
     property string stepKey: ""
     property bool pending: false
     property bool timedOut: false
+    property double startedAt: 0
     property int code: -1
     property string output: ""
     readonly property var tuiState: shell === null ? null : shell.tui.state[tuiName]
@@ -39,13 +40,16 @@ Item {
         timedOut = false;
         code = -1;
         output = "";
+        startedAt = Date.now();
         probe.running = true;
-        probeDeadline.restart();
     }
     function publish() {
         let value = { tone: "warning", text: "Setup check failed", action: true };
         try {
-            if (timedOut) value = { tone: "warning", text: "Setup check timed out", hint: "Turn Jarvis off and on again in Settings > Jarvis.", action: true, lines: ["jarvis: setup=probe-timeout"] };
+            if (timedOut) {
+                const problem = Gate.startCause("jarvis: setup=probe-timeout");
+                value = { tone: "warning", text: problem.title, hint: problem.action, action: true, lines: [problem.lines[0]] };
+            }
             else if (code === 0) value = JSON.parse(output);
         } catch (error) {
             value = { tone: "warning", text: "Setup check returned invalid status", action: true };
@@ -75,7 +79,6 @@ Item {
         onExited: (code, status) => root.code = status === 0 ? code : -1
         onRunningChanged: {
             if (running) return;
-            probeDeadline.stop();
             root.publish();
             if (root.pending) Qt.callLater(root.refresh);
         }
@@ -87,11 +90,15 @@ Item {
         // runs, median 58.8 ms and max 72.1 ms. The 10000 ms bound leaves
         // room for a slow disk without letting Setup wait forever.
         interval: 10000
+        repeat: true
+        running: true
         onTriggered: {
+            if (!probe.running || root.timedOut || Date.now() - root.startedAt < interval) return;
             root.timedOut = true;
             // Quickshell.Io Process owns this probe child. Setting running
             // false ends the child before the Setup page can wait forever.
             probe.running = false;
+            root.publish();
         }
     }
 }

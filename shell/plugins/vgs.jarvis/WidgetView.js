@@ -67,6 +67,7 @@ var FAULT_KINDS = [
     [/^(home=|guidance=home-)/, "home"],
     [MODEL_REFUSED, "model"],
     [/^(brain|net)=/, "brain"],
+    [/^speech=local-not-ready$/, "localVoice"],
     [/^speech=/, "voice"],
     [/^(audio-start|device-probe|capture|playback)/, "audio"]
 ];
@@ -83,7 +84,8 @@ var FAULT_TEXT = {
     "home": { title: "Jarvis cannot use the home folder", action: "Check AGENTS.md, MEMORY.md and the skills in the folder, or choose another folder in Settings > Jarvis." },
     "brain": { title: "The AI model did not answer", action: RESTART },
     "model": { title: "The AI app cannot use the model", action: "Choose another model in Settings > Jarvis." },
-    "voice": { title: "Local voice did not get ready in time", action: "Set up Local voice again in Settings > Jarvis." },
+    "localVoice": { title: "Local voice did not get ready in time", action: "Set up Local voice again in Settings > Jarvis." },
+    "voice": { title: "Local voice stopped working", action: RESTART },
     "audio": { title: "The microphone or speaker stopped working", action: RESTART },
     "other": { title: "Jarvis stopped after a problem", action: RESTART }
 };

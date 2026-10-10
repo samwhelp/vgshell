@@ -20,7 +20,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, outdated, plugin-messages, traffic, ai-usage, sysmon, appearance, sounds or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, outdated, jarvis-causes, plugin-messages, traffic, ai-usage, sysmon, appearance, sounds or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -82,7 +82,9 @@
 # notice where the tree offers that step, over a stand-in bin/vgshell-pkg
 # that answers pacman, paru and mise whatever the host runs, and that
 # notice once a run of its step that changed nothing has ended, taken only
-# when named; plugin-messages is a plugin's message to the
+# when named; jarvis-causes plants each Jarvis start cause and
+# captures its bar widget tooltip and Setup section, taken only when named;
+# plugin-messages is a plugin's message to the
 # user as the tree draws it, a core toast where the tree ships
 # shell/Core/Toasts.qml and else its card in vgs.notifications with
 # Silence off: the clipboard's paste failure, a transient message, its
@@ -239,7 +241,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|outdated|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
+    sysmon|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -366,7 +368,7 @@ scene_ships() {
     voice-setup) ships_plugin vgs.voice vgs.settings ;;
     plugin-messages) ships_plugin vgs.clipboard vgs.lock vgs.notifications ;;
     voice-keys) [[ $manager_scene == settings ]] && ships_plugin vgs.voice ;;
-    jarvis-setup|outdated) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
+    jarvis-setup|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
     ai-usage) ships_plugin vgs.ai-usage ;;
     traffic) ships_plugin vgs.traffic vgs.settings ;;
     devtools) ships_plugin vgs.devtools ;;
@@ -2404,6 +2406,51 @@ jarvis_anchor_shot() {
 # Whether the Setup section draws its rows: four chips and the Accounts
 # button.
 jarvis_setup_drawn() { ipc smoke setupSection "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); s=json.loads(t) if t.startswith("{") else None; print(s is not None and len(s["chips"]) >= 4 and any(b[0] == "Accounts" for b in s["buttons"]))'; }
+jarvis_cause_status_rows() { # CAUSE PHASE
+  python3 - "$1" "$2" <<'PY'
+import json, sys
+cause, phase = sys.argv[1:]
+titles = {
+    "jarvis: hello=timeout": ("Jarvis did not answer in time", "Turn Jarvis off and on again in Settings > Jarvis."),
+    "jarvis: node=20.19.5 need=22": ("Jarvis needs Node 22 or later", "Use the requirement notice to install Node."),
+    "jarvis: daemon=exit code=1 status=0": ("Jarvis daemon stopped", "Turn Jarvis off and on again in Settings > Jarvis."),
+    "jarvis: protocol=identity": ("Jarvis received a broken daemon message", "Turn Jarvis off and on again in Settings > Jarvis."),
+    "speech=local-not-ready": ("Local voice did not get ready in time", "Set up Local voice again in Settings > Jarvis."),
+    "jarvis: setup=probe-timeout": ("Jarvis setup check timed out", "Turn Jarvis off and on again in Settings > Jarvis."),
+}
+title, action = titles[cause]
+unchecked = {"tone": "warning", "text": "Not checked", "action": False}
+unchecked_model = {"tone": "warning", "text": "Not checked"}
+rows = [("audio", {"tone": "ok", "text": "Device list ready"}), ("setupHome", {"hidden": True})]
+if phase == "before":
+    rows += [("detail", None), ("daemon", {"tone": "warning", "text": "Restarting after a problem"}),
+             ("setup", {"tone": "warning", "text": "Jarvis stopped after a problem", "hint": "Turn Jarvis off and on again."}),
+             ("setupVoice", unchecked), ("setupModel", unchecked_model)]
+elif cause == "speech=local-not-ready":
+    rows += [("daemon", {"tone": "info", "text": "Ready; no capture"}),
+             ("detail", {"phase": "error", "seq": 1, "state": {"mute": {"kind": "off"}, "capture": {"kind": "closed"},
+              "gate": {"kind": "up"}, "fault": {"kind": "error", "reason": cause, "retry": 0}}}),
+             ("setup", {"tone": "warning", "text": "Not ready", "lines": [cause]}),
+             ("setupVoice", {"tone": "warning", "text": "To do", "hint": action, "action": True}),
+             ("setupModel", {"tone": "ok", "text": "Done"})]
+else:
+    rows += [("detail", None), ("daemon", {"tone": "danger", "text": title, "lines": [action, cause]}),
+             ("setup", {"tone": "danger", "text": title, "hint": action, "lines": [cause]}),
+             ("setupVoice", unchecked), ("setupModel", unchecked_model)]
+    if cause == "jarvis: setup=probe-timeout":
+        rows.append(("localRuntime", {"tone": "warning", "text": title, "hint": action, "action": True, "lines": [cause]}))
+for key, value in rows:
+    print(key + "\t" + json.dumps(value, separators=(",", ":")))
+PY
+}
+jarvis_plant_cause() { # CAUSE PHASE
+  local key value reply failed=0
+  while IFS=$'\t' read -r key value; do
+    reply="$(ipc smoke heldStatusSet "$key" "$value")" || reply=unread
+    [[ $reply == ok ]] || { printf '%s=%s\n' "$key" "$reply"; failed=1; }
+  done < <(jarvis_cause_status_rows "$1" "$2")
+  [[ $failed == 0 ]] && echo ok || return 1
+}
 scene_jarvis-setup() { # MODE
   expect "enabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
   expect_poll "the Jarvis daemon answers hello without a restart" ready jarvis_started
@@ -2533,6 +2580,41 @@ else: row.pop("brain",None)
 open(sys.argv[1],"w").write(json.dumps(value))
 PY
   expect "the Jarvis AI model setting is delivered" ok ipc shell reloadConfig
+}
+scene_jarvis-causes() { # MODE
+  local phase cause slug label
+  phase=after
+  [[ -z $rev ]] || phase=before
+  expect "enabling vgs.jarvis for cause sheets is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect "vgs.jarvis is placed for cause sheets" ok ipc shell setPluginPlaced vgs.jarvis true
+  expect_poll "the Jarvis service exists for cause sheets" True record_exists vgs.jarvis
+  expect_poll "the Jarvis daemon is settled for cause sheets" ready jarvis_started
+  expect "the Jarvis status provider is held for cause sheets" held ipc smoke holdStatus service vgs.jarvis
+  close_notices
+  expect "the Settings window opens for Jarvis cause sheets" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings window maps for Jarvis cause sheets" 1 settings_count
+  expect "the window opens the Jarvis page for cause sheets" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
+  expect_poll "the Jarvis page is shown for cause sheets" '"vgs.jarvis"' settings_page
+  settings_tab_click Settings || fail "the click on the Settings tab failed for cause sheets"
+  for row in \
+    "hello-timeout|jarvis: hello=timeout|Hello timeout" \
+    "node-too-old|jarvis: node=20.19.5 need=22|Node too old" \
+    "daemon-exit|jarvis: daemon=exit code=1 status=0|Daemon exit" \
+    "wire-defect|jarvis: protocol=identity|Wire defect" \
+    "local-voice|speech=local-not-ready|Local voice not ready" \
+    "probe-timeout|jarvis: setup=probe-timeout|Probe timeout"; do
+    IFS='|' read -r slug cause label <<<"$row"
+    expect "the Jarvis $label cause is planted" ok jarvis_plant_cause "$cause" "$phase"
+    hover_widget "the pointer rests on Jarvis for $label" vgs.jarvis || continue
+    expect_poll "the Jarvis tooltip opens for $label" true tooltip_opened vgs.jarvis
+    take_posed "jarvis-causes-$1-$phase-$slug-widget"
+    park_pointer
+    expect_poll "the Jarvis tooltip closes for $label" false tooltip_opened vgs.jarvis
+    jarvis_anchor_shot "jarvis-causes-$1-$phase-$slug-setup" SectionHeader Setup
+  done
+  settings_close
+  expect "disabling vgs.jarvis after cause sheets is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "vgs.jarvis is gone after cause sheets" absent ipc smoke jarvisProcess
 }
 
 voice_level_flowing() { ipc smoke readInstance service vgs.voice level | py_reply 'import json,sys; print(str(json.load(sys.stdin) > 0).lower())'; }
@@ -3961,6 +4043,7 @@ for scene in "${scenes[@]}"; do
     bar) need_setup launcher; need_setup panels; need_setup bar ;;
     theme-previews) need_setup launcher; need_setup panels; need_setup bar; need_setup ai-usage ;;
     tooltips) need_setup launcher; need_setup panels; need_setup bar; need_setup tooltips ;;
+    jarvis-causes) need_setup bar; need_setup settings; need_setup jarvis-causes ;;
     focus) need_setup settings ;;
     focus-open) need_setup focus-open ;;
     flyout-titles) need_setup panels ;;
