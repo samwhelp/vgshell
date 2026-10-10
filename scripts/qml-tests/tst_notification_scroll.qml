@@ -327,7 +327,7 @@ Item {
             for (const index of row.top ? [0, 1, 2] : [5, 6, 7]) {
                 const slot = parts.faces[index].parent;
                 const slotTop = slot.mapToItem(view.contentItem, 0, 0).y;
-                view.contentY = row.top ? slotTop + row.past : slotTop + slot.height + row.past - view.height;
+                view.contentY = row.top ? slotTop + row.past : slotTop + slot.height - row.past - view.height;
                 verify(view.contentY > 0 && travel - view.contentY >= expected, "row " + (index + 1) + " lies inside the travel");
                 // Ink over the slot, and at the bottom over the content
                 // above it across the band.
