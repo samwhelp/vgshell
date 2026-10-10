@@ -224,7 +224,8 @@ jarvis_widget_restore Service.qml
 # Keep the retry. Drop only the report lines that make a retry a problem
 # with plain action text.
 jarvis_widget_plant Service.qml "$jarvis_widget_retry_needle" "$jarvis_widget_retry_delay" \
-  'publish("warning", problem.title, [Gate.RETRYING_START, cause]);' 'publish("warning", problem.title);'
+  $'lifetime = { kind: "retry", pendingMute: lifetime.pendingMute };\n        publish("warning", problem.title, [Gate.RETRYING_START].concat(problem.lines));' \
+  'lifetime = { kind: "retry", pendingMute: lifetime.pendingMute }; publish("warning", problem.title);'
 jarvis_enable
 expect_poll "the clear control draws the ready widget" "$jarvis_widget_ready" jarvis_widget
 jarvis_widget_kill
