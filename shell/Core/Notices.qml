@@ -5,7 +5,7 @@ import Quickshell.Io
 import qs.Commons
 import "PluginLogic.js" as Logic
 
-// The core notice state: requirement notices for missing commands, the
+// The core notice state: requirement notices for missing and outdated commands, the
 // restart notice for a shell whose own files changed under it, the reset
 // question and the "VGS was reset" notice that offers the restore, and one
 // consent slot for core-owned setup that must not run silently, which
@@ -24,8 +24,9 @@ import "PluginLogic.js" as Logic
 // queue, and what the shown notice lists and installs; NoticeHost draws
 // it. The managers come from `bin/vgshell-pkg detect --json`, run when the
 // first notice arrives and after each install. Install opens the core TUI
-// `core/requirements-install`; once its run ends, one rescan follows, and
-// a notice whose required commands the scan finds is closed. A notice a
+// `core/requirements-install`, and Update, for commands below their floor,
+// `core/requirements-update`; once its run ends, one rescan follows, and
+// a notice whose required commands the scan finds, at their floor, is closed. A notice a
 // plugin's setup TUI raised in place of itself (TuiRunner.runFor) opens
 // that TUI once it closes so, so one press of Set up ends set up (D061).
 // The core never elevates: the package manager asks in the terminal (D034).
@@ -131,9 +132,10 @@ Singleton {
         const notice = current;
         const owners = Registry.requirementOwners;
         const missing = Registry.ownerMissing;
+        const versions = Registry.commandVersions;
         const found = managers;
         if (notice === null || detection === "pending" || !Logic.hasOwn(owners, notice.id)) return null;
-        const shown = Logic.noticeView(owners[notice.id], Logic.hasOwn(missing, notice.id) ? missing[notice.id] : [], notice, found);
+        const shown = Logic.noticeView(owners[notice.id], Logic.hasOwn(missing, notice.id) ? missing[notice.id] : [], versions, notice, found);
         shown.id = notice.id;
         shown.name = owners[notice.id].name;
         return shown;
@@ -186,8 +188,16 @@ Singleton {
         return Logic.hasOwn(Registry.ownerMissing, id) ? Registry.ownerMissing[id] : [];
     }
 
+    // The `requirements` capability's `outdated`: owner ID's commands the
+    // last scan read below their floor, in declaration order.
+    function outdatedOf(id) {
+        const owners = Registry.requirementOwners;
+        if (!Logic.hasOwn(owners, id)) return [];
+        return Logic.requirementRows(owners[id], missingOf(id), Registry.commandVersions).filter(row => row.state === "outdated").map(row => row.name);
+    }
+
     function settle() {
-        const kept = Logic.noticeSettle(queue, Registry.requirementOwners, Registry.ownerMissing, installingId);
+        const kept = Logic.noticeSettle(queue, Registry.requirementOwners, Registry.ownerMissing, Registry.commandVersions, installingId);
         if (kept.length !== queue.length) queue = kept;
         resume();
     }
@@ -229,7 +239,7 @@ Singleton {
     function raise(id, trigger, commands) {
         const owners = Registry.requirementOwners;
         if (!Logic.hasOwn(owners, id)) return "unknown: " + id;
-        const request = Logic.noticeRequest(owners[id], missingOf(id), trigger, commands);
+        const request = Logic.noticeRequest(owners[id], missingOf(id), Registry.commandVersions, trigger, commands);
         if (request.answer !== "ok") return request.answer;
         const admitted = Logic.noticeAdmit(queue, rest, id, request, trigger, Date.now());
         if (admitted.queue !== queue) {
@@ -286,9 +296,10 @@ Singleton {
     // choice starts, since the value that offered it read PATH later than
     // the last scan did (a removal through mise rescans nothing, and a
     // plugin's own probe is its own), so a command that value lists missing
-    // is judged missing or present by the same PATH. Answers `ok` once that
-    // scan is asked for; the notice shows after it only while a command is
-    // missing, and no offer's rest holds it back.
+    // or outdated is judged by the same PATH and the version read then.
+    // Answers `ok` once that scan is asked for; the notice shows after it
+    // only while a command is missing or outdated, and no offer's rest holds
+    // it back.
     function chosen(owner, commands) {
         const refusal = choiceRefusal(owner, commands);
         if (refusal !== "") return refusal;
@@ -302,23 +313,27 @@ Singleton {
 
     // Why a `doctor` choice of OWNER's COMMANDS is refused, or "":
     // PluginLogic.noticeOwnerError, then noticeRequest's own refusals, which
-    // read no missing command.
+    // read no scan result.
     function choiceRefusal(owner, commands) {
         const owners = Registry.requirementOwners;
         const refusal = Logic.noticeOwnerError(owner, owners, Object.keys(Registry.manifests).filter(id => Registry.isEnabled(id)));
         if (refusal !== "") return refusal;
-        const answer = Logic.noticeRequest(owners[owner], [], "chosen", commands).answer;
+        const answer = Logic.noticeRequest(owners[owner], [], {}, "chosen", commands).answer;
         return answer.startsWith("refused: ") ? answer : "";
     }
 
-    // Install: the shown notice's first installable group through the core
-    // TUI. Answers the TUI's answer; a busy key focuses the live install.
+    // Install, or Update once nothing is left to install: the shown
+    // notice's first group that installs, else its first that updates,
+    // through the core TUI. Answers the TUI's answer; a busy key focuses the
+    // live run.
     function accept() {
         const shown = view;
-        if (shown === null || shown.install === null || installing) return "refused: install=none";
+        if (shown === null || (shown.install === null && shown.update === null) || installing) return "refused: install=none";
         const id = shown.id;
         failure = "";
-        const answer = Capabilities.tuis.openCore("requirements-install", shown.install, result => root.installEnded(id, result));
+        const answer = shown.install !== null
+            ? Capabilities.tuis.openCore("requirements-install", shown.install, result => root.installEnded(id, result))
+            : Capabilities.tuis.openCore("requirements-update", shown.update, result => root.installEnded(id, result));
         if (answer === "ok") installingId = id;
         else {
             failure = answer;
@@ -329,7 +344,7 @@ Singleton {
 
     function installEnded(id, result) {
         if (result.code !== 0 && root.current !== null && root.current.id === id)
-            failure = result.code === null ? "install=" + result.reason : "install exited " + result.code;
+            failure = result.code === null ? result.reason : "exited " + result.code;
         detect();
         afterScan(() => {
             if (root.installingId !== id) return;

@@ -1,6 +1,6 @@
 # No latency budget. Poll once per nested IPC round trip.
 # Only J09's process double and the allow-listed TUI fixture run here.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis/browser-status.js scripts/smoke/rows/jarvis.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis/browser-status.js scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js
 set -euo pipefail
 browser_reader="$repo/shell/plugins/vgs.jarvis/LocalRuntime.qml"
 browser_tui="$repo/shell/plugins/vgs.jarvis/tui/setup-browser.sh"
@@ -11,8 +11,9 @@ jarvis_setup_requirements
 terminal_stand_in
 terminal_ready "Jarvis browser setup"
 # A stand-in driver on the sandbox PATH, so every read until the row's end
-# finds agent-browser whatever the host holds. The scan reads only its
-# presence; with no readiness marker the daemon offers no browser tool.
+# finds agent-browser whatever the host holds. It prints no version, so
+# the scan reads its presence alone; with no readiness marker the daemon
+# offers no browser tool.
 printf '#!/bin/sh\nexit 0\n' >"$shim/agent-browser"; chmod 755 "$shim/agent-browser"
 jarvis_rescan
 jarvis_enable
@@ -30,15 +31,22 @@ expected={"absent":{"tone":"warning","text":"Browser needs setup","action":True}
 print("matched" if r["value"]==expected and r["action"]["offered"]==expected["action"] else "pending")
 ' "$1"
 }
-# The browser driver's own row: Install offered only while the scan misses it.
+# The browser driver's own row names the step that applies: Install only
+# while the scan misses the driver, Update only while it reads the driver
+# below the floor the manifest gives it, and none otherwise.
 driver_value() {
   status_row vgs.jarvis browserDriver | py_reply '
 import json,sys
 r=json.load(sys.stdin)
-expected={"found":{"tone":"ok","text":"Installed","action":False},
-          "missing":{"tone":"warning","text":"Not installed","action":True}}[sys.argv[1]]
-print("matched" if r["value"]==expected and r["action"]["label"]=="Install" and r["action"]["offered"]==expected["action"] else "pending")
+value,label={"found":({"tone":"ok","text":"Installed"},""),
+             "missing":({"tone":"warning","text":"Not installed","action":"install"},"Install"),
+             "outdated":({"tone":"warning","text":"Needs an update","action":"update"},"Update")}[sys.argv[1]]
+print("matched" if r["value"]==value and r["action"]["label"]==label and r["action"]["offered"]==(label!="") else "pending")
 ' "$1"
+}
+# A stand-in driver that answers `--version` with VERSION.
+driver_version() { # VERSION
+  printf '#!/bin/sh\necho "agent-browser %s"\n' "$1" >"$shim/agent-browser.next" && chmod 755 "$shim/agent-browser.next" && mv -T -- "$shim/agent-browser.next" "$shim/agent-browser"
 }
 browser_open() { # manager action or listed launcher entry
   local revision snapshot
@@ -166,6 +174,24 @@ cp -- "$sandbox/browser-tui-original" "$browser_tui"
 printf 'absent\n' >"$sandbox/jarvis-world/browser-mode"
 jarvis_rescan
 expect_poll "the restored setup action is offered" matched browser_value absent
+# A driver below the manifest's floor: its row offers Update, and the press
+# raises the core's notice for the driver. The same press with the driver
+# at its floor is refused, which is the control.
+driver_version 0.37.9 || fail "the stand-in driver below its floor is not written"
+rescan "a rescan with the driver below its floor starts"
+expect_poll "a driver below its floor offers Update" matched driver_value outdated
+expect "Update on the driver's row asks the core for the driver" ok settings_act vgs.jarvis browserDriver
+expect_poll "the core's notice lists the outdated driver" '["vgs.jarvis", ["agent-browser"], ["agent-browser"], false]' notice_shown
+expect_poll "the driver's notice holds the keyboard" true ipc smoke noticeFocused
+type_keys -k Escape || fail "sending Escape failed"
+expect_poll "Escape closes the driver's notice" null notice_shown
+floor="$(python3 -c 'import json,sys; print(next(r["floor"] for r in json.load(open(sys.argv[1]))["requirements"] if r.get("command")=="agent-browser"))' "$repo/shell/plugins/vgs.jarvis/manifest.json")" || fail "the manifest gives the driver no floor"
+driver_version "$floor" || fail "the stand-in driver at its floor is not written"
+rescan "a rescan with the driver at its floor starts"
+expect_poll "a driver at its floor offers no step" matched driver_value found
+expected_errors+=('settings: vgs.jarvis/browserDriver refused: action=browserDriver reason=not-offered')
+expect "the driver's row at its floor refuses the press" "refused: action=browserDriver reason=not-offered" settings_act vgs.jarvis browserDriver
+expect "the refused press raises no notice" null notice_shown
 # Without the stand-in the scan reads the host's PATH again. Only a host
 # without agent-browser shows the missing driver: Install offered, setup
 # withheld.

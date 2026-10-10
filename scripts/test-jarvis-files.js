@@ -928,7 +928,7 @@ world(async () => {
         const folder = path.join(process.env.JARVIS_TEST_ROOT, "plugin-" + name);
         fs.mkdirSync(folder);
         fs.writeFileSync(path.join(folder, "VERSION"), "beta protected secret\n");
-        for (const entry of ["JarvisProtocol.js", "Session.js", "AccountProviders.js"])
+        for (const entry of ["JarvisProtocol.js", "Session.js", "AccountProviders.js", "manifest.json"])
             fs.copyFileSync(path.join(plugin, entry), path.join(folder, entry));
         fs.cpSync(backend, path.join(folder, "backend"), { recursive: true });
         const daemonFile = path.join(folder, "backend/jarvisd.js");

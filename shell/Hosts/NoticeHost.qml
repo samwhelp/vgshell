@@ -10,9 +10,10 @@ import qs.Ui
 // question, the "VGS was reset" notice or the core consent slot shows,
 // taking the keyboard on demand. It draws one Dialog at a time. A
 // requirement notice has priority: one entry per package that installs a
-// missing requirement, its name as a chip with each purpose under it, then
-// Install and Not now, or Close alone when no manager here installs a
-// listed package. Install runs Notices.accept, every other
+// missing requirement or updates an outdated one, its name as a chip with
+// each purpose under it, then Install and Not now, Update in its place once
+// nothing is left to install, or Close alone when no manager here installs a
+// listed package. Install and Update run Notices.accept, every other
 // answer Notices.dismiss. The consent slot draws its view's title, message,
 // lines, file link, quick commands and actions: the Hyprland question's
 // Connect and Not now, or the welcome's Connect, Not now or Close. The
@@ -37,14 +38,20 @@ Scope {
 
     // "<Name> needs one package" or "<Name> needs N packages", counting
     // the shown notice's groups (PluginLogic.noticeGroups); requirements
-    // when no group has a package.
+    // when no group has a package, and updates when every group is one.
     function title(shown) {
-        const noun = shown.groups.some(g => g.packaged) ? "package" : "requirement";
+        const noun = shown.groups.every(g => g.update) ? "update" : shown.groups.some(g => g.packaged) ? "package" : "requirement";
         return shown.name + " needs " + (shown.groups.length === 1 ? "one " + noun : shown.groups.length + " " + noun + "s");
     }
 
+    // The label of the step the notice runs, "" when no manager here runs
+    // one: Install while a listed package is missing, then Update.
+    function step(shown) {
+        return shown.install !== null ? "Install" : shown.update !== null ? "Update" : "";
+    }
+
     function message(shown) {
-        if (shown.install !== null) return "Install opens a terminal. The package manager asks for your password there.";
+        if (step(shown) !== "") return step(shown) + " opens a terminal. The package manager asks for your password there.";
         if (shown.byHand.length > 0) return "Add these packages to the system configuration: " + shown.byHand.map(g => g.manager + " " + g.names.join(" ")).join(", ") + ".";
         if (Notices.detection === "failed") return "VGS could not detect this system's package manager. Install these requirements by hand.";
         return "No package manager here provides these requirements. Install them by hand.";
@@ -81,7 +88,7 @@ Scope {
                 width: implicitWidth
                 title: win.consentMode ? win.consent.title : host.title(win.shown)
                 message: win.consentMode ? win.consent.message : host.message(win.shown)
-                actions: win.consentMode ? win.consent.actions : win.shown.install !== null ? [{ label: "Install", role: "accept" }, { label: "Not now", role: "cancel" }] : [{ label: "Close", role: "cancel" }]
+                actions: win.consentMode ? win.consent.actions : host.step(win.shown) !== "" ? [{ label: host.step(win.shown), role: "accept" }, { label: "Not now", role: "cancel" }] : [{ label: "Close", role: "cancel" }]
                 busy: win.consentMode && win.consent.busy
                 tabItems: card.tabStops()
                 onAccepted: {
@@ -201,7 +208,7 @@ Scope {
                     width: parent.width
                     wrapMode: Text.Wrap
                     visible: win.consentMode ? win.consent.failure !== "" : Notices.failure !== ""
-                    text: win.consentMode ? "The last connection did not finish: " + win.consent.failure : "The last install did not finish: " + Notices.failure
+                    text: win.consentMode ? "The last connection did not finish: " + win.consent.failure : "The last " + (host.step(win.shown) === "Update" ? "update" : "install") + " did not finish: " + Notices.failure
                 }
             }
 

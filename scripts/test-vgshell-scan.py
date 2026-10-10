@@ -11,7 +11,12 @@ run it against a private dbus-daemon and read owned, activatable and absent
 names; their controls answer every name present and ignore activatable names.
 The command probe control runs rows against a copy of the scanner that finds every command. The core
 rows probe a --core requirements file beside a plugin; their control reads
-that file as a manifest. The core watch rows run --watch-core with bounded
+that file as a manifest. The version rows run --versions with a PATH of
+stub programs and read each command's line, or null with the cause its
+stderr line names; one row runs a copy whose bound is one second against a
+program that never ends. Their controls keep every line, pass no argument,
+read a failed command, hand down the whole environment, start in the
+scanner's directory, run a path and leave the stalled program alone. The core watch rows run --watch-core with bounded
 pipe reads and prove edits to core files and new directories produce one
 changed revision while the top-level plugins directory is neither watched
 nor hashed. The URL rows publish a snapshot under a root whose
@@ -631,6 +636,90 @@ def url_import_control():
                           "    import urllib.request\n    return file_url(os.path.abspath(destination))", url_import_rows)
 
 
+# version rows: name, the commands asked for, the answer per command, and
+# the cause each failed read's stderr line names. The stub PATH holds one
+# program per name below; `gone` is on no PATH.
+VERSION_STUBS = {
+    "named": 'echo "named 0.9.1"\necho "built 2026"\n',
+    "bare": 'echo 1.2.3\n',
+    "argued": 'echo "$#:$1"\n',
+    "fails": 'echo 9.9.9\nexit 3\n',
+    "silent": '',
+    "counted": 'echo x >>"$0.count"\necho 1.0.0\n',
+    "placed": 'echo "${SECRET-unset}|$LC_ALL|$(pwd)"\n',
+    "stalled": 'while :; do :; done\n',
+}
+VERSION_ROWS = [
+    ("a version is the first line the command prints", ["named", "bare"], {"named": "named 0.9.1", "bare": "1.2.3"}, {}),
+    ("the command is asked with --version alone", ["argued"], {"argued": "1:--version"}, {}),
+    ("a command that exits non-zero has no reading", ["fails", "bare"], {"fails": None, "bare": "1.2.3"}, {"fails": "exit=3"}),
+    ("a command that prints nothing has no reading", ["silent"], {"silent": None}, {"silent": "empty"}),
+    ("a command on no PATH has no reading", ["gone"], {"gone": None}, {"gone": "absent"}),
+    ("a path is never run", ["/bin/true"], {"/bin/true": None}, {"/bin/true": "name"}),
+    ("a command named twice is read once", ["counted", "counted"], {"counted": "1.0.0"}, {}),
+    ("a read gets the selected environment and starts in HOME", ["placed"], {"placed": "unset|C|{home}"}, {}),
+]
+
+
+def version_scan(tmp, commands, script):
+    env = {"PATH": os.path.join(tmp, "stubs"), "HOME": os.path.join(tmp, "home"), "SECRET": "leaked", "LC_ALL": "en_US.UTF-8"}
+    return subprocess.run([sys.executable, script, "--versions", *commands], capture_output=True, text=True, check=False, env=env, cwd=tmp, timeout=8)
+
+
+def plant_version_stubs(tmp):
+    plant(tmp, {os.path.join("stubs", name): "#!/bin/sh\n" + body for name, body in VERSION_STUBS.items()})
+    for name in VERSION_STUBS:
+        os.chmod(os.path.join(tmp, "stubs", name), 0o755)
+    os.mkdir(os.path.join(tmp, "home"))
+
+
+def version_rows(script=SCAN, quiet=False):
+    """Each version row's verdict, run against SCRIPT, then the stalled
+    read: a copy of SCRIPT whose bound is one second answers null for the
+    program that never ends, and ends itself inside the test's own bound."""
+    results = []
+    for name, commands, want, causes in VERSION_ROWS:
+        with tempfile.TemporaryDirectory() as tmp:
+            plant_version_stubs(tmp)
+            proc = version_scan(tmp, commands, script)
+            try:
+                got = json.loads(proc.stdout)
+            except ValueError:
+                got = None
+            expected = {command: line if line is None else line.replace("{home}", os.path.realpath(os.path.join(tmp, "home"))) for command, line in want.items()}
+            named = all(f"version=unread command={command} cause={cause}" in proc.stderr for command, cause in causes.items())
+            counted = name != "a command named twice is read once" or open(os.path.join(tmp, "stubs", "counted.count"), encoding="utf-8").read() == "x\n"
+            good = proc.returncode == 0 and got == expected and named and counted
+            results.append(good if quiet else report("versions: " + name, good, f" (exit={proc.returncode} got={got})\n{proc.stderr}"))
+    with open(script, encoding="utf-8") as fh:
+        source = fh.read()
+    with tempfile.TemporaryDirectory() as tmp:
+        plant_version_stubs(tmp)
+        short = os.path.join(tmp, "vgshell-scan")
+        with open(short, "w", encoding="utf-8") as fh:
+            fh.write(source.replace("VERSION_SECONDS = 10\n", "VERSION_SECONDS = 1\n"))
+        try:
+            proc = version_scan(tmp, ["stalled", "bare"], short)
+            good = source.count("VERSION_SECONDS = 10\n") == 1 and proc.returncode == 0 and json.loads(proc.stdout) == {"stalled": None, "bare": "1.2.3"} and "command=stalled cause=timeout=1" in proc.stderr
+            detail = f" (exit={proc.returncode})\n{proc.stdout}{proc.stderr}"
+        except subprocess.TimeoutExpired:
+            good, detail = False, " (the scan outlived the stalled program's bound)"
+        results.append(good if quiet else report("versions: a program that never ends is killed at the bound, and the others are read", good, detail))
+    return results
+
+
+def version_controls():
+    return [
+        mutant_control("the version rows fail on a scanner that keeps every line", "out[name] = lines[0].strip()[:VERSION_LINE_MAX]", "out[name] = heads[name].decode()", version_rows),
+        mutant_control("the version rows fail on a scanner that asks with no argument", '[program, "--version"]', "[program]", version_rows),
+        mutant_control("the version rows fail on a scanner that reads a failed command", "if child.returncode != 0:", "if False:", version_rows),
+        mutant_control("the version rows fail on a scanner that hands down its whole environment", "environment = {name: os.environ[name] for name in VERSION_ENVIRONMENT if name in os.environ}", "environment = dict(os.environ)", version_rows),
+        mutant_control("the version rows fail on a scanner that reads from its own directory", 'cwd=os.environ.get("HOME") or "/"', "cwd=None", version_rows),
+        mutant_control("the version rows fail on a scanner that runs a path", "if os.sep in name:", "if False:", version_rows),
+        mutant_control("the version rows fail on a scanner that leaves a stalled program running", "os.killpg(child.pid, signal.SIGKILL)", "pass", version_rows),
+    ]
+
+
 def main():
     if os.geteuid() == 0:
         print("status=not-measured reason=euid-0")
@@ -648,6 +737,8 @@ def main():
     results.append(core_control())
     results += watch_rows()
     results += watch_controls()
+    results += version_rows()
+    results += version_controls()
     results += url_spelling_rows()
     results += url_import_rows()
     results.append(url_quote_control())

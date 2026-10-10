@@ -12,14 +12,14 @@
 //   vgshell-pkg present <command>...
 //       one JSON line `{ present, missing }` naming each command found and
 //       not found on PATH; exit 0 when none is missing, 1 when one is
-//   vgshell-pkg plan install|remove|upgrade <manager> [names...]
+//   vgshell-pkg plan install|update|remove|upgrade <manager> [names...]
 //       one JSON line `{ manager, binary, action, elevate, steps,
 //       elevator }`: the argv of each step the action takes, in order,
 //       whether it needs root, and the elevation command `run` would put
 //       before each step: null when elevate is false, else
 //       `{ ok: true, command }` or `{ ok: false, error }` with the refusal
-//       `run` would print. Runs nothing. install and remove take one name
-//       or more, upgrade none.
+//       `run` would print. Runs nothing. install, update and remove take one
+//       name or more, upgrade none.
 //   vgshell-pkg check [--json] [--source <manager>]
 //       counts the updates each detected manager offers, through the
 //       unprivileged query its table row names, or manager <manager> alone.
@@ -37,10 +37,13 @@
 //       printed, whatever each source answered. A check stopped by SIGINT,
 //       SIGTERM or SIGHUP prints nothing and exits 128 plus the signal's
 //       number once every query has ended.
-//   vgshell-pkg run install|remove|upgrade [--manager <id>] [names...]
+//   vgshell-pkg run install|update|remove|upgrade [--manager <id>] [names...]
 //   vgshell-pkg run upgrade [--manager <id>] --ignore <name>...
 //       run the plan for manager <id>, else the detected primary, in this
-//       terminal: install and remove take one name or more, upgrade none.
+//       terminal: install, update and remove take one name or more, upgrade
+//       none. An update brings packages the manager already installed to
+//       its current version, the step the requirement notice runs for a
+//       command below its floor.
 //       An upgrade keeps each package after --ignore out, through the
 //       table row's `ignore` option; a row without one refuses.
 //       Each step of a row whose `elevate` is true runs behind the
@@ -154,7 +157,7 @@ const FRESH_MS = 10 * 60 * 1000;
 const QUERY_TIMEOUT = 30;
 
 function usage(first) {
-    process.stderr.write("vgshell: refused: " + first + "\nusage: vgshell pkg detect [--json] | present <command>... | plan install|remove|upgrade <manager> [names...] | run install|remove|upgrade [--manager <id>] [names...] | run upgrade [--manager <id>] --ignore <name>... | install|remove [--manager <id>] [names...] | check [--json] [--source <manager>] | owner <path> | removable <package>\n");
+    process.stderr.write("vgshell: refused: " + first + "\nusage: vgshell pkg detect [--json] | present <command>... | plan install|update|remove|upgrade <manager> [names...] | run install|update|remove|upgrade [--manager <id>] [names...] | run upgrade [--manager <id>] --ignore <name>... | install|remove [--manager <id>] [names...] | check [--json] [--source <manager>] | owner <path> | removable <package>\n");
     process.exit(2);
 }
 

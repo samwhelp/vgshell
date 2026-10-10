@@ -6,9 +6,11 @@ import qs.Ui
 // of its manager row's `requirements` (PluginLogic.requirementRows): the
 // requirement beside its state from the last scan as a Badge, Present in the
 // success tone, Missing in the danger tone or, for an optional requirement, the
-// warning tone, and the manifest's purpose under it. The row draws no step
-// of its own: the page's Install all missing button, shown while one
-// requirement's step applies (Steps.js), installs what is missing.
+// warning tone, Outdated in the warning tone for a command below the version
+// the plugin needs, and the manifest's purpose under it. The row draws no step
+// of its own: the page's Install all missing or Update all outdated button,
+// shown while one requirement's step applies (Steps.js), installs what is
+// missing and updates what is outdated.
 Column {
     id: row
 
@@ -19,6 +21,7 @@ Column {
         switch (requirement.state) {
         case "present": return { text: "Present", tone: "success" };
         case "missing": return requirement.optional ? { text: "Missing, optional", tone: "warning" } : { text: "Missing", tone: "danger" };
+        case "outdated": return { text: requirement.optional ? "Outdated, optional" : "Outdated", tone: "warning" };
         }
         console.error("RequirementRow: no rule for requirement state " + JSON.stringify(requirement.state));
         return { text: "", tone: "neutral" };

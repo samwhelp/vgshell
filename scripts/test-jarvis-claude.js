@@ -484,7 +484,7 @@ world(async () => {
         }],
         ["engine-release", async folder => {
             const outer = path.dirname(folder);
-            for (const name of ["Session.js", "JarvisProtocol.js", "AccountProviders.js"])
+            for (const name of ["Session.js", "JarvisProtocol.js", "AccountProviders.js", "manifest.json"])
                 if (!fs.existsSync(path.join(outer, name))) fs.copyFileSync(path.join(backend, "..", name), path.join(outer, name));
             if (!fs.existsSync(path.join(folder, "skills"))) fs.cpSync(path.join(backend, "skills"), path.join(folder, "skills"), {recursive: true});
             const {folder: copied, Engine} = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], outer);
@@ -527,7 +527,7 @@ world(async () => {
             // The engine copy is made from this backend folder, so a mutant
             // applies; a mutant folder holds only the backend modules.
             const outer = path.dirname(folder);
-            for (const name of ["Session.js", "JarvisProtocol.js"])
+            for (const name of ["Session.js", "JarvisProtocol.js", "manifest.json"])
                 if (!fs.existsSync(path.join(outer, name))) fs.copyFileSync(path.join(backend, "..", name), path.join(outer, name));
             if (!fs.existsSync(path.join(folder, "skills"))) fs.cpSync(path.join(backend, "skills"), path.join(folder, "skills"), { recursive: true });
             const { folder: copied, Engine } = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], outer);
@@ -765,9 +765,10 @@ world(async () => {
     }]);
 
     const byName = name => cases.find(row => row[0] === name)[1];
-    // An Accounts mutant loads ../AccountProviders.js beside its folder.
-    fs.copyFileSync(path.join(tree, "shell/plugins/vgs.jarvis/AccountProviders.js"),
-        path.join(process.env.JARVIS_TEST_ROOT, "AccountProviders.js"));
+    // An Accounts mutant loads ../AccountProviders.js beside its folder, and
+    // ../manifest.json for Pi's version floor.
+    for (const beside of ["AccountProviders.js", "manifest.json"])
+        fs.copyFileSync(path.join(tree, "shell/plugins/vgs.jarvis", beside), path.join(process.env.JARVIS_TEST_ROOT, beside));
     try {
         for (const [name, check] of cases) {
             try { await check(backend); } finally { await cleanup(); }

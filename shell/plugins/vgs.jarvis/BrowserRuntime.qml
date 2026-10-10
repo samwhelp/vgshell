@@ -2,11 +2,12 @@ import QtQuick
 import "SetupGate.js" as Gate
 
 // Browser readiness uses the same setup status reader as local voice. It also
-// writes the browser driver's own row, whose Install raises the requirement
-// notice; setup is withheld until a scan finds the driver.
+// writes the browser driver's own row, whose Install, or Update for a driver
+// below the manifest's floor, raises the requirement notice; setup is
+// withheld until a scan finds the driver.
 LocalRuntime {
     readonly property string driver: "agent-browser"
-    readonly property var driverValue: shell === null ? null : Gate.requirementValue(driver, shell.requirements.missing)
+    readonly property var driverValue: shell === null ? null : Gate.flooredValue(driver, shell.requirements.missing, shell.requirements.outdated)
     statusKey: "browser"
     tuiName: "setup-browser"
     requires: [driver]
@@ -15,6 +16,8 @@ LocalRuntime {
     onDriverValueChanged: {
         if (driverValue === null) return;
         const reply = shell.status.set("browserDriver", driverValue);
-        if (reply !== "ok") throw new Error("jarvis: " + reply);
+        // A scan publishes the next instance before it reads versions, so
+        // the outdated list moves once more under the instance it retired.
+        if (reply !== "ok" && !reply.endsWith(" reason=retired")) throw new Error("jarvis: " + reply);
     }
 }

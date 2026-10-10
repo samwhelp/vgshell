@@ -90,6 +90,11 @@ function suite(ctx, check) {
         ["a requirement purpose with a newline", { requirements: [{ command: "gum", purpose: "one\ntwo" }] }, "requirements.0.purpose must be one printable line"],
         ["a requirement purpose of 121 characters", { requirements: [{ command: "gum", purpose: "p".repeat(121) }] }, "requirements.0.purpose must be one printable line"],
         ["a requirement purpose of 120 characters", { requirements: [{ command: "gum", purpose: "p".repeat(120) }] }, null],
+        ["a requirement with a floor", { requirements: [{ command: "gum", floor: "0.14.5", purpose: "p" }] }, null],
+        ["a floor on a D-Bus name", { requirements: [{ dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles" }, floor: "1.0.0", purpose: "p" }] }, "requirements.0.floor needs a command"],
+        ["a floor of two numbers", { requirements: [{ command: "gum", floor: "0.14", purpose: "p" }] }, "requirements.0.floor must be a version of three dotted numbers, got \"0.14\""],
+        ["a floor with a leading zero", { requirements: [{ command: "gum", floor: "0.014.5", purpose: "p" }] }, "requirements.0.floor must be a version of three dotted numbers"],
+        ["a floor that is a list of one version", { requirements: [{ command: "gum", floor: ["0.14.5"], purpose: "p" }] }, "requirements.0.floor must be a version of three dotted numbers, got [\"0.14.5\"]"],
         ["a shortcut bind without a default key", { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "start", key: null }] } }, null],
         ["appearance naming a .js file", { appearance: "Appearance.js" }, null],
         ["appearance naming a nested .js file", { appearance: "look/Appearance.js" }, null],
@@ -402,16 +407,78 @@ function suite(ctx, check) {
     const trafficManifest = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.traffic/manifest.json"), "utf8")), "/traffic");
     check("traffic declares its judged capture system step", trafficManifest.ok, true);
     if (trafficManifest.ok) {
-        const view = ctx.noticeView(trafficManifest.manifest, ["bandwhich"], { commands: ["bandwhich"], required: ["bandwhich"] }, { primary: { id: "dnf", binary: "dnf" }, overlays: [], sources: [] });
+        const view = ctx.noticeView(trafficManifest.manifest, ["bandwhich"], {}, { commands: ["bandwhich"], required: ["bandwhich"] }, { primary: { id: "dnf", binary: "dnf" }, overlays: [], sources: [] });
         check("stock Fedora has no invented install plan for bandwhich", [view.install, view.rows[0].package, view.rows[0].name, view.rows[0].optional, view.satisfied], [null, null, "bandwhich", true, false]);
     }
     const required = ctx.validateManifest(Object.assign({}, bar, { requirements: [{ command: "gum", purpose: "Dialogs" }, { command: "checkupdates", packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates" }, { dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles" }, packages: { dnf: "ppd-service" }, purpose: "Switches the power profile" }] }), "/p").manifest;
     check("validateManifest gives every requirement its packages and optional", required.requirements,
-        [{ name: "gum", bus: null, packages: {}, optional: false, purpose: "Dialogs" }, { name: "checkupdates", bus: null, packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates" }, { name: "org.freedesktop.UPower.PowerProfiles", bus: "system", packages: { dnf: "ppd-service" }, optional: false, purpose: "Switches the power profile" }]);
-    check("requirementRows: a command the scan did not find is missing, every other present", ctx.requirementRows(required, ["checkupdates", "vsys"]).map(r => [r.name, r.bus, r.state]), [["gum", null, "present"], ["checkupdates", null, "missing"], ["org.freedesktop.UPower.PowerProfiles", "system", "present"]]);
-    check("requirementRows: a bus name the scan did not find is missing", ctx.requirementRows(required, ["org.freedesktop.UPower.PowerProfiles"]).map(r => [r.name, r.state]), [["gum", "present"], ["checkupdates", "present"], ["org.freedesktop.UPower.PowerProfiles", "missing"]]);
-    check("requirementRows: every requirement is present when the scan missed none", ctx.requirementRows(required, []).map(r => r.state), ["present", "present", "present"]);
-    check("requirementRows does not alias the manifest", (() => { ctx.requirementRows(required, [])[1].packages.apt = "x"; return required.requirements[1].packages; })(), { pacman: "pacman-contrib" });
+        [{ name: "gum", bus: null, packages: {}, optional: false, purpose: "Dialogs", floor: null }, { name: "checkupdates", bus: null, packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates", floor: null }, { name: "org.freedesktop.UPower.PowerProfiles", bus: "system", packages: { dnf: "ppd-service" }, optional: false, purpose: "Switches the power profile", floor: null }]);
+    check("requirementRows: a command the scan did not find is missing, every other present", ctx.requirementRows(required, ["checkupdates", "vsys"], {}).map(r => [r.name, r.bus, r.state]), [["gum", null, "present"], ["checkupdates", null, "missing"], ["org.freedesktop.UPower.PowerProfiles", "system", "present"]]);
+    check("requirementRows: a bus name the scan did not find is missing", ctx.requirementRows(required, ["org.freedesktop.UPower.PowerProfiles"], {}).map(r => [r.name, r.state]), [["gum", "present"], ["checkupdates", "present"], ["org.freedesktop.UPower.PowerProfiles", "missing"]]);
+    check("requirementRows: every requirement is present when the scan missed none", ctx.requirementRows(required, [], {}).map(r => r.state), ["present", "present", "present"]);
+    check("requirementRows does not alias the manifest", (() => { ctx.requirementRows(required, [], {})[1].packages.apt = "x"; return required.requirements[1].packages; })(), { pacman: "pacman-contrib" });
+    // A floor: vgs-tool needs 1.10.1, vgs-free declares none. Each row is
+    // [name, the scan's missing names, the line it read for vgs-tool or
+    // undefined for no read, vgs-tool's state].
+    const floored = ctx.validateManifest(Object.assign({}, bar, { requirements: [{ command: "vgs-tool", packages: { pacman: "tool" }, floor: "1.10.1", purpose: "Runs" }, { command: "vgs-free", optional: true, purpose: "No floor" }] }), "/p").manifest;
+    check("validateManifest keeps a requirement's floor, and null without one", floored.requirements.map(r => r.floor), ["1.10.1", null]);
+    const floorRows = [
+        ["a lower minor is outdated, read as a number", [], "vgs-tool 1.9.12", "outdated"],
+        ["a lower major is outdated", [], "0.99.99", "outdated"],
+        ["a lower patch is outdated", [], "1.10.0", "outdated"],
+        ["the floor itself is present", [], "1.10.1", "present"],
+        ["a higher patch is present", [], "1.10.2", "present"],
+        ["a higher minor with a lower patch is present", [], "1.11.0", "present"],
+        ["a higher major with a lower minor is present", [], "vgs-tool 2.0.0", "present"],
+        ["a name before the version and a mark after it are read past", [], "tool v1.10.1-rc1 (linux)", "present"],
+        ["a line with no version says nothing", [], "unknown option --version", "present"],
+        ["a read that failed says nothing", [], null, "present"],
+        ["a command the scan read no version of is present", [], undefined, "present"],
+        ["a missing command is missing whatever was read", ["vgs-tool"], "1.0.0", "missing"]
+    ];
+    for (const [name, missing, line, want] of floorRows) {
+        const versions = line === undefined ? {} : { "vgs-tool": line, "vgs-free": "0.0.1" };
+        check("requirementRows: " + name, ctx.requirementRows(floored, missing, versions).map(r => r.state), [want, "present"]);
+    }
+    // noticeRequest by the state of vgs-tool: [name, missing, line, trigger,
+    // commands, want as [answer, commands, required]], then what the notice
+    // shows on a pacman system.
+    const pacmanOnly = { primary: { id: "pacman", binary: "pacman" }, overlays: [], sources: [] };
+    const floorNotices = [
+        ["an install trigger lists and requires an outdated command", [], "1.9.12", "installed", undefined, ["ok", ["vgs-tool"], ["vgs-tool"]]],
+        ["a choice of an outdated command raises its notice", [], "1.9.12", "chosen", ["vgs-tool"], ["ok", ["vgs-tool"], ["vgs-tool"]]],
+        ["a command at its floor is satisfied", [], "1.10.1", "chosen", ["vgs-tool"], ["satisfied", [], []]],
+        ["a command above its floor is satisfied", [], "2.0.0", "installed", undefined, ["satisfied", [], []]],
+        ["a missing command is listed as before", ["vgs-tool"], undefined, "chosen", ["vgs-tool"], ["ok", ["vgs-tool"], ["vgs-tool"]]]
+    ];
+    for (const [name, missing, line, trigger, commands, want] of floorNotices) {
+        const r = ctx.noticeRequest(floored, missing, line === undefined ? {} : { "vgs-tool": line }, trigger, commands);
+        check("noticeRequest: " + name, [r.answer, r.commands, r.required], want);
+    }
+    const toolNotice = { commands: ["vgs-tool"], required: ["vgs-tool"] };
+    const shows = (missing, versions) => { const v = ctx.noticeView(floored, missing, versions, toolNotice, pacmanOnly); return [v.satisfied, v.rows.map(r => [r.name, r.state]), v.groups.map(g => [g.chip, g.update]), v.install, v.update]; };
+    check("noticeView: an outdated command is offered its update, and no install", shows([], { "vgs-tool": "1.9.12" }), [false, [["vgs-tool", "outdated"]], [["tool", true]], null, ["tool"]]);
+    check("noticeView: a missing command is offered its install, and no update", shows(["vgs-tool"], {}), [false, [["vgs-tool", "missing"]], [["tool", false]], ["tool"], null]);
+    check("noticeView: a command at its floor satisfies the notice", shows([], { "vgs-tool": "1.10.1" }), [true, [], [], null, null]);
+    check("noticeSettle: an outdated command keeps its notice, and its floor closes it",
+        [{ "vgs-tool": "1.9.12" }, { "vgs-tool": "1.10.1" }].map(versions => ctx.noticeSettle([Object.assign({ id: "vgs.bar" }, toolNotice)], { "vgs.bar": floored }, {}, versions, "").length), [1, 0]);
+    // versionCommands: the core's and the enabled plugins' floored commands
+    // the scan found, each once; a disabled plugin's and a missing one stay out.
+    const owners = { core: ctx.coreOwner([{ name: "git", bus: null, packages: {}, optional: false, purpose: "p", floor: "2.0.0" }, { name: "gum", bus: null, packages: {}, optional: false, purpose: "p", floor: null }]),
+        "acme.on": { requirements: [{ name: "vgs-tool", floor: "1.0.0" }, { name: "git", floor: "2.1.0" }, { name: "vgs-gone", floor: "1.0.0" }] }, "acme.off": { requirements: [{ name: "vgs-off", floor: "1.0.0" }] } };
+    check("versionCommands reads the floored commands of the core and the enabled plugins", ctx.versionCommands(owners, { "acme.on": ["vgs-gone"] }, ["acme.on"]), ["git", "vgs-tool"]);
+    // versionsRead: [name, completion, stdout, want].
+    const readRows = [
+        ["an answer is each command's line or null", { code: 0, status: 0 }, "{\"pi\":\"1.1.0\",\"gone\":null}", { ok: true, versions: { pi: "1.1.0", gone: null } }],
+        ["a run that never started", null, "", { ok: false, line: "plugins: versions=unstarted" }],
+        ["a run that failed", { code: 2, status: 0 }, "{}", { ok: false, line: "plugins: versions=failed exit=2 status=0" }],
+        ["a run that crashed", { code: 0, status: 1 }, "{}", { ok: false, line: "plugins: versions=failed exit=0 status=1" }],
+        ["output that is no JSON", { code: 0, status: 0 }, "pi 1.1.0", { ok: false, line: "plugins: versions=unparseable" }],
+        ["a list", { code: 0, status: 0 }, "[]", { ok: false, line: "plugins: versions=malformed" }],
+        ["a value that is no line", { code: 0, status: 0 }, "{\"pi\":1}", { ok: false, line: "plugins: versions=malformed" }]
+    ];
+    for (const [name, completion, stdout, want] of readRows)
+        check("versionsRead: " + name, ctx.versionsRead(completion, stdout), want);
     check("the core's config/requirements.json passes the requirements judge", ctx.requirementsError(JSON.parse(fs.readFileSync(CORE_REQUIREMENTS, "utf8"))), "");
 
     // configError rows: [name, config, want]. A refusal row pins the start of
@@ -1864,7 +1931,24 @@ const CONTROLS = [
     ["an idle watch takes a day at most", " || seconds > IDLE_WATCH_MAX_SECONDS)", ")"],
     ["an idle watch takes whole seconds", "!Number.isInteger(seconds) || ", ""],
     ["an idle watch needs a handler", "if (typeof onChange !== \"function\") return \"refused: idle-handler=not-a-function\";", ""],
-    ["a requirement the scan missed is reported missing", "missing.indexOf(entry.name) === -1 ? \"present\" : \"missing\"", "\"present\""],
+    ["a requirement the scan missed is reported missing", "if (missing.indexOf(entry.name) !== -1) return \"missing\";", ""],
+    ["a version below its floor is outdated", "if (part < least) return \"outdated\";", ""],
+    ["a version at its floor is present", "if (part < least) return \"outdated\";", "if (part <= least) return \"outdated\";"],
+    ["a version above its floor is present", "if (part > least) break;", ""],
+    ["a requirement without a floor is never outdated", "var read = entry.floor !== null && typeof", "var read = typeof"],
+    ["a notice lists an outdated command", "var lacking = rows.filter(function (row) { return row.state !== \"present\"; });", "var lacking = rows.filter(function (row) { return row.state === \"missing\"; });"],
+    ["a view lists an outdated command", "requirementRows(manifest, missing, versions).filter(function (row) { return row.state !== \"present\"; });\n    var rows", "requirementRows(manifest, missing, versions).filter(function (row) { return row.state === \"missing\"; });\n    var rows"],
+    ["an update is offered for the outdated rows alone", "update: first(\"outdated\"),", "update: first(\"missing\"),"],
+    ["an entry is an update while each of its rows is outdated", "var update = row.state === \"outdated\";", "var update = false;"],
+    ["a floor is three dotted numbers", "!REQUIREMENT_FLOOR.test(requirement.floor)", "false"],
+    ["a floor is a string", "typeof requirement.floor !== \"string\" || ", ""],
+    ["a floor needs a command", "if (requirement.floor !== undefined && requirement.command === undefined)", "if (false)"],
+    ["floor is a requirement key", "\"optional\", \"purpose\", \"floor\"];", "\"optional\", \"purpose\"];"],
+    ["an absent floor is normalized", "floor: entry.floor === undefined ? null : entry.floor", "floor: entry.floor"],
+    ["a disabled plugin's version is not read", "if (id !== CORE_OWNER && enabled.indexOf(id) === -1) return;", ""],
+    ["a missing command's version is not read", "entry.floor !== null && lacking.indexOf(entry.name) === -1 && out.indexOf", "entry.floor !== null && out.indexOf"],
+    ["a version read that crashed is no answer", "if (completion.status !== 0 || completion.code !== 0)\n        return { ok: false, line: \"plugins: versions=failed", "if (completion.code !== 0)\n        return { ok: false, line: \"plugins: versions=failed"],
+    ["a version answer maps commands to lines", " || !Object.keys(read).every(function (command) { return read[command] === null || typeof read[command] === \"string\"; }))", ")"],
     ["placing never writes disabledPlugins", "function withPlaced(user, manifest, placed, effective, id, shipped) {\n    id = id === undefined ? manifest.id : id;\n    var out = isPlainObject(user) ? clone(user) : {};", "function withPlaced(user, manifest, placed, effective, id, shipped) {\n    id = id === undefined ? manifest.id : id;\n    var out = isPlainObject(user) ? clone(user) : {};\n    out.disabledPlugins = Array.isArray(effective.disabledPlugins) ? effective.disabledPlugins.slice() : [];"],
     ["a widget already as asked changes nothing", "if (placed === (layoutPositionOf(effective, id, null) !== null))\n        return out;", "if (false)\n        return out;"],
     ["unplacing removes the entries", "return entry.id !== id; });", "return true; });"],

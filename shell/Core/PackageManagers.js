@@ -1,8 +1,8 @@
 .pragma library
 
 // The package managers VGS knows, one row each, and the pure decisions made
-// over them: which managers a system has, the steps an install, a removal
-// or an upgrade takes, what a manager's update query printed, and the
+// over them: which managers a system has, the steps an install, an update, a
+// removal or an upgrade takes, what a manager's update query printed, and the
 // queries naming the package that owns a file and its installed version,
 // and the dry run that says whether a package can be removed.
 // No QML objects and no I/O, so bin/vgshell-pkg runs this file under node
@@ -19,7 +19,7 @@
 //   requires  the primary an overlay only exists beside, or null
 //   binaries  the commands that run the manager, preferred first; the first
 //             one on PATH is the row's binary
-//   elevate   whether install, remove and upgrade need root. No step names
+//   elevate   whether install, update, remove and upgrade need root. No step names
 //             an elevation command: `vgshell pkg run` puts one of ELEVATORS
 //             before each step, in a terminal where the user answers the
 //             prompt, and the shell process never elevates.
@@ -30,9 +30,11 @@
 //             PARSERS, the seconds a run may take, and whether it runs only
 //             when asked for by name (onDemand). An unlisted status is a
 //             failure. null when no read-only query exists.
-//   install, remove, upgrade
+//   install, update, remove, upgrade
 //             the steps, each an argv template run in order; null when VGS
-//             plans none for the manager
+//             plans none for the manager. An update brings named packages
+//             the manager already installed to its current version, and a
+//             row has its steps exactly when it has install's.
 //   ignore    the option that keeps one package out of an upgrade, put
 //             with the package's name after each upgrade step once per
 //             package; null when VGS keeps none out for the manager
@@ -56,7 +58,8 @@
 //             the packages, one per line, the name first; preview prints
 //             one package's details and takes "{name}". Both only read.
 // In a template "{bin}" is the row's binary, "{names}" the package names,
-// "{name}" one package name and "{path}" an absolute file path. A
+// "{names@latest}" each of them followed by `@latest`, "{name}" one package
+// name and "{path}" an absolute file path. A
 // pacman-family sync that refreshes the databases always upgrades too:
 // `-Syu`, never `-Sy` alone.
 var MANAGERS = [
@@ -64,6 +67,10 @@ var MANAGERS = [
         id: "pacman", role: "primary", family: ["arch"], requires: null, binaries: ["pacman"], elevate: true,
         check: [{ binary: null, argv: ["checkupdates"], exits: { "0": "updates", "2": "none" }, parser: "arrow", timeout: 120, onDemand: false }],
         install: [["{bin}", "-S", "--needed", "--", "{names}"]],
+        // pacman(8): --needed skips only a target that is up to date, so
+        // the install step updates an older one to the version the
+        // databases of the last upgrade hold.
+        update: [["{bin}", "-S", "--needed", "--", "{names}"]],
         remove: [["{bin}", "-Rns", "--", "{names}"]],
         upgrade: [["{bin}", "-Syu"]],
         ignore: "--ignore",
@@ -79,6 +86,7 @@ var MANAGERS = [
         id: "aur", role: "overlay", family: [], requires: "pacman", binaries: ["paru", "yay"], elevate: false,
         check: [{ binary: null, argv: ["{bin}", "-Qua"], exits: { "0": "updates", "1": "none" }, parser: "arrow", timeout: 120, onDemand: false }],
         install: [["{bin}", "-S", "--needed", "--", "{names}"]],
+        update: [["{bin}", "-S", "--needed", "--", "{names}"]],
         remove: [["{bin}", "-Rns", "--", "{names}"]],
         upgrade: [["{bin}", "-Sua"]],
         ignore: "--ignore",
@@ -94,6 +102,9 @@ var MANAGERS = [
         id: "apt", role: "primary", family: ["debian", "ubuntu"], requires: null, binaries: ["apt-get"], elevate: true,
         check: [{ binary: null, argv: ["apt", "list", "--upgradable"], exits: { "0": "rows" }, parser: "apt", timeout: 120, onDemand: false }],
         install: [["{bin}", "install", "{names}"]],
+        // apt-get(8): install is also the target that upgrades an installed
+        // package without upgrading every package.
+        update: [["{bin}", "install", "{names}"]],
         remove: [["{bin}", "remove", "{names}"]],
         upgrade: [["{bin}", "update"], ["{bin}", "full-upgrade"]],
         ignore: null,
@@ -112,6 +123,9 @@ var MANAGERS = [
             { binary: "dnf", argv: ["{bin}", "-q", "check-update"], exits: { "0": "none", "100": "updates" }, parser: "dnf", timeout: 120, onDemand: false }
         ],
         install: [["{bin}", "install", "{names}"]],
+        // dnf(8): upgrade with a package updates that package to the latest
+        // version.
+        update: [["{bin}", "upgrade", "{names}"]],
         remove: [["{bin}", "remove", "{names}"]],
         upgrade: [["{bin}", "upgrade"]],
         ignore: null,
@@ -131,6 +145,9 @@ var MANAGERS = [
         id: "xbps", role: "primary", family: ["void"], requires: null, binaries: ["xbps-install"], elevate: true,
         check: [{ binary: null, argv: ["{bin}", "-Mun"], exits: { "0": "rows" }, parser: "xbps", timeout: 120, onDemand: false }],
         install: [["{bin}", "-S", "{names}"]],
+        // xbps-install(1): a package that is installed is updated to the
+        // version the repositories hold.
+        update: [["{bin}", "-S", "{names}"]],
         remove: [["xbps-remove", "-R", "{names}"]],
         upgrade: [["{bin}", "-Su"]],
         ignore: null,
@@ -145,6 +162,9 @@ var MANAGERS = [
         id: "emerge", role: "primary", family: ["gentoo"], requires: null, binaries: ["emerge"], elevate: true,
         check: [{ binary: null, argv: ["{bin}", "--pretend", "--update", "--deep", "--newuse", "--color=n", "--ask=n", "@world"], exits: { "0": "rows" }, parser: "emerge", timeout: 900, onDemand: true }],
         install: [["{bin}", "--ask", "--noreplace", "{names}"]],
+        // emerge(1): --noreplace skips an installed package, and --update
+        // takes it to the best version.
+        update: [["{bin}", "--ask", "--update", "{names}"]],
         remove: [["{bin}", "--ask", "--depclean", "{names}"]],
         upgrade: [["{bin}", "--sync"], ["{bin}", "--ask", "--update", "--deep", "--newuse", "@world"]],
         ignore: null,
@@ -157,13 +177,15 @@ var MANAGERS = [
     // step and has no read-only update query for it.
     {
         id: "nix", role: "primary", family: ["nixos"], requires: null, binaries: ["nix"], elevate: false,
-        check: null, install: null, remove: null, upgrade: null, ignore: null, owner: null, installed: null, removable: null,
+        check: null, install: null, update: null, remove: null, upgrade: null, ignore: null, owner: null, installed: null, removable: null,
         picker: { install: null, remove: null }
     },
     {
         id: "flatpak", role: "overlay", family: [], requires: null, binaries: ["flatpak"], elevate: false,
         check: [{ binary: null, argv: ["{bin}", "remote-ls", "--updates", "--columns=application,branch"], exits: { "0": "rows" }, parser: "flatpak", timeout: 120, onDemand: false }],
         install: [["{bin}", "install", "{names}"]],
+        // flatpak-update(1): update with a ref updates that ref alone.
+        update: [["{bin}", "update", "{names}"]],
         remove: [["{bin}", "uninstall", "{names}"]],
         upgrade: [["{bin}", "update"]],
         ignore: null,
@@ -174,11 +196,17 @@ var MANAGERS = [
     },
     // An upgrade is the user asking for current versions now, so it waives
     // mise's release-age cooldown; the check
-    // waives it too, so it counts what the upgrade installs.
+    // waives it too, so it counts what the upgrade installs. An update is
+    // the same ask for the named tools, and names `@latest`: `mise use
+    // --global <tool>` answers `already installed` for a tool an older
+    // version of which is installed, and `<tool>@latest` installs the
+    // current one (`mise use --global --dry-run`, mise 2026.9.17 on host
+    // cachy, 2026-10-10).
     {
         id: "mise", role: "source", family: [], requires: null, binaries: ["mise"], elevate: false,
         check: [{ binary: null, argv: ["env", "MISE_MINIMUM_RELEASE_AGE=0", "{bin}", "outdated", "--json"], exits: { "0": "rows" }, parser: "mise", timeout: 120, onDemand: false }],
         install: [["{bin}", "use", "--global", "{names}"]],
+        update: [["env", "MISE_MINIMUM_RELEASE_AGE=0", "{bin}", "use", "--global", "{names@latest}"]],
         remove: [["{bin}", "unuse", "--global", "{names}"]],
         upgrade: [["env", "MISE_MINIMUM_RELEASE_AGE=0", "{bin}", "upgrade"]],
         ignore: null,
@@ -189,7 +217,7 @@ var MANAGERS = [
     }
 ];
 
-var ACTIONS = ["install", "remove", "upgrade"];
+var ACTIONS = ["install", "update", "remove", "upgrade"];
 
 // The commands `vgshell pkg run` may put before a step of a row whose elevate
 // is true, in the order it looks for them on PATH. They live outside the
@@ -317,9 +345,9 @@ function packageFor(packages, found) {
 // primary, names, installs }` per manager a pick names, in FOUND's order,
 // primary first, then overlays, then sources: `names` each package once in
 // the order the rows first pick it, `primary` whether the manager is
-// FOUND's primary, and `installs` whether its row has install steps. A
-// manager without them, nix, changes the system through its own
-// configuration, so its packages are added there by hand.
+// FOUND's primary, and `installs` whether its row has install steps, and so
+// update steps. A manager without them, nix, changes the system through its
+// own configuration, so its packages are added there by hand.
 function installGroups(rows, found) {
     var picks = rows.map(function (row) { return packageFor(row.packages, found); });
     var order = managersInOrder(found);
@@ -334,10 +362,10 @@ function installGroups(rows, found) {
     return { picks: picks, groups: groups };
 }
 
-// The arguments after `vgshell pkg run install` that install GROUP, one of
-// installGroups' groups whose manager installs: `--manager <id>` for every
-// manager but the primary, which `vgshell pkg run` takes by default, then the
-// names.
+// The arguments after `vgshell pkg run install`, or `run update`, that
+// install or update GROUP, one of installGroups' groups whose manager
+// installs: `--manager <id>` for every manager but the primary, which
+// `vgshell pkg run` takes by default, then the names.
 function installArgs(group) {
     if (!group.installs)
         throw new Error("installArgs: manager " + group.manager + " has no install steps");
@@ -358,8 +386,8 @@ function presentManager(id, onPath) {
 // The steps ACTION takes for manager ID over NAMES, with the binary ON_PATH
 // resolves: `{ ok: true, plan: { manager, binary, action, elevate, steps } }`
 // or `{ ok: false, error }`, the error the keyed first line of a refusal.
-// ACTION is one of ACTIONS and NAMES holds at least one name for install
-// and remove and none for upgrade; the caller refuses any other call as a
+// ACTION is one of ACTIONS and NAMES holds at least one name for install,
+// update and remove and none for upgrade; the caller refuses any other call as a
 // bad invocation. IGNORED, absent or empty but for an upgrade, names the
 // packages the upgrade keeps out, through the row's `ignore`: a manager
 // without one refuses them as `manager=<id> option=ignore
@@ -381,6 +409,7 @@ function plan(id, action, names, onPath, ignored) {
         for (var j = 0; j < step.length; j++) {
             if (step[j] === "{bin}") argv.push(binary);
             else if (step[j] === "{names}") argv.push.apply(argv, names);
+            else if (step[j] === "{names@latest}") argv.push.apply(argv, names.map(function (name) { return name + "@latest"; }));
             else argv.push(step[j]);
         }
         for (var k = 0; k < kept.length; k++) argv.push(row.ignore, kept[k]);

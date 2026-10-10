@@ -20,7 +20,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, plugin-messages, traffic, ai-usage, sysmon, appearance, sounds or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, outdated, plugin-messages, traffic, ai-usage, sysmon, appearance, sounds or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -73,7 +73,15 @@
 # actions with its daemon ready, as the settings scene readies it: the
 # Settings tab's Setup section, then the Details tab at its Browser driver
 # line and at its AI model section, each anchor 12 px under the page's top,
-# taken only when named; plugin-messages is a plugin's message to the
+# taken only when named; outdated is the Jarvis page over a stand-in
+# agent-browser and a stand-in Pi that each answer a version below the
+# floor Jarvis holds them to, Pi chosen as the AI model: the Details tab
+# at its Browser driver line and at the driver's line of its Requirements
+# section, the Settings tab's Setup section, and the
+# screen after the driver line's step is pressed, the core's requirement
+# notice where the tree offers that step, over a stand-in bin/vgshell-pkg
+# that answers pacman, paru and mise whatever the host runs, taken only
+# when named; plugin-messages is a plugin's message to the
 # user as the tree draws it, a core toast where the tree ships
 # shell/Core/Toasts.qml and else its card in vgs.notifications with
 # Silence off: the clipboard's paste failure, a transient message, its
@@ -230,7 +238,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
+    sysmon|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|outdated|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -357,7 +365,7 @@ scene_ships() {
     voice-setup) ships_plugin vgs.voice vgs.settings ;;
     plugin-messages) ships_plugin vgs.clipboard vgs.lock vgs.notifications ;;
     voice-keys) [[ $manager_scene == settings ]] && ships_plugin vgs.voice ;;
-    jarvis-setup) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
+    jarvis-setup|outdated) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
     ai-usage) ships_plugin vgs.ai-usage ;;
     traffic) ships_plugin vgs.traffic vgs.settings ;;
     devtools) ships_plugin vgs.devtools ;;
@@ -2417,6 +2425,96 @@ scene_jarvis-setup() { # MODE
   settings_close
   expect "disabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
   expect_poll "vgs.jarvis is gone" absent ipc smoke jarvisProcess
+}
+
+# A command below its version floor on the Jarvis page. The daemon's world
+# copies its stand-ins when the daemon starts (scripts/lib/jarvis-env.sh),
+# so its Pi is written before Jarvis is enabled, and the shell's scan reads
+# the same program from the sandbox PATH. Pi's folder is added to the
+# account list by hand and chosen as the AI model. The driver line's step
+# is asked for through the Settings window's own act; a tree that offers no
+# step there refuses it, and its third shot is the page with no notice.
+scene_outdated() { # MODE
+  local state="$home/.local/state/vgshell/jarvis" pi_dir="$home/.pi/agent" config="$home/.config/vgshell/shell.json"
+  local pkg_real="$sandbox/outdated-vgshell-pkg.real" world_pi="$sandbox/jarvis-world/standins/pi" pi_line="$sandbox/jarvis-world/pi-version"
+  local accounts_before="$sandbox/outdated-accounts-before" brain
+  jarvis_setup_requirements
+  printf '#!/bin/sh\necho "agent-browser 0.37.9"\n' >"$shim/agent-browser" && chmod 755 "$shim/agent-browser" || fail "the driver stand-in is not written"
+  printf '1.0.2\n' >"$pi_line"
+  printf '#!/bin/bash\n[[ $# == 1 && $1 == --version ]] || exit 2\nexec cat %q\n' "$pi_line" >"$world_pi" && chmod 755 "$world_pi" && cp -- "$world_pi" "$shim/pi" ||
+    fail "the Pi stand-ins are not written"
+  mkdir -p -- "$pi_dir" "$state" "$sandbox/outdated-no-path" && printf '{}\n' >"$pi_dir/auth.json" || fail "the Pi folder is not written"
+  rm -f -- "${accounts_before:?}"
+  [[ ! -e $state/accounts.json ]] || cp -- "$state/accounts.json" "$accounts_before"
+  python3 - "$state/accounts.json" "$pi_dir" <<'PY' || fail "the Pi folder is not added to the account list"
+import json,os,sys
+held=json.load(open(sys.argv[1])) if os.path.exists(sys.argv[1]) else []
+open(sys.argv[1],"w").write(json.dumps(held + [{"provider": "pi", "directory": sys.argv[2], "label": "setup"}]))
+PY
+  cp -- "$repo/bin/vgshell-pkg" "$pkg_real"
+  cat >"$sandbox/outdated-vgshell-pkg.stub" <<'EOF_PKG'
+#!/usr/bin/env node
+if (process.argv[2] === "detect" && process.argv[3] === "--json") {
+    process.stdout.write('{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"}],"sources":[{"id":"mise","binary":"mise"}]}\n');
+    process.exit(0);
+}
+process.stderr.write("vgshell: refused: stub=vgshell-pkg\n");
+process.exit(70);
+EOF_PKG
+  chmod 755 "$sandbox/outdated-vgshell-pkg.stub"
+  cp -- "$sandbox/outdated-vgshell-pkg.stub" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
+  tree_rescan "the outdated scene's stand-ins are scanned"
+  brain="$(env -i PATH="$sandbox/outdated-no-path" HOME="$home" XDG_STATE_HOME="$home/.local/state" XDG_CONFIG_HOME="$home/.config" \
+    XDG_DATA_HOME="$home/.local/share" "$node_bin" "$repo/shell/plugins/vgs.jarvis/backend/accounts.js" --tree "$repo" list |
+    py_reply 'import json,sys; print(next(a["id"] for a in json.load(sys.stdin) if a["source"].get("directory")==sys.argv[1]))' "$pi_dir")" ||
+    fail "the account helper lists no id for the Pi folder"
+  outdated_brain "$config" "$brain/stub/stub-1"
+  expect "enabling vgs.jarvis for the outdated scene is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect_poll "the Jarvis daemon answers hello over the outdated stand-ins" ready jarvis_started
+  for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
+  close_notices
+  expect "the Settings window opens for the outdated scene" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings window maps for the outdated scene" 1 settings_count
+  expect "the window opens the Jarvis page for the outdated scene" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
+  expect_poll "the Jarvis page is shown for the outdated scene" '"vgs.jarvis"' settings_page
+  page_details
+  expect_poll "the Jarvis page shows its daemon ready over the outdated stand-ins" True jarvis_page_ready
+  jarvis_anchor_shot "outdated-$1-driver" Label "Browser driver"
+  jarvis_anchor_shot "outdated-$1-requirement" Label agent-browser
+  settings_tab_click Settings || fail "the click on the Settings tab failed"
+  expect_poll "the Jarvis page shows Settings for the outdated scene" 0 settings_tab
+  expect_poll "the Jarvis Setup section draws its rows for the outdated scene" True jarvis_setup_drawn
+  jarvis_anchor_shot "outdated-$1-setup" SectionHeader Setup
+  expected_errors+=('settings: vgs.jarvis/browserDriver refused: action=browserDriver reason=not-offered')
+  ipc smoke invokeInstance "$settings_kind" vgs.settings act '{"id":"vgs.jarvis","key":"browserDriver"}' >/dev/null || fail "the driver line's step could not be asked for"
+  for _ in $(seq 1 25); do [[ $(layer_count vgs:notice) == 1 ]] && break; sleep 0.2; done
+  park_pointer
+  take "outdated-$1-notice"
+  close_notices
+  settings_close
+  expect "disabling vgs.jarvis after the outdated scene is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "vgs.jarvis is gone after the outdated scene" absent ipc smoke jarvisProcess
+  outdated_brain "$config" ""
+  cp -- "$pkg_real" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
+  rm -f -- "${shim:?}/agent-browser" "${shim:?}/pi" "${world_pi:?}" "${pi_line:?}" "${state:?}/accounts.json"
+  [[ ! -e $accounts_before ]] || cp -- "$accounts_before" "$state/accounts.json"
+  rm -f -- "${pi_dir:?}/auth.json"
+  jarvis_restore_requirements
+}
+# outdated_brain CONFIG BRAIN: the Jarvis AI model setting in the user's
+# shell.json, "" for none, delivered by a reload.
+outdated_brain() {
+  python3 - "$1" "$2" <<'PY' || fail "the Jarvis AI model setting is not written"
+import json,os,sys
+value=json.load(open(sys.argv[1])) if os.path.exists(sys.argv[1]) else {"version": 1}
+row=next((r for r in value.setdefault("plugins",[]) if r["id"]=="vgs.jarvis"),None)
+if row is None:
+    row={"id":"vgs.jarvis"}; value["plugins"].append(row)
+if sys.argv[2]: row["brain"]=sys.argv[2]
+else: row.pop("brain",None)
+open(sys.argv[1],"w").write(json.dumps(value))
+PY
+  expect "the Jarvis AI model setting is delivered" ok ipc shell reloadConfig
 }
 
 voice_level_flowing() { ipc smoke readInstance service vgs.voice level | py_reply 'import json,sys; print(str(json.load(sys.stdin) > 0).lower())'; }

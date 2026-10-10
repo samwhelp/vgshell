@@ -16,10 +16,24 @@ function statusStep(entry) {
     return { offered: offered };
 }
 
-// Whether the Requirements section's install step applies to REQUIREMENT,
-// one row of PluginLogic.requirementRows: while its requirement is missing.
+// Whether the Requirements section's step applies to REQUIREMENT, one row
+// of PluginLogic.requirementRows: while its requirement is missing or
+// outdated.
 function requirementApplies(requirement) {
-    return requirement.state === "missing";
+    return requirement.state !== "present";
+}
+
+// What the Requirements section's step row draws for REQUIREMENTS, a plugin's
+// rows: null while the step applies to none, else { label, hint, button,
+// icon }, the install's words while one is missing and the update's once
+// each one the step applies to is outdated. Either button asks the core for
+// the one notice, which installs first and then updates.
+function requirementStep(requirements) {
+    var lacking = requirements.filter(requirementApplies);
+    if (lacking.length === 0) return null;
+    if (lacking.some(function (requirement) { return requirement.state === "missing"; }))
+        return { label: "Missing", hint: "Review the missing tools before you install them.", button: "Install all missing", icon: "download" };
+    return { label: "Outdated", hint: "Review the outdated tools before you update them.", button: "Update all outdated", icon: "refresh-cw" };
 }
 
 // The words a `presence` value reads as on the page.
@@ -123,9 +137,9 @@ function setupEntries(status) {
 // The Setup section's rows for TUIS, a manager row's listed TUIs, and
 // STATUS, its status rows, in drawn order: the first SETUP_GROUP entry is
 // the section's "Status" row, and each further one a step row under its own
-// label, with the TUI its offered action opens as an action beside it,
-// `button` null while it offers none. Each { entry, label, step, button },
-// a button { key, name, label }.
+// label, with its offered action beside it, `button` null while it offers
+// none. Each { entry, label, step, button }, a button { key, name, label },
+// `name` the TUI the action opens, "" for one the manager acts on.
 function setupRows(tuis, status) {
     return setupEntries(status).map(function (entry, index) {
         var step = index > 0;
@@ -133,11 +147,14 @@ function setupRows(tuis, status) {
     });
 }
 
-// The action beside step ENTRY: the listed TUI of TUIS its offered action
-// opens (a row's action names a TUI only while it is offered), with the
-// action's label, or null.
+// The action beside step ENTRY, with the action's label, or null: the
+// listed TUI of TUIS its offered action opens (a row's action names a TUI
+// only while it is offered), or, for an offered action that opens none, the
+// plugin's own requirement commands or a system step, a button with no
+// `name`, whose press the page hands the manager's act.
 function stepButton(tuis, entry) {
-    if (entry.action === null || entry.action.tui === "") return null;
+    if (entry.action === null || !entry.action.offered) return null;
+    if (entry.action.tui === "") return { key: entry.key + " " + entry.action.label, name: "", label: entry.action.label };
     var tui = tuis.filter(function (t) { return t.name === entry.action.tui; })[0];
     if (tui === undefined) return null;
     return { key: tui.name + " " + entry.action.label, name: tui.name, label: entry.action.label };

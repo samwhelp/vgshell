@@ -97,11 +97,11 @@ function suite(ctx, check) {
     check("Jarvis's full missing list withholds the setup terminal",
         ctx.tuiRunFor(jarvis, true, "/sources", { launcher: "present", busy: [], run: "test" }, "setup-local", jarvisRequired),
         { ok: true, kind: "install" });
-    const jarvisNotice = ctx.noticeRequest(jarvis, jarvisRequired, "requested");
+    const jarvisNotice = ctx.noticeRequest(jarvis, jarvisRequired, {}, "requested");
     check("the existing all-missing request accepts Jarvis's full required list",
         [jarvisNotice.answer, jarvisNotice.commands, jarvisNotice.required], ["ok", jarvisRequired, jarvisRequired]);
     check("the explicit-choice request refuses Jarvis's full required list",
-        ctx.noticeRequest(jarvis, jarvisRequired, "chosen", jarvisRequired).answer, "refused: requirements=malformed");
+        ctx.noticeRequest(jarvis, jarvisRequired, {}, "chosen", jarvisRequired).answer, "refused: requirements=malformed");
 
     const runner = { launcher: "present", busy: [], run: "test" };
     const optional = Object.assign({}, m, { requirements: [{ name: "acme-sync", bus: null, packages: {}, optional: true, purpose: "Sync" }] });

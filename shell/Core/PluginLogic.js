@@ -116,12 +116,19 @@ var MANIFEST_KEYS = ["schemaVersion", "id", "name", "version", "author", "descri
 // config/requirements.json, may carry: an external command the plugin runs
 // or a D-Bus name it reaches, the package that provides it per manager id of
 // PackageManagers.js, whether the plugin works without it, and one line
-// saying what it is for. The states a probed requirement is reported in.
-var REQUIREMENT_KEYS = ["command", "dbus", "packages", "optional", "purpose"];
+// saying what it is for, and for a command the `floor`, the lowest version
+// the plugin works with. The states a probed requirement is reported in.
+var REQUIREMENT_KEYS = ["command", "dbus", "packages", "optional", "purpose", "floor"];
 var REQUIREMENT_DBUS_KEYS = ["bus", "name"];
 var REQUIREMENT_BUSES = ["system", "session"];
 var REQUIREMENT_PURPOSE_MAX = 120;
-var REQUIREMENT_STATES = ["present", "missing"];
+var REQUIREMENT_STATES = ["present", "missing", "outdated"];
+// A `floor`: three dotted numbers, none with a leading zero.
+var REQUIREMENT_FLOOR = /^(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$/;
+// The version in the line a command's `--version` printed: its first three
+// dotted numbers, whatever names the program before them (`tool 1.2.3`) or
+// marks a pre-release after them (`1.2.3-rc1`).
+var VERSION_IN_LINE = /(?:^|[^0-9.])([0-9]{1,6})\.([0-9]{1,6})\.([0-9]{1,6})(?![0-9])/;
 // A purpose is one printable line: no C0 or C1 control character.
 var CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/;
 var DBUS_NAME_PART = /^[A-Za-z_-][A-Za-z0-9_-]*$/;
@@ -1939,7 +1946,9 @@ function requirementIdentity(requirement, at) {
 // is an object whose keys are manager ids of PackageManagers.MANAGERS and
 // whose values are package names PackageManagers.validName accepts;
 // `optional`, when present, is a boolean; `purpose` is one printable line
-// of 1 to REQUIREMENT_PURPOSE_MAX characters.
+// of 1 to REQUIREMENT_PURPOSE_MAX characters; `floor`, when present, is a
+// version REQUIREMENT_FLOOR accepts, on a `command` alone, since a bus name
+// prints none.
 function requirementsError(requirements) {
     if (!Array.isArray(requirements))
         return "requirements must be a list";
@@ -1975,28 +1984,91 @@ function requirementsError(requirements) {
             return at + ".optional must be a boolean when present";
         if (typeof requirement.purpose !== "string" || requirement.purpose.trim().length === 0 || Array.from(requirement.purpose).length > REQUIREMENT_PURPOSE_MAX || CONTROL_CHARACTER.test(requirement.purpose))
             return at + ".purpose must be one printable line of 1 to " + REQUIREMENT_PURPOSE_MAX + " characters";
+        if (requirement.floor !== undefined && requirement.command === undefined)
+            return at + ".floor needs a command, whose version the scan reads";
+        if (requirement.floor !== undefined && (typeof requirement.floor !== "string" || !REQUIREMENT_FLOOR.test(requirement.floor)))
+            return at + ".floor must be a version of three dotted numbers, got " + JSON.stringify(requirement.floor);
     }
     return "";
 }
 
 // A `requirements` list requirementsError accepted, each entry with every
-// key: `name`, `bus`, `packages` {} and `optional` false when absent.
+// key: `name`, `bus`, `packages` {}, `optional` false and `floor` null when
+// absent.
 function normalRequirements(requirements) {
     return requirements.map(function (entry) {
-        return { name: requirementName(entry), bus: entry.dbus === undefined ? null : entry.dbus.bus, packages: entry.packages === undefined ? {} : clone(entry.packages), optional: entry.optional === true, purpose: entry.purpose };
+        return { name: requirementName(entry), bus: entry.dbus === undefined ? null : entry.dbus.bus, packages: entry.packages === undefined ? {} : clone(entry.packages), optional: entry.optional === true, purpose: entry.purpose, floor: entry.floor === undefined ? null : entry.floor };
     });
 }
 
+// The state, one of REQUIREMENT_STATES, of ENTRY, one normalized
+// requirement: "missing" when MISSING, the requirement names the last scan
+// did not find, names its identity; "outdated" when it declares a floor and
+// VERSIONS, command -> the line its `--version` printed at the last scan,
+// holds a version below it; else "present". A command the scan read no
+// version of, and a line that holds none, say nothing about the floor, so
+// the command stays present: Registry logs each read that failed.
+function requirementState(entry, missing, versions) {
+    if (missing.indexOf(entry.name) !== -1) return "missing";
+    var read = entry.floor !== null && typeof versions[entry.name] === "string" ? VERSION_IN_LINE.exec(versions[entry.name]) : null;
+    if (read === null) return "present";
+    var floor = entry.floor.split(".");
+    for (var i = 0; i < 3; i++) {
+        var part = Number(read[i + 1]);
+        var least = Number(floor[i]);
+        if (part < least) return "outdated";
+        if (part > least) break;
+    }
+    return "present";
+}
+
+// The versions `bin/vgshell-scan --versions` answered a scan with, from its
+// COMPLETION, { code, status } or null for a run that never started, and
+// its STDOUT: { ok: true, versions }, each command it was asked for mapped
+// to the line it printed or to null, or { ok: false, line }, the log line
+// naming why there is none.
+function versionsRead(completion, stdout) {
+    if (completion === null)
+        return { ok: false, line: "plugins: versions=unstarted" };
+    if (completion.status !== 0 || completion.code !== 0)
+        return { ok: false, line: "plugins: versions=failed exit=" + completion.code + " status=" + completion.status };
+    var read;
+    try {
+        read = JSON.parse(stdout);
+    } catch (e) {
+        return { ok: false, line: "plugins: versions=unparseable" };
+    }
+    if (!isPlainObject(read) || !Object.keys(read).every(function (command) { return read[command] === null || typeof read[command] === "string"; }))
+        return { ok: false, line: "plugins: versions=malformed" };
+    return { ok: true, versions: read };
+}
+
 // The rows a plugin's requirements are reported as: each normalized entry
-// of MANIFEST's `requirements`, in order, with `state` from
-// REQUIREMENT_STATES: "missing" when MISSING, the requirement names the
-// last scan did not find, names its identity, else "present".
-function requirementRows(manifest, missing) {
+// of MANIFEST's `requirements`, in order, with `state` as requirementState
+// reads it from MISSING and VERSIONS.
+function requirementRows(manifest, missing, versions) {
     return manifest.requirements.map(function (entry) {
         var row = clone(entry);
-        row.state = missing.indexOf(entry.name) === -1 ? "present" : "missing";
+        row.state = requirementState(entry, missing, versions);
         return row;
     });
+}
+
+// The commands whose version a scan reads, each once and sorted: every
+// command with a floor that the core's owner and the ENABLED plugins of
+// OWNERS declare and MISSING, owner id -> the names the scan did not find,
+// does not hold. A disabled plugin's commands run nowhere, its version
+// read included.
+function versionCommands(owners, missing, enabled) {
+    var out = [];
+    Object.keys(owners).forEach(function (id) {
+        if (id !== CORE_OWNER && enabled.indexOf(id) === -1) return;
+        var lacking = hasOwn(missing, id) ? missing[id] : [];
+        owners[id].requirements.forEach(function (entry) {
+            if (entry.floor !== null && lacking.indexOf(entry.name) === -1 && out.indexOf(entry.name) === -1) out.push(entry.name);
+        });
+    });
+    return out.sort();
 }
 
 // The requirement notice, shell/Core/Notices.qml
@@ -2045,29 +2117,31 @@ function noticeOwnerError(owner, owners, enabled) {
 }
 
 // The notice TRIGGER asks for MANIFEST, a plugin's manifest or the core's
-// owner, whose requirements MISSING the last scan did not find: { answer,
-// commands, required }, `commands` the requirement names the notice lists and
-// `required` those whose absence keeps it open. `answer` is "ok",
+// owner, whose requirements the last scan read as MISSING and VERSIONS say
+// (requirementRows): { answer, commands, required }, `commands` the
+// requirement names the notice lists and `required` those that keep it open
+// while missing or outdated. `answer` is "ok",
 // "satisfied" when `required` is empty and no notice is due, or a refusal.
-// The install and enable triggers list every missing requirement and require
-// those the plugin does not mark optional, so a plugin missing only
-// optional requirements raises none. A request lists and requires every
-// missing requirement, optional ones included, since the user asked to install
+// The install and enable triggers list every missing or outdated requirement
+// and require those the plugin does not mark optional, so a plugin lacking
+// only optional requirements raises none. A request lists and requires every
+// such requirement, optional ones included, since the user asked to install
 // them. An offer, and a choice, lists and requires each of COMMANDS still
-// missing, and is refused as
+// missing or outdated, and is refused as
 // `refused: requirements=malformed` for anything but a list of 1 to
 // NOTICE_OFFER_MAX strings, then as `refused: requirement=<name>
 // reason=undeclared` for the first command MANIFEST does not declare, so a
 // notice never names a package its owner did not declare.
-function noticeRequest(manifest, missing, trigger, commands) {
-    var rows = requirementRows(manifest, missing);
+function noticeRequest(manifest, missing, versions, trigger, commands) {
+    var rows = requirementRows(manifest, missing, versions);
+    var lacking = rows.filter(function (row) { return row.state !== "present"; });
     var listed;
     var required;
     switch (trigger) {
     case "installed":
     case "enabled":
     case "requested":
-        listed = rows.filter(function (row) { return row.state === "missing"; });
+        listed = lacking;
         required = trigger === "requested" ? listed : listed.filter(function (row) { return !row.optional; });
         break;
     case "offered":
@@ -2078,7 +2152,7 @@ function noticeRequest(manifest, missing, trigger, commands) {
         var undeclared = commands.filter(function (c) { return declared.indexOf(c) === -1; });
         if (undeclared.length > 0)
             return { answer: "refused: requirement=" + tuiLabel(undeclared[0]) + " reason=undeclared", commands: [], required: [] };
-        listed = rows.filter(function (row) { return row.state === "missing" && commands.indexOf(row.name) !== -1; });
+        listed = lacking.filter(function (row) { return commands.indexOf(row.name) !== -1; });
         required = listed;
         break;
     default:
@@ -2119,31 +2193,38 @@ function noticeAdmit(queue, rest, id, request, trigger, now) {
 }
 
 // What NOTICE, { commands, required }, shows for plugin MANIFEST after the
-// last scan, whose missing requirements are MISSING, on a system whose managers
-// are FOUND, detect's answer, or null when detection has no answer:
-// { satisfied, rows, groups, install, byHand }. `satisfied` holds once no
-// requirement of `required` is missing. `rows` are the listed requirements
-// still missing, in declaration order, each { name, purpose, optional,
-// package }, the package PackageManagers.installGroups picks, null with
-// FOUND null or when no present manager maps one. `groups` are those rows
-// as noticeGroups gathers them. `install` is the arguments after
-// `vgshell pkg run install` of the first group whose manager installs, null
-// when none does; one Install runs one manager's packages, and the notice
-// offers the next group once a rescan finds the first installed.
+// last scan, which read its requirements as MISSING and VERSIONS say, on a
+// system whose managers are FOUND, detect's answer, or null when detection
+// has no answer: { satisfied, rows, groups, install, update, byHand }.
+// `satisfied` holds once no requirement of `required` is missing or
+// outdated. `rows` are the listed requirements still missing or outdated,
+// in declaration order, each { name, purpose, optional, state, package },
+// the package PackageManagers.installGroups picks, null with FOUND null or
+// when no present manager maps one. `groups` are those rows as noticeGroups
+// gathers them. `install` is the arguments after `vgshell pkg run install`
+// of the first group of the missing rows whose manager installs, and
+// `update` those after `vgshell pkg run update` of the first such group of
+// the outdated rows, each null when none does; one press runs one manager's
+// packages, and the notice offers the next group once a rescan finds the
+// first installed or updated.
 // `byHand` is each group whose manager installs nothing through vgshell,
 // nix, as { manager, names }.
-function noticeView(manifest, missing, notice, found) {
-    var rows = requirementRows(manifest, missing).filter(function (row) { return row.state === "missing" && notice.commands.indexOf(row.name) !== -1; });
-    var satisfied = !notice.required.some(function (c) { return missing.indexOf(c) !== -1; });
+function noticeView(manifest, missing, versions, notice, found) {
+    var lacking = requirementRows(manifest, missing, versions).filter(function (row) { return row.state !== "present"; });
+    var rows = lacking.filter(function (row) { return notice.commands.indexOf(row.name) !== -1; });
+    var satisfied = !notice.required.some(function (c) { return lacking.some(function (row) { return row.name === c; }); });
     var plan = found === null ? { picks: rows.map(function () { return null; }), groups: [] } : PackageManagers.installGroups(rows, found);
-    var installable = plan.groups.filter(function (g) { return g.installs; });
-    var install = installable.length === 0 ? null : PackageManagers.installArgs(installable[0]);
-    var shown = rows.map(function (row, i) { return { name: row.name, purpose: row.purpose, optional: row.optional, package: plan.picks[i] }; });
+    var first = function (state) {
+        var runs = found === null ? [] : PackageManagers.installGroups(rows.filter(function (row) { return row.state === state; }), found).groups.filter(function (g) { return g.installs; });
+        return runs.length === 0 ? null : PackageManagers.installArgs(runs[0]);
+    };
+    var shown = rows.map(function (row, i) { return { name: row.name, purpose: row.purpose, optional: row.optional, state: row.state, package: plan.picks[i] }; });
     return {
         satisfied: satisfied,
         rows: shown,
         groups: noticeGroups(shown),
-        install: install,
+        install: first("missing"),
+        update: first("outdated"),
         byHand: plan.groups.filter(function (g) { return !g.installs; }).map(function (g) { return { manager: g.manager, names: g.names }; })
     };
 }
@@ -2151,34 +2232,40 @@ function noticeView(manifest, missing, notice, found) {
 // ROWS, noticeView's, as the user installs them: one entry per package,
 // keyed by its name, or per requirement when no package is known, keyed by
 // the requirement's name, in first-appearance order, each { chip, packaged,
-// purposes }. Two requirements one package provides read as one thing to
-// install, and a package is never merged with a requirement of its name.
+// update, purposes }, `update` while every requirement of the entry is
+// outdated, so its step is an update. Two requirements one package provides
+// read as one thing to install, and a package is never merged with a
+// requirement of its name.
 function noticeGroups(rows) {
     var out = [];
     rows.forEach(function (row) {
         var packaged = row.package !== null;
         var chip = packaged ? row.package.name : row.name;
+        var update = row.state === "outdated";
         var held = out.filter(function (g) { return g.packaged === packaged && g.chip === chip; })[0];
-        if (held === undefined) out.push({ chip: chip, packaged: packaged, purposes: [row.purpose] });
-        else held.purposes.push(row.purpose);
+        if (held === undefined) out.push({ chip: chip, packaged: packaged, update: update, purposes: [row.purpose] });
+        else {
+            held.update = held.update && update;
+            held.purposes.push(row.purpose);
+        }
     });
     return out;
 }
 
 // QUEUE after a scan, the notices of OWNERS, the core's owner and each
 // plugin's manifest by id, whose missing requirements MISSING, owner id ->
-// requirement names, now holds: a notice whose owner went is dropped, and so is one noticeView finds satisfied, except the
+// requirement names, now holds, beside the VERSIONS it read: a notice whose owner went is dropped, and so is one noticeView finds satisfied, except the
 // notice of INSTALLING, the plugin id whose install runs or "". That notice
 // stays until the scan after its run ended, however the run's own steps
 // asked for a rescan first, so no waiting notice comes to the front while
 // its terminal still holds the install's key.
-function noticeSettle(queue, owners, missing, installing) {
+function noticeSettle(queue, owners, missing, versions, installing) {
     return queue.filter(function (n) {
         if (!hasOwn(owners, n.id))
             return false;
         if (n.id === installing)
             return true;
-        return !noticeView(owners[n.id], hasOwn(missing, n.id) ? missing[n.id] : [], n, null).satisfied;
+        return !noticeView(owners[n.id], hasOwn(missing, n.id) ? missing[n.id] : [], versions, n, null).satisfied;
     });
 }
 
@@ -2384,9 +2471,10 @@ var TUI_RUN_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 // rest as a normalized manifest `tui` entry has them. coreTuiTable judges
 // the table when this file loads. The package pickers run in the default
 // size.
-// `edit`, `requirements-install`, `system`, `plugin-update`,
-// `plugin-remove` and `sudo-revoke` are not listed. The first opens a cited
-// file from a surface, the requirement notice opens the install row with
+// `edit`, `requirements-install`, `requirements-update`, `system`,
+// `plugin-update`, `plugin-remove` and `sudo-revoke` are not listed. The
+// first opens a cited file from a surface, the requirement notice opens the
+// install and update rows with
 // the arguments PluginLogic.noticeView names, the `manager` capability's
 // act opens `system` with `apply <step>` for a status action that names a
 // system step (D081), the plugin manager opens update and remove with one
@@ -2440,6 +2528,13 @@ var CORE_TUIS = coreTuiTable({
     "requirements-install": {
         argv: ["vgshell", "pkg", "run", "install"],
         title: "Install requirements",
+        size: "default",
+        presentation: "full",
+        entry: null
+    },
+    "requirements-update": {
+        argv: ["vgshell", "pkg", "run", "update"],
+        title: "Update requirements",
         size: "default",
         presentation: "full",
         entry: null

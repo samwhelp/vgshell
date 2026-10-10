@@ -74,8 +74,8 @@ function freshSuite(tree, suite, root, timeoutMs = 180000) {
         fs.copyFileSync(path.join(tree, file), path.join(clone, file));
     fs.cpSync(path.join(tree, "shell/plugins/vgs.jarvis/backend"), path.join(clone, "shell/plugins/vgs.jarvis/backend"),
         { recursive: true });
-    fs.copyFileSync(path.join(tree, "shell/plugins/vgs.jarvis/AccountProviders.js"),
-        path.join(clone, "shell/plugins/vgs.jarvis/AccountProviders.js"));
+    for (const beside of ["AccountProviders.js", "manifest.json"])
+        fs.copyFileSync(path.join(tree, "shell/plugins/vgs.jarvis", beside), path.join(clone, "shell/plugins/vgs.jarvis", beside));
     // The base package a home layout copies (backend/Core.js basePackage).
     fs.cpSync(path.join(tree, ".agents/skills/jarvis"), path.join(clone, ".agents/skills/jarvis"), { recursive: true });
     const file = path.join(clone, relative);

@@ -8,8 +8,12 @@
 # run ends and the sidecar reports ready. Browser and input are optional rows. Its
 # controls are two Service copies, one whose key and account readers send
 # no snapshot when their checks end and one whose local voice reader
-# sends none.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-local-speech/standin.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js
+# sends none. Last, a `pi` stand-in below the floor the manifest gives Pi:
+# chosen as the AI model, the daemon refuses it, the AI model step offers
+# Update Pi, the Setup section draws it beside the step, and a click on it
+# raises the core's notice for pi; the same Pi at its floor offers no
+# update, which is the control.
+# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-local-speech/standin.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js
 set -euo pipefail
 local_reader="$repo/shell/plugins/vgs.jarvis/LocalRuntime.qml"
 local_tui="$repo/shell/plugins/vgs.jarvis/tui/setup-local.sh"
@@ -25,6 +29,14 @@ cp -- "$source_repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/sign-in.sh" "$sign
 jarvis_setup_requirements
 terminal_stand_in
 terminal_ready "Jarvis local setup"
+# A `pi` for the last section. The daemon's world copies its stand-ins when
+# it starts (scripts/lib/jarvis-env.sh), so the program is written before
+# Jarvis is enabled; it answers `--version` with the line setup_pi_version
+# holds and nothing else, and fails while that file is absent.
+setup_pi_version="$sandbox/jarvis-world/pi-version"
+setup_pi_standin="$sandbox/jarvis-world/standins/pi"
+printf '#!/bin/bash\n[[ $# == 1 && $1 == --version ]] || exit 2\nexec cat %q\n' "$setup_pi_version" >"$setup_pi_standin" && chmod 755 "$setup_pi_standin" ||
+  fail "the daemon's Pi stand-in is not written"
 jarvis_rescan
 jarvis_enable
 settings_page_open vgs.jarvis
@@ -351,6 +363,70 @@ rm -f -- "$setup_marker" "$setup_state/accounts.json"
 rm -rf -- "${setup_codex:?}"
 setup_brain ""
 expect_poll "without the AI model and the marker the Setup section reads both steps to do again" "$setup_fresh" setup_rows
+
+# A Pi below its floor. The stand-in answers `--version` and nothing else,
+# so no Pi program runs a turn; its folder is added by hand, as the Codex
+# folder above is. The shell's scan reads the same program from the
+# sandbox PATH, and the daemon the copy its world took at its start.
+setup_pi="$home/.pi/agent"
+pi_version() { # VERSION
+  printf '%s\n' "$1" >"$setup_pi_version.next" && mv -T -- "$setup_pi_version.next" "$setup_pi_version"
+}
+cp -- "$setup_pi_standin" "$shim/pi" && chmod 755 "$shim/pi" || fail "the shell's Pi stand-in is not written"
+setup_pi_id() {
+  env -i PATH="$sandbox/setup-no-path" HOME="$home" XDG_STATE_HOME="$home/.local/state" XDG_CONFIG_HOME="$home/.config" \
+    XDG_DATA_HOME="$home/.local/share" "$node_bin" "$repo/shell/plugins/vgs.jarvis/backend/accounts.js" --tree "$repo" list |
+    py_reply 'import json,sys; print(next(a["id"] for a in json.load(sys.stdin) if a["source"].get("directory")==sys.argv[1]))' "$setup_pi"
+}
+# The AI model step's published action, the label of its button and
+# whether the button is offered.
+setup_model_step() {
+  status_row vgs.jarvis setupModel | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([r["value"].get("action"), r["action"]["label"], r["action"]["offered"]]))'
+}
+# The actions the Setup section draws beside its AI model step, each as
+# the screen it opens, "" for one the manager acts on, and whether it takes
+# a press.
+setup_model_drawn() {
+  ipc smoke setupRows window vgs.settings | py_reply 'import json,sys
+t=sys.stdin.read()
+r=[x for x in (json.loads(t) if t.startswith("[") else []) if x["label"]=="AI model"]
+print(json.dumps([[b["tui"], b["enabled"]] for b in r[0]["buttons"]]) if r else "absent")'
+}
+setup_model_updates() { setup_model_step | py_reply 'import json,sys; print("update" if json.load(sys.stdin)[0]=="update" else "no-update")'; }
+pi_floor="$(python3 -c 'import json,sys; print(next(r["floor"] for r in json.load(open(sys.argv[1]))["requirements"] if r.get("command")=="pi"))' "$repo/shell/plugins/vgs.jarvis/manifest.json")" || fail "the manifest gives Pi no floor"
+mkdir -p -- "$setup_pi" && printf '{}\n' >"$setup_pi/auth.json" || fail "the Pi folder is not written"
+[[ ! -e $setup_state/accounts.json ]] || cp -- "$setup_state/accounts.json" "$sandbox/setup-accounts-before-pi"
+python3 - "$setup_state/accounts.json" "$setup_pi" <<'PY' || fail "the Pi folder is not added to the account list"
+import json,os,sys
+held=json.load(open(sys.argv[1])) if os.path.exists(sys.argv[1]) else []
+open(sys.argv[1],"w").write(json.dumps(held + [{"provider": "pi", "directory": sys.argv[2], "label": "setup"}]))
+PY
+pi_version 1.0.2 || fail "the Pi stand-in below its floor is not written"
+rescan "a rescan after the Pi stand-in appears starts"
+setup_pi_brain="$(setup_pi_id)/stub/stub-1" || fail "the account helper lists no id for the Pi folder"
+setup_brain "$setup_pi_brain"
+expect_poll "the daemon holds Pi as the chosen AI model" "\"$setup_pi_brain\"" setup_daemon_brain
+expect_poll "a Pi below its floor offers Update Pi on the AI model step" '["update", "Update Pi", true]' setup_model_step
+expect_poll "the Setup section draws the step beside the AI model" '[["", true]]' setup_model_drawn
+settings_press --type RowAction "Update Pi" || fail "the click on Update Pi failed"
+expect_poll "the core's notice lists the outdated Pi" '["vgs.jarvis", ["pi"], ["pi"], false]' notice_shown
+expect_poll "Pi's notice holds the keyboard" true ipc smoke noticeFocused
+type_keys -k Escape || fail "sending Escape failed"
+expect_poll "Escape closes Pi's notice" null notice_shown
+# The control: the daemon judges the choice again when it is made again.
+pi_version "$pi_floor" || fail "the Pi stand-in at its floor is not written"
+rescan "a rescan with Pi at its floor starts"
+setup_brain ""
+expect_poll "the daemon holds no AI model between the two choices" '""' setup_daemon_brain
+setup_brain "$setup_pi_brain"
+expect_poll "the daemon holds Pi at its floor as the chosen AI model" "\"$setup_pi_brain\"" setup_daemon_brain
+expect_poll "a Pi at its floor offers no update" no-update setup_model_updates
+rm -f -- "${shim:?}/pi" "${setup_state:?}/accounts.json" "${setup_pi_version:?}" "${setup_pi_standin:?}"
+[[ ! -e $sandbox/setup-accounts-before-pi ]] || cp -- "$sandbox/setup-accounts-before-pi" "$setup_state/accounts.json"
+rm -rf -- "${home:?}/.pi"
+setup_brain ""
+rescan "a rescan after the Pi stand-in goes starts"
+expect_poll "without Pi the Setup section reads both steps to do again" "$setup_fresh" setup_rows
 settings_page_close vgs.jarvis
 jarvis_disable
 jarvis_restore_requirements

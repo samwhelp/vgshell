@@ -18,7 +18,7 @@ import "Steps.js" as Steps
 // placement), a Setup section with the plugin's status entries of the
 // `Setup` group at its top, the first a Status row and each further one a
 // step row under its own label, whose value is a Badge chip in its tone,
-// beside it a step's offered screen as a RowAction, with its lines and
+// beside it a step's offered screen or action as a RowAction, with its lines and
 // hint under it (Steps.setupRows), then the plugin's stored keys and
 // tokens, each entry a StatusRow with one line per key, whose steps add,
 // change and remove a key the core stores (Steps.keyEntries), then, one
@@ -43,7 +43,7 @@ import "Steps.js" as Steps
 // entries that list stored keys (Steps.detailEntries), whose values are
 // read-only and whose setup steps run through the manager (D061), and the
 // Requirements section with an Install all missing button while one is
-// missing. A disabled plugin's status rows say it has not reported.
+// missing, and Update all outdated once the rest are only outdated. A disabled plugin's status rows say it has not reported.
 //
 // `open` shows Settings, so every opened page starts there; a change of
 // the manager's rows moves neither the page nor an edit. A page change
@@ -69,8 +69,9 @@ FocusScope {
     property var row: null
 
     readonly property bool editable: row !== null && row.enabled
-    // Whether a requirement of the plugin was missing at the last scan.
-    readonly property bool requirementMissing: row !== null && row.requirements.some(Steps.requirementApplies)
+    // The Requirements section's step for what the last scan read, or null
+    // while every requirement is present (Steps.requirementStep).
+    readonly property var requirementStep: row === null ? null : Steps.requirementStep(row.requirements)
     readonly property bool isSelf: row !== null && panel.shell !== null && row.id === panel.shell.manifest.id
     readonly property alias scrollArea: layout.scrollArea
     // The page's height unscrolled, with the tab it shows now; the window
@@ -396,7 +397,9 @@ FocusScope {
                                             visible: setupState.modelData.button !== null
                                             text: visible ? setupState.modelData.button.label : ""
                                             enabled: page.editable
-                                            onClicked: page.panel.openTui(page.row.id, setupState.modelData.button.name)
+                                            onClicked: setupState.modelData.button.name !== ""
+                                                ? page.panel.openTui(page.row.id, setupState.modelData.button.name)
+                                                : page.panel.act(page.row.id, setupState.modelData.entry.key)
                                         }
                                     }
                                 }
@@ -717,13 +720,13 @@ FocusScope {
 
                             Field {
                                 width: requirementRows.width
-                                label: "Missing"
+                                label: page.requirementStep === null ? "" : page.requirementStep.label
                                 inline: true
-                                visible: page.requirementMissing
-                                hint: "Review the missing tools before you install them."
+                                visible: page.requirementStep !== null
+                                hint: page.requirementStep === null ? "" : page.requirementStep.hint
                                 Button {
-                                    text: "Install all missing"
-                                    iconName: "download"
+                                    text: page.requirementStep === null ? "" : page.requirementStep.button
+                                    iconName: page.requirementStep === null ? "" : page.requirementStep.icon
                                     variant: "primary"
                                     onClicked: page.panel.installRequirements(page.row.id)
                                 }

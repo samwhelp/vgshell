@@ -31,7 +31,8 @@ const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
 const { TABLE, FIXTURES } = require("./vgshell-pkg-shared.js");
 const ELEVATORS = ["sudo", "doas", "run0", "pkexec", "su"];
-const PLACEHOLDERS = ["{bin}", "{names}", "{name}", "{path}"];
+const PLACEHOLDERS = ["{bin}", "{names}", "{names@latest}", "{name}", "{path}"];
+const NAMED = ["install", "update", "remove"];
 const EXIT_MEANINGS = ["updates", "none", "rows"];
 
 // The table's own defects, one string each; empty for a sound table.
@@ -82,14 +83,17 @@ function tableErrors(t) {
                 if (pacmanFamily && /^-[A-Za-z]*S[A-Za-z]*$/.test(token) && token.includes("y") && !token.includes("u"))
                     errors.push(where + " " + action + ": partial upgrade " + token);
             }
-            const names = step.filter(token => token === "{names}").length;
-            if (action === "install" || action === "remove") { if (names > 1) errors.push(where + " " + action + ": {names} twice"); }
-            else if (names > 0) errors.push(where + " " + action + ": {names} outside install and remove");
+            const names = step.filter(token => token === "{names}" || token === "{names@latest}").length;
+            if (NAMED.includes(action)) { if (names > 1) errors.push(where + " " + action + ": {names} twice"); }
+            else if (names > 0) errors.push(where + " " + action + ": {names} outside install, update and remove");
+            if (step.includes("{names@latest}") && action !== "update") errors.push(where + " " + action + ": {names@latest} belongs to an update");
             if (step.includes("{path}") !== (action === "owner")) errors.push(where + " " + action + ": {path} belongs to the owner query");
             if (step.includes("{name}") !== (action === "installed" || action === "removable" || action === "preview")) errors.push(where + " " + action + ": {name} belongs to the installed and removable queries and a picker's preview");
         }
-        for (const action of ["install", "remove"])
-            if (row[action] !== null && !row[action].some(step => step.includes("{names}"))) errors.push(where + " " + action + ": no step takes the names");
+        for (const action of NAMED)
+            if (row[action] !== null && !row[action].some(step => step.includes("{names}") || step.includes("{names@latest}"))) errors.push(where + " " + action + ": no step takes the names");
+        // PluginLogic.noticeView offers an update wherever a group installs.
+        if ((row.install === null) !== (row.update === null)) errors.push(where + ": update steps belong to a row with install steps, and to no other");
     }
     return errors;
 }
@@ -135,31 +139,40 @@ const ID_ROWS = [
 // plan's binary, elevate and steps, or the refusal's first line.
 const PLAN_ROWS = [
     ["pacman install", "pacman", "install", ["gum", "fzf"], ["pacman"], { binary: "pacman", elevate: true, steps: [["pacman", "-S", "--needed", "--", "gum", "fzf"]] }],
+    ["pacman update takes the install step, which skips only an up-to-date target", "pacman", "update", ["gum"], ["pacman"], { binary: "pacman", elevate: true, steps: [["pacman", "-S", "--needed", "--", "gum"]] }],
     ["pacman remove", "pacman", "remove", ["gum"], ["pacman"], { binary: "pacman", elevate: true, steps: [["pacman", "-Rns", "--", "gum"]] }],
     ["pacman upgrade is a full -Syu", "pacman", "upgrade", [], ["pacman"], { binary: "pacman", elevate: true, steps: [["pacman", "-Syu"]] }],
     ["aur install through paru", "aur", "install", ["gum-bin"], ["paru", "yay"], { binary: "paru", elevate: false, steps: [["paru", "-S", "--needed", "--", "gum-bin"]] }],
     ["aur install through yay", "aur", "install", ["gum-bin"], ["yay"], { binary: "yay", elevate: false, steps: [["yay", "-S", "--needed", "--", "gum-bin"]] }],
+    ["aur update", "aur", "update", ["gum-bin"], ["paru"], { binary: "paru", elevate: false, steps: [["paru", "-S", "--needed", "--", "gum-bin"]] }],
     ["aur remove", "aur", "remove", ["gum-bin"], ["paru"], { binary: "paru", elevate: false, steps: [["paru", "-Rns", "--", "gum-bin"]] }],
     ["aur upgrade", "aur", "upgrade", [], ["paru"], { binary: "paru", elevate: false, steps: [["paru", "-Sua"]] }],
     ["apt install", "apt", "install", ["gum"], ["apt-get"], { binary: "apt-get", elevate: true, steps: [["apt-get", "install", "gum"]] }],
+    ["apt update of a package is its install", "apt", "update", ["gum"], ["apt-get"], { binary: "apt-get", elevate: true, steps: [["apt-get", "install", "gum"]] }],
     ["apt remove", "apt", "remove", ["gum"], ["apt-get"], { binary: "apt-get", elevate: true, steps: [["apt-get", "remove", "gum"]] }],
     ["apt upgrade refreshes, then upgrades", "apt", "upgrade", [], ["apt-get"], { binary: "apt-get", elevate: true, steps: [["apt-get", "update"], ["apt-get", "full-upgrade"]] }],
     ["dnf install through dnf5", "dnf", "install", ["gum"], ["dnf5", "dnf"], { binary: "dnf5", elevate: true, steps: [["dnf5", "install", "gum"]] }],
+    ["dnf update upgrades the named package", "dnf", "update", ["gum"], ["dnf"], { binary: "dnf", elevate: true, steps: [["dnf", "upgrade", "gum"]] }],
     ["dnf remove through dnf", "dnf", "remove", ["gum"], ["dnf"], { binary: "dnf", elevate: true, steps: [["dnf", "remove", "gum"]] }],
     ["dnf upgrade", "dnf", "upgrade", [], ["dnf"], { binary: "dnf", elevate: true, steps: [["dnf", "upgrade"]] }],
     ["xbps install", "xbps", "install", ["gum"], ["xbps-install"], { binary: "xbps-install", elevate: true, steps: [["xbps-install", "-S", "gum"]] }],
+    ["xbps update", "xbps", "update", ["gum"], ["xbps-install"], { binary: "xbps-install", elevate: true, steps: [["xbps-install", "-S", "gum"]] }],
     ["xbps remove", "xbps", "remove", ["gum"], ["xbps-install"], { binary: "xbps-install", elevate: true, steps: [["xbps-remove", "-R", "gum"]] }],
     ["xbps upgrade", "xbps", "upgrade", [], ["xbps-install"], { binary: "xbps-install", elevate: true, steps: [["xbps-install", "-Su"]] }],
     ["emerge install", "emerge", "install", ["app-misc/gum"], ["emerge"], { binary: "emerge", elevate: true, steps: [["emerge", "--ask", "--noreplace", "app-misc/gum"]] }],
+    ["emerge update replaces the installed package", "emerge", "update", ["app-misc/gum"], ["emerge"], { binary: "emerge", elevate: true, steps: [["emerge", "--ask", "--update", "app-misc/gum"]] }],
     ["emerge remove", "emerge", "remove", ["app-misc/gum"], ["emerge"], { binary: "emerge", elevate: true, steps: [["emerge", "--ask", "--depclean", "app-misc/gum"]] }],
     ["emerge upgrade syncs, then updates the world set", "emerge", "upgrade", [], ["emerge"], { binary: "emerge", elevate: true, steps: [["emerge", "--sync"], ["emerge", "--ask", "--update", "--deep", "--newuse", "@world"]] }],
     ["flatpak install", "flatpak", "install", ["org.gnome.Loupe"], ["flatpak"], { binary: "flatpak", elevate: false, steps: [["flatpak", "install", "org.gnome.Loupe"]] }],
+    ["flatpak update of one ref", "flatpak", "update", ["org.gnome.Loupe"], ["flatpak"], { binary: "flatpak", elevate: false, steps: [["flatpak", "update", "org.gnome.Loupe"]] }],
     ["flatpak remove", "flatpak", "remove", ["org.gnome.Loupe"], ["flatpak"], { binary: "flatpak", elevate: false, steps: [["flatpak", "uninstall", "org.gnome.Loupe"]] }],
     ["flatpak upgrade", "flatpak", "upgrade", [], ["flatpak"], { binary: "flatpak", elevate: false, steps: [["flatpak", "update"]] }],
     ["mise install", "mise", "install", ["npm:@anthropic-ai/claude-code"], ["mise"], { binary: "mise", elevate: false, steps: [["mise", "use", "--global", "npm:@anthropic-ai/claude-code"]] }],
+    ["mise update names the latest version of each tool and waives the release-age cooldown", "mise", "update", ["pi", "npm:agent-browser"], ["mise"], { binary: "mise", elevate: false, steps: [["env", "MISE_MINIMUM_RELEASE_AGE=0", "mise", "use", "--global", "pi@latest", "npm:agent-browser@latest"]] }],
     ["mise remove", "mise", "remove", ["node"], ["mise"], { binary: "mise", elevate: false, steps: [["mise", "unuse", "--global", "node"]] }],
     ["mise upgrade waives the release-age cooldown", "mise", "upgrade", [], ["mise"], { binary: "mise", elevate: false, steps: [["env", "MISE_MINIMUM_RELEASE_AGE=0", "mise", "upgrade"]] }],
     ["nix install is unsupported", "nix", "install", ["gum"], ["nix"], "manager=nix action=install reason=unsupported"],
+    ["nix update is unsupported", "nix", "update", ["gum"], ["nix"], "manager=nix action=update reason=unsupported"],
     ["nix remove is unsupported", "nix", "remove", ["gum"], ["nix"], "manager=nix action=remove reason=unsupported"],
     ["nix upgrade is unsupported", "nix", "upgrade", [], ["nix"], "manager=nix action=upgrade reason=unsupported"],
     ["an unknown manager", "zypper", "install", ["gum"], ["zypper"], "manager=zypper reason=unknown"],
@@ -508,6 +521,8 @@ const CONTROLS = [
     ["table", "the primary's install names its manager", TABLE, "return (group.primary ? [] : [\"--manager\", group.manager]).concat(group.names);", "return [\"--manager\", group.manager].concat(group.names);"],
     ["table", "an overlay's install omits its manager", TABLE, "return (group.primary ? [] : [\"--manager\", group.manager]).concat(group.names);", "return group.names;"],
     ["table", "nix is offered an install", TABLE, "installs: managerRow(order[i].id).install !== null", "installs: true"],
+    ["table", "a mise update keeps the installed version", TABLE, "else if (step[j] === \"{names@latest}\") argv.push.apply(argv, names.map(function (name) { return name + \"@latest\"; }));", "else if (step[j] === \"{names@latest}\") argv.push.apply(argv, names);"],
+    ["rule:update steps", "a manager that installs has no update", TABLE, "update: [[\"{bin}\", \"upgrade\", \"{names}\"]],", "update: null,"],
     ["table", "a removable name may start with a dash", TABLE, "if (query !== \"owner\" && !validName(value))", "if (query === \"installed\" && !validName(value))"],
     ["table", "a query's answer ignores its pattern", TABLE, "return m === null ? null : m[1];", "return stdout.split(\"\\n\")[0];"],
     ["table", "an unlisted exit status is read as output", TABLE, "if (meaning === undefined) return { error: \"exit=\" + status };", "if (meaning === undefined) meaning = \"rows\";"],

@@ -67,7 +67,10 @@ function unlocked() {
 
 function copyBackend(folder) {
     fs.mkdirSync(folder, { recursive: true });
-    fs.copyFileSync(path.join(tree, "shell/plugins/vgs.jarvis/AccountProviders.js"), path.join(folder, "../AccountProviders.js"));
+    // Backend modules load ../AccountProviders.js, and ../manifest.json for
+    // the version floors.
+    for (const beside of ["AccountProviders.js", "manifest.json"])
+        fs.copyFileSync(path.join(tree, "shell/plugins/vgs.jarvis", beside), path.join(folder, "..", beside));
     for (const file of fs.readdirSync(path.join(tree, "shell/plugins/vgs.jarvis/backend")))
         fs.cpSync(path.join(tree, "shell/plugins/vgs.jarvis/backend", file), path.join(folder, file), { recursive: true });
 }

@@ -171,7 +171,7 @@ world(async () => {
     function copied(folder, edits) {
         const copy = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "copy-"));
         fs.mkdirSync(path.join(copy, "backend"));
-        for (const name of fs.readdirSync(plugin).filter(name => name.endsWith(".js")))
+        for (const name of fs.readdirSync(plugin).filter(name => name.endsWith(".js") || name === "manifest.json"))
             fs.copyFileSync(path.join(folder, name), path.join(copy, name));
         for (const name of fs.readdirSync(path.join(folder, "backend")).filter(name => name.endsWith(".js") || name === "mcp-shim"))
             fs.copyFileSync(path.join(folder, "backend", name), path.join(copy, "backend", name));
@@ -637,7 +637,7 @@ world(async () => {
     async function variant(relative, edits, check) {
         const folder = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "variant-"));
         fs.mkdirSync(path.join(folder, "backend"));
-        for (const name of fs.readdirSync(plugin).filter(name => name.endsWith(".js")))
+        for (const name of fs.readdirSync(plugin).filter(name => name.endsWith(".js") || name === "manifest.json"))
             fs.copyFileSync(path.join(plugin, name), path.join(folder, name));
         for (const name of fs.readdirSync(path.join(plugin, "backend")).filter(name => name.endsWith(".js") || name === "mcp-shim"))
             fs.copyFileSync(path.join(plugin, "backend", name), path.join(folder, "backend", name));

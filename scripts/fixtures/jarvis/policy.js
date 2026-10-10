@@ -56,7 +56,8 @@ function mutant(file, name, needle, replacement, check, consumer = path.basename
         changed = changed.replace(match, value);
     }
     assert.notEqual(changed, source);
-    // The copy keeps the plugin layout: backend modules load ../AccountProviders.js.
+    // The copy keeps the plugin layout: backend modules load
+    // ../AccountProviders.js, and ../manifest.json for the version floors.
     const plugin = path.join(tree, "shell/plugins/vgs.jarvis");
     const outer = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "mutant-"));
     const folder = path.join(outer, "backend");
@@ -64,7 +65,8 @@ function mutant(file, name, needle, replacement, check, consumer = path.basename
     const backend = path.join(plugin, "backend");
     for (const sibling of fs.readdirSync(backend).filter(name => name.endsWith(".js")))
         fs.copyFileSync(path.join(backend, sibling), path.join(folder, sibling));
-    fs.copyFileSync(path.join(plugin, "AccountProviders.js"), path.join(outer, "AccountProviders.js"));
+    for (const beside of ["AccountProviders.js", "manifest.json"])
+        fs.copyFileSync(path.join(plugin, beside), path.join(outer, beside));
     const core = path.relative(tree, file);
     if (CORE_FILES.includes(core)) useTree(folder, scratchTree(outer, { [core]: changed }));
     else {
@@ -151,7 +153,8 @@ function asyncControl(file) {
 async function pluginCopy(file, edits, check) {
     const folder = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "plugin-copy-"));
     fs.cpSync(path.dirname(file), path.join(folder, "backend"), { recursive: true });
-    fs.copyFileSync(path.join(path.dirname(file), "../AccountProviders.js"), path.join(folder, "AccountProviders.js"));
+    for (const beside of ["AccountProviders.js", "manifest.json"])
+        fs.copyFileSync(path.join(path.dirname(file), "..", beside), path.join(folder, beside));
     const target = path.join(folder, "backend", path.basename(file));
     let source = fs.readFileSync(target, "utf8");
     for (const [needle, replacement] of edits) {

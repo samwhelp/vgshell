@@ -124,7 +124,7 @@ function adapter(net, recipients) {
 function copy(root, edits = [], from = plugin) {
     const folder = fs.mkdtempSync(path.join(root, "engine-"));
     fs.cpSync(path.join(from, "backend"), path.join(folder, "backend"), { recursive: true });
-    for (const name of ["AccountProviders.js", "Session.js", "JarvisProtocol.js"])
+    for (const name of ["AccountProviders.js", "Session.js", "JarvisProtocol.js", "manifest.json"])
         fs.copyFileSync(path.join(from, name), path.join(folder, name));
     const file = path.join(folder, "backend/ChainedEngine.js");
     const source = fs.readFileSync(file, "utf8");

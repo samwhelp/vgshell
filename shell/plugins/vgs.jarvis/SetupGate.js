@@ -23,6 +23,18 @@ function requirementValue(command, missing) {
     return { tone: "warning", text: "Not installed", action: true };
 }
 
+// The value of the status row of COMMAND, one the manifest gives a floor,
+// whose entry declares the named actions `install` and `update`: it names
+// the one that applies, and carries none once the last scan found the
+// command at its floor. OUTDATED is the requirements capability's list of
+// the plugin's commands the core's last scan read below their floor; either
+// action raises the core's requirement notice, which installs or updates.
+function flooredValue(command, missing, outdated) {
+    if (missing.indexOf(command) !== -1) return { tone: "warning", text: "Not installed", action: "install" };
+    if (outdated.indexOf(command) !== -1) return { tone: "warning", text: "Needs an update", action: "update" };
+    return { tone: "ok", text: "Installed" };
+}
+
 // The Setup section of the Jarvis page (the manifest's `Setup` group): its
 // summary and one entry per setup step. The required steps come only from
 // the causes the daemon publishes, ChainedEngine's one readiness judge, by
@@ -84,9 +96,9 @@ var MEMORY = {
 };
 // A required step once the daemon stopped: no check runs, none is offered.
 var UNCHECKED = { tone: "warning", text: "Not checked", action: false };
-// The AI model step declares named actions, Add key ("key") and Sign in
-// ("signIn"), so its value names the one that applies or carries no
-// action: the manifest judge refuses a boolean on it.
+// The AI model step declares named actions, Add key ("key"), Sign in
+// ("signIn") and Update Pi ("update"), so its value names the one that
+// applies or carries no action: the manifest judge refuses a boolean on it.
 function noAction(value) {
     var out = Object.assign({}, value);
     delete out.action;
@@ -149,7 +161,7 @@ function readiness(answer) {
                 return;
             }
             var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];
-            var action = step === "brain" ? (cause === "brain=signed-out" ? "signIn" : "key") : setupActs(cause);
+            var action = step === "brain" ? (cause === "brain=signed-out" ? "signIn" : cause === "brain=pi-update" ? "update" : "key") : setupActs(cause);
             out[REQUIRED[step]] = hint === undefined ? { tone: "warning", text: "To do", action: action }
                 : { tone: "warning", text: "To do", hint: hint, action: action };
         });

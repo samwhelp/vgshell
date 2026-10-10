@@ -95,8 +95,10 @@
 # read from the user manager's graphical-session.target; an unmanaged one
 # names what breaks and the entry to log in with, "Hyprland
 # (uwsm-managed)". --json prints the rows as
-# one JSON line, each `{ name, bus, packages, optional, purpose, state,
-# package }` with package `{ manager, name }` or null: a list for `plugin
+# one JSON line, each `{ name, bus, packages, optional, purpose, floor,
+# state, package }` with package `{ manager, name }` or null and floor the
+# lowest version the plugin works with or null; neither command reads a
+# command's version, so a state is never `outdated` here: a list for `plugin
 # requirements`, and `{ core: [rows], plugins: { <id>: [rows] }, session:
 # { graphicalSession } }` for `doctor`. Both read the plugin directories,
 # PATH and D-Bus names as the shell's scan does, and change nothing.
@@ -501,9 +503,9 @@ Usage: vgshell pkg <subcommand> [arguments]
 Subcommands:
   detect [--json]                         Show available package managers
   present <command>...                    Check commands on PATH
-  plan install|remove|upgrade <manager> [names...]
+  plan install|update|remove|upgrade <manager> [names...]
   check [--json] [--source <manager>]     Count pending updates
-  run install|remove|upgrade [--manager <id>] [names...]
+  run install|update|remove|upgrade [--manager <id>] [names...]
   run upgrade [--manager <id>] --ignore <name>...
   install|remove [--manager <id>] [names...]
 EOF_HELP

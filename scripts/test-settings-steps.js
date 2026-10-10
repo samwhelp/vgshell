@@ -70,7 +70,7 @@ const NORMAL = Object.assign({}, MANIFEST, { requirements: producer.normalRequir
 // A page with setup steps: a summary, then two steps of the Setup group,
 // and an entry elsewhere that offers the first step's screen too.
 const STEPPED = {
-    requirements: [],
+    requirements: [{ name: "acme-tool", bus: null, packages: {}, optional: true, purpose: "A tool", floor: "1.0.0" }],
     tui: {
         keys: { script: "tui/keys.sh", title: "Add key", size: "default", presentation: "full", entry: null, requires: null },
         browser: { script: "tui/browser.sh", title: "Set up browser", size: "default", presentation: "full", entry: null, requires: null },
@@ -78,7 +78,7 @@ const STEPPED = {
     },
     status: {
         summary: { type: "state", label: "Setup", group: "Setup" },
-        model: { type: "state", label: "AI model", group: "Setup", action: { label: "Add key", tui: "keys" } },
+        model: { type: "state", label: "AI model", group: "Setup", actions: { key: { label: "Add key", tui: "keys" }, update: { label: "Update tool", install: ["acme-tool"] } } },
         browser: { type: "state", label: "Browser", group: "Setup", action: { label: "Set up browser", tui: "browser" } },
         keyStore: { type: "state", label: "API keys", action: { label: "Add key", tui: "keys" } }
     }
@@ -89,23 +89,30 @@ const STEPPED_TUIS = [
     { name: "accounts", label: "Accounts", icon: "users", withheld: "" }
 ];
 const TODO = { tone: "warning", text: "To do", action: true };
+// The AI model step names the action that applies.
+const KEY = { tone: "warning", text: "To do", action: "key" };
+const NO_STEP = { tone: "ok", text: "Done" };
 const DONE = { tone: "ok", text: "Done", action: false };
 // [label, manifest, listed screens, published values, the rows as [label,
 // step, button name and label or null], the Flow's actions as [name,
 // label]].
 const ROWS = [
     ["a step to do draws its screen beside it, once", STEPPED, STEPPED_TUIS,
-        { summary: { tone: "warning", text: "Not ready" }, model: TODO, browser: DONE, keyStore: { tone: "info", text: "No key", action: true } },
+        { summary: { tone: "warning", text: "Not ready" }, model: KEY, browser: DONE, keyStore: { tone: "info", text: "No key", action: true } },
         [["Status", false, null], ["AI model", true, ["keys", "Add key"]], ["Browser", true, null]],
         [["browser", "Set up browser"], ["accounts", "Accounts"]]],
     ["every step done draws no button beside a step", STEPPED, STEPPED_TUIS,
-        { summary: { tone: "ok", text: "Ready" }, model: DONE, browser: DONE, keyStore: { tone: "ok", text: "1 key", action: true } },
+        { summary: { tone: "ok", text: "Ready" }, model: NO_STEP, browser: DONE, keyStore: { tone: "ok", text: "1 key", action: true } },
         [["Status", false, null], ["AI model", true, null], ["Browser", true, null]],
         [["keys", "Add key"], ["browser", "Set up browser"], ["accounts", "Accounts"]]],
     ["two steps to do each draw their own screen", STEPPED, STEPPED_TUIS,
-        { summary: { tone: "warning", text: "Not ready" }, model: TODO, browser: TODO },
+        { summary: { tone: "warning", text: "Not ready" }, model: KEY, browser: TODO },
         [["Status", false, null], ["AI model", true, ["keys", "Add key"]], ["Browser", true, ["browser", "Set up browser"]]],
         [["accounts", "Accounts"]]],
+    ["a step whose offered action opens no screen draws that action, and the Flow keeps every screen", STEPPED, STEPPED_TUIS,
+        { summary: { tone: "warning", text: "Not ready" }, model: { tone: "warning", text: "To do", action: "update" }, browser: DONE },
+        [["Status", false, null], ["AI model", true, ["", "Update tool"]], ["Browser", true, null]],
+        [["keys", "Add key"], ["browser", "Set up browser"], ["accounts", "Accounts"]]],
     ["a single Setup entry stays the Status row, its screen in the Flow", MANIFEST, TUIS,
         { warden: { tone: "warning", text: "Not set up", action: true } },
         [["Status", false, null]],
@@ -203,8 +210,17 @@ function verify(logic) {
     same(logic.statusView(producer.statusRows(MANIFEST, {}, []).find(e => e.key === "warden"), String).text, "Not reported", "an unreported entry reads Not reported");
     same(logic.statusView(producer.statusRows(MANIFEST, { pending: 2 }, []).find(e => e.key === "pending"), String).link,
         { text: "vendor page", url: "https://vendor.example/pending" }, "a line draws its entry's link");
-    const requirements = producer.requirementRows({ requirements: producer.normalRequirements(MANIFEST.requirements) }, ["acme-tool"]);
+    const declared = { requirements: producer.normalRequirements(MANIFEST.requirements) };
+    const requirements = producer.requirementRows(declared, ["acme-tool"], {});
     same(requirements.map(logic.requirementApplies), [true, false], "the install step applies to the missing requirement alone");
+    // requirementStep by what the scan read: [label, rows, the button or null].
+    const state = (name, value) => Object.assign({}, requirements.find(row => row.name === name), { state: value });
+    for (const [label, rows, button] of [
+        ["no step while every requirement is present", [state("acme-tool", "present")], null],
+        ["a missing requirement is installed", [state("acme-tool", "missing")], "Install all missing"],
+        ["an outdated requirement is updated", [state("acme-tool", "outdated"), state("acme-tool", "present")], "Update all outdated"],
+        ["a missing requirement beside an outdated one is installed first", [state("acme-tool", "outdated"), state("acme-tool", "missing")], "Install all missing"]])
+        same((step => step === null ? null : step.button)(logic.requirementStep(rows)), button, "requirementStep: " + label);
 }
 
 verify(load(file));
@@ -212,10 +228,12 @@ verify(load(file));
 // Each control removes one rule from a copy of the logic and keeps the
 // text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["an outdated requirement takes the step", 'return requirement.state !== "present";', 'return requirement.state === "missing";'],
+    ["only outdated requirements read as an update", 'if (lacking.some(function (requirement) { return requirement.state === "missing"; }))', "if (true)"],
     ["a line drops its entry's link", "info: entry.info, link: entry.link, offered:", "info: entry.info, link: null, offered:"],
     ["a live hint is drawn", 'return entry === undefined || entry.report !== "reported" ? "" : entry.hint;', 'return "";'],
     ["a declared action is always offered", "entry.action !== null && entry.action.offered", "entry.action !== null"],
-    ["a present requirement still offers its install", "return requirement.state === \"missing\";", "return true;"],
+    ["a present requirement still offers its install", "return requirement.state !== \"present\";", "return true;"],
     ["the Setup section takes every group", "entry.group === SETUP_GROUP && !listsKeys(entry)", "!listsKeys(entry)"],
     ["the stored keys draw among the step rows too", "entry.group === SETUP_GROUP && !listsKeys(entry)", "entry.group === SETUP_GROUP"],
     ["every entry draws among the stored keys", "return status.filter(listsKeys);", "return status;"],
@@ -234,6 +252,8 @@ const CONTROLS = [
     ["a withheld screen gives no reason", "reason: enabled ? \"\" : tui.withheld", "reason: \"\""],
     ["a state draws no lines", "if (entry.value.lines !== undefined) out.lines = entry.value.lines;", ""],
     ["a step drops its button", "button: step ? stepButton(tuis, entry) : null", "button: null"],
+    ["a step's action that opens no screen draws no button", 'if (entry.action.tui === "") return { key: entry.key + " " + entry.action.label, name: "", label: entry.action.label };', 'if (entry.action.tui === "") return null;'],
+    ["a step draws an action its value does not offer", "if (entry.action === null || !entry.action.offered) return null;", "if (entry.action === null) return null;"],
     ["a step's screen draws in the Flow too", "beside.indexOf(name) !== -1 || ", ""],
     ["a step reads Status", 'label: step ? entry.label : "Status"', 'label: "Status"'],
     ["a single Setup entry draws as a step", "var step = index > 0;", "var step = true;"]

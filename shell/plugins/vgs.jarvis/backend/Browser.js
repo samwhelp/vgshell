@@ -7,7 +7,10 @@ const cp = require("node:child_process");
 const crypto = require("node:crypto");
 const Tools = require("./Tools.js");
 const ComputerHelp = require("./ComputerHelp.js");
-const FLOOR = "0.38.1";
+// The oldest agent-browser this driver works with: the floor the manifest
+// gives the command, which the core reads to offer its update.
+const FLOOR = require("../manifest.json").requirements.find(entry => entry.command === "agent-browser").floor;
+if (typeof FLOOR !== "string") throw new Error("jarvis: browser=floor-undeclared");
 const OUTPUT_BYTES = 16384;
 const VENDOR_BYTES = 65536;
 const COMMAND_MS = 10000;

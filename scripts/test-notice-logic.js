@@ -78,16 +78,16 @@ function suite(ctx, check) {
         ["a choice that is not a list", allMissing, "chosen", "vgs-one", ["refused: requirements=malformed", [], []]],
     ];
     for (const [name, missing, trigger, commands, want] of requestRows) {
-        const r = ctx.noticeRequest(needs, missing, trigger, commands);
+        const r = ctx.noticeRequest(needs, missing, {}, trigger, commands);
         check("noticeRequest: " + name, [r.answer, r.commands, r.required], want);
     }
-    check("noticeRequest throws on a trigger no rule covers", (() => { try { ctx.noticeRequest(needs, [], "asked", undefined); return "answered"; } catch (e) { return e.message; } })(), "notices: trigger \"asked\" is not one of installed, enabled, offered, requested, chosen");
+    check("noticeRequest throws on a trigger no rule covers", (() => { try { ctx.noticeRequest(needs, [], {}, "asked", undefined); return "answered"; } catch (e) { return e.message; } })(), "notices: trigger \"asked\" is not one of installed, enabled, offered, requested, chosen");
 
     // The core's owner: the core's list, drawn under the name VGS, asked
     // for as a plugin's manifest is.
     const core = ctx.coreOwner([{ name: "gum", bus: null, packages: { pacman: "gum" }, optional: true, purpose: "Dialogs" }, { name: "git", bus: null, packages: { pacman: "git" }, optional: false, purpose: "Plugins" }]);
     check("the core's owner is named core and drawn as VGS", [core.id, core.name, ctx.CORE_OWNER], ["core", "VGS", "core"]);
-    const coreRequest = ctx.noticeRequest(core, ["gum"], "chosen", ["gum", "git"]);
+    const coreRequest = ctx.noticeRequest(core, ["gum"], {}, "chosen", ["gum", "git"]);
     check("noticeRequest: a choice of the core's commands lists its missing ones", [coreRequest.answer, coreRequest.commands, coreRequest.required], ["ok", ["gum"], ["gum"]]);
 
     // noticeOwnerError: [name, owner, want]. acme.needs is enabled,
@@ -154,7 +154,7 @@ function suite(ctx, check) {
             [false, ["vgs-two (aur/two-git) optional: Second"], ["--manager", "aur", "two-git"], []]],
     ];
     for (const [name, missing, notice, found, want] of viewRows) {
-        const v = ctx.noticeView(needs, missing, notice, found);
+        const v = ctx.noticeView(needs, missing, {}, notice, found);
         check("noticeView: " + name, [v.satisfied, v.rows.map(rowText), v.install, v.byHand], want);
     }
     // noticeView's groups: [name, found, want as chip, packaged and
@@ -179,10 +179,10 @@ function suite(ctx, check) {
             [["vgs-a", false, ["A"]], ["vgs-c", false, ["C"]], ["vgs-b", false, ["B"]], ["shared", false, ["D"]], ["vgs-e", false, ["E"]]]],
     ];
     for (const [name, found, want] of groupRows) {
-        const v = ctx.noticeView(sharing, sharingMissing, n("acme.sharing", sharingMissing, ["vgs-a"]), found);
+        const v = ctx.noticeView(sharing, sharingMissing, {}, n("acme.sharing", sharingMissing, ["vgs-a"]), found);
         check("noticeView groups: " + name, v.groups.map(g => [g.chip, g.packaged, g.purposes]), want);
     }
-    const coreView = ctx.noticeView(core, ["gum"], n("core", ["gum"], ["gum"]), ARCH);
+    const coreView = ctx.noticeView(core, ["gum"], {}, n("core", ["gum"], ["gum"]), ARCH);
     check("noticeView: the core's notice installs its package", [coreView.satisfied, coreView.rows.map(rowText), coreView.install], [false, ["gum (pacman/gum) optional: Dialogs"], ["gum"]]);
 
     // noticeSettle: [name, queue, missing per plugin, installing id, the
@@ -198,10 +198,10 @@ function suite(ctx, check) {
         ["a notice whose plugin went goes, installing or not", [n("acme.gone", ["vgs-one"], ["vgs-one"])].concat(held), { "acme.gone": ["vgs-one"], "acme.needs": ["vgs-one"], "acme.other": ["vgs-nix"] }, "acme.gone", ["acme.needs", "acme.other"]],
     ];
     for (const [name, queue, missing, installing, want] of settleRows)
-        check("noticeSettle: " + name, ctx.noticeSettle(queue, manifests, missing, installing).map(e => e.id), want);
+        check("noticeSettle: " + name, ctx.noticeSettle(queue, manifests, missing, {}, installing).map(e => e.id), want);
     const coreHeld = [n("core", ["gum"], ["gum"])];
-    check("noticeSettle: the core's notice stays while its command is missing", ctx.noticeSettle(coreHeld, { core: core }, { core: ["gum"] }, "").map(e => e.id), ["core"]);
-    check("noticeSettle: the core's notice goes once the scan finds its command", ctx.noticeSettle(coreHeld, { core: core }, { core: [] }, "").map(e => e.id), []);
+    check("noticeSettle: the core's notice stays while its command is missing", ctx.noticeSettle(coreHeld, { core: core }, { core: ["gum"] }, {}, "").map(e => e.id), ["core"]);
+    check("noticeSettle: the core's notice goes once the scan finds its command", ctx.noticeSettle(coreHeld, { core: core }, { core: [] }, {}, "").map(e => e.id), []);
 
     // noticeDetected: [name, completion, stdout, stderr, want as the
     // managers found or the log line].
@@ -328,13 +328,13 @@ suite(load(LOGIC), report);
 const CONTROLS = [
     ["installed requires only the needed commands", ": listed.filter(function (row) { return !row.optional; });", ": listed;"],
     ["a request requires its optional commands", "required = trigger === \"requested\" ? listed : ", "required = "],
-    ["installed lists only missing commands", "listed = rows.filter(function (row) { return row.state === \"missing\"; });", "listed = rows;"],
+    ["installed lists only missing commands", "var lacking = rows.filter(function (row) { return row.state !== \"present\"; });", "var lacking = rows;"],
     ["an offer is a list", "if (!Array.isArray(commands) || commands.length === 0", "if (commands.length === 0"],
     ["an offer is not empty", " || commands.length === 0 || commands.length > NOTICE_OFFER_MAX", " || commands.length > NOTICE_OFFER_MAX"],
     ["an offer names at most sixteen commands", " || commands.length > NOTICE_OFFER_MAX || ", " || "],
     ["an offer names strings", " || !commands.every(function (c) { return typeof c === \"string\"; }))", ")"],
     ["an offer names declared commands", "        if (undeclared.length > 0)\n", "        if (false)\n"],
-    ["an offer lists only missing commands", "row.state === \"missing\" && commands.indexOf(row.name) !== -1", "commands.indexOf(row.name) !== -1"],
+    ["an offer lists only missing commands", "listed = lacking.filter(function (row) { return commands.indexOf(row.name) !== -1; });", "listed = rows.filter(function (row) { return commands.indexOf(row.name) !== -1; });"],
     ["nothing required is satisfied", "answer: required.length === 0 ? \"satisfied\" : \"ok\"", "answer: \"ok\""],
     ["a held plugin's notice is merged", "    if (at !== -1) {\n", "    if (false) {\n"],
     ["a merge keeps the held commands", "var union = function (held, added) { return held.concat(", "var union = function (held, added) { return [].concat(added, "],
@@ -343,11 +343,11 @@ const CONTROLS = [
     ["a rest ends", "hasOwn(rest, id) && rest[id] > now)", "hasOwn(rest, id))"],
     ["the queue has a ceiling", "if (queue.length >= NOTICE_QUEUE_MAX)", "if (false)"],
     ["the queue is not changed in place", "var merged = queue.slice();", "var merged = queue;"],
-    ["a view lists only missing commands", "return row.state === \"missing\" && notice.commands.indexOf(row.name) !== -1; });\n    var satisfied", "return notice.commands.indexOf(row.name) !== -1; });\n    var satisfied"],
+    ["a view lists only missing commands", "requirementRows(manifest, missing, versions).filter(function (row) { return row.state !== \"present\"; });\n    var rows", "requirementRows(manifest, missing, versions);\n    var rows"],
     ["a view is satisfied only without a required command", "var satisfied = !notice.required.some(", "var satisfied = notice.required.some("],
     ["a view groups the requirements one package provides", "if (held === undefined) out.push(", "if (true) out.push("],
     ["a group keeps a package apart from a requirement of its name", "g.packaged === packaged && g.chip === chip", "g.chip === chip"],
-    ["a view installs only through an installing manager", "var installable = plan.groups.filter(function (g) { return g.installs; });", "var installable = plan.groups;"],
+    ["a view installs only through an installing manager", ".groups.filter(function (g) { return g.installs; });\n        return runs.length", ".groups;\n        return runs.length"],
     ["a settle keeps the installing notice", "        if (n.id === installing)\n            return true;\n", ""],
     ["a settle drops a notice whose owner went", "        if (!hasOwn(owners, n.id))\n            return false;\n", ""],
     ["a settle drops a satisfied notice", "        return !noticeView(owners[n.id]", "        return true || !noticeView(owners[n.id]"],

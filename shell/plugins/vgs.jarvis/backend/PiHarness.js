@@ -19,10 +19,12 @@ const Policy = require("./Policy.js");
 const Private = require("./Private.js");
 const { childEnvironment } = require("./Secrets.js");
 
-// The Pi release PiRpc's records were written to: Pi 1.0.2 settles a run
-// with no `aborted` field. Pi's RPC mode names no version, so its
-// `--version` line is the reader.
-const FLOOR = "1.1.0";
+// The Pi release PiRpc's records were written to, the floor the manifest
+// gives the command, which the core reads to offer its update: Pi 1.0.2
+// settles a run with no `aborted` field. Pi's RPC mode names no version, so
+// its `--version` line is the reader.
+const FLOOR = require("../manifest.json").requirements.find(entry => entry.command === "pi").floor;
+if (typeof FLOOR !== "string") fail("floor-undeclared");
 // One version read: a bound on a stalled program, not a latency budget.
 const VERSION_MS = 10000;
 

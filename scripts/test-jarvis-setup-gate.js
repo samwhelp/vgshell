@@ -34,6 +34,13 @@ const SETUP = [
     ["ready yet missing", READY, ["agent-browser"], ["agent-browser"], ["agent-browser"]],
     ["two of three missing", ABSENT, ["node", "agent-browser", "chromium"], ["chromium", "node"], ["node", "chromium"]]
 ];
+// A command with a floor: [label, missing, outdated, expected value]. Its
+// row names the action that applies, and none once it is found at its floor.
+const FLOORED = [
+    ["found at its floor", ["bwrap"], ["pi"], { tone: "ok", text: "Installed" }],
+    ["missing", ["agent-browser"], [], { tone: "warning", text: "Not installed", action: "install" }],
+    ["below its floor", [], ["pi", "agent-browser"], { tone: "warning", text: "Needs an update", action: "update" }]
+];
 // [label, command, missing, expected value].
 const REQUIREMENT = [
     ["found", "agent-browser", [], { tone: "ok", text: "Installed", action: false }],
@@ -57,7 +64,7 @@ const READINESS = [
     // A brain cause with no hint of its own takes the step's.
     ["a brain cause with no hint of its own", { kind: "answered", causes: ["brain=unnamed"] }, "warning", ["setupModel"], []],
     ["a signed-out AI model", { kind: "answered", causes: ["brain=signed-out"] }, "warning", ["setupModel"], [], "signIn"],
-    ["a Pi older than the Pi brain's floor", { kind: "answered", causes: ["brain=pi-update"] }, "warning", ["setupModel"], []]
+    ["a Pi older than the Pi brain's floor", { kind: "answered", causes: ["brain=pi-update"] }, "warning", ["setupModel"], [], "update"]
 ];
 // Each step's action once done: the voice step's boolean; the AI model's
 // manifest entry declares named actions, so its value carries none.
@@ -670,6 +677,19 @@ function verify(gate) {
     for (const [label, command, missing, want] of REQUIREMENT)
         // The library's objects come from its own context; compare a copy.
         assert.deepEqual(JSON.parse(JSON.stringify(gate.requirementValue(command, missing))), want, label);
+    for (const [label, missing, outdated, want] of FLOORED)
+        assert.deepEqual(plain(gate.flooredValue("agent-browser", missing, outdated)), want, "a command with a floor: " + label);
+    // The manifest gives both programs Jarvis holds to a version their
+    // floor, and the judge accepts each value their rows publish.
+    const judged = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
+    assert.deepEqual(["agent-browser", "pi"].map(command => typeof judged.requirements.find(row => row.name === command).floor), ["string", "string"],
+        "the browser driver and Pi declare a floor");
+    for (const [, missing, outdated] of FLOORED)
+        assert.equal(judge.statusWrite(judged, {}, "browserDriver", plain(gate.flooredValue("agent-browser", missing, outdated))).ok, true, "the manifest judge accepts the driver row");
+    const update = judge.statusActionRequest(judged, "vgs.jarvis", true, { setupModel: plain(gate.readiness({ kind: "answered", causes: ["brain=pi-update"] })).setupModel }, "setupModel");
+    assert.deepEqual(plain(update), { ok: true, kind: "install", commands: ["pi"] }, "the AI model step's Update asks the core for Pi");
+    assert.deepEqual(plain(judge.statusActionRequest(judged, "vgs.jarvis", true, { browserDriver: plain(gate.flooredValue("agent-browser", [], ["agent-browser"])) }, "browserDriver")),
+        { ok: true, kind: "install", commands: ["agent-browser"] }, "the driver row's Update asks the core for the driver");
 }
 
 verify(load(file));
@@ -683,7 +703,7 @@ const CONTROLS = [
     ["the AI model hint names the Settings field", '"brain=unselected": "Choose an AI model in Settings > AI model."', '"brain=unselected": "Choose an AI model in Settings."', "Settings AI model hint"],
     ["present keys still offer Add key", 'var absent = keys !== undefined && keys.every(function (key) { return key.value === "absent"; });', 'var absent = keys !== undefined;'],
     ["a signed-in app still offers Add key", 'access.kind === "absent"', 'access.kind !== "checking"'],
-    ["a signed-out cause offers Add key", '(cause === "brain=signed-out" ? "signIn" : "key")', '"key"', "a signed-out AI model: setupModel"],
+    ["a signed-out cause offers Add key", 'cause === "brain=signed-out" ? "signIn" : ', "", "a signed-out AI model: setupModel"],
     ["a signed-out cause loses Sign in beside a key", 'if (value.action !== "key") return value;', "if (value.action === undefined) return value;"],
     ["a signed-out app offers Add key", 'if (absent && access.kind === "signed-out") return', "if (false) return"],
     ["a signed-out app keeps the unselected hint", "{ hint: SIGNED_OUT_HINT, action: \"signIn\" }", "{ action: \"signIn\" }",
@@ -723,6 +743,9 @@ const CONTROLS = [
     ["the home folder step offers an action", 'out.setupHome = { tone: "warning", text: "To do",', 'out.setupHome = { tone: "warning", text: "To do", action: true,'],
     ["any account shows Copilot Memory", 'account.provider === "copilot" && ', ""],
     ["a signed-out Copilot shows Copilot Memory", ' && account.value === "present"; })', "; })"],
+    ["a command below its floor reads as installed", 'if (outdated.indexOf(command) !== -1) return { tone: "warning", text: "Needs an update", action: "update" };', ""],
+    ["a missing command with a floor offers its update", 'return { tone: "warning", text: "Not installed", action: "install" };', 'return { tone: "warning", text: "Not installed", action: "update" };'],
+    ["a Pi older than its floor offers Add key", 'cause === "brain=pi-update" ? "update" : "key"', '"key"'],
     ["a Pi older than its floor takes the step's hint", '    "brain=pi-update": ', '    "brain=pi-update-removed": '],
     ["the brain causes share one hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = STEP_TODO[step];"],
     ["an unknown cause has no hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = TODO[cause];"],

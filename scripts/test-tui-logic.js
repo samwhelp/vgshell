@@ -364,6 +364,7 @@ function suite(ctx, check) {
         "theme-add": { argv: ["vgshell", "theme", "add"], title: "Add a theme", size: "default", presentation: "full", entry: { label: "Add a theme", icon: "palette", group: "Themes" } },
         "system": { argv: ["vgshell", "system"], title: "System setup", size: "default", presentation: "full", entry: null },
         "requirements-install": { argv: ["vgshell", "pkg", "run", "install"], title: "Install requirements", size: "default", presentation: "full", entry: null },
+        "requirements-update": { argv: ["vgshell", "pkg", "run", "update"], title: "Update requirements", size: "default", presentation: "full", entry: null },
         "edit": { argv: ["vgshell", "edit"], title: "Edit a file", size: "default", presentation: "plain", entry: null },
         "plugin-update": { argv: ["vgshell", "plugin", "update"], title: "Update a plugin", size: "wide", presentation: "full", entry: null },
         "plugin-remove": { argv: ["vgshell", "plugin", "remove"], title: "Remove a plugin", size: "default", presentation: "full", entry: null },

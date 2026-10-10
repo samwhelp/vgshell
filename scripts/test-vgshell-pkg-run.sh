@@ -206,6 +206,21 @@ row_home_directory() {
   PKG_CWD="$tmp/project" pkg "$1" "$managers" -- run upgrade --manager mise
   [[ $status == 0 && "$(cat "$log.cwd" 2>/dev/null)" == "$tmp/home" ]] && log_is "mise [upgrade]"
 }
+# An update runs as an install does, in the terminal with each step shown:
+# mise's names the latest version of each tool, and pacman's is its
+# install behind the elevation command.
+row_update() {
+  pkg "$1" "$managers" -- run update --manager mise pi npm:agent-browser
+  [[ $status == 0 ]] && out_has "env MISE_MINIMUM_RELEASE_AGE=0 mise use --global pi@latest npm:agent-browser@latest" &&
+    log_is "mise [use] [--global] [pi@latest] [npm:agent-browser@latest]" || return 1
+  pkg "$1" "$sudo_path" -- run update --manager pacman foo
+  [[ $status == 0 ]] && out_has "sudo pacman -S --needed -- foo" && log_is "$(lines \
+    "sudo [-k]" "sudo [/usr/bin/true]" \
+    "sudo [pacman] [-S] [--needed] [--] [foo]" "pacman [-S] [--needed] [--] [foo]" \
+    "sudo [-k]")" || return 1
+  pkg "$1" "$managers" -- run update --manager mise
+  [[ $status == 2 ]] && out_has "vgshell: refused: names=missing" && log_is ""
+}
 row_aur_unelevated() {
   pkg "$1" "$managers:$tmp/elevate-sudo" -- run install --manager aur aurpkg
   [[ $status == 0 ]] && log_is "paru [-S] [--needed] [--] [aurpkg]"
@@ -258,7 +273,7 @@ row_picker_without_fzf() {
 }
 
 rows=(no_terminal shell_process pacman_install apt_upgrade pacman_ignore aur_ignore ignore_unsupported first_failure doas run0 configured configured_absent
-  configured_unknown no_elevator literal_name aur_unelevated picker_install picker_remove picker_cancelled
+  configured_unknown no_elevator literal_name update aur_unelevated picker_install picker_remove picker_cancelled
   picker_nothing aur_picker picker_unsupported picker_without_fzf dnf_picker home_directory)
 for r in "${rows[@]}"; do
   rm -f -- "$tmp/why"
@@ -307,6 +322,7 @@ control no-sudo-session bin/lib/pkg-run.sh $'if [[ $elevator == sudo ]]; then\n 
 control runs-past-failure bin/lib/pkg-run.sh '[[ $status -eq 0 ]] || exit "$status"' ':' first_failure
 control shell-string bin/lib/pkg-run.sh '  "${step[@]}" || status=$?' '  bash -c "${step[*]}" || status=$?' literal_name
 control caller-directory bin/vgshell-pkg 'stdio: "inherit", cwd: process.env.HOME || "/" });' 'stdio: "inherit" });' home_directory
+control update-keeps-version shell/Core/PackageManagers.js 'update: [["env", "MISE_MINIMUM_RELEASE_AGE=0", "{bin}", "use", "--global", "{names@latest}"]],' 'update: [["{bin}", "use", "--global", "{names}"]],' update
 control always-elevates bin/vgshell-pkg '    if (!plan.elevate) return null;' '    if (false) return null;' aur_unelevated
 control ignores-configuration bin/vgshell-pkg 'table.elevator(configuredElevator(), onPath)' 'table.elevator(undefined, onPath)' configured
 control unquoted-preview bin/lib/judge-files.js '    return "'"'"'" + word.replace' '    return word; "'"'"'" + word.replace' picker_install

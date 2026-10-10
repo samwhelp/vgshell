@@ -212,7 +212,7 @@ async function mutant(relative, name, needle, replacement, check) {
     const folder = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "mutation-"));
     fs.mkdirSync(path.join(folder, "backend"));
     fs.mkdirSync(path.join(folder, "tui"));
-    for (const file of ["AccountProviders.js", "AccountStatus.js", "backend/Accounts.js", "backend/Core.js",
+    for (const file of ["AccountProviders.js", "AccountStatus.js", "manifest.json", "backend/Accounts.js", "backend/Core.js",
         "backend/Secrets.js", "backend/accounts.js",
         "tui/accounts.sh", "tui/sign-in.sh", "backend/net.js", "backend/Policy.js", "backend/Audit.js", "backend/Private.js", "backend/Redact.js",
         "backend/Tools.js", "backend/ClaudeCode.js", "backend/Providers.js", "backend/CodexHarness.js",

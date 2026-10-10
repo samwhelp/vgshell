@@ -259,9 +259,12 @@ Singleton {
         }),
         // `missing`: the plugin's own requirement commands the last scan did
         // not find, in declaration order, a copy per read; bindable.
+        // `outdated`: those it read below the floor the manifest gives them,
+        // read alike.
         requirements: ctx => ({
             offer: commands => Notices.offer(ctx, commands),
             get missing() { return Notices.missingOf(ctx.id).slice(); },
+            get outdated() { return Notices.outdatedOf(ctx.id); },
             get revision() { return Registry.requirementsRevision; }
         }),
         doctor: ctx => ({

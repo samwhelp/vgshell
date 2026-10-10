@@ -329,7 +329,7 @@ async function inside() {
     function daemonCopy(name) {
         const directory = path.join(root, name);
         fs.cpSync(path.join(tree, "shell/plugins/vgs.jarvis/backend"), path.join(directory, "backend"), { recursive: true });
-        for (const relative of ["JarvisProtocol.js", "Session.js", "AccountProviders.js"])
+        for (const relative of ["JarvisProtocol.js", "Session.js", "AccountProviders.js", "manifest.json"])
             fs.copyFileSync(path.join(tree, "shell/plugins/vgs.jarvis", relative), path.join(directory, relative));
         fs.cpSync(path.join(path.dirname(daemon), "skills/computer"), path.join(directory, "backend/skills/computer"), { recursive: true });
         return path.join(directory, "backend/jarvisd.js");

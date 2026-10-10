@@ -22,11 +22,17 @@
 # when the rescan after the run still misses the command; a scan that finds
 # the command while the run is live keeps the installing notice in front of
 # a second plugin's waiting one, and the scan after the run closes it and
-# brings the waiting one forward; a detection that fails shows the commands
+# brings the waiting one forward; a command below the floor its manifest
+# gives it reads outdated once the read enabling its plugin starts has
+# ended, its offer raises a notice whose one step is Update,
+# which hands the terminal `vgshell pkg run update`, and the scan after
+# that run reads the floor and closes it, while the same offer of a
+# command at its floor answers satisfied, which is that state's control; a
+# detection that fails shows the commands
 # alone with Close. The enable trigger's control is
 # scripts/smoke/rows/notices-control.sh, the suite's last row: a shell copy
 # without the trigger raises no notice.
-# inputs: scripts/smoke/fixtures/plugins/acme.needs/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/layers.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui
+# inputs: scripts/smoke/fixtures/plugins/acme.needs/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/layers.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui bin/vgshell-scan shell/Core/Registry.qml shell/Core/Capabilities.qml
 set -euo pipefail
 needs_src="$sandbox/src/acme.needs"
 mkdir -p "$needs_src"
@@ -297,6 +303,82 @@ rm -f -- "$shim/vgs-smoke-needs"
 rescan "a rescan after the command goes starts"
 expect_poll "the removed command is missing again" '"missing"' needs_state
 expect_poll "the capability lists the removed command again" '["vgs-smoke-needs","vgs-smoke-extra","vgs-smoke-unmapped"]' needs missing
+
+# A command below its floor. acme.floor is acme.needs under another id,
+# whose needed command is vgs-smoke-old with the floor 2.0.0, and the
+# stand-in prints the version old_version wrote. No row here rescans
+# between the enable and the first read of the state: enabling a plugin
+# that gives a present command a floor starts the read of its version,
+# with no scan (Registry.qml).
+floor_dir="$home/.config/vgshell/plugins/acme.floor"
+mkdir -p -- "$floor_dir"
+cp -R -- "$repo/scripts/smoke/fixtures/plugins/acme.needs/." "$floor_dir/"
+if python3 -c '
+import sys
+path = sys.argv[1]
+text = open(path).read()
+edits = [("\"id\": \"acme.needs\"", "\"id\": \"acme.floor\""),
+         ("{ \"command\": \"vgs-smoke-needs\", \"packages\": { \"pacman\": \"vgs-smoke-needs-pkg\" }, ", "{ \"command\": \"vgs-smoke-old\", \"packages\": { \"pacman\": \"vgs-smoke-old-pkg\" }, \"floor\": \"2.0.0\", ")]
+for old, new in edits:
+    if text.count(old) != 1:
+        sys.exit("%s occurs %d times" % (old, text.count(old)))
+    text = text.replace(old, new)
+open(path, "w").write(text)' "$floor_dir/manifest.json"; then ok "acme.floor is acme.needs under another id, with a floor on its command"; else fail "acme.floor's manifest could not be derived from acme.needs"; fi
+old_version() { # VERSION
+  printf '#!/bin/sh\necho "vgs-smoke-old %s"\n' "$1" >"$shim/vgs-smoke-old.next" && chmod 755 "$shim/vgs-smoke-old.next" && mv -T -- "$shim/vgs-smoke-old.next" "$shim/vgs-smoke-old"
+}
+floor_state() { ipc shell listPlugins | py_reply 'import json,sys; print(json.dumps([r["state"] for p in json.load(sys.stdin)["plugins"] if p["id"]=="acme.floor" for r in p["requirements"] if r["name"]=="vgs-smoke-old"]))'; }
+floor_plugin() { ipc acme.floor invoke "$1" "${2:-}"; }
+update_words() {
+  words --app-id=org.vgs.tui "--title=VGS · Update requirements" -- "$tui_self" present --presentation full \
+    --record core/requirements-update --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id org.vgs.tui --window-title "VGS · Update requirements" -- "$core_vgshell" pkg run update "$@"
+}
+floor_shown='["acme.floor", ["vgs-smoke-old"], ["vgs-smoke-old"]'
+old_version 1.9.0 || fail "the stand-in below the floor is not written"
+rescan "a rescan after adding acme.floor starts"
+expect_poll "acme.floor is discovered" True plugin_known acme.floor
+expect "a disabled plugin's command has no version read" '["present"]' floor_state
+floor_scans="$(ipc shell scanRevision)" || fail "the scan revision is unreadable before acme.floor is enabled"
+expect "enabling acme.floor is allowed" ok ipc shell setPluginEnabled acme.floor true
+expect_poll "the read enabling the plugin starts finds its command below the floor" '["outdated"]' floor_state
+expect "enabling the plugin started no scan" "$floor_scans" ipc shell scanRevision
+expect "the capability lists the outdated command" '["vgs-smoke-old"]' floor_plugin outdated
+expect "the capability lists no outdated command as missing" '["vgs-smoke-extra","vgs-smoke-unmapped"]' floor_plugin missing
+expect "a scan raises no notice for the outdated command" null notice_shown
+# The control: the same offer of the command at its floor raises nothing.
+old_version 2.0.0 || fail "the stand-in at the floor is not written"
+rescan "a rescan with the command at its floor starts"
+expect "a command at its floor reads present" '["present"]' floor_state
+expect "an offer of a command at its floor is satisfied" satisfied floor_plugin offer vgs-smoke-old
+expect "the satisfied offer raises no notice" null notice_shown
+old_version 1.9.0 || fail "the stand-in below the floor is not written again"
+rescan "a rescan with the command below its floor starts"
+expect "a command below its floor reads outdated again" '["outdated"]' floor_state
+expect "an offer of the outdated command raises the notice" ok floor_plugin offer vgs-smoke-old
+expect_poll "the notice lists the outdated command" "$floor_shown, false]" notice_shown
+expect_poll "the update notice holds the keyboard" true ipc smoke noticeFocused
+expect "the update notice counts its update" '"Needs needs one update"' drawn title
+expect "the update notice draws the package as its chip" '[["vgs-smoke-old-pkg", 1]]' group_shape
+expect "the update notice offers Update" '["Update", "Not now"]' drawn actions
+expect "no update ran before the rows" idle key_idle core/requirements-update
+hold_runs
+forget_record
+type_keys -k Return || fail "sending Return failed"
+expect_poll "Update hands the terminal vgshell pkg run update with the primary's package" "$(update_words vgs-smoke-old-pkg)" recorded
+expect_poll "the notice records its update running" "$floor_shown, true]" notice_shown
+expect_poll "a live update leaves the notice no surface" 0 layer_count vgs:notice
+old_version 2.0.0 || fail "the updated stand-in is not written"
+release_runs
+expect_run_end "the update run ends" core/requirements-update
+expect_poll "the scan after the update run settles the notice" settled install_settled
+expect_poll "the scan that reads the floor closes the update notice" null notice_shown
+expect "the updated command reads present" '["present"]' floor_state
+expect "the capability lists no outdated command after the update" '[]' floor_plugin outdated
+expect "disabling acme.floor is allowed" ok ipc shell setPluginEnabled acme.floor false
+floor_removed() { local out; out="$("${shell_env[@]}" "$repo/bin/vgshell" plugin remove --yes acme.floor 2>>"$sandbox/ipc.log")" || return 1; printf '%s\n' "${out%%$'\n'*}"; }
+expect "acme.floor is removed" "ok removed=acme.floor" floor_removed
+expect_poll "acme.floor leaves the list" False plugin_known acme.floor
+rm -f -- "${shim:?}/vgs-smoke-old"
 
 # A detection that fails: the notice lists the commands with no package
 # and offers Close alone.
