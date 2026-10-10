@@ -216,7 +216,7 @@ setup_tiers_answer() { # PICK READY
 import json,os,sys
 path,pick,ready=sys.argv[1],sys.argv[2],None if sys.argv[3]=="none" else sys.argv[3]
 labels={"small":"Small: English, quickest to set up, 796 MB","medium":"Medium: English, more accurate speech, 1.5 GB",
-        "large":"Large: English, more accurate, on the graphics card, 1.7 GB"}
+        "large":"Large: English, more accurate, graphics card, 1.7 GB"}
 choices=[{"value":"auto","label":"Automatic: "+pick.capitalize()}]+[{"value":t,"label":l} for t,l in labels.items() if t!=pick]
 open(path+".next","w").write(json.dumps({"pick":pick,"ready":ready,"choices":choices}))
 os.replace(path+".next",path)
