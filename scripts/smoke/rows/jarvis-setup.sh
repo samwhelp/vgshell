@@ -12,7 +12,11 @@
 # chosen as the AI model, the daemon refuses it, the AI model step offers
 # Update Pi, the Setup section draws it beside the step, and a click on it
 # raises the core's notice for pi; the same Pi at its floor offers no
-# update, which is the control.
+# update, which is the control. The Local voice setting: a change opens
+# local setup with the wanted tier, Automatic with none; the run's end
+# writes back the tier it left ready, which opens nothing, and nor does a
+# wanted tier that is ready. Its control is a LocalTier copy that opens no
+# run.
 # inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-local-speech/standin.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js
 set -euo pipefail
 local_reader="$repo/shell/plugins/vgs.jarvis/LocalRuntime.qml"
@@ -201,6 +205,69 @@ PY
 setup_keys_hook="Jarvis.Keys { shell: root.shell; onRefreshed: root.hello() }"
 setup_accounts_hook="Jarvis.Accounts { id: accountReader; shell: root.shell; onRefreshed: root.hello() }"
 setup_local_hook="Jarvis.LocalRuntime { shell: root.shell; onRefreshed: root.hello() }"
+# The Local voice reader's answer (scripts/fixtures/jarvis-setup/status.py
+# --choices): PICK, READY ("none" for none) and the offers of a machine that
+# runs every English tier.
+setup_tiers="$sandbox/jarvis-world/local-tiers.json"
+setup_tiers_answer() { # PICK READY
+  python3 - "$setup_tiers" "$1" "$2" <<'PY'
+import json,os,sys
+path,pick,ready=sys.argv[1],sys.argv[2],None if sys.argv[3]=="none" else sys.argv[3]
+labels={"small":"Small: English, quickest to set up, 796 MB","medium":"Medium: English, more accurate speech, 1.5 GB",
+        "large":"Large: English, more accurate, on the graphics card, 1.7 GB"}
+choices=[{"value":"auto","label":"Automatic: "+pick.capitalize()}]+[{"value":t,"label":l} for t,l in labels.items() if t!=pick]
+open(path+".next","w").write(json.dumps({"pick":pick,"ready":ready,"choices":choices}))
+os.replace(path+".next",path)
+PY
+}
+# The reader's last answer as [pick, ready] once no read is running.
+setup_tier_reading() {
+  ipc smoke itemValues service vgs.jarvis LocalTier reading,pending,code | py_reply '
+import json,sys
+rows=json.load(sys.stdin)
+r=rows[0] if len(rows)==1 else {}
+print(json.dumps([r["reading"]["pick"], r["reading"]["ready"]]) if r.get("reading") and r["pending"] is False and r["code"]==0 else "pending")
+'
+}
+# The first offer the service publishes for the page's Local voice field.
+setup_tiers_published() {
+  ipc smoke jarvisProcess | py_reply '
+import json,sys
+offers=json.load(sys.stdin)["status"].get("localTiers") or []
+print(json.dumps(offers[0]) if offers else "none")
+'
+}
+# VALUE as the Local voice setting, delivered by a reload.
+setup_tier() { # VALUE
+  python3 - "$setup_config" "$1" <<'PY'
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1]); value=json.loads(p.read_text())
+row=next((r for r in value.setdefault("plugins",[]) if r["id"]=="vgs.jarvis"),None)
+if row is None:
+    row={"id":"vgs.jarvis"}; value["plugins"].append(row)
+row["localTier"]=sys.argv[2]
+p.write_text(json.dumps(value))
+PY
+  expect "deliver the Local voice setting $1" ok ipc shell reloadConfig
+}
+setup_tier_saved() {
+  python3 -c 'import json,sys; print(next((r.get("localTier","unset") for r in json.load(open(sys.argv[1])).get("plugins",[]) if r["id"]=="vgs.jarvis"),"unset"))' "$setup_config"
+}
+# The run id of the last terminal the launcher started, "absent" for none.
+setup_run_id() {
+  python3 -c '
+import os,sys
+w=open(sys.argv[1]).read().split("\n") if os.path.exists(sys.argv[1]) else []
+print(w[w.index("--run")+1] if "--run" in w else "absent")' "$tui_record"
+}
+# A launch a delivered setting asks for is pending in the turn that
+# delivers it, so once the key is idle no later terminal is to come.
+setup_tier_opens_none() { # LABEL RUN_ID
+  expect_run_end "$1: no local setup is pending" vgs.jarvis/setup-local
+  expect "$1: no terminal opened" "$2" setup_run_id
+}
+setup_tier_reader="$repo/shell/plugins/vgs.jarvis/LocalTier.qml"
 local_open() { # manager action or listed launcher entry
   local revision snapshot
   revision="$(jarvis_revision)" || return 1
@@ -291,6 +358,64 @@ expect "a local voice reader end that sends no snapshot breaks the ready read" 1
 cp -- "$sandbox/setup-service-original" "$setup_service"
 jarvis_rescan
 expect_poll "the restored service reads ready" "$setup_ready" setup_rows
+
+# The Local voice setting, with small ready and large the pick. A rescan
+# is a requirement scan, after which the reader reads again.
+cp -- "$setup_tiers" "$sandbox/local-tiers-original"
+setup_tiers_answer large small
+rescan "the Local voice reader reads large as the pick"
+expect_poll "the Local voice reader reads large as the pick, small ready" '["large", "small"]' setup_tier_reading
+expect "the page offers Automatic first, named for the pick" '{"value": "auto", "label": "Automatic: Large"}' setup_tiers_published
+forget_record
+setup_tier medium
+expect_poll "choosing Medium opens local setup for medium" '["vgs.jarvis/setup-local", "tui/setup-local.sh", "medium"]' recorded_tail
+expect_run_end "the Medium run ends" vgs.jarvis/setup-local
+setup_tier_run="$(setup_run_id)"
+expect_poll "the run's end writes back the ready tier" small setup_tier_saved
+setup_tier_opens_none "the written-back tier" "$setup_tier_run"
+setup_tier auto
+expect_poll "Automatic opens local setup with no tier" '["vgs.jarvis/setup-local", "tui/setup-local.sh"]' recorded_tail
+expect_run_end "the Automatic run ends" vgs.jarvis/setup-local
+expect_poll "the run's end writes back the ready tier again" small setup_tier_saved
+# A wanted tier that is ready opens nothing, by name or as Automatic.
+setup_tiers_answer large large
+rescan "the Local voice reader reads large ready"
+expect_poll "the Local voice reader reads large ready" '["large", "large"]' setup_tier_reading
+setup_tier_run="$(setup_run_id)"
+setup_tier large
+setup_tier_opens_none "Large while large is ready" "$setup_tier_run"
+setup_tier auto
+setup_tier_opens_none "Automatic while the pick is ready" "$setup_tier_run"
+# Control: a reader copy that opens no run breaks the Medium read.
+cp -- "$setup_tier_reader" "$sandbox/local-tier-original"
+python3 - "$setup_tier_reader" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+assert not p.is_symlink()
+s=p.read_text()
+needle='const answer = shell.tui.run("setup-local", args);'
+assert s.count(needle)==1
+p.write_text(s.replace(needle, 'const answer = "ok";'))
+PY
+jarvis_rescan
+expect_poll "the run control's reader reads large ready" '["large", "large"]' setup_tier_reading
+setup_tiers_answer large small
+rescan "the run control's reader reads small ready"
+expect_poll "the run control's reader reads small ready" '["large", "small"]' setup_tier_reading
+forget_record
+setup_tier medium
+setup_tier_control() {
+  (failures=0 behaviour_failures=0
+   expect_poll "choosing Medium must open local setup" '["vgs.jarvis/setup-local", "tui/setup-local.sh", "medium"]' recorded_tail
+   echo "$failures")
+}
+expect "a reader that opens no run breaks the Medium read" 1 local_control_count setup_tier_control
+cp -- "$sandbox/local-tier-original" "$setup_tier_reader"
+cp -- "$sandbox/local-tiers-original" "$setup_tiers"
+setup_tier auto
+jarvis_rescan
+expect_poll "the restored Local voice reader reads the default answer" '["small", null]' setup_tier_reading
 printf 'failed\n' >"$sandbox/jarvis-world/local-mode"
 local_open launcher
 expect_poll "exit 77 replaces a previous ready status" matched local_value failed

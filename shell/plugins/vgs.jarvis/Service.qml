@@ -202,13 +202,17 @@ Item {
         // A partial key observation is not a complete hello snapshot.
         if (Object.keys(keys).length !== shell.manifest.hyprland.binds.length) return;
         const home = Quickshell.env("HOME");
+        // The Local voice choice is the page's download request, which
+        // LocalTier owns; the daemon loads the tier setup left ready.
+        const settings = Object.assign({}, shell.settings);
+        delete settings.localTier;
         const message = {
             v: 1, type: "hello", gen: sessionState === null ? 0 : sessionState.gen,
             // The one place a voice is chosen for a user who chose none, and
             // where a model with no list read is. The daemon repeats the
             // model choice by the account it resolves, for a hello sent
             // before the account reader's first answer.
-            settings: Object.assign({}, shell.settings, { sounds: feedbackSounds,
+            settings: Object.assign(settings, { sounds: feedbackSounds,
                 voiceProvider: Gate.voiceProvider(shell.settings, accountReader.voiceKeys) },
                 Providers.unlistedChoice(shell.settings, accountReader.providers[shell.settings.brain])),
             directories: {
@@ -741,6 +745,7 @@ Item {
     // snapshot; hello() sends none while the child is not running or broken.
     Jarvis.Keys { shell: root.shell; onRefreshed: root.hello() }
     Jarvis.LocalRuntime { shell: root.shell; onRefreshed: root.hello() }
+    Jarvis.LocalTier { shell: root.shell }
     Jarvis.BrowserRuntime { shell: root.shell; stepKey: "setupBrowser" }
     Jarvis.Accounts { id: accountReader; shell: root.shell; onRefreshed: root.hello() }
 }

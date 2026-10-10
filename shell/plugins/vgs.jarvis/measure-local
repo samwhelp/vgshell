@@ -189,17 +189,22 @@ def gpu_query(query, environment):
         env=environment, capture_output=True, text=True, timeout=10, check=True)
 
 
+def meminfo(field):
+    """One /proc/meminfo field in bytes; Linux proc.rst states each in kB."""
+    lines = Path("/proc/meminfo").read_text().splitlines()
+    readings = [line.split()[1:] for line in lines if line.startswith(field + ":")]
+    if len(readings) != 1 or len(readings[0]) != 2 or readings[0][1] != "kB":
+        raise ValueError("meminfo")
+    return int(readings[0][0]) * 1024
+
+
 def available(resource):
     """Read allocatable RAM or CUDA memory without opening an audio device."""
     try:
         if resource == "ram":
             # Linux proc.rst defines MemAvailable as memory for a new
             # application without swapping, including reclaimable pages.
-            lines = Path("/proc/meminfo").read_text().splitlines()
-            readings = [line.split()[1:] for line in lines if line.startswith("MemAvailable:")]
-            if len(readings) != 1 or len(readings[0]) != 2 or readings[0][1] != "kB":
-                raise ValueError("meminfo")
-            free = int(readings[0][0]) * 1024
+            free = meminfo("MemAvailable")
         else:
             # NVIDIA documents --query-gpu memory.free in MiB. Take the
             # least free device: the runtime chooses its CUDA device, not VGS.

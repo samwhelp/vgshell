@@ -250,3 +250,28 @@ function optionalStep(key, value) {
     if (value.tone === "ok") return DONE;
     return { tone: "info", text: "Optional", action: value.action === true };
 }
+
+// The Local voice setting (`localTier`) and its downloads. WANTED is the
+// setting: a tier, or "auto" for PICK, the tier setup-local reads as best
+// for this computer. READY is the tier setup left ready, null for none.
+function wantedTier(wanted, pick) {
+    return wanted === "auto" ? pick : wanted;
+}
+
+// The arguments of the setup-local run that a change of the setting to
+// WANTED starts, null for none: none while the wanted tier is ready, else
+// the wanted tier, or none for the pick, which setup-local installs then.
+function tierRun(wanted, pick, ready) {
+    if (wantedTier(wanted, pick) === ready) return null;
+    return wanted === "auto" ? [] : [wanted];
+}
+
+// The setting after a setup run ended, null to keep it: once the run left
+// another tier than the wanted one ready, a cancelled pick or the Setup
+// button's install of the pick, the setting names that tier, "auto" for the
+// pick, so the page shows what is installed. A run that left none keeps it:
+// READY null is then returned.
+function tierAfterRun(wanted, pick, ready) {
+    if (wantedTier(wanted, pick) === ready) return null;
+    return ready === pick ? "auto" : ready;
+}

@@ -329,6 +329,26 @@ function service(sourceTree, tree, root) {
     if (!fs.existsSync(path.join(root, "local-mode")))
         fs.writeFileSync(path.join(root, "local-mode"), "absent\n");
     fs.writeFileSync(local, localSource.replace(localNeedle, localCommand));
+    // The Local voice setting's reader answers from a file the rows write,
+    // so no GPU or host memory is read. A --rev tree of
+    // scripts/sandbox-shots.sh older than that setting has no reader.
+    const tier = path.join(tree, "shell/plugins/vgs.jarvis/LocalTier.qml");
+    if (fs.existsSync(tier)) {
+        const tierSource = fs.readFileSync(tier, "utf8");
+        const tierNeedle = 'property var command: ["python3", "-I", program, "choices"]';
+        assert.equal(tierSource.split(tierNeedle).length - 1, 1, "local tier instrumentation match");
+        const tierCommand = 'property var command: ["bash", ' + JSON.stringify(launcher) + ', ' +
+            JSON.stringify(path.join(root, "standins")) + ', "--", "python3", ' +
+            JSON.stringify(path.join(sourceTree, "scripts/fixtures/jarvis-setup/status.py")) + ', "--choices", ' +
+            JSON.stringify(path.join(root, "local-tiers.json")) + ']';
+        // A PX13-class laptop's answer with nothing set up.
+        if (!fs.existsSync(path.join(root, "local-tiers.json")))
+            fs.writeFileSync(path.join(root, "local-tiers.json"), JSON.stringify({ pick: "small", ready: null, choices: [
+                { value: "auto", label: "Automatic: Small" },
+                { value: "medium", label: "Medium: English, more accurate speech, 1.5 GB" },
+                { value: "multilingual-cpu", label: "Multilingual: many languages, 2.0 GB" }] }) + "\n");
+        fs.writeFileSync(tier, tierSource.replace(tierNeedle, tierCommand));
+    }
     const browser = path.join(tree, "shell/plugins/vgs.jarvis/BrowserRuntime.qml");
     const browserSource = fs.readFileSync(browser, "utf8");
     const browserNeedle = 'command: ["node", program, "status"]';

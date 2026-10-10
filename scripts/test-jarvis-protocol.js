@@ -30,8 +30,10 @@ const state = { v: 1, type: "state", gen: 0, revision: hello.revision, seq: 1,
     state: JSON.parse(JSON.stringify(Protocol.Session.initial())), phase: "down" };
 const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
 // The hello's settings are the manifest's and `sounds`, which the service
-// reads from the manifest's one sound event, `feedback`.
-assert.deepEqual(Object.keys(manifest.settings).concat(["sounds"]).sort(), Object.keys(hello.settings).sort());
+// reads from the manifest's one sound event, `feedback`, but `localTier`:
+// the Local voice choice is a download request the service keeps
+// (LocalTier.qml), and the daemon loads the tier setup left ready.
+assert.deepEqual(Object.keys(manifest.settings).filter(key => key !== "localTier").concat(["sounds"]).sort(), Object.keys(hello.settings).sort());
 assert.deepEqual([Object.keys(manifest.sounds), manifest.sounds.feedback.own !== undefined], [["feedback"], true]);
 assert.deepEqual([manifest.settings.cloudVision, manifest.schema.cloudVision.options], ["ask", ["ask", "allow", "never"]]);
 assert.equal(typeof manifest.settings.privateWindows, "string");

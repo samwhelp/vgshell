@@ -692,6 +692,11 @@ path.write_text(source.replace(sys.argv[2], sys.argv[3]))' "$jarvis_service" "$2
   jarvis_rescan
   jarvis_enable
   expect_poll "$1: the daemon starts with feedback sounds on" true jarvis_sounds_sent
+  # Each startup reader sends hello on completion. Finish those sends
+  # before the choice, so none can repair the control with its snapshot.
+  expect_poll "$1: the startup key reader is idle" idle jarvis_setup_reader_idle Keys
+  expect_poll "$1: the startup local voice reader is idle" idle jarvis_setup_reader_idle LocalRuntime
+  expect_poll "$1: the startup account reader is idle" idle jarvis_accounts_reader_idle
   jarvis_sounds_off
   expect "$1 breaks the Off reading" 1 jarvis_sounds_assertion
   jarvis_sounds_back

@@ -112,6 +112,20 @@ const START_CAUSES = [
     ["probe timeout", "jarvis: setup=probe-timeout", "probe-timeout"]
 ];
 const ARBITRARY_STDERR = "SyntaxError: fixture";
+// The Local voice setting: [label, the setting, the pick, the ready tier or
+// null, the run a change to the setting starts (null for none), the setting
+// after a run ended with that ready tier (null to keep it)].
+const TIERS = [
+    ["auto on a fresh computer installs the pick", "auto", "large", null, [], null],
+    ["a chosen tier on a fresh computer installs it", "medium", "large", null, ["medium"], null],
+    ["auto while the pick is ready starts nothing", "auto", "large", "large", null, null],
+    ["a chosen tier that is ready starts nothing", "medium", "large", "medium", null, null],
+    ["auto beside another ready tier installs the pick", "auto", "large", "small", [], "small"],
+    ["a chosen tier beside the ready pick installs it", "medium", "large", "large", ["medium"], "auto"],
+    ["choosing the pick by name beside another tier installs it", "large", "large", "small", ["large"], "small"],
+    ["a chosen tier beside a third ready tier", "multilingual-cuda", "large", "small", ["multilingual-cuda"], "small"],
+    ["the pick by name while it is ready starts nothing", "large", "large", "large", null, null]
+];
 
 // The model and effort the Jarvis page offers and saves. Each list is the
 // page's read for one sign-in, as its program's adapter narrows it: the
@@ -675,8 +689,24 @@ function verifyReadiness(gate) {
     }
 }
 
+// The run a change of the Local voice setting starts, and the setting after
+// a run ended: the written value is one the setting then holds, so it starts
+// no run.
+function verifyTiers(gate) {
+    for (const [label, wanted, pick, ready, run, after] of TIERS) {
+        assert.deepEqual(plain(gate.tierRun(wanted, pick, ready)), run, label + ": the run");
+        assert.deepEqual(gate.tierAfterRun(wanted, pick, ready), after, label + ": the setting after a run");
+        if (after !== null) assert.equal(gate.tierRun(after, pick, ready), null, label + ": the written setting starts no run");
+    }
+    const choices = [{ value: "auto", label: "Automatic: Large" }, { value: "small", label: "Small: English, quickest to set up, 796 MB" }];
+    assert.equal(judge.statusWrite(manifest, {}, "localTiers", choices).ok, true, "the manifest judge accepts the Local voice offers");
+    assert.equal(manifest.schema.localTier.optionsFrom, "localTiers", "the Local voice setting reads its offers");
+    assert.equal(manifest.settings.localTier, "auto", "the Local voice setting defaults to the pick");
+}
+
 function verify(gate) {
     verifyReadiness(gate);
+    verifyTiers(gate);
     verifyModelConsumers(gate, fs.readFileSync(serviceFile, "utf8"), fs.readFileSync(accountsFile, "utf8"));
     verifyVoice(gate, fs.readFileSync(serviceFile, "utf8"), fs.readFileSync(accountsFile, "utf8"));
     verifyModelChoice(require(providersFile));
@@ -808,7 +838,13 @@ const CONTROLS = [
     ["a status cause line is not bounded", ".slice(0, STATUS_TEXT_MAX)", ""],
     ["an arbitrary stderr line has no words", "return { kind: DAEMON_EXIT.kind, title: DAEMON_EXIT.title, action: DAEMON_EXIT.action, lines: [line] };", 'throw new Error("jarvis-setup: start-cause=" + cause + " has no words");'],
     ["a cause naming no step is taken", 'if (!Object.prototype.hasOwnProperty.call(REQUIRED, step)) throw new Error("jarvis-setup: cause=" + cause + " names no step");', ""],
-    ["a required step reads as optional", 'if (!Object.prototype.hasOwnProperty.call(OPTIONAL, key)) throw new Error("jarvis-setup: step=" + key + " is not optional");', ""]
+    ["a required step reads as optional", 'if (!Object.prototype.hasOwnProperty.call(OPTIONAL, key)) throw new Error("jarvis-setup: step=" + key + " is not optional");', ""],
+    ["auto names no tier of its own", 'return wanted === "auto" ? pick : wanted;', "return wanted;"],
+    ["a ready wanted tier downloads again", "if (wantedTier(wanted, pick) === ready) return null;\n    return wanted", "return wanted"],
+    ["auto passes its own name to setup", 'return wanted === "auto" ? [] : [wanted];', "return [wanted];"],
+    ["the setting ignores what a run left ready", "if (wantedTier(wanted, pick) === ready) return null;\n    return ready ===", "return null;\n    return ready ==="],
+    ["the setting follows a ready wanted tier", "if (wantedTier(wanted, pick) === ready) return null;\n    return ready ===", "return ready ==="],
+    ["the ready pick is written by name", 'return ready === pick ? "auto" : ready;', "return ready;"]
 ];
 
 const source = fs.readFileSync(file, "utf8");
@@ -897,6 +933,7 @@ try {
         ["AccountProviders.js", "effort: settings.effort || PREFERRED_EFFORT };", "effort: PREFERRED_EFFORT };"],
         ["AccountProviders.js", "effort: settings.effort || PREFERRED_EFFORT };", "effort: settings.effort };"],
         ["Service.qml", "Providers.unlistedChoice(shell.settings, accountReader.providers[shell.settings.brain])),", "{}),"],
+        ["Service.qml", "        delete settings.localTier;\n", ""],
         ["Service.qml", "Providers.unlistedChoice(shell.settings, accountReader.providers[shell.settings.brain])),", 'Providers.unlistedChoice(shell.settings, "claude")),'],
         ["Accounts.qml", "shell.settings, list, providers[brain])", "shell.settings, list)"],
         ["Accounts.qml", 'readonly property string wanted: shell !== null && shell.status.viewed ? brain : ""', "readonly property string wanted: brain"],
@@ -974,7 +1011,7 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length} controls=${CONTROLS.length + 10 + 53}`);
+console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length} controls=${CONTROLS.length + 10 + 54}`);
 function verifyProbeTimeoutConsumer(source) {
     assert.equal(source.includes('Gate.startCause("jarvis: setup=probe-timeout")'), true,
         "probe timeout words come from SetupGate");

@@ -72,8 +72,11 @@ elif name == "python":
         "peak_rss_bytes": 4096, "gpu_peak_bytes": 2048 if tier["provider"] == "cuda" else None})))
     sys.exit(config.get("probe_exit", 0))
 elif name == "nvidia-smi":
-    # Stands in for the declared GPU requirement; no host GPU is read.
-    assert args == ["-L"]
+    # Stands in for the declared GPU requirement; no host GPU is read. It
+    # lists the total memory, in MiB, of each GPU in gpu_memory.
+    assert args == ["--query-gpu=memory.total", "--format=csv,noheader,nounits"]
+    for total in config.get("gpu_memory", [32607]):
+        print(total)
     sys.exit(config.get("gpu_exit", 0))
 else:
     raise RuntimeError("unknown fixture command: " + name)

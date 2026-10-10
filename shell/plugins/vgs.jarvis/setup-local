@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Install a selected local tier and report its verified readiness.
+"""Pick, install and report the local tier.
 
-The TUI calls `choices`, then `install TIER`. `choices` prints one row per
-tier this machine can run, in declaration order, as `LABEL<TAB>TIER`; the
-first row is the recommended one. The service calls `status`, which emits one
-status value for localRuntime. `probe` runs only inside a network namespace.
-Exit 77 means unavailable, never ready. No audio device or host setting is
-opened. The state lock covers invalidation, installation and publication.
+`pick` chooses the English tier this machine runs best from its GPU memory,
+RAM and CPU threads. `choices` prints one JSON object for the service: the
+pick, the tier ready now (null for none) and the Local voice setting's offers,
+`auto` labelled with the pick first, then every other tier this machine can
+run, in declaration order. The TUI calls `install [TIER]`; with no tier it
+installs the pick. The service calls `status`, which emits one status value
+for localRuntime. `probe` runs only inside a network namespace. Exit 77 means
+unavailable, never ready. No audio device or host setting is opened. The
+state lock covers invalidation, installation and publication.
 """
 import argparse
 import fcntl
@@ -27,8 +30,20 @@ from urllib.parse import urlparse
 
 HERE = Path(__file__).resolve().parent
 sys.dont_write_bytecode = True
-# The hardware sentence each provider's tiers carry in the TUI.
-HARDWARE = {"cpu": "Runs on any computer.", "cuda": "Needs an NVIDIA graphics card."}
+# Each English tier's measured need, in MiB. Measured by measure-local on host
+# cachy (AMD Ryzen 9 9950X, 32 threads, RTX 5090) on 2026-09-30 for VGS-651:
+# the tier's whole resident set on a 60 s input with 2 inference threads.
+# medium's warm turn took 10.971 s there; large's GPU figure is a sampled peak.
+NEED = {"small": {"ram": 1813.71}, "medium": {"ram": 3303.58}, "large": {"ram": 3782.72, "gpu": 4004.00}}
+# The voice holds at most an eighth of RAM, leaving the rest to the desktop,
+# the browser and the AI app.
+RAM_SHARE = 8
+# The sampled GPU peak is a lower bound, the CUDA context keeps about 627 MB
+# after unload, and the desktop shares the card.
+GPU_SHARE = 2
+# medium's turn time was measured only on a 32-thread machine; no reading
+# proves it on fewer.
+MEDIUM_THREADS = 32
 # One tier's environment and models. uv's cache and managed Python stay.
 RUNTIME = ("venv", "models", "requirements-cuda.lock")
 
@@ -82,22 +97,50 @@ def command(argv, data, offline=False, stderr=None, stdout=None):
         raise ChildFailed(result.returncode if result.returncode > 0 else 1)
 
 
-def runnable(provider, data):
-    """Whether this machine can run a provider's tiers.
+def machine(judge, data):
+    """Read what decides the tiers this machine runs: GPU memory, RAM, threads.
 
-    CUDA needs the plugin's declared nvidia-smi requirement to list a GPU. A
-    listed GPU does not prove the CUDA libraries load; the probe still judges.
+    `gpu` is the least total memory, in MiB, of the GPUs the plugin's declared
+    nvidia-smi requirement lists, or None when it is missing, fails or lists
+    none. `threads` is the machine's, not this process's affinity.
+    """
+    try:
+        # NVIDIA documents --query-gpu memory.total in MiB, one line a GPU.
+        child = judge.gpu_query("--query-gpu=memory.total", environment(data))
+        gpus = [int(line) for line in child.stdout.split()]
+    except (OSError, ValueError, subprocess.SubprocessError):
+        gpus = []
+    return {"gpu": min(gpus) if gpus else None, "ram": judge.meminfo("MemTotal") / 2**20,
+            "threads": os.cpu_count()}
+
+
+def pick(reading):
+    """The English tier READING runs best; multilingual is the user's choice.
+
+    large needs a GPU with GPU_SHARE times its sampled peak, medium a
+    MEDIUM_THREADS machine, and each a RAM_SHARE share of RAM for its peak;
+    small is the floor.
+    """
+    if (reading["gpu"] is not None and reading["gpu"] >= GPU_SHARE * NEED["large"]["gpu"]
+            and reading["ram"] >= RAM_SHARE * NEED["large"]["ram"]):
+        return "large"
+    if (reading["ram"] >= RAM_SHARE * NEED["medium"]["ram"]
+            and reading["threads"] is not None and reading["threads"] >= MEDIUM_THREADS):
+        return "medium"
+    return "small"
+
+
+def runnable(provider, reading):
+    """Whether a machine READING can run a provider's tiers.
+
+    CUDA needs nvidia-smi to list a GPU. A listed GPU does not prove the CUDA
+    libraries load; the probe still judges.
     """
     if provider == "cpu":
         return True
     if provider != "cuda":
         raise ValueError(f"tier-provider=invalid provider={provider}")
-    try:
-        result = subprocess.run(["nvidia-smi", "-L"], env=environment(data), stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL, timeout=10, check=False)
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return result.returncode == 0
+    return reading["gpu"] is not None
 
 
 def size(count):
@@ -113,20 +156,16 @@ def stored(*roots):
                if path.is_file() and not path.is_symlink())
 
 
-def choices(value, data):
-    """Offer only the tiers this machine can run; the first one is recommended.
+def choices(value, reading, ready):
+    """The Local voice setting's offers for READING, with the pick and READY.
 
-    The first is always a CPU tier while one is declared first: a CUDA tier can
-    still fail on CUDA libraries that nvidia-smi does not prove.
+    `auto` stands for the pick and comes first; the pick is not offered again.
     """
-    usable = {provider for provider in {row["provider"] for row in value["tiers"].values()}
-              if runnable(provider, data)}
-    rows = [(tier, row) for tier, row in value["tiers"].items() if row["provider"] in usable]
-    if not rows:
-        raise ValueError("tiers=none-runnable")
-    for index, (tier, row) in enumerate(rows):
-        label = f"{row['description']} {HARDWARE[row['provider']]} {size(row['downloadBytes'])}"
-        print(label + (" (recommended)" if index == 0 else "") + "\t" + tier)
+    best = pick(reading)
+    offers = [{"value": "auto", "label": "Automatic: " + value["tiers"][best]["name"]}]
+    offers += [{"value": tier, "label": f"{row['name']}: {row['description']}, {size(row['downloadBytes'])}"}
+               for tier, row in value["tiers"].items() if tier != best and runnable(row["provider"], reading)]
+    return {"pick": best, "ready": ready, "choices": offers}
 
 
 def remove_runtime(data):
@@ -193,7 +232,7 @@ def probe(judge, value, tier, data):
     judge.run(value, artifacts, data / "models", provider, None, tier)
 
 
-def install(judge, state, data, tier):
+def install(judge, state, data, tier, reading):
     """Refuse before any effect, invalidate, and publish only after real inference.
 
     A refused attempt keeps an earlier ready installation. A failed one removes
@@ -207,10 +246,10 @@ def install(judge, state, data, tier):
             raise ValueError("setup=busy") from None
         value = judge.manifest(HERE / "artifacts.json")
         artifacts, provider = selected(value, tier)
-        if not runnable(provider, data):
+        if not runnable(provider, reading):
             raise ValueError(f"gpu=unavailable tier={tier}\n"
-                             "This tier needs an NVIDIA graphics card, which this computer does not have. "
-                             "Run setup again and choose a tier that runs on any computer.")
+                             "This model needs an NVIDIA graphics card, which this computer does not have. "
+                             "Under Local voice on the Jarvis page, choose a model that runs on any computer.")
         data.mkdir(parents=True, exist_ok=True, mode=0o700)
         # Setup holds about twice the download at its peak: archives beside
         # their extracted models and uv's cache beside the environment. A
@@ -221,7 +260,7 @@ def install(judge, state, data, tier):
         if free < need:
             raise ValueError(f"disk=insufficient need={need} free={free} path={data}\n"
                              f"This tier needs {size(need)} free in {data}, which has {size(free)}. "
-                             "Free some space or choose a smaller tier, then run setup again.")
+                             "Free some space, or choose a smaller model under Local voice on the Jarvis page.")
         marker = state / "local-ready.json"
         marker.unlink(missing_ok=True)
         judge.clip(value)
@@ -260,7 +299,8 @@ def install(judge, state, data, tier):
                              "probe", tier], data, offline=True, stderr=output, stdout=reading)
                 except ChildFailed:
                     # Only a CUDA tier has a tier that runs on any computer to fall back to.
-                    advice = " Run setup again and choose a tier that runs on any computer." if provider == "cuda" else ""
+                    advice = (" Under Local voice on the Jarvis page, choose a model that runs on any computer."
+                              if provider == "cuda" else "")
                     print(f"jarvis-setup: failed=probe log={log}\n"
                           f"Local voice did not pass its test on this computer. The details are in {log}." + advice,
                           file=sys.stderr)
@@ -318,8 +358,15 @@ def status(judge, state, data):
             return {"tone": "warning", "text": "Setup needs verification", "action": True}
 
 
+def ready_tier(judge, state, data):
+    """The tier status verifies ready, None for none; its marker names it."""
+    if status(judge, state, data)["tone"] != "ok":
+        return None
+    return json.loads((state / "local-ready.json").read_text())["tier"]
+
+
 def main():
-    """Keep user-selected tiers within the producer's current declaration."""
+    """Keep chosen tiers within the producer's current declaration."""
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("verb", choices=("choices", "install", "status", "probe"))
@@ -330,7 +377,8 @@ def main():
     if args.verb in ("choices", "status") and args.tier is not None:
         parser.error(f"{args.verb} takes no tier")
     if args.verb == "choices":
-        choices(judge.manifest(HERE / "artifacts.json"), data)
+        ready = ready_tier(judge, state, data)
+        print(json.dumps(choices(judge.manifest(HERE / "artifacts.json"), machine(judge, data), ready)))
         return
     if args.verb == "status":
         print(json.dumps(status(judge, state, data)))
@@ -339,7 +387,8 @@ def main():
         value = judge.manifest(HERE / "artifacts.json")
         probe(judge, value, args.tier, data)
     else:
-        install(judge, state, data, args.tier)
+        reading = machine(judge, data)
+        install(judge, state, data, pick(reading) if args.tier is None else args.tier, reading)
 
 
 if __name__ == "__main__":

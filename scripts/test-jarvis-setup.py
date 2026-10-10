@@ -55,7 +55,7 @@ class Setup(unittest.TestCase):
         self.commands = self.root / "commands"
         self.commands.mkdir()
         # Bootstrap names are private doubles created after entering J09. No
-        # host nvidia-smi runs: the double answers from gpu_exit.
+        # host nvidia-smi runs: the double answers from gpu_memory and gpu_exit.
         for name in ("uv", "curl", "unshare", "gum", "nvidia-smi"):
             shutil.copyfile(DOUBLE, self.commands / name)
             (self.commands / name).chmod(0o700)
@@ -107,12 +107,31 @@ class Setup(unittest.TestCase):
     def offered(self):
         result = self.run_command("choices")
         self.assertEqual(result.returncode, 0, result.stderr)
-        return [line.split("\t") for line in result.stdout.splitlines()]
+        return json.loads(result.stdout)
 
-    def install(self, code=0):
-        result = self.run_command("install", self.config["tier"])
+    def install(self, code=0, tier=True):
+        result = self.run_command("install", *([self.config["tier"]] if tier else []))
         self.assertEqual(result.returncode, code, result.stdout + result.stderr)
         return result
+
+    def plant_machine(self, gpu, ram_kib, threads):
+        """The machine the copy reads: GPU memory in MiB (None for no GPU),
+        MemTotal in kB and CPU threads. The double answers nvidia-smi; the
+        copy reads a planted /proc/meminfo and thread count in place of the
+        host's, through its own meminfo parser."""
+        meminfo, count = self.root / "meminfo", self.root / "threads"
+        meminfo.write_text(f"MemTotal:       {ram_kib} kB\nMemAvailable:   {ram_kib} kB\n")
+        count.write_text(str(threads))
+        self.config.update(gpu_memory=[] if gpu is None else [gpu], gpu_exit=9 if gpu is None else 0)
+        self.write_config()
+        for name, needle, replacement in (
+                ("measure-local", 'Path("/proc/meminfo")', f"Path({str(meminfo)!r})"),
+                ("setup-local", '"threads": os.cpu_count()', f'"threads": int(Path({str(count)!r}).read_text())')):
+            path = self.plugin / name
+            text = path.read_text()
+            if needle in text:
+                self.assertEqual(text.count(needle), 1, needle)
+                path.write_text(text.replace(needle, replacement))
 
     def report(self):
         result = self.run_command("status")
@@ -428,30 +447,32 @@ class Setup(unittest.TestCase):
         # readiness mechanism; the OS signal is not a new production guard.
 
     def test_tui_and_control(self):
-        # Neutral core presentation double: gum's label delimiter picks the
-        # first, recommended row. The actual TUI still reads the installer's
-        # choices and executes the real installer.
+        # Neutral core presentation double. The actual TUI executes the real
+        # installer with the tier it is handed, or none for the pick.
         library = self.root / "tui-lib.sh"
-        library.write_text('vgs_tui_header() { :; }\nvgs_tui_error() { :; }\nvgs_tui_choose() {\n'
-                           '  [[ $# == 1 && $1 == --label-delimiter=$\'\\t\' ]] || return 9\n'
-                           '  local row; IFS= read -r row; printf "%s\\n" "${row#*$\'\\t\'}"\n}\n')
+        library.write_text('vgs_tui_header() { :; }\nvgs_tui_error() { :; }\n')
         env = dict(self.env, VGS_TUI_LIB=str(library), VGS_PLUGIN_DIR=str(self.plugin))
         script = self.plugin / "tui/setup-local.sh"
         run = lambda *args: subprocess.run(["bash", str(script), *args],
             env=env, capture_output=True, text=True, check=False, timeout=30)
-        # With no NVIDIA GPU, the recommended tier ends ready.
-        self.config["gpu_exit"] = 9
-        self.write_config()
+        # With no argument, a PX13-class laptop's pick, small, ends ready.
+        self.plant_machine(None, 32000000, 24)
         result = run()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.ready()
-        self.assertEqual(run("unexpected").returncode, 2)
+        # The page's choice reaches the installer.
+        self.config["tier"] = "medium"
+        self.write_config()
+        result = run("medium")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.ready()
+        self.assertEqual(run("medium", "small").returncode, 2)
         (self.commands / "uv").unlink()
         self.assertEqual(run().returncode, 77)
         source = script.read_text()
-        needle = 'exec python3 -I "$VGS_PLUGIN_DIR/setup-local" install "$tier"'
+        needle = 'exec python3 -I "$VGS_PLUGIN_DIR/setup-local" install "$@"'
         self.assertEqual(source.count(needle), 1)
-        changed = source.replace(needle, ': python3 -I "$VGS_PLUGIN_DIR/setup-local" install "$tier"')
+        changed = source.replace(needle, ': python3 -I "$VGS_PLUGIN_DIR/setup-local" install "$@"')
         self.assertNotEqual(changed, source)
         script.write_text(changed)
         shutil.copyfile(DOUBLE, self.commands / "uv")
@@ -460,7 +481,41 @@ class Setup(unittest.TestCase):
         self.assertEqual(run().returncode, 0)
         self.not_ready()
 
-    def test_choices_follow_the_gpu_and_control(self):
+    # The pick for a machine reading: [label, GPU MiB or None, RAM MiB,
+    # threads, tier]. This host and a PX13-class laptop are the issue's
+    # machines; the others each prove one input is read.
+    PICKS = [
+        ("this host: RTX 5090, MemTotal 129444736 kB, 32 threads", 32607, 129444736 / 1024, 32, "large"),
+        ("a PX13-class laptop: no NVIDIA GPU, about 32 GB, 24 threads", None, 32000000 / 1024, 24, "small"),
+        ("a 6 GiB GPU is not large", 6144, 129444736 / 1024, 32, "medium"),
+        ("a GPU of twice large's sampled peak is large", 8008, 129444736 / 1024, 32, "large"),
+        ("a large GPU on 24 threads is large", 32607, 129444736 / 1024, 24, "large"),
+        ("a large GPU with 16 GiB of RAM is small", 32607, 16384, 32, "small"),
+        ("128 GB, 32 threads and no GPU is medium", None, 131072, 32, "medium"),
+        ("128 GB, 24 threads and no GPU is small", None, 131072, 24, "small"),
+        ("16 GiB, 32 threads and no GPU is small", None, 16384, 32, "small"),
+    ]
+
+    def assert_picks(self, module):
+        for label, gpu, ram, threads, tier in self.PICKS:
+            self.assertEqual(module.pick({"gpu": gpu, "ram": ram, "threads": threads}), tier, label)
+
+    def test_pick_reads_each_input_and_controls(self):
+        self.assert_picks(self.load_module())
+        # Each control keeps the rule's text and drops one input from it.
+        original = (self.plugin / "setup-local").read_text()
+        for name, needle, replacement in (
+                ("GPU memory", 'reading["gpu"] is not None and reading["gpu"] >= GPU_SHARE * NEED["large"]["gpu"]', 'reading["gpu"] is not None'),
+                ("RAM for large", '\n            and reading["ram"] >= RAM_SHARE * NEED["large"]["ram"]):', "):"),
+                ("RAM for medium", 'if (reading["ram"] >= RAM_SHARE * NEED["medium"]["ram"]\n            and ', "if ("),
+                ("threads", '\n            and reading["threads"] is not None and reading["threads"] >= MEDIUM_THREADS):', "):")):
+            with self.subTest(control=name):
+                self.mutant(needle, replacement)
+                with self.assertRaises(AssertionError):
+                    self.assert_picks(self.load_module())
+                (self.plugin / "setup-local").write_text(original)
+
+    def test_choices_follow_the_machine_and_control(self):
         tiers = self.spec["tiers"]
         # Discovery floors: the producer declares both providers.
         cpu = [tier for tier, row in tiers.items() if row["provider"] == "cpu"]
@@ -469,24 +524,49 @@ class Setup(unittest.TestCase):
         tiers["small"]["downloadBytes"] = 796490765
         tiers["medium"]["downloadBytes"] = 1455131612
         (self.plugin / "artifacts.json").write_text(json.dumps(self.spec))
-        for gpu_exit, expected in ((9, cpu), (0, list(tiers))):
-            with self.subTest(gpu_exit=gpu_exit):
-                self.config["gpu_exit"] = gpu_exit
-                self.write_config()
-                rows = self.offered()
-                self.assertEqual([key for _, key in rows], expected)
-                self.assertTrue(rows[0][0].endswith(" (recommended)"), rows[0])
-                self.assertEqual(sum("(recommended)" in label for label, _ in rows), 1)
-                for label, key in rows:
-                    self.assertTrue(label.startswith(tiers[key]["description"] + " "), label)
-                    self.assertRegex(label, r" [0-9]+(\.[0-9])? (MB|GB)( \(recommended\))?$")
-                self.assertIn(" 796 MB (recommended)", rows[0][0])
-                self.assertTrue(rows[1][0].endswith(" 1.5 GB"), rows[1])
-        self.assertIn(["nvidia-smi", "-L"], self.calls())
-        self.config["gpu_exit"] = 9
+        # [machine, pick, the tiers offered after auto].
+        for machine, pick, rest in (
+                ((32607, 129444736, 32), "large", [tier for tier in tiers if tier != "large"]),
+                ((None, 32000000, 24), "small", [tier for tier in cpu if tier != "small"])):
+            with self.subTest(pick=pick):
+                self.plant_machine(*machine)
+                offered = self.offered()
+                self.assertEqual([offered["pick"], offered["ready"]], [pick, None])
+                self.assertEqual(offered["choices"][0], {"value": "auto", "label": "Automatic: " + tiers[pick]["name"]})
+                self.assertEqual([row["value"] for row in offered["choices"][1:]], rest)
+                for row in offered["choices"]:
+                    # The core's choices judge: a printable line of at most 60 characters.
+                    self.assertTrue(row["label"].isprintable() and 0 < len(row["label"]) <= 60, row)
+                for row in offered["choices"][1:]:
+                    self.assertTrue(row["label"].startswith(tiers[row["value"]]["name"] + ": "), row)
+                    self.assertRegex(row["label"], r", [0-9]+(\.[0-9])? (MB|GB)$")
+                labels = {row["value"]: row["label"] for row in offered["choices"]}
+                self.assertTrue(labels.get("small", " 796 MB").endswith(" 796 MB"), labels)
+                self.assertTrue(labels["medium"].endswith(" 1.5 GB"), labels)
+        self.assertIn(["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"], self.calls())
+        # The ready tier, as status verifies it.
+        self.config["tier"] = "small"
         self.write_config()
-        self.mutant("return result.returncode == 0", "return True or result.returncode == 0")
-        self.assertIn("large", [key for _, key in self.offered()])
+        self.install()
+        self.assertEqual(self.offered()["ready"], "small")
+        self.mutant('return reading["gpu"] is not None', "return True")
+        self.assertIn("large", [row["value"] for row in self.offered()["choices"]])
+
+    def test_install_without_tier_installs_the_pick_and_control(self):
+        # The double's probe asserts the tier it is run for.
+        for machine, tier in (((32607, 129444736, 32), "large"), ((None, 32000000, 24), "small")):
+            with self.subTest(tier=tier):
+                self.plant_machine(*machine)
+                self.config["tier"] = tier
+                self.write_config()
+                self.install(tier=False)
+                self.ready()
+        self.plant_machine(32607, 129444736, 32)
+        self.config["tier"] = "large"
+        self.write_config()
+        self.mutant("pick(reading) if args.tier is None else args.tier", '"small" if args.tier is None else args.tier')
+        self.install(1, tier=False)
+        self.not_ready()
 
     def test_gpu_refusal_keeps_ready_and_control(self):
         self.install()
@@ -500,7 +580,7 @@ class Setup(unittest.TestCase):
         self.assertEqual([call[0] for call in self.calls()], ["nvidia-smi"])
         self.assertEqual((self.state / "local-ready.json").read_bytes(), marker)
         self.assertEqual(self.report(), {"tone": "ok", "text": "Ready: small", "action": False})
-        self.mutant("if not runnable(provider, data):", "if False and not runnable(provider, data):")
+        self.mutant("if not runnable(provider, reading):", "if False and not runnable(provider, reading):")
         self.install()
         self.ready()
 
@@ -512,7 +592,8 @@ class Setup(unittest.TestCase):
         result = self.install(1)
         self.assertRegex(result.stderr.splitlines()[0], r"^jarvis-setup: failed=disk=insufficient "
                          r"need=[0-9]+ free=[0-9]+ path=" + re.escape(str(self.data)) + "$")
-        self.assertEqual(self.calls(), [])
+        # The machine reading's GPU query is the one child before the refusal.
+        self.assertEqual([call[0] for call in self.calls()], ["nvidia-smi"])
         self.assertTrue((self.state / "local-ready.json").exists())
         self.mutant("if free < need:", "if False and free < need:")
         self.install()
@@ -538,7 +619,7 @@ class Setup(unittest.TestCase):
         self.assertEqual([line for line in lines if line.startswith("jarvis-setup: kept=")],
                          [f"jarvis-setup: kept={self.data} bytes={kept}"])
         # Only a CUDA tier is told to fall back to a tier that runs on any computer.
-        fallback = "choose a tier that runs on any computer"
+        fallback = "choose a model that runs on any computer"
         self.assertNotIn(fallback, result.stderr)
         self.config["tier"] = "large"
         self.write_config()
