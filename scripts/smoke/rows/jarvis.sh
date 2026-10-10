@@ -237,14 +237,23 @@ print("retry-words" if ok else "pending")
 }
 
 jarvis_probe_timeout_words() {
-  ipc smoke jarvisProcess | py_reply '
+  local process widget
+  process="$(ipc smoke jarvisProcess)" || return
+  widget="$(ipc smoke readInstance "$(bar_key)" vgs.jarvis view)" || return
+  python3 - "$process" "$widget" <<'PY'
 import json, sys
-status = json.load(sys.stdin)["status"]
+status = json.loads(sys.argv[1])["status"]
+widget = json.loads(sys.argv[2])
 row = status.get("localRuntime", {})
+setup = status.get("setup", {})
+voice = status.get("setupVoice", {})
 ok = row.get("tone") == "warning" and row.get("text") == "Jarvis setup check timed out"
 ok = ok and "jarvis: setup=probe-timeout" in row.get("lines", [])
+ok = ok and setup.get("tone") == "warning" and "jarvis: setup=probe-timeout" in setup.get("lines", [])
+ok = ok and voice.get("tone") == "warning" and "Jarvis setup check timed out" in voice.get("hint", "")
+ok = ok and widget.get("state") == "off" and "Jarvis setup check timed out" in "\n".join([widget.get("tooltip", "")] + widget.get("tooltipDetails", []))
 print("probe-timeout" if ok else "pending")
-'
+PY
 }
 
 jarvis_lock_assertion() { # expect | expect_poll

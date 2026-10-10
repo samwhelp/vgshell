@@ -12,7 +12,8 @@
 //   muted      privacy mute is on, or turning on
 //   off        a refused home folder needs a settings action
 //   loading    setup checks or local voice loads
-//   off        a gate reason or setup step needs an action before Jarvis can listen
+//   off        a gate reason or setup step needs an action before Jarvis can listen;
+//              an offered step with a cause hint shows that hint.
 //   working    Jarvis thinks, waits for confirmation or runs a task
 //   speaking   playback is speaking
 //   ready      Session is idle
@@ -228,7 +229,7 @@ function homeText(values) {
 function unconfiguredText(values) {
     for (var i = 0; i < SETUP_TEXT.length; i++) {
         var step = values[SETUP_TEXT[i][0]];
-        if (step && step.tone === "warning" && !offered(step) && step.hint)
+        if (step && step.tone === "warning" && step.hint)
             return { title: step.text, action: "Open Settings > Jarvis. " + step.hint };
         if (step !== undefined && step !== null && offered(step)) return SETUP_TEXT[i][1];
     }

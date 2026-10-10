@@ -56,6 +56,10 @@ const START_CAUSES = [
     ["jarvis: protocol=identity", "Jarvis and its daemon could not understand each other", "Turn Jarvis off and on again in Settings > Jarvis."],
     ["jarvis: setup=probe-timeout", "Jarvis setup check timed out", "Turn Jarvis off and on again in Settings > Jarvis."]
 ];
+const SETTING_CAUSES = [
+    ["speech=local-ready-timeout", "Local voice did not get ready in time"],
+    ["setup=probe-timeout", "Jarvis setup check timed out"]
+];
 const OVERFLOW = { tone: "danger", text: "capture-overflow" };
 const up = (regions, extra) => Object.assign({ daemon: READY, audio: DEVICES, detail: detail(regions) }, extra);
 
@@ -137,9 +141,9 @@ const CASES = [
     ["local voice to do", up(down("unconfigured"), { setupVoice: TODO, setupModel: MODEL_TODO }),
         ["off", "power-off", "neutral", WITH(setupStep("setupVoice"), [MUTE])]],
     ["the AI model to do", up(down("unconfigured"), { setupVoice: DONE, setupModel: MODEL_TODO }),
-        ["off", "power-off", "neutral", WITH(setupStep("setupModel"), [MUTE])]],
+        ["off", "power-off", "neutral", tip("To do", ["Open Settings > Jarvis. fixture hint", MUTE])]],
     ["the AI model to sign in", up(down("unconfigured"), { setupVoice: DONE, setupModel: MODEL_SIGN_IN }),
-        ["off", "power-off", "neutral", WITH(setupStep("setupModel"), [MUTE])]],
+        ["off", "power-off", "neutral", tip("To do", ["Open Settings > Jarvis. fixture hint", MUTE])]],
     ["gate node", up(down("node")), ["off", "power-off", "neutral", tip("Jarvis needs Node 22 or later", ["Use the requirement notice to install Node.", MUTE])]],
     ["gate lock unknown", up(down("lock-unknown")), ["off", "power-off", "neutral", tip("Jarvis is checking the screen lock", ["Wait for the screen lock check.", MUTE])]],
     ["gate locked", up(down("locked")), ["off", "power-off", "neutral", tip("Jarvis is off while the screen is locked", ["Unlock the screen to use Jarvis.", MUTE])]],
@@ -282,6 +286,12 @@ function verify(view) {
         assert.deepEqual([got.state, got.icon, got.tone, got.tooltip, got.tooltipDetails],
             ["problem", "circle-alert", "danger", title, [action, cause, MUTE]], cause);
     }
+    for (const [cause, words] of SETTING_CAUSES) {
+        const status = SetupGate.readiness({ kind: "answered", causes: [cause] });
+        const got = callView(view, up(down("unconfigured"), status));
+        assert.equal(got.state, "off", cause);
+        assert.equal(got.tooltipDetails.join(" ").includes(words), true, cause + ": widget names cause words");
+    }
     const idle = callView(view, up(down("unconfigured"), { ...SetupGate.readiness({ kind: "answered", causes: ["brain=unselected"] }), setupHome: { tone: "ok", text: "Done", hint: "fixture" } }));
     assert.equal(idle.tooltipDetails.join(" ").includes("fixture"), false);
 }
@@ -331,8 +341,9 @@ const CONTROLS = [
     ["a retry asks for a restart", 'fault.kind === "retrying" ? RETRYING : FAULT_TEXT[kind]', "FAULT_TEXT[kind]"],
     ["an audio problem shows its text", 'return textLook("problem", AUDIO_TEXT, muteOn, effectiveKeys)', 'return look("problem", "Audio problem: " + audio.text, [RESTART], muteOn, effectiveKeys)'],
     ["an unconfigured gate names no step", 'state.gate.reason === "unconfigured" ? unconfiguredText(values) : GATE_TEXT[state.gate.reason]', 'GATE_TEXT[state.gate.reason]'],
+    ["an offered step with a cause hint reads generic", 'if (step && step.tone === "warning" && step.hint)', 'if (step && step.tone === "warning" && !offered(step) && step.hint)'],
     ["a step done reads as to do", 'return step.action === true || typeof step.action === "string";', "return step.action !== undefined;"],
-    ["a named action reads as none", ' || typeof step.action === "string";', ";"],
+    ["a step action is ignored", 'return step.action === true || typeof step.action === "string";', "return false;"],
     ["the AI model reads before local voice", "function unconfiguredText(values) {\n    for (var i = 0; i < SETUP_TEXT.length; i++) {", "function unconfiguredText(values) {\n    for (var i = SETUP_TEXT.length - 1; i >= 0; i--) {"],
     ["keys are not spelled", 'key === null || key === undefined ? null : caps(key).join("+");', 'key;'],
     ["an absent key spells empty", 'key === null || key === undefined ? null : caps(key).join("+");', 'key === null ? null : caps(key).join("+");'],

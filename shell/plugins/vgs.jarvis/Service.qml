@@ -26,6 +26,8 @@ Item {
     property var audioHealth: ({ kind: "reading" })
     property var sessionState: null
     property var conversationLog: []
+    property var setupAnswer: ({ kind: "checking" })
+    property var shellSetupCauses: []
     // The request handlers, built on the first request; see requestHandlers().
     property var requests: null
     property var bubbles: []
@@ -130,12 +132,21 @@ Item {
     // The Setup section's summary and required steps for ANSWER
     // (SetupGate.readiness), and the input step from its reader's VALUE.
     function publishSetup(answer) {
-        const values = Gate.readiness(answer);
+        if (answer.kind === "answered") setupAnswer = answer;
+        else if (answer.kind === "checking") setupAnswer = answer;
+        const merged = answer.kind === "answered" && shellSetupCauses.length > 0
+            ? { kind: "answered", causes: answer.causes.concat(shellSetupCauses.filter(cause => answer.causes.indexOf(cause) === -1)) }
+            : answer;
+        const values = Gate.readiness(merged);
         values.setupModel = Gate.modelStep(values.setupModel, shell.status.values["keys"], accountReader.modelAccess);
         for (const key of Object.keys(values)) {
             const reply = shell.status.set(key, values[key]);
             if (reply !== "ok") throw new Error("jarvis: " + reply);
         }
+    }
+    function publishShellSetup() {
+        shellSetupCauses = localRuntime.setupCause === "" ? [] : [localRuntime.setupCause];
+        publishSetup(setupAnswer);
     }
     function publishInput(value) {
         for (const [key, shown] of [["input", value], ["setupInput", Gate.optionalStep("setupInput", value)]]) {
@@ -152,6 +163,8 @@ Item {
         errorTail = "";
         cause = "";
         lastDiagnostic = "";
+        setupAnswer = { kind: "checking" };
+        shellSetupCauses = [];
         audioHealth = { kind: "reading" };
         sessionState = null;
         indicatorDelivery = { kind: "unknown" };
@@ -744,7 +757,7 @@ Item {
     // engine judges, so each reader's refresh sends the daemon a fresh
     // snapshot; hello() sends none while the child is not running or broken.
     Jarvis.Keys { shell: root.shell; onRefreshed: root.hello() }
-    Jarvis.LocalRuntime { shell: root.shell; onRefreshed: root.hello() }
+    Jarvis.LocalRuntime { id: localRuntime; shell: root.shell; onRefreshed: { root.publishShellSetup(); root.hello(); } }
     Jarvis.LocalTier { shell: root.shell }
     Jarvis.BrowserRuntime { shell: root.shell; stepKey: "setupBrowser" }
     Jarvis.FleetRuntime { shell: root.shell }

@@ -2409,41 +2409,60 @@ jarvis_anchor_shot() {
 # button.
 jarvis_setup_drawn() { ipc smoke setupSection "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); s=json.loads(t) if t.startswith("{") else None; print(s is not None and len(s["chips"]) >= 4 and any(b[0] == "Accounts" for b in s["buttons"]))'; }
 jarvis_cause_status_rows() { # CAUSE PHASE
-  python3 - "$1" "$2" <<'PY'
-import json, sys
-cause, phase = sys.argv[1:]
-titles = {
-    "jarvis: hello=timeout": ("Jarvis did not answer in time", "Turn Jarvis off and on again in Settings > Jarvis."),
-    "jarvis: node=20.19.5 need=22": ("Jarvis needs Node 22 or later", "Use the requirement notice to install Node."),
-    "jarvis: daemon=exit code=1 status=0": ("Jarvis daemon stopped", "Turn Jarvis off and on again in Settings > Jarvis."),
-    "jarvis: protocol=identity": ("Jarvis received a broken daemon message", "Turn Jarvis off and on again in Settings > Jarvis."),
-    "speech=local-ready-timeout": ("Local voice did not get ready in time", "Turn Jarvis off and on again, or set it up again in Settings > Jarvis."),
-    "jarvis: setup=probe-timeout": ("Jarvis setup check timed out", "Turn Jarvis off and on again in Settings > Jarvis."),
+  "$node_bin" - "$repo" "$1" "$2" <<'JS'
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+const [repo, cause, phase] = process.argv.slice(2);
+function lib(file) {
+  const source = fs.readFileSync(file, "utf8").replace(/^\.pragma library\s*/, "");
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext(source + "\nthis.__exports = Object.assign({}, this);", sandbox, { filename: file });
+  return sandbox.__exports;
 }
-title, action = titles[cause]
-unchecked = {"tone": "warning", "text": "Not checked", "action": False}
-unchecked_model = {"tone": "warning", "text": "Not checked"}
-rows = [("audio", {"tone": "ok", "text": "Device list ready"}), ("setupHome", {"hidden": True})]
-if phase == "before":
-    rows += [("detail", None), ("daemon", {"tone": "warning", "text": "Restarting after a problem"}),
-             ("setup", {"tone": "warning", "text": "Jarvis stopped after a problem", "hint": "Turn Jarvis off and on again."}),
-             ("setupVoice", unchecked), ("setupModel", unchecked_model)]
-elif cause == "speech=local-ready-timeout":
-    rows += [("daemon", {"tone": "info", "text": "Ready; no capture"}),
-             ("detail", {"phase": "error", "seq": 1, "state": {"mute": {"kind": "off"}, "capture": {"kind": "closed"},
-              "gate": {"kind": "up"}, "fault": {"kind": "error", "reason": cause, "retry": 0}}}),
-             ("setup", {"tone": "warning", "text": "Not ready", "lines": [cause]}),
-             ("setupVoice", {"tone": "warning", "text": "To do", "hint": action, "action": True}),
-             ("setupModel", {"tone": "ok", "text": "Done"})]
-else:
-    rows += [("detail", None), ("daemon", {"tone": "danger", "text": title, "lines": [action, cause]}),
-             ("setup", {"tone": "danger", "text": title, "hint": action, "lines": [cause]}),
-             ("setupVoice", unchecked), ("setupModel", unchecked_model)]
-    if cause == "jarvis: setup=probe-timeout":
-        rows.append(("localRuntime", {"tone": "warning", "text": title, "hint": action, "action": True, "lines": [cause]}))
-for key, value in rows:
-    print(key + "\t" + json.dumps(value, separators=(",", ":")))
-PY
+function literal(source, pattern, label) {
+  const match = source.match(pattern);
+  if (!match) throw new Error("missing " + label);
+  return match[1];
+}
+const gate = lib(path.join(repo, "shell/plugins/vgs.jarvis/SetupGate.js"));
+const service = fs.readFileSync(path.join(repo, "shell/plugins/vgs.jarvis/Service.qml"), "utf8");
+const readyText = literal(service, /publish\("info", message\.daemon === "locked" \? "Locked; no capture" : "([^"]+)"\)/, "ready literal");
+const audioReady = literal(service, /shell\.status\.set\("audio", \{ tone: "ok", text: "([^"]+)" \}\)/, "audio literal");
+const rows = [["audio", { tone: "ok", text: audioReady }], ["setupHome", { hidden: true }]];
+const hasStartCause = typeof gate.startCause === "function";
+const unchecked = { tone: "warning", text: "Not checked", action: false };
+const uncheckedModel = { tone: "warning", text: "Not checked" };
+function addReady(answer) {
+  rows.push(["daemon", { tone: "info", text: readyText }], ["detail", null]);
+  const values = gate.readiness(answer);
+  for (const key of ["setup", "setupVoice", "setupModel"]) rows.push([key, values[key]]);
+}
+if (phase === "before") {
+  if (cause === "speech=local-ready-timeout" || cause === "setup=probe-timeout") addReady({ kind: "answered", causes: [] });
+  else {
+    const danger = literal(service, /publish\("danger", "([^"]+)"\)/, "old danger literal");
+    rows.push(["detail", null], ["daemon", { tone: "danger", text: danger }]);
+    const values = gate.readiness({ kind: "stopped" });
+    for (const key of ["setup", "setupVoice", "setupModel"]) rows.push([key, values[key]]);
+  }
+} else if (cause === "speech=local-ready-timeout" || cause === "setup=probe-timeout") {
+  addReady({ kind: "answered", causes: [cause] });
+  if (cause === "setup=probe-timeout") {
+    const problem = gate.startCause(cause);
+    rows.push(["localRuntime", { tone: "warning", text: problem.title, hint: problem.action, action: true, lines: [problem.lines[0]] }]);
+  }
+} else {
+  if (!hasStartCause) throw new Error("startCause missing");
+  const problem = gate.startCause(cause);
+  rows.push(["detail", null],
+    ["daemon", { tone: "danger", text: problem.title, lines: [problem.action].concat(problem.lines) }],
+    ["setup", gate.readiness({ kind: "problem", cause }).setup],
+    ["setupVoice", unchecked], ["setupModel", uncheckedModel]);
+}
+for (const [key, value] of rows) console.log(key + "\t" + JSON.stringify(value));
+JS
 }
 jarvis_plant_cause() { # CAUSE PHASE
   local key value reply failed=0
@@ -2644,7 +2663,7 @@ scene_jarvis-causes() { # MODE
     "daemon-exit|jarvis: daemon=exit code=1 status=0|Daemon exit" \
     "wire-defect|jarvis: protocol=identity|Wire defect" \
     "local-voice|speech=local-ready-timeout|Local voice not ready" \
-    "probe-timeout|jarvis: setup=probe-timeout|Probe timeout"; do
+    "probe-timeout|setup=probe-timeout|Probe timeout"; do
     IFS='|' read -r slug cause label <<<"$row"
     expect "the Jarvis $label cause is planted" ok jarvis_plant_cause "$cause" "$phase"
     hover_widget "the pointer rests on Jarvis for $label" vgs.jarvis || continue

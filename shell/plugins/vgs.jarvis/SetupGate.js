@@ -39,7 +39,7 @@ function flooredValue(command, missing, outdated) {
 // summary and one entry per setup step. The required steps come only from
 // the causes the daemon publishes, ChainedEngine's one readiness judge, by
 // the step each cause names; the optional ones from their own readers.
-var REQUIRED = { home: "setupHome", guidance: "setupHome", speech: "setupVoice", brain: "setupModel" };
+var REQUIRED = { home: "setupHome", guidance: "setupHome", speech: "setupVoice", setup: "setupVoice", brain: "setupModel" };
 // The hint a required step still to do shows in place of its declared one,
 // by its cause: what the step's own action does not already say. A cause
 // named nowhere here takes its step's hint below; a step with none there,
@@ -57,6 +57,7 @@ var TODO = {
     "speech=live-key-required": "Add an OpenAI key under Setup at the top of this page.",
     "speech=local-not-ready": "Local voice did not start. Set it up again.",
     "speech=local-ready-timeout": "Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis.",
+    "setup=probe-timeout": "Jarvis setup check timed out. Turn Jarvis off and on again in Settings > Jarvis.",
     "speech=always-local-voice": "Always talk mode listens for Hey Jarvis on this computer. Choose Local in Settings > Voice, or Hold or Toggle in Settings > Listening."
 };
 // Causes whose step the voice setup action cannot complete: the user
@@ -96,7 +97,7 @@ var START_CAUSES = [
     [/^jarvis: daemon=exit code=78 status=/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", action: "Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis." }],
     [/^jarvis: daemon=(exit|ended)/, { kind: "daemon-exit", title: "Jarvis daemon stopped", action: START_RESTART }],
     [/^jarvis: protocol=/, { kind: "wire-defect", title: "Jarvis and its daemon could not understand each other", action: START_RESTART }],
-    [/^jarvis: setup=probe-timeout$/, { kind: "probe-timeout", title: "Jarvis setup check timed out", action: START_RESTART }]
+    [/^(jarvis: )?setup=probe-timeout$/, { kind: "probe-timeout", title: "Jarvis setup check timed out", action: START_RESTART, line: "jarvis: setup=probe-timeout" }]
 ];
 var DAEMON_EXIT = { kind: "daemon-exit", title: "Jarvis daemon stopped", action: START_RESTART };
 var RETRYING_START = "Jarvis is trying again by itself.";
@@ -110,10 +111,15 @@ function startCause(cause) {
     for (var i = 0; i < START_CAUSES.length; i++) {
         if (START_CAUSES[i][0].test(cause)) {
             var words = START_CAUSES[i][1];
-            return { kind: words.kind, title: words.title, action: words.action, lines: [line] };
+            return { kind: words.kind, title: words.title, action: words.action, lines: [statusCauseLine(words.line || line)] };
         }
     }
     return { kind: DAEMON_EXIT.kind, title: DAEMON_EXIT.title, action: DAEMON_EXIT.action, lines: [line] };
+}
+
+function setupCauseLine(cause) {
+    if (cause === "setup=probe-timeout") return statusCauseLine("jarvis: setup=probe-timeout");
+    return statusCauseLine(cause);
 }
 // The installed voice stays verified. Reinstalling it cannot free memory.
 var MEMORY = {
@@ -173,7 +179,7 @@ function readiness(answer) {
         return { setup: { tone: "danger", text: problem.title, hint: answer.action || problem.action, lines: problem.lines },
             setupHome: HOME_READY, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };
     case "answered":
-        var out = { setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" } : { tone: "warning", text: "Not ready", lines: answer.causes.map(statusCauseLine) },
+        var out = { setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" } : { tone: "warning", text: "Not ready", lines: answer.causes.map(setupCauseLine) },
             setupHome: HOME_READY, setupVoice: DONE, setupModel: noAction(DONE) };
         answer.causes.forEach(function (cause) {
             var step = cause.slice(0, cause.indexOf("="));

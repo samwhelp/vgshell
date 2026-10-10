@@ -22,6 +22,7 @@ Item {
     property bool timedOut: false
     property int code: -1
     property string output: ""
+    readonly property string setupCause: timedOut ? "setup=probe-timeout" : ""
     readonly property var tuiState: shell === null ? null : shell.tui.state[tuiName]
     readonly property var endedAt: tuiState === null || tuiState === undefined ? null : tuiState.endedAt
     // Rises after every scan, so an installed or removed command is read again.
@@ -46,7 +47,7 @@ Item {
         let value = { tone: "warning", text: "Setup check failed", action: true };
         try {
             if (timedOut) {
-                const problem = Gate.startCause("jarvis: setup=probe-timeout");
+                const problem = Gate.startCause(setupCause);
                 value = { tone: "warning", text: problem.title, hint: problem.action, action: true, lines: [problem.lines[0]] };
             }
             else if (code === 0) value = JSON.parse(output);

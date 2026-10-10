@@ -68,6 +68,7 @@ const READINESS = [
     ["nothing set up", { kind: "answered", causes: ["speech=local-not-set-up", "brain=unselected"] }, "warning", ["setupVoice", "setupModel"], ["setupVoice"]],
     ["local voice only", { kind: "answered", causes: ["speech=local-not-ready"] }, "warning", ["setupVoice"], []],
     ["local voice ready timeout", { kind: "answered", causes: ["speech=local-ready-timeout"] }, "warning", ["setupVoice"], []],
+    ["probe timeout", { kind: "answered", causes: ["setup=probe-timeout"] }, "warning", ["setupVoice"], []],
     ["the AI model only", { kind: "answered", causes: ["brain=account-unavailable"] }, "warning", ["setupModel"], []],
     // ChainedEngine's cause while no speech row exists has no hint of its own.
     ["a cause with no hint of its own", { kind: "answered", causes: ["speech=no-adapter"] }, "warning", ["setupVoice"], ["setupVoice"]],
@@ -432,7 +433,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
                 brains: [], voiceAccounts: [], search: { found: row.apps.length, partial: "" } }), refreshed: () => {} };
         vm.runInNewContext("(function() { with(root) { return (" + publishAccounts[0] + ").call(root); } })()",
             { root, Gate: gate, Words: words, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
-        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, accountReader: root })(row.answer);
+        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, accountReader: root, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
         try {
             assert.deepEqual([values.setupModel.tone, values.setupModel.action], row.want, row.name);
             const entry = judge.statusRows(manifest, values, []).find(item => item.key === "setupModel");
@@ -561,7 +562,7 @@ function verifyReadiness(gate) {
         assert.equal(got.setup.tone, tone, label + ": the summary");
         assert.equal(got.setup.action, undefined, label + ": the summary offers no step");
         if (answer.kind === "answered" && answer.causes.length > 0 && !(answer.causes.length === 1 && answer.causes[0] === "speech=local-loading"))
-            assert.deepEqual(got.setup.lines, answer.causes, label + ": the summary detail lines");
+            assert.deepEqual(got.setup.lines, answer.causes.map(cause => cause === "setup=probe-timeout" ? "jarvis: setup=probe-timeout" : cause), label + ": the summary detail lines");
         for (const key of ["setupVoice", "setupModel"]) {
             const step = got[key];
             const open = todo.includes(key);
@@ -577,6 +578,9 @@ function verifyReadiness(gate) {
     assert.equal(localNotReady.hint, "Local voice did not start. Set it up again.", "local voice setup-broken words");
     const localReadyTimeout = plain(gate.readiness({ kind: "answered", causes: ["speech=local-ready-timeout"] })).setupVoice;
     assert.equal(localReadyTimeout.hint, "Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis.", "local voice timeout words");
+    const probeTimeout = plain(gate.readiness({ kind: "answered", causes: ["setup=probe-timeout"] }));
+    assert.equal(probeTimeout.setup.lines[0], "jarvis: setup=probe-timeout", "probe timeout detail line");
+    assert.equal(probeTimeout.setupVoice.hint, "Jarvis setup check timed out. Turn Jarvis off and on again in Settings > Jarvis.", "probe timeout words");
     for (const cause of ["speech=local-memory-insufficient", "speech=local-memory-unavailable"]) {
         const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setup.tone, got.setupVoice.tone, got.setupVoice.action, got.setupModel.tone],
@@ -846,7 +850,8 @@ const CONTROLS = [
     ["Always mode offers the local install action", ' && cause !== "speech=always-local-voice";', ";"],
     ["Always mode has no hint of its own", '    "speech=always-local-voice": ', '    "speech=always-local-voice-unused": '],
     ["a cause marks no step", "out[REQUIRED[step]] = hint === undefined", "void (hint === undefined)"],
-    ["a cause marks the other step", 'speech: "setupVoice", brain: "setupModel" };', 'speech: "setupModel", brain: "setupVoice" };'],
+    ["a cause marks the other step", 'speech: "setupVoice", setup: "setupVoice", brain: "setupModel" };', 'speech: "setupModel", setup: "setupVoice", brain: "setupVoice" };'],
+    ["probe timeout marks the wrong step", 'setup: "setupVoice", ', 'setup: "setupModel", '],
     ["a home cause marks no step", 'if (REQUIRED[step] === "setupHome") {', 'if (false) {'],
     ["a home text cause marks the voice step", 'guidance: "setupHome", ', 'guidance: "setupVoice", '],
     ["the home causes share one hint", "hint: Object.prototype.hasOwnProperty.call(HOME_TODO, cause) ? HOME_TODO[cause] : HOME_STEP_TODO };", "hint: HOME_STEP_TODO };"],
@@ -890,7 +895,7 @@ try {
     const accountsSource = fs.readFileSync(accountsFile, "utf8");
     const localRuntimeSource = fs.readFileSync(localRuntimeFile, "utf8");
     {
-        const needle = 'const problem = Gate.startCause("jarvis: setup=probe-timeout");';
+        const needle = 'const problem = Gate.startCause(setupCause);';
         assert.equal(localRuntimeSource.split(needle).length, 2);
         let failure = null;
         try { verifyProbeTimeoutConsumer(localRuntimeSource.replace(needle, 'const problem = { title: "Setup check timed out", action: "Turn Jarvis off and on again in Settings > Jarvis.", lines: ["jarvis: setup=probe-timeout"] };')); }
@@ -1112,6 +1117,6 @@ function verifySetupButtons(gate, manifest) {
     }
 }
 function verifyProbeTimeoutConsumer(source) {
-    assert.equal(source.includes('Gate.startCause("jarvis: setup=probe-timeout")'), true,
+    assert.equal(source.includes('Gate.startCause(setupCause)'), true,
         "probe timeout words come from SetupGate");
 }
