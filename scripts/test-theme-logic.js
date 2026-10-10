@@ -277,7 +277,8 @@ const DEFAULTS = [
     ["size.window.gutter", 12],
     // Nine 36 px entries before a menu scrolls: mul(36, 9) = 324.
     ["menu.maxHeight", 324],
-    ["menu.item.icon", 12],
+    // A menu entry's icon follows its 14 px text: mul(14, 0.8) = 11.2, 11.
+    ["menu.item.icon", 11],
     ["menu.typeahead", 1000],
     ["menu.item.check", "#ff5a36ff"],
     // The scroll bar: 4 px thick, 2 px in, inside an 8 px gutter, a thumb
@@ -1452,7 +1453,7 @@ try {
 const GRID_EXCEPTIONS = [
     [/^(font\.size|text\.[^.]+\.size|bar\.stacked\.size)$/, "type sizes"],
     [/(^border\.|\.border$|[bB]orderWidth$|^divider\.thickness$|^focusRing\.width$|^titleButton\.underline$|^rowAction\.underline(Hover)?$|^tabs\.indicator$|^segmented\.indicator$|^avatarGroup\.ringWidth$|^hyprland\.border\.size$)/, "strokes"],
-    [/^(icon\.size\.|button\.size\.[^.]+\.icon$|rowAction\.icon$|bar\.stacked\.icon$|slider\.handle$|radio\.dot$)/, "indicator and icon drawing sizes"],
+    [/^(icon\.size\.|button\.size\.[^.]+\.icon$|rowAction\.icon$|bar\.stacked\.icon$|menu\.item\.icon$|slider\.handle$|radio\.dot$)/, "indicator and icon drawing sizes"],
     [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|focusRing\.offset|scrollArea\.barInset|titleButton\.underlineGap|rowAction\.underlineGap|carousel\.sliceName\.shadowOffset)$/, "2 px steps inside one component"],
     [/^textField\.paddingX$/, "optical insets inside one component"],
     [/^(space\.sm|badge\.size\.sm\.paddingX|kbd\.paddingX|tooltip\.paddingY)$/, "6 px padding inside a chip, a key cap or a tooltip"],

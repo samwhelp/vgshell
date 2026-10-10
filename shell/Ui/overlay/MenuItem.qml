@@ -9,7 +9,7 @@ import qs.Ui
 // the menu is narrower than the entry, and the shortcut keeps its column.
 // The text and the shortcut centre their capitals on the entry, as a
 // button's label does, since a line box's centre lies below its capitals'
-// centre. The template owns the click, `triggered` and the hover; the
+// centre. Both draw in the menu's own roles, a pixel under a list row's. The template owns the click, `triggered` and the hover; the
 // menu sets `highlighted` for the keyboard. `shortcut` is a hint drawn
 // after the text, not a binding; a click never toggles
 // `checked`, which the author binds. The menu hands every entry its
@@ -77,7 +77,7 @@ T.MenuItem {
         }
         Label {
             id: title
-            role: "item"
+            role: "menuItem"
             text: root.text
             color: Theme.menu.item.foreground
             x: parent.lead
@@ -87,7 +87,7 @@ T.MenuItem {
         }
         Label {
             id: hint
-            role: "itemHint"
+            role: "menuItemHint"
             text: root.shortcut
             visible: root.shortcut !== ""
             color: Theme.menu.item.shortcut

@@ -27,7 +27,8 @@ import qs.Unit
 // the bar's thumb at the top stay inside the curve; a square list draws no
 // layer. A short menu is as wide as its longest entry, with equal side
 // gaps, and only a menu of one short word takes the minimum width; an
-// entry's icon is as tall as its text's capitals.
+// entry's icon is as tall as its text's capitals. A menu entry's text and
+// shortcut draw a pixel under a field's, a select's and a list item's.
 // A press in the anchor's window closes each overlay and reaches no item
 // under it. The nested sandbox proves placement, real keys and the
 // compositor's dismissal.
@@ -93,6 +94,8 @@ Item {
     property int reached: 0
     MouseArea { id: under; x: 250; width: 50; height: 30; onPressed: root.reached += 1 }
     SignalSpy { id: activations; target: roled; signalName: "activated" }
+    TextField { id: field; visible: false }
+    ListItem { id: listRow; visible: false; text: "Row"; secondary: "Detail" }
     FontMetrics { id: itemMetrics; font: settingsEntry.contentItem.children[1].font }
 
     TestCase {
@@ -285,6 +288,30 @@ Item {
             verify(oneWord.items()[0].implicitWidth + 2 * Theme.border.thin < Theme.menu.minWidth, "the one word is narrower than the minimum");
             compare(windowOf(oneWord).width, Theme.menu.minWidth);
             oneWord.close();
+        }
+
+        function labelsOf(item) {
+            let found = [];
+            for (const child of item.children) {
+                if (child instanceof Label) found.push(child);
+                found = found.concat(labelsOf(child));
+            }
+            return found;
+        }
+
+        // At the default 15 px text size a menu entry's text draws at 14 px
+        // and its shortcut at 12, while a field, a select and a list item
+        // keep the shared row roles at 15 and 13.
+        function test_menu_text_draws_a_pixel_under_the_rows() {
+            compare(Theme.font.size, 15);
+            compare(wide.contentItem.children[1].font.pixelSize, 14);
+            compare(wide.contentItem.children[2].text, "Ctrl+Shift+W");
+            compare(wide.contentItem.children[2].font.pixelSize, 12);
+            compare(field.font.pixelSize, 15);
+            compare(select.contentItem.font.pixelSize, 15);
+            const rows = labelsOf(listRow);
+            compare(rows.find(label => label.text === "Row").font.pixelSize, 15);
+            compare(rows.find(label => label.text === "Detail").font.pixelSize, 13);
         }
 
         function longWindow() {

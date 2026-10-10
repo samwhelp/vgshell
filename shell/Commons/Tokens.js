@@ -110,12 +110,17 @@ var TEXT = {
     subheading: role("sans", 1.07, 400, 0, 1.75, false, "textMuted"),
     body: role("sans", 1, 400, 0, 1.6, false, "text"),
     bodyStrong: role("sans", 1, 600, 0, 1.6, false, "text"),
-    // One line of text in a control's row, a menu entry, a select's
-    // choice or a list item: body, hint and code at line height 1, so the
-    // row centres its glyphs as it centres its icon and its inline label.
+    // One line of text in a control's row, a select's choice or a list
+    // item: body, hint and code at line height 1, so the row centres its
+    // glyphs as it centres its icon and its inline label.
     item: role("sans", 1, 400, 0, 1, false, "text"),
     itemHint: role("sans", 0.87, 400, 0, 1, false, "textFaint"),
     itemCode: role("mono", 0.87, 500, 0, 1, false, "text"),
+    // A menu entry's text and its shortcut: a pixel under item and
+    // itemHint at the default size, so a menu reads lighter than the
+    // fields and lists that share those roles.
+    menuItem: role("sans", 0.93, 400, 0, 1, false, "text"),
+    menuItemHint: role("sans", 0.8, 400, 0, 1, false, "textFaint"),
     // The key/value pair: `label` names a value and `value` is the text
     // beside it. The capitals of the two are within a pixel of one height,
     // so centred on one row they share a baseline and read as one line.
@@ -832,12 +837,12 @@ var TOKENS = {
         // corner fits in it. An entry is a list row: at the row height the
         // space above its text's capitals matches its side padding. `icon`
         // draws the entry's icon, check mark and chevron, a glyph as tall as
-        // the text's capitals.
+        // the text's capitals, so it follows the menuItem size.
         item: {
             height: length("{row.height}"),
             paddingX: length("{row.paddingX}"),
             gap: length("{control.gap}"),
-            icon: length("{icon.size.xs}"),
+            icon: length("mul({text.menuItem.size}, 0.8)"),
             radius: length("{menu.radius}"),
             hover: color("{color.surfaceHover}"),
             pressed: color("{color.border}"),

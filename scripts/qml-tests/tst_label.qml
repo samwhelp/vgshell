@@ -84,6 +84,8 @@ Item {
                 { tag: "item", family: sans, size: 15, weight: 400, spacing: 0, uppercase: false, lineHeight: 1 },
                 { tag: "itemHint", family: sans, size: 13, weight: 400, spacing: 0, uppercase: false, lineHeight: 1 },
                 { tag: "itemCode", family: mono, size: 13, weight: 500, spacing: 0, uppercase: false, lineHeight: 1 },
+                { tag: "menuItem", family: sans, size: 14, weight: 400, spacing: 0, uppercase: false, lineHeight: 1 },
+                { tag: "menuItemHint", family: sans, size: 12, weight: 400, spacing: 0, uppercase: false, lineHeight: 1 },
                 { tag: "hint", family: sans, size: 13, weight: 400, spacing: 0, uppercase: false, lineHeight: 1.55 },
                 { tag: "eyebrow", family: mono, size: 12, weight: 700, spacing: 0.18, uppercase: true, lineHeight: 1 },
                 { tag: "label", family: mono, size: 12, weight: 500, spacing: 0.08, uppercase: true, lineHeight: 1 },
@@ -118,10 +120,10 @@ Item {
         }
 
         // The scale's steps, restated: a role at a size between them adds a
-        // step the hierarchy does not need.
-        function test_the_scale_has_eight_steps() {
+        // step the hierarchy does not need. A menu entry's text takes 14.
+        function test_the_scale_has_nine_steps() {
             const sizes = Object.keys(Theme.text).map(name => Theme.text[name].size);
-            compare(Array.from(new Set(sizes)).sort((a, b) => a - b), [12, 13, 15, 16, 18, 20, 24, 34]);
+            compare(Array.from(new Set(sizes)).sort((a, b) => a - b), [12, 13, 14, 15, 16, 18, 20, 24, 34]);
         }
 
         // A key/value row's label and its value: capitals within a pixel of
