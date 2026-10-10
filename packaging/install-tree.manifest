@@ -431,6 +431,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/backend/accounts.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/audio-child.py
 f share/vgshell/shell/plugins/vgs.jarvis/backend/browser-setup.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/claude-hook
+f share/vgshell/shell/plugins/vgs.jarvis/backend/fleet-setup.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/input-check.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/jarvisd.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/keys.js
@@ -464,6 +465,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/setup-local
 f share/vgshell/shell/plugins/vgs.jarvis/tui/accounts.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/add-key.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-browser.sh
+f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-fleet.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-input.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-local.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/sign-in.sh
