@@ -94,7 +94,9 @@ world(async () => {
     // A Jarvis home holding a stand-in for the kendex mail tool at its
     // place. Its mode file picks what a run does; each run leaves its argv,
     // folder, environment and the text file it was given under calls/; its
-    // rows are the lines of box, each an envelope's id alone.
+    // rows are the lines of box, each an envelope's id alone. The home lies
+    // in the scratch HOME inside this checkout, a repository it is not its
+    // own until repository() gives it a .git of its own.
     function fleetHome() {
         const fixture = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "fleet-"));
         const folder = fs.mkdtempSync(path.join(fixtures.home, "jarvis-home-"));
@@ -133,10 +135,13 @@ case "$verb:$mode" in
   send:lost) receipt row-ghost ;;
   send:failed-exit) append; receipt "$next"; exit 1 ;;
   send:hang) sleep 4; append; receipt "$next" ;;
+  send:duplicate) printf 'lane-mail: duplicate id=row-1\nThis envelope was sent to this item less than a minute ago.\n' >&2; exit 2 ;;
+  send:duplicate-gone) echo "lane-mail: duplicate id=row-ghost" >&2; exit 2 ;;
 esac
 `;
         const environment = { PATH: process.env.PATH, HOME: process.env.HOME, TMUX_TMPDIR: path.join(fixture, "tmux"),
-            XDG_RUNTIME_DIR: path.join(fixture, "run"), OPENAI_API_KEY: "sk-fixture", VGSHELL_RUNNER_PID: "1" };
+            XDG_RUNTIME_DIR: path.join(fixture, "run"), GIT_DIR: path.join(fixture, "elsewhere.git"),
+            OPENAI_API_KEY: "sk-fixture", VGSHELL_RUNNER_PID: "1" };
         const read = (call, name) => fs.readFileSync(path.join(fixture, "calls", call, name), "utf8");
         return { folder, environment,
             install(mode) {
@@ -145,13 +150,16 @@ esac
                 fs.chmodSync(tool, mode);
             },
             remove() { fs.rmSync(tool); },
+            repository: () => fs.mkdirSync(path.join(folder, ".git")),
+            unrepository: () => fs.rmSync(path.join(folder, ".git"), { recursive: true }),
+            mailbox: () => fs.mkdirSync(path.join(folder, "tmp/lane-mail/overseer"), { recursive: true }),
             // A new mode starts a new record of runs.
             mode(value) {
                 fs.writeFileSync(path.join(fixture, "mode"), value);
                 for (const name of ["n", "calls"]) fs.rmSync(path.join(fixture, name), { recursive: true, force: true });
             },
             rows: () => fs.existsSync(box) ? fs.readFileSync(box, "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line).id) : [],
-            calls: () => fs.readdirSync(path.join(fixture, "calls")).sort((a, b) => a - b).map(call => ({
+            calls: () => (fs.existsSync(path.join(fixture, "calls")) ? fs.readdirSync(path.join(fixture, "calls")) : []).sort((a, b) => a - b).map(call => ({
                 argv: read(call, "argv").split("\0").slice(0, -1), cwd: read(call, "cwd").trim(),
                 env: Object.fromEntries(read(call, "env").split("\0").filter(Boolean).map(pair => [pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1)])),
                 text: fs.existsSync(path.join(fixture, "calls", call, "text")) ? read(call, "text") : null,
@@ -181,10 +189,17 @@ esac
         const hand = (text, mode = "ok") => { mail.mode(mode); ask(text); return confirmed(); };
         const turn = () => { w.dispatch({ type: "stop" }); w.newTurn(); };
         assert.equal(offered(), false, "no mail tool, no master.request row");
+        mail.install(0o755);
+        mail.mailbox();
+        assert.equal(offered(), false, "a home inside another repository, with none of its own, offers none");
+        mail.repository();
         mail.install(0o644);
         assert.equal(offered(), false, "a mail tool without its execute bit offers none");
         mail.install(0o755);
-        assert.equal(offered(), true, "the home's mail tool offers the row");
+        fs.rmSync(path.join(mail.folder, "tmp"), { recursive: true });
+        assert.equal(offered(), false, "no mailbox yet: no master session has read this folder's mail");
+        mail.mailbox();
+        assert.equal(offered(), true, "the home's mail tool and the master's mailbox offer the row");
         const [outcome, content] = await hand("Rebase the lanes.\nThen report.");
         assert.equal(outcome, "completed");
         assert.deepEqual(mail.rows(), ["row-1"]);
@@ -204,7 +219,7 @@ esac
         assert.equal(calls.some(call => call.argv.some(word => word.includes("Rebase"))), false, "no text in argv");
         assert.deepEqual(calls[2].argv.slice(0, 5), ["events", "--box", "to-lane", "--after", "0"], "the read-back starts past the count");
         assert.deepEqual(calls[1].env, { HOME: mail.environment.HOME, LC_ALL: "C.UTF-8", PATH: mail.environment.PATH,
-            TMUX_TMPDIR: mail.environment.TMUX_TMPDIR, XDG_RUNTIME_DIR: mail.environment.XDG_RUNTIME_DIR }, "lane-mail gets the variables it reads and no key");
+            GIT_CEILING_DIRECTORIES: path.dirname(mail.folder) }, "lane-mail gets the variables it reads, no key, and git stays in the home");
         assert.deepEqual(w.call("master.request", { text: "And one more." }), { kind: "refuse", reason: "turn-limit" }, "a second request in one turn");
         turn();
         assert.equal((await hand("Next turn."))[0], "completed", "the next turn hands one again");
@@ -217,7 +232,17 @@ esac
         assert.deepEqual(mail.calls().map(call => call.argv[0]), ["events"]);
         assert.equal((await hand("Tried again."))[0], "completed", "a call that failed leaves the turn its one request");
         turn();
-        for (const [mode, label] of [["silent", "an exit 0 with no receipt"], ["lost", "a receipt whose row does not read back"], ["failed-exit", "a receipt beside a failed exit"]]) {
+        // lane-mail refuses the identical envelope inside a minute, naming
+        // the row that landed: read back from the mailbox's start, it is the
+        // request handed.
+        const repeated = await hand("Rebase the lanes.\nThen report.", "duplicate");
+        assert.deepEqual([repeated[0], repeated[1].includes("row-1")], ["completed", true], "a duplicate that reads back is handed");
+        assert.deepEqual(mail.calls()[2].argv.slice(0, 5), ["events", "--box", "to-lane", "--after", "0"], "a duplicate reads back the whole mailbox");
+        assert.equal(mail.rows().length, 3, "a duplicate adds no row");
+        assert.equal(w.call("master.request", { text: "After it." }).reason, "turn-limit", "a duplicate counts as the turn's request");
+        turn();
+        for (const [mode, label] of [["silent", "an exit 0 with no receipt"], ["lost", "a receipt whose row does not read back"], ["failed-exit", "a receipt beside a failed exit"],
+            ["duplicate-gone", "a duplicate whose row does not read back"]]) {
             assert.equal((await hand("Maybe.", mode))[0], "unknown", label + " is not reported as handed");
             assert.equal(w.call("master.request", { text: "After it." }).reason, "turn-limit", label + ": a request that may have landed counts");
             turn();
@@ -228,6 +253,12 @@ esac
         assert.deepEqual(await confirmed(), ["failed", "master-request:mail-tool-absent"], "the tool is found again at the start");
         turn();
         mail.install(0o755);
+        ask("No repository at the press.");
+        mail.unrepository();
+        assert.deepEqual(await confirmed(), ["failed", "master-request:mail-tool-absent"], "the home's own repository is found again at the start");
+        assert.deepEqual(mail.calls(), [], "no run in a home that is no repository of its own");
+        turn();
+        mail.repository();
         chosen = null;
         assert.equal(offered(), false, "no home, no master.request row");
         assert.deepEqual(await hand("No home."), ["failed", "master-request:home-unchosen"]);
@@ -680,6 +711,7 @@ esac
             const w = make(implementation);
             const mail = fleetHome();
             mail.install(0o755);
+            mail.repository();
             mail.mode("hang");
             w.router.register("guidance", Help.create(undefined, null, () => mail.folder, mail.environment));
             assert.equal(w.call("master.request", { text: "Hang." }).kind, "held");
@@ -924,7 +956,12 @@ esac
             ["home-topics", "ComputerHelp.js", "topics: () => shipped.concat(skills(home())),", "topics: () => shipped,", "ComputerHelp.js"],
             ["home-unchosen", "ComputerHelp.js", 'if (folder === null) throw new Error("help-topic-unavailable");', "", "ComputerHelp.js"],
             ["home-skill-empty", "ComputerHelp.js", '                    if (text === "") throw new Error("help-file-empty");\n', "", "ComputerHelp.js"],
-            ["request-tool", "ComputerHelp.js", "return folder !== null && Home.mailTool(folder) !== null;", "return folder !== null;", "ComputerHelp.js", "master-request"],
+            ["request-tool", "ComputerHelp.js", "return folder !== null && Home.mailTool(folder) !== null && Home.mailbox(folder);", "return folder !== null && Home.mailbox(folder);", "ComputerHelp.js", "master-request"],
+            ["request-mailbox", "ComputerHelp.js", "return folder !== null && Home.mailTool(folder) !== null && Home.mailbox(folder);", "return folder !== null && Home.mailTool(folder) !== null;", "ComputerHelp.js", "master-request"],
+            ["request-own-repository", "Home.js", "    if (own !== true) return null;\n", "", "ComputerHelp.js", "master-request"],
+            ["request-ceiling", "ComputerHelp.js", 'const env = { LC_ALL: "C.UTF-8", GIT_CEILING_DIRECTORIES: path.dirname(folder) };', 'const env = { LC_ALL: "C.UTF-8" };', "ComputerHelp.js", "master-request"],
+            ["request-duplicate", "ComputerHelp.js", "        if (duplicate !== undefined) {", "        if (false) {", "ComputerHelp.js", "master-request"],
+            ["request-duplicate-whole", "ComputerHelp.js", '            after = "0";\n', "", "ComputerHelp.js", "master-request"],
             ["request-unchosen", "ComputerHelp.js", 'if (folder === null) return failed("home-unchosen");', "", "ComputerHelp.js", "master-request"],
             ["request-found-again", "ComputerHelp.js", 'if (tool === null) return failed("mail-tool-absent");', "", "ComputerHelp.js", "master-request"],
             ["request-counted", "ComputerHelp.js", 'if (header === null) return failed(refusal(counted, "mailbox-unread"));', "", "ComputerHelp.js", "master-request"],
@@ -932,7 +969,7 @@ esac
             ["request-refused-failed", "ComputerHelp.js", "sent.code !== null && sent.code !== 0 && id === undefined", "false", "ComputerHelp.js", "master-request"],
             ["request-receipt-exit", "ComputerHelp.js", "sent.code !== 0 || id === undefined", "id === undefined", "ComputerHelp.js", "master-request"],
             ["request-read-back", "ComputerHelp.js", "JSON.parse(line).id === id", "true", "ComputerHelp.js", "master-request"],
-            ["request-after-count", "ComputerHelp.js", '"--after", header[1]]', '"--after", "0"]', "ComputerHelp.js", "master-request"],
+            ["request-after-count", "ComputerHelp.js", "let after = header[1];", 'let after = "0";', "ComputerHelp.js", "master-request"],
             ["request-environment", "ComputerHelp.js", "for (const name of MAIL_ENVIRONMENT) if (environment[name] !== undefined) env[name] = environment[name];",
                 "Object.assign(env, environment);", "ComputerHelp.js", "master-request"],
             ["request-folder", "ComputerHelp.js", "{ env, cwd: folder,", "{ env,", "ComputerHelp.js", "master-request"],

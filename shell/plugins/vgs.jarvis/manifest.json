@@ -164,6 +164,7 @@
       "entry": { "label": "Accounts", "icon": "users", "group": "Jarvis" } },
     "task": { "script": "tui/task.sh", "title": "Jarvis coding task", "presentation": "plain" },
     "setup-input": {"script": "tui/setup-input.sh", "title": "Check Jarvis input", "entry": {"label": "Check input", "icon": "mouse-pointer", "group": "Jarvis"}},
-    "setup-fleet": { "script": "tui/setup-fleet.sh", "title": "Set up Jarvis agent fleet", "requires": ["gum", "node", "git", "kendex"] }
+    "setup-fleet": { "script": "tui/setup-fleet.sh", "title": "Set up Jarvis agent fleet", "requires": ["gum", "node", "git", "kendex"],
+      "entry": { "label": "Install kendex", "icon": "workflow", "group": "Jarvis" } }
   }
 }

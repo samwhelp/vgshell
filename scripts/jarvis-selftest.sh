@@ -238,9 +238,9 @@ selftest_home_copy() { # SOURCE DEST
 
 # selftest_overseer HOME: where the Jarvis home folder HOME holds kendex's
 # orch skill, an `overseer` member in HOME's fleet state, written by HOME's
-# own workflow-state, which lane-mail's send reads before it appends: one
-# that names no session, which a send takes with a no-reader notice. A
-# record already there is kept, and a state file outside HOME is refused,
+# own workflow-state, which lane-mail's send reads before it appends and
+# otherwise refuses as overseer-absent: one that names no session, which the
+# send needs no more of. A record already there is kept, and a state file outside HOME is refused,
 # so no write reaches the folder the copy was made from.
 selftest_overseer() { # HOME
   local tool="$1/.agents/skills/orch/scripts/workflow-state" file real

@@ -764,6 +764,12 @@ function verify(gate) {
             assert.equal(row.action.label === judge.STATUS_WITHHELD_LABEL, missing.length > 0, label + ": the press installs kendex first while it is missing");
         }
     }
+    verifySetupButtons(gate, judged);
+    // Its control: the manifest without the fleet TUI's entry, which the
+    // manager then does not list.
+    const unlisted = plain(judged);
+    unlisted.tui["setup-fleet"].entry = null;
+    assert.throws(() => verifySetupButtons(gate, unlisted), assert.AssertionError, "an unlisted setup TUI turns the check red");
     assert.deepEqual(plain(judge.tuiMissingRequirements(judged, "setup-fleet", ["kendex", "git", "tmux"])), ["git", "kendex"],
         "the setup terminal needs git and kendex");
     for (const command of ["git", "kendex"])
@@ -1052,6 +1058,8 @@ try {
         assert.deepEqual(answer("tool", "~/Jarvis"), [1, "jarvis: fleet-setup=tool-absent\n"]);
         fs.mkdirSync(path.dirname(tool), { recursive: true });
         fs.writeFileSync(tool, "#!/bin/sh\n", { mode: 0o755 });
+        assert.equal(status("~/Jarvis"), "offered", "a home that is no repository of its own still needs its setup");
+        fs.mkdirSync(path.join(folder, ".git"));
         assert.equal(status("~/Jarvis"), "hidden", "a home with the mail tool needs no setup");
         assert.deepEqual(answer("tool", "~/Jarvis"), [0, tool + "\n"]);
         assert.deepEqual(answer("bogus", "~/Jarvis"), [2, "jarvis: fleet-setup=arguments\n"]);
@@ -1088,7 +1096,21 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length + FLEET.length} controls=${CONTROLS.length + 10 + 54}`);
+console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length + FLEET.length} controls=${CONTROLS.length + 10 + 55}`);
+// Settings draws a step's button only for a TUI the manager lists
+// (Steps.stepButton), so every TUI a Setup step's action opens in MANIFEST,
+// a judged manifest, is a listed one, and the offered fleet row draws its
+// button.
+function verifySetupButtons(gate, manifest) {
+    const listed = judge.listedTuiRows(manifest, []).map(tui => tui.name);
+    for (const [key, entry] of Object.entries(manifest.status).filter(([, entry]) => entry.group === "Setup"))
+        for (const action of [entry.action, ...Object.values(entry.actions ?? {})].filter(action => action?.tui !== undefined))
+            assert.equal(listed.includes(action.tui), true, key + ": the TUI " + action.tui + " its action opens is listed");
+    for (const missing of [[], ["kendex"]]) {
+        const row = judge.statusRows(manifest, { setupFleet: plain(gate.fleetStep("/h/Jarvis", null)) }, missing).find(entry => entry.key === "setupFleet");
+        assert.notEqual(settings.stepButton(judge.listedTuiRows(manifest, missing), row), null, "the fleet row draws its button, missing " + missing);
+    }
+}
 function verifyProbeTimeoutConsumer(source) {
     assert.equal(source.includes('Gate.startCause("jarvis: setup=probe-timeout")'), true,
         "probe timeout words come from SetupGate");

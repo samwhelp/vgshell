@@ -65,4 +65,4 @@ helper tool >/dev/null ||
   vgs_tui_refuse "$log" 1 "jarvis: fleet-setup=still-missing" \
     "kendex finished, but Jarvis cannot find its mail tool in the home folder." || exit
 vgs_tui_step "Agent fleet ready"
-vgs_tui_success "Jarvis hands a request to the master session that reads this folder's mail."
+vgs_tui_success "Jarvis offers fleet requests once your master session reads this folder's mail."

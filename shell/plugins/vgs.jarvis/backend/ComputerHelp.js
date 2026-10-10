@@ -28,15 +28,18 @@ const MAIL_BYTES = 1024 * 1024;
 // alone, `count=<lines> first=<id>`.
 const PAST_EVERY_LINE = String(Number.MAX_SAFE_INTEGER);
 // The lines lane-mail prints (its usage, Header and Receipt): the count
-// header, the receipt of an appended envelope on stdout, and a refusal's
-// first stderr line, `lane-mail: <key>=<value> ...`.
+// header, the receipt of an appended envelope on stdout, a refusal's first
+// stderr line, `lane-mail: <key>=<value> ...`, and the one refusal whose
+// value follows ` id=`: `duplicate`, the identical envelope that already
+// landed in the last minute, named by its id.
 const HEADER = /^count=(\d+) first=/;
 const RECEIPT = /^lane-mail: sent item=overseer id=([A-Za-z0-9._-]+) /m;
+const DUPLICATE = /^lane-mail: duplicate id=([A-Za-z0-9._-]+)$/;
 const REFUSAL = /^lane-mail: ([a-z][a-z0-9-]{0,59})=/;
 // The variables lane-mail reads beside a fixed locale: its tools on PATH,
-// git's HOME, and tmux's socket folders, where the receipt's reader check
-// looks. No key or other daemon variable reaches it.
-const MAIL_ENVIRONMENT = ["PATH", "HOME", "TMUX_TMPDIR", "XDG_RUNTIME_DIR"];
+// and HOME, which git and workflow-state read. No key or other daemon
+// variable reaches it.
+const MAIL_ENVIRONMENT = ["PATH", "HOME"];
 /**
  * create(root, browser, home, environment) builds the guidance executor.
  * home() answers the home folder's path, or null while none is usable;
@@ -59,9 +62,10 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
     }
     // One lane-mail run on the master session's mailbox in the home FOLDER:
     // argv alone, no shell, in the home, where lane-mail finds its
-    // repository.
+    // repository. The git ceiling keeps that search in the home, whatever
+    // repository holds the folder above it.
     function mail(tool, folder, args) {
-        const env = { LC_ALL: "C.UTF-8" };
+        const env = { LC_ALL: "C.UTF-8", GIT_CEILING_DIRECTORIES: path.dirname(folder) };
         for (const name of MAIL_ENVIRONMENT) if (environment[name] !== undefined) env[name] = environment[name];
         return Child.run("setpriv", ["--pdeathsig", "KILL", "--", tool, ...args, "--item", "overseer", "--root", folder],
             { env, cwd: folder, limit: MAIL_BYTES, deadline: MAIL_MS, group: true });
@@ -73,9 +77,11 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
     const failed = cause => ({ outcome: "failed", content: FAILED["master.request"] + cause });
     // Hand TEXT to the master session's mailbox with the home's mail tool,
     // found again here: the mailbox's count, then the send, its text in a
-    // private file, then the rows past that count read back. A run that
-    // ended before it could append is failed; one that may have appended
-    // and did not read back is unknown.
+    // private file, then the rows past that count read back; for a send
+    // lane-mail refuses as a duplicate, the whole mailbox, where the row it
+    // names landed before the count. A run that ended before it could
+    // append is failed; one that may have appended and did not read back is
+    // unknown.
     async function request(text) {
         const folder = home();
         if (folder === null) return failed("home-unchosen");
@@ -92,15 +98,20 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
             sent = await mail(tool, folder, ["send", "--directive", "--file", file]);
         } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
         if (sent.kind === "error") return failed("mail-tool-" + sent.reason);
-        const id = sent.kind === "exited" ? RECEIPT.exec(sent.stdout)?.[1] : undefined;
-        // A refusal exits with a code and prints no receipt: nothing was appended.
-        if (sent.kind === "exited" && sent.code !== null && sent.code !== 0 && id === undefined)
-            return failed(refusal(sent, "send-refused"));
+        let id = sent.kind === "exited" ? RECEIPT.exec(sent.stdout)?.[1] : undefined;
+        let after = header[1];
+        const refused = sent.kind === "exited" && sent.code !== null && sent.code !== 0 && id === undefined;
+        const duplicate = refused ? DUPLICATE.exec(sent.stderr.split("\n")[0])?.[1] : undefined;
+        if (duplicate !== undefined) {
+            id = duplicate;
+            after = "0";
+        // Any other refusal exits with a code and prints no receipt: nothing was appended.
+        } else if (refused) return failed(refusal(sent, "send-refused"));
         // A run the bound or a signal ended, or a receipt beside a failed
         // exit, or an exit 0 with none, may have appended.
-        if (sent.kind !== "exited" || sent.code !== 0 || id === undefined)
+        else if (sent.kind !== "exited" || sent.code !== 0 || id === undefined)
             return { outcome: "unknown", content: "Unknown: lane-mail ended without a receipt, so the request may be in the master session's mailbox or not." };
-        const back = await mail(tool, folder, ["events", "--box", "to-lane", "--after", header[1]]);
+        const back = await mail(tool, folder, ["events", "--box", "to-lane", "--after", after]);
         const rows = back.kind === "exited" && back.code === 0 ? back.stdout.split("\n").slice(1) : [];
         const found = rows.some(line => {
             try { return JSON.parse(line).id === id; } catch { return false; }
@@ -112,10 +123,12 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
     return { commands: [], timeoutMs: Math.max(browser === null ? 2000 : browser.timeoutMs, 3 * MAIL_MS + 1000), cancellable: false,
         // Read at each offer: the user adds a skill without a restart.
         topics: () => shipped.concat(skills(home())),
-        // And the mail tool at each offer: the user installs it from Setup.
+        // And the mail tool and the master's mailbox at each offer: the user
+        // installs the tool from Setup, and the master session makes its
+        // mailbox when it first reads this folder's mail.
         fleet() {
             const folder = home();
-            return folder !== null && Home.mailTool(folder) !== null;
+            return folder !== null && Home.mailTool(folder) !== null && Home.mailbox(folder);
         },
         // Verified readiness extends the offer once.
         enableBrowser() {

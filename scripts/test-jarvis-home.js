@@ -11,6 +11,7 @@
 // at a time, and must turn a case red; one plants a project-instructions
 // block in a copy of the package and must fail that row.
 "use strict";
+const cp = require("node:child_process");
 const { assert, fs, path, tree, world, seed, mutant } = require("./fixtures/jarvis/policy.js");
 const file = path.join(tree, "shell/plugins/vgs.jarvis/backend/Home.js");
 
@@ -347,13 +348,14 @@ world(() => {
             for (let n = 0; n < 10001; n++) fs.writeFileSync(path.join(crowded, "memory", "n" + n + ".md"), "note\n");
             keyed(() => Home.notes(crowded), "notes-too-many");
         },
-        // The mail tool is the one program of the home: an executable file at
-        // TOOL is its path, and the same file anywhere else in the home is
-        // none, as is TOOL that is no executable regular file or is reached
-        // through a link.
+        // The mail tool is the one program Jarvis starts from the home: an
+        // executable file at TOOL is its path, and the same file anywhere
+        // else in the home is none, as is TOOL that is no executable regular
+        // file or is reached through a link.
         mailTool(Home) {
             const folder = fresh();
             Home.layout(folder);
+            fs.mkdirSync(path.join(folder, ".git"));
             const plant = (entry, mode = 0o755) => {
                 fs.mkdirSync(path.dirname(path.join(folder, entry)), { recursive: true });
                 fs.writeFileSync(path.join(folder, entry), "#!/bin/sh\n", { mode });
@@ -383,6 +385,52 @@ world(() => {
             fs.symlinkSync(path.join(outside, "scripts"), path.join(folder, ".agents/skills/orch/scripts"));
             assert.equal(Home.mailTool(folder), null, "a linked folder on the way");
             assert.equal(Home.mailTool(path.join(folder, "absent")), null, "a home that is not there");
+        },
+        // lane-mail takes the repository its working folder belongs to, so
+        // the tool counts only in a home that is its own repository: one
+        // with a .git folder, or a worktree's .git file, of its own. A home
+        // inside another repository with none, as this scratch HOME lies
+        // inside this checkout, or with a linked .git, has no tool.
+        ownRepository(Home) {
+            const folder = fresh();
+            Home.layout(folder);
+            fs.mkdirSync(path.dirname(path.join(folder, TOOL)), { recursive: true });
+            fs.writeFileSync(path.join(folder, TOOL), "#!/bin/sh\n", { mode: 0o755 });
+            const git = path.join(folder, ".git");
+            assert.equal(Home.mailTool(folder), null, "a home with no repository of its own");
+            const outside = path.join(path.dirname(folder), "outside.git");
+            fs.mkdirSync(outside);
+            fs.symlinkSync(outside, git);
+            assert.equal(Home.mailTool(folder), null, "a linked .git");
+            fs.rmSync(git);
+            assert.equal(cp.spawnSync("python3", ["-c", "import os, sys; os.mkfifo(sys.argv[1])", git]).status, 0, "the test makes a FIFO");
+            assert.equal(Home.mailTool(folder), null, "a .git that is neither a folder nor a file");
+            fs.rmSync(git);
+            // The control the refusals rest on: a .git of its own admits the tool.
+            fs.mkdirSync(git);
+            assert.equal(Home.mailTool(folder), path.join(folder, TOOL), "a .git folder of its own");
+            fs.rmSync(git, { recursive: true });
+            fs.writeFileSync(git, "gitdir: /elsewhere/.git/worktrees/home\n");
+            assert.equal(Home.mailTool(folder), path.join(folder, TOOL), "a worktree's .git file");
+        },
+        // The master session's mailbox folder, which Jarvis never makes: a
+        // folder at its place, reached through no link.
+        mailbox(Home) {
+            const folder = fresh();
+            Home.layout(folder);
+            assert.equal(Home.mailbox(folder), false, "no mailbox");
+            fs.mkdirSync(path.join(folder, "tmp/lane-mail"), { recursive: true });
+            fs.writeFileSync(path.join(folder, "tmp/lane-mail/overseer"), "");
+            assert.equal(Home.mailbox(folder), false, "a file in the mailbox's place");
+            fs.rmSync(path.join(folder, "tmp/lane-mail/overseer"));
+            const outside = path.join(path.dirname(folder), "outside-box");
+            fs.mkdirSync(outside);
+            fs.symlinkSync(outside, path.join(folder, "tmp/lane-mail/overseer"));
+            assert.equal(Home.mailbox(folder), false, "a linked mailbox");
+            fs.rmSync(path.join(folder, "tmp/lane-mail/overseer"));
+            fs.mkdirSync(path.join(folder, "tmp/lane-mail/overseer"));
+            assert.equal(Home.mailbox(folder), true, "the master's mailbox folder");
+            assert.deepEqual(fs.readdirSync(path.join(folder, "tmp/lane-mail/overseer")), [], "nothing is made in it");
         }
     };
 
@@ -440,6 +488,13 @@ world(() => {
         ["tool-entry", 'const MAIL_TOOL = ".agents/skills/orch/scripts/lane-mail";', 'const MAIL_TOOL = "skills/own/lane-mail";', "mailTool"],
         ["tool-execute", " && (stat.mode & 0o100) !== 0", "", "mailTool"],
         ["tool-file", "stat.isFile() && (stat.mode", "(stat.mode", "mailTool"],
+        ["own-repository", "    if (own !== true) return null;\n", "", "ownRepository"],
+        ["own-repository-kind", "return stat.isDirectory() || stat.isFile();", "return true;", "ownRepository"],
+        ["own-repository-link", [['if (kind === "absent" || kind === "link") fail(kind);', 'if (kind === "absent") fail(kind);'],
+            ["(last ? flags : O_RDONLY | O_DIRECTORY) | O_NOFOLLOW", "(last ? flags : O_RDONLY | O_DIRECTORY)"]], null, "ownRepository"],
+        ["own-repository-name", 'const OWN_REPOSITORY = ".git";', 'const OWN_REPOSITORY = ".agents";', "ownRepository"],
+        ["mailbox-folder", 'const MAILBOX = "tmp/lane-mail/overseer";', 'const MAILBOX = "tmp/lane-mail";', "mailbox"],
+        ["mailbox-kind", "return held(home, MAILBOX, O_RDONLY | O_DIRECTORY, () => true) === true;", "return held(home, MAILBOX, O_RDONLY | O_NONBLOCK, () => true) === true;", "mailbox"],
         ["tool-link", [['if (kind === "absent" || kind === "link") fail(kind);', 'if (kind === "absent") fail(kind);'],
             ["(last ? flags : O_RDONLY | O_DIRECTORY) | O_NOFOLLOW", "(last ? flags : O_RDONLY | O_DIRECTORY)"]], null, "mailTool"]
     ]) {
