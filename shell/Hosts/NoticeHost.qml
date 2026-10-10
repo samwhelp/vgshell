@@ -26,8 +26,11 @@ import qs.Ui
 // shown notice's install runs the window is gone, so the floating TUI it
 // opened, centred on the same monitor, shows whole; a notice the scan
 // after the run keeps comes back as a new window that takes the keyboard. The window fills the area other
-// layers leave free, less `dialog.margin`, whatever the dialog's size; the
-// dialog sits in its centre and alone takes pointer input.
+// layers leave free, less `dialog.margin`, whatever the dialog's size, and
+// the dialog sits in its centre. The scrim, `color.scrim`, fills the window
+// under the dialog and dims what lies behind it. The dialog alone takes
+// pointer input, so a click on the scrim reaches what is under it, and no
+// notice is modal for the pointer.
 Scope {
     id: host
 
@@ -35,6 +38,8 @@ Scope {
 
     // The dialog, for a validation row that reads its focus.
     readonly property Item dialog: loader.item === null ? null : loader.item.dialog
+    // The scrim under it, for a validation row that reads where it is drawn.
+    readonly property Item scrim: loader.item === null ? null : loader.item.scrim
 
     // "<Name> needs one package" or "<Name> needs N packages", counting
     // the shown notice's groups (PluginLogic.noticeGroups); requirements
@@ -86,6 +91,7 @@ Scope {
             id: win
 
             readonly property Item dialog: card
+            readonly property Item scrim: wash
             readonly property var shown: Notices.view
             readonly property var consent: host.consent()
             readonly property bool consentMode: win.shown === null && win.consent !== null
@@ -96,6 +102,12 @@ Scope {
             inputItems: [card]
             WlrLayershell.namespace: "vgs:notice"
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+
+            // Outside `inputItems`, so the window's mask leaves it out and
+            // its presses, hover and wheel go to what lies under it.
+            Scrim {
+                id: wash
+            }
 
             Dialog {
                 id: card

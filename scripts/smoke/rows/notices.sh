@@ -10,9 +10,11 @@
 # under it, the command's name when no package is known; the surface fills the monitor less the bar's reserved space less
 # `dialog.margin`, clears the bar by that margin and centres the dialog; a
 # click on the bar's acme.tick widget reaches it while the notice shows; a
-# click on the surface beside the dialog reaches the acme.layers fixture's
-# layer below, which rows/layers.sh installed and left disabled, and a click
-# on the dialog's title does not, which is the mask's control;
+# click beside the dialog lands on the scrim, which fills the surface in
+# `color.scrim`, dims what lies behind it and takes no input, so it reaches
+# the acme.layers fixture's layer below, which rows/layers.sh installed and
+# left disabled, and a click on the dialog's title does not, which is the
+# mask's control;
 # Escape closes it and rests the plugin's own offers;
 # enabling the plugin raises it again; the plugin's offer merges into a
 # held notice and is refused while it rests, for a command it did not
@@ -38,7 +40,7 @@
 # alone with Close. The enable trigger's control is
 # scripts/smoke/rows/notices-control.sh, the suite's last row: a shell copy
 # without the trigger raises no notice.
-# inputs: scripts/smoke/fixtures/plugins/acme.needs/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/layers.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui bin/vgshell-scan shell/Core/Registry.qml shell/Core/Capabilities.qml
+# inputs: scripts/smoke/fixtures/plugins/acme.needs/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/foundation/Scrim.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/layers.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui bin/vgshell-scan shell/Core/Registry.qml shell/Core/Capabilities.qml
 set -euo pipefail
 needs_src="$sandbox/src/acme.needs"
 mkdir -p "$needs_src"
@@ -109,6 +111,19 @@ l, c = json.loads(sys.argv[1]), json.loads(sys.argv[2])
 if not isinstance(l, list) or not isinstance(c, list) or c[0] < 2: sys.exit(1)
 print(int(l[0] + c[0] / 2), int(l[1] + c[1] + c[3] / 2))' "$layer" "$card"
 }
+# notice_on_scrim X Y: `ok` when the layout point lies inside the notice's
+# scrim, drawn, above opacity 0 and in `color.scrim`; else the readings.
+notice_on_scrim() {
+  local layer box drawn
+  layer="$(surface_box vgs:notice)" || return 1
+  box="$(ipc smoke noticeWindowGeometry scrim)" || return 1
+  drawn="$(ipc smoke noticeScrim)" || return 1
+  [[ $box == \[* && $drawn == \{* ]] || { echo "box=$box drawn=$drawn"; return; }
+  python3 -c 'import json,sys
+l, b, d, x, y = json.loads(sys.argv[1]), json.loads(sys.argv[2]), json.loads(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5])
+inside = l[0] + b[0] <= x < l[0] + b[0] + b[2] and l[1] + b[1] <= y < l[1] + b[1] + b[3]
+print("ok" if inside and d["visible"] and d["opacity"] > 0 and d["token"] else json.dumps({"layer": l, "point": [x, y], "box": b, "drawn": d}))' "$layer" "$box" "$drawn" "$1" "$2"
+}
 install_words() {
   words --app-id=org.vgs.tui "--title=VGS · Install requirements" -- "$tui_self" present --presentation full \
     --record core/requirements-install --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id org.vgs.tui --window-title "VGS · Install requirements" -- "$core_vgshell" pkg run install "$@"
@@ -165,8 +180,9 @@ hover_click "$tick_x" "$tick_y" || fail "the click on the Tick widget failed"
 expect_poll "a click on the bar's widget while the notice shows reaches it" "$((tick_presses + 1))" read_tick presses
 read -r gap_x gap_y < <(notice_gap_point) || fail "the notice surface beside the dialog was not measured"
 read_count presses "the presses of the layer below the notice" read_layers presses
+expect "the point beside the dialog lies on the drawn scrim" ok notice_on_scrim "$gap_x" "$gap_y"
 hover_click "$gap_x" "$gap_y" || fail "the click beside the dialog failed"
-expect_poll "a click on the notice surface beside the dialog reaches the layer below" "$((presses + 1))" read_layers presses
+expect_poll "a click on the scrim beside the dialog reaches the layer below" "$((presses + 1))" read_layers presses
 title_rect="$(ipc smoke noticeWindowGeometry title)" || title_rect=""
 read -r title_x title_y < <(at_centre vgs:notice "$title_rect") || fail "the dialog's title was not measured"
 hover_click "$title_x" "$title_y" || fail "the click on the dialog's title failed"

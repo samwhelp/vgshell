@@ -1148,15 +1148,25 @@ Scope {
             const dialog = Plugins.hosts.notice === undefined ? null : Plugins.hosts.notice.dialog;
             return dialog !== null && root.descendants(dialog).some(child => child.activeFocus);
         }
-        // The dialog's box, or its title's for `title`, in the notice
-        // window's coordinates, or "absent" while no notice shows.
+        // The dialog's box, its title's for `title` or the scrim's for
+        // `scrim`, in the notice window's coordinates, or "absent" while no
+        // notice shows.
         function noticeWindowGeometry(part: string): string {
             const dialog = Plugins.hosts.notice === undefined ? null : Plugins.hosts.notice.dialog;
             if (dialog === null) return "absent";
             if (part === "card") return root.json(root.windowBox(dialog));
-            if (part !== "title") return "refused: part=" + part + " want=card|title";
+            if (part === "scrim") return Plugins.hosts.notice.scrim === null ? "absent" : root.json(root.windowBox(Plugins.hosts.notice.scrim));
+            if (part !== "title") return "refused: part=" + part + " want=card|title|scrim";
             const title = root.descendants(dialog).find(child => root.typeName(child) === "Label" && child.visible && child.text === dialog.title);
             return title === undefined ? "absent" : root.json(root.windowBox(title));
+        }
+        // How the notice's scrim is drawn, as { visible, opacity, color,
+        // scrimToken, token }: the colour it draws, `color.scrim`, and
+        // whether the two are one colour; "absent" while no notice shows.
+        function noticeScrim(): string {
+            const scrim = Plugins.hosts.notice === undefined ? null : Plugins.hosts.notice.scrim;
+            if (scrim === null) return "absent";
+            return root.json({ visible: scrim.visible, opacity: scrim.opacity, color: String(scrim.color), scrimToken: String(Theme.color.scrim), token: Qt.colorEqual(scrim.color, Theme.color.scrim) });
         }
         // The dialog's height, its window's, and how many of its shown
         // scroll areas overflow, or "absent" while no notice shows.
