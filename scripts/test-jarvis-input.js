@@ -340,6 +340,19 @@ async function helpEvidence() {
         assert.equal(result.outcome, "failed");
     };
     check(Help);
+    // A tool a help file names is one the bridge offers: a brain told to call
+    // an absent tool gets unknown-tool. Each shipped file names at least one.
+    const named = text => [...text.matchAll(/`([a-z]+\.[a-z]+)`/g)].map(match => match[1]);
+    const unknown = folder => fs.readdirSync(folder).flatMap(name => {
+        const names = named(fs.readFileSync(path.join(folder, name), "utf8"));
+        assert.ok(names.length > 0, name + " names no tool");
+        return names.filter(id => !Object.hasOwn(Tools.TABLE, id));
+    });
+    assert.deepEqual(unknown(path.join(backend, "skills/computer")), []);
+    const absent = path.join(process.env.JARVIS_TEST_ROOT, "computer-help-absent");
+    fs.mkdirSync(absent);
+    fs.writeFileSync(path.join(absent, "input.md"), "- `input.key` presses a chord. `windows.drag` moves a window.\n");
+    assert.deepEqual(unknown(absent), ["windows.drag"], "a name absent from the bridge fails");
     await mutant(path.join(backend, "ComputerHelp.js"), "help-uninstalled", 'if (!shipped.includes(topic)) throw new Error("help-topic-unavailable");', ';', module => {
         const owner = module.create(dir); let result;
         owner.start({ id: "help", args: { topic: "windows" } }, value => { result = value; });

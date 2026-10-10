@@ -2,6 +2,7 @@
 
 - `input.text` types exact text into the current application.
 - `input.key` presses a chord written with SUPER, CTRL, ALT and SHIFT.
+- Never press a chord to run a Hyprland shortcut: a synthetic key reaches a shortcut only under some keymap settings. Run the action with its own tool, such as `windows.focus`, `workspaces.focus` or `apps.launch`, or tell the user that no tool runs it.
 - `input.click` clicks a button at absolute layout coordinates.
 - `input.scroll` sends vertical or horizontal scrolling at those coordinates.
 - The policy grants an application for the conversation in Standard. Tainted input still needs confirmation. Cautious confirms each call.
