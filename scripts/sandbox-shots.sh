@@ -1829,24 +1829,31 @@ scene_theme-browser() { # MODE
   rm -rf -- "${home:?}/.config/vgshell/themes/${theme_card:?}" "${themes_mismatch:?}"
 }
 
-# The wallpaper browser over nord, applied with two images, and a second
-# monitor, which gives the browser its monitor scope. The scene removes the
-# monitor and restores the mode's theme, so a later scene starts from the
-# run's own state.
+# The wallpaper browser over a catalog package with the mode's look,
+# flexoki-light in light and nord in every other mode, applied with two
+# images, and a second monitor, which gives the browser its monitor scope.
+# Each shot first reads the package's scheme published. The scene removes
+# the monitor and restores the mode's theme, so a later scene starts from
+# the run's own state.
 wallpaper_output="VGS-SHOT"
 # overlays_on OUTPUT: the live vgs:overlay layers on that output.
 overlays_on() { hypr -j layers | python3 -c 'import json,sys; m=json.load(sys.stdin).get(sys.argv[1]); print(0 if m is None else sum(1 for lv in m["levels"].values() for l in lv if l["namespace"]=="vgs:overlay" and l["pid"]!=-1))' "$1"; }
+# wallpaper_look NAME LOOK: the published scheme is LOOK, NAME's own.
+wallpaper_look() { expect_poll "the wallpaper browser shows the $2 look of $1" "\"$2\"" ipc smoke themeValue scheme.mode; }
 scene_wallpaper-browser() { # MODE
-  local theme_dir="$home/.config/vgshell/themes/nord"
+  local name=nord look
+  [[ $1 != light ]] || name=flexoki-light
+  local theme_dir="$home/.config/vgshell/themes/$name"
+  look="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tokens"]["scheme"]["mode"])' "$repo/themes/catalog/$name/theme.json")" || fail "the $name catalog package names no scheme for the wallpaper browser shot"
   # The runner's install writes the catalog marker, with no wallpapers, so
   # the Theme source ends on the download card.
   rm -rf -- "${theme_dir:?}"
-  sandbox_vgshell theme install nord >/dev/null || fail "nord installs for the wallpaper browser shot"
+  sandbox_vgshell theme install "$name" >/dev/null || fail "$name installs for the wallpaper browser shot"
   mkdir -p -- "$theme_dir/backgrounds"
   cp -- "$checkout/scripts/smoke/fixtures/theme-image.jpg" "$theme_dir/backgrounds/a.jpg"
   cp -- "$checkout/scripts/smoke/fixtures/theme-image.jpg" "$theme_dir/backgrounds/b.jpg"
-  sandbox_vgshell theme apply nord >/dev/null || fail "nord applies for the wallpaper browser shot"
-  expect_poll "nord is published for the wallpaper browser shot" nord ipc smoke themeName
+  sandbox_vgshell theme apply "$name" >/dev/null || fail "$name applies for the wallpaper browser shot"
+  expect_poll "$name is published for the wallpaper browser shot" "$name" ipc smoke themeName
   expect "the nested compositor adds a monitor for the wallpaper browser shot" ok hypr output create headless "$wallpaper_output"
   expect "vgs.themes enables for the wallpaper browser shot" ok ipc shell setPluginEnabled vgs.themes true
   expect_poll "vgs.themes is built for the wallpaper browser shot" True record_exists vgs.themes
@@ -1857,24 +1864,29 @@ scene_wallpaper-browser() { # MODE
   expect_poll "the wallpaper browser is on $SHOT_OUTPUT" 1 overlays_on "$SHOT_OUTPUT"
   expect_poll "the wallpaper browser shows its monitor scope" true ipc smoke readDescendant overlay vgs.themes WallpaperView scoped
   park_pointer
+  wallpaper_look "$name" "$look"
   take "wallpaper-browser-$1"
+  wallpaper_look "$name" "$look"
   hover_card "the pointer rests on the wallpaper browser's next card" && take_posed "wallpaper-browser-$1-hover"
   park_pointer
   type_keys a. || fail "typing the wallpaper browser's filter failed"
   expect_poll "the wallpaper browser's filter reaches the view" '"a."' ipc smoke readDescendant overlay vgs.themes WallpaperView filterText
+  wallpaper_look "$name" "$look"
   take "wallpaper-browser-$1-filter"
   type_keys -k Escape || fail "clearing the wallpaper browser's filter failed"
   expect_poll "Escape clears the wallpaper browser's filter" '""' ipc smoke readDescendant overlay vgs.themes WallpaperView filterText
   type_keys -k End || fail "End in the wallpaper browser failed"
   expect_poll "End selects the wallpaper download card" '"download"' wallpaper_selected_kind
+  wallpaper_look "$name" "$look"
   take "wallpaper-browser-$1-download"
   type_keys -M alt -k s -m alt || fail "Alt+S in the wallpaper browser failed"
   expect_poll "Alt+S shows every source's images" '"all"' ipc smoke readDescendant overlay vgs.themes WallpaperView source
+  wallpaper_look "$name" "$look"
   take "wallpaper-browser-$1-all"
   expect "the wallpaper browser hides" ok ipc shell hide overlay vgs.themes
   expect_poll "the wallpaper browser is gone" 0 layer_count vgs:overlay
   expect "the wallpaper browser shot's monitor is removed" ok hypr output remove "$wallpaper_output"
-  # Applying vgs restores its shipped Black wallpaper after nord's image.
+  # Applying vgs restores its shipped Black wallpaper after the package's image.
   sandbox_vgshell theme apply vgs >/dev/null || fail "vgs applies after the wallpaper browser shot"
   expect_poll "Black is drawn after the wallpaper browser shot" 1 layer_count vgs:background
   rm -rf -- "${theme_dir:?}"
@@ -3094,37 +3106,127 @@ voice_setup_launcher_ready() {
   expect_poll "the launcher state is present for the Voice setup run" present voice_setup_launcher
 }
 
-# The themes panel summoned over the shipped and catalog
-# packages and a refused one: its top, the pointer on a row, its catalog
-# scrolled into view, a click on the vgs row held behind a gate and the
-# partial result the gate lets through. The stand-in runner answers every
-# apply with that result, which changes no theme, polls the gate every
-# 50 ms for at most 10 s and hands every other command to the real runner.
+# The themes panel summoned over the shipped and catalog packages, the
+# light catalog package installed and a refused one: its top, the pointer
+# on a row, its catalog scrolled into view, a click on the vgs row held
+# behind a gate and the partial result the gate lets through. The stand-in
+# runner answers every apply with the exit code and result in
+# themes_answer, which change no theme, polls the gate every 50 ms for at
+# most 10 s and hands every other command to the real runner. The core
+# keeps the last apply result for the shell's life (ThemeRunner.qml), so
+# the scene ends on a second click answered with a quiet result, and the
+# next pass opens a panel that draws no line under the vgs row. For the
+# scene a dark mode's theme file holds the shipped vgs bytes, so its row
+# is current and not modified, as the installed light package's is in
+# light. The dark and light passes, narrow ones included, must draw the
+# same rows, badges and lines at the top and after the failure, Displayed
+# aside, which marks the mode's own theme: the first of them sets each
+# stage's reference.
 themes_mismatch="$home/.config/vgshell/themes/mismatch"
+themes_installed=flexoki-light
+themes_installed_dir="$home/.config/vgshell/themes/$themes_installed"
 themes_gate="$sandbox/shots-themes-gate"
-themes_result='{"state":"partial","shell":"unchanged","targets":[{"name":"kitty","state":"failed","reason":"placeholder"}],"theme":"vgs","reason":null}'
+themes_answer="$sandbox/shots-themes-answer"
+themes_failed='{"state":"partial","shell":"unchanged","targets":[{"name":"kitty","state":"failed","reason":"placeholder"}],"theme":"vgs","reason":null}'
+themes_quiet='{"state":"ok","shell":"unchanged","targets":[],"theme":"vgs","reason":null}'
+declare -A themes_panel_reference=() themes_panel_first=()
 themes_panel_listed() { ipc smoke readInstance panel vgs.themes catalogEntries | py_reply 'import json,sys; t=sys.stdin.read(); print(t.startswith("[") and len(json.loads(t)) > 0)'; }
 themes_panel_shown() { [[ $(ipc smoke readInstance panel vgs.themes packages) != absent ]] && echo open || echo closed; }
 themes_panel_last() { ipc smoke readInstance panel vgs.themes last | py_reply 'import json,sys; l=json.load(sys.stdin); print("applying" if l["applying"] else "result" if l["result"] else "none")'; }
+# The state of the last apply result the panel draws, or `applying` or
+# `none`.
+themes_panel_result() { ipc smoke readInstance panel vgs.themes last | py_reply 'import json,sys; l=json.load(sys.stdin); r=l["result"]; print("applying" if l["applying"] else "none" if r is None else r["state"])'; }
+# The core's retained list, which the panel copies when it opens: whether
+# it accepts the installed light package, and the theme file's package and
+# whether it is modified, as `NAME MODIFIED`; and the catalog's install
+# flag for that package.
+themes_listed_installed() { ipc smoke readInstance service vgs.themes listing | py_reply 'import json,sys; l=json.load(sys.stdin); print(l is not None and any(p["name"] == sys.argv[1] and p["state"] == "ok" for p in l["packages"]))' "$themes_installed"; }
+themes_listed_file() { ipc smoke readInstance service vgs.themes listing | py_reply 'import json,sys; l=json.load(sys.stdin); print("none" if l is None else "%s %s" % (l["file"]["name"], json.dumps(l["file"]["modified"])))'; }
+themes_catalog_installed() { ipc smoke readInstance service vgs.themes catalog | py_reply 'import json,sys; e=json.load(sys.stdin)["entries"] or []; print(any(x["name"] == sys.argv[1] and x["installed"] for x in e))' "$themes_installed"; }
+# The panel's digest: each ThemeRow's visible texts, its name, secondary
+# line, badges, action and lines, in tree order, Displayed dropped.
+themes_panel_state() { ipc smoke itemTexts panel vgs.themes ThemeRow | py_reply 'import json,sys; print(json.dumps([[t for t in row if t != "Displayed"] for row in json.load(sys.stdin)], ensure_ascii=False))'; }
+# `ok` when the rows that draw Displayed are exactly the rows named after
+# the published theme, at least one; else the names of the rows that do.
+themes_panel_displayed() {
+  local name
+  name="$(ipc smoke themeName)" || return 1
+  ipc smoke itemTexts panel vgs.themes ThemeRow | py_reply 'import json,sys
+rows = [r for r in json.load(sys.stdin) if r]
+shown = [r[0] for r in rows if "Displayed" in r]
+print("ok" if shown and shown == [r[0] for r in rows if r[0] == sys.argv[1]] else "displayed=" + json.dumps(shown))' "$name"
+}
+# `ok` once the panel lists its catalog, reads the theme file unmodified
+# and marks the published theme's rows Displayed; else what it lacks.
+themes_panel_settled() {
+  local listed file
+  listed="$(themes_panel_listed)" || return 1
+  [[ $listed == True ]] || { echo "catalog-listed=$listed"; return 0; }
+  file="$(ipc smoke readInstance panel vgs.themes file | py_reply 'import json,sys; f=json.load(sys.stdin); print("unmodified" if f is not None and f["modified"] is False else "file=" + json.dumps(f))')" || return 1
+  [[ $file == unmodified ]] || { echo "$file"; return 0; }
+  themes_panel_displayed
+}
+# themes_panel_compare MODE STAGE: in a dark or light mode, the first one
+# the run takes records STAGE's digest once the panel has settled, and
+# every later one must draw that digest.
+themes_panel_compare() {
+  local base="${1%-narrow}" digest
+  [[ $base == dark || $base == light ]] || return 0
+  if [[ -z ${themes_panel_first[$2]:-} ]]; then
+    expect_poll "the themes panel has settled for its $2 reference ($1)" ok themes_panel_settled
+    if digest="$(themes_panel_state)"; then
+      themes_panel_reference[$2]="$digest"
+      themes_panel_first[$2]="$1"
+    else
+      fail "the themes panel's $2 rows are unreadable ($1): $digest"
+    fi
+  else
+    expect_poll "the themes panel shows the same rows, badges and messages as the ${themes_panel_first[$2]} pass at its $2 ($1)" "${themes_panel_reference[$2]}" themes_panel_state
+    expect "the themes panel marks the published theme's rows Displayed at its $2 ($1)" ok themes_panel_displayed
+  fi
+}
+# themes_answer_write CODE RESULT: the stand-in's answer to the next apply.
+themes_answer_write() {
+  printf '%s\n%s\n' "$1" "$2" >"$themes_answer.tmp" && mv -T -- "$themes_answer.tmp" "$themes_answer"
+}
 themes_stand_in() {
   cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real" || return 1
   cat >"$repo/bin/vgshell.next" <<SH || return 1
 #!/usr/bin/env bash
 if [[ \${1:-} == theme && \${2:-} == apply ]]; then
   for _ in \$(seq 1 200); do [[ -e $(printf %q "$themes_gate") ]] && break; sleep 0.05; done
-  printf '%s\n' $(printf %q "$themes_result")
-  exit 3
+  { IFS= read -r code && IFS= read -r answer; } <$(printf %q "$themes_answer") || exit 1
+  printf '%s\n' "\$answer"
+  exit "\$code"
 fi
 exec $(printf %q "$repo/bin/vgshell.real") "\$@"
 SH
   chmod 755 -- "$repo/bin/vgshell.next" && mv -T -- "$repo/bin/vgshell.next" "$repo/bin/vgshell"
 }
 scene_themes_panel() { # MODE
+  local base="${1%-narrow}" name
   mkdir -p -- "$themes_mismatch"
   printf '%s\n' '{ "schemaVersion": 1, "name": "other", "tokens": {} }' >"$themes_mismatch/theme.json"
+  rm -rf -- "${themes_installed_dir:?}"
+  mkdir -p -- "$themes_installed_dir"
+  cp -- "$repo/themes/catalog/$themes_installed/theme.json" "$themes_installed_dir/theme.json" || fail "the $themes_installed package could not be installed for the themes panel"
+  [[ ! -f $repo/themes/catalog/$themes_installed/terminal.json ]] || cp -- "$repo/themes/catalog/$themes_installed/terminal.json" "$themes_installed_dir/terminal.json" || fail "the $themes_installed terminal file could not be installed for the themes panel"
+  if [[ $base == dark ]]; then
+    { cp -- "$repo/themes/vgs/theme.json" "$theme_file.tmp" && mv -T -- "$theme_file.tmp" "$theme_file"; } || fail "the shipped vgs theme file could not be written for the themes panel"
+  fi
+  expect_poll "the theme list accepts the installed $themes_installed for the themes panel ($1)" True themes_listed_installed
+  expect_poll "the catalog reads $themes_installed installed for the themes panel ($1)" True themes_catalog_installed
+  if [[ $base == dark || $base == light ]]; then
+    if name="$(ipc smoke themeName)"; then
+      expect_poll "the theme list reads the $name theme file unmodified for the themes panel ($1)" "$name false" themes_listed_file
+    else
+      fail "the published theme's name is unreadable for the themes panel ($1)"
+    fi
+  fi
   expect "the unanchored themes panel summons" ok ipc shell summon panel vgs.themes '{}'
   expect_poll "the themes panel lists its catalog" True themes_panel_listed
   ipc smoke scrollTo panel vgs.themes 0 >/dev/null || fail "the themes panel did not scroll to its top for its initial image"
+  themes_panel_compare "$1" top
   park_pointer
   take "panels-$1-themes"
   ipc smoke revealText panel vgs.themes ListItem vgs >/dev/null || fail "the themes panel did not reveal its vgs row for the hover"
@@ -3134,19 +3236,25 @@ scene_themes_panel() { # MODE
   take "panels-$1-themes-catalog"
   ipc smoke scrollTo panel vgs.themes 0 >/dev/null || fail "the themes panel did not scroll to its top"
   rm -f -- "$themes_gate"
-  themes_stand_in || fail "the themes panel's stand-in runner could not be written"
+  { themes_answer_write 3 "$themes_failed" && themes_stand_in; } || fail "the themes panel's stand-in runner could not be written"
   click_in vgs:panel panel vgs.themes ListItem vgs || fail "the click on the themes panel's vgs row failed"
   expect_poll "the themes panel shows the held apply" applying themes_panel_last
   park_pointer
   take "panels-$1-themes-applying"
   touch -- "$themes_gate"
   expect_poll "the themes panel shows the partial result" result themes_panel_last
+  themes_panel_compare "$1" failure
   take "panels-$1-themes-failure"
+  themes_answer_write 0 "$themes_quiet" || fail "the themes panel's quiet answer could not be written"
+  click_in vgs:panel panel vgs.themes ListItem vgs || fail "the click that clears the themes panel's result failed"
+  expect_poll "the themes panel's last result is the quiet one, which draws no line" ok themes_panel_result
   mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell" || fail "the real runner could not be restored"
-  rm -f -- "$themes_gate"
+  rm -f -- "$themes_gate" "$themes_answer"
   expect "the themes panel hides" ok ipc shell hide panel vgs.themes
   expect_poll "the themes panel is gone" closed themes_panel_shown
-  rm -rf -- "${themes_mismatch:?}"
+  rm -rf -- "${themes_mismatch:?}" "${themes_installed_dir:?}"
+  # Later scenes read the run's own theme file again.
+  [[ $base != dark ]] || set_mode "$base"
 }
 
 # The Dev Tools window: its top, the pointer on an Install button, and one
