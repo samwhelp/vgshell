@@ -748,11 +748,12 @@ wall_has() { wall_value shownCards | py_reply 'import json,sys; keys=[c["key"] f
 wall_job() { wall_value job | py_reply 'import json,sys; j=json.load(sys.stdin); print("none" if j is None else j["step"])'; }
 nord_a="$installed/nord/backgrounds/a.jpg"; nord_b="$installed/nord/backgrounds/b.jpg"; nord_c="$installed/nord/backgrounds/c.jpg"
 wall_output=SMOKE-WALL
-# scope_tones: whether All monitors and This monitor each draw in the
-# text colour, as [all, this]; the chosen word does, the other fainter.
+# scope_tones: whether All monitors and This monitor each draw in
+# carousel.hintActive, as [all, this]; the chosen word does, the other
+# carousel.hint.
 scope_tones() {
   local text all this
-  text="$(ipc smoke themeValue color.text)" || return
+  text="$(ipc smoke themeValue carousel.hintActive)" || return
   all="$(ipc smoke readMatchingDescendant overlay vgs.themes Label text "All monitors" color)" || return
   this="$(ipc smoke readMatchingDescendant overlay vgs.themes Label text "This monitor" color)" || return
   python3 -c '
@@ -1136,23 +1137,22 @@ expect_poll "the scope control moves the other screen's image too" "$nord_b read
 plugin_restore WallpaperView.qml scope
 expect "set --every-screen puts nord's first image back on every screen" "ok background=a.jpg theme=nord path=$nord_a screen=*" vgshell_theme background set "$nord_a" --every-screen
 
-# A click on a scope word chooses that scope, draws it in the text colour
-# and leaves the keyboard with the view: Right then steps the rail and
+# A click on a scope word chooses that scope, draws it brighter and leaves the keyboard with the view: Right then steps the rail and
 # leaves the scope. Control: a copy whose words draw one colour.
 press_wallpapers || fail "typing SUPER+SHIFT+W for the scope word click failed"
 expect_poll "SUPER+SHIFT+W opens the browser for the scope word click" 1 layer_count vgs:overlay
 expect_poll "the scope word view selects a.jpg" "$nord_a" wall_selected
-expect "the chosen All monitors draws in the text colour, This monitor fainter" '[true, false]' scope_tones
+expect "the chosen All monitors draws brighter than This monitor" '[true, false]' scope_tones
 click_in vgs:overlay overlay vgs.themes Label "This monitor" || fail "the click on This monitor failed"
 expect_poll "a click on This monitor chooses it" '"this"' wall_value scope
-expect_poll "the clicked This monitor draws in the text colour, All monitors fainter" '[false, true]' scope_tones
+expect_poll "the clicked This monitor draws brighter than All monitors" '[false, true]' scope_tones
 browser_focused "a click on a scope word leaves the keyboard with the view"
 type_keys -k Right || fail "sending Right after the scope word click failed"
 expect_poll "Right after the click steps the rail" "$nord_b" wall_selected
 expect "Right after the click leaves the scope" '"this"' wall_value scope
 type_keys -k Escape || fail "sending Escape after the scope word click failed"
 expect_poll "Escape closes the browser after the scope word click" 0 layer_count vgs:overlay
-plugin_control WallpaperView.qml "scope tone" 'color: scopeWord.index === root.scopeIndex ? Theme.color.text : ' 'color: '
+plugin_control WallpaperView.qml "scope tone" 'color: scopeWord.index === root.scopeIndex ? Theme.carousel.hintActive : ' 'color: '
 press_wallpapers || fail "typing SUPER+SHIFT+W for the scope tone control failed"
 expect_poll "SUPER+SHIFT+W opens the scope tone control's browser" 1 layer_count vgs:overlay
 expect_poll "the scope tone control's view read its lists" true wall_value loaded

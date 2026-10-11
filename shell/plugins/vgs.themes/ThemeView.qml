@@ -441,7 +441,7 @@ FocusScope {
                     visible: root.filterText === ""
                     role: "itemHint"
                     text: "Type to search"
-                    color: Theme.color.textFaint
+                    color: Theme.carousel.hint
                 }
 
                 Repeater {

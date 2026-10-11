@@ -952,7 +952,11 @@ var TOKENS = {
     // `sliceName.foreground` over a `sliceName.shadow` shadow at
     // `sliceName.shadowOpacity`, blurred `sliceName.blur` pixels and
     // dropped `sliceName.shadowOffset` pixels down and right on screen,
-    // the same in every mode.
+    // the same in every mode. Text beside the rail sits on the scrim over
+    // any wallpaper, not on a resting surface, so it draws `hint`, the text
+    // colour, and a chosen word `hintActive`, further from the backdrop:
+    // over the light scrim on a black wallpaper textFaint reads 1.9:1 and
+    // text 6.5:1 (the VGS-1398 sheet read, tmp/vgs-1398-hint-contrast.py).
     carousel: {
         expandedWidth: length(768),
         expandedHeight: length(476),
@@ -966,6 +970,8 @@ var TOKENS = {
         band: number(2, 0, 16),
         decodeCap: length(2048),
         duration: duration("{motion.duration.normal}"),
+        hint: color("{color.text}"),
+        hintActive: color("{color.textHeading}"),
         sliceName: {
             role: textRole("h2"),
             inset: length("{space.xxl}"),

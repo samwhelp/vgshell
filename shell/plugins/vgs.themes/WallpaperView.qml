@@ -370,7 +370,6 @@ FocusScope {
                             required property int index
                             width: scopeText.implicitWidth
                             height: scopeText.implicitHeight
-                            hoverEnabled: true
                             Accessible.role: Accessible.RadioButton
                             Accessible.name: modelData.label
                             Accessible.checked: index === root.scopeIndex
@@ -381,7 +380,7 @@ FocusScope {
                                 id: scopeText
                                 role: "itemHint"
                                 text: scopeWord.modelData.label
-                                color: scopeWord.index === root.scopeIndex ? Theme.color.text : scopeWord.containsMouse ? Theme.color.textMuted : Theme.color.textFaint
+                                color: scopeWord.index === root.scopeIndex ? Theme.carousel.hintActive : Theme.carousel.hint
                             }
                         }
                     }
@@ -457,7 +456,7 @@ FocusScope {
                         visible: root.filterText === ""
                         role: "itemHint"
                         text: "Type to search |"
-                        color: Theme.color.textFaint
+                        color: Theme.carousel.hint
                     }
 
                     // The source line names the source a click shows, its eye
@@ -491,7 +490,7 @@ FocusScope {
                                 anchors.verticalCenter: parent.verticalCenter
                                 role: "itemHint"
                                 text: BrowserLogic.WALLPAPER_SOURCES[root.sourceIndex].switchLabel
-                                color: sourceLine.containsMouse ? Theme.color.textMuted : Theme.color.textFaint
+                                color: sourceLine.containsMouse ? Theme.carousel.hintActive : Theme.carousel.hint
                             }
                         }
                     }
