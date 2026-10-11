@@ -125,6 +125,8 @@ Item {
                 { key: "ready", text: "Speaker", secondary: "Not connected", iconName: "speaker" }
             ];
             list.actionOf = row => ({ text: row.key === "busy" ? "Connect" : "Open" });
+            // Rows the new list builds are placed on the next polish.
+            tryVerify(() => list.rowAt(1).y >= list.rowAt(0).y + list.rowAt(0).height, 1000, "the rows are laid out");
             verify(spinnerOf(list.rowAt(0)).visible, "a busy row shows its spinner");
             verify(!actionOf(list.rowAt(0)).visible, "a busy row hides its action");
             mouseClick(list.rowAt(0));
