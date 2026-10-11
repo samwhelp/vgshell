@@ -15,6 +15,9 @@
 # naming it; when the nested compositor still lists a monitor with no size
 # at the bound scripts/smoke/harness.sh names from its launch,
 # nested-monitor=unsized, since it configures no bar there;
+# when the nested compositor's Wayland backend announced no output,
+# nested-backend=unannounced, once Hyprland lists only FALLBACK, no
+# wl_pointer and the host shows no new nested window;
 # or when a run whose only failures are geometry or render rows
 # met a sandbox fault: the nested window's output rejected a state because
 # its buffers could not be allocated, which the nested compositor logs as

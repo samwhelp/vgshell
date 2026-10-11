@@ -134,7 +134,8 @@ chmod 755 "$tmp/bin/grim"
 # Windows: pid 41 on workspace 1, 42 on workspace 3, 43 on the shown
 # special workspace, 44 on the special workspace -99 no monitor shows, 45
 # on workspace 1 as a background group tab, which Hyprland lists with
-# `visible: false` and `hidden: false`, and 46 with no `visible` key.
+# `visible: false` and `hidden: false`, 46 with no `visible` key and 47
+# as a non-nested window.
 cat >"$tmp/bin/hyprctl" <<'SH'
 #!/usr/bin/env bash
 here="${0%/*}"
@@ -148,12 +149,13 @@ import json, sys
 here = sys.argv[1]
 def monitor(name, active, special):
     return {"name": name, "activeWorkspace": {"id": active, "name": str(active)}, "specialWorkspace": {"id": special, "name": "special:shown" if special else ""}}
-def window(pid, workspace, visible=True):
-    return {"pid": pid, "class": "aquamarine", "mapped": True, "hidden": False, "visible": visible, "workspace": {"id": workspace, "name": str(workspace)}}
+def window(pid, workspace, visible=True, cls="aquamarine"):
+    return {"stableId": f"stable-{pid}", "pid": pid, "class": cls, "mapped": True, "hidden": False,
+            "visible": visible, "size": [800 + pid, 600 + pid], "workspace": {"id": workspace, "name": str(workspace)}}
 unkeyed = window(46, 1)
 del unkeyed["visible"]
 json.dump([monitor("DP-1", 1, 0), monitor("DP-2", 2, -98)], open(f"{here}/host-monitors.json", "w"))
-json.dump([window(41, 1), window(42, 3), window(43, -98), window(44, -99), window(45, 1, visible=False), unkeyed], open(f"{here}/host-clients.json", "w"))
+json.dump([window(41, 1), window(42, 3), window(43, -98), window(44, -99), window(45, 1, visible=False), unkeyed, window(47, 1, cls="ghostty")], open(f"{here}/host-clients.json", "w"))
 PY
 hash_a="$(printf 'image-a' | sha256sum | cut -d' ' -f1)"
 # The hold cases run the real shot over the stub grim's fixed-b image.
@@ -334,6 +336,7 @@ run_controls "$helper" cases controls
 # hyprctl's host world. Cases and controls have the shape of the capture
 # helper's above.
 window_helper="$repo/scripts/smoke/host-window.sh"
+# shellcheck disable=SC2016
 window_cases=(
   "a window on a monitor's active workspace is shown"
   'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state 41) == shown ]]' 0 ""
@@ -355,8 +358,19 @@ window_cases=(
   'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; mkdir -p "$D/bin"; cp -- "$T/bin/hyprctl" "$T/bin/host-clients.json" "$T/bin/host-monitors.json" "$D/bin/"; : >"$D/bin/fail-clients"; out="$(PATH="$D/bin:$PATH" host_window_state 41)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
   "a failed monitors read is unreadable"
   'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; mkdir -p "$D/bin"; cp -- "$T/bin/hyprctl" "$T/bin/host-clients.json" "$T/bin/host-monitors.json" "$D/bin/"; : >"$D/bin/fail-monitors"; out="$(PATH="$D/bin:$PATH" host_window_state 41)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
+  "nested host windows list only aquamarine clients"
+  'HYPRLAND_INSTANCE_SIGNATURE=x; printf -v want "%s\n%s\n%s\n%s\n%s\n%s" "stable-41 pid=41 size=841x641 workspace=1 mapped=true" "stable-42 pid=42 size=842x642 workspace=3 mapped=true" "stable-43 pid=43 size=843x643 workspace=-98 mapped=true" "stable-44 pid=44 size=844x644 workspace=-99 mapped=true" "stable-45 pid=45 size=845x645 workspace=1 mapped=true" "stable-46 pid=46 size=846x646 workspace=1 mapped=true"; [[ $(host_nested_windows) == "$want" ]]' 0 ""
+  "nested host windows exclude non-aquamarine clients"
+  'HYPRLAND_INSTANCE_SIGNATURE=x; out="$(host_nested_windows)"; [[ $out != *"pid=47"* && $out != *ghostty* ]]' 0 ""
+  "nested host windows without a host instance are unreadable"
+  's=0; out="$(host_nested_windows)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
+  "nested host windows with a failed clients read are unreadable"
+  'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; mkdir -p "$D/bin"; cp -- "$T/bin/hyprctl" "$T/bin/host-clients.json" "$T/bin/host-monitors.json" "$D/bin/"; : >"$D/bin/fail-clients"; out="$(PATH="$D/bin:$PATH" host_nested_windows)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
+  "nested host windows missing stableId are unreadable"
+  'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; mkdir -p "$D/bin"; cp -- "$T/bin/hyprctl" "$T/bin/host-clients.json" "$T/bin/host-monitors.json" "$D/bin/"; python3 -c "import json,sys; p=sys.argv[1]; data=json.load(open(p)); del data[0]['\''stableId'\'']; json.dump(data, open(p, '\''w'\''))" "$D/bin/host-clients.json"; out="$(PATH="$D/bin:$PATH" host_nested_windows)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
 )
 run_cases "$window_helper" window_cases
+# shellcheck disable=SC2016
 window_controls=(
   "the pid is not matched"
   'c["pid"] == pid' 'True' "a pid that owns no window is absent"
@@ -369,13 +383,69 @@ window_controls=(
   "a reply without the expected keys is not caught"
   'except (ValueError, KeyError, TypeError):' 'except (ValueError, TypeError):' "a window listed without the keys the reader needs is unreadable"
   "a missing host instance is read"
-  'if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then echo unreadable; return 1; fi' 'true' "no host instance is unreadable"
+  $'host_window_state() {\n  local clients monitors\n  if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then echo unreadable; return 1; fi' $'host_window_state() {\n  local clients monitors\n  true' "no host instance is unreadable"
   "a failed clients read is parsed"
-  'clients="$(timeout 2 hyprctl -j clients 2>/dev/null)" || { echo unreadable; return 1; }' 'clients="$(timeout 2 hyprctl -j clients 2>/dev/null)" || true' "a failed clients read is unreadable"
+  $'host_window_state() {\n  local clients monitors\n  if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then echo unreadable; return 1; fi\n  clients="$(timeout 2 hyprctl -j clients 2>/dev/null)" || { echo unreadable; return 1; }' $'host_window_state() {\n  local clients monitors\n  if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then echo unreadable; return 1; fi\n  clients="$(timeout 2 hyprctl -j clients 2>/dev/null)" || true' "a failed clients read is unreadable"
   "a failed monitors read is parsed"
   'monitors="$(timeout 2 hyprctl -j monitors 2>/dev/null)" || { echo unreadable; return 1; }' 'monitors="$(timeout 2 hyprctl -j monitors 2>/dev/null)" || true' "a failed monitors read is unreadable"
+  "nested windows are not filtered by class"
+  $'        if c["class"] != "aquamarine":\n            continue' $'        if False:\n            continue' "nested host windows list only aquamarine clients"
+  "nested windows ignore a missing host instance"
+  $'host_nested_windows() {\n  local clients\n  if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then echo unreadable; return 1; fi' $'host_nested_windows() {\n  local clients\n  true' "nested host windows without a host instance are unreadable"
+  "nested windows parse a failed clients read"
+  $'host_nested_windows() {\n  local clients\n  if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then echo unreadable; return 1; fi\n  clients="$(timeout 2 hyprctl -j clients 2>/dev/null)" || { echo unreadable; return 1; }' $'host_nested_windows() {\n  local clients\n  if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then echo unreadable; return 1; fi\n  clients="$(timeout 2 hyprctl -j clients 2>/dev/null)" || true' "nested host windows with a failed clients read are unreadable"
+  "nested windows missing stableId is not caught"
+  'except (ValueError, KeyError, TypeError, IndexError):' 'except (ValueError, TypeError, IndexError):' "nested host windows missing stableId are unreadable"
 )
 run_controls "$window_helper" window_cases window_controls
+
+# The harness names a nested backend start where aquamarine has announced
+# neither the host pointer nor a host window for the nested compositor.
+harness_helper="$tmp/harness-backend-helper.sh"
+python3 - "$repo/scripts/smoke/harness.sh" "$harness_helper" <<'PY'
+import sys
+text = open(sys.argv[1]).read()
+blocks = []
+for name in ("host_windows_since", "nested_mice", "nested_backend_unannounced"):
+    start = text.index(name + "() {")
+    end = text.index("\n}\n", start) + 3
+    blocks.append(text[start:end])
+open(sys.argv[2], "w").write("\n".join(blocks))
+PY
+# shellcheck disable=SC2016,SC2034
+harness_cases=(
+  "backend unannounced accepts no wl_pointer and no host window"
+  'host_pointer=wl_pointer; host_windows_before="old pid=1 size=1x1 workspace=1 mapped=true"; host_nested_windows() { printf "%s\n" "$host_windows_before"; }; hypr() { printf "%s\n" "{\"mice\":[]}"; }; nested_backend_unannounced; [[ $nested_mice_seen == none && $host_windows_new == none ]]' 0 ""
+  "backend rejects wl_pointer"
+  'host_pointer=wl_pointer; host_windows_before="old pid=1 size=1x1 workspace=1 mapped=true"; host_nested_windows() { printf "%s\n" "$host_windows_before"; }; hypr() { printf "%s\n" "{\"mice\":[{\"name\":\"wl_pointer\"}]}"; }; if nested_backend_unannounced; then exit 1; fi; [[ $nested_mice_seen == wl_pointer && $host_windows_new == none ]]' 0 ""
+  "backend rejects a new host window"
+  'host_pointer=wl_pointer; host_windows_before="old pid=1 size=1x1 workspace=1 mapped=true"; host_nested_windows() { printf "%s\n%s\n" "$host_windows_before" "new pid=2 size=2x2 workspace=2 mapped=true"; }; hypr() { printf "%s\n" "{\"mice\":[]}"; }; if nested_backend_unannounced; then exit 1; fi; [[ $nested_mice_seen == none && $host_windows_new == "new pid=2 size=2x2 workspace=2 mapped=true" ]]' 0 ""
+  "backend rejects unreadable host windows"
+  'host_pointer=wl_pointer; host_windows_before="old pid=1 size=1x1 workspace=1 mapped=true"; host_nested_windows() { echo unreadable; return 1; }; hypr() { printf "%s\n" "{\"mice\":[]}"; }; if nested_backend_unannounced; then exit 1; fi; [[ $nested_mice_seen == none && $host_windows_new == unreadable ]]' 0 ""
+  "backend rejects unreadable before windows"
+  'host_pointer=wl_pointer; host_windows_before=unreadable; host_nested_windows() { echo unreadable; return 1; }; hypr() { printf "%s\n" "{\"mice\":[]}"; }; if nested_backend_unannounced; then exit 1; fi; [[ $nested_mice_seen == none && $host_windows_new == unreadable ]]' 0 ""
+  "backend rejects unreadable devices"
+  'host_pointer=wl_pointer; host_windows_before="old pid=1 size=1x1 workspace=1 mapped=true"; host_nested_windows() { printf "%s\n" "$host_windows_before"; }; hypr() { return 1; }; if nested_backend_unannounced; then exit 1; fi; [[ $nested_mice_seen == unreadable && $host_windows_new == unreadable ]]' 0 ""
+  "backend accepts mouse name that only contains wl_pointer"
+  'host_pointer=wl_pointer; host_windows_before="old pid=1 size=1x1 workspace=1 mapped=true"; host_nested_windows() { printf "%s\n" "$host_windows_before"; }; hypr() { printf "%s\n" "{\"mice\":[{\"name\":\"wl_pointer-virtual\"}]}"; }; nested_backend_unannounced; [[ $nested_mice_seen == wl_pointer-virtual && $host_windows_new == none ]]' 0 ""
+  "host windows since prints only new windows"
+  'host_windows_before="old pid=1 size=1x1 workspace=1 mapped=true"; host_nested_windows() { printf "%s\n%s\n" "$host_windows_before" "new pid=2 size=2x2 workspace=2 mapped=false"; }; [[ $(host_windows_since) == "new pid=2 size=2x2 workspace=2 mapped=false" ]]' 0 ""
+  "host windows since prints none"
+  'host_windows_before="old pid=1 size=1x1 workspace=1 mapped=true"; host_nested_windows() { printf "%s\n" "$host_windows_before"; }; [[ $(host_windows_since) == none ]]' 0 ""
+)
+run_cases "$harness_helper" harness_cases
+# shellcheck disable=SC2016,SC2034
+harness_controls=(
+  "backend ignores the host pointer"
+  '[[ ,$nested_mice_seen, != *,"$host_pointer",* ]] || return 1' 'true || return 1' "backend rejects wl_pointer"
+  "backend ignores new host windows"
+  '[[ $host_windows_new == none ]] || return 1' 'true || return 1' "backend rejects a new host window"
+  "backend treats unreadable host windows as none"
+  'current="$(host_nested_windows)" || { echo unreadable; return 1; }' 'current="$(host_nested_windows)" || current=' "backend rejects unreadable host windows"
+  "backend treats a substring mouse as the host pointer"
+  '[[ ,$nested_mice_seen, != *,"$host_pointer",* ]] || return 1' '[[ $nested_mice_seen != *"$host_pointer"* ]] || return 1' "backend accepts mouse name that only contains wl_pointer"
+)
+run_controls "$harness_helper" harness_cases harness_controls
 
 # Drive the real screensaver missing-tool branch and the real scene loop
 # and verdict, without a compositor. Capture's scene stands for the frame

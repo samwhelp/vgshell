@@ -1,5 +1,5 @@
-# Sourced by scripts/sandbox-shots.sh; reads where the host compositor
-# shows the nested compositor's window.
+# Sourced by scripts/sandbox-shots.sh and scripts/smoke/harness.sh; reads
+# where the host compositor shows the nested compositor's window.
 #
 # The nested Hyprland is one xdg toplevel of the host, class aquamarine,
 # owned by the nested compositor's process. The host sends that window frame
@@ -37,4 +37,29 @@ except (ValueError, KeyError, TypeError):
     print("unreadable"); sys.exit(1)
 print("shown" if drawn else "hidden" if owned else "absent")
 ' "$1" "$clients" "$monitors"
+}
+
+# host_nested_windows: one machine-read line for each host window of a
+# nested sandbox. Aquamarine's nested Wayland backend gives those toplevels
+# class aquamarine. The pids are host pids, so a caller inside the fence's
+# pid namespace tells its own window by a stableId it did not list before
+# its launch.
+host_nested_windows() {
+  local clients
+  if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then echo unreadable; return 1; fi
+  clients="$(timeout 2 hyprctl -j clients 2>/dev/null)" || { echo unreadable; return 1; }
+  python3 -c '
+import json, sys
+try:
+    clients = json.loads(sys.argv[1])
+    for c in clients:
+        if c["class"] != "aquamarine":
+            continue
+        size = c["size"]
+        print("%s pid=%s size=%sx%s workspace=%s mapped=%s" % (
+            c["stableId"], c["pid"], size[0], size[1],
+            c["workspace"]["name"], str(c["mapped"]).lower()))
+except (ValueError, KeyError, TypeError, IndexError):
+    print("unreadable"); sys.exit(1)
+' "$clients"
 }

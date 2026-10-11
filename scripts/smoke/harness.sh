@@ -1,5 +1,5 @@
 # Sourced by qml-smoke.sh; owns the sandbox and shared readers.
-# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/leaks.sh bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/hypr-call.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/lock/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh
+# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/host-window.sh scripts/smoke/leaks.sh bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/hypr-call.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/lock/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh
 set -euo pipefail
 source "$repo/scripts/smoke/verdict.sh"
 source "$repo/scripts/smoke/mode-hold.sh"
@@ -7,6 +7,7 @@ source "$repo/scripts/smoke/tree.sh"
 source "$repo/scripts/smoke/user-config.sh"
 source "$repo/scripts/smoke/shot.sh"
 source "$repo/scripts/smoke/app-window.sh"
+source "$repo/scripts/smoke/host-window.sh"
 source "$repo/bin/lib/ipc-reply.sh"
 missing=()
 # fd, fzf and file are the launcher file search helper's, which rows/launcher.sh runs;
@@ -576,6 +577,9 @@ fi
 # dispatch finds the same stand-ins and reaches no bus of the user's
 # (rows/start-order.sh). It sets the Wayland and Hyprland variables of its
 # children itself.
+# The fence uses a private pid namespace, so the host window for this run
+# is the aquamarine stableId that appears after the compositor starts.
+host_windows_before="$(host_nested_windows)" || true
 spawn "$sandbox/hyprland.log" "${sandbox_env[@]}" "${shell_start_words[@]}" \
   DBUS_SESSION_BUS_ADDRESS="unix:path=$rt_dir/bus" DBUS_SYSTEM_BUS_ADDRESS="unix:path=$rt_dir/system-bus" \
   WAYLAND_DISPLAY="$host_socket" Hyprland --config "$home/.config/hypr/hyprland.lua"
@@ -634,6 +638,53 @@ source "$repo/scripts/smoke/hypr-call.sh"
 sized_monitors() {
   hypr -j monitors | python3 -c 'import json,sys; ms=json.load(sys.stdin); print(len(ms) if ms and all(m["width"] > 0 and m["height"] > 0 for m in ms) else 0, ",".join("%s:%dx%d" % (m["name"], m["width"], m["height"]) for m in ms))'
 }
+nested_elapsed_secs() {
+  local now_ns="$1" waited_ms
+  waited_ms=$(((now_ns - compositor_started_ns) / 1000000))
+  printf '%s.%02d' "$((waited_ms / 1000))" "$((waited_ms % 1000 / 10))"
+}
+# Aquamarine 0.15.1's Wayland backend announces devices and output and
+# sends its window's first commit only after it reads a host event once
+# ready. A start that read every host event while starting gets none, so
+# the state is permanent: Hyprland lists FALLBACK only from its 2 s launch
+# fallback timer. Upstream aquamarine 7bb8bdf (#415) fixes it, and once
+# the host's aquamarine carries it the check should never fire. A run
+# planted on 2026-10-11 on host cachy with strace delaying every recvmsg
+# of the nested Hyprland by 100 ms kept this state, FALLBACK:0x0 from
+# 2.38 s, no wl_pointer and no host window, for the whole 60 s bound.
+host_windows_since() {
+  local current
+  if [[ ${host_windows_before:-unreadable} == unreadable ]]; then echo unreadable; return 1; fi
+  current="$(host_nested_windows)" || { echo unreadable; return 1; }
+  [[ $current != unreadable ]] || { echo unreadable; return 1; }
+  python3 - "$host_windows_before" "$current" <<'PY'
+import sys
+before, current = sys.argv[1:]
+before_ids = {line.split(" ", 1)[0] for line in before.splitlines() if line}
+new = [line for line in current.splitlines() if line and line.split(" ", 1)[0] not in before_ids]
+print(";".join(new) if new else "none")
+PY
+}
+nested_mice() {
+  local devices
+  devices="$(hypr -j devices)" || { echo unreadable; return 1; }
+  python3 -c '
+import json, sys
+try:
+    mice = [m["name"] for m in json.loads(sys.argv[1])["mice"]]
+except (ValueError, KeyError, TypeError):
+    print("unreadable"); sys.exit(1)
+print(",".join(mice) if mice else "none")
+' "$devices"
+}
+nested_backend_unannounced() {
+  nested_mice_seen=unreadable
+  host_windows_new=unreadable
+  nested_mice_seen="$(nested_mice)" || return 1
+  host_windows_new="$(host_windows_since)" || return 1
+  [[ $host_windows_new == none ]] || return 1
+  [[ ,$nested_mice_seen, != *,"$host_pointer",* ]] || return 1
+}
 # nested_monitor_wait_secs bounds the wait from the compositor's launch,
 # and every start prints how long it waited, keyed secs=. A 10 s bound
 # lost eight runs of seven lanes to an unsized monitor on 2026-10-09
@@ -647,15 +698,33 @@ sized_monitors() {
 nested_monitor_wait_secs=60
 monitors=-1
 monitors_seen=""
+monitors_record=""
+monitors_record_last=$'\001'
 compositor_gone=""
+nested_backend_unannounced_seen=""
+nested_backend_unannounced_checked=""
 while :; do
-  if read -r monitors monitors_seen < <(sized_monitors 2>/dev/null) && [[ $monitors -gt 0 ]]; then break; fi
+  if read -r monitors monitors_seen < <(sized_monitors 2>/dev/null); then
+    if [[ $monitors_seen != "$monitors_record_last" ]]; then
+      monitors_record+=" $(nested_elapsed_secs "$(date +%s%N)"):${monitors_seen:-none}"
+      monitors_record_last="$monitors_seen"
+    fi
+    if [[ $monitors -gt 0 ]]; then break; fi
+    if [[ -z $nested_backend_unannounced_checked && $monitors_seen == FALLBACK:* && $monitors_seen != *,* ]]; then
+      nested_backend_unannounced_checked=1
+      if nested_backend_unannounced; then
+        nested_backend_unannounced_seen=1
+        break
+      fi
+    fi
+  fi
   kill -0 "$compositor_pid" 2>/dev/null || { compositor_gone=1; break; }
   (($(date +%s%N) - compositor_started_ns < nested_monitor_wait_secs * 1000000000)) || break
   sleep 0.2
 done
-nested_monitor_waited_ms=$((($(date +%s%N) - compositor_started_ns) / 1000000))
-nested_monitor_ready_secs="$((nested_monitor_waited_ms / 1000)).$(printf '%02d' $((nested_monitor_waited_ms % 1000 / 10)))"
+nested_monitor_ready_secs="$(nested_elapsed_secs "$(date +%s%N)")"
+nested_monitor_readings="${monitors_record# }"
+[[ -n $nested_monitor_readings ]] || nested_monitor_readings=none
 if [[ $monitors -gt 0 ]]; then
   printf 'qml-smoke: nested-monitor-ready secs=%s bound_secs=%d\n' "$nested_monitor_ready_secs" "$nested_monitor_wait_secs"
   ok "nested compositor lists $monitors monitor(s): $monitors_seen"
@@ -663,9 +732,17 @@ elif [[ -n $compositor_gone ]]; then
   printf 'qml-smoke: status=not-measured missing=nested-compositor secs=%s\n' "$nested_monitor_ready_secs"
   tail -n 20 "$sandbox/hyprland.log"
   exit 77
+elif [[ -n $nested_backend_unannounced_seen ]]; then
+  printf 'qml-smoke: status=not-measured nested-backend=unannounced monitors=%s mice=%s host_new_windows=none secs=%s\n' "$monitors_seen" "$nested_mice_seen" "$nested_monitor_ready_secs"
+  printf 'qml-smoke: nested-monitor-readings monitors=%s\n' "$nested_monitor_readings"
+  echo "the nested compositor listed only Hyprland's FALLBACK output, no host pointer and no host window, so aquamarine did not announce the Wayland backend; the host's aquamarine needs upstream 7bb8bdf. Run the smoke again"
+  exit 77
 elif [[ -n $monitors_seen ]]; then
   printf 'qml-smoke: status=not-measured nested-monitor=unsized monitors=%s secs=%s bound_secs=%d\n' "$monitors_seen" "$nested_monitor_ready_secs" "$nested_monitor_wait_secs"
-  echo "the nested compositor still listed a monitor with no size $nested_monitor_ready_secs s after its launch, at the $nested_monitor_wait_secs s bound, so it would configure no bar; FALLBACK is Hyprland's placeholder while the host has not configured the nested window. Run the smoke again"
+  nested_mice_line="$(nested_mice)" || nested_mice_line=unreadable
+  host_windows_line="$(host_windows_since)" || host_windows_line=unreadable
+  printf 'qml-smoke: nested-monitor-readings monitors=%s mice=%s host_new_windows=%s\n' "$nested_monitor_readings" "$nested_mice_line" "$host_windows_line"
+  echo "the nested compositor still listed a monitor with no size $nested_monitor_ready_secs s after its launch, at the $nested_monitor_wait_secs s bound, so it would configure no bar; FALLBACK is Hyprland's placeholder when no output is ready. Run the smoke again"
   exit 77
 else
   printf 'qml-smoke: status=not-measured missing=nested-monitor secs=%s bound_secs=%d\n' "$nested_monitor_ready_secs" "$nested_monitor_wait_secs"; exit 77
