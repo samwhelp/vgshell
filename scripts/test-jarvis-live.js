@@ -1163,7 +1163,11 @@ world(async () => {
         assert.equal(w.delegations[1].delegation, "item_user_2");
         conn.play("done-old");
         await mark(w, conn, "replaced");
-        assert.equal(conn.count(SPEAK), 1, "words waiting for a replaced request never leave");
+        // The engine sends any further response while it reads done-old, before
+        // the mark. The fixture server reads that frame on a later poll, which a
+        // busy event loop runs after the mark's timer: count what the engine sent.
+        const spoken = w.judged.filter(item => item.content.startsWith(JSON.stringify({ type: SPEAK }).slice(0, -1)));
+        assert.equal(spoken.length, 1, "words waiting for a replaced request never leave");
         assert.equal(w.engine.commentary(task.delegation, kit.Policy.item("Old words.", ["speech"])), false, "a replaced request takes no more words");
         w.dispatch("stop");
         assert.equal(say(w, "Late words."), false, "an ended conversation speaks no words");
