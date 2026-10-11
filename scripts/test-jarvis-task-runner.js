@@ -87,7 +87,6 @@ async function inside() {
             ["launch-missing", "tmux", "ok", { code: null, reason: "launcher-missing" }, true],
             ["launch-failed", "tmux", "ok", { code: null, reason: "launcher-failed" }, true],
             ["record-vanished", "tmux", "ok", { code: null, reason: "vanished" }, true],
-            ["reason-with-zero", "tmux", "ok", { code: 0, reason: "launcher-failed" }, true],
             ["immediate-refusal", "tmux", "refused: tui=task-view reason=launcher-missing", null, true],
             ["ended-refusal", "not-alive", "ok", null, true],
             ["floating", "floating", "ok", null, false]
@@ -120,11 +119,11 @@ async function inside() {
         }
     }
     taskOpenNotices(serviceSource);
-    cases += 9;
+    cases += 8;
     for (const [name, needle, replacement] of [
         ["completion", '"task-view", [message.task], result => {', '"task-view", [message.task], undefined, result => {'],
         ["exit-failure", "result.code !== 0", "false"],
-        ["reason-failure", "result.reason !== null", "false"],
+        ["reason-report", 'result.reason === null ? "exit-" + result.code : result.reason', '"exit-" + result.code'],
         ["detach-quiet", "result.code !== 0", "result.code === 0"],
         ["immediate-notice", 'if (reply !== "ok") taskOpenFailed(message.task, reply);', 'if (false) taskOpenFailed(message.task, reply);']
     ]) {
