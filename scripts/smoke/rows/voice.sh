@@ -1000,8 +1000,20 @@ voice_notice_groups() { ipc smoke noticeDrawn | py_reply 'import json,sys; print
 # tone] and its buttons as [text, variant, enabled, whether its tooltip
 # names voxtype], in drawn order.
 voice_setup_section() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps({"chips": d["chips"], "buttons": [[b[0], b[1], b[2], "voxtype" in b[3]] for b in d["buttons"]]}))'; }
-# Whether a line of the Setup section holds TEXT.
-voice_setup_line() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; print(str(any(sys.argv[1] in l for l in json.load(sys.stdin)["lines"])).lower())' "$1"; }
+# The Setup section's lines against Voice's own Setup value: the value's
+# action ("none" once set up), how many lines it holds, and whether the
+# section draws exactly those lines, in order, one under the other. VALUE,
+# when given, stands in for the service's value.
+voice_setup_lines() { # [VALUE]
+  local value="${1-}"
+  if [[ -z $value ]]; then value="$(ipc smoke readInstance service vgs.voice setupValue)" || return 1; fi
+  ipc smoke setupSection window vgs.settings | py_reply 'import json,sys
+v = json.loads(sys.argv[1]); want = v["lines"]; drawn = json.load(sys.stdin)["lines"]
+shown = any(drawn[i:i + len(want)] == want for i in range(len(drawn) - len(want) + 1))
+print(json.dumps({"action": v["action"] or "none", "lines": len(want), "drawn": shown}))' "$value"
+}
+# Control: Voice's own Setup value with its last line changed.
+voice_setup_value_changed() { ipc smoke readInstance service vgs.voice setupValue | py_reply 'import json,sys; v=json.load(sys.stdin); v["lines"][-1] += " (changed)"; print(json.dumps(v))'; }
 voice_setup_missing='{"chips": [["Set up needed", "warning"]], "buttons": [["Install requirements", "accent", true, false], ["Configure", "accent", false, true], ["Choose model", "accent", false, true]]}'
 voice_setup_needed='{"chips": [["Set up needed", "warning"]], "buttons": [["Set up", "accent", true, false], ["Configure", "accent", true, false], ["Choose model", "accent", true, false]]}'
 voice_setup_ready='{"chips": [["Ready", "success"]], "buttons": [["Configure", "accent", true, false], ["Choose model", "accent", true, false]]}'
@@ -1093,7 +1105,9 @@ settings_page_open vgs.voice
 # so, and the install step it offers comes first; Configure and Choose
 # model, which need voxtype, take no press and say so on hover.
 expect_poll "the Setup section draws Set up needed, the install step first and the screens that need voxtype disabled" "$voice_setup_missing" voice_setup_section
-expect "the Setup section's line names voxtype" true voice_setup_line "voxtype is not installed."
+expect "the Setup section draws the service's one install line" '{"action": "install", "lines": 1, "drawn": true}' voice_setup_lines
+voice_setup_changed="$(voice_setup_value_changed)" || fail "control: the service's Setup value is unreadable"
+expect "control: a drawn line that differs from the service value reads undrawn" '{"action": "install", "lines": 1, "drawn": false}' voice_setup_lines "$voice_setup_changed"
 # Control: a disposable manifest copy whose setup entry is in no Setup
 # group and whose Configure declares no `requires` draws no chip, no step
 # first, and Configure active: voxtype is optional, so it then needs
@@ -1192,7 +1206,7 @@ expect_poll "Set up is offered once voxtype is found and the model is missing" s
 settings_page_close vgs.voice
 settings_page_open vgs.voice
 expect_poll "the Setup section offers Set up first, with every screen active" "$voice_setup_needed" voice_setup_section
-expect "the Setup section names the missing model" true voice_setup_line "The speech model is missing."
+expect "the Setup section draws the service's one setup line for the missing model" '{"action": "setup", "lines": 1, "drawn": true}' voice_setup_lines
 voice_forget
 forget_record
 hold_runs
@@ -1203,10 +1217,9 @@ release_runs
 expect_run_end "the dictation setup run ends" core/dictation-setup
 expect_poll "the setup run's end with code 0 starts the core's daemon again" "stopped started" voice_noted
 expect_poll "Set up is withheld once the model is in place and the daemon runs" none voice_setup_offered
-# Ready: the Setup section reads Ready with voxtype's version and the
-# model.
+# Ready: the Setup section reads Ready and draws the service's line.
 expect_poll "the Setup section reads Ready, every screen active and no step" "$voice_setup_ready" voice_setup_section
-expect "the Setup section names voxtype's version and the model" true voice_setup_line "voxtype 1.1.0 · parakeet-tdt-0.6b-v3"
+expect "the Setup section draws the service's one Ready line" '{"action": "none", "lines": 1, "drawn": true}' voice_setup_lines
 # Control: the core's daemon ended by the row, the stand-in whose pid its
 # own lock names, turns the same reading red: Set up needed, and Set up
 # first. Set up's run then starts a daemon, and the section reads Ready.
@@ -1219,7 +1232,7 @@ else
 fi
 expect_poll "control: Voice reads the ended daemon failed" "failed idle -" voice_state
 expect_poll "control: an ended daemon draws Set up needed with Set up first" "$voice_setup_needed" voice_setup_section
-expect "control: the Setup section says voxtype did not start" true voice_setup_line "voxtype did not start."
+expect "control: the Setup section draws the service's one setup line for the ended daemon" '{"action": "setup", "lines": 1, "drawn": true}' voice_setup_lines
 voice_forget
 forget_record
 expect "Set up after the ended daemon is answered" ok settings_act vgs.voice setup
