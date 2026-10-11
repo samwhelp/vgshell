@@ -7,7 +7,7 @@ import "../../shell/plugins/vgs.settings"
 
 Item {
     id: root
-    width: 480
+    width: 960
     height: 720
 
     property var applied: []
@@ -118,6 +118,27 @@ Item {
         value: "gone"
     }
 
+    // A page taller than its view whose status-fed field sits at the
+    // view's bottom edge, so its custom editor appears under that edge.
+    ScrollArea {
+        id: page
+        x: 480
+        width: 420
+        height: 200
+        Column {
+            width: page.contentWidth
+            Item { width: parent.width; height: 160 }
+            SettingField {
+                id: pageFed
+                key: "device"
+                spec: ({ type: "string", label: "Device", optionsFrom: "devices", allowCustom: true })
+                choices: [{ label: "Alpha", value: "" }, { label: "Beta", value: "b" }]
+                value: ""
+            }
+            Item { width: parent.width; height: 400 }
+        }
+    }
+
     TestCase {
         name: "settingfield"
         when: windowShown
@@ -131,6 +152,9 @@ Item {
             customFed.choices = [{ label: "Alpha", value: "" }, { label: "Beta", value: "b" }];
             customFed.value = "";
             customFed.customChosen = false;
+            pageFed.value = "";
+            pageFed.customChosen = false;
+            page.contentY = 0;
             Time.now = new Date(2026, 8, 30, 20, 34, 0);
         }
 
@@ -305,6 +329,32 @@ Item {
             customFed.choices = [];
             verify(!customFed.customVisible, "the unset value is never a custom one");
             compare(select.currentIndex, -1, "an unset value with no offers reads no row");
+        }
+
+        // The bottom of the custom editor's text box in the page's view.
+        function customBottomInView() {
+            const input = descendants(pageFed).find(child => child instanceof TextInput && child.visible);
+            return input === undefined ? Infinity : input.mapToItem(page, 0, input.height).y;
+        }
+
+        function test_an_appearing_custom_editor_scrolls_into_view() {
+            verify(customBottomInView() === Infinity, "no custom editor shows at first");
+            pageFed.value = "gone";
+            tryVerify(() => customBottomInView() <= page.height && page.contentY > 0, 1000, "a value no choice holds brings its editor into view");
+            page.contentY = 0;
+            pageFed.value = "";
+            verify(!pageFed.customVisible);
+            selectOf(pageFed).choose(pageFed.choices.length);
+            tryVerify(() => customBottomInView() <= page.height && page.contentY > 0, 1000, "choosing Custom… brings its editor into view");
+        }
+
+        function test_a_custom_editor_in_view_moves_no_page() {
+            page.contentY = 120;
+            pageFed.value = "gone";
+            tryVerify(() => pageFed.customVisible && !pageFed.revealPending, 1000, "the editor is laid out");
+            wait(0);
+            compare(page.contentY, 120, "an editor the view already shows scrolls nothing");
+            verify(customBottomInView() < page.height, "the editor shows");
         }
 
         function test_a_status_choice_without_custom_reads_unavailable() {

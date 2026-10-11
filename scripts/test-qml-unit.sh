@@ -994,6 +994,7 @@ mutations=(
   "an unset status-fed value reads as custom|../plugins/vgs.settings/SettingField.qml|!(statusFed && value === \"\")|true|tst_settingfield.qml"
   "choosing Custom… on a status-fed select writes|../plugins/vgs.settings/SettingField.qml|if (dynamic && row.custom === true) {|if (false) {|tst_settingfield.qml"
   "a write of an offered value keeps the custom editor open|../plugins/vgs.settings/SettingField.qml|if (offerIndex(value) >= 0) customChosen = false;|if (false) customChosen = false;|tst_settingfield.qml"
+  "an appearing custom editor stays under the view's edge|../plugins/vgs.settings/SettingField.qml|at.reveal(customField);|at.reveal(null);|tst_settingfield.qml"
   "the info icon opens no dialog|controls/InfoButton.qml|onClicked: openInfo()|onClicked: {}|tst_infobutton.qml"
   "the info dialog ignores rejection|controls/InfoButton.qml|onRejected: root.closeInfo()|onRejected: {}|tst_infobutton.qml"
   "a row without info shows the info icon|controls/FormRow.qml|active: root.info !== \"\" && root.labelColumn|active: root.labelColumn|tst_infobutton.qml"

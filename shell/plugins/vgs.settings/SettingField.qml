@@ -40,6 +40,8 @@ Column {
     property var edits: null
     property bool customChosen: false
     property var presetModel: []
+    // The custom editor appeared and waits to be brought into view.
+    property bool revealPending: false
     readonly property int segmentedLimit: 3 // More choices read better in a vertical Select list.
     readonly property bool bounded: spec.type === "number" && spec.min !== undefined && spec.max !== undefined
     readonly property bool hasPresets: spec.presets !== undefined && Array.isArray(spec.presets)
@@ -64,12 +66,30 @@ Column {
     spacing: Theme.field.gap
     bottomPadding: Theme.subTextRoom((customVisible ? customField : primary).subText, Positioner.index, Positioner.isLastItem, parent)
 
-    Component.onCompleted: rebuildPresetModel()
+    Component.onCompleted: {
+        rebuildPresetModel();
+        revealPending = customVisible;
+    }
     Component.onDestruction: if (edits !== null) edits.forget(root)
     onEditedChanged: if (edits !== null) edits.track(root)
     // A read-only field and a hidden custom row hold no edit.
     onEditableChanged: if (!editable) discard()
-    onCustomVisibleChanged: if (!customVisible && editing(customLoader.item)) customLoader.item.revert()
+    onCustomVisibleChanged: {
+        if (customVisible) revealPending = true;
+        else if (editing(customLoader.item)) customLoader.item.revert();
+    }
+    // The custom editor shows once this column has placed it
+    // (Column.positioningComplete). The columns around it and the scroll
+    // area's content height settle in the same polish pass, so the reveal
+    // waits for the next turn (Qt.callLater) and reads them settled.
+    // callLater guards a method by its object and keys it by object and
+    // method (Qt 6.9 qqmldelayedcallqueue.cpp), so a destroyed field is
+    // never called and each field keeps its own call.
+    onPositioningComplete: {
+        if (!revealPending) return;
+        revealPending = false;
+        Qt.callLater(root.revealCustom);
+    }
     onSpecChanged: rebuildPresetModel()
     onChoicesChanged: rebuildPresetModel()
     onValueChanged: {
@@ -110,6 +130,17 @@ Column {
     function displayNumber(v) { return spec.unit === undefined ? String(v) : SettingValues.quantityText(v, spec.unit); }
 
     function openDescriptionLink() { openLink(spec.link.url); }
+    // The nearest enclosing ScrollArea scrolls the least distance that
+    // shows the custom editor; a field outside one has nothing to scroll.
+    function revealCustom() {
+        if (!customVisible) return;
+        for (let at = parent; at !== null; at = at.parent) {
+            if (typeof at.reveal === "function") {
+                at.reveal(customField);
+                return;
+            }
+        }
+    }
     function editing(editor) { return editor !== null && editor.edited === true; }
     function save() {
         for (const editor of [loader.item, customLoader.item]) if (editing(editor)) editor.save();
