@@ -1307,7 +1307,6 @@ voice_noted_within() { # MS
   voice_noted
 }
 voice_setup_elsewhere='{"chips": [["Set up needed", "warning"]], "buttons": [["Stop the other voxtype", "accent", true, false], ["Configure", "accent", true, false], ["Choose model", "accent", true, false]]}'
-voice_elsewhere_line="Another voxtype is already running. Stop the other voxtype so VGS can start its own."
 # voice_stop_other LABEL: from Voice enabled over the core's daemon, the
 # row's own daemon holds the place, Voice offers the step, the step's run
 # is held while that daemon ends, and the run ends; the stand-in's notes
@@ -1326,7 +1325,7 @@ voice_stop_other() { # LABEL
   expect_poll "$1: Setup offers Stop the other voxtype" stop voice_setup_offered
   settings_page_open vgs.voice
   expect_poll "$1: the Setup section draws Set up needed with Stop the other voxtype first" "$voice_setup_elsewhere" voice_setup_section
-  expect "$1: the Setup section's line says another voxtype runs" true voice_setup_line "$voice_elsewhere_line"
+  expect "$1: the Setup section draws the service's one line for the other voxtype" '{"action": "stop", "lines": 1, "drawn": true}' voice_setup_lines
   voice_stop_other_before="$(voice_stop_other_end)" || voice_stop_other_before=unread
   forget_record
   hold_runs
