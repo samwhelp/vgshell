@@ -316,6 +316,16 @@ print(detail.get("phase", "none") if detail else "none")
 '
 }
 
+# selftest_voice_state: `loading` while Service.qml's status.setupVoice is
+# Checking or Loading (tone info), else `loaded`; a missing value reads loaded.
+selftest_voice_state() {
+  ipc smoke jarvisProcess | py_reply '
+import json, sys
+voice = (json.load(sys.stdin)["status"] or {}).get("setupVoice")
+print("loading" if isinstance(voice, dict) and voice.get("tone") == "info" else "loaded")
+'
+}
+
 # selftest_gate_context: two lines from a jarvisProcess reply on stdin. The
 # first is `gate=<kind>` for stop keys. The second is a diagnostic line with
 # setup, daemon and gate as compact JSON. Missing detail reads gate=none.
@@ -538,6 +548,9 @@ selftest_open() { # KIND MODE VALUE WAV TAIL_MS
   fi
   if [[ $mode == always ]]; then
     selftest_wait 30 armed selftest_service_phase || stopped_gate microphone-not-open "phase=$reading"
+    # Always arms while the local voice still loads, and the sidecar drops
+    # every frame until its models are ready.
+    selftest_wait 60 loaded selftest_voice_state || stopped_gate voice-loading "voice=$reading"
     selftest_wait 10 ready devices_voice_feed_state || stopped no-voice-feed "$reading"
     [[ $(ipc smoke markJarvisTrace input) == ok ]] || stopped trace-not-marked
     input_started_ms="$(now_ms)"

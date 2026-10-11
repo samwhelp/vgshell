@@ -206,7 +206,7 @@ plant() { cp -- "$1" "$tree/scripts/jarvis-selftest.sh"; }
 functions="$tmp/functions.sh"
 cut_functions() { # RUNNER
   { sed -n '/^py_reply() {/,/^}/p; /^now_ms() {/p' "$repo/scripts/smoke/harness.sh"
-    for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_service_phase selftest_gate_context selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
+    for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_service_phase selftest_voice_state selftest_gate_context selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
       selftest_woke selftest_end selftest_audio selftest_audio_record selftest_wav_tail selftest_speech_tail selftest_open selftest_case_check selftest_compare selftest_case_child_args selftest_suite_summary selftest_suite_stopped selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$1"; done
     sed -n '/^devices_speaker_sounds() {/,/^}/p' "$repo/scripts/smoke/devices.sh"; } >"$functions"
 }
@@ -585,7 +585,7 @@ control_devices() { # LABEL OLD NEW CASE
   local label="$1" old="$2" new="$3" case="$4"
   if ! mutate "$repo/scripts/smoke/devices.sh" "$old" "$new" "$mutant"; then fail "control: $label: its defect did not apply"; return; fi
   { sed -n '/^py_reply() {/,/^}/p; /^now_ms() {/p' "$repo/scripts/smoke/harness.sh"
-    for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_service_phase selftest_gate_context selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
+    for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_service_phase selftest_voice_state selftest_gate_context selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
       selftest_woke selftest_end selftest_audio selftest_audio_record selftest_wav_tail selftest_speech_tail selftest_open selftest_case_check selftest_compare selftest_case_child_args selftest_suite_summary selftest_suite_stopped selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$runner"; done
     sed -n '/^devices_speaker_sounds() {/,/^}/p' "$mutant"; } >"$functions"
   if "$case"; then fail "control: $label stayed green"; else ok "control: $label"; fi
@@ -595,19 +595,33 @@ control_devices "a sound reader that does not join a short closure" 'elif at - c
 
 
 echo "--- wake opening and no-wake"
-open_case() { # MODE WANT_INTENT WANT_PHASE
-  local open_mode="$1" want_intent="$2" phase_word="$3"
+# open_run MODE PHASE VOICE: selftest_open over a service whose phase is
+# PHASE and whose status.setupVoice is the JSON VOICE, logged in open.log.
+# Its sleep moves the clock 100 s, so a wait that never ends times out at once.
+open_run() { # MODE PHASE VOICE
   : >"$tmp/open.log"
-  bash -c 'set -euo pipefail; source "$1"; log="$2"; mode="$3"; phase_word="$4"
+  bash -c 'set -euo pipefail; source "$1"; log="$2"; mode="$3"; phase_word="$4"; voice="$5"
     traced() { case "$1" in phase) echo "$phase_word" ;; widget) echo listening ;; esac; }
     devices_voice_feed_state() { echo ready; }
     devices_voice_feed() { echo feed >>"$log"; }
     selftest_speech_tail() { echo 0; }
+    sleep() { SECONDS=$((SECONDS + 100)); }
     stopped() { echo "stopped $*" >>"$log"; return 1; }
-    ipc() { echo "ipc $*" >>"$log"; case "$*" in smoke\ jarvisProcess) printf "%s\n" "{\"status\":{\"detail\":{\"phase\":\"$phase_word\"}}}" ;; *markJarvisTrace*) echo ok ;; *say*) echo ok ;; *) echo ok ;; esac; }
+    stopped_gate() { echo "stopped $*" >>"$log"; return 1; }
+    ipc() { echo "ipc $*" >>"$log"; case "$*" in smoke\ jarvisProcess) printf "%s\n" "{\"status\":{\"detail\":{\"phase\":\"$phase_word\"},\"setupVoice\":$voice}}" ;; *markJarvisTrace*) echo ok ;; *say*) echo ok ;; *) echo ok ;; esac; }
     selftest_open wav "$mode" ignored "$log.wav" 0
-  ' _ "$functions" "$tmp/open.log" "$open_mode" "$phase_word" || return 1
-  if [[ $want_intent == yes ]]; then grep -q 'intent talk-down' "$tmp/open.log"; else ! grep -q 'intent talk-down' "$tmp/open.log"; fi
+  ' _ "$functions" "$tmp/open.log" "$1" "$2" "$3"
+}
+open_case() { # MODE WANT_INTENT WANT_PHASE
+  open_run "$1" "$3" null || return 1
+  if [[ $2 == yes ]]; then grep -q 'intent talk-down' "$tmp/open.log"; else ! grep -q 'intent talk-down' "$tmp/open.log"; fi
+}
+# voice_case VOICE WANT: an Always open over status.setupVoice VOICE feeds
+# (WANT feed) or stops as voice-loading without a feed.
+voice_case() { # VOICE WANT
+  open_run always armed "$1" || true
+  if [[ $2 == feed ]]; then grep -qx feed "$tmp/open.log" && ! grep -q '^stopped' "$tmp/open.log"
+  else ! grep -qx feed "$tmp/open.log" && grep -q '^stopped voice-loading voice=loading' "$tmp/open.log"; fi
 }
 open_always() { open_case always no armed; }
 open_toggle() { open_case toggle yes listening; }
@@ -630,12 +644,15 @@ PY
 wake_reads_woke() { [[ "$(wake_woke_trace | call selftest_woke)" == woke ]]; }
 holds "Always mode opens without a Talk intent and waits for armed" open_always
 holds "Toggle mode opens with the Talk intent" open_toggle
+holds "Always mode waits out a loading voice and stops as voice-loading" voice_case '{"tone":"info","text":"Loading","action":false}' voice-loading
+holds "Always mode feeds once the voice step is done" voice_case '{"tone":"ok","text":"Done","action":false}' feed
 holds "a trace that stays armed after the input mark reads no-wake" wake_reads_armed
 holds "a wake trace that leaves armed reads woke" wake_reads_woke
 control cut_functions "an Always open that sends the Talk intent" 'if [[ $mode == always ]]; then
     selftest_wait 30 armed selftest_service_phase' 'if [[ $mode == always ]]; then
     ipc smoke invokeInstance service vgs.jarvis intent talk-down >/dev/null || stopped talk-not-sent
     selftest_wait 30 armed selftest_service_phase' open_always
+control cut_functions "an Always open that feeds while the voice loads" '    selftest_wait 60 loaded selftest_voice_state || stopped_gate voice-loading "voice=$reading"' '    :' voice_case '{"tone":"info","text":"Loading","action":false}' voice-loading
 control cut_functions "a verdict that takes no-wake as completed" '    no-wake) echo no-wake ;;' '    no-wake) echo completed ;;' wake_reads_armed
 
 suite_summary_case() { # CASES MATCHED DIFFER NOT_RUN FAILED DIR WANT_STATUS
