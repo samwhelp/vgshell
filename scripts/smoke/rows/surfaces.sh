@@ -426,9 +426,13 @@ else
   fail "the other window for the outside press did not map"
 fi
 
-# A press on another monitor closes an unanchored summon, as a press beside
-# it on its own monitor does: SummonLayer holds a press catcher,
-# vgs:<kind>-outside, on every other screen. The far monitor is a headless
+# A press on another monitor closes an unanchored panel or menu, as a press
+# beside it on its own monitor does: SummonLayer holds a press catcher,
+# vgs:<kind>-outside, on every other screen. An overlay holds catchers only
+# while its plugin has pressedOnOtherScreen(), as the launcher does, so the
+# fixture's overlay, which has none, leaves the far monitor's presses
+# alone. A monitor removed while a panel shows takes its catcher with it,
+# and the panel stays. The far monitor is a headless
 # output the row gives a mode, right of the first. The click tool maps a
 # point over the whole layout (Hyprland v0.56.2
 # CPointerManager::warpAbsolute), so these presses pass the layout's size.
@@ -528,6 +532,13 @@ geometry expect_poll "the launcher's catcher covers the whole far monitor, its b
 expect "a press on the far monitor closes the launcher" closed far_press vgs:overlay
 expect_poll "the closed launcher's catcher is gone" "[]" far_catchers vgs:overlay
 expect "the launcher is disabled again" ok ipc shell setPluginEnabled vgs.launcher false
+expect "the first monitor takes the focus for the fixture's overlay" ok near_focus
+expect "the fixture's overlay summons on the first monitor" ok ipc shell summon overlay acme.surfaces '{}'
+summon_drawn overlay acme.surfaces || fail "the fixture's overlay never drew before the far press"
+expect "an overlay without pressedOnOtherScreen holds no catcher" "[]" far_catchers vgs:overlay
+expect "a press on the far monitor leaves that overlay open" open far_press vgs:overlay
+expect "hiding the fixture's overlay is allowed" ok ipc shell hide overlay acme.surfaces
+expect_poll "the fixture's overlay is gone" 0 layer_count vgs:overlay
 expect "the first monitor takes the focus for the single-screen copy" ok near_focus
 expect "the probe builds the single-screen SummonLayer copy" ok ipc smoke summonLayerLoad layer-one-screen "$layer_one_screen" acme.surfaces panel
 ipc smoke invokeInstance panel acme.surfaces open '{}' >/dev/null || fail "the single-screen copy's open() could not be called"
@@ -537,8 +548,17 @@ expect "control: a press on the far monitor leaves the single-screen copy open" 
 expect "control: the single-screen copy counted no dismissal" "0 1" layer_copy_state layer-one-screen
 expect "the probe drops the single-screen copy" ok ipc smoke popupDrop layer-one-screen
 expect_poll "the single-screen copy's surface is gone" 0 layer_count vgs:panel
+expect "the first monitor takes the focus for the hotplug panel" ok near_focus
+expect "a panel summons for the far monitor's removal" ok ipc shell summon panel acme.surfaces '{}'
+summon_drawn panel acme.surfaces || fail "the hotplug panel never drew"
+geometry expect_poll "the hotplug panel's catcher covers the far monitor" "$panel_far" far_catchers vgs:panel
 expect "the nested compositor removes the far monitor" ok hypr output remove "$far_output"
+expect_poll "the removed monitor's bar is gone" "$monitors" bar_count
+expect_poll "the removed monitor's catcher is gone, not moved to the first" "[]" far_catchers vgs:panel
+expect "the panel stays open through the far monitor's removal" 1 layer_count vgs:panel
 expect "the pointer returns to the first monitor" ok near_focus
+expect "hiding the hotplug panel is allowed" ok ipc shell hide panel acme.surfaces
+expect_poll "the hotplug panel is gone" 0 layer_count vgs:panel
 
 # An application window: a client of the shell's class titled with the
 # plugin's name, at the size the instance asks, whatever the plugin's

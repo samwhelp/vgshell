@@ -92,6 +92,12 @@ Item {
         dismiss();
     }
 
+    // A press on another screen closes the launcher as a click outside its
+    // card does; the summon host calls this.
+    function pressedOnOtherScreen() {
+        cancel();
+    }
+
     // ------------------------------------------------------------ the menu
 
     readonly property string shippedPath: decodeURIComponent(String(Qt.resolvedUrl("menu.json")).replace(/^file:\/\//, ""))

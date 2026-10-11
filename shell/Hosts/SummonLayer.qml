@@ -17,8 +17,11 @@ import qs.Ui
 // opens is its own surface above this one, so a press on it reaches the
 // popup. The keyboard stays on demand, so a window that takes it closes
 // nothing here. An Escape the plugin leaves unaccepted is `dismissed` too.
-// Every other screen holds a press catcher while the surface shows, so a
-// press there is `dismissed` as well, an overlay's included.
+// Every other screen holds a press catcher while a panel or a menu shows,
+// so a press there is `dismissed` as well. An overlay's plugin owns a press
+// beside its content (the launcher closes, an authentication dialog keeps
+// its request), so an overlay holds catchers only while its plugin has a
+// `pressedOnOtherScreen()`, which hears that press instead.
 PanelWindow {
     id: win
 
@@ -93,14 +96,23 @@ PanelWindow {
     // CFocusGrab's onEnd), which would close the surface as its popup
     // opens. A catcher takes no keyboard, so an overlay keeps it, and keeps
     // the layer and reserved space this surface keeps on its own screen.
-    readonly property var otherScreens: Quickshell.screens.filter(s => s !== win.screen)
+    readonly property bool catchesElsewhere: catches || (slot.instance !== null && typeof slot.instance.pressedOnOtherScreen === "function")
+    readonly property var otherScreens: catchesElsewhere ? Quickshell.screens.filter(s => s !== win.screen) : []
+    function pressedElsewhere() {
+        if (catches) dismissed();
+        else slot.instance.pressedOnOtherScreen();
+    }
     Variants {
         model: win.otherScreens
 
         PanelWindow {
             required property var modelData
             screen: modelData
-            visible: win.visible
+            // Quickshell.screens drops a removed screen before Qt moves its
+            // windows to another screen and Variants deletes this one on a
+            // later turn; hidden first, it is never remapped there
+            // (BarHost, VGS-1104).
+            visible: win.visible && Quickshell.screens.indexOf(modelData) !== -1
             anchors { top: true; bottom: true; left: true; right: true }
             exclusionMode: win.exclusionMode
             exclusiveZone: 0
@@ -114,7 +126,7 @@ PanelWindow {
             MouseArea {
                 anchors.fill: parent
                 acceptedButtons: Qt.AllButtons
-                onPressed: win.dismissed()
+                onPressed: win.pressedElsewhere()
             }
         }
     }
