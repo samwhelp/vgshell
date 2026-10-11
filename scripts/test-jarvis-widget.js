@@ -66,6 +66,9 @@ const SETTING_CAUSES = [
     ["setup=probe-timeout", "ready", "Jarvis is ready", ["Hold Super+Right Alt and speak.", "Jarvis setup check timed out. Turn Jarvis off and on again in Settings > Jarvis.", "Click or press Super+Shift+Right Alt to mute."]]
 ];
 const OVERFLOW = { tone: "danger", text: "capture-overflow" };
+const ARMED = { capture: { kind: "open", gen: 1, op: 2, mode: "armed" } };
+const VOICE_LOADING = SetupGate.readiness({ kind: "answered", causes: ["speech=local-loading"] });
+const VOICE_READY = SetupGate.readiness({ kind: "answered", causes: [] });
 const up = (regions, extra) => Object.assign({ daemon: READY, audio: DEVICES, detail: detail(regions) }, extra);
 
 const MUTE = "Click or press Super+Shift+Right Alt to mute.";
@@ -104,6 +107,10 @@ const CASES = [
     ["capture opening", up({ capture: { kind: "opening", gen: 1, op: 2, mode: "conversation" } }),
         ["listening", "audio-lines", "accent", tip("Jarvis is listening", ["Speak now.", MUTE])]],
     ["armed", up({ capture: { kind: "open", gen: 1, op: 2, mode: "armed" } }),
+        ["listening", "audio-lines", "accent", tip("Jarvis is listening for Hey Jarvis", ["Say Hey Jarvis.", MUTE])]],
+    ["armed while the voice loads", up(ARMED, VOICE_LOADING),
+        ["loading", "loader", "info", tip("Jarvis is loading its voice", ["Wait for local voice to load.", MUTE])]],
+    ["armed with its voice ready", up(ARMED, VOICE_READY),
         ["listening", "audio-lines", "accent", tip("Jarvis is listening for Hey Jarvis", ["Say Hey Jarvis.", MUTE])]],
     ["muting while capture closes", up({ mute: { kind: "muting" }, ...CLOSING }),
         ["listening", "audio-lines", "accent", tip("Jarvis is listening", ["Speak now.", UNMUTE])]],
@@ -322,6 +329,7 @@ const CONTROLS = [
     ["file prompt repeats its path as detail", 'lines.slice(2).join("\\n")', 'lines.slice(1).join("\\n")'],
     ["detail flag is dropped", 'detail: filePrompt && lines.length > 2', 'detail: false'],
     ["an open microphone is not listening", "microphoneOpen(state.capture)) return", "false) return"],
+    ["an armed capture reads listening while the voice loads", "!(armed && voiceLoading(values)) && microphoneOpen", "microphoneOpen"],
     ["a daemon problem is not a problem", 'daemon.tone === "danger") return', 'false) return'],
     ["a retrying daemon problem is not a problem", 'daemon.tone === "warning" && daemon.lines !== undefined) return', 'false) return'],
     ["a Session error is not a problem", 'detail.phase === "error") return', 'false) return'],

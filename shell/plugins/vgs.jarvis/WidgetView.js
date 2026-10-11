@@ -340,7 +340,9 @@ function view(values, keys, mode) {
     }
     var muteOn = state !== null && muted(state.mute);
     var armed = state !== null && state.capture !== null && typeof state.capture === "object" && state.capture.kind === "open" && state.capture.mode === "armed" && detail.phase === "armed";
-    if (state !== null && microphoneOpen(state.capture)) return withBrain(look("listening", armed ? "Jarvis is listening for Hey Jarvis" : "Jarvis is listening",
+    // The local sidecar drops every wake frame until its voice is ready, so
+    // an armed capture over a loading voice reads loading below.
+    if (state !== null && !(armed && voiceLoading(values)) && microphoneOpen(state.capture)) return withBrain(look("listening", armed ? "Jarvis is listening for Hey Jarvis" : "Jarvis is listening",
         [armed ? "Say Hey Jarvis." : "Speak now."], muteOn, effectiveKeys));
     if (daemon !== null && daemon.tone === "danger") return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
     if (daemon !== null && daemon.tone === "warning" && daemon.lines !== undefined) return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
