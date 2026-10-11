@@ -88,6 +88,20 @@ const STEPPED_TUIS = [
     { name: "browser", label: "Set up browser", icon: "globe", withheld: "" },
     { name: "accounts", label: "Accounts", icon: "users", withheld: "" }
 ];
+// A row that declares a listed screen and an unlisted repair screen: while
+// danger and offering repair, the listed screen does not apply.
+const DECLARED_FLOW = {
+    requirements: [],
+    tui: {
+        listed: { script: "tui/listed.sh", title: "Listed screen", size: "default", presentation: "full", entry: null, requires: null },
+        repair: { script: "tui/repair.sh", title: "Repair", size: "default", presentation: "full", entry: null, requires: null }
+    },
+    status: {
+        summary: { type: "state", label: "Setup", group: "Setup" },
+        gate: { type: "state", label: "Gate", group: "Setup", actions: { listed: { label: "Open listed screen", tui: "listed" }, repair: { label: "Repair", tui: "repair" } } }
+    }
+};
+const DECLARED_FLOW_TUIS = [{ name: "listed", label: "Listed screen", icon: "list", withheld: "" }];
 const TODO = { tone: "warning", text: "To do", action: true };
 // The AI model step names the action that applies.
 const KEY = { tone: "warning", text: "To do", action: "key" };
@@ -120,7 +134,15 @@ const ROWS = [
     ["a step whose screen is listed with no entry draws it as the manager's act", STEPPED, STEPPED_TUIS.filter(tui => tui.name !== "browser"),
         { summary: { tone: "warning", text: "Not ready" }, model: NO_STEP, browser: TODO },
         [["Setup", false, null], ["AI model", true, null], ["Browser", true, ["", "Set up browser"]]],
-        [["keys", "Add key"], ["accounts", "Accounts"]]]
+        [["keys", "Add key"], ["accounts", "Accounts"]]],
+    ["a danger step's repair hides the listed screen it declares from the Flow", DECLARED_FLOW, DECLARED_FLOW_TUIS,
+        { summary: { tone: "warning", text: "Not ready" }, gate: { tone: "danger", text: "Broken", action: "repair" } },
+        [["Setup", false, null], ["Gate", true, ["", "Repair"]]],
+        []],
+    ["a listed declared screen still draws beside the row when it applies", DECLARED_FLOW, DECLARED_FLOW_TUIS,
+        { summary: { tone: "warning", text: "Not ready" }, gate: { tone: "warning", text: "To do", action: "listed" } },
+        [["Setup", false, null], ["Gate", true, ["listed", "Open listed screen"]]],
+        []]
 ];
 
 // An optional step, one whose state reads info, before a required one:
@@ -193,7 +215,16 @@ const FLOWS = [
     ["a danger screen in the Flow is drawn in its tone and never primary",
         Object.assign({}, MANIFEST, { status: { warden: { type: "state", label: "Warden", group: "Setup" }, out: { type: "state", label: "Account", action: { label: "Sign out", tui: "setup", tone: "danger" } } } }), TUIS,
         { warden: { tone: "ok", text: "Ready" }, out: { tone: "ok", text: "Signed in", action: true } },
-        [["setup", "Sign out", "danger", false], ["configure", "Configure", "", false]]]
+        [["setup", "Sign out", "danger", false], ["configure", "Configure", "", false]]],
+    ["a danger row offering a repair hides the listed screen it declares", DECLARED_FLOW, DECLARED_FLOW_TUIS,
+        { summary: { tone: "warning", text: "Not ready" }, gate: { tone: "danger", text: "Broken", action: "repair" } },
+        []],
+    ["a row offering the listed action draws it beside the row", DECLARED_FLOW, DECLARED_FLOW_TUIS,
+        { summary: { tone: "warning", text: "Not ready" }, gate: { tone: "warning", text: "To do", action: "listed" } },
+        []],
+    ["a non-danger row offering another action keeps the listed screen in the Flow", DECLARED_FLOW, DECLARED_FLOW_TUIS,
+        { summary: { tone: "ok", text: "Ready" }, gate: { tone: "ok", text: "Done", action: "repair" } },
+        [["listed", "Listed screen", "", false]]]
 ];
 
 // A plugin that stores keys: a state and the presence list of its accounts.
@@ -371,6 +402,7 @@ const CONTROLS = [
     ["a step drops its tone", "tone: entry.action.tone, primary: false };", "tone: \"\", primary: false };"],
     ["a step draws an action its value does not offer", "if (entry.action === null || !entry.action.offered) return null;", "if (entry.action === null) return null;"],
     ["a step's screen draws in the Flow too", "beside.indexOf(name) !== -1 || ", ""],
+    ["a danger step's declared screen draws in the Flow too", " && !blockedByDangerRow(tui.name)", ""],
     ["the Status row reads Status", "label: entry.label, step: step,", 'label: step ? entry.label : "Status", step: step,'],
     ["the first Setup entry draws as a step", "items: [row(setup[0], false)]", "items: [row(setup[0], true)]"],
     ["the first Setup entry draws among the steps too", "var setupItems = setup.slice(1).map(", "var setupItems = setup.map("],

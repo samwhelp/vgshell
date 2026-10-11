@@ -1315,6 +1315,21 @@ function statusRowAction(entry, value, lacking) {
     return { label: entry.action === undefined ? "" : entry.action.label, tone: entry.action === undefined ? "" : statusActionTone(entry.action), offered: false, tui: "" };
 }
 
+// The declared TUI screens a status entry may open, in manifest order and
+// without duplicates.
+function statusDeclaredTuis(entry) {
+    var seen = Object.create(null);
+    var out = [];
+    statusEntryActions(entry).forEach(function (declared) {
+        var tui = declared.action.tui;
+        if (typeof tui === "string" && !seen[tui]) {
+            seen[tui] = true;
+            out.push(tui);
+        }
+    });
+    return out;
+}
+
 // The tone a page draws declared ACTION in: its `tone`, else "".
 function statusActionTone(action) {
     return action.tone === undefined ? "" : action.tone;
@@ -1357,12 +1372,13 @@ function tuiWithheldReason(lacking) {
 // The Status rows the plugin manager shows for a plugin: one per entry
 // statusDisplayable admits whose `state` value is not hidden (statusStateHidden),
 // in manifest key order, as { key, type, label,
-// group, hint, info, link, secrets, action, report, value, tone }. `group`,
-// `hint` and `info` are "" when the manifest omits them, and `link`, the
-// words of the declared hint that open an https address, null. `secrets`
-// holds for the entry that lists the plugin's stored keys, a `presenceList`
-// of a manifest that declares `secrets`, which a page draws with its setup.
-// `action` is
+// group, hint, info, link, secrets, declaredTuis, action, report, value,
+// tone }. `group`, `hint` and `info` are "" when the manifest omits them,
+// and `link`, the words of the declared hint that open an https address,
+// null. `secrets` holds for the entry that lists the plugin's stored keys,
+// a `presenceList` of a manifest that declares `secrets`, which a page
+// draws with its setup. `declaredTuis` is each TUI the entry's actions may
+// open, in declaration order. `action` is
 // statusRowAction's: null for an entry without one, else { label, tone, offered, tui },
 // `offered` false while unreported. `report` is `reported` with the published `value`
 // (statusRowValue) and its `tone`, or `unreported` with `value` null and
@@ -1394,6 +1410,7 @@ function statusRows(manifest, values, missing) {
             info: entry.info === undefined ? "" : entry.info,
             link: entry.link === undefined ? null : { text: entry.link.text, url: entry.link.url },
             secrets: entry.type === "presenceList" && manifest.secrets !== undefined,
+            declaredTuis: statusDeclaredTuis(entry),
             action: statusRowAction(entry, value, lacking),
             report: reported ? "reported" : "unreported",
             value: reported ? statusRowValue(entry.type, value) : null,

@@ -162,7 +162,7 @@ function inKeyedGroup(entry, keyed) {
 //   step;
 // - SETUP_GROUP: each further entry of that group as a step row, then the
 //   key lists of group "" or SETUP_GROUP, then `buttons`, the screens no
-//   step row draws (flowButtons);
+//   step row draws and no danger step owns now (flowButtons);
 // - each keyed group (keyedGroups): its key lists and states in manifest
 //   order, each state a step row.
 // A section with no item and no button is left out. Each item is { key,
@@ -213,10 +213,12 @@ function stepButton(tuis, entry) {
 }
 
 // The Setup section's actions for TUIS and STATUS, in drawn order, leaving
-// out each listed TUI a step row draws beside it, BESIDE: first each TUI
-// an offered action opens (a row's action names a TUI only while it is
-// offered), in status order, as that step, with the action's label and
-// tone; then every other TUI in manifest order, with its entry's label.
+// out each listed TUI a step row draws beside it, BESIDE, and each listed
+// TUI a danger row declares while it offers another TUI as the repair:
+// first each TUI an offered action opens (a row's action names a TUI only
+// while it is offered), in status order, as that step, with the action's
+// label and tone; then every other TUI in manifest order, with its entry's
+// label.
 // Such another TUI that lacks a requirement takes no press and reads the
 // core's reason, the TUI's `withheld`: its press would only raise the
 // notice the step installs from; an offered step always takes its press.
@@ -226,6 +228,12 @@ function stepButton(tuis, entry) {
 function flowButtons(tuis, status, beside) {
     var out = [];
     function has(name) { return beside.indexOf(name) !== -1 || out.some(function (button) { return button.name === name; }); }
+    function blockedByDangerRow(name) {
+        return status.some(function (entry) {
+            return entry.tone === "danger" && entry.action !== null && true === entry.action.offered && entry.action.tui !== "" && entry.action.tui !== name
+                && entry.declaredTuis !== undefined && entry.declaredTuis.indexOf(name) !== -1;
+        });
+    }
     function add(tui, label, tone, offered) {
         var enabled = offered || tui.withheld === "";
         out.push({ key: "", name: tui.name, label: label, tone: tone, offered: offered, primary: false, enabled: enabled, reason: enabled ? "" : tui.withheld });
@@ -235,7 +243,7 @@ function flowButtons(tuis, status, beside) {
         var tui = tuis.filter(function (t) { return t.name === entry.action.tui; })[0];
         if (tui !== undefined && !has(tui.name)) add(tui, entry.action.label, entry.action.tone, true);
     });
-    tuis.forEach(function (tui) { if (!has(tui.name)) add(tui, tui.label, "", false); });
+    tuis.forEach(function (tui) { if (!has(tui.name) && !blockedByDangerRow(tui.name)) add(tui, tui.label, "", false); });
     return out;
 }
 
