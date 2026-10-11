@@ -449,9 +449,14 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         close(e) {
             if (live !== null && live.op === e.target) release(live);
         },
-        // Lease loss: no socket or timer may hold the daemon.
+        // Lease loss, or a brain failover that opens the session again under
+        // the same identity: no socket or timer may hold the daemon. The
+        // released session's words are gone, so its due reply is too.
         release() {
-            if (live !== null) release(live);
+            const session = live;
+            if (session === null) return;
+            release(session);
+            session.events.due(false);
         },
         // Drop the words not yet asked for, then the rest of the interrupted
         // response, by its identity. No response.cancel leaves: a cancel that
@@ -489,7 +494,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         }
         // The first audio of these words raises speak; until then the session
         // shows the reply as due. A waiting or open reply carries them.
-        if (session.next === null && !(session.playing !== null && session.playing.kind === "open")) session.events.due();
+        if (session.next === null && !(session.playing !== null && session.playing.kind === "open")) session.events.due(true);
         speak(session);
         return true;
     }

@@ -210,7 +210,7 @@ world(async () => {
         const clock = manual();
         const w = { id: ++conversations, kit, clock, played: [], flushes: 0, transcripts: [], logs: [], collected: [], sink: null,
             source: null, handed: [], backlog: null, delegations: [], tools: 0, starts: 0, judged: [], approvals: [],
-            stall: false, read: null };
+            stall: false, read: null, dues: [] };
         const store = new kit.Secrets.Secrets(path.join(childEnv.XDG_STATE_HOME, "vgshell/jarvis"), childEnv);
         const reference = kit.Secrets.ownReference("openai", "fixture", key === "elsewhere" ? other.origin : main.origin);
         const secrets = { lookup: value => { const secret = store.lookup(value); w.handed.push(secret); return secret; } };
@@ -272,7 +272,9 @@ world(async () => {
             w.transcripts.push({ role: e.role, text: e.text, stage: e.stage, rev: e.rev });
         };
         ports.mute = { store: () => {} };
-        ports.speech = engine.port;
+        // Each due report the engine raises, read where the runner hears it.
+        ports.speech = { ...engine.port, open: (e, events) => engine.port.open(e,
+            { ...events, due: value => { w.dues.push(value); events.due(value); } }) };
         ports.brain = { ...ports.brain, send: (e, done) => {
             w.delegations.push(e);
             if (!thinking) done("brain-done");
@@ -632,8 +634,42 @@ world(async () => {
         conn.play("reply-old");
         await until(() => w.state.playback.kind === "playing", "the first audio starts the reply");
         assert.deepEqual([w.state.speech.reply.kind, w.phase], ["none", "speaking"]);
+        const open = w.dues.length;
         assert.equal(say(w, "Anything else?"), true);
-        assert.equal(w.state.speech.reply.kind, "none", "the open reply carries later words");
+        assert.deepEqual([w.dues.slice(open), w.state.speech.reply.kind], [[], "none"], "the open reply carries later words");
+    }
+
+    // A reply Audio still plays after it ended at the engine carries no new
+    // words, and a reply the provider has started before Audio takes it does.
+    async function replyDueCarried(kit) {
+        const { w, conn } = await conversing(kit);
+        w.stall = true;
+        assert.equal(say(w, "It is noon."), true);
+        await conn.event(SPEAK);
+        conn.play("reply-old");
+        conn.play("done-old");
+        await mark(w, conn, "done");
+        assert.equal(w.state.playback.kind, "playing");
+        w.clock.advance(500);
+        const ended = w.dues.length;
+        assert.equal(say(w, "Anything else?"), true);
+        assert.deepEqual([w.dues.slice(ended), w.state.speech.reply.kind], [[true], "due"], "an ended reply carries no new words");
+        await conn.event(SPEAK);
+        conn.play("reply-new");
+        await until(() => w.state.speech.reply.kind === "waiting", "the next reply waits for the playing one");
+        const waiting = w.dues.length;
+        assert.equal(say(w, "More words."), true);
+        assert.deepEqual(w.dues.slice(waiting), [], "the reply the provider started carries later words");
+    }
+
+    // A failover releases the session and opens it again under the same
+    // identity: the words it dropped leave no reply due.
+    async function releaseDue(kit) {
+        const { w } = await conversing(kit);
+        assert.equal(say(w, "It is noon."), true);
+        assert.equal(w.state.speech.reply.kind, "due");
+        w.engine.port.release();
+        assert.deepEqual([w.dues, w.state.speech.kind, w.state.speech.reply.kind, w.phase], [[true, false], "open", "none", "idle"]);
     }
 
     async function labels(kit) {
@@ -1381,7 +1417,7 @@ world(async () => {
     }
 
     const cases = { roundTrip, idle, idleRestarts, idleTurn, idleThinking, idleApproval, closing, captions, interruptPlaying,
-        interruptQueued, replacedReply, heardAccount, replyDue, labels, failures, unread, redirect,
+        interruptQueued, replacedReply, heardAccount, replyDue, replyDueCarried, releaseDue, labels, failures, unread, redirect,
         startTimeout, responseTimeout, keys, opening, releaseLifetime, pacing, replyQueue, backlog, delegation, violations,
         daemonDelegation, daemonStale: kit => daemonDelegation(kit, "stale"), daemonRelease: kit => daemonDelegation(kit, "release"),
         daemonReplacement: kit => daemonDelegation(kit, "replacement"), daemonInterrupt: kit => daemonDelegation(kit, "interrupt"),
@@ -1412,9 +1448,13 @@ world(async () => {
             ["exact-words", '+ "\\n\\n" + JSON.stringify(words.text)', '+ "\\n\\n" + JSON.stringify("")', as("roundTrip")],
             ["voice-guidance", 'instructions: session.reader + "\\n\\n" + JSON.stringify(words.text)', "instructions: JSON.stringify(words.text)", as("roundTrip")],
             ["frame-labels", "}, [words.item]);", "});", as("labels")],
-            ["reply-due", "session.events.due();", "", as("replyDue")],
-            ["reply-due-carried", 'if (session.next === null && !(session.playing !== null && session.playing.kind === "open")) session.events.due();',
-                "session.events.due();", as("replyDue")],
+            ["reply-due", "session.events.due(true);", "", as("replyDue")],
+            ["reply-due-carried", 'if (session.next === null && !(session.playing !== null && session.playing.kind === "open")) session.events.due(true);',
+                "session.events.due(true);", as("replyDue")],
+            ["reply-due-waiting", "if (session.next === null && !(session.playing", "if (!(session.playing", as("replyDueCarried")],
+            ["reply-due-ended", 'session.playing !== null && session.playing.kind === "open")) session.events.due(true);',
+                "session.playing !== null)) session.events.due(true);", as("replyDueCarried")],
+            ["release-due", "release(session);\n            session.events.due(false);", "release(session);", as("releaseDue")],
             ["delegation-dispatch", "session.events.delegation({ id: event.item, text: clean(event.text) });", "void event;", as("delegation")],
             ["blank-turn", 'if (event.text.trim() === "") break;', "", as("delegation")],
             ["stale-delegation", " || session.delegation !== id) return false;", ") return false;", as("delegation")],
@@ -1453,7 +1493,7 @@ world(async () => {
             ["idle-words", "if (session.playing !== null || session.next !== null || !quiet(session)) return;",
                 "if (session.playing !== null || session.next !== null) return;", as("idle")],
             ["close", "if (live !== null && live.op === e.target) release(live);", "", as("closing")],
-            ["lease-release", "release() {\n            if (live !== null) release(live);", "release() {", as("closing")],
+            ["lease-release", "if (session === null) return;\n            release(session);", "if (session === null) return;", as("closing")],
             ["server-error", 'return fail("server-error type="', 'return { kind: "ignored" }; return fail("server-error type="', row("error")],
             ["response-status", 'if (response.status !== "completed") {', "if (false) {", row("response-failed")],
             ["response-cause", '(plain(details.error) ? " type=" + token(details.error.type) + " code=" + token(details.error.code) : "")', '""',

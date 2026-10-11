@@ -129,12 +129,15 @@ const tests = [
         w.dispatch("talk-down");
         w.pending.open();
         w.pending.speech.delegation({ id: "fixture", text: "transcript context" });
-        w.pending.speech.due();
+        w.pending.speech.due(true);
         assert.equal(w.runner.state.speech.reply.kind, "due", "the voice's due words reach the session");
         assert.equal(w.published.at(-1).phase, "speaking");
+        w.pending.speech.due(false);
+        assert.deepEqual([w.runner.state.speech.reply.kind, w.published.at(-1).phase], ["none", "thinking"], "dropped words leave no reply due");
+        w.pending.speech.due(true);
         w.dispatch("stop");
         const stale = w.runner.state.stale;
-        w.pending.speech.due();
+        w.pending.speech.due(true);
         assert.equal(w.runner.state.stale, stale + 1, "a closed session's due words are stale");
     }],
     ["speech-deadlines", impl => {
@@ -441,7 +444,8 @@ let controls = 0;
 try {
     const mutants = [
         ["delegation-identity", 'delegation: task => done("delegation", task),', 'delegation: task => done("delegation", { ...task, id: "changed" }),', "delegation-identity"],
-        ["speech-due", 'due: () => done("speech-due"),', "due: () => {},", "speech-due-identity"],
+        ["speech-due", 'due: due => done("speech-due", { due }),', "due: () => {},", "speech-due-identity"],
+        ["speech-due-value", 'due: due => done("speech-due", { due }),', 'due: () => done("speech-due", { due: true }),', "speech-due-identity"],
         ["speech-deadline-scheduling", 'this.state.playback, ', '', "speech-deadlines"],
         ["durable-mute", 'if (effect.kind === "mute-store") this.consume(effect);',
             'if (false) this.consume(effect);', "durable-mute"],

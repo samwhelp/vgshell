@@ -310,7 +310,7 @@ const dueState = (() => {
     for (const e of [{ type: "snapshot", locked: false, engine: "duplex", configured: true, settings: {} },
         { type: "indicator", shown: true }, { type: "talk-down" }])
         s = Session.reduce(s, { at: 1, ...e }).state;
-    s = Session.reduce(s, { type: "speech-due", at: 2, gen: s.speech.gen, op: s.speech.op }).state;
+    s = Session.reduce(s, { type: "speech-due", at: 2, gen: s.speech.gen, op: s.speech.op, due: true }).state;
     assert.equal(s.speech.reply.kind, "due");
     return { ...state, gen: s.gen, state: JSON.parse(JSON.stringify(s)), phase: Session.phaseOf(s) };
 })();

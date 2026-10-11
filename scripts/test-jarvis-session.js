@@ -76,7 +76,7 @@ function duplexThinking(logic) {
 // The gap: the turn ended and the voice holds its words, no audio yet.
 function duplexDue(logic) {
     let s = duplexThinking(logic);
-    s = step(logic, s, callback("speech-due", s.speech, 40)).state;
+    s = step(logic, s, callback("speech-due", s.speech, 40, { due: true })).state;
     return step(logic, s, callback("brain-done", s.turn, 41)).state;
 }
 // Always mode: the wake capture opens once the indicator shows.
@@ -1210,7 +1210,7 @@ table.push(["duplex-delegation", logic => {
     const s = duplexListening(logic);
     const stopped = step(logic, s, event("stop", 40)).state;
     for (const type of ["speak", "speech-due", "transcript", "speech-idle", "speech-failed"]) {
-        const r = step(logic, stopped, callback(type, s.speech, 41, { role: "user", text: "late", stage: "partial", rev: 1, reason: "late" }));
+        const r = step(logic, stopped, callback(type, s.speech, 41, { role: "user", text: "late", stage: "partial", rev: 1, reason: "late", due: true }));
         assert.deepEqual([r.state.stale, r.effects], [stopped.stale + 1, []], type + " from a closed session is dropped and counted");
     }
 }], ["duplex-transcript", logic => {
@@ -1235,7 +1235,7 @@ table.push(["duplex-delegation", logic => {
 }], ["duplex-reply-due", logic => {
     const thinking = duplexThinking(logic);
     assert.equal(logic.phaseOf(thinking), "thinking");
-    const due = step(logic, thinking, callback("speech-due", thinking.speech, 40));
+    const due = step(logic, thinking, callback("speech-due", thinking.speech, 40, { due: true }));
     assert.deepEqual([due.state.speech.reply.kind, due.effects], ["due", []]);
     assert.equal(logic.validate(due.state), true, "a due reply is a wire state");
     assert.equal(logic.phaseOf(due.state), "speaking", "the reply speaks once its words go to the voice");
@@ -1251,8 +1251,10 @@ table.push(["duplex-delegation", logic => {
     assert.equal(logic.phaseOf(spoken.state), "speaking");
 }], ["duplex-due-waiting", logic => {
     const s = step(logic, duplexListening(logic), callback("speak", duplexListening(logic).speech, 30)).state;
-    const r = step(logic, s, callback("speech-due", s.speech, 31));
-    assert.deepEqual([r.state.speech.reply.kind, r.effects], ["waiting", []], "a waiting reply carries the words and stays waiting");
+    for (const due of [true, false]) {
+        const r = step(logic, s, callback("speech-due", s.speech, 31, { due }));
+        assert.deepEqual([r.state.speech.reply.kind, r.effects], ["waiting", []], "a waiting reply holds its own audio: due " + due);
+    }
 }], ["duplex-due-replaced", logic => {
     const s = duplexDue(logic);
     const r = step(logic, s, callback("delegation", s.speech, 50, { id: "next", text: "new context" })).state;
@@ -1283,15 +1285,25 @@ table.push(["duplex-delegation", logic => {
         "words whose audio never comes end with the engine's idle wait");
 }], ["duplex-due-stale", logic => {
     const s = duplexThinking(logic);
-    const r = step(logic, s, callback("speech-due", { gen: s.speech.gen, op: s.speech.op + 1000 }, 40));
+    const r = step(logic, s, callback("speech-due", { gen: s.speech.gen, op: s.speech.op + 1000 }, 40, { due: true }));
     assert.deepEqual([r.state.stale, r.effects, r.state.speech.reply.kind], [s.stale + 1, [], "none"], "another session's due words are stale");
+}], ["duplex-due-dropped", logic => {
+    const s = duplexDue(logic);
+    const r = step(logic, s, callback("speech-due", s.speech, 50, { due: false }));
+    assert.deepEqual([r.state.speech.reply.kind, r.state.speech.kind, r.effects], ["none", "open", []],
+        "words the voice dropped leave no reply due");
+    assert.equal(logic.phaseOf(r.state), "idle");
+}], ["duplex-due-shape", logic => {
+    const s = duplexThinking(logic);
+    for (const due of [undefined, "yes", 1])
+        assert.throws(() => logic.reduce(s, callback("speech-due", s.speech, 40, { due })), { message: "jarvis: session=speech-due" }, String(due));
 }], ["chained-play-speaks", logic => {
     const s = thinking(logic);
     const played = step(logic, s, callback("play", s.turn, 40, { interruptible: true })).state;
     const done = step(logic, played, callback("brain-done", played.turn, 41)).state;
     assert.deepEqual([logic.phaseOf(played), logic.phaseOf(done), done.speech.kind], ["speaking", "speaking", "closed"],
         "a chained reply speaks from its play, before and after its turn ends");
-    assert.equal(step(logic, s, callback("speech-due", s.turn, 40)).state.stale, s.stale + 1, "a chained engine has no due reply");
+    assert.equal(step(logic, s, callback("speech-due", s.turn, 40, { due: true })).state.stale, s.stale + 1, "a chained engine has no due reply");
 }], ["duplex-engine", logic => {
     const s = duplexListening(logic);
     const r = step(logic, s, snapshot({ at: 40 }));
@@ -1468,7 +1480,8 @@ const pairEvents = events.map(type => ({ type, extra: {} })).concat([
     { type: "snapshot", extra: { locked: null } },
     { type: "snapshot", extra: { configured: false } },
     { type: "snapshot", extra: { settings: { brain: "new-account" } } },
-    { type: "snapshot", extra: { engine: "duplex" } }
+    { type: "snapshot", extra: { engine: "duplex" } },
+    { type: "speech-due", extra: { due: false } }
 ]);
 function fixtureEvent(type, s, at) {
     const regions = {
@@ -1483,7 +1496,7 @@ function fixtureEvent(type, s, at) {
     const owner = s[regions[type]] || {};
     return { ...snapshot(), type, at, shown: true, text: "fixture", reason: "fixture", outcome: "completed",
         tool: "fixture", timeoutMs: 100, cancellable: true, interruptible: true, id: "fixture", digest: "a".repeat(64),
-        physical: true, source: "key", role: "user", stage: "partial", rev: 1, ask: null,
+        physical: true, source: "key", role: "user", stage: "partial", rev: 1, ask: null, due: true,
         ...(s.approval.kind === "held" && ["shown", "confirm", "approval-cancel"].includes(type)
             ? { id: s.approval.id, digest: s.approval.digest } : {}),
         gen: owner.gen === undefined ? s.gen : owner.gen, op: owner.op === undefined ? 99999 : owner.op };
@@ -1714,7 +1727,7 @@ for (const seed of seeds) for (const a of pairEvents) for (const b of pairEvents
     }
     pairs++;
 }
-assert.equal(pairs, 21 * (events.length + 5) ** 2, "matrix discovery floor and exact event set");
+assert.equal(pairs, 21 * (events.length + 6) ** 2, "matrix discovery floor and exact event set");
 const createdPairs = createdPairMatrix(Session);
 
 const parent = path.resolve(__dirname, "../tmp");
@@ -1917,10 +1930,13 @@ try {
             'e.role === "assistant" && live(s, e, "turn", ["thinking", "cancelling"])', "chained-transcript"],
         ["engine-change", " || s.engine.kind !== e.engine;", ";", "duplex-engine"],
         ["due-phase", ' || s.speech.kind === "open" && s.speech.reply.kind === "due") return "speaking";', ') return "speaking";', "duplex-reply-due"],
-        ["due-set", 'if (s.speech.reply.kind === "none") s.speech.reply = { kind: "due" };', "", "duplex-reply-due"],
-        ["due-keeps-waiting", 'if (s.speech.reply.kind === "none") s.speech.reply = { kind: "due" };', 's.speech.reply = { kind: "due" };', "duplex-due-waiting"],
-        ["due-stale", 'case "speech-due":\n        if (!live(s, e, "speech", ["open"])) { stale(s); break; }', 'case "speech-due":', "duplex-due-stale"],
-        ["due-replaced", 'if (s.speech.reply.kind === "due") s.speech.reply = { kind: "none" };', "", "duplex-due-replaced"],
+        ["due-set", 'if (e.due && s.speech.reply.kind === "none") s.speech.reply = { kind: "due" };', 'if (false) s.speech.reply = { kind: "due" };', "duplex-reply-due"],
+        ["due-keeps-waiting", 'e.due && s.speech.reply.kind === "none"', "e.due", "duplex-due-waiting"],
+        ["due-clear", 'else if (!e.due && s.speech.reply.kind === "due") s.speech.reply = { kind: "none" };', "", "duplex-due-dropped"],
+        ["due-clear-keeps-waiting", '!e.due && s.speech.reply.kind === "due"', "!e.due", "duplex-due-waiting"],
+        ["due-shape", 'if (typeof e.due !== "boolean") throw new Error("jarvis: session=speech-due");\n', "", "duplex-due-shape"],
+        ["due-stale", 'throw new Error("jarvis: session=speech-due");\n        if (!live(s, e, "speech", ["open"])) { stale(s); break; }', 'throw new Error("jarvis: session=speech-due");', "duplex-due-stale"],
+        ["due-replaced", '// A new request drops the words the voice held for the old one.\n            if (s.speech.reply.kind === "due") s.speech.reply = { kind: "none" };', "", "duplex-due-replaced"],
         ["due-stop", 'closeSpeech(s, effects, reason === "lease" ? "abort" : "graceful");', "", "duplex-due-stop"],
         ["due-talk", 'target: s.speech.op });\n        s.speech.reply = { kind: "none" };', "target: s.speech.op });", "duplex-due-talk"],
         ["due-idle", 'end(s, effects, e.at, "idle", false);', "", "duplex-due-idle"],

@@ -727,9 +727,13 @@ function reduce(state, e) {
         if (s.conversation.kind === "interrupted") s.conversation = { kind: "active" };
         s.speech.reply = { kind: "waiting" };
         break;
+    // The voice holds words no reply carries yet, or has dropped them. A
+    // waiting reply's own audio already holds the speaker.
     case "speech-due":
+        if (typeof e.due !== "boolean") throw new Error("jarvis: session=speech-due");
         if (!live(s, e, "speech", ["open"])) { stale(s); break; }
-        if (s.speech.reply.kind === "none") s.speech.reply = { kind: "due" };
+        if (e.due && s.speech.reply.kind === "none") s.speech.reply = { kind: "due" };
+        else if (!e.due && s.speech.reply.kind === "due") s.speech.reply = { kind: "none" };
         break;
     case "transcript":
         // The duplex session captions both speakers; a chained thinking turn
