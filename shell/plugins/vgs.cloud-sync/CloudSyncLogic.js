@@ -248,7 +248,7 @@ function errorText(error, onPage) {
 // detail stays in the log and status record for support.
 function pairListProblem(error) {
     if (error === null || error.kind !== "pairs-invalid" || !isText(error.detail)) return ERROR_TEXT["pairs-invalid"];
-    if (error.detail === "pairs-file=not-json") return "The folder pair list file is not valid JSON.";
+    if (error.detail === "pairs-file=not-json") return "The folder pair list file is damaged.";
     if (/^pairs-file=unreadable-/.test(error.detail)) return "VGS cannot read the folder pair list file.";
     if (error.detail === "pairs-file=shape") return "The folder pair list file does not hold a list of folder pairs.";
     var match = /^pair=([^ ]+) rule=([^ ]+)$/.exec(error.detail);

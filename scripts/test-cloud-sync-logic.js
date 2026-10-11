@@ -223,7 +223,7 @@ function verify(L) {
     assert.equal(L.pairListValid(L.cloudValue(invalid(), "")), false);
     assert.equal(L.pairListValid(L.cloudValue(well(), "")), true);
     const pairProblems = [
-        ["not JSON", "pairs-file=not-json", "JSON"],
+        ["not JSON", "pairs-file=not-json", "file is damaged"],
         ["unreadable", "pairs-file=unreadable-EACCES", "read"],
         ["wrong shape", "pairs-file=shape", "list"],
         ["pair rule", "pair=docs rule=local-overlap", "docs"],
