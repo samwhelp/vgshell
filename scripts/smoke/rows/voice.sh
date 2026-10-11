@@ -440,12 +440,12 @@ PY
 }
 voice_setup_offered() { ipc smoke readInstance service vgs.voice setupValue | py_reply 'import json,sys; v=json.load(sys.stdin); print(v.get("action"))'; }
 voice_dictation() { ipc smoke readInstance "$(bar_key)" vgs.voice dictation; }
-# The bar mic's recording tone beside a shell token, the badge accent
-# foreground unless another is named, each as #rrggbb: same while they
-# match.
+# The bar mic's recording tone beside a shell token, the accent unless
+# another is named, each as #rrggbb: same while they match. Voice's look
+# fills its accent from color.accent (vgs.voice/Appearance.js).
 voice_mic_tone() { # [TOKEN]
   local tone want
-  tone="$(ipc smoke readInstance "$(bar_key)" vgs.voice itemTone)" && want="$(ipc smoke themeValue "${1:-badge.tone.accent.foreground}")" || return 1
+  tone="$(ipc smoke readInstance "$(bar_key)" vgs.voice itemTone)" && want="$(ipc smoke themeValue "${1:-color.accent}")" || return 1
   python3 -c '
 import json,sys
 # A colour property reads as its channels, a token as its #aarrggbb name.
@@ -461,7 +461,7 @@ print("same" if got==want and not got.startswith("unreadable") else "got=%s want
 }
 voice_mic_tone_control() {
   local got
-  got="$(voice_mic_tone badge.tone.info.foreground)" || return 1
+  got="$(voice_mic_tone color.info)" || return 1
   [[ $got == got=* ]] && echo differs || echo "$got"
 }
 voice_status_value() { ipc shell lent | py_reply 'import json,sys; r=json.load(sys.stdin)["status"].get("vgs.voice"); print("absent" if r is None else json.dumps(r["keys"]))'; }
@@ -560,7 +560,7 @@ expect_poll "Voice registers its three shortcuts and the release companion" 4 vo
 expect_poll "the Voice status child starts" true ipc smoke readInstance service vgs.voice statusRunning
 expect_poll "the status stream reaches plugin status" '["dictation", "model", "setup", "voxtype"]' voice_status_value
 expect_poll "the recording state reaches the bar widget" '"recording"' voice_dictation
-expect "the recording mic draws the shell's badge accent" same voice_mic_tone
+expect "the recording mic draws the shell's accent" same voice_mic_tone
 expect "control: the same reader tells the mic from the info tone" differs voice_mic_tone_control
 expect_poll "the recording state reaches dictation status" '"recording"' ipc smoke readInstance service vgs.voice dictationStatus
 expect_poll "Set up is offered while the model is missing" True voice_setup_offered
