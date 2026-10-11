@@ -73,6 +73,26 @@ FocusScope {
                 revealRow(currentIndex);
         });
     }
+    property var pendingRestores: ({})
+    function queueHeightRestore(key) {
+        pendingRestores[key] = true;
+        restoreTimer.start();
+    }
+    // Qt QML Timer belongs to this Panel. Its destruction cancels the
+    // queued work; no closure survives a closed and destroyed panel.
+    Timer {
+        id: restoreTimer
+        interval: 0
+        repeat: false
+        onTriggered: {
+            const keys = Object.keys(root.pendingRestores);
+            root.pendingRestores = ({});
+            for (const key of keys) {
+                const slot = rowRepeater.itemAt(root.indexOfKey(key));
+                if (slot !== null) slot.restoreUnloadedHeight();
+            }
+        }
+    }
     function restoreRowHeight(key) {
         const cached = measuredRows[key];
         const index = indexOfKey(key);
@@ -616,7 +636,7 @@ FocusScope {
                             }
                             // The active binding reads extent. Restore only after that
                             // binding has finished, and only while still unloaded.
-                            onActiveChanged: if (!active) Qt.callLater(slot.restoreUnloadedHeight)
+                            onActiveChanged: if (!active) root.queueHeightRestore(slot.entry.key)
                             sourceComponent: Component {
                                 CardFace {
                                     id: face

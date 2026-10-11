@@ -3785,6 +3785,13 @@ fade_active_point() {
   fade_inventory || return
   rect="$(ipc smoke itemGeometry panel vgs.notifications NotificationCard "$fade_middle")" || return
   [[ $rect == \[* ]] || { echo 'notification-capture: active-card-absent' >&2; return 1; }
+  # A title placed in the bottom band can leave part of its card outside
+  # the clip. Send the native pointer to the visible part of that card.
+  rect="$(py_reply 'import json,sys
+card=json.load(sys.stdin);view=json.loads(sys.argv[1])["box"]
+top=max(card[1],view[1]);bottom=min(card[1]+card[3],view[1]+view[3])
+if bottom<=top: raise ValueError("active card outside viewport")
+print(json.dumps([card[0],top,card[2],bottom-top]))' "$(panel_current_view)" <<<"$rect")" || return
   at_centre vgs:panel "$rect"
 }
 fade_position_active() { # EDGE
@@ -4446,6 +4453,12 @@ print(json.dumps(None if p is None else [p.get("mute"), p.get("softMute")]))' "$
 fi
 
 # Disabling and enabling again, three times over, leaves nothing behind.
+# Keep visual failure evidence before the private graphics sandbox ends.
+notification_visual_dir="$source_repo/tmp/smoke-artifacts/notifications-visual-$(date +%s%N)"
+mkdir -p -- "$notification_visual_dir"
+for notification_visual_file in "$sandbox"/fade-*.png "$sandbox"/fade-*.json; do
+  [[ ! -f $notification_visual_file ]] || cp -- "$notification_visual_file" "$notification_visual_dir/"
+done
 # BEGIN notification-panel-latency
 panel_latency_saved_theme="$(cat "$home/.config/vgshell/theme.json")"
 panel_latency_saved_ink="$(ipc smoke themeValue palette.foreground)"
@@ -4720,7 +4733,13 @@ for state in ('loaded','refused'):
         if any(v.get('retained') is not True for v in readings):failed.append(f'{state}-{action}-retention')
         if any(v.get('firstConstructed')!=v.get('firstVisible') for v in readings):failed.append(f'{state}-{action}-offscreen')
         if action=='open':
-            gaps=[b-a for v in readings for a,b in zip(v['frames'],v['frames'][1:]) if b<=v['first']+400]
+            # Include the frame interval crossing the window's endpoint. Require
+            # observed frames through that endpoint, not just a few samples.
+            if any(len(v['frames'])<2 or v['frames'][0]!=v['first'] or v['frames'][-1]<v['first']+400
+                or any(b<a for a,b in zip(v['frames'],v['frames'][1:])) for v in readings):failed.append(f'{state}-motion-window')
+            if any(v.get('firstAnimations',{}).get('edgeFrameRunning') is not True
+                or v.get('firstAnimations',{}).get('motionScale')!=1 for v in readings):failed.append(f'{state}-motion-inactive')
+            gaps=[b-a for v in readings for a,b in zip(v['frames'],v['frames'][1:]) if a<v['first']+400]
             limit=41 if state=='loaded' else 58
             maximum=max(gaps) if gaps else -1
             print(f'notification-panel-latency: store={state} open_frame_gap_max_ms={maximum} bound_ms={limit}')

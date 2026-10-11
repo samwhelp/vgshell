@@ -268,19 +268,24 @@ long_inbox_warm() {
 # One open, read at the list top and at the full scroll travel. The end
 # reading checks the bottom without requiring the first card in view.
 long_inbox_ends() {
-  local shown top end view spot x y
+  local shown top end view before spot x y
   "$@" >/dev/null || { echo toggle-failed; return; }
   shown="$(long_inbox_shown)"
   [[ $shown == shown ]] || { echo "$shown"; return; }
   top="$(long_inbox_settled)"
-  for _ in 1 2 3 4 5 6 7 8; do
-    view="$(panel_current_view)" || view=unread
-    [[ $view == \{* ]] || { echo "view=$view"; return; }
-    spot="$(python3 -c 'import json,sys; v=json.loads(sys.argv[1]); print("end" if v["contentY"] > 0 and v["contentY"] >= v["contentHeight"] - v["height"] - 0.5 else json.dumps(v["box"]))' "$view")" || spot=unread
-    [[ $spot == end ]] && break
-    read -r x y < <(panel_point "$spot" - -) || { echo "view=$view"; return; }
-    wheel "$x" "$y" 10 || { echo wheel-failed; return; }
-  done
+  before="$(panel_current_view)" || before=unread
+  [[ $before == \{* ]] || { echo "view=$before"; return; }
+  spot="$(py_reply 'import json,sys;print(json.dumps(json.load(sys.stdin)["box"]))' <<<"$before")" || return
+  # One continuous native gesture covers the whole long list. Rest the
+  # pointer in the side room so hovering does not change card tray height.
+  read -r x y < <(panel_point "$spot" 4 -) || { echo "view=$before"; return; }
+  wheel "$x" "$y" 100 || { echo wheel-failed; return; }
+  view="$(panel_current_view)" || view=unread
+  [[ $view == \{* ]] || { echo "view=$view"; return; }
+  printf 'notification-wheel-end: before=%s after=%s notches=100\n' "$before" "$view" >&2
+  spot="$(py_reply 'import json,sys
+v=json.load(sys.stdin)
+print("end" if v["contentY"]>0 and v["contentY"]>=v["contentHeight"]-v["height"]-0.5 else "short")' <<<"$view")" || return
   [[ $spot == end ]] || { echo "not-at-end $view"; return; }
   end="$(panel_fit bottom)"
   read -r x y < <(nk_panel_outside_point) && hover "$x" "$y"
