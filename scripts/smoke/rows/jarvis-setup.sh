@@ -219,9 +219,9 @@ setup_tiers_answer() { # PICK READY
   python3 - "$setup_tiers" "$1" "$2" <<'PY'
 import json,os,sys
 path,pick,ready=sys.argv[1],sys.argv[2],None if sys.argv[3]=="none" else sys.argv[3]
-labels={"small":"Small: English, quickest to set up, 796 MB","medium":"Medium: English, more accurate speech, 1.5 GB",
-        "large":"Large: English, more accurate, graphics card, 1.7 GB"}
-choices=[{"value":"auto","label":"Automatic: "+pick.capitalize()}]+[{"value":t,"label":l} for t,l in labels.items() if t!=pick]
+labels={"small":"Small: English, quick setup, 796 MB","medium":"Medium: English, more accurate, 1.5 GB",
+        "large":"Large: English, graphics card, 1.7 GB"}
+choices=[{"value":"auto","label":"Auto: "+labels[pick].replace(": ",", ",1)}]+[{"value":t,"label":l} for t,l in labels.items() if t!=pick]
 open(path+".next","w").write(json.dumps({"pick":pick,"ready":ready,"choices":choices}))
 os.replace(path+".next",path)
 PY
@@ -402,7 +402,7 @@ cp -- "$setup_tiers" "$sandbox/local-tiers-original"
 setup_tiers_answer large small
 rescan "the Local voice reader reads large as the pick"
 expect_poll "the Local voice reader reads large as the pick, small ready" '["large", "small"]' setup_tier_reading
-expect "the page offers Automatic first, named for the pick" '{"value": "auto", "label": "Automatic: Large"}' setup_tiers_published
+expect "the page offers Auto first, with the pick's description and size" '{"value": "auto", "label": "Auto: Large, English, graphics card, 1.7 GB"}' setup_tiers_published
 forget_record
 setup_tier medium
 expect_poll "choosing Medium opens local setup for medium" '["vgs.jarvis/setup-local", "tui/setup-local.sh", "medium"]' recorded_tail

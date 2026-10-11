@@ -168,8 +168,12 @@ def choices(value, reading, ready):
     `auto` stands for the pick and comes first; the pick is not offered again.
     """
     best = pick(reading)
-    offers = [{"value": "auto", "label": "Automatic: " + value["tiers"][best]["name"]}]
-    offers += [{"value": tier, "label": f"{row['name']}: {row['description']}, {size(row['downloadBytes'])}"}
+
+    def label(lead, row):
+        return f"{lead}{row['description']}, {size(row['downloadBytes'])}"
+
+    offers = [{"value": "auto", "label": label(f"Auto: {value['tiers'][best]['name']}, ", value["tiers"][best])}]
+    offers += [{"value": tier, "label": label(f"{row['name']}: ", row)}
                for tier, row in value["tiers"].items() if tier != best and runnable(row["provider"], reading)]
     return {"pick": best, "ready": ready, "choices": offers}
 

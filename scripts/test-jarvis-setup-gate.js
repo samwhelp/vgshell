@@ -742,7 +742,7 @@ function verifyTiers(gate) {
         assert.deepEqual(gate.tierAfterRun(wanted, pick, ready), after, label + ": the setting after a run");
         if (after !== null) assert.equal(gate.tierRun(after, pick, ready), null, label + ": the written setting starts no run");
     }
-    const choices = [{ value: "auto", label: "Automatic: Large" }, { value: "small", label: "Small: English, quickest to set up, 796 MB" }];
+    const choices = [{ value: "auto", label: "Auto: Large, English, graphics card, 1.7 GB" }, { value: "small", label: "Small: English, quick setup, 796 MB" }];
     assert.equal(judge.statusWrite(manifest, {}, "localTiers", choices).ok, true, "the manifest judge accepts the Local voice offers");
     assert.equal(manifest.schema.localTier.optionsFrom, "localTiers", "the Local voice setting reads its offers");
     assert.equal(manifest.settings.localTier, "auto", "the Local voice setting defaults to the pick");

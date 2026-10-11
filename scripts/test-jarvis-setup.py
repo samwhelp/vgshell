@@ -566,6 +566,19 @@ class Setup(unittest.TestCase):
                     self.assert_picks(self.load_module())
                 (self.plugin / "setup-local").write_text(original)
 
+    # The characters the closed Local voice field drew of a 58-character
+    # automatic label before it cut the rest: scripts/sandbox-shots.sh
+    # jarvis-setup on host cachy, 2026-10-11, dark and light. The core's
+    # choices judge accepts more, STATUS_LABEL_MAX of shell/Core/PluginLogic.js.
+    AUTO_LABEL_FIT = 48
+
+    def assert_auto_label(self, label, row):
+        """The automatic row reads the pick's name, description and download
+        size, in a line the closed field draws whole."""
+        self.assertIn(f": {row['name']}, {row['description']}, ", label)
+        self.assertRegex(label, r", [0-9]+(\.[0-9])? (MB|GB)$")
+        self.assertLessEqual(len(label), self.AUTO_LABEL_FIT, label)
+
     def test_choices_follow_the_machine_and_control(self):
         tiers = self.spec["tiers"]
         # Discovery floors: the producer declares both providers.
@@ -578,12 +591,14 @@ class Setup(unittest.TestCase):
         # [machine, pick, the tiers offered after auto].
         for machine, pick, rest in (
                 ((32607, 129444736, 32), "large", [tier for tier in tiers if tier != "large"]),
+                ((None, 129444736, 32), "medium", [tier for tier in cpu if tier != "medium"]),
                 ((None, 32000000, 24), "small", [tier for tier in cpu if tier != "small"])):
             with self.subTest(pick=pick):
                 self.plant_machine(*machine)
                 offered = self.offered()
                 self.assertEqual([offered["pick"], offered["ready"]], [pick, None])
-                self.assertEqual(offered["choices"][0], {"value": "auto", "label": "Automatic: " + tiers[pick]["name"]})
+                self.assertEqual(offered["choices"][0]["value"], "auto")
+                self.assert_auto_label(offered["choices"][0]["label"], tiers[pick])
                 self.assertEqual([row["value"] for row in offered["choices"][1:]], rest)
                 for row in offered["choices"]:
                     # The core's choices judge: a printable line of at most 60 characters.
@@ -593,8 +608,28 @@ class Setup(unittest.TestCase):
                     self.assertRegex(row["label"], r", [0-9]+(\.[0-9])? (MB|GB)$")
                 labels = {row["value"]: row["label"] for row in offered["choices"]}
                 self.assertTrue(labels.get("small", " 796 MB").endswith(" 796 MB"), labels)
-                self.assertTrue(labels["medium"].endswith(" 1.5 GB"), labels)
+                self.assertTrue(labels.get("medium", " 1.5 GB").endswith(" 1.5 GB"), labels)
         self.assertIn(["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"], self.calls())
+        # Controls on the host reading: the name alone, then a description
+        # that makes the label one character longer than the field draws.
+        self.plant_machine(32607, 129444736, 32)
+        longest = self.offered()["choices"][0]["label"]
+        self.assert_auto_label(longest, tiers["large"])
+        original = (self.plugin / "setup-local").read_text()
+        self.mutant("label(f\"Auto: {value['tiers'][best]['name']}, \", value[\"tiers\"][best])",
+                    "\"Auto: \" + value[\"tiers\"][best][\"name\"]")
+        with self.assertRaises(AssertionError):
+            self.assert_auto_label(self.offered()["choices"][0]["label"], tiers["large"])
+        (self.plugin / "setup-local").write_text(original)
+        fitted = (self.plugin / "artifacts.json").read_text()
+        tiers["large"]["description"] += "x" * (self.AUTO_LABEL_FIT + 1 - len(longest))
+        (self.plugin / "artifacts.json").write_text(json.dumps(self.spec))
+        over = self.offered()["choices"][0]["label"]
+        self.assertEqual(len(over), self.AUTO_LABEL_FIT + 1)
+        with self.assertRaises(AssertionError):
+            self.assert_auto_label(over, tiers["large"])
+        (self.plugin / "artifacts.json").write_text(fitted)
+        self.plant_machine(None, 32000000, 24)
         # The ready tier, as status verifies it.
         self.config["tier"] = "small"
         self.write_config()

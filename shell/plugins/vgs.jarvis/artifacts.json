@@ -46,9 +46,9 @@
     "wakeTokens": "▁HE Y ▁JA R VI S @HEY_JARVIS"
   },
   "tiers": {
-    "small": {"provider": "cpu", "name": "Small", "description": "English, quickest to set up", "downloadBytes": 796490765, "artifacts": ["moonshine", "piper", "silero", "smart-turn", "wake", "nemotron"]},
-    "medium": {"provider": "cpu", "name": "Medium", "description": "English, more accurate speech", "downloadBytes": 1455131612, "artifacts": ["parakeet", "kokoro", "silero", "smart-turn", "wake", "nemotron"]},
-    "large": {"provider": "cuda", "name": "Large", "description": "English, more accurate, graphics card", "downloadBytes": 1700556447, "artifacts": ["parakeet", "kokoro", "silero", "smart-turn", "wake", "nemotron"]},
+    "small": {"provider": "cpu", "name": "Small", "description": "English, quick setup", "downloadBytes": 796490765, "artifacts": ["moonshine", "piper", "silero", "smart-turn", "wake", "nemotron"]},
+    "medium": {"provider": "cpu", "name": "Medium", "description": "English, more accurate", "downloadBytes": 1455131612, "artifacts": ["parakeet", "kokoro", "silero", "smart-turn", "wake", "nemotron"]},
+    "large": {"provider": "cuda", "name": "Large", "description": "English, graphics card", "downloadBytes": 1700556447, "artifacts": ["parakeet", "kokoro", "silero", "smart-turn", "wake", "nemotron"]},
     "multilingual-cpu": {"provider": "cpu", "name": "Multilingual", "description": "many languages", "downloadBytes": 2018921819, "artifacts": ["parakeet", "whisper", "kokoro", "silero", "smart-turn", "wake", "nemotron"]},
     "multilingual-cuda": {"provider": "cuda", "name": "Multilingual", "description": "many languages, graphics card", "downloadBytes": 2264346654, "artifacts": ["parakeet", "whisper", "kokoro", "silero", "smart-turn", "wake", "nemotron"]}
   },

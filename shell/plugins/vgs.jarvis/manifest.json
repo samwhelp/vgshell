@@ -30,7 +30,7 @@
       "description": "Your OpenAI key for the Realtime voice. With one key, Jarvis picks it. Get a key from OpenAI API keys.",
       "link": { "text": "OpenAI API keys", "url": "https://platform.openai.com/api-keys" } },
     "localTier": { "type": "string", "label": "Local voice model", "group": "Local voice", "optionsFrom": "localTiers",
-      "description": "Automatic is the model that runs best on this computer. Choosing another model downloads it now. This choice changes only what Jarvis hears; dictation with the Voice widget uses its own model." },
+      "description": "Auto is the model that runs best on this computer. Choosing another model downloads it now. This choice changes only what Jarvis hears; dictation with the Voice widget uses its own model." },
     "brain": { "type": "string", "label": "Account", "group": "AI model", "optionsFrom": "brains", "placeholder": "Choose an account",
       "description": "The account Jarvis asks: an API key you added, or an app you are signed in to." },
     "model": { "type": "string", "label": "Model", "group": "AI model", "optionsFrom": "models", "hideEmpty": true,
