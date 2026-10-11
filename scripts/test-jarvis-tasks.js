@@ -84,6 +84,29 @@ function inside() {
         assert.throws(() => check(require(copy)), assert.AssertionError, name + " must turn red");
         controls++;
     }
+    function taskRows(logic) {
+        const inputs = Array.from({ length: 24 }, (_, n) => ({ id: "row-" + n, goal: "a\nb\t" + "g".repeat(300),
+            agent: "fixture", createdAt: n, ...Tasks.derive([]) }));
+        const rows = logic.rows(inputs);
+        assert.deepEqual(rows.map(row => row.id), Array.from({ length: 16 }, (_, n) => "row-" + (23 - n)));
+        assert.equal(rows[0].goal, "a b " + "g".repeat(196));
+        assert.equal(inputs[0].goal.includes("\n"), true, "projection never edits the observation");
+        const failures = [
+            ["turn-failed", { kind: "api" }, "api"], ["exited", { code: 9 }, 9],
+            ["outcome", { kind: "reported-failed" }, "reported-failed"], ["lost", { seq: 0 }, "lost"],
+            ["exited", { code: 0 }, null], ["working", {}, null]
+        ];
+        for (const [kind, data, failure] of failures) {
+            const task = { ...inputs[0], ...Tasks.derive([{ at: 99, kind, data }]) };
+            assert.deepEqual(logic.rows([task]), [{ id: task.id, goal: "a b " + "g".repeat(196), agent: "fixture",
+                state: task.state, failure, createdAt: 0, endedAt: task.endedAt }], kind);
+        }
+        assert.deepEqual(logic.rows([]), []);
+    }
+    taskRows(Tasks);
+    control("row-failure", 'failure: task.turn.kind === "turn-failed"', 'omitted: task.turn.kind === "turn-failed"', taskRows);
+    control("row-count", ".slice(0, 16)", ".slice(0, 17)", taskRows);
+    control("row-goal", "goal: line(task.goal, 200)", "goal: task.goal", taskRows);
     const factChecks = [
         ["question", 'if (facts.turn.kind !== "turn-failed") facts.turn = { kind: "turn-ended" };',
             'if (facts.turn.kind !== "turn-failed") facts.turn = { kind: "turn-ended" }; facts.wait = { kind: "none" };',

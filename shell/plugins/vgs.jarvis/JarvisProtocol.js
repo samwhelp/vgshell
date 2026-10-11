@@ -376,8 +376,8 @@ function accept(line, direction) {
                 keys(response, ["v", "kind"], "task-response");
                 if (["allow", "deny"].indexOf(response.kind) === -1) fail("task-response");
             }
-        } else if (message.intent === "task-stop") {
-            keys(message, fields.concat(["task"]), "task-stop");
+        } else if (message.intent === "task-stop" || message.intent === "task-open") {
+            keys(message, fields.concat(["task"]), message.intent);
             if (!taskId(message.task)) fail("task-id");
         } else if (message.intent === "say") {
             keys(message, fields.concat(["text"]), "say");
@@ -419,6 +419,34 @@ function accept(line, direction) {
         if (direction !== "daemon") fail("direction-tasks");
         keys(message, ["v", "type", "gen", "revision", "count"], "tasks");
         if (!Number.isSafeInteger(message.count) || message.count < 0) fail("task-count");
+        break;
+    case "task-list":
+        if (direction !== "daemon") fail("direction-task-list");
+        keys(message, ["v", "type", "gen", "revision", "rows"], "task-list");
+        if (!Array.isArray(message.rows) || message.rows.length > 16) fail("task-list");
+        for (var row of message.rows) {
+            keys(row, ["id", "goal", "agent", "state", "failure", "createdAt", "endedAt"], "task-row");
+            if (!taskId(row.id) || !printable(row.goal, 1, 200) || !printable(row.agent, 1, FIELD_MAX)
+                    || ["noisy", "stopped", "lost", "failed", "reported-failed", "reported-ok", "exited", "starting", "waiting", "working"].indexOf(row.state) === -1
+                    || !(row.failure === null || printable(row.failure, 1, FIELD_MAX) || Number.isSafeInteger(row.failure) && row.failure !== 0)
+                    || !Number.isSafeInteger(row.createdAt) || row.createdAt < 0
+                    || !(row.endedAt === null || Number.isSafeInteger(row.endedAt) && row.endedAt >= 0)) fail("task-row");
+        }
+        break;
+    case "audit-failures":
+        if (direction !== "daemon") fail("direction-audit-failures");
+        keys(message, ["v", "type", "gen", "revision", "rows"], "audit-failures");
+        if (!Array.isArray(message.rows) || message.rows.length > 20) fail("audit-failures");
+        for (var row of message.rows) {
+            keys(row, ["time", "tool", "effect", "decision", "outcome", "refusal"], "audit-row");
+            if (typeof row.time !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(row.time)
+                    || !printable(row.tool, 1, FIELD_MAX)
+                    || !(row.effect === null || ["read", "reversible", "input", "persistent", "exec", "external", "destructive"].indexOf(row.effect) !== -1)
+                    || ["allow", "confirm", "refuse", "send", "ask", "withhold"].indexOf(row.decision) === -1
+                    || ["pending", "completed", "failed", "unknown", "cancelled"].indexOf(row.outcome) === -1
+                    || (["refuse", "withhold"].indexOf(row.decision) === -1 && ["failed", "unknown"].indexOf(row.outcome) === -1)
+                    || !(row.refusal === null || ["expired", "no-hold", "identity", "source", "early", "voice-physical", "voice-timing"].indexOf(row.refusal) !== -1)) fail("audit-row");
+        }
         break;
     case "input-ready":
         if (direction !== "daemon") fail("direction-input-ready");
@@ -474,6 +502,12 @@ function accept(line, direction) {
         keys(message, ["v", "type", "gen", "revision", "task", "answer"], "task-answer");
         if (!taskId(message.task)) fail("answer-task-id");
         if (typeof message.answer !== "string" || !/^[a-z][a-z-]{0,39}$/.test(message.answer)) fail("task-answer");
+        break;
+    case "task-open":
+        if (direction !== "daemon") fail("direction-task-open");
+        keys(message, ["v", "type", "gen", "revision", "task", "answer"], "task-open");
+        if (!taskId(message.task)) fail("open-task-id");
+        if (typeof message.answer !== "string" || !/^[a-z][a-z-]{0,39}$/.test(message.answer)) fail("task-open");
         break;
     case "indicator":
         if (direction !== "shell") fail("direction-indicator");

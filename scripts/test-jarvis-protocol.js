@@ -64,6 +64,12 @@ const listReply = { ...reply, kind: "desktop.list", data: { entries: [entry], co
 const entryReply = { ...reply, kind: "desktop.launch", data: { ...entry, terminal: false } };
 assert.equal(manifest.capabilities.includes("compositor") && manifest.capabilities.includes("run"), true);
 const taskStop = { ...intent, intent: "task-stop", task: "0f7c6a2e-5d1b-4c3a-9e8f-1a2b3c4d5e6f" };
+const taskOpen = { ...taskStop, intent: "task-open" };
+const taskOpened = { v: 1, type: "task-open", gen: 0, revision: hello.revision, task: taskStop.task, answer: "tmux" };
+const taskRow = { id: taskStop.task, goal: "Goal", agent: "fixture", state: "working", failure: null, createdAt: 0, endedAt: null };
+const taskList = { v: 1, type: "task-list", gen: 0, revision: hello.revision, rows: [taskRow] };
+const auditRow = { time: "2026-09-30T12:00:00.000Z", tool: "files.write", effect: "persistent", decision: "allow", outcome: "failed", refusal: null };
+const auditFailures = { ...taskList, type: "audit-failures", rows: [auditRow] };
 const say = { ...intent, intent: "say", text: "typed message" };
 const requirementsScan = { v: 1, type: "requirements-scan", gen: 0, revision: hello.revision, scan: 1 };
 const tuiState = { v: 1, type: "tui-state", gen: 0, revision: hello.revision, name: "task", running: true };
@@ -85,6 +91,29 @@ const inputReady = { ...status, type: "input-ready", commands: ["wtype", "wlrctl
 delete inputReady.daemon;
 delete inputReady.causes;
 const cases = [
+    ["task-list-direction", JSON.stringify(taskList), "shell", "direction-task-list"],
+    ["task-list-count", changed(taskList, { rows: Array(17).fill(taskRow) }), "daemon", "task-list"],
+    ["task-list-goal", changed(taskList, { rows: [{ ...taskRow, goal: "g".repeat(201) }] }), "daemon", "task-row"],
+    ["task-list-agent", changed(taskList, { rows: [{ ...taskRow, agent: "a".repeat(129) }] }), "daemon", "task-row"],
+    ["task-list-state", changed(taskList, { rows: [{ ...taskRow, state: "complete" }] }), "daemon", "task-row"],
+    ["task-list-failure", changed(taskList, { rows: [{ ...taskRow, failure: "f".repeat(129) }] }), "daemon", "task-row"],
+    ["task-list-zero", changed(taskList, { rows: [{ ...taskRow, failure: 0 }] }), "daemon", "task-row"],
+    ["task-list-created", changed(taskList, { rows: [{ ...taskRow, createdAt: -1 }] }), "daemon", "task-row"],
+    ["task-list-ended", changed(taskList, { rows: [{ ...taskRow, endedAt: -1 }] }), "daemon", "task-row"],
+    ["audit-direction", JSON.stringify(auditFailures), "shell", "direction-audit-failures"],
+    ["audit-count", changed(auditFailures, { rows: Array(21).fill(auditRow) }), "daemon", "audit-failures"],
+    ["audit-args", changed(auditFailures, { rows: [{ ...auditRow, args: {} }] }), "daemon", "shape-audit-row"],
+    ["audit-time", changed(auditFailures, { rows: [{ ...auditRow, time: auditRow.time + "x" }] }), "daemon", "audit-row"],
+    ["audit-tool", changed(auditFailures, { rows: [{ ...auditRow, tool: "t".repeat(129) }] }), "daemon", "audit-row"],
+    ["audit-effect", changed(auditFailures, { rows: [{ ...auditRow, effect: "other" }] }), "daemon", "audit-row"],
+    ["audit-decision", changed(auditFailures, { rows: [{ ...auditRow, decision: "other" }] }), "daemon", "audit-row"],
+    ["audit-outcome", changed(auditFailures, { rows: [{ ...auditRow, decision: "refuse", outcome: "other" }] }), "daemon", "audit-row"],
+    ["audit-completed", changed(auditFailures, { rows: [{ ...auditRow, outcome: "completed" }] }), "daemon", "audit-row"],
+    ["audit-refusal", changed(auditFailures, { rows: [{ ...auditRow, refusal: "other" }] }), "daemon", "audit-row"],
+    ["task-open-id", changed(taskOpen, { task: "a".repeat(65) }), "shell", "task-id"],
+    ["task-open-direction", JSON.stringify(taskOpened), "shell", "direction-task-open"],
+    ["task-open-answer-id", changed(taskOpened, { task: "a".repeat(65) }), "daemon", "open-task-id"],
+    ["task-open-answer", changed(taskOpened, { answer: "a".repeat(41) }), "daemon", "task-open"],
     ["task-respond-direction", JSON.stringify(taskRespond), "daemon", "direction-intent"],
     ["task-respond-id", changed(taskRespond, { prompt: "bad" }), "shell", "task-prompt-id"],
     ["task-respond-shape", changed(taskRespond, { answer: { v: 1, kind: "allow", extra: true } }), "shell", "shape-task-response"],
@@ -334,6 +363,16 @@ rejected(Protocol, ["state-speech-reply", JSON.stringify({ ...dueState, state: {
 for (const name of ["talk-down", "talk-up", "mute", "stop", "voice-check"])
     assert.equal(Protocol.accept(changed(intent, { intent: name }), "shell").intent, name);
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(say), "shell")), JSON.stringify(say));
+for (const [message, direction] of [
+    [taskOpen, "shell"], [{ ...taskOpen, task: "a".repeat(64) }, "shell"],
+    [taskOpened, "daemon"], [{ ...taskOpened, task: "a".repeat(64), answer: "a".repeat(40) }, "daemon"],
+    [{ ...taskList, rows: [] }, "daemon"], [{ ...auditFailures, rows: [] }, "daemon"],
+    [{ ...taskList, rows: Array(16).fill({ ...taskRow, id: "a".repeat(64), goal: "g".repeat(200), agent: "a".repeat(128),
+        failure: "f".repeat(128), createdAt: Number.MAX_SAFE_INTEGER, endedAt: Number.MAX_SAFE_INTEGER }) }, "daemon"],
+    [{ ...auditFailures, rows: Array(20).fill({ ...auditRow, tool: "t".repeat(128) }) }, "daemon"]
+]) assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(message), direction)), JSON.stringify(message));
+for (const failure of [null, 1, -1, Number.MAX_SAFE_INTEGER, "lost", "reported-failed"])
+    assert.equal(Protocol.accept(changed(taskList, { rows: [{ ...taskRow, failure }] }), "daemon").rows[0].failure, failure);
 for (const message of [confirm, { ...confirm, source: "button" }, cancel, memoryConfirm, memoryDiscard, shown])
     assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(message), "shell")), JSON.stringify(message));
 for (const shown of [false, true])
@@ -443,6 +482,28 @@ try {
         controls++;
     }
     const guards = [
+        ["task-list-direction", 'if (direction !== "daemon") fail("direction-task-list");', "", "task-list-direction"],
+        ["task-list-count", "message.rows.length > 16", "message.rows.length > 17", "task-list-count"],
+        ["task-list-goal", "printable(row.goal, 1, 200)", "printable(row.goal, 1, 201)", "task-list-goal"],
+        ["task-list-agent", "printable(row.agent, 1, FIELD_MAX)", "printable(row.agent, 1, FIELD_MAX + 1)", "task-list-agent"],
+        ["task-list-state", '].indexOf(row.state) === -1', '].indexOf(row.state) < -1', "task-list-state"],
+        ["task-list-failure", "printable(row.failure, 1, FIELD_MAX)", "printable(row.failure, 1, FIELD_MAX + 1)", "task-list-failure"],
+        ["task-list-zero", " && row.failure !== 0", "", "task-list-zero"],
+        ["task-list-created", "row.createdAt < 0", "row.createdAt < -1", "task-list-created"],
+        ["task-list-ended", "row.endedAt >= 0", "row.endedAt >= -1", "task-list-ended"],
+        ["audit-direction", 'if (direction !== "daemon") fail("direction-audit-failures");', "", "audit-direction"],
+        ["audit-count", "message.rows.length > 20", "message.rows.length > 21", "audit-count"],
+        ["audit-args", '["time", "tool", "effect", "decision", "outcome", "refusal"], "audit-row"', '["time", "tool", "effect", "decision", "outcome", "refusal", "args"], "audit-row"', "audit-args"],
+        ["audit-time", '!/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(row.time)', "false", "audit-time"],
+        ["audit-tool", "printable(row.tool, 1, FIELD_MAX)", "printable(row.tool, 1, FIELD_MAX + 1)", "audit-tool"],
+        ["audit-effect", "].indexOf(row.effect) !== -1", "].indexOf(row.effect) >= -1", "audit-effect"],
+        ["audit-decision", "].indexOf(row.decision) === -1\n", "].indexOf(row.decision) < -1\n", "audit-decision"],
+        ["audit-outcome", "].indexOf(row.outcome) === -1\n", "].indexOf(row.outcome) < -1\n", "audit-outcome"],
+        ["audit-completed", '(["refuse", "withhold"].indexOf(row.decision) === -1 && ["failed", "unknown"].indexOf(row.outcome) === -1)', "false", "audit-completed"],
+        ["audit-refusal", "].indexOf(row.refusal) !== -1", "].indexOf(row.refusal) >= -1", "audit-refusal"],
+        ["task-open-direction", 'if (direction !== "daemon") fail("direction-task-open");', "", "task-open-direction"],
+        ["task-open-answer-id", 'if (!taskId(message.task)) fail("open-task-id");', "", "task-open-answer-id"],
+        ["task-open-answer", 'fail("task-open");', ";", "task-open-answer"],
         ["task-response-direction", 'if (direction !== "daemon") fail("direction-task-response");', 'if (false) fail("direction-task-response");', "task-response-direction"],
         ["task-prompt-kind", '["permission", "question"].indexOf(prompt.kind) === -1', 'false', "task-prompts-kind"],
         ["task-answer-kind", '["allow", "deny"].indexOf(response.kind) === -1', 'false', "task-respond-kind"],

@@ -10,6 +10,7 @@ const Private = require("./Private.js");
 const LINE_BYTES = 4 * 1024;
 const STORE_BYTES = 64 * 1024 * 1024;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const TAIL_BYTES = 64 * 1024;
 const owners = new Set();
 const effects = ["read", "reversible", "input", "persistent", "exec", "external", "destructive"];
 
@@ -82,18 +83,33 @@ function eventRecord(event, time) {
 /**
  * Acquire the daemon's only writer for an absolute Jarvis state directory.
  * auditDays is the manifest owner's setting; now returns wall-clock ms.
- * Creation does not open a store. close() ends this owner's lifetime.
+ * Creation reads only the newest daily file's bounded tail. close() ends this owner's lifetime.
  * The VGS instance/child lease supplies process exclusivity, not this API.
  */
-function create({ state, auditDays = 30, now = Date.now }) {
+function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
     if (typeof state !== "string" || !path.isAbsolute(state) || path.normalize(state) !== state
             || state === "/" || /[\x00-\x1f\x7f]/.test(state)) fail("state-path");
     if (!Number.isInteger(auditDays) || auditDays < 1 || auditDays > 365) fail("audit-days");
     if (typeof now !== "function") fail("clock");
+    if (typeof changed !== "function") fail("changed");
     if (owners.has(state)) fail("writer-owned");
     owners.add(state);
     const directory = path.join(state, "audit");
     let lifetime = "open";
+    let recent = [];
+    let seedError = null;
+
+    function retain(record) {
+        if (!["refuse", "withhold"].includes(record.decision) && !["failed", "unknown"].includes(record.outcome)) return false;
+        recent = recent.concat([{ time: record.time, tool: record.tool, effect: record.effect,
+            decision: record.decision, outcome: record.outcome, refusal: record.refusal ?? null }]).slice(-20);
+        return true;
+    }
+
+    function failures() {
+        if (seedError !== null) throw seedError;
+        return recent.map(row => ({ ...row }));
+    }
 
     function clock() {
         const ms = now();
@@ -105,7 +121,7 @@ function create({ state, auditDays = 30, now = Date.now }) {
     }
 
     function scan(today) {
-        let total = 0, oldest = null, expired = null;
+        let total = 0, oldest = null, expired = null, newest = null;
         const entries = fs.opendirSync(directory);
         try {
             let entry;
@@ -118,11 +134,45 @@ function create({ state, auditDays = 30, now = Date.now }) {
                 if (!Number.isSafeInteger(total)) fail("store-size");
                 const row = { file, date, bytes: stat.size };
                 if (oldest === null || date < oldest.date) oldest = row;
+                if (newest === null || date > newest.date) newest = row;
                 if (date <= today - auditDays * DAY_MS && (expired === null || date < expired.date)) expired = row;
             }
         } finally { entries.closeSync(); }
-        return { total, oldest, expired };
+        return { total, oldest, expired, newest };
     }
+
+    function seed() {
+        try { fs.lstatSync(directory); }
+        catch (error) { if (error.code === "ENOENT") return; throw error; }
+        Private.directory(state);
+        Private.directory(directory);
+        const newest = scan(clock().today).newest;
+        if (newest === null) return;
+        const fd = fs.openSync(newest.file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+        try {
+            const stat = fs.fstatSync(fd);
+            regular(stat);
+            const start = Math.max(0, stat.size - TAIL_BYTES);
+            const buffer = Buffer.alloc(Math.min(stat.size, TAIL_BYTES));
+            const count = fs.readSync(fd, buffer, 0, buffer.length, start);
+            let tail = buffer.subarray(0, count);
+            if (start > 0) {
+                const first = tail.indexOf(10);
+                tail = first < 0 ? Buffer.alloc(0) : tail.subarray(first + 1);
+            }
+            if (tail.length > 0 && tail[tail.length - 1] !== 10) fail("partial-line");
+            for (const line of tail.toString("utf8").split("\n").filter(Boolean)) {
+                let record;
+                try { record = JSON.parse(line); } catch { fail("seed-json"); }
+                if (!["refuse", "withhold"].includes(record.decision) && !["failed", "unknown"].includes(record.outcome)) continue;
+                if (typeof record.time !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(record.time)) fail("seed-time");
+                retain(eventRecord(record, record.time));
+            }
+        } finally { fs.closeSync(fd); }
+    }
+    // Unusable stores still permit cleanup() privacy teardown. The daemon
+    // reads failures() at startup and receives the actual read failure.
+    try { seed(); } catch (error) { seedError = error; }
 
     function append(file, line) {
         const fd = fs.openSync(file, fs.constants.O_RDWR | fs.constants.O_CREAT | fs.constants.O_APPEND
@@ -183,11 +233,17 @@ function create({ state, auditDays = 30, now = Date.now }) {
         }
     }
 
-    function record(event) { return attempt(time => eventRecord(event, time)); }
+    function record(event) {
+        let value;
+        const result = attempt(time => { value = eventRecord(event, time); return value; });
+        if (result.kind === "recorded" && retain(value)) changed(failures());
+        return result;
+    }
 
     return Object.freeze({
         /** Record a decision or later outcome, including refused/held calls. */
         record,
+        failures,
         /**
          * Persist a pending authorized action/release before invoking start.
          * This is the audit gate only, not a policy or approval judge.

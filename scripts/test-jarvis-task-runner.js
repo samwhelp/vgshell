@@ -103,7 +103,7 @@ async function inside() {
     // what it did. mode/marker reach the fixture agent through its argv.
     function world(modules, options = {}) {
         const { Runner, Profiles } = modules;
-        const seen = { kills: [], counts: [], failures: [], writes: [], atStopped: [], display: [], launchers: [], prompts: [] };
+        const seen = { kills: [], counts: [], failures: [], writes: [], opens: [], atStopped: [], display: [], launchers: [], prompts: [] };
         const launch = { mode: "children", marker: null };
         const row = account => ({ program: "fixture-agent", account, interrupt: { signal: "SIGINT" }, interruptMs: 300,
             argv: task => ["fixture-agent", launch.mode, launch.marker, task.brief] });
@@ -141,6 +141,7 @@ async function inside() {
                 return Runner.PROCESSES.kill(target, signal);
             } },
             spawn: (file, args, spawnOptions) => {
+                if (args[2] === "has-session") seen.opens.push(args);
                 seen.writes.push(args.slice(3));
                 if (options.beforeWrite) options.beforeWrite(args.slice(3));
                 if (args[4] === "stopped") seen.atStopped.push(groupState(readTask(args[3], args[2]).identity.pgid));
@@ -286,6 +287,34 @@ const answer = spawnFixture("python3", ["-I", "-c", "import os; os._exit(23)"],
     await oneFloating(current);
     await control("floating-one-at-a-time", "TaskRunner.js",
         'if (kind === "floating" && tui !== "idle") return { reason: "floating-display-busy" };', "", oneFloating);
+
+    async function openEnded(modules) {
+        const w = world(modules);
+        const id = "open-ended-" + (++marker);
+        producer("create", id, { goal: "Ended fixture", cwd, agent: "fixture", account: "" });
+        producer("exited", id, { code: 0 });
+        assert.equal(await w.runner.open(id), "not-alive");
+        assert.deepEqual(w.seen.opens, [], "ended task never runs has-session");
+        assert.equal(await w.runner.open("no-such-open-task"), "task-unknown");
+        w.runner.close();
+        assert.equal(await w.runner.open(id), "daemon-ending");
+        cases++;
+    }
+    await openEnded(current);
+    await control("open-alive", "TaskRunner.js", 'if (task.process.kind !== "alive") return "not-alive";', "", openEnded);
+    {
+        const w = world(current);
+        const { task } = await w.started(await w.start({ agent: "fixture" }));
+        for (let press = 1; press <= 2; press++) {
+            assert.equal(await w.runner.open(task.id), "floating");
+            assert.equal(w.seen.opens.length, press);
+            assert.deepEqual(w.seen.opens.at(-1), ["-S", path.join(directories.runtime, "tmux.sock"), "has-session", "-t", "=jarvis-" + task.id]);
+        }
+        assert.equal(await w.runner.stop(task.id), "stopped");
+        await w.seen.launchers[0].closed;
+        w.runner.close();
+        cases++;
+    }
 
     // Reports apply in message order: a run that ended before the reply's
     // continuation ran leaves the display idle, not busy.
@@ -635,6 +664,10 @@ const answer = spawnFixture("python3", ["-I", "-c", "import os; os._exit(23)"],
         const two = await w.started(await w.start({ agent: "plain" }));
         for (const { task, agent } of [one, two]) {
             assert.equal(tmux(["has-session", "-t", "jarvis-" + task.id]).status, 0);
+            const previous = w.seen.opens.length;
+            assert.equal(await w.runner.open(task.id), "tmux");
+            assert.equal(w.seen.opens.length, previous + 1, "one has-session per press");
+            assert.deepEqual(w.seen.opens.at(-1), ["-S", path.join(directories.runtime, "tmux.sock"), "has-session", "-t", "=jarvis-" + task.id]);
             const [pgid, sid] = fs.readFileSync("/proc/" + agent.leader + "/stat", "utf8").split(") ")[1].split(" ").slice(2, 4);
             assert.deepEqual([task.identity.pid, task.identity.pgid, task.identity.sid], [agent.leader, Number(pgid), Number(sid)]);
             assert.equal(agent.cwd, cwd);

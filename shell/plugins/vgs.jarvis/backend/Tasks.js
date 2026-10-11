@@ -358,4 +358,17 @@ class Store {
     }
 }
 
-module.exports = { Store, publish, derive, terminalKind };
+// TaskRunner's observation already owns the reads; the console gets only
+// this bounded projection, never a second task-store reader.
+function rows(views) {
+    const line = (value, limit) => value.replace(/[\x00-\x1f\x7f]/g, " ").slice(0, limit);
+    return views.slice().sort((a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id)).slice(0, 16)
+        .map(task => ({ id: task.id, goal: line(task.goal, 200), agent: line(task.agent, 128), state: task.state,
+            failure: task.turn.kind === "turn-failed" ? line(task.turn.failure, 128)
+                : task.process.kind === "exited" && task.process.code !== 0 ? task.process.code
+                : task.outcome.kind === "reported-failed" ? "reported-failed"
+                : task.process.kind === "lost" ? "lost" : null,
+            createdAt: task.createdAt, endedAt: task.endedAt }));
+}
+
+module.exports = { Store, publish, derive, terminalKind, rows };

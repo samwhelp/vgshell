@@ -240,7 +240,11 @@ function taskRequests(file, gates) {
     const observe = "if (first) void tasks.observe();";
     const forward = "tasks.tuiState(message.running);";
     const stop = "const task = message.task;";
-    for (const needle of [observe, forward, stop]) assert.equal(source.split(needle).length - 1, 1);
+    const open = "tasks.open(message.task)";
+    for (const needle of [observe, forward, stop, open]) assert.equal(source.split(needle).length - 1, 1);
+    const opening = `(require("node:fs").appendFileSync(path.join(${JSON.stringify(gates)}, "task-opens.jsonl"),
+                        JSON.stringify(message.task) + "\\n"), Promise.resolve(require("node:fs").readFileSync(
+                            path.join(${JSON.stringify(gates)}, "open-answer"), "utf8").trim()))`;
     const fixture = `
                 if (first) {
                     const fixtureFs = require("node:fs");
@@ -261,7 +265,7 @@ function taskRequests(file, gates) {
     const stopLog = `
                     require("node:fs").appendFileSync(path.join(${JSON.stringify(gates)}, "task-stops.jsonl"),
                         JSON.stringify(task) + "\\n");`;
-    const changed = source.replace(observe, observe + fixture).replace(forward, log + forward).replace(stop, stop + stopLog);
+    const changed = source.replace(observe, observe + fixture).replace(forward, log + forward).replace(stop, stop + stopLog).replace(open, opening);
     assert.notEqual(changed, source);
     fs.writeFileSync(file, changed);
 }

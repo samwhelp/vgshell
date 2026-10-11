@@ -235,6 +235,27 @@ function create({ directories, engine, backend, profiles = Profiles.TABLE, setti
         catch (error) { if (error.code !== "ENOENT") throw error; }
     }
 
+    /** Display lookup only: one has-session for each Open press. */
+    async function open(id) {
+        if (closed) return "daemon-ending";
+        try {
+            const task = store.find(id);
+            if (task === null) return "task-unknown";
+            if (task.process.kind !== "alive") return "not-alive";
+            // tmux(1): = makes the target an exact session name.
+            // https://man.openbsd.org/tmux#COMMANDS
+            const result = await spawn(tmux, ["-S", socket, "has-session", "-t", "=jarvis-" + id],
+                { env: base, input: "" });
+            if (closed) return "daemon-ending";
+            if (result.signal !== null || ![0, 1].includes(result.code)) return "open-failed";
+            return result.code === 0 ? "tmux" : "floating";
+        } catch (error) {
+            if (error.code === "ENOENT") return "floating";
+            if (!closed) failed(error);
+            return "open-failed";
+        }
+    }
+
     async function sweep() {
         let live = 0;
         let wrote = false;
@@ -393,7 +414,7 @@ function create({ directories, engine, backend, profiles = Profiles.TABLE, setti
         timer = null;
     }
 
-    return Object.freeze({ executor, stop, observe, tuiState, held, answer, close });
+    return Object.freeze({ executor, stop, open, observe, tuiState, held, answer, close });
 }
 
 module.exports = { create, PROCESSES };

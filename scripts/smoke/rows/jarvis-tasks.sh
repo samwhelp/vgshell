@@ -47,17 +47,43 @@ import json,sys
 print(json.dumps(json.load(sys.stdin)["status"].get("tasks")))
 '
 }
+task_list_row() {
+  ipc smoke jarvisProcess | py_reply '
+import json,sys
+rows=json.load(sys.stdin)["status"].get("taskList", [])
+row=next((row for row in rows if row.get("id")==sys.argv[1]), None)
+print(json.dumps({key: row.get(key) for key in ["id", "goal", "agent", "state", "failure"]}) if row else "missing")
+' "$task_id"
+}
+task_audit_failure() {
+  ipc smoke jarvisProcess | py_reply '
+import json,sys
+rows=json.load(sys.stdin)["status"].get("auditFailures", [])
+row=next((row for row in rows if row.get("tool")=="files.write" and row.get("decision")=="refuse"), None)
+print(json.dumps(row) if row else "missing")
+'
+}
 task_record() { # ID KIND JSON: one synthetic record through the shipped producer
   "$node_bin" "$repo/shell/plugins/vgs.jarvis/backend/task-event" --state "$task_state" "$1" "$2" <<<"$3" >/dev/null
 }
 # A fresh round: no gate or log, no recorded argv, and one new starting task.
 task_reset() {
   rm -f -- "${task_gates:?}"/request-* "${task_gates:?}/replies.jsonl" "${task_gates:?}/tui-states.jsonl" \
-    "${task_gates:?}/task-stops.jsonl"
+    "${task_gates:?}/task-stops.jsonl" "${task_gates:?}/task-opens.jsonl"
+  printf 'tmux\n' >"$task_gates/open-answer"
   forget_record
   task_round=$((task_round + 1))
   task_id="smoke-task-$task_round"
   task_record "$task_id" create "{\"goal\":\"Smoke fixture\",\"cwd\":\"$home\",\"agent\":\"fixture\",\"account\":\"\"}"
+  "$node_bin" - "$repo/shell/plugins/vgs.jarvis/backend/Audit.js" "$task_state" <<'JS'
+const Audit = require(process.argv[2]);
+const writer = Audit.create({ state: process.argv[3], now: () => Date.parse("2026-10-11T12:00:00.000Z") });
+try {
+  const result = writer.record({ kind: "action", gen: 0, op: 1, tool: "files.write", args: { path: "/synthetic", text: "private" },
+    effect: "persistent", decision: "refuse", confirmed: "none", outcome: "failed" });
+  if (result.kind !== "recorded") throw new Error(JSON.stringify(result));
+} finally { writer.close(); }
+JS
   python3 - "$task_prompts" "$task_id" "$task_permission" "$task_question" <<'PYSEED'
 import json, os, sys, time
 folder, task, permission, question = sys.argv[1:]
@@ -121,6 +147,20 @@ task_relay_scenario() {
 task_scenario() {
   expect_poll "the service reports the idle task TUI once the daemon is ready" false task_last tui-states.jsonl
   expect_poll "the daemon's live task count reaches the status" 1 task_count
+  expect_poll "the synthetic task row reaches status" \
+    "{\"id\": \"$task_id\", \"goal\": \"Smoke fixture\", \"agent\": \"fixture\", \"state\": \"starting\", \"failure\": null}" task_list_row
+  expect_poll "the fixture audit failure reaches status without args" \
+    '{"time": "2026-10-11T12:00:00.000Z", "tool": "files.write", "effect": "persistent", "decision": "refuse", "outcome": "failed", "refusal": null}' task_audit_failure
+  expect "the open-task IPC handle answers" ok ipc vgs.jarvis invoke open-task "$task_id"
+  expect_poll "the daemon receives the task-open intent" "\"$task_id\"" task_last task-opens.jsonl
+  expect_poll "the core runs task-view with the id alone" \
+    "$(words vgs.jarvis/task-view tui/task-view.sh "$task_id")" recorded_tail
+  expect_run_end "the task view ends" vgs.jarvis/task-view
+  printf 'floating\n' >"$task_gates/open-answer"
+  expect "the open-task IPC handle accepts another press" ok ipc vgs.jarvis invoke open-task "$task_id"
+  expect_poll "a floating task answer shows its notice" 1 plugin_card_count Jarvis "Coding task" "This task runs in the floating terminal"
+  expect "the open-task IPC handle refuses a malformed id" "refused: jarvis: protocol=task-id" \
+    ipc vgs.jarvis invoke open-task "../$task_id"
   hold_runs
   : >"$task_gates/request-1"
   expect_poll "the first task request opens the TUI" '[{"n": 1, "answer": "ok"}]' task_log replies.jsonl
@@ -181,6 +221,10 @@ task_relay_scenario
 jarvis_disable
 
 task_controls=(
+  'task-list|message.type === "task-list" ? "taskList" : "auditFailures"|message.type === "task-list" ? "detail" : "auditFailures"|the synthetic task row reaches status'
+  'audit-list|message.type === "task-list" ? "taskList" : "auditFailures"|message.type === "task-list" ? "taskList" : "detail"|the fixture audit failure reaches status without args'
+  'task-view|shell.tui.run("task-view", [message.task])|shell.tui.run("task-view", [])|the core runs task-view with the id alone'
+  'floating-notice|message.answer === "floating"|false && message.answer === "floating"|a floating task answer shows its notice'
   "forward|send({ type: \"tui-state\", name: \"task\", running: taskTuiRunning });|if (!taskTuiRunning) send({ type: \"tui-state\", name: \"task\", running: taskTuiRunning });|the service forwards the running task TUI"
   "argv|shell.tui.run(\"task\", args, () => {|shell.tui.run(\"task\", [], () => {|the core runs the task TUI with the spec path alone"
   "count|const reply = shell.status.set(\"tasks\", message.count);|const reply = \"ok\";|the daemon's live task count reaches the status"

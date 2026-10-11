@@ -90,6 +90,7 @@ Item {
             // The console's Stop button and `vgshell ipc call vgs.jarvis
             // stop-task <id>` stop one coding task. The Stop key does not.
             shell.ipc.handle("stop-task", task => stopTask(task));
+            shell.ipc.handle("open-task", task => openTask(task));
             // Task voice and console clients read a bounded index, then one
             // prompt. No model tool can call the answer entry.
             shell.ipc.handle("task-prompts", () => JSON.stringify({ prompts: taskPrompts.map(prompt =>
@@ -418,6 +419,31 @@ Item {
         return "ok";
     }
 
+    function openTask(task) {
+        if (shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running)
+            return "refused: jarvis=not-ready";
+        if (locked) return "refused: task-open=locked";
+        const fields = { type: "intent", intent: "task-open", task: String(task) };
+        try {
+            Protocol.accept(JSON.stringify(Object.assign({ v: 1, gen: 0, revision: shell.manifest.__revision }, fields)), "shell");
+        } catch (error) { return "refused: " + error.message; }
+        send(fields);
+        return "ok";
+    }
+
+    function taskOpened(message) {
+        if (locked) return;
+        if (message.answer === "tmux") {
+            const reply = shell.tui.run("task-view", [message.task]);
+            if (reply === "ok") return;
+            console.warn("jarvis: task-open=" + reply + " task=" + message.task);
+        } else if (message.answer === "floating") {
+            notice({ title: "Coding task", message: "This task runs in the floating terminal", tone: "info", icon: "terminal" });
+            return;
+        } else console.warn("jarvis: task-open=" + message.answer + " task=" + message.task);
+        notice({ title: "Coding task not opened", message: "The coding task could not be opened.", tone: "danger", icon: "terminal" });
+    }
+
     function sendTuiState() {
         if (shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running) return;
         send({ type: "tui-state", name: "task", running: taskTuiRunning });
@@ -658,6 +684,15 @@ Item {
                 if (message.type === "tasks") {
                     const reply = shell.status.set("tasks", message.count);
                     if (reply !== "ok") throw new Error("jarvis: " + reply);
+                    continue;
+                }
+                if (message.type === "task-list" || message.type === "audit-failures") {
+                    const reply = shell.status.set(message.type === "task-list" ? "taskList" : "auditFailures", message.rows);
+                    if (reply !== "ok") throw new Error("jarvis: " + reply);
+                    continue;
+                }
+                if (message.type === "task-open") {
+                    taskOpened(message);
                     continue;
                 }
                 if (message.type === "task-prompts") {

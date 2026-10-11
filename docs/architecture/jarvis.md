@@ -36,6 +36,7 @@ A model can pick an action from untrusted file, page or screen content, so no ex
 
 ### Capture and records
 
+- Do let the console read tasks and audit failures only from the bounded lists the daemon publishes; only the audit owner reads its store.
 - Do treat a missing shell or lock value as locked; neither `locked` nor `ready` health permits capture. Never grant capture from a component's existence; the presented observation travels on the child's ordered wire. `scripts/test-jarvis-daemon.js` and `scripts/smoke/rows/jarvis-bubble.sh` pin both.
 - Never start playback before Audio acknowledges the recorder closed, never queue microphone data for replay, and never add an echo loader whose success cannot be verified. `scripts/test-jarvis-session.js` and `scripts/test-jarvis-audio.js` pin it.
 - Do arm a wake capture only in Always mode while the chained engine is otherwise idle, feed it only to the daemon-owned sidecar, and never collect, release or audit its audio; refuse Always mode with `speech=always-local-voice` for a voice that cannot spot the word locally. `scripts/test-jarvis-session.js`, `scripts/test-jarvis-engine.js` and `scripts/test-jarvis-local-speech.js` pin each.

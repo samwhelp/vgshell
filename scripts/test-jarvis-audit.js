@@ -26,6 +26,56 @@ world(() => {
         const writer = logic.create({ state: state(), now: () => today, ...options });
         try { check(writer); } finally { writer.close(); }
     }
+    function checkFailures(logic) {
+        const root = state();
+        const folder = path.join(root, "audit");
+        fs.mkdirSync(folder, { recursive: true, mode: 0o700 });
+        const saved = (op, changes = {}) => ({ ...event, time: "2026-09-30T12:00:00.000Z", op,
+            args: { text: "[redacted]", path: "[redacted]" }, outcome: "failed", ...changes });
+        fs.writeFileSync(path.join(folder, "2026-09-29.jsonl"), JSON.stringify(saved(1)) + "\n", { mode: 0o600 });
+        const content = JSON.stringify(saved(2)) + "\n" + Array.from({ length: 1000 }, (_, n) =>
+            JSON.stringify(saved(n + 3, { decision: "allow", outcome: "completed" })) + "\n").join("")
+            + Array.from({ length: 24 }, (_, n) => JSON.stringify(saved(2000 + n, {
+                time: "2026-09-30T12:00:" + String(n).padStart(2, "0") + ".000Z" })) + "\n").join("")
+            + JSON.stringify(saved(3000, { outcome: "completed" })) + "\n";
+        const latest = path.join(folder, "2026-09-30.jsonl");
+        fs.writeFileSync(latest, content, { mode: 0o600 });
+        let writer;
+        fsFault("readSync", (original, fd, buffer, offset, length, position) => {
+            assert.ok(length <= 65536, "seed never requests the whole oversized daily file");
+            assert.equal(position, Buffer.byteLength(content) - 65536);
+            return original(fd, buffer, offset, length, position);
+        }, () => { writer = logic.create({ state: root, now: () => today }); });
+        try {
+            const rows = writer.failures();
+            assert.equal(rows.length, 20);
+            assert.equal(rows[0].time, "2026-09-30T12:00:04.000Z");
+            assert.deepEqual(rows[0], { time: rows[0].time, tool: "files.write", effect: "persistent",
+                decision: "allow", outcome: "failed", refusal: null });
+            rows[0].tool = "edited";
+            assert.equal(writer.failures()[0].tool, "files.write");
+        } finally { writer.close(); }
+        const changes = [];
+        withWriter(logic, { state: root, changed: rows => changes.push(rows) }, writer => {
+            assert.equal(writer.record({ ...event, outcome: "completed" }).kind, "recorded");
+            assert.equal(changes.length, 0);
+            for (const change of [{ outcome: "failed" }, { outcome: "unknown" }, { decision: "refuse" },
+                { kind: "release", decision: "withhold", refusal: "expired" }]) {
+                assert.equal(writer.record({ ...event, ...change }).kind, "recorded");
+                const rows = writer.failures();
+                assert.equal(rows.length, 20);
+                assert.deepEqual(rows.at(-1), { time: "2026-09-30T12:00:00.000Z", tool: change.kind === "release" ? "release" : "files.write",
+                    effect: "persistent", decision: change.decision ?? "allow", outcome: change.outcome ?? "pending", refusal: change.refusal ?? null });
+                assert.deepEqual(changes.at(-1), rows);
+            }
+        });
+    }
+    checkFailures(Audit);
+    mutant(file, "failure seed whole file", "const buffer = Buffer.alloc(Math.min(stat.size, TAIL_BYTES));",
+        "const buffer = Buffer.alloc(stat.size);", checkFailures);
+    mutant(file, "failure list args", "[{ time: record.time, tool: record.tool", "[{ ...record, time: record.time, tool: record.tool", checkFailures);
+    mutant(file, "failure list bound", ".slice(-20)", ".slice(-21)", checkFailures);
+    mutant(file, "failure callback", '&& retain(value)) changed(failures());', '&& retain(value)) void failures();', checkFailures);
     function checkOrder(logic) {
         const root = state();
         withWriter(logic, { state: root }, writer => {
@@ -407,6 +457,6 @@ world(() => {
     for (const kind of ["stop", "mute", "teardown"])
         mutant(file, "privacy shutdown " + kind, 'return { kind: "started", audit, value: start() };\n        },\n        close()',
             'if (kind === "' + kind + '" && audit.kind === "refuse") return audit;\n            return { kind: "started", audit, value: start() };\n        },\n        close()', checkRefusal);
-    console.log("jarvis-audit: acceptance=passed controls=" + (controls.length + 9)
+    console.log("jarvis-audit: acceptance=passed controls=" + (controls.length + 13)
         + " planted-keys=absent failed-write=refused");
 });

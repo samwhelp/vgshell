@@ -75,6 +75,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     let requirementsScan = -1;
     const clock = { now: () => performance.now(), set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer) };
     let tasks = null;
+    let publishedTasks = null;
     let voice = null;
     let bridge = null;
     let gate = null;
@@ -401,6 +402,14 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
             tail = framed.tail;
             for (const line of framed.lines) {
                 const message = Protocol.accept(line, "shell");
+                if (message.type === "intent" && message.intent === "task-open") {
+                    intentIdentity(message);
+                    void (context.locked ? Promise.resolve("session-locked") : tasks.open(message.task)).then(answer => {
+                        if (!ending) write({ v: 1, type: "task-open", gen: runner.state.gen,
+                            revision: context.revision, task: message.task, answer });
+                    });
+                    continue;
+                }
                 if (message.type === "intent" && message.intent === "task-stop") {
                     intentIdentity(message);
                     const task = message.task;
@@ -507,7 +516,12 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                 if (first) {
                     homes = readHomes();
                     publishHomes();
-                    audit = Audit.create({ state: context.directories.state });
+                    const auditFailures = rows => {
+                        if (!ending) write({ v: 1, type: "audit-failures", gen: runner.state.gen,
+                            revision: context.revision, rows });
+                    };
+                    audit = Audit.create({ state: context.directories.state, changed: auditFailures });
+                    auditFailures(audit.failures());
                     fs.mkdirSync(context.directories.runtime, { recursive: true, mode: 0o700 });
                     const profile = () => runner.state.settings.policy ?? "standard";
                     const router = ToolRouter.create({ session: Session, state: () => runner.state,
@@ -585,7 +599,15 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                             return account !== null && account.provider === agent && account.source.kind === "cli"
                                 ? account.source.directory : null;
                         },
-                        changed: views => voice.observe(views),
+                        changed: views => {
+                            voice.observe(views);
+                            const rows = Tasks.rows(views);
+                            const signature = JSON.stringify(rows);
+                            if (!ending && signature !== publishedTasks) {
+                                publishedTasks = signature;
+                                write({ v: 1, type: "task-list", gen: runner.state.gen, revision: context.revision, rows });
+                            }
+                        },
                         promptsChanged: prompts => {
                             voice.prompts(prompts);
                             if (!ending) write({ v: 1, type: "task-prompts", gen: runner.state.gen,

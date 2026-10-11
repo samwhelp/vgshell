@@ -148,6 +148,8 @@
     "localRuntime": { "type": "state", "label": "Local voice", "hint": "Setup downloads models and verifies the selected runtime without opening audio devices.",
       "action": { "label": "Set up local voice", "tui": "setup-local" } },
     "tasks": { "type": "count", "label": "Coding tasks", "hint": "Coding tasks whose agent is starting or running." },
+    "taskList": { "type": "data", "label": "Coding task list" },
+    "auditFailures": { "type": "data", "label": "Recent audit failures" },
     "input": {"type": "state", "label": "Desktop input", "hint": "Protected layer rectangles include pass-through gaps. Unrecognized applications refuse input.", "action": {"label": "Check input", "tui": "setup-input"}},
     "setup": { "type": "state", "label": "Setup", "group": "Setup", "hint": "Jarvis needs an AI model and the selected voice provider. The browser and input are optional." },
     "setupHome": { "type": "state", "label": "Home folder", "group": "Setup", "hint": "Jarvis reads your instructions and skills from the home folder." },
@@ -177,6 +179,7 @@
     "accounts": { "script": "tui/accounts.sh", "title": "Jarvis accounts", "requires": ["gum", "node", "secret-tool", "busctl", "setpriv", "ss"],
       "entry": { "label": "Accounts", "icon": "users", "group": "Jarvis" } },
     "task": { "script": "tui/task.sh", "title": "Jarvis coding task", "presentation": "plain" },
+    "task-view": { "script": "tui/task-view.sh", "title": "Jarvis coding task", "presentation": "plain", "requires": ["tmux"] },
     "setup-input": {"script": "tui/setup-input.sh", "title": "Check Jarvis input", "entry": {"label": "Check input", "icon": "mouse-pointer", "group": "Jarvis"}},
     "setup-fleet": { "script": "tui/setup-fleet.sh", "title": "Set up Jarvis agent fleet", "requires": ["gum", "node", "git", "kendex"] }
   }
