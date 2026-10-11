@@ -432,6 +432,8 @@ harness_cases=(
   'host_pointer=wl_pointer; host_windows_before="old pid=1 size=1x1 workspace=1 mapped=true"; host_nested_windows() { printf "%s\n" "$host_windows_before"; }; hypr() { return 1; }; if nested_backend_unannounced; then exit 1; fi; [[ $nested_mice_seen == unreadable && $host_windows_new == unreadable ]]' 0 ""
   "backend accepts mouse name that only contains wl_pointer"
   'host_pointer=wl_pointer; host_windows_before="old pid=1 size=1x1 workspace=1 mapped=true"; host_nested_windows() { printf "%s\n" "$host_windows_before"; }; hypr() { printf "%s\n" "{\"mice\":[{\"name\":\"wl_pointer-virtual\"}]}"; }; nested_backend_unannounced; [[ $nested_mice_seen == wl_pointer-virtual && $host_windows_new == none ]]' 0 ""
+  "backend unannounced accepts a host that showed no nested window before"
+  'host_pointer=wl_pointer; host_windows_before=""; host_nested_windows() { :; }; hypr() { printf "%s\n" "{\"mice\":[]}"; }; nested_backend_unannounced; [[ $nested_mice_seen == none && $host_windows_new == none ]]' 0 ""
   "host windows since prints only new windows"
   'host_windows_before="old pid=1 size=1x1 workspace=1 mapped=true"; host_nested_windows() { printf "%s\n%s\n" "$host_windows_before" "new pid=2 size=2x2 workspace=2 mapped=false"; }; [[ $(host_windows_since) == "new pid=2 size=2x2 workspace=2 mapped=false" ]]' 0 ""
   "host windows since prints none"
@@ -448,6 +450,8 @@ harness_controls=(
   'current="$(host_nested_windows)" || { echo unreadable; return 1; }' 'current="$(host_nested_windows)" || current=' "backend rejects unreadable host windows"
   "backend treats a substring mouse as the host pointer"
   '[[ ,$nested_mice_seen, != *,"$host_pointer",* ]] || return 1' '[[ $nested_mice_seen != *"$host_pointer"* ]] || return 1' "backend accepts mouse name that only contains wl_pointer"
+  "an empty before-reading counts as unreadable"
+  '${host_windows_before-unreadable}' '${host_windows_before:-unreadable}' "backend unannounced accepts a host that showed no nested window before"
 )
 run_controls "$harness_helper" harness_cases harness_controls
 

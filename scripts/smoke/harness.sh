@@ -647,14 +647,17 @@ nested_elapsed_secs() {
 # sends its window's first commit only after it reads a host event once
 # ready. A start that read every host event while starting gets none, so
 # the state is permanent: Hyprland lists FALLBACK only from its 2 s launch
-# fallback timer. Upstream aquamarine 7bb8bdf (#415) fixes it, and once
-# the host's aquamarine carries it the check should never fire. A run
+# fallback timer. Upstream aquamarine 7bb8bdf (#415) fixes it. The check
+# reads the state once, at the first FALLBACK reading, so it also ends a
+# start whose host answered nothing in the 2 s before it; once the host's
+# aquamarine carries the fix, only such a start should reach it. A run
 # planted on 2026-10-11 on host cachy with strace delaying every recvmsg
 # of the nested Hyprland by 100 ms kept this state, FALLBACK:0x0 from
 # 2.38 s, no wl_pointer and no host window, for the whole 60 s bound.
+# host_windows_before is empty when the host showed no nested window.
 host_windows_since() {
   local current
-  if [[ ${host_windows_before:-unreadable} == unreadable ]]; then echo unreadable; return 1; fi
+  if [[ ${host_windows_before-unreadable} == unreadable ]]; then echo unreadable; return 1; fi
   current="$(host_nested_windows)" || { echo unreadable; return 1; }
   [[ $current != unreadable ]] || { echo unreadable; return 1; }
   python3 - "$host_windows_before" "$current" <<'PY'
