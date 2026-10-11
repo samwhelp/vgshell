@@ -16,6 +16,16 @@
 # 2026-10-04, twelve readings at load 3.2 to 3.5 had min/median/max
 # 89/108/132 ms. Six at load 8.6: 171, 93, 158, 116, 108, 121 ms,
 # CPU pressure 0.3 to 0.8%, compositor logs on.
+# The median reads `drawn`, the GUI thread's start of the bar's first frame
+# after the publish and the hide of the browser's window, once the
+# wallpaper's frame is stamped; a reading whose wallpaper frame comes later
+# keeps that frame's stamp. The ceiling reads `stamped`, the GUI thread's
+# handling of the completing frame's swap, which was `drawn` until the
+# browser closed at the publish: the teardown of its window now runs ahead
+# of that handler. Five readings of one run with a render-thread swap stamp
+# on cachy, 2026-10-11, load 10.3, CPU pressure 0.7 to 1.1%: published
+# 113, 111, 122, 106, 112 ms; bar frame start 117, 115, 139, 111, 124 ms;
+# its swap 116, 116, 140, 112, 125 ms; `stamped` 137, 134, 163, 138, 159 ms.
 # Wallpaper keeps its 150 ms bound.
 # Each theme change prints a split line, the ms of each part of the change
 # (latency_split), and each reading keeps the probe's marks, its frame
@@ -56,7 +66,7 @@ function item(type, children = []) {
 function reader(text) {
     let clock = 10;
     const context = vm.createContext({ root: { themeLatency: null, browserWindow: null }, Theme: { name: 'latency' }, Plugins: { built: { overlay: [] } }, Image, Date: { now: () => clock++ } });
-    for (const name of ['typeName', 'descendants', 'browserParts', 'catalogWaiting', 'visibleInTree', 'desktopExposed', 'coverChanged', 'latencyMark', 'requestDesktopFrame', 'backgroundReady', 'selectedCard', 'cardPicture', 'selectedPictureReady', 'latencyFrame', 'readFrame', 'frameLog']) vm.runInContext(declaration(text, name), context);
+    for (const name of ['typeName', 'descendants', 'browserParts', 'catalogWaiting', 'visibleInTree', 'desktopExposed', 'coverChanged', 'latencyMark', 'requestDesktopFrame', 'backgroundReady', 'selectedCard', 'cardPicture', 'selectedPictureReady', 'frameStarted', 'latencyFrame', 'readFrame', 'frameLog']) vm.runInContext(declaration(text, name), context);
     context.root.selectedPictureReady = context.selectedPictureReady;
     context.begin = (kind, want, background = '') => { context.root.themeLatency = { kind, want, background, started: 0, jobs: [] }; };
     return context;
@@ -114,6 +124,32 @@ function verify(text) {
     assert.equal(c.root.themeLatency.drawn, undefined, 'a bar frame before the theme publishes must not complete it');
     c.Theme.name = 'latency'; c.latencyFrame(bar, 'bar');
     assert.equal(typeof c.root.themeLatency.drawn, 'number', 'a wallpaper frame drawn before the theme publishes must count');
+    // A theme reading is drawn at the start of the bar's first frame after
+    // the publish and the hide, once the wallpaper's frame is stamped.
+    c.begin('theme', 'latency', 'file:///a.jpg'); c.latencyFrame(background, 'background');
+    c.frameStarted('bar');
+    const barStart = c.root.themeLatency.barStart;
+    assert.equal(typeof barStart, 'number', 'a bar frame after the publish and the hide must be kept');
+    assert.equal(c.root.themeLatency.drawn, undefined, 'a frame start must not end the reading');
+    c.frameStarted('bar'); c.latencyFrame(bar, 'bar');
+    assert.equal(c.root.themeLatency.drawn, barStart, 'drawn must be the first bar frame start when the wallpaper was already swapped');
+    assert.ok(c.root.themeLatency.stamped > barStart, 'stamped must be the later handler time');
+    c.begin('theme', 'latency', 'file:///a.jpg'); c.frameStarted('bar'); c.latencyFrame(bar, 'bar');
+    assert.equal(c.root.themeLatency.stamped, undefined, 'stamped must appear only with drawn');
+    c.latencyFrame(background, 'background');
+    assert.equal(typeof c.root.themeLatency.stamped, 'number');
+    assert.equal(c.root.themeLatency.drawn, c.root.themeLatency.stamped, 'drawn must be the stamp when the wallpaper frame came after the bar frame start');
+    c.begin('theme', 'latency', ''); c.frameStarted('bar'); c.latencyFrame(bar, 'bar');
+    assert.equal(c.root.themeLatency.drawn, c.root.themeLatency.barStart, 'a theme without wallpaper is drawn at its bar frame start');
+    c.Theme.name = 'before';
+    c.begin('theme', 'latency', 'file:///a.jpg'); c.latencyFrame(background, 'background'); c.frameStarted('bar');
+    c.Theme.name = 'latency'; c.latencyFrame(bar, 'bar');
+    assert.equal(c.root.themeLatency.drawn, c.root.themeLatency.stamped, 'a bar frame started before the publish must not be the drawn frame');
+    browserWindow.visible = true; c.root.browserWindow = browserWindow;
+    c.begin('theme', 'latency', 'file:///a.jpg'); c.latencyFrame(background, 'background'); c.frameStarted('bar');
+    browserWindow.visible = false; c.latencyFrame(bar, 'bar');
+    assert.equal(c.root.themeLatency.drawn, c.root.themeLatency.stamped, 'a bar frame started under the mapped browser must not be the drawn frame');
+    c.root.browserWindow = null;
     // A warm open waits for every catalog card, then for each visible
     // card's picture.
     const openPicture = new Image('file:///a.jpg', Image.Loading), openCard = item('ThemeCard', [openPicture]);
@@ -166,13 +202,18 @@ const controls = [
     ['bar waits for the published theme', '            if (Theme.name !== reading.want) return;\n            if (kind === "bar")', '            if (kind === "bar")'],
     ['warm open waits for pictures', 'if (!shown.some(image => image.status === Image.Ready)) pending++;', 'if (!shown.some(image => image.status === Image.Ready)) ;'],
     ['warm open waits for every card', 'if (view.shownCards.length !== Object.keys(names).length) return "cards";', ''],
-    ['wallpaper frame before the publish', '            if (kind === "background" && descendants(item).some(child => child instanceof Image && child.status === Image.Ready && String(child.source).split("?")[0] === reading.background)) reading.backgroundFrame = frameTime - reading.started;\n            if (Theme.name !== reading.want) return;\n', '            if (Theme.name !== reading.want) return;\n            if (kind === "background" && descendants(item).some(child => child instanceof Image && child.status === Image.Ready && String(child.source).split("?")[0] === reading.background)) reading.backgroundFrame = frameTime - reading.started;\n']
+    ['wallpaper frame before the publish', '            if (kind === "background" && descendants(item).some(child => child instanceof Image && child.status === Image.Ready && String(child.source).split("?")[0] === reading.background)) reading.backgroundFrame = frameTime - reading.started;\n            if (Theme.name !== reading.want) return;\n', '            if (Theme.name !== reading.want) return;\n            if (kind === "background" && descendants(item).some(child => child instanceof Image && child.status === Image.Ready && String(child.source).split("?")[0] === reading.background)) reading.backgroundFrame = frameTime - reading.started;\n'],
+    ['bar start waits for the publish', 'if (Theme.name !== reading.want || !desktopExposed()) return;\n        reading.barStart', 'if (!desktopExposed()) return;\n        reading.barStart'],
+    ['bar start waits for the hide', 'reading.want || !desktopExposed()) return;\n        reading.barStart', 'reading.want) return;\n        reading.barStart'],
+    ['first bar start is kept', 'if (reading.barStart !== undefined) return;', ''],
+    ['drawn keeps a later wallpaper stamp', 'reading.barStartWallpaper = reading.background === "" || reading.backgroundFrame !== undefined;', 'reading.barStartWallpaper = true;'],
+    ['stamped is the handler time', 'reading.stamped = stamped;', 'reading.stamped = reading.barStart;']
 ];
 for (const [label, needle, replacement] of controls) {
     assert.equal(source.split(needle).length, 2, label + ': exact control match');
     assert.throws(() => verify(source.replace(needle, replacement)), { name: 'AssertionError' }, label + ': reader without this rule must fail');
 }
-console.log('theme-latency-reader: ok controls=13 browser-held=refused window-mapped=refused uncovered-mapped=refused wallpaper-loading=refused retained-live=refused selected-missing=refused selected-low=refused low-full=refused unmeasured-low=refused bar-unpublished=refused wallpaper-before-publish=refused open-pictures=refused open-cards=refused');
+console.log('theme-latency-reader: ok controls=18 browser-held=refused window-mapped=refused uncovered-mapped=refused wallpaper-loading=refused retained-live=refused selected-missing=refused selected-low=refused low-full=refused unmeasured-low=refused bar-unpublished=refused wallpaper-before-publish=refused open-pictures=refused open-cards=refused bar-start-unpublished=refused bar-start-mapped=refused bar-start-later=refused wallpaper-after-start=refused stamp-early=refused');
 JS
 
 cp -- "$repo/scripts/smoke/ThemeLatencyProbe.qml" "$repo/shell/ThemeLatencyProbe.qml"
@@ -209,9 +250,9 @@ expect "contention keeps unavailable pressure distinct from zero" '{"cpu_some_pc
 # theme file; seen: to the shell's watcher; read: the read and the judge
 # in the shell to the new name; bound: the tokens bound to the revision;
 # close: the revision to the hide of the browser's window, when the browser
-# is off the screen; frame: to the drawn frame, which waits behind the
-# teardown of that window: the bar's frame swaps on the render thread, and
-# its stamp is handled on the GUI thread after the teardown.
+# is off the screen; frame: the hide to `drawn`; teardown: `drawn` to
+# `stamped`, the wait of the swap's handler behind the teardown of that
+# window, 0 when the wallpaper's frame set both.
 # Off the drawn path: hooks: applied.json and the reload hooks, which run
 # after the theme file, to the process's exit; reply: the exit to the
 # answer; answer: the hide to the answer, positive when the answer came
@@ -230,14 +271,14 @@ p={k:v-start for k,v in mine[-1].items()} if mine else {}
 x["process"]=p
 q=next((j["queued"] for j in x.get("jobs",[]) if j["verb"]=="apply"),None)
 def gap(a,b): return None if a is None or b is None else b-a
-x["split"]={"queue":q,"launch":gap(q,p.get("spawned")),"runner":gap(p.get("spawned"),p.get("node")),"boot":gap(p.get("node"),p.get("ready")),"judge":gap(p.get("ready"),p.get("theme")),"seen":gap(p.get("theme"),x.get("seen")),"read":gap(x.get("seen"),x.get("named")),"bound":gap(x.get("named"),x.get("published")),"close":gap(x.get("published"),x.get("uncovered")),"frame":gap(x.get("uncovered"),x.get("drawn")),"hooks":gap(p.get("applied"),p.get("exit")),"reply":gap(p.get("exit"),x.get("answered")),"answer":gap(x.get("uncovered"),x.get("answered"))}
+x["split"]={"queue":q,"launch":gap(q,p.get("spawned")),"runner":gap(p.get("spawned"),p.get("node")),"boot":gap(p.get("node"),p.get("ready")),"judge":gap(p.get("ready"),p.get("theme")),"seen":gap(p.get("theme"),x.get("seen")),"read":gap(x.get("seen"),x.get("named")),"bound":gap(x.get("named"),x.get("published")),"close":gap(x.get("published"),x.get("uncovered")),"frame":gap(x.get("uncovered"),x.get("drawn")),"teardown":gap(x.get("drawn"),x.get("stamped")),"hooks":gap(p.get("applied"),p.get("exit")),"reply":gap(p.get("exit"),x.get("answered")),"answer":gap(x.get("uncovered"),x.get("answered"))}
 print(json.dumps(x))' "${2-$latency_stamps}"
 }
 latency_split_field() { latency_split "$@" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["split"], sort_keys=True))'; }
 latency_split_control="$sandbox/latency-split-control"
 printf '%s\n' '{"spawned":900,"node":1015,"ready":1030,"theme":1080,"applied":1082,"exit":1090}' '{"spawned":1012,"node":1020,"ready":1035,"theme":1070,"applied":1072,"exit":1110}' >"$latency_split_control"
-expect "the split reads the reading's own apply process" '{"answer": 14, "boot": 15, "bound": 8, "close": 4, "frame": 30, "hooks": 38, "judge": 35, "launch": 4, "queue": 8, "read": 12, "reply": 3, "runner": 8, "seen": 5}' latency_split_field '{"started":1000,"jobs":[{"verb":"list","queued":2},{"verb":"apply","queued":8}],"seen":75,"named":87,"published":95,"uncovered":99,"answered":113,"drawn":129}' "$latency_split_control"
-expect "the split takes no earlier reading's process and leaves its parts null" '{"answer": null, "boot": null, "bound": null, "close": null, "frame": null, "hooks": null, "judge": null, "launch": null, "queue": null, "read": null, "reply": null, "runner": null, "seen": null}' latency_split_field '{"started":5000,"jobs":[]}' "$latency_split_control"
+expect "the split reads the reading's own apply process" '{"answer": 14, "boot": 15, "bound": 8, "close": 4, "frame": 5, "hooks": 38, "judge": 35, "launch": 4, "queue": 8, "read": 12, "reply": 3, "runner": 8, "seen": 5, "teardown": 25}' latency_split_field '{"started":1000,"jobs":[{"verb":"list","queued":2},{"verb":"apply","queued":8}],"seen":75,"named":87,"published":95,"uncovered":99,"answered":113,"drawn":104,"stamped":129}' "$latency_split_control"
+expect "the split takes no earlier reading's process and leaves its parts null" '{"answer": null, "boot": null, "bound": null, "close": null, "frame": null, "hooks": null, "judge": null, "launch": null, "queue": null, "read": null, "reply": null, "runner": null, "seen": null, "teardown": null}' latency_split_field '{"started":5000,"jobs":[]}' "$latency_split_control"
 rm -- "$latency_split_control"
 # What closed the browser in theme reading VALUE: `publish` when the probe
 # saw its window hidden before the apply's answer, or with no answer yet,
@@ -264,7 +305,7 @@ expect "the hide order rejects a window that outlived its row" teardown-first la
 expect "the hide order refuses a reading without the hide" unread latency_hide_order '{"unbuilt":107}'
 # The split line a theme reading prints: its parts beside the probe's marks.
 latency_split_line() { # VALUE
-  printf '%s' "$1" | py_reply 'import json,sys; x=json.load(sys.stdin); print(json.dumps(dict(x["split"], drawn=x.get("drawn"), wallReady=x.get("wallReady"), hyprReloaded=x.get("hyprReloaded"), probeMs=x.get("probeMs"), frames=x.get("frames",{}))))'
+  printf '%s' "$1" | py_reply 'import json,sys; x=json.load(sys.stdin); print(json.dumps(dict(x["split"], drawn=x.get("drawn"), stamped=x.get("stamped"), wallReady=x.get("wallReady"), hyprReloaded=x.get("hyprReloaded"), probeMs=x.get("probeMs"), frames=x.get("frames",{}))))'
 }
 latency_read() { ipc theme-latency themeLatencyRead; }
 latency_done() { latency_read | py_reply 'import json,sys; print("drawn" if "drawn" in json.load(sys.stdin) else "pending")'; }
@@ -283,7 +324,7 @@ latency_report() {
   [[ $1 != theme ]] || value="$(latency_split "$value")" || return 1
   [[ $1 != theme ]] || expect "the browser's window hides before its plugin unloads" window-first latency_hide_order "$value"
   if [[ $1 != open-cold ]]; then
-    local bound=150 planted verdict drawn reading=$1
+    local bound=150 field=drawn planted verdict drawn reading=$1
     [[ $1 == open-warm ]] && bound=240
     if [[ $1 == theme ]]; then
       reading="theme-$(( ${#latency_theme_readings[@]} + 1 ))"
@@ -297,9 +338,10 @@ latency_report() {
     elif [[ $1 != theme ]]; then
       expect "$1 meets its $bound ms bound" within latency_verdict "$value" "$bound"
     fi
-    [[ $1 == theme ]] && bound=292
-    planted="$(printf '%s' "$value" | py_reply 'import json,sys; x=json.load(sys.stdin); x["drawn"]=int(sys.argv[1])+1; x["contention"]["cpu_some_pct"]=float(sys.argv[2]); print(json.dumps(x))' "$bound" "$latency_pressure_limit")" || planted=unread
-    expect "$1 rejects a reading over its bound" over latency_verdict "$planted" "$bound"
+    # A theme reading's own bound is the ceiling, which reads `stamped`.
+    [[ $1 == theme ]] && { bound=292; field=stamped; }
+    planted="$(printf '%s' "$value" | py_reply 'import json,sys; x=json.load(sys.stdin); x[sys.argv[3]]=int(sys.argv[1])+1; x["contention"]["cpu_some_pct"]=float(sys.argv[2]); print(json.dumps(x))' "$bound" "$latency_pressure_limit" "$field")" || planted=unread
+    expect "$1 rejects a reading over its bound" over latency_verdict "$planted" "$bound" "$field"
   fi
   printf 'theme-latency: reading=%s value=%s\n' "$1" "$value"
   [[ $1 != theme ]] || printf 'theme-latency: split=%s\n' "$(latency_split_line "$value")"
@@ -315,20 +357,22 @@ latency_pressure_start() {
   latency_io_start="${resources[1]}"
 }
 # Parse the frame reader's data here; the harness alone judges pressure.
-latency_verdict() { # JSON BUDGET_MS
+latency_verdict() { # JSON BUDGET_MS [FIELD]
   local fields
   fields="$(printf '%s' "$1" | py_reply 'import json,sys
 x=json.load(sys.stdin)
-value=x.get("drawn") if isinstance(x,dict) else None
+value=x.get(sys.argv[1]) if isinstance(x,dict) else None
 contention=x.get("contention") if isinstance(x,dict) else None
 pressure=contention.get("cpu_some_pct") if isinstance(contention,dict) else None
 print(value if type(value) is int and value>=0 else "unmeasured")
-print(pressure if type(pressure) in (int,float) else "unmeasured")')" || { echo unread; return; }
+print(pressure if type(pressure) in (int,float) else "unmeasured")' "${3-drawn}")" || { echo unread; return; }
   local -a values
   mapfile -t values <<<"$fields"
   latency_pressure_verdict "${values[0]:-}" "${values[1]:-}" "$2"
 }
 latency_theme_readings=()
+# The six-reading rule: the median of `drawn` over the readings measured at
+# low pressure, and each reading's `stamped` against the ceiling.
 latency_theme_summary() {
   local rows reading result
   local -a verdicts=()
@@ -337,27 +381,29 @@ x=json.load(sys.stdin)
 if isinstance(x,list):
     for row in x: print(json.dumps(row))')" || return 1
   while IFS= read -r reading; do
-    result="$(latency_verdict "$reading" 292)" || return 1
+    result="$(latency_verdict "$reading" 292 stamped)" || return 1
     verdicts+=("$result")
   done <<<"$rows"
   printf '%s' "$1" | py_reply 'import json,statistics,sys
 rows=json.load(sys.stdin)
 verdicts=sys.argv[1:]
 values=[x.get("drawn") if isinstance(x,dict) else None for x in rows] if isinstance(rows,list) else []
-valid=len(values)==6 and len(verdicts)==len(values) and all(type(x) is int and x>=0 for x in values)
+stamped=[x.get("stamped") if isinstance(x,dict) else None for x in rows] if isinstance(rows,list) else []
+valid=len(values)==6 and len(verdicts)==len(values) and all(type(x) is int and x>=0 for x in values+stamped)
 median=statistics.median(values) if valid else None
-maximum=max(values) if valid else None
+maximum=max(stamped) if valid else None
 measured=[x for x,v in zip(values,verdicts) if v in ("within","over")]
 measured_median=statistics.median(measured) if valid and measured else None
 failed=any(v=="over" for v in verdicts) or (measured_median is not None and measured_median>150)
 result="unread" if not valid or "unread" in verdicts else "over" if failed else "unmeasured" if "unmeasured" in verdicts else "within"
-print(json.dumps({"readings_ms":values,"median_ms":median,"max_ms":maximum,"measured_median_ms":measured_median,"not_measured_indices":[i+1 for i,v in enumerate(verdicts) if v=="unmeasured"],"result":result}))' "${verdicts[@]}"
+print(json.dumps({"readings_ms":values,"stamped_ms":stamped,"median_ms":median,"max_ms":maximum,"measured_median_ms":measured_median,"not_measured_indices":[i+1 for i,v in enumerate(verdicts) if v=="unmeasured"],"result":result}))' "${verdicts[@]}"
 }
 latency_theme_bound() { latency_theme_summary "$1" | py_reply 'import json,sys; print(json.load(sys.stdin)["result"])'; }
 # Each control violates only one part of the six-reading rule.
-expect "theme median over 150 ms fails below the single-reading ceiling" over latency_theme_bound '[{"drawn":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"contention":{"cpu_some_pct":0.0}}]'
-expect "theme reading over 292 ms fails below the median limit" over latency_theme_bound '[{"drawn":293,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"contention":{"cpu_some_pct":0.0}}]'
-expect "theme median at 150 ms and reading at 292 ms pass" within latency_theme_bound '[{"drawn":292,"contention":{"cpu_some_pct":0.0}},{"drawn":150,"contention":{"cpu_some_pct":0.0}},{"drawn":150,"contention":{"cpu_some_pct":0.0}},{"drawn":150,"contention":{"cpu_some_pct":0.0}},{"drawn":150,"contention":{"cpu_some_pct":0.0}},{"drawn":0,"contention":{"cpu_some_pct":0.0}}]'
+expect "theme median over 150 ms fails below the single-reading ceiling" over latency_theme_bound '[{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}}]'
+expect "theme stamp over 292 ms fails with drawn and the median within" over latency_theme_bound '[{"drawn":100,"stamped":293,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}}]'
+expect "theme median at 150 ms and every stamp at 292 ms pass" within latency_theme_bound '[{"drawn":150,"stamped":292,"contention":{"cpu_some_pct":0.0}},{"drawn":150,"stamped":292,"contention":{"cpu_some_pct":0.0}},{"drawn":150,"stamped":292,"contention":{"cpu_some_pct":0.0}},{"drawn":150,"stamped":292,"contention":{"cpu_some_pct":0.0}},{"drawn":150,"stamped":292,"contention":{"cpu_some_pct":0.0}},{"drawn":150,"stamped":292,"contention":{"cpu_some_pct":0.0}}]'
+expect "theme reading without its stamp is unread" unread latency_theme_bound '[{"drawn":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}}]'
 for latency_control_bound in 150 240 292; do
   latency_control_slow="$((latency_control_bound + 1))"
   expect "slow reading at low pressure fails: $latency_control_bound" over latency_verdict "{\"drawn\":$latency_control_slow,\"contention\":{\"cpu_some_pct\":1.0}}" "$latency_control_bound"
@@ -370,12 +416,12 @@ for latency_control_bound in 150 240 292; do
   expect "missing reading above threshold is unread: $latency_control_bound" unread latency_verdict '{"contention":{"cpu_some_pct":30.0}}' "$latency_control_bound"
 done
 # Keep pressure attached to each sample. A busy sample excludes only itself.
-expect "slow busy theme makes the batch not measured" unmeasured latency_theme_bound '[{"drawn":293,"contention":{"cpu_some_pct":30.0}},{"drawn":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"contention":{"cpu_some_pct":0.0}}]'
-expect "fast busy themes cannot lower a measured failing median" over latency_theme_bound '[{"drawn":151,"contention":{"cpu_some_pct":1.0}},{"drawn":151,"contention":{"cpu_some_pct":1.0}},{"drawn":151,"contention":{"cpu_some_pct":1.0}},{"drawn":0,"contention":{"cpu_some_pct":30.0}},{"drawn":0,"contention":{"cpu_some_pct":30.0}},{"drawn":0,"contention":{"cpu_some_pct":30.0}}]'
-expect "busy theme cannot hide a failing single low-pressure reading" over latency_theme_bound '[{"drawn":293,"contention":{"cpu_some_pct":1.0}},{"drawn":500,"contention":{"cpu_some_pct":30.0}},{"drawn":0,"contention":{"cpu_some_pct":0.0}},{"drawn":0,"contention":{"cpu_some_pct":0.0}},{"drawn":0,"contention":{"cpu_some_pct":0.0}},{"drawn":0,"contention":{"cpu_some_pct":0.0}}]'
-expect "busy theme cannot hide a failing low-pressure median" over latency_theme_bound '[{"drawn":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"contention":{"cpu_some_pct":0.0}},{"drawn":500,"contention":{"cpu_some_pct":30.0}}]'
-expect "fast busy themes are not measured" unmeasured latency_theme_bound '[{"drawn":100,"contention":{"cpu_some_pct":30.0}},{"drawn":100,"contention":{"cpu_some_pct":30.0}},{"drawn":100,"contention":{"cpu_some_pct":30.0}},{"drawn":100,"contention":{"cpu_some_pct":30.0}},{"drawn":100,"contention":{"cpu_some_pct":30.0}},{"drawn":100,"contention":{"cpu_some_pct":30.0}}]'
-expect "theme summary refuses missing pressure" unread latency_theme_bound '[{"drawn":100},{"drawn":100},{"drawn":100},{"drawn":100},{"drawn":100},{"drawn":100}]'
+expect "slow busy theme makes the batch not measured" unmeasured latency_theme_bound '[{"drawn":293,"stamped":293,"contention":{"cpu_some_pct":30.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}}]'
+expect "fast busy themes cannot lower a measured failing median" over latency_theme_bound '[{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":1.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":1.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":1.0}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":30.0}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":30.0}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":30.0}}]'
+expect "busy theme cannot hide a failing single low-pressure reading" over latency_theme_bound '[{"drawn":293,"stamped":293,"contention":{"cpu_some_pct":1.0}},{"drawn":500,"stamped":500,"contention":{"cpu_some_pct":30.0}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":0.0}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":0.0}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":0.0}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":0.0}}]'
+expect "busy theme cannot hide a failing low-pressure median" over latency_theme_bound '[{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":500,"stamped":500,"contention":{"cpu_some_pct":30.0}}]'
+expect "fast busy themes are not measured" unmeasured latency_theme_bound '[{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":30.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":30.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":30.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":30.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":30.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":30.0}}]'
+expect "theme summary refuses missing pressure" unread latency_theme_bound '[{"drawn":100,"stamped":100},{"drawn":100,"stamped":100},{"drawn":100,"stamped":100},{"drawn":100,"stamped":100},{"drawn":100,"stamped":100},{"drawn":100,"stamped":100}]'
 latency_theme_value() { ipc smoke readDescendant overlay vgs.themes ThemeView "$1"; }
 latency_steps() { latency_read | py_reply 'import json,sys; x=json.load(sys.stdin); print("ready" if x.get("steps",0)>2 and x.get("late",0)==0 else "steps=%s late=%s" % (x.get("steps",0),x.get("late",0)))'; }
 latency_low() { latency_read | py_reply 'import json,sys; print(json.load(sys.stdin).get("low",0))'; }

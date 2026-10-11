@@ -218,6 +218,25 @@ Scope {
         if (reading.frames[key].length < 24) reading.frames[key].push(Date.now() - reading.started);
     }
 
+    // A frame's start on the GUI thread. A theme reading keeps the start of
+    // the bar's first frame after the theme has published and the browser's
+    // window has hidden (`barStart`), and whether the wallpaper's frame was
+    // already stamped by then (`barStartWallpaper`): that frame is the
+    // first to show the changed desktop, and the render thread swaps it 0 to
+    // 1 ms after its start, while the frameSwapped handler that completes
+    // the reading waits on the GUI thread behind the teardown of the
+    // browser's window (18 to 34 ms later over five readings, theme-latency
+    // row with a render-thread swap stamp on cachy, 2026-10-11).
+    function frameStarted(kind) {
+        frameLog(kind + ".started");
+        const reading = root.themeLatency;
+        if (reading === null || reading.kind !== "theme" || kind !== "bar" || reading.drawn !== undefined) return;
+        if (reading.barStart !== undefined) return;
+        if (Theme.name !== reading.want || !desktopExposed()) return;
+        reading.barStart = Date.now() - reading.started;
+        reading.barStartWallpaper = reading.background === "" || reading.backgroundFrame !== undefined;
+    }
+
     // A frame's reader, with the GUI-thread ms it took while its reading
     // waits added to the reading's `probeMs`, so a reading names what the
     // probe itself cost the frames it times.
@@ -293,7 +312,17 @@ Scope {
             const background = reading.kind === "wallpaper" ? reading.want : reading.background;
             if (background !== "" && !backgroundReady(background)) return;
         }
-        root.themeLatency.drawn = frameTime - reading.started;
+        const stamped = frameTime - reading.started;
+        if (reading.kind !== "theme") {
+            reading.drawn = stamped;
+            return;
+        }
+        // `stamped` is this handler's time, the reading before `barStart`
+        // was kept. `drawn` is the bar frame's start when the wallpaper was
+        // already on the screen at it, else this later stamp, which is the
+        // wallpaper's frame. Both appear together: `drawn` ends the reading.
+        reading.stamped = stamped;
+        reading.drawn = reading.barStartWallpaper === true ? reading.barStart : stamped;
     }
 
     Variants {
@@ -308,7 +337,7 @@ Scope {
             required property var modelData
             target: modelData.instance.Window.window
             function onFrameSwapped() { root.latencyFrame(modelData.instance, modelData.kind); }
-            function onAfterAnimating() { root.frameLog(modelData.kind + ".started"); }
+            function onAfterAnimating() { root.frameStarted(modelData.kind); }
         }
     }
     function wallpaperWanted(image) {
