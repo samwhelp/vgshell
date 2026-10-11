@@ -63,7 +63,8 @@ var TOKENS = {
         // wait after the last row fades before the rows go.
         staggerRows: number(10, 0, 64),
         settle: wait(40),
-        // How long a toast shows its no-action caption.
+        // How long a toast shows its no-action caption, and the act
+        // shortcut's caption-only refusal toast shows.
         noActionHold: wait(1600)
     },
 

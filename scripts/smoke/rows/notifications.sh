@@ -4026,13 +4026,21 @@ expect_poll "the pixel probe notifications leave" 0 on_screen
 # the history and under Silence, and a newer notification takes the key
 # from an older one. A newest notification that offers no action, and an
 # empty store, send nothing; the first shows its toast's No action caption
-# until look.motion.noActionHold ends it. The control: a copy of the service
-# whose key reaches no click fails the delivery check.
+# until look.motion.noActionHold ends it. With no toast of it on screen the
+# stack shows a caption-only toast for the same hold instead, No action for
+# a notification only in the history and No notification for an empty
+# store; a second press shows no second one, and history, the read cutoff,
+# the toasts and the chosen sound's player stay as they were. The controls:
+# a copy of the service whose key reaches no click and sets no refusal
+# caption fails the delivery check and the caption-toast check.
 act_binds() { hypr -j binds | py_reply 'import json,sys; print(json.dumps([[b["modmask"], b["key"], b["description"]] for b in json.load(sys.stdin) if b["description"] == "vgs.notifications:act" and (b.get("submap", "") or "default") == "default"]))'; }
 act_keys() { python3 -c 'import json,sys; rows=[r for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"] == "vgs.notifications"]; k=rows[0].get("keys") if rows else None; print("absent" if k is None else json.dumps(k))' "$home/.config/vgshell/shell.json"; }
 act_row() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; b=[[x["description"], x["key"]] for p in json.load(sys.stdin) if p["id"] == "vgs.notifications" for x in p["binds"] if x["shortcut"] == "act"]; print(json.dumps(b[0]) if b else "absent")'; }
 act_apply() { ipc smoke invokeInstance window vgs.settings applyKey "{\"id\":\"vgs.notifications\",\"shortcut\":\"act\"${1:+,\"key\":$1}}"; }
 press_act() { hypr dispatch 'hl.dsp.global("vgs.notifications:act")'; }
+act_stored() { printf '[%s, %s]\n' "$(live_summaries)" "$(history_summaries)"; }
+# The captions of the caption-only toasts on screen; [] with no layer.
+refusal_toasts() { ipc smoke layerItems vgs.notifications NotificationCard summary,caption,captionOnly | py_reply 'import json,sys; print(json.dumps([v["caption"] for s, r, v in json.load(sys.stdin) if v["captionOnly"]]))'; }
 expect "the notifications' Settings page opens for its keys" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
 expect_poll "the page reads the act shortcut with its default key" '["Act on the last notification", "SUPER+SHIFT+N"]' act_row
 expect_poll "the Keys row draws the act shortcut's default key" '"SUPER+SHIFT+N"' key_field vgs.notifications act key
@@ -4088,22 +4096,73 @@ expect "the no-action toast stays on screen" True has_row live "Act with no acti
 expect "the key delivers nothing to the toast with no action" 0 delivered "$act_bare" default
 expect_poll "the caption ends after its hold" '""' card_value "Act with no action" caption
 
+# The refusal toasts, with a sound chosen, so a toast that played one
+# would start a player.
+cp -- "$note_sound_config" "$sandbox/shell-before-refusal-sound.json"
+python3 -c 'import json,os,sys
+path = sys.argv[1]
+config = json.load(open(path))
+config.setdefault("sounds", {}).setdefault("vgs.notifications", {})["notification"] = "pop"
+with open(path + ".next", "w") as out:
+    json.dump(config, out)
+os.replace(path + ".next", path)' "$note_sound_config" || fail "the refusal sound choice could not be written"
+expect "the refusal sound choice is reloaded" ok ipc shell reloadConfig
+expect_poll "the shell reads the refusal sound choice" pop note_sound_chosen
+expect "the toast with no action is dismissed" ok notes dismiss-latest
+expect_poll "the toast with no action leaves" none key_of "Act with no action"
+expect_poll "the notification with no action is in the history" True in_history "Act with no action"
+act_refusal_stored="$(act_stored)" || fail "the store is unreadable before the history refusal"
+act_refusal_read="$(state_at readBefore)" || fail "the read cutoff is unreadable before the history refusal"
+act_refusal_shown="$(note_status onScreen)" || fail "the toast count is unreadable before the history refusal"
+act_refusal_sounds="$(note_sound_calls)" || fail "the player count is unreadable before the history refusal"
+act_refused_before="$(log_lines 'notifications: act refused=no-action')" || fail "the instance log is unreadable before the history refusal"
+expect "the act shortcut's dispatch on the history with no action is allowed" ok press_act
+expect_log "the key on the history with no action sends nothing" "$((act_refused_before + 1))" 'notifications: act refused=no-action'
+expect_poll "the key on the history with no action shows the caption-only toast" '["No action"]' refusal_toasts
+expect "the notification's own toast does not come back" none card_value "Act with no action" caption
+expect "a second dispatch on the history with no action is allowed" ok press_act
+expect "a second press shows one caption-only toast" '["No action"]' refusal_toasts
+expect "the history refusal stores nothing" "$act_refusal_stored" act_stored
+expect "the history refusal leaves the read cutoff" "$act_refusal_read" state_at readBefore
+expect "the history refusal adds no toast to the count" "$act_refusal_shown" note_status onScreen
+expect "the history refusal starts no player" "$act_refusal_sounds" note_sound_calls
+expect_poll "the caption-only toast ends after its hold" '[]' refusal_toasts
+
 expect "the act rows' toasts are dismissed" ok notes dismiss-all
 expect "the history is cleared for the empty act" ok notes clear-history
-act_stored() { printf '[%s, %s]\n' "$(live_summaries)" "$(history_summaries)"; }
 expect_poll "nothing is stored before the empty act" '[[], []]' act_stored
 act_empty_before="$(log_lines 'notifications: act refused=no-notification')" || fail "the instance log is unreadable before the empty act"
+act_refusal_read="$(state_at readBefore)" || fail "the read cutoff is unreadable before the empty act"
+act_refusal_sounds="$(note_sound_calls)" || fail "the player count is unreadable before the empty act"
 expect "the act shortcut's dispatch with nothing stored is allowed" ok press_act
 expect_log "the key with nothing stored sends nothing" "$((act_empty_before + 1))" 'notifications: act refused=no-notification'
+expect_poll "with nothing stored the key shows the caption-only toast" '["No notification"]' refusal_toasts
+expect "a second dispatch with nothing stored is allowed" ok press_act
+expect "a second press with nothing stored shows one caption-only toast" '["No notification"]' refusal_toasts
+expect_log "the second key with nothing stored sends nothing" "$((act_empty_before + 2))" 'notifications: act refused=no-notification'
+expect "the empty refusal stores nothing" '[[], []]' act_stored
+expect "the empty refusal leaves the read cutoff" "$act_refusal_read" state_at readBefore
+expect "the empty refusal adds no toast to the count" 0 note_status onScreen
+expect "the empty refusal starts no player" "$act_refusal_sounds" note_sound_calls
+expect_poll "the empty caption-only toast ends after its hold" '[]' refusal_toasts
+cp -- "$sandbox/shell-before-refusal-sound.json" "$note_sound_config.next" && mv -T -- "$note_sound_config.next" "$note_sound_config"
+expect "the shell.json the refusal toasts found is reloaded" ok ipc shell reloadConfig
+expect_poll "the shell reads no refusal sound choice" unset note_sound_chosen
 
-# The control: a service copy whose key runs no click.
+# The controls: a service copy whose key runs no click and sets no
+# refusal caption.
 act_service="$repo/shell/plugins/vgs.notifications/Service.qml"
 cp -- "$act_service" "$sandbox/Service.act-kept.qml"
 python3 - "$act_service" <<'PY_ACT'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1]); text=p.read_text(); needle='        choose(key, "open");\n    }\n\n    Timer {\n        id: noActionClock'
 assert text.count(needle)==1
-p.write_text(text.replace(needle, needle.replace('        choose(key, "open");\n', '')))
+text=text.replace(needle, needle.replace('        choose(key, "open");\n', ''))
+for caption in ('            refusalCaption = "No notification";\n', '            refusalCaption = shown ? "" : "No action";\n'):
+    assert text.count(caption)==1, caption
+    text=text.replace(caption, '')
+assert text != p.read_text()
+p.write_text(text)
 PY_ACT
 rescan "a rescan builds the service whose key runs no click"
 expect_poll "the no-click control service is built" True record_exists vgs.notifications
@@ -4115,6 +4174,13 @@ act_unsent_control() {
 }
 expect "control: a key that runs no click fails the delivery check" 1 act_unsent_control
 expect "the control toast is dismissed" ok notes dismiss-all
+expect "the history is cleared for the refusal control" ok notes clear-history
+expect_poll "nothing is stored before the refusal control" '[[], []]' act_stored
+expect "the refusal control's act dispatch is allowed" ok press_act
+act_refusal_control() {
+  (failures=0; behaviour_failures=0; expect_poll "with nothing stored the key shows the caption-only toast" '["No notification"]' refusal_toasts >"$sandbox/act-refusal-control.log"; echo "$failures")
+}
+expect "control: a refusal with no toast fails the caption-toast check" 1 act_refusal_control
 cp -- "$sandbox/Service.act-kept.qml" "$act_service"
 rescan "a rescan restores the service whose key runs the click"
 expect_poll "the restored act service is built" True record_exists vgs.notifications

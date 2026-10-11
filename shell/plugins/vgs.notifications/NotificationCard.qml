@@ -14,7 +14,8 @@ import "NotificationLogic.js" as Logic
 // when there is one, before the rule's title in place of the summary. It draws no fill of its
 // own: the GlassSurface under it paints the glass and the slot drives its
 // size, its content fade and its lifetime. It holds no notification
-// object, only the values it draws.
+// object, only the values it draws. A caption-only card, the stack's
+// refusal toast, draws its caption alone.
 Item {
     id: card
 
@@ -56,6 +57,9 @@ Item {
     property string heldCaption: ""
     onCaptionChanged: if (caption !== "" || trayShown || tray.opacity === 0) heldCaption = caption
     readonly property bool captionMode: caption !== "" || (heldCaption !== "" && !(showActions && actions.length > 0))
+    // A toast that is only its caption, the stack's refusal toast: as wide
+    // and tall as the caption with `pad` all round. It takes no click.
+    property bool captionOnly: false
     property int actionIndex: -1
     property bool keyboardActions: false
     readonly property bool hovered: hoverTracker.hovered
@@ -64,10 +68,11 @@ Item {
     signal closeRequested()
     signal cardClicked()
 
-    readonly property real fullWidth: look.card.width
-    // The content with `pad` all round. The content never outgrows
-    // maxHeight less that pad: the body shows only the lines that fit.
-    readonly property real fullHeight: content.implicitHeight + 2 * pad
+    readonly property real fullWidth: captionOnly ? Math.ceil(captionText.implicitWidth) + 2 * pad : look.card.width
+    // The content, or a caption-only card's caption, with `pad` all round.
+    // The content never outgrows maxHeight less that pad: the body shows
+    // only the lines that fit.
+    readonly property real fullHeight: captionOnly ? Math.ceil(captionText.implicitHeight) + 2 * pad : content.implicitHeight + 2 * pad
     readonly property real pad: look.card.pad
     // The stack's text column: text without media starts this far in from
     // either end, and every text ends this far from the right end.
@@ -134,6 +139,7 @@ Item {
     // keyboard-path: the inbox panel's KeyNav selects this card, Enter opens it and Delete dismisses it; toasts take no keyboard
     MouseArea {
         anchors.fill: parent
+        enabled: !card.captionOnly
         PointerCursor {}
         acceptedButtons: Qt.LeftButton | Qt.RightButton
         onClicked: mouse => {

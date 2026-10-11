@@ -2,15 +2,18 @@ import QtQuick
 import QtQuick.Layouts
 import qs.Commons
 import "Appearance.js" as Appearance
+import "NotificationLogic.js" as Logic
 
 // The stack on one screen, the content the service hands its layer: the
 // toasts, at the edge the service's `position` names inside the space other
 // layers do not reserve, so never over the bar, with the newest toast
-// nearest that edge. The layer host builds one per screen and assigns
-// `screen`. Presses reach only the toast cards. It keeps no keyboard. The
-// host destroys a copy a moment after the service that declared it can
-// already be gone, so every binding on the service checks it for null, and
-// the look is the stack's own reading of the same table.
+// nearest that edge, and the act shortcut's caption-only refusal toast,
+// while the service holds one, nearer still. The layer host builds one per
+// screen and assigns `screen`. Presses reach only the toast cards. It
+// keeps no keyboard. The host destroys a copy a moment after the service
+// that declared it can already be gone, so every binding on the service
+// checks it for null, and the look is the stack's own reading of the same
+// table.
 Item {
     id: stack
 
@@ -69,7 +72,40 @@ Item {
                     host: stack
                     look: stack.look
                     textColumn: scroll.textColumn
-                    Layout.row: stack.fromBottom ? slots.count - 1 - index : index
+                    Layout.row: (stack.fromBottom ? slots.count - 1 - index : index) + (captionLoader.active && !stack.fromBottom ? 1 : 0)
+                }
+            }
+
+            // The refusal toast takes the row nearest the stack's edge, and
+            // the rows move one away from it. It is hidden while inactive,
+            // so the grid gives it no row.
+            Loader {
+                id: captionLoader
+                active: stack.service !== null && stack.service.refusalCaption !== ""
+                visible: active
+                Layout.row: stack.fromBottom ? slots.count : 0
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: stack.look.card.width
+                Layout.preferredHeight: item !== null ? item.implicitHeight : 0
+                sourceComponent: Component {
+                    CardSlot {
+                        host: stack
+                        look: stack.look
+                        textColumn: scroll.textColumn
+                        index: 0
+                        key: ""
+                        app: ""
+                        appIcon: ""
+                        summary: ""
+                        body: ""
+                        image: ""
+                        desktopEntry: ""
+                        urgency: Logic.URGENCY.normal
+                        hintIcon: ""
+                        hintTone: ""
+                        leaving: ""
+                        refusal: stack.service !== null ? stack.service.refusalCaption : ""
+                    }
                 }
             }
         }

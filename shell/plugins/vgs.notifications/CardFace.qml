@@ -27,6 +27,8 @@ Item {
     property var actions: []
     property bool showActions: false
     property string caption: ""
+    // A toast that is only its caption (NotificationCard.captionOnly).
+    property bool captionOnly: false
     property int actionIndex: -1
     property bool keyboardActions: false
     property real orb: 0
@@ -81,6 +83,7 @@ Item {
         actions: face.actions
         showActions: face.showActions
         caption: face.caption
+        captionOnly: face.captionOnly
         actionIndex: face.actionIndex
         keyboardActions: face.keyboardActions
         onActionTriggered: id => face.actionTriggered(id)

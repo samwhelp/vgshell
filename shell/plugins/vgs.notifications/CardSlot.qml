@@ -7,7 +7,9 @@ import "NotificationLogic.js" as Logic
 // without glass it fades in at full size as it drops, and fades out. The
 // service owns the row, its lifetime and its end. In a stack at the top the
 // row's gap is above the card and the dot drops in from above; at the
-// bottom the gap is below it and the dot rises from below.
+// bottom the gap is below it and the dot rises from below. The stack's
+// refusal toast is a slot with no row: its key is "" and `refusal` holds
+// its caption.
 Item {
     id: slot
 
@@ -33,6 +35,9 @@ Item {
     required property string hintIcon
     required property string hintTone
     required property string leaving
+    // The caption of a caption-only toast, the stack's refusal toast; ""
+    // for a notification's toast.
+    property string refusal: ""
 
     Layout.preferredWidth: look.card.width
     Layout.alignment: Qt.AlignHCenter
@@ -154,7 +159,9 @@ Item {
         emoji: slot.service !== null ? slot.service.emojiFor(face.card.enrichment, face.card.workspace) : null
         actions: slot.actions
         showActions: face.card.hovered && slot.leaving === ""
-        caption: slot.service !== null && slot.service.noActionKey === slot.key && slot.leaving === "" ? "No action" : ""
+        captionOnly: slot.refusal !== ""
+        caption: slot.refusal !== "" ? slot.refusal
+            : slot.key !== "" && slot.service !== null && slot.service.noActionKey === slot.key && slot.leaving === "" ? "No action" : ""
         orb: slot.orbness * slot.orbness
         edgeVisible: slot.hover > 0 || (slot.service !== null && !slot.service.panelOpen)
         edgeSpin: slot.look.edge.spin * slot.orbness

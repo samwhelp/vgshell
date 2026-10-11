@@ -109,6 +109,11 @@ Item {
     // The toast that shows its no-action caption, "" while none does
     // (actOnLast); noActionClock ends it.
     property string noActionKey: ""
+    // The caption of the caption-only toast the act shortcut shows when it
+    // is refused and no toast of its notification is on screen, "" while
+    // none shows (actOnLast). It is no row, so nothing stores, counts or
+    // sounds it; noActionClock ends it.
+    property string refusalCaption: ""
     readonly property string panelSubtitle: Logic.panelSubtitle(panelMode, shownCount, store.status)
     property int shownCount: 0
     readonly property bool silenced: store.dnd
@@ -132,8 +137,9 @@ Item {
         optIn: root.glassChoice
     }
 
-    // The layer exists while there is something to draw.
-    readonly property bool wanted: look !== null && rowModel.count > 0 && !panelOpen
+    // The layer exists while there is something to draw: a row or the
+    // caption-only toast.
+    readonly property bool wanted: look !== null && (rowModel.count > 0 || refusalCaption !== "") && !panelOpen
     onWantedChanged: syncLayer()
 
     Store {
@@ -342,22 +348,27 @@ Item {
     // (choose), whether its toast shows or it is only in the history, and
     // under Silence too, since the user pressed the key. A card whose click
     // reaches nothing (NotificationLogic.actReaches) sends nothing; its
-    // toast, while one shows, says so in its caption for a moment. Logs
-    // what it found, with no content.
+    // toast, while one shows, says so in its caption for a moment, and
+    // otherwise the caption-only toast says No action. With nothing stored
+    // that toast says No notification. A press during the hold restarts
+    // it, so one caption shows. Logs what it found, with no content.
     function actOnLast() {
         const key = Logic.newestKey(store.live, store.history);
         const entry = key === "" ? null : entryFor(key);
         if (entry === null) {
             console.info("notifications: act refused=no-notification");
+            noActionKey = "";
+            refusalCaption = "No notification";
+            noActionClock.restart();
             return;
         }
         if (!Logic.actReaches(entry, offered(key).map(a => a.identifier), Logic.senderWindows(windows(), entry).length > 0)) {
             console.info("notifications: act refused=no-action");
             const at = indexOf(key);
-            if (at !== -1 && rowModel.get(at).leaving === "") {
-                noActionKey = key;
-                noActionClock.restart();
-            }
+            const shown = at !== -1 && rowModel.get(at).leaving === "";
+            noActionKey = shown ? key : "";
+            refusalCaption = shown ? "" : "No action";
+            noActionClock.restart();
             return;
         }
         choose(key, "open");
@@ -366,7 +377,10 @@ Item {
     Timer {
         id: noActionClock
         interval: root.look === null ? 0 : root.look.motion.noActionHold
-        onTriggered: root.noActionKey = ""
+        onTriggered: {
+            root.noActionKey = "";
+            root.refusalCaption = "";
+        }
     }
 
     function rowOf(entry, origin) {
