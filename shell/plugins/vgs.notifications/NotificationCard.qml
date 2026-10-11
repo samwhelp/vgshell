@@ -72,6 +72,12 @@ Item {
     // The content, or a caption-only card's caption, with `pad` all round.
     // The content never outgrows maxHeight less that pad: the body shows
     // only the lines that fit.
+    // A tray releasing the text width must finish the same real layouts
+    // before its virtual slot can retain the collapsed card height.
+    function settleHeight() {
+        content.ensurePolished();
+        textBlock.settleLayout();
+    }
     readonly property real fullHeight: captionOnly ? Math.ceil(captionText.implicitHeight) + 2 * pad : textBlock.fullHeight(showsSlot ? mediaSlot.implicitHeight : 0)
     readonly property real pad: look.card.pad
     // The stack's text column: text without media starts this far in from

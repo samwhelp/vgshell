@@ -267,30 +267,107 @@ long_inbox_warm() {
 }
 # One open, read at the list top and at the full scroll travel. The end
 # reading checks the bottom without requiring the first card in view.
+# A fixed train, decided before input. Each event moves less than a
+# viewport so the first traversal builds every crossed card. No reading
+# changes the requested distance or adds another attempt.
+nk_wheel_plan() {
+  py_reply 'import json,math,sys
+v=json.load(sys.stdin);margin=v["height"];notches=math.ceil((v["contentHeight"]-v["height"]+margin)/15)
+event=min(100,max(1,int(v["height"]//4//15)))
+print(notches,event,math.ceil(notches/event),margin)' <<<"$1"
+}
+nk_wheel_train() { # X Y DIRECTION PLAN LABEL
+  local x=$1 y=$2 direction=$3 plan=$4 label=$5 expected=${6:-} notches chunk events margin left step event view height changed=0
+  read -r notches chunk events margin <<<"$plan"
+  printf 'notification-wheel-request: label=%s direction=%s distance=%s events=%s margin=%s notches=%s\n' "$label" "$direction" "$((notches * 15))" "$events" "$margin" "$notches" >&2
+  left=$notches
+  for ((event=1; event<=events; event++)); do
+    step=$chunk; ((left < chunk)) && step=$left
+    wheel "$x" "$y" "$((direction * step))" || return 1
+    left=$((left - step))
+    # One fixed interval permits a rendered viewport before the next
+    # precomputed event. It is not a retry or a settled-value poll.
+    sleep 0.05
+    view="$(panel_current_view)" || return 1
+    [[ $view == \{* ]] || { printf 'notification-wheel-invalid: %s\n' "$view" >&2; return 1; }
+    printf 'notification-wheel-event: label=%s event=%s requested=%s view=%s\n' "$label" "$event" "$((direction * step * 15))" "$view" >&2
+    height="$(py_reply 'import json,sys;print(json.load(sys.stdin)["contentHeight"])' <<<"$view")" || return 1
+    [[ -z $expected || $height == "$expected" ]] || changed=1
+  done
+  (( changed == 0 )) || return 2
+}
+nk_height_built() { # STARTING LINE
+  python3 - "$instance_log" "$1" <<'PY_BUILT'
+import hashlib,json,sys
+rows={}
+for line in open(sys.argv[1]).readlines()[int(sys.argv[2]):]:
+    if "notification-height-trace:" not in line: continue
+    try: row=json.loads(line.split("notification-height-trace:",1)[1])
+    except ValueError: continue
+    if row["resting"] and (row["summary"]=="Long newest" or row["summary"].startswith("Long ")): rows[row["key"]]=row["height"]
+print("notification-collapsed-observations: count=%s signature=%s rows=%s"%(len(rows),hashlib.sha256(json.dumps(rows,sort_keys=True).encode()).hexdigest(),json.dumps(rows,sort_keys=True)),file=sys.stderr)
+print(len(rows))
+PY_BUILT
+}
+# This proof remains in the same Panel lifetime. Once all forty rows have
+# built, top/end/back must retain one exact content height throughout.
+nk_height_roundtrip() { # X Y PLAN TRACE_START
+  local x=$1 y=$2 plan=$3 trace=$4 built top end back height down_status=0 up_status=0
+  # End releases the first card's selected tray. The last row already
+  # had a collapsed observation while the warm traversal passed it.
+  type_keys -k End || { echo invalid-end-key; return; }
+  expect_poll "every long row has an actual collapsed-height observation" 40 nk_height_built "$trace" >&2
+  built="$(nk_height_built "$trace")" || { echo invalid-trace; return; }
+  [[ $built == 40 ]] || { echo "invalid-built=$built"; return; }
+  nk_wheel_train "$x" "$y" -1 "$plan" warm-top || { echo invalid-warm-top; return; }
+  top="$(panel_current_view)" || { echo invalid-top; return; }
+  height="$(py_reply 'import json,sys;print(json.load(sys.stdin)["contentHeight"])' <<<"$top")" || { echo invalid-top-height; return; }
+  nk_wheel_train "$x" "$y" 1 "$plan" stable-end "$height" || down_status=$?
+  ((down_status == 1)) && { echo invalid-end; return; }
+  end="$(panel_current_view)" || { echo invalid-end-view; return; }
+  nk_wheel_train "$x" "$y" -1 "$plan" stable-back "$height" || up_status=$?
+  ((up_status == 1)) && { echo invalid-back; return; }
+  back="$(panel_current_view)" || { echo invalid-back-view; return; }
+  printf 'notification-height-roundtrip: built=%s top=%s end=%s back=%s\n' "$built" "$top" "$end" "$back" >&2
+  py_reply 'import json,sys
+v=json.load(sys.stdin)
+if not all(isinstance(x,dict) for x in v): print("invalid-view");sys.exit()
+t,e,b=v
+if abs(t["contentY"])>.5 or abs(b["contentY"])>.5 or e["contentY"]<e["contentHeight"]-e["height"]-.5:print("invalid-endpoint");sys.exit()
+print("stable" if t["contentHeight"]==e["contentHeight"]==b["contentHeight"] and sys.argv[1:]==["0","0"] else "height-changed")' "$down_status" "$up_status" <<<"[$top,$end,$back]"
+}
 long_inbox_ends() {
-  local shown top end view before spot x y
+  local shown top end view before spot x y plan trace stable
+  trace="$(wc -l <"$instance_log")"
   "$@" >/dev/null || { echo toggle-failed; return; }
   shown="$(long_inbox_shown)"
   [[ $shown == shown ]] || { echo "$shown"; return; }
   top="$(long_inbox_settled)"
   before="$(panel_current_view)" || before=unread
   [[ $before == \{* ]] || { echo "view=$before"; return; }
+  plan="$(nk_wheel_plan "$before")" || return
   spot="$(py_reply 'import json,sys;print(json.dumps(json.load(sys.stdin)["box"]))' <<<"$before")" || return
-  # One continuous native gesture covers the whole long list. Rest the
-  # pointer in the side room so hovering does not change card tray height.
   read -r x y < <(panel_point "$spot" 4 -) || { echo "view=$before"; return; }
-  wheel "$x" "$y" 100 || { echo wheel-failed; return; }
+  nk_wheel_train "$x" "$y" 1 "$plan" first-build || { echo wheel-failed; return; }
   view="$(panel_current_view)" || view=unread
   [[ $view == \{* ]] || { echo "view=$view"; return; }
-  printf 'notification-wheel-end: before=%s after=%s notches=100\n' "$before" "$view" >&2
+  printf 'notification-wheel-end: before=%s after=%s plan=%s\n' "$before" "$view" "$plan" >&2
   spot="$(py_reply 'import json,sys
 v=json.load(sys.stdin)
 print("end" if v["contentY"]>0 and v["contentY"]>=v["contentHeight"]-v["height"]-0.5 else "short")' <<<"$view")" || return
   [[ $spot == end ]] || { echo "not-at-end $view"; return; }
   end="$(panel_fit bottom)"
+  stable="$(nk_height_roundtrip "$x" "$y" "$plan" "$trace")"
+  local artifact="$source_repo/tmp/smoke-artifacts/notifications-height-$(date +%s%N)"
+  mkdir -p -- "$artifact"
+  tail -n +"$((trace + 1))" -- "$instance_log" >"$artifact/instance.log"
+  printf 'result=%s\nplan=%s\n' "$stable" "$plan" >"$artifact/result.txt"
+  cp -- "$nk_panel" "$artifact/Panel.qml"
+  printf 'notification-height-artifact: %s\n' "$artifact" >&2
   read -r x y < <(nk_panel_outside_point) && hover "$x" "$y"
   "$@" >/dev/null || { echo close-toggle-failed; return; }
   nk_layer_gone || { echo close-still-open; return; }
+  [[ $stable == stable ]] || { echo "$stable"; return; }
   echo "top=$top end=$end"
 }
 # nk_view_settled: the long inbox's view, the probe's viewHolding reading,
@@ -471,7 +548,77 @@ expect_poll "the long inbox holds its forty cards alone" 40 note_status history
 geometry expect "a long inbox opened by the key eight times shows its first card whole each time" fits long_inbox_cut nk_press
 ok "long inbox readings: $(long_inbox_readings)"
 expect "a second Super+N that reaches the shell while the first closes the long inbox opens it again as one panel the service knows" kept nk_second_press
+nk_panel="$repo/shell/plugins/vgs.notifications/Panel.qml"
+cp -- "$nk_panel" "$sandbox/Panel.qml.keys-pristine"
+expect "disabling notifications before height tracing is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+python3 - "$nk_panel" <<'PY_HEIGHT_TRACE'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]);s=p.read_text()
+needle="        // The estimate belongs only to an unbuilt row."
+assert s.count(needle)==1
+trace='        console.log("notification-height-trace:" + JSON.stringify({ key: key, summary: rows[indexOfKey(key)].summary, old: cached.height, height: height, estimate: cached.estimate, collapsed: cached.collapsed, resting: resting }));\n'
+p.write_text(s.replace(needle,trace+needle))
+PY_HEIGHT_TRACE
+rescan "a rescan reads height tracing"
+expect "enabling height tracing is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+expect_poll "the height-traced service is built" True record_exists vgs.notifications
 geometry expect "the long inbox list reaches the panel bottom at both scroll ends" "top=fits end=fits" long_inbox_ends nk_press
+# Control: returning a real collapsed extent to its initial estimate
+# must change the established range during the same native roundtrip.
+cp -- "$nk_panel" "$sandbox/Panel.qml.keys-traced"
+expect "disabling notifications before estimate restoration is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+python3 - "$nk_panel" <<'PY_ESTIMATE_RESTORE'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]);s=p.read_text()
+needle='                            // An unloaded slot keeps its last real height.'
+assert s.count(needle)==1
+replacement="                            onActiveChanged: if (!active) root.queueEstimateRestore(slot.entry.key)\n"
+slot_needle="                        onSelectedChanged: if (selected) root.updateSelectionHover()"
+assert s.count(slot_needle)==1
+slot_restore='''                        function restoreEstimateIfUnloaded() {
+                            if (faceLoader.active) return;
+                            const cached = root.measuredRows[entry.key];
+                            const at = root.indexOfKey(entry.key);
+                            if (at === -1 || cached === undefined) return;
+                            console.log("notification-estimate-restore:" + JSON.stringify({ key: entry.key, old: cached.height, estimate: cached.estimate }));
+                            cached.height = cached.estimate;
+                            panelModel.setProperty(at, "extent", cached.estimate);
+                        }
+'''
+s=s.replace(slot_needle,slot_restore+slot_needle)
+root_needle="    // Qt ListModel moves retain delegates"
+assert s.count(root_needle)==1
+root_timer='''    property var pendingEstimateRestores: ({})
+    function queueEstimateRestore(key) {
+        pendingEstimateRestores[key] = true;
+        estimateRestoreTimer.start();
+    }
+    Timer {
+        id: estimateRestoreTimer
+        interval: 0
+        repeat: false
+        onTriggered: {
+            const keys = Object.keys(root.pendingEstimateRestores);
+            root.pendingEstimateRestores = ({});
+            for (const key of keys) {
+                const slot = rowRepeater.itemAt(root.indexOfKey(key));
+                if (slot !== null) slot.restoreEstimateIfUnloaded();
+            }
+        }
+    }
+'''
+s=s.replace(root_needle,root_timer+root_needle)
+p.write_text(s.replace(needle,replacement+needle))
+PY_ESTIMATE_RESTORE
+rescan "a rescan reads estimate restoration"
+expect "enabling estimate restoration is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+expect_poll "the estimate-restoration service is built" True record_exists vgs.notifications
+geometry expect "control: restoring estimates changes the established content height" height-changed long_inbox_ends nk_press
+cp -- "$sandbox/Panel.qml.keys-traced" "$nk_panel"
+rescan "a rescan restores retained actual heights"
+expect_poll "the actual-height service is restored" True record_exists vgs.notifications
 nk_panel="$repo/shell/plugins/vgs.notifications/Panel.qml"
 # Control: a real list with a reserved bottom gap fails both scroll ends.
 expect "disabling notifications before the bottom-gap copy is allowed" ok ipc shell setPluginEnabled vgs.notifications false
@@ -493,6 +640,8 @@ geometry expect "control: a real reserved bottom gap fails at both ends" "top=bo
 cp -- "$sandbox/Panel.qml.keys-kept" "$nk_panel"
 rescan "a rescan restores the row-free panel"
 expect_poll "the restored panel service is built" True record_exists vgs.notifications
+cp -- "$sandbox/Panel.qml.keys-pristine" "$nk_panel"
+rescan "a rescan removes the temporary height trace"
 notes dismiss-all >/dev/null # `none` once every toast's clock ran out
 expect "clearing the long inbox's history is allowed" ok notes clear-history
 

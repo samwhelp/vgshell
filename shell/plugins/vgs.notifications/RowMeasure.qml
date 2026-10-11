@@ -55,6 +55,11 @@ ColumnLayout {
         + (rowCard.summary.length > 0 && !rowCard.singleLine ? spacing : 0)
     // The real card retains its original ColumnLayout height. The hidden
     // scan uses these same text items at the card's layout widths.
+    function settleLayout() {
+        ensurePolished();
+        summaryRow.ensurePolished();
+        ensurePolished();
+    }
     function fullHeight(mediaHeight) { return Math.max(mediaHeight, measureOnly ? measuredHeight : implicitHeight) + 2 * rowCard.pad; }
 
     // The model measurer has no layout parent. Set the same widths the
