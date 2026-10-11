@@ -2708,8 +2708,8 @@ outdated_notice_back() {
   [[ $(recorded) != absent && $(key_idle core/requirements-update) == idle && $(layer_count vgs:notice) == 1 ]] || { echo waiting; return; }
   ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["notices"]["shown"]; print("back" if s is not None and not s["installing"] else "waiting")'
 }
-# jarvis_backups plant|clear: write the Jarvis backup model list in
-# shell.json only for a tree that ships the setting, then reload it.
+# jarvis_backups plant|clear: write the Jarvis backup model list in the
+# shell.json rows Jarvis reads, then reload it.
 jarvis_backups() {
   local config="$home/.config/vgshell/shell.json" ids
   [[ $1 == plant || $1 == clear ]] || fail "unknown Jarvis backup model action: $1"
@@ -2730,14 +2730,20 @@ row = next((r for r in value.setdefault("plugins", []) if r["id"] == "vgs.jarvis
 if row is None:
     row = {"id": "vgs.jarvis"}
     value["plugins"].append(row)
+layout = value.get("bar", {}).get("layout", {})
+layout_rows = [entry for entries in layout.values() if isinstance(entries, list) for entry in entries
+               if isinstance(entry, dict) and entry.get("id") == "vgs.jarvis"]
+targets = [row] + layout_rows
 if action == "plant":
     fallbacks = [{"name": f"backup-{i + 1}", "brain": ids[i], "model": ""} for i in range(2)]
     name_pattern = re.compile(r"^[a-z0-9][a-z0-9-]*$")
     if any(not name_pattern.match(item["name"]) for item in fallbacks):
         raise SystemExit("name-pattern")
-    row["fallbacks"] = fallbacks
+    for target in targets:
+        target["fallbacks"] = fallbacks
 else:
-    row.pop("fallbacks", None)
+    for target in targets:
+        target.pop("fallbacks", None)
 open(config, "w").write(json.dumps(value))
 PY
   "$node_bin" - "$repo" "$config" <<'NODE' || fail "the Jarvis backup model list does not fit the manifest"
