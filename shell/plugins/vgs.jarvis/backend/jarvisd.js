@@ -338,7 +338,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         if (voice !== null) voice.session(state);
         if (state.gate.kind === "down") void audio.teardown("gate", ["capture", "playback"]);
         if (!ending && context !== null) write({ v: 1, type: "state", gen: state.gen,
-            revision: context.revision, seq: ++seq, state, phase });
+            revision: context.revision, seq: ++seq, state, phase, brain: engine === null ? "" : engine.answering() });
     });
 
     function read(chunk) {

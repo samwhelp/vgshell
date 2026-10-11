@@ -15,6 +15,7 @@ Speech receives what the brain already got, so a per-destination check leaks acr
 - Do send every request and frame through `net.create`; never open a socket in an adapter or the daemon. `scripts/test-jarvis-net.js` observes every socket creator.
 - Do label content with `Tools.refine(...).source` or the speech and context producers, never a model-supplied label, and keep every contributing label on a summary. `scripts/test-jarvis-release.js` pins both.
 - Do create a new recipient set on any provider, account or policy change; old grants fail against it. `scripts/test-jarvis-release.js` pins it.
+- Do treat failover to a backup model as a provider change: it creates a new recipient set, and only the refused turn's own words carry.
 - Never attach a key whose stored origin differs from the request origin, never follow a redirect, and never let adapter metadata carry a credential header or change `Host`. `scripts/test-jarvis-net.js` pins each.
 - Do call `net.assertKeyTarget` before any keyring lookup, and normalise a new endpoint through `net.endpoint` before storing its reference. `scripts/test-jarvis-net.js`, `scripts/test-jarvis-live.js` and `scripts/test-jarvis-release.js` pin them.
 - Never let a retrieved key enter a child, argv, file, log, status or shell wire; clear the Buffer after use. `scripts/test-jarvis-secrets.js` scans state, HOME and the runtime files for a synthetic key.

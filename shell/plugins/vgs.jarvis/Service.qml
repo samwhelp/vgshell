@@ -614,7 +614,7 @@ Item {
                     if (fault.kind !== "none" && (sessionState === null || JSON.stringify(sessionState.fault) !== JSON.stringify(fault)))
                         console.warn("jarvis: fault=" + fault.reason + " kind=" + fault.kind);
                     sessionState = message.state;
-                    const result = shell.status.set("detail", { phase: message.phase, seq: message.seq, state: message.state });
+                    const result = shell.status.set("detail", { phase: message.phase, seq: message.seq, state: message.state, brain: message.brain });
                     if (result !== "ok") throw new Error("jarvis: " + result);
                     deliverMute();
                     continue;

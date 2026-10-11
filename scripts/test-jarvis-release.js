@@ -91,6 +91,12 @@ world(() => {
         const fresh = Policy.recipients({ ...selected, ...next });
         assert.equal(Policy.release(fileText, fresh, [{ recipients: selected, labels: ["file"] }]).kind, "ask");
     }
+    const failedOver = Policy.recipients({ conversation: "jarvis-7-1", profile: "standard", cloudVision: "ask",
+        brain: { ...remote, provider: "backup", account: "model-2", origin: "https://backup.example" }, speech: [local] });
+    assert.equal(Policy.release(fileText, failedOver, [{ recipients: selected, labels: ["file"] }]).kind, "ask",
+        "a failover set asks again for a grant from the old set");
+    assert.deepEqual(Policy.release(Policy.item("please answer", ["speech"]), failedOver),
+        { kind: "send", content: "please answer", labels: ["speech"] }, "the refused turn's speech can carry to the new set");
     remote.account = "changed";
     assert.equal(selected.brain.account, "fixture", "recipient snapshot does not borrow producer data");
     assert.ok(Object.isFrozen(selected) && Object.isFrozen(selected.brain) && Object.isFrozen(selected.speech));

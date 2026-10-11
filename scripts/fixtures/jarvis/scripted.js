@@ -164,6 +164,9 @@ function plan() {
 // A local plan lets feedback use the real engine owner. The basic brain
 // remains scripted until the bubble row selects plan().
 function readyPlan() {
+    const brain = { provider: { id: "scripted", driver: "scripted" }, model: "", label: "Scripted", account: null, key: null,
+        recipient: { kind: "local", provider: "scripted-brain", account: "" },
+        guidance: { instructions: "", afterToolResult: null } };
     return { kind: "ready",
         speech: { recipients: [{ kind: "local", provider: "scripted-speech", account: "" }],
             open: () => ({
@@ -171,9 +174,7 @@ function readyPlan() {
                 async *speak(sentences) { for await (const sentence of sentences) void sentence; },
                 close() {}
             }) },
-        brain: { provider: { id: "scripted", driver: "scripted" }, model: "", account: null, key: null,
-            recipient: { kind: "local", provider: "scripted-brain", account: "" },
-            guidance: { instructions: "", afterToolResult: null } } };
+        brain, entries: [brain] };
 }
 
 // The wire brain's driver surface. Each response waits for the reply gate,

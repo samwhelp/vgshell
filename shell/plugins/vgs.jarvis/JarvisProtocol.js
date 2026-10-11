@@ -307,7 +307,7 @@ function accept(line, direction) {
     case "hello":
         if (direction !== "shell") fail("direction-hello");
         keys(message, ["v", "type", "gen", "settings", "directories", "revision", "locked", "keys"], "hello");
-        keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");
+        keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");
         if (!["local", "realtime"].includes(message.settings.voiceProvider) || typeof message.settings.voiceAccount !== "string"
                 || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings.voiceAccount)) fail("voice-settings");
         if (typeof message.settings.sounds !== "boolean") fail("sounds");
@@ -315,6 +315,12 @@ function accept(line, direction) {
         // The service's choice for the selected sign-in, each "" for its
         // program's own. A harness brain judges both before its argv.
         if (typeof message.settings.model !== "string" || typeof message.settings.effort !== "string") fail("shape-settings");
+        if (!Array.isArray(message.settings.fallbacks)) fail("fallbacks");
+        for (var fallback of message.settings.fallbacks) {
+            keys(fallback, ["name", "brain", "model"], "fallback");
+            if (typeof fallback.name !== "string" || typeof fallback.brain !== "string" || typeof fallback.model !== "string")
+                fail("fallbacks");
+        }
         if (["hold", "toggle", "always"].indexOf(message.settings.mode) === -1) fail("mode");
         if (TASK_TERMINALS.indexOf(message.settings.taskTerminal) === -1) fail("task-terminal");
         if (CLOUD_VISION.indexOf(message.settings.cloudVision) === -1) fail("cloud-vision");
@@ -482,11 +488,12 @@ function accept(line, direction) {
         break;
     case "state":
         if (direction !== "daemon") fail("direction-state");
-        keys(message, ["v", "type", "gen", "revision", "seq", "state", "phase"], "state");
+        keys(message, ["v", "type", "gen", "revision", "seq", "state", "phase", "brain"], "state");
         if (!Number.isSafeInteger(message.seq) || message.seq < 1) fail("sequence");
         if (!Session.validate(message.state)) fail("state");
         if (message.state.gen !== message.gen) fail("state-generation");
         if (message.phase !== Session.phaseOf(message.state)) fail("phase");
+        if (typeof message.brain !== "string" || /[\x00-\x1f\x7f]/.test(message.brain) || message.brain.length > 180) fail("brain");
         break;
     case "devices":
         if (direction !== "daemon") fail("direction-devices");

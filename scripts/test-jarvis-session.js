@@ -1077,7 +1077,7 @@ const table = [
         assert.equal(logic.phaseOf(s), "down");
     }]
 ];
-for (const key of ["voiceProvider", "voice", "language", "brain", "model", "effort", "customBaseUrl", "home", "policy", "cloudVision", "account", "voiceAccount"])
+for (const key of ["voiceProvider", "voice", "language", "brain", "model", "effort", "fallbacks", "customBaseUrl", "home", "policy", "cloudVision", "account", "voiceAccount"])
     table.push(["settings-" + key, logic => {
         const s = held(logic);
         const r = step(logic, s, snapshot({ at: 50, settings: { [key]: "changed" } }));
@@ -1767,7 +1767,8 @@ try {
         ["settings", 'a[key] !== b[key]', '(false && a[key] !== b[key])', "settings-model"],
         ["settings-voice-account", '"account", "voiceAccount"]', '"account"]', "settings-voiceAccount"],
         ["settings-home", '"customBaseUrl", "home", "policy"', '"customBaseUrl", "policy"', "settings-home"],
-        ["settings-effort", '"model", "effort", "customBaseUrl"', '"model", "customBaseUrl"', "settings-effort"],
+        ["settings-effort", '"model", "effort", "fallbacks", "customBaseUrl"', '"model", "fallbacks", "customBaseUrl"', "settings-effort"],
+        ["settings-fallbacks", '"effort", "fallbacks", "customBaseUrl"', '"effort", "customBaseUrl"', "settings-fallbacks"],
         ["settings-cloud-vision", '"policy", "cloudVision", "account", "voiceAccount"]', '"policy", "account", "voiceAccount"]', "settings-cloudVision"],
         ["mute-ack", 's.mute.kind === "muting" && s.capture.kind === "closed"', 's.mute.kind === "muting"', "mute-ack"],
         ["cancel-ack", 'live(s, e, "turn", ["cancelling"])', 'live(s, e, "turn", ["none"])', "cancel-ack"],

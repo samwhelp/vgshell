@@ -328,41 +328,48 @@ function view(values, keys, mode) {
     var audio = report("audio", values.audio, AUDIO_TONES);
     var detail = values.detail === undefined ? null : values.detail;
     if (detail !== null && (typeof detail !== "object" || typeof detail.phase !== "string"
-            || detail.state === null || typeof detail.state !== "object"))
+            || detail.state === null || typeof detail.state !== "object"
+            || (detail.brain !== undefined && typeof detail.brain !== "string")))
         refuse("detail", detail);
     var state = detail === null ? null : detail.state;
+    var brain = detail === null || detail.brain === undefined ? "" : detail.brain;
+    function withBrain(value) {
+        if (brain === "") return value;
+        return { state: value.state, icon: value.icon, tone: value.tone, tooltip: value.tooltip,
+            tooltipDetails: ["AI model: " + brain].concat(value.tooltipDetails) };
+    }
     var muteOn = state !== null && muted(state.mute);
     var armed = state !== null && state.capture !== null && typeof state.capture === "object" && state.capture.kind === "open" && state.capture.mode === "armed" && detail.phase === "armed";
-    if (state !== null && microphoneOpen(state.capture)) return look("listening", armed ? "Jarvis is listening for Hey Jarvis" : "Jarvis is listening",
-        [armed ? "Say Hey Jarvis." : "Speak now."], muteOn, effectiveKeys);
-    if (daemon !== null && daemon.tone === "danger") return reportLook("problem", daemon, muteOn, effectiveKeys);
-    if (daemon !== null && daemon.tone === "warning" && daemon.lines !== undefined) return reportLook("problem", daemon, muteOn, effectiveKeys);
-    if (detail !== null && detail.phase === "error") return textLook("problem", faultText(state.fault), muteOn, effectiveKeys);
-    if (audio !== null && audio.tone === "danger") return textLook("problem", AUDIO_TEXT, muteOn, effectiveKeys);
+    if (state !== null && microphoneOpen(state.capture)) return withBrain(look("listening", armed ? "Jarvis is listening for Hey Jarvis" : "Jarvis is listening",
+        [armed ? "Say Hey Jarvis." : "Speak now."], muteOn, effectiveKeys));
+    if (daemon !== null && daemon.tone === "danger") return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
+    if (daemon !== null && daemon.tone === "warning" && daemon.lines !== undefined) return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
+    if (detail !== null && detail.phase === "error") return withBrain(textLook("problem", faultText(state.fault), muteOn, effectiveKeys));
+    if (audio !== null && audio.tone === "danger") return withBrain(textLook("problem", AUDIO_TEXT, muteOn, effectiveKeys));
     if (state === null) return textLook("loading", GATE_TEXT.starting, muteOn, effectiveKeys);
     var down = gateDown(state.gate);
-    if (down && state.gate.reason === "starting") return textLook("loading", GATE_TEXT.starting, muteOn, effectiveKeys);
-    if (muteOn) return look("muted", "Jarvis is muted", [clickLine(true, effectiveKeys)], muteOn, effectiveKeys);
+    if (down && state.gate.reason === "starting") return withBrain(textLook("loading", GATE_TEXT.starting, muteOn, effectiveKeys));
+    if (muteOn) return withBrain(look("muted", "Jarvis is muted", [clickLine(true, effectiveKeys)], muteOn, effectiveKeys));
     // No voice or setup state reads over a home folder the daemon refuses.
-    if (down && state.gate.reason === "unconfigured" && homeRefused(values)) return textLook("off", homeText(values), muteOn, effectiveKeys);
+    if (down && state.gate.reason === "unconfigured" && homeRefused(values)) return withBrain(textLook("off", homeText(values), muteOn, effectiveKeys));
     if (down && state.gate.reason === "unconfigured" && setupChecking(values))
-        return look("loading", "Jarvis is checking setup", ["Wait for the check to finish."], muteOn, effectiveKeys);
+        return withBrain(look("loading", "Jarvis is checking setup", ["Wait for the check to finish."], muteOn, effectiveKeys));
     if ((!down || state.gate.reason === "unconfigured") && voiceLoading(values))
-        return look("loading", "Jarvis is loading its voice", ["Wait for local voice to load."], muteOn, effectiveKeys);
-    if (down) return textLook("off", state.gate.reason === "unconfigured" ? unconfiguredText(values) : GATE_TEXT[state.gate.reason], muteOn, effectiveKeys);
+        return withBrain(look("loading", "Jarvis is loading its voice", ["Wait for local voice to load."], muteOn, effectiveKeys));
+    if (down) return withBrain(textLook("off", state.gate.reason === "unconfigured" ? unconfiguredText(values) : GATE_TEXT[state.gate.reason], muteOn, effectiveKeys));
     switch (detail.phase) {
     case "thinking":
-        return look("working", WORK_TEXT[detail.phase], [stopAction(effectiveKeys)], muteOn, effectiveKeys);
+        return withBrain(look("working", WORK_TEXT[detail.phase], [stopAction(effectiveKeys)], muteOn, effectiveKeys));
     case "confirming":
-        return look("working", WORK_TEXT[detail.phase], [confirmAction(effectiveKeys)], muteOn, effectiveKeys);
+        return withBrain(look("working", WORK_TEXT[detail.phase], [confirmAction(effectiveKeys)], muteOn, effectiveKeys));
     case "acting":
-        return look("working", WORK_TEXT[detail.phase], [stopAction(effectiveKeys)], muteOn, effectiveKeys);
+        return withBrain(look("working", WORK_TEXT[detail.phase], [stopAction(effectiveKeys)], muteOn, effectiveKeys));
     case "speaking":
-        return look("speaking", "Jarvis is speaking", [stopAction(effectiveKeys)], muteOn, effectiveKeys);
+        return withBrain(look("speaking", "Jarvis is speaking", [stopAction(effectiveKeys)], muteOn, effectiveKeys));
     case "idle":
         var hint = setupCauseHint(values);
-        return look("ready", "Jarvis is ready", hint === null ? [readyAction(effectiveMode, effectiveKeys)]
-            : [readyAction(effectiveMode, effectiveKeys), hint], muteOn, effectiveKeys);
+        return withBrain(look("ready", "Jarvis is ready", hint === null ? [readyAction(effectiveMode, effectiveKeys)]
+            : [readyAction(effectiveMode, effectiveKeys), hint], muteOn, effectiveKeys));
     default:
         // Listening and armed hold capture open, which reads listening above;
         // down holds the gate down.

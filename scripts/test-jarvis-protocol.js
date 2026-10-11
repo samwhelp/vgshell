@@ -8,7 +8,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const { freshSuite } = require("./fixtures/jarvis/prepare.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.jarvis/JarvisProtocol.js");
 const Protocol = load(file);
-const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", taskTerminal: "auto", voiceProvider: "local", voiceAccount: "",
+const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "",
     cloudVision: "ask", privateWindows: "bitwarden, incognito" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
@@ -27,7 +27,7 @@ const memoryInbox = { v: 1, type: "memory-inbox", gen: 0, revision: hello.revisi
 const memoryConfirm = { ...intent, intent: "memory-confirm", id, hash: memoryEntry.hash };
 const memoryDiscard = { ...intent, intent: "memory-discard", id, hash: memoryEntry.hash };
 const state = { v: 1, type: "state", gen: 0, revision: hello.revision, seq: 1,
-    state: JSON.parse(JSON.stringify(Protocol.Session.initial())), phase: "down" };
+    state: JSON.parse(JSON.stringify(Protocol.Session.initial())), phase: "down", brain: "Claude Code Fable" };
 const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
 // The hello's settings are the manifest's and `sounds`, which the service
 // reads from the manifest's one sound event, `feedback`, but `localTier`:
@@ -211,6 +211,7 @@ const cases = [
     ["state-regions", changed(state, { state: {} }), "daemon", "state"],
     ["state-gen", changed(state, { gen: 1 }), "daemon", "state-generation"],
     ["state-phase", changed(state, { phase: "listening" }), "daemon", "phase"],
+    ["state-brain", changed(state, { brain: "bad\nbrain" }), "daemon", "brain"],
     ["request-direction", JSON.stringify(request), "shell", "direction-request"],
     ["request-shape", changed(request, { extra: 1 }), "daemon", "shape-request"],
     ["request-id", changed(request, { id: 0 }), "daemon", "request-id"],
@@ -259,6 +260,9 @@ const cases = [
     ["home-size", changed(hello, { settings: { ...hello.settings, home: "x".repeat(4097) } }), "shell", "home-setting"],
     ["model-type", changed(hello, { settings: { ...hello.settings, model: 7 } }), "shell", "shape-settings"],
     ["effort-type", changed(hello, { settings: { ...hello.settings, effort: true } }), "shell", "shape-settings"],
+    ["fallbacks-type", changed(hello, { settings: { ...hello.settings, fallbacks: {} } }), "shell", "fallbacks"],
+    ["fallbacks-shape", changed(hello, { settings: { ...hello.settings, fallbacks: [{ name: "one", brain: "b" }] } }), "shell", "shape-fallback"],
+    ["fallbacks-model-type", changed(hello, { settings: { ...hello.settings, fallbacks: [{ name: "one", brain: "b", model: 7 }] } }), "shell", "fallbacks"],
     ["missing-cloud-vision", changed(hello, { settings: { ...hello.settings, cloudVision: undefined } }), "shell", "shape-settings"],
     ["private-windows-type", changed(hello, { settings: { ...hello.settings, privateWindows: ["bitwarden"] } }), "shell", "private-windows"],
     ["private-windows-control", changed(hello, { settings: { ...hello.settings, privateWindows: "bitwarden\nvault" } }), "shell", "private-windows"],
@@ -499,8 +503,8 @@ try {
         ["hello-direction", 'if (direction !== "shell") fail("direction-hello");', 'if (false) fail("direction-hello");', "hello-direction"],
         ["status-direction", 'if (direction !== "daemon") fail("direction-status");', 'if (false) fail("direction-status");', "status-direction"],
         ["shape", 'fail("shape-" + name);', ';', "hello-shape"],
-        ["settings-name", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
-            'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");', "extra-setting"],
+        ["settings-name", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
+            'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");', "extra-setting"],
         ["brain-type", 'typeof message.settings.brain !== "string"', 'false', "brain-setting"],
         ["model-type", 'typeof message.settings.model !== "string" || ', '', "model-type"],
         ["effort-type", ' || typeof message.settings.effort !== "string"', '', "effort-type"],
@@ -572,8 +576,8 @@ try {
         assert.equal(logic.memoryInboxEntries(Array(9).fill({ ...memoryEntry, text: "x".repeat(16 * 1024) })).length, 7));
     control("memory-inbox-filter-invalid", "if (!memoryEntryAccepted(entry)) continue;", "", logic =>
         assert.equal(logic.memoryInboxEntries([{ ...memoryEntry, problem: "other" }, memoryEntry]).length, 1));
-    control("unsupported-echo", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
-        'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
+    control("unsupported-echo", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
+        'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
         logic => {
             for (const row of cases.filter(row => row[0].startsWith("echo-setting-"))) rejected(logic, row);
         });

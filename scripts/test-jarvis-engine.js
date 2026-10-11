@@ -5,8 +5,10 @@
 "use strict";
 const { assert, fs, path, cp, tree, world, until: wait } = require("./fixtures/jarvis/audio.js");
 const { once } = require("node:events");
+const http = require("node:http");
 const { clock, turn } = require("./fixtures/jarvis/playback.js");
 const Fixture = require("./fixtures/jarvis/engine.js");
+const Frames = require("./fixtures/jarvis-brain/openai-chat-frames.js");
 const vm = require("node:vm");
 const { load } = require("../bin/lib/qml-library.js");
 const { utterance, text, calls, control } = Fixture;
@@ -108,7 +110,7 @@ function rig(kit, server, options = {}) {
             done({ outcome: "completed", content: "fixture result" });
         } });
     // Accounts.choose has its own suite; this stand-in names a loopback row.
-    const accounts = () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "ollama", label: "local",
+    const accounts = () => options.accounts ?? ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "ollama", label: "local",
         source: { kind: "local", origin: "http://127.0.0.1:" + PORT }, model: "fixture-model" } }) });
     const configured = answer => runner.dispatch({ type: "snapshot", locked: false, engine: "chained",
         configured: answer.kind === "ready" || answer.kind === "loading", settings: runner.state.settings });
@@ -138,7 +140,7 @@ function rig(kit, server, options = {}) {
         return answer;
     };
     const configuration = configure({ mode: options.mode ?? "hold", sounds: options.sounds === true,
-        microphone: "", speaker: "", brain: "fixture-account" });
+        microphone: "", speaker: "", brain: "fixture-account", fallbacks: options.fallbacks ?? [] });
     assert.equal(configuration.kind, options.directories ? "loading" : "ready");
     runner.dispatch({ type: "indicator", shown: true });
     const rows = () => {
@@ -236,6 +238,43 @@ async function requested(w, count, label, over = () => false) {
     await settled(() => w.server.requests.length >= count && w.server.requests[count - 1].body !== null, over, label);
     return w.server.requests[count - 1].body;
 }
+
+function statusBrain(port, behavior) {
+    const requests = [];
+    const queue = Array.isArray(behavior) ? behavior.slice() : [behavior];
+    const server = http.createServer((request, response) => {
+        requests.push(request.url);
+        request.resume();
+        const behavior = queue.length > 1 ? queue.shift() : queue[0];
+        if (behavior.kind === "status") {
+            response.writeHead(behavior.status, { "content-type": "application/json" });
+            response.end("{}");
+        } else if (behavior.kind === "frames") {
+            response.writeHead(200, { "content-type": "text/event-stream" });
+            for (const frame of behavior.frames) response.write(Frames.encode(frame, "failover"));
+            response.end();
+        } else if (behavior.kind === "stream-failed") {
+            response.writeHead(200, { "content-type": "text/event-stream" });
+            response.write("data: ");
+            response.destroy();
+        } else if (behavior.kind === "refusal") {
+            response.writeHead(200, { "content-type": "text/event-stream" });
+            response.write('data: {"choices":[{"index":0,"delta":{"refusal":"No."},"finish_reason":null}]}\n\n');
+            response.write("data: [DONE]\n\n");
+            response.end();
+        } else if (behavior.kind === "content-filter") {
+            response.writeHead(200, { "content-type": "text/event-stream" });
+            response.write('data: {"choices":[{"index":0,"delta":{},"finish_reason":"content_filter"}]}\n\n');
+            response.write("data: [DONE]\n\n");
+            response.end();
+        } else throw new Error("statusBrain behavior");
+    });
+    return { requests, ready: new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(port, "127.0.0.1", resolve);
+    }), close: () => new Promise(resolve => server.close(resolve)) };
+}
+
 async function feeding(w, frames) {
     await until(() => w.audio.playback !== null && w.audio.playback.kind === "feeding"
         && w.audio.playback.received >= frames, "playback receives synthesized PCM");
@@ -416,7 +455,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     child.stdin.on("error", e => { if (e.code !== "EPIPE") throw e; });
     const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
     const hello = (locked = false) => send({ type: "hello", locked,
-        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: ending === "brain" ? "" : "fixture-account", model: "", effort: "", taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", cloudVision: "ask", privateWindows: "bitwarden" },
+        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: ending === "brain" ? "" : "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", cloudVision: "ask", privateWindows: "bitwarden" },
         keys: { talk: null, mute: null, stop: null, confirm: null, console: null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     const intent = name => send({ type: "intent", intent: name });
     const before = server.requests.length;
@@ -571,7 +610,7 @@ async function alwaysTalk(server, ending = "ready", edits = []) {
     child.stdin.on("error", e => { if (e.code !== "EPIPE") throw e; });
     const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
     const hello = () => send({ type: "hello", locked: false,
-        settings: { home: "", sounds: false, mode: "always", microphone: "", speaker: "", brain: "fixture-account", model: "", effort: "", taskTerminal: "auto",
+        settings: { home: "", sounds: false, mode: "always", microphone: "", speaker: "", brain: "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto",
             voiceProvider: ending === "refused" ? "realtime" : "local", voiceAccount: "", cloudVision: "ask", privateWindows: "bitwarden" },
         keys: { talk: null, mute: null, stop: null, confirm: null, console: null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     hello();
@@ -641,6 +680,125 @@ async function cases(kit, server, only = null) {
             server.closeAll();
         }
     };
+
+    const failoverAccounts = (primary = "llama-server") => ({ secrets: null, choose(id) {
+        if (id === "refused") return { kind: "refused", cause: "signed-out" };
+        if (id === "fixture-account") return { kind: "accepted", account: { id, provider: primary, label: "primary",
+            source: { kind: "local", origin: "http://127.0.0.1:8080" }, model: "primary-model" } };
+        return { kind: "accepted", account: { id, provider: "ollama", label: "backup",
+            source: { kind: "local", origin: "http://127.0.0.1:" + PORT }, model: "backup-model" } };
+    } });
+
+    for (const [name, behavior] of [
+        ["wire-401", { kind: "status", status: 401 }],
+        ["wire-402", { kind: "status", status: 402 }],
+        ["wire-403", { kind: "status", status: 403 }],
+        ["wire-429", { kind: "status", status: 429 }],
+        ["wire-500", { kind: "status", status: 500 }],
+        ["wire-503", { kind: "status", status: 503 }],
+        ["wire-504", { kind: "status", status: 504 }],
+        ["wire-529", { kind: "status", status: 529 }]
+    ]) await run("failover-" + name, async w => {
+        const primary = statusBrain(8080, behavior);
+        await primary.ready;
+        try {
+            const before = await say(w, utterance("Try the backup."));
+            server.replies.push(text("Backup answered."));
+            const body = await requested(w, before + 1, "backup receives the refused request after " + name);
+            assert.deepEqual(user(body), ["Try the backup."]);
+            await until(() => w.s().turn.kind === "none", "backup answer finishes");
+            await playOut(w);
+            await until(() => control.spoken.length >= 2, "failover line and backup answer are spoken");
+            const line = control.spoken[0].includes("It has") ? control.spoken[0] : control.spoken.slice(0, 2).join(" ");
+            assert.equal(line, "llama-server primary-model is not answering, so I am continuing on Ollama backup-model. It has not heard what we said before.");
+            assert.equal(primary.requests.length, 1, "primary was opened once");
+            assert.equal(w.s().fault.kind, "none");
+        } finally { await primary.close(); }
+    }, { accounts: failoverAccounts(), fallbacks: [{ name: "backup", brain: "backup", model: "backup-model" }] });
+
+    for (const [name, behavior] of [
+        ["model-refusal", { kind: "refusal" }],
+        ["content-filter", { kind: "content-filter" }]
+    ]) await run("failover-control-" + name, async w => {
+        const primary = statusBrain(8080, behavior);
+        await primary.ready;
+        try {
+            const before = await say(w, utterance("Do not switch."));
+            await until(() => w.s().fault.kind === "error", "non-failover refusal ends the turn");
+            assert.equal(server.requests.length, before, "backup was not opened");
+        } finally { await primary.close(); }
+    }, { accounts: failoverAccounts(), fallbacks: [{ name: "backup", brain: "backup", model: "backup-model" }] });
+
+    await run("failover-skips-refused-entry", async w => {
+        const primary = statusBrain(8080, [{ kind: "status", status: 403 }, { kind: "status", status: 403 }]);
+        await primary.ready;
+        try {
+            const before = await say(w, utterance("Skip bad backup."));
+            server.replies.push(text("Usable backup."));
+            const body = await requested(w, before + 1, "usable backup receives request");
+            assert.deepEqual(user(body), ["Skip bad backup."]);
+            await until(() => w.s().turn.kind === "none", "usable backup answer finishes");
+            await playOut(w);
+            const line = control.spoken[0].includes("It has") ? control.spoken[0] : control.spoken.slice(0, 2).join(" ");
+            assert.equal(line, "llama-server primary-model is not answering, so I am continuing on Ollama backup-model. It has not heard what we said before.");
+        } finally { await primary.close(); }
+    }, { accounts: failoverAccounts(), fallbacks: [
+        { name: "refused", brain: "refused", model: "nope" },
+        { name: "backup", brain: "backup", model: "backup-model" }
+    ] });
+
+    await run("failover-list-used-up", async w => {
+        const primary = statusBrain(8080, { kind: "status", status: 403 });
+        await primary.ready;
+        try {
+            await say(w, utterance("No backup."));
+            await until(() => w.s().fault.kind === "error", "last failover cause ends the turn");
+            assert.equal(w.s().fault.reason, "brain=forbidden status=403");
+        } finally { await primary.close(); }
+    }, { accounts: failoverAccounts(), fallbacks: [] });
+
+    await run("failover-stays-on-backup", async w => {
+        const primary = statusBrain(8080, { kind: "status", status: 403 });
+        await primary.ready;
+        try {
+            let before = await say(w, utterance("First."));
+            server.replies.push(text("Backup first."));
+            await requested(w, before + 1, "first backup request");
+            await until(() => w.s().turn.kind === "none", "first turn ends");
+            await playOut(w);
+            before = await say(w, utterance("Second."));
+            server.replies.push(text("Backup second."));
+            const body = await requested(w, before + 1, "second turn stays on backup");
+            assert.deepEqual(user(body).slice(-1), ["Second."]);
+            await until(() => w.s().turn.kind === "none", "second turn ends");
+            await playOut(w);
+            assert.equal(primary.requests.length, 1, "primary is not retried in the same conversation");
+            w.runner.dispatch({ type: "stop" });
+            await until(() => w.s().conversation.kind === "ended", "conversation ends");
+            before = await say(w, utterance("New."));
+            server.replies.push(text("Backup new."));
+            await requested(w, before + 1, "new conversation starts at primary then backs up");
+            assert.equal(primary.requests.length, 2);
+        } finally { await primary.close(); }
+    }, { accounts: failoverAccounts(), fallbacks: [{ name: "backup", brain: "backup", model: "backup-model" }] });
+
+    await run("failover-after-tool-asks-repeat", async w => {
+        const primary = statusBrain(8080, [
+            { kind: "frames", frames: calls({ id: "focus", name: "windows_focus", arguments: { window: "0x1f" } }) },
+            { kind: "status", status: 403 }
+        ]);
+        await primary.ready;
+        const first = await say(w, utterance("Use the tool."));
+        try {
+            await until(() => w.executions.length === 1, "tool routes before failure");
+            await until(() => w.s().turn.kind === "none", "tool failover line ends the turn");
+            await playOut(w);
+            await until(() => control.spoken.length >= 1, "repeat line is spoken");
+            const line = control.spoken[0].includes("Please say") ? control.spoken[0] : control.spoken.slice(0, 2).join(" ");
+            assert.equal(line, "llama-server primary-model is not answering, so I am continuing on Ollama backup-model. Please say your request again.");
+            assert.equal(server.requests.length, first, "request is not resent after a tool ran");
+        } finally { await primary.close(); }
+    }, { accounts: failoverAccounts(), fallbacks: [{ name: "backup", brain: "backup", model: "backup-model" }] });
 
     await run("feedback-start", async w => {
         w.runner.dispatch({ type: "talk-down" });
@@ -1876,6 +2034,9 @@ function selection(Engine) {
     assert.deepEqual(configure({}, () => { throw new Error("jarvis-keys: references=json"); }, true),
         { kind: "unconfigured", cause: "brain=accounts-unreadable", detail: "jarvis-keys: references=json", causes: ["brain=accounts-unreadable"] },
         "a reader's keyed failure keeps its cause");
+    assert.deepEqual(configure({ fallbacks: [{ name: "backup", brain: "b", model: "backup-model" }] },
+        id => id === "a" ? { kind: "refused", cause: "signed-out" } : { kind: "accepted", account: { ...resolved, id, model: "" } }, true),
+    { kind: "ready" }, "a refused primary is skipped when a backup is usable");
     Fixture.reset();
     assert.throws(() => Engine.create({ accounts: () => ({ choose: () => { throw new TypeError("defect"); } }), captionLimit: 1 })
         .configure({ brain: "a" }), TypeError, "a defect is not a configuration cause");
@@ -1999,9 +2160,9 @@ world(async () => {
             ["home-state", 'default: fail("home-state");', "default: break;"],
             ["every-cause", "causes: failing.map(step => step.cause)", "causes: [failing[0].cause]"],
             ["first-speech-cause", 'if (speech.cause === "speech=no-adapter") speech = answer;'],
-            ["accounts-unreadable", 'return unconfigured("brain=accounts-unreadable", error.message);'],
-            ["unselected", 'if (settings.brain === "") return unconfigured("brain=unselected");'],
-            ["refused-cause", 'return unconfigured("brain=" + choice.cause);', 'return unconfigured("brain=account-unavailable");'],
+            ["accounts-unreadable", 'return primary ? unconfigured("brain=accounts-unreadable", error.message) : null;'],
+            ["unselected", 'if (id === "") return primary ? unconfigured("brain=unselected") : null;'],
+            ["refused-cause", 'return primary ? unconfigured("brain=" + choice.cause) : null;', 'return primary ? unconfigured("brain=account-unavailable") : null;'],
             ["harness-driver", '"codex-app-server": CodexHarness, '],
             ["claude-driver", ', "claude-code": ClaudeCode });', " });"],
             ["always-any-voice", 'settings.mode === "always" && (', "false && ("],
@@ -2013,6 +2174,14 @@ world(async () => {
             controls++;
         }
         tracePaths(Fixture.copy(root).Engine);
+        const classifier = Fixture.copy(root).Engine.failoverCause;
+        for (const cause of ["brain=stream-failed", "brain=stream-truncated", "brain=stream-error", "net=request", "brain=http status=502", "brain=harness-api-error status=403",
+            "brain=harness-api-error status=429", "brain=harness-model-refused model=fable",
+            "brain=harness-exit code=1", "brain=codex-exited code=1 signal=null", "brain=copilot-signed-out"])
+            assert.equal(classifier(cause), true, cause);
+        for (const cause of ["brain=refusal", "brain=finish reason=content-filter",
+            "brain=context-limit", "brain=harness-tool name=bad"])
+            assert.equal(classifier(cause), false, cause);
         for (const [name, needle, replacement] of [
             ["trace-unmarked", 'if (trace.marker !== "1" || trace.file === undefined) return null;', "if (trace.file === undefined) return null;"],
             ["trace-relative", 'if (typeof trace.file !== "string" || !path.isAbsolute(trace.file)) fail("trace-path");', ""],
@@ -2027,7 +2196,7 @@ world(async () => {
         await cases(Fixture.copy(root), server);
         for (const [name, needle, replacement] of [
             ["home-text-stale", "c.guidance = folder === null ? c.plan.brain.guidance : c.plan.brain.guidance.withHome(folder);", "c.guidance = c.plan.brain.guidance;"],
-            ["home-text-cut", '                    done("brain-failed", { reason: keyed(error) });\n                    return;\n', "                    c.guidance = c.plan.brain.guidance;\n"]
+            ["home-text-cut", '            done("brain-failed", { reason: keyed(error) });\n            return false;\n', "            c.guidance = c.plan.brain.guidance;\n"]
         ]) {
             await assert.rejects(() => cases(Fixture.copy(root, [[needle, replacement]]), server, "home-text"), assert.AssertionError,
                 name + " must turn home-text red");
@@ -2144,9 +2313,10 @@ world(async () => {
                 'transcribe(frames, { detect: false })', "toggle-turns"],
             ["collect-failure", "else if (collecting(c, utterance.collection)) utterance.collection.failed(keyed(error));",
                 "else if (false) utterance.collection.failed(keyed(error));", "transcribe-failure"],
-            ["speech-gates-brain", 'turn.speech?.end();\n                        concluded(c, turn);',
-                'turn.speech?.end();\n                        await new Promise(resolve => turn.speech.readable.once("close", resolve));\n                        concluded(c, turn);', "long-speech"],
-            ["net-not-closed", "        c.net.close();\n", "", "conversation-end"],
+            ["speech-gates-brain", 'if (event.reason === "tool-calls") next(c, turn);\n                    else {\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        concluded(c, turn);',
+                'if (event.reason === "tool-calls") next(c, turn);\n                    else {\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        await new Promise(resolve => turn.speech.readable.once("close", resolve));\n                        concluded(c, turn);', "long-speech"],
+            ["net-not-closed", "        if (c.plan.speech.lifetime !== \"daemon\") c.speech.close();\n        c.net.close();\n        retired = { gen: c.gen, closed: quiet };",
+                "        if (c.plan.speech.lifetime !== \"daemon\") c.speech.close();\n        retired = { gen: c.gen, closed: quiet };", "conversation-end"],
             ["observe-teardown", "if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === \"ended\")) end();", "void s;", "settings-change"],
             ["audit-skipped", '"pending"), start);\n        if (result.kind !== "started") fail("audit-write");\n        return result.value;',
                 '"pending"), () => {});\n        void result;\n        return start();', "audit-refusal"],
@@ -2159,7 +2329,8 @@ world(async () => {
             ["partial-revision", "event.rev <= rev", "false", "partial-revision"],
             ["end-aborts-transcription", "            if (utterance) utterance.abort();", "            void utterance;", "mute-capture"],
             ["caption-dropped", "        caption(c, turn, sentence);\n", "", "turn-loop"],
-            ["caption-final", 'concluded(c, turn);\n                        turn.done("brain-done");', 'turn.done("brain-done");', "turn-loop"],
+            ["caption-final", 'if (event.reason === "tool-calls") next(c, turn);\n                    else {\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        concluded(c, turn);\n                        turn.done("brain-done");',
+                'if (event.reason === "tool-calls") next(c, turn);\n                    else {\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        turn.done("brain-done");', "turn-loop"],
             ["caption-revision", "rev: ++c.rev", "rev: 1", "turn-loop"],
             ["caption-before-release", "        transfer(c, turn, item, () => {\n            if (turn.speech === null) {",
                 "        caption(c, turn, sentence);\n        transfer(c, turn, item, () => {\n            if (turn.speech === null) {", "audit-refusal-speech"],

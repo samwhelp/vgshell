@@ -271,7 +271,7 @@ function taskRequests(file, gates) {
 function transcripts(file) {
     const source = fs.readFileSync(file, "utf8");
     const start = '"use strict";';
-    const state = "revision: context.revision, seq: ++seq, state, phase });";
+    const state = 'revision: context.revision, seq: ++seq, state, phase, brain: engine === null ? "" : engine.answering() });';
     assert.equal(source.split(start).length - 1, 1);
     assert.equal(source.split(state).length - 1, 1);
     const fixture = `

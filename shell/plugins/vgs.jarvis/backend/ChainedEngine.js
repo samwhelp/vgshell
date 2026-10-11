@@ -72,6 +72,36 @@ function keyed(error) {
         ? message.replace(/^jarvis: /, "").slice(0, 180) : "engine=unexpected";
 }
 
+const WIRE_FAILOVER = new Map([
+    ["unauthorized", 401], ["billing", 402], ["forbidden", 403], ["rate-limited", 429],
+    ["provider-error", 500], ["unavailable", 503], ["timeout", 504], ["overloaded", 529]
+]);
+function failoverCause(reason) {
+    if (["brain=stream-failed", "brain=stream-truncated", "brain=stream-error", "net=request"].includes(reason)) return true;
+    const api = /^brain=harness-api-error status=([0-9]+)$/.exec(reason);
+    if (api !== null) return [401, 402, 403, 429].includes(Number(api[1])) || Number(api[1]) >= 500;
+    const wire = /^brain=([a-z-]+) status=([0-9]+)$/.exec(reason);
+    if (wire !== null && wire[1] === "http") return Number(wire[2]) >= 500;
+    if (wire !== null) return WIRE_FAILOVER.get(wire[1]) === Number(wire[2]);
+    if (/^brain=harness-model-refused(?: |$)/.test(reason)) return true;
+    if (/^brain=(harness-exit|harness-ended|copilot-signed-out|(?:codex|copilot|pi)-exited)(?: |$)/.test(reason)) return true;
+    return false;
+}
+
+function providerLabel(provider) {
+    return PROVIDERS.find(row => row.id === provider)?.label ?? provider;
+}
+
+function brainLabel(entry) {
+    const label = entry.model === "" ? entry.label : entry.label + " " + entry.model;
+    return label.slice(0, 180);
+}
+
+function failoverLine(from, to, resend) {
+    const start = from + " is not answering, so I am continuing on " + to + ".";
+    return resend ? start + " It has not heard what we said before." : start + " Please say your request again.";
+}
+
 // A test run's record of what a brain wrote: one {gen, op, text} line for
 // each text event, before Speakable reads it. trace is {marker, file}, the
 // daemon's VGS_TEST_RUN and VGS_JARVIS_TRACE. Only the test-run marker with a
@@ -123,7 +153,7 @@ function select(settings, accounts, directories) {
     const brain = selectBrain(settings, accounts);
     const failing = [speech, brain].filter(step => step.kind !== "ready");
     if (failing.length > 0) return { ...failing[0], causes: failing.map(step => step.cause) };
-    return { kind: "ready", speech, brain: brain.brain };
+    return { kind: "ready", speech, brain: brain.brain, entries: brain.entries };
 }
 
 // A home folder's own keyed cause, or null for any other failure.
@@ -191,18 +221,18 @@ function selectVoice(settings, accounts, directories) {
     return speech;
 }
 
-function selectBrain(settings, accounts) {
-    if (settings.brain === "") return unconfigured("brain=unselected");
+function selectedBrain(settings, accounts, id, model, primary) {
+    if (id === "") return primary ? unconfigured("brain=unselected") : null;
     let judge, choice;
     try {
         judge = accounts();
-        choice = judge.choose(settings.brain);
+        choice = judge.choose(id);
     } catch (error) {
         // Only the account and key readers' keyed failures are a cause here.
         if (!/^jarvis-(?:accounts|keys): /.test(error?.message ?? "")) throw error;
-        return unconfigured("brain=accounts-unreadable", error.message);
+        return primary ? unconfigured("brain=accounts-unreadable", error.message) : null;
     }
-    if (choice.kind === "refused") return unconfigured("brain=" + choice.cause);
+    if (choice.kind === "refused") return primary ? unconfigured("brain=" + choice.cause) : null;
     if (choice.kind !== "accepted") fail("brain-choice");
     const account = choice.account;
     const provider = Providers.select(account.provider);
@@ -214,12 +244,29 @@ function selectBrain(settings, accounts) {
     // choice unlistedChoice makes for the provider of the account resolved
     // here: a hello sent before the account reader's first answer could not
     // name it. On a hello that made the choice it changes nothing.
-    const chosen = account.model !== "" ? { model: account.model, effort: "" } : unlistedChoice(settings, account.provider);
-    return { kind: "ready", brain: { provider, model: chosen.model, effort: chosen.effort,
+    const chosen = account.model !== "" ? { model: account.model, effort: "" }
+        : model !== undefined ? unlistedChoice({ ...settings, model, effort: "" }, account.provider)
+        : unlistedChoice(settings, account.provider);
+    return { provider, model: chosen.model, effort: chosen.effort, id,
+        label: providerLabel(account.provider),
         account: account.source,
         key: account.source.kind === "keyring" ? { secrets: judge.secrets, reference: account.source.reference } : null,
         recipient: { kind: "network", provider: provider.id, account: account.id, origin: target.origin },
-        guidance: Guidance.compose("chained", target.loopback ? "local" : "text", LANGUAGE) } };
+        guidance: Guidance.compose("chained", target.loopback ? "local" : "text", LANGUAGE) };
+}
+
+function selectBrain(settings, accounts) {
+    const first = selectedBrain(settings, accounts, settings.brain, undefined, true);
+    const entries = first.kind === "unconfigured" ? [] : [first];
+    if (Array.isArray(settings.fallbacks)) {
+        for (const fallback of settings.fallbacks) {
+            if (fallback === null || typeof fallback !== "object") continue;
+            const entry = selectedBrain(settings, accounts, fallback.brain, fallback.model, false);
+            if (entry !== null) entries.push(entry);
+        }
+    }
+    if (entries.length === 0) return first;
+    return { kind: "ready", brain: entries[0], entries };
 }
 
 /**
@@ -306,13 +353,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         if (closed) fail("closed");
         if (plan.kind !== "ready") fail("unconfigured");
         const facts = policy();
+        const activePlan = { ...plan, brain: plan.entries[0] };
         const recipients = Policy.recipients({ conversation: "jarvis-" + gen, profile: facts.profile,
-            cloudVision: facts.cloudVision, brain: plan.brain.recipient, speech: plan.speech.recipients });
+            cloudVision: facts.cloudVision, brain: activePlan.brain.recipient, speech: activePlan.speech.recipients });
         const net = Net.create(recipients);
         // late holds at most one call: the router runs one action at a time.
         // relay is the held prompt the user's next words answer, or null;
         // retried is that prompt once it was asked again after unjudged words.
-        const c = { gen, plan, recipients, net, speech: null, brain: null, guidance: null, owner: null, grants: [], heard: null, relay: null, retried: null,
+        const c = { gen, plan: activePlan, entry: 0, recipients, net, speech: null, brain: null, guidance: null, owner: null, grants: [], heard: null, relay: null, retried: null,
             decisions: new Set(), releasePending: null, late: new Map(), results: [], turn: null, last: null,
             feedback: null, collection: null, unbound: null, rev: 0, quiet: Promise.resolve(), live: null };
         try {
@@ -545,9 +593,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         };
     }
 
-    function say(c, turn, sentence) {
+    function say(c, turn, sentence, labels = [...turn.labels]) {
         if (turn.stopped) return;
-        const item = Policy.item(sentence, [...turn.labels]);
+        const item = Policy.item(sentence, labels);
         if (c.live !== null) {
             c.live.commentary(turn.delegation, item);
             return;
@@ -563,6 +611,29 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             turn.speech.queue(item);
         });
         caption(c, turn, sentence);
+    }
+
+    async function switchBrain(c) {
+        const old = c.plan.brain;
+        c.entry += 1;
+        if (c.entry >= c.plan.entries.length) return null;
+        c.plan.brain = c.plan.entries[c.entry];
+        if (c.brain !== null) {
+            const brain = c.brain;
+            c.brain = null;
+            await brain.cancel();
+            brain.close();
+        }
+        c.net.close();
+        c.grants.length = 0;
+        c.decisions.clear();
+        const facts = policy();
+        c.recipients = Policy.recipients({ conversation: "jarvis-" + c.gen + "-" + c.entry, profile: facts.profile,
+            cloudVision: facts.cloudVision, brain: c.plan.brain.recipient, speech: c.plan.speech.recipients });
+        c.net = Net.create(c.recipients);
+        c.guidance = null;
+        c.owner = null;
+        return { from: brainLabel(old), to: brainLabel(c.plan.brain) };
     }
 
     // Jarvis's words are the sentences released for speech. Each one grows
@@ -620,6 +691,22 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // The history bound ends the conversation cleanly; any other failure
         // is a fault.
         turn.done(reason === "brain=context-limit" ? "brain-ended" : "brain-failed", { reason });
+    }
+
+    function openBrain(c, owner, done) {
+        const folder = homePath();
+        try { c.guidance = folder === null ? c.plan.brain.guidance : c.plan.brain.guidance.withHome(folder); }
+        catch (error) {
+            if (homeCause(error) === null) throw error;
+            done("brain-failed", { reason: keyed(error) });
+            return false;
+        }
+        c.brain = DRIVERS[c.plan.brain.provider.driver].create({ provider: c.plan.brain.provider,
+            model: c.plan.brain.model, effort: c.plan.brain.effort, net: c.net, recipients: c.recipients, key: c.plan.brain.key,
+            account: c.plan.brain.account, gen: c.gen, harness });
+        c.brain.start({ instructions: c.guidance.instructions, tools: router.offer() });
+        c.owner = owner;
+        return true;
     }
 
     async function requestRelease(c, identity, labels) {
@@ -730,7 +817,31 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 }
             }
             fail("brain-unfinished");
-        } catch (error) { failed(c, turn, error); }
+        } catch (error) {
+            const reason = keyed(error);
+            if (!turn.stopped && failoverCause(reason) && c.entry + 1 < c.plan.entries.length) {
+                const resend = turn.calls.length === 0 && !turn.speaking && typeof turn.resendText === "string";
+                const switched = await switchBrain(c);
+                if (switched !== null && conversation === c) {
+                    if (!openBrain(c, turn.owner, turn.done)) return;
+                    turn.labels = new Set();
+                    quiet(turn);
+                    say(c, turn, failoverLine(switched.from, switched.to, resend), ["desktop"]);
+                    if (resend) {
+                        turn.phase = "streaming";
+                        void respond(c, turn, { kind: "user", items: [Policy.item(turn.resendText, ["speech"])] });
+                    } else {
+                        turn.phase = "done";
+                        c.turn = null;
+                        turn.speech?.end();
+                        concluded(c, turn);
+                        turn.done("brain-done");
+                    }
+                    return;
+                }
+            }
+            failed(c, turn, error);
+        }
     }
 
     // Route a reply's calls one at a time through the router; their results
@@ -886,23 +997,12 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 // The home text is read at each conversation's first turn, so
                 // the user's last edit is the one a brain gets. A text that
                 // outgrew its bound since the setup answer fails this turn.
-                const folder = homePath();
-                try { c.guidance = folder === null ? c.plan.brain.guidance : c.plan.brain.guidance.withHome(folder); }
-                catch (error) {
-                    if (homeCause(error) === null) throw error;
-                    done("brain-failed", { reason: keyed(error) });
-                    return;
-                }
-                c.brain = DRIVERS[c.plan.brain.provider.driver].create({ provider: c.plan.brain.provider,
-                    model: c.plan.brain.model, effort: c.plan.brain.effort, net: c.net, recipients: c.recipients, key: c.plan.brain.key,
-                    account: c.plan.brain.account, gen: c.gen, harness });
-                c.brain.start({ instructions: c.guidance.instructions, tools: router.offer() });
-                c.owner = e.owner;
+                if (!openBrain(c, e.owner, done)) return;
             } else if (c.owner !== e.owner) fail("brain-owner");
             if (c.turn !== null) fail("brain-busy");
             const turn = { gen: e.gen, op: e.op, done, labels: new Set(), speech: null, stopped: false, speaking: false, delegation: e.delegation,
                 feedbackTimer: null, relay: null,
-                phase: "queued", calls: [], answers: new Map(), routing: null, caption: "" };
+                phase: "queued", calls: [], answers: new Map(), routing: null, caption: "", resendText: e.text, owner: e.owner };
             if (e.text.trim() === "") {
                 done("brain-done");
                 return;
@@ -1137,6 +1237,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         },
         playback, brain,
         engine() { return plan.kind === "ready" && plan.speech.id === "openai-realtime" ? "duplex" : "chained"; },
+        answering() {
+            const current = conversation !== null ? conversation.plan.brain : plan.kind === "ready" ? plan.brain : null;
+            return current === null ? "" : brainLabel(current);
+        },
         speech: {
             open(e, events) { current(e.gen).live.port.open(e, events); },
             close(e) { conversation?.live?.port.close(e); },
@@ -1160,4 +1264,4 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     });
 }
 
-module.exports = { create };
+module.exports = { create, failoverCause };

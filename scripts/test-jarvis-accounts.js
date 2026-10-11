@@ -138,6 +138,11 @@ world(async () => {
     const manifest = JSON.parse(fs.readFileSync(path.join(plugin, "manifest.json"), "utf8"));
     const configured = value => assert.equal(value.capabilities.includes("configure"), true);
     configured(manifest);
+    assert.deepEqual(manifest.settings.fallbacks, [], "backup list starts empty");
+    assert.equal(manifest.schema.fallbacks.type, "list", "backup models use the Settings list control");
+    assert.equal(manifest.schema.fallbacks.group, "AI model", "backup models stay with AI model settings");
+    assert.equal(manifest.schema.fallbacks.items.brain.optionsFrom, "brains", "each backup chooses an account from the accepted model list");
+    assert.equal(manifest.schema.fallbacks.items.model.allowCustom, true, "each backup can name a second model on one account");
     assert.throws(() => configured({ ...manifest, capabilities: manifest.capabilities.filter(value => value !== "configure") }),
         assert.AssertionError);
     cases++; controls++;

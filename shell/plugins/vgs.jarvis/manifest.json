@@ -11,7 +11,7 @@
   "entryPoints": { "bar-widget": "Widget.qml", "service": "Service.qml", "window": "Console.qml" },
   "capabilities": ["compositor", "configure", "ipc", "requirements", "run", "session", "status", "notify", "tui", "shortcut", "layers", "hyprland", "surfaces", "screens", "sounds"],
   "defaultSection": "right",
-  "settings": { "mode": "hold", "microphone": "", "speaker": "", "brain": "", "model": "", "effort": "", "taskTerminal": "auto", "cloudVision": "ask",
+  "settings": { "mode": "hold", "microphone": "", "speaker": "", "brain": "", "model": "", "effort": "", "fallbacks": [], "taskTerminal": "auto", "cloudVision": "ask",
     "voiceProvider": "auto", "voiceAccount": "", "localTier": "auto",
     "home": "",
     "privateWindows": "1password, bitwarden, keepass, proton pass, enpass, pinentry, seahorse, private browsing, incognito" },
@@ -39,6 +39,14 @@
     "effort": { "type": "string", "label": "Effort", "group": "AI model", "optionsFrom": "efforts", "hideEmpty": true,
       "description": "How much the model thinks before it answers. More effort takes longer.",
       "info": "Changing this ends the conversation." },
+    "fallbacks": { "type": "list", "label": "Backup models", "group": "AI model",
+      "description": "Jarvis tries these models, in order, when the answering app refuses or stops. It sends only the last request, not the earlier conversation.",
+      "info": "Changing this ends the conversation.",
+      "items": {
+        "brain": { "type": "string", "label": "AI model", "description": "The account or app Jarvis tries next.", "optionsFrom": "brains", "placeholder": "Choose a model" },
+        "model": { "type": "string", "label": "Model", "description": "The model id for this backup. App default lets the app choose.", "presets": [{ "value": "", "label": "App default" }], "allowCustom": true }
+      },
+      "defaults": { "brain": "", "model": "" } },
     "home": { "type": "string", "label": "Home folder", "group": "Home",
       "presets": [{ "value": "", "label": "None" }, { "value": "~/Jarvis", "label": "~/Jarvis" }], "allowCustom": true,
       "description": "One folder for what Jarvis knows: your instructions in AGENTS.md, skills, memory and state. Every AI model uses them.",

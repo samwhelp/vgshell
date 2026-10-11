@@ -4,8 +4,8 @@
 const WireBrain = require("./WireBrain.js");
 const AUTH = Object.freeze({ header: "authorization", prefix: "Bearer " });
 const TOOL_CALLS = 16;
-const STATUS = Object.freeze({ 400: "request-rejected", 401: "unauthorized", 403: "forbidden",
-    404: "not-found", 429: "rate-limited", 500: "provider-error", 503: "unavailable" });
+const STATUS = Object.freeze({ 400: "request-rejected", 401: "unauthorized", 402: "billing", 403: "forbidden",
+    404: "not-found", 429: "rate-limited", 500: "provider-error", 503: "unavailable", 504: "timeout", 529: "overloaded" });
 function fail(code) { throw new Error("jarvis: brain=" + code); }
 function plain(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
 function optionalString(value) { return value === undefined || typeof value === "string"; }

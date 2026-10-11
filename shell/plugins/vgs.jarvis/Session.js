@@ -5,7 +5,7 @@
 // Cleanup acknowledgments and a running tool's outcome retain their original
 // identity across stop; content callbacks do not. A duplex engine owns one
 // speech session per conversation; its callbacks carry the session's gen/op.
-var SESSION_SETTINGS = ["mode", "voiceProvider", "voice", "language", "brain", "model", "effort", "customBaseUrl", "home", "policy", "cloudVision", "account", "voiceAccount"];
+var SESSION_SETTINGS = ["mode", "voiceProvider", "voice", "language", "brain", "model", "effort", "fallbacks", "customBaseUrl", "home", "policy", "cloudVision", "account", "voiceAccount"];
 var RESPONSE_TIMEOUT_MS = 60000;
 var COLLECTION_TIMEOUT_MS = 60000;
 var PLAYBACK_TIMEOUT_MS = 300000;
@@ -300,7 +300,11 @@ function live(s, e, region, kinds) {
 function stale(s) { s.stale++; }
 
 function changedSettings(a, b) {
-    for (var key of SESSION_SETTINGS) if (a[key] !== b[key]) return true;
+    for (var key of SESSION_SETTINGS) {
+        if (key === "fallbacks") {
+            if (JSON.stringify(a[key] ?? []) !== JSON.stringify(b[key] ?? [])) return true;
+        } else if (a[key] !== b[key]) return true;
+    }
     return false;
 }
 
