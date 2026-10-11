@@ -20,7 +20,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, jarvis-fleet, outdated, jarvis-causes, plugin-messages, traffic, ai-usage, sysmon, appearance, sounds or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, jarvis-fleet, outdated, jarvis-causes, plugin-messages, traffic, ai-usage, sysmon, tui-edges, appearance, sounds or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -146,6 +146,14 @@
 # hyphens is refused as `sandbox-shots: refused: theme-card=<value>`, and
 # with the theme-browser scene a name the tree's catalog lacks as
 # `sandbox-shots: refused: theme-card=<value> tree=<rev or checkout>`.
+# tui-edges, taken only when named and without sysmon or flyout-titles,
+# whose btop stand-in it refuses, opens System Monitor's See all in the
+# host's Ghostty running the host's btop, after `theme apply vgs` with
+# btop's theme target alone and then with Ghostty's beside it, shot as
+# tui-edges-<mode>-btop-alone and tui-edges-<mode>-btop-and-ghostty; it
+# fails unless the first shows a band other than btop's background on all
+# four sides of the window and the second none. A host without
+# xdg-terminal-exec, ghostty or btop leaves it not measured.
 # theme-previews, taken only when named, applies each theme of
 # --preview-themes, a comma list of package names, and shoots
 # theme-preview-<name>: the theme's desktop with the standard bar widgets,
@@ -243,7 +251,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
+    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -349,6 +357,7 @@ ships_plugin() { local id; for id; do [[ -f $tree/shell/plugins/$id/manifest.jso
 scene_ships() {
   case $1 in
     sysmon) ships_plugin vgs.sysmon ;;
+    tui-edges) ships_plugin vgs.sysmon ;;
     settings|manager) [[ $1 == "$manager_scene" ]] ;;
     plugin-pages) [[ $manager_scene == settings ]] ;;
     wide-settings) ships_plugin vgs.system vgs.displays vgs.mouse vgs.sound ;;
@@ -4503,6 +4512,196 @@ scene_sysmon() {
   expect_poll "the System Monitor flyout is built" '"System Monitor"' ipc smoke readDescendant panel vgs.sysmon Pane title
   take "sysmon-$mode-flyout-see-all"
   expect "the flyout closes" ok ipc shell hide panel vgs.sysmon
+}
+
+# tui-edges: System Monitor's See all opens the host's btop in the host's
+# Ghostty through the real xdg-terminal-exec, first with btop's theme
+# target alone shipped and then with Ghostty's beside it, each after one
+# `theme apply vgs`. Ghostty pads its grid and keeps the remainder of a
+# cell (shell/Core/HyprlandLayer.js, TUI_PADDING) in its own background, so
+# the band between the window's edge and btop matches btop only when the
+# terminal carries the applied theme. The first window measures that band
+# on each side as the lines of the corner's colour, which must differ from
+# btop's background there; the second must hold only btop's background in
+# the same lines. The launcher runs nothing but System Monitor's btop
+# script, byte for byte the sandbox's copy, which execs btop.
+tui_edges_windows() { hypr -j clients | py_reply 'import json,sys; print(len([c for c in json.load(sys.stdin) if c["class"] == "org.vgs.tui.wide" and c["mapped"]]))'; }
+tui_edges_box() { hypr -j clients | py_reply 'import json,sys; c=[c for c in json.load(sys.stdin) if c["class"] == "org.vgs.tui.wide" and c["mapped"]]; print("%s %d %d %d %d" % (c[0]["address"], c[0]["at"][0], c[0]["at"][1], c[0]["size"][0], c[0]["size"][1]) if len(c) == 1 else "none")'; }
+# tui_edges_running COMM: `running` while a process in the fence's PID
+# namespace, whose /proc lists no other, is COMM.
+tui_edges_running() {
+  python3 -c 'import os,sys
+names = set()
+for p in os.listdir("/proc"):
+    if p.isdigit():
+        try: names.add(open("/proc/%s/comm" % p).read().strip())
+        except OSError: pass
+print("running" if sys.argv[1] in names else "absent")' "$1"
+}
+# tui_edges_file PATH [LINE]: `present` when PATH exists and, given LINE,
+# holds it as a whole line; else `absent`.
+tui_edges_file() { if [[ -f $1 ]] && { [[ $# -lt 2 ]] || grep -qxF -- "$2" "$1"; }; then echo present; else echo absent; fi; }
+# tui_edges_read KIND [ARG...]: one capture of the TUI window at scale 1.
+# `drawn BG` once a quarter of the window's middle is BG, which only btop
+# paints (theme_background); `band` the depth in pixels of each side's
+# lines that hold nothing but the window corner's colour, then that
+# colour, as `L R T B RRGGBB`; `sides BG L R T B` the sides whose outer L,
+# R, T or B lines hold a pixel other than BG, or `none`.
+tui_edges_read() { # drawn BG | band | sides BG L R T B
+  local box address x y w h
+  box="$(tui_edges_box)" || { echo unreadable; return; }
+  [[ $box != none ]] || { echo no-window; return; }
+  read -r address x y w h <<<"$box"
+  # A PPM is binary, which py_reply's text capture would cut at a NUL byte.
+  shot_grim "$SHOT_SOCKET" "$SHOT_RUNTIME_DIR" -s 1 -g "$x,$y ${w}x$h" -t ppm - 2>/dev/null | python3 -c '
+import sys
+data = sys.stdin.buffer.read()
+head = data.split(b"\n", 3)
+if len(head) != 4 or head[0] != b"P6":
+    print("unreadable"); sys.exit()
+w, h = map(int, head[1].split())
+px = head[3]
+if len(px) < w * h * 3:
+    print("partial"); sys.exit()
+at = lambda x, y: px[3 * (y * w + x):3 * (y * w + x) + 3]
+row = lambda y: {at(x, y) for x in range(w)}
+col = lambda x: {at(x, y) for y in range(h)}
+kind = sys.argv[1]
+if kind == "drawn":
+    want = bytes.fromhex(sys.argv[2])
+    middle = [at(x, y) for y in range(h // 5, h * 4 // 5) for x in range(w // 5, w * 4 // 5)]
+    same = sum(1 for p in middle if p == want)
+    print("drawn" if middle and same * 4 >= len(middle) else "share=%.3f" % (same / len(middle) if middle else 0))
+elif kind == "band":
+    corner = at(0, 0)
+    def depth(lines):
+        n = 0
+        for line in lines:
+            if line != {corner}: break
+            n += 1
+        return n
+    print(depth(col(x) for x in range(w)), depth(col(x) for x in range(w - 1, -1, -1)),
+          depth(row(y) for y in range(h)), depth(row(y) for y in range(h - 1, -1, -1)), corner.hex())
+else:
+    want = bytes.fromhex(sys.argv[2])
+    l, r, t, b = map(int, sys.argv[3:7])
+    lines = {"left": [col(x) for x in range(l)], "right": [col(w - 1 - x) for x in range(r)],
+             "top": [row(y) for y in range(t)], "bottom": [row(h - 1 - y) for y in range(b)]}
+    print(",".join(side for side, ls in lines.items() if any(s != {want} for s in ls)) or "none")
+' "$@"
+}
+# tui_edges_band_other BG L R T B RRGGBB: `band` when each depth is above
+# zero and the band's colour is not BG.
+tui_edges_band_other() {
+  [[ $# -eq 6 && $2 =~ ^[1-9][0-9]*$ && $3 =~ ^[1-9][0-9]*$ && $4 =~ ^[1-9][0-9]*$ && $5 =~ ^[1-9][0-9]*$ && $6 != "$1" ]] && echo band || echo "no-band:${*:2}"
+}
+tui_edges_refused() { if [[ -s $sandbox/tui-edges.refused ]]; then tr '\n' ';' <"$sandbox/tui-edges.refused"; echo; else echo none; fi; }
+tui_edges_launcher() { ipc shell lent | py_reply 'import json,sys; t=json.load(sys.stdin)["tui"]; print(json.dumps([t["launcher"], t["probing"]]))'; }
+tui_edges_open() { # LABEL BG
+  expect "$1: no TUI window is open" 0 tui_edges_windows
+  expect "$1: the widget opens its flyout" ok ipc smoke invokeInstance "$(bar_key)" vgs.sysmon toggle ''
+  expect_poll "$1: the System Monitor flyout is built" '"System Monitor"' ipc smoke readDescendant panel vgs.sysmon Pane title
+  settle_hold || { fail "$1: the held mode could not be taken again"; return 1; }
+  click_item panel vgs.sysmon Button "See all" || { fail "$1: See all could not be clicked"; return 1; }
+  expect_poll "$1: the floating TUI window maps" 1 tui_edges_windows
+  expect "$1: the launcher refused no launch" none tui_edges_refused
+  expect_poll "$1: btop runs" running tui_edges_running btop
+  expect "$1: the flyout closes" ok ipc shell hide panel vgs.sysmon
+  expect_poll "$1: btop draws with the applied main_bg #$2" drawn tui_edges_read drawn "$2"
+}
+tui_edges_close() { # LABEL
+  local box address
+  box="$(tui_edges_box)" || box=none
+  read -r address _ <<<"$box"
+  [[ $address == 0x* ]] || { fail "$1: the TUI window's address is unreadable: $box"; return 1; }
+  expect "$1: a close dispatch aimed at the TUI window answers ok" ok hypr dispatch "hl.dsp.window.close({ window = \"address:$address\" })"
+  expect_poll "$1: the TUI window is gone" 0 tui_edges_windows
+  # Ghostty quits with its last window (quit-after-last-window-closed), so
+  # the next launch starts a Ghostty that reads its configuration again.
+  expect_poll "$1: Ghostty has quit" absent tui_edges_running ghostty
+  expect_poll "$1: the core saw the run end" idle key_idle vgs.sysmon/btop
+}
+scene_tui-edges() { # MODE
+  local mode="$1" tool real state="$home/.local/state/vgshell/theme" bg box band before_box status
+  for tool in xdg-terminal-exec ghostty btop; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      printf 'sandbox-shots: scene=tui-edges mode=%s status=not-measured missing=%s\n' "$mode" "$tool"
+      unmeasured=$((unmeasured + 1))
+      return 0
+    fi
+  done
+  [[ ! -e $shim/btop ]] || { fail "tui-edges: the sysmon scenes' btop stand-in shadows btop"; return; }
+  real="$(command -v xdg-terminal-exec)"
+  [[ $real != "$tui_terminal" ]] || { fail "tui-edges: the host's xdg-terminal-exec resolves to the stand-in"; return; }
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'script=%q refused=%q\n' "$repo/shell/plugins/vgs.sysmon/tui/btop.sh" "$sandbox/tui-edges.refused"
+    cat <<'EOF'
+plugin="" at=""
+args=("$@")
+for ((i = 0; i + 1 < ${#args[@]}; i++)); do
+  case ${args[i]} in
+    --plugin) plugin="${args[i + 1]}" ;;
+    --dir) at="${args[i + 1]}" ;;
+  esac
+done
+[[ $plugin == vgs.sysmon && $at == /* && ${!#} == tui/btop.sh && -f $at/tui/btop.sh && ! -L $at/tui/btop.sh ]] &&
+  cmp -s -- "$script" "$at/tui/btop.sh" || { printf '%s\n' "$*" >>"$refused"; exit 1; }
+EOF
+    printf 'exec %q "$@"\n' "$real"
+  } >"$tui_terminal.next" && chmod 755 "$tui_terminal.next" && mv -f -- "$tui_terminal.next" "$tui_terminal" || { fail "tui-edges: the terminal launcher could not be put in place"; return; }
+  printf 'com.mitchellh.ghostty.desktop\n' >"$home/.config/xdg-terminals.list"
+  # Ghostty asks before it closes a window whose program still runs, which
+  # would hold the close dispatch below.
+  mkdir -p -- "$home/.config/ghostty"
+  printf 'confirm-close-surface = false\n' >"$home/.config/ghostty/config"
+  mkdir -p -- "$home/.config/btop"
+  printf 'color_theme = "vgs"\ntheme_background = true\ntruecolor = true\n' >"$home/.config/btop/btop.conf"
+  expect "System Monitor is enabled" ok ipc shell setPluginEnabled vgs.sysmon true
+  expect "System Monitor is placed" ok ipc shell setPluginPlaced vgs.sysmon true
+  expect_poll "System Monitor builds its widget" True record_exists vgs.sysmon
+  for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
+  close_notices
+  # The core probed for xdg-terminal-exec at its start, on the shell's PATH,
+  # where the host's stood before any launcher was written.
+  expect_poll "tui-edges: the core finds a terminal launcher" '["present", false]' tui_edges_launcher
+
+  cp -R -- "$checkout/themes/targets/btop" "$repo/themes/targets/btop"
+  # Under the test-run marker the theme judge refuses every reload hook, so
+  # an apply with a target ends partial (3) once the target's files are written.
+  status=0; sandbox_vgshell theme apply vgs >/dev/null 2>&1 || status=$?
+  expect "btop alone: vgs applies, its reload refused" 3 echo "$status"
+  bg="$(sed -n 's/^theme\[main_bg\]="#\([0-9a-fA-F]*\)"$/\1/p' "$state/btop.theme" | tr 'A-F' 'a-f')"
+  [[ $bg =~ ^[0-9a-f]{6}$ ]] || { fail "tui-edges: the applied btop.theme names no main_bg"; return; }
+  expect "btop alone: Ghostty's theme is not written" absent tui_edges_file "$state/ghostty.conf"
+  tui_edges_open "btop alone" "$bg" || return
+  settle_hold || { fail "btop alone: the held mode could not be taken again"; return; }
+  band="$(tui_edges_read band)"
+  before_box="$(tui_edges_box)"
+  printf 'sandbox-shots: tui-edges mode=%s case=btop-alone window=%s band=%s main_bg=%s\n' "$mode" "${before_box#* }" "$band" "$bg"
+  read -r -a band <<<"$band"
+  expect "btop alone: the band is a colour other than btop's" band tui_edges_band_other "$bg" "${band[@]}"
+  expect "btop alone: every side holds a pixel other than btop's background" left,right,top,bottom tui_edges_read sides "$bg" "${band[@]:0:4}"
+  take "tui-edges-$mode-btop-alone"
+  tui_edges_close "btop alone" || return
+
+  cp -R -- "$checkout/themes/targets/ghostty" "$repo/themes/targets/ghostty"
+  status=0; sandbox_vgshell theme apply vgs >/dev/null 2>&1 || status=$?
+  expect "btop and Ghostty: vgs applies, their reloads refused" 3 echo "$status"
+  expect "btop and Ghostty: Ghostty's background is btop's" "#$bg" sed -n 's/^background = \(#[0-9a-fA-F]*\)$/\L\1/p' "$state/ghostty.conf"
+  expect "btop and Ghostty: Ghostty's configuration reads the theme" present tui_edges_file "$home/.config/ghostty/config.ghostty" "config-file = ?$state/ghostty.conf"
+  tui_edges_open "btop and Ghostty" "$bg" || return
+  settle_hold || { fail "btop and Ghostty: the held mode could not be taken again"; return; }
+  box="$(tui_edges_box)"
+  expect "btop and Ghostty: the window has the first window's size" "${before_box#* }" echo "${box#* }"
+  printf 'sandbox-shots: tui-edges mode=%s case=btop-and-ghostty window=%s band=%s\n' "$mode" "${box#* }" "$(tui_edges_read band)"
+  expect "btop and Ghostty: no side holds a pixel other than btop's background" none tui_edges_read sides "$bg" "${band[@]:0:4}"
+  take "tui-edges-$mode-btop-and-ghostty"
+  tui_edges_close "btop and Ghostty" || return
+
+  rm -rf -- "${repo:?}/themes/targets/btop" "${repo:?}/themes/targets/ghostty"
+  if [[ -f $tui_terminal_written ]]; then cp -- "$tui_terminal_written" "$tui_terminal"; else rm -f -- "$tui_terminal"; fi
+  themes_restore "$mode" "the TUI edge shots"
 }
 
 # Title-block spacing uses the actual Pane geometry, including the next
