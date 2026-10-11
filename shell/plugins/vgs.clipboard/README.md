@@ -22,6 +22,6 @@ Clipboard ships with VGS and is on by default. It saves every copy to disk, so t
 
 The Keys rows on the plugin's Settings page change `SUPER+CTRL+V`, `SUPER+C`, `SUPER+V` and `SUPER+X`. The same page lists the tools Clipboard needs and installs the missing ones.
 
-The copy, paste and cut keys send the terminal its own copy and paste keys: Ctrl+Insert and Shift+Insert. If a terminal does not copy or paste with them, set those two keys in the settings of the terminal.
+In a terminal, the copy and paste keys send Ctrl+Shift+C and Ctrl+Shift+V. kitty, Ghostty, foot and Alacritty copy and paste with those keys at their default settings.
 
 [developer.md](developer.md) states what is recorded, where it is kept and the plugin's IPC functions.

@@ -191,17 +191,17 @@ function terminal(target) {
 // compositor's sendShortcut takes, or null when it sends none. TARGET's
 // kind is `terminal`, `application` or `vgs`, a VGS surface. `copy`,
 // `paste` and `cut` are the plugin's shortcuts. A terminal reads Ctrl+C,
-// Ctrl+V and Ctrl+X as control characters, so it takes Ctrl+Insert to
-// copy, Shift+Insert to paste, Ctrl+Shift+V when the clipboard holds an
-// IMAGE, which Shift+Insert does not paste, and no key to cut.
-// `pasteEntry` pastes the history entry the plugin put on the clipboard: a
-// terminal application takes Ctrl+Shift+V, which reads the clipboard at
-// every terminal's own defaults, and a VGS surface takes none.
-function chord(target, action, image) {
+// Ctrl+V and Ctrl+X as control characters, so it takes Ctrl+Shift+C to
+// copy and Ctrl+Shift+V to paste, the keys kitty, Ghostty, foot and
+// Alacritty bind to the clipboard at their default settings, and no key to
+// cut. `pasteEntry` pastes the history entry the plugin put on the
+// clipboard: a terminal application takes the same Ctrl+Shift+V, and a VGS
+// surface takes none.
+function chord(target, action) {
     var kind = target.kind;
     if (terminal(target)) {
-        if (action === "copy") return ["CTRL", "Insert"];
-        if (action === "paste") return image ? ["CTRL_SHIFT", "v"] : ["SHIFT", "Insert"];
+        if (action === "copy") return ["CTRL_SHIFT", "c"];
+        if (action === "paste") return ["CTRL_SHIFT", "v"];
         return action === "pasteEntry" && kind === "terminal" ? ["CTRL_SHIFT", "v"] : null;
     }
     if (kind === "application" && action === "pasteEntry") return ["CTRL", "v"];
@@ -211,7 +211,11 @@ function chord(target, action, image) {
     return action === "cut" ? ["CTRL", "x"] : null;
 }
 
-// Whether TYPES, the lines of `wl-paste --list-types`, offer an image.
-function offersImage(types) {
-    return String(types).split("\n").some(function (type) { return type.indexOf("image/") === 0; });
+// Why a key was not sent, from REASON, the core's keyed refusal: `unknown`
+// when the core cannot name what has the keyboard, `busy` while an earlier
+// press still waits for that answer, and `failed` for every other refusal,
+// where the core knows the target or never came to read it.
+function unsentCause(reason) {
+    if (reason === "refused: input=unknown-application" || reason === "refused: input=target") return "unknown";
+    return reason === "refused: input=busy" ? "busy" : "failed";
 }

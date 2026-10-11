@@ -23,9 +23,9 @@
 # no desktop entry names receives no key and a notification shows. A
 # change the service refuses shows one too. SUPER+C, SUPER+V and SUPER+X,
 # typed on the nested seat, send what has the keyboard that action's own
-# key: a terminal receives a key with Ctrl for a copy, with Shift for a
-# paste, with Ctrl and Shift for a paste while the clipboard holds an image
-# and none for a cut, an application a key with Ctrl for each, and the
+# key: a terminal receives C with Ctrl and Shift for a copy, V with Ctrl
+# and Shift for a paste, of text and of an image alike, and none for a cut,
+# an application a key with Ctrl for each, and the
 # launcher's search field, a layer over that application, takes the paste,
 # the copy of its selection and the cut, while the application under it
 # receives no key; no press opens the history, and a press over a window
@@ -36,10 +36,11 @@
 # clears all but the pin. Disabling the plugin lists it in disabledPlugins
 # again, as the row found it, and leaves no watcher among the shell's
 # children.
-# The control is one copy of the plugin with eight rules removed, each read
+# The control is one copy of the plugin with ten rules removed, each read
 # by the assertion that holds it: a shortcut that opens nothing, a watcher
 # whose lines are dropped, a filter the overlay does not send, a terminal
-# sent the application's chord, a helper without the secret checks, a
+# sent the application's chord for an entry, for a copy and for a paste, a
+# helper without the secret checks, a
 # thumbnail whose URL names another directory, a refusal without its notice,
 # and a service that starts no watcher again. The shortcuts' control is a
 # paste key the row sends to the active window alone, as a sender that
@@ -170,6 +171,18 @@ print(json.dumps(out))' "$1" "$2"
 }
 # clip_presses_of LOG FROM: the masks of clip_keys_of alone, for a window
 # whose keyboard comes and goes while a layer is open over it.
+# clip_chords_of LOG FROM: each key press of clip_keys_of as [mask, code],
+# the code being the key's evdev code in the nested seat's us keymap: 46
+# for C and 47 for V.
+clip_chords_of() {
+  python3 -c 'import json,sys
+mask, out = 0, []
+for line in list(open(sys.argv[1]))[int(sys.argv[2]):]:
+    words = line.split()
+    if words[:1] == ["modifiers"]: mask = int(words[1])
+    elif words[:1] == ["key"] and words[2] == "pressed": out.append([mask, int(words[1])])
+print(json.dumps(out))' "$1" "$2"
+}
 clip_presses_of() { clip_keys_of "$1" "$2" | py_reply 'import json,sys; print(json.dumps([k for k in json.load(sys.stdin) if isinstance(k, int)]))'; }
 clip_no_key() { local got; for _ in $(seq 1 10); do got="$(clip_keys_of "$1" "$2")" || return 1; [[ $got != *[0-9]* ]] || { echo "$got"; return 0; }; sleep 0.2; done; echo none; }
 # clip_press KEY: SUPER+KEY typed on the nested seat, the default key of the
@@ -337,7 +350,7 @@ expect_poll "Escape closes the history" 0 layer_count vgs:overlay
 expect "the pin is let go" ok clip_invoke pin "$(clip_id "smoke beta two")"
 expect_poll "no entry is pinned" '[]' clip_pins
 
-# The control: one copy of the plugin with eight rules removed.
+# The control: one copy of the plugin with ten rules removed.
 cp -R -- "$clip_plugin" "$sandbox/clipboard-plugin.kept"
 python3 - "$clip_plugin" <<'PY'
 from pathlib import Path
@@ -347,6 +360,8 @@ changes = [
     ("Service.qml", 'shell.shortcut.register("toggle", "Clipboard history", () => root.toggle());', 'shell.shortcut.register("toggle", "Clipboard history", () => "ok");'),
     ("Service.qml", "stdout: SplitParser { onRead: line => root.captured(line) }", "stdout: SplitParser { onRead: line => {} }"),
     ("ClipboardHistory.js", 'return action === "pasteEntry" && kind === "terminal" ? ["CTRL_SHIFT", "v"] : null;', 'return action === "pasteEntry" && kind === "terminal" ? ["CTRL", "v"] : null;'),
+    ("ClipboardHistory.js", 'if (action === "copy") return ["CTRL_SHIFT", "c"];', 'if (action === "copy") return ["CTRL", "c"];'),
+    ("ClipboardHistory.js", 'if (action === "paste") return ["CTRL_SHIFT", "v"];', 'if (action === "paste") return ["CTRL", "v"];'),
     ("Service.qml", "            retry.restart();\n", ""),
     ("Service.qml", '        notice(title, message, true);\n        return "refused: " + key;', '        return "refused: " + key;'),
     ("Overlay.qml", 'shell.ipc.call("rows", filter)', 'shell.ipc.call("rows", "")'),
@@ -407,6 +422,12 @@ if clip_window "$sandbox/clipboard-control.log" smoke.clipboard-terminal "Clipbo
   type_keys -k Return || fail "control: sending Return failed"
   expect_poll "control: Enter closes the copy's history" 0 layer_count vgs:overlay
   expect_poll "control: a terminal sent the application's chord receives V with Ctrl alone" '["enter", 4]' clip_keys_of "$sandbox/clipboard-control.log" "$clip_from"
+  clip_from="$(clip_lines "$sandbox/clipboard-control.log")"
+  clip_press c || fail "control: typing SUPER+C failed"
+  expect_poll "control: a terminal sent the application's copy chord receives C with Ctrl alone" '[[4, 46]]' clip_chords_of "$sandbox/clipboard-control.log" "$clip_from"
+  clip_from="$(clip_lines "$sandbox/clipboard-control.log")"
+  clip_press v || fail "control: typing SUPER+V failed"
+  expect_poll "control: a terminal sent the application's paste chord receives V with Ctrl alone" '[[4, 47]]' clip_chords_of "$sandbox/clipboard-control.log" "$clip_from"
   close_toplevel "$clip_control_pid" "the control's terminal helper exits 0 on SIGTERM"
 fi
 if clip_end_watcher "control"; then expect "control: a service that starts no watcher again leaves none" 0 clip_watcher_returns; fi
@@ -417,7 +438,8 @@ expect_poll "the restored service is built" True record_exists vgs.clipboard
 expect_poll "the restored store is ready" '"ready"' clip_read service store
 
 # The copy, paste and cut shortcuts. A terminal first: each press sends one
-# key, read by the modifiers it arrives with, and a cut sends none.
+# key, read by its code and the modifiers it arrives with, and a cut sends
+# none.
 clip_closed() { local got; for _ in $(seq 1 10); do got="$(layer_count vgs:overlay)" || return 1; [[ $got == "$1" ]] || { echo "$got"; return 0; }; sleep 0.2; done; echo "$1"; }
 if clip_window "$sandbox/clipboard-keys-terminal.log" smoke.clipboard-terminal "Clipboard terminal"; then
   clip_keys_pid="$toplevel_pid"
@@ -425,10 +447,10 @@ if clip_window "$sandbox/clipboard-keys-terminal.log" smoke.clipboard-terminal "
   expect_poll "the shortcut text is on the clipboard" "smoke shortcut text" clip_holds
   clip_from="$(clip_lines "$sandbox/clipboard-keys-terminal.log")"
   clip_press c || fail "terminal: typing SUPER+C failed"
-  expect_poll "SUPER+C sends a terminal a key with Ctrl" '[4]' clip_keys_of "$sandbox/clipboard-keys-terminal.log" "$clip_from"
+  expect_poll "SUPER+C sends a terminal C with Ctrl and Shift" '[[5, 46]]' clip_chords_of "$sandbox/clipboard-keys-terminal.log" "$clip_from"
   clip_from="$(clip_lines "$sandbox/clipboard-keys-terminal.log")"
   clip_press v || fail "terminal: typing SUPER+V failed"
-  expect_poll "SUPER+V sends a terminal a key with Shift" '[1]' clip_keys_of "$sandbox/clipboard-keys-terminal.log" "$clip_from"
+  expect_poll "SUPER+V sends a terminal V with Ctrl and Shift" '[[5, 47]]' clip_chords_of "$sandbox/clipboard-keys-terminal.log" "$clip_from"
   expect "SUPER+V over a terminal opens no clipboard history" 0 clip_closed 0
   clip_from="$(clip_lines "$sandbox/clipboard-keys-terminal.log")"
   clip_press x || fail "terminal: typing SUPER+X failed"
@@ -437,7 +459,7 @@ if clip_window "$sandbox/clipboard-keys-terminal.log" smoke.clipboard-terminal "
   expect_poll "the image is on the clipboard" same clip_holds_image
   clip_from="$(clip_lines "$sandbox/clipboard-keys-terminal.log")"
   clip_press v || fail "terminal: typing SUPER+V over an image failed"
-  expect_poll "SUPER+V sends a terminal a key with Ctrl and Shift while the clipboard holds an image" '[5]' clip_keys_of "$sandbox/clipboard-keys-terminal.log" "$clip_from"
+  expect_poll "SUPER+V sends a terminal the same key while the clipboard holds an image" '[[5, 47]]' clip_chords_of "$sandbox/clipboard-keys-terminal.log" "$clip_from"
   close_toplevel "$clip_keys_pid" "the shortcuts' terminal helper exits 0 on SIGTERM"
 fi
 

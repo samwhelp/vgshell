@@ -16,10 +16,10 @@ Up, Down, Page Up, Page Down, Ctrl+Home and Ctrl+End move the selection. Escape 
 
 | Target | Copy | Paste | Cut |
 |---|---|---|---|
-| A terminal, or the window of a VGS floating TUI | Ctrl+Insert | Shift+Insert, or Ctrl+Shift+V when the clipboard holds an image | no key |
+| A terminal, or the window of a VGS floating TUI | Ctrl+Shift+C | Ctrl+Shift+V | no key |
 | Another application, or a VGS surface | Ctrl+C | Ctrl+V | Ctrl+X |
 
-A window that no desktop entry names receives no key, and a message shows. `ClipboardHistory.chord` holds the table.
+Ctrl+Shift+C and Ctrl+Shift+V are the clipboard keys of kitty, Ghostty, foot and Alacritty at their default settings. A window that no desktop entry names receives no key, and a message shows. `ClipboardHistory.chord` holds the table.
 
 ## Recorded copies
 

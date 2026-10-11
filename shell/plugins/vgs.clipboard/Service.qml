@@ -194,34 +194,29 @@ Item {
             unsent(action, seen.error);
             return;
         }
-        // Only a terminal's paste key depends on what the clipboard holds.
-        if (action !== "paste" || !History.terminal(seen.target)) {
-            send(action, seen.target, false);
-            return;
-        }
-        if (missing.indexOf("wl-paste") !== -1) {
-            shell.requirements.offer(["wl-paste"]);
-            return;
-        }
-        if (offered.running) return;
-        offered.target = seen.target;
-        offered.code = null;
-        offered.running = true;
-    }
-
-    function send(action, target, image) {
-        const chord = History.chord(target, action, image);
+        const chord = History.chord(seen.target, action);
         // A shortcut with no key for its target, a cut in a terminal, does
         // nothing; an entry that is not pasted says so.
         if (chord === null && action !== "pasteEntry") return;
-        const reply = chord === null ? "target=" + target.kind : shell.compositor.sendShortcut(chord[0], chord[1]);
+        const reply = chord === null ? "target=" + seen.target.kind : shell.compositor.sendShortcut(chord[0], chord[1]);
         if (reply !== "ok") unsent(action, reply);
     }
 
+    // An entry that is not pasted always says so: it is on the clipboard.
+    // A shortcut names the cause it has: a press while the core still
+    // answers an earlier one shows nothing, since that press has its own
+    // key or notice.
     function unsent(action, reason) {
         console.warn("clipboard: " + action + " key not sent: " + reason);
-        if (action === "pasteEntry") notice("Paste failed", "The entry is on the clipboard. Paste it with the key of the application.", true);
-        else notice(action === "copy" ? "Copy failed" : action === "cut" ? "Cut failed" : "Paste failed", "VGS does not know the application that has the keyboard. Use the key of the application.", true);
+        if (action === "pasteEntry") {
+            notice("Paste failed", "The entry is on the clipboard. Paste it with the key of the application.", true);
+            return;
+        }
+        const cause = History.unsentCause(reason);
+        if (cause === "busy") return;
+        notice(action === "copy" ? "Copy failed" : action === "cut" ? "Cut failed" : "Paste failed",
+            cause === "unknown" ? "VGS does not know the application that has the keyboard. Use the key of the application."
+                : "VGS did not send the key. Use the key of the application.", true);
     }
 
     // A TRANSIENT notice answers one key press and stays out of History; a
@@ -300,26 +295,6 @@ Item {
             if (ended.code !== 0) console.warn("clipboard: " + ended.name + " failed exit=" + (ended.code === null ? "not-started" : ended.code) + " " + helperErrors.text.trim());
             if (ended.done !== null) ended.done(ended.code);
             root.next();
-        }
-    }
-
-    // What the clipboard offers, read for a paste into a terminal. wl-paste
-    // exits 1 while nothing is copied, which offers no image; a run that
-    // did not start emits only `runningChanged`, its code stays null, and
-    // no key goes out. The collector holds the whole output once `running`
-    // is false, as Compositor.qml's state read relies on.
-    Process {
-        id: offered
-        // The terminal the running read is for.
-        property var target: null
-        property var code: null
-        command: ["wl-paste", "--list-types"]
-        stdout: StdioCollector { id: offeredTypes }
-        onExited: exit => { code = exit; }
-        onRunningChanged: {
-            if (running) return;
-            if (code === null) root.unsent("paste", "wl-paste=not-started");
-            else root.send("paste", target, code === 0 && History.offersImage(offeredTypes.text));
         }
     }
 }
