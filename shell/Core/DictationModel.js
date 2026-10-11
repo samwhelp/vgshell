@@ -17,6 +17,8 @@
 //   { kind: "follow" }          start the status follower
 //   { kind: "unfollow" }        end the status follower
 //   { kind: "timer", ms }       arm the one timer for MS, or stop it at 0
+//   { kind: "check" }           arm the start check for CHECK_MS; its end
+//                               comes back as checked
 //   { kind: "done", result }    hand RESULT to the stop's callback
 //   { kind: "forget" }          drop the stop's callback uncalled
 //   { kind: "log", line }       one warning line
@@ -25,7 +27,9 @@
 // `status` read. A start is taken only while no recording is held, no
 // record command pends and that word is idle. The read is queued when the
 // last record command of an ended recording ends, so a command's end
-// always belongs to the one recording that could have issued it.
+// always belongs to the one recording that could have issued it, and once
+// by the start check under the held recording the daemon has not said
+// `recording` for.
 // The voxtype 1.1.0 facts each rule rests on are cited at the rule, by file
 // of github.com/peteonrails/voxtype at tag v1.1.0, and measured in the
 // report on VGS-1200 (2026-10-10, host cachy).
@@ -35,6 +39,12 @@
 // each 100 ms while it records or transcribes (src/daemon.rs:3845-3848,
 // 4349-4351).
 var GRACE_MS = 2000;
+// How long the daemon has to say `recording` after a `record start` that
+// ended 0 before it is read. It opens the capture before it writes the word,
+// and one that cannot open it writes nothing (src/daemon.rs:4169-4203); the
+// VGS-1200 reading 4 (host cachy, 2026-10-10) measured 4.5 to 24.1 ms from
+// the command's spawn to `recording`, so a read at once can still answer idle.
+var CHECK_MS = 1000;
 // `record stop --wait` gives up after this many seconds (exit 4).
 var STOP_TIMEOUT_S = 60;
 // A `text` recording is cancelled this long before voxtype's own cap. At
@@ -397,7 +407,10 @@ function ran(s, tag, code, out) {
         // (src/app/record.rs:22-26, 188), whether or not a recording
         // then runs.
         if (r !== null && code !== 0) drop(t, effects, "start code=" + (code === null ? "none" : code));
-        else if (r !== null && r.phase === "starting") r.phase = "recording";
+        else if (r !== null && r.phase === "starting") {
+            r.phase = "recording";
+            effects.push({ kind: "check" });
+        }
         settle(t, effects);
         break;
     case "stop":
@@ -426,6 +439,9 @@ function ran(s, tag, code, out) {
         if (read === null) fail(t, effects, "state " + (code === 0 ? "status=unread" : "code=" + (code === null ? "none" : code)));
         // `stopped`: the child's exit reports a daemon that ended.
         else if (read !== "stopped") t.status = read;
+        // Only checked reads the daemon under a held recording: a daemon
+        // still idle took the start signal and records nothing.
+        if (read === "idle" && r !== null && r.phase === "recording") drop(t, effects, "");
         drained(t, effects);
         break;
     default:
@@ -498,6 +514,16 @@ function exited(s, code) {
     }
     if (was === "draining") abort(t, effects);
     if (t.daemon === "starting" && t.step === "exit") step(t, effects, PROBE);
+    return { model: t, effects: effects };
+}
+
+// The start check ended: a recording the daemon has not said `recording`
+// for is read once, as the follower prints nothing for a daemon that never
+// left idle. A later start re-arms the check, so it ends CHECK_MS after the
+// last start command.
+function checked(s) {
+    var t = clone(s), effects = [], r = t.recording;
+    if (r !== null && r.phase === "recording" && t.status === "idle") command(t, effects, STATE, STATUS_ARGV);
     return { model: t, effects: effects };
 }
 

@@ -7,8 +7,9 @@ import "DictationModel.js" as Model
 // one holder at a time, and the `voxtype daemon` child that runs while a
 // plugin holds the capability. DictationModel.js makes every decision; this
 // scope runs its effects on the daemon child, the status follower, one
-// serial command runner and the one timer, and hands it their output and
-// ends as events. Every program is resolved on the shell's PATH.
+// serial command runner, the one timer and the start check, and hands it
+// their output and ends as events. Every program is resolved on the
+// shell's PATH.
 Scope {
     id: root
 
@@ -106,6 +107,9 @@ Scope {
                 wait.restart();
             }
             return;
+        case "check":
+            check.restart();
+            return;
         // The callback runs after the event that ended the recording, so
         // a start it makes meets the model that event left.
         case "done": {
@@ -173,6 +177,12 @@ Scope {
     Timer {
         id: wait
         onTriggered: root.apply(Model.deadline(root.model))
+    }
+
+    Timer {
+        id: check
+        interval: Model.CHECK_MS
+        onTriggered: root.apply(Model.checked(root.model))
     }
 
     // A child that fails to start emits only runningChanged, so each end

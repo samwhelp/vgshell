@@ -21,7 +21,8 @@
 #   cancelled by the core: the daemon notes a cancel and no cap, and the
 #   wtype stand-in recorded no call;
 # - with a stand-in daemon that takes the start and cannot capture, the
-#   stop hands over empty and the next start is taken;
+#   core's start check releases the holder, so a second start is taken
+#   and a restart is not refused;
 # - disabling the last holder during a `text` recording cancels it before
 #   the daemon ends, so no file override outlives the daemon, and the next
 #   daemon's `type` recording is typed;
@@ -330,22 +331,29 @@ expect_poll "the daemon ends after the cap rows" "$dictation_none" dictation_pro
 rm -f -- "${dictation_cap:?}"
 
 # A daemon that takes the start and cannot capture prints no state: the
-# core reads it after the stop. Then the last release during a text
-# recording, and a type recording on the daemon after it.
+# core's start check reads it idle and releases the holder, so the next
+# start is taken and a restart is not refused. Then the last release
+# during a text recording, and a type recording on the daemon after it.
 dictation_forget
 : >"$dictation_deaf"
 expect "enabling the fixture beside a capture that fails is allowed" ok ipc shell setPluginEnabled acme.dictation true
 expect_poll "the holder reads the daemon ready before the failed capture" "ready idle -" dictation_state acme.dictation
 expect "a text recording is asked of a daemon that cannot capture" ok dictate acme.dictation start text
 expect_poll "the daemon took the start and records nothing" "started no-capture" dictation_noted
-expect "the recording that never ran is stopped" ok dictate acme.dictation stop
-expect_poll "a recording that never ran hands over empty" '{"kind": "empty"}' dictation_last acme.dictation
-expect_poll "the daemon is read idle after the recording that never ran" "ready idle -" dictation_state acme.dictation
+expect_poll "the start check releases the recording that never ran" "ready idle -" dictation_state acme.dictation
+expect "the second start after the recording that never ran is taken" ok dictate acme.dictation start text
+expect_poll "the daemon took the second start" "started no-capture no-capture" dictation_noted
+expect_poll "the start check releases the second recording that never ran" "ready idle -" dictation_state acme.dictation
+expect "a restart after the recordings that never ran is not refused" ok dictate acme.dictation restart
+expect_poll "the restart ends the daemon and starts the next" "started no-capture no-capture stopped started" dictation_noted
+expect_poll "the restarted daemon reads ready" "ready idle -" dictation_state acme.dictation
+expect "the recordings that never ran left no file" "700 0" dictation_files
 rm -f -- "${dictation_deaf:?}"
-expect "the start after the recording that never ran is taken" ok dictate acme.dictation start text
-expect_poll "the daemon records the next start" "started no-capture start" dictation_noted
+dictation_forget
+expect "the start after the recordings that never ran is taken" ok dictate acme.dictation start text
+expect_poll "the daemon records the next start" start dictation_noted
 expect "disabling the last holder during a text recording is allowed" ok ipc shell setPluginEnabled acme.dictation false
-expect_poll "the last release cancels the text recording before the daemon ends" "started no-capture start cancel stopped" dictation_noted
+expect_poll "the last release cancels the text recording before the daemon ends" "start cancel stopped" dictation_noted
 expect_poll "the daemon is gone after that release" "$dictation_none" dictation_processes
 expect "no file override outlives the daemon" absent dictation_override
 expect_poll "the released recording leaves no file" "700 0" dictation_files
