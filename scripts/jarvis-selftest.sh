@@ -10,6 +10,7 @@
 #                                   --brain ID [--home PATH]
 #                                   [--voice local|realtime]
 #                                   [--mode toggle|always]
+#                                   [--follow-up-tts TEXT|--follow-up-wav FILE]
 #                                   [--confirm key|none] [--out FILE]
 #
 # The sandbox is the smoke's own (scripts/smoke/harness.sh), with the
@@ -30,7 +31,9 @@
 #   --type TEXT  the line sent through the plugin's `say` IPC handler.
 # A voice input opens the conversation through the service's Talk intent in
 # Toggle mode, or through the local wake word in Always mode, so the
-# engine's own end-of-speech judge commits the turn.
+# engine's own end-of-speech judge commits the turn. A follow-up input is
+# fed only after an Always mode reply opens the listening window, and its
+# record compares that second turn.
 #
 # --brain ID is an account id the Jarvis AI model list offers. A sign-in
 # account's own directory variable is the one value of the caller's
@@ -475,7 +478,7 @@ selftest_turn() {
 import json, sys
 events = json.load(sys.stdin)
 marks = [i for i, e in enumerate(events) if e["kind"] == "mark" and e["value"] == "input"]
-phases = [e["value"] for e in events[marks[0]:] if e["kind"] == "phase"] if marks else []
+phases = [e["value"] for e in events[marks[-1]:] if e["kind"] == "phase"] if marks else []
 last = phases[-1] if phases else ""
 worked = any(phase in ("thinking", "speaking", "acting", "confirming") for phase in phases)
 ended = last in ("error", "down") or worked and last in ("idle", "listening", "armed")
@@ -546,7 +549,7 @@ selftest_woke() {
 import json, sys
 events = json.load(sys.stdin)
 marks = [i for i, e in enumerate(events) if e["kind"] == "mark" and e["value"] == "input"]
-phases = [e["value"] for e in events[marks[0]:] if e["kind"] == "phase"] if marks else []
+phases = [e["value"] for e in events[marks[-1]:] if e["kind"] == "phase"] if marks else []
 print("armed" if marks and all(phase == "armed" for phase in phases) else "woke")
 '
 }
@@ -743,6 +746,20 @@ print(json.dumps({"daemon": rows(sys.argv[1]), "recordings": rows(sys.argv[2]), 
 PY
 }
 
+# selftest_follow_up KIND VALUE WAV TAIL_MS: feed the follow-up voice after
+# the first reply opens the listening window. No wake word or Talk key is sent.
+selftest_follow_up() { # KIND VALUE WAV TAIL_MS
+  local kind="$1" value="$2" sound="${3:-}" tail="${4:-0}" feed_done
+  [[ $kind != type ]] || stopped follow-up-type-unsupported
+  selftest_wait 30 listening selftest_service_phase || stopped follow-up-not-open "phase=$reading"
+  selftest_wait 10 ready devices_voice_feed_state || stopped no-voice-feed "$reading"
+  [[ $(ipc smoke markJarvisTrace input) == ok ]] || stopped trace-not-marked
+  input_started_ms="$(now_ms)"
+  devices_voice_feed "$sound" || stopped no-voice-feed player-failed
+  feed_done="$(now_ms)"
+  speech_end_ms=$((feed_done - tail))
+}
+
 # selftest_record TRACE AUDIT OUT PHASE FAULT KIND VALUE BRAIN HOME VOICE
 # MODE CONFIRM MAILBOX END KEPT BRAIN_TEXT AUDIO_JSON DICTATION_JSON: the record the header describes,
 # written to OUT by rename, from the probe's trace in the file TRACE, the
@@ -764,7 +781,7 @@ for row in map(json.loads, open(brain_text)):
         turn = (row["gen"], row["op"])
         raw.append("")
     raw[-1] += row["text"]
-first = next(i for i, e in enumerate(events) if e["kind"] == "mark" and e["value"] == "input")
+first = [i for i, e in enumerate(events) if e["kind"] == "mark" and e["value"] == "input"][-1]
 start = events[first]["at"]
 audio = {**audio, "speechEndMs": None if audio.get("speechEndMs") is None else int(audio["speechEndMs"]) - start,
          "sounds": [[int(s) - start, int(e) - start] for s, e in audio.get("sounds", [])]}
@@ -911,19 +928,28 @@ try:
 except Exception as error:
     print(f"case=malformed path={path} reason=json", file=sys.stderr)
     sys.exit(1)
-keys = {"input", "mode", "confirm", "heard", "tool", "said"}
-if set(data) != keys:
+required = {"input", "mode", "confirm", "heard", "tool", "said"}
+if not required.issubset(data) or set(data) - (required | {"followUp"}):
     print(f"case=malformed path={path} reason=keys", file=sys.stderr)
     sys.exit(1)
-if not isinstance(data["input"], dict) or len(data["input"]) != 1 or next(iter(data["input"])) not in ("tts", "wav"):
-    print(f"case=malformed path={path} reason=input", file=sys.stderr)
-    sys.exit(1)
-kind, value = next(iter(data["input"].items()))
-if not isinstance(value, str) or value == "":
-    print(f"case=malformed path={path} reason=input-value", file=sys.stderr)
-    sys.exit(1)
-if kind == "wav" and not os.path.isfile(os.path.join(root, value)):
-    print(f"case=malformed path={path} reason=wav-unreadable", file=sys.stderr)
+def check_input(key, required=True):
+    if key not in data:
+        return
+    value = data[key]
+    if not isinstance(value, dict) or len(value) != 1 or next(iter(value)) not in ("tts", "wav"):
+        print(f"case=malformed path={path} reason={key}", file=sys.stderr)
+        sys.exit(1)
+    kind, text = next(iter(value.items()))
+    if not isinstance(text, str) or text == "":
+        print(f"case=malformed path={path} reason={key}-value", file=sys.stderr)
+        sys.exit(1)
+    if kind == "wav" and not os.path.isfile(os.path.join(root, text)):
+        print(f"case=malformed path={path} reason={key}-wav-unreadable", file=sys.stderr)
+        sys.exit(1)
+check_input("input")
+check_input("followUp", False)
+if "followUp" in data and data["mode"] != "always":
+    print(f"case=malformed path={path} reason=followUp-mode", file=sys.stderr)
     sys.exit(1)
 if data["mode"] not in ("toggle", "always") or data["confirm"] not in ("none", "key"):
     print(f"case=malformed path={path} reason=enum", file=sys.stderr)
@@ -1001,6 +1027,12 @@ else:
 print("source=" + source)
 for word in ("--" + kind, value, "--mode", case["mode"], "--confirm", case["confirm"]):
     print(word)
+if "followUp" in case:
+    follow_kind, follow_value = next(iter(case["followUp"].items()))
+    if follow_kind == "wav":
+        follow_value = os.path.join(voices, name + "-follow-up.wav") if voices and os.path.isfile(os.path.join(voices, name + "-follow-up.wav")) else os.path.join(root, follow_value)
+    for word in ("--follow-up-" + follow_kind, follow_value):
+        print(word)
 PY
 }
 
@@ -1095,6 +1127,9 @@ selftest_gpu_fence() {
 argv=("$@")
 input_kind=""
 input_value=""
+follow_kind=""
+follow_value=""
+follow_tail=0
 suite_name=""
 cold_count=0
 brain=""
@@ -1192,6 +1227,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 && -n $2 ]] || refuse "argument=$1 value=${2-}"
       [[ -z $input_kind ]] || refuse "argument=$1 reason=one-input"
       input_kind="${1#--}"; input_value="$2"; shift 2 ;;
+    --follow-up-tts|--follow-up-wav)
+      [[ $# -ge 2 && -n $2 ]] || refuse "argument=$1 value=${2-}"
+      [[ -z $follow_kind ]] || refuse "argument=$1 reason=one-follow-up"
+      follow_kind="${1#--follow-up-}"; follow_value="$2"; shift 2 ;;
     --brain|--home|--out|--voices)
       [[ $# -ge 2 && -n $2 ]] || refuse "argument=$1 value=${2-}"
       case "$1" in --brain) brain="$2" ;; --home) home_source="$2" ;; --out) out="$2" ;; --voices) voices_dir="$2" ;; esac
@@ -1211,6 +1250,7 @@ while [[ $# -gt 0 ]]; do
 done
 if [[ -n $suite_name ]]; then
   [[ -z $input_kind ]] || refuse "argument=--suite reason=exclusive-with-input"
+  [[ -z $follow_kind ]] || refuse "argument=--suite reason=exclusive-with-follow-up"
   ((cold_count == 0)) || refuse "argument=--suite reason=exclusive-with-cold"
   [[ $mode_seen == false ]] || refuse "argument=--suite reason=exclusive-with-mode"
   [[ $confirm_seen == false ]] || refuse "argument=--suite reason=exclusive-with-confirm"
@@ -1220,6 +1260,7 @@ if [[ -n $suite_name ]]; then
 elif ((cold_count > 0)); then
   [[ -z $voices_dir ]] || refuse "argument=--voices reason=requires-suite"
   [[ -z $input_kind ]] || refuse "argument=--cold reason=exclusive-with-input"
+  [[ -z $follow_kind ]] || refuse "argument=--cold reason=exclusive-with-follow-up"
   [[ -z $brain ]] || refuse "argument=--cold reason=exclusive-with-brain"
   [[ -z $home_source ]] || refuse "argument=--cold reason=exclusive-with-home"
   [[ $voice == local ]] || refuse "argument=--cold reason=exclusive-with-voice"
@@ -1229,6 +1270,8 @@ else
   [[ -z $voices_dir ]] || refuse "argument=--voices reason=requires-suite"
   [[ -n $input_kind ]] || refuse "argument=input reason=missing want=--wav|--tts|--type"
   [[ -n $brain ]] || refuse "argument=--brain reason=missing"
+  [[ -z $follow_kind || $mode == always ]] || refuse "argument=--follow-up value=$follow_kind reason=requires-always"
+  [[ -z $follow_kind || $input_kind != type ]] || refuse "argument=--follow-up value=$follow_kind reason=voice-input-required"
   [[ $mode != always || $input_kind != type ]] || refuse "argument=--mode value=always reason=always-needs-voice"
   [[ $mode != always || $voice != realtime ]] || refuse "argument=--mode value=always reason=always-needs-local-voice"
 fi
@@ -1249,6 +1292,30 @@ PY
   fi
   input_tail="$(cat -- "$input_tail_file")"
   python3 - "$input_tail_file" <<'PY'
+import os, sys
+try:
+    os.unlink(sys.argv[1])
+except FileNotFoundError:
+    pass
+PY
+fi
+if [[ $follow_kind == wav ]]; then
+  [[ -f $follow_value && -r $follow_value ]] || refuse "argument=--follow-up-wav value=$follow_value reason=unreadable"
+  follow_value="$(readlink -f -- "$follow_value")"
+  mkdir -p -- "$repo/tmp/selftest-records"
+  follow_tail_file="$repo/tmp/selftest-records/follow-wav-tail-$$"
+  if ! selftest_wav_tail "$follow_value" >"$follow_tail_file"; then
+    python3 - "$follow_tail_file" <<'PY'
+import os, sys
+try:
+    os.unlink(sys.argv[1])
+except FileNotFoundError:
+    pass
+PY
+    refuse "argument=--follow-up-wav value=$follow_value reason=wav-not-pcm16"
+  fi
+  follow_tail="$(cat -- "$follow_tail_file")"
+  python3 - "$follow_tail_file" <<'PY'
 import os, sys
 try:
     os.unlink(sys.argv[1])
@@ -1328,7 +1395,7 @@ if [[ ${#key_references[@]} -gt 0 ]]; then
 fi
 # The prepared local voice is the local voice's and the --tts speaker's.
 local_root=""
-if [[ $voice == local || $input_kind == tts ]]; then
+if [[ $voice == local || $input_kind == tts || $follow_kind == tts ]]; then
   local_inputs="$(selftest_local_inputs)" || unavailable local-inputs-unavailable
   { read -r local_root; read -r local_marker; } <<<"$local_inputs"
 fi
@@ -1371,6 +1438,19 @@ if [[ $input_kind == tts ]]; then
   input_tail="$(cat -- "$sandbox/selftest-input.tail")"
 elif [[ $input_kind == wav ]]; then
   wav="$input_value"
+fi
+follow_wav=""
+if [[ $follow_kind == tts ]]; then
+  follow_wav="$sandbox/selftest-follow-up.wav"
+  status=0
+  tts_voice="$(selftest_tts_voice "$plugin" "$local_marker")" || stopped tts-voice-unread
+  selftest_speak "$plugin" "$local_root" "$tts_voice" "$follow_value" "$follow_wav" || status=$?
+  [[ $status -ne 77 ]] || unavailable local-inputs-unavailable
+  [[ $status -eq 0 ]] || stopped tts-failed "exit=$status"
+  if ! selftest_wav_tail "$follow_wav" >"$sandbox/selftest-follow-up.tail"; then stopped tts-unreadable; fi
+  follow_tail="$(cat -- "$sandbox/selftest-follow-up.tail")"
+elif [[ $follow_kind == wav ]]; then
+  follow_wav="$follow_value"
 fi
 
 # The harness's shell started over its instrumented Jarvis copy and without
@@ -1495,6 +1575,8 @@ selftest_dictation_unread="$sandbox/selftest-dictation-unread"
 : >"$selftest_dictation_daemon"
 : >"$selftest_dictation_recordings"
 : >"$selftest_dictation_unread"
+record_kind="$input_kind"
+record_value="$input_value"
 selftest_open "$input_kind" "$mode" "$input_value" "${wav:-}" "$input_tail"
 
 turn=waiting
@@ -1514,6 +1596,24 @@ while ((SECONDS < turn_until)); do
   fi
   sleep 0.2
 done
+if [[ -n $follow_kind && $turn == ended=* ]]; then
+  selftest_follow_up "$follow_kind" "$follow_value" "$follow_wav" "$follow_tail"
+  record_kind="$follow_kind"
+  record_value="$follow_value"
+  turn=waiting
+  turn_until=$((SECONDS + 300))
+  feed_end_seconds=$SECONDS
+  while ((SECONDS < turn_until)); do
+    turn="$(ipc smoke jarvisTrace | selftest_turn)" || turn=unread
+    selftest_dictation_sample "$(( $(now_ms) - input_started_ms ))" "$selftest_dictation_daemon" "$selftest_dictation_recordings" "$selftest_dictation_unread"
+    [[ $turn != ended=* ]] || break
+    if [[ $turn == confirming && $confirm == key ]]; then
+      request="$(ipc smoke jarvisProcess | selftest_shown)" || request=none
+      selftest_confirm "$draw_ms" "$(now_ms)" "$request"
+    fi
+    sleep 0.2
+  done
+fi
 phase="$(traced phase)" || phase=unread
 fault="$(ipc smoke jarvisProcess | py_reply 'import json,sys; d=json.load(sys.stdin)["status"].get("detail"); print(d["state"]["fault"].get("reason", "") if d else "")')" || fault=unread
 # Stop ends the conversation, so the trace ends with the widget at rest.
@@ -1528,4 +1628,4 @@ dictation_json="$(selftest_dictation_record "$selftest_dictation_daemon" "$selft
 ipc smoke jarvisTrace >"$sandbox/selftest-trace.json" || stopped trace-unread
 
 selftest_finish "$turn" "$home_sum" "$auth_log" "$failures" "$sandbox/selftest-trace.json" "$home/.local/state/vgshell/jarvis/audit" "$out" \
-  "$phase" "$fault" "$input_kind" "$input_value" "$brain" "$home_source" "$voice" "$mode" "$confirm" "$source_repo" "$home_copy" "$sandbox/selftest-brain.jsonl" "$audio_json" "$dictation_json" "$voxtype_models_sum" "$voxtype_models"
+  "$phase" "$fault" "$record_kind" "$record_value" "$brain" "$home_source" "$voice" "$mode" "$confirm" "$source_repo" "$home_copy" "$sandbox/selftest-brain.jsonl" "$audio_json" "$dictation_json" "$voxtype_models_sum" "$voxtype_models"

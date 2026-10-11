@@ -97,6 +97,16 @@ function alwaysThinking(logic) {
     s = step(logic, s, callback("final", s.turn, 30, { text: "test" })).state;
     return step(logic, s, callback("capture-closed", s.capture, 31)).state;
 }
+function alwaysFollowUp(logic, order = "brain-then-played") {
+    let s = alwaysThinking(logic);
+    s = step(logic, s, callback("play", s.turn, 40, { interruptible: true })).state;
+    if (order === "played-then-brain") {
+        s = step(logic, s, callback("played", s.playback, 42)).state;
+        return step(logic, s, callback("brain-done", s.turn, 43)).state;
+    }
+    s = step(logic, s, callback("brain-done", s.turn, 41)).state;
+    return step(logic, s, callback("played", s.playback, 43)).state;
+}
 const table = [
     ["voice-check-lifetime", logic => {
         let s = step(logic, logic.initial(), snapshot({ configured: false, checkReady: true })).state;
@@ -222,9 +232,81 @@ const table = [
         const done = step(logic, speaking, callback("brain-done", speaking.turn, 41)).state;
         assert.equal(done.input.kind, "released", "no capture while Jarvis speaks");
         const rearmed = step(logic, done, callback("played", done.playback, 42));
-        assert.deepEqual(kinds(rearmed), ["capture-open"]);
+        assert.deepEqual(kinds(rearmed), ["capture-open", "collect"]);
         assert.deepEqual([rearmed.effects[0].mode, rearmed.state.input.kind, rearmed.state.conversation.kind, rearmed.state.gen],
-            ["armed", "armed", "active", s.gen], "the next word continues the conversation");
+            ["follow-up", "follow-up", "active", s.gen], "the short follow-up window opens in the same conversation");
+    }],
+    ["always-follow-up-orders", logic => {
+        for (const order of ["brain-then-played", "played-then-brain"]) {
+            const opened = alwaysFollowUp(logic, order);
+            assert.deepEqual([opened.capture.kind, opened.capture.mode, opened.input.kind, opened.conversation.kind],
+                ["opening", "follow-up", "follow-up", "active"], order + " opens the follow-up window");
+            assert.equal(opened.turn.kind, "collecting", order + " collects the next words");
+            const live = step(logic, opened, callback("capture-opened", opened.capture, 44)).state;
+            assert.equal(live.turn.deadline, 6044, order + " uses the wake silence bound");
+            assert.equal(logic.phaseOf(live), "listening");
+        }
+    }],
+    ["always-follow-up-final", logic => {
+        let s = alwaysFollowUp(logic);
+        s = step(logic, s, callback("capture-opened", s.capture, 44)).state;
+        const heard = step(logic, s, callback("partial", s.turn, 45, { text: "and germany" })).state;
+        assert.deepEqual([heard.input.kind, heard.turn.deadline, heard.gen], ["conversation", null, s.gen],
+            "words inside the window become a normal request in the same conversation");
+        const sent = step(logic, heard, callback("final", heard.turn, 46, { text: "and germany" }));
+        const brain = sent.effects.find(e => e.kind === "brain-send");
+        assert.deepEqual([brain.text, brain.gen, brain.owner], ["and germany", s.gen, s.brain.op]);
+        assert.equal(sent.state.followUp.kind, "asked", "follow-up turns can chain another window");
+    }],
+    ["always-follow-up-silence", logic => {
+        let s = alwaysFollowUp(logic);
+        s = step(logic, s, callback("capture-opened", s.capture, 44)).state;
+        const quiet = step(logic, s, callback("deadline", s.turn, s.turn.deadline));
+        assert.deepEqual([kinds(quiet), quiet.state.fault.kind, quiet.state.conversation.kind, quiet.state.input.kind, quiet.state.turn.kind],
+            [["capture-close"], "none", "active", "armed", "none"], "silence closes the window and keeps the conversation");
+        const rearmed = step(logic, quiet.state, callback("capture-closed", quiet.state.capture, s.turn.deadline + 1));
+        assert.deepEqual([kinds(rearmed), rearmed.effects[0].mode], [["capture-open"], "armed"], "the wake capture re-arms");
+        const late = step(logic, rearmed.state, callback("final", s.turn, s.turn.deadline + 2, { text: "too late" }));
+        assert.equal(late.effects.some(e => e.kind === "brain-send"), false);
+        assert.equal(late.state.stale, rearmed.state.stale + 1);
+    }],
+    ["always-follow-up-refusals", logic => {
+        const thinking = alwaysThinking(logic);
+        const noReply = step(logic, thinking, callback("brain-done", thinking.turn, 40));
+        assert.equal(noReply.state.followUp.kind, "none", "no spoken reply opens no window");
+        assert.equal(kinds(noReply).includes("capture-open"), true, "the wake word re-arms instead");
+        let failed = alwaysThinking(logic);
+        failed = step(logic, failed, callback("play", failed.turn, 40, { interruptible: true })).state;
+        const brainFailed = step(logic, failed, callback("brain-failed", failed.turn, 41, { reason: "fixture" })).state;
+        assert.equal(brainFailed.followUp.kind, "none");
+        const playedAfterFailure = step(logic, brainFailed, callback("played", failed.playback, 42));
+        assert.equal(playedAfterFailure.effects.some(e => e.kind === "capture-open"), false, "a failed turn opens no window");
+        let typed = step(logic, alwaysArmed(logic), event("say", 20, { text: "typed" })).state;
+        typed = step(logic, typed, callback("capture-closed", typed.capture, 21)).state;
+        typed = step(logic, typed, callback("play", typed.turn, 22, { interruptible: true })).state;
+        typed = step(logic, typed, callback("brain-done", typed.turn, 23)).state;
+        const afterTyped = step(logic, typed, callback("played", typed.playback, 24));
+        assert.equal(afterTyped.effects.find(e => e.kind === "capture-open")?.mode, "armed", "Console messages return to the wake word");
+        assert.equal(afterTyped.state.followUp.kind, "none", "Console messages do not arm follow-up memory");
+        let relay = between(logic);
+        relay.settings = { mode: "always" };
+        relay.input = { kind: "released" };
+        relay = step(logic, relay, event("relay", 50, { text: "line", ask: null })).state;
+        relay = step(logic, relay, callback("brain-done", relay.turn, 51)).state;
+        assert.equal(relay.followUp.kind, "none", "relay lines do not arm follow-up memory");
+    }],
+    ["always-follow-up-closes", logic => {
+        let s = alwaysFollowUp(logic);
+        s = step(logic, s, callback("capture-opened", s.capture, 44)).state;
+        for (const [name, trigger] of [["mute", event("mute", 45)], ["stop", event("stop", 45)]]) {
+            const closed = step(logic, s, trigger);
+            assert.equal(kinds(closed).includes("capture-close"), true, name + " closes the follow-up capture");
+            assert.equal(closed.state.followUp.kind, "none");
+            assert.notEqual(closed.state.input.kind, "follow-up");
+        }
+        const press = step(logic, s, event("talk-down", 500));
+        assert.deepEqual([press.state.conversation.kind, press.state.input.kind, press.state.turn.kind],
+            ["ended", "armed", "none"], "Talk closes the follow-up window as it closes a woken request");
     }],
     ["always-disarms", logic => {
         const s = alwaysArmed(logic);
@@ -1595,6 +1677,7 @@ const shapes = [
     ["gate-reason", s => { s.gate.reason = "unknown"; }, logic => copy(logic.initial())],
     ["speech-reply-tag", s => { s.speech.reply = { kind: "unknown" }; }, duplexListening],
     ["engine-tag", s => { s.engine = { kind: "unknown" }; }],
+    ["follow-up-gen", s => { s.followUp.gen = -1; }, logic => ({ ...copy(logic.initial()), followUp: { kind: "asked", gen: 1 } })],
     ["feedback-cue", s => { s.playback.cue = "unknown"; }, logic => startFeedback(logic).state],
     ...[
         ["shape", r => { r.extra = true; }], ["gen", r => { r.gen = -1; }],
@@ -1881,7 +1964,7 @@ for (const seed of seeds) for (const a of pairEvents) for (const b of pairEvents
 assert.equal(pairs, 21 * (events.length + 6) ** 2, "matrix discovery floor and exact event set");
 const createdPairs = createdPairMatrix(Session);
 
-const parent = "/tmp";
+const parent = path.join(__dirname, "..", "tmp");
 fs.mkdirSync(parent, { recursive: true });
 const root = fs.mkdtempSync(path.join(parent, "js-"));
 const source = fs.readFileSync(file, "utf8");
@@ -1957,7 +2040,25 @@ try {
             'if (false && e.id !== s.approval.id) { stale(s); break; }', "shown-id"],
         ["cancel-id", 'if (e.id !== s.approval.id || e.gen !== s.approval.gen)',
             'if (false && (e.id !== s.approval.id || e.gen !== s.approval.gen))', "cancel-id"],
-        ["final-caption", 'commitUserText(s, effects, e.text, e.at, e.op);',
+        ["follow-up-asked", 'voiceRequest === true && s.settings.mode === "always" && s.engine.kind === "chained"',
+            'false && voiceRequest === true && s.settings.mode === "always" && s.engine.kind === "chained"', "always-follow-up-orders"],
+        ["follow-up-spoken", 'if (s.playback.kind === "playing" && s.followUp.kind === "asked" && s.followUp.gen === s.gen)\n            s.followUp = { kind: "spoken", gen: s.gen };',
+            'if (false)\n            s.followUp = { kind: "spoken", gen: s.gen };', "always-follow-up-orders"],
+        ["follow-up-open", 's.input = { kind: "follow-up" };\n        s.followUp = { kind: "none" };',
+            's.followUp = { kind: "none" };', "always-follow-up-orders"],
+        ["follow-up-no-reply", 's.followUp.kind === "asked" && s.followUp.gen === s.gen\n            && s.turn.kind === "none" && s.playback.kind === "idle"',
+            'false && s.followUp.kind === "asked" && s.followUp.gen === s.gen\n            && s.turn.kind === "none" && s.playback.kind === "idle"', "always-follow-up-refusals"],
+        ["follow-up-bound", 's.input.kind === "woken" || s.input.kind === "follow-up" ? e.at + WAKE_SILENCE_MS : null',
+            's.input.kind === "woken" ? e.at + WAKE_SILENCE_MS : null', "always-follow-up-orders"],
+        ["follow-up-partial", 'if (s.input.kind === "woken" || s.input.kind === "follow-up") {',
+            'if (s.input.kind === "woken") {', "always-follow-up-final"],
+        ["follow-up-silence", 'else if (s.input.kind === "follow-up") {\n            s.input = { kind: "released" };\n            s.followUp = { kind: "none" };\n            closeCapture(s, effects);\n            s.turn = { kind: "none" };\n        }',
+            'else if (false) {\n            s.input = { kind: "released" };\n            s.followUp = { kind: "none" };\n            closeCapture(s, effects);\n            s.turn = { kind: "none" };\n        }', "always-follow-up-silence"],
+        ["follow-up-talk-closes", 's.input.kind === "conversation" || s.input.kind === "woken" || s.input.kind === "follow-up"',
+            's.input.kind === "conversation" || s.input.kind === "woken"', "always-follow-up-closes"],
+        ["follow-up-console", 'commitUserText(s, effects, e.text, e.at, 1, false);',
+            'commitUserText(s, effects, e.text, e.at, 1, true);', "always-follow-up-refusals"],
+        ["final-caption", 'commitUserText(s, effects, e.text, e.at, e.op, true);',
             'void e;', "final-caption"],
         ["caption-final-text", 'userTranscript(s, effects, text, rev);',
             'userTranscript(s, effects, s.turn.partial, rev);', "final-caption"],
@@ -2127,18 +2228,18 @@ try {
         ["wake-starts", 'start(s, effects, "woken", e.at);\n        break;\n    case "capture-closed":', 'break;\n    case "capture-closed":', "always-wake"],
         ["wake-woken", 'start(s, effects, "woken", e.at);', 'start(s, effects, "conversation", e.at);', "always-false-wake"],
         ["wake-capture-mode", 's.input.kind === "woken" ? "conversation" : s.input.kind;', 's.input.kind;', "always-wake"],
-        ["wake-silence-bound", 's.input.kind === "woken" ? e.at + WAKE_SILENCE_MS : null;', 'null;', "always-false-wake", "short bound"],
+        ["wake-silence-bound", 's.input.kind === "woken" || s.input.kind === "follow-up" ? e.at + WAKE_SILENCE_MS : null', 'null', "always-false-wake", "short bound"],
         ["wake-silence-quiet", 'if (s.input.kind === "woken") end(s, effects, at, "wake-silence", false);', 'if (false) end(s, effects, at, "wake-silence", false);', "always-false-wake", "returns quietly"],
-        ["wake-heard", 'if (s.input.kind === "woken") {\n            s.input = { kind: "conversation" };', 'if (false) {\n            s.input = { kind: "conversation" };', "always-false-wake", "lift the bound"],
+        ["wake-heard", 'if (s.input.kind === "woken" || s.input.kind === "follow-up") {\n            s.input = { kind: "conversation" };', 'if (false) {\n            s.input = { kind: "conversation" };', "always-false-wake", "lift the bound"],
         ["wake-heard-open", 'if (s.capture.kind === "open") s.turn.deadline = null;', 'void s;', "always-false-wake", "lift the bound"],
-        ["wake-talk-ends", '(s.input.kind === "conversation" || s.input.kind === "woken") && s.turn.kind', 's.input.kind === "conversation" && s.turn.kind', "always-talk", "while listening"],
-        ["talk-ends", '(s.input.kind === "conversation" || s.input.kind === "woken") && s.turn.kind', 's.input.kind === "woken" && s.turn.kind', "always-talk", "after Talk"],
+        ["wake-talk-ends", '(s.input.kind === "conversation" || s.input.kind === "woken" || s.input.kind === "follow-up")\n            && s.turn.kind', 's.input.kind === "conversation" && s.turn.kind', "always-talk", "while listening"],
+        ["talk-ends", '(s.input.kind === "conversation" || s.input.kind === "woken" || s.input.kind === "follow-up")\n            && s.turn.kind', 's.input.kind === "woken" && s.turn.kind', "always-talk", "after Talk"],
         ["wake-closes-armed", "    closeArmed(s, effects);\n", "", "always-wake"],
         ["always-utterance", ' || s.settings.mode === "always") s.input = { kind: "released" };', ') s.input = { kind: "released" };', "always-one-utterance"],
         ["always-talk-mode", 'if (s.settings.mode === "always") { listenNow(s, effects, e.at); break; }', "", "always-talk", "listens now"],
         ["always-talk-debounce", 'function listenNow(s, effects, at) {\n    if (bounced(s, at)) return;',
             'function listenNow(s, effects, at) {', "always-talk", "250 ms"],
-        ["always-talk-ends", 'if ((s.input.kind === "conversation" || s.input.kind === "woken") && s.turn.kind === "collecting") {', "if (false) {", "always-talk", "while listening"],
+        ["always-talk-ends", 'if ((s.input.kind === "conversation" || s.input.kind === "woken" || s.input.kind === "follow-up")\n            && s.turn.kind === "collecting") {', "if (false) {", "always-talk", "while listening"],
         ["always-talk-interrupts", '    interrupt(s, effects, at);\n    start(s, effects, "conversation", at);', '    start(s, effects, "conversation", at);', "always-talk", "stops the reply"],
         ["always-talk-starts", '    interrupt(s, effects, at);\n    start(s, effects, "conversation", at);', '    interrupt(s, effects, at);', "always-talk", "listens now"],
         ["always-talk-recovers", '    recover(s, effects, at);\n    if (!canEngage(s)) return;\n    s.toggleAt = at;\n    interrupt(',
@@ -2146,7 +2247,7 @@ try {
     );
     mutants.push(
         ["say-judge", 'case "say":\n        if (sayRefusal(s) !== null) break;', 'case "say":', "say-refusals"],
-        ["say-recover", 'recover(s, effects, e.at);\n        commitUserText(s, effects, e.text, e.at, 1);', 'commitUserText(s, effects, e.text, e.at, 1);', "say-recovers"],
+        ["say-recover", 'recover(s, effects, e.at);\n        commitUserText(s, effects, e.text, e.at, 1, false);', 'commitUserText(s, effects, e.text, e.at, 1, false);', "say-recovers"],
         ["say-speaking", 'if (s.playback.kind !== "idle") return "speaking";', 'if (false) return "speaking";', "say-refuses-speaking"],
         ["say-action", 's.action.kind === "running" || ', '', "say-refuses-action-only"],
         ["user-transcript", 'userTranscript(s, effects, text, rev);', 'if (false) userTranscript(s, effects, text, rev);', "say-idle"],

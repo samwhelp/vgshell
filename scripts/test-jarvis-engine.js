@@ -1661,6 +1661,22 @@ async function cases(kit, server, only = null) {
             "toggle sends local turn-detection admission to each utterance");
     }, { mode: "toggle" });
 
+    await run("follow-up-close-aborts", async w => {
+        const before = await say(w, utterance("First turn.", [], null, { afterFrames: 3 }));
+        server.replies.push(text("Reply."));
+        await requested(w, before + 1, "the first Always request reaches the brain");
+        await replyPlays(w, "the reply starts");
+        control.utterances.push(utterance("inside window", [], null, { afterFrames: 100000 }));
+        await playOut(w);
+        await until(() => w.s().capture.kind === "open" && w.s().capture.mode === "follow-up", "the follow-up window opens");
+        w.advanceRunner(6000);
+        await until(() => w.s().capture.kind === "closed", "the silent follow-up window closes");
+        await settled(() => control.aborted === 1, () => control.finals > 1 || w.faults.length > 0,
+            "the closed follow-up utterance is aborted");
+        assert.equal(server.requests.length, before + 1, "a closed window sends no follow-up request");
+        assert.deepEqual(w.faults, [], "a closed window raises no transcription fault");
+    }, { mode: "always", fixture: { wake: true } });
+
     // A transcription that fails after its capture closed ends its turn.
     await run("transcribe-failure", async w => {
         control.utterances.push(utterance("lost", [], null, { failAfterClose: true }));
@@ -2753,6 +2769,8 @@ world(async () => {
             ["net-not-closed", "        if (c.plan.speech.lifetime !== \"daemon\") c.speech.close();\n        c.net.close();\n        retired = { gen: c.gen, closed: quiet };",
                 "        if (c.plan.speech.lifetime !== \"daemon\") c.speech.close();\n        retired = { gen: c.gen, closed: quiet };", "conversation-end"],
             ["observe-teardown", "if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === \"ended\")) end();", "void s;", "settings-change"],
+            ["follow-up-abort", '            if (conversation?.collection !== null && conversation?.collection !== undefined\n                    && !collecting(conversation, conversation.collection)) {\n                conversation.collection.utterance?.abort();\n                conversation.collection = null;\n            }\n',
+                "", "follow-up-close-aborts"],
             ["after-tool-rule", "...(after === null ? {} : { instructions: after }),", "", "tool-round"],
             ["image-answer", "turn.answers.set(id, image === undefined ? { item } : { item, image });", "turn.answers.set(id, { item });", "screen-image"],
             ["images-ready", 'return current.kind === "ready" && current.brain.provider.images;', "return true;", "screen-image"],

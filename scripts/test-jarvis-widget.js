@@ -45,6 +45,7 @@ function named(values, brain) {
 const down = reason => ({ gate: { kind: "down", reason } });
 const OPEN = { capture: { kind: "open", gen: 1, op: 2, mode: "hold" } };
 const CLOSING = { capture: { kind: "closing", gen: 1, op: 3 } };
+const FOLLOW_UP = { capture: { kind: "open", gen: 1, op: 2, mode: "follow-up" } };
 const THINKING = { turn: { kind: "thinking", gen: 1, op: 4, deadline: 70 } };
 const MUTED = { mute: { kind: "on" } };
 const READY = { tone: "info", text: "Ready; no capture" };
@@ -106,6 +107,8 @@ const CASES = [
         ["loading", "loader", "info", tip("Jarvis is starting", ["Wait for Jarvis to start.", MUTE])]],
     ["ready", up({}), ["ready", "mic", "calm", tip("Jarvis is ready", [HOLD, MUTE])]],
     ["listening", up(OPEN), ["listening", "audio-lines", "accent", tip("Jarvis is listening", ["Speak now.", MUTE])]],
+    ["listening for a follow-up", up(FOLLOW_UP),
+        ["listening", "audio-lines", "accent", tip("Jarvis is listening for a follow-up", ["Speak now. No wake word needed.", MUTE])]],
     ["capture opening", up({ capture: { kind: "opening", gen: 1, op: 2, mode: "conversation" } }),
         ["listening", "audio-lines", "accent", tip("Jarvis is listening", ["Speak now.", MUTE])]],
     ["armed before the first setup status", up(ARMED),
@@ -341,7 +344,9 @@ const CONTROLS = [
     ["file prompt loses its path", 'path: filePrompt && lines.length > 1 ? lines[1] : ""', 'path: filePrompt && lines.length > 1 ? lines[0] : ""'],
     ["file prompt repeats its path as detail", 'lines.slice(2).join("\\n")', 'lines.slice(1).join("\\n")'],
     ["detail flag is dropped", 'detail: filePrompt && lines.length > 2', 'detail: false'],
-    ["an open microphone is not listening", "microphoneOpen(state.capture)) return", "false) return"],
+    ["an open microphone is not listening", "microphoneOpen(state.capture))\n        return", "false)\n        return"],
+    ["a follow-up sounds like a normal capture", 'followUp ? "Jarvis is listening for a follow-up" : "Jarvis is listening"',
+        'false ? "Jarvis is listening for a follow-up" : "Jarvis is listening"'],
     ["an armed capture reads listening while the voice loads", "!(armed && voicePending(values)) && microphoneOpen", "microphoneOpen"],
     ["an armed capture reads listening before the voice status", "!(armed && voicePending(values)) && microphoneOpen", "!(armed && voiceLoading(values)) && microphoneOpen"],
     ["an armed pending voice reaches the phase table", '&& (armed || voiceLoading(values)))', '&& voiceLoading(values))'],

@@ -13,10 +13,12 @@ var PLAYBACK_TIMEOUT_MS = 300000;
 var APPROVAL_TIMEOUT_MS = 60000;
 var APPROVAL_DRAW_MS = 700;
 var VOICE_QUIET_MS = 1000;
-// How long a request the wake word opened waits for its first words. The
-// captions model decodes in 560 ms chunks (artifacts.json, nemotron), so
-// speech shows as a partial within about a second; the rest is the pause a
-// speaker takes after the start sound. A design choice, not a measurement.
+// How long a wake-word request, or a spoken follow-up window, waits for its
+// first words. The captions model decodes in 560 ms chunks (artifacts.json,
+// nemotron), so speech shows as a partial within about a second; the rest is
+// the pause a speaker takes after the start sound. Keeping the window short
+// also keeps the time a television or another person can reach the AI model
+// without a wake word short. A design choice, not a measurement.
 var WAKE_SILENCE_MS = 6000;
 var TRANSCRIPT_CHARS = 4096;
 var EVENTS = [
@@ -34,7 +36,7 @@ function initial() {
         mute: { kind: "off" }, capture: { kind: "closed" },
         turn: { kind: "none" }, brain: { kind: "closed" }, playback: { kind: "idle" },
         action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
-        conversation: { kind: "ended" }, input: { kind: "released" },
+        conversation: { kind: "ended" }, input: { kind: "released" }, followUp: { kind: "none" },
         indicator: { kind: "gone" }, duplex: { kind: "half" }, toggleAt: null,
         engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }
     };
@@ -137,6 +139,7 @@ function end(s, effects, at, reason, stopTool) {
         s.conversation = { kind: "ended" };
     }
     s.input = { kind: "released" };
+    s.followUp = { kind: "none" };
     closeCapture(s, effects);
     cancelTurn(s, effects, at);
     if (s.turn.kind === "none") closeBrain(s, effects);
@@ -219,13 +222,14 @@ function userTranscript(s, effects, text, rev) {
     if (shown !== "") effect(s, effects, "transcript", { role: "user", text: shown, stage: "final", rev: rev });
 }
 
-function commitUserText(s, effects, text, at, rev) {
+function commitUserText(s, effects, text, at, rev, voiceRequest) {
     if (s.conversation.kind === "interrupted") s.conversation = { kind: "active" };
     if (s.conversation.kind === "ended") {
         s.gen += 1;
         s.conversation = { kind: "active" };
     }
-    // Always mode takes one utterance per wake; the next waits for the word.
+    if (voiceRequest === true && s.settings.mode === "always" && s.engine.kind === "chained")
+        s.followUp = { kind: "asked", gen: s.gen };
     if (s.input.kind === "held" || s.settings.mode === "always") s.input = { kind: "released" };
     closeCapture(s, effects);
     userTranscript(s, effects, text, rev);
@@ -254,6 +258,16 @@ function canSpeak(s) {
 }
 
 function reconcile(s, effects, at) {
+    if (s.followUp.kind === "spoken" && s.followUp.gen === s.gen && s.input.kind === "released"
+            && s.turn.kind === "none" && s.playback.kind === "idle" && s.action.kind === "none"
+            && s.approval.kind === "none" && canEngage(s) && s.conversation.kind === "active"
+            && s.settings.mode === "always" && s.engine.kind === "chained") {
+        s.input = { kind: "follow-up" };
+        s.followUp = { kind: "none" };
+    } else if (s.followUp.kind === "asked" && s.followUp.gen === s.gen
+            && s.turn.kind === "none" && s.playback.kind === "idle") {
+        s.followUp = { kind: "none" };
+    }
     if (s.input.kind === "armed" && !armedWanted(s)) s.input = { kind: "released" };
     else if (s.input.kind === "released" && armedWanted(s)) s.input = { kind: "armed" };
     if (s.speech.kind === "open" && s.speech.reply.kind === "waiting" && canSpeak(s)) {
@@ -339,6 +353,7 @@ function toolDuration(e) {
 function interrupt(s, effects, at) {
     if (s.conversation.kind === "ended") return;
     s.conversation = { kind: "interrupted" };
+    s.followUp = { kind: "none" };
     cancelTurn(s, effects, at);
     flushPlayback(s, effects);
     // A duplex engine drops its waiting words and the rest of the interrupted
@@ -376,7 +391,8 @@ function toggle(s, effects, at) {
 // heard ends the conversation, as Toggle does, and the word is awaited again.
 function listenNow(s, effects, at) {
     if (bounced(s, at)) return;
-    if ((s.input.kind === "conversation" || s.input.kind === "woken") && s.turn.kind === "collecting") {
+    if ((s.input.kind === "conversation" || s.input.kind === "woken" || s.input.kind === "follow-up")
+            && s.turn.kind === "collecting") {
         s.toggleAt = at;
         end(s, effects, at, "toggle", false);
         return;
@@ -403,6 +419,12 @@ function expire(s, effects, at) {
     // back to waiting for the word, with no fault to clear first.
     if (s.turn.kind === "collecting" && s.turn.deadline !== null && at >= s.turn.deadline) {
         if (s.input.kind === "woken") end(s, effects, at, "wake-silence", false);
+        else if (s.input.kind === "follow-up") {
+            s.input = { kind: "released" };
+            s.followUp = { kind: "none" };
+            closeCapture(s, effects);
+            s.turn = { kind: "none" };
+        }
         else {
             s.fault = { kind: "error", reason: "speech=collect-timeout", retry: 0 };
             end(s, effects, at, "collect-timeout", false);
@@ -566,7 +588,7 @@ function reduce(state, e) {
         if (!live(s, e, "capture", ["opening"])) { stale(s); break; }
         s.capture.kind = "open";
         if (s.capture.mode === "check") s.check = { kind: "recording", gen: e.gen, op: e.op, deadline: e.at + VOICE_CHECK_MS };
-        if (s.turn.kind === "collecting") s.turn.deadline = s.input.kind === "woken" ? e.at + WAKE_SILENCE_MS : null;
+        if (s.turn.kind === "collecting") s.turn.deadline = s.input.kind === "woken" || s.input.kind === "follow-up" ? e.at + WAKE_SILENCE_MS : null;
         if (s.fault.kind === "retrying") s.fault = { kind: "none" };
         break;
     case "capture-failed": {
@@ -578,6 +600,7 @@ function reduce(state, e) {
         closeCapture(s, effects);
         if (s.input.kind === "check") end(s, effects, e.at, "capture-failed", false);
         if (s.turn.kind === "collecting") s.turn = { kind: "none" };
+        s.followUp = { kind: "none" };
         break;
     }
     // The wake word opens a conversation as a Talk press does, with its
@@ -595,7 +618,7 @@ function reduce(state, e) {
         if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
         s.turn.partial = e.text;
         // Words were heard: the request is collected as a Talk-started one.
-        if (s.input.kind === "woken") {
+        if (s.input.kind === "woken" || s.input.kind === "follow-up") {
             s.input = { kind: "conversation" };
             if (s.capture.kind === "open") s.turn.deadline = null;
         }
@@ -612,14 +635,14 @@ function reduce(state, e) {
             think(s, effects, { text: e.text, delegation: e.id }, e.at);
         } else {
             if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
-            commitUserText(s, effects, e.text, e.at, e.op);
+            commitUserText(s, effects, e.text, e.at, e.op, true);
         }
         break;
     case "say":
         if (sayRefusal(s) !== null) break;
         if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) end(s, effects, e.at, "say", false);
         recover(s, effects, e.at);
-        commitUserText(s, effects, e.text, e.at, 1);
+        commitUserText(s, effects, e.text, e.at, 1, false);
         break;
     // A task line the daemon wrote speaks as a turn of its own: no user
     // words, and the engine never hands it to the brain.
@@ -688,6 +711,8 @@ function reduce(state, e) {
         break;
     case "played":
         if (!live(s, e, "playback", ["playing", "feedback"])) { stale(s); break; }
+        if (s.playback.kind === "playing" && s.followUp.kind === "asked" && s.followUp.gen === s.gen)
+            s.followUp = { kind: "spoken", gen: s.gen };
         var lineReply = s.playback.kind === "feedback" ? s.playback.reply : { kind: "none" };
         s.playback = lineReply.kind === "waiting" && lineReply.gen === s.gen && s.conversation.kind === "active" && canEngage(s)
             ? { kind: "playing", gen: lineReply.gen, op: operation(s), source: lineReply.source,
@@ -860,6 +885,7 @@ var REGIONS = {
     approval: { none: "", held: "purpose gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain" },
     fault: { none: "", error: "reason retry", retrying: "reason retry" }, conversation: { ended: "", active: "", interrupted: "" },
     input: { released: "", held: "", conversation: "", "follow-up": "", armed: "", woken: "", check: "" },
+    followUp: { none: "", asked: "gen", spoken: "gen" },
     indicator: { gone: "", shown: "" }, duplex: { half: "" },
     engine: { chained: "", duplex: "" }, speech: { closed: "", open: "gen op reply" },
     check: { unavailable: "", ready: "", waiting: "gen op deadline", recording: "gen op deadline", finishing: "gen op deadline", done: "result", failed: "reason" }

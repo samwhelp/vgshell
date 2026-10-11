@@ -1391,6 +1391,11 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         checkReady: () => plan.speech?.wake === true && daemonSpeech?.status().kind === "ready",
         observe(s) {
             if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === "ended")) end();
+            if (conversation?.collection !== null && conversation?.collection !== undefined
+                    && !collecting(conversation, conversation.collection)) {
+                conversation.collection.utterance?.abort();
+                conversation.collection = null;
+            }
             if (s.playback.kind === "feedback") {
                 const c = current(s.gen);
                 if (s.playback.cue === "start" && c.feedback === null)

@@ -662,7 +662,7 @@ case_file_bad_alt() {
 }
 holds "an acceptance case file with an empty word list is refused" case_file_empty_words
 holds "an acceptance case file with an invalid alternative token is refused" case_file_bad_alt
-control cut_functions "a case check that accepts missing keys" 'if set(data) != keys:' 'if False and set(data) != keys:' case_file_malformed
+control cut_functions "a case check that accepts extra keys" 'if not required.issubset(data) or set(data) - (required | {"followUp"}):' 'if not required.issubset(data) and set(data) - (required | {"followUp"}):' case_file_malformed
 
 case_child_args_local() {
   local voices="$tmp/voices" got
@@ -1057,7 +1057,7 @@ holds "the turn reader waits where the trace holds no input mark" no_mark
 control cut_functions "a service reader that compares no setting" 'missing = [key for key in want if held.get(key) != want[key]]' 'missing = []' daemon_reads "${daemon_rows[3]}"
 control cut_functions "a gate context reader that ignores the live gate" 'gate = state.get("gate") or {"kind": "none"}' 'gate = {"kind": "none"}' gate_context_reads
 control cut_functions "a turn reader that ends before Jarvis worked" 'or worked and last in' 'or last in' turn_reads "${turn_rows[3]}"
-control cut_functions "a turn reader that counts the phases before the input" 'phases = [e["value"] for e in events[marks[0]:] if e["kind"] == "phase"] if marks else []
+control cut_functions "a turn reader that counts the phases before the input" 'phases = [e["value"] for e in events[marks[-1]:] if e["kind"] == "phase"] if marks else []
 last = phases[-1]' 'phases = [e["value"] for e in events if e["kind"] == "phase"] if marks else []
 last = phases[-1]' turn_reads "${turn_rows[1]}"
 
