@@ -1082,33 +1082,38 @@ click_centre() {
 # [x, y, w, h], or absent; control_hovered LOOKUP: true, false or absent
 # for whether it reports the pointer over it. LOOKUP is HOST_KEY ID TYPE
 # TEXT for the first visible, enabled control TYPE reading TEXT under a
-# built instance, or NAMESPACE ID TYPE PROPERTY VALUE, NAMESPACE a
-# layer's vgs:<name>, for the first visible, enabled item TYPE whose
-# PROPERTY reads VALUE in plugin ID's copies of that layer, or
+# built instance, window:TITLE HOST_KEY ID TYPE TEXT for window controls,
+# or NAMESPACE ID TYPE PROPERTY VALUE, NAMESPACE a layer's vgs:<name>, for
+# the first visible, enabled item TYPE whose PROPERTY reads VALUE in plugin
+# ID's copies of that layer, or
 # popup:HOST_KEY ID SCOPE_TYPE SCOPE_TEXT TYPE TEXT for the first visible,
 # enabled control TYPE reading TEXT in an open menu or popover of a built
 # instance, inside the item SCOPE_TYPE drawing SCOPE_TEXT unless SCOPE_TYPE
-# is empty (the probe's popupItem). The probe answers a layer item's box in
-# its window, so the layer's position from the compositor is added.
+# is empty (the probe's popupItem). The probe answers layer and window
+# item boxes in their windows, so the surface position from the compositor
+# is added.
 control_box() {
-  local rect layer
+  local rect surface
   if [[ $1 == popup:* ]]; then ipc smoke popupItemGeometry "${1#popup:}" "$2" "$3" "$4" "$5" "$6"; return; fi
-  if [[ $1 != vgs:* ]]; then ipc smoke itemGeometry "$1" "$2" "$3" "$4"; return; fi
-  rect="$(ipc smoke layerItemGeometry "$2" "$3" "$4" "$5")" || return 1
+  if [[ $1 == vgs:* ]]; then rect="$(ipc smoke layerItemGeometry "$2" "$3" "$4" "$5")" || return 1
+  elif [[ $1 == window:* ]]; then rect="$(ipc smoke windowGeometry "$2" "$3" "$4" "$5")" || return 1
+  else ipc smoke itemGeometry "$1" "$2" "$3" "$4"; return; fi
   if [[ $rect == absent ]]; then echo absent; return; fi
-  layer="$(surface_box "$1")" || return 1
-  python3 -c 'import json,sys; l=json.loads(sys.argv[1]); r=json.loads(sys.argv[2]); print(json.dumps([l[0] + r[0], l[1] + r[1], r[2], r[3]]))' "$layer" "$rect"
+  surface="$(surface_box "$1")" || return 1
+  python3 -c 'import json,sys; l=json.loads(sys.argv[1]); r=json.loads(sys.argv[2]); print(json.dumps([l[0] + r[0], l[1] + r[1], r[2], r[3]]))' "$surface" "$rect"
 }
 control_hovered() {
   if [[ $1 == popup:* ]]; then ipc smoke popupItemHovered "${1#popup:}" "$2" "$3" "$4" "$5" "$6"
   elif [[ $1 == vgs:* ]]; then ipc smoke layerItemHovered "$2" "$3" "$4" "$5"
+  elif [[ $1 == window:* ]]; then ipc smoke itemHovered "$2" "$3" "$4" "$5"
   else ipc smoke itemHovered "$1" "$2" "$3" "$4"
   fi
 }
-# point_item LOOKUP [DX DY]: the pointer left resting on a control_box
-# LOOKUP, at its centre or at (DX, DY) from its top-left corner, `-` for
-# the centre on that axis, once the control reports the pointer over that
-# point; prints that point as `X Y`. The compositor routes the pointer by
+# point_item LOOKUP [DX DY]: for LOOKUP forms above, including window:TITLE,
+# the pointer left resting on a control_box LOOKUP, at its centre or at (DX,
+# DY) from its top-left corner, `-` for the centre on that axis, once the
+# control reports the pointer over that point; prints that point as `X Y`.
+# The compositor routes the pointer by
 # where it has placed the surface, which can trail the layout the probe
 # reads after the surface resizes, and a list that grows after it opens or
 # a card that slides in moves the control, so a box read once goes stale.
@@ -1126,7 +1131,7 @@ control_hovered() {
 # the hover geometry card and the restored toast.
 point_item() { # LOOKUP [DX DY]
   local n=4 lookup rect seen="" x="" y="" px hovered held=0 i
-  [[ $1 == vgs:* ]] && n=5
+  [[ $1 == vgs:* || $1 == window:* ]] && n=5
   [[ $1 == popup:* ]] && n=6
   if (( $# != n && $# != n + 2 )); then echo "point_item: refused: arguments=$# lookup=$n" >&2; return 1; fi
   lookup=("${@:1:n}")
@@ -2427,7 +2432,9 @@ settings_open_tui() { ipc smoke invokeInstance window vgs.settings openTui "{\"i
 # on the Settings window's shown, enabled item of TYPE, Button unless given,
 # reading TEXT, inside the first shown SCOPE_TYPE drawing SCOPE_TEXT when
 # given, the page scrolled first so the first such item lies in view, as a
-# user scrolls to a step below the fold.
+# user scrolls to a step below the fold. An unscoped press waits until the
+# item reports the pointer, through point_item, and fails at the press with
+# the cause when it never does.
 settings_press() {
   local shown type=Button
   if [[ $1 == --type ]]; then type="$2"; shift 2; fi
@@ -2435,7 +2442,9 @@ settings_press() {
   [[ $shown =~ ^[0-9.]+$ ]] || { echo "settings_press: no $type $1 to reveal: $shown" >&2; return 1; }
   sleep 0.2
   if [[ $# -eq 3 ]]; then click_scoped_in window:Plugins window vgs.settings "$2" "$3" "$type" "$1"
-  else click_in window:Plugins window vgs.settings "$type" "$1"
+  elif ! click_item window:Plugins window vgs.settings "$type" "$1"; then
+    echo "settings_press: pointer-not-ready=$type $1" >&2
+    return 1
   fi
 }
 # click_scoped_in SURFACE HOST_KEY ID SCOPE_TYPE SCOPE_TEXT TYPE TEXT: the
