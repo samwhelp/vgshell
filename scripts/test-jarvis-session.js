@@ -1807,7 +1807,7 @@ for (const seed of seeds) for (const a of pairEvents) for (const b of pairEvents
 assert.equal(pairs, 21 * (events.length + 6) ** 2, "matrix discovery floor and exact event set");
 const createdPairs = createdPairMatrix(Session);
 
-const parent = path.resolve(__dirname, "../tmp");
+const parent = "/tmp";
 fs.mkdirSync(parent, { recursive: true });
 const root = fs.mkdtempSync(path.join(parent, "js-"));
 const source = fs.readFileSync(file, "utf8");

@@ -2326,7 +2326,7 @@ world(async () => {
         const original = fs.readFileSync(file, "utf8");
         const needle = 'result.kind === "failed" && e.mode === "check"';
         assert.equal(original.split(needle).length, 2, "one check failure dispatch rule");
-        const mutantRoot = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "jarvis-check-failure-"));
+        const mutantRoot = fs.mkdtempSync(path.join("/tmp", "jarvis-check-failure-"));
         try {
             const mutant = path.join(mutantRoot, "closed-check-failure.js");
             fs.writeFileSync(mutant, original.replace(needle, needle + " && !sink.destroyed"));
