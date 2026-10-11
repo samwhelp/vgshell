@@ -629,10 +629,10 @@ expect_poll "Voice reports Ready and keeps the check action" '["ok", "Ready", nu
 expect "Check microphone can run again" ok ipc vgs.jarvis invoke check-microphone ''
 expect_poll "sound without the wake phrase is not Ready" not-heard setup_check_result
 expect_poll "Voice gives the quiet-room guidance in full" '["warning", "Not heard", "Jarvis did not hear Hey Jarvis: try again closer or in a quieter room", "check-microphone"]' setup_check_row
-: >"$setup_check_home/capture-silent"
+: >"${setup_check_home:?}/capture-silent"
 expect "Check microphone can check a silent source" ok ipc vgs.jarvis invoke check-microphone ''
 expect_poll "an all-zero stand-in source is silent" silent setup_check_result
-expect_poll "Voice gives the microphone Settings path in full" '["warning", "Muted or silent", "The microphone is muted or sends silence. Check Settings > Jarvis > Voice > Microphone.", "check-microphone"]' setup_check_row
+expect_poll "Voice gives the microphone Settings path in full" '["warning", "Muted or silent", "The microphone is muted or sends silence. Check Settings > Jarvis > Audio > Microphone.", "check-microphone"]' setup_check_row
 rm -f -- "${setup_check_home:?}/capture-silent"
 settings_page_close vgs.jarvis
 jarvis_disable
