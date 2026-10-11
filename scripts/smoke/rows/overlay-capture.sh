@@ -8,6 +8,28 @@
 # inputs: shell/Core/HyprlandLayer.js shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.themes/* bin/vgshell scripts/smoke/toplevel/* shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/theme-browser.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
+overlay_capture_themes_enabled="$(python3 -c 'import json,sys; print("false" if "vgs.themes" in json.load(open(sys.argv[1])).get("disabledPlugins",[]) else "true")' "$home/.config/vgshell/shell.json")"
+restore_overlay_capture_themes() {
+  python3 - "$home/.config/vgshell/shell.json" "$overlay_capture_themes_enabled" <<'PY_RESTORE_THEMES'
+import json, os, sys
+path, enabled = sys.argv[1:]
+with open(path) as f:
+    doc = json.load(f)
+disabled = [p for p in doc.get("disabledPlugins", []) if p != "vgs.themes"]
+if enabled == "false":
+    disabled.append("vgs.themes")
+if disabled:
+    doc["disabledPlugins"] = disabled
+elif "disabledPlugins" in doc:
+    del doc["disabledPlugins"]
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(doc, f)
+    f.write("\n")
+os.replace(tmp, path)
+PY_RESTORE_THEMES
+}
+
 press_themes() { type_keys -M logo -M shift -k t -m shift -m logo; }
 press_exec() { type_keys -M logo -k k -m logo; }
 press_focus_right() { type_keys -M logo -k d -m logo; }
@@ -280,4 +302,5 @@ control_launcher_close_hook
 control_on_demand_typing
 stop_shell
 hypr_lua_restore overlay-capture || fail "overlay capture restores the harness hyprland.lua"
+restore_overlay_capture_themes
 start_shell "$repo" "$sandbox/overlay-capture-final.log" || fail "overlay capture leaves a live shell for smoke teardown"

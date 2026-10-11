@@ -3889,7 +3889,7 @@ cp -- "$sandbox/CardScroll.fade-kept.qml" "$fade_qml"
 rescan "a rescan restores the painted notification cards"
 expect_poll "the restored pixel probe service is built" True record_exists vgs.notifications
 "${shell_env[@]}" "$repo/bin/vgshell" theme apply vgs >/dev/null || fail "the pixel probe restores the theme"
-expect_poll "the pixel probe restores Black" 1 layer_count vgs:background
+expect_poll "the pixel probe restores Black" "$monitors" layer_count vgs:background
 expect "the pixel probe restores its wallpaper host enablement" ok ipc shell setPluginEnabled vgs.themes "$fade_themes_enabled"
 rm -rf -- "${fade_theme_dir:?}" "${home:?}/.config/vgshell/themes/fade-probe-dark" "${home:?}/.config/vgshell/themes/fade-probe-light"
 write_theme '{"schemaVersion":1,"name":"vgs","tokens":{}}'
