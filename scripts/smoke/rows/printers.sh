@@ -22,8 +22,8 @@
 # then enables it and lets it take jobs, Add on the address field does the
 # same for the address, and each change reaches the world and the list; a
 # found device that needs a driver opens Print Settings and calls the
-# helper not at all; an address of another scheme is refused and calls
-# nothing; with CUPS silent a change outside VGS stays off the list, so
+# helper not at all; an address of another scheme, or of a printer
+# already added, is refused and calls nothing; with CUPS silent a change outside VGS stays off the list, so
 # the list follows CUPS's notifications and polls nothing, and the
 # service's own change reads lpstat at its end, which shows both; a
 # refused authorisation leaves the world as it was and the pane shows the
@@ -31,12 +31,15 @@
 # leaves no watcher process or dbus-monitor, and opening it again reads
 # the change the world took while it was closed and subscribes again;
 # after disable with the section open the subscription is cancelled and
-# nothing of the watcher remains. The controls: a copy of the plugin that
-# starts its watcher at enable, keeps it running after the section closes,
-# whose changes call echo in place of the helper and whose watcher cancels
-# nothing: the closed section runs a watcher, Set as default, Remove and
-# Add each leave the world as it was, the closed section keeps the
-# subscription live, and after disable it stays live. Every reading is
+# nothing of the watcher remains. A copy without lpstat reads printing not
+# installed, offers Install printing on its line and in the section, and
+# the press raises the requirement notice for the missing command. The
+# controls: a copy of the plugin that starts its watcher at enable, keeps
+# it running after the section closes, whose changes call echo in place of
+# the helper and whose watcher subscribes over TCP naming no owner: the
+# closed section runs a watcher, Set as default, Remove and Add each leave
+# the world as it was, the closed section keeps the subscription live, and
+# after disable the owner rule leaves it live too. Every reading is
 # expect_poll's: 25 reads 0.2 s apart; a reading that something stays is
 # pr_stays's: 10 reads 0.2 s apart. The row leaves vgs.printers and
 # vgs.system enabled or disabled as it found them, the world empty and no
@@ -65,12 +68,16 @@ elif k.startswith("printer:"):
 else: print(json.dumps(w[k], sort_keys=True))' "$1"; }
 pr_world_state() { cups_world_read | py_reply 'import json,sys; w=json.load(sys.stdin); print(json.dumps([w["printers"], w["default"]], sort_keys=True))'; }
 pr_message() { pr_pane printers | py_reply 'import json,sys; print(json.dumps([p["message"] for p in json.load(sys.stdin) if p["name"] == sys.argv[1]][0]))' "$1"; }
+pr_printing() { ipc smoke statusValues vgs.printers | py_reply 'import json,sys; v=json.load(sys.stdin).get("printing"); print("unpublished" if v is None else json.dumps(v.get(sys.argv[1])))' "$1"; }
+pr_offered() { pr_pane printingAction | py_reply 'import json,sys; print("none" if json.load(sys.stdin) is None else "offered")'; }
 pr_count() { device_calls "$1" | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 pr_calls_since() { device_calls cups-pk-helper | py_reply 'import json,sys; print(json.dumps([[c["method"], c["args"]] for c in json.load(sys.stdin)[int(sys.argv[1]):]]))' "$1"; }
-# The ipptool calls since call N as [test file, recipient], "" for none.
+# The subscription calls ipptool took since call N as [test file,
+# recipient], "" for none; the default's reads are left out.
 pr_ipptool_since() { device_calls ipptool | py_reply 'import json,sys
 out=[]
 for c in json.load(sys.stdin)[int(sys.argv[1]):]:
+    if c[-1].endswith("/default.test"): continue
     recipient=[w.split("=",1)[1] for w in c if w.startswith("recipient=")]
     out.append([c[-1].rsplit("/",1)[-1], recipient[0] if recipient else ""])
 print(json.dumps(out))' "$1"; }
@@ -228,6 +235,9 @@ pr_main() {
   expect "the refused address calls the helper not at all" '[]' pr_calls_since "$calls_before"
   expect "Add on an address answers ok" ok pr_act addAddress '["192.0.2.7"]'
   expect_poll "the address becomes an enabled IPP queue" '["idle", true, "ipp://192.0.2.7/ipp/print"]' pr_world printer:192.0.2.7
+  calls_before="$(pr_count cups-pk-helper)"
+  expect "Add again on the address a printer uses is refused" "refused: address=installed" pr_act addAddress '["192.0.2.7"]'
+  expect "Add again adds no second queue" '[]' pr_calls_since "$calls_before"
   expect_poll "the list follows: the address's printer is listed" '[["192.0.2.7", "idle", 0, false], ["Lab_Printer", "idle", 0, false], ["Office", "idle", 0, true]]' pr_printers
 
   # Silent CUPS: a change outside VGS stays off the list, and the service's
@@ -273,12 +283,39 @@ pr_main() {
   expect_poll "the status record is gone" absent pr_status_record
   expect "the System window closes after the disable" ok ipc shell hide window vgs.system
 
+  pr_uninstalled
   pr_controls
 }
 
+# Printing not installed: a copy whose lpstat no PATH holds
+# (cups_uninstalled_copy). The `printing` line offers Install printing, the
+# section draws it, and its press raises the requirement notice for the
+# missing command alone; Escape answers Not now.
+pr_uninstalled() {
+  rm -rf -- "${pr_copy:?}"
+  expect "the not-installed copy is written" copy=written cups_uninstalled_copy "$pr_copy"
+  rescan "a scan reads the not-installed copy"
+  pr_enable "the not-installed copy"
+  expect "the not-installed copy's section summons" ok ipc shell summon window vgs.system '{"pane":"vgs.printers"}'
+  expect_poll "the not-installed copy's section is mounted" '["vgs.printers"]' window_panes
+  expect_poll "not installed: the service reads printing not installed" '"missing"' pr_view cups
+  expect_poll "not installed: the printing line names its install action" '"install"' pr_printing action
+  expect_poll "not installed: the section offers the line's action" offered pr_offered
+  expect "not installed: the section's action answers ok" ok pr_act runPrintingAction '[]'
+  expect_poll "not installed: the notice offers the missing command alone" '["vgs.printers", ["vgs-smoke-lpstat"], ["vgs-smoke-lpstat"], false]' notice_shown
+  type_keys -k Escape || fail "sending Escape to the notice failed"
+  expect_poll "not installed: Escape closes the notice" null notice_shown
+  expect "the not-installed copy's window closes" ok ipc shell hide window vgs.system
+  expect "disabling the not-installed copy is allowed" ok ipc shell setPluginEnabled vgs.printers false
+  expect_poll "the not-installed copy's service is gone" False record_exists vgs.printers
+  rm -rf -- "${pr_copy:?}"
+  rescan "a scan drops the not-installed copy"
+}
+
 # The controls: a copy that starts its watcher at enable and keeps it after
-# the section closes, whose changes call echo in place of the helper and
-# whose watcher cancels nothing.
+# the section closes, whose changes call echo in place of the helper, and
+# whose watcher asks CUPS in the old form, over TCP and naming no owner, so
+# its subscription is anonymous and the owner rule refuses its cancel.
 pr_controls() {
   rm -rf -- "${pr_copy:?}"
   cp -R -- "$repo/shell/plugins/vgs.printers" "$pr_copy"
@@ -300,16 +337,20 @@ open(logic, "w").write(new)
 service = os.path.join(root, "Service.qml")
 text = open(service).read()
 for old, rep in [('        shell.ipc.handle("view", arg => root.viewCall(arg));\n', '        shell.ipc.handle("view", arg => root.viewCall(arg));\n        read();\n'),
-                 ("if (root.shown && reading.state", "if (reading.state"),
+                 ("if (shown && reading.state", "if (reading.state"),
                  ('            watch = "stopping";\n            watcher.running = false;\n', '            watch = "ready";\n')]:
     assert text.count(old) == 1, old
     text = text.replace(old, rep)
 open(service, "w").write(text)
-watch = os.path.join(root, "bin", "printers-watch")
-text = open(watch).read()
-old = '    ipptool -T 5 -t -d "id=$subscription" "$uri" "$tests/cancel.test" >/dev/null 2>&1 || :\n'
+text = open(logic).read()
+old = 'var CUPS_URI = "ipp://%2Frun%2Fcups%2Fcups.sock/";'
 assert text.count(old) == 1
-open(watch, "w").write(text.replace(old, "    :\n"))
+open(logic, "w").write(text.replace(old, 'var CUPS_URI = "ipp://localhost/";'))
+test = os.path.join(root, "ipp", "subscribe.test")
+text = open(test).read()
+old = "\tATTR name requesting-user-name $user\n"
+assert text.count(old) == 1
+open(test, "w").write(text.replace(old, ""))
 PY
   rescan "a scan reads the Printers control copy"
   local subscription
@@ -327,7 +368,7 @@ PY
   expect "control: a copy that keeps watching after close leaves the subscription live" stays pr_stays live pr_subscription "$subscription"
   expect "disabling the control copy is allowed" ok ipc shell setPluginEnabled vgs.printers false
   expect_poll "the control copy's watcher is gone" '{"monitor": 0, "watch": 0}' pr_watchers
-  expect "control: a watcher that cancels nothing leaves the subscription live" live pr_subscription "$subscription"
+  expect "control: an anonymous subscription over TCP is not the caller's to cancel" live pr_subscription "$subscription"
   rm -rf -- "${pr_copy:?}"
   rescan "a scan drops the Printers control copy"
 }

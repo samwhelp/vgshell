@@ -33,7 +33,9 @@ import "PrintersLogic.js" as Logic
 // subscription; the last lease's end stops the watcher, whose own trap
 // cancels the subscription.
 //
-// The list is never polled. The service reads `lpstat` once when a view
+// A read is lpstat for the printers, their jobs and devices, then ipptool
+// over ipp/default.test for the scheduler's default, the one Set as
+// default changes. The list is never polled. The service reads once when a view
 // opens, when the Settings page shows the plugin (`status.viewed`), which
 // draws the `printing` line, after the watcher's `ready` and each CUPS
 // notification it prints, after each of its own changes ends, and on
@@ -58,8 +60,10 @@ Item {
     readonly property bool viewed: shell !== null && shell.status.viewed
 
     readonly property var missing: shell === null ? [] : shell.requirements.missing
-    readonly property bool lpstatMissing: missing.indexOf("lpstat") !== -1
-    readonly property bool watchMissing: missing.indexOf("ipptool") !== -1 || missing.indexOf("dbus-monitor") !== -1
+    // lpstat and ipptool come with CUPS; without either the list cannot be
+    // read, and the `printing` line offers their install.
+    readonly property bool cupsMissing: missing.indexOf("lpstat") !== -1 || missing.indexOf("ipptool") !== -1
+    readonly property bool watchMissing: missing.indexOf("dbus-monitor") !== -1
     readonly property bool helperMissing: missing.indexOf("gdbus") !== -1 || missing.indexOf(Logic.HELPER) !== -1
     readonly property int scans: shell === null ? 0 : shell.requirements.revision
     readonly property string step: {
@@ -78,13 +82,13 @@ Item {
     property var found: ({ state: "idle", devices: [] })
 
     readonly property var printers: reading.state === "read" ? reading.printers : []
-    readonly property var printing: Logic.printingView(reading, lpstatMissing, step)
+    readonly property var printing: Logic.printingView(reading, cupsMissing, step)
     readonly property var view: ({
-        cups: lpstatMissing ? "missing" : reading.state,
+        cups: cupsMissing ? "missing" : reading.state,
         printers: printers,
         watch: watch,
         op: Logic.opView(op),
-        found: found,
+        found: { state: found.state, devices: Logic.foundShown(found.devices, printers) },
         helper: helperMissing ? "missing" : "present"
     })
 
@@ -124,8 +128,8 @@ Item {
     }
 
     function read() {
-        if (shell === null || lpstatMissing) return;
-        if (reader.running) {
+        if (shell === null || cupsMissing) return;
+        if (reader.running || defaults.running) {
             reader.again = true;
             return;
         }
@@ -172,6 +176,19 @@ Item {
         return "ok";
     }
 
+    // ipp/ test file NAME's path.
+    function ippTest(name) { return String(Qt.resolvedUrl("ipp/" + name)).replace(/^file:\/\//, ""); }
+
+    // The end of one read, READING with the default applied.
+    function readEnded(reading) {
+        root.reading = reading;
+        if (shown && reading.state === "read" && watch === "off" && !watchMissing) startWatch();
+        if (reader.again) {
+            reader.again = false;
+            read();
+        }
+    }
+
     // NAME's printer of the last reading, or undefined.
     function printerNamed(name) { return printers.find(p => p.name === name); }
 
@@ -180,10 +197,13 @@ Item {
         return begin(kind, name, kind === "default" ? Logic.defaultSteps(name) : Logic.removeSteps(name));
     }
 
+    // A press of Add again, after a change that left the queue, must not add
+    // a second queue for one device.
     function addFound(uri) {
         const device = found.devices.find(d => d.uri === uri);
         if (device === undefined) return "refused: device=" + JSON.stringify(uri) + " reason=unknown";
         if (!device.driverless) return "refused: device=" + JSON.stringify(uri) + " reason=driver";
+        if (printers.some(p => p.uri === uri)) return "refused: device=" + JSON.stringify(uri) + " reason=installed";
         const name = Logic.queueName(device.info, printers.map(p => p.name));
         return begin("add", name, Logic.addSteps(name, device.uri, device.info));
     }
@@ -191,6 +211,7 @@ Item {
     function addAddress(text) {
         const device = Logic.addressDevice(text);
         if (!device.ok) return "refused: address=" + device.problem;
+        if (printers.some(p => p.uri === device.uri)) return "refused: address=installed";
         const name = Logic.queueName(device.host, printers.map(p => p.name));
         return begin("add", name, Logic.addSteps(name, device.uri, device.host));
     }
@@ -249,12 +270,33 @@ Item {
             const code = reader.completion === null ? -1 : reader.completion.code;
             const reading = Logic.lpstatReading(code, readOutput.text);
             if (reading.state === "failed") console.warn("printers: lpstat reason=" + reading.reason + " " + readErrors.text.trim());
-            root.reading = reading;
-            if (root.shown && reading.state === "read" && root.watch === "off" && !root.watchMissing) root.startWatch();
-            if (reader.again) {
-                reader.again = false;
-                root.read();
+            if (reading.state !== "read") {
+                root.readEnded(reading);
+                return;
             }
+            defaults.listed = reading;
+            defaults.completion = null;
+            defaults.running = true;
+        }
+    }
+
+    // The scheduler's own default, which Set as default changes, read after
+    // the list it marks.
+    Process {
+        id: defaults
+        property var completion: null
+        property var listed: null
+        command: Logic.ippArgv(root.ippTest("default.test"), {})
+        clearEnvironment: true
+        environment: root.childEnvironment
+        stdout: StdioCollector { id: defaultOutput }
+        stderr: StdioCollector { id: defaultErrors }
+        onExited: (code, status) => { defaults.completion = { code: code }; }
+        onRunningChanged: {
+            if (running) return;
+            const found = Logic.defaultReading(defaults.completion === null ? -1 : defaults.completion.code, defaultOutput.text);
+            if (!found.ok) console.warn("printers: default reason=" + found.reason + " " + defaultErrors.text.trim().split("\n")[0]);
+            root.readEnded(Logic.withDefault(defaults.listed, found.ok ? found.name : ""));
         }
     }
 
@@ -266,7 +308,7 @@ Item {
         id: watcher
         property var completion: null
         stdinEnabled: true
-        command: ["setpriv", "--pdeathsig", "TERM", "--", String(Qt.resolvedUrl("bin/printers-watch")).replace(/^file:\/\//, "")]
+        command: ["setpriv", "--pdeathsig", "TERM", "--", String(Qt.resolvedUrl("bin/printers-watch")).replace(/^file:\/\//, ""), Logic.CUPS_URI]
         clearEnvironment: true
         environment: root.childEnvironment
         stdout: SplitParser {
@@ -288,6 +330,9 @@ Item {
             if (running || root.closing) return;
             if (root.watch === "stopping") {
                 root.watch = "off";
+                // A cancel CUPS refused, the one line the watcher prints on
+                // a stop.
+                if (watchErrors.text.trim() !== "") console.warn("printers: watcher stopped " + watchErrors.text.trim().split("\n").join(" "));
                 // A view that opened while the watcher stopped starts it again.
                 if (root.shown) root.read();
                 return;

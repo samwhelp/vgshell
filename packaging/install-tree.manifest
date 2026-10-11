@@ -584,6 +584,7 @@ f share/vgshell/shell/plugins/vgs.printers/PrintersLogic.js
 f share/vgshell/shell/plugins/vgs.printers/Service.qml
 f share/vgshell/shell/plugins/vgs.printers/bin/printers-watch
 f share/vgshell/shell/plugins/vgs.printers/ipp/cancel.test
+f share/vgshell/shell/plugins/vgs.printers/ipp/default.test
 f share/vgshell/shell/plugins/vgs.printers/ipp/renew.test
 f share/vgshell/shell/plugins/vgs.printers/ipp/subscribe.test
 f share/vgshell/shell/plugins/vgs.printers/manifest.json

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # printers-watch: vgs.printers's change listener, run by the service as
-#   setpriv --pdeathsig TERM -- printers-watch
+#   setpriv --pdeathsig TERM -- printers-watch URI
+# while the Printers section is shown. URI is the scheduler ipptool asks,
+# PrintersLogic.CUPS_URI: cupsd's domain socket, where it authenticates
+# the subscription's owner for the renewal and the cancel.
 # It asks CUPS for one subscription to printer and job events whose
 # recipient is `dbus://`, CUPS's dbus notifier, and listens on the system
 # bus for the org.cups.cupsd.Notifier signals that notifier sends. It
@@ -14,11 +17,20 @@
 # it has passed, so a watch killed past its trap leaves a subscription
 # CUPS ends by itself. Its EXIT trap cancels the subscription and ends
 # dbus-monitor, which also runs under pdeathsig TERM from the watch, so a
-# disable leaves neither behind.
+# closed section or a disable leaves neither behind; a cancel CUPS refuses
+# prints `printers-watch: cancel=failed id=<id>` and ipptool's output on
+# stderr, which the service logs.
+#
+# A socket-activated cupsd (`cupsd -l`) exits after IdleExitTimeout with no
+# job active, whatever subscriptions it holds (scheduler/main.c). It keeps
+# the subscription in subscriptions.conf, and the next connection, the
+# renewal's or a printer change's, starts it again with the subscription
+# and its notifier; a renewal it refuses ends the watch with exit 3, and
+# the section offers Try again.
 #
 # Quickshell ends a removed service's child with SIGKILL, which runs no
 # trap (the comment at vgs.network's joinHelper states it), so the watch
-# runs one level down, `printers-watch --held PARENT`, under setpriv's
+# runs one level down, `printers-watch --held PARENT URI`, under setpriv's
 # pdeathsig TERM from this first process: the SIGKILL of the first ends
 # the second with TERM, and its trap runs. The first forwards TERM, INT and
 # HUP and exits with the second's status. A second whose parent is gone
@@ -48,11 +60,10 @@ set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 tests="${self%/bin/*}/ipp"
-uri=ipp://localhost/
 lease_s=600
 
 if [[ ${1-} != --held ]]; then
-  setpriv --pdeathsig TERM -- "$self" --held "$$" </dev/null &
+  setpriv --pdeathsig TERM -- "$self" --held "$$" "${1:?printers-watch: URI}" </dev/null &
   held=$!
   # An explicit redirection keeps the pipe, not /dev/null, on its stdin.
   cat <&0 >/dev/null &
@@ -75,12 +86,14 @@ if [[ ${1-} != --held ]]; then
 fi
 
 [[ $PPID == "${2-}" ]] || { printf 'printers-watch: refused: parent=gone\n' >&2; exit 1; }
+uri="$3"
 
 subscription=""
 monitor_pid=""
 cleanup() {
-  if [[ -n $subscription ]]; then
-    ipptool -T 5 -t -d "id=$subscription" "$uri" "$tests/cancel.test" >/dev/null 2>&1 || :
+  local reply
+  if [[ -n $subscription ]] && ! reply="$(ipptool -T 5 -t -d "id=$subscription" "$uri" "$tests/cancel.test" 2>&1)"; then
+    printf 'printers-watch: cancel=failed id=%s\n%s\n' "$subscription" "$reply" >&2
   fi
   [[ -z $monitor_pid ]] || kill "$monitor_pid" 2>/dev/null || :
 }

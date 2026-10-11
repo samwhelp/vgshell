@@ -21,11 +21,11 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 ## Requirements
 
-Printers reads your printers with the printing service's own tools. A missing tool shows the requirement notice, which installs it in one press. The printer helper is optional: without it the list works, and each change button offers to install it. Print Settings is optional too.
+Printers reads your printers with the printing service's own tools, which come with CUPS. Without CUPS the section says that printing is not installed, and Install printing installs it in one press. The printer helper is optional: without it the list works, and each change button offers to install it. Print Settings is optional too.
 
 <details>
 <summary>Show command details</summary>
 
-The list reads `LC_ALL=C lpstat -r -d -p -o -v`. While the section is open, the watcher, `bin/printers-watch`, makes one CUPS subscription with the `dbus://` recipient through `ipptool` and listens for `org.cups.cupsd.Notifier` signals with `dbus-monitor --system`. It renews the subscription at half its lease and cancels it when it exits, which it does when the section closes. Each change is one `gdbus call --system` to `org.opensuse.CupsPkHelper.Mechanism` (cups-pk-helper): `PrinterAdd` with the `everywhere` model, then `PrinterSetEnabled` and `PrinterSetAcceptJobs`, or `PrinterSetDefault`, `PrinterDelete` and `DevicesGet`. polkit asks through your session's agent. Turn on printing runs the core system step `service-cups`, `systemctl enable --now cups.service`, in the setup window. It is offered only while neither `cups.service` nor `cups.socket` is active.
+The list reads `LC_ALL=C lpstat -r -p -o -v`, and the default printer is the scheduler's own, read with `ipptool` and `ipp/default.test` over cupsd's domain socket, `ipp://%2Frun%2Fcups%2Fcups.sock/`. While the section is open, the watcher, `bin/printers-watch`, makes one CUPS subscription with the `dbus://` recipient through `ipptool` and listens for `org.cups.cupsd.Notifier` signals with `dbus-monitor --system`. It renews the subscription at half its lease and cancels it when it exits, which it does when the section closes. Each change is one `gdbus call --system` to `org.opensuse.CupsPkHelper.Mechanism` (cups-pk-helper): `PrinterAdd` with the `everywhere` model, then `PrinterSetEnabled` and `PrinterSetAcceptJobs`, or `PrinterSetDefault`, `PrinterDelete` and `DevicesGet`. polkit asks through your session's agent. Turn on printing runs the core system step `service-cups`, `systemctl enable --now cups.service`, in the setup window. It is offered only while neither `cups.service` nor `cups.socket` is active.
 
 </details>

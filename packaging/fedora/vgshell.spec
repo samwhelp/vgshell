@@ -31,8 +31,6 @@ Requires:       bash
 Requires:       bubblewrap
 Requires:       chromium
 Requires:       coreutils
-Requires:       cups-client
-Requires:       cups-ipptool
 Requires:       curl
 Requires:       dbus-tools
 Requires:       fd-find
@@ -82,6 +80,8 @@ Recommends:     greetd
 Recommends:     libcap
 Recommends:     polkit
 Recommends:     tailscale
+Recommends:     cups-client
+Recommends:     cups-ipptool
 Recommends:     cups-pk-helper
 Recommends:     system-config-printer
 Recommends:     xorg-x11-xinit

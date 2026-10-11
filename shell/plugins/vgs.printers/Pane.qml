@@ -9,9 +9,10 @@ import "PrintersLogic.js" as Logic
 // and asks the service for every change through the plugin's IPC, so a
 // change outlives the pane.
 //
-// From the top: a line while printing is off, could not be read or the
-// list stopped following CUPS, with the `printing` entry's Turn on
-// printing as the core's status rows offer it and Try again; the printers,
+// From the top: a line while printing is not installed, is off, could not
+// be read or the list stopped following CUPS, with the `printing` entry's
+// action as the core's status rows offer it, Install printing or Turn on
+// printing, and Try again; the printers,
 // each with its state, its queued jobs and a Default badge, whose action
 // and menu set the default, whose menu and Delete remove it; the last
 // change's problem; Add a printer: Find printers, the devices CUPS found,
@@ -62,7 +63,14 @@ FocusScope {
     readonly property string problem: op.phase === "failed" ? Logic.problemText(op.problem) : ""
     // The address field's refusal, "" for none.
     property string addressProblem: ""
-    readonly property Item initialFocus: rows.length > 0 ? printerList : address
+    // The list while it holds a printer, else the address field while Add a
+    // printer is shown and takes input, else the state line's action, else
+    // the body: never a hidden or disabled item.
+    readonly property Item initialFocus: rows.length > 0 ? printerList
+        : cups === "read" && !busy ? address
+        : stateAction.visible ? stateAction
+        : retryAction.visible ? retryAction
+        : root
 
     implicitWidth: Theme.size.window.width
     implicitHeight: content.implicitHeight
@@ -124,7 +132,7 @@ FocusScope {
     function addAddress(text) {
         if (helperMissing) return offerHelper();
         const reply = call("address", text);
-        const refused = /^refused: address=([a-z]+)$/.exec(reply);
+        const refused = /^refused: address=([a-z-]+)$/.exec(reply);
         addressProblem = refused === null ? "" : Logic.problemText(refused[1]);
         if (reply === "ok") address.text = "";
         return reply;
@@ -139,7 +147,7 @@ FocusScope {
         if (reply !== "ok") console.warn("printers: print settings " + reply);
         return reply;
     }
-    function turnOnPrinting() {
+    function runPrintingAction() {
         const reply = shell.status.act("printing");
         if (reply !== "ok") console.warn("printers: act printing " + reply);
         return reply;
@@ -164,11 +172,13 @@ FocusScope {
             }
             RowActions {
                 RowAction {
+                    id: stateAction
                     visible: root.printingAction !== null
                     text: root.printingAction === null ? "" : root.printingAction.label
-                    onClicked: root.turnOnPrinting()
+                    onClicked: root.runPrintingAction()
                 }
                 RowAction {
+                    id: retryAction
                     visible: root.cups !== "missing"
                     text: "Try again"
                     onClicked: root.call("retry", "")

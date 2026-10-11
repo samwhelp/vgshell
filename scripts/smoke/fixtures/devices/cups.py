@@ -5,6 +5,14 @@ changes it and sends CUPS's D-Bus notifications.
 
 Usage: cups.py helper STATE                 serve org.opensuse.CupsPkHelper.Mechanism
        cups.py signal STATE MEMBER PRINTER  send one org.cups.cupsd.Notifier signal
+       cups.py uninstalled SOURCE DEST      copy vgs.printers from SOURCE to DEST
+                                            as a computer without CUPS sees it
+
+`uninstalled` writes a copy whose `lpstat` is `vgs-smoke-lpstat`, a
+command no PATH holds, in its manifest's requirements and Install
+printing action and in its service, so a scan reads printing not
+installed while the sandbox's lpstat stand-in stays where it is; the
+host's lpstat is never reached. It prints `copy=written`.
 
 stand-in.py runs lpstat(STATE, ARGV) and ipptool(STATE, ARGV) for the
 stand-ins of those names, after it recorded the call. No part of this file
@@ -24,16 +32,22 @@ printer, no device and no subscription:
                               prompt, and changes nothing
    "quiet": false,            the helper changes the world and sends no
                               signal
-   "subscriptions": {"next": 1, "live": [], "cancelled": []}}
+   "subscriptions": {"next": 1, "live": [], "cancelled": [],
+                     "owners": {"<id>": "<user>"}}}
 
 lpstat prints, for -r, -d, -p, -o and -v in the order given, the lines
 lpstat.c writes in the C locale; with "down" the later options print
 `lpstat: Scheduler is not running.` on stderr and exit 1. ipptool takes
-the plugin's ipp/subscribe.test, renew.test and cancel.test by name, with
-their -d variables, and prints the CUPS test report (-t) lines ipptool.c
-writes: a subscription's id from "next", a renewal of a live id, and a
-cancel that moves a live id to "cancelled"; any other id fails. With
-"down" it fails as a refused connection.
+the plugin's ipp/default.test, subscribe.test, renew.test and cancel.test
+by name, with their -d variables, and prints the CUPS test report (-t)
+lines ipptool.c writes: the world's default, a subscription's id from
+"next", a renewal of a live id, and a cancel that moves a live id to
+"cancelled"; any other id fails. A subscription's owner is the caller when
+its test file sends requesting-user-name $user, else "anonymous", as
+cupsd records it, and a renewal or cancel passes only for its owner over
+the domain socket, where cupsd authenticates the peer by PeerCred: the
+stock policy's `Require user @OWNER @SYSTEM`. With "down" it fails as a
+refused connection.
 
 The helper records each call as one JSON line, {"method", "args"}, in
 STATE/calls/cups-pk-helper.calls, and prints `helper=ready` once it owns
@@ -44,6 +58,7 @@ sends the signal cupsd's dbus notifier sends for it, on
 printer URI, printer name, printer state, reasons, accepting.
 """
 
+import getpass
 import json
 import os
 import sys
@@ -151,17 +166,33 @@ def ipptool(state, argv):
     test = os.path.basename(positional[1])
     print(f'"{test}":')
     subs = doc["subscriptions"]
+    owners = subs.setdefault("owners", {})
+    # cupsd authenticates a peer by PeerCred only on its domain socket; a
+    # TCP client is no user the owner rule admits.
+    peer = getpass.getuser() if positional[0].lower().startswith(("ipp://%2f", "ipp:///")) else ""
+    if test == "default.test":
+        report("Get the default printer", True)
+        if doc["default"]:
+            print(f"        printer-name (nameWithoutLanguage) = {doc['default']}")
+        return
     if test == "subscribe.test":
         if names.get("recipient") != "dbus://":
             report("Create a printer subscription", False)
         sub_id = subs["next"]
         subs["next"] += 1
         subs["live"].append(sub_id)
+        # cupsd records requesting-user-name as an unauthenticated
+        # subscription's owner, else "anonymous".
+        sends_user = "ATTR name requesting-user-name $user" in open(positional[1]).read()
+        owners[str(sub_id)] = getpass.getuser() if sends_user else "anonymous"
         save(state, doc)
         report("Create a printer subscription", True)
         print(f"        notify-subscription-id (integer) = {sub_id}")
         return
     sub_id = int(names.get("id", "0"))
+    # The stock policy's `Require user @OWNER @SYSTEM` for Renew and Cancel.
+    if test in ("renew.test", "cancel.test") and (peer == "" or owners.get(str(sub_id)) != peer):
+        report("Renew the subscription" if test == "renew.test" else "Cancel the subscription", False)
     if test == "renew.test":
         report("Renew the subscription", sub_id in subs["live"])
         return
@@ -308,7 +339,27 @@ def helper(state):
     del name
 
 
+def uninstalled(source, dest):
+    import shutil
+    shutil.copytree(source, dest)
+    for name, old, new in [
+        ("manifest.json", '{ "command": "lpstat",', '{ "command": "vgs-smoke-lpstat",'),
+        ("manifest.json", '"install": ["lpstat", "ipptool"]', '"install": ["vgs-smoke-lpstat", "ipptool"]'),
+        ("Service.qml", 'missing.indexOf("lpstat")', 'missing.indexOf("vgs-smoke-lpstat")'),
+    ]:
+        path = os.path.join(dest, name)
+        text = open(path).read()
+        if text.count(old) != 1:
+            print(f"copy=failed file={name} match={text.count(old)}", file=sys.stderr)
+            sys.exit(1)
+        open(path, "w").write(text.replace(old, new))
+    print("copy=written")
+
+
 def main():
+    if len(sys.argv) == 4 and sys.argv[1] == "uninstalled":
+        uninstalled(sys.argv[2], sys.argv[3])
+        return
     if len(sys.argv) >= 3 and sys.argv[1] == "helper":
         helper(sys.argv[2])
         return
@@ -317,7 +368,7 @@ def main():
         send_signal(bus_connection(), sys.argv[3], notifier_args(doc, sys.argv[4], "Printer changed."))
         print("signal=sent")
         return
-    print("cups: usage=helper STATE | signal STATE MEMBER PRINTER", file=sys.stderr)
+    print("cups: usage=helper STATE | signal STATE MEMBER PRINTER | uninstalled SOURCE DEST", file=sys.stderr)
     sys.exit(2)
 
 

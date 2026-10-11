@@ -4,7 +4,8 @@
 // calls each change makes, the change's steps, which found device takes
 // Add, the queue name, the address field and the lines and rows the
 // screens draw. The lpstat lines are the host's own (cups 2.4.19, C locale)
-// and lpstat.c's formats; the gdbus replies and errors are gdbus 2.88's
+// less its -d line, and lpstat.c's formats; the default.test lines are
+// ipptool.c's -t print of a printer-name; the gdbus replies and errors are gdbus 2.88's
 // prints of scripts/smoke/fixtures/devices/cups.py on a private bus. Each
 // control below plants one defect in a copy of the logic; the suite must
 // turn red on every one.
@@ -20,7 +21,6 @@ const plain = value => JSON.parse(JSON.stringify(value));
 const SINCE = "Sat Oct 10 17:32:40 2026";
 const host = [
     "scheduler is running",
-    "no system default destination",
     `printer Brother is idle.  enabled since ${SINCE}`,
     "\tWaiting for job to complete.",
     "device for Brother: ipp://BRWF4289DE3354F.local:631/ipp/print",
@@ -28,18 +28,22 @@ const host = [
 ].join("\n");
 const busy = [
     "scheduler is running",
-    "system default destination: Lab",
     `printer Lab disabled since ${SINCE} -`,
     "\treason unknown",
     `printer Office now printing Office-100.  enabled since ${SINCE}`,
     `printer Office-2 disabled since ${SINCE} -`,
     "\tPaper jam",
+    `printer Office-2/duplex disabled since ${SINCE} -`,
+    "\tPaper jam",
+    `printer Spare is holding new jobs.  enabled since ${SINCE}`,
     "Office-100              smoke                 1024   " + SINCE,
     "Office-101              smoke                 1024   " + SINCE,
     "Office-2-7              smoke                 1024   " + SINCE,
     "device for Lab: ipp://lab.local/ipp/print",
     "device for Office: socket://192.0.2.9",
     "device for Office-2: usb://Brother/HL",
+    "device for Office-2/duplex: usb://Brother/HL",
+    "device for Spare: ipp://spare.local/ipp/print",
     ""
 ].join("\n");
 const devices = "('', {'device-class:0': 'network', 'device-info:0': 'Lab Printer', 'device-make-and-model:0': 'HP LaserJet', 'device-uri:0': 'ipp://lab.local:631/ipp/print', 'device-class:1': 'direct', 'device-info:1': 'Brother HL-L2350DW', 'device-make-and-model:1': 'Brother HL-L2350DW', 'device-uri:1': 'usb://Brother/HL-L2350DW?serial=E7', 'device-class:2': 'network', 'device-info:2': \"It's \\\"quoted\\\"\", 'device-uri:2': 'socket://192.0.2.9'})\n";
@@ -48,20 +52,33 @@ function suite(logic) {
     // lpstat, one row per output: the code, the text and the reading.
     for (const [name, code, text, want] of [
         ["the host's one idle printer", 0, host, { state: "read", default: "", printers: [{ name: "Brother", state: "idle", message: "Waiting for job to complete.", jobs: 0, isDefault: false, uri: "ipp://BRWF4289DE3354F.local:631/ipp/print" }] }],
-        ["no printer", 0, "scheduler is running\nno system default destination\n", { state: "read", default: "", printers: [] }],
-        ["a default, a busy printer with its jobs and stopped ones", 0, busy, { state: "read", default: "Lab", printers: [
-            { name: "Lab", state: "stopped", message: "", jobs: 0, isDefault: true, uri: "ipp://lab.local/ipp/print" },
+        ["no printer", 0, "scheduler is running\n", { state: "read", default: "", printers: [] }],
+        ["a busy printer with its jobs, stopped ones, an instance and one holding new jobs", 0, busy, { state: "read", default: "", printers: [
+            { name: "Lab", state: "stopped", message: "", jobs: 0, isDefault: false, uri: "ipp://lab.local/ipp/print" },
             { name: "Office", state: "printing", message: "", jobs: 2, isDefault: false, uri: "socket://192.0.2.9" },
-            { name: "Office-2", state: "stopped", message: "Paper jam", jobs: 1, isDefault: false, uri: "usb://Brother/HL" }] }],
-        ["a default instance names its printer", 0, "scheduler is running\nsystem default destination: Lab/duplex\n" + `printer Lab is idle.  enabled since ${SINCE}\n`, { state: "read", default: "Lab", printers: [{ name: "Lab", state: "idle", message: "", jobs: 0, isDefault: true, uri: "" }] }],
+            { name: "Office-2", state: "stopped", message: "Paper jam", jobs: 1, isDefault: false, uri: "usb://Brother/HL" },
+            { name: "Spare", state: "holding", message: "", jobs: 0, isDefault: false, uri: "ipp://spare.local/ipp/print" }] }],
+        ["an instance's message adds nothing to its printer", 0, "scheduler is running\n" + `printer Lab is idle.  enabled since ${SINCE}\nprinter Lab/duplex disabled since ${SINCE} -\n\treason unknown\n`, { state: "read", default: "", printers: [{ name: "Lab", state: "idle", message: "", jobs: 0, isDefault: false, uri: "" }] }],
         ["a scheduler that is not running", 1, "scheduler is not running\n", { state: "down" }],
         ["a failed read while running", 1, "scheduler is running\n", { state: "failed", reason: "exit=1" }],
-        ["no scheduler line", 0, "no system default destination\n", { state: "failed", reason: "scheduler-line" }],
+        ["no scheduler line", 0, "printer Lab is idle.  enabled since X\n", { state: "failed", reason: "scheduler-line" }],
         ["a line lpstat does not print", 0, "scheduler is running\nsomething else\n", { state: "failed", reason: "line" }],
         ["a message before any printer", 0, "scheduler is running\n\tPaper jam\n", { state: "failed", reason: "message-line" }],
         ["an idle line without its date", 0, "scheduler is running\nprinter Lab is idle\n", { state: "failed", reason: "printer-line" }],
         ["a stopped line with an enabled date", 0, `scheduler is running\nprinter Lab disabled since ${SINCE} -.  enabled since ${SINCE}\n`, { state: "failed", reason: "printer-line" }]
     ]) assert.deepEqual(plain(logic.lpstatReading(code, text)), want, name);
+
+    // The scheduler's default, and the reading that marks it.
+    for (const [name, code, text, want] of [
+        ["a default", 0, '"default.test":\n    Get the default printer                                              [PASS]\n        printer-name (nameWithoutLanguage) = Lab\n', { ok: true, name: "Lab" }],
+        ["none", 0, '"default.test":\n    Get the default printer                                              [PASS]\n', { ok: true, name: "" }],
+        ["a failed request", 1, 'ipptool: Unable to connect to "/run/cups/cups.sock" on port 631 - Connection refused\n', { ok: false, reason: "exit=1" }]
+    ]) assert.deepEqual(plain(logic.defaultReading(code, text)), want, name);
+    assert.deepEqual(plain(logic.withDefault(logic.lpstatReading(0, busy), "Office").printers.map(p => [p.name, p.isDefault])),
+        [["Lab", false], ["Office", true], ["Office-2", false], ["Spare", false]]);
+    assert.equal(logic.withDefault(logic.lpstatReading(0, busy), "Office").default, "Office");
+    assert.deepEqual(plain(logic.withDefault({ state: "down" }, "Office")), { state: "down" });
+    assert.deepEqual(plain(logic.ippArgv("/p/ipp/default.test", { id: "4" })), ["ipptool", "-T", "10", "-t", "-d", "id=4", "ipp://%2Frun%2Fcups%2Fcups.sock/", "/p/ipp/default.test"]);
 
     for (const [line, want] of [
         ["ready subscription=7", { kind: "ready" }],
@@ -120,6 +137,11 @@ function suite(logic) {
     op = logic.opAdvance(op, ok);
     assert.deepEqual([op.phase, op.problem], ["done", ""]);
     assert.throws(() => logic.opAdvance(op, ok), /a step ended while the change is done/);
+    // A refusal past PrinterAdd leaves the queue: the change says so.
+    const added = logic.opAdvance(logic.opAdvance(logic.opBegin("add", "Lab", logic.addSteps("Lab", "ipp://lab.local/ipp/print", "Lab")), ok), { ok: false, problem: "refused", detail: "" });
+    assert.deepEqual([added.phase, added.problem], ["failed", "added-stopped"]);
+    const atAdd = logic.opAdvance(logic.opBegin("add", "Lab", logic.addSteps("Lab", "ipp://lab.local/ipp/print", "Lab")), { ok: false, problem: "refused", detail: "" });
+    assert.deepEqual([atAdd.phase, atAdd.problem], ["failed", "refused"]);
     const refused = logic.opAdvance(logic.opBegin("default", "Lab", logic.defaultSteps("Lab")), { ok: false, problem: "refused", detail: "" });
     assert.deepEqual([refused.phase, refused.problem, refused.index], ["failed", "refused", 0]);
     assert.deepEqual(plain(logic.opView(refused)), { kind: "default", target: "Lab", phase: "failed", problem: "refused" });
@@ -161,6 +183,8 @@ function suite(logic) {
         { key: "ipp://lab.local:631/ipp/print", uri: "ipp://lab.local:631/ipp/print", info: "Lab Printer", make: "HP LaserJet", driverless: true },
         { key: "usb://Brother/HL-L2350DW?serial=E7", uri: "usb://Brother/HL-L2350DW?serial=E7", info: "Brother HL-L2350DW", make: "Brother HL-L2350DW", driverless: false }]);
     assert.deepEqual(plain(logic.foundDevices({ "device-uri:0": "ipp://a/ipp/print", "device-info:0": "Line\none" }, [])).map(d => d.info), ["Line one"]);
+    const shown = logic.foundShown(logic.foundDevices(dictionary, []), [{ uri: "ipp://lab.local:631/ipp/print" }]);
+    assert.deepEqual(plain(shown.map(d => d.uri)), ["usb://Brother/HL-L2350DW?serial=E7", "socket://192.0.2.9"]);
 
     for (const [text, taken, want] of [
         ["Lab Printer", [], "Lab_Printer"],
@@ -194,24 +218,25 @@ function suite(logic) {
     // off and the step applies.
     const read = n => ({ state: "read", printers: Array.from({ length: n }, (_, i) => ({ name: "P" + i })) });
     for (const [name, reading, missing, step, want] of [
-        ["unread", { state: "unread" }, false, "", { tone: "info", text: "Reading printers", action: false }],
-        ["no printer", read(0), false, "ready", { tone: "ok", text: "No printers", action: false }],
-        ["one printer", read(1), false, "ready", { tone: "ok", text: "1 printer", action: false }],
-        ["two printers", read(2), false, "ready", { tone: "ok", text: "2 printers", action: false }],
-        ["off, step needed", { state: "down" }, false, "needed", { tone: "warning", text: "Printing is off.", action: true }],
-        ["off, on NixOS", { state: "down" }, false, "nixos", { tone: "warning", text: "Printing is off.", action: true }],
-        ["off, step ready", { state: "down" }, false, "ready", { tone: "warning", text: "Printing is off.", action: false }],
-        ["off, step denied", { state: "down" }, false, "denied", { tone: "warning", text: "Printing is off.", action: false }],
-        ["failed", { state: "failed", reason: "line" }, false, "needed", { tone: "danger", text: "VGS could not read the printers.", action: false }],
-        ["lpstat missing", { state: "unread" }, true, "needed", { tone: "warning", text: "Printing is not installed.", action: false }]
+        ["unread", { state: "unread" }, false, "", { tone: "info", text: "Reading printers" }],
+        ["no printer", read(0), false, "ready", { tone: "ok", text: "No printers" }],
+        ["one printer", read(1), false, "ready", { tone: "ok", text: "1 printer" }],
+        ["two printers", read(2), false, "ready", { tone: "ok", text: "2 printers" }],
+        ["off, step needed", { state: "down" }, false, "needed", { tone: "warning", text: "Printing is off.", action: "service" }],
+        ["off, on NixOS", { state: "down" }, false, "nixos", { tone: "warning", text: "Printing is off.", action: "service" }],
+        ["off, step ready", { state: "down" }, false, "ready", { tone: "warning", text: "Printing is off." }],
+        ["off, step denied", { state: "down" }, false, "denied", { tone: "warning", text: "Printing is off." }],
+        ["failed", { state: "failed", reason: "line" }, false, "needed", { tone: "danger", text: "VGS could not read the printers." }],
+        ["not installed offers its install", { state: "unread" }, true, "needed", { tone: "warning", text: "Printing is not installed.", action: "install" }]
     ]) assert.deepEqual(plain(logic.printingView(reading, missing, step)), want, name);
     assert.throws(() => logic.printingView({ state: "other" }, false, ""), /reading state "other"/);
 
-    const rows = logic.printerRows(logic.lpstatReading(0, busy).printers);
+    const rows = logic.printerRows(logic.withDefault(logic.lpstatReading(0, busy), "Lab").printers);
     assert.deepEqual(plain(rows.map(r => [r.key, r.secondary, r.iconName, r.badge])), [
         ["Lab", "Stopped", "printer-x", "Default"],
         ["Office", "Printing · 2 jobs", "printer", ""],
-        ["Office-2", "Stopped: Paper jam · 1 job", "printer-x", ""]]);
+        ["Office-2", "Stopped: Paper jam · 1 job", "printer-x", ""],
+        ["Spare", "Holding new jobs", "printer", ""]]);
     assert.equal(logic.printerAction(rows[0]), null);
     assert.deepEqual(plain(logic.printerAction(rows[1])), { text: "Set as default" });
     assert.deepEqual(plain(logic.printerMenu(rows[0]).map(e => e.key)), ["remove"]);
@@ -228,7 +253,13 @@ try {
         ["the scheduler line is not read", 'if (lines[0] === "scheduler is not running") return { state: "down" };', ""],
         ["a job counts for no printer", "jobs[m[1]] = (jobs[m[1]] || 0) + 1;", ""],
         ["lpstat's own no-message line is a message", 'if (last.message === "" && m[1].trim() !== "reason unknown")', 'if (last.message === "")'],
-        ["an instance stays in the default's name", "fallback = m[1];", "fallback = m[1] + (m[2] || \"\");"],
+        ["a printer holding new jobs fails the reading", "is idle|is holding new jobs|", "is idle|"],
+        ["an instance line adds a printer", 'instance = m[1].indexOf("/") !== -1;', "instance = false;"],
+        ["the default's line is not read", "return { ok: true, name: m === null ? \"\" : m[1] };", "return { ok: true, name: \"\" };"],
+        ["the default marks no printer", "isDefault: p.name === name,", "isDefault: false,"],
+        ["a refusal past PrinterAdd says nothing changed", 'next.problem = op.kind === "add" && op.index > 0 ? "added-stopped" : reply.problem;', "next.problem = reply.problem;"],
+        ["a found device a printer uses is shown", "return devices.filter(function (d) { return !printers.some(function (p) { return p.uri === d.uri; }); });", "return devices;"],
+        ["printing that is not installed offers nothing", 'if (cupsMissing) return { tone: "warning", text: "Printing is not installed.", action: "install" };', 'if (cupsMissing) return { tone: "warning", text: "Printing is not installed." };'],
         ["a refused prompt reads as a plain failure", '{ kind: "refused", pattern:', '{ kind: "failed", pattern:'],
         ["a string argument goes unquoted", "function quoted(s) { return \"'\" +", "function quoted(s) { return \"\" + String(s); return \"'\" +"],
         ["a new queue is left stopped", '        helperArgv("PrinterSetEnabled", [quoted(name), "true"]),\n', ""],
@@ -238,7 +269,7 @@ try {
         ["a taken name is taken again", "lower.indexOf(name.toLowerCase()) !== -1", "false"],
         ["another scheme passes the field", 'if (scheme !== "ipp" && scheme !== "ipps") return { ok: false, problem: "scheme" };', ""],
         ["an address keeps no default path", 'if (path === "" || path === "/") path = DEFAULT_PATH;', ""],
-        ["Turn on printing offered while the step is ready", 'action: step === "needed" || step === "nixos" };', "action: true };"],
+        ["Turn on printing offered while the step is ready", 'if (step === "needed" || step === "nixos") return', "if (true) return"],
         ["a view's end closes another lease", "leases.splice(at, 1);", "leases.splice(0, 1);"],
         ["a view's end of an unknown lease closes one", "if (at === -1) return { state: state, known: false };", "if (at === -1) at = 0;"],
         ["the default printer loses its badge", 'badge: p.isDefault ? "Default" : "",', 'badge: "",']

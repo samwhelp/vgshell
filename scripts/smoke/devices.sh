@@ -39,7 +39,9 @@
 #   STATE/cups.json, and cups_world_read prints it; cups_signal MEMBER PRINTER sends one CUPS
 #   notification on the sandbox system bus, as cupsd's dbus notifier does
 #   for a change the row made to the world. The world starts empty: a
-#   running scheduler with no printer. Quickshell 0.3.1's Bluetooth,
+#   running scheduler with no printer. cups_uninstalled_copy DEST writes
+#   the copy of vgs.printers a computer without CUPS reads as not
+#   installed. Quickshell 0.3.1's Bluetooth,
 #   Networking and Pipewire singletons look for their service once, when
 #   a plugin first reads them, and never watch for it to appear
 #   (bluetooth/bluez.cpp, network/nm/backend.cpp,
@@ -153,6 +155,10 @@ spec.loader.exec_module(cups)
 print(json.dumps(cups.load(sys.argv[2]), sort_keys=True))
 PY
 }
+# cups_uninstalled_copy DEST: the repository's vgs.printers copied to DEST
+# as a computer without CUPS sees it (cups.py `uninstalled`); prints
+# `copy=written`.
+cups_uninstalled_copy() { python3 "$devices_fixtures/cups.py" uninstalled "$repo/shell/plugins/vgs.printers" "$1"; }
 # cups_signal MEMBER PRINTER: one org.cups.cupsd.Notifier signal on the
 # sandbox system bus; prints `signal=sent`.
 cups_signal() { "${shell_env[@]}" python3 "$devices_fixtures/cups.py" signal "$devices_dir" "$1" "$2"; }

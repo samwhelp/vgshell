@@ -1,0 +1,18 @@
+# The scheduler's default destination, the one PrinterSetDefault changes;
+# CUPS answers not-found while it has none.
+#
+#   ipptool -t ipp://%2Frun%2Fcups%2Fcups.sock/ default.test
+{
+	NAME "Get the default printer"
+	OPERATION CUPS-Get-Default
+
+	GROUP operation-attributes-tag
+	ATTR charset attributes-charset utf-8
+	ATTR language attributes-natural-language en
+	ATTR name requesting-user-name $user
+	ATTR keyword requested-attributes printer-name
+
+	STATUS successful-ok
+	STATUS client-error-not-found
+	DISPLAY printer-name
+}

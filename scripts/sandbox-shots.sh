@@ -93,7 +93,7 @@
 # printers is its Printers section over the CUPS stand-ins: no printer, one
 # printer, two printers with the default, a busy printer and a stopped
 # one, then the add flow with the devices CUPS finds and a refused
-# address, taken only when named;
+# address, and printing not installed, taken only when named;
 # plugin-messages is a plugin's message to the
 # user as the tree draws it, a core toast where the tree ships
 # shell/Core/Toasts.qml and else its card in vgs.notifications with
@@ -3656,6 +3656,8 @@ printers_office='{"name": "Office", "uri": "ipp://office.local/ipp/print", "stat
 printers_lab='{"name": "Lab", "uri": "ipp://lab.local/ipp/print", "state": "idle", "message": "", "jobs": 0, "accepting": true}'
 printers_office_busy='{"name": "Office", "uri": "ipp://office.local/ipp/print", "state": "printing", "message": "", "jobs": 2, "accepting": true}'
 printers_lab_stopped='{"name": "Lab", "uri": "ipp://lab.local/ipp/print", "state": "stopped", "message": "Paper jam", "jobs": 0, "accepting": true}'
+printers_copy="$home/.config/vgshell/plugins/vgs.printers"
+printers_cups() { ipc smoke statusValues vgs.printers | py_reply 'import json,sys; v=json.load(sys.stdin).get("printers"); print("unpublished" if v is None else json.dumps(v["cups"]))'; }
 printers_watch() { ipc smoke statusValues vgs.printers | py_reply 'import json,sys; v=json.load(sys.stdin).get("printers"); print("unpublished" if v is None else json.dumps(v["watch"]))'; }
 printers_count() { ipc smoke readInstance window vgs.printers printers | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 printers_found() { ipc smoke readInstance window vgs.printers foundList | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
@@ -3697,6 +3699,20 @@ scene_printers() { # MODE
   expect "the System window hides after the Printers shots" ok ipc shell hide window vgs.system
   expect_poll "the System window is gone after the Printers shots" hidden system_shown
   expect "disabling vgs.printers after its shots is allowed" ok ipc shell setPluginEnabled vgs.printers false
+  # Printing not installed: the copy whose lpstat no PATH holds.
+  rm -rf -- "${printers_copy:?}"
+  expect "the not-installed Printers copy is written" copy=written cups_uninstalled_copy "$printers_copy"
+  rescan "a scan reads the not-installed Printers copy"
+  expect "enabling the not-installed Printers copy is allowed" ok ipc shell setPluginEnabled vgs.printers true
+  expect "the not-installed Printers section summons" ok ipc shell summon window vgs.system '{"pane":"vgs.printers"}'
+  expect_poll "the not-installed Printers section reads printing not installed" '"missing"' printers_cups
+  park_pointer
+  take "printers-$1-uninstalled"
+  expect "the System window hides after the not-installed shot" ok ipc shell hide window vgs.system
+  expect_poll "the System window is gone after the not-installed shot" hidden system_shown
+  expect "disabling the not-installed Printers copy is allowed" ok ipc shell setPluginEnabled vgs.printers false
+  rm -rf -- "${printers_copy:?}"
+  rescan "a scan drops the not-installed Printers copy"
   expect "disabling vgs.system after the Printers shots is allowed" ok ipc shell setPluginEnabled vgs.system false
   expect "the printers world is empty again" world=set cups_world '{"printers": [], "default": "", "devices": []}'
 }

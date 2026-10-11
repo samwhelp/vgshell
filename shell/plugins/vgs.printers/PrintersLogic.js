@@ -16,9 +16,22 @@
 // the manifest declares for it.
 var HELPER = "org.opensuse.CupsPkHelper.Mechanism";
 // lpstat's options, in the order it prints their answers: the scheduler,
-// the default destination, the printers, the queued jobs, the device URIs.
-// The service runs it under LC_ALL=C, so each line is the C locale's.
-var LPSTAT_ARGV = ["lpstat", "-r", "-d", "-p", "-o", "-v"];
+// the printers, the queued jobs, the device URIs. The service runs it under
+// LC_ALL=C, so each line is the C locale's. Its `-d` is left out: it names
+// the user's own lpoptions default first, which Set as default does not
+// change (cups/dest.c, cupsGetNamedDest), so the default is the
+// scheduler's, read with CUPS_URI and ipp/default.test.
+var LPSTAT_ARGV = ["lpstat", "-r", "-p", "-o", "-v"];
+// cupsd's local domain socket, CUPS's own default server, as an ipp URI:
+// ipptool decodes the host (httpSeparateURI with HTTP_URI_CODING_ALL) and
+// connects to a host that starts with `/` as a domain socket
+// (httpAddrGetList). There cupsd authenticates the peer by PeerCred, so
+// the subscription's owner may renew and cancel it under the stock
+// `Require user @OWNER @SYSTEM` policy, which refuses an unauthenticated
+// TCP client; the same socket starts a socket-activated cupsd.
+var CUPS_URI = "ipp://%2Frun%2Fcups%2Fcups.sock/";
+// How long one ipptool request may take, in seconds.
+var IPP_TIMEOUT_S = 10;
 // How long a helper call may take, in seconds: polkit holds the call while
 // the session's agent asks the user, so it covers a person reading the
 // prompt.
@@ -45,7 +58,9 @@ var PROBLEM_TEXT = {
     "failed": "VGS could not reach the printer helper.",
     "address": "Enter a printer address, such as printer.local.",
     "scheme": "Enter an IPP address, such as ipp://printer.local.",
-    "driver": "This printer needs a driver. Add it in Print Settings."
+    "driver": "This printer needs a driver. Add it in Print Settings.",
+    "installed": "This printer is already added.",
+    "added-stopped": "The printer was added, but it is stopped and does not take jobs. Turn it on in Print Settings."
 };
 
 // gdbus's failure text, one pattern per kind, read from its stderr. The
@@ -59,16 +74,20 @@ var HELPER_FAILURES = [
 
 // --- lpstat -------------------------------------------------------------
 
-// What `lpstat -r -d -p -o -v` printed, CODE its exit status and STDOUT
-// its output, as lpstat.c writes each line:
+// What `lpstat -r -p -o -v` printed, CODE its exit status and STDOUT its
+// output, as lpstat.c writes each line:
 //   { state: "down" }                       the scheduler is not running
 //   { state: "failed", reason }             a line or an exit it does not know
 //   { state: "read", printers, default }    printers in lpstat's order, each
 //                                           { name, state, message, jobs,
 //                                           isDefault, uri }; `state` is
-//                                           idle, printing or stopped
+//                                           idle, holding (idle, holding new
+//                                           jobs), printing or stopped;
+//                                           `default` "" until withDefault
 // A scheduler that is not running makes the later options fail, so the
-// first line alone decides `down`.
+// first line alone decides `down`. A `Name/instance` line is an lpoptions
+// instance of a printer already listed, so it and its message lines add
+// nothing.
 function lpstatReading(code, stdout) {
     var lines = String(stdout).split("\n");
     if (lines[0] === "scheduler is not running") return { state: "down" };
@@ -77,41 +96,71 @@ function lpstatReading(code, stdout) {
     var printers = [];
     var jobs = {};
     var uris = {};
-    var fallback = "";
     var last = null;
+    var instance = false;
     for (var i = 1; i < lines.length; i++) {
         var line = lines[i];
         if (line === "") continue;
         var m;
-        if ((m = /^system default destination: ([^\s/]+)(\/\S+)?$/.exec(line)) !== null) {
-            fallback = m[1];
-        } else if (line === "no system default destination") {
-            fallback = "";
-        } else if ((m = /^printer (\S+) (is idle|now printing \S+|disabled since .* -)(\.  enabled since .*)?$/.exec(line)) !== null) {
-            var state = m[2] === "is idle" ? "idle" : m[2].indexOf("now printing") === 0 ? "printing" : "stopped";
+        if ((m = /^printer (\S+) (is idle|is holding new jobs|now printing \S+|disabled since .* -)(\.  enabled since .*)?$/.exec(line)) !== null) {
+            var state = m[2] === "is idle" ? "idle" : m[2] === "is holding new jobs" ? "holding" : m[2].indexOf("now printing") === 0 ? "printing" : "stopped";
             if ((state === "stopped") !== (m[3] === undefined)) return { state: "failed", reason: "printer-line" };
-            last = { name: m[1], state: state, message: "", jobs: 0, isDefault: false, uri: "" };
-            printers.push(last);
+            instance = m[1].indexOf("/") !== -1;
+            last = instance ? null : { name: m[1], state: state, message: "", jobs: 0, isDefault: false, uri: "" };
+            if (!instance) printers.push(last);
         } else if ((m = /^\t(.*)$/.exec(line)) !== null) {
+            if (instance) continue;
             if (last === null) return { state: "failed", reason: "message-line" };
             // lpstat's own words for a stopped printer with no message.
             if (last.message === "" && m[1].trim() !== "reason unknown") last.message = m[1].trim();
         } else if ((m = /^device for (\S+): (\S+)$/.exec(line)) !== null) {
-            uris[m[1]] = m[2];
+            if (m[1].indexOf("/") === -1) uris[m[1]] = m[2];
             last = null;
+            instance = false;
         } else if ((m = /^(\S+)-[0-9]+ +\S+ +[0-9]+ /.exec(line)) !== null) {
             jobs[m[1]] = (jobs[m[1]] || 0) + 1;
             last = null;
+            instance = false;
         } else {
             return { state: "failed", reason: "line" };
         }
     }
     for (var p = 0; p < printers.length; p++) {
         printers[p].jobs = jobs[printers[p].name] || 0;
-        printers[p].isDefault = printers[p].name === fallback;
         printers[p].uri = uris[printers[p].name] || "";
     }
-    return { state: "read", printers: printers, "default": fallback };
+    return { state: "read", printers: printers, "default": "" };
+}
+
+// The scheduler's default destination from `ipptool -t` over
+// ipp/default.test, CODE its exit status: { ok: true, name }, name "" when
+// CUPS has none, or { ok: false, reason }. The test accepts CUPS's
+// not-found answer, and displays printer-name otherwise.
+function defaultReading(code, stdout) {
+    if (code !== 0) return { ok: false, reason: "exit=" + code };
+    var m = /^ +printer-name \([^)]*\) = (\S+)$/m.exec(String(stdout));
+    return { ok: true, name: m === null ? "" : m[1] };
+}
+
+// READING, lpstatReading's answer, with NAME the default; any other
+// reading unchanged.
+function withDefault(reading, name) {
+    if (reading.state !== "read") return reading;
+    return {
+        state: "read",
+        "default": name,
+        printers: reading.printers.map(function (p) {
+            return { name: p.name, state: p.state, message: p.message, jobs: p.jobs, isDefault: p.name === name, uri: p.uri };
+        })
+    };
+}
+
+// The argv of one ipptool request to the scheduler: TEST, an ipp/ test
+// file's path, with each of VARIABLES as `-d name=value`.
+function ippArgv(test, variables) {
+    var argv = ["ipptool", "-T", String(IPP_TIMEOUT_S), "-t"];
+    for (var name in variables) argv.push("-d", name + "=" + variables[name]);
+    return argv.concat([CUPS_URI, test]);
 }
 
 // --- the watcher --------------------------------------------------------
@@ -301,7 +350,8 @@ function opAdvance(op, reply) {
     if (!reply.ok) {
         next.index = op.index;
         next.phase = "failed";
-        next.problem = reply.problem;
+        // Past PrinterAdd the queue exists; only enabling it failed.
+        next.problem = op.kind === "add" && op.index > 0 ? "added-stopped" : reply.problem;
     } else if (next.index >= op.steps.length) {
         next.phase = "done";
     }
@@ -326,6 +376,11 @@ function driverless(uri) {
     if (scheme !== "dnssd") return false;
     var host = decodeURIComponent(m[2]);
     return /\._ipps?\._tcp(\.|$)/.test(host);
+}
+
+// The found DEVICES no printer of PRINTERS already uses, by URI.
+function foundShown(devices, printers) {
+    return devices.filter(function (d) { return !printers.some(function (p) { return p.uri === d.uri; }); });
 }
 
 // The devices of DEVICES, DevicesGet's dictionary of `device-<field>:<n>`
@@ -398,18 +453,22 @@ function addressDevice(text) {
 // --- what the screens draw ----------------------------------------------
 
 // The status `printing`, the Settings page's line, from READING,
-// lpstatReading's answer or { state: "unread" }, LPSTATMISSING, and STEP,
-// the service-cups system step's state or "": { tone, text, action },
-// `action` true while the step applies.
-function printingView(reading, lpstatMissing, step) {
-    if (lpstatMissing) return { tone: "warning", text: "Printing is not installed.", action: false };
+// lpstatReading's answer or { state: "unread" }, CUPSMISSING, whether the
+// scan found lpstat or ipptool missing, and STEP, the service-cups system
+// step's state or "": { tone, text }, with `action` naming the manifest's
+// action that applies, `install` or `service`, and no `action` while none
+// does.
+function printingView(reading, cupsMissing, step) {
+    if (cupsMissing) return { tone: "warning", text: "Printing is not installed.", action: "install" };
     switch (reading.state) {
-    case "unread": return { tone: "info", text: "Reading printers", action: false };
-    case "down": return { tone: "warning", text: "Printing is off.", action: step === "needed" || step === "nixos" };
-    case "failed": return { tone: "danger", text: "VGS could not read the printers.", action: false };
+    case "unread": return { tone: "info", text: "Reading printers" };
+    case "down":
+        if (step === "needed" || step === "nixos") return { tone: "warning", text: "Printing is off.", action: "service" };
+        return { tone: "warning", text: "Printing is off." };
+    case "failed": return { tone: "danger", text: "VGS could not read the printers." };
     case "read":
         var count = reading.printers.length;
-        return { tone: "ok", text: count === 0 ? "No printers" : count === 1 ? "1 printer" : count + " printers", action: false };
+        return { tone: "ok", text: count === 0 ? "No printers" : count === 1 ? "1 printer" : count + " printers" };
     default:
         throw new Error("printers: reading state " + JSON.stringify(reading.state) + " is not one of unread, down, failed, read");
     }
@@ -419,7 +478,8 @@ function printingView(reading, lpstatMissing, step) {
 // queued jobs, an icon that marks a stopped printer and a Default badge.
 function printerRows(printers) {
     return printers.map(function (p) {
-        var state = p.state === "printing" ? "Printing" : p.state === "stopped" ? (p.message === "" ? "Stopped" : "Stopped: " + p.message) : "Ready";
+        var state = p.state === "printing" ? "Printing" : p.state === "holding" ? "Holding new jobs"
+            : p.state === "stopped" ? (p.message === "" ? "Stopped" : "Stopped: " + p.message) : "Ready";
         var jobs = p.jobs === 0 ? "" : p.jobs === 1 ? " · 1 job" : " · " + p.jobs + " jobs";
         return {
             key: p.name,

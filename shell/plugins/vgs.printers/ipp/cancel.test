@@ -1,6 +1,6 @@
 # Cancel subscription $id.
 #
-#   ipptool -t -d id=ID ipp://localhost/ cancel.test
+#   ipptool -t -d id=ID ipp://%2Frun%2Fcups%2Fcups.sock/ cancel.test
 {
 	NAME "Cancel the subscription"
 	OPERATION Cancel-Subscription
@@ -9,6 +9,7 @@
 	ATTR charset attributes-charset utf-8
 	ATTR language attributes-natural-language en
 	ATTR uri printer-uri $uri
+	ATTR name requesting-user-name $user
 	ATTR integer notify-subscription-id $id
 
 	STATUS successful-ok

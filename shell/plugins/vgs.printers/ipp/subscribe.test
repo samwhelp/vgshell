@@ -1,7 +1,10 @@
 # Create one server-wide subscription to the printer and job events
 # vgs.printers lists, sent by CUPS's dbus notifier, for $lease seconds.
+# requesting-user-name makes the caller its owner, the one user the stock
+# policy lets renew and cancel it, which cupsd authenticates by PeerCred
+# on its domain socket.
 #
-#   ipptool -t -d recipient=dbus:// -d lease=SECONDS ipp://localhost/ subscribe.test
+#   ipptool -t -d recipient=dbus:// -d lease=SECONDS ipp://%2Frun%2Fcups%2Fcups.sock/ subscribe.test
 {
 	NAME "Create a printer subscription"
 	OPERATION Create-Printer-Subscription
@@ -10,6 +13,7 @@
 	ATTR charset attributes-charset utf-8
 	ATTR language attributes-natural-language en
 	ATTR uri printer-uri $uri
+	ATTR name requesting-user-name $user
 
 	GROUP subscription-attributes-tag
 	ATTR uri notify-recipient-uri $recipient
