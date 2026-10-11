@@ -557,6 +557,16 @@ function namesItself(device) {
     return !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(label);
 }
 
+// Whether D is the Low Energy side of a device in NAMES, the display names
+// of the listed devices: BlueZ reports it as its own device named "LE_"
+// and that device's name. The name is the only reading, since Quickshell
+// 0.3.1's BluetoothDevice publishes no transport
+// (https://quickshell.org/docs/v0.3.1/types/Quickshell.Bluetooth/BluetoothDevice/).
+function leTwin(d, names) {
+    var name = deviceName(d);
+    return name.indexOf("LE_") === 0 && own(names, name.slice(3));
+}
+
 // The device of DEVICES whose address is ADDRESS, or null.
 function deviceAt(devices, address) {
     for (var i = 0; i < devices.length; i++)
@@ -571,14 +581,18 @@ function deviceAt(devices, address) {
 // primitives alone, so no delegate keeps a device object BlueZ may remove
 // while it is built; actions find the device by address, the key. `mine`
 // is every paired, bonded or trusted device; `nearby` every other device
-// that names itself.
+// that names itself and is not the LE twin of a listed device, so one
+// device shows one row.
 function deviceRows(devices, stateOf, attempts) {
-    var mine = [], nearby = [];
+    var mine = [], nearby = [], names = {};
+    for (var n = 0; n < devices.length; n++)
+        if (devices[n] !== null && devices[n] !== undefined) names[deviceName(devices[n])] = true;
     for (var i = 0; i < devices.length; i++) {
         var d = devices[i];
         if (d === null || d === undefined) continue;
         var known = d.paired || d.bonded || d.trusted;
         if (!known && !namesItself(d)) continue;
+        if (!known && leTwin(d, names)) continue;
         var address = String(d.address);
         var state = String(stateOf(d));
         var row = {

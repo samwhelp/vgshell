@@ -426,6 +426,22 @@ function verifyDevices(logic) {
         ["00:00:00:00:00:02", "Keyboard", "keyboard", "Not paired"],
         ["00:00:00:00:00:09", "Pen", "bluetooth", "Pairing"],
     ], "nearby: only devices that name themselves, neither an address nor a UUID");
+    const htAx7 = extra => device("00:00:00:00:00:A1", "HT-AX7", extra);
+    const twin = extra => device("00:00:00:00:00:A2", "LE_HT-AX7", extra);
+    const twinRows = [
+        ["le twin: an unknown twin beside its device is hidden", [htAx7({}), twin({})],
+            [], [["HT-AX7", "Not paired"]]],
+        ["le twin: an unknown twin beside its pairing device is hidden", [htAx7({ pairing: true }), twin({})],
+            [], [["HT-AX7", "Pairing"]]],
+        ["le twin: a known twin stays in your devices", [htAx7({}), twin({ paired: true })],
+            [["LE_HT-AX7", "Not connected"]], [["HT-AX7", "Not paired"]]],
+        ["le twin: a lone LE_ device stays nearby", [device("00:00:00:00:00:A3", "LE_Thing", {})],
+            [], [["LE_Thing", "Not paired"]]],
+    ];
+    for (const [label, devices, mine, nearby] of twinRows) {
+        const rows = logic.deviceRows(devices, stateOf, {});
+        same([rows.mine.map(r => [r.text, r.secondary]), rows.nearby.map(r => [r.text, r.secondary])], [mine, nearby], label);
+    }
     same(lists.mine[1].battery, 0.5, "a battery level is carried");
     assert.ok(Number.isNaN(lists.mine[3].battery), "no battery reads as none");
     same(logic.deviceAt([device("A", "x"), device("B", "y")], "B").name, "y", "deviceAt finds by address");
@@ -568,6 +584,9 @@ const controls = [
     ["a rename is held to BlueZ's length", 'if (utf8Bytes(value) > ALIAS_MAX_BYTES) return { refused: "too-long" };', "", "a long name is refused as too long"],
     ["a nameless nearby device is hidden", "if (!known && !namesItself(d)) continue;", "", "nearby: only devices that name themselves"],
     ["a UUID is no name", "return !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(label);", "return true;", "nearby: only devices that name themselves"],
+    ["today's deviceRows lists an LE twin", "        if (!known && leTwin(d, names)) continue;\n", "", "le twin: an unknown twin beside its device is hidden"],
+    ["a known LE twin stays yours", "if (!known && leTwin(d, names))", "if (leTwin(d, names))", "le twin: a known twin stays in your devices"],
+    ["an LE_ name needs its twin", "own(names, name.slice(3))", "true", "le twin: a lone LE_ device stays nearby"],
     ["a bonded device is yours", "var known = d.paired || d.bonded || d.trusted;", "var known = d.paired || d.trusted;", "your devices: paired, bonded or trusted"],
     ["a pairing device reads Pairing", 'if (d.pairing) return "Pairing";', "", "nearby: only devices that name themselves"],
     ["today's toggle with no state read", 'case "Connecting":\n    case "Disconnecting": return null;', 'case "Connecting": return "connect";\n    case "Disconnecting": return null;', "a press while Connecting changes nothing"],
