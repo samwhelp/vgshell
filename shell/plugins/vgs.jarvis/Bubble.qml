@@ -29,6 +29,10 @@ Item {
         && consoleBox.y + consoleBox.height > height - Theme.voiceBubble.margin - card.height
         && consoleBox.y < height - Theme.voiceBubble.margin
         && consoleBox.x < card.x + card.width && consoleBox.x + consoleBox.width > card.x
+    // The current hold's placement is known: the service's last finished
+    // read answers this hold. Until then no frame acknowledges the request,
+    // so the drawn frame is the placed one.
+    readonly property bool placed: service !== null && service.consoleKey === service.heldKey
     property var displayedHold: null
     property var approvalFrames: []
     property var synchronizedHold: null
@@ -46,7 +50,7 @@ Item {
     // a queued old swap must not consume a newer request's GUI state.
     // https://doc.qt.io/qt-6/qquickwindow.html#afterSynchronizing
     function approvalPolished() {
-        approvalFrames.push(shown && visible && approvalText.text === (hold === null ? "" : hold.text)
+        approvalFrames.push(shown && visible && placed && approvalText.text === (hold === null ? "" : hold.text)
             && approvalText.height >= approvalText.implicitHeight ? hold : null);
     }
     function approvalSynchronized() {

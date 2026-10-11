@@ -40,6 +40,10 @@ Item {
     // width, height } in the logical pixels of a passive layer there, which
     // covers the output less the edges Hyprland reserves; null otherwise.
     property var consoleBox: null
+    // The hold key the last finished read answers, the box's, none's or a
+    // failure's alike: the bubble acknowledges no frame drawn before the
+    // placement for the current hold is known.
+    property string consoleKey: ""
     property int consoleReads: 0
     readonly property string heldKey: sessionState !== null && sessionState.approval.kind === "held"
         ? sessionState.gen + ":" + sessionState.approval.id : ""
@@ -315,34 +319,32 @@ Item {
 
     // The console is the one mapped client of the shell's app-id,
     // `org.vgs.shell`, titled with this plugin's name, as the window host
-    // titles it (vgs.settings Window.fitWindow reads its own the same way).
-    // A reply after the hold ended, or behind a newer read, sets nothing.
+    // titles it (vgs.settings Window.fitWindow reads its own the same way),
+    // and on the screen as the compositor's onScreen judges it: a console
+    // on a workspace no output shows covers nothing. A reply after the hold
+    // ended, or behind a newer read, sets nothing.
     function readConsoleBox() {
         const key = heldKey;
         const serial = ++consoleReads;
-        if (key === "" || shell === null) {
-            consoleBox = null;
-            return;
-        }
+        const answer = box => { consoleBox = box; consoleKey = key; };
+        if (key === "" || shell === null) return answer(null);
         shell.compositor.readWindows(state => {
             if (serial !== consoleReads || key !== heldKey) return;
-            const failed = why => { consoleBox = null; console.warn("jarvis: console-box=" + why); };
+            const failed = why => { answer(null); console.warn("jarvis: console-box=" + why); };
             if (!state.ok) return failed(state.error);
             const own = state.clients.filter(c => c.class === "org.vgs.shell" && c.title === shell.manifest.name && c.mapped);
-            if (own.length === 0) {
-                consoleBox = null;
-                return;
-            }
+            if (own.length === 0) return answer(null);
             if (own.length !== 1) return failed("clients=" + own.length);
             const client = own[0];
+            if (!shell.compositor.onScreen(client, state.monitors)) return answer(null);
             const monitors = state.monitors.filter(m => m.id === client.monitor);
             if (monitors.length !== 1) return failed("monitors=" + monitors.length + " id=" + client.monitor);
             const monitor = monitors[0];
             const reserved = monitor.reserved;
             if (!Array.isArray(reserved) || reserved.length !== 4 || !reserved.every(n => Number.isFinite(n)))
                 return failed("reserved monitor=" + monitor.name);
-            consoleBox = { output: monitor.name, x: client.at[0] - monitor.x - reserved[0],
-                y: client.at[1] - monitor.y - reserved[1], width: client.size[0], height: client.size[1] };
+            answer({ output: monitor.name, x: client.at[0] - monitor.x - reserved[0],
+                y: client.at[1] - monitor.y - reserved[1], width: client.size[0], height: client.size[1] });
         });
     }
 
@@ -724,7 +726,8 @@ Item {
     }
 
     // While a request is held, the console's box is read again when a window
-    // maps, closes or moves to another workspace: Hyprland posts movewindowv2
+    // maps, closes or moves to another workspace, or an output shows another
+    // workspace or opens or closes a special one: Hyprland posts movewindowv2
     // from CWindow::moveToWorkspace alone (v0.56.2
     // src/desktop/view/Window.cpp:534-580) and no event for a floating drag
     // or resize, so a console dragged into the bubble during one request is
@@ -734,7 +737,8 @@ Item {
         target: Hyprland
         enabled: root.heldKey !== ""
         function onRawEvent(event) {
-            if (event.name === "openwindow" || event.name === "closewindow" || event.name === "movewindowv2")
+            if (event.name === "openwindow" || event.name === "closewindow" || event.name === "movewindowv2"
+                    || event.name === "workspacev2" || event.name === "activespecial")
                 root.readConsoleBox();
         }
     }

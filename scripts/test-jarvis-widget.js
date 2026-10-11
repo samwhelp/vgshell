@@ -409,7 +409,7 @@ function approvalFrames(source) {
         return result.effects;
     };
     const later = [];
-    const root = { shown: true, visible: true, presented: true, displayedHold: null,
+    const root = { shown: true, visible: true, presented: true, placed: true, displayedHold: null,
         approvalFrames: [], synchronizedHold: null,
         service: { shownApproval: (bubble, hold) => dispatch({ type: "shown", gen: hold.gen, op: hold.op, id: hold.id }) } };
     Object.defineProperty(root, "hold", { get: () => state.approval.kind === "held" ? state.approval : null });
@@ -461,6 +461,19 @@ function approvalFrames(source) {
     root.approvalSwapped();
     flush();
     assert.equal(state.approval.shownAt, null, "a hidden host cannot acknowledge");
+    root.presented = true;
+    root.placed = false;
+    root.approvalPolished();
+    root.approvalSynchronized();
+    root.approvalSwapped();
+    flush();
+    assert.equal(state.approval.shownAt, null, "a frame drawn before the placement is known cannot acknowledge");
+    root.placed = true;
+    root.approvalPolished();
+    root.approvalSynchronized();
+    root.approvalSwapped();
+    flush();
+    assert.notEqual(state.approval.shownAt, null, "the placed frame acknowledges its request");
 }
 const bubble = fs.readFileSync(path.join(dir, "Bubble.qml"), "utf8");
 approvalFrames(bubble);
@@ -468,4 +481,8 @@ const frameNeedle = "const drawn = synchronizedHold;";
 assert.equal(bubble.split(frameNeedle).length, 2, "one frame identity control match");
 assert.throws(() => approvalFrames(bubble.replace(frameNeedle, "const drawn = root.hold;")), assert.AssertionError,
     "delivery from the current hold must fail the earlier-frame assertion");
-console.log(`test-jarvis-widget: ok cases=${CASES.length + START_CAUSES.length} refusals=${REFUSALS.length} controls=${CONTROLS.length + 1} frame-control=detected`);
+const placedNeedle = "visible && placed && ";
+assert.equal(bubble.split(placedNeedle).length, 2, "one placement control match");
+assert.throws(() => approvalFrames(bubble.replace(placedNeedle, "visible && ")), assert.AssertionError,
+    "a frame drawn before the placement must fail the placement assertion");
+console.log(`test-jarvis-widget: ok cases=${CASES.length + START_CAUSES.length} refusals=${REFUSALS.length} controls=${CONTROLS.length + 2} frame-control=detected`);

@@ -311,11 +311,20 @@ jarvis_bubble_console_hold() {
   jarvis_bubble_approval action
   expect_poll "the held request over the console is drawn" drawn jarvis_bubble_acknowledged
 }
-jarvis_bubble_console_close() {
-  jarvis_key_stop
-  jarvis_key_stop_assertion
+# The console closes while the request is still held: only the closewindow
+# read brings the card back to the bottom.
+jarvis_bubble_console_unmap() {
   expect "the Jarvis console hides" ok ipc shell hide window vgs.jarvis
   expect_poll "the Jarvis console unmaps" 0 window_count Jarvis
+}
+jarvis_bubble_console_return() {
+  geometry expect_poll "closing the console returns the held request to bottom centre" bottom-centre jarvis_bubble_geometry
+}
+jarvis_bubble_console_close() {
+  jarvis_bubble_console_unmap
+  jarvis_bubble_console_return
+  jarvis_key_stop
+  jarvis_key_stop_assertion
 }
 
 jarvis_bubble_engine="$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
@@ -498,9 +507,9 @@ cp -- "$jarvis_bubble_file" "$sandbox/jarvis-bubble-before"
 # The position reader must reject that reversal, regardless of button copy.
 jarvis_bubble_fixture="$repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js"
 cp -- "$jarvis_bubble_fixture" "$sandbox/jarvis-bubble-fixture-before"
-for jarvis_bubble_mutant in geometry console focus words lines head generation approval-key approval-button approval-cancel approval-shown approval-caption approval-kind approval-path approval-role approval-order; do
+for jarvis_bubble_mutant in geometry console console-close focus words lines head generation approval-key approval-button approval-cancel approval-shown approval-caption approval-kind approval-path approval-role approval-order; do
   jarvis_bubble_mutation_file="$jarvis_bubble_file"
-  if [[ $jarvis_bubble_mutant == approval-key || $jarvis_bubble_mutant == approval-shown ]]; then
+  if [[ $jarvis_bubble_mutant == approval-key || $jarvis_bubble_mutant == approval-shown || $jarvis_bubble_mutant == console-close ]]; then
     jarvis_bubble_mutation_file="$jarvis_key_service"
   fi
   if [[ $jarvis_bubble_mutant == approval-kind || $jarvis_bubble_mutant == approval-path ]]; then
@@ -513,6 +522,7 @@ p=Path(sys.argv[1]); assert not p.is_symlink()
 needle,replacement={
     "geometry": ("anchors.bottomMargin: Theme.voiceBubble.margin", "anchors.bottomMargin: Theme.voiceBubble.margin + Theme.voiceBubble.gap"),
     "console": ("when: root.overConsole", "when: false"),
+    "console-close": ('event.name === "closewindow" || ', ""),
     "focus": ("screen.name === service.focusedOutput", "true"),
     "words": ('caption !== null && caption.gen', "false && caption.gen"),
     "lines": ("Theme.voiceBubble.textLines * tail.lineBox", "(Theme.voiceBubble.textLines + 1) * tail.lineBox"),
@@ -541,6 +551,21 @@ PY
       jarvis_bubble_console_close
       jarvis_disable
       cp -- "$sandbox/jarvis-bubble-before" "$jarvis_bubble_file"
+      continue ;;
+    console-close)
+      jarvis_bubble_console_hold
+      geometry expect_poll "control: the held request over the console takes the top" clear jarvis_bubble_console
+      jarvis_bubble_console_unmap
+      jarvis_bubble_failures="$(
+        failures=0 behaviour_failures=0
+        jarvis_bubble_console_return >"$sandbox/$jarvis_bubble_mutant.log"
+        echo "$failures"
+      )"
+      expect "control: ignoring the close event fails the same return check" 1 printf '%s\n' "$jarvis_bubble_failures"
+      jarvis_key_stop
+      jarvis_key_stop_assertion
+      jarvis_disable
+      cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
       continue ;;
     approval-*)
       jarvis_bubble_approval action
