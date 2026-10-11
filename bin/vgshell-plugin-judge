@@ -75,9 +75,15 @@
 //
 // A requirement row is PluginLogic.requirementRows' row, `{ name, bus,
 // packages, optional, purpose, floor, state }`, with `package`, the
-// `{ manager, name }` PackageManagers.packageFor picks for this system, or
-// null. Detection runs once per command, and only when a requirement it
-// reports names a package.
+// `{ manager, name }` PackageManagers.installGroups picks for this system, or
+// null: the state and the package the shell's requirement notice shows.
+// `requirements` and `doctor` read the version and the holder of each
+// present command with a floor through the commands the shell reads them
+// with, `bin/vgshell-scan --versions` and `vgshell pkg detect --json
+// --holders`, once per command, so a command below its floor is
+// `outdated` and a package its holder's manager names wins. A command
+// whose version could not be read stays `present`. Detection runs once
+// per command, and only when a requirement it reports names a package.
 //
 // Every refusal is one line on stderr, `vgshell: refused: <key>=<value>`, and
 // exits 1. A scan element carrying an error exits 1 too: a directory that
@@ -97,10 +103,12 @@ const { refuse, main, readJson, readConfig, editFile, onPath } = require(path.jo
 const NO_MANAGERS = { primary: null, overlays: [], sources: [] };
 
 // The system's managers, `vgshell pkg detect --json`'s answer, from the
-// command that owns detection. Its refusal, when it printed one, follows
-// the exit status on the refusal line.
-function detected() {
-    const r = childProcess.spawnSync(process.execPath, [path.join(__dirname, "vgshell-pkg"), "detect", "--json"], { encoding: "utf8" });
+// command that owns detection, with the `holders` of HELD, commands, when
+// it names any, as shell/Core/Notices.qml asks for them. Its refusal, when
+// it printed one, follows the exit status on the refusal line.
+function detected(held) {
+    const holders = held.length > 0 ? ["--holders"].concat(held) : [];
+    const r = childProcess.spawnSync(process.execPath, [path.join(__dirname, "vgshell-pkg"), "detect", "--json"].concat(holders), { encoding: "utf8" });
     if (r.error !== undefined || r.status !== 0) {
         const first = (r.stderr || "").split("\n")[0];
         refuse("detect=failed exit=" + r.status + (first.startsWith("vgshell: refused: ") ? " " + first.slice("vgshell: refused: ".length) : ""));
@@ -124,7 +132,7 @@ function listLines(reply) {
     for (const p of reply.plugins)
         for (const r of p.requirements)
             if (r.state === "missing") missing.push({ id: p.id, requirement: r });
-    const found = missing.some(m => Object.keys(m.requirement.packages).length > 0) ? detected() : null;
+    const found = missing.some(m => Object.keys(m.requirement.packages).length > 0) ? detected([]) : null;
     for (const m of missing) {
         const pick = found === null ? null : logic.PackageManagers.packageFor(m.requirement.packages, found);
         lines.push("missing " + m.id + " " + requirementText(m.requirement.name, pick, m.requirement.optional));
@@ -139,20 +147,47 @@ function requirementText(name, pick, optional) {
     return name + (pick === null ? "" : " (" + pick.name + ")") + (optional ? " optional" : "");
 }
 
-// detect's answer when a requirement of LISTS, normalized requirement
-// lists, names a package, else NO_MANAGERS: a system is asked for its
-// managers only when an answer can depend on them.
-function managersFor(lists) {
-    return lists.some(list => list.some(r => Object.keys(r.packages).length > 0)) ? detected() : NO_MANAGERS;
+// detect's answer, with the holders of HELD, when a requirement of LISTS,
+// normalized requirement lists, names a package, else NO_MANAGERS: a
+// system is asked for its managers only when an answer can depend on them.
+function managersFor(lists, held) {
+    return lists.some(list => list.some(r => Object.keys(r.packages).length > 0)) ? detected(held) : NO_MANAGERS;
+}
+
+// The line each of COMMANDS printed for `--version`, read by
+// `bin/vgshell-scan --versions` as shell/Core/Registry.qml reads it, whose
+// stderr names each read that failed. A run that answered nothing reads no
+// version, as in the shell: its line goes to stderr and every command
+// stays present.
+function versionsOf(commands) {
+    if (commands.length === 0) return {};
+    const r = childProcess.spawnSync(path.join(__dirname, "vgshell-scan"), ["--versions"].concat(commands), { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
+    const answer = logic.versionsRead(r.error !== undefined ? null : { code: r.status, status: r.signal === null ? 0 : 1 }, r.stdout);
+    if (answer.ok) return answer.versions;
+    process.stderr.write(answer.line + "\n");
+    return {};
+}
+
+// What the running shell reads before its requirement notice judges the
+// requirements of OWNERS, owner id -> `{ requirements }`, of which MISSING
+// names those not found and ENABLED the plugins that count:
+// `{ versions, found }`, the versions and the holders of the commands
+// PluginLogic.versionCommands picks, the commands with a floor.
+function systemRead(owners, missing, enabled) {
+    const commands = logic.versionCommands(owners, missing, enabled);
+    return { versions: versionsOf(commands), found: managersFor(Object.keys(owners).map(id => owners[id].requirements), commands) };
 }
 
 // The report rows of REQUIREMENTS, a normalized list, of which MISSING
-// names the requirements not found: PluginLogic.requirementRows' rows with the
-// package FOUND, detect's answer, picks for each. No command's version is
-// read here, so a row is `present` or `missing`: the running shell alone
-// reads a command below its `floor` as outdated.
-function reportRows(requirements, missing, found) {
-    return logic.requirementRows({ requirements }, missing, {}).map(row => Object.assign(row, { package: logic.PackageManagers.packageFor(row.packages, found) }));
+// names the requirements not found, judged as the requirement notice
+// judges them (PluginLogic.noticeView): PluginLogic.requirementRows' rows
+// under READ's versions, so a command below its `floor` is `outdated`, and
+// the package PackageManagers.installGroups picks for each from READ's
+// managers and holders.
+function reportRows(requirements, missing, read) {
+    const rows = logic.requirementRows({ requirements }, missing, read.versions);
+    const picks = logic.PackageManagers.installGroups(rows, read.found).picks;
+    return rows.map((row, i) => Object.assign(row, { package: picks[i] }));
 }
 
 function rowLine(row) {
@@ -215,9 +250,15 @@ function doctorReport(plugins, shipped, user, core) {
     const effective = logic.effectiveConfig(shipped, user);
     const defaultBarId = logic.activeBarId(shipped, "");
     const enabled = Array.from(plugins.keys()).sort().filter(id => logic.isEnabled(effective, plugins.get(id).manifest, defaultBarId));
-    const found = managersFor([core.requirements].concat(enabled.map(id => plugins.get(id).manifest.requirements)));
-    const report = { core: reportRows(core.requirements, core.missing, found), plugins: {} };
-    for (const id of enabled) report.plugins[id] = reportRows(plugins.get(id).manifest.requirements, plugins.get(id).missing, found);
+    const owners = { [logic.CORE_OWNER]: { requirements: core.requirements } };
+    const missing = { [logic.CORE_OWNER]: core.missing };
+    for (const id of enabled) {
+        owners[id] = plugins.get(id).manifest;
+        missing[id] = plugins.get(id).missing;
+    }
+    const read = systemRead(owners, missing, enabled);
+    const report = { core: reportRows(core.requirements, core.missing, read), plugins: {} };
+    for (const id of enabled) report.plugins[id] = reportRows(owners[id].requirements, missing[id], read);
     return report;
 }
 
@@ -260,7 +301,7 @@ function editUserConfig(userPath, edit) {
 // through vgshell.
 function unmetLines(plugin) {
     const missing = logic.requirementRows(plugin.manifest, plugin.missing, {}).filter(row => row.state === "missing");
-    const plan = logic.PackageManagers.installGroups(missing, managersFor([missing]));
+    const plan = logic.PackageManagers.installGroups(missing, managersFor([missing], []));
     const lines = missing.map((row, i) => "requires " + requirementText(row.name, plan.picks[i], row.optional));
     for (const group of plan.groups)
         lines.push(group.installs ? "install " + ["pkg", "run", "install"].concat(logic.PackageManagers.installArgs(group)).join(" ") : "by-hand " + group.manager + " " + group.names.join(" "));
@@ -368,8 +409,7 @@ main(() => {
         const [form, id] = args;
         const json = format(form) === "json";
         const plugin = pluginOf(registryOf(readScan()), id);
-        const requirements = plugin.manifest.requirements;
-        const rows = reportRows(requirements, plugin.missing, managersFor([requirements]));
+        const rows = reportRows(plugin.manifest.requirements, plugin.missing, systemRead({ [id]: plugin.manifest }, { [id]: plugin.missing }, [id]));
         if (json) process.stdout.write(JSON.stringify(rows) + "\n");
         else print(rows.map(rowLine));
         break;

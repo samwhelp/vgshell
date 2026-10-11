@@ -87,21 +87,25 @@
 #
 # `plugin requirements` prints one line per requirement of the plugin the
 # shell would hold under <id>, enabled or not:
-# `<state> <name>[ (<package>)][ optional]: <purpose>`, state `present`
-# or `missing`. `doctor` prints the same lines, each led by `core` or the
-# plugin's id, for config/requirements.json and every plugin the
-# configuration enables, then one line, `session <present|missing|unknown>
+# `<state> <name>[ (<package>)][ optional]: <purpose>`, state `present`,
+# `missing` or `outdated`, judged as the shell's requirement notice judges
+# it: a present command with a floor has its version read and its holder
+# looked up as the shell does, so a command below its floor is `outdated`,
+# the package named is the one its holder's manager provides, and a command
+# whose version cannot be read stays `present`. `doctor` prints the same
+# lines, each led by `core` or the plugin's id, for config/requirements.json
+# and every plugin the configuration enables, then one line, `session <present|missing|unknown>
 # uwsm-managed: <text>`, which says whether the session is uwsm-managed,
 # read from the user manager's graphical-session.target; an unmanaged one
 # names what breaks and the entry to log in with, "Hyprland
 # (uwsm-managed)". --json prints the rows as
 # one JSON line, each `{ name, bus, packages, optional, purpose, floor,
 # state, package }` with package `{ manager, name }` or null and floor the
-# lowest version the plugin works with or null; neither command reads a
-# command's version, so a state is never `outdated` here: a list for `plugin
+# lowest version the plugin works with or null: a list for `plugin
 # requirements`, and `{ core: [rows], plugins: { <id>: [rows] }, session:
 # { graphicalSession } }` for `doctor`. Both read the plugin directories,
-# PATH and D-Bus names as the shell's scan does, and change nothing.
+# PATH, D-Bus names and versions as the shell's scan does, and change
+# nothing.
 #
 # `plugin settings` prints the settings the plugin the shell would hold
 # under <id> hands its service, panel and floating TUIs: its manifest's

@@ -27,7 +27,10 @@ fi
 script_bin="$(command -v script)"
 
 # Stubs. Each writes one line per call to $LOG: its name, then each argument
-# in brackets. pacman fails with 7 when its first argument is $STUB_FAIL.
+# in brackets. pacman fails with 7 when its first argument is $STUB_FAIL,
+# and its owner query, which detect asks for the pacman and aur holders,
+# names need-old-aur, an AUR package, as the owner of vgs-need-old and owns
+# nothing else.
 stubs="$tmp/stubs"; mkdir -p "$stubs"
 record='printf "%s" "${0##*/}" >>"$LOG"; for a; do printf " [%s]" "$a" >>"$LOG"; done; echo >>"$LOG"'
 stub() { # NAME BODY
@@ -37,7 +40,11 @@ stub() { # NAME BODY
 # sudo -k and the keepalive's -n take no command to run.
 stub sudo 'case "$1" in -k) exit 0 ;; -n) shift ;; esac
 exec "$@"'
-stub pacman '[ "${STUB_FAIL:-}" != "$1" ] || exit 7'
+stub pacman '[ "${STUB_FAIL:-}" != "$1" ] || exit 7
+[ "$1" != -Qoq ] || case "$2" in */vgs-need-old) echo need-old-aur ;; *) exit 1 ;; esac'
+# vgs-need-old prints a version below the floor 2.0.0 acme.floor gives it.
+printf '#!/bin/sh\necho "vgs-need-old 1.2.3"\n' >"$stubs/vgs-need-old"
+chmod +x "$stubs/vgs-need-old"
 stub paru ''
 stub flatpak ''
 stub nix ''
@@ -122,6 +129,9 @@ $(need vgs-need-dup '{ "pacman": "need-one" }' "Same package"),
 $(need vgs-need-quote '{ "pacman": "need;one" }' Quoted)"
 source_repo needs "$(manifest acme.needs 0.1.0 ", \"requirements\": [ $requirements ]")"
 source_repo probe "$(manifest acme.probe 0.1.0)"
+# A present command below its floor, listing pacman first, held by the
+# second manager it lists, aur.
+source_repo floor "$(manifest acme.floor 0.1.0 ', "requirements": [ { "command": "vgs-need-old", "packages": { "pacman": "need-old", "aur": "need-old-aur" }, "purpose": "Old", "floor": "2.0.0" } ]')"
 # On NixOS: a package for nix, which installs nothing through vgshell, beside
 # one for the Flatpak overlay.
 source_repo nixos "$(manifest acme.nixos 0.1.0 ", \"requirements\": [ $(need vgs-nix-one '{ "nix": "nix-one" }' Nix), $(need vgs-flat '{ "flatpak": "org.flat" }' Flat) ]")"
@@ -217,6 +227,57 @@ row_doctor() {
     && out_has "acme.needs missing git (git): Present" && grep -qx "core present node (nodejs): .*" "$tmp/out" \
     && grep -qx "core missing git (git): .*" "$tmp/out" && grep -qx "core missing gum (gum): .*" "$tmp/out" || { why "doctor, acme.needs enabled"; return 1; }
 }
+# The requirement notice's rows for the plugin at $1, as the shell builds
+# them: PluginLogic.noticeView over the versions `vgshell-scan --versions`
+# answers Registry.qml and the managers and holders `vgshell-pkg detect`
+# answers Notices.qml, each run with the shell's own argv and judged by the
+# shell's own reader. It prints one JSON line, `[{ state, package }]`.
+notice_view="$tmp/notice-view.js"
+cat >"$notice_view" <<'JS'
+#!/usr/bin/env node
+"use strict";
+const childProcess = require("child_process");
+const fs = require("fs");
+const path = require("path");
+const bin = path.join(process.env.REPO, "bin");
+const logic = require(path.join(bin, "lib", "qml-library.js")).load(path.join(process.env.REPO, "shell", "Core", "PluginLogic.js"));
+const dir = process.argv[2];
+const checked = logic.validateManifest(JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8")), dir);
+if (!checked.ok) throw new Error(checked.error);
+const manifest = checked.manifest;
+const id = manifest.id;
+const commands = logic.versionCommands({ [id]: manifest }, {}, [id]);
+const completion = r => r.error !== undefined ? null : { code: r.status, status: r.signal === null ? 0 : 1 };
+const scan = childProcess.spawnSync(path.join(bin, "vgshell-scan"), ["--versions"].concat(commands), { encoding: "utf8" });
+const versions = logic.versionsRead(completion(scan), scan.stdout);
+const pkg = childProcess.spawnSync(path.join(bin, "vgshell-pkg"), ["detect", "--json", "--holders"].concat(commands), { encoding: "utf8" });
+const detected = logic.noticeDetected(completion(pkg), pkg.stdout, pkg.stderr);
+if (!versions.ok || !detected.ok) throw new Error(JSON.stringify([versions, detected]));
+const names = manifest.requirements.map(r => r.name);
+const view = logic.noticeView(manifest, [], versions.versions, { commands: names, required: names }, detected.found);
+process.stdout.write(JSON.stringify(view.rows.map(r => ({ state: r.state, package: r.package }))) + "\n");
+JS
+chmod +x "$notice_view"
+# acme.floor's one requirement: vgs-need-old below its floor, its package
+# the AUR one its holder names, not the pacman one its packages list first.
+floor_rows="[{'state': 'outdated', 'package': {'manager': 'aur', 'name': 'need-old-aur'}}]"
+# The notice, doctor and plugin requirements agree on acme.floor's state
+# and package. The notice's rows are matched first, so a fixture that never
+# reaches outdated or the holder fails here rather than in the reports.
+row_floor_agrees() {
+  req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/floor.git"
+  printf '{ "version": 1, "plugins": [ { "id": "acme.floor" } ] }\n' >"$2/vgshell/shell.json"
+  REQ_PATH="$tools" req "$notice_view" plain "" "$2" "$rt_empty" REPO="$repo" -- "$2/vgshell/plugins/acme.floor"
+  [[ $status == 0 ]] && json_is "$tmp/out" "d == $floor_rows" || { why "the notice's rows"; return 1; }
+  REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- plugin requirements --json acme.floor
+  [[ $status == 0 ]] && json_is "$tmp/out" "[{'state': r['state'], 'package': r['package']} for r in d] == $floor_rows" || { why "plugin requirements --json"; return 1; }
+  REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- plugin requirements acme.floor
+  [[ $status == 0 ]] && out_is "outdated vgs-need-old (need-old-aur): Old" || { why "plugin requirements"; return 1; }
+  REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- doctor --json
+  [[ $status == 0 ]] && json_is "$tmp/out" "[{'state': r['state'], 'package': r['package']} for r in d['plugins']['acme.floor']] == $floor_rows" || { why "doctor --json"; return 1; }
+  REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- doctor
+  [[ $status == 0 ]] && out_has "acme.floor outdated vgs-need-old (need-old-aur): Old" || { why "doctor"; return 1; }
+}
 # The session line: a hand-started session, graphical-session.target
 # inactive, reads as a missing uwsm-managed session that names what breaks
 # and the entry to log in with; a managed one reads as met. Each form is
@@ -249,6 +310,7 @@ declare -a ROWS=(
   "plugin requirements --json carries the package pick|row_requirements_json"
   "doctor reports the core and the enabled plugins only|row_doctor"
   "doctor says whether the session is uwsm-managed|row_doctor_session"
+  "the notice, doctor and plugin requirements agree on an outdated command's state and package|row_floor_agrees"
 )
 config_count=0
 # run_row FN BIN: row FN through BIN with a configuration directory of its
@@ -287,7 +349,9 @@ declare -a CONTROLS=(
   "a run asks for the rescan" vgshell-pkg '            rescanShell();' '' row_run_rescans
   "doctor reports enabled plugins only" vgshell-plugin-judge '.filter(id => logic.isEnabled(effective, plugins.get(id).manifest, defaultBarId))' '' row_doctor
   "the core's commands are looked up on PATH" vgshell-plugin-judge '.filter(name => !onPath(name))' '.filter(name => false)' row_doctor
-  "a row carries this system's package" vgshell-plugin-judge '{ package: logic.PackageManagers.packageFor(row.packages, found) }' '{ package: null }' row_requirements_json
+  "a row carries this system's package" vgshell-plugin-judge '{ package: picks[i] }' '{ package: null }' row_requirements_json
+  "doctor and plugin requirements read a command's version" vgshell-plugin-judge 'logic.requirementRows({ requirements }, missing, read.versions)' 'logic.requirementRows({ requirements }, missing, {})' row_floor_agrees
+  "the package is the one its holder's manager names" vgshell-plugin-judge 'logic.PackageManagers.installGroups(rows, read.found).picks' 'rows.map(row => logic.PackageManagers.packageFor(row.packages, read.found))' row_floor_agrees
   "nix gets no install command" vgshell-plugin-judge 'lines.push(group.installs ? ' 'lines.push(true ? ' row_nix_by_hand
   "add tells the shell which plugin it installed" vgshell '  rescan_if_running pluginInstalled "$id"' '  rescan_if_running rescanPlugins' row_offer_accepted
   "doctor reads an inactive graphical session" vgshell '    inactive|failed) echo inactive ;;' '    inactive|failed) echo active ;;' row_doctor_session
