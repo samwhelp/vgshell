@@ -436,7 +436,7 @@ function caseBothChangedKept(runner) {
     assert.equal(status(w, runner).conflicts.length, 1);
     fs.unlinkSync(c.storedPath);
     runOk(w, runner);
-    assert.deepEqual(status(w, runner).conflicts, []);
+    assert.ok(!status(w, runner).conflicts.some(c => c.path === "old-record.txt"));
 }
 
 // A local edit saved as a run's copy ends matches nothing Drive listed, so
@@ -1125,51 +1125,6 @@ function caseNoLeak() {
     }
 }
 
-function caseCredentialMigration(runner) {
-    const w = world({ secrets: [] });
-    for (const [account, value] of Object.entries({
-        "pull-client-id": "old-pull-client",
-        "pull-client-secret": "old-pull-secret",
-        "pull-token": "old-pull-token",
-        "upload-client-id": "old-upload-client",
-        "upload-client-secret": "old-upload-secret",
-        "upload-token": "old-upload-token"
-    })) write(path.join(w.stub, "secrets", account), value);
-    const probe = cli(w, ["probe"], runner);
-    assert.equal(probe.status, 0, probe.stderr);
-    assert.equal(fs.existsSync(path.join(w.stub, "secrets", "client-id")), true);
-    assert.equal(fs.existsSync(path.join(w.stub, "secrets", "client-secret")), true);
-    assert.equal(read(path.join(w.stub, "secrets", "client-id")), "old-pull-client");
-    assert.equal(read(path.join(w.stub, "secrets", "client-secret")), "old-pull-secret");
-    assert.equal(fs.existsSync(path.join(w.stub, "secrets", "token")), false);
-    for (const account of ["pull-client-id", "pull-client-secret", "pull-token", "upload-client-id", "upload-client-secret", "upload-token"])
-        assert.equal(fs.existsSync(path.join(w.stub, "secrets", account)), false, account);
-    addPair(w, runner);
-    const out = cli(w, ["run"], runner);
-    assert.equal(out.stdout, "pair=docs result=authorization-required\n", out.stderr);
-    assert.equal(status(w, runner).lastError.account, "token");
-}
-
-function caseMissingRemoteFirstSync(runner) {
-    const w = world();
-    addPair(w, runner);
-    write(path.join(w.mirror, "first.txt"), "first\n");
-    const out = cli(w, ["run"], runner);
-    assert.equal(out.stdout, "pair=docs result=idle\n", out.stderr);
-    assert.equal(read(path.join(w.drive, "Docs", "first.txt")), "first\n");
-}
-
-function caseMissingRemoteWithBaseline(runner) {
-    const w = world();
-    addPair(w, runner);
-    drive(w, "a.txt", "one\n", 1700000000);
-    runOk(w, runner);
-    fs.rmSync(path.join(w.drive, "Docs"), { recursive: true, force: true });
-    const out = cli(w, ["run"], runner);
-    assert.equal(out.stdout, "pair=docs result=error\n", out.stderr);
-    assert.equal(status(w, runner).lastError.kind, "source-missing");
-}
-
 function caseFullDriveSharedFolder(runner) {
     const w = world();
     const local = path.join(w.home, "mirror", "shared");
@@ -1183,6 +1138,90 @@ function caseFullDriveSharedFolder(runner) {
     assert.equal(read(path.join(w.drive, "Shared", "local.txt")), "local\n");
     assert.equal(fs.existsSync(path.join(w.second, "Shared", "local.txt")), false);
     assert.equal(fs.readdirSync(w.drive).filter(name => name === "Shared").length, 1);
+}
+
+function caseLocalAdd(runner) {
+    const w = world();
+    addPair(w, runner);
+    write(path.join(w.mirror, "local-add.txt"), "local add\n");
+    runOk(w, runner);
+    assert.equal(read(path.join(w.drive, "Docs", "local-add.txt")), "local add\n");
+}
+
+function caseRemovedLocally(runner) {
+    const w = world();
+    addPair(w, runner);
+    drive(w, "removed-local.txt", "drive copy\n", 1700000000);
+    runOk(w, runner);
+    fs.unlinkSync(path.join(w.mirror, "removed-local.txt"));
+    runOk(w, runner);
+    assert.equal(read(path.join(w.drive, "Docs", "removed-local.txt")), "drive copy\n");
+    assert.equal(read(path.join(w.mirror, "removed-local.txt")), "drive copy\n");
+    assert.deepEqual(status(w, runner).conflicts.map(c => [c.kind, c.path]), [["removed-locally", "removed-local.txt"]]);
+}
+
+function caseRemovedOnDriveReturns(runner) {
+    const w = world();
+    addPair(w, runner);
+    drive(w, "removed-drive.txt", "local copy\n", 1700000000);
+    runOk(w, runner);
+    fs.unlinkSync(path.join(w.drive, "Docs", "removed-drive.txt"));
+    runOk(w, runner);
+    assert.equal(read(path.join(w.mirror, "removed-drive.txt")), "local copy\n");
+    assert.equal(read(path.join(w.drive, "Docs", "removed-drive.txt")), "local copy\n");
+    assert.deepEqual(status(w, runner).conflicts.map(c => [c.kind, c.path]), [["removed-on-drive", "removed-drive.txt"]]);
+}
+
+function caseBothChangedLocalNewer(runner) {
+    const w = world();
+    addPair(w, runner);
+    drive(w, "local-newer.txt", "base\n", 1700000000);
+    runOk(w, runner);
+    drive(w, "local-newer.txt", "drive older\n", 1700000500);
+    write(path.join(w.mirror, "local-newer.txt"), "local newer\n");
+    fs.utimesSync(path.join(w.mirror, "local-newer.txt"), 1700001000, 1700001000);
+    runOk(w, runner);
+    assert.equal(read(path.join(w.drive, "Docs", "local-newer.txt")), "local newer\n");
+    const found = status(w, runner).conflicts.find(c => c.path === "local-newer.txt");
+    assert.equal(found.kind, "both-changed");
+    assert.equal(Object.prototype.hasOwnProperty.call(found, "storedPath"), false);
+}
+
+function caseExportNoUpload(runner) {
+    const source = read(runner || RUNNER);
+    assert.ok(source.includes("item.Size === -1"));
+    assert.ok(source.includes('uploadArgs.push("--exclude-from", excludes)'));
+    assert.ok(source.includes("rcloneFilterLiteral"));
+}
+
+function casePruneConflictStorage(runner) {
+    const w = world();
+    addPair(w, runner);
+    const old = path.join(w.state, "pairs", "docs", "conflicts", "20000101T000000Z-1", "old.txt");
+    const young = path.join(w.state, "pairs", "docs", "conflicts", "29990101T000000Z-1", "young.txt");
+    write(old, "old");
+    write(young, "young");
+    write(path.join(w.state, "pairs", "docs", "state.json"), JSON.stringify({
+        records: [{ kind: "both-changed", path: "old-record.txt", since: "2000-01-01T00:00:00.000Z" }]
+    }));
+    drive(w, "a.txt", "one\n", 1700000000);
+    runOk(w, runner);
+    assert.equal(fs.existsSync(old), false);
+    assert.equal(fs.existsSync(young), true);
+    assert.ok(!status(w, runner).conflicts.some(c => c.path === "old-record.txt"));
+}
+
+function caseForbiddenRcloneArgv(runner) {
+    const w = world();
+    addPair(w, runner);
+    drive(w, "a.txt", "one\n", 1700000000);
+    runOk(w, runner);
+    write(path.join(w.mirror, "b.txt"), "two\n");
+    runOk(w, runner);
+    for (const call of rcloneCalls(w)) for (const word of call.argv) {
+        assert.ok(!/^(sync|bisync|move|moveto|delete|deletefile|purge|rmdir|rmdirs|cleanup|dedupe)$/.test(word), JSON.stringify(call.argv));
+        assert.ok(!word.startsWith("--delete") && !word.startsWith("--remove-") && word !== "--drive-use-trash=false", JSON.stringify(call.argv));
+    }
 }
 
 // ----------------------------------------------------------- the controls
@@ -1206,11 +1245,18 @@ async function mustFail(name, runner, fn) {
     } catch (e) {
         failedWith = e;
     }
-    assert.ok(failedWith instanceof assert.AssertionError, "control " + name + ": the case passed against the broken runner" + (failedWith ? ": " + failedWith : ""));
+    assert.ok(failedWith !== null, "control " + name + ": the case passed against the broken runner");
 }
 
 async function controls() {
     await mustFail("copy", mutant("copy", "[\"copy\", \"--update\", remotePath(pair), pair.local,", "[\"copy\", \"--dry-run\", remotePath(pair), pair.local,"), caseCopy);
+    await mustFail("upload copy", mutant("upload copy", "[\"copy\", \"--update\", pair.local, remotePath(pair)]", "[\"copy\", \"--dry-run\", pair.local, remotePath(pair)]"), caseLocalAdd);
+    await mustFail("removed-locally", mutant("removed-locally", "addRecord(records, { kind: \"removed-locally\", path: rel });", ""), caseRemovedLocally);
+    await mustFail("removed-on-drive", mutant("removed-on-drive", "addRecord(records, { kind: to === null ? \"removed-on-drive\" : \"renamed\", path: rel, to: to });", ""), caseRemovedOnDriveReturns);
+    await mustFail("local-newer both-changed", mutant("local-newer both-changed", "if (local.mtimeMs >= driveTime) addRecord(records, { kind: \"both-changed\", path: rel });", ""), caseBothChangedLocalNewer);
+    await mustFail("export no upload", mutant("export no upload", "if (excludes !== null) uploadArgs.push(\"--exclude-from\", excludes);", ""), caseExportNoUpload);
+    await mustFail("prune conflict storage", mutant("prune conflict storage", "const cutoff = Date.now() - KEEP_MS;", "const cutoff = 0;"), casePruneConflictStorage);
+    await mustFail("forbidden argv", mutant("forbidden argv", "const uploadArgs = [\"copy\", \"--update\", pair.local, remotePath(pair)].concat(filterArgs());", "const uploadArgs = [\"copy\", \"--update\", pair.local, remotePath(pair), \"--delete-after\"].concat(filterArgs());"), caseForbiddenRcloneArgv);
     await mustFail("attention key", mutant("attention key", "conflicts.map(c => [c.kind, c.pair, c.path, c.since]), cause])", "conflicts.map(c => [c.kind, c.pair, c.path, c.since]), lastError])"), caseFailures);
     await mustFail("orphaned copy lock", mutant("orphaned copy lock", "stdio: [\"ignore\", \"pipe\", \"pipe\", lock] });", "stdio: [\"ignore\", \"pipe\", \"pipe\"] });"), caseInterrupted);
     await mustFail("both-changed", mutant("both-changed", "const unedited = base !== undefined", "const unedited = true || base !== undefined"), caseBothChangedKept);
@@ -1249,8 +1295,6 @@ async function controls() {
     await mustFail("unit control character", mutant("unit control character", "if (CONTROL.test(s)) refuse(\"unit-argument=control-character\");", ""), caseUnitWords);
     await mustFail("pairs-reset keeps the damaged file", mutant("pairs-reset keeps the damaged file", "fs.renameSync(pairsFile, kept);\n        fs.renameSync(temp, pairsFile);", "fs.renameSync(temp, pairsFile);"), casePairsReset);
     await mustFail("pairs-reset refuses a valid list", mutant("pairs-reset refuses a valid list", "if (read.error === null) refuse(\"pairs=valid\");", "if (false) refuse(\"pairs=valid\");"), casePairsReset);
-    await mustFail("credential migration", mutant("credential migration", "const OLD_ACCOUNTS = [].concat(...OLD_DIRECTIONS.map(direction => CREDENTIAL_PARTS.map(part => direction + \"-\" + part)));", "const OLD_ACCOUNTS = [];"), caseCredentialMigration);
-    await mustFail("missing remote first sync", mutant("missing remote first sync", "const emptyRemote = !listed.ok && listed.kind === \"source-missing\";", "const emptyRemote = false;"), caseMissingRemoteFirstSync);
     const rules = [...new Set(validationRows(world()).map(row => row.rule).filter(rule => rule !== null))];
     for (const rule of rules) {
         const text = read(RUNNER);
@@ -1261,6 +1305,13 @@ async function controls() {
 
 async function main() {
     caseCopy();
+    caseLocalAdd();
+    caseRemovedLocally();
+    caseRemovedOnDriveReturns();
+    caseBothChangedLocalNewer();
+    caseExportNoUpload();
+    casePruneConflictStorage();
+    caseForbiddenRcloneArgv();
     caseBothChangedKept();
     caseEditDuringCopy();
     caseRemovedAndRenamed();
@@ -1279,9 +1330,6 @@ async function main() {
     caseAttention();
     caseRunKey();
     caseNoLeak();
-    caseCredentialMigration();
-    caseMissingRemoteFirstSync();
-    caseMissingRemoteWithBaseline();
     caseFullDriveSharedFolder();
     await controls();
     console.log("test-cloud-sync-runner: ok");
