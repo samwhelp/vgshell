@@ -30,8 +30,10 @@
 # unlock shorter than one 100 ms sample, between two readings, is not
 # read. The runner's relaunch line for each kill names session=locked,
 # the runner's own reading of the same lock. The time from the kill to the
-# confirmed lock with the lock screen is printed as latency_lock_back_ms
-# and held under lock_back_budget_ms, below.
+# confirmed lock with the lock screen is judged against lock_back_budget_ms,
+# below, by harness.sh's latency_pressure_check with the host's CPU
+# pressure over the same window; its control is a planted reading one
+# millisecond over the budget at the pressure limit, which must read over.
 #
 # No row types a password: PAM would check it against the real account,
 # whose pam_faillock counts each failure. The sandbox's own probe releases
@@ -213,6 +215,7 @@ kill_and_relaunch() { # LABEL
   sampler_start "$sandbox/lock-samples"
   expect_poll "$1: the sampler recorded the locked session before the kill" locked first_sample "$sandbox/lock-samples"
   killed_ms="$(now_ms)"
+  killed_cpu_us="$(cpu_some_us)"
   kill -KILL "$killed" || fail "$1: SIGKILL to the shell pid $killed failed"
   expect_poll "$1: the killed shell is gone" gone alive "$killed"
   if adopt_shell "$killed"; then ok "$1: the runner started the next shell"; fi
@@ -499,9 +502,12 @@ expect "the IPC lock answers ok before the kill" ok ipc vgs.lock invoke lock ''
 expect_poll "the session is locked before the kill" '[true, true, true]' core_lock
 kill_and_relaunch "the kill"
 lock_back="$(lock_back_ms)"
+lock_back_cpu_us="$(cpu_some_us)"
 sampler_stop "$sandbox/lock-samples"
-echo "  latency_lock_back_ms=$lock_back budget_ms=$lock_back_budget_ms"
-if [[ $lock_back =~ ^[0-9]+$ && $lock_back -le $lock_back_budget_ms ]]; then ok "the relaunched shell took the stranded lock over within its budget"; else fail "lock back after the kill: $lock_back ms, budget $lock_back_budget_ms ms"; fi
+lock_back_pressure=unmeasured
+[[ $lock_back =~ ^[0-9]+$ ]] && lock_back_pressure="$(cpu_some_pct "$killed_cpu_us" "$lock_back_cpu_us" "$lock_back")"
+latency_pressure_check lock lock_back "$lock_back" "$lock_back_pressure" "$lock_back_budget_ms"
+expect "control: lock back one millisecond over budget at the pressure limit fails" over latency_pressure_verdict "$((lock_back_budget_ms + 1))" "$latency_pressure_limit" "$lock_back_budget_ms"
 echo "  lock samples=$(wc -l <"$sandbox/lock-samples")"
 expect "the session never read unlocked from before the kill to the relaunched lock" never-unlocked samples_read "$sandbox/lock-samples"
 expect "the session is still locked" locked session_lock
