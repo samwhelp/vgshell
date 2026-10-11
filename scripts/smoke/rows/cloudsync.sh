@@ -15,7 +15,9 @@
 # into each direction's key list and sign-in, the download sign-in naming
 # the account its token carries; the Settings page offers Set up hourly
 # sync while no unit is installed and its press hands the terminal the
-# setup TUI; the window maps with the record and its Sync now asks systemd
+# setup TUI; the window maps with the record, holds Sync now off while a
+# run holds its copy and while the download client ID is missing, and its
+# Sync now asks systemd
 # to start the one service, which the systemctl stand-in logs, and runs no
 # rclone, and its Remove beside a pair hands the terminal the remove TUI
 # for that pair; a Drive-side add and change reach the mirror after one
@@ -148,30 +150,40 @@ cs_finished() {
   kill "$1" 2>/dev/null || true
   echo killed
 }
-check_lock() {
-  local held held_out="$cs_dir/held.out" before released=no
-  cs_put c.txt "held"
+# cs_hold OUT: a run started and held inside its copy, its output in OUT
+# and its PID in cs_held.
+cs_hold() {
   rm -f -- "${cs_stub:?}/blocked" "${cs_stub:?}/release"
   mkfifo -- "$cs_stub/release"
   : >"$cs_stub/block"
   # Started without the cs function, so $! is the runner itself (env
   # execs node), whose PID the row may signal.
   env -i HOME="$cs_home" PATH="$shell_start_path" LANG=C.UTF-8 XDG_RUNTIME_DIR="$cs_rt" XDG_CONFIG_HOME="$cs_home/.config" \
-    XDG_STATE_HOME="$cs_home/.local/state" XDG_DATA_HOME="$cs_home/.local/share" node "$cs_file" run >"$held_out" 2>>"$cs_err" &
-  held=$!
-  expect_poll "the first run holds its copy" yes cs_blocked
-  before="$(cs_copies)"
-  expect "a run during another is busy" "pair=docs result=busy exit=75" cs_answer run
-  expect "the busy run starts no copy" "$before" cs_copies
+    XDG_STATE_HOME="$cs_home/.local/state" XDG_DATA_HOME="$cs_home/.local/share" node "$cs_file" run >"$1" 2>>"$cs_err" &
+  cs_held=$!
+  expect_poll "the held run holds its copy" yes cs_blocked
+}
+# cs_let_go: the held run released and ended.
+cs_let_go() {
+  local released=no
   rm -f -- "${cs_stub:?}/block"
   if [[ $(cs_blocked) == yes ]]; then
     if cs_release; then released=yes; else fail "the held copy took no release within 10 s"; fi
   fi
-  expect "the held run ends" ended cs_finished "$held"
-  wait "$held" || true
+  expect "the held run ends" ended cs_finished "$cs_held"
+  wait "$cs_held" || true
   # A runner killed past its deadline leaves its copy waiting on the pipe.
   [[ $released == yes || $(cs_blocked) == no ]] || cs_release || true
   rm -f -- "${cs_stub:?}/release" "${cs_stub:?}/blocked"
+}
+check_lock() {
+  local held_out="$cs_dir/held.out" before
+  cs_put c.txt "held"
+  cs_hold "$held_out"
+  before="$(cs_copies)"
+  expect "a run during another is busy" "pair=docs result=busy exit=75" cs_answer run
+  expect "the busy run starts no copy" "$before" cs_copies
+  cs_let_go
   expect "the held run finishes" "pair=docs result=idle" cat -- "$held_out"
 }
 # control_red NAME CHECK...: the checks against a runner copy whose FROM
@@ -297,6 +309,18 @@ SH
   expect "the window is summoned" ok ipc shell summon window vgs.cloud-sync '{}'
   expect_poll "the window maps, titled Cloud Sync" 1 window_count "Cloud Sync"
   expect_poll "the window offers Sync now with a folder pair" '["sync", true]' cs_window_primary
+  # Sync now is off while a sync cannot start: a run holds its copy, then
+  # the download client ID is missing.
+  cs_hold "$cs_dir/window-held.out"
+  expect_poll "the window holds Sync now off while a sync runs" '["sync", false]' cs_window_primary
+  cs_let_go
+  expect_poll "the window offers Sync now again once the sync ends" '["sync", true]' cs_window_primary
+  rm -- "${cs_stub:?}/secrets/pull-client-id"
+  expect "a run without the download client ID waits for it" "pair=docs result=authorization-required exit=1" cs_answer run
+  expect_poll "the window holds Sync now off while a key is missing" '["sync", false]' cs_window_primary
+  printf 'fixture-client' >"$cs_stub/secrets/pull-client-id"
+  expect "a run with the client ID back copies again" "pair=docs result=idle exit=0" cs_answer run
+  expect_poll "the window offers Sync now again with the key back" '["sync", true]' cs_window_primary
   local copies
   copies="$(cs_copies)"
   : >"$cs_stub/systemd/systemctl.calls"

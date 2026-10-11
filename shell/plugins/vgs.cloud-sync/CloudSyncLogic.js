@@ -71,6 +71,12 @@ var ERROR_TEXT = {
     "pairs-invalid": "The folder pair list is not valid, so Cloud Sync copies nothing."
 };
 var ERROR_DEFAULT = "The sync stopped with an error. Cloud Sync tries again at the next sync.";
+// The Settings page's own words where ERROR_TEXT sends the user to that
+// page: its fields stand below the sync value.
+var PAGE_ERROR_TEXT = {
+    "authorization-refused": "Google Drive did not accept the sign-in. Select Sign in again below.",
+    "credential-absent": "A Google Drive key is missing. Add the client ID and secret below."
+};
 // A missing token is a missing sign-in of its direction, not a key to add.
 var TOKEN_DIRECTION = { "pull-token": "Download", "upload-token": "Upload" };
 
@@ -207,10 +213,13 @@ function badgeTone(tone) {
     return BADGE_TONES[tone];
 }
 
-function errorText(error) {
+// ERROR as a sentence; ON_PAGE true for the Settings page, which names
+// its own fields below instead of sending the user to itself.
+function errorText(error, onPage) {
     if (error === null) return "";
     if (error.kind === "credential-absent" && hasOwn(TOKEN_DIRECTION, error.account))
-        return "Google Drive is not signed in for " + TOKEN_DIRECTION[error.account] + ". Select Sign in on the Cloud Sync page in Settings.";
+        return "Google Drive is not signed in for " + TOKEN_DIRECTION[error.account] + ". Select Sign in " + (onPage === true ? "below." : "on the Cloud Sync page in Settings.");
+    if (onPage === true && hasOwn(PAGE_ERROR_TEXT, error.kind)) return PAGE_ERROR_TEXT[error.kind];
     return hasOwn(ERROR_TEXT, error.kind) ? ERROR_TEXT[error.kind] : ERROR_DEFAULT;
 }
 
@@ -304,11 +313,12 @@ function withCause(view, cause) {
     return { text: view.text, tone: view.tone, icon: view.icon, cause: cause };
 }
 
-// The sentence that gives HEAD's cause, or "": what to do with files to
-// review, or the last error behind a failure or an offline sync.
+// The Settings page's sentence that gives HEAD's cause, or "": what to do
+// with files to review, or the last error behind a failure or an offline
+// sync.
 function headlineHint(cloud, head) {
     if (head.cause === "review") return REVIEW_HINT;
-    if (head.tone === "danger" || head.cause === "offline") return errorText(cloud.lastError);
+    if (head.tone === "danger" || head.cause === "offline") return errorText(cloud.lastError, true);
     return "";
 }
 
@@ -344,7 +354,7 @@ function scheduleValue(units) {
 // exists; while the runner cannot read the list it offers neither, since
 // it refuses both.
 function pairsValue(cloud) {
-    if (!pairListValid(cloud)) return { tone: "danger", text: "Not readable", hint: errorText(cloud.lastError) };
+    if (!pairListValid(cloud)) return { tone: "danger", text: "Not readable", hint: errorText(cloud.lastError, true) };
     var pairs = cloud.pairs;
     if (pairs.length === 0) return { tone: "warning", text: "None", action: "add", hint: NO_PAIRS_HINT };
     return {
@@ -384,7 +394,7 @@ function signInValue(presence, direction, record) {
     var refused = record !== null && record.pairs.some(function (p) {
         return p.direction === direction && p.state === "authorization-required" && p.lastError !== null && p.lastError.kind === "authorization-refused";
     });
-    if (refused) return { tone: "danger", text: "Sign-in refused", action: "reconnect", hint: errorText({ kind: "authorization-refused" }) };
+    if (refused) return { tone: "danger", text: "Sign-in refused", action: "reconnect", hint: "Google Drive did not accept the sign-in." };
     var user = presence[direction + "-token"].user;
     var named = user === undefined ? "" : "Signed in as " + user + ".";
     return { tone: "ok", text: "Signed in", hint: named !== "" && named.length <= HINT_MAX ? named : "Signed in.", action: "signOut" };
@@ -497,18 +507,31 @@ function conflictGroups(conflicts) {
     return groups;
 }
 
+// Whether a run would copy PAIR: not paused, and not waiting for a key or
+// a sign-in only the user can add. A locked keyring is not one: the run
+// reads the keyring again, so Sync now stays the way to retry after an
+// unlock.
+function pairCanSync(pair) {
+    if (pair.state === "paused") return false;
+    return pair.state !== "authorization-required" || (pair.lastError !== null && pair.lastError.kind === "credential-locked");
+}
+
 // The window's footer for CLOUD, undefined before the first value:
-// { primary, pause }. The primary is Sync now once the hourly units are
-// installed, enabled while a folder pair exists, else Set up hourly sync;
-// `pause` is Pause or Resume while a folder pair exists, else null.
+// { primary, pause, add }. The primary is Sync now once the hourly units
+// are installed, enabled only when a sync can start: no sync runs and a
+// folder pair can sync (pairCanSync); the headline already says why it
+// cannot. Else it is Set up hourly sync. `pause` is Pause or Resume while
+// a folder pair exists, else null; `add`, the footer's Add a folder pair,
+// shows only then too, since the empty pair list offers its own.
 function footerView(cloud) {
     var known = cloud !== undefined && cloud !== null;
     var hasPairs = known && cloud.pairs.length > 0;
+    var canSync = known && cloud.state !== "running" && cloud.pairs.some(pairCanSync);
     var primary = !known || cloud.units === "installed"
-        ? { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: hasPairs }
+        ? { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: canSync }
         : { text: "Set up hourly sync", icon: "cloud-cog", action: "setup", enabled: true };
     var pause = !hasPairs ? null : cloud.paused ? { text: "Resume", icon: "play", action: "resume" } : { text: "Pause", icon: "pause", action: "pause" };
-    return { primary: primary, pause: pause };
+    return { primary: primary, pause: pause, add: hasPairs };
 }
 
 // The line under the review list when it shows only part of the list.

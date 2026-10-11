@@ -11,9 +11,10 @@ import "CloudSyncLogic.js" as Logic
 // the remove TUI for that pair; To review lists each file Cloud Sync kept,
 // a local edit, a Drive deletion or a Drive rename, under its folder
 // pair's label, with Open folders, which opens the folders that hold its
-// versions. The footer holds Sync now, or Set up hourly sync while the
-// hourly sync is not set up, over Pause or Resume while a folder pair
-// exists and Add a folder pair (CloudSyncLogic.footerView).
+// versions. The footer holds Sync now, enabled only when a sync can
+// start, or Set up hourly sync while the hourly sync is not set up, over
+// Pause or Resume and Add a folder pair while a folder pair exists
+// (CloudSyncLogic.footerView).
 // It runs nothing itself: Sync now, Pause and Resume ask the service
 // through the plugin's own IPC, setup opens the plugin's floating TUIs,
 // and Open folders hands each folder to xdg-open. The window asks to be
@@ -221,9 +222,15 @@ FocusScope {
                     onClicked: root.footer.primary.action === "sync" ? root.ask("sync") : root.run("setup")
                 }
 
+                // Hidden with no folder pair, when the empty pair list
+                // offers Add a folder pair itself. Column lays out no
+                // invisible child (Qt 6 Column reference: "If an item
+                // within a Column is not visible ... the item will not be
+                // laid out").
                 Item {
                     width: parent.width
                     height: addButton.implicitHeight
+                    visible: root.footer.add
 
                     Button {
                         id: pauseButton

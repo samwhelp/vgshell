@@ -67,35 +67,46 @@ function probe(over) {
 const BAR = { ok: "calm", info: "calm", warning: "warning", danger: "danger" };
 
 const SIGNED_OUT = "Google Drive is not signed in for Download. Select Sign in on the Cloud Sync page in Settings.";
+const SIGNED_OUT_PAGE = "Google Drive is not signed in for Download. Select Sign in below.";
+const REFUSED_PAGE = "Google Drive did not accept the sign-in. Select Sign in again below.";
 const INVALID = "The folder pair list is not valid, so Cloud Sync copies nothing.";
 const signedOut = { kind: "credential-absent", account: "pull-token" };
 // The pair list the runner could not read: it reads no pair and refuses
 // every pair change (bin/cloud-sync readPairs).
 const invalid = () => record({ state: "error", lastError: { kind: "pairs-invalid", detail: "pair=docs rule=repository-inside" }, pairs: [], conflicts: [], attention: { reasons: ["error"], key: "k", notified: false } });
 
+// The window footer's primary: [action, enabled].
+const SYNC = ["sync", true];
+const NO_SYNC = ["sync", false];
+const SETUP = ["setup", true];
+// A pair as the runner renders it under a pause (bin/cloud-sync
+// renderStatus): its own state reads paused.
+const PAUSED_DOCS = Object.assign({}, DOCS, { state: "paused" });
+
 // One row per state of the sync: the record, then the headline's text,
-// tone and icon every surface must show, the Settings hint, and whether
-// the bar hides its icon.
+// tone and icon every surface must show, the window footer's primary, the
+// Settings hint, and whether the bar hides its icon.
 const STATES = [
-    ["first run", { state: "not-set-up", units: "absent", lastSuccess: null, staleAfter: null, lastError: null, pairs: [], conflicts: [], attention: null }, "Not set up", "warning", "cloud", undefined, true],
-    ["no keys", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: { kind: "credential-absent", account: "pull-client-id" } })], lastError: { kind: "credential-absent", account: "pull-client-id", pair: "docs" } }), "Sign-in needed", "danger", "cloud-alert", "A Google Drive key is missing. Add it on the Cloud Sync page in Settings."],
-    ["no folder pair", { state: "not-set-up", units: "installed", lastSuccess: null, staleAfter: null, lastError: null, pairs: [], conflicts: [], attention: null }, "No folder pairs", "warning", "cloud", undefined, true],
-    ["pair list not readable", invalid(), "Sync failed", "danger", "cloud-alert", INVALID, false],
-    ["signed out", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: signedOut })], lastError: Object.assign({ pair: "docs" }, signedOut) }), "Sign-in needed", "danger", "cloud-alert", SIGNED_OUT],
-    ["syncing while another pair needs a sign-in", record({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" }), INBOX], conflicts: [] }), "Sign-in needed", "danger", "cloud-alert", "Google Drive did not accept the sign-in. Select Sign in again on the Cloud Sync page in Settings."],
-    ["syncing while another pair failed", well({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" }), Object.assign({}, INBOX, { state: "error", lastError: { kind: "source-missing" } })], lastError: { kind: "source-missing", pair: "inbox" }, conflicts: CONFLICTS.slice(0, 1) }), "Sync failed", "danger", "cloud-alert", "A Google Drive folder of a folder pair does not exist."],
-    ["empty review", well(), "Up to date", "ok", "cloud-check", undefined],
-    ["data old", well({ staleAfter: iso(NOW) }), "Out of date", "warning", "cloud-alert", undefined],
-    ["never synced", well({ lastSuccess: null, staleAfter: null }), "Not synced yet", "info", "cloud", undefined],
-    ["syncing", well({ state: "running" }), "Syncing", "info", "cloud-sync", undefined],
-    ["paused", well({ state: "paused", paused: true }), "Paused", "info", "cloud-off", undefined],
-    ["error", well({ state: "error", lastError: { kind: "source-missing", pair: "docs" } }), "Sync failed", "danger", "cloud-alert", "A Google Drive folder of a folder pair does not exist."],
-    ["offline", well({ state: "offline", lastError: { kind: "offline", pair: "docs" } }), "Offline", "warning", "cloud-off", "Google Drive cannot be reached. Cloud Sync tries again at the next sync."],
-    ["sign-in needed", record({ conflicts: [] }), "Sign-in needed", "danger", "cloud-alert", "Google Drive did not accept the sign-in. Select Sign in again on the Cloud Sync page in Settings."],
-    ["set up with files to review", well({ conflicts: CONFLICTS.slice(0, 2) }), "2 files to review", "warning", "cloud-alert", "Open Cloud Sync to review them."],
-    ["one file to review", well({ conflicts: CONFLICTS.slice(1, 2) }), "1 file to review", "warning", "cloud-alert", "Open Cloud Sync to review them."],
-    ["files to review while paused", well({ state: "paused", paused: true, conflicts: CONFLICTS.slice(0, 2) }), "2 files to review", "warning", "cloud-alert", "Open Cloud Sync to review them."],
-    ["sign-in needed with files to review", record(), "Sign-in needed", "danger", "cloud-alert", "Google Drive did not accept the sign-in. Select Sign in again on the Cloud Sync page in Settings."]
+    ["first run", { state: "not-set-up", units: "absent", lastSuccess: null, staleAfter: null, lastError: null, pairs: [], conflicts: [], attention: null }, "Not set up", "warning", "cloud", SETUP, undefined, true],
+    ["no keys", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: { kind: "credential-absent", account: "pull-client-id" } })], lastError: { kind: "credential-absent", account: "pull-client-id", pair: "docs" } }), "Sign-in needed", "danger", "cloud-alert", NO_SYNC, "A Google Drive key is missing. Add the client ID and secret below."],
+    ["no folder pair", { state: "not-set-up", units: "installed", lastSuccess: null, staleAfter: null, lastError: null, pairs: [], conflicts: [], attention: null }, "No folder pairs", "warning", "cloud", NO_SYNC, undefined, true],
+    ["pair list not readable", invalid(), "Sync failed", "danger", "cloud-alert", NO_SYNC, INVALID, false],
+    ["signed out", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: signedOut })], lastError: Object.assign({ pair: "docs" }, signedOut) }), "Sign-in needed", "danger", "cloud-alert", NO_SYNC, SIGNED_OUT_PAGE],
+    ["syncing while another pair needs a sign-in", record({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" }), INBOX], conflicts: [] }), "Sign-in needed", "danger", "cloud-alert", NO_SYNC, REFUSED_PAGE],
+    ["syncing while another pair failed", well({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" }), Object.assign({}, INBOX, { state: "error", lastError: { kind: "source-missing" } })], lastError: { kind: "source-missing", pair: "inbox" }, conflicts: CONFLICTS.slice(0, 1) }), "Sync failed", "danger", "cloud-alert", NO_SYNC, "A Google Drive folder of a folder pair does not exist."],
+    ["empty review", well(), "Up to date", "ok", "cloud-check", SYNC, undefined],
+    ["data old", well({ staleAfter: iso(NOW) }), "Out of date", "warning", "cloud-alert", SYNC, undefined],
+    ["never synced", well({ lastSuccess: null, staleAfter: null }), "Not synced yet", "info", "cloud", SYNC, undefined],
+    ["syncing", well({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" })] }), "Syncing", "info", "cloud-sync", NO_SYNC, undefined],
+    ["paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS] }), "Paused", "info", "cloud-off", NO_SYNC, undefined],
+    ["error", well({ state: "error", lastError: { kind: "source-missing", pair: "docs" } }), "Sync failed", "danger", "cloud-alert", SYNC, "A Google Drive folder of a folder pair does not exist."],
+    ["offline", well({ state: "offline", lastError: { kind: "offline", pair: "docs" } }), "Offline", "warning", "cloud-off", SYNC, "Google Drive cannot be reached. Cloud Sync tries again at the next sync."],
+    ["keyring locked", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: { kind: "credential-locked", account: "pull-client-id" } })], lastError: { kind: "credential-locked", account: "pull-client-id", pair: "docs" } }), "Sign-in needed", "danger", "cloud-alert", SYNC, "Your keyring is locked. Unlock it to sync."],
+    ["sign-in needed", record({ conflicts: [] }), "Sign-in needed", "danger", "cloud-alert", SYNC, REFUSED_PAGE],
+    ["set up with files to review", well({ conflicts: CONFLICTS.slice(0, 2) }), "2 files to review", "warning", "cloud-alert", SYNC, "Open Cloud Sync to review them."],
+    ["one file to review", well({ conflicts: CONFLICTS.slice(1, 2) }), "1 file to review", "warning", "cloud-alert", SYNC, "Open Cloud Sync to review them."],
+    ["files to review while paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS], conflicts: CONFLICTS.slice(0, 2) }), "2 files to review", "warning", "cloud-alert", NO_SYNC, "Open Cloud Sync to review them."],
+    ["sign-in needed with files to review", record(), "Sign-in needed", "danger", "cloud-alert", SYNC, REFUSED_PAGE]
 ];
 
 function verify(L) {
@@ -156,7 +167,7 @@ function verify(L) {
 
     // The headline, and every surface reading it.
     assert.equal(L.headline(undefined, NOW), null, "no record, no headline");
-    for (const [label, rec, text, tone, icon, hint, hidden] of STATES) {
+    for (const [label, rec, text, tone, icon, primary, hint, hidden] of STATES) {
         const cloud = L.cloudValue(rec, "");
         const head = L.headline(cloud, NOW);
         same([head.text, head.tone, head.icon], [text, tone, icon], label + ": headline");
@@ -164,6 +175,8 @@ function verify(L) {
         same([sync.text, sync.tone, sync.hint], [text, tone, hint], label + ": the Settings sync value");
         const window = L.windowStatus(cloud, NOW, Timestamp.text);
         same([window.text, window.tone], [text, tone], label + ": the window subtitle");
+        const foot = L.footerView(cloud).primary;
+        same([foot.action, foot.enabled], primary, label + ": the window footer's primary");
         const tip = L.widgetTooltip(cloud, NOW, Timestamp.text);
         assert.equal(tip.title, "Cloud Sync: " + text, label + ": the tooltip title");
         const bar = L.widgetView(cloud, NOW);
@@ -217,14 +230,14 @@ function verify(L) {
         ["keyring unreadable", withUser(undefined, { "upload-client-id": { presence: "unavailable" } }), null, { tone: "warning", text: "Unknown", hint: "VGS cannot read your keyring." }],
         ["no client", withUser(undefined, { "upload-client-secret": { presence: "absent" }, "upload-token": { presence: "absent" } }), null, { tone: "info", text: "Not signed in", hint: "Add the client ID and secret first." }],
         ["no sign-in", withUser(undefined, { "upload-token": { presence: "absent" } }), null, { tone: "warning", text: "Not signed in", action: "signIn" }],
-        ["refused", withUser(ADDRESS), good.record, { tone: "danger", text: "Sign-in refused", action: "reconnect", hint: "Google Drive did not accept the sign-in. Select Sign in again on the Cloud Sync page in Settings." }],
+        ["refused", withUser(ADDRESS), good.record, { tone: "danger", text: "Sign-in refused", action: "reconnect", hint: "Google Drive did not accept the sign-in." }],
         ["signed in with the account", withUser(ADDRESS), null, { tone: "ok", text: "Signed in", hint: "Signed in as " + ADDRESS + ".", action: "signOut" }],
         ["signed in, account unknown", withUser(undefined), null, { tone: "ok", text: "Signed in", hint: "Signed in.", action: "signOut" }],
         ["signed in, account too long for a hint", withUser("a".repeat(200) + "@example.com"), null, { tone: "ok", text: "Signed in", hint: "Signed in.", action: "signOut" }]
     ];
     for (const [label, p, rec, want] of signIn) same(L.signInValue(p, "upload", rec), want, "upload: " + label);
     same(values.download, { tone: "ok", text: "Signed in", hint: "Signed in as " + ADDRESS + ".", action: "signOut" }, "the download pair is not refused");
-    same(values.upload, { tone: "danger", text: "Sign-in refused", action: "reconnect", hint: "Google Drive did not accept the sign-in. Select Sign in again on the Cloud Sync page in Settings." });
+    same(values.upload, { tone: "danger", text: "Sign-in refused", action: "reconnect", hint: "Google Drive did not accept the sign-in." });
     // The account reaches the sign-in hint alone.
     for (const key of Object.keys(values).filter(k => k !== "download" && k !== "upload"))
         assert.ok(!JSON.stringify(values[key]).includes(ADDRESS), "the account shows in " + key);
@@ -274,16 +287,16 @@ function verify(L) {
     same(L.windowStatus(L.cloudValue(well({ state: "offline", lastError: { kind: "offline" } }), ""), NOW, Timestamp.text).lines[1], { text: "Google Drive cannot be reached. Cloud Sync tries again at the next sync.", tone: "" });
     same(L.pairRow(cloud.pairs[0], NOW), { id: "docs", label: "Documents", secondary: "Download", icon: "folder-down", text: "Up to date", tone: "success" });
     same(L.pairRow(cloud.pairs[1], NOW), { id: "inbox", label: "Agent uploads", secondary: "Upload", icon: "folder-up", text: "Sign-in needed", tone: "danger" });
-    // The footer: one primary; Pause or Resume and Sync now only while a
-    // folder pair exists.
+    // The footer: one primary; Pause or Resume and Add a folder pair only
+    // while a folder pair exists, since the empty pair list offers Add.
     const footer = rec => L.footerView(rec === undefined ? undefined : L.cloudValue(rec, ""));
     const footers = [
-        ["before the first value", undefined, { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: false }, pause: null }],
-        ["first run", well({ state: "not-set-up", units: "absent", pairs: [] }), { primary: { text: "Set up hourly sync", icon: "cloud-cog", action: "setup", enabled: true }, pause: null }],
-        ["no folder pair", well({ state: "not-set-up", pairs: [] }), { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: false }, pause: null }],
-        ["units stale with a pair", well({ units: "stale" }), { primary: { text: "Set up hourly sync", icon: "cloud-cog", action: "setup", enabled: true }, pause: { text: "Pause", icon: "pause", action: "pause" } }],
-        ["set up", well(), { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: true }, pause: { text: "Pause", icon: "pause", action: "pause" } }],
-        ["paused", well({ state: "paused", paused: true }), { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: true }, pause: { text: "Resume", icon: "play", action: "resume" } }]
+        ["before the first value", undefined, { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: false }, pause: null, add: false }],
+        ["first run", well({ state: "not-set-up", units: "absent", pairs: [] }), { primary: { text: "Set up hourly sync", icon: "cloud-cog", action: "setup", enabled: true }, pause: null, add: false }],
+        ["no folder pair", well({ state: "not-set-up", pairs: [] }), { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: false }, pause: null, add: false }],
+        ["units stale with a pair", well({ units: "stale" }), { primary: { text: "Set up hourly sync", icon: "cloud-cog", action: "setup", enabled: true }, pause: { text: "Pause", icon: "pause", action: "pause" }, add: true }],
+        ["set up", well(), { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: true }, pause: { text: "Pause", icon: "pause", action: "pause" }, add: true }],
+        ["paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS] }), { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: false }, pause: { text: "Resume", icon: "play", action: "resume" }, add: true }]
     ];
     for (const [label, rec, want] of footers) same(footer(rec), want, "footer: " + label);
     same(L.conflictGroups(cloud.conflicts).map(g => [g.label, g.rows.map(r => [r.label, r.secondary])]), [
@@ -301,6 +314,11 @@ function verify(L) {
     same(L.notification(record({ lastError: Object.assign({ pair: "docs" }, signedOut) })).message, SIGNED_OUT, "a missing token is a sign-in");
     assert.equal(L.errorText({ kind: "credential-absent", account: "upload-token" }), "Google Drive is not signed in for Upload. Select Sign in on the Cloud Sync page in Settings.");
     assert.equal(L.errorText({ kind: "credential-absent", account: "upload-client-id" }), "A Google Drive key is missing. Add it on the Cloud Sync page in Settings.");
+    // The Settings page names its own fields instead of sending the user to itself.
+    assert.equal(L.errorText({ kind: "credential-absent", account: "upload-token" }, true), "Google Drive is not signed in for Upload. Select Sign in below.");
+    assert.equal(L.errorText({ kind: "credential-absent", account: "upload-client-id" }, true), "A Google Drive key is missing. Add the client ID and secret below.");
+    assert.equal(L.errorText({ kind: "authorization-refused" }, true), REFUSED_PAGE);
+    assert.equal(L.errorText({ kind: "offline" }, true), L.errorText({ kind: "offline" }), "a sentence that names no place reads the same on the page");
 
     // A failed request reads as a sentence.
     assert.equal(L.problemText("start", "start exit=1 cloud-sync: refused: units=absent"), "Set up hourly sync first.");
@@ -342,7 +360,12 @@ const controls = [
     ["the review list stays under its ceiling", "while (value.conflicts.length > 0 && JSON.stringify(value).length > CLOUD_BYTES_MAX) value.conflicts.pop();", ""],
     ["a cleared key is written as null", "if (!hasOwn(next, k) && previous[k] !== null) keys.push(k);", ""],
     ["the tooltip names pairs, not files", "var lines = pairLines(cloud.pairs, now);\n    if (cloud.conflictCount > 0 && head.cause", "var lines = pairLines(cloud.pairs, now).concat(cloud.conflicts.map(function (c) { return c.path; }));\n    if (cloud.conflictCount > 0 && head.cause"],
-    ["Sync now needs a folder pair", "action: \"sync\", enabled: hasPairs }", "action: \"sync\", enabled: known }"],
+    ["Sync now waits for a key or a sign-in", "return pair.state !== \"authorization-required\" ||", "return true ||"],
+    ["Sync now retries a locked keyring", " || (pair.lastError !== null && pair.lastError.kind === \"credential-locked\");", ";"],
+    ["Sync now waits for a running sync", "known && cloud.state !== \"running\" && cloud.pairs.some(pairCanSync)", "known && cloud.pairs.some(pairCanSync)"],
+    ["Sync now waits for a paused pair", "if (pair.state === \"paused\") return false;", ""],
+    ["the footer offers Add only beside a folder pair", "add: hasPairs }", "add: true }"],
+    ["the Settings page names its own fields", "return errorText(cloud.lastError, true);", "return errorText(cloud.lastError);"],
     ["Pause needs a folder pair", "var pause = !hasPairs ? null :", "var pause = !known ? null :"],
     ["Set up hourly sync while the units are not installed", "var primary = !known || cloud.units === \"installed\"", "var primary = true"],
     ["the window says a pause", "    if (cloud.paused)\n", "    if (false)\n"],
