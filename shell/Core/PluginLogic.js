@@ -1242,7 +1242,8 @@ function statusDisplayable(entry) {
 // here. Neither a new list nor an absent configured id writes settings.
 // Each offer is listed once. The first offer stands for the unset value:
 // its entry carries "" unless its own id is configured. A configured id no
-// offer holds is listed as unavailable, unless the entry declares
+// offer holds is listed as unavailable under the entry's label, never the
+// id, which a user cannot read, unless the entry declares
 // `allowCustom`, whose field shows it under Custom… instead. An entry that
 // declares `placeholder` has no unset offer: "" means nothing is chosen.
 // An entry that declares `hideEmpty` has an empty model while nothing is
@@ -1258,7 +1259,7 @@ function settingChoices(manifest, values, settings) {
         });
         if (entry.hideEmpty === true && offered.length === 0) return model;
         if (entry.allowCustom !== true && configured !== "" && !offered.some(function (choice) { return choice.value === configured; }))
-            model.push({ label: configured + " (unavailable)", value: configured });
+            model.push({ label: entry.label + " (unavailable)", value: configured });
         return model;
     };
     Object.keys(manifest.schema).forEach(function (key) {

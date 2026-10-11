@@ -452,7 +452,7 @@ function suite(ctx, check) {
     const [alpha, beta] = offered;
     const alphaUnset = { label: alpha.label, value: "" };
     const betaUnset = { label: beta.label, value: "" };
-    const unavailable = { unavailable: "gone", named: true };
+    const unavailable = { unavailable: "gone", named: false };
     for (const [name, publishedChoices, configured, want] of [
         ["unreported", {}, "", []],
         ["reported empty", { devices: [] }, "", []],
@@ -717,7 +717,8 @@ const CONTROLS = [
     ["launcher row has only its keys", "if (LAUNCHER_ROW_KEYS.indexOf(keys[i]) === -1) return false;", "if (false) return false;"],
     ["launcher row icon is shipped", "&& typeof item.icon === \"string\" && hasOwn(Lucide.ICONS, item.icon)", "&& typeof item.icon === \"string\""],
     ["a custom choice lists no unavailable id", "if (entry.allowCustom !== true && configured !== \"\" && ", "if (configured !== \"\" && "],
-    ["choices preserves an unavailable id", "model.push({ label: configured + \" (unavailable)\", value: configured });", "model.push({ label: configured + \" (unavailable)\", value: \"\" });"],
+    ["choices preserves an unavailable id", "model.push({ label: entry.label + \" (unavailable)\", value: configured });", "model.push({ label: entry.label + \" (unavailable)\", value: \"\" });"],
+    ["an unavailable id is not its own label", "model.push({ label: entry.label + \" (unavailable)\", value: configured });", "model.push({ label: configured + \" (unavailable)\", value: configured });"],
     ["the first offer stands for the unset value", "var unset = entry.placeholder === undefined && index === 0 && configured !== choice.value;", "var unset = false;"],
     ["a pinned first offer keeps its id", "index === 0 && configured !== choice.value;", "index === 0;"],
     ["each offer is listed once", "            return { label: choice.label, value: unset ? \"\" : choice.value };\n        });\n", "            return { label: choice.label, value: unset ? \"\" : choice.value };\n        });\n        if (offered.length > 0) model.unshift({ label: offered[0].label, value: \"\" });\n"],
