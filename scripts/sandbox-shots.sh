@@ -934,7 +934,7 @@ settings_page_fit() {
   python3 -c 'import json,sys
 a = json.loads(sys.argv[1])
 over = a["contentHeight"] - a["height"] >= 0.5
-print(("overflows" if over else "fits") if over == a["barVisible"] else "contentHeight=%s height=%s barVisible=%s" % (a["contentHeight"], a["height"], a["barVisible"]))' "$area"
+print(("overflows" if over else "fits") if over == a["barVisible"] else "contentHeight=%s height=%s barVisible=%s" % (a["contentHeight"], a["height"], a["barVisible"]))' "$area" || echo "area=$area"
 }
 # settings_scrolled_shot MODE NAME LABEL: the shown page dragged down its
 # bar as settings-MODE-NAME-scrolled when it overflows its view; a page that
@@ -943,7 +943,7 @@ settings_scrolled_shot() {
   local fit
   fit="$(settings_page_fit)"
   case $fit in
-    overflows) settings_drag_page_down "$3" && take "settings-$1-$2-scrolled" ;;
+    overflows) if settings_drag_page_down "$3"; then take "settings-$1-$2-scrolled"; fi ;;
     fits) ok "$3 fits its view: no settings-$1-$2-scrolled shot" ;;
     *) fail "$3's fit is unreadable: $fit" ;;
   esac
