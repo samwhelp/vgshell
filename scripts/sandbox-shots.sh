@@ -108,7 +108,8 @@
 # loaded, with the pointer on a card, with a filter no card matches, with
 # a refused card's failure line, on the chosen catalog card, on it
 # installed and with its wallpaper offer; the wallpaper view on its Theme
-# source, with the pointer on a card, on its download card and on All.
+# source, with the pointer on a card, with a typed filter, on its download
+# card and on All.
 # Each leaves vgs and the mode's theme applied. The default is every
 # other scene the tree ships, or gallery and the manager's scene with
 # --rev; the manager's scene is `settings` for a tree that ships
@@ -1868,6 +1869,11 @@ scene_wallpaper-browser() { # MODE
   take "wallpaper-browser-$1"
   hover_card "the pointer rests on the wallpaper browser's next card" && take_posed "wallpaper-browser-$1-hover"
   park_pointer
+  type_keys a. || fail "typing the wallpaper browser's filter failed"
+  expect_poll "the wallpaper browser's filter reaches the view" '"a."' ipc smoke readDescendant overlay vgs.themes WallpaperView filterText
+  take "wallpaper-browser-$1-filter"
+  type_keys -k Escape || fail "clearing the wallpaper browser's filter failed"
+  expect_poll "Escape clears the wallpaper browser's filter" '""' ipc smoke readDescendant overlay vgs.themes WallpaperView filterText
   type_keys -k End || fail "End in the wallpaper browser failed"
   expect_poll "End selects the wallpaper download card" '"download"' wallpaper_selected_kind
   take "wallpaper-browser-$1-download"

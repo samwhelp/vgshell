@@ -903,7 +903,7 @@ search_control "control: the search text copy"
 expect "control: a field that does not show the filter reads empty" '["", "Search themes", true, false]' search_field
 search_control_close "control: the search text copy"
 plugin_restore ThemeView.qml "search text"
-plugin_control ThemeView.qml "search focus" 'onPressed: root.focusRail()' 'onPressed: parent.forceActiveFocus()'
+plugin_control ThemeView.qml "search focus" $'onPressed: {\n                            root.focusRail();' $'onPressed: {\n                            parent.forceActiveFocus();'
 search_control "control: the search focus copy"
 click_in vgs:overlay overlay vgs.themes TextField nor || fail "control: the click on the search focus copy's field failed"
 expect_poll "control: a field that takes the press holds the keyboard" true ipc smoke readDescendant overlay vgs.themes TextField activeFocus
