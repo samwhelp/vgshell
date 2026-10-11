@@ -2472,6 +2472,7 @@ jarvis_anchor_shot() {
 # Whether the Setup section draws its rows: four chips and the Accounts
 # button.
 jarvis_setup_drawn() { ipc smoke setupSection "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); s=json.loads(t) if t.startswith("{") else None; print(s is not None and len(s["chips"]) >= 4 and any(b[0] == "Accounts" for b in s["buttons"]))'; }
+jarvis_ships_backups() { grep -q '"fallbacks"' "$repo/shell/plugins/vgs.jarvis/manifest.json"; }
 jarvis_backups_drawn() { ipc smoke invokeInstance "$settings_kind" vgs.settings listItems '{"id":"vgs.jarvis","key":"fallbacks"}' | py_reply 'import json,sys; t=sys.stdin.read(); print(t!="absent" and len(json.loads(t)) == 2)'; }
 jarvis_cause_status_rows() { # CAUSE PHASE
   "$node_bin" - "$repo" "$1" "$2" <<'JS'
@@ -2563,9 +2564,13 @@ scene_jarvis-setup() { # MODE
   expect_poll "the Jarvis Setup section draws its rows" True jarvis_setup_drawn
   jarvis_anchor_shot "jarvis-setup-$1" SectionHeader Setup
   jarvis_backups plant
-  expect_poll "the Jarvis backup model list shows two rows" True jarvis_backups_drawn
+  if jarvis_ships_backups; then
+    expect_poll "the Jarvis backup model list shows two rows" True jarvis_backups_drawn
+  fi
   jarvis_anchor_shot "jarvis-settings-$1-model" SectionHeader "AI model"
-  jarvis_anchor_shot "jarvis-settings-$1-backups" SectionHeader "Backup models"
+  if jarvis_ships_backups; then
+    jarvis_anchor_shot "jarvis-settings-$1-backups" SectionHeader "Backup models"
+  fi
   jarvis_backups clear
   settings_close
   expect "disabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
@@ -2708,7 +2713,7 @@ outdated_notice_back() {
 jarvis_backups() {
   local config="$home/.config/vgshell/shell.json" ids
   [[ $1 == plant || $1 == clear ]] || fail "unknown Jarvis backup model action: $1"
-  grep -q '"fallbacks"' "$repo/shell/plugins/vgs.jarvis/manifest.json" || return 0
+  jarvis_ships_backups || return 0
   if [[ $1 == plant ]]; then
     mkdir -p -- "$sandbox/jarvis-backups-no-path" || fail "the Jarvis backup PATH stand-in is not made"
     ids="$(env -i PATH="$sandbox/jarvis-backups-no-path" HOME="$home" XDG_STATE_HOME="$home/.local/state" XDG_CONFIG_HOME="$home/.config" \
