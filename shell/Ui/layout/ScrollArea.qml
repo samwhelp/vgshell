@@ -101,10 +101,12 @@ Flickable {
         if (!barOverContent && Theme.scrollArea.gutter > rightInset)
             console.error("ScrollArea: gutter=" + Theme.scrollArea.gutter + " exceeds rightInset=" + rightInset);
     }
+    // Reveal clear of the fade bands, which would fade the item; an end the
+    // view rests at has no band, and the clamp keeps its item flush there.
     function reveal(item) {
         if (item === null || item === undefined) return;
         const at = item.mapToItem(contentItem, 0, 0);
-        const y = KeyNavLogic.revealY(at.y - clipPadding, item.height, contentY, contentClip.height, Theme.focusRing.offset + Theme.focusRing.width);
+        const y = KeyNavLogic.revealY(at.y - clipPadding, item.height, contentY, contentClip.height, Theme.focusRing.offset + Theme.focusRing.width + fadeExtent);
         contentY = Math.max(0, Math.min(contentHeight - height, y));
     }
     function scrollBy(delta) {

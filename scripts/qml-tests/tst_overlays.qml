@@ -658,6 +658,31 @@ Item {
             compare(long.currentIndex, data.index + 1, "the next Down steps on");
         }
 
+        // Arrowing down a long menu keeps the highlighted entry clear of
+        // each fade band while content lies beyond that edge, so the band
+        // never fades it; the last entry rests flush at the end.
+        function test_arrowing_keeps_the_highlight_clear_of_the_fade() {
+            root.chosen = -1;
+            long.open("pointer");
+            focusMenu(long);
+            const scroll = long.scrollArea;
+            tryVerify(() => scroll.overflowing, 1000, "the long menu overflows");
+            const items = long.items();
+            for (let index = 0; index < items.length; ++index) {
+                keyClick(Qt.Key_Down);
+                compare(long.currentIndex, index);
+                const top = items[index].mapToItem(scroll, 0, 0).y;
+                const bottom = top + items[index].height;
+                if (scroll.fadeBelow > 0)
+                    verify(bottom <= scroll.height - scroll.fadeExtent + 0.5, "entry " + index + " ends at " + bottom + ", clear of the bottom band from " + (scroll.height - scroll.fadeExtent));
+                if (scroll.fadeAbove > 0)
+                    verify(top >= scroll.fadeExtent - 0.5, "entry " + index + " starts at " + top + ", clear of the top band to " + scroll.fadeExtent);
+                verify(top >= -0.5 && bottom <= scroll.height + 0.5, "entry " + index + " lies in the view: " + top + ".." + bottom);
+            }
+            compare(scroll.fadeBelow, 0, "the last entry rests at the end, with no band below");
+            fuzzyCompare(scroll.contentY, scroll.contentHeight - scroll.height, 0.5, "the band's margin scrolls no further than the content's end");
+        }
+
         // On a pointer opening the entry the pointer enters takes the
         // highlight.
         function test_the_pointer_entering_an_entry_highlights_it() {

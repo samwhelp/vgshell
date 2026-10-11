@@ -81,6 +81,7 @@ Item {
         id: fadeCase
         Rectangle {
             property alias area: fadeArea
+            property alias rowItems: fadeRows
             property int rows: 10
             z: 10
             width: 120
@@ -89,7 +90,7 @@ Item {
             ScrollArea {
                 id: fadeArea
                 anchors.fill: parent
-                Column { width: parent.width; Repeater { model: fadeArea.parent.rows; Rectangle { width: parent.width; height: 20; color: "#ff00ff" } } }
+                Column { width: parent.width; Repeater { id: fadeRows; model: fadeArea.parent.rows; Rectangle { width: parent.width; height: 20; color: "#ff00ff" } } }
             }
         }
     }
@@ -219,6 +220,22 @@ Item {
             for (const edge of ["topLine", "top", "middle", "bottom", "bottomLine"])
                 verify(near(seen[edge], row), "content that fits shows its " + edge + " row in full: " + seen[edge]);
             compare([view.fadeAbove, view.fadeBelow], [0, 0], "content that fits has no band");
+        }
+
+        // A row revealed below the view lands clear of the bottom band, so
+        // its centre draws in full while content remains beyond it.
+        function test_a_revealed_row_lands_clear_of_the_fade() {
+            const holder = createTemporaryObject(fadeCase, root, { rows: 20, height: 200 });
+            const view = holder.area;
+            tryVerify(() => view.overflowing, 1000, "twenty rows overflow the view");
+            tryCompare(holder.rowItems, "count", 20);
+            const row = holder.rowItems.itemAt(12);
+            view.reveal(row);
+            const centre = row.mapToItem(holder, 0, 0).y + row.height / 2;
+            verify(centre > 0 && centre < holder.height, "the row lies in the view at " + centre);
+            const seen = drawn(holder, centre);
+            verify(near(seen, "#ff00ff"), "the revealed row draws in full at its centre: " + seen);
+            verify(view.fadeBelow > 0, "content remains beyond the bottom edge");
         }
 
         function test_the_thumb_is_the_view_share_and_never_below_the_minimum() {
@@ -370,10 +387,14 @@ Item {
                 { tag: "first-plain", index: 0, padding: 0 },
                 { tag: "last-plain", index: keyboardRows.count - 1, padding: 0 },
                 { tag: "first-padded", index: 0, padding: Theme.focusRing.width + Theme.focusRing.offset },
-                { tag: "last-padded", index: keyboardRows.count - 1, padding: Theme.focusRing.width + Theme.focusRing.offset }
+                { tag: "last-padded", index: keyboardRows.count - 1, padding: Theme.focusRing.width + Theme.focusRing.offset },
+                { tag: "middle-plain", index: 4, padding: 0 },
+                { tag: "middle-padded", index: 4, padding: Theme.focusRing.width + Theme.focusRing.offset }
             ];
         }
 
+        // A middle row lies past the scroll range's clamp, so only the
+        // content clip's height places it clear of the band it entered by.
         function test_reveal_uses_the_content_clip_and_stays_in_scroll_range(data) {
             root.Window.window.requestActivate();
             tryCompare(root.Window.window, "active", true);
@@ -390,6 +411,10 @@ Item {
             verify(top >= 0, "the revealed item's top clears the content clip");
             verify(top + item.height <= viewport.height, "the revealed item's bottom clears the content clip");
             verify(keyboard.contentY >= 0 && keyboard.contentY <= keyboard.contentHeight - keyboard.height, "reveal stays in the scroll range");
+            if (data.index === 0 && keyboard.fadeAbove > 0)
+                verify(top >= keyboard.fadeExtent - 0.5, "the revealed item's top clears the top band: " + top);
+            if (data.index !== 0 && keyboard.fadeBelow > 0)
+                verify(top + item.height <= viewport.height - keyboard.fadeExtent + 0.5, "the revealed item's bottom clears the bottom band: " + (top + item.height));
         }
 
         function test_child_keyboard_focus_keeps_its_ring_inside_the_clip_data() {

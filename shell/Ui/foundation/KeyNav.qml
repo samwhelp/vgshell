@@ -129,7 +129,11 @@ Item {
         if (flickable === null || flickable === undefined || itemAt === null || itemAt === undefined) return;
         const item = itemAt(index);
         if (item === null || item === undefined) return;
-        flickable.contentY = Logic.revealY(item.y, item.height, flickable.contentY, flickable.height, 0);
+        // A ScrollArea fades its content at an edge with content beyond, so
+        // reveal clear of that band, as the notification panel's revealRow does.
+        const margin = flickable.fadeExtent === undefined ? 0 : flickable.fadeExtent;
+        const y = Logic.revealY(item.y, item.height, flickable.contentY, flickable.height, margin);
+        flickable.contentY = Math.max(0, Math.min(flickable.contentHeight - flickable.height, y));
     }
 
     // Handle one QML key event and return whether the owner should accept it.
