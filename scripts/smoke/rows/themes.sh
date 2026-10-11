@@ -1090,11 +1090,16 @@ expect_poll "the themes panel closes" closed panel_open
 # copy of the shared state reader that ignores `screens`, one that never
 # reloads the state file and a copy of the background that is always shown
 # are the block's controls.
-# The block leaves vgs applied with no current image and the plugin
-# disabled, so later rows see the bar they saw before the vgs.themes block.
+# The block leaves vgs applied with its shipped Black image current and the
+# plugin disabled, so later rows see the bar they saw before the
+# vgs.themes block.
 scenic="$installed/scenic"
 mkdir -p -- "$scenic/backgrounds"
 printf '%s\n' '{ "schemaVersion": 1, "name": "scenic", "tokens": {} }' >"$scenic/theme.json"
+plain="$installed/plain"
+mkdir -p -- "$plain"
+printf '%s\n' '{ "schemaVersion": 1, "name": "plain", "tokens": {} }' >"$plain/theme.json"
+vgs_black="$repo/themes/vgs/backgrounds/black.png"
 read -r scenic_w scenic_h < <(hypr -j monitors | py_reply 'import json,sys; monitors=json.load(sys.stdin); print(max(m["width"] for m in monitors) * 2, max(m["height"] for m in monitors) * 2)') || { fail "the scenic background size could not be derived from the monitors"; exit 1; }
 solid_png "$scenic/backgrounds/a.png" "$scenic_w" "$scenic_h" 200 40 40
 solid_png "$scenic/backgrounds/b.png" 64 36 40 40 200
@@ -1131,8 +1136,8 @@ click_wallpaper() {
   click "$cx" "$cy"
 }
 
-expect "the vgs.themes background is built with vgs applied" "- null" background_image
-expect "the host maps no surface without an image" 0 layer_count vgs:background
+expect "the vgs.themes background is built with vgs applied" "$vgs_black ready" background_image
+expect "the host maps a surface for the shipped Black image" "$monitors" layer_count vgs:background
 expect "a package with backgrounds applies" "ok theme=scenic state=applied shell=applied" vgshell_theme apply scenic
 expect "the apply links the package's first image" "$scenic/backgrounds/a.png" background_link
 expect_poll "the background draws the applied package's first image" "$scenic/backgrounds/a.png ready" background_image
@@ -1251,7 +1256,7 @@ expect_poll "the background follows next" "$scenic/backgrounds/b.png ready" back
 expect "previous moves back to the package's first image" "ok background=a.png theme=scenic path=$scenic/backgrounds/a.png" vgshell_theme background previous
 expect_poll "the background follows previous" "$scenic/backgrounds/a.png ready" background_image
 expect "next moves to the second image again" "ok background=b.png theme=scenic path=$scenic/backgrounds/b.png" vgshell_theme background next
-expect "a package without backgrounds applies" "ok theme=vgs state=applied shell=applied" vgshell_theme apply vgs
+expect "a package without backgrounds applies" "ok theme=plain state=applied shell=applied" vgshell_theme apply plain
 expect "the link goes with a package without backgrounds" absent background_link
 expect_poll "the background draws no image for it" "- null" background_image
 expect_poll "the surface goes with the image" 0 layer_count vgs:background
@@ -1368,7 +1373,7 @@ if [[ $(grep -c -F 'readonly property bool shown: drawn' -- "$plugin_qml") == 1 
   rescan "a rescan builds the always-shown control"
   expect_poll "the always-shown control rebuilds every vgs.themes instance" "$((control_builds + themes_instances))" builds
   expect "the follow the always-shown rescan queued ends" idle theme_idle
-  expect "vgs applies under the always-shown control" "ok theme=vgs state=applied shell=applied" vgshell_theme apply vgs
+  expect "plain applies under the always-shown control" "ok theme=plain state=applied shell=applied" vgshell_theme apply plain
   expect_poll "the always-shown control draws no image" "- null" background_image
   expect "the always-shown control maps a surface with no image" "$monitors" layer_count vgs:background
   cp -p -- "$sandbox/Background.qml.real" "$plugin_qml.tmp" && mv -T -- "$plugin_qml.tmp" "$plugin_qml"
@@ -1380,10 +1385,11 @@ else
   fail "the always-shown control's text occurs once in $plugin_qml"
 fi
 
-expect "no current wallpaper is left for later rows" null bg_current
+expect "vgs applies after the no-image rows" "ok theme=vgs state=applied shell=applied" vgshell_theme apply vgs
+expect_poll "Black is current for later rows" "\"$vgs_black\"" bg_current
 expect "vgshell plugin disable takes the themes panel and background away" ok "${shell_env[@]}" "$repo/bin/vgshell" plugin disable vgs.themes
 expect_poll "every vgs.themes instance is gone" False record_exists vgs.themes
 # Disabling the plugin queues a scan and follow; the next row's apply must not race that theme lock.
 expect "the follow after disabling the themes plugin ends" idle theme_idle
-rm -r -- "$scenic"
+rm -r -- "$scenic" "$plain"
 # ---- end vgs.themes wallpaper -----------------------------------------------

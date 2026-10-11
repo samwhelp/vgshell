@@ -18,9 +18,9 @@
 # update card against a second archive the catalog pins anew. A copy of
 # WallpaperView.qml that sets every image as the current one is their
 # control. rows/themes.sh defines the helpers used here and leaves the
-# plugin disabled, and rows/theme-browse.sh leaves vgs applied, no current
-# wallpaper and nord not installed; this file enables the plugin and
-# leaves all four so.
+# plugin disabled, and rows/theme-browse.sh leaves vgs applied with Black
+# current and nord not installed; this file enables the plugin and leaves
+# all four so.
 # inputs: shell/plugins/vgs.themes/* themes/catalog/* shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* shell/Ui/layout/CardCarousel.qml shell/Ui/layout/AngledCard.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/feedback/Dialog.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
 view_value() { ipc smoke readDescendant overlay vgs.themes ThemeView "$1"; }
@@ -863,16 +863,17 @@ type_keys -k Escape || fail "sending Escape to the resting text control failed"
 expect_poll "Escape closes the resting text control browser" 0 layer_count vgs:overlay
 plugin_restore ThemeView.qml "resting text"
 
-# vgs, applied, ships no wallpaper, so the wallpaper view's theme source is
-# empty; a click on the source line's Show all switches to all, turns the
-# line to Show theme and leaves the keys with the view, so Alt+S flips it
-# back. Controls: a copy whose line flips nothing, one whose line takes the
-# keyboard, and one whose line keeps its first text.
+# vgs, applied, ships Black; a click on the source line's Show all
+# switches to all, turns the line to Show theme and leaves the keys with
+# the view, so Alt+S flips it back. Controls: a copy whose line flips
+# nothing, one whose line takes the keyboard, and one whose line keeps its
+# first text.
+vgs_black="$repo/themes/vgs/backgrounds/black.png"
 show_every() { # LABEL
   press_wallpapers || { fail "$1: typing SUPER+SHIFT+W failed"; return 1; }
   expect_poll "$1: SUPER+SHIFT+W opens the browser" 1 layer_count vgs:overlay
   expect_poll "$1: the wallpaper view read its lists" true ipc smoke readDescendant overlay vgs.themes WallpaperView loaded
-  expect "$1: vgs's theme source lists no image" '[]' ipc smoke readDescendant overlay vgs.themes WallpaperView cards
+  expect "$1: vgs's theme source lists Black" "[\"$vgs_black\"]" wall_keys
   click_in vgs:overlay overlay vgs.themes Label "Show all" || { fail "$1: the click on Show all failed"; return 1; }
 }
 show_every "the source line"

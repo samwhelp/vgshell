@@ -1532,11 +1532,11 @@ wallpaper_selected_kind() { ipc smoke readDescendant overlay vgs.themes Wallpape
 # target the settings scene ships set up and run its reload hook, which
 # the theme judge refuses under the test-run marker, failing the apply.
 sandbox_vgshell() { "${shell_env[@]}" PATH="$shell_start_path" "$repo/bin/vgshell" "$@"; }
-# themes_restore MODE LABEL: vgs applied, which draws no background, then
-# the mode's theme, after a scene applied another package.
+# themes_restore MODE LABEL: vgs applied, which draws Black, then the mode's
+# theme, after a scene applied another package.
 themes_restore() {
   sandbox_vgshell theme apply vgs >/dev/null || fail "vgs applies after $2"
-  expect_poll "no background is drawn after $2" 0 layer_count vgs:background
+  expect_poll "Black is drawn after $2" 1 layer_count vgs:background
   set_mode "$1"
 }
 # browser_card_right: the centre of the card right of the selected one on
@@ -1748,7 +1748,7 @@ GHOSTTY
     sandbox_vgshell theme apply "$name" >/dev/null || true
     expect_poll "the $name theme is published" "$name" ipc smoke themeName
     if [[ $name == vgs ]]; then
-      expect_poll "vgs draws no background" 0 layer_count vgs:background
+      expect_poll "vgs draws Black" 1 layer_count vgs:background
     else
       expect_poll "$name's wallpaper is drawn" 1 layer_count vgs:background
     fi
@@ -1873,9 +1873,9 @@ scene_wallpaper-browser() { # MODE
   expect "the wallpaper browser hides" ok ipc shell hide overlay vgs.themes
   expect_poll "the wallpaper browser is gone" 0 layer_count vgs:overlay
   expect "the wallpaper browser shot's monitor is removed" ok hypr output remove "$wallpaper_output"
-  # vgs has no backgrounds, so applying it removes nord's image.
+  # Applying vgs restores its shipped Black wallpaper after nord's image.
   sandbox_vgshell theme apply vgs >/dev/null || fail "vgs applies after the wallpaper browser shot"
-  expect_poll "no background is drawn after the wallpaper browser shot" 0 layer_count vgs:background
+  expect_poll "Black is drawn after the wallpaper browser shot" 1 layer_count vgs:background
   rm -rf -- "${theme_dir:?}"
   set_mode "$1"
 }
