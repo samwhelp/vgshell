@@ -307,8 +307,9 @@ PY
 python3 -c 'import json,os,sys; print(json.dumps({"argv": sys.argv[1:], "env": {k: v for k, v in os.environ.items() if k.startswith("RCLONE_")}}))' "\$@" >>"$cs_stub/rclone.calls"
 scope="\${RCLONE_CONFIG_VGSDRIVE_SCOPE:-}"
 if [[ \$scope != drive && \$3 == copy && \${6:-} == vgsdrive:Shared ]]; then
-  mkdir -p -- "$cs_second"
-  cp -a -- "\$5/." "$cs_second/"
+  second="\$(dirname -- "\$HOME")/cloudsync-second/Shared"
+  mkdir -p -- "\$second"
+  cp -a -- "\$5/." "\$second/"
   exit 0
 fi
 export RCLONE_CONFIG_VGSDRIVE_TYPE=local
