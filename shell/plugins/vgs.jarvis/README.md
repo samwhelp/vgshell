@@ -24,6 +24,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Provider keys kept in your desktop keyring.
 - Accounts finds the keys and sign-ins your other tools already have.
 - Verify checks that an account answers.
+- Short commands, such as "turn the volume up" or "go to workspace three", act at once with no AI model call.
 - Window, workspace and application control.
 - File tools for your home folder.
 - Shell commands inside a sandbox.
