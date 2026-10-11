@@ -11,6 +11,8 @@
 # inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/TuiRunner.qml shell/Core/PluginStatus.qml shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/SessionLock.qml bin/vgshell-tui
 set -euo pipefail
 expected_errors+=('WARN qml: jarvis: task-stop=not-alive task=smoke-task-[0-9]+')
+# The planted floating-notice control reaches the keyed refusal warning.
+expected_errors+=('WARN qml: jarvis: task-open=floating task=smoke-task-[0-9]+')
 task_daemon="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
 task_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
 task_gates="$sandbox/jarvis-task-gates"

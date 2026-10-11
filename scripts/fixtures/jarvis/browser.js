@@ -97,6 +97,7 @@ async function daemonLease(ending, removeClose = false) {
             assert.equal(actual, 0, err);
             assert.equal(err, "");
             assert.deepEqual((out.trim() === "" ? [] : out.trim().split("\n").map(JSON.parse)).filter(frame => frame.type !== "homes"), [
+                { v: 1, type: "audit-failures", gen: 0, revision: hello.revision, rows: [] },
                 { v: 1, type: "shell-status", gen: 0, revision: hello.revision, availability: { kind: "checking" } },
                 { v: 1, type: "status", gen: 0, revision: hello.revision, daemon: "ready",
                     causes: ["speech=local-not-set-up", "brain=unselected"] },
@@ -109,7 +110,8 @@ async function daemonLease(ending, removeClose = false) {
                     duplex: { kind: "half" }, toggleAt: null,
                     engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }
                 }, phase: "down", brain: "" },
-                { v: 1, type: "memory-inbox", gen: 1, revision: hello.revision, entries: [] }
+                { v: 1, type: "memory-inbox", gen: 1, revision: hello.revision, entries: [] },
+                { v: 1, type: "task-list", gen: 1, revision: hello.revision, rows: [] }
             ]);
         }
         const session = calls().find(row => row.args.includes("--session"));

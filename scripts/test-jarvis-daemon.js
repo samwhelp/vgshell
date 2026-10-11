@@ -35,7 +35,7 @@ async function inside() {
     };
     let controls = 0;
     let cases = 0;
-    async function run(file, chunks, code, reason = null, expected = []) {
+    async function run(file, chunks, code, reason = null, expected = [], observations = null) {
         const child = cp.spawn("node", [file, "--tree", tree], { env: {
             PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
             XDG_DATA_HOME: process.env.XDG_DATA_HOME
@@ -63,7 +63,19 @@ async function inside() {
             const keepMemory = expected.some(frame => frame.type === "memory");
             const keepMemoryInbox = expected.some(frame => frame.type === "memory-inbox");
             const keepHomes = expected.some(frame => frame.type === "homes");
+            const publicFrames = frames.filter(frame => ["task-list", "audit-failures"].includes(frame.type));
+            if (observations !== null) assert.deepEqual(publicFrames, observations, "startup publishes both bounded lists");
+            for (const frame of publicFrames) {
+                assert.deepEqual(Object.keys(frame).sort(), ["gen", "revision", "rows", "type", "v"]);
+                assert.equal(frame.revision, hello.revision);
+                assert.ok(Array.isArray(frame.rows));
+                assert.ok(frame.rows.length <= (frame.type === "task-list" ? 16 : 20));
+                for (const row of frame.rows) assert.deepEqual(Object.keys(row).sort(), frame.type === "task-list"
+                    ? ["agent", "createdAt", "endedAt", "failure", "goal", "id", "state"]
+                    : ["decision", "effect", "outcome", "refusal", "time", "tool"]);
+            }
             assert.deepEqual(frames.filter(frame => frame.type !== "shell-status"
+                && frame.type !== "task-list" && frame.type !== "audit-failures"
                 && (keepMemory || frame.type !== "memory") && (keepMemoryInbox || frame.type !== "memory-inbox")
                 && (keepHomes || frame.type !== "homes")), expected);
             cases++;
@@ -90,7 +102,13 @@ async function inside() {
         }
         return lines;
     }
-    await run(daemon, [JSON.stringify(hello) + "\n"], 0, null, states([false]));
+    const startup = file => run(file, [JSON.stringify({ ...hello, directories: { ...hello.directories,
+        state: fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "startup-lists-")) } }) + "\n"],
+        0, null, states([false]), [
+            { v: 1, type: "audit-failures", gen: 0, revision: hello.revision, rows: [] },
+            { v: 1, type: "task-list", gen: 1, revision: hello.revision, rows: [] }
+        ]);
+    await startup(daemon);
     const auditRows = () => {
         const directory = path.join(hello.directories.state, "audit");
         return fs.existsSync(directory) ? fs.readdirSync(directory).filter(name => name.endsWith(".jsonl"))
@@ -119,7 +137,7 @@ async function inside() {
     fs.writeFileSync(path.join(brokenState, "audit"), "blocked");
     const auditFailure = file => run(file, [JSON.stringify({ ...hello,
         directories: { ...hello.directories, state: brokenState } }) + "\n", JSON.stringify(confirmation) + "\n"],
-        74, "jarvis: audit=write cause=directory-type", refusalFrames());
+        74, "jarvis: audit=read cause=directory-type");
     await auditFailure(daemon);
     await run(daemon, [JSON.stringify(hello).slice(0, 20), JSON.stringify(hello).slice(20) + "\n",
         JSON.stringify({ ...hello, locked: true }) + "\n"], 0, null, states([false, true]));
@@ -198,6 +216,9 @@ async function inside() {
         await assert.rejects(() => check(copy), assert.AssertionError, name + " must turn red");
         controls++;
     }
+    await control("audit-startup-list", "auditFailures(audit.failures());", "void audit;", startup);
+    await control("task-startup-list", 'write({ v: 1, type: "task-list", gen: runner.state.gen,',
+        'void ({ v: 1, type: "task-list", gen: runner.state.gen,', startup);
     // The home folder each hello names, on one daemon: it makes what a new
     // folder lacks, and a folder it refuses, or whose text is over its
     // bound, leads the status causes with its own keyed cause. No hello

@@ -172,7 +172,10 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
     }
     // Unusable stores still permit cleanup() privacy teardown. The daemon
     // reads failures() at startup and receives the actual read failure.
-    try { seed(); } catch (error) { seedError = error; }
+    try { seed(); } catch (error) {
+        seedError = new Error("jarvis: audit=read cause=" + (error.code || "seed-invalid"));
+        seedError.code = error.code || "seed-invalid";
+    }
 
     function append(file, line) {
         const fd = fs.openSync(file, fs.constants.O_RDWR | fs.constants.O_CREAT | fs.constants.O_APPEND
