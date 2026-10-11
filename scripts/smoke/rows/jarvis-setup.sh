@@ -11,9 +11,9 @@
 # sends none. Last, a `pi` stand-in below the floor the manifest gives Pi:
 # chosen as the AI model, the daemon refuses it, the AI model step offers
 # Update Pi, the Setup section draws it beside the step, and a click on it
-# raises the core's notice for pi; a control makes the button never report
-# the pointer and expects the press to fail there. The same Pi at its
-# floor offers no update, which is the control. The Local voice setting: a start opens no
+# raises the core's notice for pi; after that notice closes, a control makes
+# the button never report the pointer and expects the press to fail there.
+# The same Pi at its floor offers no update, which is the control. The Local voice setting: a start opens no
 # local setup, which a reader copy that reads its start setting from the
 # binding breaks; a change opens local setup with the wanted tier,
 # Automatic with none; the run's end writes back the tier it left ready,
@@ -569,16 +569,16 @@ setup_brain "$setup_pi_brain"
 expect_poll "the daemon holds Pi as the chosen AI model" "\"$setup_pi_brain\"" setup_daemon_brain
 expect_poll "a Pi below its floor offers Update Pi on the AI model step" '["update", "Update Pi", true]' setup_model_step
 expect_poll "the Setup section draws the step beside the AI model" '[["", true]]' setup_model_drawn
-update_pi_unready() {
-  (control_hovered() { echo false; }
-   if settings_press --type RowAction "Update Pi" 2>&1 >/dev/null; then echo pressed; fi)
-}
-expect "a press Update Pi cannot take yet fails at the press with its cause" "settings_press: pointer-not-ready=RowAction Update Pi" update_pi_unready
 settings_press --type RowAction "Update Pi" || fail "the click on Update Pi failed"
 expect_poll "the core's notice lists the outdated Pi" '["vgs.jarvis", ["pi"], ["pi"], false]' notice_shown
 expect_poll "Pi's notice holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes Pi's notice" null notice_shown
+update_pi_unready() {
+  (control_hovered() { echo false; }
+   if settings_press --type RowAction "Update Pi" 2>&1 >/dev/null; then echo pressed; fi)
+}
+expect "a press Update Pi cannot take yet fails at the press with its cause" "settings_press: pointer-not-ready=RowAction Update Pi" update_pi_unready
 # The control: the daemon judges the choice again when it is made again.
 pi_version "$pi_floor" || fail "the Pi stand-in at its floor is not written"
 rescan "a rescan with Pi at its floor starts"

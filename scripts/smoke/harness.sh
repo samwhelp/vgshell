@@ -1082,10 +1082,10 @@ click_centre() {
 # [x, y, w, h], or absent; control_hovered LOOKUP: true, false or absent
 # for whether it reports the pointer over it. LOOKUP is HOST_KEY ID TYPE
 # TEXT for the first visible, enabled control TYPE reading TEXT under a
-# built instance, window:TITLE HOST_KEY ID TYPE TEXT for window controls,
-# or NAMESPACE ID TYPE PROPERTY VALUE, NAMESPACE a layer's vgs:<name>, for
-# the first visible, enabled item TYPE whose PROPERTY reads VALUE in plugin
-# ID's copies of that layer, or
+# built instance, window:TITLE HOST_KEY ID TYPE TEXT for text-bearing window
+# controls, or NAMESPACE ID TYPE PROPERTY VALUE, NAMESPACE a layer's
+# vgs:<name>, for the first visible, enabled item TYPE whose PROPERTY reads
+# VALUE in plugin ID's copies of that layer, or
 # popup:HOST_KEY ID SCOPE_TYPE SCOPE_TEXT TYPE TEXT for the first visible,
 # enabled control TYPE reading TEXT in an open menu or popover of a built
 # instance, inside the item SCOPE_TYPE drawing SCOPE_TEXT unless SCOPE_TYPE
@@ -1109,11 +1109,10 @@ control_hovered() {
   else ipc smoke itemHovered "$1" "$2" "$3" "$4"
   fi
 }
-# point_item LOOKUP [DX DY]: for LOOKUP forms above, including window:TITLE,
-# the pointer left resting on a control_box LOOKUP, at its centre or at (DX,
-# DY) from its top-left corner, `-` for the centre on that axis, once the
-# control reports the pointer over that point; prints that point as `X Y`.
-# The compositor routes the pointer by
+# point_item LOOKUP [DX DY]: the pointer left resting on a control_box
+# LOOKUP, at its centre or at (DX, DY) from its top-left corner, `-` for
+# the centre on that axis, once the control reports the pointer over that
+# point; prints that point as `X Y`. The compositor routes the pointer by
 # where it has placed the surface, which can trail the layout the probe
 # reads after the surface resizes, and a list that grows after it opens or
 # a card that slides in moves the control, so a box read once goes stale.
