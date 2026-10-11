@@ -9,7 +9,7 @@
 # into hyprland.lua, whose application-window rule floats a shell window
 # at the size it asks. Without it the window tiles and its size and
 # keyboard checks fail.
-# inputs: scripts/smoke/fixtures/plugins/acme.surfaces/* shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/SummonPopup.qml shell/Commons/AnchorTracker.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Hosts/PluginSlot.qml shell/Hosts/BackgroundHost.qml shell/Hosts/AppWindow.qml scripts/smoke/toplevel/* scripts/smoke/rows/sources.sh shell/Ui/foundation/FocusRing.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/layout/Pane.qml shell/Commons/Tokens.js shell/Ui/foundation/KeyNavLogic.js scripts/smoke/rows/hyprland-consent.sh shell/Core/HyprlandLayer.js
+# inputs: scripts/smoke/fixtures/plugins/acme.surfaces/* shell/plugins/vgs.launcher/* shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/SummonPopup.qml shell/Commons/AnchorTracker.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Hosts/PluginSlot.qml shell/Hosts/BackgroundHost.qml shell/Hosts/AppWindow.qml scripts/smoke/toplevel/* scripts/smoke/rows/sources.sh shell/Ui/foundation/FocusRing.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/layout/Pane.qml shell/Commons/Tokens.js shell/Ui/foundation/KeyNavLogic.js scripts/smoke/rows/hyprland-consent.sh shell/Core/HyprlandLayer.js
 set -euo pipefail
 surf="$home/.config/vgshell/plugins/acme.surfaces"
 mkdir -p "$surf"
@@ -201,6 +201,7 @@ summon_mask_copy="$repo/shell/Hosts/SummonPopupItemMask.qml"
 summon_fade_copy="$repo/shell/Hosts/SummonPopupFadeHeld.qml"
 summon_fade_control="$repo/shell/Hosts/SummonPopupItemFade.qml"
 layer_copy="$repo/shell/Hosts/SummonLayerNoCatch.qml"
+layer_one_screen="$repo/shell/Hosts/SummonLayerOneScreen.qml"
 python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_noescape" <<'PYEDIT'
 import pathlib, sys
 source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
@@ -281,6 +282,14 @@ text = source.read_text()
 old = "        enabled: win.catches\n"
 assert text.count(old) == 1, "the SummonLayer catcher must occur once"
 target.write_text(text.replace(old, "        enabled: false\n"))
+PYEDIT
+python3 - "$repo/shell/Hosts/SummonLayer.qml" "$layer_one_screen" <<'PYEDIT'
+import pathlib, sys
+source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+text = source.read_text()
+old = "        model: win.otherScreens\n"
+assert text.count(old) == 1, "the SummonLayer other-screen catchers must occur once"
+target.write_text(text.replace(old, "        model: []\n"))
 PYEDIT
 cp -- "$home/.config/vgshell/plugins/acme.surfaces/Summoned.qml" "$sandbox/Summoned.initial-focus"
 python3 - "$home/.config/vgshell/plugins/acme.surfaces/Summoned.qml" <<'PYEDIT'
@@ -416,6 +425,120 @@ if open_other "$sandbox/toplevel-surfaces-outside-press.log"; then
 else
   fail "the other window for the outside press did not map"
 fi
+
+# A press on another monitor closes an unanchored summon, as a press beside
+# it on its own monitor does: SummonLayer holds a press catcher,
+# vgs:<kind>-outside, on every other screen. The far monitor is a headless
+# output the row gives a mode, right of the first. The click tool maps a
+# point over the whole layout (Hyprland v0.56.2
+# CPointerManager::warpAbsolute), so these presses pass the layout's size.
+# A catcher takes a press only once it has drawn, as a fresh summon does,
+# and no probe reads a catcher's frames, so far_press presses again after
+# each 1 s the surface stays mapped, at most 5 presses. Control: the
+# SummonLayer copy without the catchers, today's single-screen layer, stays
+# open through the same presses.
+far_output=SMOKE-SURFACES-FAR
+# layout_size: the layout's width and height, its origin at 0,0.
+layout_size() { hypr -j monitors | python3 -c 'import json,sys; ms=json.load(sys.stdin); assert all(m["x"] >= 0 and m["y"] >= 0 for m in ms); print(max(m["x"] + round(m["width"] / m["scale"]) for m in ms), max(m["y"] + round(m["height"] / m["scale"]) for m in ms))'; }
+# layout_click X Y [move]: a press, or with `move` a pointer move, at
+# layout point X Y.
+layout_click() {
+  local w h
+  read -r w h < <(layout_size) || return 1
+  "${shell_env[@]}" "$sandbox/click" "$1" "$2" "$w" "$h" ${3:+"$3"} >/dev/null && pointer_at="$1 $2"
+}
+# near_focus: the pointer and the monitor focus on the first monitor's
+# desktop, where an IPC summon or a probe copy opens.
+near_focus() {
+  layout_click 40 "$((mon_h - 40))" move || return 1
+  hypr dispatch "hl.dsp.focus({ monitor = \"$screen_name\" })"
+}
+far_box() { hypr -j monitors | python3 -c 'import json,sys; m=next(m for m in json.load(sys.stdin) if m["name"] == sys.argv[1]); print(m["x"], m["y"], m["width"], m["height"])' "$far_output"; }
+# far_press NAMESPACE: presses the far monitor's centre until no NAMESPACE
+# layer is mapped; `closed`, or `open` after the fifth press.
+far_press() {
+  local x y w h _
+  read -r x y w h < <(far_box) || return 1
+  for _ in 1 2 3 4 5; do
+    layout_click "$((x + w / 2))" "$((y + h / 2))" || return 1
+    for _ in 1 2 3 4 5; do
+      [[ $(layer_count "$1") == 0 ]] && { echo closed; return 0; }
+      sleep 0.2
+    done
+  done
+  echo open
+}
+# far_catchers NAMESPACE: the boxes of NAMESPACE's catchers, monitor-local.
+far_catchers() { layers_of "$1-outside"; }
+# far_want NAMESPACE: the box a catcher takes on the far monitor, which
+# holds a bar as the first does: NAMESPACE's own layer keeps the first
+# monitor's reserved space or ignores it, and the catcher does the same.
+far_want() {
+  local own
+  own="$(surface_box "$1")" || return 1
+  python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(json.dumps([[0, y, 1280, 720 - (int(sys.argv[2]) - h)]]))' "$own" "$mon_h"
+}
+menu_marks() { ipc smoke readInstance menu acme.surfaces smokePressMarks; }
+menu_marker_press() {
+  local box x y
+  box="$(ipc smoke invokeInstance menu acme.surfaces smokeMarkerGeometry '')" || return 1
+  [[ $box == \[* ]] || { echo "$box"; return 1; }
+  read -r x y < <(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); print(int(b[0] + b[2] / 2), int(b[1] + b[3] / 2))' "$box") || return 1
+  layout_click "$x" "$y" && echo ok
+}
+expect "the far monitor is given a mode" ok hypr eval "hl.monitor({ output = \"$far_output\", mode = \"1280x720\", position = \"${mon_w}x0\", scale = 1 })"
+expect "the nested compositor adds the far monitor" ok hypr output create headless "$far_output"
+expect_poll "the far monitor stands right of the first at its mode" "$mon_w 0 1280 720" far_box
+expect_poll "the far monitor gets its bar" "$((monitors + 1))" bar_count
+expect "the first monitor takes the focus for the panel" ok near_focus
+expect "a panel summons on the first monitor" ok ipc shell summon panel acme.surfaces "{\"closeMarker\":\"$sandbox/closed-by-far-press\"}"
+summon_drawn panel acme.surfaces || fail "the panel never drew before the far press"
+panel_far="$(far_want vgs:panel)" || fail "the panel's own layer box is readable"
+geometry expect_poll "the panel's catcher covers the far monitor alone, below its bar" "$panel_far" far_catchers vgs:panel
+if panel_inside="$(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); print(int(b[0] + 6), int(b[1] + 6))' "$(summon_box panel)")"; then
+  read -r inside_x inside_y <<<"$panel_inside"
+  layout_click "$inside_x" "$inside_y" || fail "the press inside the panel beside the far monitor failed"
+else
+  fail "the panel's box is unreadable beside the far monitor"
+fi
+expect "the panel summons its own menu beside the far monitor" ok ipc smoke invokeInstance panel acme.surfaces menuHere '{}'
+expect_poll "the panel's menu is open" 1 ipc smoke readInstance menu acme.surfaces opened
+popup_mark="$(menu_marks)" || fail "the menu's press marker is readable"
+expect "the press on the panel's own menu is sent" ok menu_marker_press
+expect_poll "the press reached the panel's own menu" "$((popup_mark + 1))" menu_marks
+expect "a press inside the panel and one on its own menu leave the panel open" 1 layer_count vgs:panel
+expect "the press on the panel's own menu leaves the menu open" 1 ipc smoke readInstance menu acme.surfaces opened
+expect "hiding the panel's menu is allowed" ok ipc shell hide menu acme.surfaces
+expect_poll "the panel's menu is gone" absent ipc smoke readInstance menu acme.surfaces opened
+expect "a press on the far monitor closes the panel" closed far_press vgs:panel
+expect_poll "the far press called the panel's close()" yes marker "$sandbox/closed-by-far-press"
+expect_poll "the closed panel's catcher is gone" "[]" far_catchers vgs:panel
+expect "the first monitor takes the focus for the menu" ok near_focus
+expect "a menu summons on the first monitor" ok ipc shell summon menu acme.surfaces '{}'
+summon_drawn menu acme.surfaces || fail "the menu never drew before the far press"
+menu_far="$(far_want vgs:menu)" || fail "the menu's own layer box is readable"
+geometry expect_poll "the menu's catcher covers the far monitor as its own layer covers the first" "$menu_far" far_catchers vgs:menu
+expect "a press on the far monitor closes the menu" closed far_press vgs:menu
+expect_poll "the closed menu leaves the build records beside the far monitor" absent ipc smoke readInstance menu acme.surfaces opened
+expect "the launcher is enabled for the far press" ok ipc shell setPluginEnabled vgs.launcher true
+expect "the first monitor takes the focus for the launcher" ok near_focus
+expect "the launcher summons on the first monitor" ok ipc shell summon overlay vgs.launcher '{}'
+summon_drawn overlay vgs.launcher || fail "the launcher never drew before the far press"
+geometry expect_poll "the launcher's catcher covers the whole far monitor, its bar included" "[[0, 0, 1280, 720]]" far_catchers vgs:overlay
+expect "a press on the far monitor closes the launcher" closed far_press vgs:overlay
+expect_poll "the closed launcher's catcher is gone" "[]" far_catchers vgs:overlay
+expect "the launcher is disabled again" ok ipc shell setPluginEnabled vgs.launcher false
+expect "the first monitor takes the focus for the single-screen copy" ok near_focus
+expect "the probe builds the single-screen SummonLayer copy" ok ipc smoke summonLayerLoad layer-one-screen "$layer_one_screen" acme.surfaces panel
+ipc smoke invokeInstance panel acme.surfaces open '{}' >/dev/null || fail "the single-screen copy's open() could not be called"
+summon_drawn panel acme.surfaces || fail "the single-screen copy never drew"
+expect "the single-screen copy covers no far monitor" "[]" far_catchers vgs:panel
+expect "control: a press on the far monitor leaves the single-screen copy open" open far_press vgs:panel
+expect "control: the single-screen copy counted no dismissal" "0 1" layer_copy_state layer-one-screen
+expect "the probe drops the single-screen copy" ok ipc smoke popupDrop layer-one-screen
+expect_poll "the single-screen copy's surface is gone" 0 layer_count vgs:panel
+expect "the nested compositor removes the far monitor" ok hypr output remove "$far_output"
+expect "the pointer returns to the first monitor" ok near_focus
 
 # An application window: a client of the shell's class titled with the
 # plugin's name, at the size the instance asks, whatever the plugin's

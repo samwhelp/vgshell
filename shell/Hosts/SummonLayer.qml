@@ -16,8 +16,9 @@ import qs.Ui
 // box that none of its controls takes closes nothing. A popup the plugin
 // opens is its own surface above this one, so a press on it reaches the
 // popup. The keyboard stays on demand, so a window that takes it closes
-// nothing here, and another screen is not covered. An Escape the plugin
-// leaves unaccepted is `dismissed` too.
+// nothing here. An Escape the plugin leaves unaccepted is `dismissed` too.
+// Every other screen holds a press catcher while the surface shows, so a
+// press there is `dismissed` as well, an overlay's included.
 PanelWindow {
     id: win
 
@@ -39,7 +40,8 @@ PanelWindow {
     exclusiveZone: 0
     color: "transparent"
     WlrLayershell.namespace: "vgs:" + kind
-    WlrLayershell.layer: place.layer === "top" ? WlrLayer.Top : WlrLayer.Overlay
+    readonly property int shellLayer: place.layer === "top" ? WlrLayer.Top : WlrLayer.Overlay
+    WlrLayershell.layer: shellLayer
     readonly property bool exclusiveKeyboard: PluginLogic.layerKeyboardFocus(kind, false) === "exclusive"
     WlrLayershell.keyboardFocus: exclusiveKeyboard ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.OnDemand
     // Compositor's record of this surface while it holds the keyboard.
@@ -81,6 +83,39 @@ PanelWindow {
         onPressed: mouse => {
             if (!sized.contains(mapToItem(sized, mouse.x, mouse.y)))
                 win.dismissed();
+        }
+    }
+
+    // A Hyprland focus grab would see a press on any screen, but Hyprland
+    // keeps one seat grab at a time: a popup the plugin opens with a grab
+    // replaces it, and the replaced focus grab sends `cleared` (Hyprland
+    // v0.56.2 CXDGShellProtocol::addOrStartGrab, CSeatManager::setGrab,
+    // CFocusGrab's onEnd), which would close the surface as its popup
+    // opens. A catcher takes no keyboard, so an overlay keeps it, and keeps
+    // the layer and reserved space this surface keeps on its own screen.
+    readonly property var otherScreens: Quickshell.screens.filter(s => s !== win.screen)
+    Variants {
+        model: win.otherScreens
+
+        PanelWindow {
+            required property var modelData
+            screen: modelData
+            visible: win.visible
+            anchors { top: true; bottom: true; left: true; right: true }
+            exclusionMode: win.exclusionMode
+            exclusiveZone: 0
+            color: "transparent"
+            WlrLayershell.namespace: "vgs:" + win.kind + "-outside"
+            WlrLayershell.layer: win.shellLayer
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+
+            // keyboard-path: Escape closes the summon on its own screen
+            // pointer-cursor-exempt: a press here is a press beside the open summon, not a control
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.AllButtons
+                onPressed: win.dismissed()
+            }
         }
     }
 
