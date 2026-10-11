@@ -551,8 +551,12 @@ function verify(logic) {
         same(logic.choicePlan(choice, offered), want, "choice: " + label);
 
     // The act shortcut's target: [label, live, history, key]. The newest by
-    // arrival, on screen or in the history; a toast on screen wins a tie.
+    // arrival, on screen or in the history, past an entry the Inbox
+    // dismissed; a toast on screen wins a tie.
     for (const [label, live, history, want] of [
+        ["a newer dismissed entry gives way to an older one", [], [stored(40, 4, { key: "d", read: true }), stored(20, 2, { key: "h" })], "h"],
+        ["a dismissed entry alone", [], [stored(40, 4, { key: "d", read: true })], ""],
+        ["a toast newer than a dismissed entry", [stored(50, 5, { key: "t" })], [stored(40, 4, { key: "d", read: true }), stored(20, 2, { key: "h" })], "t"],
         ["a newer toast replaces a history entry", [stored(30, 3, { key: "t" })], [stored(20, 2, { key: "h" })], "t"],
         ["a newer history entry beats an older toast", [stored(10, 1, { key: "t" })], [stored(40, 4, { key: "h2" }), stored(20, 2, { key: "h" })], "h2"],
         ["the history alone, newest not first", [], [stored(20, 2, { key: "a" }), stored(50, 5, { key: "b" })], "b"],
@@ -1080,7 +1084,8 @@ const CONTROLS = [
     ["dismiss delivers nothing", 'if (c === "dismiss") return { deliver: "", raise: false, leave: "dismiss" };', ""],
     ["an unknown choice is refused", 'if (id === "" && c !== "open") return null;', ""],
     ["the act target is the newest", "if (all[i].timestamp > newest) {", "if (all[i].timestamp < newest || i === 0) {"],
-    ["the act target reads the history", "var all = live.concat(history);", "var all = live;"],
+    ["the act target reads the history", "var all = live.concat(history.filter(", "var all = live.concat([].filter("],
+    ["the act target skips an Inbox dismissal", "history.filter(function (e) { return e.read !== true; })", "history"],
     ["a toast wins an act tie", "if (all[i].timestamp > newest) {", "if (all[i].timestamp >= newest) {"],
     ["the act shortcut follows a hinted click", 'if (route !== "default") return route === "open";', ""],
     ["the act shortcut needs a primary action", 'return primaryAction(offered) !== "" || canRaise;', "return true;"],

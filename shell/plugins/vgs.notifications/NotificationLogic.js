@@ -1476,12 +1476,13 @@ function primaryAction(offered) {
 }
 
 // The key of the notification the act shortcut acts on: the newest one
-// stored, by arrival, a toast on screen (`live`) or a history entry; ""
-// when none is. A newer notification replaces it as it arrives.
+// stored, by arrival, a toast on screen (`live`) or a history entry the
+// Inbox did not dismiss (dismissedHistory's `read` mark); "" when none is.
+// A newer notification replaces it as it arrives.
 function newestKey(live, history) {
     var key = "";
     var newest = -Infinity;
-    var all = live.concat(history);
+    var all = live.concat(history.filter(function (e) { return e.read !== true; }));
     for (var i = 0; i < all.length; i++) {
         if (all[i].timestamp > newest) {
             newest = all[i].timestamp;
