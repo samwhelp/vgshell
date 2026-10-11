@@ -26,13 +26,16 @@ import qs.Ui
 // another row. Under a rounded theme the side padding grows until the
 // content clears the drawn corner. `textStart` is where the row's text
 // starts, its padding plus its icon and icon gap, for content a caller
-// lines up under the text.
+// lines up under the text. `secondaryTone` "danger" draws the secondary
+// line in the danger colour, for a state that is a failure, such as a
+// stopped printer; "" draws it in its role's colour.
 // keyboard-path: a composite list owns keys and writes highlighted; a plain row is not a tab stop
 T.ItemDelegate {
     id: root
 
     property string iconName: ""
     property string secondary: ""
+    property string secondaryTone: ""
     property alias trailing: trailingRow.data
     property ListCursor cursor: null
     property bool active: false
@@ -53,6 +56,7 @@ T.ItemDelegate {
 
     transform: ListEntrance { id: entrance; motion: root.cursor !== null ? root.cursor.motion : Theme.motion.list }
     Component.onCompleted: if (enters && cursor !== null) entrance.start(cursor.enterSlot(), 0)
+    onSecondaryToneChanged: if (secondaryTone !== "" && secondaryTone !== "danger") console.error("ListItem: secondaryTone " + JSON.stringify(secondaryTone) + " is not one of \"\", danger")
 
     ListCursorRow {
         cursor: root.cursor
@@ -90,6 +94,7 @@ T.ItemDelegate {
             Label {
                 id: secondaryLabel
                 role: "itemHint"
+                color: root.secondaryTone === "danger" ? Theme.color.danger : Theme.text.itemHint.color
                 textFormat: Text.PlainText
                 text: root.secondary
                 visible: root.secondary !== ""

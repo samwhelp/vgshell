@@ -12,7 +12,8 @@ import qs.Unit
 // and Space emit `clicked`; Shift+F10 and the Menu key open the overflow
 // menu, the overflow button does too, and a row without entries hides the
 // button and passes the keys on; under a ListCursor the cursor draws the
-// highlight.
+// highlight; `secondaryTone` danger draws the state line in the danger
+// colour, and none in the hint's.
 Item {
     id: root
     width: 480
@@ -67,6 +68,17 @@ Item {
 
         function trailing(row) { return row.contentItem.children[2].children; }
         function badgeOf(row) { return trailing(row)[0]; }
+        function lineOf(row) { return row.contentItem.children[1].children[1]; }
+
+        function test_a_danger_state_line_draws_in_the_danger_colour() {
+            compare(lineOf(headset).text, "Connected");
+            compare(String(lineOf(headset).color), String(Qt.color(Theme.text.itemHint.color)));
+            headset.secondaryTone = "danger";
+            compare(String(lineOf(headset).color), String(Qt.color(Theme.color.danger)));
+            verify(String(Qt.color(Theme.color.danger)) !== String(Qt.color(Theme.text.itemHint.color)));
+            headset.secondaryTone = "";
+            compare(String(lineOf(headset).color), String(Qt.color(Theme.text.itemHint.color)));
+        }
         function menuOf(row) { return trailing(row)[2].children.find(child => child.triggerCurrent !== undefined); }
 
         function init() {

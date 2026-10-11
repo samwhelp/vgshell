@@ -237,6 +237,9 @@ function suite(logic) {
         ["Office", "Printing · 2 jobs", "printer", ""],
         ["Office-2", "Stopped: Paper jam · 1 job", "printer-x", ""],
         ["Spare", "Holding new jobs", "printer", ""]]);
+    assert.deepEqual(plain(rows.map(r => r.secondaryTone)), ["danger", "", "danger", ""]);
+    for (const [cups, want] of [["missing", false], ["read", true], ["down", true], ["failed", true], ["unread", true]])
+        assert.equal(logic.settingsOffered(cups), want, "Print Settings offered while " + cups);
     assert.equal(logic.printerAction(rows[0]), null);
     assert.deepEqual(plain(logic.printerAction(rows[1])), { text: "Set as default" });
     assert.deepEqual(plain(logic.printerMenu(rows[0]).map(e => e.key)), ["remove"]);
@@ -272,6 +275,8 @@ try {
         ["Turn on printing offered while the step is ready", 'if (step === "needed" || step === "nixos") return', "if (true) return"],
         ["a view's end closes another lease", "leases.splice(at, 1);", "leases.splice(0, 1);"],
         ["a view's end of an unknown lease closes one", "if (at === -1) return { state: state, known: false };", "if (at === -1) at = 0;"],
+        ["a stopped printer's state draws in the plain tone", 'secondaryTone: p.state === "stopped" ? "danger" : "",', 'secondaryTone: "",'],
+        ["Print Settings offered without CUPS", 'function settingsOffered(cups) { return cups !== "missing"; }', "function settingsOffered(cups) { return true; }"],
         ["the default printer loses its badge", 'badge: p.isDefault ? "Default" : "",', 'badge: "",']
     ]) {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");

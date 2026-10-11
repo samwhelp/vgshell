@@ -782,6 +782,8 @@ mutations=(
   "an empty select's chevron draws as on a list that opens|controls/Select.qml|color: root.opens ? Theme.textField.icon : Theme.color.textDisabled|color: Theme.textField.icon|tst_overlays.qml"
   "the list row prefers no width of its own|layout/ListItem.qml|leftPadding + rightPadding + (iconName !== \"\" ? Theme.icon.size.md + Theme.listItem.iconGap : 0) + Math.max(title.implicitWidth, secondaryLabel.implicitWidth)|leftPadding + rightPadding + (iconName !== \"\" ? Theme.icon.size.md + Theme.listItem.iconGap : 0) + 0|tst_layout.qml"
   "the list row's secondary line keeps paragraph leading|layout/ListItem.qml|role: \"itemHint\"|role: \"hint\"|tst_layout.qml"
+  "the list row's danger line draws in the hint colour|layout/ListItem.qml|color: root.secondaryTone === \"danger\" ? Theme.color.danger : Theme.text.itemHint.color|color: Theme.text.itemHint.color|tst_devicerow.qml"
+  "the device list drops a row's line tone|layout/DeviceList.qml|secondaryTone: modelData.secondaryTone === undefined ? \"\" : modelData.secondaryTone|secondaryTone: \"\"|tst_devicelist.qml"
   "a two-line list row stands at the one-line height|layout/ListItem.qml|implicitHeight: Math.max(secondary !== \"\" ? Theme.listItem.twoLineHeight : Theme.listItem.height,|implicitHeight: Math.max(Theme.listItem.height,|tst_layout.qml"
   "the list row's title keeps paragraph leading|layout/ListItem.qml|role: \"item\"|role: \"body\"|tst_layout.qml"
   "the list row's title draws markup|layout/ListItem.qml|text: root.text|text: root.text; Component.onCompleted: textFormat = Text.StyledText|tst_layout.qml"

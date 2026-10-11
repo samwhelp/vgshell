@@ -16,7 +16,7 @@ import qs.Ui
 // holds the scope's focus, so a removed row's place takes the keyboard.
 //
 // Each entry of `rows` is a plain object: `key`, unique in the list, and
-// the DeviceRow's `text`, `secondary`, `iconName`, `battery`, `badge`,
+// the DeviceRow's `text`, `secondary`, `secondaryTone`, `iconName`, `battery`, `badge`,
 // `badgeTone` and `badgeIcon` where it has them. `actionOf(row)` answers
 // the row's action as `{ text }`, or null for none;
 // `menuOf(row)` its overflow menu as a list of `{ key, text, iconName }`.
@@ -107,6 +107,7 @@ FocusScope {
                 onActiveFocusChanged: if (activeFocus) list.current = index
                 text: modelData.text
                 secondary: modelData.secondary === undefined ? "" : modelData.secondary
+                secondaryTone: modelData.secondaryTone === undefined ? "" : modelData.secondaryTone
                 iconName: modelData.iconName === undefined ? "" : modelData.iconName
                 battery: modelData.battery === undefined ? NaN : modelData.battery
                 badge: modelData.badge === undefined ? "" : modelData.badge

@@ -11,7 +11,7 @@ import qs.Unit
 // `removable`, and the row that takes a removed row's place takes the
 // keyboard; the selection shows only while the list holds the keyboard;
 // a change to the rows that keeps their count keeps the keyboard where it
-// is.
+// is; a row's `secondaryTone` reaches its DeviceRow.
 Item {
     id: root
     width: 480
@@ -20,7 +20,7 @@ Item {
     readonly property var three: [
         { key: "a", text: "Headset", secondary: "Connected", iconName: "headphones", battery: 0.5 },
         { key: "b", text: "Mouse", iconName: "mouse" },
-        { key: "c", text: "Speaker", badge: "Nearby", badgeTone: "info" }
+        { key: "c", text: "Speaker", secondary: "Stopped", secondaryTone: "danger", badge: "Nearby", badgeTone: "info" }
     ]
 
     Button { id: before; text: "Scan" }
@@ -54,6 +54,11 @@ Item {
             removed.clear();
             root.Window.window.requestActivate();
             before.forceActiveFocus(Qt.TabFocusReason);
+        }
+
+        function test_a_rows_line_tone_reaches_its_row() {
+            compare(list.rowAt(0).secondaryTone, "");
+            compare(list.rowAt(2).secondaryTone, "danger");
         }
 
         function focusList() {

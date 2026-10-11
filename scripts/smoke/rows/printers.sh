@@ -16,7 +16,8 @@
 # which asks CUPS for one subscription with the dbus:// recipient and
 # reports ready; the pane, mounted in the System window, reads back no
 # printer, one, two with a default, a busy one with its jobs and a stopped
-# one with its message, each after the world changed and CUPS notified;
+# one with its message in the danger tone, each after the world changed
+# and CUPS notified;
 # Set as default calls PrinterSetDefault, Remove calls PrinterDelete, Add
 # on a found driverless device calls PrinterAdd with the everywhere model,
 # then enables it and lets it take jobs, Add on the address field does the
@@ -32,7 +33,8 @@
 # the change the world took while it was closed and subscribes again;
 # after disable with the section open the subscription is cancelled and
 # nothing of the watcher remains. A copy without lpstat reads printing not
-# installed, offers Install printing on its line and in the section, and
+# installed, offers Install printing on its line and in the section and no
+# Print Settings, which needs CUPS, and
 # the press raises the requirement notice for the missing command. The
 # controls: a copy of the plugin that starts its watcher at enable, keeps
 # it running after the section closes, whose changes call echo in place of
@@ -70,6 +72,8 @@ pr_world_state() { cups_world_read | py_reply 'import json,sys; w=json.load(sys.
 pr_message() { pr_pane printers | py_reply 'import json,sys; print(json.dumps([p["message"] for p in json.load(sys.stdin) if p["name"] == sys.argv[1]][0]))' "$1"; }
 pr_printing() { ipc smoke statusValues vgs.printers | py_reply 'import json,sys; v=json.load(sys.stdin).get("printing"); print("unpublished" if v is None else json.dumps(v.get(sys.argv[1])))' "$1"; }
 pr_offered() { pr_pane printingAction | py_reply 'import json,sys; print("none" if json.load(sys.stdin) is None else "offered")'; }
+pr_tones() { ipc smoke readMatchingDescendant window vgs.printers DeviceList objectName printers-list rows | py_reply 'import json,sys; print(json.dumps([r["secondaryTone"] for r in json.load(sys.stdin)]))'; }
+pr_settings_shown() { ipc smoke readMatchingDescendant window vgs.printers Button objectName printers-settings visible; }
 pr_count() { device_calls "$1" | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 pr_calls_since() { device_calls cups-pk-helper | py_reply 'import json,sys; print(json.dumps([[c["method"], c["args"]] for c in json.load(sys.stdin)[int(sys.argv[1]):]]))' "$1"; }
 # The subscription calls ipptool took since call N as [test file,
@@ -195,6 +199,8 @@ pr_main() {
   expect "CUPS notifies the stop" signal=sent cups_signal PrinterStateChanged Lab
   expect_poll "error: Lab reads stopped" '[["Lab", "stopped", 0, true], ["Office", "printing", 2, false]]' pr_printers
   expect "the stopped printer keeps its message" '"Paper jam"' pr_message Lab
+  expect "error: the stopped printer's state line takes the danger tone, the printing one none" '["danger", ""]' pr_tones
+  expect "Print Settings is offered while CUPS answers" true pr_settings_shown
   expect "both printers are idle again" world=set cups_world '{"printers": [{"name": "Office", "uri": "ipp://office.local/ipp/print", "state": "idle", "message": "", "jobs": 0, "accepting": true}, {"name": "Lab", "uri": "ipp://lab.local/ipp/print", "state": "idle", "message": "", "jobs": 0, "accepting": true}]}'
   expect "CUPS notifies the jobs' end" signal=sent cups_signal JobCompleted Office
   expect_poll "both printers read idle" '[["Lab", "idle", 0, true], ["Office", "idle", 0, false]]' pr_printers
@@ -265,6 +271,7 @@ pr_main() {
   expect "the System window closes" ok ipc shell hide window vgs.system
   expect_poll "closing the section cancels the subscription" cancelled pr_subscription "$subscription"
   expect_poll "closing the section leaves no watcher process or dbus-monitor" '{"monitor": 0, "watch": 0}' pr_watchers
+  expect "the watcher stopped and ended with no complaint in the log" 0 log_lines 'printers: watcher (stopped|ended)'
   expect "a change outside VGS while closed clears Office's jobs" world=set pr_world_jobs Office 0
   expect "the closed section starts no watcher" stays pr_stays '{"monitor": 0, "watch": 0}' pr_watchers
   ipp_before="$(pr_count ipptool)" || { fail "printers: the ipptool stand-in's calls are unreadable"; return 0; }
@@ -301,8 +308,10 @@ pr_uninstalled() {
   expect_poll "not installed: the service reads printing not installed" '"missing"' pr_view cups
   expect_poll "not installed: the printing line names its install action" '"install"' pr_printing action
   expect_poll "not installed: the section offers the line's action" offered pr_offered
+  expect "not installed: the section offers no Print Settings" false pr_settings_shown
   expect "not installed: the section's action answers ok" ok pr_act runPrintingAction '[]'
   expect_poll "not installed: the notice offers the missing command alone" '["vgs.printers", ["vgs-smoke-lpstat"], ["vgs-smoke-lpstat"], false]' notice_shown
+  expect_poll "not installed: the notice holds the keyboard" true ipc smoke noticeFocused
   type_keys -k Escape || fail "sending Escape to the notice failed"
   expect_poll "not installed: Escape closes the notice" null notice_shown
   expect "the not-installed copy's window closes" ok ipc shell hide window vgs.system

@@ -475,7 +475,8 @@ function printingView(reading, cupsMissing, step) {
 }
 
 // One DeviceList row per printer of PRINTERS: its name, its state and
-// queued jobs, an icon that marks a stopped printer and a Default badge.
+// queued jobs, in the danger tone for a stopped printer, an icon that marks
+// a stopped printer and a Default badge.
 function printerRows(printers) {
     return printers.map(function (p) {
         var state = p.state === "printing" ? "Printing" : p.state === "holding" ? "Holding new jobs"
@@ -485,6 +486,7 @@ function printerRows(printers) {
             key: p.name,
             text: p.name,
             secondary: state + jobs,
+            secondaryTone: p.state === "stopped" ? "danger" : "",
             iconName: p.state === "stopped" ? "printer-x" : "printer",
             badge: p.isDefault ? "Default" : "",
             badgeTone: "accent",
@@ -492,6 +494,11 @@ function printerRows(printers) {
         };
     });
 }
+
+// Whether the pane offers Print Settings while the scheduler reads CUPS,
+// the pane's `cups`: system-config-printer needs CUPS, so not while
+// printing is not installed.
+function settingsOffered(cups) { return cups !== "missing"; }
 
 // A printer row's action and its menu.
 function printerAction(row) { return row.isDefault ? null : { text: "Set as default" }; }

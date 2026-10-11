@@ -71,12 +71,13 @@ if [[ ${1-} != --held ]]; then
   trap 'kill -TERM "$held" 2>/dev/null || :' TERM INT HUP
   waiting=("$held" "$reader")
   status=0
-  # A trapped signal ends a wait with nothing ended; the loop waits again.
+  # A trapped signal ends a wait with nothing ended and `ended` unset; the
+  # loop waits again.
   while :; do
     ended="" code=0
     wait -n -p ended "${waiting[@]}" || code=$?
-    if [[ $ended == "$held" ]]; then status=$code; break; fi
-    if [[ $ended == "$reader" ]]; then
+    if [[ ${ended:-} == "$held" ]]; then status=$code; break; fi
+    if [[ ${ended:-} == "$reader" ]]; then
       waiting=("$held")
       kill -TERM "$held" 2>/dev/null || :
     fi

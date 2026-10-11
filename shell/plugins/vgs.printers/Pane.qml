@@ -18,7 +18,8 @@ import "PrintersLogic.js" as Logic
 // change's problem; Add a printer: Find printers, the devices CUPS found,
 // each with Add, or Print Settings for one that needs a driver, and one
 // field for a printer's address; then Print Settings, which opens
-// system-config-printer for drivers, paper, two-sided printing and quality.
+// system-config-printer for drivers, paper, two-sided printing and quality,
+// in every state but printing not installed, since it needs CUPS.
 // While the printer helper is missing, every change button offers its
 // install instead.
 //
@@ -314,6 +315,8 @@ FocusScope {
         }
 
         Button {
+            objectName: "printers-settings"
+            visible: Logic.settingsOffered(root.cups)
             text: "Print Settings"
             variant: "secondary"
             iconName: "settings"
