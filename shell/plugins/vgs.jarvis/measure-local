@@ -322,11 +322,11 @@ def load(artifact, root, provider, np, sherpa):
         suffix = "-epoch-12-avg-2-chunk-16-left-64.int8.onnx"
         # create_stream(keywords) adds to the keywords_file list, so the model's
         # own keywords.txt (ALEXA, HELLO WORLD, ...) would wake Jarvis too. The
-        # default four active paths missed spoken renders of the phrase.
+        # default four active paths missed the phrase at many start points.
         return sherpa.KeywordSpotter(
             encoder=str(d / ("encoder" + suffix)), decoder=str(d / ("decoder" + suffix)),
             joiner=str(d / ("joiner" + suffix)), tokens=str(d / "tokens.txt"),
-            keywords_file=os.devnull, max_active_paths=8, **options)
+            keywords_file=os.devnull, max_active_paths=16, **options)
     if engine == "smart-turn":
         import onnxruntime as ort
         from transformers import WhisperFeatureExtractor

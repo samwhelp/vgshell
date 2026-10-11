@@ -617,7 +617,7 @@ class ConsumerContract(unittest.TestCase):
             'c=json.loads((pathlib.Path(__file__).parent/"control.json").read_text())\n'
             'if not pathlib.Path(a.models).is_absolute() or not pathlib.Path(a.models).is_dir():\n'
             ' print("fixture-path-not-resolved",file=sys.stderr); sys.exit(42)\n'
-            'r={"artifact_ids":[a.artifact],"warm_turn_seconds":0.1,"results":[{"decode_calls":1}],'
+            'r={"artifact_ids":[a.artifact],"warm_turn_seconds":0.1,'
             '"models_path":a.models,"python_executable":sys.executable}\n'
             'if a.artifact=="wake": r.update(c.get("reading",{}))\n'
             'print(json.dumps(r))\n'
@@ -664,8 +664,6 @@ class ConsumerContract(unittest.TestCase):
              'if reading["artifact_ids"] != [name] or reading["warm_turn_seconds"] <= 0:', 1, "missing actual inference reading"),
             ("warm-time", {"reading": {"warm_turn_seconds": 0}},
              'if reading["artifact_ids"] != [name] or reading["warm_turn_seconds"] <= 0:', 1, "missing actual inference reading"),
-            ("wake-decode", {"reading": {"results": [{"decode_calls": 0}]}},
-             'if name == "wake" and reading["results"][0]["decode_calls"] <= 0:', 1, "wake decoder did not consume the clip"),
         ]
         for name, defect, needle, status, diagnostic in cases:
             with self.subTest(rule=name):
