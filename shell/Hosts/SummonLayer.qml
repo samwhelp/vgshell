@@ -20,8 +20,8 @@ import qs.Ui
 // Every other screen holds a press catcher while a panel or a menu shows,
 // so a press there is `dismissed` as well. An overlay's plugin owns a press
 // beside its content (the launcher closes, an authentication dialog keeps
-// its request), so an overlay holds catchers only while its plugin has a
-// `pressedOnOtherScreen()`, which hears that press instead.
+// its request), so a press on another screen reaches an overlay's plugin
+// only through its `pressedOnOtherScreen()`, when it has one.
 PanelWindow {
     id: win
 
@@ -89,19 +89,37 @@ PanelWindow {
         }
     }
 
+    // While an overlay holds the keyboard, Hyprland sends every press, on
+    // any screen, to it (v0.56.2 CInputManager::mouseMoveUnified, the
+    // exclusive layer surfaces), so a press on another screen reaches this
+    // window at a point outside it. This area reaches past the window by
+    // the screens' summed size, under the plugin, and hands such a press to
+    // the plugin; a press inside the window it leaves alone.
+    // keyboard-path: Escape closes the overlay through the slot below
+    // pointer-cursor-exempt: it takes presses outside the window, where no control is
+    MouseArea {
+        readonly property real reach: Quickshell.screens.reduce((sum, s) => sum + s.width + s.height, 0)
+        x: -reach
+        y: -reach
+        width: win.width + 2 * reach
+        height: win.height + 2 * reach
+        enabled: win.exclusiveKeyboard && slot.instance !== null && typeof slot.instance.pressedOnOtherScreen === "function"
+        acceptedButtons: Qt.AllButtons
+        onPressed: mouse => {
+            const at = mapToItem(null, mouse.x, mouse.y);
+            if (at.x >= 0 && at.y >= 0 && at.x < win.width && at.y < win.height) mouse.accepted = false;
+            else slot.instance.pressedOnOtherScreen();
+        }
+    }
+
     // A Hyprland focus grab would see a press on any screen, but Hyprland
     // keeps one seat grab at a time: a popup the plugin opens with a grab
     // replaces it, and the replaced focus grab sends `cleared` (Hyprland
     // v0.56.2 CXDGShellProtocol::addOrStartGrab, CSeatManager::setGrab,
     // CFocusGrab's onEnd), which would close the surface as its popup
-    // opens. A catcher takes no keyboard, so an overlay keeps it, and keeps
-    // the layer and reserved space this surface keeps on its own screen.
-    readonly property bool catchesElsewhere: catches || (slot.instance !== null && typeof slot.instance.pressedOnOtherScreen === "function")
-    readonly property var otherScreens: catchesElsewhere ? Quickshell.screens.filter(s => s !== win.screen) : []
-    function pressedElsewhere() {
-        if (catches) dismissed();
-        else slot.instance.pressedOnOtherScreen();
-    }
+    // opens. A catcher takes no keyboard and keeps the layer and reserved
+    // space this surface keeps on its own screen.
+    readonly property var otherScreens: catches ? Quickshell.screens.filter(s => s !== win.screen) : []
     Variants {
         model: win.otherScreens
 
@@ -126,7 +144,7 @@ PanelWindow {
             MouseArea {
                 anchors.fill: parent
                 acceptedButtons: Qt.AllButtons
-                onPressed: win.pressedElsewhere()
+                onPressed: win.dismissed()
             }
         }
     }

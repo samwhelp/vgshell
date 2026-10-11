@@ -287,9 +287,11 @@ python3 - "$repo/shell/Hosts/SummonLayer.qml" "$layer_one_screen" <<'PYEDIT'
 import pathlib, sys
 source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 text = source.read_text()
-old = "        model: win.otherScreens\n"
-assert text.count(old) == 1, "the SummonLayer other-screen catchers must occur once"
-target.write_text(text.replace(old, "        model: []\n"))
+for old, new in (("        model: win.otherScreens\n", "        model: []\n"),
+                 ("        enabled: win.exclusiveKeyboard && slot.instance !== null && typeof slot.instance.pressedOnOtherScreen === \"function\"\n", "        enabled: false\n")):
+    assert text.count(old) == 1, "the SummonLayer other-screen path must occur once: " + old
+    text = text.replace(old, new)
+target.write_text(text)
 PYEDIT
 cp -- "$home/.config/vgshell/plugins/acme.surfaces/Summoned.qml" "$sandbox/Summoned.initial-focus"
 python3 - "$home/.config/vgshell/plugins/acme.surfaces/Summoned.qml" <<'PYEDIT'
@@ -428,20 +430,22 @@ fi
 
 # A press on another monitor closes an unanchored panel or menu, as a press
 # beside it on its own monitor does: SummonLayer holds a press catcher,
-# vgs:<kind>-outside, on every other screen. An overlay holds catchers only
-# while its plugin has pressedOnOtherScreen(), as the launcher does, so the
-# fixture's overlay, which has none, leaves the far monitor's presses
-# alone. A monitor removed while a panel shows takes its catcher with it,
+# vgs:<kind>-outside, on every other screen. An overlay holds the keyboard,
+# so Hyprland sends it every press, on any screen; its window hands one
+# outside itself to the plugin's pressedOnOtherScreen(), which the launcher
+# answers by closing, and the fixture's overlay, which has none, stays
+# open. A monitor removed while a panel shows takes its catcher with it,
 # and the panel stays. The far monitor is a second nested Wayland output,
 # placed right of the first: a headless one read 0x0 here (cachy,
-# 2026-10-11), as compositor-reveal.sh notes. The click tool maps a
-# point over the whole layout (Hyprland v0.56.2
-# CPointerManager::warpAbsolute), so these presses pass the layout's size.
-# A catcher takes a press only once it has drawn, as a fresh summon does,
-# and no probe reads a catcher's frames, so far_press presses again after
-# each 1 s the surface stays mapped, at most 5 presses. Control: the
-# SummonLayer copy without the catchers, today's single-screen layer, stays
-# open through the same presses.
+# 2026-10-11), as compositor-reveal.sh notes. The click tool maps a point
+# over the whole layout (Hyprland v0.56.2 CPointerManager::warpAbsolute),
+# so these presses pass the layout's size, and the compositor's layer list
+# gives boxes in layout coordinates. A catcher takes a press only once it
+# has drawn, as a fresh summon does, and no probe reads a catcher's frames,
+# so far_press presses again after each 1 s the surface stays mapped, at
+# most 5 presses. Control: the SummonLayer copy with neither the catchers
+# nor the overlay's outside area, today's single-screen layer, stays open
+# through the same presses, as a panel and as the launcher.
 far_output=SMOKE-SURFACES-FAR
 # layout_size: the layout's width and height, its origin at 0,0.
 layout_size() { hypr -j monitors | py_reply 'import json,sys; ms=json.load(sys.stdin); assert all(m["x"] >= 0 and m["y"] >= 0 for m in ms); print(max(m["x"] + round(m["width"] / m["scale"]) for m in ms), max(m["y"] + round(m["height"] / m["scale"]) for m in ms))'; }
@@ -458,7 +462,16 @@ near_focus() {
   layout_click 40 "$((mon_h - 40))" move || return 1
   hypr dispatch "hl.dsp.focus({ monitor = \"$screen_name\" })"
 }
-far_box() { hypr -j monitors | py_reply 'import json,sys; m=next(m for m in json.load(sys.stdin) if m["name"] == sys.argv[1]); print(m["x"], m["y"], m["width"], m["height"])' "$far_output"; }
+# far_box: the far monitor as `x y w h`, or `absent`.
+far_box() { hypr -j monitors | py_reply 'import json,sys; ms=[m for m in json.load(sys.stdin) if m["name"] == sys.argv[1]]; print("%d %d %d %d" % (ms[0]["x"], ms[0]["y"], ms[0]["width"], ms[0]["height"]) if ms else "absent")' "$far_output"; }
+# far_sized: `sized` once the far monitor stands right of the first with a
+# mode, else what far_box read.
+far_sized() {
+  local box x y w h
+  box="$(far_box)" || return 1
+  read -r x y w h <<<"$box"
+  if [[ $x == "$mon_w" && $y == 0 && ${w:-0} -gt 0 && ${h:-0} -gt 0 ]]; then echo sized; else echo "$box"; fi
+}
 # far_press NAMESPACE: presses the far monitor's centre until no NAMESPACE
 # layer is mapped; `closed`, or `open` after the fifth press.
 far_press() {
@@ -473,7 +486,7 @@ far_press() {
   done
   echo open
 }
-# far_catchers NAMESPACE: the boxes of NAMESPACE's catchers, monitor-local.
+# far_catchers NAMESPACE: the boxes of NAMESPACE's catchers.
 far_catchers() { layers_of "$1-outside"; }
 # far_want NAMESPACE: the box a catcher takes on the far monitor, which
 # holds a bar as the first does: NAMESPACE's own layer keeps the first
@@ -482,32 +495,67 @@ far_want() {
   local own fx fy fw fh
   own="$(surface_box "$1")" || return 1
   read -r fx fy fw fh < <(far_box) || return 1
-  python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); fw,fh,mh=map(int,sys.argv[2:]); print(json.dumps([[0, y, fw, fh - (mh - h)]]))' "$own" "$fw" "$fh" "$mon_h"
+  python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); fx,fy,fw,fh,mh=map(int,sys.argv[2:]); print(json.dumps([[fx, fy + y, fw, fh - (mh - h)]]))' "$own" "$fx" "$fy" "$fw" "$fh" "$mon_h"
 }
-# far_sized: `sized` once the far monitor stands right of the first with a
-# mode, else its position and size.
-far_sized() {
-  local x y w h
-  read -r x y w h < <(far_box) || return 1
-  if [[ $x == "$mon_w" && $y == 0 && $w -gt 0 && $h -gt 0 ]]; then echo sized; else echo "$x $y $w $h"; fi
-}
+# copy_state NAME NAMESPACE: the dismissals the probe counted for
+# SummonLayer copy NAME and the NAMESPACE layers mapped.
+copy_state() { printf '%s %s\n' "$(ipc smoke summonLayerDismissals "$1")" "$(layer_count "$2")"; }
 menu_marks() { ipc smoke readInstance menu acme.surfaces smokePressMarks; }
-# menu_marker_press: presses the marker of the menu the panel opened. Qt
-# places that popup from its parent, the panel's layer, whose origin on the
-# output it does not know, so the layer's origin is added, as
-# smoke_marker_press adds it for an item in the panel.
-menu_marker_press() {
-  local box layer x y
-  box="$(ipc smoke invokeInstance menu acme.surfaces smokeMarkerGeometry '')" || return 1
+# menu_marker_centre: the centre of the menu's marker where the compositor
+# draws it on the first monitor, as `x y`: of the two #ff00ff squares the
+# grab holds, the one off the panel's own marker, whose box is the panel's
+# layer origin plus its marker box (smoke_marker_press).
+menu_marker_centre() {
+  local socket box layer px py
+  box="$(ipc smoke invokeInstance panel acme.surfaces smokeMarkerGeometry '')" || return 1
   [[ $box == \[* ]] || { echo "$box"; return 1; }
   layer="$(surface_box vgs:panel)" || return 1
-  read -r x y < <(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); l=json.loads(sys.argv[2]); print(int(l[0] + b[0] + b[2] / 2), int(l[1] + b[1] + b[3] / 2))' "$box" "$layer") || return 1
+  read -r px py < <(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); l=json.loads(sys.argv[2]); print(int(l[0] + b[0] + b[2] / 2), int(l[1] + b[1] + b[3] / 2))' "$box" "$layer") || return 1
+  socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || return 1
+  shot_grim "$socket" "$rt_dir" -o "$screen_name" -t ppm - | python3 -c '
+import sys
+panel = (int(sys.argv[1]), int(sys.argv[2]))
+data = sys.stdin.buffer.read().split(b"\n", 3)
+if len(data) != 4 or data[0] != b"P6" or data[2] != b"255":
+    print("unreadable")
+    sys.exit()
+w, h = map(int, data[1].split())
+pixels = data[3]
+if len(pixels) != w * h * 3:
+    print("unreadable")
+    sys.exit()
+seen = set()
+for i in range(0, len(pixels), 3):
+    if pixels[i] >= 240 and pixels[i + 1] <= 32 and pixels[i + 2] >= 240:
+        seen.add(i // 3)
+boxes = []
+while seen:
+    stack = [seen.pop()]
+    xs, ys = [], []
+    while stack:
+        p = stack.pop()
+        xs.append(p % w)
+        ys.append(p // w)
+        for q in (p - 1, p + 1, p - w, p + w):
+            if q in seen:
+                seen.remove(q)
+                stack.append(q)
+    boxes.append((min(xs), min(ys), max(xs) + 1, max(ys) + 1))
+others = [bx for bx in boxes if not (bx[0] <= panel[0] < bx[2] and bx[1] <= panel[1] < bx[3])]
+print("%d %d" % ((others[0][0] + others[0][2]) // 2, (others[0][1] + others[0][3]) // 2) if len(others) == 1 else "markers=%s panel=%s" % (boxes, panel))
+' "$px" "$py"
+}
+menu_marker_press() {
+  local at x y
+  at="$(menu_marker_centre)" || return 1
+  read -r x y <<<"$at"
+  [[ $x =~ ^[0-9]+$ && $y =~ ^[0-9]+$ ]] || { echo "$at"; return 1; }
   layout_click "$x" "$y" && echo ok
 }
 expect "the far monitor is placed right of the first" ok hypr eval "hl.monitor({ output = \"$far_output\", mode = \"preferred\", position = \"${mon_w}x0\", scale = 1 })"
 expect "the nested compositor adds the far monitor" ok hypr output create wayland "$far_output"
 expect_poll "the far monitor stands right of the first with a mode" sized far_sized
-read -r _ _ far_w far_h < <(far_box) || fail "the far monitor's size is readable"
+read -r far_x _ far_w far_h < <(far_box) || fail "the far monitor's box is readable"
 expect_poll "the far monitor gets its bar" "$((monitors + 1))" bar_count
 expect "the first monitor takes the focus for the panel" ok near_focus
 expect "a panel summons on the first monitor" ok ipc shell summon panel acme.surfaces "{\"closeMarker\":\"$sandbox/closed-by-far-press\"}"
@@ -523,7 +571,7 @@ fi
 expect "the panel summons its own menu beside the far monitor" ok ipc smoke invokeInstance panel acme.surfaces menuHere '{}'
 expect_poll "the panel's menu is open" 1 ipc smoke readInstance menu acme.surfaces opened
 popup_mark="$(menu_marks)" || fail "the menu's press marker is readable"
-expect "the press on the panel's own menu is sent" ok menu_marker_press
+expect_poll "the press on the panel's own menu is sent" ok menu_marker_press
 expect_poll "the press reached the panel's own menu" "$((popup_mark + 1))" menu_marks
 expect "a press inside the panel and one on its own menu leave the panel open" 1 layer_count vgs:panel
 expect "the press on the panel's own menu leaves the menu open" 1 ipc smoke readInstance menu acme.surfaces opened
@@ -543,15 +591,22 @@ expect "the launcher is enabled for the far press" ok ipc shell setPluginEnabled
 expect "the first monitor takes the focus for the launcher" ok near_focus
 expect "the launcher summons on the first monitor" ok ipc shell summon overlay vgs.launcher '{}'
 summon_drawn overlay vgs.launcher || fail "the launcher never drew before the far press"
-geometry expect_poll "the launcher's catcher covers the whole far monitor, its bar included" "[[0, 0, $far_w, $far_h]]" far_catchers vgs:overlay
+expect "the launcher holds no catcher" "[]" far_catchers vgs:overlay
 expect "a press on the far monitor closes the launcher" closed far_press vgs:overlay
-expect_poll "the closed launcher's catcher is gone" "[]" far_catchers vgs:overlay
+expect_poll "the closed launcher leaves the build records" absent ipc smoke readInstance overlay vgs.launcher opened
+expect "the first monitor takes the focus for the single-screen launcher copy" ok near_focus
+expect "the probe builds the single-screen SummonLayer copy for the launcher" ok ipc smoke summonLayerLoad launcher-one-screen "$layer_one_screen" vgs.launcher overlay
+ipc smoke invokeInstance overlay vgs.launcher open '{}' >/dev/null || fail "the single-screen launcher copy's open() could not be called"
+summon_drawn overlay vgs.launcher || fail "the single-screen launcher copy never drew"
+expect "control: a press on the far monitor leaves the single-screen launcher copy open" open far_press vgs:overlay
+expect "control: the single-screen launcher copy counted no dismissal" "0 1" copy_state launcher-one-screen vgs:overlay
+expect "the probe drops the single-screen launcher copy" ok ipc smoke popupDrop launcher-one-screen
+expect_poll "the single-screen launcher copy's surface is gone" 0 layer_count vgs:overlay
 expect "the launcher is disabled again" ok ipc shell setPluginEnabled vgs.launcher false
 expect "the first monitor takes the focus for the fixture's overlay" ok near_focus
 expect "the fixture's overlay summons on the first monitor" ok ipc shell summon overlay acme.surfaces '{}'
 summon_drawn overlay acme.surfaces || fail "the fixture's overlay never drew before the far press"
-expect "an overlay without pressedOnOtherScreen holds no catcher" "[]" far_catchers vgs:overlay
-expect "a press on the far monitor leaves that overlay open" open far_press vgs:overlay
+expect "a press on the far monitor leaves an overlay without pressedOnOtherScreen open" open far_press vgs:overlay
 expect "hiding the fixture's overlay is allowed" ok ipc shell hide overlay acme.surfaces
 expect_poll "the fixture's overlay is gone" 0 layer_count vgs:overlay
 expect "the first monitor takes the focus for the single-screen copy" ok near_focus
@@ -560,7 +615,7 @@ ipc smoke invokeInstance panel acme.surfaces open '{}' >/dev/null || fail "the s
 summon_drawn panel acme.surfaces || fail "the single-screen copy never drew"
 expect "the single-screen copy covers no far monitor" "[]" far_catchers vgs:panel
 expect "control: a press on the far monitor leaves the single-screen copy open" open far_press vgs:panel
-expect "control: the single-screen copy counted no dismissal" "0 1" layer_copy_state layer-one-screen
+expect "control: the single-screen copy counted no dismissal" "0 1" copy_state layer-one-screen vgs:panel
 expect "the probe drops the single-screen copy" ok ipc smoke popupDrop layer-one-screen
 expect_poll "the single-screen copy's surface is gone" 0 layer_count vgs:panel
 expect "the first monitor takes the focus for the hotplug panel" ok near_focus
