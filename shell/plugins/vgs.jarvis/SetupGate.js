@@ -85,7 +85,7 @@ var HOME_READY = { hidden: true };
 var DONE = { tone: "ok", text: "Done", action: false };
 // Voice setup uses Session's check result, which only the local wake detector supplies.
 function voiceCheck(value, check) {
-    if (check === null || check.kind === "unavailable") return value.action === true
+    if (value.tone !== "ok" || check === null || check.kind === "unavailable") return value.action === true
         ? Object.assign({}, value, { action: "setup" }) : noAction(value);
     if (check.kind === "waiting" || check.kind === "recording")
         return { tone: "info", text: "Say Hey Jarvis", hint: "The microphone is open for three seconds." };

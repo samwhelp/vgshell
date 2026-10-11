@@ -739,6 +739,12 @@ function verifyTiers(gate) {
 }
 
 function verify(gate) {
+    for (const check of [{ kind: "ready" }, { kind: "done", result: "ready" }]) {
+        const value = gate.voiceCheck(gate.readiness({ kind: "answered", causes: ["setup=probe-timeout"] }).setupVoice, check);
+        assert.deepEqual(plain(value), { tone: "warning", text: "To do",
+            hint: "Jarvis setup check timed out. Turn Jarvis off and on again in Settings > Jarvis.",
+            action: "setup", lines: ["jarvis: setup=probe-timeout"] }, "voice setup cause survives microphone check");
+    }
     for (const [check, tone, action] of [[{ kind: "ready" }, "info", "check"],
         [{ kind: "waiting" }, "info", undefined], [{ kind: "recording" }, "info", undefined],
         [{ kind: "finishing" }, "info", undefined], [{ kind: "done", result: "ready" }, "ok", "check"],
@@ -842,6 +848,7 @@ console.log("test-jarvis-setup-gate: consumer=Settings,Details hint=Choose an AI
 // Each control removes one rule from a copy and keeps the text around it:
 // [label, needle, replacement].
 const CONTROLS = [
+    ["microphone check hides a setup cause", 'value.tone !== "ok" || ', "", "voice setup cause survives microphone check"],
     ["silent check is ready", 'if (check.result === "silent") return { tone: "warning"', 'if (check.result === "silent") return { tone: "ok"'],
     ["the AI model hint names the Settings field", '"brain=unselected": "Choose an AI model in Settings > AI model."', '"brain=unselected": "Choose an AI model in Settings."', "Settings AI model hint"],
     ["present keys still offer Add key", 'var absent = keys !== undefined && keys.every(function (key) { return key.value === "absent"; });', 'var absent = keys !== undefined;'],

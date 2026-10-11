@@ -105,7 +105,7 @@ print(json.dumps(out))
 }
 setup_fresh='[["setup", ["warning"], [], 3], ["setupModel", ["warning"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupBrowser", true], ["setupInput", true]]'
 setup_voice_left='[["setup", ["warning"], [], 2], ["setupModel", ["success"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupBrowser", true], ["setupInput", true]]'
-setup_ready='[["setup", ["success"], [], 1], ["setupModel", ["success"], [], 1], ["setupVoice", ["info"], ["check-microphone"], 2], ["setupBrowser", true], ["setupInput", true]]'
+setup_ready='[["setup", ["success"], [], 1], ["setupModel", ["success"], [], 1], ["setupVoice", ["info"], ["check-microphone"], 1], ["setupBrowser", true], ["setupInput", true]]'
 # BRAIN as the Jarvis AI model setting, "" for none, delivered by a reload.
 setup_brain() { # BRAIN
   python3 - "$setup_config" "$1" <<'PY'
@@ -604,6 +604,8 @@ PYSCENARIO
 setup_brain ""
 printf 'ready\n' >"$sandbox/jarvis-world/local-mode"
 local_open status
+jarvis_disable
+jarvis_enable
 setup_check_state() {
   ipc smoke jarvisProcess | py_reply 'import json,sys; d=json.load(sys.stdin)["status"].get("detail"); print(json.dumps(d["state"]["check"]) if d else "pending")'
 }
@@ -636,4 +638,6 @@ expect_poll "Voice gives the microphone Settings path in full" '["warning", "Mut
 rm -f -- "${setup_check_home:?}/capture-silent"
 settings_page_close vgs.jarvis
 jarvis_disable
+rm -f -- "${setup_marker:?}"
+printf 'absent\n' >"$sandbox/jarvis-world/local-mode"
 jarvis_restore_requirements
