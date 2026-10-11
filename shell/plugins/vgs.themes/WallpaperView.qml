@@ -422,8 +422,10 @@ FocusScope {
                 // so the field shows `filterText` and a steady cursor
                 // without taking the focus, and a press on it hands the
                 // keyboard back to the view.
+                // The field bounds its own width to its tokens.
                 TextField {
                     anchors.horizontalCenter: parent.horizontalCenter
+                    width: parent.width
                     leadingIcon: "search"
                     placeholderText: "Search wallpapers"
                     text: root.filterText
