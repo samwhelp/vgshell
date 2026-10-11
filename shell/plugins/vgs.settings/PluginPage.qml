@@ -430,12 +430,22 @@ FocusScope {
                                                 // A Row places only its
                                                 // visible children, so a row
                                                 // with no action draws as
-                                                // the chip alone.
+                                                // the chip alone. The row
+                                                // takes the height a
+                                                // RowAction would, so it
+                                                // keeps one height whichever
+                                                // action it offers; the
+                                                // primary Button, at the
+                                                // small control size so it
+                                                // clears the hint under it,
+                                                // overhangs it.
                                                 Row {
                                                     id: stepValue
                                                     spacing: Theme.stack.inline
                                                     readonly property real actionWidth: primaryStep.visible ? primaryStep.implicitWidth + spacing : plainStep.visible ? plainStep.implicitWidth + spacing : 0
+                                                    height: Math.max(stepChip.visible ? stepChip.implicitHeight : 0, stepText.visible ? stepText.implicitHeight : 0, stepState.button !== null ? plainStep.implicitHeight : 0)
                                                     Badge {
+                                                        id: stepChip
                                                         anchors.verticalCenter: parent.verticalCenter
                                                         width: Math.min(implicitWidth, stepState.bodyWidth - (stepState.valueX - stepState.leftPadding) - stepValue.actionWidth)
                                                         visible: stepState.view.tone !== ""
@@ -443,6 +453,7 @@ FocusScope {
                                                         tone: stepState.view.tone === "" ? "neutral" : stepState.view.tone
                                                     }
                                                     Label {
+                                                        id: stepText
                                                         anchors.verticalCenter: parent.verticalCenter
                                                         role: stepState.view.muted ? "itemHint" : "value"
                                                         visible: stepState.view.tone === "" && stepState.view.text !== ""
@@ -454,6 +465,7 @@ FocusScope {
                                                         visible: stepState.button !== null && stepState.button.primary
                                                         text: visible ? stepState.button.label : ""
                                                         variant: "primary"
+                                                        size: "sm"
                                                         enabled: page.editable
                                                         onClicked: stepState.press()
                                                     }

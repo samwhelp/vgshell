@@ -401,6 +401,36 @@ Item {
             }
         }
 
+        // A Setup step row keeps one height whichever action it offers: the
+        // row with the primary Button starts as far above the next row as a
+        // row with a RowAction does, each with a hint under it. The group's
+        // first entry draws in Status, so the steps follow it.
+        function test_setup_steps_keep_one_row_pitch() {
+            const original = root.pageRow;
+            const screen = { requires: null };
+            const step = (label, tui) => ({ type: "state", label: label, group: "Setup", hint: "What " + label + " unlocks.", action: { label: "Set up " + label, tui: tui } });
+            const manifest = {
+                requirements: [],
+                tui: { voice: screen, browser: screen, input: screen },
+                status: { ready: { type: "state", label: "Ready", group: "Setup" }, voice: step("Voice", "voice"), browser: step("Browser", "browser"), input: step("Input", "input") }
+            };
+            const todo = { tone: "warning", text: "To do", action: true };
+            root.pageRow = Object.assign({}, original, { binds: [], status: PluginLogic.statusRows(manifest, { ready: { tone: "ok", text: "Ready" }, voice: todo, browser: todo, input: todo }, []) });
+            const page = createTemporaryObject(pluginPageComponent, root);
+            try {
+                verify(page !== null);
+                const row = label => descendants(page).find(child => child instanceof Field && child.visible && child.label === label);
+                tryVerify(() => row("Voice") !== undefined && row("Browser") !== undefined && row("Input") !== undefined);
+                compare(descendants(row("Voice")).filter(child => child instanceof Button && child.visible && child.variant === "primary").length, 1, "the first step draws the primary Button");
+                compare(descendants(row("Browser")).filter(child => child instanceof RowAction && child.visible).length, 1, "the next step draws a RowAction");
+                verify(waitForRendering(page));
+                const top = label => row(label).mapToItem(page, 0, 0).y;
+                compare(top("Browser") - top("Voice"), top("Input") - top("Browser"), "the primary step's row pitch is a plain step's");
+            } finally {
+                releasePage(page, original);
+            }
+        }
+
         function test_builtin_and_matching_schema_group_share_one_section() {
             const original = root.pageRow;
             root.pageRow = Object.assign({}, original, {
