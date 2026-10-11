@@ -24,11 +24,12 @@
 # with the agent's lease taken and released: a confirm prompt answered yes
 # from the keyboard, a code to type dismissed once paired, and a PIN typed
 # into the dialog that survives a later line of bluetoothctl's output;
-# Disconnect and Connect clicks move the headphones; and a keyboard path
-# from SUPER+PERIOD turns Bluetooth off and on, turns Discoverable on, whose
-# lease BlueZ's own end of Discoverable releases, writes Hide when off,
-# disconnects a device with Return and forgets it with Delete, which
-# removes it from the mock, and closes.
+# Disconnect and Connect clicks move the headphones; a failed Connect shows
+# Connecting… and then one failure sentence, and Retry connects it again;
+# and a keyboard path from SUPER+PERIOD turns Bluetooth off and on, turns
+# Discoverable on, whose lease BlueZ's own end of Discoverable releases,
+# writes Hide when off, disconnects a device with Return and forgets it
+# with Delete, which removes it from the mock, and closes.
 #
 # The controls: one copy of the plugin whose discovery tick writes no stop,
 # a plain lease counter, and whose pairing never calls Pair. The counter
@@ -63,6 +64,51 @@ bt_radio() { rfkill_state | py_reply 'import json,sys; print(json.dumps([r[1:] f
 bt_adapter() { bluez props "$bluez_adapter_path" org.bluez.Adapter1 | py_reply 'import json,sys; d=json.load(sys.stdin); print(" ".join(str(d[k]) for k in sys.argv[1:]))' "$@"; }
 bt_path() { printf '%s/dev_%s' "$bluez_adapter_path" "${1//:/_}"; }
 bt_device() { local mac="$1"; shift; bluez props "$(bt_path "$mac")" org.bluez.Device1 | py_reply 'import json,sys; d=json.load(sys.stdin); print(" ".join(str(d[k]) for k in sys.argv[1:]))' "$@"; }
+bt_connect_answer() { # MAC fail|accept
+  "${shell_env[@]}" python3 - "unix:path=$rt_dir/system-bus" "$(bt_path "$1")" "$2" "$devices_fixtures" <<'PY'
+import sys
+
+import dbus
+
+bus_address, path, mode, fixtures = sys.argv[1:]
+sys.path.insert(0, fixtures)
+import world
+
+if mode == "accept":
+    code = world.CONNECT
+elif mode == "fail":
+    code = 'time.sleep(3)\nraise dbus.exceptions.DBusException("br-connection-page-timeout", name="org.bluez.Error.Failed")'
+else:
+    sys.exit("mode=" + mode)
+bus = dbus.bus.BusConnection(bus_address)
+dbus.Interface(bus.get_object(world.BLUEZ, path), world.MOCK).AddMethod(world.DEVICE, "Connect", "", "", code)
+print("installed")
+PY
+}
+bt_secondary() {
+  ipc smoke readDescendant window vgs.bluetooth DeviceSections lists | py_reply 'import json,sys
+target=sys.argv[1]
+try:
+    doc=json.load(sys.stdin)
+except Exception:
+    print("absent"); raise SystemExit
+for row in doc.get("mine", []):
+    if row.get("key") == target:
+        print(json.dumps(row.get("secondary", "")))
+        break
+else:
+    print("absent")
+' "$1"
+}
+bt_failures() {
+  ipc smoke readDescendant window vgs.bluetooth DeviceSections failures | py_reply 'import json,sys
+text=sys.stdin.read().strip()
+if text == "absent":
+    print("absent")
+else:
+    print(json.dumps(json.loads(text)))
+'
+}
 # `gone` once the mock holds no object for device MAC: its answer names
 # the unknown object; any other answer is printed.
 bt_device_gone() {
@@ -304,6 +350,19 @@ bt_main() {
   expect_poll "Disconnect disconnects the first device" "False" bt_device "$bt_headphones" Connected
   click_in "window:System Settings" window vgs.bluetooth RowAction Connect || fail "the click on Connect failed"
   expect_poll "Connect connects it again" "True" bt_device "$bt_headphones" Connected
+  click_in "window:System Settings" window vgs.bluetooth RowAction Disconnect || fail "the click on Disconnect before a failed connect failed"
+  expect_poll "Disconnect leaves the headphones not connected before the failed connect" "False" bt_device "$bt_headphones" Connected
+  expect "the headphones' Connect fails as an unanswering speaker's does" installed bt_connect_answer "$bt_headphones" fail
+  expected_errors+=('Failed to connect to device .*br-connection-page-timeout')
+  click_in "window:System Settings" window vgs.bluetooth RowAction Connect || fail "the click on the failing Connect failed"
+  expect_poll "Connect shows the working state at once" '"Connecting…"' bt_secondary "$bt_headphones"
+  expect_poll "a connect BlueZ fails reads Not connected" '"Not connected"' bt_secondary "$bt_headphones"
+  expect_poll "and one plain sentence names the device" '["Smoke Headphones did not answer. Check that it is on, nearby and not connected to another device."]' bt_failures
+  expect "the headphones' Connect accepts again" installed bt_connect_answer "$bt_headphones" accept
+  click_in "window:System Settings" window vgs.bluetooth RowAction Retry || fail "the click on Retry failed"
+  expect_poll "Retry connects the headphones again" "True" bt_device "$bt_headphones" Connected
+  expect_poll "Retry reads Connected in the row" '"Connected"' bt_secondary "$bt_headphones"
+  expect_poll "Retry clears the failure sentence" '[]' bt_failures
   expect "hiding the System window after pairing is allowed" ok ipc shell hide window vgs.system
   expect_poll "the System window is closed after pairing" closed bt_window_closed
 

@@ -6,18 +6,25 @@ import "BluetoothLogic.js" as Logic
 
 // The two device lists the flyout and the pane share, each a qs.Ui
 // DeviceList over BluetoothLogic.deviceRows: My Devices, whose action
-// connects or disconnects a device, and Nearby, whose Pair asks the owner
-// through `pairRequested`, hidden while `pairBusy` holds. With `manage`, My
-// Devices offers Rename, which asks the owner through `renameRequested`,
-// Trust or Don't trust, and Forget, which Delete runs too. Both lists show
-// only while Bluetooth is on.
+// connects, disconnects or retries a device while its row shows Connecting…,
+// Disconnecting… and one failure sentence; Nearby, whose Pair asks the
+// owner through `pairRequested`, hidden while `pairBusy` holds. With
+// `manage`, My Devices offers Rename, which asks the owner through
+// `renameRequested`, Trust or Don't trust, and Forget, which Delete runs
+// too. Both lists show only while Bluetooth is on.
 Column {
     id: root
 
     property bool powerOn: false
     property bool manage: false
     property bool pairBusy: false
-    readonly property var lists: Logic.deviceRows(Bluetooth.devices.values)
+    property var attempts: ({})
+    // Quickshell 0.3.1 publishes BluetoothDevice.state with stateChanged,
+    // and BluetoothDeviceState.toString returns the four state names.
+    readonly property var states: Logic.stateMap(Bluetooth.devices.values, root.stateOf)
+    onStatesChanged: root.attempts = Logic.settleAttempts(root.attempts, root.states)
+    readonly property var lists: Logic.deviceRows(Bluetooth.devices.values, root.stateOf, root.attempts)
+    readonly property var failures: root.lists.mine.filter(r => r.failed).map(r => Logic.failureText(r.text))
     readonly property var adapter: Bluetooth.defaultAdapter
     readonly property bool searching: adapter !== null && adapter.discovering
     readonly property alias mine: mineList
@@ -28,10 +35,17 @@ Column {
     spacing: Theme.stack.group
 
     function deviceFor(address) { return Logic.deviceAt(Bluetooth.devices.values, address); }
+    function stateOf(device) { return BluetoothDeviceState.toString(device.state); }
 
     function toggle(address) {
         const device = deviceFor(address);
-        if (device !== null) device.connected = !device.connected;
+        if (device === null) return;
+        const action = Logic.pressAction(stateOf(device));
+        if (action === null) return;
+        device.connected = action === "connect";
+        // Quickshell 0.3.1 sets Connecting or Disconnecting during this write.
+        // Recording after it keeps settlement from reading the old state, and no failure reason is exposed.
+        root.attempts = Logic.attemptPressed(root.attempts, address, action);
     }
 
     // A menu entry of one of your devices.
@@ -70,6 +84,16 @@ Column {
             onActed: key => root.toggle(key)
             onChose: (key, entry) => root.choose(key, entry)
             onRemoved: key => root.choose(key, "forget")
+        }
+        Repeater {
+            model: root.failures
+            Label {
+                width: parent.width
+                role: "hint"
+                color: Theme.color.danger
+                wrapMode: Text.Wrap
+                text: modelData
+            }
         }
         Label {
             width: parent.width

@@ -567,26 +567,30 @@ function deviceAt(devices, address) {
 // Plain rows of DEVICES, Quickshell BluetoothDevice objects, for the lists:
 // { mine, nearby }, each sorted by name, in the shape a qs.Ui DeviceList
 // takes ({ key, text, secondary, iconName, battery }) plus `connected`,
-// `trusted` and `pairing`. A row holds primitives alone, so no delegate
-// keeps a device object BlueZ may remove while it is built; actions find the device by address, the key.
-// `mine` is every paired, bonded or trusted device; `nearby` every other
-// device that names itself.
-function deviceRows(devices) {
+// `trusted`, `pairing`, `state` and `failed`. A row holds primitives alone,
+// so no delegate keeps a device object BlueZ may remove while it is built;
+// actions find the device by address, the key. `mine` is every paired,
+// bonded or trusted device; `nearby` every other device that names itself.
+function deviceRows(devices, stateOf, attempts) {
     var mine = [], nearby = [];
     for (var i = 0; i < devices.length; i++) {
         var d = devices[i];
         if (d === null || d === undefined) continue;
         var known = d.paired || d.bonded || d.trusted;
         if (!known && !namesItself(d)) continue;
+        var address = String(d.address);
+        var state = String(stateOf(d));
         var row = {
-            key: String(d.address),
+            key: address,
             text: deviceName(d),
-            secondary: stateText(d),
+            secondary: stateText(d, state),
             iconName: DEVICE_ICONS[d.icon] || "bluetooth",
             battery: d.batteryAvailable ? d.battery : NaN,
             connected: d.connected === true,
             trusted: d.trusted === true,
-            pairing: d.pairing === true
+            pairing: d.pairing === true,
+            state: state,
+            failed: attempts !== null && attempts !== undefined && attempts[address] === "failed"
         };
         (known ? mine : nearby).push(row);
     }
@@ -597,16 +601,94 @@ function deviceRows(devices) {
 }
 
 // The secondary line of a device row.
-function stateText(d) {
+function stateText(d, state) {
     if (d.pairing) return "Pairing";
-    if (d.connected) return "Connected";
+    if (state === "Connecting") return "Connecting…";
+    if (state === "Disconnecting") return "Disconnecting…";
+    if (state === "Connected") return "Connected";
     if (d.paired || d.bonded) return "Not connected";
     return "Not paired";
 }
 
-// The action of one of your devices: Connect or Disconnect.
+// The action of one of your devices.
 function mineAction(row) {
-    return { text: row.connected ? "Disconnect" : "Connect" };
+    if (row.state === "Connecting" || row.state === "Disconnecting") return null;
+    if (row.state === "Connected" || row.connected) return { text: "Disconnect" };
+    if (row.failed) return { text: "Retry" };
+    return { text: "Connect" };
+}
+
+// The operation a press on one of your devices asks for.
+function pressAction(state) {
+    switch (state) {
+    case "Disconnected": return "connect";
+    case "Connected": return "disconnect";
+    case "Connecting":
+    case "Disconnecting": return null;
+    default:
+        throw new Error("bluetooth: device state " + JSON.stringify(state) + " is not one of Disconnected, Connected, Disconnecting, Connecting");
+    }
+}
+
+function own(map, key) { return Object.prototype.hasOwnProperty.call(map, key); }
+
+function copyMap(map) {
+    var out = {};
+    for (var key in map) if (own(map, key)) out[key] = map[key];
+    return out;
+}
+
+// The connection attempts after ACTION was sent to ADDRESS.
+function attemptPressed(attempts, address, action) {
+    var out = copyMap(attempts || {});
+    switch (action) {
+    case "connect":
+        out[address] = "pending";
+        return out;
+    case "disconnect":
+        delete out[address];
+        return out;
+    default:
+        throw new Error("bluetooth: device action " + JSON.stringify(action) + " is not one of connect, disconnect");
+    }
+}
+
+// Settled connection attempts. The same object is returned when nothing
+// changed, so assigning it from QML does not start a property loop.
+function settleAttempts(attempts, states) {
+    var input = attempts || {};
+    var seen = states || {};
+    var out = null;
+    for (var address in input) {
+        if (!own(input, address)) continue;
+        var old = input[address];
+        var state = own(seen, address) ? seen[address] : undefined;
+        var keep = state !== undefined && state !== "Connected";
+        var next = old;
+        if (keep && old === "pending" && state === "Disconnected") next = "failed";
+        if (!keep) {
+            if (out === null) out = copyMap(input);
+            delete out[address];
+        } else if (next !== old) {
+            if (out === null) out = copyMap(input);
+            out[address] = next;
+        }
+    }
+    return out === null ? attempts : out;
+}
+
+// Each device address to its BluetoothDeviceState name.
+function stateMap(devices, stateOf) {
+    var out = {};
+    for (var i = 0; i < devices.length; i++) {
+        var d = devices[i];
+        if (d !== null && d !== undefined) out[String(d.address)] = String(stateOf(d));
+    }
+    return out;
+}
+
+function failureText(name) {
+    return name + " did not answer. Check that it is on, nearby and not connected to another device.";
 }
 
 // The action of a nearby device: Pair, or none while it or another device

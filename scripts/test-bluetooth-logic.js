@@ -3,11 +3,12 @@
 // (shell/plugins/vgs.bluetooth/BluetoothLogic.js): the rfkill reading, the
 // power view and its lines, the power operation's state machine, the
 // discovery debt, the pairing steps, the pairing dialog's prompts, the
-// device rows and the bar icon. A rename's byte count is qs.Commons'
-// SettingValues.utf8Bytes, loaded beside it as the shell does. Each control
-// edits a copy of the library and requires this suite to fail with the
-// assertion its rule names; the discovery controls include a plain lease
-// counter, which leaks a start BlueZ confirms after the last lease ended.
+// device rows, their connect-attempt feedback and the bar icon. A rename's
+// byte count is qs.Commons' SettingValues.utf8Bytes, loaded beside it as
+// the shell does. Each control edits a copy of the library and requires
+// this suite to fail with the assertion its rule names; the discovery
+// controls include a plain lease counter, which leaks a start BlueZ
+// confirms after the last lease ended.
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -402,10 +403,11 @@ function verifyPrompts(logic) {
 }
 
 function verifyDevices(logic) {
-    const device = (address, name, extra) => Object.assign({ address, name, deviceName: name, icon: "", connected: false, paired: false, bonded: false, trusted: false, pairing: false, batteryAvailable: false, battery: 0 }, extra);
+    const device = (address, name, extra) => Object.assign({ address, name, deviceName: name, icon: "", connected: false, paired: false, bonded: false, trusted: false, pairing: false, batteryAvailable: false, battery: 0, state: "Disconnected" }, extra);
+    const stateOf = d => d.state;
     const lists = logic.deviceRows([
         device("00:00:00:00:00:03", "Zed Speaker", { paired: true, icon: "audio-card" }),
-        device("00:00:00:00:00:01", "Headphones", { paired: true, connected: true, icon: "audio-headphones", batteryAvailable: true, battery: 0.5 }),
+        device("00:00:00:00:00:01", "Headphones", { paired: true, connected: true, state: "Connected", icon: "audio-headphones", batteryAvailable: true, battery: 0.5 }),
         device("00:00:00:00:00:02", "Keyboard", { icon: "input-keyboard" }),
         device("00:00:00:00:00:04", "00:00:00:00:00:04", {}),
         device("00:00:00:00:00:05", "", {}),
@@ -413,7 +415,7 @@ function verifyDevices(logic) {
         device("00:00:00:00:00:07", "1b2c3d4e-0000-1000-8000-00805f9b34fb", {}),
         device("00:00:00:00:00:08", "Watch", { bonded: true }),
         device("00:00:00:00:00:09", "Pen", { pairing: true }),
-    ]);
+    ], stateOf, {});
     same(lists.mine.map(r => [r.key, r.text, r.iconName, r.secondary]), [
         ["00:00:00:00:00:06", "00:00:00:00:00:06", "bluetooth", "Not paired"],
         ["00:00:00:00:00:01", "Headphones", "headphones", "Connected"],
@@ -428,12 +430,66 @@ function verifyDevices(logic) {
     assert.ok(Number.isNaN(lists.mine[3].battery), "no battery reads as none");
     same(logic.deviceAt([device("A", "x"), device("B", "y")], "B").name, "y", "deviceAt finds by address");
     same(logic.deviceAt([device("A", "x")], "C"), null, "deviceAt answers null for none");
-    same([logic.mineAction({ connected: true }), logic.mineAction({ connected: false })],
-        [{ text: "Disconnect" }, { text: "Connect" }], "your device's action");
+    same([logic.mineAction({ state: "Connected", connected: true, failed: false }),
+        logic.mineAction({ state: "Disconnected", connected: false, failed: true }),
+        logic.mineAction({ state: "Disconnected", connected: false, failed: false }),
+        logic.mineAction({ state: "Connecting", connected: false, failed: false }),
+        logic.mineAction({ state: "Disconnecting", connected: true, failed: false })],
+        [{ text: "Disconnect" }, { text: "Retry" }, { text: "Connect" }, null, null], "your device's action");
     same([logic.nearbyAction({ pairing: false }, false), logic.nearbyAction({ pairing: true }, false), logic.nearbyAction({ pairing: false }, true)],
         [{ text: "Pair" }, null, null], "Pair hides while any pairing runs");
     same(logic.mineMenu({ trusted: true }).map(e => e.key), ["rename", "untrust", "forget"], "a trusted device's menu");
     same(logic.mineMenu({ trusted: false }).map(e => e.key), ["rename", "trust", "forget"], "an untrusted device's menu");
+
+    const address = "00:1B:66:AA:BB:01";
+    const name = "Smoke Headphones";
+    const speaker = () => device(address, name, { paired: true });
+    let d = speaker();
+    let attempts = {};
+    let action = logic.pressAction(d.state);
+    assert.equal(action, "connect", "a press on Disconnected starts a connect");
+    attempts = logic.attemptPressed(attempts, address, action);
+    d.state = "Connecting";
+    let row = logic.deviceRows([d], stateOf, attempts).mine[0];
+    same([row.secondary, logic.mineAction(row)], ["Connecting…", null], "Connect shows the working state at once");
+
+    d.state = "Disconnected";
+    attempts = logic.settleAttempts(attempts, logic.stateMap([d], stateOf));
+    row = logic.deviceRows([d], stateOf, attempts).mine[0];
+    same([row.secondary, row.failed, logic.mineAction(row), logic.failureText(row.text)],
+        ["Not connected", true, { text: "Retry" }, name + " did not answer. Check that it is on, nearby and not connected to another device."],
+        "a failed connect shows Retry and one failure sentence");
+
+    const retry = logic.attemptPressed(attempts, address, logic.pressAction(d.state));
+    assert.equal(retry[address], "pending", "a retry clears a failure to pending");
+    const sameRetry = logic.settleAttempts(retry, Object.fromEntries([[address, "Connecting"]]));
+    assert.equal(sameRetry, retry, "settleAttempts returns the same object when nothing changes");
+
+    d = speaker();
+    attempts = logic.attemptPressed({}, address, logic.pressAction(d.state));
+    d.state = "Connecting";
+    action = logic.pressAction(d.state);
+    assert.equal(action, null, "a press while Connecting changes nothing");
+    const during = attempts;
+    if (action !== null) attempts = logic.attemptPressed(attempts, address, action);
+    same(attempts, during, "a press while Connecting leaves attempts unchanged");
+
+    d.connected = true;
+    d.state = "Connected";
+    attempts = logic.settleAttempts(attempts, logic.stateMap([d], stateOf));
+    row = logic.deviceRows([d], stateOf, attempts).mine[0];
+    same([attempts, row.secondary, logic.mineAction(row), row.failed],
+        [{}, "Connected", { text: "Disconnect" }, false], "a successful connect clears the attempt");
+    d.connected = false;
+    d.state = "Disconnected";
+    attempts = logic.settleAttempts(attempts, logic.stateMap([d], stateOf));
+    row = logic.deviceRows([d], stateOf, attempts).mine[0];
+    same([attempts, row.secondary, row.failed, logic.mineAction(row)],
+        [{}, "Not connected", false, { text: "Connect" }], "a later drop by itself is not a failed connect");
+
+    same(logic.stateMap([device("A", "A", { state: "Connected" }), device("B", "B", { state: "Disconnecting" })], stateOf),
+        { A: "Connected", B: "Disconnecting" }, "stateMap names every device state");
+    assert.throws(() => logic.pressAction("Future"), /device state/, "an unknown device state is refused");
 }
 
 function verifyBar(logic) {
@@ -514,6 +570,9 @@ const controls = [
     ["a UUID is no name", "return !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(label);", "return true;", "nearby: only devices that name themselves"],
     ["a bonded device is yours", "var known = d.paired || d.bonded || d.trusted;", "var known = d.paired || d.trusted;", "your devices: paired, bonded or trusted"],
     ["a pairing device reads Pairing", 'if (d.pairing) return "Pairing";', "", "nearby: only devices that name themselves"],
+    ["today's toggle with no state read", 'case "Connecting":\n    case "Disconnecting": return null;', 'case "Connecting": return "connect";\n    case "Disconnecting": return null;', "a press while Connecting changes nothing"],
+    ["the working state", 'if (state === "Connecting") return "Connecting…";', 'if (false) return "Connecting…";', "Connect shows the working state at once"],
+    ["the failure from a timed-out connect", 'if (keep && old === "pending" && state === "Disconnected") next = "failed";', 'if (false) next = "failed";', "a failed connect shows Retry and one failure sentence"],
     ["Pair hides while another device pairs", "return pairing || row.pairing ? null", "return row.pairing ? null", "Pair hides while any pairing runs"],
     ["the bar hides with Hide when off while off", "!(hideWhenOff && !power.on)", "true", "bar: off with Hide when off"],
     ["the bar counts only while on", "var linked = power.on && connected > 0;", "var linked = connected > 0;", "bar: off with devices still listed connected"],
