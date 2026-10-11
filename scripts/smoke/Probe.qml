@@ -346,6 +346,25 @@ Scope {
         return row === undefined ? null : row.instance;
     }
 
+    // Whether OBJECT or an object under it is still settling: an Image whose
+    // asynchronous load is in flight, or a WatchedFile (shell/Commons) with
+    // a read in flight, read through its `inRead`. A WatchedFile is a Scope,
+    // no Item: an Item keeps such objects in `resources`, not `children`
+    // (doc.qt.io/qt-6/qml-qtquick-item.html#resources-prop), and a Scope's
+    // default property is its `children` list of QtObjects
+    // (quickshell.org/docs/v0.3.1/types/Quickshell/Scope), so both are walked.
+    function settling(object) {
+        const found = [object];
+        for (let i = 0; i < found.length; i++) {
+            const node = found[i];
+            if (node instanceof Image && node.status === Image.Loading) return true;
+            if (node.inRead === true) return true;
+            for (const child of node.children || []) found.push(child);
+            for (const child of node.resources || []) found.push(child);
+        }
+        return false;
+    }
+
     function descendants(item) {
         const found = [item];
         for (let i = 0; i < found.length; i++)
@@ -1024,6 +1043,37 @@ Scope {
                     out.push({ screen: name, shown: item.shown, visible: win !== null && win.visible,
                         presented: win !== null && win.presented, width: win === null ? 0 : win.width,
                         height: win === null ? 0 : win.height });
+                }
+            return root.json(out);
+        }
+        // The per-screen layer hosts shell.qml builds, one per kind and
+        // screen, for the leak check's layers reading (scripts/smoke/leaks.sh):
+        // { kind, namespace, screen, visible, settling }. `visible` is
+        // whether the host window holding the core's instances shows,
+        // `settling` the plugins the host should hold that have not come to
+        // rest: `<id>=unbuilt` for one the core has not built, the id for
+        // one with an image decoding or a file read in flight. A plugin the
+        // host does not build, refused or failed at its revision as
+        // BackgroundHost's `ids` reads them, is left out.
+        function perScreenLayers(): string {
+            const namespaces = { background: "vgs:background", cover: "vgs:cover" };
+            const out = [];
+            for (const kind of Object.keys(namespaces))
+                for (const screen of Quickshell.screens) {
+                    const hostKey = kind + ":" + screen.name;
+                    const rows = (Plugins.built[hostKey] || []).filter(row => row.origin === "core" && row.instance !== null);
+                    const settling = [];
+                    for (const id of Registry.enabledOfKind(kind)) {
+                        if (Registry.slotKey(id) === "" || Plugins.failedRevision(hostKey, kind, id) === Registry.manifests[id].__revision) continue;
+                        const row = rows.find(r => r.id === id);
+                        if (row === undefined) settling.push(id + "=unbuilt");
+                        else if (root.settling(row.instance)) settling.push(id);
+                    }
+                    // QsWindow attaches to any Item and its `window` is the
+                    // Quickshell window holding it, as layerWindows reads it
+                    // (quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow).
+                    const visible = rows.some(row => row.instance.QsWindow.window !== null && row.instance.QsWindow.window.visible);
+                    out.push({ kind: kind, namespace: namespaces[kind], screen: screen.name, visible: visible, settling: settling });
                 }
             return root.json(out);
         }

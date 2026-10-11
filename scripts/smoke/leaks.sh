@@ -13,7 +13,8 @@
 # - focus: the active window, active_window's [class, title];
 # - submap: key_submap;
 # - layers: the mapped layer surfaces, `hyprctl -j layers` with a pid, one
-#   namespace each;
+#   namespace each, read once the per-screen layers are at rest
+#   (leak_layers_rest);
 # - options: every Hyprland option `hyprctl -j descriptions` lists, with
 #   its live value from `hyprctl -j getoption`;
 # - variables: leak_start_variables, each by `declare -p`;
@@ -54,13 +55,73 @@ leak_read() { # DIR
   hypr -j clients >"$1/clients" 2>/dev/null || rm -f -- "$1/clients"
   active_window >"$1/focus" 2>/dev/null || rm -f -- "$1/focus"
   key_submap >"$1/submap" 2>/dev/null || rm -f -- "$1/submap"
-  hypr -j layers >"$1/layers" 2>/dev/null || rm -f -- "$1/layers"
+  if leak_layers_rest "$1"; then
+    hypr -j layers >"$1/layers" 2>/dev/null || rm -f -- "$1/layers"
+  else
+    rm -f -- "$1/layers"
+  fi
   leak_options "$1" 2>/dev/null || rm -f -- "$1/options"
   for name in "${leak_start_variables[@]}"; do
     declare -p "$name" 2>/dev/null || printf '%s unset\n' "$name"
   done >"$1/variables"
   leak_shell >"$1/shell"
   (cd -- "$shim" && find -L . -mindepth 1 -type f -executable -print0 | sort -z | xargs -0r sha1sum --) >"$1/shim" 2>/dev/null || rm -f -- "$1/shim"
+}
+
+# leak_layers_rest DIR: waits for the per-screen layers to be at rest: the
+# probe's perScreenLayers reports no host settling, and Hyprland maps each
+# host's namespace on its screen exactly when the host's window is
+# visible. A background maps only once its state file is read and its
+# image decoded, both asynchronous, which can end after start_shell
+# returns, so a reading taken before then misses a layer a later reading
+# sees. It reads every 100 ms for up to timeout_s and writes the
+# milliseconds it waited to DIR/layers.rest-ms. With no shell, or a probe
+# or compositor that does not answer, it returns at once and the layers
+# are read as they stand. At the bound, or on a reading it cannot judge,
+# it writes the last state to DIR/layers.unsettled and returns 1, so the
+# layers class reads as unreadable there.
+leak_layers_rest() { # DIR
+  local start_ms probe layers state=no-reading
+  [[ -n ${shell_qs_pid:-} ]] || return 0
+  start_ms="$(now_ms)"
+  while (( $(now_ms) - start_ms < timeout_s * 1000 )); do
+    probe="$(ipc smoke perScreenLayers 2>/dev/null)" && [[ $probe == \[* ]] || return 0
+    layers="$(hypr -j layers 2>/dev/null)" || return 0
+    state="$(leak_layers_state "$probe" "$layers")" || break
+    if [[ $state == rest ]]; then
+      echo "$(( $(now_ms) - start_ms ))" >"$1/layers.rest-ms"
+      return 0
+    fi
+    sleep 0.1
+  done
+  printf '%s\n' "$state" >"$1/layers.unsettled"
+  return 1
+}
+
+# leak_layers_state PROBE LAYERS: `rest`, or one entry per host not at
+# rest, `NAMESPACE@SCREEN visible=V mapped=M settling=IDS`, from the
+# probe's perScreenLayers and `hyprctl -j layers`; a host namespace a
+# monitor maps with no host on it shown reads `visible=none`. A reading it
+# cannot parse prints `judge=failed` and exits 1.
+leak_layers_state() { # PROBE LAYERS
+  python3 - "$@" <<'PY'
+import json, sys
+try:
+    hosts, layers = json.loads(sys.argv[1]), json.loads(sys.argv[2])
+    mapped = {(name, l["namespace"]) for name, m in layers.items() for level in m["levels"].values() for l in level if l["pid"] != -1}
+    namespaces = {h["namespace"] for h in hosts}
+    words, held = [], set()
+    for h in hosts:
+        held.add((h["screen"], h["namespace"]))
+        on = (h["screen"], h["namespace"]) in mapped
+        if h["settling"] or on != h["visible"]:
+            words.append(f'{h["namespace"]}@{h["screen"]} visible={str(h["visible"]).lower()} mapped={str(on).lower()} settling={",".join(h["settling"]) or "none"}')
+    words += [f"{ns}@{name} visible=none mapped=true" for name, ns in sorted(mapped - held) if ns in namespaces]
+except (ValueError, KeyError, TypeError, AttributeError) as e:
+    print(f"judge=failed reason={type(e).__name__}")
+    sys.exit(1)
+print(" ".join(words) if words else "rest")
+PY
 }
 
 # leak_options DIR: options.names, every option `hyprctl -j descriptions`
@@ -106,10 +167,19 @@ leak_row_end() { # NAME DIR
     case "$verdict" in
       leaves) fail "$1: leaves $class: $values" ;;
       declared) ok "$1: leaves $class, as its header declares: $values" ;;
-      unreadable) fail "$1: leak-check reading=unreadable class=$class at=$values start=$start end=$leak_last" ;;
+      unreadable) fail "$1: leak-check reading=unreadable class=$class at=$values start=$start end=$leak_last$(leak_unsettled "$class" "$values" "$start")" ;;
       refused) fail "$1: leak-check refused: leaves=$class reason=unknown-class" ;;
     esac
   done <<<"$verdicts"
+}
+
+# leak_unsettled CLASS SIDE START: ` unsettled=<state>` when the reading
+# on SIDE, START's or leak_last's, left CLASS unread because its layers
+# did not come to rest; nothing otherwise.
+leak_unsettled() { # CLASS SIDE START
+  local dir="$leak_last" state
+  [[ $2 != start ]] || dir="$3"
+  if [[ -f $dir/$1.unsettled ]] && state="$(cat -- "$dir/$1.unsettled")"; then printf ' unsettled=%s' "$state"; fi
 }
 
 # leak_judge ROW_FILE START END: one tab-separated line per finding:

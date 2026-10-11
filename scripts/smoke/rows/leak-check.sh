@@ -10,7 +10,9 @@
 # - focus: a click focuses that toplevel;
 # - submap: a dispatch into a submap this row defines through
 #   `hyprctl eval`, since Hyprland enters no submap it has not registered;
-# - layers: a headless output, which gets a bar;
+# - layers: a headless output, which gets a bar; and a vgs.themes
+#   background, a state file naming a 5000x5000 image, which maps one on
+#   every screen;
 # - options: one live option set through `hyprctl eval`;
 # - variables: shell_start_path assigned;
 # - shell: shell_qs_pid pointed at a process holding the shell's
@@ -34,8 +36,17 @@
 # smoke_row puts the pointer at rest before every row it runs outside
 # another row: a planted row run so, with the pointer moved away first,
 # reads the pointer at rest when it starts.
-# No latency budget. The toplevel's map is polled every 0.2 s for 5 s.
-# inputs: scripts/smoke/leaks.sh
+# The layers class is read once the per-screen layers are at rest. With
+# the background configured, a planted row whose shell the runner starts
+# again after a SIGKILL, ending once the shell answers and maps its bars,
+# fails nothing; its copy that reads its end with no wait for rest fails
+# once, naming the background its end reading missed. The row prints the
+# milliseconds that end reading waited and the per-screen layers when the
+# shell answered and when its bars were back. The background's state file
+# as it was comes back after, and its layers go.
+# No latency budget. The toplevel's map is polled every 0.2 s for 5 s; the
+# per-screen layers every 0.1 s for up to timeout_s.
+# inputs: scripts/smoke/leaks.sh bin/vgshell shell/plugins/vgs.themes/Background.qml shell/plugins/vgs.themes/WallpaperState.qml shell/Hosts/BackgroundHost.qml shell/Commons/WatchedFile.qml
 set -euo pipefail
 lc_plants="$sandbox/leak-plants"
 mkdir -p -- "$lc_plants"
@@ -239,3 +250,74 @@ hover "$((mon_w / 2))" "$((mon_h / 2))" || fail "the pointer could not be moved 
 expect "the pointer is away from its rest before the planted row" "$((mon_w / 2)) $((mon_h / 2))" lc_pointer
 expect "control: a row run alone starts with the pointer at rest" 0 lc_planted_alone leak-plant-rest
 rest_pointer || fail "the pointer could not be put back at rest"
+
+# The background controls. The image is large enough that its decode can
+# end after the shell answers, as the background's did after
+# overlay-capture's restart in VGS-1362.
+lc_bg_image="$lc_plants/background.png"
+lc_bg_prior="$lc_plants/backgrounds.json.prior"
+lc_screens() { hypr -j monitors | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+# lc_layers_now: leak_layers_state's reading of the per-screen layers now.
+lc_layers_now() { local probe layers; probe="$(ipc smoke perScreenLayers)" && layers="$(hypr -j layers)" && leak_layers_state "$probe" "$layers"; }
+# lc_restart NAME: planted row NAME, which restarts the shell, with the
+# shell it killed noted first and the shell the runner started taken up
+# after; its failure count in $lc_plants/NAME.failures.
+lc_restart() { # NAME
+  local killed
+  shell_memory_note
+  lc_planted "$1" >"$lc_plants/$1.failures"
+  if killed="$(cat -- "$lc_plants/restart.killed")"; then adopt_shell "$killed" || :; else fail "$1: the killed shell's pid is unrecorded"; fi
+  expect_poll "$1: the background maps again on every screen" "$lc_screen_count" layer_count vgs:background
+}
+lc_bg_before="$(layer_count vgs:background)" || lc_bg_before=""
+lc_screen_count="$(lc_screens)" || lc_screen_count=""
+if [[ $lc_bg_before == 0 && $lc_screen_count =~ ^[1-9][0-9]*$ ]] && mkdir -p -- "$bg_state" && solid_png "$lc_bg_image" 5000 5000 40 120 200; then
+  if [[ -e $bg_state/backgrounds.json ]]; then cp -p -- "$bg_state/backgrounds.json" "$lc_bg_prior"; fi
+  cat >"$lc_plants/leak-plant-background.sh" <<'SH'
+bg_state_names "$lc_bg_image" || fail "the planted background's state file was not written"
+expect_poll "the planted background maps on every screen" "$lc_screen_count" layer_count vgs:background
+SH
+  expect "control: a row that leaves a background layer fails once" 1 lc_planted leak-plant-background
+  expect "control: the failure names the layers class and the background" 1 lc_failed leak-plant-background "leaves layers: \\+vgs:background( \\+vgs:background)*"
+  sed -n 's/^  FAIL  /    planted fail: /p' -- "$sandbox/leak-plant-background.log"
+
+  # A row that restarts the shell with the background configured: the
+  # runner starts the shell again after a SIGKILL, and the row ends once
+  # the shell answers and maps its bars, where start_shell returns. A stop
+  # and start would leave this row a runner the planted row's subshell
+  # started, which it cannot wait on.
+  cat >"$lc_plants/leak-plant-restart.sh" <<'SH'
+printf '%s\n' "$shell_qs_pid" >"$lc_plants/restart.killed"
+lc_restart_bars="$(bar_count)" || fail "the bar count is unreadable before the planted restart"
+kill -KILL -- "$shell_qs_pid" || fail "the planted restart's kill failed"
+adopt_shell "$(cat -- "$lc_plants/restart.killed")" || fail "the runner did not start the shell again"
+SH
+  # The must-fail copy reads its end with no wait for rest, as soon as the
+  # bars are back.
+  { printf 'leak_layers_rest() { return 0; }\n'; cat -- "$lc_plants/leak-plant-restart.sh"; cat <<'SH'; } >"$lc_plants/leak-plant-restart-unwaited.sh"
+expect_poll "the restarted shell maps its bars again" "$lc_restart_bars" bar_count
+SH
+  # The waited row also records the layers when the shell answers and when
+  # its bars are back, and the reading its end takes.
+  cat >>"$lc_plants/leak-plant-restart.sh" <<'SH'
+lc_layers_now >"$lc_plants/restart.ping" || echo unread >"$lc_plants/restart.ping"
+expect_poll "the restarted shell maps its bars again" "$lc_restart_bars" bar_count
+lc_layers_now >"$lc_plants/restart.bars" || echo unread >"$lc_plants/restart.bars"
+printf '%s\n' "$sandbox/leaks/$BASHPID-$((leak_seq + 1))" >"$lc_plants/restart.end"
+SH
+  lc_restart leak-plant-restart
+  expect "a row that restarts the shell with a background configured fails nothing" 0 cat -- "$lc_plants/leak-plant-restart.failures"
+  sed -n 's/^  FAIL  /    planted fail: /p' -- "$sandbox/leak-plant-restart.log"
+  lc_rest_ms="$(cat -- "$(cat -- "$lc_plants/restart.end")/layers.rest-ms")" || lc_rest_ms=unread
+  echo "  leak_layers_rest_ms=$lc_rest_ms at_ping=[$(cat -- "$lc_plants/restart.ping")] at_bars=[$(cat -- "$lc_plants/restart.bars")]"
+  lc_restart leak-plant-restart-unwaited
+  expect "control: the restart read with no wait for rest fails once" 1 cat -- "$lc_plants/leak-plant-restart-unwaited.failures"
+  expect "control: the failure names the background its end reading missed" 1 lc_failed leak-plant-restart-unwaited "leaves layers: -vgs:background( -vgs:background)*"
+  sed -n 's/^  FAIL  /    planted fail: /p' -- "$sandbox/leak-plant-restart-unwaited.log"
+
+  if [[ -e $lc_bg_prior ]]; then mv -T -- "$lc_bg_prior" "$bg_state/backgrounds.json"; else rm -f -- "${bg_state:?}/backgrounds.json"; fi
+  expect_poll "the background layers are as they were" "$lc_bg_before" layer_count vgs:background
+  rm -f -- "${lc_plants:?}/background.png"
+else
+  fail "the background controls need no background mapped and a readable screen count: backgrounds=$lc_bg_before screens=$lc_screen_count"
+fi
