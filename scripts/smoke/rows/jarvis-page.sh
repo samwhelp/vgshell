@@ -201,15 +201,16 @@ expect_poll "with a Copilot account Setup shows Copilot Memory and its link to G
 # A click on the row's link opens GitHub's page through the desktop open
 # route. `gio open` reaches the device fakes' stand-in, which records its
 # argv, so no browser starts. The hint line's box is read until two reads
-# 100 ms apart agree; the link's words follow the hint's first word, so the
-# pointer steps along the line's first row until the link reads it.
+# 100 ms apart agree. The pointer then steps along the first line of the
+# link's words box (LinkText.linkBox), which spans the whole width when
+# the words wrap, until the link reads it.
 page_link="GitHub Copilot settings"
 page_hint="$(status_row vgs.jarvis copilotMemory | py_reply 'import json,sys; print(json.load(sys.stdin)["hint"])')" || page_hint=unread
 page_link_before="$(device_calls gio | py_reply 'import json,sys; print(len(json.load(sys.stdin)))')" || page_link_before=0
 device_reply gio 0 "" open https://github.com/settings/copilot/features
 page_link_opens() { device_calls gio | py_reply 'import json,sys; print(json.dumps([" ".join(c) for c in json.load(sys.stdin)[int(sys.argv[1]):]]))' "$page_link_before"; }
 page_link_click() {
-  local rect last="" x y step steps
+  local rect last="" box x y step steps
   for _ in $(seq 1 50); do
     rect="$(ipc smoke windowGeometry window vgs.settings LinkText "$page_hint")" || return 1
     [[ $rect == \[* && $rect == "$last" ]] && break
@@ -217,14 +218,19 @@ page_link_click() {
     sleep 0.1
   done
   [[ $rect == \[* && $rect == "$last" ]] || { echo "page_link_click: no still hint line: $rect" >&2; return 1; }
-  steps="$(python3 -c 'import json,sys; print(max(1, int(json.loads(sys.argv[1])[2] // 8)))' "$rect")" || return 1
-  for step in $(seq 1 "$steps"); do
-    read -r x y < <(at_centre window:Plugins "$(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); print(json.dumps([r[0] + 8 * int(sys.argv[2]), r[1], 2, 16]))' "$rect" "$step")") || return 1
+  # A rect value lists x, y, width and height as own keys, so the probe's
+  # JSON carries them (Qt 6.11 qqmlvaluetypewrapper_p.h,
+  # virtualOwnPropertyKeys).
+  box="$(ipc smoke readMatchingDescendant window vgs.settings LinkText link "$page_link" linkBox)" || return 1
+  [[ $box == \{* ]] || { echo "page_link_click: no link box: $box" >&2; return 1; }
+  steps="$(python3 -c 'import json,sys; print(max(1, int(json.loads(sys.argv[1])["width"] // 8)))' "$box")" || return 1
+  for step in $(seq 0 "$steps"); do
+    read -r x y < <(at_centre window:Plugins "$(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); b=json.loads(sys.argv[2]); print(json.dumps([r[0] + b["x"] + 8 * int(sys.argv[3]), r[1] + b["y"], 2, 16]))' "$rect" "$box" "$step")") || return 1
     hover "$x" "$y" || return 1
     sleep 0.1
     [[ "$(ipc smoke readMatchingDescendant window vgs.settings LinkText link "$page_link" hoveredLink)" == true ]] && { click "$x" "$y"; return; }
   done
-  echo "page_link_click: the pointer found no link words on the hint line" >&2
+  echo "page_link_click: the pointer found no link words in line=$rect box=$box" >&2
   return 1
 }
 page_link_click || fail "the click on the Copilot Memory link failed"
