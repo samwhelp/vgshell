@@ -505,6 +505,7 @@ held_steps() {
 steps_match() { python3 -c 'import sys; a, s = map(int, sys.argv[1:]); print("match" if a >= 5 and s >= 5 and abs(a - s) <= 3 + a // 10 else "differs arrow=%d super=%d" % (a, s))' "$1" "$2"; }
 arrow_steps="$(held_steps -P Right -s 2000 -p Right)" || fail "the held Right failed"
 super_steps="$(held_steps -M logo -P d -s 2000 -p d -m logo)" || fail "the held SUPER+D failed"
+echo "theme-browser: held-steps arrow=${arrow_steps:-none} super=${super_steps:-none}"
 expect "holding SUPER+D steps the rail as holding Right does" match steps_match "${arrow_steps:-0}" "${super_steps:-0}"
 hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"
 cp -p -- "$hypr_layer" "$sandbox/vgs-layer-before-hold.lua"
@@ -520,6 +521,7 @@ os.replace(path + ".next", path)
 PY
 expect "control: the nested instance reloads the layer without repeat" ok hypr reload config-only
 control_steps="$(held_steps -M logo -P d -s 2000 -p d -m logo)" || fail "control: the held SUPER+D failed"
+echo "theme-browser: held-steps control=${control_steps:-none}"
 expect "control: a focus bind without repeat steps once for the hold" 1 printf '%s\n' "${control_steps:-none}"
 expect "control: a focus bind without repeat fails the hold check" "differs arrow=${arrow_steps:-0} super=1" steps_match "${arrow_steps:-0}" "${control_steps:-0}"
 cp -p -- "$sandbox/vgs-layer-before-hold.lua" "$hypr_layer.next" && mv -T -- "$hypr_layer.next" "$hypr_layer" || fail "putting the layer back after the hold control failed"
@@ -539,14 +541,20 @@ expect_poll "the filter selects the catalog card" "\"$first_card\"" view_value s
 expect_poll "the catalog card draws its package preview" ready card_image "$repo/themes/catalog/$first_card/preview.jpg"
 expect "the catalog card decodes at card size times screen scale" True card_source_size_matches "$repo/themes/catalog/$first_card/preview.jpg"
 expect_poll "the selected card draws its sixteen colours, opaque, eight by two across the foot" '[]' expanded_foot
-python3 - "$repo/themes/catalog/$first_card/terminal.json" <<'PY'
+# The service reads the catalog again when its index changes, so the
+# index is written again beside the changed slot.
+python3 - "$repo/themes/catalog/$first_card/terminal.json" "$index" <<'PY'
 import json, os, sys
-terminal_file = sys.argv[1]
+terminal_file, index_file = sys.argv[1:]
 terminal = json.load(open(terminal_file))
 terminal["slots"]["color4"] = "#00ff00"
 with open(terminal_file + ".next", "w") as f:
     json.dump(terminal, f)
 os.replace(terminal_file + ".next", terminal_file)
+doc = json.load(open(index_file))
+with open(index_file + ".next", "w") as f:
+    json.dump(doc, f)
+os.replace(index_file + ".next", index_file)
 PY
 press_themes || fail "closing the browser for the terminal colour change failed"
 expect_poll "the browser closes before the terminal colour check" 0 layer_count vgs:overlay
@@ -747,7 +755,16 @@ scope_tones() {
   text="$(ipc smoke themeValue color.text)" || return
   all="$(ipc smoke readMatchingDescendant overlay vgs.themes Label text "All monitors" color)" || return
   this="$(ipc smoke readMatchingDescendant overlay vgs.themes Label text "This monitor" color)" || return
-  printf '[%s, %s]\n' "$([[ $all == "$text" ]] && echo true || echo false)" "$([[ $this == "$text" ]] && echo true || echo false)"
+  python3 -c '
+import json, sys
+# A QColor reads as #rrggbb, or #aarrggbb with alpha; a token as #rrggbbaa.
+def rgb(text, alpha_first):
+    value = json.loads(text)
+    if isinstance(value, dict): return tuple(round(value[k] * 255) for k in "rgb")
+    value = value.lstrip("#")
+    return tuple(int(value[i:i + 2], 16) for i in ((2, 4, 6) if len(value) == 8 and alpha_first else (0, 2, 4)))
+text = rgb(sys.argv[1], False)
+print(json.dumps([rgb(sys.argv[2], True) == text, rgb(sys.argv[3], True) == text]))' "$text" "$all" "$this"
 }
 fixture_image="$repo/scripts/smoke/fixtures/theme-image.jpg"
 fixture_tall="$sandbox/theme-image-tall.jpg"
@@ -865,7 +882,7 @@ expect_poll "the slice look control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeCard.qml "slice look"
 # Control for the name over the wash: a card copy that keeps its name with
 # the rest of the card, under the side card's dim wash.
-plugin_control ThemeCard.qml "slice name wash" "        parent: root.foreground ?? root" "        parent: root"
+plugin_control ThemeCard.qml "slice name wash" $'        parent: root.foreground ?? root\n        // The carousel hands' $'        parent: root\n        // The carousel hands'
 press_themes || fail "typing SUPER+SHIFT+T for the slice name wash control failed"
 expect_poll "the slice name wash control opens the theme browser" 1 layer_count vgs:overlay
 expect_poll "the slice name wash control read its cards" true view_value loaded
