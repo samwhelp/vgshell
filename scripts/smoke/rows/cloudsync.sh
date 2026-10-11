@@ -12,7 +12,7 @@
 #
 # Rows: the service publishes its declared status, its record and IPC
 # target go with a disable, and it reads the stand-in keyring's presence
-# into each direction's key list and sign-in, the download sign-in naming
+# into the key list and connection, the download connection naming
 # the account its token carries; the Settings page offers Set up hourly
 # sync while no unit is installed and its press hands the terminal the
 # setup TUI; the window maps with the record, holds Sync now off while a
@@ -24,7 +24,7 @@
 # and the window, and the runner keeps the damaged file beside an empty
 # list; a Drive-side add and change reach the mirror after one run; a
 # local edit since the last download keeps both versions and reads
-# `local-edit` in the published status, and the service asks for one
+# `both-changed` in the published status, and the service asks for one
 # notification for it, which the core delivers or drops by its own rule
 # (rows/notify.sh), and has the runner record it as notified; a Drive
 # deletion keeps the file and reads `removed-on-drive`; a run during
@@ -69,7 +69,7 @@ cs_put() { mkdir -p -- "$(dirname -- "$cs_drive/$1")" && printf '%s' "$2" >"$cs_
 cs_read() { if [[ -f $cs_mirror/$1 ]]; then cat -- "$cs_mirror/$1"; else echo absent; fi; }
 # The runner's record, read afresh: KEY's [kind, path] pairs of conflicts.
 cs_conflicts() { cs status | py_reply 'import json,sys; print(json.dumps(sorted([c["kind"], c["path"]] for c in json.load(sys.stdin)["conflicts"])))'; }
-cs_kept() { cs status | py_reply 'import json,sys; c=[c for c in json.load(sys.stdin)["conflicts"] if c["kind"] == "local-edit"]; print(open(c[0]["storedPath"]).read() if c else "none")'; }
+cs_kept() { cs status | py_reply 'import json,sys; c=[c for c in json.load(sys.stdin)["conflicts"] if c["kind"] == "both-changed"]; print(open(c[0]["storedPath"]).read() if c else "none")'; }
 cs_copies() { if [[ -f $cs_stub/rclone.calls ]]; then grep -c '"copy"' -- "$cs_stub/rclone.calls" || true; else echo 0; fi; }
 cs_blocked() { if [[ -e $cs_stub/blocked ]]; then echo yes; else echo no; fi; }
 # The values the shell's service publishes, and one of them.
@@ -87,10 +87,10 @@ cs_state() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin).get(s
 cs_sync() { cs_state sync; }
 cs_schedule() { cs_state schedule action; }
 cs_pairs() { cs_state pairs action; }
-# Each direction's sign-in: its text and the action it offers.
-cs_signin() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([[v[k]["text"], v[k].get("action")] if k in v else None for k in ("download", "upload")]))'; }
+# The connection: its text and the action it offers.
+cs_signin() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([[v[k]["text"], v[k].get("action")] if k in v else None for k in ("account", "account")]))'; }
 cs_published_conflicts() { cs_values | py_reply 'import json,sys; c=json.load(sys.stdin).get("cloud", {}).get("conflicts", []); print(json.dumps(sorted([x["kind"], x["path"]] for x in c)))'; }
-cs_keys() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([[k["secret"], k["value"]] for k in v.get("downloadKeys", []) + v.get("uploadKeys", [])]))'; }
+cs_keys() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([[k["secret"], k["value"]] for k in v.get("keys", []) + v.get("keys", [])]))'; }
 cs_lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); r=d["status"].get("vgs.cloud-sync"); print(json.dumps([sorted(r["keys"]) if r else None, "vgs.cloud-sync" in d["ipcTargets"]]))'; }
 # The systemctl calls the stand-in logged for Cloud Sync: a reload and
 # each call that names one of its units.
@@ -138,13 +138,13 @@ check_local_edit() {
   expect "a run after a local edit finishes" "pair=docs result=idle exit=0" cs_answer run
   expect "the mirror holds the Drive version" "one, changed on Drive" cs_read a.txt
   expect "the local edit is kept" "edited here, a longer local version" cs_kept
-  expect "the record reads local-edit" '[["local-edit", "a.txt"]]' cs_conflicts
+  expect "the record reads both-changed" '[["both-changed", "a.txt"]]' cs_conflicts
 }
 check_removed() {
   rm -- "$cs_drive/b.txt"
   expect "a run after a Drive deletion finishes" "pair=docs result=idle exit=0" cs_answer run
   expect "the file Drive removed stays" "added on Drive" cs_read b.txt
-  expect "the record reads removed-on-drive" '[["local-edit", "a.txt"], ["removed-on-drive", "b.txt"]]' cs_conflicts
+  expect "the record reads removed-on-drive" '[["both-changed", "a.txt"], ["removed-on-drive", "b.txt"]]' cs_conflicts
 }
 # cs_release: the held copy let go, through a write that waits at most
 # 10 s for the stand-in to open the pipe, so a copy that never reached its
@@ -264,21 +264,21 @@ SH
   expect "Cloud Sync starts disabled" '[null, false]' cs_lent
   expect "enabling Cloud Sync is allowed" ok ipc shell setPluginEnabled vgs.cloud-sync true
   expect "placing Cloud Sync's widget is allowed" ok ipc shell setPluginPlaced vgs.cloud-sync true
-  expect_poll "the service holds its status record and IPC target" '[["cloud", "download", "downloadKeys", "pairs", "schedule", "sync", "upload", "uploadKeys"], true]' cs_lent
+  expect_poll "the service holds its status record and IPC target" '[["cloud", "download", "keys", "pairs", "schedule", "sync", "upload", "keys"], true]' cs_lent
   expect_poll "with no pair and no unit the sync reads not set up" '["warning", "Not set up"]' cs_sync
   expect_poll "with no unit the hourly sync offers Set up" '["warning", "Not set up", true]' cs_schedule
   expect_poll "with no folder pair the pairs offer Add" '["warning", "None", "add"]' cs_pairs
   expect_poll "with no folder pair the widget is hidden" false cs_widget_shown
-  expect_poll "with no key stored every key reads absent" '[["pull-client-id", "absent"], ["pull-client-secret", "absent"], ["upload-client-id", "absent"], ["upload-client-secret", "absent"]]' cs_keys
-  expect_poll "with no client stored no sign-in is offered" '[["Not signed in", null], ["Not signed in", null]]' cs_signin
-  printf 'fixture-client' >"$cs_stub/secrets/pull-client-id"
-  printf 'fixture-secret' >"$cs_stub/secrets/pull-client-secret"
-  printf '{"access_token":"fixture","token_type":"Bearer","refresh_token":"fixture-refresh"}' >"$cs_stub/secrets/pull-token"
-  printf 'a.person@example.com' >"$cs_stub/secrets/pull-token.user"
+  expect_poll "with no key stored every key reads absent" '[["client-id", "absent"], ["client-secret", "absent"], ["client-id", "absent"], ["client-secret", "absent"]]' cs_keys
+  expect_poll "with no client stored no connection is offered" '[["Not signed in", null], ["Not signed in", null]]' cs_signin
+  printf 'fixture-client' >"$cs_stub/secrets/client-id"
+  printf 'fixture-secret' >"$cs_stub/secrets/client-secret"
+  printf '{"access_token":"fixture","token_type":"Bearer","refresh_token":"fixture-refresh"}' >"$cs_stub/secrets/token"
+  printf 'a.person@example.com' >"$cs_stub/secrets/token.user"
   expect "the service reads the keys again on request" ok ipc vgs.cloud-sync invoke refresh ""
-  expect_poll "the stored download keys read present" '[["pull-client-id", "present"], ["pull-client-secret", "present"], ["upload-client-id", "absent"], ["upload-client-secret", "absent"]]' cs_keys
-  expect_poll "the download sign-in reads signed in and offers Sign out" '[["Signed in", "signOut"], ["Not signed in", null]]' cs_signin
-  expect_poll "the download sign-in names the account its token carries" '"Signed in as a.person@example.com."' cs_value download.hint
+  expect_poll "the stored download keys read present" '[["client-id", "present"], ["client-secret", "present"], ["client-id", "absent"], ["client-secret", "absent"]]' cs_keys
+  expect_poll "the download connection reads signed in and offers Sign out" '[["Signed in", "signOut"], ["Not signed in", null]]' cs_signin
+  expect_poll "the download connection names the account its token carries" '"Signed in as a.person@example.com."' cs_value download.hint
 
   # Set up hourly sync, D061: the Settings page offers the step while no
   # unit is installed, and its press opens the setup TUI. The stand-in
@@ -300,15 +300,15 @@ SH
   # after one run, and the service's reading of each.
   check_copy
   expect_poll "the service publishes the pair's state" '["Documents: Up to date"]' cs_value sync.lines
-  expect_poll "the service publishes the pair and its direction" '["Documents: Download"]' cs_value pairs.lines
+  expect_poll "the service publishes the pair and its Drive folder" '["Documents: Docs"]' cs_value pairs.lines
   expect_poll "the service publishes the last sync" set cs_last_sync
   check_local_edit
-  expect_poll "the service publishes the local edit" '[["local-edit", "a.txt"]]' cs_published_conflicts
+  expect_poll "the service publishes the local edit" '[["both-changed", "a.txt"]]' cs_published_conflicts
   expected_errors+=('notify: unsent plugin=vgs\.cloud-sync')
   expect_poll "the service asks for one notification for the local edit" "$(cs_attention)" cs_notified
   expect_poll "the service has the runner record the local edit as notified" true cs_record_notified
   check_removed
-  expect_poll "the service publishes the Drive deletion" '[["local-edit", "a.txt"], ["removed-on-drive", "b.txt"]]' cs_published_conflicts
+  expect_poll "the service publishes the Drive deletion" '[["both-changed", "a.txt"], ["removed-on-drive", "b.txt"]]' cs_published_conflicts
   check_lock
 
   # The widget names the pair and its state, never a file.
@@ -326,10 +326,10 @@ SH
   expect_poll "the window holds Sync now off while a sync runs" '["sync", false]' cs_window_primary
   cs_let_go
   expect_poll "the window offers Sync now again once the sync ends" '["sync", true]' cs_window_primary
-  rm -- "${cs_stub:?}/secrets/pull-client-id"
+  rm -- "${cs_stub:?}/secrets/client-id"
   expect "a run without the download client ID waits for it" "pair=docs result=authorization-required exit=1" cs_answer run
   expect_poll "the window holds Sync now off while a key is missing" '["sync", false]' cs_window_primary
-  printf 'fixture-client' >"$cs_stub/secrets/pull-client-id"
+  printf 'fixture-client' >"$cs_stub/secrets/client-id"
   expect "a run with the client ID back copies again" "pair=docs result=idle exit=0" cs_answer run
   expect_poll "the window offers Sync now again with the key back" '["sync", true]' cs_window_primary
   local copies
@@ -363,7 +363,7 @@ SH
 
   # Controls: each runner rule broken in a copy, in a world of its own.
   expect "control: a dry-run copy fails the copy check" red control_red copy 'rclone(["copy", remotePath(pair), pair.local,' 'rclone(["copy", "--dry-run", remotePath(pair), pair.local,' check_copy
-  expect "control: every displaced file taken as the runner's own fails the local-edit check" red control_red local-edit "const unedited = base !== undefined" "const unedited = true || base !== undefined" check_copy check_local_edit
+  expect "control: every displaced file taken as the runner's own fails the both-changed check" red control_red both-changed "const unedited = base !== undefined" "const unedited = true || base !== undefined" check_copy check_local_edit
   expect "control: a lock always granted fails the lock check" red control_red lock "if (out.status === 0) return fd;" "if (out.status === 0 || true) return fd;" check_copy check_lock
 
   # Control: a plugin copy whose service drops every read of the record

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The vgs.cloud-sync `add-pair` floating TUI: asks for a folder pair's
-# name, direction, Google Drive folder and folder on this computer, and
+# name, Google Drive folder and folder on this computer, and
 # hands it to the runner's `pair-add`, which judges it. Keyed lines go to
 # the Cloud Sync setup log; the screen shows a plain sentence.
 #
@@ -28,13 +28,10 @@ pair_id() {
   printf '%s' "${s:-pair}"
 }
 
-vgs_tui_header "Add a folder pair" "Cloud Sync keeps a Google Drive folder and a folder on this computer in step." \
-  "It only adds and updates files. It never deletes a file."
+vgs_tui_header "Add a folder pair" "Cloud Sync copies a Google Drive folder and a folder on this computer both ways." \
+  "Newer files win. It never deletes a file."
 label="$(vgs_tui_input --header "A name for this folder pair. The bar shows it." --placeholder "for example Documents")" || exit 130
 [[ -n $label ]] || exit 130
-direction="$(vgs_tui_choose --label-delimiter=$'\t' --header "Select the direction." \
-  <<<$'Download: Google Drive to this computer\tpull\nUpload: this computer to Google Drive\tupload')" || exit 130
-[[ -n $direction ]] || exit 130
 remote="$(vgs_tui_input --header "The Google Drive folder, from the top of your Drive." --placeholder "for example Documents/Taxes")" || exit 130
 [[ -n $remote ]] || exit 130
 local_dir="$(vgs_tui_input --header "The folder on this computer, as a full path." --value "$HOME/")" || exit 130
@@ -42,10 +39,10 @@ local_dir="$(vgs_tui_input --header "The folder on this computer, as a full path
 remote="${remote#/}"
 remote="${remote%/}"
 local_dir="${local_dir%/}"
-definition="{\"id\":$(json_string "$(pair_id "$label")"),\"label\":$(json_string "$label"),\"direction\":$(json_string "$direction"),\"remote\":$(json_string "$remote"),\"local\":$(json_string "$local_dir")}"
+definition="{\"id\":$(json_string "$(pair_id "$label")"),\"label\":$(json_string "$label"),\"remote\":$(json_string "$remote"),\"local\":$(json_string "$local_dir")}"
 logged="$(stat -c %s -- "$log" 2>/dev/null)" || logged=0
 if vgs_tui_logged "$log" "$runner" pair-add --definition "$definition" >>"$log"; then
-  vgs_tui_success "Cloud Sync added $label. It syncs at the next hourly run, or when you select Sync now."
+  vgs_tui_success "Cloud Sync added $label. It syncs both ways at the next hourly run, or when you select Sync now."
   exit 0
 fi
 # The refusal this run logged, not an earlier run's.

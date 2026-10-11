@@ -4885,12 +4885,12 @@ SH
   csr() { env -i HOME="$home" PATH="$shell_start_path" LANG=C.UTF-8 XDG_RUNTIME_DIR="$rt_dir" XDG_CONFIG_HOME="$home/.config" XDG_STATE_HOME="$home/.local/state" XDG_DATA_HOME="$home/.local/share" node "$tree/shell/plugins/vgs.cloud-sync/bin/cloud-sync" "$@" >/dev/null 2>>"$cs/runner.err"; }
   cs_keys() {
     local a
-    for a in pull-client-id pull-client-secret upload-client-id upload-client-secret; do printf 'stand-in\n' >"$cs/secrets/$a"; done
-    for a in pull-token upload-token; do printf '{"access_token":"x","refresh_token":"y"}\na.person@example.com\n' >"$cs/secrets/$a"; done
+    for a in client-id client-secret; do printf 'stand-in\n' >"$cs/secrets/$a"; done
+    printf '{"access_token":"x","refresh_token":"y"}\na.person@example.com\n' >"$cs/secrets/token"
   }
   cs_pairs() {
-    csr pair-add --definition "{\"id\":\"documents\",\"label\":\"Documents\",\"direction\":\"pull\",\"remote\":\"Documents\",\"local\":\"$home/cloudsync-$m/Drive/Documents\"}" || fail "cloudsync scene: pair documents"
-    csr pair-add --definition "{\"id\":\"uploads\",\"label\":\"Agent uploads\",\"direction\":\"upload\",\"remote\":\"Agent uploads\",\"local\":\"$home/cloudsync-$m/inbox/agent-uploads\"}" || fail "cloudsync scene: pair uploads"
+    csr pair-add --definition "{\"id\":\"documents\",\"label\":\"Documents\",\"remote\":\"Documents\",\"local\":\"$home/cloudsync-$m/Drive/Documents\"}" || fail "cloudsync scene: pair documents"
+    csr pair-add --definition "{\"id\":\"uploads\",\"label\":\"Agent uploads\",\"remote\":\"Agent uploads\",\"local\":\"$home/cloudsync-$m/inbox/agent-uploads\"}" || fail "cloudsync scene: pair uploads"
   }
   printf 'Return filed.\n' >"$drive/Documents/Taxes/2025 return.pdf"
   printf '# Notes\n' >"$drive/Documents/notes.md"
@@ -4932,7 +4932,7 @@ SH
   csr run || true
   cs_shots "$m" 7-error error
   rm -f -- "$cs/fail"
-  # Set up, with a local edit and a Drive deletion to review.
+  # Set up, with a change on both sides and a Drive deletion to review.
   printf '# Notes, edited here\n' >"$home/cloudsync-$m/Drive/Documents/notes.md"
   rm -f -- "$drive/Documents/budget.xlsx"
   printf '# Notes, edited on Drive\n' >"$drive/Documents/notes.md"
@@ -4944,6 +4944,10 @@ SH
   csr status || true
   cs_shots "$m" 9-pairs-invalid error pairs-invalid
   csr pairs-reset || fail "cloudsync scene: pairs-reset"
+  for a in pull-client-id pull-client-secret pull-token upload-client-id upload-client-secret upload-token; do printf 'old\n' >"$cs/secrets/$a"; done
+  printf '{"pairs":[{"id":"documents","label":"Documents","direction":"pull","remote":"Documents","local":"%s"}]}\n' "$home/cloudsync-$m/Drive/Documents" >"$pairs_file"
+  csr run || true
+  cs_shots "$m" 10-migrated authorization-required credential-absent
 
   rm -f -- "$pairs_file".damaged-* "$home/.config/systemd/user/vgs-cloud-sync.service" "$home/.config/systemd/user/vgs-cloud-sync.timer" "$cs"/secrets/*
   # The service watches status.json; its directory stays so the watch holds.

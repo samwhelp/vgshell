@@ -322,14 +322,10 @@ f share/vgshell/shell/plugins/vgs.cloud-sync/Window.qml
 f share/vgshell/shell/plugins/vgs.cloud-sync/bin/cloud-sync
 f share/vgshell/shell/plugins/vgs.cloud-sync/manifest.json
 f share/vgshell/shell/plugins/vgs.cloud-sync/tui/add-pair.sh
-f share/vgshell/shell/plugins/vgs.cloud-sync/tui/connect-drive.sh
-f share/vgshell/shell/plugins/vgs.cloud-sync/tui/connect-upload.sh
 f share/vgshell/shell/plugins/vgs.cloud-sync/tui/connect.sh
 f share/vgshell/shell/plugins/vgs.cloud-sync/tui/remove-pair.sh
 f share/vgshell/shell/plugins/vgs.cloud-sync/tui/reset-pairs.sh
 f share/vgshell/shell/plugins/vgs.cloud-sync/tui/setup.sh
-f share/vgshell/shell/plugins/vgs.cloud-sync/tui/sign-out-drive.sh
-f share/vgshell/shell/plugins/vgs.cloud-sync/tui/sign-out-upload.sh
 f share/vgshell/shell/plugins/vgs.cloud-sync/tui/sign-out.sh
 f share/vgshell/shell/plugins/vgs.devtools/Appearance.js
 f share/vgshell/shell/plugins/vgs.devtools/CatalogLogic.js

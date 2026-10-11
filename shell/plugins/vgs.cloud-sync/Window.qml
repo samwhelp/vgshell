@@ -7,11 +7,11 @@ import "CloudSyncLogic.js" as Logic
 // publishes. Its subtitle is the headline (CloudSyncLogic.headline, which
 // the bar and the Settings page also read) in its tone's colour, then the
 // last complete sync, the pause and the last problem. Folder pairs lists
-// each pair by its label, direction and state, with Remove, which opens
+// each pair by its label, Google Drive folder and state, with Remove, which opens
 // the remove TUI for that pair; while the folder pair list is invalid, it
 // offers the reset TUI, which keeps the damaged list and starts an empty
-// one. To review lists each file Cloud Sync kept,
-// a local edit, a Drive deletion or a Drive rename, under its folder
+// one. To review lists each file Cloud Sync kept or restored,
+// a change on both sides, a local deletion, a Drive deletion or a Drive rename, under its folder
 // pair's label, with Open folders, which opens the folders that hold its
 // versions. The footer holds Sync now, enabled only when a sync can
 // start, Resume while the sync is paused, or Set up hourly sync while the
@@ -172,7 +172,7 @@ FocusScope {
             Section {
                 visible: root.known && root.cloud.conflictCount > 0
                 title: "To review"
-                description: "Cloud Sync kept these files and deleted nothing. Open folders shows the folders that hold each version."
+                description: "Cloud Sync kept older copies on this computer, restored removed files, and deleted nothing. Open folders shows the folders that hold each version."
                 // A pair's label on its own line over its files, since a
                 // ListItem's secondary line elides and would cut it.
                 Repeater {

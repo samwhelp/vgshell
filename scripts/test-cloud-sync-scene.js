@@ -27,7 +27,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const root = path.join(__dirname, "..");
 const SHOTS = path.join(root, "scripts", "sandbox-shots.sh");
 const L = load(path.join(root, "shell", "plugins", "vgs.cloud-sync", "CloudSyncLogic.js"));
-const ISSUE_STATES = ["first-run", "no-keys", "no-pair", "empty-review", "paused", "syncing", "error", "review", "pairs-invalid"];
+const ISSUE_STATES = ["first-run", "no-keys", "no-pair", "empty-review", "paused", "syncing", "error", "review", "pairs-invalid", "migrated"];
 
 // Every cause headline returns over each runner state, unit state, pair
 // state, review count and data age.
@@ -36,7 +36,7 @@ function headlineCauses() {
     const now = Date.parse("2026-10-11T12:00:00Z");
     for (const state of L.STATES) for (const units of L.UNITS) for (const pair of [null].concat(L.PAIR_STATES))
         for (const conflictCount of [0, 1]) for (const staleAfter of [null, now - 1, now + 1]) {
-            const pairs = pair === null ? [] : [{ id: "p", label: "P", direction: "pull", state: pair, lastSuccess: null, staleAfter: staleAfter, lastError: null }];
+            const pairs = pair === null ? [] : [{ id: "p", label: "P", remote: "P", state: pair, lastSuccess: null, staleAfter: staleAfter, lastError: null }];
             causes.add(L.headline({ state, units, staleAfter, pairs, conflictCount, lastError: null, paused: false }, now).cause);
         }
     return causes;

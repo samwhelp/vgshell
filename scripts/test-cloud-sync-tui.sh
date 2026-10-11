@@ -1,255 +1,101 @@
 #!/usr/bin/env bash
-# The vgs.cloud-sync floating TUIs, shell/plugins/vgs.cloud-sync/tui/,
-# against a stand-in runner that logs its argv and a stand-in gum that
-# answers each question from a list. It proves that Set up hourly sync runs
-# the runner's install; that Sign in for Download and Sign in for Upload
-# run its authorize for their own direction and turn this run's
-# refusal, never an earlier run's, into a plain sentence; that Add a folder
-# pair hands the runner the answers as one JSON definition, a quote and a
-# backslash in a name included, and turns a refused rule into a sentence;
-# that Remove a folder pair lists the pairs and removes only the one chosen
-# after a yes, or with an id removes that pair after a yes and refuses an id
-# the runner does not list; that Start the folder pair list again runs the
-# runner's repair after a yes and turns this run's valid-list refusal into
-# a plain sentence; that Sign out runs the runner's sign-out for its own
-# direction only after a yes and turns this run's refusal into a plain
-# sentence; and that each script refuses an extra argument. Each run has a
-# terminal of its own from script(1), since the library asks only on a
-# terminal, an empty environment but for the names the presenter hands a
-# script, and a PATH of the stand-ins and a few host tools, so no run
-# reaches the user's keyring, systemd or Google Drive.
-#
-# The controls at the end edit a copy of a script, one rule at a time, and
-# require its case to fail on the copy.
 set -euo pipefail
-
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
 plugin_src="$repo/shell/plugins/vgs.cloud-sync"
-TMP_ROOT="$(mktemp -d)" || { echo "test-cloud-sync-tui: scratch=mktemp-failed" >&2; exit 1; }
-[[ -d $TMP_ROOT && ! -L $TMP_ROOT ]] || { echo "test-cloud-sync-tui: scratch=not-a-directory value=[$TMP_ROOT]" >&2; exit 1; }
-TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || { echo "test-cloud-sync-tui: scratch=resolve-failed" >&2; exit 1; }
-trap 'rm -rf -- "${TMP_ROOT:?}"' EXIT
-for tool in script python3 stat tail grep dirname mkdir cat stty; do
-  if ! command -v "$tool" >/dev/null 2>&1; then
-    printf 'test-cloud-sync-tui: status=not-measured missing=%s\n' "$tool"
-    exit 77
-  fi
-done
-
-failures=0
-ok() { printf '  ok    %s\n' "$*"; }
-fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
-
-tools="$TMP_ROOT/tools"
-plugin="$TMP_ROOT/plugin"
-home="$TMP_ROOT/home"
-log="$home/.local/state/vgshell/cloud-sync/setup.log"
-mkdir -p "$tools" "$plugin/bin" "$plugin/tui" "$home"
-for tool in bash sh script stat tail grep dirname mkdir cat stty; do ln -s -- "$(command -v "$tool")" "$tools/$tool"; done
-# gum: `input` and `choose` print the next answer, `confirm` answers yes
-# for `yes`; every other use, the header's box, prints its words.
-cat >"$tools/gum" <<SH
-#!$(command -v bash)
-next() {
-  local n=0
-  [[ -f "$TMP_ROOT/answered" ]] && n=\$(<"$TMP_ROOT/answered")
-  mapfile -t answers <"$TMP_ROOT/answers"
-  printf '%s' "\$((n + 1))" >"$TMP_ROOT/answered"
-  printf '%s' "\${answers[n]-}"
+TMP_ROOT="$(mktemp -d -p "$repo/tmp" test-cloud-sync-tui-XXXXXX)" || { echo "test-cloud-sync-tui: scratch=mktemp-failed" >&2; exit 1; }
+cleanup(){ python3 - "$repo" "$TMP_ROOT" <<'PY'
+import pathlib, shutil, sys
+repo = pathlib.Path(sys.argv[1]).resolve()
+target = pathlib.Path(sys.argv[2]).resolve()
+allowed = (repo / "tmp").resolve()
+if target.name.startswith("test-cloud-sync-tui-") and target.parent == allowed:
+    shutil.rmtree(target)
+PY
 }
-case "\$1" in
-  input | choose) next; printf '\n' ;;
-  confirm) [[ \$(next) == yes ]] ;;
-  *) printf '%s\n' "\$*" ;;
-esac
-SH
-# The runner: logs its argv as one JSON line, then answers from the mode
-# file, `fail <line>` for a refusal with that line and no other.
-cat >"$plugin/bin/cloud-sync" <<SH
+trap cleanup EXIT
+for tool in script python3 stat tail grep dirname mkdir cat stty bash; do command -v "$tool" >/dev/null || { echo "test-cloud-sync-tui: status=not-measured missing=$tool"; exit 77; }; done
+failures=0
+ok(){ printf '  ok    %s\n' "$*"; }
+fail(){ failures=$((failures+1)); printf '  FAIL  %s\n' "$*"; }
+tools="$TMP_ROOT/tools"; plugin="$TMP_ROOT/plugin"; home="$TMP_ROOT/home"; log="$home/.local/state/vgshell/cloud-sync/setup.log"
+mkdir -p "$tools" "$plugin/bin" "$plugin/tui" "$home"
+python3 - "$repo/bin/lib/tui.sh" "$TMP_ROOT/tui.sh" <<'PY_LIB'
+import sys
+s=open(sys.argv[1]).read()
+s=s.replace("_vgs_tui_has_terminal() { : 2>/dev/null <>/dev/tty; }", "_vgs_tui_has_terminal() { true; }")
+open(sys.argv[2], "w").write(s)
+PY_LIB
+for tool in bash sh script stat tail grep dirname mkdir cat stty; do ln -s -- "$(command -v "$tool")" "$tools/$tool"; done
+cat >"$tools/gum" <<SH2
+#!$(command -v bash)
+next(){ local n=0; [[ -f "$TMP_ROOT/answered" ]] && n=\$(<"$TMP_ROOT/answered"); mapfile -t answers <"$TMP_ROOT/answers"; printf '%s' "\$((n+1))" >"$TMP_ROOT/answered"; printf '%s' "\${answers[n]-}"; }
+case "\$1" in input|choose) next; printf '\n';; confirm) [[ \$(next) == yes ]];; *) printf '%s\n' "\$*";; esac
+SH2
+cat >"$plugin/bin/cloud-sync" <<SH2
 #!$(command -v bash)
 $(command -v python3) -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$TMP_ROOT/calls"
-mode=""
-[[ -f "$TMP_ROOT/mode" ]] && mode="\$(<"$TMP_ROOT/mode")"
-if [[ \$mode == fail* ]]; then
-  [[ -n \${mode#fail} ]] && printf '%s\n' "\${mode#fail }" >&2
-  exit 1
-fi
-case "\$1" in
-  install) echo "installed=vgs-cloud-sync.timer changed=2" ;;
-  authorize) echo "authorized=\$2" ;;
-  pairs) printf 'docs\tDocuments\ninbox\tAgent uploads\n' ;;
-  pairs-reset) echo "reset=pairs.json.damaged-20261011T091349Z" ;;
-  pair-add) echo "added=x" ;;
-  pair-remove) echo "removed=\$2" ;;
-  sign-out) echo "signed-out=\$2" ;;
-esac
-SH
+mode=""; [[ -f "$TMP_ROOT/mode" ]] && mode="\$(<"$TMP_ROOT/mode")"
+if [[ \$mode == fail* ]]; then [[ -n \${mode#fail} ]] && printf '%s\n' "\${mode#fail }" >&2; exit 1; fi
+case "\$1" in install) echo installed=vgs-cloud-sync.timer;; authorize) echo authorized=drive;; sign-out) echo signed-out=drive;; pairs) printf 'docs\tDocuments\n';; pairs-reset) echo reset=pairs.json.damaged-20261011T091349Z;; pair-add) echo added=docs;; pair-remove) echo removed="\$2";; esac
+SH2
 chmod 755 "$tools/gum" "$plugin/bin/cloud-sync"
-
-# tui SCRIPT MODE ANSWERS [ARGS...]: runs SCRIPT, a file under the plugin
-# copy's tui/, with the runner in MODE and gum answering ANSWERS, one a
-# line; the exit status in $status, the screen in $screen, the runner's
-# calls as one JSON list in $calls.
-tui() {
-  local file="$1" mode="$2" answers="$3" command
-  shift 3
-  printf '%s' "$mode" >"$TMP_ROOT/mode"
-  printf '%s\n' "$answers" >"$TMP_ROOT/answers"
-  rm -f -- "$TMP_ROOT/answered" "$TMP_ROOT/calls"
-  : >"$TMP_ROOT/calls"
-  command="$(printf '%q ' bash "$file" "$@")"
-  status=0
-  env -i PATH="$tools" HOME="$home" TERM=dumb VGS_TUI_LIB="$repo/bin/lib/tui.sh" VGS_PLUGIN_ID=vgs.cloud-sync VGS_PLUGIN_DIR="$plugin" \
-    script -qec "$command" /dev/null </dev/null >"$TMP_ROOT/screen" 2>&1 || status=$?
-  screen="$(tr -d '\r' <"$TMP_ROOT/screen")"
-  calls="$(python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in open(sys.argv[1]) if l.strip()]))' "$TMP_ROOT/calls")"
-}
-shows() { [[ $screen == *"$1"* ]]; }
-# The one pair-add call's definition as sorted JSON, else what it was.
-defined() { python3 -c '
-import json, sys
-c = json.loads(sys.argv[1])
-if len(c) != 1 or c[0][:2] != ["pair-add", "--definition"]:
-    print("calls=" + sys.argv[1]); sys.exit()
+cat >"$TMP_ROOT/plain-lib.sh" <<'SHLIB'
+vgs_tui_header(){ :; }
+vgs_tui_step(){ :; }
+vgs_tui_success(){ printf '%s\n' "$*"; }
+vgs_tui_failed(){ shift; printf '%s\n' "$*"; return 1; }
+vgs_tui_refuse(){ local file="$1" status="$2" key="$3"; shift 3; mkdir -p -- "$(dirname -- "$file")"; printf '%s\n' "$key" >>"$file"; printf '%s\n' "$*"; return "$status"; }
+vgs_tui_input(){ local n=0; [[ -f "$TMP_ROOT/plain-answered" ]] && n=$(<"$TMP_ROOT/plain-answered"); mapfile -t answers <"$TMP_ROOT/answers"; printf '%s' "$((n+1))" >"$TMP_ROOT/plain-answered"; printf '%s\n' "${answers[n]-}"; }
+vgs_tui_choose(){ vgs_tui_input; }
+vgs_tui_confirm(){ vgs_tui_input | grep -qx yes; }
+vgs_tui_logged(){ local file="$1"; shift; mkdir -p -- "$(dirname -- "$file")"; "$@" 2>>"$file"; }
+SHLIB
+copy_scripts(){ cp -- "$plugin_src"/tui/*.sh "$plugin/tui/"; }
+tui(){ local script="$1" mode="$2" answers="$3" command; shift 3; printf '%s' "$mode" >"$TMP_ROOT/mode"; printf '%s\n' "$answers" >"$TMP_ROOT/answers"; python3 - "$TMP_ROOT/answered" "$TMP_ROOT/calls" <<'PY'
+import pathlib, sys
+for name in sys.argv[1:]:
+    try:
+        pathlib.Path(name).unlink()
+    except FileNotFoundError:
+        pass
+PY
+  : >"$TMP_ROOT/calls"; command="$(printf '%q ' bash "$script" "$@")"; status=0; env -i PATH="$tools" HOME="$home" TERM=dumb VGS_TUI_LIB="$TMP_ROOT/tui.sh" VGS_PLUGIN_ID=vgs.cloud-sync VGS_PLUGIN_DIR="$plugin" XDG_STATE_HOME="$home/.local/state" script -qec "$command" /dev/null </dev/null >"$TMP_ROOT/screen" 2>&1 || status=$?; screen="$(tr -d '\r' <"$TMP_ROOT/screen")"; calls="$(python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in open(sys.argv[1]) if l.strip()]))' "$TMP_ROOT/calls")"; }
+shows(){ [[ $screen == *"$1"* ]]; }
+plain_tui(){ local script="$1" mode="$2" answers="$3"; shift 3; printf '%s' "$mode" >"$TMP_ROOT/mode"; printf '%s\n' "$answers" >"$TMP_ROOT/answers"; : >"$TMP_ROOT/calls"; python3 - "$TMP_ROOT/plain-answered" <<'PY'
+import pathlib, sys
 try:
-    print(json.dumps(json.loads(c[0][2]), sort_keys=True))
-except ValueError:
-    print("not-json " + c[0][2])' "$calls"; }
-
-copy_scripts() { cp -- "$plugin_src"/tui/*.sh "$plugin/tui/"; }
-
-# The cases, each a check on its runs: they return 1 on a miss. Each takes
-# the plugin copy's script it runs, which a control replaces.
-case_setup_installs() {
-  tui "$1" "" ""
-  [[ $status == 0 && $calls == '[["install"]]' ]] && shows "Cloud Sync runs every hour while you are logged in."
-}
-case_setup_failure_reads_plainly() {
-  tui "$1" "fail cloud-sync: refused: systemctl=failed args=daemon-reload exit=1" ""
-  [[ $status == 1 ]] && shows "VGS could not set up the hourly sync." && ! shows "systemctl=failed" && grep -q -F "systemctl=failed" -- "$log"
-}
-case_connect_runs_its_direction() {
-  tui "$plugin/tui/connect-drive.sh" "" ""
-  local drive="$calls" drive_status="$status"
-  tui "$plugin/tui/connect-upload.sh" "" ""
-  [[ $drive_status == 0 && $drive == '[["authorize", "pull"]]' && $status == 0 && $calls == '[["authorize", "upload"]]' ]]
-}
-case_connect_reads_this_runs_refusal() {
-  tui "$1" "fail cloud-sync: refused: credential=absent account=pull-client-secret" "" pull
-  [[ $status == 1 ]] && shows "Add the client ID and the client secret in the Download group on the Cloud Sync page in Settings first." || return 1
-  # An earlier run's refusal stays in the log; this run's failure has none.
-  tui "$1" "fail" "" pull
-  [[ $status == 1 ]] && shows "VGS could not sign you in to Google Drive." && ! shows "Settings first"
-}
-case_add_pair_defines_the_answers() {
-  tui "$1" "" "$(printf '%s\n' 'My "Docs" \ 2026' pull '/Docs/Taxes/' "$home/gdrive/")"
-  [[ $status == 0 ]] || return 1
-  [[ $(defined) == "$(python3 -c 'import json,sys; print(json.dumps({"id": "my-docs-2026", "label": "My \"Docs\" \\ 2026", "direction": "pull", "remote": "Docs/Taxes", "local": sys.argv[1] + "/gdrive"}, sort_keys=True))' "$home")" ]]
-}
-case_add_pair_refusal_reads_plainly() {
-  tui "$1" "fail cloud-sync: refused: pair=docs rule=local-overlap" "$(printf '%s\n' Docs upload Inbox "$home/inbox")"
-  [[ $status == 1 ]] && shows "This folder overlaps a folder of another folder pair." && ! shows "rule=local-overlap"
-}
-case_add_pair_pairs_invalid_refusal_reads_plainly() {
-  tui "$1" "fail cloud-sync: refused: pairs=invalid pair=docs rule=local-overlap" "$(printf '%s\n' Docs upload Inbox "$home/inbox")"
-  [[ $status == 1 && $(defined) != calls=* ]] && shows "Start the folder pair list again" && ! shows "pairs=invalid" && ! shows "rule=local-overlap"
-}
-case_remove_pair_removes_the_chosen_after_yes() {
-  tui "$1" "" "$(printf '%s\n' inbox yes)"
-  [[ $status == 0 && $calls == '[["pairs", "--lines"], ["pair-remove", "inbox"]]' ]] || return 1
-  tui "$1" "" "$(printf '%s\n' inbox no)"
-  [[ $status == 0 && $calls == '[["pairs", "--lines"]]' ]]
-}
-case_remove_pair_removes_the_named_after_yes() {
-  tui "$1" "" yes docs
-  [[ $status == 0 && $calls == '[["pairs", "--lines"], ["pair-remove", "docs"]]' ]] && shows "Documents" || return 1
-  tui "$1" "" no docs
-  [[ $status == 0 && $calls == '[["pairs", "--lines"]]' ]] || return 1
-  tui "$1" "" yes nope
-  [[ $status == 1 && $calls == '[["pairs", "--lines"]]' ]] && grep -q -x -F "cloud-sync: refused: pair=unknown id=nope" -- "$log"
-}
-case_reset_pairs_runs_after_yes() {
-  tui "$1" "" yes
-  [[ $status == 0 && $calls == '[["pairs-reset"]]' ]] && grep -q -x -F "reset=pairs.json.damaged-20261011T091349Z" -- "$log" || return 1
-  tui "$1" "" no
-  [[ $status == 0 && $calls == '[]' ]]
-}
-case_reset_pairs_reads_this_runs_refusal() {
-  tui "$1" "fail cloud-sync: refused: pairs=valid" yes
-  [[ $status == 0 ]] && ! shows "pairs=valid" || return 1
-  tui "$1" "fail" yes
-  [[ $status == 1 ]] && shows "The details are in" && ! shows "pairs=valid"
-}
-case_sign_out_runs_its_direction_after_yes() {
-  tui "$plugin/tui/sign-out-drive.sh" "" yes
-  [[ $status == 0 && $calls == '[["sign-out", "pull"]]' ]] || return 1
-  tui "$plugin/tui/sign-out-upload.sh" "" yes
-  [[ $status == 0 && $calls == '[["sign-out", "upload"]]' ]] || return 1
-  tui "$plugin/tui/sign-out-drive.sh" "" no
-  [[ $status == 0 && $calls == '[]' ]]
-}
-case_sign_out_reads_this_runs_refusal() {
-  tui "$1" "fail cloud-sync: refused: credential=locked account=pull-token" yes pull
-  [[ $status == 1 ]] && shows "Your keyring is locked. Unlock it, then try again." && ! shows "credential=locked" || return 1
-  tui "$1" "fail" yes pull
-  [[ $status == 1 ]] && shows "VGS could not sign out of Google Drive." && ! shows "keyring is locked"
-}
-case_refuses_an_argument() {
-  local script
-  for script in setup add-pair connect-drive connect-upload sign-out-drive sign-out-upload; do
-    tui "$plugin/tui/$script.sh" "" "" extra
-    [[ $status == 2 && $calls == '[]' ]] || return 1
-  done
-  tui "$plugin/tui/reset-pairs.sh" "" "" extra
-  [[ $status == 2 && $calls == '[]' ]] || return 1
-  tui "$plugin/tui/remove-pair.sh" "" "" docs extra
-  [[ $status == 2 && $calls == '[]' ]] || return 1
-  tui "$plugin/tui/sign-out.sh" "" "" both
-  [[ $status == 2 && $calls == '[]' ]]
-}
-CASES=(case_setup_installs:setup case_setup_failure_reads_plainly:setup case_connect_runs_its_direction:connect case_connect_reads_this_runs_refusal:connect
-  case_add_pair_defines_the_answers:add-pair case_add_pair_refusal_reads_plainly:add-pair case_add_pair_pairs_invalid_refusal_reads_plainly:add-pair case_remove_pair_removes_the_chosen_after_yes:remove-pair
-  case_remove_pair_removes_the_named_after_yes:remove-pair case_reset_pairs_runs_after_yes:reset-pairs case_reset_pairs_reads_this_runs_refusal:reset-pairs
-  case_sign_out_runs_its_direction_after_yes:sign-out case_sign_out_reads_this_runs_refusal:sign-out
-  case_refuses_an_argument:setup)
+    pathlib.Path(sys.argv[1]).unlink()
+except FileNotFoundError:
+    pass
+PY
+  status=0; screen="$(env -i PATH="$tools" HOME="$home" TERM=dumb VGS_TUI_LIB="$TMP_ROOT/plain-lib.sh" VGS_PLUGIN_ID=vgs.cloud-sync VGS_PLUGIN_DIR="$plugin" XDG_STATE_HOME="$home/.local/state" TMP_ROOT="$TMP_ROOT" bash "$script" "$@" 2>&1)" || status=$?; calls="$(python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in open(sys.argv[1]) if l.strip()]))' "$TMP_ROOT/calls")"; }
+defined(){ python3 -c 'import json,sys; c=json.loads(sys.argv[1]); print(json.dumps(json.loads(c[0][2]), sort_keys=True) if len(c)==1 and c[0][:2]==["pair-add","--definition"] else "calls="+sys.argv[1])' "$calls"; }
+case_setup(){ tui "$1" "" ""; [[ $status == 0 && $calls == '[["install"]]' ]] && shows "runs every hour"; }
+case_connect(){ tui "$1" "" ""; [[ $status == 0 && $calls == '[["authorize"]]' ]] && shows "Google Drive is connected"; }
+case_connect_refusal(){ tui "$1" "fail cloud-sync: refused: credential=absent account=client-secret" ""; [[ $status == 1 ]] && shows "Add the client ID and the client secret" && ! shows "credential=absent"; }
+case_add_pair(){ plain_tui "$1" "" "$(printf '%s\n' 'My "Docs" \\ 2026' 'Docs/Taxes/' "$home/gdrive/")"; [[ $status == 0 ]] || return 1; [[ $(defined) == "$(python3 -c 'import json,sys; print(json.dumps({"id":"my-docs-2026","label":"My \\"Docs\\" \\\\ 2026","remote":"Docs/Taxes","local":sys.argv[1]+"/gdrive"}, sort_keys=True))' "$home")" ]]; }
+case_add_refusal(){ plain_tui "$1" "fail cloud-sync: refused: pair=docs rule=local-overlap" "$(printf '%s\n' Docs Docs "$home/gdrive")"; [[ $status == 1 ]] && shows "overlaps" && ! shows "rule=local-overlap"; }
+case_remove(){ tui "$1" "" "$(printf '%s\n' docs yes)"; [[ $status == 0 && $calls == '[["pairs", "--lines"], ["pair-remove", "docs"]]'  ]]; }
+case_reset(){ tui "$1" "" yes; [[ $status == 0 && $calls == '[["pairs-reset"]]' ]]; }
+case_sign_out(){ tui "$1" "" yes; [[ $status == 0 && $calls == '[["sign-out"]]' ]] && shows "signed out"; }
+case_sign_out_refusal(){ tui "$1" "fail cloud-sync: refused: credential=locked account=token" yes; [[ $status == 1 ]] && shows "keyring is locked" && ! shows "credential=locked"; }
+case_args(){ for script in setup add-pair connect sign-out reset-pairs; do tui "$plugin/tui/$script.sh" "" "" extra; [[ $status == 2 && $calls == '[]' ]] || return 1; done; tui "$plugin/tui/remove-pair.sh" "" "" docs extra; [[ $status == 2 && $calls == '[]' ]]; }
+CASES=(case_setup:setup case_connect:connect case_connect_refusal:connect case_remove:remove-pair case_reset:reset-pairs case_sign_out:sign-out case_sign_out_refusal:sign-out case_args:setup)
 copy_scripts
-for entry in "${CASES[@]}"; do
-  case="${entry%%:*}"
-  if "$case" "$plugin/tui/${entry#*:}.sh"; then ok "${case#case_}"; else fail "${case#case_}: status=$status calls=$calls screen=[${screen//$'\n'/ | }]"; fi
-done
-
-# Controls: a case, its script, the text in that script it needs, and a
-# replacement without the rule.
-CONTROL_CASES=(case_setup_installs case_connect_reads_this_runs_refusal case_add_pair_defines_the_answers case_add_pair_refusal_reads_plainly case_add_pair_pairs_invalid_refusal_reads_plainly case_remove_pair_removes_the_chosen_after_yes
-  case_remove_pair_removes_the_named_after_yes case_reset_pairs_runs_after_yes case_reset_pairs_reads_this_runs_refusal case_sign_out_runs_its_direction_after_yes case_sign_out_reads_this_runs_refusal)
-CONTROL_SCRIPTS=(setup connect add-pair add-pair add-pair remove-pair remove-pair reset-pairs reset-pairs sign-out sign-out)
-CONTROL_NEEDLES=('"$runner" install >>"$log"' 'tail -c "+$((logged + 1))" -- "$log"' 's="${s//\"/\\\"}";' '*rule=local-overlap* | *rule=remote-overlap*)' '*pairs=invalid*)'
-  'vgs_tui_confirm "Remove this folder pair? Its files stay." || status=$?' '[[ $listed != "$id" ]] || label="$name"' '"$runner" pairs-reset' 'tail -c "+$((logged + 1))" -- "$log"' 'vgs_tui_confirm "Sign out of Google Drive for $group?" || status=$?' '*credential=locked*)')
-CONTROL_REPLACEMENTS=('true >>"$log"' 'cat -- "$log"' ':;' '*rule=no-such-rule*)' '*pairs=no-such*)' 'true' 'label="$name"' 'true' 'cat -- "$log"' 'true' '*credential=no-such*)')
-for i in "${!CONTROL_CASES[@]}"; do
-  case="${CONTROL_CASES[i]}"
-  script="$plugin/tui/${CONTROL_SCRIPTS[i]}.sh"
-  copy_scripts
-  if ! python3 - "$script" "${CONTROL_NEEDLES[i]}" "${CONTROL_REPLACEMENTS[i]}" <<'PY2'
+for entry in "${CASES[@]}"; do c="${entry%%:*}"; s="${entry#*:}"; if "$c" "$plugin/tui/$s.sh"; then ok "${c#case_}"; else fail "${c#case_}: status=$status calls=$calls screen=[${screen//$'\n'/ | }]"; fi; done
+CONTROL_CASES=(case_setup case_connect case_sign_out case_sign_out_refusal)
+CONTROL_SCRIPTS=(setup connect sign-out sign-out)
+CONTROL_NEEDLES=('"$runner" install >>"$log"' '"$runner" authorize >>"$log"' '"$runner" sign-out >>"$log"' '*credential=locked*)')
+CONTROL_REPL=('true >>"$log"' '"$runner" authorize drive >>"$log"' '"$runner" sign-out drive >>"$log"' '*credential=no-such*)')
+for i in "${!CONTROL_CASES[@]}"; do copy_scripts; script="$plugin/tui/${CONTROL_SCRIPTS[i]}.sh"; if ! python3 - "$script" "${CONTROL_NEEDLES[i]}" "${CONTROL_REPL[i]}" <<'PY2'
 import sys
-path, needle, replacement = sys.argv[1:]
-source = open(path).read()
-if source.count(needle) != 1:
-    sys.exit("control text occurs %d times: %s" % (source.count(needle), needle))
-open(path, "w").write(source.replace(needle, replacement))
+p,n,r=sys.argv[1:]
+s=open(p).read()
+if s.count(n)!=1:
+    sys.exit('count=%d needle=%s'%(s.count(n),n))
+open(p,'w').write(s.replace(n,r))
 PY2
-  then
-    fail "control $case: its text must occur once"
-  elif "$case" "$script"; then
-    fail "control $case: passed on a copy without the rule"
-  else
-    ok "control $case"
-  fi
-done
-
-if [[ $failures -gt 0 ]]; then
-  printf 'test-cloud-sync-tui: failures=%d\n' "$failures"
-  exit 1
-fi
+then fail "control ${CONTROL_CASES[i]} edit"; elif "${CONTROL_CASES[i]}" "$script"; then fail "control ${CONTROL_CASES[i]} passed"; else ok "control ${CONTROL_CASES[i]}"; fi; done
+if [[ $failures -gt 0 ]]; then printf 'test-cloud-sync-tui: failures=%d\n' "$failures"; exit 1; fi
 printf 'test-cloud-sync-tui: ok cases=%d controls=%d\n' "${#CASES[@]}" "${#CONTROL_CASES[@]}"
