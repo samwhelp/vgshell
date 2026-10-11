@@ -44,7 +44,7 @@
       "info": "Changing this ends the conversation.",
       "items": {
         "brain": { "type": "string", "label": "AI model", "description": "The account or app Jarvis tries next.", "optionsFrom": "brains", "placeholder": "Choose a model" },
-        "model": { "type": "string", "label": "Model", "description": "The model id for this backup. App default lets the app choose.", "presets": [{ "value": "", "label": "App default" }], "allowCustom": true }
+        "model": { "type": "string", "label": "Model", "description": "Empty uses Jarvis's normal default for that app or key.", "presets": [{ "value": "", "label": "Jarvis default" }], "allowCustom": true }
       },
       "defaults": { "brain": "", "model": "" } },
     "home": { "type": "string", "label": "Home folder", "group": "Home",

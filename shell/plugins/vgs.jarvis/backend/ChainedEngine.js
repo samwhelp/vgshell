@@ -87,6 +87,9 @@ function failoverCause(reason) {
     if (/^brain=(harness-exit|harness-ended|copilot-signed-out|(?:codex|copilot|pi)-exited)(?: |$)/.test(reason)) return true;
     return false;
 }
+function endedCause(reason) {
+    return /^brain=(harness-exit|harness-ended|(?:codex|copilot|pi)-exited)(?: |$)/.test(reason);
+}
 
 function providerLabel(provider) {
     return PROVIDERS.find(row => row.id === provider)?.label ?? provider;
@@ -99,7 +102,7 @@ function brainLabel(entry) {
 
 function failoverLine(from, to, resend) {
     const start = from + " is not answering, so I am continuing on " + to + ".";
-    return resend ? start + " It has not heard what we said before." : start + " Please say your request again.";
+    return start + (resend ? " It has not heard what we said before." : " It has not heard what we said before. Please say your request again.");
 }
 
 // A test run's record of what a brain wrote: one {gen, op, text} line for
@@ -360,13 +363,13 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // late holds at most one call: the router runs one action at a time.
         // relay is the held prompt the user's next words answer, or null;
         // retried is that prompt once it was asked again after unjudged words.
-        const c = { gen, plan: activePlan, entry: 0, recipients, net, speech: null, brain: null, guidance: null, owner: null, grants: [], heard: null, relay: null, retried: null,
+        const c = { gen, plan: activePlan, entry: 0, recipients, net, speech: null, liveOpen: null, brain: null, guidance: null, owner: null, grants: [], heard: null, relay: null, retried: null,
             decisions: new Set(), releasePending: null, late: new Map(), results: [], turn: null, last: null,
             feedback: null, collection: null, unbound: null, rev: 0, quiet: Promise.resolve(), live: null };
         try {
             if (plan.speech.id === "openai-realtime") {
                 c.live = Realtime.create({ provider: plan.speech.provider, clock, captionLimit,
-                    log, conversation: e => ({ net, key: plan.speech.key, language: LANGUAGE,
+                    log, conversation: e => ({ net: c.net, key: plan.speech.key, language: LANGUAGE,
                         grants: () => c.grants, transfer: (item, start) => transfer(c, e, item, start) }) });
                 c.speech = { close: () => c.live.port.release() };
             } else {
@@ -393,10 +396,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         const c = conversation;
         if (c === null) return;
         conversation = null;
-        if (c.releasePending !== null) {
-            c.releasePending.resolve(false);
-            c.releasePending = null;
-        }
+        cancelRelease(c);
         c.grants.length = 0;
         c.decisions.clear();
         // A task line the ending conversation cut off, by stop, lock, a
@@ -415,6 +415,11 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         if (c.plan.speech.lifetime !== "daemon") c.speech.close();
         c.net.close();
         retired = { gen: c.gen, closed: quiet };
+    }
+    function cancelRelease(c) {
+        if (c.releasePending === null) return;
+        c.releasePending.resolve(false);
+        c.releasePending = null;
     }
     function collecting(c, collection) {
         return collection !== null && session.live(state(), { gen: c.gen, op: collection.op }, "turn", ["collecting"]);
@@ -618,12 +623,19 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         c.entry += 1;
         if (c.entry >= c.plan.entries.length) return null;
         c.plan.brain = c.plan.entries[c.entry];
+        cancelRelease(c);
+        c.late.clear();
+        c.results = [];
+        c.heard = null;
         if (c.brain !== null) {
             const brain = c.brain;
             c.brain = null;
             await brain.cancel();
             brain.close();
         }
+        cancelRelease(c);
+        if (conversation !== c) return null;
+        if (c.live !== null && c.liveOpen !== null) c.live.port.release();
         c.net.close();
         c.grants.length = 0;
         c.decisions.clear();
@@ -633,6 +645,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         c.net = Net.create(c.recipients);
         c.guidance = null;
         c.owner = null;
+        if (c.live !== null && c.liveOpen !== null) c.live.port.open(c.liveOpen.e, c.liveOpen.events);
         return { from: brainLabel(old), to: brainLabel(c.plan.brain) };
     }
 
@@ -724,7 +737,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         record(c, identity, needed, "ask");
         let resolve;
         const answered = new Promise(done => { resolve = done; });
-        c.releasePending = { id, labels: needed, identity, resolve };
+        c.releasePending = { id, labels: needed, identity, recipients: c.recipients, resolve };
         dispatch({ type: "approval", gen: identity.gen, op: identity.op, purpose: "release", id, digest,
             text, physical: false, tool: "release", timeoutMs: session.RESPONSE_TIMEOUT_MS, cancellable: false });
         // A router outcome can request this while the runner drains effects.
@@ -747,7 +760,12 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             pending.resolve(false);
             return;
         }
-        const grant = { recipients: c.recipients, labels: pending.labels };
+        if (pending.recipients !== c.recipients) {
+            c.releasePending = null;
+            pending.resolve(false);
+            return;
+        }
+        const grant = { recipients: pending.recipients, labels: pending.labels };
         const result = audit.before({ ...releaseEvent(c, pending.identity, pending.labels,
             accepted ? "send" : "withhold", "pending"), confirmed: accepted ? e.confirmed === "voice" ? "voice" : "physical" : "none" }, () => {
             for (const label of pending.labels) c.decisions.add(label);
@@ -784,6 +802,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 const event = step.value;
                 switch (event.kind) {
                 case "text":
+                    if (event.text !== "") turn.replyStarted = true;
                     brainText?.write(turn, event.text);
                     // Only a sentence for speech ends the wait the working
                     // sound covers: text Speakable keeps silent, as before a
@@ -819,12 +838,21 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             fail("brain-unfinished");
         } catch (error) {
             const reason = keyed(error);
-            if (!turn.stopped && failoverCause(reason) && c.entry + 1 < c.plan.entries.length) {
-                const resend = turn.calls.length === 0 && !turn.speaking && typeof turn.resendText === "string";
-                const switched = await switchBrain(c);
-                if (switched !== null && conversation === c) {
-                    if (!openBrain(c, turn.owner, turn.done)) return;
-                    turn.labels = new Set();
+            if (!turn.stopped && failoverCause(reason) && !(endedCause(reason) && turn.replyStarted) && c.entry + 1 < c.plan.entries.length) {
+                const resend = !turn.routed && !turn.speaking && typeof turn.resendText === "string";
+                let switched = await switchBrain(c);
+                while (switched !== null && !turn.stopped && conversation === c) {
+                    try {
+                        if (!openBrain(c, turn.owner, turn.done)) return;
+                    } catch (openError) {
+                        if (c.entry + 1 >= c.plan.entries.length) {
+                            failed(c, turn, openError);
+                            return;
+                        }
+                        switched = await switchBrain(c);
+                        continue;
+                    }
+                    turn.labels.add("desktop");
                     quiet(turn);
                     say(c, turn, failoverLine(switched.from, switched.to, resend), ["desktop"]);
                     if (resend) {
@@ -839,6 +867,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                     }
                     return;
                 }
+                return;
             }
             failed(c, turn, error);
         }
@@ -1002,7 +1031,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (c.turn !== null) fail("brain-busy");
             const turn = { gen: e.gen, op: e.op, done, labels: new Set(), speech: null, stopped: false, speaking: false, delegation: e.delegation,
                 feedbackTimer: null, relay: null,
-                phase: "queued", calls: [], answers: new Map(), routing: null, caption: "", resendText: e.text, owner: e.owner };
+                phase: "queued", calls: [], answers: new Map(), routing: null, caption: "", resendText: e.text, owner: e.owner,
+                routed: false, replyStarted: false };
             if (e.text.trim() === "") {
                 done("brain-done");
                 return;
@@ -1040,7 +1070,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             const routing = turn.phase === "routing";
             // A queued or relay turn owns no adapter request. Its prior cancellation
             // still blocks the next turn and this cancellation's acknowledgement.
-            c.quiet = (turn.phase === "queued" || turn.phase === "relay" ? c.quiet : c.brain.cancel()).then(() => {
+            c.quiet = (turn.phase === "queued" || turn.phase === "relay" || c.brain === null ? c.quiet : c.brain.cancel()).then(() => {
                 // Every call in history gets an answer, so the next request is
                 // valid. A running call's real outcome follows on a later turn.
                 if (routing && c.brain !== null) c.brain.record({ kind: "tool-results", results: turn.calls.map(call => {
@@ -1053,6 +1083,11 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 }) });
                 done();
             });
+        },
+        routed(e) {
+            const c = conversation;
+            const turn = c?.turn;
+            if (turn !== null && turn !== undefined && turn.gen === e.gen && turn.op === e.op) turn.routed = true;
         },
         close(e) {
             const c = conversation;
@@ -1242,8 +1277,15 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             return current === null ? "" : brainLabel(current);
         },
         speech: {
-            open(e, events) { current(e.gen).live.port.open(e, events); },
-            close(e) { conversation?.live?.port.close(e); },
+            open(e, events) {
+                const c = current(e.gen);
+                c.liveOpen = { e, events };
+                c.live.port.open(e, events);
+            },
+            close(e) {
+                if (conversation?.liveOpen?.e?.op === e.target) conversation.liveOpen = null;
+                conversation?.live?.port.close(e);
+            },
             flush(e) {
                 const c = conversation;
                 if (c === null || c.live === null) return;

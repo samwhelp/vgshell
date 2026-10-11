@@ -458,7 +458,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     const router = ToolRouter.create({ session: Session, state: () => runner.state,
                         dispatch: event => runner.dispatch(event), audit,
                         context: () => ({ profile: profile(), locked: context.locked, get denied() { return deniedOrNull(); } }),
-                        result: value => gate.deliver(value) || bridge.deliver(value) || runner.ports.brain.outcome(value) });
+                        result: value => gate.deliver(value) || bridge.deliver(value) || runner.ports.brain.outcome(value),
+                        routed: turn => engine?.brain.routed(turn) });
                     // A harness brain opens the bridge's session for its conversation;
                     // until one is selected no socket exists.
                     bridge = ToolBridge.create({ router, state: () => runner.state, audit,

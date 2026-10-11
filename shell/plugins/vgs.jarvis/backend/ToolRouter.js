@@ -52,7 +52,7 @@ function sentence(call, scope) {
  * final is false only for a timeout whose actual completion is still to come.
  * A generation change clears grants. Each new turn starts with clean taint.
  */
-function create({ session, state, dispatch, context, audit, result }) {
+function create({ session, state, dispatch, context, audit, result, routed = () => {} }) {
     const registry = new Map();
     let pending = null;
     let grants = new Set();
@@ -260,6 +260,7 @@ function create({ session, state, dispatch, context, audit, result }) {
         const id = crypto.randomUUID();
         value.id = id;
         pending = value;
+        routed(turn);
         const proposal = { gen: turn.gen, op: turn.op, id, tool: value.call.id,
             timeoutMs: value.executor.timeoutMs, cancellable: value.executor.cancellable };
         switch (decision.kind) {

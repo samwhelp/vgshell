@@ -87,7 +87,7 @@ function rig(kit, server, options = {}) {
             home: process.env.HOME, config: process.env.XDG_CONFIG_HOME, data: process.env.XDG_DATA_HOME,
             state: process.env.XDG_STATE_HOME, runtime: process.env.XDG_RUNTIME_DIR, install: kit.folder, accountRoots: [], jarvisHome: null
         }) : null }),
-        result: value => runner.ports.brain.outcome(value) });
+        result: value => runner.ports.brain.outcome(value), routed: turn => engine?.brain.routed(turn) });
     Object.assign(ports, router.ports);
     // The callback stands in for a command-ready executor; it never starts hyprctl.
     router.register("compositor", { commands: ["hyprctl"], timeoutMs: 30000, cancellable: false, start(call, done) {
@@ -102,6 +102,10 @@ function rig(kit, server, options = {}) {
     router.register("vision", { commands: ["grim"], timeoutMs: 30000, cancellable: false, start(call, done) {
         executions.push(call);
         done({ outcome: "completed", content: "screen text", image: { type: "image/png", bytes: PNG } });
+    } });
+    router.register("harness", { commands: [], timeoutMs: 30000, cancellable: false, start(call, done) {
+        executions.push(call);
+        done({ outcome: "completed", content: "harness acted" });
     } });
     // The action approval case uses an inert executor, with no process.
     if (options.actionApproval) router.register("sandbox", { commands: ["bwrap"], timeoutMs: 30000,
@@ -147,7 +151,7 @@ function rig(kit, server, options = {}) {
         const file = path.join(state, "audit/2026-10-01.jsonl");
         return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
     };
-    return { runner, audio, audioClock, engine, audit, faults, executions, held, partials, captions, rows, configure,
+    return { runner, router, audio, audioClock, engine, audit, faults, executions, held, partials, captions, rows, configure,
         state, workspace, server, advanceRunner, writes, timers, tasks,
         s: () => runner.state,
         async close() {
@@ -246,13 +250,21 @@ function statusBrain(port, behavior) {
         requests.push(request.url);
         request.resume();
         const behavior = queue.length > 1 ? queue.shift() : queue[0];
+        const send = async () => {
+            if (behavior.wait !== undefined) await behavior.wait;
+            return true;
+        };
         if (behavior.kind === "status") {
-            response.writeHead(behavior.status, { "content-type": "application/json" });
-            response.end("{}");
+            void send().then(() => {
+                response.writeHead(behavior.status, { "content-type": "application/json" });
+                response.end("{}");
+            });
         } else if (behavior.kind === "frames") {
-            response.writeHead(200, { "content-type": "text/event-stream" });
-            for (const frame of behavior.frames) response.write(Frames.encode(frame, "failover"));
-            response.end();
+            void send().then(() => {
+                response.writeHead(200, { "content-type": "text/event-stream" });
+                for (const frame of behavior.frames) response.write(Frames.encode(frame, "failover"));
+                response.end();
+            });
         } else if (behavior.kind === "stream-failed") {
             response.writeHead(200, { "content-type": "text/event-stream" });
             response.write("data: ");
@@ -783,22 +795,46 @@ async function cases(kit, server, only = null) {
     }, { accounts: failoverAccounts(), fallbacks: [{ name: "backup", brain: "backup", model: "backup-model" }] });
 
     await run("failover-after-tool-asks-repeat", async w => {
-        const primary = statusBrain(8080, [
-            { kind: "frames", frames: calls({ id: "focus", name: "windows_focus", arguments: { window: "0x1f" } }) },
-            { kind: "status", status: 403 }
-        ]);
+        const held = gate();
+        const primary = statusBrain(8080, { kind: "status", status: 403, wait: held.wait });
         await primary.ready;
         const first = await say(w, utterance("Use the tool."));
         try {
-            await until(() => w.executions.length === 1, "tool routes before failure");
+            await until(() => primary.requests.length === 1, "primary request starts");
+            const routed = w.router.route({ kind: "tool-call", id: "wire-call", tool: "windows.focus", arguments: { window: "0x1f" } },
+                { gen: w.s().gen, op: w.s().turn.op });
+            assert.notEqual(routed.kind, "refuse", "tool route is accepted");
+            held.open();
             await until(() => w.s().turn.kind === "none", "tool failover line ends the turn");
             await playOut(w);
             await until(() => control.spoken.length >= 1, "repeat line is spoken");
             const line = control.spoken[0].includes("Please say") ? control.spoken[0] : control.spoken.slice(0, 2).join(" ");
-            assert.equal(line, "llama-server primary-model is not answering, so I am continuing on Ollama backup-model. Please say your request again.");
+            assert.equal(line, "llama-server primary-model is not answering, so I am continuing on Ollama backup-model. It has not heard what we said before. Please say your request again.");
             assert.equal(server.requests.length, first, "request is not resent after a tool ran");
         } finally { await primary.close(); }
     }, { accounts: failoverAccounts(), fallbacks: [{ name: "backup", brain: "backup", model: "backup-model" }] });
+
+    for (const [name, request, options] of [
+        ["failover-after-bridge-call-asks-repeat", { kind: "tool-call", id: "bridge-call", tool: "windows.focus", arguments: { window: "0x1f" } }, {}],
+        ["failover-after-harness-approval-asks-repeat", { kind: "approval", id: "harness-approval", tool: "harness.files",
+            arguments: { write: [path.join(process.env.HOME, "workspace-file")], move: [], remove: [], diff: "fixture" } }, { actionApproval: true }]
+    ]) await run(name, async w => {
+        const held = gate();
+        const primary = statusBrain(8080, { kind: "status", status: 429, wait: held.wait });
+        await primary.ready;
+        try {
+            const before = await say(w, utterance("Run once."));
+            await until(() => primary.requests.length === 1, "primary request starts");
+            const routed = w.router.route(request, { gen: w.s().gen, op: w.s().turn.op });
+            assert.notEqual(routed.kind, "refuse", "action route is accepted: " + JSON.stringify(routed));
+            held.open();
+            await until(() => w.s().turn.kind === "none", "failover repeat line ends the turn");
+            await playOut(w);
+            const line = control.spoken[0].includes("Please say") ? control.spoken[0] : control.spoken.slice(0, 2).join(" ");
+            assert.equal(line, "llama-server primary-model is not answering, so I am continuing on Ollama backup-model. It has not heard what we said before. Please say your request again.");
+            assert.equal(server.requests.length, before, "backup does not receive a request after a routed action");
+        } finally { await primary.close(); }
+    }, { accounts: failoverAccounts(), fallbacks: [{ name: "backup", brain: "backup", model: "backup-model" }], ...options });
 
     await run("feedback-start", async w => {
         w.runner.dispatch({ type: "talk-down" });
