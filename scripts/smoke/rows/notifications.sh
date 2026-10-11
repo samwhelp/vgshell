@@ -4462,21 +4462,25 @@ print(json.dumps([sys.argv[1] in (h.get("apps") or []), comm, ppid == sys.argv[2
     devices_pid[wireplumber]="$spawn_pid"
   }
   # The service copied the script and wrote the fragment when it first
-  # started, at the top of this row, and asked the systemctl stand-in,
-  # which answers no restart, to restart WirePlumber once; every later
-  # start at that version, and the row starts it many times before this
-  # part, asks none.
+  # started and asked the systemctl stand-in, which answers no restart, to
+  # restart WirePlumber once for that version. A row before this one that
+  # finds no saved notifications removes their state directory, the
+  # marker with it (harness.sh notes_off), so a run counts one restart per
+  # such row, and a start that finds the marker asks none: the row starts
+  # the service many times before this part. The counts below are against
+  # the run's count when this part starts.
   expect_poll "the service copies the shipped script into WirePlumber's user scripts" same rule_copied
   expect "the sound rule's fragment names that copy" "\"$rule_copy\"" rule_fragment name
   rule_version="$(rule_fragment version)"
   expect "the fragment carries an eight-digit version" True python3 -c 'import re,sys; print(bool(re.fullmatch(r"\"[0-9a-f]{8}\"", sys.argv[1])))' "$rule_version"
-  expect_poll "the service asked one restart of WirePlumber" 1 rule_restarts
+  rule_base="$(rule_restarts)" || rule_base=0
+  expect "the service asked WirePlumber's restart in this run" True python3 -c 'import sys; print(int(sys.argv[1]) >= 1)' "$rule_base"
   expect_poll "a later start at that version asks none" '"refused"' rule_phase
-  expect "disabling the service before its second start is allowed" ok ipc shell setPluginEnabled vgs.notifications false
-  expect_poll "the service is gone before its second start" False record_exists vgs.notifications
+  expect "disabling the service before its next start is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+  expect_poll "the service is gone before its next start" False record_exists vgs.notifications
   expect "enabling the service at the same version is allowed" ok ipc shell setPluginEnabled vgs.notifications true
-  expect_poll "a second start at the same version asks no restart" '"refused"' rule_phase
-  expect "the second start's restarts" 1 rule_restarts
+  expect_poll "the next start at the same version asks no restart" '"refused"' rule_phase
+  expect "the next start's restarts" "$rule_base" rule_restarts
   # A new version finds no marker for it: the row removes the marker and
   # lets the stand-in answer the restart, which the row then makes on the
   # private WirePlumber itself while the service waits for the rule.
@@ -4485,7 +4489,7 @@ print(json.dumps([sys.argv[1] in (h.get("apps") or []), comm, ppid == sys.argv[2
   rm -f -- "${home:?}/.local/state/vgshell/notifications/sound-rule-restarted"
   device_reply systemctl 0 "" --user restart wireplumber.service
   expect "enabling the service for a new version is allowed" ok ipc shell setPluginEnabled vgs.notifications true
-  expect_poll "the service asks WirePlumber's restart for the new version" 2 rule_restarts
+  expect_poll "the service asks WirePlumber's restart for the new version" "$((rule_base + 1))" rule_restarts
   rule_wireplumber_restart
   expect_poll "WirePlumber runs the rule at the shell's version" "$rule_version" rule_meta version
   expect_poll "the service reads the rule running" '"running"' rule_phase
@@ -4493,7 +4497,7 @@ print(json.dumps([sys.argv[1] in (h.get("apps") or []), comm, ppid == sys.argv[2
   expect_poll "the service is gone with the rule running" False record_exists vgs.notifications
   expect "enabling the service with the rule running is allowed" ok ipc shell setPluginEnabled vgs.notifications true
   expect_poll "a start with the rule running reads it running" '"running"' rule_phase
-  expect "a start with the rule running asks no restart" 2 rule_restarts
+  expect "a start with the rule running asks no restart" "$((rule_base + 1))" rule_restarts
   device_reply_clear systemctl
   expect "with Sound on and Do Not Disturb off the rule holds nothing" null rule_meta hold
   # The chime's own level, read with nothing armed and nothing muted.
