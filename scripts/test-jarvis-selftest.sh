@@ -999,14 +999,16 @@ events = [{"kind": "widget", "at": 900, "value": "ready"}, {"kind": "phase", "at
           caption(1100, "user", "what time", "partial")]
 if sys.argv[2] == "final":
     events.append(caption(1200, "user", "What time is it?", "final"))
-events.append({"kind": "widget", "at": 1250, "value": "working"})
+events += [{"kind": "widget", "at": 1250, "value": "working"}, {"kind": "phase", "at": 1250, "value": "thinking"},
+           {"kind": "phase", "at": 1900, "value": "speaking"}]
 if sys.argv[3] == "sentences":
     events += [caption(2000, "assistant", "It is noon.", "partial"), caption(2500, "assistant", "It is noon. Anything else?", "partial")]
 else:
     events += [caption(2000 + 100 * i, "assistant", text, "partial")
                for i, text in enumerate(["It", "It is", "It is noon.", "It is noon. Any", "It is noon. Anything", "It is noon. Anything else?"])]
 events += [caption(2600, "assistant", "It is noon. Anything else?", "final"),
-           caption(3000, "assistant", "It is noon.", "partial"), {"kind": "widget", "at": 3100, "value": "ready"}]
+           caption(3000, "assistant", "It is noon.", "partial"), {"kind": "widget", "at": 3100, "value": "ready"},
+           {"kind": "phase", "at": 3100, "value": "idle"}]
 json.dump(events, open(sys.argv[1], "w"))
 PY
 }
@@ -1035,6 +1037,7 @@ want = {"input": {"kind": "wav", "value": "/voice.wav"}, "brain": "cli:b", "home
                   {"tool": "shell.argv", "decision": "confirm", "confirmed": "physical", "outcome": "completed"}],
         "mailbox": [],
         "widget": [{"ms": -100, "state": "ready"}, {"ms": 40, "state": "listening"}, {"ms": 250, "state": "working"}, {"ms": 2100, "state": "ready"}],
+        "phases": [{"ms": -100, "phase": "idle"}, {"ms": 250, "phase": "thinking"}, {"ms": 900, "phase": "speaking"}, {"ms": 2100, "phase": "idle"}],
         "audio": {"speechEndMs": 200, "firstMs": 350, "longestGapMs": 120, "sounds": [[50, 130], [550, 900]]},
         "end": {"kind": "completed", "phase": "idle", "fault": None}, "passed": True}
 got = json.load(open(sys.argv[1]))
@@ -1062,7 +1065,7 @@ not_passed() { # "END KEPT USER_FINAL"
   planted_trace "$final"
   [[ "$(record "$end" "$kept")" == failed && "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["passed"])' "$tmp/record.json")" == False ]]
 }
-holds "the record holds the heard text, each released sentence, each turn's brain text, each tool call's names, the widget states and the end" record_holds
+holds "the record holds the heard text, each released sentence, each turn's brain text, each tool call's names, the widget states, the Session phases and the end" record_holds
 holds "the record holds no argument of a tool call" names_only
 holds "the record holds each row the mailbox read printed, whole" mailbox_rows
 holds "a run with no home folder records no mailbox" mailbox_none
@@ -1070,6 +1073,7 @@ holds "the realtime voice's record holds each caption segment whole, timed at it
 for row in "${failed_rows[@]}"; do holds "a record for [$row] is not marked passed" not_passed "$row"; done
 control cut_functions "a record that keeps the audit record whole" 'tools.append({key: row[key] for key in ("tool", "decision", "confirmed", "outcome")})' 'tools.append(row)' names_only
 control cut_functions "a record that drops the brain's own text" '"raw": raw,' '"raw": [],' record_holds
+control cut_functions "a record that drops the Session phases" 'for e in events if e["kind"] == "phase" and e["value"]],' 'for e in events if False],' record_holds
 control cut_functions "a record that reads two turns' brain text as one" '    if (row["gen"], row["op"]) != turn:' '    if turn is None:' record_holds
 control cut_functions "a record that drops the mailbox rows" '[json.loads(line) for line in mailbox.splitlines()] if home' '[] if home' mailbox_rows
 control cut_functions "a record that lists a mailbox for a run with no home folder" ' if home else None,' ',' mailbox_none

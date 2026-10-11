@@ -93,7 +93,8 @@
 # (each audit record of a tool call as {tool, decision, confirmed, outcome},
 # names only), `mailbox` (with --home, each row the Jarvis session's read of
 # its mailbox hands over after the turn, as lane-mail prints it; null
-# without), `widget` (each bar widget state as {ms, state}), `audio`
+# without), `widget` (each bar widget state as {ms, state}), `phases` (each
+# Session phase as {ms, phase}), `audio`
 # {speechEndMs, firstMs, longestGapMs, sounds}, `end` {kind, phase, fault}
 # and `passed`. A suite comparison adds `case.source`: `case` for the tracked
 # input or `local` for --voices. Every ms counts from the input's start on the shell's own
@@ -632,6 +633,7 @@ record = {"input": {"kind": kind, "value": value}, "brain": brain, "home": home 
           "mode": mode, "confirm": confirm, "heard": heard, "sentences": sentences, "raw": raw, "tools": tools,
           "mailbox": [json.loads(line) for line in mailbox.splitlines()] if home else None,
           "widget": [{"ms": e["at"] - start, "state": e["value"]} for e in events if e["kind"] == "widget" and e["value"]],
+          "phases": [{"ms": e["at"] - start, "phase": e["value"]} for e in events if e["kind"] == "phase" and e["value"]],
           "audio": audio, "end": {"kind": end, "phase": phase, "fault": fault or None}, "passed": passed}
 with open(out + ".next", "w") as file:
     json.dump(record, file, indent=2, ensure_ascii=False)

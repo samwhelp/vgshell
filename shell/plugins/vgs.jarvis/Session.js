@@ -23,7 +23,7 @@ var EVENTS = [
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
     "final", "say", "collect-failed", "brain-done", "brain-failed", "brain-ended", "cancelled", "play", "played",
     "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "deadline", "lease-ended",
-    "speak", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "wake"
+    "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "wake"
 ];
 
 function initial() {
@@ -46,7 +46,9 @@ function phaseOf(s) {
     if (s.fault.kind !== "none") return "error";
     if (s.approval.kind === "held") return "confirming";
     if (s.action.kind === "running") return "acting";
-    if (s.playback.kind === "playing") return "speaking";
+    // A duplex reply speaks from the moment its words go to the voice, as a
+    // chained reply does from its play, before the voice's first audio.
+    if (s.playback.kind === "playing" || s.speech.kind === "open" && s.speech.reply.kind === "due") return "speaking";
     if (s.turn.kind === "thinking" || s.turn.kind === "cancelling") return "thinking";
     if (s.capture.kind === "open" && s.capture.mode !== "armed") return "listening";
     if (s.capture.kind === "open") return "armed";
@@ -547,6 +549,8 @@ function reduce(state, e) {
             if (s.engine.kind !== "duplex" || !live(s, e, "speech", ["open"]) || !canEngage(s)) { stale(s); break; }
             cancelTurn(s, effects, e.at);
             dropApproval(s, effects, "replaced", e.at);
+            // A new request drops the words the voice held for the old one.
+            if (s.speech.reply.kind === "due") s.speech.reply = { kind: "none" };
             if (s.conversation.kind === "interrupted") s.conversation = { kind: "active" };
             think(s, effects, { text: e.text, delegation: e.id }, e.at);
         } else {
@@ -723,6 +727,10 @@ function reduce(state, e) {
         if (s.conversation.kind === "interrupted") s.conversation = { kind: "active" };
         s.speech.reply = { kind: "waiting" };
         break;
+    case "speech-due":
+        if (!live(s, e, "speech", ["open"])) { stale(s); break; }
+        if (s.speech.reply.kind === "none") s.speech.reply = { kind: "due" };
+        break;
     case "transcript":
         // The duplex session captions both speakers; a chained thinking turn
         // captions only the words it released for speech.
@@ -816,7 +824,7 @@ function validate(s) {
                             || (r[f].deadline !== null && (!Number.isFinite(r[f].deadline) || r[f].deadline < 0))) return false;
                     continue;
                 }
-                if (!exact(r[f], ["kind"]) || ["none", "waiting"].indexOf(r[f].kind) === -1) return false;
+                if (!exact(r[f], ["kind"]) || ["none", "waiting", "due"].indexOf(r[f].kind) === -1) return false;
                 if (region === "playback" && r[f].kind !== "none") return false;
             } else if (f === "limit") {
                 if (r[f] === null || typeof r[f] !== "object") return false;

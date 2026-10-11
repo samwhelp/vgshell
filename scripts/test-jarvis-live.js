@@ -620,6 +620,22 @@ world(async () => {
     }
 
     // Each spoken frame is judged under its sentence's source labels.
+    // The brain's words wait at the voice for their first audio: the reply
+    // shows as speaking from the words on, and an open reply carries more.
+    async function replyDue(kit) {
+        const { w, conn } = await conversing(kit);
+        assert.deepEqual([w.state.turn.kind, w.phase], ["none", "idle"], "the brain's turn has ended with no words");
+        assert.equal(say(w, "It is noon."), true);
+        assert.deepEqual([w.state.speech.reply.kind, w.state.playback.kind, w.phase], ["due", "idle", "speaking"],
+            "words with no reply to carry them are due");
+        await conn.event(SPEAK);
+        conn.play("reply-old");
+        await until(() => w.state.playback.kind === "playing", "the first audio starts the reply");
+        assert.deepEqual([w.state.speech.reply.kind, w.phase], ["none", "speaking"]);
+        assert.equal(say(w, "Anything else?"), true);
+        assert.equal(w.state.speech.reply.kind, "none", "the open reply carries later words");
+    }
+
     async function labels(kit) {
         const { w, conn } = await conversing(kit);
         const before = w.judged.length;
@@ -1365,7 +1381,7 @@ world(async () => {
     }
 
     const cases = { roundTrip, idle, idleRestarts, idleTurn, idleThinking, idleApproval, closing, captions, interruptPlaying,
-        interruptQueued, replacedReply, heardAccount, labels, failures, unread, redirect,
+        interruptQueued, replacedReply, heardAccount, replyDue, labels, failures, unread, redirect,
         startTimeout, responseTimeout, keys, opening, releaseLifetime, pacing, replyQueue, backlog, delegation, violations,
         daemonDelegation, daemonStale: kit => daemonDelegation(kit, "stale"), daemonRelease: kit => daemonDelegation(kit, "release"),
         daemonReplacement: kit => daemonDelegation(kit, "replacement"), daemonInterrupt: kit => daemonDelegation(kit, "interrupt"),
@@ -1396,6 +1412,9 @@ world(async () => {
             ["exact-words", '+ "\\n\\n" + JSON.stringify(words.text)', '+ "\\n\\n" + JSON.stringify("")', as("roundTrip")],
             ["voice-guidance", 'instructions: session.reader + "\\n\\n" + JSON.stringify(words.text)', "instructions: JSON.stringify(words.text)", as("roundTrip")],
             ["frame-labels", "}, [words.item]);", "});", as("labels")],
+            ["reply-due", "session.events.due();", "", as("replyDue")],
+            ["reply-due-carried", 'if (session.next === null && !(session.playing !== null && session.playing.kind === "open")) session.events.due();',
+                "session.events.due();", as("replyDue")],
             ["delegation-dispatch", "session.events.delegation({ id: event.item, text: clean(event.text) });", "void event;", as("delegation")],
             ["blank-turn", 'if (event.text.trim() === "") break;', "", as("delegation")],
             ["stale-delegation", " || session.delegation !== id) return false;", ") return false;", as("delegation")],

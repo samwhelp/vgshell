@@ -487,6 +487,9 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             session.speech.chars += prefix.length;
             session.speech.queue.push({ text: prefix, item });
         }
+        // The first audio of these words raises speak; until then the session
+        // shows the reply as due. A waiting or open reply carries them.
+        if (session.next === null && !(session.playing !== null && session.playing.kind === "open")) session.events.due();
         speak(session);
         return true;
     }

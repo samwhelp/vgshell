@@ -303,6 +303,20 @@ for (const causes of [[], ["speech=local-not-set-up"], ["brain=unselected"], ["s
     ["home=link", "speech=local-not-set-up", "brain=unselected"], ["guidance=home-too-large", "brain=unselected"]])
     assert.equal(JSON.stringify(Protocol.accept(changed(status, { causes }), "daemon").causes), JSON.stringify(causes));
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(state), "daemon")), JSON.stringify(state));
+// A duplex reply whose words wait at the voice for their first audio.
+const dueState = (() => {
+    const Session = Protocol.Session;
+    let s = Session.initial();
+    for (const e of [{ type: "snapshot", locked: false, engine: "duplex", configured: true, settings: {} },
+        { type: "indicator", shown: true }, { type: "talk-down" }])
+        s = Session.reduce(s, { at: 1, ...e }).state;
+    s = Session.reduce(s, { type: "speech-due", at: 2, gen: s.speech.gen, op: s.speech.op }).state;
+    assert.equal(s.speech.reply.kind, "due");
+    return { ...state, gen: s.gen, state: JSON.parse(JSON.stringify(s)), phase: Session.phaseOf(s) };
+})();
+assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(dueState), "daemon")), JSON.stringify(dueState), "a due reply is a wire state");
+rejected(Protocol, ["state-speech-reply", JSON.stringify({ ...dueState, state: { ...dueState.state, speech: { ...dueState.state.speech, reply: { kind: "coming" } } } }),
+    "daemon", "state"]);
 for (const name of ["talk-down", "talk-up", "mute", "stop"])
     assert.equal(Protocol.accept(changed(intent, { intent: name }), "shell").intent, name);
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(say), "shell")), JSON.stringify(say));

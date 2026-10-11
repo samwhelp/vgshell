@@ -123,6 +123,20 @@ const tests = [
         assert.equal(w.runner.state.stale, stale + 1);
         assert.equal(w.calls.filter(value => value.name === "send").length, 1);
     }],
+    ["speech-due-identity", impl => {
+        const w = world(impl);
+        w.dispatch("snapshot", { locked: false, engine: "duplex", configured: true, settings: {} });
+        w.dispatch("talk-down");
+        w.pending.open();
+        w.pending.speech.delegation({ id: "fixture", text: "transcript context" });
+        w.pending.speech.due();
+        assert.equal(w.runner.state.speech.reply.kind, "due", "the voice's due words reach the session");
+        assert.equal(w.published.at(-1).phase, "speaking");
+        w.dispatch("stop");
+        const stale = w.runner.state.stale;
+        w.pending.speech.due();
+        assert.equal(w.runner.state.stale, stale + 1, "a closed session's due words are stale");
+    }],
     ["speech-deadlines", impl => {
         const w = world(impl);
         w.dispatch("talk-down");
@@ -427,6 +441,7 @@ let controls = 0;
 try {
     const mutants = [
         ["delegation-identity", 'delegation: task => done("delegation", task),', 'delegation: task => done("delegation", { ...task, id: "changed" }),', "delegation-identity"],
+        ["speech-due", 'due: () => done("speech-due"),', "due: () => {},", "speech-due-identity"],
         ["speech-deadline-scheduling", 'this.state.playback, ', '', "speech-deadlines"],
         ["durable-mute", 'if (effect.kind === "mute-store") this.consume(effect);',
             'if (false) this.consume(effect);', "durable-mute"],
