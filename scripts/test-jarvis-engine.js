@@ -1293,6 +1293,24 @@ async function cases(kit, server, only = null) {
         await playOut(w);
     });
 
+    // A fast call that did not act hands the same words to the brain, with
+    // its account: the rig has no media executor, so the router refuses.
+    await run("fast-path-refused", async w => {
+        const first = await say(w, utterance("Please mute the sound."));
+        const body = await requested(w, first + 1, "the brain gets the words the fast call could not serve");
+        const said = user(body);
+        assert.equal(said.length, 1);
+        assert.ok(said[0].startsWith("[done without you] The user said \"Please mute the sound.\". Jarvis ran media.mute "
+            + "{\"muted\":true} with no model call, which ended cancelled: "), said[0]);
+        assert.ok(said[0].endsWith("\n\nPlease mute the sound."), said[0]);
+        assert.deepEqual(w.rows().filter(row => row.kind === "action").map(row => [row.tool, row.decision, row.outcome, row.proposer]),
+            [["media.mute", "refuse", "cancelled", "matcher"]]);
+        server.replies.push(text("I cannot reach the sound here."));
+        await until(() => w.s().playback.kind === "playing", "the brain's reply speaks");
+        await playOut(w);
+        assert.deepEqual(control.spoken, ["I cannot reach the sound here."], "no fast line before the brain's");
+    });
+
     // A fast call still running when the user speaks again reports its real
     // outcome to the brain's next request.
     await run("fast-path-interrupted", async w => {
@@ -1306,8 +1324,8 @@ async function cases(kit, server, only = null) {
         w.runner.dispatch({ type: "talk-up" });
         server.replies.push(text("Waiting."));
         const body = await requested(w, first + 1, "the request after the interruption");
-        assert.deepEqual(user(body), ["[late result] Your interrupted call workspaces.focus ended completed: workspace shown late\n\nWait."],
-            "the real outcome reaches the next request, with no heard prefix");
+        assert.deepEqual(user(body), [FAST_ACCOUNT.replace("focused undefined", "workspace shown late") + "\n\nWait."],
+            "the real outcome reaches the next request as the fast call's, with no heard prefix");
         await until(() => w.s().playback.kind === "playing", "the brain's reply speaks");
         await playOut(w);
         assert.deepEqual(w.faults, []);
@@ -2415,8 +2433,10 @@ world(async () => {
             ["interrupted-answers", "if (routing && c.brain !== null) c.brain.record(", "if (false) c.brain.record(", "stale-outcome"],
             ["not-started", 'return router.interrupted(call, "not-started");', 'return router.interrupted(call, "running");', "stale-outcome"],
             ["late-result", "c.results.push(lateItem(late.call, value.outcome, item));", "void lateItem;", "stale-outcome"],
-            ["fast-match", "const call = Tools.match(e.text);", "const call = null;", "fast-path"],
-            ["fast-account", "c.results.push(Policy.summary(\"[done without you]", "void ((\"[done without you]", "fast-path"],
+            ["fast-match", "? null : Tools.match(e.text);", "? null : null;", "fast-path"],
+            ["fast-account", "c.results.push(fastAccount(turn.fast.e.text, call, outcome, item));", "", "fast-path"],
+            ["fast-fallthrough", "if (!Object.hasOwn(FAST_LINES, outcome)) {", "if (false) {", "fast-path-refused"],
+            ["fast-late-account", "if (late.fast !== undefined) c.results.push(", "if (false) c.results.push(", "fast-path-interrupted"],
             ["fast-proposer", ', proposer: "matcher" };', " };", "fast-path"],
             ["fast-heard", "        if (turn.fast !== undefined) return;\n", "", "fast-path-barge-in"],
             ["fast-late", 'if (turn.phase === "fast" && turn.routing !== null) c.late.set(', "if (false) c.late.set(", "fast-path-interrupted"],

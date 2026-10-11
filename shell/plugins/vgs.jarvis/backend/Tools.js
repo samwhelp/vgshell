@@ -54,7 +54,8 @@ const sha256 = { type: "string", pattern: "^[0-9a-f]{64}$(?![\\s\\S])" };
 // Each row owns its argument shape, effect, executor, requirement and output
 // source. Executors may add a row only with a test and a real consumer.
 // heard lists the short commands match() maps to the row with no model
-// call: [phrases, args] pairs. A phrase is whole normalized words, where
+// call: [phrases, args] pairs. No phrase is one word alone, which can
+// answer a question Jarvis asked rather than ask for an action. A phrase is whole normalized words, where
 // {n} is a number and {name} one word; an args value "{n}" becomes that
 // number and "{name}" in a value becomes that word.
 const TABLE = {
@@ -94,12 +95,12 @@ const TABLE = {
     "input.scroll": { sentence: "Scroll {direction} by {steps} at {x}, {y}", effect: "input", executor: "input", command: "wlrctl", alternatives: ["ydotool"], schema: { x: integer, y: integer, direction: oneOf(["up", "down", "left", "right"]), steps: { ...positive, maximum: 100 } }, input: "pointer" },
     "clipboard.read": { sentence: "Read the clipboard", effect: "read", executor: "clipboard", command: "wl-paste", schema: {}, source: "clipboard" },
     "clipboard.write": { sentence: "Write clipboard text {text}", effect: "reversible", executor: "clipboard", command: "wl-copy", schema: { text: text } },
-    "media.play": { sentence: "Play media", effect: "reversible", executor: "media", command: "playerctl", schema: {}, heard: [[["play the music", "play music", "resume the music", "resume"], {}]] },
-    "media.pause": { sentence: "Pause media", effect: "reversible", executor: "media", command: "playerctl", schema: {}, heard: [[["pause the music", "pause music", "pause"], {}]] },
-    "media.next": { sentence: "Play the next media item", effect: "reversible", executor: "media", command: "playerctl", schema: {}, heard: [[["play the next track", "next track", "play the next song", "next song", "skip this song", "skip"], {}]] },
-    "media.volumeStep": { sentence: "Turn the volume {direction}", effect: "reversible", executor: "media", command: "wpctl", schema: { direction: oneOf(["up", "down"]) }, heard: [[["turn the volume up", "turn up the volume", "volume up", "louder"], { direction: "up" }], [["turn the volume down", "turn down the volume", "volume down", "quieter"], { direction: "down" }]] },
+    "media.play": { sentence: "Play media", effect: "reversible", executor: "media", command: "playerctl", schema: {}, heard: [[["play the music", "play music", "resume the music"], {}]] },
+    "media.pause": { sentence: "Pause media", effect: "reversible", executor: "media", command: "playerctl", schema: {}, heard: [[["pause the music", "pause music"], {}]] },
+    "media.next": { sentence: "Play the next media item", effect: "reversible", executor: "media", command: "playerctl", schema: {}, heard: [[["play the next track", "next track", "play the next song", "next song", "skip this song"], {}]] },
+    "media.volumeStep": { sentence: "Turn the volume {direction}", effect: "reversible", executor: "media", command: "wpctl", schema: { direction: oneOf(["up", "down"]) }, heard: [[["turn the volume up", "turn up the volume", "volume up"], { direction: "up" }], [["turn the volume down", "turn down the volume", "volume down"], { direction: "down" }]] },
     "media.volume": { sentence: "Set volume to {value}", effect: "reversible", executor: "media", command: "wpctl", schema: { value: { type: "number", minimum: 0, maximum: 1 } } },
-    "media.mute": { sentence: "Set media mute to {muted}", effect: "reversible", executor: "media", command: "wpctl", schema: { muted: bool }, heard: [[["mute the sound", "mute the audio", "mute"], { muted: true }], [["unmute the sound", "unmute the audio", "unmute"], { muted: false }]] },
+    "media.mute": { sentence: "Set media mute to {muted}", effect: "reversible", executor: "media", command: "wpctl", schema: { muted: bool }, heard: [[["mute the sound", "mute the audio"], { muted: true }], [["unmute the sound", "unmute the audio"], { muted: false }]] },
     // 1% is the floor: 0% darkens some panels completely.
     "media.brightness": { sentence: "Set brightness to {value}", effect: "reversible", executor: "media", command: "brightnessctl", schema: { value: { type: "integer", minimum: 1, maximum: 100 } } },
     "notify.notification": { sentence: "Show notification {title}: {body}", effect: "reversible", executor: "notify", command: "notify-send", schema: { title: text, body: text } },

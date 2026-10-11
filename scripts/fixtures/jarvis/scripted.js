@@ -101,7 +101,8 @@ function ports(root, engine, state) {
                 if (chained) engine.brain.close(e);
                 else waiting.delete("brain");
             },
-            outcome: e => record("tool-outcome", e)
+            // The chained plan's engine answers its own turn's results.
+            outcome: e => { record("tool-outcome", e); if (chained) engine.brain.outcome(e); }
         },
         playback: {
             start: (e, done) => {

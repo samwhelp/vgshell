@@ -331,9 +331,9 @@ expect_poll "the second fast turn ends" none jd_session turn
 jd_fast_install 'import sys
 from pathlib import Path
 p = Path(sys.argv[1]); s = p.read_text()
-needle = "const call = Tools.match(e.text);"
+needle = "? null : Tools.match(e.text);"
 assert s.count(needle) == 1
-p.write_text(s.replace(needle, "const call = null;"))'
+p.write_text(s.replace(needle, "? null : null;"))'
 jd_control_count="$( (failures=0 row_class=behaviour; jd_fast "Please go to workspace three." 3 >"$sandbox/jarvis-desktop-fast-control.log"; echo "$failures") )"
 expect "control: an engine without the matcher fails the fast path once" 1 printf '%s' "$jd_control_count"
 expect "the control's waiting turn stops" ok ipc vgs.jarvis invoke stop ""

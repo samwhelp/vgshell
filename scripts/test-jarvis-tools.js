@@ -425,7 +425,9 @@ world(() => {
     // than a short command, and a number the row refuses: the brain's.
     const unmatched = ["Knew'd the sound.", "Next try", "Next, \"trash\"", "Pours the music,", "Turned the volume up,",
         "Bow to workspace three.", "Turn the volume up to 80 percent.", "Close this window and open the terminal.",
-        "Go to workspace zero.", "Focus Chromium and Firefox.", "", "   ", 7, null];
+        "Go to workspace zero.", "Focus Chromium and Firefox.", "", "   ", 7, null,
+        // One word can answer a question Jarvis asked.
+        "Skip.", "Pause.", "Mute.", "Resume.", "Louder."];
     const matching = logic => {
         for (const [text, call] of heard) assert.deepEqual(logic.match(text), call, "match " + text);
         for (const text of unmatched) assert.equal(logic.match(text), null, "no match " + JSON.stringify(text));
@@ -438,7 +440,7 @@ world(() => {
     control("match-refined", 'return refine(call).kind === "call" ? call : null;', "return call;", matching);
     // Phrases of two rows match the same words: neither row is taken.
     const mediaPause = toolsSource.split("\n").find(line => line.trim().startsWith('"media.pause": {'));
-    const twoRows = [mediaPause, mediaPause.replace('"pause"]', '"pause", "skip this song"]')];
+    const twoRows = [mediaPause, mediaPause.replace('"pause music"]', '"pause music", "skip this song"]')];
     mutant(file, "match-two-rows", [twoRows], null, logic => assert.deepEqual(logic.match("Skip this song."), { id: "media.next", args: {} }));
     controls++;
     control("match-one-row", [twoRows, ["if (calls.size !== 1) return null;", "if (calls.size === 0) return null;"]], null,
