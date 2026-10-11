@@ -151,11 +151,27 @@ replaced_binary() { # PATH
   echo "$(basename -- "$0" .sh): replaced-binary=never-ran path=$1" >&2
   exit 1
 }
-# Whether process PID runs, a zombie counting as ended.
+# Whether process PID runs. A zombie counts as ended, and so does a process
+# with SIGKILL pending, which runs none of its own code again: under load
+# it can wait for a CPU to exit after the process that waited for it has
+# returned, as timeout(1)'s child does when the --kill-after SIGKILL ends
+# timeout with its group.
 proc_live() { # PID
-  local state
-  state="$(ps -o stat= -p "$1")" || return 1
-  [[ $state != Z* ]]
+  local status
+  status="$(cat -- "/proc/$1/status" 2>/dev/null)" || return 1
+  status_live "$status"
+}
+# status_live STATUS_TEXT: proc_live's reading of /proc/<pid>/status text.
+# SIGKILL is signal 9, bit 0x100 of the pending masks; a signal sent to a
+# process group pends in ShdPnd.
+status_live() { # STATUS_TEXT
+  local key value
+  while IFS=$' \t' read -r key value _; do
+    case $key in
+      State:) [[ $value != [ZX] ]] || return 1 ;;
+      SigPnd: | ShdPnd:) ((!(16#$value & 0x100))) || return 1 ;;
+    esac
+  done <<<"$1"
 }
 # stop_run SIGNAL ARGS...: vgshell (INST_BIN) against $cfg with the stand-in
 # git first on PATH, in a session of its own as the Updates check starts

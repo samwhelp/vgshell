@@ -98,6 +98,9 @@ err_is() { [[ "$(cat -- "$tmp/err")" == "$1" ]]; }
 log_is() { [[ "$(cat -- "$log")" == "$1" ]] || { printf 'log: [%s]\nwant: [%s]\n' "$(cat -- "$log")" "$1" >"$tmp/why"; return 1; }; }
 log_has() { grep -qxF -- "$1" "$log"; }
 lines() { printf '%s\n' "$@"; }
+# why STEP: add STEP and the latest req's status, stdout and stderr to the
+# row's failure detail.
+why() { printf 'step=[%s] status=%s out=[%s] err=[%s]\n' "$1" "$status" "$(cat -- "$tmp/out")" "$(cat -- "$tmp/err")" >>"$tmp/why"; }
 rescans() { grep -cxF "qs [ipc] [--pid] [$$] [call] [shell] [rescanPlugins]" "$log" || true; }
 
 check "every command a row elevates, installs or reaches the shell with is a stub" \
@@ -205,14 +208,14 @@ row_requirements_json() {
 row_doctor() {
   req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/needs.git"
   REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- doctor --json
-  [[ $status == 0 ]] && json_is "$tmp/out" '"acme.needs" not in d["plugins"]' || return 1
+  [[ $status == 0 ]] && json_is "$tmp/out" '"acme.needs" not in d["plugins"]' || { why "doctor --json, acme.needs disabled"; return 1; }
   printf '{ "version": 1, "plugins": [ { "id": "acme.needs" } ] }\n' >"$2/vgshell/shell.json"
   REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- doctor --json
-  [[ $status == 0 ]] && json_is "$tmp/out" '[r["state"] for r in d["plugins"]["acme.needs"]] == ["missing"] * 7 and {r["name"]: r["state"] for r in d["core"]}["node"] == "present" and {r["name"]: r["state"] for r in d["core"]}["git"] == "missing" and {r["name"]: r["package"] for r in d["core"]}["python3"] == {"manager": "pacman", "name": "python"}' || return 1
+  [[ $status == 0 ]] && json_is "$tmp/out" '[r["state"] for r in d["plugins"]["acme.needs"]] == ["missing"] * 7 and {r["name"]: r["state"] for r in d["core"]}["node"] == "present" and {r["name"]: r["state"] for r in d["core"]}["git"] == "missing" and {r["name"]: r["package"] for r in d["core"]}["python3"] == {"manager": "pacman", "name": "python"}' || { why "doctor --json, acme.needs enabled"; return 1; }
   REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- doctor
   [[ $status == 0 ]] && err_is "" && out_has "acme.needs missing vgs-need-two (need-two): Second" \
     && out_has "acme.needs missing git (git): Present" && grep -qx "core present node (nodejs): .*" "$tmp/out" \
-    && grep -qx "core missing git (git): .*" "$tmp/out" && grep -qx "core missing gum (gum): .*" "$tmp/out"
+    && grep -qx "core missing git (git): .*" "$tmp/out" && grep -qx "core missing gum (gum): .*" "$tmp/out" || { why "doctor, acme.needs enabled"; return 1; }
 }
 # The session line: a hand-started session, graphical-session.target
 # inactive, reads as a missing uwsm-managed session that names what breaks

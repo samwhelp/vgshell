@@ -138,13 +138,14 @@ inst "plugin outdated --json with an argument is exit 2" "$cfg" "$rt_empty" 2 ""
 # The transport: ssh remotes answered by a stub ssh first on PATH, which
 # records what ssh would consult before it prompts: the prompt setting git
 # hands it, whether it may run an askpass, and whether it can open a
-# terminal. It then fails, after 12 s for the slow host.
+# terminal. It then fails, for the slow host only after 12 s, recording its
+# pid before the sleep and ssh.answered after it.
 ssh_stub() { # DIR
   mkdir -p "$1"
   printf '%s\n' '#!/bin/sh' \
     'if (: </dev/tty) 2>/dev/null; then tty=yes; else tty=no; fi' \
     'printf "prompt=%s require=%s tty=%s\n" "${GIT_TERMINAL_PROMPT-unset}" "${SSH_ASKPASS_REQUIRE-unset}" "$tty" >>"$0.record"' \
-    'case "$*" in *slow.invalid*) sleep 12 ;; esac' \
+    'case "$*" in *slow.invalid*) printf "%s\n" "$$" >"$0.slow.pid"; sleep 12; : >"$0.answered" ;; esac' \
     'exit 1' >"$1/ssh"
   chmod +x "$1/ssh"
 }
@@ -157,16 +158,30 @@ job_checkout() { # CFG NAME
   inst "add installs acme.$2" "$1" "$tmp/rt-empty" 0 "shell=not-running" "" plugin add --yes "$shared_tmp/src/$2.git" >/dev/null
   ((failures == before)) || { echo "test-vgshell-outdated: fixture=plugin-add id=acme.$2" >&2; cat -- "$tmp/err" >&2; exit 1; }
 }
+# How the slow host's stub at STUB ended: `answered` once its sleep
+# completed, `stopped` when a signal ended it first, `running` or
+# `never-ran`. A stub nothing stopped answers 12 s after it starts; the
+# wait for its end gives up after 150 polls of 0.1 s, a hang guard past
+# that answer, not a bound any row measures.
+slow_stub_end() { # STUB
+  local pid
+  pid="$(cat -- "$1/ssh.slow.pid" 2>/dev/null)" || { echo never-ran; return; }
+  for _ in $(seq 1 150); do
+    proc_live "$pid" || break
+    sleep 0.1
+  done
+  if proc_live "$pid"; then echo running
+  elif [[ -e $1/ssh.answered ]]; then echo answered
+  else echo stopped; fi
+}
 slow_timeout_row() {
-  local cfg="$tmp/cfg-slow-timeout" stub="$tmp/ssh-stub" started
+  local cfg="$tmp/cfg-slow-timeout" stub="$tmp/ssh-stub"
   ssh_stub "$stub"
   job_checkout "$cfg" slow
   g -C "$cfg/vgshell/plugins/acme.slow" remote set-url origin ssh://slow.invalid/slow.git
-  # Real waits: the timeout is production's fixed 10 s, and the stub answers
-  # the slow host after 12 s.
-  started=$SECONDS
+  # A real wait: the timeout is production's fixed 10 s.
   INST_PATH="$stub:$base_path" inst "a fetch the timeout ends is an error row" "$cfg" "$tmp/rt-empty" 0 "acme.slow error=fetch=acme.slow timeout=10s" "$any_out" plugin outdated
-  check "the timeout ends the fetch before the remote answers" test $((SECONDS - started)) -lt 12
+  check "the timeout ends the fetch before the remote answers" test "$(slow_stub_end "$stub")" == stopped
 }
 slow_untimed_control() {
   local cfg="$tmp/cfg-slow-untimed" stub="$tmp/ssh-stub"
@@ -175,6 +190,7 @@ slow_untimed_control() {
   g -C "$cfg/vgshell/plugins/acme.slow" remote set-url origin ssh://slow.invalid/slow.git
   tree_control untimed bin/vgshell 'timeout --kill-after="$outdated_kill_grace" "$outdated_fetch_timeout" ' ''
   INST_PATH="$stub:$base_path" INST_BIN="$THEME_BIN" inst "the untimed mutant waits for the remote's failure" "$cfg" "$tmp/rt-empty" 0 "acme.slow error=fetch=acme.slow" "$any_out" plugin outdated
+  check "the untimed mutant's remote answers" test "$(slow_stub_end "$stub")" == answered
   unset THEME_BIN
 }
 stop_signal_row() { # SIGNAL WANT_EXIT
@@ -216,7 +232,8 @@ stop_deaf10_row() {
   stop_git deaf 10
   stop_run TERM plugin outdated --json
   check "TERM ends plugin outdated with exit 143 when the fetch ignores TERM" test "$stop_status" == 143
-  check "the kill grace ends a fetch that ignores TERM before its own end" test "$stop_ended/$stop_alive" == no/no
+  check "the kill grace ends a fetch that ignores TERM before its own end" test "$stop_ended" == no
+  check "no fetch process that ignores TERM outlives plugin outdated" test "$stop_alive" == no
 }
 stop_graceless_control() {
   local cfg="$tmp/cfg-stop-graceless"
@@ -255,6 +272,25 @@ row_job slow_untimed_control
 # only once it ended and exits 128 plus the signal, printing no report.
 # The stand-in fetch takes 2 s to end on TERM, so a verb that did not wait
 # returns before its end.
+# The stop rows read a process as ended through proc_live: a zombie, or a
+# process with SIGKILL pending, alone or for its group, which a CPU under
+# load may not yet have let exit. Rows: want|State|SigPnd|ShdPnd, the
+# second with TERM pending alone.
+status_row() { # WANT STATE SIGPND SHDPND
+  local got=ended
+  status_live "$(printf 'Name:\tgit\nState:\t%s\nSigPnd:\t%s\nShdPnd:\t%s\n' "$2" "$3" "$4")" && got=live
+  [[ $got == "$1" ]]
+}
+for row in \
+  "live|R (running)|0000000000000000|0000000000000000" \
+  "live|S (sleeping)|0000000000004000|0000000000004000" \
+  "ended|R (running)|0000000000000000|0000000000000100" \
+  "ended|R (running)|0000000000000100|0000000000000000" \
+  "ended|Z (zombie)|0000000000000000|0000000000000000"; do
+  IFS='|' read -r want state sigpnd shdpnd <<<"$row"
+  check "a process in state $state with SigPnd=$sigpnd ShdPnd=$shdpnd reads as $want" status_row "$want" "$state" "$sigpnd" "$shdpnd"
+done
+
 cfg="$tmp/cfg-stop"
 inst "add installs acme.stop" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/stop.git"
 row_job stop_signal_row TERM 143
