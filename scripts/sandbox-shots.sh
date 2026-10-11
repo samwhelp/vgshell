@@ -72,8 +72,10 @@
 # one, taken only when named; jarvis-setup is the Jarvis page's row
 # actions with its daemon ready, as the settings scene readies it: the
 # Settings tab's Setup section, then the Details tab at its Browser driver
-# line and at its AI model section, each anchor 12 px under the page's top,
-# taken only when named; outdated is the Jarvis page over a stand-in
+# line and at its AI model section, then the Settings tab at its AI model
+# fields with two backup models planted where the tree ships them, each
+# anchor 12 px under the page's top, taken only when named; outdated is the
+# Jarvis page over a stand-in
 # agent-browser and a stand-in Pi that each answer a version below the
 # floor Jarvis holds them to, Pi chosen as the AI model: the Details tab
 # at its Browser driver line and at the driver's line of its Requirements
@@ -2548,6 +2550,9 @@ scene_jarvis-setup() { # MODE
   expect_poll "the Jarvis page shows Settings" 0 settings_tab
   expect_poll "the Jarvis Setup section draws its rows" True jarvis_setup_drawn
   jarvis_anchor_shot "jarvis-setup-$1" SectionHeader Setup
+  jarvis_backups plant
+  jarvis_anchor_shot "jarvis-settings-$1-model" SectionHeader "AI model"
+  jarvis_backups clear
   settings_close
   expect "disabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
   expect_poll "vgs.jarvis is gone" absent ipc smoke jarvisProcess
@@ -2684,6 +2689,52 @@ outdated_notice_back() {
   [[ $(recorded) != absent && $(key_idle core/requirements-update) == idle && $(layer_count vgs:notice) == 1 ]] || { echo waiting; return; }
   ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["notices"]["shown"]; print("back" if s is not None and not s["installing"] else "waiting")'
 }
+# jarvis_backups plant|clear: write the Jarvis backup model list in
+# shell.json only for a tree that ships the setting, then reload it.
+jarvis_backups() {
+  local config="$home/.config/vgshell/shell.json" ids
+  [[ $1 == plant || $1 == clear ]] || fail "unknown Jarvis backup model action: $1"
+  grep -q '"fallbacks"' "$repo/shell/plugins/vgs.jarvis/manifest.json" || return 0
+  if [[ $1 == plant ]]; then
+    ids="$(env -i PATH="$sandbox/outdated-no-path" HOME="$home" XDG_STATE_HOME="$home/.local/state" XDG_CONFIG_HOME="$home/.config" \
+      XDG_DATA_HOME="$home/.local/share" "$node_bin" "$repo/shell/plugins/vgs.jarvis/backend/accounts.js" --tree "$repo" list |
+      py_reply 'import json,sys; rows=json.load(sys.stdin); print("\n".join(row["id"] for row in rows[:2]))')" ||
+      fail "the account helper lists no backup model ids"
+    [[ $(printf '%s\n' "$ids" | sed '/^$/d' | wc -l) -ge 2 ]] || fail "the account helper listed fewer than two backup model ids"
+  fi
+  python3 - "$config" "$1" ${ids:+$ids} <<'PY' || fail "the Jarvis backup model setting is not written"
+import json, os, re, sys
+config, action, *ids = sys.argv[1:]
+value = json.load(open(config)) if os.path.exists(config) else {"version": 1}
+row = next((r for r in value.setdefault("plugins", []) if r["id"] == "vgs.jarvis"), None)
+if row is None:
+    row = {"id": "vgs.jarvis"}
+    value["plugins"].append(row)
+if action == "plant":
+    fallbacks = [{"name": f"backup-{i + 1}", "brain": ids[i], "model": ""} for i in range(2)]
+    name_pattern = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+    if any(not name_pattern.match(item["name"]) for item in fallbacks):
+        raise SystemExit("name-pattern")
+    row["fallbacks"] = fallbacks
+else:
+    row.pop("fallbacks", None)
+open(config, "w").write(json.dumps(value))
+PY
+  "$node_bin" - "$repo" "$config" <<'NODE' || fail "the Jarvis backup model list does not fit the manifest"
+const fs = require("fs");
+const path = require("path");
+const { load } = require(path.join(process.argv[2], "bin/lib/qml-library.js"));
+const logic = load(path.join(process.argv[2], "shell/Core/PluginLogic.js"));
+const manifest = JSON.parse(fs.readFileSync(path.join(process.argv[2], "shell/plugins/vgs.jarvis/manifest.json"), "utf8"));
+const config = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+const row = config.plugins.find(entry => entry.id === "vgs.jarvis") || {};
+const value = Object.prototype.hasOwnProperty.call(row, "fallbacks") ? row.fallbacks : [];
+const refused = logic.settingRefusal(manifest, "fallbacks", value);
+if (refused !== "") { console.error(refused); process.exit(1); }
+NODE
+  expect "the Jarvis backup model setting is delivered" ok ipc shell reloadConfig
+}
+
 # outdated_brain CONFIG BRAIN: the Jarvis AI model setting in the user's
 # shell.json, "" for none, delivered by a reload.
 outdated_brain() {
