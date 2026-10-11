@@ -183,11 +183,26 @@ expect "control: a guard that never restores leaves the trial's token held and n
 mv -f -- "$repo/bin/vgshell-display-guard.good" "$repo/bin/vgshell-display-guard"
 release_mode "display modes control restores $output" "$output" "$base" 1
 
-# Use this display: the headless output stays on, so the main one may go
-# off; the layer turns it off only while another output is on. While the
-# main output is off and no other is left, Hyprland lists FALLBACK, and
-# Quickshell 0.3.1 warns when it goes, since it never tracked it.
-expected_errors+=('WARN quickshell\.hyprland\.ipc: Got removal for monitor "FALLBACK" which was not previously tracked\.')
+# The row turns $output off and on within one Quickshell j/monitors round
+# trip. Quickshell 0.3.1 HyprlandIpc::refreshMonitors in
+# src/wayland/hyprland/ipc/connection.cpp can apply a monitors answer
+# older than the events, drop $output from its list, and warn at the row's
+# next removal of it. Nothing else is lost; the next refresh lists it
+# again. When the main output is off and no other is left, Hyprland lists
+# FALLBACK, and Quickshell warns when FALLBACK goes because it never
+# tracked it.
+display_modes_output_regex_safe() { [[ $output =~ ^[A-Za-z0-9_-]+$ ]] && echo yes || echo no; }
+expect "the output name is regex-safe for the warning excuse" yes display_modes_output_regex_safe
+expected_errors+=("WARN quickshell\\.hyprland\\.ipc: Got removal for monitor \"(FALLBACK|$output)\" which was not previously tracked\\.")
+display_modes_warning_filter_control() {
+  local log="$sandbox/display-modes-warning-control.log" output_line extra_line got
+  output_line="2026-01-01 00:00:00.000  WARN quickshell.hyprland.ipc: Got removal for monitor \"$output\" which was not previously tracked."
+  extra_line="2026-01-01 00:00:00.000  WARN quickshell.hyprland.ipc: Got removal for monitor \"$extra_output\" which was not previously tracked."
+  printf '%s\n%s\n' "$output_line" "$extra_line" >"$log"
+  got="$(unexpected_log_errors "$log")" || return
+  if [[ $got == "$extra_line" ]]; then echo only-other; elif [[ -z $got ]]; then echo none; else printf '%s\n' "$got"; fi
+}
+expect "control: the same warning for another monitor still fails the log check" only-other display_modes_warning_filter_control
 off_rules="$(off_rule_json "$output" "$base")"
 expect "the off trial starts" ok invoke_displays trialRules "$off_rules"
 expect_poll "the off trial turns $output off" true disabled_of "$output"
@@ -211,6 +226,7 @@ expect "clearing the off rule is allowed" ok invoke_displays clearRules ""
 expect_poll "the layer drops the off rule" no layer_has_rule
 expect "reload drops the off rule" ok hypr reload config-only
 release_mode "display modes restores $output after the off rule" "$output" "$base" 1
+expect_poll "Quickshell's focused monitor is $output again after the off steps" "\"$output\"" ipc smoke readInstance service vgs.displays focusedOutput
 
 # Colour: the nested panel has no EDID, so sRGB is the one colour mode it
 # offers. An sRGB rule at scale 2 goes through trial, Keep and reload with
