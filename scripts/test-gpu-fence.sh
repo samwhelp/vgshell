@@ -730,9 +730,16 @@ entry_words() {
 node_bin="$(node -e 'process.stdout.write(process.execPath)')" || { echo "test-gpu-fence: missing=node" >&2; exit 1; }
 voice_root="$TMP_ROOT/voice/.local/share/vgshell/jarvis/local"
 voxtype_models="$TMP_ROOT/voxtype-models"
+voxtype_builds="$TMP_ROOT/voxtype-builds"
+voxtype_cpuinfo="$TMP_ROOT/cpuinfo"
 mkdir -p "$voice_root/models" "$voice_root/venv/bin" "$TMP_ROOT/voice/.local/state/vgshell/jarvis"
 mkdir -p "$voxtype_models/parakeet-tdt-0.6b-v3"
+mkdir -p "$voxtype_builds"
 echo model >"$voxtype_models/parakeet-tdt-0.6b-v3/model.bin"
+printf '#!/bin/sh\nexit 0\n' >"$voxtype_builds/voxtype-onnx-avx2"
+printf '#!/bin/sh\nexit 0\n' >"$voxtype_builds/voxtype-onnx-avx512"
+chmod +x "$voxtype_builds/voxtype-onnx-avx2" "$voxtype_builds/voxtype-onnx-avx512"
+echo 'flags	: avx2 avx512f' >"$voxtype_cpuinfo"
 printf '#!/bin/sh\nexit 0\n' >"$voice_root/venv/bin/python"
 chmod +x "$voice_root/venv/bin/python"
 echo '{}' >"$TMP_ROOT/voice/.local/state/vgshell/jarvis/local-ready.json"
@@ -747,6 +754,14 @@ entry() {
   rm -rf -- "$tree" "$TMP_ROOT/entry-tmp"
   mkdir -p "$tree/scripts/smoke" "$tree/shell/plugins/vgs.jarvis/backend" "$TMP_ROOT/entry-tmp"
   cp -- "$file" "$tree/scripts/$name"
+  python3 - "$tree/scripts/$name" "$voxtype_builds" "$voxtype_cpuinfo" <<'PY'
+import re, sys
+path, builds, cpuinfo = sys.argv[1:]
+text = open(path).read()
+text = re.sub(r"^selftest_voxtype_builds=.*$", f"selftest_voxtype_builds={builds}", text, count=1, flags=re.M)
+text = re.sub(r"^selftest_cpuinfo=.*$", f"selftest_cpuinfo={cpuinfo}", text, count=1, flags=re.M)
+open(path, "w").write(text)
+PY
   cp -- "$TMP_ROOT/fence-stand-in" "$tree/scripts/smoke/gpu-fence.sh"
   cp -- "$repo/scripts/smoke/rows.list" "$tree/scripts/smoke/rows.list"
   ln -s -- "$repo/config" "$tree/config"
