@@ -178,9 +178,9 @@ def choices(value, reading, ready):
     return {"pick": best, "ready": ready, "choices": offers}
 
 
-def remove_runtime(data):
+def remove_runtime(data, names=RUNTIME):
     """Remove one tier's environment, models and projected lock."""
-    for name in RUNTIME:
+    for name in names:
         path = data / name
         if path.is_dir():
             shutil.rmtree(path)
@@ -211,29 +211,78 @@ def extract(archive, models):
         bundle.extractall(models, filter="data")
 
 
-def identity(judge, tier, data):
-    """Bind readiness to setup sources, fixture, lock and installed runtime bytes.
+def identity_inputs(value, tier):
+    """The manifest fields that select installed bytes for TIER."""
+    artifacts, provider = selected(value, tier)
+    wheel = value["runtimes"]["sherpa-onnx"]["cudaWheel"]
+    runtime = {"python": wheel["python"]}
+    if provider == "cuda":
+        runtime.update(url=wheel["url"], sha256=wheel["sha256"])
+    return {
+        "provider": provider,
+        "artifacts": [
+            {key: artifact[key] for key in ("id", "url", "sha256", "directory")}
+            for artifact in artifacts
+        ],
+        "cudaWheel": runtime,
+    }
 
-    Bytecode caches are derived from the installed sources and vary on import.
-    The interpreter target, venv configuration and all other environment files
-    are inputs. A changed model is checked by the existing local verifier.
+
+def identity(judge, tier, data):
+    """Bind readiness to bytes that decide the installed runtime and models.
+
+    The digest uses selected artifact URLs and hashes, lock and fixture bytes,
+    installed runtime files and the resolved interpreter. Display text and
+    setup code are excluded: each status read still verifies the models, the
+    fixture and the installed runtime identity.
     """
-    sources = ["artifacts.json", "requirements-local.lock", "requirements-local-cpu.lock",
-               "setup-local", "measure-local"]
     value = judge.manifest(HERE / "artifacts.json")
-    sources += [value["fixture"]["audio"], value["fixture"]["transcript"]]
     runtime = data / "venv"
     files = sorted(path for path in runtime.rglob("*")
                    if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc")
     if not files or not (runtime / "bin/python").is_file():
         raise judge.Unavailable("runtime=missing")
     digest = hashlib.sha256()
-    for path, name in [(HERE / name, name) for name in sources] + [
-            (path, "venv/" + str(path.relative_to(runtime))) for path in files]:
+    digest.update(json.dumps(identity_inputs(value, tier), sort_keys=True).encode() + b"\0")
+    hashed_files = [
+        ("requirements-local.lock", HERE / "requirements-local.lock"),
+        ("requirements-local-cpu.lock", HERE / "requirements-local-cpu.lock"),
+        (value["fixture"]["audio"], HERE / value["fixture"]["audio"]),
+        (value["fixture"]["transcript"], HERE / value["fixture"]["transcript"]),
+    ]
+    for name, path in hashed_files + [
+            ("venv/" + str(path.relative_to(runtime)), path) for path in files]:
         digest.update(name.encode() + b"\0" + judge.sha256(path).encode() + b"\0")
     digest.update(str((runtime / "bin/python").resolve()).encode())
     return {"schemaVersion": 1, "tier": tier, "data": str(data.resolve()),
             "inputs": digest.hexdigest()}
+
+
+def reuse(judge, value, models, artifacts):
+    """Keep only selected artifacts the verifier already accepts."""
+    verified = set()
+    keep = set()
+    if not models.is_dir():
+        return verified
+    for artifact in artifacts:
+        try:
+            judge.verify(value, models, [artifact])
+        except (ValueError, OSError, tarfile.TarError, judge.Unavailable):
+            continue
+        verified.add(artifact["id"])
+        keep.add(Path(urlparse(artifact["url"]).path).name)
+        if artifact["directory"] != ".":
+            keep.add(Path(artifact["directory"]).parts[0])
+    for path in models.iterdir():
+        if path.name in keep:
+            continue
+        if path.is_symlink():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink(missing_ok=True)
+    return verified
 
 
 def probe(judge, value, tier, data):
@@ -280,9 +329,10 @@ def install(judge, state, data, tier, reading):
         marker.unlink(missing_ok=True)
         judge.clip(value)
         try:
-            remove_runtime(data)
             models = data / "models"
-            models.mkdir(mode=0o700)
+            verified = reuse(judge, value, models, artifacts)
+            remove_runtime(data, ("venv", "requirements-cuda.lock"))
+            models.mkdir(mode=0o700, exist_ok=True)
             python = data / "venv/bin/python"
             abi = value["runtimes"]["sherpa-onnx"]["cudaWheel"]["python"]
             print("jarvis-setup: step=runtime", flush=True)
@@ -298,6 +348,9 @@ def install(judge, state, data, tier, reading):
             command(["uv", "--no-config", "pip", "sync", "--python", str(python),
                      "--require-hashes", "--only-binary", ":all:", str(requirements)], data)
             for artifact in artifacts:
+                if artifact["id"] in verified:
+                    print(f"jarvis-setup: step=model id={artifact['id']} reused", flush=True)
+                    continue
                 print(f"jarvis-setup: step=model id={artifact['id']}", flush=True)
                 target = models / Path(urlparse(artifact["url"]).path).name
                 download(artifact["url"], target, artifact["sha256"], judge, data)

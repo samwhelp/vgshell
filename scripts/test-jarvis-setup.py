@@ -104,6 +104,9 @@ class Setup(unittest.TestCase):
         path = self.data / "calls.jsonl"
         return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
+    def reset_calls(self):
+        (self.data / "calls.jsonl").write_text("")
+
     def offered(self):
         result = self.run_command("choices")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -202,6 +205,10 @@ class Setup(unittest.TestCase):
                 self.ready()
                 self.config[key] = code
                 self.write_config()
+                if key == "curl_exit":
+                    artifact = next(a for a in self.spec["artifacts"]
+                                    if a["id"] == self.spec["tiers"]["small"]["artifacts"][0])
+                    (self.data / "models" / Path(artifact["url"]).name).unlink()
                 self.install(code)
                 self.not_ready()
                 self.assertFalse((self.state / "local-ready.json").exists())
@@ -232,7 +239,6 @@ class Setup(unittest.TestCase):
     def test_identity_and_controls(self):
         cases = [
             ("requirements-local.lock", "lock"),
-            ("measure-local", "probe"),
             ("venv/installed", "runtime"),
         ]
         for filename, name in cases:
@@ -247,6 +253,76 @@ class Setup(unittest.TestCase):
                 self.ready()
                 path.write_bytes(original)
                 (self.plugin / "setup-local").write_text((PLUGIN / "setup-local").read_text())
+
+    def test_identity_ignores_display_text_and_pins_selected_artifacts(self):
+        self.install()
+        self.ready()
+        artifact = next(a for a in self.spec["artifacts"]
+                        if a["id"] == self.spec["tiers"]["small"]["artifacts"][0])
+        original = json.dumps(self.spec)
+        self.spec["tiers"]["small"]["name"] = "Tiny"
+        self.spec["tiers"]["small"]["description"] = "English, display-only"
+        self.spec["tiers"]["small"]["downloadBytes"] += 1
+        artifact["description"] = "display-only artifact note"
+        (self.plugin / "artifacts.json").write_text(json.dumps(self.spec))
+        self.ready()
+        artifact["url"] = artifact["url"].replace("https://fixture.invalid/", "https://mirror.invalid/")
+        (self.plugin / "artifacts.json").write_text(json.dumps(self.spec))
+        self.not_ready()
+        (self.plugin / "artifacts.json").write_text(original)
+        self.spec = json.loads(original)
+        self.ready()
+        artifact = next(a for a in self.spec["artifacts"]
+                        if a["id"] == self.spec["tiers"]["small"]["artifacts"][0])
+        artifact["sha256"] = "0" * 64
+        (self.plugin / "artifacts.json").write_text(json.dumps(self.spec))
+        self.not_ready()
+        (self.plugin / "artifacts.json").write_text(original)
+        self.spec = json.loads(original)
+        self.mutant("hashed_files = [", 'hashed_files = [("artifacts.json", HERE / "artifacts.json"),')
+        self.install()
+        self.spec["tiers"]["small"]["name"] = "Tiny"
+        self.spec["tiers"]["small"]["description"] = "English, display-only"
+        artifact = next(a for a in self.spec["artifacts"]
+                        if a["id"] == self.spec["tiers"]["small"]["artifacts"][0])
+        artifact["description"] = "display-only artifact note"
+        (self.plugin / "artifacts.json").write_text(json.dumps(self.spec))
+        self.not_ready()
+        (self.plugin / "setup-local").write_text((PLUGIN / "setup-local").read_text())
+        (self.plugin / "artifacts.json").write_text(original)
+        self.spec = json.loads(original)
+        self.install()
+        artifact = next(a for a in self.spec["artifacts"]
+                        if a["id"] == self.spec["tiers"]["small"]["artifacts"][0])
+        artifact["url"] = artifact["url"].replace("https://fixture.invalid/", "https://mirror.invalid/")
+        (self.plugin / "artifacts.json").write_text(json.dumps(self.spec))
+        needle = 'if {key: item for key, item in saved.items() if key != "memory"} != identity(judge, tier, data):'
+        self.mutant(needle, 'if False and ' + needle[3:])
+        self.ready()
+        (self.plugin / "setup-local").write_text((PLUGIN / "setup-local").read_text())
+
+    def test_install_reuses_verified_models_and_redownloads_only_corrupt_model(self):
+        self.install()
+        self.ready()
+        self.reset_calls()
+        self.install()
+        self.ready()
+        self.assertEqual([call[-1] for call in self.calls() if call[0] == "curl"], [])
+        artifact = next(a for a in self.spec["artifacts"]
+                        if a["id"] in self.spec["tiers"]["small"]["artifacts"] and a["directory"] != ".")
+        corrupt = next(iter(artifact["files"]))
+        (self.data / "models" / artifact["directory"] / corrupt).write_text("corrupt model")
+        self.reset_calls()
+        self.install()
+        self.ready()
+        self.assertEqual([call[-1] for call in self.calls() if call[0] == "curl"], [artifact["url"]])
+        self.reset_calls()
+        self.mutant("verified = reuse(judge, value, models, artifacts)",
+                    "verified = set() if reuse(judge, value, models, artifacts) is not None else set()")
+        self.install()
+        expected = [a["url"] for a in self.spec["artifacts"]
+                    if a["id"] in self.spec["tiers"]["small"]["artifacts"]]
+        self.assertEqual(set(call[-1] for call in self.calls() if call[0] == "curl"), set(expected))
 
     def test_changed_during_probe_control(self):
         self.config["change_runtime"] = True
