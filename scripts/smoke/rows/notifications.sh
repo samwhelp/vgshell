@@ -28,7 +28,7 @@
 # already plays: "with Sound off the call is heard" failed, reading silent,
 # and "the chime that opens with the notification is held" failed, the
 # held list naming the call beside the chime until the hold ran out.
-# inputs: scripts/fixtures/notifications/state-v2.json shell/Core/Sounds.qml scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
+# inputs: scripts/fixtures/notifications/state-v3.json shell/Core/Sounds.qml scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 # The app sound part needs the private PipeWire up before Quickshell's
@@ -4440,10 +4440,11 @@ expect "the latency observer slot is free" absent ipc smoke runnerRecord
 expect "notifications stop before the 100-row latency file" ok ipc shell setPluginEnabled vgs.notifications false
 expect_poll "the latency service is gone" False record_exists vgs.notifications
 mkdir -p -- "$home/.local/state/vgshell/notifications"
-python3 - "$repo/scripts/fixtures/notifications/state-v2.json" "$home/.local/state/vgshell/notifications/state.json" "$repo/scripts/smoke/fixtures/theme-image.jpg" <<'PYFIX'
-import json,pathlib,sys,time
-source,target,image=map(pathlib.Path,sys.argv[1:]);v=json.loads(source.read_text())
-v.update(version=3, sound=True, dnd=False, readBefore=0, boot=pathlib.Path('/proc/sys/kernel/random/boot_id').read_text().strip())
+python3 - "$repo/scripts/fixtures/notifications/state-v3.json" "$home/.local/state/vgshell/notifications/state.json" "$repo/scripts/smoke/fixtures/theme-image.jpg" "$repo/shell/plugins/vgs.notifications/NotificationLogic.js" <<'PYFIX'
+import json,pathlib,re,sys,time
+source,target,image,logic=map(pathlib.Path,sys.argv[1:]);v=json.loads(source.read_text())
+version=int(re.search(r'var STATE_VERSION = (\d+);',logic.read_text())[1])
+v.update(version=version, sound=True, dnd=False, readBefore=0, boot=pathlib.Path('/proc/sys/kernel/random/boot_id').read_text().strip())
 shift=int(time.time()*1000)-60000-v['history'][0]['timestamp']
 for row in v['history']:
     row['timestamp']+=shift
@@ -4531,6 +4532,10 @@ Scope {
         if (elapsed > 1000) return;
         const wanted = reading.operation === "inbox" ? 50 : 100;
         if (!panel.opened || panel.rows.length !== wanted || view.height <= 0 || view.width <= 0) return;
+        // Geometry is required once for each operation. The unchanged
+        // workload then needs only timestamps; repeated tree walks would
+        // add observer work to the motion being measured.
+        if (reading.first >= 0) { reading.frames.push(elapsed); return; }
         const pending = [view.contentItem];
         let visible = 0, built = 0, bottom = -Infinity, pendingCards = false;
         while (pending.length > 0) {
@@ -4569,12 +4574,89 @@ Scope {
             reading.firstVisible = visible;
             reading.firstContentHeight = view.contentHeight;
             reading.retained = reading.operation === "open" || keptFace === find(panel, "CardFace");
+            const face = find(panel, "CardFace"), edge = face === null ? null : find(face, "EdgeLight");
+            const edgeFrames = edge === null ? null : Array.from(edge.data || []).find(child => child.frameTime !== undefined && child.running !== undefined);
+            reading.firstAnimations = { edgeRunning: edge !== null && edge.running, edgeVisible: edge !== null && edge.visible,
+                edgeFrameRunning: edgeFrames !== null && edgeFrames !== undefined && edgeFrames.running,
+                motionScale: panel.look.motion.scale, panelHeight: panel.height };
+            reading.firstObserverMs = Date.now() - reading.started - elapsed;
         }
     }
     Connections {
         target: root.frameWindow
         function onFrameSwapped() { root.frame(); }
     }
+    property var geometryReading: null
+    property var geometryPrediction: null
+    function geometrySetup(ctx, arg, done) {
+        const store = find(instance("service"), "Store");
+        const template = Object.assign({}, store.history[0]);
+        const media = store.history.find(entry => entry.image.length > 0).image;
+        const cases = [
+            { summary: "Wrapped summary with enough words to cross the compact media width and continue on the second line", body: "Wrapped body text with enough words to occupy more than one full line in the notification card.", appIcon: "" },
+            { summary: "First summary line\nSecond summary line", body: "First body line\nSecond body line\nThird body line", appIcon: "" },
+            { summary: "Long body", body: Array(30).fill("A notification body that wraps into the available width.").join(" "), appIcon: "" },
+            { summary: "A wrapped image summary with enough words to fill two lines", body: "Image body", image: media },
+            { summary: "Missing icon", body: "No media slot", appIcon: "vgs-smoke-missing-icon" },
+            { app: "Slack", desktopEntry: "slack", summary: "[acme] from Ada Lovelace", body: "A workspace badge with a body that wraps across more than one line in the card." },
+            { app: "Slack", desktopEntry: "slack", summary: "[acme] in launch", body: "ada: ship it :smoke-party: and wrapped text after the custom emoji in this message" },
+            { summary: "Hint media", body: "Body with a hinted icon", hintIcon: "check", appIcon: "" }
+        ];
+        const next = [];
+        const now = Date.now();
+        for (let i = 0; i < 20 + cases.length; ++i) {
+            const values = i < 20 ? { summary: "Geometry filler " + i, body: "Short body" } : cases[i - 20];
+            next.push(Object.assign({}, template, { key: String(now - i) + "-" + (9000 + i), timestamp: now - i,
+                originalId: 9000 + i, app: "Geometry smoke", appIcon: "", desktopEntry: "", image: "", hintIcon: "", read: undefined }, values));
+        }
+        store.clearHistory();
+        store.history = next;
+        store.setReadBefore(0);
+        instance("service").showPanel("inbox");
+        return "ok";
+    }
+    function geometrySlot(item, key) {
+        if (item === null) return null;
+        if (item.payload !== undefined && item.extent !== undefined && item.entry.key === key) return item;
+        for (const child of Array.from(item.children || [])) {
+            if (String(child).startsWith("CardFace")) continue;
+            const found = geometrySlot(child, key);
+            if (found !== null) return found;
+        }
+        return null;
+    }
+    function geometryReveal(ctx, arg, done) {
+        panel = instance("panel");
+        const scroll = find(panel, "CardScroll"), entry = panel.rows[Number(arg)];
+        const slot = geometrySlot(scroll.flickable.contentItem, entry.key);
+        const loader = Array.from(slot.children).find(child => child.item !== undefined);
+        geometryPrediction = { key: entry.key, height: slot.height - panel.look.card.gap, wasOffscreen: loader.item === null };
+        scroll.flickable.contentY = Math.max(0, Math.min(slot.mapToItem(scroll.flickable.contentItem, 0, 0).y - scroll.fadeExtent,
+            scroll.flickable.contentHeight - scroll.flickable.height));
+        return "ok";
+    }
+    function geometryCheck(ctx, arg, done) {
+        panel = instance("panel");
+        const scroll = find(panel, "CardScroll"), entry = panel.rows[Number(arg)];
+        const slot = geometrySlot(scroll.flickable.contentItem, entry.key);
+        const loader = Array.from(slot.children).find(child => child.item !== undefined);
+        if (loader.item === null) return "pending";
+        const face = loader.item, card = face.card;
+        const helper = Array.from(panel.children).find(child => String(child).startsWith("RowMeasure"));
+        const predicted = helper.measure(entry, panel.look, scroll.textColumn);
+        const top = face.mapToItem(scroll.flickable, 0, 0).y;
+        geometryReading = { key: entry.key, summary: entry.summary, before: geometryPrediction,
+            predicted: predicted, actual: card.fullHeight, slotHeight: slot.height,
+            selected: slot.selected, badge: card.showsBadge, title: card.title, segments: card.bodySegments,
+            trayReserve: card.trayReserve, top: top, bottom: top + face.height,
+            contentHeight: scroll.flickable.contentHeight, contentY: scroll.flickable.contentY,
+            matches: slot.height === face.height + panel.look.card.gap
+                && (slot.selected || predicted === card.fullHeight && geometryPrediction.key === entry.key && geometryPrediction.height === card.fullHeight) };
+        if (entry.workspaceIcon.length > 0 && !card.showsBadge) return "pending";
+        if (Number(arg) === 26 && !card.bodySegments.some(segment => segment.image !== undefined)) return "pending";
+        return geometryReading.matches ? "ok" : "pending";
+    }
+    function geometryRecord(ctx, arg, done) { return JSON.stringify(geometryReading); }
     function record() { return reading; }
 }
 QML
@@ -4631,6 +4713,35 @@ if failed:raise SystemExit('notification-panel-latency: failed='+','.join(failed
 PYVERDICT
 mkdir -p -- "$source_repo/tmp/smoke-artifacts"
 cp -R -- "$panel_latency_dir" "$source_repo/tmp/smoke-artifacts/notifications-panel-latency-$(date +%s%N)"
+# The timing workload stays unchanged. These separate view checks compare
+# lightweight offscreen heights with the real cards after native scrolling.
+expect "the mixed geometry workload starts" ok ipc smoke runnerCall geometrySetup ''
+expect_poll "the mixed model has every row" 28 panel_count
+panel_geometry_dir="$panel_latency_dir/geometry"
+mkdir -p -- "$panel_geometry_dir"
+for geometry_theme in dark light; do
+    if [[ $geometry_theme == light ]]; then
+        cp "$repo/themes/catalog/flexoki-light/theme.json" "$home/.config/vgshell/theme.json.next"
+        mv -T -- "$home/.config/vgshell/theme.json.next" "$home/.config/vgshell/theme.json"
+        expect_poll "mixed card heights follow the light theme" flexoki-light ipc smoke themeName
+    fi
+    for geometry_index in 20 21 22 23 24 25 26 27; do
+        expect "the offscreen mixed row scrolls into view" ok ipc smoke runnerCall geometryReveal "$geometry_index"
+        expect_poll "the shared height matches the actual mixed card" ok ipc smoke runnerCall geometryCheck "$geometry_index"
+        ipc smoke runnerCall geometryRecord '' >"$panel_geometry_dir/$geometry_theme-$geometry_index.json"
+    done
+    type_keys -k End || fail "the mixed view did not receive End"
+    expect_poll "End selects the offscreen mixed row" 27 ipc smoke readInstance panel vgs.notifications currentIndex
+    expect_poll "the selected card reserves its action tray and updates its slot" ok ipc smoke runnerCall geometryCheck 27
+    ipc smoke runnerCall geometryRecord '' >"$panel_geometry_dir/$geometry_theme-selected.json"
+    type_keys -k Home || fail "the mixed view did not receive Home"
+    expect_poll "Home returns to the first mixed row" 0 ipc smoke readInstance panel vgs.notifications currentIndex
+    # Let each new theme's next checks start with unselected offscreen cases.
+    expect "the mixed panel closes" ok notes close
+    expect_poll "the mixed panel releases its cards" absent ipc smoke readInstance panel vgs.notifications opened
+    if [[ $geometry_theme == dark ]]; then expect "mixed light view opens" ok notes inbox; expect_poll "mixed light rows render" 28 panel_count; fi
+done
+cp -R -- "$panel_geometry_dir" "$source_repo/tmp/smoke-artifacts/notifications-panel-geometry-$(date +%s%N)"
 expect "the latency observer unloads" ok ipc smoke runnerDrop
 expect "the latency history clears and resets refusal" ok notes clear-history
 # END notification-panel-latency

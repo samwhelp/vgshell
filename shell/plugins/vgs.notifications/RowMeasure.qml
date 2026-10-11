@@ -36,7 +36,11 @@ ColumnLayout {
         const limit = 2 * (Logic.HISTORY_MAX + Logic.LIVE_MAX);
         const sources = Object.keys(imageStates);
         if (sources.length <= limit) return;
-        const used = new Set(entries.flatMap(entry => [entry.workspaceIcon || "", entry.image || iconPath(entry.appIcon || "")]));
+        const used = new Set();
+        for (const entry of entries) {
+            used.add(entry.workspaceIcon || "");
+            used.add(entry.image || iconPath(entry.appIcon || ""));
+        }
         let excess = sources.length - limit;
         for (const source of sources) {
             if (excess <= 0) break;
@@ -49,7 +53,9 @@ ColumnLayout {
         rowCard.showsBadge ? rowCard.look.badge.size + Math.max(0, (titleMetrics.height - rowCard.look.badge.size) / 2) : 0) : 0)
         + (rowCard.singleLine ? 0 : bodyText.implicitHeight)
         + (rowCard.summary.length > 0 && !rowCard.singleLine ? spacing : 0)
-    function fullHeight(mediaHeight) { return Math.max(mediaHeight, measuredHeight) + 2 * rowCard.pad; }
+    // The real card retains its original ColumnLayout height. The hidden
+    // scan uses these same text items at the card's layout widths.
+    function fullHeight(mediaHeight) { return Math.max(mediaHeight, measureOnly ? measuredHeight : implicitHeight) + 2 * rowCard.pad; }
 
     // The model measurer has no layout parent. Set the same widths the
     // card's RowLayout/ColumnLayout give these two text items, then read

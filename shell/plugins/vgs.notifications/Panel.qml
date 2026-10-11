@@ -62,7 +62,7 @@ FocusScope {
         if (indexOfKey(key) === -1 || cached === undefined || cached.height === height) return;
         cached.height = height;
         panelModel.setProperty(indexOfKey(key), "extent", height);
-        Qt.callLater(() => { if (opened) revealRow(currentIndex); });
+        if (key === selectedKey) Qt.callLater(() => { if (opened) revealRow(currentIndex); });
     }
     function restoreRowHeight(key) {
         const cached = measuredRows[key];
@@ -101,6 +101,11 @@ FocusScope {
     property string selectedKey: ""
     property string selectedHoverKey: ""
     property bool opened: false
+    // The host applies this panel's requested size after constructing it.
+    // Build the visible faces after that turn, rather than build a face
+    // for the temporary small viewport and immediately destroy it.
+    property bool initialLayoutReady: false
+    Component.onCompleted: Qt.callLater(() => initialLayoutReady = true)
     property bool refreshing: false
     property int refreshQueuedFor: -1
     property Item initialFocus: list
@@ -557,7 +562,7 @@ FocusScope {
 
                         Loader {
                             id: faceLoader
-                            active: slot.positioned && root.opened && listScroll.flickable.height > 0
+                            active: slot.positioned && root.initialLayoutReady && root.opened && listScroll.flickable.height > 0
                                 && ((slot.viewY + y < listScroll.flickable.height
                                     && slot.viewY + y + slot.height - root.look.card.gap > 0)
                                     || item !== null && item.card.trayReserve > 0)
