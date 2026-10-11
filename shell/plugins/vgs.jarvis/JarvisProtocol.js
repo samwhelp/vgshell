@@ -514,18 +514,24 @@ function accept(line, direction) {
         break;
     case "homes":
         if (direction !== "daemon") fail("direction-homes");
-        keys(message, ["v", "type", "gen", "revision", "homes"], "homes");
+        keys(message, ["v", "type", "gen", "revision", "homes", "current"], "homes");
+        if (typeof message.current !== "string" || message.current !== "" && !/^~\/[^\x00-\x1f\x7f]{1,4096}$/.test(message.current))
+            fail("home-current");
         var values = message.homes;
         if (!Array.isArray(values) || values.length > 10) fail("home-choices");
         var seen = {};
         for (var choice of values) {
-            keys(choice, ["label", "value"], "home-choice");
+            keys(choice, ["id", "label", "value"], "home-choice");
+            // Home.js uses a stable path hash, a subset of MENU_ID_PATTERN.
+            if (typeof choice.id !== "string" || !/^h[0-9a-f]{12}$/.test(choice.id)) fail("home-id");
             // Mirrors PluginLogic status choice caps: STATUS_LABEL_MAX and STATUS_TEXT_MAX.
             if (typeof choice.label !== "string" || !/^[^\x00-\x1f\x7f]{1,60}$/.test(choice.label)
                     || typeof choice.value !== "string" || !/^~\/[^\x00-\x1f\x7f]{1,200}$/.test(choice.value))
                 fail("home-choice");
             if (Object.prototype.hasOwnProperty.call(seen, choice.value)) fail("home-duplicate");
             Object.defineProperty(seen, choice.value, { value: true });
+            if (Object.prototype.hasOwnProperty.call(seen, choice.id)) fail("home-id-duplicate");
+            Object.defineProperty(seen, choice.id, { value: true });
         }
         break;
     case "level":

@@ -139,6 +139,26 @@ jarvis_key_resting_control() {
 jarvis_shortcuts() {
   hypr globalshortcuts | python3 -c 'import json,re,sys; print(json.dumps(sorted(set(re.findall(r"vgs\.jarvis:[A-Za-z0-9_.-]+", sys.stdin.read())))))'
 }
+# Compare the exact shipped binding and menu shortcut IDs at their owner.
+jarvis_shipped_shortcuts() {
+  python3 - "$repo/shell/plugins/vgs.jarvis/manifest.json" <<'PYSHORTCUTS'
+import json,sys
+manifest=json.load(open(sys.argv[1]))
+binds=manifest["hyprland"]["binds"]
+names={bind["shortcut"] for bind in binds}
+names.update(bind["shortcut"]+".release" for bind in binds if bind.get("hold") is True)
+names.update(row["shortcut"] for row in manifest["menu"].values())
+print(json.dumps(sorted(manifest["id"]+":"+name for name in names)))
+PYSHORTCUTS
+}
+jarvis_shortcut_assertion() {
+  expect_poll "Jarvis registers exactly its shipped binding and menu shortcuts" "$(jarvis_shipped_shortcuts)" jarvis_shortcuts
+}
+jarvis_shortcut_control() {
+  (failures=0 behaviour_failures=0
+   jarvis_shortcut_assertion >"$sandbox/jarvis-home-shortcut-control.log"
+   echo "$failures")
+}
 # The Jarvis cards that say Mute was not saved for CAUSE.
 jarvis_key_refusals() { # CAUSE
   plugin_card_count Jarvis "Jarvis mute not saved" "$1"
@@ -209,6 +229,23 @@ jarvis_key_startup() {
   expect "unavailable repeated Mute keeps one pending privacy request" '{"kind":"starting","pendingMute":"waiting"}' jarvis_key_pending
 }
 
+# Remove only the new home registration. The manifest still offers it.
+python3 - "$jarvis_key_service" <<'PYSHORTCUTS'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); source=p.read_text()
+needle='            shell.shortcut.register("home", "Switch Jarvis home", item => switchHome(item));'
+assert source.count(needle)==1
+p.write_text(source.replace(needle, '            // The home registration control removes this effect.'))
+PYSHORTCUTS
+jarvis_rescan
+expect "the missing-home shortcut control enables" ok ipc shell setPluginEnabled vgs.jarvis true
+expect_poll "the shortcut control's daemon consumes hello" seen jarvis_seen_hello
+expect "removing the home registration breaks the shipped shortcut assertion" 1 jarvis_shortcut_control
+jarvis_disable
+cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
+jarvis_rescan
+
 # Every startup Mute sends its pending notice, so vgs.notifications draws
 # them from the first one on.
 notes_on "jarvis mute notices"
@@ -221,7 +258,7 @@ hold_markers="$(ipc smoke holdMarkerCount)"
 hold_delayed_keyboard=""
 hold_start_keyboard jarvis "$sandbox/keyboard" us ""
 jarvis_key_startup
-expect_poll "Jarvis registers only its manifest shortcuts and the talk release companion" '["vgs.jarvis:confirm", "vgs.jarvis:console", "vgs.jarvis:mute", "vgs.jarvis:stop", "vgs.jarvis:talk", "vgs.jarvis:talk.release"]' jarvis_shortcuts
+jarvis_shortcut_assertion
 expect_poll "the service reads the effective default key map" \
   '{"talk":"SUPER+code:108","mute":"SUPER+SHIFT+code:108","stop":"SUPER+ALT+PERIOD","confirm":"SUPER+ALT+Y","console":"SUPER+ALT+C"}' \
   ipc smoke readInstance service vgs.jarvis effectiveKeys

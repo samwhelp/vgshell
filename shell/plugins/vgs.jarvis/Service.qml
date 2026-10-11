@@ -27,6 +27,7 @@ Item {
     property var sessionState: null
     property var conversationLog: []
     property var setupAnswer: ({ kind: "checking" })
+    property var homeMessage: ({ homes: [], current: "" })
     // The request handlers, built on the first request; see requestHandlers().
     property var requests: null
     property var bubbles: []
@@ -73,6 +74,7 @@ Item {
             shell.shortcut.register("stop", "Stop Jarvis", () => intent("stop"));
             shell.shortcut.register("confirm", "Confirm Jarvis", () => confirmApproval(displayedApproval(), "key"));
             shell.shortcut.register("console", "Open Jarvis console", () => summonConsole());
+            shell.shortcut.register("home", "Switch Jarvis home", item => switchHome(item));
             // The bar widget's click and `vgshell ipc call vgs.jarvis invoke
             // mute` reach the Mute key's intent.
             shell.ipc.handle("mute", () => { intent("mute"); return "ok"; });
@@ -190,8 +192,7 @@ Item {
             const cleared = shell.status.set(key, []);
             if (cleared !== "ok") throw new Error("jarvis: " + cleared);
         }
-        const homes = shell.status.set("homes", homeOffers([]));
-        if (homes !== "ok") throw new Error("jarvis: " + homes);
+        publishHomes({ homes: [], current: "" });
         const audioReport = shell.status.set("audio", { tone: "info", text: "Reading devices" });
         if (audioReport !== "ok") throw new Error("jarvis: " + audioReport);
         const quiet = shell.status.set("level", { capture: 0, playback: 0 });
@@ -556,6 +557,25 @@ Item {
         return offers;
     }
 
+    function publishHomes(message) {
+        homeMessage = message;
+        const rows = message.homes.map(choice => Object.assign({ id: choice.id, label: choice.label,
+            icon: choice.value === message.current ? "folder-check" : "folder" },
+            choice.value === message.current ? { description: "Current home" } : {}));
+        for (const [key, value] of [["homes", homeOffers(message.homes.map(choice => ({ label: choice.label, value: choice.value })))], ["homeRows", rows]]) {
+            const reply = shell.status.set(key, value);
+            if (reply !== "ok") throw new Error("jarvis: " + reply);
+        }
+    }
+
+    function switchHome(item) {
+        const choice = homeMessage.homes.find(row => row.id === item);
+        if (choice === undefined) return "refused: home=" + item + " reason=unlisted";
+        const reply = shell.configure.set("home", choice.value);
+        if (reply !== "ok") console.warn("jarvis: home-setting " + reply);
+        return reply;
+    }
+
     function broken(reason) {
         cause = reason;
         console.warn(reason);
@@ -593,8 +613,7 @@ Item {
                     continue;
                 }
                 if (message.type === "homes") {
-                    const reply = shell.status.set("homes", homeOffers(message.homes));
-                    if (reply !== "ok") throw new Error("jarvis: " + reply);
+                    publishHomes(message);
                     continue;
                 }
                 if (message.type === "request") {

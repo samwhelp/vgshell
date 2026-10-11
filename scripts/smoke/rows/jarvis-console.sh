@@ -67,9 +67,6 @@ import json,sys
 print("shown" if any(row.get("visible") and row.get("text")==sys.argv[1] for row in json.load(sys.stdin)) else "missing")
 ' "$1"
 }
-jarvis_console_shortcuts() {
-  hypr globalshortcuts | python3 -c 'import json,re,sys; print(json.dumps(sorted(set(re.findall(r"vgs\.jarvis:[A-Za-z0-9_.-]+", sys.stdin.read())))))'
-}
 jarvis_console_send_drop_control() {
   (failures=0 behaviour_failures=0
    expect_poll "the console sends typed text to the daemon" "$1" jarvis_console_say_count >"$sandbox/jarvis-console-send-control.log"
@@ -105,7 +102,7 @@ jarvis_setup_requirements
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jarvis_console_backend" "$jarvis_console_gates" --mapped-indicator
 jarvis_rescan
 jarvis_enable
-expect_poll "Jarvis registers its manifest shortcuts and talk release companion" '["vgs.jarvis:confirm", "vgs.jarvis:console", "vgs.jarvis:mute", "vgs.jarvis:stop", "vgs.jarvis:talk", "vgs.jarvis:talk.release"]' jarvis_console_shortcuts
+jarvis_shortcut_assertion
 # The first event from the row's virtual keyboard can be dropped by the
 # nested compositor; warm it with an unbound key before testing the shortcut.
 hold_send "down 30" "up 30"

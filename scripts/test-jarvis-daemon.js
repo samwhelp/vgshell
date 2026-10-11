@@ -267,7 +267,8 @@ async function inside() {
     await control("home-rejudged-held", ' && engine.homeHeld()) judgeSetup();', ') judgeSetup();', homeStatus);
     // Homes offered to Settings are daemon state records, never files below
     // a Jarvis home: startup publishes the saved list, an accepted home joins
-    // homes.json and the homes message, and a refused folder does neither.
+    // homes.json and the homes message. A refused folder clears current
+    // without changing the remembered list.
     async function homesRecord(file) {
         const base = fs.realpathSync(process.env.HOME);
         const prior = path.join(base, "homes/prior/Jarvis");
@@ -309,10 +310,15 @@ async function inside() {
                 assert.equal(relative.startsWith("..") || path.isAbsolute(relative), true, "homes.json stays outside " + folder);
             }
             const count = homes().length;
+            const recordBefore = fs.statSync(record, { bigint: true });
             child.stdin.write(JSON.stringify(named("~/homes/refused/Jarvis")) + "\n");
             await wait(() => messages().some(frame => frame.type === "status" && frame.causes[0] === "home=link"));
             assert.deepEqual(JSON.parse(fs.readFileSync(record, "utf8")), { homes: [accepted, prior] });
-            assert.equal(homes().length, count, "a refused home publishes no homes change");
+            const recordAfter = fs.statSync(record, { bigint: true });
+            assert.deepEqual([recordAfter.ino, recordAfter.mtimeNs], [recordBefore.ino, recordBefore.mtimeNs],
+                "a refused home does not rewrite the remembered homes");
+            assert.equal(homes().length, count + 1, "a refused home publishes the cleared current home");
+            assert.equal(messages().filter(frame => frame.type === "homes").at(-1).current, "");
             assert.equal(homes().flat().includes("~/homes/refused/Jarvis"), false);
             child.stdin.end();
             assert.deepEqual(await closed, [0, null], err);
@@ -322,7 +328,7 @@ async function inside() {
     }
     await homesRecord(daemon);
     await control("homes-record-store", "        storeHomes(homes);\n", "", homesRecord);
-    await control("homes-record-wire", "        storeHomes(homes);\n        publishHomes();\n", "        storeHomes(homes);\n", homesRecord);
+    await control("homes-record-wire", "        rememberHome();\n        publishHomes();\n", "        rememberHome();\n", homesRecord);
     await control("homes-record-ready-only", 'if (homeFolder.state.kind !== "ready" || homes[0] === homeFolder.state.path) return;',
         'if (false) return;', homesRecord);
     await control("homes-record-state-dir", "        const directory = context.directories.state;\n",

@@ -5,7 +5,7 @@
 # It polls once per nested IPC round trip.
 # The real child runs inside J09, with synthetic audio commands and no
 # account, real audio or desktop endpoint.
-# inputs: shell/Core/Sounds.qml shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
+# inputs: shell/Core/Sounds.qml shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
 set -euo pipefail
 expected_errors+=('WARN qml: jarvis: stderr=.*Killed.*')
 expected_errors+=('WARN qml: jarvis: stderr=jarvis: node=21[.]0[.]0 need=22')
@@ -527,6 +527,140 @@ cp -- "$jarvis_service" "$sandbox/jarvis-service-original"
 cp -- "$jarvis_backend" "$sandbox/jarvis-backend-original"
 jarvis_shell_owner="$repo/shell/plugins/vgs.jarvis/backend/Sandbox.js"
 cp -- "$jarvis_shell_owner" "$sandbox/jarvis-shell-original"
+
+# The disposable service exposes its ordinary launcher capability to the row.
+# Both homes are accepted through the Settings write. No brain turn runs.
+# J09 normally creates a fresh HOME and state on every daemon restart. This
+# scoped lease keeps only this row's empty home history across those restarts.
+jarvis_launcher_home="$sandbox/jarvis-launcher-home"
+jarvis_launcher_lease="$sandbox/jarvis-launcher-lease.sh"
+mkdir -p -- "$jarvis_launcher_home"
+python3 - "$jarvis_launcher_lease" "$jarvis_launcher_home" <<'PYHOME'
+from pathlib import Path
+import shlex,sys
+p=Path(sys.argv[1])
+p.write_text('\n'.join(['#!/bin/bash', 'set -euo pipefail', 'exec 3<&0',
+    'exec bash "$1" "$2" -- bash -c \'export HOME="$1" XDG_STATE_HOME="$1/.local/state"; shift; exec node "$@" <&3 3<&-\' jarvis-lease '+shlex.quote(sys.argv[2])+' "$3" --tree "$4"', '']))
+p.chmod(0o700)
+PYHOME
+python3 - "$jarvis_service" "$sandbox/jarvis-world/lease.sh" "$jarvis_launcher_lease" <<'PYHOME'
+from pathlib import Path
+import json,sys
+p=Path(sys.argv[1]); source=p.read_text()
+lease=json.dumps(sys.argv[2])
+assert source.count(lease)==1
+source=source.replace(lease, json.dumps(sys.argv[3]))
+needle='    function homeOffers(homes) {'
+assert source.count(needle)==1
+fixture='''    function fixtureHomeRows() { return JSON.stringify(shell.shortcut.rows("homes")); }
+    function fixtureHomeActivate(item) { return shell.shortcut.activate("vgs.jarvis:home", item); }
+    function fixtureHomeSet(value) { return shell.configure.set("home", value); }
+'''
+changed=source.replace(needle, fixture+needle)
+assert changed != source
+p.write_text(changed)
+PYHOME
+cp -- "$jarvis_service" "$sandbox/jarvis-home-fixture"
+jarvis_rescan
+jarvis_enable
+jarvis_home_set() { ipc smoke invokeInstance service vgs.jarvis fixtureHomeSet "$1"; }
+jarvis_home_held() {
+  ipc smoke readInstance service vgs.jarvis homeMessage | py_reply 'import json,sys; print(json.load(sys.stdin)["current"])'
+}
+jarvis_home_current() {
+  ipc smoke jarvisProcess | py_reply 'import json,sys
+status=json.load(sys.stdin)["status"]
+rows=status.get("homeRows", [])
+chosen=[row["label"] for row in rows if row["icon"]=="folder-check"]
+print(chosen[0] if len(chosen)==1 and status.get("setupHome")=={"hidden":True} else "pending")'
+}
+jarvis_home_rows() {
+  ipc smoke invokeInstance service vgs.jarvis fixtureHomeRows "" | py_reply 'import hashlib,json,sys
+rows=json.load(sys.stdin)
+expected={"~/Launcher One", "~/Launcher Two"}
+valid={row["label"] for row in rows}==expected
+for row in rows:
+    label=row["label"]
+    current=label==sys.argv[2]
+    expected_id="h"+hashlib.sha256((sys.argv[1]+"/"+label[2:]).encode()).hexdigest()[:12]
+    valid=valid and row["id"]=="homes."+expected_id and row["item"]==expected_id and row["shortcut"]=="vgs.jarvis:home"
+    valid=valid and row["icon"]==("folder-check" if current else "folder")
+    valid=valid and row["description"]==("Current home" if current else "")
+print("listed" if valid else "pending")' "$jarvis_launcher_home" "$1"
+}
+jarvis_home_activate() { ipc smoke invokeInstance service vgs.jarvis fixtureHomeActivate "$1"; }
+jarvis_home_saved() {
+  python3 - "$home/.config/vgshell/shell.json" <<'PYHOME'
+import json,sys
+config=json.load(open(sys.argv[1]))
+print(next(p for p in config["plugins"] if p["id"]=="vgs.jarvis").get("home", ""))
+PYHOME
+}
+expect "the first launcher home is configured" ok jarvis_home_set "~/Launcher One"
+expect_poll "the first launcher home is accepted" "~/Launcher One" jarvis_home_current
+expect "the second launcher home is configured" ok jarvis_home_set "~/Launcher Two"
+expect_poll "both launcher homes appear with the accepted home marked" listed jarvis_home_rows "~/Launcher Two"
+printf 'jarvis-home-message=%s\n' "$(ipc smoke readInstance service vgs.jarvis homeMessage)"
+printf 'jarvis-home-rows=%s\n' "$(ipc smoke invokeInstance service vgs.jarvis fixtureHomeRows "")"
+jarvis_home_first="$(python3 - "$jarvis_launcher_home/Launcher One" <<'PYHOME'
+import hashlib,sys
+print("h"+hashlib.sha256(sys.argv[1].encode()).hexdigest()[:12])
+PYHOME
+)" || { fail "the first home id is unavailable"; return 1; }
+expect "a home id no published row holds is refused" "refused: shortcut=vgs.jarvis:home item=h000000000000 reason=unlisted" jarvis_home_activate h000000000000
+expect "an unlisted home id writes no setting" "~/Launcher Two" jarvis_home_saved
+expect "the other launcher home activates" ok jarvis_home_activate "$jarvis_home_first"
+expect "the launcher writes the Home folder setting" "~/Launcher One" jarvis_home_saved
+expect_poll "the next status accepts the selected launcher home" "~/Launcher One" jarvis_home_current
+expect "reordering keeps both launcher row ids and the current mark" listed jarvis_home_rows "~/Launcher One"
+jarvis_disable
+# Each control keeps its handler and removes only its effect.
+for jarvis_home_control in publish write; do
+  python3 - "$jarvis_service" "$jarvis_home_control" <<'PYHOME'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); source=p.read_text()
+needle,replacement={"publish": ('["homeRows", rows]', '["homeRows", []]'),
+    "write": ('const reply = shell.configure.set("home", choice.value);', 'const reply = "ok";')}[sys.argv[2]]
+assert source.count(needle)==1
+changed=source.replace(needle,replacement)
+assert changed != source
+p.write_text(changed)
+PYHOME
+  jarvis_rescan
+  jarvis_enable
+  if [[ $jarvis_home_control == publish ]]; then
+    # The held message proves the handler consumed its accepted snapshot.
+    expect_poll "the publication control holds the current home" "~/Launcher One" jarvis_home_held
+    jarvis_home_control_result() {
+      (failures=0 behaviour_failures=0
+       expect "published home rows reach the launcher" listed jarvis_home_rows "~/Launcher One" >"$sandbox/jarvis-home-publish-control.log"
+       echo "$failures")
+    }
+  else
+    expect "the write control restores the first home after clearing" ok jarvis_home_set "~/Launcher One"
+    expect_poll "the write control lists both homes" listed jarvis_home_rows "~/Launcher One"
+    expect "the write control accepts the published second home" ok jarvis_home_set "~/Launcher Two"
+    expect_poll "the write control starts with the second home" "~/Launcher Two" jarvis_home_current
+    expect "the write control still activates the listed first home" ok jarvis_home_activate "$jarvis_home_first"
+    jarvis_home_control_result() {
+      (failures=0 behaviour_failures=0
+       expect "the launcher must write the selected setting" "~/Launcher One" jarvis_home_saved >"$sandbox/jarvis-home-write-control.log"
+       echo "$failures")
+    }
+  fi
+  expect "the $jarvis_home_control control breaks its consumer assertion" 1 jarvis_home_control_result
+  expect "the control clears the home without a brain turn" ok jarvis_home_set ""
+  jarvis_disable
+  cp -- "$sandbox/jarvis-home-fixture" "$jarvis_service"
+done
+jarvis_rescan
+jarvis_enable
+expect "the home row leaves no home set" "" jarvis_home_saved
+expect "the accepted home is empty after clearing" "" jarvis_home_held
+jarvis_disable
+cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
+jarvis_rescan
 
 # Kernel behavior is exercised through the real tool by the offline shell
 # row. These scoped readiness fixtures isolate daemon-to-service delivery.

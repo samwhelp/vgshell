@@ -14,6 +14,8 @@
 // block in a copy of the package and must fail that row.
 "use strict";
 const cp = require("node:child_process");
+const { load } = require("../bin/lib/qml-library.js");
+const { MENU_ID_PATTERN } = load(require("node:path").join(__dirname, "../shell/Core/PluginLogic.js"));
 const { assert, fs, path, tree, world, seed, mutant } = require("./fixtures/jarvis/policy.js");
 const file = path.join(tree, "shell/plugins/vgs.jarvis/backend/Home.js");
 const denied = path.join(path.dirname(file), "Denied.js");
@@ -211,6 +213,17 @@ world(() => {
             assert.deepEqual(Home.guard("/h/Jarvis"), { root: "/h/Jarvis", open: "state" });
         },
         rememberOffers(Home) {
+            const plainOffers = list => Home.offers(list, home).map(({ label, value }) => ({ label, value }));
+            const first = Home.offers([home + "/One", home + "/Two"], home);
+            const reordered = Home.offers([home + "/Two", home + "/One"], home);
+            for (const offer of first) {
+                assert.match(offer.id, MENU_ID_PATTERN, "a launcher id");
+                assert.match(offer.id, /^h[0-9a-f]{12}$/, "the path hash id");
+                assert.equal(reordered.find(row => row.value === offer.value).id, offer.id, "reordering keeps the id");
+            }
+            assert.notEqual(first[0].id, first[1].id, "different paths have different ids");
+            assert.equal(Home.offers(["/user/One"], "/user")[0].id, "hb60681ca7e5f", "SHA-256 of the absolute path");
+            assert.equal(Home.offers([home + "/One/"], home)[0].id, first[0].id, "normalizing a path keeps the id");
             const names = Array.from({ length: 12 }, (_, index) => path.join(home, "homes", "h" + index));
             const longLabel = path.join(home, "homes", "l".repeat(53));
             const longValue = "~/" + path.relative(home, longLabel).split(path.sep).join("/");
@@ -223,11 +236,11 @@ world(() => {
                 "only absolute remembered paths stay");
             assert.deepEqual(Home.remember([names[0]], tooLong), [names[0]], "a home whose offer value does not fit is not kept");
             assert.equal(longValue.length > 60 && longValue.length <= 200, true, "the long label fixture fits the value wire");
-            assert.deepEqual(Home.offers([path.join(home, "Jarvis"), path.join(home, "work/One")], home),
+            assert.deepEqual(plainOffers([path.join(home, "Jarvis"), path.join(home, "work/One")]),
                 [{ label: "~/Jarvis", value: "~/Jarvis" }, { label: "~/work/One", value: "~/work/One" }]);
-            assert.deepEqual(Home.offers([longLabel], home),
+            assert.deepEqual(plainOffers([longLabel]),
                 [{ label: "…" + longValue.slice(-59), value: longValue }], "a long value keeps its full value and shortens its label");
-            assert.deepEqual(Home.offers([names[0], names[0]], home),
+            assert.deepEqual(plainOffers([names[0], names[0]]),
                 [{ label: "~/homes/h0", value: "~/homes/h0" }], "an offer is listed once");
             assert.deepEqual(Home.offers([path.dirname(home)], home), [], "an offer must stay inside the user's home");
         },
@@ -607,6 +620,45 @@ world(() => {
     }
 
     const Home = require(file);
+    // The real daemon's accepted, repeated, cleared and refused snapshots.
+    // These hellos start no conversation and use J09's scratch HOME.
+    function currentHome(daemon) {
+        const state = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "home-wire-"));
+        const settings = { ...JSON.parse(fs.readFileSync(path.join(tree, "shell/plugins/vgs.jarvis/manifest.json"))).settings,
+            sounds: false, voiceProvider: "local" };
+        delete settings.localTier;
+        const hello = { v: 1, type: "hello", gen: 0, revision: "a".repeat(64), locked: false,
+            directories: { state, data: state + "/data", runtime: state + "/run" },
+            keys: { talk: null, mute: null, stop: null, confirm: null, console: null } };
+        const result = cp.spawnSync(process.execPath, [daemon, "--tree", tree], {
+            input: ["~/wire-home", home + "/wire-home", "", "/etc/refused-home"].map(value =>
+                JSON.stringify({ ...hello, settings: { ...settings, home: value } }) + "\n").join(""),
+            env: { PATH: process.env.PATH, HOME: home, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
+                XDG_DATA_HOME: process.env.XDG_DATA_HOME }, encoding: "utf8", timeout: 10000
+        });
+        assert.ifError(result.error);
+        assert.equal(result.status, 0, result.stderr);
+        const messages = result.stdout.split("\n").filter(Boolean).map(JSON.parse).filter(row => row.type === "homes");
+        assert.deepEqual(messages.map(row => row.current), ["", "~/wire-home", "~/wire-home", "", ""],
+            "current names only the accepted home, normalized to the offer value");
+        assert.equal(messages[1].homes[0].value, messages[1].current);
+    }
+    const daemon = path.join(path.dirname(file), "jarvisd.js");
+    currentHome(daemon);
+    console.log("case=currentHome passed");
+    const daemonCopy = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "home-daemon-control-"));
+    try {
+        fs.cpSync(path.dirname(path.dirname(file)), daemonCopy, { recursive: true });
+        const target = path.join(daemonCopy, "backend/jarvisd.js");
+        const source = fs.readFileSync(target, "utf8");
+        const needle = 'current: homeFolder.state.kind === "ready" ?';
+        assert.equal(source.split(needle).length - 1, 1);
+        const changed = source.replace(needle, 'current: false ?');
+        assert.notEqual(changed, source);
+        fs.writeFileSync(target, changed);
+        assert.throws(() => currentHome(target), assert.AssertionError, "current home publication must turn red");
+    } finally { fs.rmSync(daemonCopy, { recursive: true, force: true }); }
+    console.log("control=currentHome detected");
     for (const [name, check] of Object.entries(CASES)) {
         check(Home);
         console.log("case=" + name + " passed");
@@ -642,8 +694,10 @@ world(() => {
         ["remember-once", "homeOffer(item, userHome).value !== choice.value", "true", "rememberOffers"],
         ["remember-bound", "const HOMES = 10;", "const HOMES = 11;", "rememberOffers"],
         ["remember-offer-bound", "if (value.length > OFFER_VALUE_MAX) return null;", "", "rememberOffers"],
-        ["remember-offer-label", 'return { label: value.length <= OFFER_LABEL_MAX ? value : "…" + value.slice(1 - OFFER_LABEL_MAX), value };',
-            "return { label: value, value };", "rememberOffers"],
+        ["remember-offer-label", 'label: value.length <= OFFER_LABEL_MAX ? value : "…" + value.slice(1 - OFFER_LABEL_MAX)',
+            "label: value", "rememberOffers"],
+        ["offer-id-path", '.update(path.resolve(folder))', '.update("same")', "rememberOffers"],
+        ["offer-id-bound", '.slice(0, 12)', '.slice(0, 13)', "rememberOffers"],
         ["remember-offer-duplicate", "if (choice === null || seen.has(choice.value)) continue;", "if (choice === null) continue;", "rememberOffers"],
         ["offers-relative", 'return "~/" + relative.split(path.sep).join("/");',
             'return file;', "rememberOffers"],

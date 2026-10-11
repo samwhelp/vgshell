@@ -11,6 +11,7 @@
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
+const { createHash } = require("node:crypto");
 const Core = require("./Core.js");
 const Tools = require("./Tools.js");
 const { O_RDONLY, O_WRONLY, O_CREAT, O_EXCL, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK } = fs.constants;
@@ -117,7 +118,8 @@ function homeOffer(folder, userHome) {
     let value;
     try { value = relativeHome(folder, userHome); } catch { return null; }
     if (value.length > OFFER_VALUE_MAX) return null;
-    return { label: value.length <= OFFER_LABEL_MAX ? value : "…" + value.slice(1 - OFFER_LABEL_MAX), value };
+    return { id: "h" + createHash("sha256").update(path.resolve(folder)).digest("hex").slice(0, 12),
+        label: value.length <= OFFER_LABEL_MAX ? value : "…" + value.slice(1 - OFFER_LABEL_MAX), value };
 }
 
 /** Remembered homes that can cross the Settings choices wire. */
@@ -144,7 +146,7 @@ function remember(list, folder, userHome = process.env.HOME) {
     return [folder].concat(found.filter(item => homeOffer(item, userHome).value !== choice.value)).slice(0, HOMES);
 }
 
-/** Settings choices for remembered homes, relative to the user's home. */
+/** Settings and launcher choices for remembered homes, with stable path ids. */
 function offers(list, userHome) {
     return remembered(list, userHome).map(folder => homeOffer(folder, userHome));
 }
@@ -631,4 +633,4 @@ function mailbox(home) {
     return held(home, MAILBOX, O_RDONLY | O_DIRECTORY, () => true) === true;
 }
 
-module.exports = { PACKAGE, resolve, remembered, remember, offers, layout, guard, baseSet, read, skills, skill, note, notes, mailTool, mailbox, directory };
+module.exports = { PACKAGE, resolve, relativeHome, remembered, remember, offers, layout, guard, baseSet, read, skills, skill, note, notes, mailTool, mailbox, directory };

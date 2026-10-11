@@ -54,7 +54,7 @@ assert.equal(manifest.requirements.some(row => row.command === "pw-cli"), false)
 const devices = { v: 1, type: "devices", gen: 0, revision: hello.revision,
     microphones: [{ label: "Microphone", value: "fixture.mic" }], speakers: [] };
 const homes = { v: 1, type: "homes", gen: 0, revision: hello.revision,
-    homes: [{ label: "~/Jarvis", value: "~/Jarvis" }] };
+    homes: [{ id: "h012345abcdef", label: "~/Jarvis", value: "~/Jarvis" }], current: "~/Jarvis" };
 const level = { v: 1, type: "level", gen: 0, revision: hello.revision, level: { capture: 0.5, playback: 0 } };
 const audioFault = { v: 1, type: "audio-fault", gen: 0, revision: hello.revision, reason: "discovery-exit" };
 const request = { v: 1, type: "request", gen: 0, revision: hello.revision, id: 1, kind: "compositor.moveWindow", args: ["0xa1", -10, 20] };
@@ -147,6 +147,10 @@ const cases = [
     ["choice", changed(devices, { microphones: [{ label: "Microphone", value: "" }] }), "daemon", "choice"],
     ["choice-duplicate", changed(devices, { microphones: devices.microphones.concat(devices.microphones) }), "daemon", "choice-duplicate"],
     ["homes-direction", JSON.stringify(homes), "shell", "direction-homes"],
+    ["homes-current", changed(homes, { current: 7 }), "daemon", "home-current"],
+    ["homes-current-path", changed(homes, { current: "/user/One" }), "daemon", "home-current"],
+    ["homes-id", changed(homes, { homes: [{ ...homes.homes[0], id: "../../outside" }] }), "daemon", "home-id"],
+    ["homes-id-duplicate", changed(homes, { homes: [homes.homes[0], { ...homes.homes[0], value: "~/Other" }] }), "daemon", "home-id-duplicate"],
     ["homes-bound", changed(homes, { homes: Array(11).fill(homes.homes[0]) }), "daemon", "home-choices"],
     ["homes-duplicate", changed(homes, { homes: homes.homes.concat(homes.homes) }), "daemon", "home-duplicate"],
     ["level-direction", JSON.stringify(level), "shell", "direction-level"],
@@ -518,6 +522,10 @@ try {
         ["choice-duplicate", 'if (Object.prototype.hasOwnProperty.call(seen, choice.value)) fail("choice-duplicate");',
             'if (false) fail("choice-duplicate");', "choice-duplicate"],
         ["homes-direction", 'if (direction !== "daemon") fail("direction-homes");', 'if (false) fail("direction-homes");', "homes-direction"],
+        ["homes-current", 'fail("home-current");', ';', "homes-current"],
+        ["homes-id", 'fail("home-id");', ';', "homes-id"],
+        ["homes-id-duplicate", 'if (Object.prototype.hasOwnProperty.call(seen, choice.id)) fail("home-id-duplicate");',
+            'if (false) fail("home-id-duplicate");', "homes-id-duplicate"],
         ["homes-bound", 'if (!Array.isArray(values) || values.length > 10) fail("home-choices");',
             'if (false) fail("home-choices");', "homes-bound"],
         ["homes-duplicate", 'if (Object.prototype.hasOwnProperty.call(seen, choice.value)) fail("home-duplicate");',

@@ -75,6 +75,9 @@
       { "shortcut": "console", "key": "SUPER+ALT+C", "info": "Opens the Jarvis console window for typed messages." }
     ]
   },
+  "menu": {
+    "homes": { "label": "Jarvis homes", "icon": "folder", "provider": "homeRows", "shortcut": "home" }
+  },
   "requirements": [
     { "command": "node", "packages": { "pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "nix": "nodejs" }, "optional": false, "purpose": "Runs the Jarvis daemon; memory search requires Node 22.13 or later" },
     { "command": "secret-tool", "packages": { "pacman": "libsecret", "apt": "libsecret-tools", "dnf": "libsecret", "nix": "libsecret" }, "optional": false, "purpose": "Stores and reads provider keys in the desktop keyring" },
@@ -132,6 +135,7 @@
     "microphones": { "type": "choices", "label": "Microphones" },
     "speakers": { "type": "choices", "label": "Speakers" },
     "homes": { "type": "choices", "label": "Home folders", "hidden": true },
+    "homeRows": { "type": "launcherRows", "label": "Jarvis homes" },
     "level": { "type": "data", "label": "Audio levels" },
     "transcript": { "type": "data", "label": "Transcript" },
     "conversation": { "type": "data", "label": "Conversation" },

@@ -118,6 +118,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     function judgeSetup() {
         homeFolder = judgeHome(context.settings.home);
         rememberHome();
+        publishHomes();
         configured(engine.configure(context.settings));
         scheduleMemoryReconcile();
     }
@@ -126,7 +127,6 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         if (homeFolder.state.kind !== "ready" || homes[0] === homeFolder.state.path) return;
         homes = Home.remember(homes, homeFolder.state.path, process.env.HOME);
         storeHomes(homes);
-        publishHomes();
     }
 
     function scheduleMemoryReconcile() {
@@ -331,7 +331,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
 
     function publishHomes() {
         write({ v: 1, type: "homes", gen: runner.state.gen, revision: context.revision,
-            homes: Home.offers(homes, process.env.HOME) });
+            homes: Home.offers(homes, process.env.HOME),
+            current: homeFolder.state.kind === "ready" ? Home.relativeHome(homeFolder.state.path, process.env.HOME) : "" });
     }
 
     function fault(reason) {

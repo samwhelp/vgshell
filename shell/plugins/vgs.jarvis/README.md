@@ -119,7 +119,7 @@ The keys are under Keys on the same page. Show in bar puts the bar icon back aft
 
 ## Home folder
 
-Choose a folder under Home folder. Every AI model uses your instructions, skills, memory and state in it the same way. No AI model can change anything in the folder but its `state/` part, apart from an agent fleet request. Jarvis adds the entries the folder lacks and changes no file it finds outside `skills/base/`. It never follows a link in the folder, and it does not start with a folder that has a link in place of an entry below or anywhere in `skills/base/`.
+Choose a folder under Settings → Plugins → Jarvis → Home folder. Switch between homes there or open Jarvis homes in the launcher and select a folder. The current home has a checked folder icon. Every AI model uses your instructions, skills, memory and state in it the same way. No AI model can change anything in the folder but its `state/` part, apart from an agent fleet request. Jarvis adds the entries the folder lacks and changes no file it finds outside `skills/base/`. It never follows a link in the folder, and it does not start with a folder that has a link in place of an entry below or anywhere in `skills/base/`.
 
 | Entry | What it holds |
 | --- | --- |
