@@ -380,12 +380,12 @@ function verifyWallpapers(logic) {
     // Wallpaper filter rows: [label, filter, wanted card keys].
     const wallpaperList = logic.wallpaperCards(images, catalog(true, pin(4000000), true, true), "nord", "theme");
     const wallpaperFilterRows = [
-        ["name match in any case", "blue", ["/t/nord/backgrounds/a.jpg"]],
+        ["name match in any case", "BLUE", ["/t/nord/backgrounds/a.jpg"]],
         ["file-name match", "b.jpg", ["/t/nord/backgrounds/b.jpg"]],
         ["no match", "black", []],
         ["empty filter keeps all", "", ["/t/nord/backgrounds/a.jpg", "/t/nord/backgrounds/b.jpg", "update"]],
         ["offer card hidden by a non-empty filter", "update", []],
-        ["unnamed card matches by file name", "b.", ["/t/nord/backgrounds/b.jpg"]]
+        ["unnamed card matches by file name", "B.JPG", ["/t/nord/backgrounds/b.jpg"]]
     ];
     for (const [label, filter, want] of wallpaperFilterRows)
         same(logic.wallpaperShown(wallpaperList, filter).map(c => c.key), want, label);

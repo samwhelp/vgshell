@@ -11,7 +11,7 @@
 # rebuild of the fixture to finish behind it. rows/themes.sh defines the
 # helpers used here and leaves vgs applied, Black current and the fixture
 # disabled; this file leaves them so.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/ThemeRunner.qml bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/catalog/* scripts/smoke/rows/themes.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/fixtures/theme-image.jpg
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/ThemeRunner.qml bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/catalog/* themes/vgs/* scripts/smoke/rows/themes.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
 browse="$installed/browse"
 # What VERB's callback last received, as JSON: its call count, then the
@@ -58,6 +58,7 @@ expect_poll "the full image list reaches the fixture" '[1, "ok", null]' answer i
 expect "the full list names both of browse's images" '[["a.jpg", "'"$browse/backgrounds/a.jpg"'"], ["b.jpg", "'"$browse/backgrounds/b.jpg"'"]]' images_of browse
 expect "the fixture lists the applied package's images" ok probe theme-images applied
 expect_poll "the applied image list reaches the fixture" '[2, "ok", null]' answer images state reason
+expect "the applied image list holds one image" 1 image_count
 expect "vgs, applied, holds Black" '[["black.png", "'"$repo/themes/vgs/backgrounds/black.png"'"]]' images_of vgs
 
 expect "a relative path is refused at once" 'refused: set="a.jpg" reason=malformed-path' probe theme-set a.jpg

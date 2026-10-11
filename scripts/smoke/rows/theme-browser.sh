@@ -21,7 +21,7 @@
 # plugin disabled, and rows/theme-browse.sh leaves vgs applied with Black
 # current and nord not installed; this file enables the plugin and leaves
 # all four so.
-# inputs: shell/plugins/vgs.themes/* themes/catalog/* shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* shell/Ui/layout/CardCarousel.qml shell/Ui/layout/AngledCard.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/feedback/Dialog.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/fixtures/theme-image.jpg
+# inputs: shell/plugins/vgs.themes/* themes/catalog/* themes/vgs/* shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* shell/Ui/layout/CardCarousel.qml shell/Ui/layout/AngledCard.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/feedback/Dialog.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
 view_value() { ipc smoke readDescendant overlay vgs.themes ThemeView "$1"; }
 view_names() { view_value shownCards | py_reply 'import json,sys; print(json.dumps([c["name"] for c in json.load(sys.stdin)]))'; }
@@ -665,10 +665,11 @@ expect_poll "an apply that offers nothing closes the browser" 0 layer_count vgs:
 # output. The browser opens on the focused output; the rows read which one
 # from the view and name the other.
 wall_value() { ipc smoke readDescendant overlay vgs.themes WallpaperView "$1"; }
-wall_keys() { wall_value cards | py_reply 'import json,sys; print(json.dumps([c["key"] for c in json.load(sys.stdin)]))'; }
+wall_keys() { wall_value shownCards | py_reply 'import json,sys; print(json.dumps([c["key"] for c in json.load(sys.stdin)]))'; }
+wall_count() { wall_value shownCards | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 wall_selected() { wall_value selected | py_reply 'import json,sys; s=json.load(sys.stdin); print("none" if s is None else s["key"])'; }
 # Whether the cards hold every KEY.
-wall_has() { wall_value cards | py_reply 'import json,sys; keys=[c["key"] for c in json.load(sys.stdin)]; print(all(k in keys for k in sys.argv[1:]))' "$@"; }
+wall_has() { wall_value shownCards | py_reply 'import json,sys; keys=[c["key"] for c in json.load(sys.stdin)]; print(all(k in keys for k in sys.argv[1:]))' "$@"; }
 wall_job() { wall_value job | py_reply 'import json,sys; j=json.load(sys.stdin); print("none" if j is None else j["step"])'; }
 nord_a="$installed/nord/backgrounds/a.jpg"; nord_b="$installed/nord/backgrounds/b.jpg"; nord_c="$installed/nord/backgrounds/c.jpg"
 wall_output=SMOKE-WALL
@@ -929,12 +930,56 @@ expect_poll "the selection starts on the image every screen shows" "$nord_a" wal
 expect "the wallpaper card decodes at card size times screen scale" True card_source_size_matches "$nord_a"
 expect_poll "the resting wallpaper view draws its source line and scope control alone" '["All monitors", "Show all", "This monitor"]' rest_texts
 
+# The wallpaper filter: text reaches the filter, filters the rail, Space
+# stays text, Ctrl+U clears, Clear filter works from the empty state, and
+# Escape clears before it closes.
+type_keys "b." || fail "typing the wallpaper filter failed"
+expect_poll "typing reaches the wallpaper filter" '"b."' wall_value filterText
+expect_poll "the wallpaper filter keeps b.jpg alone" "[\"$nord_b\"]" wall_keys
+type_keys -k space || fail "sending Space to the wallpaper filter failed"
+expect_poll "Space in the wallpaper filter stays text" '"b. "' wall_value filterText
+type_keys -M ctrl -k u -m ctrl || fail "clearing the wallpaper filter failed"
+expect_poll "Ctrl+U clears the wallpaper filter" '""' wall_value filterText
+type_keys "zzqx" || fail "typing the empty wallpaper filter failed"
+expect_poll "a wallpaper filter no card matches empties the rail" 0 wall_count
+click_in vgs:overlay overlay vgs.themes Button "Clear filter" || fail "the wallpaper Clear filter click failed"
+expect_poll "Clear filter clears the wallpaper filter" '""' wall_value filterText
+type_keys "b." || fail "typing the wallpaper filter before Escape failed"
+expect_poll "the wallpaper filter is set before Escape" '"b."' wall_value filterText
+type_keys -k Escape || fail "sending Escape with a wallpaper filter failed"
+expect_poll "Escape clears the wallpaper filter" '""' wall_value filterText
+expect "Escape with a wallpaper filter keeps the browser open" 1 layer_count vgs:overlay
+type_keys -k Escape || fail "sending Escape after clearing the wallpaper filter failed"
+expect_poll "Escape with no wallpaper filter closes the browser" 0 layer_count vgs:overlay
+
+plugin_control WallpaperView.qml "wallpaper typing" $'case "":\n                if (event.key === Qt.Key_Backspace' $'case "":\n                return;\n                if (event.key === Qt.Key_Backspace'
+press_wallpapers || fail "typing SUPER+SHIFT+W for the wallpaper typing control failed"
+expect_poll "SUPER+SHIFT+W opens the wallpaper typing control browser" 1 layer_count vgs:overlay
+expect_poll "the wallpaper typing control view read its lists" true wall_value loaded
+wallpaper_typing_control_failures() {
+  (failures=0; behaviour_failures=0
+  type_keys "b." >/dev/null || fail "control: typing the wallpaper filter failed"
+  expect_poll "control: typing reaches the wallpaper filter" '"b."' wall_value filterText >"$sandbox/wallpaper-typing-control.log"
+  echo "$failures")
+}
+expect "control: a wallpaper view that returns before typing fails the filter assertion" 1 wallpaper_typing_control_failures
+expect "the wallpaper typing control browser hides" ok ipc shell hide overlay vgs.themes
+expect_poll "the wallpaper typing control browser closes" 0 layer_count vgs:overlay
+plugin_restore WallpaperView.qml "wallpaper typing"
+press_wallpapers || fail "typing SUPER+SHIFT+W after the wallpaper typing control failed"
+expect_poll "SUPER+SHIFT+W opens the browser after the wallpaper typing control" 1 layer_count vgs:overlay
+expect_poll "the wallpaper view read the images after the typing control" true wall_value loaded
+
 # The toggles: Alt+S flips the source, Alt+M flips the scope, and
 # Tab and Shift+Tab switch the top tabs. None moves the selected card.
 type_keys -M alt -k s -m alt || fail "sending Alt+S failed"
 expect_poll "Alt+S shows every source" '"all"' wall_value source
 expect_poll "every source lists nord's images" True wall_has "$nord_a" "$nord_b"
 expect_poll "every source turns the source line to Show theme" True rest_has "Show theme"
+type_keys "black" || fail "typing black in every source failed"
+expect_poll "Show all filters to Black alone" "[\"$vgs_black\"]" wall_keys
+type_keys -M ctrl -k u -m ctrl || fail "clearing the Black wallpaper filter failed"
+expect_poll "Ctrl+U clears the Black wallpaper filter" '""' wall_value filterText
 type_keys -M alt -k s -m alt || fail "sending Alt+S again failed"
 expect_poll "Alt+S shows the theme again" '"theme"' wall_value source
 type_keys -k Tab || fail "sending Tab failed"
@@ -953,11 +998,11 @@ expect_poll "Alt+M flips the scope back" '"every"' wall_value scope
 type_keys -M alt -k m -m alt || fail "sending Alt+M for this monitor failed"
 expect_poll "Alt+M flips the scope to this monitor again" '"this"' wall_value scope
 
-# This monitor: Space sets b.jpg on the browser's screen alone and closes.
+# This monitor: Return sets b.jpg on the browser's screen alone and closes.
 type_keys -k Right || fail "sending Right failed"
 expect_poll "Right selects b.jpg" "$nord_b" wall_selected
-type_keys -k space || fail "sending Space for this monitor failed"
-expect_poll "Space sets this monitor and closes the browser" 0 layer_count vgs:overlay
+type_keys -k Return || fail "sending Return for this monitor failed"
+expect_poll "Return sets this monitor and closes the browser" 0 layer_count vgs:overlay
 expect_poll "the browser's screen draws b.jpg" "$nord_b ready" background_image_on "$this_screen"
 expect "the other screen keeps nord's first image" "$nord_a ready" background_image_on "$other_screen"
 expect "a set for this monitor keeps the current image" "\"$nord_a\"" bg_current

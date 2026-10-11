@@ -817,7 +817,6 @@ function verify(judge) {
         directoryName: "vgs",
         themeJson: fs.readFileSync(path.join(repo, "themes", "vgs", "theme.json"), "utf8"),
         terminalJson: fs.readFileSync(path.join(repo, "themes", "vgs", "terminal.json"), "utf8"),
-        backgrounds: ["black.png"],
         shipped: true
     });
     assert.equal(shippedVgs.ok, true, shippedVgs.ok ? "" : judge.refusalLine(shippedVgs));
@@ -836,24 +835,6 @@ function verify(judge) {
     assert.equal(packageWithoutTerminal.terminal, null);
     assert.deepEqual(plain(packageWithoutTerminal.backgrounds), {});
     assert.equal(at(packageWithoutTerminal.values, "palette.accent"), "#abcdefff");
-
-    const absentShippedBackground = judge.acceptPackage(TOKENS, {
-        directoryName: "probe",
-        themeJson: documentWith({ backgrounds: { "missing.png": "Missing" } }),
-        backgrounds: [],
-        shipped: true
-    });
-    assert.equal(absentShippedBackground.ok, false);
-    assert.equal(absentShippedBackground.reason, "background-absent");
-    assert.equal(absentShippedBackground.token, "backgrounds");
-    assert.equal(absentShippedBackground.detail, "file=missing.png");
-    const absentInstalledBackground = judge.acceptPackage(TOKENS, {
-        directoryName: "probe",
-        themeJson: documentWith({ backgrounds: { "missing.png": "Missing" } }),
-        shipped: false
-    });
-    assert.equal(absentInstalledBackground.ok, true, absentInstalledBackground.ok ? "" : judge.refusalLine(absentInstalledBackground));
-    assert.deepEqual(plain(absentInstalledBackground.backgrounds), { "missing.png": "Missing" });
 
     const packageRefusals = [
         [{ directoryName: "vgs", themeJson: JSON.stringify({ schemaVersion: 1, name: "vgs", tokens: {} }), shipped: false }, "reserved-name", ""],
@@ -1499,8 +1480,6 @@ const CONTROLS = [
     ["background file name", 'if (file === "" || file.indexOf("/") !== -1 || file.charAt(0) === ".")', "if (false)"],
     ["background display name", 'if (typeof name !== "string" || !/^\\S+( \\S+)?$/.test(name))', "if (false)"],
     ["accept states background names", "backgrounds: backgrounds.backgrounds", "backgrounds: {}"],
-    ["only shipped backgrounds need files", "if (files.shipped === true && Object.keys(shell.backgrounds).length > 0)", "if (Object.keys(shell.backgrounds).length > 0)"],
-    ["shipped background exists", "if (!hasOwn(available, named[i]))", "if (false)"],
     ["output name pattern", "OUTPUT_NAME_PATTERN.test(name)", "true"],
     ["set every screen", 'return ["--every-screen"];', 'return ["--screen", screen];'],
     ["set output name", 'return isOutputName(screen) ? ["--screen", screen] : null;', 'return ["--screen", screen];'],

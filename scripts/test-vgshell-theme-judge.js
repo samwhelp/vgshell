@@ -197,6 +197,7 @@ function applyRows(root, mutation) {
         assert.equal(source.split(needle).length, 2, "apply control must match once");
         source = source.replace(needle, () => replacement);
     }
+
     const check = path.join(tree, "bin", "vgshell-theme-judge");
     fs.writeFileSync(check, source);
     const config = path.join(root, "config", "vgshell");
@@ -252,6 +253,29 @@ Module._load = function(file, ...args) { log(['module', file]); return load.call
         assert.equal(proc.status, 1, label + ": " + proc.stdout + proc.stderr);
         assert.equal(JSON.parse(proc.stdout).reason, reason, label);
     }
+}
+
+function backgroundNameRows(check, root) {
+    const judge = (...args) => spawnSync(process.execPath, [check, ...args], { encoding: "utf8", env: ENV });
+    const installed = path.join(root, "installed");
+    writePackage(installed, "probe", "probe");
+    fs.writeFileSync(path.join(installed, "probe", "theme.json"), JSON.stringify({ schemaVersion: 1, name: "probe", tokens: {}, backgrounds: { "missing.png": "Missing" } }));
+    let proc = judge("accept", path.join(installed, "probe"));
+    assert.equal(proc.status, 0, "installed package with not-yet-downloaded background name: " + proc.stdout + proc.stderr);
+    assert.equal(proc.stdout, "probe\n", "installed package with not-yet-downloaded background name");
+
+    const shipped = path.join(root, "shipped");
+    writePackage(shipped, "vgs", "vgs");
+    fs.writeFileSync(path.join(shipped, "vgs", "theme.json"), JSON.stringify({ schemaVersion: 1, name: "vgs", tokens: {}, backgrounds: { "missing.png": "Missing" } }));
+    proc = judge("packages", shipped);
+    assert.equal(proc.status, 1, "shipped missing named background: " + proc.stdout + proc.stderr);
+    assert.equal(proc.stdout, `refused  ${path.join(shipped, "vgs")}: theme: refused: token=backgrounds reason=background-absent file=missing.png\nvgshell-theme-judge: refused=1\n`, "shipped missing named background");
+
+    fs.mkdirSync(path.join(shipped, "vgs", "backgrounds"));
+    fs.writeFileSync(path.join(shipped, "vgs", "backgrounds", "missing.png"), "image");
+    proc = judge("packages", shipped);
+    assert.equal(proc.status, 0, "shipped named background present: " + proc.stdout + proc.stderr);
+    assert.equal(proc.stdout, "ok       vgs\nvgshell-theme-judge: ok\n", "shipped named background present");
 }
 
 fs.mkdirSync(path.join(repo, "tmp"), { recursive: true });
@@ -339,6 +363,7 @@ try {
     }
 
     catalogRows(CHECK, path.join(root, "catalog"));
+    backgroundNameRows(CHECK, path.join(root, "background-names"));
     applyRows(path.join(root, "apply"));
     for (const [label, needle, replacement] of [
         ["whole catalogue", "requested === undefined || requested.includes(name)", "true"],
@@ -356,6 +381,16 @@ try {
             failed = true;
         }
         assert.ok(failed, `control "${label}": the catalog rows passed on a judge without that rule`);
+    }
+    {
+        const copy = judgeCopy(path.join(root, "control-background-absent"), 'if (!available.has(name))', 'if (false)');
+        let failed = false;
+        try {
+            backgroundNameRows(copy, path.join(root, "background-names-control"));
+        } catch (e) {
+            failed = true;
+        }
+        assert.ok(failed, "control \"background absent\": the background rows passed on a judge without that rule");
     }
 } finally {
     fs.rmSync(root, { recursive: true, force: true });

@@ -279,17 +279,12 @@ function latin1(bytes) {
 // terminal.json is a symlink is refused `symlink`, with `files` null. Any
 // other read failure throws the fs error.
 function readPackage(dir, shipped) {
-    const judge = files => {
-        const payload = {
-            directoryName: path.basename(dir),
-            themeJson: text(files.theme),
-            terminalJson: text(files.terminal),
-            shipped: shipped
-        };
-        if (shipped && files.theme !== undefined)
-            payload.backgrounds = backgrounds.images(dir, "theme=" + path.basename(dir) + " reason");
-        return logic.acceptPackage(tokens, payload);
-    };
+    const judge = files => logic.acceptPackage(tokens, {
+        directoryName: path.basename(dir),
+        themeJson: text(files.theme),
+        terminalJson: text(files.terminal),
+        shipped: shipped
+    });
     // `package-theme` is the judge reaching the document it was not given.
     const byName = () => judge({});
     let read;
@@ -303,7 +298,18 @@ function readPackage(dir, shipped) {
         const verdict = byName();
         return { files: null, verdict: verdict.reason === "package-theme" ? logic.refusal("symlink", "", "file=" + read.linked) : verdict };
     }
-    return { files: read.files, verdict: judge(read.files) };
+    const verdict = judge(read.files);
+    if (shipped && verdict.ok) {
+        const available = new Set(backgrounds.images(dir, "theme=" + path.basename(dir) + " reason"));
+        for (const name of Object.keys(verdict.backgrounds)) {
+            // Installed catalog packages can land before their wallpaper
+            // download; shipped packages carry their images in this tree,
+            // where offline validation can judge the declared names.
+            if (!available.has(name))
+                return { files: read.files, verdict: logic.refusal("background-absent", "backgrounds", "file=" + name) };
+        }
+    }
+    return { files: read.files, verdict };
 }
 
 // The package in DIR's theme.json and terminal.json as

@@ -899,20 +899,6 @@ function acceptPackage(tokens, files) {
     var terminal = acceptTerminal(files.terminalJson);
     if (!terminal.ok)
         return terminal;
-    if (files.shipped === true && Object.keys(shell.backgrounds).length > 0) {
-        if (!Array.isArray(files.backgrounds))
-            return refusal("background-list", "backgrounds", "got=" + JSON.stringify(files.backgrounds));
-        var available = {};
-        for (var i = 0; i < files.backgrounds.length; i++)
-            available[files.backgrounds[i]] = true;
-        var named = Object.keys(shell.backgrounds);
-        for (i = 0; i < named.length; i++)
-            // Installed catalog packages can land before their wallpaper
-            // download; shipped packages carry their images in this tree,
-            // where offline validation can judge the declared names.
-            if (!hasOwn(available, named[i]))
-                return refusal("background-absent", "backgrounds", "file=" + named[i]);
-    }
     return { ok: true, name: shell.name, values: shell.values, terminal: terminal.slots, backgrounds: shell.backgrounds };
 }
 

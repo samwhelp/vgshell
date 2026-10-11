@@ -495,7 +495,7 @@ function wallpaperCards(images, entries, applied, source) {
 }
 
 // Whether CARD matches the wallpaper filter TEXT: image cards match their
-// package name or file name, and an offer card matches only an empty
+// wallpaper name or file name, and an offer card matches only an empty
 // filter.
 function wallpaperMatches(card, text) {
     var needle = String(text).toLowerCase();
