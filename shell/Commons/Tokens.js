@@ -982,9 +982,8 @@ var TOKENS = {
     // never shorter than `minThumb`. It shows while hovered or scrolling
     // and fades to `idleOpacity` `fadeDelay` milliseconds after, over
     // `fade`. The content fades out across a `fadeHeight` band at each
-    // edge where it is clipped: the notification panel's header band,
-    // since qs.Ui cannot read a plugin-owned look and the spacing tokens
-    // name gaps, not a fade band.
+    // edge where it is clipped, shallow enough that the first visible list
+    // row's title, about 29 px below that edge, keeps the readability floor.
     scrollArea: {
         barWidth: length("{space.xs}"),
         barInset: length("{space.xxs}"),
@@ -996,7 +995,7 @@ var TOKENS = {
         idleOpacity: share(0),
         fadeDelay: number(800, 0, 5000),
         fade: duration("{motion.duration.slow}"),
-        fadeHeight: length("mul({space.xxl}, 2)")
+        fadeHeight: length("{space.xxxl}")
     },
 
     // A title that opens a menu of choices: its text over an underline
