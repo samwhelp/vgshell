@@ -79,6 +79,7 @@ async function inside() {
                 && (keepMemory || frame.type !== "memory") && (keepMemoryInbox || frame.type !== "memory-inbox")
                 && (keepHomes || frame.type !== "homes")), expected);
             cases++;
+            return frames;
         } finally { clearTimeout(timeout); if (child.exitCode === null) child.kill("SIGKILL"); }
     }
     // Without local setup or a saved AI model the engine names both steps.
@@ -125,11 +126,16 @@ async function inside() {
     }
     const noHold = async file => {
         const before = auditRows().filter(row => row.kind === "action").length;
-        await run(file, [JSON.stringify(hello) + "\n", JSON.stringify(confirmation) + "\n"], 0, null, refusalFrames());
+        const frames = await run(file, [JSON.stringify(hello) + "\n", JSON.stringify(confirmation) + "\n"], 0, null, refusalFrames());
         const actions = auditRows().filter(row => row.kind === "action");
         assert.equal(actions.length, before + 1, "a real daemon audits a confirmation with no live hold");
         assert.equal(actions.at(-1).decision, "refuse");
         assert.equal(actions.at(-1).outcome, "cancelled");
+        const published = frames.filter(frame => frame.type === "audit-failures");
+        assert.equal(published.length, 2, "the new refused confirmation publishes after the startup audit list");
+        const action = actions.at(-1);
+        assert.deepEqual(published.at(-1).rows.at(-1), { time: action.time, tool: action.tool, effect: action.effect,
+            decision: "refuse", outcome: "cancelled", refusal: null });
     };
     await noHold(daemon);
     const brokenState = path.join(process.env.JARVIS_TEST_ROOT, "broken-audit-state");
@@ -458,6 +464,7 @@ async function inside() {
         file => run(file, [], 0));
     await control("confirmation-audit", "Object.assign(runner.ports, router.ports);",
         "Object.assign(runner.ports, router.ports, { approval: { ...router.ports.approval, refused() {} } });", noHold);
+    await control("audit-update-list", "changed: auditFailures", "changed: () => {}", noHold);
     await control("confirmation-audit-cause", 'error.message.startsWith("jarvis: audit=")', "false", auditFailure);
     await control("hello", 'if (!process.stdout.write(wire + "\\n")) process.stdin.pause();',
         'if (false && !process.stdout.write(wire + "\\n")) process.stdin.pause();',
@@ -1518,18 +1525,23 @@ exit "$failures"
         try {
             await conversation(file, async w => {
                 await until("the live task is counted", () => w.messages.some(m => m.type === "tasks" && m.count === 1));
+                await until("the task list includes the live task", () => w.messages.some(message => message.type === "task-list"
+                    && message.rows.some(row => row.id === task.id && row.state === "working")));
                 w.raw({ v: 1, type: "intent", gen: 1, revision: hello.revision, intent: "task-stop", task: task.id });
                 await until("task-answer", () => w.messages.some(m => m.type === "task-answer"));
                 assert.deepEqual(w.messages.filter(m => m.type === "task-answer").map(m => [m.task, m.answer]), [[task.id, "stopped"]]);
                 assert.throws(() => process.kill(-task.pgid, 0), { code: "ESRCH" });
                 assert.equal(taskStore.read(task.id).state, "stopped");
                 await until("the count returns to zero", () => w.messages.filter(m => m.type === "tasks").at(-1).count === 0);
+                await until("the task list publishes the stopped task", () => w.messages.filter(message => message.type === "task-list")
+                    .at(-1)?.rows.some(row => row.id === task.id && row.state === "stopped"));
             });
             await task.closed;
         } finally { if (task.launcher.exitCode === null) process.kill(-task.pgid, "SIGKILL"); }
     };
     await stopIntent(daemon);
     await control("task-stop-intent", "void tasks.stop(task).then(answer => {", "void Promise.resolve(\"stopped\").then(answer => {", stopIntent);
+    await control("task-update-list", "signature !== publishedTasks", "publishedTasks === null", stopIntent);
     // With no conversation open, a held prompt and a task's end reach the
     // user as notifications the daemon runs itself: the notify-send
     // stand-in records the argv, the parent-death signal and an environment
@@ -1567,7 +1579,7 @@ exit "$failures"
     };
     await voiceNotify(daemon);
     await control("voice-prompts", "                            voice.prompts(prompts);\n", "", voiceNotify);
-    await control("voice-views", "changed: views => voice.observe(views),", "", voiceNotify);
+    await control("voice-views", "                            voice.observe(views);\n", "", voiceNotify);
     // Without local setup the installed daemon stays unconfigured. A
     // disposable copy adds the scripted row, a model for the local brain row
     // and the indicator, then drives phases through the real engine.

@@ -69,6 +69,59 @@ async function inside() {
     const launchers = [];
     let cases = 0, controls = 0, marker = 0;
 
+    // Execute the attach-only viewer against a private argv recorder.
+    // The synthetic tmux command comes first on this test's PATH.
+    const viewRoot = path.join(root, "task-view");
+    const viewBin = path.join(viewRoot, "bin");
+    const viewLog = path.join(viewRoot, "argv.json");
+    const viewRuntime = path.join(viewRoot, "runtime");
+    fs.mkdirSync(viewBin, { recursive: true });
+    fs.mkdirSync(viewRuntime);
+    fs.writeFileSync(path.join(viewBin, "tmux"), `#!/usr/bin/env python3
+import json, os, sys
+with open(os.environ["VGS_TEST_TASK_VIEW_LOG"], "w") as output:
+    json.dump(sys.argv[1:], output)
+`, { mode: 0o755 });
+    const viewFile = path.join(backend, "../tui/task-view.sh");
+    const viewSource = fs.readFileSync(viewFile, "utf8");
+    function viewer(file) {
+        const environment = { ...env, PATH: viewBin + ":" + env.PATH,
+            XDG_RUNTIME_DIR: viewRuntime, VGS_TEST_TASK_VIEW_LOG: viewLog };
+        const valid = ["fixture-task_1", "a".repeat(64)];
+        for (const id of valid) {
+            fs.rmSync(viewLog, { force: true });
+            const result = cp.spawnSync("bash", [file, id], { env: environment, encoding: "utf8", timeout: 10000 });
+            assert.equal(result.status, 0, result.stderr);
+            assert.equal(result.stderr, "");
+            assert.deepEqual(JSON.parse(fs.readFileSync(viewLog, "utf8")), ["-S",
+                path.join(viewRuntime, "vgshell/jarvis/tmux.sock"), "attach-session", "-t", "=jarvis-" + id]);
+        }
+        const invalid = [[], [""], ["../task"], ["-task"], ["x;true"], ["x\nprivate"], ["a".repeat(65)], ["task", "extra"]];
+        for (const args of invalid) {
+            fs.rmSync(viewLog, { force: true });
+            const result = cp.spawnSync("bash", [file, ...args], { env: environment, encoding: "utf8", timeout: 10000 });
+            assert.equal(result.status, 2, JSON.stringify(args));
+            assert.equal(result.stderr, "jarvis-task-view: arguments=id\n");
+            assert.equal(fs.existsSync(viewLog), false, "a refused ID never invokes tmux");
+        }
+        cases += valid.length + invalid.length;
+    }
+    viewer(viewFile);
+    for (const [name, needle, replacement] of [
+        ["socket", "/vgshell/jarvis/tmux.sock", "/tmux.sock"],
+        ["exact-target", '"=jarvis-$1"', '"jarvis-$1"'],
+        ["id-only", "$# == 1", "$# -ge 1"],
+        ["id-shape", "$1 =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$", "1 == 1"],
+        ["id-bound", "{0,63}", "{0,127}"],
+        ["argv", 'attach-session -t "=jarvis-$1"', 'attach-session -t "=jarvis-$1" "$1"']
+    ]) {
+        assert.equal(viewSource.split(needle).length, 2, "viewer " + name + " mutation match");
+        const copy = path.join(viewRoot, name + ".sh");
+        fs.writeFileSync(copy, viewSource.replace(needle, replacement));
+        assert.throws(() => viewer(copy), assert.AssertionError, "viewer " + name + " must turn red");
+        controls++;
+    }
+
     // Real processes cross exec, a pipe and the producer's lock. Bound each wait.
     async function until(label, predicate, ms = 10000) {
         const deadline = Date.now() + ms;

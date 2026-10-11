@@ -41,12 +41,14 @@ world(() => {
         const latest = path.join(folder, "2026-09-30.jsonl");
         fs.writeFileSync(latest, content, { mode: 0o600 });
         let writer;
+        const reads = [];
         fsFault("readSync", (original, fd, buffer, offset, length, position) => {
-            assert.ok(length <= 65536, "seed never requests the whole oversized daily file");
-            assert.equal(position, Buffer.byteLength(content) - 65536);
+            reads.push({ length, position });
             return original(fd, buffer, offset, length, position);
         }, () => { writer = logic.create({ state: root, now: () => today }); });
         try {
+            assert.deepEqual(reads, [{ length: 65536, position: Buffer.byteLength(content) - 65536 }],
+                "seed requests only the bounded tail of the oversized daily file");
             const rows = writer.failures();
             assert.equal(rows.length, 20);
             assert.equal(rows[0].time, "2026-09-30T12:00:04.000Z");
