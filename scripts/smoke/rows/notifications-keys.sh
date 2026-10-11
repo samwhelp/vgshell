@@ -176,7 +176,13 @@ QML
 long_inbox_rows() {
   local n shown=""
   for n in $(seq 1 39); do
-    notify smoke-app 0 "Long $n" "A body long enough to wrap onto a second line of the card, so the card is tall" '[]' '{"urgency": <byte 0>}' 0 >/dev/null
+    if [[ ${1:-} == estimate && $n == 20 ]]; then
+      # The initial image scan reserves media while its asynchronous file
+      # read runs. The real card removes it after this missing file fails.
+      notify smoke-app 0 "Long $n" "" '[]' "{\"urgency\": <byte 0>, \"image-path\": <\"$home/estimate-control-missing.png\">}" 0 >/dev/null
+    else
+      notify smoke-app 0 "Long $n" "A body long enough to wrap onto a second line of the card, so the card is tall" '[]' '{"urgency": <byte 0>}' 0 >/dev/null
+    fi
   done
   notify smoke-app 0 "Long newest" "Waiting for your input" '["default", "Show"]' '{"urgency": <byte 0>}' 0 >/dev/null
   for _ in $(seq 1 75); do
@@ -361,14 +367,31 @@ print("end" if v["contentY"]>0 and v["contentY"]>=v["contentHeight"]-v["height"]
   local artifact="$source_repo/tmp/smoke-artifacts/notifications-height-$(date +%s%N)"
   mkdir -p -- "$artifact"
   tail -n +"$((trace + 1))" -- "$instance_log" >"$artifact/instance.log"
+  cp -- "$artifact/instance.log" "$sandbox/height-last-trace.log"
   printf 'result=%s\nplan=%s\n' "$stable" "$plan" >"$artifact/result.txt"
   cp -- "$nk_panel" "$artifact/Panel.qml"
   printf 'notification-height-artifact: %s\n' "$artifact" >&2
   read -r x y < <(nk_panel_outside_point) && hover "$x" "$y"
   "$@" >/dev/null || { echo close-toggle-failed; return; }
   nk_layer_gone || { echo close-still-open; return; }
+  if [[ ${nk_require_estimate_distinct:-false} == true && $(nk_estimate_fixture_distinct) != True ]]; then
+    echo invalid-estimate-fixture
+    return
+  fi
   [[ $stable == stable ]] || { echo "$stable"; return; }
   echo "top=$top end=$end"
+}
+nk_estimate_fixture_distinct() {
+  python3 - "$sandbox/height-last-trace.log" <<'PY_DISTINCT'
+import json,sys
+rows=[]
+for line in open(sys.argv[1]):
+    if "notification-height-trace:" not in line: continue
+    row=json.loads(line.split("notification-height-trace:",1)[1])
+    if row["summary"]=="Long 20" and row["resting"] and row["height"]!=row["estimate"]: rows.append(row)
+print("notification-estimate-fixture:"+json.dumps(rows),file=sys.stderr)
+print(bool(rows))
+PY_DISTINCT
 }
 # nk_view_settled: the long inbox's view, the probe's viewHolding reading,
 # once two readings 0.1 s apart match whole, height and place both, so a
@@ -567,6 +590,9 @@ geometry expect "the long inbox list reaches the panel bottom at both scroll end
 # Control: returning a real collapsed extent to its initial estimate
 # must change the established range during the same native roundtrip.
 cp -- "$nk_panel" "$sandbox/Panel.qml.keys-traced"
+expect "clearing the long inbox before the estimate fixture is allowed" ok notes clear-history
+expect "the estimate fixture's toasts leave the screen" 0 long_inbox_rows estimate
+expect_poll "the estimate fixture holds forty cards alone" 40 note_status history
 expect "disabling notifications before estimate restoration is allowed" ok ipc shell setPluginEnabled vgs.notifications false
 python3 - "$nk_panel" <<'PY_ESTIMATE_RESTORE'
 from pathlib import Path
@@ -615,10 +641,16 @@ PY_ESTIMATE_RESTORE
 rescan "a rescan reads estimate restoration"
 expect "enabling estimate restoration is allowed" ok ipc shell setPluginEnabled vgs.notifications true
 expect_poll "the estimate-restoration service is built" True record_exists vgs.notifications
+nk_require_estimate_distinct=true
 geometry expect "control: restoring estimates changes the established content height" height-changed long_inbox_ends nk_press
+nk_require_estimate_distinct=false
+expect "the estimate control observed a real height distinct from its estimate" True nk_estimate_fixture_distinct
 cp -- "$sandbox/Panel.qml.keys-traced" "$nk_panel"
 rescan "a rescan restores retained actual heights"
 expect_poll "the actual-height service is restored" True record_exists vgs.notifications
+expect "clearing the estimate fixture is allowed" ok notes clear-history
+expect "the original long inbox's toasts leave the screen" 0 long_inbox_rows
+expect_poll "the restored long inbox holds forty cards alone" 40 note_status history
 nk_panel="$repo/shell/plugins/vgs.notifications/Panel.qml"
 # Control: a real list with a reserved bottom gap fails both scroll ends.
 expect "disabling notifications before the bottom-gap copy is allowed" ok ipc shell setPluginEnabled vgs.notifications false
@@ -701,14 +733,21 @@ path = sys.argv[1]
 text = open(path).read()
 needle = "                    onViewHeightChanged: root.revealRow(root.currentIndex)\n"
 assert text.count(needle) == 1, "the view-height handler occurs once"
-open(path, "w").write(text.replace(needle, "                    onViewHeightChanged: {}\n"))
+replacement='''                    property real controlPreviousViewHeight: 0
+                    onViewHeightChanged: {
+                        const previous = controlPreviousViewHeight;
+                        controlPreviousViewHeight = viewHeight;
+                        if (viewHeight >= previous) root.revealRow(root.currentIndex);
+                    }
+'''
+open(path, "w").write(text.replace(needle, replacement))
 PY
 rescan "a rescan reads the idle view-height copy"
 expect "enabling the notifications beside the idle view-height copy is allowed" ok ipc shell setPluginEnabled vgs.notifications true
 expect_poll "the service is built beside the idle view-height copy" True record_exists vgs.notifications
 expect_poll "the inbox shortcut is listed beside the idle view-height copy" 1 note_shortcuts
 long_inbox_warm nk_press || fail "the idle view-height copy's first open failed"
-geometry expect "control: a panel that reveals nothing on a view-height change leaves the selected last card past the shrunken view's bottom" "cut-bottom=selected" nk_room_shrink
+geometry expect "control: a panel that reveals nothing on a view-height decrease leaves the selected last card past the shrunken view's bottom" "cut-bottom=selected" nk_room_shrink
 ok "control room shrink readings: $(nk_room_shrink_readings)"
 cp -- "$sandbox/Panel.qml.keys-kept" "$nk_panel"
 rescan "a rescan restores the panel after the idle view-height copy"

@@ -579,16 +579,18 @@ FocusScope {
                         property bool holdsTray: false
                         function updateTrayRetention() {
                             if (faceLoader.item !== null && holdsTray && faceLoader.item.card.trayReserve === 0) {
-                                faceLoader.item.card.settleHeight();
                                 reportHeight();
                             }
                             holdsTray = faceLoader.item !== null && faceLoader.item.card.trayReserve > 0;
                         }
                         readonly property real viewY: list.y + y + listScroll.topGutter - listScroll.flickable.contentY
                         function reportHeight() {
-                            if (faceLoader.item !== null && faceLoader.item.height > 0)
-                                root.actualRowHeight(entry.key, faceLoader.item.height + root.look.card.gap,
-                                    faceLoader.item.card.trayReserve === 0);
+                            if (faceLoader.item !== null) {
+                                faceLoader.item.card.settleHeight();
+                                if (faceLoader.item.height > 0)
+                                    root.actualRowHeight(entry.key, faceLoader.item.height + root.look.card.gap,
+                                        faceLoader.item.card.trayReserve === 0);
+                            }
                         }
 
                         onSelectedChanged: if (selected) root.updateSelectionHover()
