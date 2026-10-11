@@ -68,6 +68,7 @@ Item {
     }
 
     TestCase {
+        id: testCase
         name: "notification_scroll"
         when: windowShown
 
@@ -114,11 +115,19 @@ Item {
             };
         }
 
+        property bool openSettled: false
         function showPanel(height) {
             frame.visible = false;
             panel.height = height;
             panel.visible = true;
+            openSettled = false;
             panel.open("{}");
+            // This callback follows open's queued selectIndex callback.
+            // Confirm the initial production selection before user input.
+            Qt.callLater(() => openSettled = true);
+            tryCompare(testCase, "openSettled", true);
+            compare(panel.currentIndex, 0);
+            compare(panel.selectedKey, scene.notificationRows[0].key);
             const parts = panelParts();
             tryVerify(() => parts.view.contentHeight > parts.view.height && parts.slots.length === panel.rows.length);
             waitViewport(parts);

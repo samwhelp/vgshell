@@ -57,16 +57,30 @@ FocusScope {
         }
         return cached.height;
     }
-    function actualRowHeight(key, height) {
+    function actualRowHeight(key, height, resting) {
         const cached = measuredRows[key];
-        if (indexOfKey(key) === -1 || cached === undefined || cached.height === height) return;
+        if (indexOfKey(key) === -1 || cached === undefined) return;
+        if (resting) cached.measured = height;
+        if (cached.height === height) return;
         cached.height = height;
         panelModel.setProperty(indexOfKey(key), "extent", height);
-        if (key === selectedKey) Qt.callLater(() => { if (opened) revealRow(currentIndex); });
+        if (key === selectedKey) Qt.callLater(() => {
+            const slot = rowRepeater.itemAt(indexOfKey(key));
+            // Growth reveals a card already in view. A user's scroll past
+            // the selected card must keep its new viewport position.
+            if (opened && key === selectedKey && slot !== null
+                && slot.viewY < listScroll.flickable.height && slot.viewY + slot.height > 0)
+                revealRow(currentIndex);
+        });
     }
     function restoreRowHeight(key) {
         const cached = measuredRows[key];
-        if (cached !== undefined) actualRowHeight(key, cached.measured);
+        const index = indexOfKey(key);
+        if (cached === undefined || index === -1 || cached.height === cached.measured) return;
+        // Unloading is caused by user scrolling. It must not reveal the
+        // selected row and move that user back to the old selection.
+        cached.height = cached.measured;
+        panelModel.setProperty(index, "extent", cached.height);
     }
 
     // Qt ListModel moves retain delegates (Qt 6 ListModel.move). Keep the
@@ -319,15 +333,23 @@ FocusScope {
     // the end the view rests at, so the first and last rows stand clear
     // there. Nothing lifts the fade from a selected card, so a reveal into
     // the view alone, as KeyNav's, would leave it faded at an edge.
+    property bool revealing: false
     function revealRow(index) {
-        list.forceLayout();
-        const slot = rowRepeater.itemAt(index);
-        if (slot === null) return;
-        const view = listScroll.flickable;
-        const top = slot.mapToItem(view.contentItem, 0, 0).y;
-        const fromBottom = Math.max(view.contentY, top + slot.height - view.height + listScroll.fadeExtent);
-        const place = Math.min(fromBottom, top - listScroll.fadeExtent);
-        view.contentY = Math.max(0, Math.min(place, view.contentHeight - view.height));
+        if (revealing) return;
+        revealing = true;
+        try {
+            list.forceLayout();
+            // Qt 6.11 QQuickItem.ensurePolished publishes the GridLayout's
+            // pending implicit height before the scroll travel is read.
+            listScroll.cards.ensurePolished();
+            const slot = rowRepeater.itemAt(index);
+            if (slot === null) return;
+            const view = listScroll.flickable;
+            const top = slot.mapToItem(view.contentItem, 0, 0).y;
+            const fromBottom = Math.max(view.contentY, top + slot.height - view.height + listScroll.fadeExtent);
+            const place = Math.min(fromBottom, top - listScroll.fadeExtent);
+            view.contentY = Math.max(0, Math.min(place, view.contentHeight - view.height));
+        } finally { revealing = false; }
     }
 
     function rowAt(index) {
@@ -560,7 +582,12 @@ FocusScope {
                         readonly property real viewY: list.y + y + listScroll.topGutter - listScroll.flickable.contentY
                         function reportHeight() {
                             if (faceLoader.item !== null && faceLoader.item.height > 0)
-                                root.actualRowHeight(entry.key, faceLoader.item.height + root.look.card.gap);
+                                root.actualRowHeight(entry.key, faceLoader.item.height + root.look.card.gap,
+                                    faceLoader.item.card.trayReserve === 0);
+                        }
+
+                        function restoreUnloadedHeight() {
+                            if (!faceLoader.active) root.restoreRowHeight(entry.key);
                         }
 
                         onSelectedChanged: if (selected) root.updateSelectionHover()
@@ -569,7 +596,10 @@ FocusScope {
 
                         Connections {
                             target: faceLoader.item === null ? null : faceLoader.item.card
-                            function onTrayReserveChanged() { Qt.callLater(slot.updateTrayRetention); }
+                            function onTrayReserveChanged() {
+                                Qt.callLater(slot.reportHeight);
+                                Qt.callLater(slot.updateTrayRetention);
+                            }
                         }
 
                         Loader {
@@ -584,7 +614,9 @@ FocusScope {
                                 Qt.callLater(slot.reportHeight);
                                 Qt.callLater(slot.updateTrayRetention);
                             }
-                            onActiveChanged: if (!active) root.restoreRowHeight(slot.entry.key)
+                            // The active binding reads extent. Restore only after that
+                            // binding has finished, and only while still unloaded.
+                            onActiveChanged: if (!active) Qt.callLater(slot.restoreUnloadedHeight)
                             sourceComponent: Component {
                                 CardFace {
                                     id: face

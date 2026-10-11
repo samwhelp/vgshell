@@ -274,7 +274,7 @@ long_inbox_ends() {
   [[ $shown == shown ]] || { echo "$shown"; return; }
   top="$(long_inbox_settled)"
   for _ in 1 2 3 4 5 6 7 8; do
-    view="$(view_at_rest panel vgs.notifications "Long newest")" || view=unread
+    view="$(panel_current_view)" || view=unread
     [[ $view == \{* ]] || { echo "view=$view"; return; }
     spot="$(python3 -c 'import json,sys; v=json.loads(sys.argv[1]); print("end" if v["contentY"] > 0 and v["contentY"] >= v["contentHeight"] - v["height"] - 0.5 else json.dumps(v["box"]))' "$view")" || spot=unread
     [[ $spot == end ]] && break

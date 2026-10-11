@@ -3513,9 +3513,19 @@ except (ValueError,TypeError,KeyError,StopIteration): print("malformed")
   IFS=$'\t' read -r fade_newest fade_middle fade_middle_key fade_action_index fade_action_id <<<"$expected" || return
   fade_inventory_json="$reply"
 }
+# A virtual panel keeps offscreen slots without CardFaces. Read the view
+# through an actual built face, rather than a fixed first-row summary.
+panel_current_view() {
+  local summary
+  summary="$(ipc smoke itemValues panel vgs.notifications CardFace summary | py_reply 'import json,sys
+v=json.load(sys.stdin)
+if not isinstance(v,list) or not v or not isinstance(v[0].get("summary"),str): raise ValueError("no built notification card")
+print(v[0]["summary"])')" || return
+  view_at_rest panel vgs.notifications "$summary"
+}
 fade_current_view() {
   fade_inventory || return
-  view_at_rest panel vgs.notifications "$fade_newest"
+  panel_current_view
 }
 fade_selected_action() {
   local index rows key
@@ -4063,6 +4073,9 @@ for state in hover keyboard-focus; do
   fi
   fade_control_sample="$(fade_active_pair "$sandbox/fade-lifted-$state" "$fade_middle" top)" || fail "the lifted fade control capture failed"
   fade_lifted_control() {
+    [[ $(py_reply 'import json,sys
+s=json.load(sys.stdin)
+print(all(type(s[k]) is int and s[k]>0 for k in ("referenceInkPixels","cardPixels")) and len(s["cardBox"])==4 and s["cardBox"][2]>0 and s["cardBox"][3]>0 and s["fadeIntersection"][1]>s["fadeIntersection"][0])' <<<"$fade_control_sample") == True ]] || { echo invalid-capture; return; }
     (failures=0;behaviour_failures=0;render expect "the active card keeps the top band's fade" True fade_active_faded_value "$fade_control_sample" >"$sandbox/fade-lifted-$state-control.log";echo "$failures")
   }
   expect "control: the same $state fade assertion fails when the card lifts the fade" 1 fade_lifted_control
@@ -4089,6 +4102,9 @@ fade_hidden_sample="$(fade_card_sample "$sandbox/fade-hidden-cards.png")"
 geometry expect "the hidden-card control keeps a title box and draws no known ink" True py_reply 'import json,sys
 s=json.load(sys.stdin);print(type(s["count"]) is int and s["count"]==0 and s["box"][2]>0 and s["box"][3]>0)' <<<"$fade_hidden_sample"
 fade_hidden_control() {
+  [[ $(py_reply 'import json,sys
+s=json.load(sys.stdin)
+print(type(s["count"]) is int and s["count"]==0 and len(s["box"])==4 and s["box"][2]>0 and s["box"][3]>0)' <<<"$fade_hidden_sample") == True ]] || { echo invalid-capture; return; }
   (failures=0; behaviour_failures=0; render expect "the cards draw known ink above the fade" True fade_card_value_drawn "$fade_hidden_sample" >"$sandbox/fade-hidden-control.log"; echo "$failures")
 }
 expect "control: hidden cards fail the same painted-ink assertion" 1 fade_hidden_control
@@ -4431,6 +4447,8 @@ fi
 
 # Disabling and enabling again, three times over, leaves nothing behind.
 # BEGIN notification-panel-latency
+panel_latency_saved_theme="$(cat "$home/.config/vgshell/theme.json")"
+panel_latency_saved_ink="$(ipc smoke themeValue palette.foreground)"
 # The owner workload keeps 100 stored entries. Measure the first actual
 # window frame with the requested model and visible cards placed. The
 # observer runs in the sandbox copy and ships no plugin API. It reads the
@@ -4744,6 +4762,8 @@ done
 cp -R -- "$panel_geometry_dir" "$source_repo/tmp/smoke-artifacts/notifications-panel-geometry-$(date +%s%N)"
 expect "the latency observer unloads" ok ipc smoke runnerDrop
 expect "the latency history clears and resets refusal" ok notes clear-history
+write_theme "$panel_latency_saved_theme"
+expect_poll "the notification latency restores its original foreground" "$panel_latency_saved_ink" ipc smoke themeValue palette.foreground
 # END notification-panel-latency
 
 for round in 1 2 3; do
