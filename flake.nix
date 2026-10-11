@@ -17,6 +17,7 @@
         pkgs.chromium
         pkgs.coreutils
         pkgs.curl
+        pkgs.cups
         pkgs.dbus
         pkgs.fd
         pkgs.ffmpeg

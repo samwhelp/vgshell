@@ -23,6 +23,9 @@
 #   it was asked to play and exits 0, so no row sounds a speaker.
 #   The Chromium-family browsers stand in too, so a link a row opens in a
 #   browser profile starts no browser (shell/Commons/DesktopLaunch.js).
+#   lpstat and ipptool answer from the sandbox's CUPS world and
+#   system-config-printer exits 0 after its record, so no shell reaches
+#   the host's CUPS (scripts/smoke/fixtures/devices/cups.py).
 # - bluez drives the planted adapter as BlueZ would, bluez_follow makes
 #   the rfkill stand-in move it as bluetoothd follows rfkill, and
 #   rfkill_hard moves a hardware switch, for a Bluetooth row.
@@ -30,7 +33,13 @@
 #   leaves them up: python-dbusmock's bluez5 and networkmanager templates
 #   on the sandbox system bus with one adapter, one device and one Wi-Fi
 #   device planted, a private PipeWire and WirePlumber with null nodes
-#   only, and the HID feature-report fake. Quickshell 0.3.1's Bluetooth,
+#   only, the HID feature-report fake, and the cups-pk-helper stand-in on
+#   the sandbox system bus over the CUPS world.
+# - cups_world JSON sets keys of the CUPS world, cups.py's
+#   STATE/cups.json, and cups_world_read prints it; cups_signal MEMBER PRINTER sends one CUPS
+#   notification on the sandbox system bus, as cupsd's dbus notifier does
+#   for a change the row made to the world. The world starts empty: a
+#   running scheduler with no printer. Quickshell 0.3.1's Bluetooth,
 #   Networking and Pipewire singletons look for their service once, when
 #   a plugin first reads them, and never watch for it to appear
 #   (bluetooth/bluez.cpp, network/nm/backend.cpp,
@@ -57,7 +66,7 @@ devices_fixtures="$repo/scripts/smoke/fixtures/devices"
 devices_env_words=(PIPEWIRE_RUNTIME_DIR="$rt_dir" VGS_DEV_ROOT="$devices_dev_root"
   VGS_SYSFS_ROOT="$devices_sysfs_root" VGS_HID_FAKE="$devices_hid_socket")
 device_stand_in_names=(rfkill tailscale ddcutil brightnessctl nmcli pactl pw-play bluetoothctl systemctl udevadm modprobe xdg-open gum
-  chromium google-chrome-stable brave vivaldi-stable microsoft-edge-stable)
+  chromium google-chrome-stable brave vivaldi-stable microsoft-edge-stable lpstat ipptool system-config-printer)
 mkdir -p -- "$devices_dir/calls" "$devices_dir/replies"
 
 # devices_write_stand_ins: every stand-in written into $shim, and rfkill's
@@ -73,6 +82,7 @@ devices_write_stand_ins() {
   local python name gio_bin
   python="$(command -v python3)" || { printf 'qml-smoke: status=not-measured missing=python3\n'; exit 77; }
   cp -- "$devices_fixtures/rfkill.json" "$devices_dir/rfkill.json"
+  rm -f -- "${devices_dir:?}/cups.json"
   for name in "${device_stand_in_names[@]}"; do
     printf '#!/usr/bin/env bash\nexec %q %q %q %q "$@"\n' "$python" "$devices_fixtures/stand-in.py" "$name" "$devices_dir" >"$shim/$name"
     chmod 755 "$shim/$name"
@@ -118,6 +128,34 @@ path = sys.argv[1]
 print(json.dumps([json.loads(line) for line in open(path)] if os.path.exists(path) else []))
 PY
 }
+# cups_world JSON: each key of the object JSON set in the CUPS world, the
+# others kept, so a planted world keeps the subscriptions; prints
+# `world=set`. cups_world_read: the world, as one JSON object with every
+# key cups.py defaults.
+cups_world() { # JSON
+  python3 - "$devices_fixtures/cups.py" "$devices_dir" "$1" <<'PY'
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("cups", sys.argv[1])
+cups = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cups)
+doc = cups.load(sys.argv[2])
+doc.update(json.loads(sys.argv[3]))
+cups.save(sys.argv[2], doc)
+print("world=set")
+PY
+}
+cups_world_read() {
+  python3 - "$devices_fixtures/cups.py" "$devices_dir" <<'PY'
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("cups", sys.argv[1])
+cups = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cups)
+print(json.dumps(cups.load(sys.argv[2]), sort_keys=True))
+PY
+}
+# cups_signal MEMBER PRINTER: one org.cups.cupsd.Notifier signal on the
+# sandbox system bus; prints `signal=sent`.
+cups_signal() { "${shell_env[@]}" python3 "$devices_fixtures/cups.py" signal "$devices_dir" "$1" "$2"; }
 # rfkill_state [DIR]: the rfkill stand-in's radios as [[type, soft,
 # hard], ...], from the state directory DIR, the harness's by default.
 rfkill_state() { python3 -c 'import json,sys; print(json.dumps([[d["type"], d["soft"], d["hard"]] for d in json.load(open(sys.argv[1]))["devices"]]))' "${1:-$devices_dir}/rfkill.json"; }
@@ -157,8 +195,8 @@ PY
 
 # devices_state: `down` before devices_up, `up` once every fake answered,
 # `missing=<a,b>` for absent prerequisites, `failed=<key>` for a fake that
-# did not start. devices_pid maps pipewire, wireplumber, bluez, network
-# and hid to the pid devices_up spawned; each is its own process group,
+# did not start. devices_pid maps pipewire, wireplumber, bluez, network,
+# hid and cups to the pid devices_up spawned; each is its own process group,
 # which the teardown stops.
 devices_state=down
 declare -gA devices_pid=()
@@ -191,7 +229,11 @@ devices_up() {
   devices_pid[hid]="$spawn_pid"
   for _ in $(seq 1 50); do [[ -S $devices_hid_socket ]] && break; sleep 0.1; done
   if [[ ! -S $devices_hid_socket ]]; then devices_failed hid-fake "$devices_dir/hid-fake.log"; return 1; fi
-  for name in pipewire wireplumber bluez network hid; do
+  spawn "$devices_dir/cups.log" "${shell_env[@]}" python3 "$devices_fixtures/cups.py" helper "$devices_dir"
+  devices_pid[cups]="$spawn_pid"
+  for _ in $(seq 1 50); do grep -qx 'helper=ready' "$devices_dir/cups.log" 2>/dev/null && break; sleep 0.1; done
+  if ! grep -qx 'helper=ready' "$devices_dir/cups.log" 2>/dev/null; then devices_failed cups "$devices_dir/cups.log"; return 1; fi
+  for name in pipewire wireplumber bluez network hid cups; do
     local log="$devices_dir/$name.log"
     [[ $name == hid ]] && log="$devices_dir/hid-fake.log"
     if ! kill -0 "${devices_pid[$name]}" 2>/dev/null; then devices_failed "$name" "$log"; return 1; fi

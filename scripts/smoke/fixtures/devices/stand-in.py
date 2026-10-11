@@ -36,7 +36,11 @@ from files a row plants under STATE.
   the agent's answer completes bonding; past the last step it records
   stdin until EOF.
 - pw-play, the core's sound player, exits 0 after its record: it plays
-  nothing, and its caller reads no answer but its exit.
+  nothing, and its caller reads no answer but its exit. So does
+  system-config-printer, which vgs.printers starts detached and opens no
+  window.
+- lpstat and ipptool answer from the sandbox's CUPS world, STATE/cups.json,
+  as cups.py beside this file sets out.
 - Any other call answers from STATE/replies/NAME.json, a list of
   {"argv", "stdout", "stderr", "status"} rows, the row whose argv equals
   the call's. device_reply keeps one row per argv and replaces older rows.
@@ -221,7 +225,12 @@ def main():
     if name == "rfkill":
         rfkill(state, argv)
         return
-    if name == "pw-play":
+    if name in ("pw-play", "system-config-printer"):
+        return
+    if name in ("lpstat", "ipptool"):
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import cups
+        getattr(cups, name)(state, argv)
         return
     script = os.path.join(state, "replies", "bluetoothctl.transcript.json")
     agent = len(argv) == 2 and argv[0] == "--agent"

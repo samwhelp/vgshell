@@ -1,0 +1,22 @@
+# Create one server-wide subscription to the printer and job events
+# vgs.printers lists, sent by CUPS's dbus notifier, for $lease seconds.
+#
+#   ipptool -t -d recipient=dbus:// -d lease=SECONDS ipp://localhost/ subscribe.test
+{
+	NAME "Create a printer subscription"
+	OPERATION Create-Printer-Subscription
+
+	GROUP operation-attributes-tag
+	ATTR charset attributes-charset utf-8
+	ATTR language attributes-natural-language en
+	ATTR uri printer-uri $uri
+
+	GROUP subscription-attributes-tag
+	ATTR uri notify-recipient-uri $recipient
+	ATTR keyword notify-events printer-added,printer-deleted,printer-modified,printer-state-changed,job-created,job-completed,job-stopped
+	ATTR integer notify-lease-duration $lease
+
+	STATUS successful-ok
+	EXPECT notify-subscription-id OF-TYPE integer WITH-VALUE >0
+	DISPLAY notify-subscription-id
+}

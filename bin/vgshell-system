@@ -18,6 +18,9 @@
 #                        load it at boot
 #   service-bluetooth    `systemctl enable --now bluetooth.service`
 #   service-tailscaled   `systemctl enable --now tailscaled.service`
+#   service-cups         `systemctl enable --now cups.service`; the probe reads
+#                        ready while cups.service or cups.socket is active,
+#                        since the socket starts the service on demand
 #   tailscale-operator   `tailscale set --operator=<the caller's own login name>`; a
 #                        login name outside `[a-z_][a-z0-9_-]*$?` reads this step
 #                        unknown, reason user-unsupported
@@ -210,7 +213,7 @@ dev="$prefix/dev"
 boot_id_file="$prefix/proc/sys/kernel/random/boot_id"
 
 # The closed table, in the order status prints it.
-steps=(apple-displays i2c-dev service-bluetooth service-tailscaled tailscale-operator greeter bandwhich-capture reboot-notice)
+steps=(apple-displays i2c-dev service-bluetooth service-tailscaled service-cups tailscale-operator greeter bandwhich-capture reboot-notice)
 capture_caps=cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin
 
 # Character classes spelled out: a range follows the collation of the
@@ -248,6 +251,7 @@ unit_of() { # STEP
   case "$1" in
     service-bluetooth) unit=bluetooth.service ;;
     service-tailscaled) unit=tailscaled.service ;;
+    service-cups) unit=cups.service ;;
     *) refuse 1 "internal=unit-of step=$1" "only a service step names a unit" ;;
   esac
 }
@@ -381,6 +385,14 @@ probe_service() { # UNIT
     masked) set_probe denied unit-masked ;;
     *) set_probe unknown load-state ;;
   esac
+}
+
+# CUPS's socket unit starts cups.service on the first connection, so an
+# active socket is printing that works.
+probe_cups() {
+  probe_service cups.service
+  [[ $probe_state == needed ]] || return 0
+  if systemctl is-active --quiet cups.socket; then set_probe ready socket-active; fi
 }
 
 # Sets operator to the operator tailscaled names; 1 when it cannot be read.
@@ -746,6 +758,7 @@ probe() { # STEP
     apple-displays) probe_apple_displays ;;
     i2c-dev) probe_i2c_dev ;;
     service-bluetooth|service-tailscaled) unit_of "$1"; probe_service "$unit" ;;
+    service-cups) probe_cups ;;
     tailscale-operator) probe_tailscale_operator ;;
     greeter) probe_greeter ;;
     bandwhich-capture) probe_bandwhich_capture ;;
@@ -787,6 +800,7 @@ nixos_snippet() { # STEP
     i2c-dev) printf 'boot.kernelModules = [ "i2c-dev" ];\n' ;;
     service-bluetooth) printf 'hardware.bluetooth.enable = true;\n' ;;
     service-tailscaled) printf 'services.tailscale.enable = true;\n' ;;
+    service-cups) printf 'services.printing.enable = true;\n' ;;
     tailscale-operator) printf 'services.tailscale.extraSetFlags = [ "--operator=%s" ];\n' "$user" ;;
     bandwhich-capture)
       printf 'security.wrappers.bandwhich = {\n  source = "${pkgs.bandwhich}/bin/bandwhich";\n  owner = "root";\n  group = "root";\n  capabilities = "%s+ep";\n};\n' "$capture_caps"
@@ -1193,7 +1207,7 @@ plan() { # VERB STEP
   case "$2" in
     apple-displays) "$1_apple_displays" ;;
     i2c-dev) "$1_i2c_dev" ;;
-    service-bluetooth|service-tailscaled) "$1_service" "$2" ;;
+    service-bluetooth|service-tailscaled|service-cups) "$1_service" "$2" ;;
     tailscale-operator) "$1_tailscale_operator" ;;
     greeter) "$1_greeter" ;;
     bandwhich-capture) "$1_bandwhich_capture" ;;

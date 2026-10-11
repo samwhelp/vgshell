@@ -913,7 +913,10 @@ PY
 # the sandbox HOME, so it runs no tool and sends no request; vgs.voice's
 # service probe reaches the systemctl stand-in, and only a host that has
 # voxtype runs it, to read its state; vgs.webapps lists its own icons
-# under the sandbox HOME and asks xdg-mime for the https default.
+# under the sandbox HOME and asks xdg-mime for the https default;
+# vgs.printers's lpstat and ipptool reach their stand-ins, which answer
+# from the sandbox's CUPS world, and its dbus-monitor listens on the
+# sandbox's system bus.
 default_set_prepare() { # PLUGINS_JSON [DISABLED_JSON]
   devtools_stand_ins
   updates_cache_fresh
@@ -950,7 +953,7 @@ case "$plugin_set" in
     mkdir -p "$tick"
     cp -R "$repo/scripts/smoke/fixtures/plugins/acme.tick/." "$tick/"
     cat >"$home/.config/vgshell/shell.json" <<'JSON'
-{ "version": 1, "bar": { "id": "vgs.bar", "layout": { "left": [{ "id": "vgs.bar/left-workspaces" }], "center": [{ "id": "vgs.bar/center-clock" }, { "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "right": [] } }, "plugins": [{ "id": "vgs.settings" }], "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.updates", "vgs.agent-warden", "vgs.devtools", "vgs.automations", "vgs.cloud-sync", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.power", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.screensaver", "vgs.ai-usage", "vgs.traffic", "vgs.tray", "vgs.voice", "vgs.webapps", "vgs.clipboard", "vgs.sysmon", "vgs.sudo"] }
+{ "version": 1, "bar": { "id": "vgs.bar", "layout": { "left": [{ "id": "vgs.bar/left-workspaces" }], "center": [{ "id": "vgs.bar/center-clock" }, { "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "right": [] } }, "plugins": [{ "id": "vgs.settings" }], "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.updates", "vgs.agent-warden", "vgs.devtools", "vgs.automations", "vgs.cloud-sync", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.power", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.screensaver", "vgs.ai-usage", "vgs.traffic", "vgs.tray", "vgs.voice", "vgs.webapps", "vgs.clipboard", "vgs.sysmon", "vgs.sudo", "vgs.printers"] }
 JSON
     ;;
   default) default_set_prepare '[]' ;;

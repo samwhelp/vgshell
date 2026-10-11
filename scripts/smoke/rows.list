@@ -158,6 +158,10 @@ bluetooth
 # over the device fakes' stand-ins; it reads no state another section
 # leaves.
 vpn
+# After system-window, which leaves vgs.system as this row finds it, and
+# over the device fakes' CUPS stand-ins; it reads no state another
+# section leaves.
+printers
 # After launcher and hyprland, whose readers it uses; it restarts the
 # shell for its controls, so it runs with the tail rows that do the same.
 style

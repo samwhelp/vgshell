@@ -1,0 +1,238 @@
+#!/usr/bin/env node
+// vgs.printers's decisions under the same loader as QML: what lpstat
+// prints, the watcher's lines, gdbus's replies and failures, the helper
+// calls each change makes, the change's steps, which found device takes
+// Add, the queue name, the address field and the lines and rows the
+// screens draw. The lpstat lines are the host's own (cups 2.4.19, C locale)
+// and lpstat.c's formats; the gdbus replies and errors are gdbus 2.88's
+// prints of scripts/smoke/fixtures/devices/cups.py on a private bus. Each
+// control below plants one defect in a copy of the logic; the suite must
+// turn red on every one.
+"use strict";
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const assert = require("node:assert/strict");
+const { load } = require("../bin/lib/qml-library.js");
+const file = path.join(__dirname, "../shell/plugins/vgs.printers/PrintersLogic.js");
+const plain = value => JSON.parse(JSON.stringify(value));
+
+const SINCE = "Sat Oct 10 17:32:40 2026";
+const host = [
+    "scheduler is running",
+    "no system default destination",
+    `printer Brother is idle.  enabled since ${SINCE}`,
+    "\tWaiting for job to complete.",
+    "device for Brother: ipp://BRWF4289DE3354F.local:631/ipp/print",
+    ""
+].join("\n");
+const busy = [
+    "scheduler is running",
+    "system default destination: Lab",
+    `printer Lab disabled since ${SINCE} -`,
+    "\treason unknown",
+    `printer Office now printing Office-100.  enabled since ${SINCE}`,
+    `printer Office-2 disabled since ${SINCE} -`,
+    "\tPaper jam",
+    "Office-100              smoke                 1024   " + SINCE,
+    "Office-101              smoke                 1024   " + SINCE,
+    "Office-2-7              smoke                 1024   " + SINCE,
+    "device for Lab: ipp://lab.local/ipp/print",
+    "device for Office: socket://192.0.2.9",
+    "device for Office-2: usb://Brother/HL",
+    ""
+].join("\n");
+const devices = "('', {'device-class:0': 'network', 'device-info:0': 'Lab Printer', 'device-make-and-model:0': 'HP LaserJet', 'device-uri:0': 'ipp://lab.local:631/ipp/print', 'device-class:1': 'direct', 'device-info:1': 'Brother HL-L2350DW', 'device-make-and-model:1': 'Brother HL-L2350DW', 'device-uri:1': 'usb://Brother/HL-L2350DW?serial=E7', 'device-class:2': 'network', 'device-info:2': \"It's \\\"quoted\\\"\", 'device-uri:2': 'socket://192.0.2.9'})\n";
+
+function suite(logic) {
+    // lpstat, one row per output: the code, the text and the reading.
+    for (const [name, code, text, want] of [
+        ["the host's one idle printer", 0, host, { state: "read", default: "", printers: [{ name: "Brother", state: "idle", message: "Waiting for job to complete.", jobs: 0, isDefault: false, uri: "ipp://BRWF4289DE3354F.local:631/ipp/print" }] }],
+        ["no printer", 0, "scheduler is running\nno system default destination\n", { state: "read", default: "", printers: [] }],
+        ["a default, a busy printer with its jobs and stopped ones", 0, busy, { state: "read", default: "Lab", printers: [
+            { name: "Lab", state: "stopped", message: "", jobs: 0, isDefault: true, uri: "ipp://lab.local/ipp/print" },
+            { name: "Office", state: "printing", message: "", jobs: 2, isDefault: false, uri: "socket://192.0.2.9" },
+            { name: "Office-2", state: "stopped", message: "Paper jam", jobs: 1, isDefault: false, uri: "usb://Brother/HL" }] }],
+        ["a default instance names its printer", 0, "scheduler is running\nsystem default destination: Lab/duplex\n" + `printer Lab is idle.  enabled since ${SINCE}\n`, { state: "read", default: "Lab", printers: [{ name: "Lab", state: "idle", message: "", jobs: 0, isDefault: true, uri: "" }] }],
+        ["a scheduler that is not running", 1, "scheduler is not running\n", { state: "down" }],
+        ["a failed read while running", 1, "scheduler is running\n", { state: "failed", reason: "exit=1" }],
+        ["no scheduler line", 0, "no system default destination\n", { state: "failed", reason: "scheduler-line" }],
+        ["a line lpstat does not print", 0, "scheduler is running\nsomething else\n", { state: "failed", reason: "line" }],
+        ["a message before any printer", 0, "scheduler is running\n\tPaper jam\n", { state: "failed", reason: "message-line" }],
+        ["an idle line without its date", 0, "scheduler is running\nprinter Lab is idle\n", { state: "failed", reason: "printer-line" }],
+        ["a stopped line with an enabled date", 0, `scheduler is running\nprinter Lab disabled since ${SINCE} -.  enabled since ${SINCE}\n`, { state: "failed", reason: "printer-line" }]
+    ]) assert.deepEqual(plain(logic.lpstatReading(code, text)), want, name);
+
+    for (const [line, want] of [
+        ["ready subscription=7", { kind: "ready" }],
+        ["event PrinterAdded", { kind: "event", name: "PrinterAdded" }],
+        ["event Printer Added", { kind: "unknown" }],
+        ["ready", { kind: "unknown" }]
+    ]) assert.deepEqual(plain(logic.watchLine(line)), want, line);
+
+    // gdbus's prints.
+    for (const [name, text, want] of [
+        ["a string reply", "('',)", [""]],
+        ["a CUPS refusal", "('The printer or class does not exist.',)", ["The printer or class does not exist."]],
+        ["an empty dictionary", "('', @a{ss} {})", ["", {}]],
+        ["DevicesGet", devices.trim(), ["", {
+            "device-class:0": "network", "device-info:0": "Lab Printer", "device-make-and-model:0": "HP LaserJet", "device-uri:0": "ipp://lab.local:631/ipp/print",
+            "device-class:1": "direct", "device-info:1": "Brother HL-L2350DW", "device-make-and-model:1": "Brother HL-L2350DW", "device-uri:1": "usb://Brother/HL-L2350DW?serial=E7",
+            "device-class:2": "network", "device-info:2": "It's \"quoted\"", "device-uri:2": "socket://192.0.2.9" }]],
+        ["escapes", "('a\\nb\\u00e9\\\\', [true, false], uint32 5, -3)", ["a\nbé\\", [true, false], 5, -3]],
+        ["text left over", "('',) x", null],
+        ["an open string", "('abc", null],
+        ["an unknown word", "(objectpath '/a',)", null]
+    ]) assert.deepEqual(plain(logic.parseGVariant(text)), want, name);
+    for (const value of ["plain", "it's", "back\\slash", "\\'", "Büro \"2\""])
+        assert.equal(logic.parseGVariant(logic.quoted(value)), value, "quoted round trip " + JSON.stringify(value));
+
+    // gdbus's ends.
+    for (const [name, code, stdout, stderr, want] of [
+        ["success", 0, "('',)\n", "", { ok: true, value: [""] }],
+        ["CUPS refused the request", 0, "('The printer or class does not exist.',)\n", "", { ok: false, problem: "cups", detail: "The printer or class does not exist." }],
+        ["polkit refused", 1, "", "Error: GDBus.Error:org.opensuse.CupsPkHelper.Mechanism.NotPrivileged: Not Authorized for action: org.opensuse.cupspkhelper.mechanism.printeraddremove\n", { ok: false, problem: "refused", detail: "Error: GDBus.Error:org.opensuse.CupsPkHelper.Mechanism.NotPrivileged: Not Authorized for action: org.opensuse.cupspkhelper.mechanism.printeraddremove" }],
+        ["the helper is not installed", 1, "", "Error: GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: The name org.opensuse.CupsPkHelper.Mechanism was not provided by any .service files\n", { ok: false, problem: "helper-missing", detail: "Error: GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: The name org.opensuse.CupsPkHelper.Mechanism was not provided by any .service files" }],
+        ["no answer in time", 1, "", "Error: Timeout was reached\n", { ok: false, problem: "timeout", detail: "Error: Timeout was reached" }],
+        ["no bus", 1, "", "Error connecting: Could not connect: No such file or directory\n", { ok: false, problem: "failed", detail: "exit=1 Error connecting: Could not connect: No such file or directory" }],
+        ["a failed start", -1, "", "", { ok: false, problem: "failed", detail: "exit=-1 " }],
+        ["an unreadable reply", 0, "garbage\n", "", { ok: false, problem: "failed", detail: "reply=unparsable" }]
+    ]) assert.deepEqual(plain(logic.helperReply(code, stdout, stderr)), want, name);
+
+    // The calls, as argv.
+    const call = (method, args) => ["gdbus", "call", "--system", "--dest", "org.opensuse.CupsPkHelper.Mechanism", "--object-path", "/", "--timeout", "120",
+        "--method", "org.opensuse.CupsPkHelper.Mechanism." + method].concat(args);
+    assert.deepEqual(plain(logic.addSteps("Lab", "ipp://lab.local/ipp/print", "Lab's printer")), [
+        call("PrinterAdd", ["'Lab'", "'ipp://lab.local/ipp/print'", "'everywhere'", "'Lab\\'s printer'", "''"]),
+        call("PrinterSetEnabled", ["'Lab'", "true"]),
+        call("PrinterSetAcceptJobs", ["'Lab'", "true", "''"])]);
+    assert.deepEqual(plain(logic.defaultSteps("Office")), [call("PrinterSetDefault", ["'Office'"])]);
+    assert.deepEqual(plain(logic.removeSteps("Office")), [call("PrinterDelete", ["'Office'"])]);
+    assert.deepEqual(plain(logic.findSteps()), [call("DevicesGet", ["10", "32", "@as []", "@as []"])]);
+
+    // A change: every step in order; a failure ends it where it failed.
+    const ok = { ok: true, value: [""] };
+    let op = logic.opBegin("add", "Lab", logic.addSteps("Lab", "ipp://lab.local/ipp/print", "Lab"));
+    assert.equal(op.phase, "running");
+    op = logic.opAdvance(op, ok);
+    assert.deepEqual([op.phase, op.index], ["running", 1]);
+    op = logic.opAdvance(op, ok);
+    op = logic.opAdvance(op, ok);
+    assert.deepEqual([op.phase, op.problem], ["done", ""]);
+    assert.throws(() => logic.opAdvance(op, ok), /a step ended while the change is done/);
+    const refused = logic.opAdvance(logic.opBegin("default", "Lab", logic.defaultSteps("Lab")), { ok: false, problem: "refused", detail: "" });
+    assert.deepEqual([refused.phase, refused.problem, refused.index], ["failed", "refused", 0]);
+    assert.deepEqual(plain(logic.opView(refused)), { kind: "default", target: "Lab", phase: "failed", problem: "refused" });
+    for (const key of Object.keys(logic.PROBLEM_TEXT)) assert.notEqual(logic.problemText(key), "", "a sentence for " + key);
+    assert.equal(logic.problemText(""), "");
+    assert.equal(logic.problemText("unheard-of"), logic.PROBLEM_TEXT.failed);
+
+    // Driverless addresses.
+    for (const [uri, want] of [
+        ["ipp://lab.local:631/ipp/print", true],
+        ["IPPS://lab.local/ipp/print", true],
+        ["dnssd://Brother%20HL._ipp._tcp.local/?uuid=1", true],
+        ["dnssd://Brother%20HL._ipps._tcp.local/?uuid=1", true],
+        ["dnssd://Brother%20HL._pdl-datastream._tcp.local/", false],
+        ["usb://Brother/HL-L2350DW?serial=E7", false],
+        ["socket://192.0.2.9", false],
+        ["ipp", false]
+    ]) assert.equal(logic.driverless(uri), want, uri);
+
+    // Found devices: CUPS's order, no backend entry, no installed URI.
+    const dictionary = logic.parseGVariant(devices.trim())[1];
+    dictionary["device-class:3"] = "network";
+    dictionary["device-info:3"] = "Internet Printing Protocol (ipp)";
+    dictionary["device-uri:3"] = "ipp";
+    assert.deepEqual(plain(logic.foundDevices(dictionary, [{ uri: "socket://192.0.2.9" }])), [
+        { key: "ipp://lab.local:631/ipp/print", uri: "ipp://lab.local:631/ipp/print", info: "Lab Printer", make: "HP LaserJet", driverless: true },
+        { key: "usb://Brother/HL-L2350DW?serial=E7", uri: "usb://Brother/HL-L2350DW?serial=E7", info: "Brother HL-L2350DW", make: "Brother HL-L2350DW", driverless: false }]);
+    assert.deepEqual(plain(logic.foundDevices({ "device-uri:0": "ipp://a/ipp/print", "device-info:0": "Line\none" }, [])).map(d => d.info), ["Line one"]);
+
+    for (const [text, taken, want] of [
+        ["Lab Printer", [], "Lab_Printer"],
+        ["HP LaserJet 400 (M401)", [], "HP_LaserJet_400_M401"],
+        ["Büro", [], "B_ro"],
+        ["  ", [], "Printer"],
+        ["lab.local", [], "lab.local"],
+        ["Lab", ["lab"], "Lab_2"],
+        ["Lab", ["Lab", "Lab_2"], "Lab_3"],
+        ["#/", [], "Printer"],
+        ["x".repeat(200), [], "x".repeat(100)]
+    ]) assert.equal(logic.queueName(text, taken), want, text);
+
+    for (const [text, want] of [
+        ["printer.local", { ok: true, uri: "ipp://printer.local/ipp/print", host: "printer.local" }],
+        [" 192.0.2.7 ", { ok: true, uri: "ipp://192.0.2.7/ipp/print", host: "192.0.2.7" }],
+        ["printer.local:8631", { ok: true, uri: "ipp://printer.local:8631/ipp/print", host: "printer.local" }],
+        ["ipps://printer.local/ipp/print", { ok: true, uri: "ipps://printer.local/ipp/print", host: "printer.local" }],
+        ["IPP://printer.local/", { ok: true, uri: "ipp://printer.local/ipp/print", host: "printer.local" }],
+        ["ipp://[2001:db8::7]:631/printers/lab", { ok: true, uri: "ipp://[2001:db8::7]:631/printers/lab", host: "[2001:db8::7]" }],
+        ["", { ok: false, problem: "address" }],
+        ["printer local", { ok: false, problem: "address" }],
+        ["lpd://printer.local/queue", { ok: false, problem: "scheme" }],
+        ["user@printer.local", { ok: false, problem: "address" }],
+        ["printer.local:99999", { ok: false, problem: "address" }],
+        ["-printer", { ok: false, problem: "address" }],
+        ["printer.local/a\tb", { ok: false, problem: "address" }]
+    ]) assert.deepEqual(plain(logic.addressDevice(text)), want, JSON.stringify(text));
+
+    // The Settings page's line: the step's action only while printing is
+    // off and the step applies.
+    const read = n => ({ state: "read", printers: Array.from({ length: n }, (_, i) => ({ name: "P" + i })) });
+    for (const [name, reading, missing, step, want] of [
+        ["unread", { state: "unread" }, false, "", { tone: "info", text: "Reading printers", action: false }],
+        ["no printer", read(0), false, "ready", { tone: "ok", text: "No printers", action: false }],
+        ["one printer", read(1), false, "ready", { tone: "ok", text: "1 printer", action: false }],
+        ["two printers", read(2), false, "ready", { tone: "ok", text: "2 printers", action: false }],
+        ["off, step needed", { state: "down" }, false, "needed", { tone: "warning", text: "Printing is off.", action: true }],
+        ["off, on NixOS", { state: "down" }, false, "nixos", { tone: "warning", text: "Printing is off.", action: true }],
+        ["off, step ready", { state: "down" }, false, "ready", { tone: "warning", text: "Printing is off.", action: false }],
+        ["off, step denied", { state: "down" }, false, "denied", { tone: "warning", text: "Printing is off.", action: false }],
+        ["failed", { state: "failed", reason: "line" }, false, "needed", { tone: "danger", text: "VGS could not read the printers.", action: false }],
+        ["lpstat missing", { state: "unread" }, true, "needed", { tone: "warning", text: "Printing is not installed.", action: false }]
+    ]) assert.deepEqual(plain(logic.printingView(reading, missing, step)), want, name);
+    assert.throws(() => logic.printingView({ state: "other" }, false, ""), /reading state "other"/);
+
+    const rows = logic.printerRows(logic.lpstatReading(0, busy).printers);
+    assert.deepEqual(plain(rows.map(r => [r.key, r.secondary, r.iconName, r.badge])), [
+        ["Lab", "Stopped", "printer-x", "Default"],
+        ["Office", "Printing · 2 jobs", "printer", ""],
+        ["Office-2", "Stopped: Paper jam · 1 job", "printer-x", ""]]);
+    assert.equal(logic.printerAction(rows[0]), null);
+    assert.deepEqual(plain(logic.printerAction(rows[1])), { text: "Set as default" });
+    assert.deepEqual(plain(logic.printerMenu(rows[0]).map(e => e.key)), ["remove"]);
+    assert.deepEqual(plain(logic.printerMenu(rows[1]).map(e => e.key)), ["default", "remove"]);
+    const foundRows = logic.foundRows(logic.foundDevices(dictionary, []));
+    assert.deepEqual(plain(foundRows.map(r => logic.foundAction(r).text)), ["Add", "Print Settings", "Print Settings"]);
+}
+
+suite(load(file));
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "printers-logic-"));
+try {
+    const source = fs.readFileSync(file, "utf8");
+    for (const [name, needle, replacement] of [
+        ["the scheduler line is not read", 'if (lines[0] === "scheduler is not running") return { state: "down" };', ""],
+        ["a job counts for no printer", "jobs[m[1]] = (jobs[m[1]] || 0) + 1;", ""],
+        ["lpstat's own no-message line is a message", 'if (last.message === "" && m[1].trim() !== "reason unknown")', 'if (last.message === "")'],
+        ["an instance stays in the default's name", "fallback = m[1];", "fallback = m[1] + (m[2] || \"\");"],
+        ["a refused prompt reads as a plain failure", '{ kind: "refused", pattern:', '{ kind: "failed", pattern:'],
+        ["a string argument goes unquoted", "function quoted(s) { return \"'\" +", "function quoted(s) { return \"\" + String(s); return \"'\" +"],
+        ["a new queue is left stopped", '        helperArgv("PrinterSetEnabled", [quoted(name), "true"]),\n', ""],
+        ["the change runs on past a failure", "        next.index = op.index;\n        next.phase = \"failed\";", "        next.index = op.index;\n        next.phase = \"running\";"],
+        ["a DNS-SD printer of any type is driverless", "return /\\._ipps?\\._tcp(\\.|$)/.test(host);", "return true;"],
+        ["an installed printer is found again", "installed.indexOf(uri) !== -1", "false"],
+        ["a taken name is taken again", "lower.indexOf(name.toLowerCase()) !== -1", "false"],
+        ["another scheme passes the field", 'if (scheme !== "ipp" && scheme !== "ipps") return { ok: false, problem: "scheme" };', ""],
+        ["an address keeps no default path", 'if (path === "" || path === "/") path = DEFAULT_PATH;', ""],
+        ["Turn on printing offered while the step is ready", 'action: step === "needed" || step === "nixos" };', "action: true };"],
+        ["the default printer loses its badge", 'badge: p.isDefault ? "Default" : "",', 'badge: "",']
+    ]) {
+        assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");
+        const mutant = path.join(scratch, "PrintersLogic.js");
+        fs.writeFileSync(mutant, source.replace(needle, replacement));
+        assert.throws(() => suite(load(mutant)), assert.AssertionError, "control: " + name);
+        console.log("printers-logic: control=" + name + " red");
+    }
+} finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+console.log("printers-logic: passed");

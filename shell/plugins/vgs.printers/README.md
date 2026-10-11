@@ -1,0 +1,31 @@
+# Printers
+
+Printers adds, chooses and removes your printers. It has a Printers section in the System Settings window, under Hardware.
+
+![The Printers section of the System Settings window, with two printers, the default one marked, and Add a printer](../../../docs/images/plugins/vgs.printers-pane.webp)
+
+Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2, over the sandbox's printing stand-ins.
+
+## Features
+
+- The list of your printers, with each printer's state, its queued jobs and the default printer marked.
+- The list changes when the printing service reports a change, such as a new job or a printer that stops.
+- Set as default makes a printer the one your apps print to first.
+- Remove takes a printer off the computer. Delete removes the selected printer.
+- Find printers lists the printers on this computer and your network. Add sets up a printer that needs no driver.
+- A printer that needs a driver opens Print Settings, where you choose its driver.
+- The address field adds a network printer by its name or IP address, such as `printer.local`.
+- Print Settings opens the full printer settings for drivers, paper size, two-sided printing and quality.
+- Each change asks your permission in the system's password prompt. VGS never sees the password. A change you do not allow changes nothing.
+- Turn on printing starts the printing service in a setup window when it is off.
+
+## Requirements
+
+Printers reads your printers with the printing service's own tools. A missing tool shows the requirement notice, which installs it in one press. The printer helper is optional: without it the list works, and each change button offers to install it. Print Settings is optional too.
+
+<details>
+<summary>Show command details</summary>
+
+The list reads `LC_ALL=C lpstat -r -d -p -o -v`. The watcher, `bin/printers-watch`, makes one CUPS subscription with the `dbus://` recipient through `ipptool` and listens for `org.cups.cupsd.Notifier` signals with `dbus-monitor --system`. It renews the subscription at half its lease and cancels it when it exits. Each change is one `gdbus call --system` to `org.opensuse.CupsPkHelper.Mechanism` (cups-pk-helper): `PrinterAdd` with the `everywhere` model, then `PrinterSetEnabled` and `PrinterSetAcceptJobs`, or `PrinterSetDefault`, `PrinterDelete` and `DevicesGet`. polkit asks through your session's agent. Turn on printing runs the core system step `service-cups`, `systemctl enable --now cups.service`, in the setup window. It is offered only while neither `cups.service` nor `cups.socket` is active.
+
+</details>

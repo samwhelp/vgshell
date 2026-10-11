@@ -1,0 +1,18 @@
+# Renew subscription $id for another $lease seconds.
+#
+#   ipptool -t -d id=ID -d lease=SECONDS ipp://localhost/ renew.test
+{
+	NAME "Renew the subscription"
+	OPERATION Renew-Subscription
+
+	GROUP operation-attributes-tag
+	ATTR charset attributes-charset utf-8
+	ATTR language attributes-natural-language en
+	ATTR uri printer-uri $uri
+	ATTR integer notify-subscription-id $id
+
+	GROUP subscription-attributes-tag
+	ATTR integer notify-lease-duration $lease
+
+	STATUS successful-ok
+}

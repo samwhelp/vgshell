@@ -314,7 +314,7 @@ last_out_is() { test "$(tail -n 1 "$tmp/out")" == "$1"; }
 sudo_calls() { cat -- "$tmp/sudo.log" 2>/dev/null; }
 no_sudo() { test ! -e "$tmp/sudo.log"; }
 state_json() { # STATE-REASON per step, table order
-  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"},"reboot-notice":{"state":"absent","reason":"hook-missing"}}}' "$@"
+  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"service-cups":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"},"reboot-notice":{"state":"absent","reason":"hook-missing"}}}' "$@"
 }
 step_state() { # STEP: the state status --json reads for it
   "${row_env[@]}" "$vgs/bin/vgshell" system status --json </dev/null 2>/dev/null |
@@ -343,7 +343,7 @@ check "a refused invocation asks nothing" test ! -e "$tmp/gum.log"
 
 # status: each probe reads real access, in table order.
 run "status reads every step" 0 "" status --json
-check "status names each step's state and reason" out_is "$(state_json needed hidraw-denied needed module-not-loaded needed inactive absent unit-missing needed operator-unset needed not-set-up)"
+check "status names each step's state and reason" out_is "$(state_json needed hidraw-denied needed module-not-loaded needed inactive absent unit-missing needed inactive needed operator-unset needed not-set-up)"
 # The manifest judge names steps from PluginLogic.SYSTEM_STEPS; the
 # script's own table must be that list, in that order.
 table_keys() { python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["steps"]))' "$tmp/out"; }
@@ -370,6 +370,16 @@ fresh; touch "$tmp/units/bluetooth.service.masked"
 check "a masked unit reads denied" test "$(step_state service-bluetooth)" == "denied unit-masked"
 touch "$tmp/units/bluetooth.service.active"
 check "an active unit reads ready" test "$(step_state service-bluetooth)" == "ready active"
+# Printing reads ready from cups.service, or from cups.socket, which
+# starts the service on demand; a masked service stays denied.
+fresh
+check "a stopped cups.service with no socket reads needed" test "$(step_state service-cups)" == "needed inactive"
+touch "$tmp/units/cups.socket.active"
+check "an active cups.socket reads printing ready" test "$(step_state service-cups)" == "ready socket-active"
+touch "$tmp/units/cups.service.masked"
+check "a masked cups.service stays denied beside an active socket" test "$(step_state service-cups)" == "denied unit-masked"
+fresh; touch "$tmp/units/cups.service.active"
+check "an active cups.service reads ready" test "$(step_state service-cups)" == "ready active"
 fresh; printf 'someone' >"$tmp/operator"
 check "another user's operator reads denied" test "$(step_state tailscale-operator)" == "denied operator-other"
 printf '%s' "$user" >"$tmp/operator"
@@ -384,7 +394,7 @@ printf '#!/bin/sh\nif [ -e %q ] && [ "$1" = -un ]; then echo john.doe; exit 0; f
 chmod +x "$bin/id"
 fresh; touch "$tmp/odd-user"
 run "status with an unsupported login name" 0 "" status --json
-check "an unsupported login name reads only the operator unknown" out_is "$(state_json needed hidraw-denied needed module-not-loaded needed inactive absent unit-missing unknown user-unsupported needed not-set-up)"
+check "an unsupported login name reads only the operator unknown" out_is "$(state_json needed hidraw-denied needed module-not-loaded needed inactive absent unit-missing needed inactive unknown user-unsupported needed not-set-up)"
 run "apply refuses the operator for an unsupported login name" 1 "vgs-system: refused: state=unknown reason=user-unsupported step=tailscale-operator" apply tailscale-operator
 check "the refused operator runs no sudo" no_sudo
 rm -f -- "${tmp:?}/odd-user"
@@ -564,6 +574,12 @@ check "a refused step runs no sudo" no_sudo
 fresh; rm -f -- "$tmp/units/tailscaled.service.missing"
 run_tty "apply service-tailscaled succeeds" 0 apply service-tailscaled
 check "service-tailscaled enables its unit now" grep -qxF -- "-- $(p systemctl) enable --now tailscaled.service" "$tmp/sudo.log"
+fresh
+run_tty "apply service-cups succeeds" 0 apply service-cups
+check "service-cups enables cups.service now" grep -qxF -- "-- $(p systemctl) enable --now cups.service" "$tmp/sudo.log"
+fresh; touch "$tmp/units/cups.socket.active"
+run "apply over an active cups.socket runs nothing" 0 "" apply service-cups
+check "printing that the socket serves reads ready and runs no sudo" no_sudo
 
 # The operator: the caller's own login name; undo resets it only while it
 # still names the caller.
@@ -1072,7 +1088,7 @@ check "root is refused" caller_root
 # written and no sudo runs.
 fresh
 run_nixos "nixos status" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
-check "nixos reads each needed step as nixos" out_is "$(state_json nixos hidraw-denied nixos module-not-loaded nixos inactive absent unit-missing nixos operator-unset nixos not-set-up)"
+check "nixos reads each needed step as nixos" out_is "$(state_json nixos hidraw-denied nixos module-not-loaded nixos inactive absent unit-missing nixos inactive nixos operator-unset nixos not-set-up)"
 check "nixos status writes nothing" untouched
 run_nixos "nixos apply prints the configuration" 0 "" "$nixos_path:$caller:/usr/bin:/bin" apply apple-displays
 check "nixos apply reports the skip first" test "$(head -n 1 "$tmp/out")" == "ok system=apple-displays skipped=nixos-config"
@@ -1109,7 +1125,7 @@ check "nixos rows run no sudo" no_sudo
 run_nixos "a failed detection fails apply" 1 "vgs-system: refused: system=undetected exit=127" "$nixos_path:$no_node_path" apply apple-displays
 check "a failed detection writes nothing" untouched
 run_nixos "a failed detection reads needed steps unknown" 0 "" "$nixos_path:$no_node_path" status --json
-check "an undetected system never reads needed as ready" out_is "$(state_json unknown system-undetected unknown system-undetected unknown system-undetected absent unit-missing unknown system-undetected unknown system-undetected)"
+check "an undetected system never reads needed as ready" out_is "$(state_json unknown system-undetected unknown system-undetected unknown system-undetected absent unit-missing unknown system-undetected unknown system-undetected unknown system-undetected)"
 check "an undetected system runs no sudo" no_sudo
 
 # Must-fail controls, each a copy of the helper missing one rule.
@@ -1130,6 +1146,12 @@ control undeclared-step '      known_step "$1" || bad_invocation' '      true ||
 run "the undeclared-step mutant accepts a step outside the table" 1 "vgs-system: refused: internal=probe step=etc-shadow" apply etc-shadow
 control file-presence '    opens_rw "$node" || denied=1' '    [[ -e $node ]] || denied=1'
 check "the file-presence mutant reads a closed node ready" test "$(step_state apple-displays)" == "ready granted"
+control cups-socket-blind '  if systemctl is-active --quiet cups.socket; then set_probe ready socket-active; fi' '  :'
+touch "$tmp/units/cups.socket.active"
+check "the cups-socket-blind mutant reads printing the socket serves needed" test "$(step_state service-cups)" == "needed inactive"
+control cups-masked-blind '  [[ $probe_state == needed ]] || return 0' '  true || return 0'
+touch "$tmp/units/cups.socket.active" "$tmp/units/cups.service.masked"
+check "the cups-masked-blind mutant reads a masked cups.service ready" test "$(step_state service-cups)" == "ready socket-active"
 control disable-blind '  [[ -z ${record[enabled]+set} ]] || cmd "$systemctl" disable "$unit"' '  cmd "$systemctl" disable "$unit"'
 touch "$tmp/units/bluetooth.service.enabled"
 run_tty "the disable-blind mutant applies" 0 apply service-bluetooth

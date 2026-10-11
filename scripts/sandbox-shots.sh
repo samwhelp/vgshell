@@ -90,6 +90,10 @@
 # Jarvis home folder chosen that holds no kendex mail tool, taken only
 # when named; jarvis-causes plants each Jarvis start cause and
 # captures its bar widget tooltip and Setup section, taken only when named;
+# printers is its Printers section over the CUPS stand-ins: no printer, one
+# printer, two printers with the default, a busy printer and a stopped
+# one, then the add flow with the devices CUPS finds and a refused
+# address, taken only when named;
 # plugin-messages is a plugin's message to the
 # user as the tree draws it, a core toast where the tree ships
 # shell/Core/Toasts.qml and else its card in vgs.notifications with
@@ -256,7 +260,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
+    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -394,6 +398,7 @@ scene_ships() {
     network) ships_plugin vgs.system vgs.network ;;
     vpn) ships_plugin vgs.system vgs.vpn ;;
     bluetooth) ships_plugin vgs.system vgs.bluetooth ;;
+    printers) ships_plugin vgs.system vgs.printers ;;
     power) ships_plugin vgs.power ;;
     theme-browser|wallpaper-browser) ships_plugin vgs.themes ;;
     theme-previews) ships_plugin vgs.themes vgs.system vgs.displays vgs.network vgs.bluetooth vgs.sound vgs.ai-usage vgs.agent-warden vgs.updates ;;
@@ -3641,6 +3646,58 @@ scene_bluetooth() { # MODE
   expect "disabling vgs.system after the Bluetooth shot is allowed" ok ipc shell setPluginEnabled vgs.system false
   expect "disabling vgs.bluetooth after its shot is allowed" ok ipc shell setPluginEnabled vgs.bluetooth false
 }
+# The System window's Printers section over the CUPS stand-ins
+# (scripts/smoke/fixtures/devices/cups.py): each state is planted in the
+# world and announced with CUPS's notification, as rows/printers.sh does.
+# The service holds `system`, so the setup makes the fakes' system tree
+# first, as the Bluetooth setup does.
+printers_shot_ready=false
+printers_office='{"name": "Office", "uri": "ipp://office.local/ipp/print", "state": "idle", "message": "", "jobs": 0, "accepting": true}'
+printers_lab='{"name": "Lab", "uri": "ipp://lab.local/ipp/print", "state": "idle", "message": "", "jobs": 0, "accepting": true}'
+printers_office_busy='{"name": "Office", "uri": "ipp://office.local/ipp/print", "state": "printing", "message": "", "jobs": 2, "accepting": true}'
+printers_lab_stopped='{"name": "Lab", "uri": "ipp://lab.local/ipp/print", "state": "stopped", "message": "Paper jam", "jobs": 0, "accepting": true}'
+printers_count() { ipc smoke readInstance window vgs.printers printers | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+printers_found() { ipc smoke readInstance window vgs.printers foundList | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+printers_state() { ipc smoke readInstance window vgs.printers printers | py_reply 'import json,sys; print(" ".join(p["state"] for p in json.load(sys.stdin)))'; }
+# printers_plant LABEL WORLD MEMBER PRINTER: the world's keys of WORLD set,
+# then CUPS's notification MEMBER for PRINTER.
+printers_plant() {
+  expect "$1: the world changes" world=set cups_world "$2"
+  expect "$1: CUPS notifies it" signal=sent cups_signal "$3" "$4"
+}
+scene_printers() { # MODE
+  [[ $printers_shot_ready == true ]] || return 0
+  expect "the printers world starts empty" world=set cups_world '{"down": false, "printers": [], "default": "", "devices": [], "refuse": false, "quiet": false}'
+  rescan "a scan reads the printer helper on the sandbox's bus for the Printers shots"
+  expect "enabling vgs.system for the Printers shots is allowed" ok ipc shell setPluginEnabled vgs.system true
+  expect "enabling vgs.printers for its shots is allowed" ok ipc shell setPluginEnabled vgs.printers true
+  expect "the Printers section summons" ok ipc shell summon window vgs.system '{"pane":"vgs.printers"}'
+  expect_poll "the Printers section lists no printer" 0 printers_count
+  park_pointer
+  take "printers-$1-empty"
+  printers_plant "one printer" "{\"printers\": [$printers_office]}" PrinterAdded Office
+  expect_poll "the Printers section lists one printer" 1 printers_count
+  take "printers-$1-one"
+  printers_plant "two printers" "{\"printers\": [$printers_office, $printers_lab], \"default\": \"Lab\"}" PrinterAdded Lab
+  expect_poll "the Printers section lists two printers" 2 printers_count
+  take "printers-$1-two"
+  printers_plant "a busy printer" "{\"printers\": [$printers_office_busy, $printers_lab]}" JobCreated Office
+  expect_poll "Office reads busy" "idle printing" printers_state
+  take "printers-$1-busy"
+  printers_plant "a stopped printer" "{\"printers\": [$printers_office, $printers_lab_stopped]}" PrinterStateChanged Lab
+  expect_poll "Lab reads stopped" "stopped idle" printers_state
+  take "printers-$1-error"
+  printers_plant "printers ready again" "{\"printers\": [$printers_office, $printers_lab], \"devices\": [{\"class\": \"network\", \"info\": \"Hall Printer\", \"make\": \"HP LaserJet\", \"uri\": \"ipp://hall.local:631/ipp/print\"}, {\"class\": \"direct\", \"info\": \"Brother HL-L2350DW\", \"make\": \"Brother HL-L2350DW\", \"uri\": \"usb://Brother/HL-L2350DW?serial=E7\"}]}" PrinterStateChanged Lab
+  expect "Find printers answers ok" ok ipc smoke invokeInstanceArgs window vgs.printers find '{"args": []}'
+  expect_poll "the Printers section lists the found devices" 2 printers_found
+  expect "an address of another scheme is refused" "refused: address=scheme" ipc smoke invokeInstanceArgs window vgs.printers addAddress '{"args": ["lpd://hall.local/queue"]}'
+  take "printers-$1-add"
+  expect "the System window hides after the Printers shots" ok ipc shell hide window vgs.system
+  expect_poll "the System window is gone after the Printers shots" hidden system_shown
+  expect "disabling vgs.printers after its shots is allowed" ok ipc shell setPluginEnabled vgs.printers false
+  expect "disabling vgs.system after the Printers shots is allowed" ok ipc shell setPluginEnabled vgs.system false
+  expect "the printers world is empty again" world=set cups_world '{"printers": [], "default": "", "devices": []}'
+}
 bluetooth_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.bluetooth) != absent ]] && echo shown || echo hidden; }
 # The rows the section's Nearby list draws for the keyboard the setup adds.
 bluetooth_nearby() { ipc smoke itemTexts window vgs.bluetooth Section | py_reply 'import json,sys; print(sum(t.count("Desk Keyboard") for t in json.load(sys.stdin) if t[:1] == ["Nearby"]))'; }
@@ -4424,6 +4481,14 @@ for scene in "${setups[@]}"; do
         expect "a nearby keyboard joins the mock" "$bluez_adapter_path/dev_00_1B_66_AA_BB_04" bluez add-device 00:1B:66:AA:BB:04 "Desk Keyboard"
       else
         fail "the Bluetooth shot is skipped: its fakes, the device guard or the fakes' system tree failed: ${bluetooth_tree:-unread}"
+      fi ;;
+    printers)
+      printers_tree=""
+      if devices_ready printers-shot && printers_tree="$(devices_system_tree)"; then
+        printers_shot_ready=true
+        device_reply systemctl 0 "" is-active --quiet cups.service
+      else
+        fail "the Printers shots are skipped: their fakes, the device guard or the fakes' system tree failed: ${printers_tree:-unread}"
       fi ;;
     clipboard)
       # Copies on the nested instance's own clipboard: wl-copy runs with

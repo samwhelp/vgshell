@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# printers-watch: vgs.printers's change listener, run by the service as
+#   setpriv --pdeathsig TERM -- printers-watch
+# It asks CUPS for one subscription to printer and job events whose
+# recipient is `dbus://`, CUPS's dbus notifier, and listens on the system
+# bus for the org.cups.cupsd.Notifier signals that notifier sends. It
+# prints, one line each, on stdout:
+#   ready subscription=<id>   the listener is live and CUPS holds the
+#                             subscription
+#   event <member>            one notification, such as PrinterAdded
+# The service reads the printers again after `ready` and after each event.
+#
+# The subscription's lease is lease_s; the watch renews it when half of
+# it has passed, so a watch killed past its trap leaves a subscription
+# CUPS ends by itself. Its EXIT trap cancels the subscription and ends
+# dbus-monitor, which also runs under pdeathsig TERM from the watch, so a
+# disable leaves neither behind.
+#
+# Quickshell ends a removed service's child with SIGKILL, which runs no
+# trap (the comment at vgs.network's joinHelper states it), so the watch
+# runs one level down, `printers-watch --held PARENT`, under setpriv's
+# pdeathsig TERM from this first process: the SIGKILL of the first ends
+# the second with TERM, and its trap runs. The first forwards TERM, INT and
+# HUP and exits with the second's status. A second whose parent is gone
+# before its pdeathsig was set, so PARENT is no longer its parent, exits.
+#
+# The service holds this first process's stdin open and never writes it.
+# Its end, when the shell exits, or when Quickshell re-executes itself in
+# the same pid after a crash, which closes the pipe but kills no parent
+# (docs/architecture/runtime.md § Why), ends the watch as a TERM does. A
+# watch that outlived its shell would hold every descriptor it inherited.
+#
+# No notification is lost between the subscription and listening: it
+# subscribes on the bus first and waits for dbus-monitor's first line, the
+# bus's NameAcquired, which dbus-monitor prints only once its match is
+# added; then it asks CUPS for the subscription, and `ready` follows.
+#
+# Refusals, one keyed line on stderr, then ipptool's own output where it
+# has one:
+#   printers-watch: refused: parent=gone           exit 1
+#   printers-watch: refused: monitor=silent        exit 1, no first line in 2 s
+#   printers-watch: refused: monitor=exited status=<n>   exit 1
+#   printers-watch: refused: subscribe=failed      exit 2, CUPS refused it or
+#                                                  could not be reached
+#   printers-watch: refused: renew=failed id=<id>  exit 3
+# A TERM, INT or HUP ends it with 143, 130 or 129.
+set -euo pipefail
+
+self="$(readlink -f -- "${BASH_SOURCE[0]}")"
+tests="${self%/bin/*}/ipp"
+uri=ipp://localhost/
+lease_s=600
+
+if [[ ${1-} != --held ]]; then
+  setpriv --pdeathsig TERM -- "$self" --held "$$" </dev/null &
+  held=$!
+  # An explicit redirection keeps the pipe, not /dev/null, on its stdin.
+  cat <&0 >/dev/null &
+  reader=$!
+  trap 'kill -TERM "$held" 2>/dev/null || :' TERM INT HUP
+  waiting=("$held" "$reader")
+  status=0
+  # A trapped signal ends a wait with nothing ended; the loop waits again.
+  while :; do
+    ended="" code=0
+    wait -n -p ended "${waiting[@]}" || code=$?
+    if [[ $ended == "$held" ]]; then status=$code; break; fi
+    if [[ $ended == "$reader" ]]; then
+      waiting=("$held")
+      kill -TERM "$held" 2>/dev/null || :
+    fi
+  done
+  ((${#waiting[@]} == 1)) || kill "$reader" 2>/dev/null || :
+  exit "$status"
+fi
+
+[[ $PPID == "${2-}" ]] || { printf 'printers-watch: refused: parent=gone\n' >&2; exit 1; }
+
+subscription=""
+monitor_pid=""
+cleanup() {
+  if [[ -n $subscription ]]; then
+    ipptool -T 5 -t -d "id=$subscription" "$uri" "$tests/cancel.test" >/dev/null 2>&1 || :
+  fi
+  [[ -z $monitor_pid ]] || kill "$monitor_pid" 2>/dev/null || :
+}
+trap cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+trap 'exit 129' HUP
+
+monitor_exit() {
+  local status=0
+  wait "$monitor_pid" || status=$?
+  monitor_pid=""
+  printf 'printers-watch: refused: monitor=exited status=%s\n' "$status" >&2
+  exit 1
+}
+
+coproc MONITOR { exec setpriv --pdeathsig TERM -- dbus-monitor --system "type='signal',interface='org.cups.cupsd.Notifier'"; }
+monitor_pid=$MONITOR_PID
+# Bash unsets MONITOR when the coprocess ends, so the reads use a copy.
+exec {monitor_fd}<&"${MONITOR[0]}"
+if ! IFS= read -r -t 2 line <&"$monitor_fd"; then
+  kill -0 "$monitor_pid" 2>/dev/null || monitor_exit
+  printf 'printers-watch: refused: monitor=silent\n' >&2
+  exit 1
+fi
+
+if ! reply="$(ipptool -T 10 -t -d recipient=dbus:// -d "lease=$lease_s" "$uri" "$tests/subscribe.test" 2>&1)" ||
+  [[ ! $reply =~ notify-subscription-id\ \(integer\)\ =\ ([0-9]+) ]]; then
+  printf 'printers-watch: refused: subscribe=failed\n%s\n' "$reply" >&2
+  exit 2
+fi
+subscription="${BASH_REMATCH[1]}"
+echo "ready subscription=$subscription"
+
+renew_at=$((SECONDS + lease_s / 2))
+notifier='^signal .* interface=org\.cups\.cupsd\.Notifier; member=([A-Za-z]+)$'
+while :; do
+  wait_s=$((renew_at - SECONDS))
+  if ((wait_s > 0)); then
+    status=0
+    IFS= read -r -t "$wait_s" line <&"$monitor_fd" || status=$?
+    if ((status == 0)); then
+      if [[ $line =~ $notifier ]]; then echo "event ${BASH_REMATCH[1]}"; fi
+      continue
+    fi
+    # Past 128 the wait timed out; below it dbus-monitor's output ended.
+    ((status > 128)) || monitor_exit
+  fi
+  if ! reply="$(ipptool -T 10 -t -d "id=$subscription" -d "lease=$lease_s" "$uri" "$tests/renew.test" 2>&1)"; then
+    printf 'printers-watch: refused: renew=failed id=%s\n%s\n' "$subscription" "$reply" >&2
+    exit 3
+  fi
+  renew_at=$((SECONDS + lease_s / 2))
+done
