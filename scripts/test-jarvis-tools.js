@@ -247,11 +247,15 @@ world(() => {
     check(Tools, homeHelp);
     check(Tools, ["help", { topic: "base/" + "a".repeat(48) }, "read", "home"]);
     check(Tools, ["help", { topic: "base/jarvis/" + "a".repeat(48) }, "read", "home"]);
-    const badTopics = ["own/", "own/a/", "own/a/b/c", "own/a/../b", "own/a/.b", "own/a/" + "b".repeat(49), "own/../secret", "other/a", "own/.hidden", "own/a b", "own/-a", "own/" + "a".repeat(49), "unknown", "inputs", "own/a\n", ""];
+    check(Tools, ["help", { topic: "own/a/workflows/b" }, "read", "home"]);
+    check(Tools, ["help", { topic: "own/a/workflows" }, "read", "home"]);
+    const badTopics = ["own/", "own/a/", "own/a/b/c", "own/a/references/b", "own/a/workflows/", "own/a/workflows/b/c", "own/a/workflows/../b", "own/a/../b", "own/a/.b", "own/a/" + "b".repeat(49), "own/../secret", "other/a", "own/.hidden", "own/a b", "own/-a", "own/" + "a".repeat(49), "unknown", "inputs", "own/a\n", ""];
     for (const topic of badTopics) bad(Tools, { id: "help", args: { topic } }, "argument-shape");
     assert.deepEqual([Tools.homeTopic("own/fleet"), Tools.homeTopic("input"), Tools.homeTopic("own/a\n"), Tools.homeTopic(7)],
-        [{ set: "own", name: "fleet", reference: null }, null, null, null]);
-    assert.deepEqual(Tools.homeTopic("base/jarvis/decisions"), { set: "base", name: "jarvis", reference: "decisions" });
+        [{ set: "own", name: "fleet", folder: null, file: null }, null, null, null]);
+    assert.deepEqual(Tools.homeTopic("base/jarvis/decisions"), { set: "base", name: "jarvis", folder: "references", file: "decisions" });
+    assert.deepEqual(Tools.homeTopic("base/jarvis/workflows"), { set: "base", name: "jarvis", folder: "references", file: "workflows" });
+    assert.deepEqual(Tools.homeTopic("own/beta/workflows/decisions"), { set: "own", name: "beta", folder: "workflows", file: "decisions" });
     control("help-home-label", 'if (call.id === "help" && homeTopic(call.args.topic) !== null) refined = { ...row, source: "home" };', "",
         logic => check(logic, homeHelp));
     control("help-shipped-label", 'if (call.id === "help" && homeTopic(call.args.topic) !== null) refined', 'if (call.id === "help") refined',
@@ -261,7 +265,8 @@ world(() => {
         ["name", 'const HOME_TOPIC = "(base|own)/(.*)";', "own/../secret"],
         ["set", topicLine.replace("(base|own)", "(base|own|other)"), "other/a"],
         ["length", topicLine.replace("{0,47}", "{0,48}"), "own/" + "a".repeat(49)],
-        ["reference", topicLine.replace("(/[A-Za-z0-9][A-Za-z0-9_-]{0,47})?", "(/.*)?"), "own/a/../b"]])
+        ["reference", topicLine.replace("(/(workflows/)?([A-Za-z0-9][A-Za-z0-9_-]{0,47}))?", "(/(workflows/)?(.*))?"), "own/a/../b"],
+        ["workflow-folder", topicLine.replace("(workflows/)?", "([a-z]+/)?"), "own/a/references/b"]])
         control("help-topic-" + name, topicLine, replacement, logic => bad(logic, { id: "help", args: { topic } }, "argument-shape"));
     // memory.read: notes below the home's memory/ by path, at most 255
     // characters; a path that leaves memory/, names a dot entry or no

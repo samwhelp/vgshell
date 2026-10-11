@@ -28,11 +28,13 @@ const absolutes = { type: "array", minItems: 0, items: absolute };
 const anyText = { type: "string", minLength: 0, pattern: "^[^\\u0000]*$" };
 const date = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" };
 // The help files VGS ships, and a skill of the user's home folder as
-// "<set>/<name>", or a folder skill's reference as "<set>/<name>/<reference>"
-// (Home.js lists them). The router offers a brain the topics
-// present; this rule only bounds what a call may name.
+// "<set>/<name>", a folder skill's reference as "<set>/<name>/<reference>",
+// or its workflow as "<set>/<name>/workflows/<workflow>", so a reference and
+// a workflow of one file name stay two topics (Home.js lists them). The
+// router offers a brain the topics present; this rule only bounds what a
+// call may name.
 const HELP_TOPICS = Object.freeze(["windows", "apps", "input", "clipboard", "media", "notify", "files", "shell", "vision", "browser"]);
-const HOME_TOPIC = "(base|own)/([A-Za-z0-9][A-Za-z0-9_-]{0,47})(/[A-Za-z0-9][A-Za-z0-9_-]{0,47})?";
+const HOME_TOPIC = "(base|own)/([A-Za-z0-9][A-Za-z0-9_-]{0,47})(/(workflows/)?([A-Za-z0-9][A-Za-z0-9_-]{0,47}))?";
 const helpTopic = { type: "string", pattern: "^(?:" + HELP_TOPICS.join("|") + "|" + HOME_TOPIC.replace(/\(/g, "(?:") + ")$(?![\\s\\S])" };
 // A memory note as the home's memory/MEMORY.md routes to it: a path below
 // memory/ of at most 255 characters, each name starting with no dot, ending
@@ -209,12 +211,16 @@ function refine(call) {
 }
 
 /**
- * The {set, name, reference} a home skill topic names, or null for any other
- * value. reference names one of a folder skill's references/*.md, or is null.
+ * The {set, name, folder, file} a home skill topic names, or null for any
+ * other value. folder is "references" or "workflows" and file names one
+ * <file>.md in that folder of a folder skill; both are null for the skill
+ * itself.
  */
 function homeTopic(value) {
     const match = typeof value === "string" ? new RegExp("^" + HOME_TOPIC + "$(?![\\s\\S])").exec(value) : null;
-    return match === null ? null : { set: match[1], name: match[2], reference: match[3] === undefined ? null : match[3].slice(1) };
+    if (match === null) return null;
+    if (match[3] === undefined) return { set: match[1], name: match[2], folder: null, file: null };
+    return { set: match[1], name: match[2], folder: match[4] === undefined ? "references" : "workflows", file: match[5] };
 }
 
 /** Whether VALUE is a memory note path the memory.read row admits. */

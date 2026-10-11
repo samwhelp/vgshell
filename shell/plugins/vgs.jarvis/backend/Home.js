@@ -358,7 +358,8 @@ function indexed(home, topic, file, optional) {
  * A skill is `<name>.md` or `<name>/SKILL.md` directly in skills/base or
  * skills/own, a regular file under a name Tools.homeTopic admits; a folder
  * skill's `references/<reference>.md` is a skill of its own under
- * "<set>/<name>/<reference>". Any other entry, a link among them, is no
+ * "<set>/<name>/<reference>", and its `workflows/<workflow>.md` one under
+ * "<set>/<name>/workflows/<workflow>". Any other entry, a link among them, is no
  * skill. topic is "<set>/<name>", file its path in the home and line its
  * index line. complete is false once a folder holds more than SET_ENTRIES
  * entries.
@@ -387,14 +388,18 @@ function skills(home) {
             const skill = indexed(home, topic, folder + "/" + entry.name + "/SKILL.md", true);
             if (skill === null) continue;
             found.push(skill);
-            const references = folder + "/" + entry.name + "/references";
-            let inside;
-            try { inside = listing(home, references); }
-            catch (error) {
-                if (/^jarvis: home=(?:absent|link|kind)$/.test(error.message)) continue;
-                throw error;
+            // A reference keeps the topic "<set>/<name>/<reference>"; a workflow
+            // takes "<set>/<name>/workflows/<workflow>", so the two never share one.
+            for (const [part, prefix] of [["references", topic + "/"], ["workflows", topic + "/workflows/"]]) {
+                const inner = folder + "/" + entry.name + "/" + part;
+                let inside;
+                try { inside = listing(home, inner); }
+                catch (error) {
+                    if (/^jarvis: home=(?:absent|link|kind)$/.test(error.message)) continue;
+                    throw error;
+                }
+                flat(inner, prefix, inside);
             }
-            flat(references, topic + "/", inside);
         }
     }
     found.sort((left, right) => left.topic < right.topic ? -1 : left.topic > right.topic ? 1 : 0);
@@ -412,7 +417,7 @@ function skill(home, topic) {
     if (named === null) fail("absent");
     const base = "skills/" + named.set + "/" + named.name;
     const whole = file => read(home, file, null).text;
-    if (named.reference !== null) return whole(base + "/references/" + named.reference + ".md");
+    if (named.file !== null) return whole(base + "/" + named.folder + "/" + named.file + ".md");
     try { return whole(base + ".md"); }
     catch (error) {
         if (error.message !== "jarvis: home=absent") throw error;
