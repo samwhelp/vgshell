@@ -83,7 +83,7 @@ async function inside() {
                     playback: { kind: "idle" }, action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
                     conversation: { kind: "ended" }, input: { kind: "released" }, indicator: { kind: "gone" },
                     duplex: { kind: "half" }, toggleAt: null,
-                    engine: { kind: "chained" }, speech: { kind: "closed" }
+                    engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }
                 }, phase: "down", brain: "" });
         }
         return lines;

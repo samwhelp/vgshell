@@ -107,7 +107,7 @@ async function daemonLease(ending, removeClose = false) {
                     playback: { kind: "idle" }, action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
                     conversation: { kind: "ended" }, input: { kind: "released" }, indicator: { kind: "gone" },
                     duplex: { kind: "half" }, toggleAt: null,
-                    engine: { kind: "chained" }, speech: { kind: "closed" }
+                    engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }
                 }, phase: "down", brain: "" },
                 { v: 1, type: "memory-inbox", gen: 1, revision: hello.revision, entries: [] }
             ]);

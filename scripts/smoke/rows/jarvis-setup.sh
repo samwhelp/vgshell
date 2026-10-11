@@ -602,6 +602,7 @@ import json,sys
 open(sys.argv[1],"w").write(json.dumps({"start":"ready", "checks":[{"afterFrames":1},{},{}]}))
 PYSCENARIO
 setup_brain ""
+printf 'ready\n' >"$sandbox/jarvis-world/local-mode"
 local_open status
 setup_check_state() {
   ipc smoke jarvisProcess | py_reply 'import json,sys; d=json.load(sys.stdin)["status"].get("detail"); print(json.dumps(d["state"]["check"]) if d else "pending")'
