@@ -19,7 +19,7 @@
 
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
-# greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
+# greeter, narrow, theme-browser, wallpaper-browser, automations, cloudsync, tooltips, capture,
 # keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, jarvis-fleet, outdated, jarvis-causes, plugin-messages, traffic, ai-usage, sysmon, tui-edges, appearance, sounds or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
@@ -90,6 +90,12 @@
 # Jarvis home folder chosen that holds no kendex mail tool, taken only
 # when named; jarvis-causes plants each Jarvis start cause and
 # captures its bar widget tooltip and Setup section, taken only when named;
+# cloudsync is Cloud Sync's bar widget, its tooltip, its window and every
+# screen of its Settings page in each state the plugin's runner reaches
+# over a local rclone remote and a keyring stand-in, from first run to a
+# damaged folder pair list, each shot once the plugin's own
+# CloudSyncLogic.js reads the published values as that state, taken only
+# when named;
 # printers is its Printers section over the CUPS stand-ins: no printer, one
 # printer, two printers with the default, a busy printer and a stopped
 # one, then the add flow with the devices CUPS finds and a refused
@@ -260,7 +266,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
+    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -405,6 +411,7 @@ scene_ships() {
     dialog|by-hand|reset) [[ -f $tree/shell/Hosts/NoticeHost.qml ]] ;;
     lock) ships_plugin vgs.lock ;;
     polkit) ships_plugin vgs.polkit ;;
+    cloudsync) [[ $manager_scene == settings ]] && ships_plugin vgs.cloud-sync && tree_has shell/plugins/vgs.cloud-sync/CloudSyncLogic.js "function headline(" ;;
     greeter) ships_plugin vgs.greeter && [[ -f $tree/shell/greeter.qml ]] ;;
     narrow) scene_ships bar && scene_ships panels && scene_ships devtools && scene_ships dialog && scene_ships launcher && scene_ships notifications && scene_ships gallery ;;
     *) printf 'sandbox-shots: refused: scene=%s reason=unknown\n' "$1" >&2; exit 2 ;;
@@ -1481,8 +1488,10 @@ plugin_pages_list() {
   ipc smoke readInstance "$settings_kind" vgs.settings plugins | python3 -c 'import json,sys; print("\n".join(p["id"] for p in json.load(sys.stdin)))'
 }
 
-plugin_page_shots() { # MODE ID
-  local mode="$1" id="$2" suffix=1 at cy ch h y=0
+# plugin_page_shots MODE ID [NAME]: every screen of plugin ID's page,
+# NAME, NAME-2 and on, NAME plugin-pages-MODE-ID by default.
+plugin_page_shots() {
+  local id="$2" name="${3:-plugin-pages-$1-$2}" suffix=1 at cy ch h y=0
   expect "the window opens the $id page for screenshots" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin "$id"
   expect_poll "the $id page is shown for screenshots" "\"$id\"" settings_page
   at="$(ipc smoke scrollTo "$settings_kind" vgs.settings 0)" || at=""
@@ -1492,7 +1501,7 @@ plugin_page_shots() { # MODE ID
   fi
   while :; do
     read -r cy ch h < <(python3 -c 'import json,sys; print(*(int(v) for v in json.loads(sys.argv[1])))' "$at")
-    if (( suffix == 1 )); then take "plugin-pages-$mode-$id"; else take "plugin-pages-$mode-$id-$suffix"; fi
+    if (( suffix == 1 )); then take "$name"; else take "$name-$suffix"; fi
     (( cy + h < ch )) || break
     y=$(( cy + h - 40 ))
     suffix=$(( suffix + 1 ))
@@ -4445,6 +4454,176 @@ scene_automations() { # MODE
   fi
   if [[ -e $auto_stub/saved/systemd-analyze ]]; then mv -f -- "$auto_stub/saved/systemd-analyze" "$shim/systemd-analyze"; else rm -f -- "$shim/systemd-analyze"; fi
   automations_stand_ins_restore "$auto_stub"
+}
+
+# The cloudsync scene stages each state through vgs.cloud-sync's own
+# runner, bin/cloud-sync, and plants no status: the plugin's
+# CloudSyncLogic.js, run under node, reads the values the service
+# published and names the state, which each state's shots wait for.
+# scripts/test-cloud-sync-scene.js holds the scene to that rule.
+# cs_code FIELD...: what CloudSyncLogic.js makes of the published values,
+# one word per FIELD: cause, the headline's cause; kind, the last error's
+# kind or none; hidden, whether the bar widget hides.
+cs_code() {
+  ipc vgs.cloud-sync invoke status "" | node -e '
+const [lib, logic, ...fields] = process.argv.slice(1);
+const text = require("fs").readFileSync(0, "utf8");
+let cloud;
+try { cloud = JSON.parse(text).cloud; } catch (e) { console.log("unreadable=" + text.trim().slice(0, 80)); process.exit(0); }
+if (cloud === undefined || cloud === null) { console.log("unpublished"); process.exit(0); }
+const L = require(lib).load(logic), now = Date.now();
+const read = { cause: L.headline(cloud, now).cause, kind: cloud.lastError === null ? "none" : cloud.lastError.kind, hidden: L.widgetView(cloud, now).hidden };
+console.log(fields.map(f => String(read[f])).join(" "));' "$tree/bin/lib/qml-library.js" "$tree/shell/plugins/vgs.cloud-sync/CloudSyncLogic.js" "$@"
+}
+# cs_shots MODE STATE CAUSE [KIND]: once the code reads the published
+# values as CAUSE, and the last error as KIND when given, the bar with
+# the widget and its tooltip unless the code hides it, the Cloud Sync
+# window, and every screen of the Cloud Sync Settings page.
+cs_shots() {
+  local m="$1" s="$2" want="$3" fields=(cause) hidden box name f
+  if [[ $# -gt 3 ]]; then want+=" $4"; fields+=(kind); fi
+  expect "Cloud Sync reads its record again ($s)" ok ipc vgs.cloud-sync invoke refresh ""
+  expect_poll "Cloud Sync's code reads the published values as $s" "$want" cs_code "${fields[@]}"
+  hidden="$(cs_code hidden)"
+  expect_poll "the Cloud Sync widget is shown as its code decides ($s)" "$([[ $hidden == true ]] && echo false || echo true)" ipc smoke readInstance "$(bar_key)" vgs.cloud-sync visible
+  if [[ $hidden == false ]]; then
+    take "cloudsync-$m-$s-bar"
+    box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.cloud-sync)" || box=absent
+    record_item "cloudsync-$m-$s-bar" "$box"
+    if hover_widget "the pointer rests on Cloud Sync's widget ($s)" vgs.cloud-sync; then
+      expect_poll "Cloud Sync's tooltip opens ($s)" true tooltip_opened vgs.cloud-sync
+      take_posed "cloudsync-$m-$s-bar-tooltip"
+    fi
+    park_pointer
+  fi
+  expect "the Cloud Sync window opens ($s)" ok ipc shell summon window vgs.cloud-sync '{}'
+  expect_poll "the Cloud Sync window maps ($s)" 1 window_count "Cloud Sync"
+  take "cloudsync-$m-$s-window"
+  record_item "cloudsync-$m-$s-window" "$(one_window "Cloud Sync")"
+  expect "the Cloud Sync window hides ($s)" ok ipc shell hide window vgs.cloud-sync
+  expect_poll "the Cloud Sync window is gone ($s)" 0 window_count "Cloud Sync"
+  expect "the Settings window opens ($s)" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings window maps ($s)" 1 settings_count
+  plugin_page_shots "$m" vgs.cloud-sync "cloudsync-$m-$s-page"
+  box="$(one_window Plugins)"
+  for f in "$SHOT_DIR/cloudsync-$m-$s-page"*.png; do
+    name="${f##*/}"
+    record_item "${name%.png}" "$box"
+  done
+  settings_close
+}
+# Every state VGS-1314 sheets, over a local rclone remote that `block`
+# holds inside its copy and `fail` fails, and a keyring stand-in with one
+# file per account: no credential, keyring or Drive call. A token's file
+# holds a stand-in account address on its second line.
+scene_cloudsync() { # MODE
+  local m="$1" cs="$sandbox/cloudsync-$1" host_rclone drive runner pairs_file
+  if ! host_rclone="$(command -v rclone)"; then
+    printf 'sandbox-shots: scene=cloudsync mode=%s status=not-measured missing=rclone\n' "$m"
+    unmeasured=$((unmeasured + 1))
+    return 0
+  fi
+  if [[ -e $shim/rclone ]]; then fail "cloudsync scene: $shim/rclone exists"; return; fi
+  drive="$cs/drive"
+  mkdir -p -- "$cs/secrets" "$drive/Documents/Taxes" "$home/cloudsync-$m/inbox/agent-uploads"
+  automations_stand_ins "$cs/systemd"
+  cat >"$shim/rclone" <<SH
+#!/usr/bin/env bash
+export RCLONE_CONFIG_VGSDRIVE_TYPE=local
+unset RCLONE_CONFIG_VGSDRIVE_CLIENT_ID RCLONE_CONFIG_VGSDRIVE_CLIENT_SECRET RCLONE_CONFIG_VGSDRIVE_TOKEN RCLONE_CONFIG_VGSDRIVE_SCOPE
+if [[ -f "$cs/block" ]]; then for _ in \$(seq 1 300); do [[ -f "$cs/release" ]] && break; sleep 0.2; done; fi
+if [[ -f "$cs/fail" ]]; then echo "Failed to copy: stand-in sync error" >&2; exit 1; fi
+cd "$drive" || exit 9
+exec "$host_rclone" "\$@"
+SH
+  chmod 755 "$shim/rclone"
+  sentinel_stand_over "$shim/secret-tool" <<SH
+#!/usr/bin/env bash
+if [[ \${1:-} == search && \${3:-} == vgs-cloud-sync && \$# -eq 5 ]]; then
+  if [[ -f "$cs/secrets/\$5" ]]; then
+    printf '[/1]\\nlabel = VGS Cloud Sync %s\\nsecret = %s\\n' "\$5" "\$(head -n1 "$cs/secrets/\$5")"
+    printf 'attribute.service = vgs-cloud-sync\\nattribute.account = %s\\n' "\$5" >&2
+    u="\$(sed -n 2p "$cs/secrets/\$5")"; [[ -z \$u ]] || printf 'attribute.user = %s\\n' "\$u" >&2
+  fi
+  exit 0
+fi
+case "\${1:-}" in search) exit 0 ;; lookup) exit 1 ;; esac
+exit 1
+SH
+  csr() { env -i HOME="$home" PATH="$shell_start_path" LANG=C.UTF-8 XDG_RUNTIME_DIR="$rt_dir" XDG_CONFIG_HOME="$home/.config" XDG_STATE_HOME="$home/.local/state" XDG_DATA_HOME="$home/.local/share" node "$tree/shell/plugins/vgs.cloud-sync/bin/cloud-sync" "$@" >/dev/null 2>>"$cs/runner.err"; }
+  cs_keys() {
+    local a
+    for a in pull-client-id pull-client-secret upload-client-id upload-client-secret; do printf 'stand-in\n' >"$cs/secrets/$a"; done
+    for a in pull-token upload-token; do printf '{"access_token":"x","refresh_token":"y"}\na.person@example.com\n' >"$cs/secrets/$a"; done
+  }
+  cs_pairs() {
+    csr pair-add --definition "{\"id\":\"documents\",\"label\":\"Documents\",\"direction\":\"pull\",\"remote\":\"Documents\",\"local\":\"$home/cloudsync-$m/Drive/Documents\"}" || fail "cloudsync scene: pair documents"
+    csr pair-add --definition "{\"id\":\"uploads\",\"label\":\"Agent uploads\",\"direction\":\"upload\",\"remote\":\"Agent uploads\",\"local\":\"$home/cloudsync-$m/inbox/agent-uploads\"}" || fail "cloudsync scene: pair uploads"
+  }
+  printf 'Return filed.\n' >"$drive/Documents/Taxes/2025 return.pdf"
+  printf '# Notes\n' >"$drive/Documents/notes.md"
+  printf 'budget\n' >"$drive/Documents/budget.xlsx"
+  printf 'report\n' >"$home/cloudsync-$m/inbox/agent-uploads/report.md"
+  expect "Cloud Sync is enabled for its images" ok ipc shell setPluginEnabled vgs.cloud-sync true
+  expect "Cloud Sync's widget is placed for its images" ok ipc shell setPluginPlaced vgs.cloud-sync true
+  csr status || fail "cloudsync scene: first status"
+
+  # Nothing installed, no folder pair, no key.
+  cs_shots "$m" 1-first-run not-set-up
+  # Hourly sync on and two folder pairs, no key or sign-in.
+  csr install || fail "cloudsync scene: install"
+  cs_pairs
+  csr run || true
+  cs_shots "$m" 2-no-keys authorization-required credential-absent
+  # Keys and sign-ins stored, no folder pair.
+  cs_keys
+  csr pair-remove documents || fail "cloudsync scene: remove documents"
+  csr pair-remove uploads || fail "cloudsync scene: remove uploads"
+  csr status || fail "cloudsync scene: status without pairs"
+  cs_shots "$m" 3-no-pair no-pairs
+  # Both pairs synced, nothing to review.
+  cs_pairs
+  csr run || fail "cloudsync scene: first run"
+  cs_shots "$m" 4-empty-review idle none
+  csr pause || fail "cloudsync scene: pause"
+  cs_shots "$m" 5-paused paused
+  csr resume || fail "cloudsync scene: resume"
+  # A run held inside its copy.
+  rm -f -- "$cs/release"; : >"$cs/block"
+  ( csr run ) &
+  runner=$!
+  cs_shots "$m" 6-syncing running
+  : >"$cs/release"
+  wait "$runner" || true
+  rm -f -- "$cs/block" "$cs/release"
+  : >"$cs/fail"
+  csr run || true
+  cs_shots "$m" 7-error error
+  rm -f -- "$cs/fail"
+  # Set up, with a local edit and a Drive deletion to review.
+  printf '# Notes, edited here\n' >"$home/cloudsync-$m/Drive/Documents/notes.md"
+  rm -f -- "$drive/Documents/budget.xlsx"
+  printf '# Notes, edited on Drive\n' >"$drive/Documents/notes.md"
+  csr run || fail "cloudsync scene: review run"
+  cs_shots "$m" 8-review review
+  # The folder pair list cut short, so it is not JSON.
+  pairs_file="$home/.config/vgshell/cloud-sync/pairs.json"
+  printf '{"pairs": [{"id": "documents", "label": "Documents", "direction": "pull",' >"$pairs_file"
+  csr status || true
+  cs_shots "$m" 9-pairs-invalid error pairs-invalid
+  csr pairs-reset || fail "cloudsync scene: pairs-reset"
+
+  rm -f -- "$pairs_file".damaged-* "$home/.config/systemd/user/vgs-cloud-sync.service" "$home/.config/systemd/user/vgs-cloud-sync.timer" "$cs"/secrets/*
+  # The service watches status.json; its directory stays so the watch holds.
+  rm -rf -- "${home:?}/.local/state/vgshell/cloud-sync/pairs" "${home:?}/.config/vgshell/cloud-sync"
+  rm -f -- "${home:?}/.local/state/vgshell/cloud-sync/control.json"
+  csr status || true
+  expect "Cloud Sync reads its record again after its images" ok ipc vgs.cloud-sync invoke refresh ""
+  expect "Cloud Sync's widget is unplaced after its images" ok ipc shell setPluginPlaced vgs.cloud-sync false
+  expect "Cloud Sync is disabled after its images" ok ipc shell setPluginEnabled vgs.cloud-sync false
+  sentinel_restore "$shim/secret-tool"
+  rm -f -- "$shim/rclone"
+  automations_stand_ins_restore "$cs/systemd"
 }
 
 # The sleep hook and the idle watch stay off in vgs.lock's row: no logind
