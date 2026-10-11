@@ -9,6 +9,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const cp = require("node:child_process");
+const vm = require("node:vm");
 const { once } = require("node:events");
 const { seedTaskEvents } = require("./fixtures/jarvis/prepare.js");
 const tree = path.resolve(__dirname, "..");
@@ -68,6 +69,69 @@ async function inside() {
     const runners = [];
     const launchers = [];
     let cases = 0, controls = 0, marker = 0;
+
+    // Execute the shipped Open and notice owners. The TUI capability
+    // returns before launch completion, then delivers its documented result.
+    const serviceFile = path.join(backend, "../Service.qml");
+    const serviceSource = fs.readFileSync(serviceFile, "utf8");
+    function taskOpenNotices(source) {
+        const methods = ["taskOpened", "taskOpenFailed", "notice"].map(name => {
+            const matches = [...source.matchAll(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{\\n[\\s\\S]*?^    \\}", "gm"))];
+            assert.equal(matches.length, 1, "one shipped " + name + " method");
+            return matches[0][0];
+        }).join("\n");
+        const task = "fixture-task_1";
+        for (const [name, answer, reply, completion, failed] of [
+            ["detach", "tmux", "ok", { code: 0, reason: null }, false],
+            ["attach-ended", "tmux", "ok", { code: 1, reason: null }, true],
+            ["launch-missing", "tmux", "ok", { code: null, reason: "launcher-missing" }, true],
+            ["launch-failed", "tmux", "ok", { code: null, reason: "launcher-failed" }, true],
+            ["record-vanished", "tmux", "ok", { code: null, reason: "vanished" }, true],
+            ["reason-with-zero", "tmux", "ok", { code: 0, reason: "launcher-failed" }, true],
+            ["immediate-refusal", "tmux", "refused: tui=task-view reason=launcher-missing", null, true],
+            ["ended-refusal", "not-alive", "ok", null, true],
+            ["floating", "floating", "ok", null, false]
+        ]) {
+            const notices = [], warnings = [], calls = [];
+            let done;
+            const shell = {
+                tui: { run(name, args, callback) { calls.push([name, Array.from(args)]); done = callback; return reply; } },
+                notify: { send(options) { notices.push(JSON.parse(JSON.stringify(options))); return "ok"; } }
+            };
+            vm.runInNewContext(methods + "\ntaskOpened(message);", {
+                shell, locked: false, message: { answer, task }, console: { warn: text => warnings.push(text) }
+            }, { filename: serviceFile });
+            assert.deepEqual(calls, answer === "tmux" ? [["task-view", [task]]] : [], name);
+            if (completion !== null) {
+                assert.equal(notices.length, 0, name + ": queued launch is not its outcome");
+                assert.equal(warnings.length, 0, name + ": queued launch is quiet");
+                assert.equal(typeof done, "function", name + ": completion is observed");
+                done(completion);
+            }
+            assert.equal(notices.length, failed || answer === "floating" ? 1 : 0, name);
+            assert.equal(warnings.length, failed ? 1 : 0, name);
+            if (failed) {
+                assert.equal(notices[0].tone, "danger", name);
+                const reason = completion === null ? answer === "tmux" ? reply : answer
+                    : completion.reason === null ? "exit-" + completion.code : completion.reason;
+                // The smoke diagnostic collector consumes this keyed line.
+                assert.equal(warnings[0], "jarvis: task-open=" + reason + " task=" + task, name);
+            } else if (answer === "floating") assert.equal(notices[0].tone, "info", name);
+        }
+    }
+    taskOpenNotices(serviceSource);
+    cases += 9;
+    for (const [name, needle, replacement] of [
+        ["completion", '"task-view", [message.task], result => {', '"task-view", [message.task], undefined, result => {'],
+        ["exit-failure", "result.code !== 0", "false"],
+        ["reason-failure", "result.reason !== null", "false"],
+        ["detach-quiet", "result.code !== 0", "result.code === 0"],
+        ["immediate-notice", 'if (reply !== "ok") taskOpenFailed(message.task, reply);', 'if (false) taskOpenFailed(message.task, reply);']
+    ]) {
+        assert.equal(serviceSource.split(needle).length, 2, name + " mutation match");
+        assert.throws(() => taskOpenNotices(serviceSource.replace(needle, replacement)), assert.AssertionError, name + " must turn red");
+        controls++;
+    }
 
     // Execute the attach-only viewer against a private argv recorder.
     // The synthetic tmux command comes first on this test's PATH.

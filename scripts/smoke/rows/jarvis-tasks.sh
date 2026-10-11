@@ -225,7 +225,7 @@ jarvis_disable
 task_controls=(
   'task-list|message.type === "task-list" ? "taskList" : "auditFailures"|message.type === "task-list" ? "detail" : "auditFailures"|the synthetic task row reaches status'
   'audit-list|message.type === "task-list" ? "taskList" : "auditFailures"|message.type === "task-list" ? "taskList" : "detail"|the fixture audit failure reaches status without args'
-  'task-view|shell.tui.run("task-view", [message.task])|shell.tui.run("task-view", [])|the core runs task-view with the id alone'
+  'task-view|shell.tui.run("task-view", [message.task], result => {|shell.tui.run("task-view", [], result => {|the core runs task-view with the id alone'
   'floating-notice|message.answer === "floating"|false && message.answer === "floating"|a floating task answer shows its notice'
   "forward|send({ type: \"tui-state\", name: \"task\", running: taskTuiRunning });|if (!taskTuiRunning) send({ type: \"tui-state\", name: \"task\", running: taskTuiRunning });|the service forwards the running task TUI"
   "argv|shell.tui.run(\"task\", args, () => {|shell.tui.run(\"task\", [], () => {|the core runs the task TUI with the spec path alone"

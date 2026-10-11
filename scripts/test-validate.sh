@@ -912,6 +912,29 @@ PYCONTROL
 row "control: an omitted sign-in input skips terminal assertions" "$d" 0 "" \
   "!node scripts/test-jarvis-accounts-tui.js" "node scripts/test-jarvis-secrets.js"
 
+# The task runner executes the viewer. Other TUI consumers do not prove
+# its private socket, exact target or argument refusal behavior.
+d="$tmp/plan-jarvis-task-view-control"; fresh "$d"
+mkdir -p "$d/shell/plugins/vgs.jarvis/tui"
+printf 'changed\n' >"$d/shell/plugins/vgs.jarvis/tui/task-view.sh"
+test_area=cli
+test_args=(--changed HEAD --list)
+row "task-view selects its executed viewer assertions" "$d" 0 "" "node scripts/test-jarvis-task-runner.js"
+python3 - "$d/scripts/validate" <<'PYCONTROL'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+source = path.read_text()
+rows = [line for line in source.splitlines() if line.startswith('  "cli|Jarvis task runner|')]
+edge = ' shell/plugins/vgs.jarvis/tui/task-view.sh '
+assert len(rows) == 1 and rows[0].count(edge) == 1
+path.write_text(source.replace(rows[0], rows[0].replace(edge, ' ', 1)))
+PYCONTROL
+"${base_env[@]}" git -C "$d" add scripts/validate
+"${base_env[@]}" git -C "$d" commit -q -m control
+row "control: an omitted viewer input skips its executed assertions" "$d" 0 "" \
+  "!node scripts/test-jarvis-task-runner.js" "node scripts/test-jarvis-secrets.js"
+
 # The engine's daemon-speech case reads the catalog, independently of the
 # adapter's own selection tests. Other catalog consumers cannot cover it.
 d="$tmp/plan-jarvis-artifacts-engine-control"; fresh "$d"

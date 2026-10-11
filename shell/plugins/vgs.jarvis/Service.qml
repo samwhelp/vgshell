@@ -434,13 +434,21 @@ Item {
     function taskOpened(message) {
         if (locked) return;
         if (message.answer === "tmux") {
-            const reply = shell.tui.run("task-view", [message.task]);
-            if (reply === "ok") return;
-            console.warn("jarvis: task-open=" + reply + " task=" + message.task);
+            const reply = shell.tui.run("task-view", [message.task], result => {
+                if (result.code !== 0 || result.reason !== null)
+                    taskOpenFailed(message.task, result.reason === null ? "exit-" + result.code : result.reason);
+            });
+            if (reply !== "ok") taskOpenFailed(message.task, reply);
+            return;
         } else if (message.answer === "floating") {
             notice({ title: "Coding task", message: "This task runs in the floating terminal", tone: "info", icon: "terminal" });
             return;
-        } else console.warn("jarvis: task-open=" + message.answer + " task=" + message.task);
+        }
+        taskOpenFailed(message.task, message.answer);
+    }
+
+    function taskOpenFailed(task, reason) {
+        console.warn("jarvis: task-open=" + reason + " task=" + task);
         notice({ title: "Coding task not opened", message: "The coding task could not be opened.", tone: "danger", icon: "terminal" });
     }
 
