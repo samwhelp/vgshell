@@ -2,7 +2,10 @@
 # latency budget. It starts the installed shell through harness.sh's
 # start_shell, with the process-signalling stand-ins first on its PATH,
 # so it reuses the smoke startup poll intervals: 10 ms for the first bar
-# and one `vgshell ipc` round trip for readiness.
+# and one `vgshell ipc` round trip for readiness. Its `theme apply` writes
+# under a state home of the row's own: the vgs package names a background,
+# and in the sandbox's shared state directory the repository shell this
+# row restores would draw it, a layer no row before it left.
 # inputs: packaging/* scripts/check-install-tree.sh VERSION LICENSE README.md bin/* shell/* config/* themes/* scripts/fixtures/jarvis/* scripts/fixtures/jarvis-voice/* scripts/fixtures/jarvis-setup/* scripts/lib/jarvis-env.sh scripts/test-task-event.js scripts/smoke/rows/jarvis.sh
 set -euo pipefail
 
@@ -108,9 +111,10 @@ expect_poll "Escape closes the installed shell's Jarvis notice" null notice_show
 expect "task events use a private data engine from the read-only prefix" "task-prefix=ok" "$node_bin" "$source_repo/scripts/test-task-event.js" --prefix "$readonly_dest/usr/share/vgshell/shell/plugins/vgs.jarvis/backend"
 expect_poll "installed Jarvis discovers device choices without writing the prefix" devices jarvis_devices
 
+read_only_state_home="$sandbox/read-only-state"
 installed_apply_vgs() {
   local err status=0
-  err="$("${shell_env[@]}" PATH="$signal_shim:$shell_start_path" VGS_READ_ONLY_SIGNAL_LOG="$signal_log" "$installed_bin" theme apply vgs 2>&1 >/dev/null)" || status=$?
+  err="$("${shell_env[@]}" XDG_STATE_HOME="$read_only_state_home" PATH="$signal_shim:$shell_start_path" VGS_READ_ONLY_SIGNAL_LOG="$signal_log" "$installed_bin" theme apply vgs 2>&1 >/dev/null)" || status=$?
   if [[ $status == 0 ]]; then echo ok; else printf 'exit=%s %s\n' "$status" "${err%%$'\n'*}"; fi
 }
 # The first scan queues the theme follow, which holds the theme lock while
@@ -150,7 +154,28 @@ else
   fail "the stand-in could not take the theme lock once the installed shell was idle"
 fi
 exec {startup_lock}>&-
+# read_only_tree_since DIR SNAPSHOT: `unchanged` while DIR's tree is the
+# one tree_snapshot wrote to SNAPSHOT, `changed` otherwise, with the diff
+# in SNAPSHOT.diff.
+read_only_tree_since() { # DIR SNAPSHOT
+  local status=0
+  tree_snapshot "$1" >"$2.now" || return
+  diff -u -- "$2" "$2.now" >"$2.diff" || status=$?
+  case "$status" in
+    0) echo unchanged ;;
+    1) echo changed ;;
+    *) return "$status" ;;
+  esac
+}
+shared_state_before="$sandbox/read-only-shared-state.txt"
+own_state_before="$sandbox/read-only-own-state.txt"
+tree_snapshot "$bg_state" >"$shared_state_before" || fail "the shared state directory could not be read before the installed apply"
+tree_snapshot "$read_only_state_home" >"$own_state_before" || fail "the row's state home could not be read before the installed apply"
 expect "theme apply runs from the non-writable installed prefix" ok installed_apply_vgs
+expect "the installed apply leaves the shared state directory as the row found it" unchanged read_only_tree_since "$bg_state" "$shared_state_before"
+if [[ -s $shared_state_before.diff ]]; then sed 's/^/    /' -- "$shared_state_before.diff"; fi
+# Control: the same reading of the state home the apply wrote changes.
+expect "control: the installed apply's own state home reads changed" changed read_only_tree_since "$read_only_state_home" "$own_state_before"
 expect "the installed Gallery summons from the read-only prefix" ok ipc shell summon window vgs.gallery '{}'
 expect_poll "the installed Gallery maps" 1 window_count "VGS Components"
 expect_poll "the installed Gallery builds the VoiceOrb examples" True orb_examples_ok
