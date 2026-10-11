@@ -757,14 +757,15 @@ scope_tones() {
   this="$(ipc smoke readMatchingDescendant overlay vgs.themes Label text "This monitor" color)" || return
   python3 -c '
 import json, sys
-# A QColor reads as #rrggbb, or #aarrggbb with alpha; a token as #rrggbbaa.
-def rgb(text, alpha_first):
+# A colour reads as {r, g, b, a}, #rrggbb, or #aarrggbb, the form Theme
+# publishes (shell/Commons/Theme.qml).
+def rgba(text):
     value = json.loads(text)
-    if isinstance(value, dict): return tuple(round(value[k] * 255) for k in "rgb")
+    if isinstance(value, dict): return tuple(round(value[k] * 255) for k in "rgba")
     value = value.lstrip("#")
-    return tuple(int(value[i:i + 2], 16) for i in ((2, 4, 6) if len(value) == 8 and alpha_first else (0, 2, 4)))
-text = rgb(sys.argv[1], False)
-print(json.dumps([rgb(sys.argv[2], True) == text, rgb(sys.argv[3], True) == text]))' "$text" "$all" "$this"
+    return tuple(int(value[i:i + 2], 16) for i in (2, 4, 6, 0)) if len(value) == 8 else tuple(int(value[i:i + 2], 16) for i in (0, 2, 4)) + (255,)
+text = rgba(sys.argv[1])
+print(json.dumps([rgba(sys.argv[2]) == text, rgba(sys.argv[3]) == text]))' "$text" "$all" "$this"
 }
 fixture_image="$repo/scripts/smoke/fixtures/theme-image.jpg"
 fixture_tall="$sandbox/theme-image-tall.jpg"
