@@ -40,10 +40,18 @@ jarvis_enable
 settings_page_open vgs.jarvis
 
 page_home_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"vgs.jarvis","key":"home"}'; }
+page_home_text() { page_home_field | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["text"]))'; }
 page_home_model() { page_home_field | py_reply 'import json,sys; print(json.dumps([row["label"] for row in json.load(sys.stdin)["model"]]))'; }
 expect_poll "the Home folder starts with None and the default home" '["None", "~/Jarvis", "Custom\u2026"]' page_home_model
 expect "the Settings page writes a fixture Jarvis home" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.jarvis","key":"home","value":"~/SmokeJarvis"}'
 expect_poll "the Home folder offers None, the accepted fixture home, the default home and Custom" '["None", "~/SmokeJarvis", "~/Jarvis", "Custom\u2026"]' page_home_model
+# The page leaves no home set for the later steps and rows, and returns to
+# its top, which the Custom… editor scrolled from while the written home
+# was not yet offered.
+expect "the Settings page clears the fixture Jarvis home" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.jarvis","key":"home","value":""}'
+expect_poll "the cleared Home folder still offers the used fixture home" '["None", "~/SmokeJarvis", "~/Jarvis", "Custom\u2026"]' page_home_model
+expect_poll "the Home folder reads None" '"None"' page_home_text
+ipc smoke scrollTo window vgs.settings 0 >/dev/null || fail "the Jarvis page did not return to its top"
 
 # KEY's action as the page offers it, and its row's tone; `pending` until
 # a rescanned service has reported the row.

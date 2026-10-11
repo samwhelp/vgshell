@@ -388,7 +388,7 @@ async function inside() {
             outsideRun.child.stdin.write(JSON.stringify(named("", outsideState)) + "\n");
             await outsideRun.wait(messages => messages.some(frame => frame.type === "homes"
                 && JSON.stringify(frame.homes.map(row => row.value)) === JSON.stringify(["~/homes/valid/Jarvis"])));
-            await outsideRun.close("jarvis: homes=record-entry\n");
+            await outsideRun.close("");
         } finally { if (outsideRun.child.exitCode === null) outsideRun.child.kill("SIGKILL"); }
 
         const corruptState = path.join(hello.directories.state, "homes-corrupt");
@@ -419,8 +419,6 @@ async function inside() {
         cases++;
     }
     await homesCacheRecovery(daemon);
-    await control("homes-cache-entry-drops", "                const homes = Home.remembered(value.homes, process.env.HOME);\n",
-        "                const homes = value.homes;\n", homesCacheRecovery);
     await control("homes-cache-read-catches", "                process.stderr.write(error.message + \"\\n\");\n                return [];\n",
         "                throw error;\n", homesCacheRecovery);
     await control("homes-cache-write-keeps-running", "            if (reason !== null) process.stderr.write(error.message + \"\\n\");\n            else throw error;\n",

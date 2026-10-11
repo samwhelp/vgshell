@@ -306,9 +306,9 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                 if (value === null || typeof value !== "object" || Array.isArray(value)
                         || Object.keys(value).join(",") !== "homes" || !Array.isArray(value.homes))
                     throw new Error("jarvis: homes=record-shape");
-                const homes = Home.remembered(value.homes, process.env.HOME);
-                if (homes.length !== value.homes.length) process.stderr.write("jarvis: homes=record-entry\n");
-                return homes;
+                // An entry outside this HOME or past the offer bounds is a stale
+                // offer, dropped without a fault.
+                return Home.remembered(value.homes, process.env.HOME);
             }, []);
         } catch (error) {
             const reason = /^jarvis: homes=([a-z-]+)$/.exec(error.message);
