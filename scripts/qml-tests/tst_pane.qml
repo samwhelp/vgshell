@@ -770,7 +770,8 @@ Item {
         // from frame to frame; the scroll area's own hairline, which spans
         // only its inset viewport, never shows beside either. A pane with
         // neither keeps the scroll area's cue line on each edge, since no
-        // divider marks those edges.
+        // divider marks those edges. The tint over each band is no line and
+        // is cleared here; tst_scroll.qml pins it.
         function test_one_line_marks_each_scrolled_edge_data() {
             return [
                 { tag: "header and footer", fixture: barredLines, barred: true },
@@ -779,6 +780,7 @@ Item {
         }
 
         function test_one_line_marks_each_scrolled_edge(data) {
+            compare(UnitTheme.override({ scrollArea: { edgeTint: "#00000000" } }), "ok");
             const made = createTemporaryObject(data.fixture, root);
             const of = made.pane;
             const view = scroll(of);

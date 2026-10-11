@@ -233,16 +233,17 @@ Item {
             const holder = createTemporaryObject(fadeCase, root, { rowColor: "#00ff00" });
             const view = holder.area, back = holder.color;
             tryVerify(() => view.overflowing, 1000, "ten rows overflow the view");
-            tryCompare(view.bar, "active", false, 2000, "the view is at rest");
 
-            let seen = edges(holder);
-            verify(!near(seen.bottom, back), "at the top a tint marks the bottom edge: " + seen.bottom);
-            verify(near(seen.top, back), "at the top the top edge has no tint: " + seen.top);
-
+            // Each read follows a scroll, so a frame is due to render.
             view.contentY = view.contentHeight - view.height;
-            seen = edges(holder);
+            let seen = edges(holder);
             verify(!near(seen.top, back), "at the end a tint marks the top edge: " + seen.top);
             verify(near(seen.bottom, back), "at the end the bottom edge has no tint: " + seen.bottom);
+
+            view.contentY = 0;
+            seen = edges(holder);
+            verify(!near(seen.bottom, back), "at the top a tint marks the bottom edge: " + seen.bottom);
+            verify(near(seen.top, back), "at the top the top edge has no tint: " + seen.top);
 
             holder.rows = 5;
             view.contentY = 0;
