@@ -517,20 +517,24 @@ function pairCanSync(pair) {
 }
 
 // The window's footer for CLOUD, undefined before the first value:
-// { primary, pause, add }. The primary is Sync now once the hourly units
-// are installed, enabled only when a sync can start: no sync runs and a
-// folder pair can sync (pairCanSync); the headline already says why it
-// cannot. Else it is Set up hourly sync. `pause` is Pause or Resume while
-// a folder pair exists, else null; `add`, the footer's Add a folder pair,
-// shows only then too, since the empty pair list offers its own.
+// { primary, pause, add }. Once the hourly units are installed the primary
+// is Resume while the sync is paused with a folder pair, since a run then
+// copies nothing, else Sync now, enabled only when a sync can start: no
+// sync runs and a folder pair can sync (pairCanSync); the headline already
+// says why it cannot. Else it is Set up hourly sync. `pause` is Pause or
+// Resume while a folder pair exists and the primary is not Resume, else
+// null; `add`, the footer's Add a folder pair, shows only beside a folder
+// pair, since the empty pair list offers its own.
 function footerView(cloud) {
     var known = cloud !== undefined && cloud !== null;
     var hasPairs = known && cloud.pairs.length > 0;
     var canSync = known && cloud.state !== "running" && cloud.pairs.some(pairCanSync);
-    var primary = !known || cloud.units === "installed"
-        ? { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: canSync }
-        : { text: "Set up hourly sync", icon: "cloud-cog", action: "setup", enabled: true };
-    var pause = !hasPairs ? null : cloud.paused ? { text: "Resume", icon: "play", action: "resume" } : { text: "Pause", icon: "pause", action: "pause" };
+    var resume = { text: "Resume", icon: "play", action: "resume" };
+    var primary = known && cloud.units !== "installed"
+        ? { text: "Set up hourly sync", icon: "cloud-cog", action: "setup", enabled: true }
+        : hasPairs && cloud.paused ? Object.assign({ enabled: true }, resume)
+        : { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: canSync };
+    var pause = !hasPairs || primary.action === "resume" ? null : cloud.paused ? resume : { text: "Pause", icon: "pause", action: "pause" };
     return { primary: primary, pause: pause, add: hasPairs };
 }
 

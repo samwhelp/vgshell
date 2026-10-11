@@ -12,9 +12,9 @@ import "CloudSyncLogic.js" as Logic
 // a local edit, a Drive deletion or a Drive rename, under its folder
 // pair's label, with Open folders, which opens the folders that hold its
 // versions. The footer holds Sync now, enabled only when a sync can
-// start, or Set up hourly sync while the hourly sync is not set up, over
-// Pause or Resume and Add a folder pair while a folder pair exists
-// (CloudSyncLogic.footerView).
+// start, Resume while the sync is paused, or Set up hourly sync while the
+// hourly sync is not set up, over Pause or Resume and Add a folder pair
+// while a folder pair exists (CloudSyncLogic.footerView).
 // It runs nothing itself: Sync now, Pause and Resume ask the service
 // through the plugin's own IPC, setup opens the plugin's floating TUIs,
 // and Open folders hands each folder to xdg-open. The window asks to be
@@ -219,7 +219,7 @@ FocusScope {
                     enabled: root.footer.primary.enabled
                     text: root.footer.primary.text
                     iconName: root.footer.primary.icon
-                    onClicked: root.footer.primary.action === "sync" ? root.ask("sync") : root.run("setup")
+                    onClicked: root.footer.primary.action === "setup" ? root.run("setup") : root.ask(root.footer.primary.action)
                 }
 
                 // Hidden with no folder pair, when the empty pair list

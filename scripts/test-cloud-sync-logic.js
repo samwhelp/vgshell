@@ -79,6 +79,7 @@ const invalid = () => record({ state: "error", lastError: { kind: "pairs-invalid
 const SYNC = ["sync", true];
 const NO_SYNC = ["sync", false];
 const SETUP = ["setup", true];
+const RESUME = ["resume", true];
 // A pair as the runner renders it under a pause (bin/cloud-sync
 // renderStatus): its own state reads paused.
 const PAUSED_DOCS = Object.assign({}, DOCS, { state: "paused" });
@@ -98,14 +99,15 @@ const STATES = [
     ["data old", well({ staleAfter: iso(NOW) }), "Out of date", "warning", "cloud-alert", SYNC, undefined],
     ["never synced", well({ lastSuccess: null, staleAfter: null }), "Not synced yet", "info", "cloud", SYNC, undefined],
     ["syncing", well({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" })] }), "Syncing", "info", "cloud-sync", NO_SYNC, undefined],
-    ["paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS] }), "Paused", "info", "cloud-off", NO_SYNC, undefined],
+    ["paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS] }), "Paused", "info", "cloud-off", RESUME, undefined],
+    ["every pair paused on its own", well({ state: "paused", pairs: [PAUSED_DOCS] }), "Paused", "info", "cloud-off", NO_SYNC, undefined],
     ["error", well({ state: "error", lastError: { kind: "source-missing", pair: "docs" } }), "Sync failed", "danger", "cloud-alert", SYNC, "A Google Drive folder of a folder pair does not exist."],
     ["offline", well({ state: "offline", lastError: { kind: "offline", pair: "docs" } }), "Offline", "warning", "cloud-off", SYNC, "Google Drive cannot be reached. Cloud Sync tries again at the next sync."],
     ["keyring locked", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: { kind: "credential-locked", account: "pull-client-id" } })], lastError: { kind: "credential-locked", account: "pull-client-id", pair: "docs" } }), "Sign-in needed", "danger", "cloud-alert", SYNC, "Your keyring is locked. Unlock it to sync."],
     ["sign-in needed", record({ conflicts: [] }), "Sign-in needed", "danger", "cloud-alert", SYNC, REFUSED_PAGE],
     ["set up with files to review", well({ conflicts: CONFLICTS.slice(0, 2) }), "2 files to review", "warning", "cloud-alert", SYNC, "Open Cloud Sync to review them."],
     ["one file to review", well({ conflicts: CONFLICTS.slice(1, 2) }), "1 file to review", "warning", "cloud-alert", SYNC, "Open Cloud Sync to review them."],
-    ["files to review while paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS], conflicts: CONFLICTS.slice(0, 2) }), "2 files to review", "warning", "cloud-alert", NO_SYNC, "Open Cloud Sync to review them."],
+    ["files to review while paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS], conflicts: CONFLICTS.slice(0, 2) }), "2 files to review", "warning", "cloud-alert", RESUME, "Open Cloud Sync to review them."],
     ["sign-in needed with files to review", record(), "Sign-in needed", "danger", "cloud-alert", SYNC, REFUSED_PAGE]
 ];
 
@@ -287,8 +289,9 @@ function verify(L) {
     same(L.windowStatus(L.cloudValue(well({ state: "offline", lastError: { kind: "offline" } }), ""), NOW, Timestamp.text).lines[1], { text: "Google Drive cannot be reached. Cloud Sync tries again at the next sync.", tone: "" });
     same(L.pairRow(cloud.pairs[0], NOW), { id: "docs", label: "Documents", secondary: "Download", icon: "folder-down", text: "Up to date", tone: "success" });
     same(L.pairRow(cloud.pairs[1], NOW), { id: "inbox", label: "Agent uploads", secondary: "Upload", icon: "folder-up", text: "Sign-in needed", tone: "danger" });
-    // The footer: one primary; Pause or Resume and Add a folder pair only
-    // while a folder pair exists, since the empty pair list offers Add.
+    // The footer: one primary, Resume while paused; Pause or Resume and
+    // Add a folder pair only while a folder pair exists, since the empty
+    // pair list offers Add.
     const footer = rec => L.footerView(rec === undefined ? undefined : L.cloudValue(rec, ""));
     const footers = [
         ["before the first value", undefined, { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: false }, pause: null, add: false }],
@@ -296,7 +299,8 @@ function verify(L) {
         ["no folder pair", well({ state: "not-set-up", pairs: [] }), { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: false }, pause: null, add: false }],
         ["units stale with a pair", well({ units: "stale" }), { primary: { text: "Set up hourly sync", icon: "cloud-cog", action: "setup", enabled: true }, pause: { text: "Pause", icon: "pause", action: "pause" }, add: true }],
         ["set up", well(), { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: true }, pause: { text: "Pause", icon: "pause", action: "pause" }, add: true }],
-        ["paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS] }), { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: false }, pause: { text: "Resume", icon: "play", action: "resume" }, add: true }]
+        ["paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS] }), { primary: { text: "Resume", icon: "play", action: "resume", enabled: true }, pause: null, add: true }],
+        ["units stale while paused", well({ units: "stale", state: "paused", paused: true, pairs: [PAUSED_DOCS] }), { primary: { text: "Set up hourly sync", icon: "cloud-cog", action: "setup", enabled: true }, pause: { text: "Resume", icon: "play", action: "resume" }, add: true }]
     ];
     for (const [label, rec, want] of footers) same(footer(rec), want, "footer: " + label);
     same(L.conflictGroups(cloud.conflicts).map(g => [g.label, g.rows.map(r => [r.label, r.secondary])]), [
@@ -365,9 +369,11 @@ const controls = [
     ["Sync now waits for a running sync", "known && cloud.state !== \"running\" && cloud.pairs.some(pairCanSync)", "known && cloud.pairs.some(pairCanSync)"],
     ["Sync now waits for a paused pair", "if (pair.state === \"paused\") return false;", ""],
     ["the footer offers Add only beside a folder pair", "add: hasPairs }", "add: true }"],
+    ["Resume is the primary while paused", ": hasPairs && cloud.paused ? Object.assign({ enabled: true }, resume)", ": false ? Object.assign({ enabled: true }, resume)"],
+    ["the pause slot is empty beside a Resume primary", "!hasPairs || primary.action === \"resume\" ? null", "!hasPairs ? null"],
     ["the Settings page names its own fields", "return errorText(cloud.lastError, true);", "return errorText(cloud.lastError);"],
-    ["Pause needs a folder pair", "var pause = !hasPairs ? null :", "var pause = !known ? null :"],
-    ["Set up hourly sync while the units are not installed", "var primary = !known || cloud.units === \"installed\"", "var primary = true"],
+    ["Pause needs a folder pair", "var pause = !hasPairs ||", "var pause = !known ||"],
+    ["Set up hourly sync while the units are not installed", "var primary = known && cloud.units !== \"installed\"", "var primary = false"],
     ["the window says a pause", "    if (cloud.paused)\n", "    if (false)\n"],
     ["a review group holds each pair's files", "if (group === undefined) {", "if (true) {"],
     ["a sign-in notifies first", "if (reasons.indexOf(\"authorization-required\") !== -1)\n", "if (false)\n"],
