@@ -23,7 +23,7 @@
     { "command": "xdg-open", "packages": { "pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils" }, "optional": true, "purpose": "Opens the Google sign-in page and the folders to review" }
   ],
   "tui": {
-    "setup": { "script": "tui/setup.sh", "title": "Set up Cloud Sync", "requires": ["node", "systemctl"] },
+    "setup": { "script": "tui/setup.sh", "title": "Set up hourly sync", "requires": ["node", "systemctl"] },
     "add-pair": { "script": "tui/add-pair.sh", "title": "Add a folder pair", "requires": ["node", "gum"], "entry": { "label": "Add a folder pair", "icon": "folder-plus", "group": "Cloud Sync" } },
     "remove-pair": { "script": "tui/remove-pair.sh", "title": "Remove a folder pair", "requires": ["node", "gum"] },
     "connect-drive": { "script": "tui/connect-drive.sh", "title": "Sign in for Download", "requires": ["node", "rclone", "secret-tool", "xdg-open", "curl"] },
@@ -76,6 +76,7 @@
       "type": "presenceList",
       "label": "Keys",
       "group": "Upload: this computer to Google Drive",
+      "hint": "Use a second client ID and secret for Upload.",
       "info": "Use a second OAuth client ID of type Desktop app for Upload. It reaches only the files and folders that Cloud Sync made."
     },
     "upload": {

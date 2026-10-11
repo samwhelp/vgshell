@@ -52,7 +52,6 @@ var NOT_SYNCED = { text: "Not synced yet", tone: "info", icon: "cloud" };
 var NO_PAIRS = { text: "No folder pairs", tone: "warning", icon: "cloud" };
 // The direction of a pair, in the words every surface uses.
 var DIRECTION_WORD = { pull: "Download", upload: "Upload" };
-var DIRECTION_LONG = { pull: "Download: Google Drive to this computer", upload: "Upload: this computer to Google Drive" };
 // A status state tone as a Badge tone.
 var BADGE_TONES = { ok: "success", info: "info", warning: "warning", danger: "danger" };
 
@@ -221,7 +220,7 @@ function conflictText(kind) {
 
 function problemText(operation, firstLine) {
     if (operation === "") return "";
-    if (operation === "start" && firstLine.indexOf("units=absent") !== -1) return "Set up Cloud Sync first.";
+    if (operation === "start" && firstLine.indexOf("units=absent") !== -1) return "Set up hourly sync first.";
     return hasOwn(PROBLEM_TEXT, operation) ? PROBLEM_TEXT[operation] : "VGS could not reach Cloud Sync.";
 }
 
@@ -468,10 +467,12 @@ function windowStatus(cloud, now, timeText) {
 }
 
 // One folder pair's row in the window: { id, label, secondary, icon, text,
-// tone }, its direction in the long form and its state as a Badge tone.
+// tone }, its direction word, since a ListItem's secondary line elides and
+// the long form does not fit beside the state and Remove, and its state as
+// a Badge tone.
 function pairRow(pair, now) {
     var view = stateView(pair.state, pair.staleAfter, now);
-    return { id: pair.id, label: pair.label, secondary: DIRECTION_LONG[pair.direction], icon: pair.direction === "pull" ? "folder-down" : "folder-up", text: view.text, tone: badgeTone(view.tone) };
+    return { id: pair.id, label: pair.label, secondary: DIRECTION_WORD[pair.direction], icon: pair.direction === "pull" ? "folder-down" : "folder-up", text: view.text, tone: badgeTone(view.tone) };
 }
 
 // One conflict's row in the window: its path, and what happened.
@@ -494,6 +495,20 @@ function conflictGroups(conflicts) {
         group.rows.push(conflictRow(c));
     });
     return groups;
+}
+
+// The window's footer for CLOUD, undefined before the first value:
+// { primary, pause }. The primary is Sync now once the hourly units are
+// installed, enabled while a folder pair exists, else Set up hourly sync;
+// `pause` is Pause or Resume while a folder pair exists, else null.
+function footerView(cloud) {
+    var known = cloud !== undefined && cloud !== null;
+    var hasPairs = known && cloud.pairs.length > 0;
+    var primary = !known || cloud.units === "installed"
+        ? { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: hasPairs }
+        : { text: "Set up hourly sync", icon: "cloud-cog", action: "setup", enabled: true };
+    var pause = !hasPairs ? null : cloud.paused ? { text: "Resume", icon: "play", action: "resume" } : { text: "Pause", icon: "pause", action: "pause" };
+    return { primary: primary, pause: pause };
 }
 
 // The line under the review list when it shows only part of the list.

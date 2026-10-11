@@ -18,10 +18,12 @@ import "../../shell/plugins/vgs.settings"
 // in the danger tone, after its chip, or Add key on the value column while
 // nothing is stored, and Replace or Add key opens the masked field, whose
 // Save hands on what was typed. A step declared danger draws in that tone.
+// A line with no value draws its hint in the value column with its
+// `hintLink` words as a link, which emits `hintLinkActivated`.
 Item {
     id: root
     width: 480
-    height: 1760
+    height: 1860
 
     GroupList {
         id: list
@@ -66,6 +68,8 @@ Item {
 
     StatusLine { id: storedKey; x: 0; y: 1420; width: 400; label: "Acme"; tone: "success"; text: "Present"; access: "disconnect"; secretLabel: "Acme key" }
     StatusLine { id: absentKey; x: 0; y: 1480; width: 400; label: "Globex"; access: "connect"; secretLabel: "Acme key" }
+    StatusLine { id: linkedHint; x: 0; y: 1740; width: 400; label: "Keys"; hint: "Get a client ID and secret for each direction from Google Cloud credentials."; hintLink: "Google Cloud credentials" }
+    SignalSpy { id: linkPresses; target: linkedHint; signalName: "hintLinkActivated" }
     StatusLine { id: dangerStep; x: 0; y: 1540; width: 400; label: "Sign-in"; tone: "success"; text: "Signed in"; actionLabel: "Sign out"; actionOffered: true; actionTone: "danger" }
     SignalSpy { id: stores; target: storedKey; signalName: "storeSecret" }
 
@@ -275,6 +279,27 @@ Item {
             verify(add !== null && add.text === "Add key", "it draws Add key");
             const field = absentKey.children.find(child => child.valueX !== undefined);
             compare(box(add, absentKey).x, field.valueX, "Add key starts on the value column");
+        }
+
+        // A hint drawn as the value keeps its link: the shown LinkText on
+        // the value column cites the link's words, and its press emits
+        // the line's hintLinkActivated.
+        function test_a_hint_value_keeps_its_link() {
+            linkPresses.clear();
+            const field = linkedHint.children.find(child => child.valueX !== undefined);
+            const links = [];
+            const stack = [linkedHint];
+            while (stack.length > 0) {
+                const at = stack.pop();
+                if (at instanceof LinkText && at.visible && at.text === linkedHint.hint) links.push(at);
+                for (const child of at.children) stack.push(child);
+            }
+            compare(links.length, 1, "the hint is drawn once, as one LinkText");
+            verify(links[0].linked, "the hint cites its link's words");
+            compare(links[0].link, "Google Cloud credentials");
+            compare(box(links[0], linkedHint).x, field.valueX, "the hint starts on the value column");
+            links[0].clicked();
+            compare(linkPresses.count, 1, "a press on the link emits hintLinkActivated");
         }
 
         // A step declared danger draws in the danger tone.

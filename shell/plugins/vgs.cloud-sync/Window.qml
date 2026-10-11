@@ -11,8 +11,9 @@ import "CloudSyncLogic.js" as Logic
 // the remove TUI for that pair; To review lists each file Cloud Sync kept,
 // a local edit, a Drive deletion or a Drive rename, under its folder
 // pair's label, with Open folders, which opens the folders that hold its
-// versions. The footer holds Sync now, or Set up Cloud Sync while the
-// hourly sync is not set up, over Pause or Resume and Add a folder pair.
+// versions. The footer holds Sync now, or Set up hourly sync while the
+// hourly sync is not set up, over Pause or Resume while a folder pair
+// exists and Add a folder pair (CloudSyncLogic.footerView).
 // It runs nothing itself: Sync now, Pause and Resume ask the service
 // through the plugin's own IPC, setup opens the plugin's floating TUIs,
 // and Open folders hands each folder to xdg-open. The window asks to be
@@ -30,7 +31,7 @@ FocusScope {
     readonly property bool known: cloud !== undefined
     readonly property double now: Time.now.getTime()
     readonly property var standing: known ? Logic.windowStatus(cloud, now, Timestamp.text) : null
-    readonly property bool setUp: known && cloud.units === "installed"
+    readonly property var footer: Logic.footerView(cloud)
     // While the runner cannot read the pair list it refuses every pair
     // change, so the window offers none; the subtitle says why.
     readonly property bool pairsValid: known && Logic.pairListValid(cloud)
@@ -214,25 +215,25 @@ FocusScope {
                     id: primary
                     width: parent.width
                     variant: "primary"
-                    enabled: root.known
-                    text: root.setUp || !root.known ? "Sync now" : "Set up Cloud Sync"
-                    iconName: root.setUp || !root.known ? "refresh-cw" : "cloud-cog"
-                    onClicked: root.setUp ? root.ask("sync") : root.run("setup")
+                    enabled: root.footer.primary.enabled
+                    text: root.footer.primary.text
+                    iconName: root.footer.primary.icon
+                    onClicked: root.footer.primary.action === "sync" ? root.ask("sync") : root.run("setup")
                 }
 
                 Item {
                     width: parent.width
-                    height: Math.max(pauseButton.implicitHeight, addButton.implicitHeight)
+                    height: addButton.implicitHeight
 
                     Button {
                         id: pauseButton
                         anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
                         variant: "tertiary"
-                        enabled: root.known
-                        text: root.known && root.cloud.paused ? "Resume" : "Pause"
-                        iconName: root.known && root.cloud.paused ? "play" : "pause"
-                        onClicked: root.ask(root.cloud.paused ? "resume" : "pause")
+                        visible: root.footer.pause !== null
+                        text: root.footer.pause !== null ? root.footer.pause.text : ""
+                        iconName: root.footer.pause !== null ? root.footer.pause.icon : ""
+                        onClicked: root.ask(root.footer.pause.action)
                     }
                     Button {
                         id: addButton

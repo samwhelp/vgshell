@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The vgs.cloud-sync floating TUIs, shell/plugins/vgs.cloud-sync/tui/,
 # against a stand-in runner that logs its argv and a stand-in gum that
-# answers each question from a list. It proves that Set up Cloud Sync runs
+# answers each question from a list. It proves that Set up hourly sync runs
 # the runner's install; that Sign in for Download and Sign in for Upload
 # run its authorize for their own direction and turn this run's
 # refusal, never an earlier run's, into a plain sentence; that Add a folder

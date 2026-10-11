@@ -11,8 +11,8 @@ import qs.Ui
 // each no wider than the value column, eliding a text too long for it; with
 // `tone` "", `text` as one line in the value role, the label's pair,
 // or the itemHint role while `muted`; with neither, the hint itself on the
-// label's row, so a line that names a group never leaves its value column
-// empty. Its lines sit `field.gap` apart: one group of the row's GroupList.
+// label's row, its `hintLink` words still a link, so a line that names a
+// group never leaves its value column empty. Its lines sit `field.gap` apart: one group of the row's GroupList.
 //
 // The step is one of: `actionLabel` while `actionOffered`, an action in
 // `actionTone` that emits `act`; or, for a line that is the presence of a
@@ -109,11 +109,19 @@ Column {
             readonly property real room: width - (step.visible && !stepBelow ? step.width + Theme.stack.inline : 0)
             width: parent.width
             implicitHeight: stepBelow ? value.height + Theme.field.gap + step.height : Math.max(value.y + value.height, step.visible ? step.y + step.height : 0)
+            // The hint role's face, which a hint drawn as the value takes;
+            // its LinkText reports the control's font, not its text's.
+            Label {
+                id: hintFace
+                role: "hint"
+                visible: false
+            }
             TextMetrics {
                 id: valueText
-                // The text's own font once it is built; a chip value
-                // measures no text.
-                font: value.item !== null && value.item.font !== undefined ? value.item.font : Qt.font({ family: Theme.text.value.family, pixelSize: Theme.text.value.size })
+                // The text's own font once it is built, the hint role's for
+                // a hint; a chip value measures no text.
+                font: line.tone === "" && line.text === "" ? hintFace.font
+                    : value.item !== null && value.item.font !== undefined ? value.item.font : Qt.font({ family: Theme.text.value.family, pixelSize: Theme.text.value.size })
                 text: line.tone !== "" ? "" : line.text !== "" ? line.text : line.hint
             }
             Loader {
@@ -227,13 +235,18 @@ Column {
         }
     }
 
+    // The hint as the value, its `hintLink` words a link as a field's
+    // hint draws them.
     Component {
         id: hintValue
-        Label {
+        LinkText {
             role: "hint"
             text: line.hint
+            link: line.hintLink
+            color: Theme.text.hint.color
             width: Math.min(implicitWidth, valueRow.room)
             wrapMode: Text.Wrap
+            onActivated: line.hintLinkActivated()
         }
     }
 

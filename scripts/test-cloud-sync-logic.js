@@ -272,8 +272,20 @@ function verify(L) {
         ["Last complete sync " + Timestamp.text(NOW - HOUR, NOW), ""], ["Paused. The hourly sync copies nothing until you resume it.", ""]
     ], "files to review while paused say the pause");
     same(L.windowStatus(L.cloudValue(well({ state: "offline", lastError: { kind: "offline" } }), ""), NOW, Timestamp.text).lines[1], { text: "Google Drive cannot be reached. Cloud Sync tries again at the next sync.", tone: "" });
-    same(L.pairRow(cloud.pairs[0], NOW), { id: "docs", label: "Documents", secondary: "Download: Google Drive to this computer", icon: "folder-down", text: "Up to date", tone: "success" });
-    same(L.pairRow(cloud.pairs[1], NOW), { id: "inbox", label: "Agent uploads", secondary: "Upload: this computer to Google Drive", icon: "folder-up", text: "Sign-in needed", tone: "danger" });
+    same(L.pairRow(cloud.pairs[0], NOW), { id: "docs", label: "Documents", secondary: "Download", icon: "folder-down", text: "Up to date", tone: "success" });
+    same(L.pairRow(cloud.pairs[1], NOW), { id: "inbox", label: "Agent uploads", secondary: "Upload", icon: "folder-up", text: "Sign-in needed", tone: "danger" });
+    // The footer: one primary; Pause or Resume and Sync now only while a
+    // folder pair exists.
+    const footer = rec => L.footerView(rec === undefined ? undefined : L.cloudValue(rec, ""));
+    const footers = [
+        ["before the first value", undefined, { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: false }, pause: null }],
+        ["first run", well({ state: "not-set-up", units: "absent", pairs: [] }), { primary: { text: "Set up hourly sync", icon: "cloud-cog", action: "setup", enabled: true }, pause: null }],
+        ["no folder pair", well({ state: "not-set-up", pairs: [] }), { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: false }, pause: null }],
+        ["units stale with a pair", well({ units: "stale" }), { primary: { text: "Set up hourly sync", icon: "cloud-cog", action: "setup", enabled: true }, pause: { text: "Pause", icon: "pause", action: "pause" } }],
+        ["set up", well(), { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: true }, pause: { text: "Pause", icon: "pause", action: "pause" } }],
+        ["paused", well({ state: "paused", paused: true }), { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: true }, pause: { text: "Resume", icon: "play", action: "resume" } }]
+    ];
+    for (const [label, rec, want] of footers) same(footer(rec), want, "footer: " + label);
     same(L.conflictGroups(cloud.conflicts).map(g => [g.label, g.rows.map(r => [r.label, r.secondary])]), [
         ["Documents", [["taxes/2025.xlsx", "Changed here and on Google Drive"], ["old.txt", "Removed from Google Drive"]]],
         ["Agent uploads", [["a.txt", "Renamed on Google Drive to b.txt"]]]
@@ -291,7 +303,7 @@ function verify(L) {
     assert.equal(L.errorText({ kind: "credential-absent", account: "upload-client-id" }), "A Google Drive key is missing. Add it on the Cloud Sync page in Settings.");
 
     // A failed request reads as a sentence.
-    assert.equal(L.problemText("start", "start exit=1 cloud-sync: refused: units=absent"), "Set up Cloud Sync first.");
+    assert.equal(L.problemText("start", "start exit=1 cloud-sync: refused: units=absent"), "Set up hourly sync first.");
     assert.equal(L.problemText("pause", "pause exit=1 cloud-sync: refused: state-lock=timeout"), "VGS could not pause Cloud Sync.");
     assert.equal(L.problemText("", ""), "");
 
@@ -330,6 +342,9 @@ const controls = [
     ["the review list stays under its ceiling", "while (value.conflicts.length > 0 && JSON.stringify(value).length > CLOUD_BYTES_MAX) value.conflicts.pop();", ""],
     ["a cleared key is written as null", "if (!hasOwn(next, k) && previous[k] !== null) keys.push(k);", ""],
     ["the tooltip names pairs, not files", "var lines = pairLines(cloud.pairs, now);\n    if (cloud.conflictCount > 0 && head.cause", "var lines = pairLines(cloud.pairs, now).concat(cloud.conflicts.map(function (c) { return c.path; }));\n    if (cloud.conflictCount > 0 && head.cause"],
+    ["Sync now needs a folder pair", "action: \"sync\", enabled: hasPairs }", "action: \"sync\", enabled: known }"],
+    ["Pause needs a folder pair", "var pause = !hasPairs ? null :", "var pause = !known ? null :"],
+    ["Set up hourly sync while the units are not installed", "var primary = !known || cloud.units === \"installed\"", "var primary = true"],
     ["the window says a pause", "    if (cloud.paused)\n", "    if (false)\n"],
     ["a review group holds each pair's files", "if (group === undefined) {", "if (true) {"],
     ["a sign-in notifies first", "if (reasons.indexOf(\"authorization-required\") !== -1)\n", "if (false)\n"],

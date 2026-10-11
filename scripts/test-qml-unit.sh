@@ -1069,6 +1069,8 @@ mutations=(
   "a status line spaces its own lines like groups|../plugins/vgs.settings/StatusLine.qml|    spacing: Theme.field.gap|    spacing: Theme.groupList.gap|tst_grouplist.qml"
   "a status line's step overlaps a long value|../plugins/vgs.settings/StatusLine.qml|readonly property bool stepBelow: step.visible && naturalWidth|readonly property bool stepBelow: false && naturalWidth|tst_grouplist.qml"
   "a status line's step centres on its whole value|../plugins/vgs.settings/StatusLine.qml|readonly property real firstLine: line.tone !== \"\" ? Theme.badge.size.sm.height : value.height|readonly property real firstLine: value.height|tst_grouplist.qml"
+  "a status line's hint value drops its link|../plugins/vgs.settings/StatusLine.qml|link: line.hintLink|link: \"\"|tst_grouplist.qml"
+  "a status line's hint value link emits nothing|../plugins/vgs.settings/StatusLine.qml|onActivated: line.hintLinkActivated()|onActivated: {}|tst_grouplist.qml"
   "a status line's hint value runs on one line|../plugins/vgs.settings/StatusLine.qml|wrapMode: Text.Wrap|wrapMode: Text.NoWrap|tst_grouplist.qml"
   "a status line's step overlaps a long text|../plugins/vgs.settings/StatusLine.qml|text: line.tone !== \"\" ? \"\" : line.text !== \"\" ? line.text : line.hint|text: \"\"|tst_grouplist.qml"
   "a status line's step stands apart from its value|../plugins/vgs.settings/StatusLine.qml|value.width > 0 ? value.width + Theme.stack.inline : 0|value.width > 0 ? value.width + 2 * Theme.stack.inline : 0|tst_grouplist.qml"

@@ -92,6 +92,8 @@ cs_lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); 
 # each call that names one of its units.
 cs_systemctl() { if [[ -f $cs_stub/systemd/systemctl.calls ]]; then py_reply 'import json,sys; print(json.dumps([c for c in map(json.loads, sys.stdin) if "daemon-reload" in c or any(a.startswith("vgs-cloud-sync.") for a in c)]))' <"$cs_stub/systemd/systemctl.calls"; else echo '[]'; fi; }
 cs_click_sync() { click_in "window:Cloud Sync" window vgs.cloud-sync Button "Sync now" && echo ok; }
+# The window footer's primary action and whether it is enabled.
+cs_window_primary() { ipc smoke readInstance window vgs.cloud-sync footer | py_reply 'import json,sys; p=json.load(sys.stdin)["primary"]; print(json.dumps([p["action"], p["enabled"]]))'; }
 cs_click_remove() { click_in "window:Cloud Sync" window vgs.cloud-sync RowAction Remove && echo ok; }
 cs_dropped() { ipc smoke readInstance service vgs.cloud-sync smokeDropped; }
 cs_dropped_after() { local now; now="$(cs_dropped)" || return; [[ $now =~ ^[0-9]+$ && $now -gt $1 ]] && echo read || echo "$now"; }
@@ -294,7 +296,7 @@ SH
   # The window, and Sync now through the one service.
   expect "the window is summoned" ok ipc shell summon window vgs.cloud-sync '{}'
   expect_poll "the window maps, titled Cloud Sync" 1 window_count "Cloud Sync"
-  expect_poll "the window reads the units installed" true ipc smoke readInstance window vgs.cloud-sync setUp
+  expect_poll "the window offers Sync now with a folder pair" '["sync", true]' cs_window_primary
   local copies
   copies="$(cs_copies)"
   : >"$cs_stub/systemd/systemctl.calls"
