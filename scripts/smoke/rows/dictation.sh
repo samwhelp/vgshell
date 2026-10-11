@@ -155,7 +155,11 @@ key=""
 for ((k=2; k < j; k+=2)); do
   [[ ${present[k]} != --record ]] || key="${present[k+1]}"
 done
-[[ $key == core/dictation-setup ]] || exec "$fallback" "$@"
+printf 'dictation adapter: key=%q presenter=%q\n' "$key" "${present[0]}" >>"$setup_tree/adapter.log"
+if [[ $key != core/dictation-setup ]]; then
+  printf 'dictation adapter: route=fallback\n' >>"$setup_tree/adapter.log"
+  exec "$fallback" "$@"
+fi
 command=("${present[@]:j+1}")
 expected_vgs="${present[0]%/bin/vgshell-tui}/shell/../bin/vgshell"
 if [[ ${#command[@]} != 3 || ${command[0]} != "$expected_vgs" || ${command[1]} != dictation || ${command[2]} != setup ]]; then
@@ -172,6 +176,9 @@ for a; do printf '%s\n' "$a" >>"$record.next"; done
 mv -f -- "$record.next" "$record"
 printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$stand_in" >"$setup_tree/commands/voxtype"
 chmod +x "$setup_tree/commands/voxtype"
+printf 'dictation adapter: route=private command=' >>"$setup_tree/adapter.log"
+printf ' %q' "${command[@]}" >>"$setup_tree/adapter.log"
+printf '\n' >>"$setup_tree/adapter.log"
 exec env VGS_TUI_UNATTENDED=1 PATH="$setup_tree/commands:$PATH" "${present[@]:0:j+1}" "$setup_tree/bin/vgshell-dictation" setup >"$setup_tree/setup.out" 2>&1
 SCRIPT
 } >"$tui_terminal.next"
@@ -188,12 +195,24 @@ print('copied' if config['engine']=='parakeet' and config['audio']['feedback']['
 PY
 }
 dictation_setup_start() {
-  local expected_tree="${1:-$repo}"
+  local expected_tree="${1:-$repo}" evidence_name ended_file
   local tui_self="$expected_tree/bin/vgshell-tui" core_vgshell="$expected_tree/shell/../bin/vgshell"
   forget_record
   expect "Set up opens the core dictation setup" ok dictation_setup_action
   expect_poll "Set up hands the terminal core/dictation-setup" "$(core_words core/dictation-setup "Set up dictation" org.vgs.tui dictation setup)" recorded
   expect_run_end "the core dictation setup ends" core/dictation-setup
+  run_end_records core/dictation-setup
+  for ended_file in "$rt_dir/vgshell/tui/core@dictation-setup@"*.ended.json; do
+    [[ ! -f $ended_file ]] || cat -- "$ended_file"
+  done
+  for evidence_name in adapter.log setup.out; do
+    if [[ -f $dictation_setup_tree/$evidence_name ]]; then
+      printf 'dictation setup evidence: %s\n' "$evidence_name"
+      cat -- "$dictation_setup_tree/$evidence_name"
+    else
+      printf 'dictation setup evidence: %s absent\n' "$evidence_name"
+    fi
+  done
 }
 dictation_forget
 dictation_setup_start
@@ -386,7 +405,7 @@ if [[ $dictation_edits == true ]]; then
   expect_poll "control: the daemon notes the recording before the kill" start dictation_noted
   dictation_kill_shell
   expect_poll "control: a daemon with no parent-death signal outlives the killed shell and reaches its cap" "start cap" dictation_noted
-  expect "control: the outlived recording is typed" "-d 10 -- second turn" dictation_wtype
+  expect_poll "control: the outlived recording is typed" "-d 10 -- second turn" dictation_wtype
   dictation_daemons() { dictation_processes | cut -d' ' -f1; }
   expect "control: the daemon remains, no child of any shell" daemon=1 dictation_daemons
   dictation_reap_runner
