@@ -77,7 +77,8 @@ dictation_files() {
 dictation_noted() { if [[ -s $dictation_notes ]]; then tr '\n' ' ' <"$dictation_notes" | sed 's/ $//'; echo; else echo none; fi; }
 dictation_wtype() { if [[ -s $dictation_typed ]]; then cat -- "$dictation_typed"; else echo none; fi; }
 dictation_forget() { rm -f -- "${dictation_notes:?}" "${dictation_typed:?}"; }
-dictation_follow_first() { if [[ -s $dictation_follow ]]; then sed -n '1p' "$dictation_follow"; else echo absent; fi; }
+# Every state the stand-in's follower printed, in order; `none` for none.
+dictation_followed() { if [[ -s $dictation_follow ]]; then tr '\n' ' ' <"$dictation_follow" | sed 's/ $//'; echo; else echo none; fi; }
 # Whether the stand-in's file override, which outlives its daemon, is there.
 dictation_override() { if [[ -e $rt_dir/voxtype/output_mode_override ]]; then echo kept; else echo absent; fi; }
 dictation_none="daemon=0 follower=0 other=0 children=0"
@@ -390,9 +391,10 @@ expect "the killed text recording left its file override" kept dictation_overrid
 rm -f -- "${dictation_follow:?}"
 start_shell "$repo" "$sandbox/dictation-after-kill.log"
 expect_poll "the next daemon and its follower run while the model loads" "$dictation_one" dictation_processes
-expect_poll "the next daemon's follower read no word of the killed one" stopped dictation_follow_first
+expect_poll "the next daemon's follower prints its first state" stopped dictation_followed
 expect "a start while the next daemon loads is refused" "refused: dictation=daemon-starting" dictate acme.dictation start type
 expect "the holder reads the next daemon starting while it loads" "starting idle -" dictation_state acme.dictation
+expect "while the next daemon loads, its follower printed no word of the killed one" stopped dictation_followed
 rm -f -- "${dictation_loading:?}"
 expect_poll "the next daemon's own word reads it ready" "ready idle -" dictation_state acme.dictation
 dictation_forget

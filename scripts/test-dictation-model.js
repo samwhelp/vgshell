@@ -94,8 +94,11 @@ const CASES = [
     ["an output mode outside voxtype's set fails the start",
         [["lease", "a"], PROBE, CONFIG[0], CONFIG[1], CONFIG[2], ["ran", "output.mode", 0, "weird\n"], CONFIG[4], "|", CONFIG[5]],
         { daemon: "failed", child: "none" }, ["log", "abort"]],
-    ["a boolean output override outside voxtype's set fails the start",
+    ["an auto-submit value outside true and false fails the start",
         [["lease", "a"], PROBE, CONFIG[0], CONFIG[1], CONFIG[2], CONFIG[3], ["ran", "output.auto_submit", 0, "maybe\n"], "|", CONFIG[5]],
+        { daemon: "failed", child: "none" }, ["log", "abort"]],
+    ["a smart auto-submit value outside true and false fails the start",
+        [["lease", "a"], PROBE, CONFIG[0], CONFIG[1], CONFIG[2], CONFIG[3], CONFIG[4], "|", ["ran", "text.smart_auto_submit", 0, "maybe\n"]],
         { daemon: "failed", child: "none" }, ["log", "abort"]],
     ["a daemon that ends on its own reads failed",
         [...READY, "|", ["exited", 1]],
@@ -116,6 +119,10 @@ const CASES = [
     ["a type start after a killed text recording passes the configured output",
         [...TAKEN, ["exited", null], ["restart", "ok"], PROBE, ...CONFIG, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("idle")], "|", ["start", "a", "type", "ok"]],
         { holder: "a", mode: "type" }, [TYPE_START]],
+    ["a type start names the other configured values: file output, no auto-submit, smart auto-submit",
+        [["lease", "a"], PROBE, CONFIG[0], CONFIG[1], CONFIG[2], ["ran", "output.mode", 0, "file\n"], ["ran", "output.auto_submit", 0, "false\n"],
+            ["ran", "text.smart_auto_submit", 0, "true\n"], ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("idle")], "|", ["start", "a", "type", "ok"]],
+        { holder: "a", mode: "type" }, ["run:voxtype record start --no-auto-submit --smart-auto-submit --file"]],
     ["mode text records to a file and arms the cancel a second before the cap",
         [...READY, "|", ["start", "a", "text", "ok"]],
         { holder: "a", mode: "text" }, ["timer=209000", TEXT_START]],
@@ -313,9 +320,12 @@ const CONTROLS = [
     ["a text recording arms the deadline", '        setTimer(t, effects, "cap", (t.maxSecs - CAP_MARGIN_S) * 1000);\n', ""],
     ["the deadline is a second before the cap", "var CAP_MARGIN_S = 1;", "var CAP_MARGIN_S = 0;"],
     ["a text recording is written to a file", 'argv.push("--file=" + t.recording.path, ', "argv.push("],
-    ["today's carried override is replaced by type-start flags", '    } else if (mode === "type") {\n        argv = argv.concat(t.typeFlags);\n    }\n', ""],
+    ["today's carried override is replaced by type-start flags", "        argv = argv.concat(t.typeFlags);\n", ""],
     ["the configured output mode selects the output flag", '        "--" + mode\n', '        "--type"\n'],
-    ["the boolean output config selects the auto-submit flag", '        autoSubmit === "true" ? "--auto-submit" : "--no-auto-submit",\n', '        autoSubmit === "true" ? "--no-auto-submit" : "--no-auto-submit",\n'],
+    ["the configured auto-submit selects its flag", '        autoSubmit === "true" ? "--auto-submit" : "--no-auto-submit",\n', '        "--auto-submit",\n'],
+    ["the configured smart auto-submit selects its flag", '        smartAutoSubmit === "true" ? "--smart-auto-submit" : "--no-smart-auto-submit",\n', '        "--no-smart-auto-submit",\n'],
+    ["a bad auto-submit config fails the start", '    if (autoSubmit !== "true" && autoSubmit !== "false") return', '    if (false) return'],
+    ["a bad smart auto-submit config fails the start", '    if (smartAutoSubmit !== "true" && smartAutoSubmit !== "false") return', '    if (false) return'],
     ["a bad output mode config fails the start", '    if (OUTPUT_MODES.indexOf(mode) === -1) return "config output.mode=" + JSON.stringify(mode);\n', '    if (false) return "config output.mode=" + JSON.stringify(mode);\n'],
     ["a stop by another holder is refused", '    if (s.recording.holder !== id) return "refused: dictation=not-holder holder=" + s.recording.holder;\n', ""],
     ["the transcript's file is removed", '            if (r.mode === "text") run(effects, "remove", ["rm", "-f", "--", r.path, r.path + ".done"]);\n', ""],
@@ -349,8 +359,10 @@ try {
         assert.equal(source.split(needle).length - 1, 1, `control pattern occurs once: ${label}`);
         const mutant = path.join(scratch, "DictationModel.js");
         fs.writeFileSync(mutant, source.replace(needle, () => replacement));
+        // A mutant that does not load proves no rule, so its load error ends the suite.
+        const mutated = load(mutant);
         let red = false;
-        try { verify(load(mutant)); } catch (e) { red = true; }
+        try { verify(mutated); } catch (e) { red = true; }
         assert.equal(red, true, `control passed the suite: ${label}`);
     }
 } finally {
