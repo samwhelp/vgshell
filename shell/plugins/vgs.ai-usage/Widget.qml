@@ -31,7 +31,7 @@ BarWidget {
         label: "AI Usage"
         text: root.view.text
         iconName: "gauge"
-        tone: root.tone === "warning" ? Theme.badge.tone.warning.foreground : root.bar ? root.bar.foreground : Theme.bar.foreground
+        tone: root.tone === "warning" ? Theme.color.warning : root.bar ? root.bar.foreground : Theme.bar.foreground
         tooltip: root.view.tooltip
         onClicked: root.toggle()
     }

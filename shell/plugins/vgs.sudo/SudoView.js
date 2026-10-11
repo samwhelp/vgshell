@@ -42,8 +42,9 @@ function kind(state) {
     return "unknown";
 }
 
-// The lock's icon and its tone: `warning`, `info` or `neutral`, a badge
-// tone, or `bar`, the bar's own colour.
+// The lock's icon and its tone: `warning`, `info` or `neutral`, a state
+// role of Theme.color (`neutral` draws in textMuted), or `bar`, the bar's
+// own colour.
 function look(state) {
     switch (kind(state)) {
     case "on": return { icon: "lock-open", tone: "warning" };

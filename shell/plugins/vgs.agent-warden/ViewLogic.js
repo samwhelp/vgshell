@@ -10,8 +10,8 @@
 // here. No text names a process id or a scope unit: `detail` carries
 // neither.
 
-// The icon and tone of each state WardenLogic.STATES names. A tone is a
-// group of Theme.badge.tone, whose foreground the widget draws in.
+// The icon and tone of each state WardenLogic.STATES names. A tone names
+// the Theme.color state role the widget draws in; `neutral` is textMuted.
 var STATE_LOOKS = {
     "calm": { icon: "shield-check", tone: "neutral" },
     "working": { icon: "shield-check", tone: "accent" },

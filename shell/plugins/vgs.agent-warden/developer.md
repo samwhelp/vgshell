@@ -4,7 +4,7 @@ The plugin's observation boundary is [How it works](README.md#how-it-works).
 
 ## States
 
-The bar widget draws one shield in the tone of the service's state, with the Lucide icon and the `Theme.badge.tone` group below. The words, icons and tones are `ViewLogic.js`. A count of zero is not drawn.
+The bar widget draws one shield in the tone of the service's state, with the Lucide icon below, drawn in the `Theme.color` role of its tone; neutral is `textMuted`. The words, icons and tones are `ViewLogic.js`. A count of zero is not drawn.
 
 | State | Icon | Tone | Count | Tooltip, for example |
 |---|---|---|---|---|

@@ -50,7 +50,7 @@ expect "the tree holds no root half" absent bash -c '[[ -e $1 ]] && echo present
 sudo_core() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["sudo"]["state"]; print(s["state"] + " " + s["until"] + " " + s["rootHalf"])'; }
 sudo_record() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["sudo"][sys.argv[1]]))' "$1"; }
 sudo_holders() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["holders"].get("sudo", [])))'; }
-sudo_warning="$(ipc smoke themeValue badge.tone.warning.foreground)" || fail "the warning tone is unreadable"
+sudo_warning="$(ipc smoke themeValue color.warning)" || fail "the warning tone is unreadable"
 # The lock as drawn, `<icon> <tone> <tooltip>`: the tone `warning` or
 # `other`, the tooltip `off`, `clock HH:MM` when it names a time, or
 # `no-clock` for an open lock's that names none; `absent` before it is

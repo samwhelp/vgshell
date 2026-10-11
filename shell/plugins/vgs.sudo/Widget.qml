@@ -24,6 +24,16 @@ BarWidget {
     implicitWidth: item.implicitWidth
     implicitHeight: barSize
 
+    function toneColor(tone) {
+        switch (tone) {
+        case "bar": return root.bar ? root.bar.foreground : Theme.bar.foreground;
+        case "warning": return Theme.color.warning;
+        case "info": return Theme.color.info;
+        case "neutral": return Theme.color.textMuted;
+        default: throw new Error("sudo widget: tone " + JSON.stringify(tone) + " is not one of bar, warning, info, neutral");
+        }
+    }
+
     function timeOf(iso) {
         return Qt.formatTime(new Date(iso), "HH:mm");
     }
@@ -50,7 +60,7 @@ BarWidget {
         anchors.centerIn: parent
         label: "Passwordless sudo"
         iconName: root.look.icon
-        tone: root.look.tone !== "bar" ? Theme.badge.tone[root.look.tone].foreground : root.bar ? root.bar.foreground : Theme.bar.foreground
+        tone: root.toneColor(root.look.tone)
         tooltip: root.tooltipText
         onClicked: root.toggle()
     }

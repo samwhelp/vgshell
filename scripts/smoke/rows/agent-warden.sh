@@ -363,7 +363,7 @@ expect_poll "an empty directory reads as not set up again" '["not-set-up", null,
 
 # The shield and its panel, read back as drawn. Enabling placed the widget
 # in its default section. The shield is read as its icon, the
-# Theme.badge.tone group whose foreground it draws in, its count and its
+# Theme.color state role it draws in, its count and its
 # tooltip; the panel as every text it draws, with the check time's number
 # written N. Stand-ins in the shell's own PATH directory: a vsys that
 # records each call's arguments and answers `--once --summary` with one
@@ -397,8 +397,8 @@ EOF
 }
 warden_section() { ipc shell listShellConfig | py_reply 'import json,sys; l=json.load(sys.stdin)["bar"]["layout"]; print(([s for s in ("left","center","right") if any(e["id"]==sys.argv[1] for e in l.get(s,[]))] + ["none"])[0])' vgs.agent-warden; }
 warden_tones="$(python3 -c 'import json,sys; print(json.dumps(dict(zip(["neutral", "accent", "warning", "danger"], [json.loads(v).lower() for v in sys.argv[1:]]))))' \
-  "$(ipc smoke themeValue badge.tone.neutral.foreground)" "$(ipc smoke themeValue badge.tone.accent.foreground)" \
-  "$(ipc smoke themeValue badge.tone.warning.foreground)" "$(ipc smoke themeValue badge.tone.danger.foreground)")" || fail "the badge tones are unreadable"
+  "$(ipc smoke themeValue color.textMuted)" "$(ipc smoke themeValue color.accent)" \
+  "$(ipc smoke themeValue color.warning)" "$(ipc smoke themeValue color.danger)")" || fail "the state colours are unreadable"
 # The shield as [icon, tone, count, tooltip], or `absent`.
 warden_shield() {
   local icon colours tip texts

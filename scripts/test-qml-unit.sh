@@ -60,8 +60,8 @@ fi
 # Rows: label | file under shell/Ui | text to replace | replacement | the
 # test file that must go red. A file under ../Commons or ../Core is a copy
 # of that module handed to the runner; one under ../plugins is a copy of
-# that plugin beside a copy of the tests, which import it by a relative
-# path. The replacement keeps the text around the
+# that plugin beside a copy of the tests, which import it and read the
+# shipped themes by a relative path. The replacement keeps the text around the
 # behaviour and removes the behaviour. A field holds no `|`, the separator.
 mutations=(
   "a sticky header keeps half-gap padding|layout/Pane.qml|y: root.contentInset + root.headerHeight + Math.min(root.contentInset, root.headerGap - root.ringRoom - height)|y: root.contentInset + root.headerHeight + Math.round((root.headerGap - height) / 2)|tst_pane.qml"
@@ -517,7 +517,13 @@ mutations=(
   "the Jarvis reader saves a read list inside its binding's update|../plugins/vgs.jarvis/Accounts.qml|Qt.callLater(save);|save();|tst_jarvis_accounts.qml"
   "the Jarvis reader drops a changed sign-in's model inside its binding's update|../plugins/vgs.jarvis/Accounts.qml|onBrainChanged: Qt.callLater(save)|onBrainChanged: save()|tst_jarvis_accounts.qml"
   "the Jarvis reader ends a running list read|../plugins/vgs.jarvis/Accounts.qml|lister.dropped = true;|lister.dropped = true; lister.running = false;|tst_jarvis_accounts.qml"
-  "the Jarvis widget draws working in the accent|../plugins/vgs.jarvis/Widget.qml|case \"info\": return Theme.badge.tone.info.foreground;|case \"info\": return Theme.badge.tone.accent.foreground;|tst_jarvis_widget.qml"
+  "the Jarvis widget draws working in the accent|../plugins/vgs.jarvis/Widget.qml|case \"info\": return Theme.color.info;|case \"info\": return Theme.color.accent;|tst_jarvis_widget.qml"
+  "the Jarvis widget draws listening in the badge foreground|../plugins/vgs.jarvis/Widget.qml|case \"accent\": return Theme.color.accent;|case \"accent\": return Theme.badge.tone.accent.foreground;|tst_jarvis_widget.qml"
+  "the Agent Warden widget draws look in the badge foreground|../plugins/vgs.agent-warden/Widget.qml|case \"warning\": return Theme.color.warning;|case \"warning\": return Theme.badge.tone.warning.foreground;|tst_agent_warden_widget.qml"
+  "the Agent Warden widget draws working in the badge foreground|../plugins/vgs.agent-warden/Widget.qml|case \"accent\": return Theme.color.accent;|case \"accent\": return Theme.badge.tone.accent.foreground;|tst_agent_warden_widget.qml"
+  "the AI Usage widget draws its warning in the badge foreground|../plugins/vgs.ai-usage/Widget.qml|root.tone === \"warning\" ? Theme.color.warning :|root.tone === \"warning\" ? Theme.badge.tone.warning.foreground :|tst_ai_usage_widget.qml"
+  "the sudo widget draws its open lock in the badge foreground|../plugins/vgs.sudo/Widget.qml|case \"warning\": return Theme.color.warning;|case \"warning\": return Theme.badge.tone.warning.foreground;|tst_sudo_widget.qml"
+  "the sudo widget draws an unknown grant in the badge foreground|../plugins/vgs.sudo/Widget.qml|case \"neutral\": return Theme.color.textMuted;|case \"neutral\": return Theme.badge.tone.neutral.foreground;|tst_sudo_widget.qml"
   "the Jarvis widget draws an unknown tone|../plugins/vgs.jarvis/Widget.qml|default: throw new Error(\"jarvis widget: tone \"|default: return Theme.bar.foreground; throw new Error(\"jarvis widget: tone \"|tst_jarvis_widget.qml"
   "the Jarvis daemon loses the Wayland display|../plugins/vgs.jarvis/Service.qml|            WAYLAND_DISPLAY: Quickshell.env(\"WAYLAND_DISPLAY\"),||tst_jarvis_service.qml"
   "the Jarvis daemon loses the Hyprland session|../plugins/vgs.jarvis/Service.qml|            HYPRLAND_INSTANCE_SIGNATURE: Quickshell.env(\"HYPRLAND_INSTANCE_SIGNATURE\"),||tst_jarvis_service.qml"
@@ -1586,6 +1592,7 @@ mutation_case() { # INDEX
     mkdir -p -- "$dir/mirror/scripts" "$dir/mirror/shell/plugins"
     cp -R -- "$repo/scripts/qml-tests" "$dir/mirror/scripts/qml-tests"
     cp -R -- "$repo/shell/plugins/$plugin" "$dir/mirror/shell/plugins/$plugin"
+    ln -s -- "$repo/themes" "$dir/mirror/themes"
     target="$dir/mirror/shell/${file#../}"
     tests_dir="$dir/mirror/scripts/qml-tests"
   fi

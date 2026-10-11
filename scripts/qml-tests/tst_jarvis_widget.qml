@@ -61,21 +61,36 @@ Item {
         function tooltip() { return find(widget, n => n.anchorItem !== undefined && n.text !== undefined); }
         function icon() { return find(button().contentItem, n => n.name !== undefined && n.paths !== undefined); }
 
-        function test_states_draw_their_icon_tone_and_tooltip() {
+        function themeTokens(path) {
+            const request = new XMLHttpRequest();
+            request.open("GET", Qt.resolvedUrl("../../themes/" + path + "/theme.json"), false);
+            request.send();
+            return JSON.parse(request.responseText).tokens;
+        }
+
+        // Each state glyph draws in the Theme.color role of its tone, never
+        // the badge foreground of that tone, under vgs and flexoki-light.
+        function test_states_draw_their_icon_tone_and_tooltip_data() {
+            return [{ tag: "vgs", theme: "vgs" }, { tag: "flexoki-light", theme: "catalog/flexoki-light" }];
+        }
+        function test_states_draw_their_icon_tone_and_tooltip(data) {
+            compare(UnitTheme.override(themeTokens(data.theme)), "ok");
             const rows = [
-                [{ daemon: { tone: "info", text: "Starting" }, detail: null }, "loader", Theme.badge.tone.info.foreground, "Jarvis is starting\nWait for Jarvis to start.\nClick or press Super+Shift+Right Alt to mute."],
+                [{ daemon: { tone: "info", text: "Starting" }, detail: null }, "loader", Theme.color.info, "Jarvis is starting\nWait for Jarvis to start.\nClick or press Super+Shift+Right Alt to mute."],
                 [root.ready({}), "mic", Theme.bar.foreground, "Jarvis is ready\nHold Super+Right Alt and speak.\nClick or press Super+Shift+Right Alt to mute."],
-                [root.ready({ capture: { kind: "open", gen: 1, op: 2, mode: "hold" } }), "audio-lines", Theme.badge.tone.accent.foreground, "Jarvis is listening\nSpeak now.\nClick or press Super+Shift+Right Alt to mute."],
-                [root.ready({ turn: { kind: "thinking", gen: 1, op: 3, deadline: 70 } }), "brain", Theme.badge.tone.info.foreground, "Jarvis is thinking\nPress Super+Alt+Period to stop.\nClick or press Super+Shift+Right Alt to mute."],
-                [root.ready({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } }), "volume-2", Theme.badge.tone.accent.foreground, "Jarvis is speaking\nPress Super+Alt+Period to stop.\nClick or press Super+Shift+Right Alt to mute."],
-                [root.ready({ mute: { kind: "on" } }), "mic-off", Theme.badge.tone.neutral.foreground, "Jarvis is muted\nClick or press Super+Shift+Right Alt to unmute."],
-                [{ daemon: { tone: "danger", text: "Jarvis needs Node 22 or later", lines: ["Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis.", "jarvis: node=21.0.0 need=22"] }, detail: null }, "circle-alert", Theme.badge.tone.danger.foreground, "Jarvis needs Node 22 or later\nUpdate Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis.\njarvis: node=21.0.0 need=22\nClick or press Super+Shift+Right Alt to mute."]
+                [root.ready({ capture: { kind: "open", gen: 1, op: 2, mode: "hold" } }), "audio-lines", Theme.color.accent, "Jarvis is listening\nSpeak now.\nClick or press Super+Shift+Right Alt to mute."],
+                [root.ready({ turn: { kind: "thinking", gen: 1, op: 3, deadline: 70 } }), "brain", Theme.color.info, "Jarvis is thinking\nPress Super+Alt+Period to stop.\nClick or press Super+Shift+Right Alt to mute."],
+                [root.ready({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } }), "volume-2", Theme.color.accent, "Jarvis is speaking\nPress Super+Alt+Period to stop.\nClick or press Super+Shift+Right Alt to mute."],
+                [root.ready({ mute: { kind: "on" } }), "mic-off", Theme.color.textMuted, "Jarvis is muted\nClick or press Super+Shift+Right Alt to unmute."],
+                [{ daemon: { tone: "danger", text: "Jarvis needs Node 22 or later", lines: ["Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis.", "jarvis: node=21.0.0 need=22"] }, detail: null }, "circle-alert", Theme.color.danger, "Jarvis needs Node 22 or later\nUpdate Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis.\njarvis: node=21.0.0 need=22\nClick or press Super+Shift+Right Alt to mute."]
             ];
+            const badges = [Theme.badge.tone.info, Theme.badge.tone.accent, Theme.badge.tone.neutral, Theme.badge.tone.danger].map(t => String(Qt.color(t.foreground)));
             for (const [values, name, colour, text] of rows) {
                 const tip = text.split("\n");
                 widget.shell = root.shellWith(values);
                 compare(icon().name, name, name);
                 compare(String(icon().color), String(Qt.color(colour)), name + " colour");
+                verify(badges.indexOf(String(icon().color)) === -1, name + " draws no badge foreground");
                 compare(button().label, "Jarvis");
                 compare(tooltip().text, tip[0]);
                 compare(JSON.stringify(tooltip().details), JSON.stringify(tip.slice(1)));

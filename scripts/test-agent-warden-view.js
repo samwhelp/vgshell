@@ -200,13 +200,14 @@ const UNREAD = [
 ];
 
 function verify(view) {
-    // Every state has a look, every icon is shipped, every tone is a badge
-    // tone, and the TUIs the flyout opens are declared.
+    // Every state has a look, every icon is shipped, every tone is
+    // `neutral` or a Theme.color role, and the TUIs the flyout opens are
+    // declared.
     same(Object.keys(view.STATE_LOOKS).sort(), JSON.parse(JSON.stringify(view.WardenLogic.STATES)).sort(), "every state has a look");
     const looks = Object.values(view.STATE_LOOKS).concat([view.PENDING_LOOK]);
     for (const look of looks) {
         assert.ok(Object.prototype.hasOwnProperty.call(Lucide.ICONS, look.icon), "icon " + look.icon + " is shipped");
-        assert.ok(Object.prototype.hasOwnProperty.call(Tokens.TOKENS.badge.tone, look.tone), "tone " + look.tone + " is a badge tone");
+        assert.ok(look.tone === "neutral" || Object.prototype.hasOwnProperty.call(Tokens.TOKENS.color, look.tone), "tone " + look.tone + " is neutral or a colour role");
     }
     for (const icon of Object.values(view.ITEM_ICONS)) assert.ok(Object.prototype.hasOwnProperty.call(Lucide.ICONS, icon), "icon " + icon + " is shipped");
     same(Object.keys(manifest.tui).sort(), ["setup", "vsys"], "the flyout's TUIs are declared");

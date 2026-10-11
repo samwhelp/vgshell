@@ -29,9 +29,9 @@ jarvis_rescan
 jarvis_widget_gate() { : >"$jarvis_widget_gates/$1"; }
 jarvis_widget_section() { ipc shell listShellConfig | py_reply 'import json,sys; l=json.load(sys.stdin)["bar"]["layout"]; print(([s for s in ("left","center","right") if any(e["id"]==sys.argv[1] for e in l.get(s,[]))] + ["none"])[0])' vgs.jarvis; }
 jarvis_widget_tones="$(python3 -c 'import json,sys; print(json.dumps(dict(zip(["calm", "neutral", "accent", "info", "danger"], [json.loads(v).lower() for v in sys.argv[1:]]))))' \
-  "$(ipc smoke themeValue bar.foreground)" "$(ipc smoke themeValue badge.tone.neutral.foreground)" \
-  "$(ipc smoke themeValue badge.tone.accent.foreground)" "$(ipc smoke themeValue badge.tone.info.foreground)" \
-  "$(ipc smoke themeValue badge.tone.danger.foreground)")" || fail "the widget tones are unreadable"
+  "$(ipc smoke themeValue bar.foreground)" "$(ipc smoke themeValue color.textMuted)" \
+  "$(ipc smoke themeValue color.accent)" "$(ipc smoke themeValue color.info)" \
+  "$(ipc smoke themeValue color.danger)")" || fail "the widget tones are unreadable"
 # The widget as drawn: [icon, tone, tooltip], the tone named by the token
 # whose colour the icon draws in, or `absent`.
 jarvis_widget() {

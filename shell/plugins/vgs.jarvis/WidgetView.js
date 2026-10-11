@@ -19,9 +19,9 @@
 // An offered setup step with a cause hint and keyed detail line keeps its
 // setup title and shows that hint while Jarvis is off; a ready Setup
 // summary's caution shows under ready.
-// A tone is `calm` or a group of Theme.badge.tone. A value outside the
-// shapes the service and Session.js produce throws a keyed error; nothing
-// falls back.
+// A tone is `calm` or a Theme.color state role, `neutral` being textMuted.
+// A value outside the shapes the service and Session.js produce throws a
+// keyed error; nothing falls back.
 
 var LOOKS = {
     "off": { icon: "power-off", tone: "neutral" },

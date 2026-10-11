@@ -25,10 +25,10 @@ BarWidget {
     function toneColor(tone) {
         switch (tone) {
         case "calm": return Theme.bar.foreground;
-        case "accent": return Theme.badge.tone.accent.foreground;
-        case "info": return Theme.badge.tone.info.foreground;
-        case "danger": return Theme.badge.tone.danger.foreground;
-        case "neutral": return Theme.badge.tone.neutral.foreground;
+        case "accent": return Theme.color.accent;
+        case "info": return Theme.color.info;
+        case "danger": return Theme.color.danger;
+        case "neutral": return Theme.color.textMuted;
         default: throw new Error("jarvis widget: tone " + JSON.stringify(tone) + " is not one of calm, accent, info, danger, neutral");
         }
     }

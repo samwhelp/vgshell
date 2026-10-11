@@ -17,13 +17,23 @@ BarWidget {
     readonly property var view: View.widget(detail, Time.now.getTime(), setting("showCount", true))
     readonly property bool hidden: setting("hideWhenIdle", false) && View.idle(detail)
     readonly property string wardenState: detail === null ? "" : detail.state
-    readonly property color tone: Theme.badge.tone[view.tone].foreground
+    readonly property color tone: toneColor(view.tone)
 
     visible: !hidden
     implicitWidth: hidden ? 0 : item.implicitWidth
     implicitHeight: barSize
 
     onWardenStateChanged: if (wardenState === "working") pulse.restart()
+
+    function toneColor(tone) {
+        switch (tone) {
+        case "neutral": return Theme.color.textMuted;
+        case "accent": return Theme.color.accent;
+        case "warning": return Theme.color.warning;
+        case "danger": return Theme.color.danger;
+        default: throw new Error("agent-warden widget: tone " + JSON.stringify(tone) + " is not one of neutral, accent, warning, danger");
+        }
+    }
 
     // Open or close the flyout under this widget; answers the panel host's
     // reply.
