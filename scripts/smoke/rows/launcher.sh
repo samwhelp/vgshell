@@ -118,7 +118,7 @@ print("absent" if button is None else "ok" if button.get("hovered") is True and 
 launcher_icon_hover() {
   ipc smoke itemValues overlay vgs.launcher IconButton label,hovered,children.0.color | launcher_icon_hover_value "$(look_at button.rest)"
 }
-point_item overlay vgs.launcher IconButton Categories >/dev/null || fail "the Categories icon hover failed"
+point_item vgs:overlay vgs.launcher IconButton label Categories >/dev/null || fail "the Categories icon hover failed"
 expect_poll "the Categories icon draws no hover fill" ok launcher_icon_hover
 expect_poll "the Categories glyph brightens on hover" "$(look_at menuGlyph.active)" ipc smoke readDescendant overlay vgs.launcher MenuGlyph emphasis
 expect "control: the old Categories hover fill is refused" filled-or-unhovered launcher_icon_hover_value "$(look_at button.rest)" < <(python3 -c 'import json,sys; print(json.dumps([{ "label": "Categories", "hovered": True, "children.0.color": json.loads(sys.argv[1]) }]))' "$(look_at button.hover)")
