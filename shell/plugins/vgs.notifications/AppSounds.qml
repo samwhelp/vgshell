@@ -6,18 +6,23 @@ import "NotificationLogic.js" as Logic
 
 // An app's own notification sound, muted while the shell plays none of its
 // own: the service creates this while Do Not Disturb is on or Sound is off
-// and destroys it when both turn back or the shell exits. `arm` names the
+// and destroys it when both turn back or the service goes. `arm` names the
 // app of a notification that arrived; a stream of that app that then
 // starts to play is muted until it pauses (NotificationLogic.appSoundStep).
 // The mute is the stream's softMute, set with pw-cli: WirePlumber 0.5 keeps
 // a stream's `mute` and volumes for every later stream of the same app
 // (state-stream.lua, keyed by media.role, else application.name), so a
 // plain mute of Slack's chime would mute its next call, and it keeps no
-// softMute (measured on a private PipeWire 1.6.9 and WirePlumber 0.5.18
-// with a stand-in Slack stream, VGS-1311). A volume written to the stream
-// after the softMute lifts it, so a held stream whose volume changes is
-// muted again. The destruction lifts every mute this instance holds; one
-// that a dead shell left is lifted by the next instance's first scan.
+// softMute. Any write of the stream's `mute` lifts the softMute and mixes
+// the stream at its own volume and mute again, so the lift writes the
+// mute the stream already has; `softMute: false` would leave it mixed at
+// full volume whatever its own volume (all three measured on a private
+// PipeWire 1.6.9 and WirePlumber 0.5.18 with stand-in streams, VGS-1311).
+// A volume written to a held stream lifts its softMute the same way, so
+// it is muted again. The destruction lifts every mute this instance
+// holds. A shell stopped by a signal runs no destruction: the next
+// instance's first scan lifts what it left, and a shell that does not
+// start again leaves the one stream muted until its app closes it.
 Item {
     id: root
 
@@ -135,8 +140,14 @@ Item {
         schedule();
     }
 
-    function softArgv(id, on) {
-        return ["pw-cli", "set-param", String(id), "Props", on ? "{ softMute: true }" : "{ softMute: false }"];
+    // ON mutes the stream; otherwise the lift writes MUTED, the stream's
+    // own mute.
+    function softArgv(id, on, muted) {
+        return ["pw-cli", "set-param", String(id), "Props", on ? "{ softMute: true }" : muted ? "{ mute: true }" : "{ mute: false }"];
+    }
+
+    function ownMute(node) {
+        return node.audio !== null && node.audio.muted;
     }
 
     function soften(node, on) {
@@ -153,16 +164,18 @@ Item {
             queue = queue.slice(1);
             if (!Pipewire.nodes.values.includes(item.node)) continue;
             runner.item = item;
-            runner.command = softArgv(item.node.id, item.on);
+            runner.command = softArgv(item.node.id, item.on, ownMute(item.node));
             runner.running = true;
             return;
         }
     }
 
     // TEXT is pw-dump's answer. A soft mute on an output stream that this
-    // instance does not hold is one a shell that died left: nothing else
+    // instance does not hold is one a shell that stopped left: nothing else
     // sets a stream's softMute, since pipewire-pulse and WirePlumber write
-    // `mute`.
+    // `mute`. PipeWire 1.6.9 still reports softMute true after the lift
+    // above, so a stream an earlier instance lifted is lifted again, which
+    // writes the mute it has and changes nothing.
     function lift(text) {
         let objects;
         try {
@@ -267,6 +280,6 @@ Item {
         const owed = Object.keys(holds).map(id => holds[id].node).concat(queue.filter(i => !i.on).map(i => i.node));
         if (runner.item !== null) owed.push(runner.item.node);
         for (const node of owed)
-            if (Pipewire.nodes.values.includes(node)) Quickshell.execDetached(softArgv(node.id, false));
+            if (Pipewire.nodes.values.includes(node)) Quickshell.execDetached(softArgv(node.id, false, ownMute(node)));
     }
 }

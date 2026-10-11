@@ -4030,20 +4030,23 @@ fi
 # PipeWire through stand-in streams: its call to Smoke Headphones, playing
 # before its notification, and its chime to Smoke Speakers, opened just
 # after it, as Slack opens its chime's stream 74 to 121 ms after its
-# notification (VGS-1311). What a sink plays is read from its monitor:
-# `heard` above an RMS of 100, `silent` below. The chime is silent while
-# Do Not Disturb is on or Sound is off and the call is heard throughout,
-# its own mute and soft mute off; the chime is heard again once both turn
-# back, once the service that held it goes, and once a shell started after
-# a SIGKILL scans for the mute the killed one left.
+# notification (VGS-1311). The chimes play at their own volume, 0.5. What a
+# sink plays is read from its monitor as an RMS level: `heard` above 100,
+# `silent` below, and `own` within 15% of a chime's level before any mute.
+# The chime is silent while Do Not Disturb is on or Sound is off and the
+# call is heard throughout, its own mute and soft mute off; the chime plays
+# at its own level again once both turn back, once the service that held
+# it goes, and once a shell started after a SIGKILL scans for the mute the
+# killed one left. A lift that wrote `softMute: false` would leave the
+# chime at full level, which `own` refuses.
 if [[ $app_sound_devices == yes ]]; then
   app_tone="$sandbox/app-sound-tone.wav"
   python3 -c 'import math,struct,sys,wave
 w = wave.open(sys.argv[1], "wb"); w.setnchannels(1); w.setsampwidth(2); w.setframerate(48000)
 second = b"".join(struct.pack("<h", int(8000 * math.sin(2 * math.pi * 440 * i / 48000))) for i in range(48000))
 w.writeframes(second * 300)' "$app_tone" || fail "the app sound tone could not be written"
-  # app_level SINK: `heard` or `silent`, from SINK's monitor for 0.8 s.
-  app_level() { # SINK
+  # app_rms SINK: the RMS level of SINK's monitor over 0.8 s, a whole number.
+  app_rms() { # SINK
     local take="$sandbox/app-level-$1.wav"
     rm -f -- "${take:?}"
     timeout 0.8 "${shell_env[@]}" pw-record --target "$1" -P '{ stream.capture.sink = true }' --channels 1 --format s16 --rate 48000 "$take" >/dev/null 2>&1 || true
@@ -4052,7 +4055,18 @@ d = open(sys.argv[1], "rb").read()[44:]
 n = len(d) // 2
 if n < 4800: sys.exit("short take: %d samples" % n)
 s = struct.unpack("<%dh" % n, d[:n * 2])
-print("heard" if (sum(x * x for x in s) / n) ** 0.5 > 100 else "silent")' "$take"
+print(round((sum(x * x for x in s) / n) ** 0.5))' "$take"
+  }
+  app_level() { # SINK
+    local rms
+    rms="$(app_rms "$1")" || return 1
+    if [[ $rms -gt 100 ]]; then echo heard; else echo silent; fi
+  }
+  # app_own SINK: `own` while SINK plays at app_ref, the chime's own level.
+  app_own() { # SINK
+    local rms
+    rms="$(app_rms "$1")" || return 1
+    if (( rms * 100 >= app_ref * 85 && rms * 100 <= app_ref * 115 )); then echo own; else echo "rms=$rms ref=$app_ref"; fi
   }
   # app_props NODE: the stream NODE's [mute, softMute] as PipeWire holds
   # them, null while there is no such stream.
@@ -4063,16 +4077,23 @@ print(json.dumps(None if p is None else [p.get("mute"), p.get("softMute")]))' "$
   }
   # The node names the service holds under a mute, null while it watches none.
   app_held() { note_status appSounds | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps(None if v is None else v["held"]))'; }
-  app_play() { # NODE SINK
-    spawn "$sandbox/$1.log" "${shell_env[@]}" pw-cat --playback --target "$2" -P "{ application.name = \"Smoke Chat\" node.name = \"$1\" }" "$app_tone"
+  app_play() { # NODE SINK [VOLUME]
+    spawn "$sandbox/$1.log" "${shell_env[@]}" pw-cat --playback --target "$2" --volume "${3:-1}" -P "{ application.name = \"Smoke Chat\" node.name = \"$1\" }" "$app_tone"
   }
   # app_chime SUMMARY NODE: Smoke Chat's notification, then its chime.
   app_chime() { # SUMMARY NODE
     notify "Smoke Chat" 0 "$1" "" '[]' '{"desktop-entry": <"smoke-chat">}' 0 >/dev/null || fail "$1: the notification was not sent"
-    app_play "$2" vgs-smoke-speakers
+    app_play "$2" vgs-smoke-speakers 0.5
     app_chime_pid="$spawn_pid"
   }
   app_hush() { kill -- "-$app_chime_pid" 2>/dev/null || true; }
+  # The chime's own level, read with nothing armed and nothing muted.
+  app_play smoke-chat-reference vgs-smoke-speakers 0.5
+  app_chime_pid="$spawn_pid"
+  expect_poll "a chime at volume 0.5 is heard" heard app_level vgs-smoke-speakers
+  app_ref="$(app_rms vgs-smoke-speakers)" || app_ref=0
+  expect "a chime at volume 0.5 plays below full level" True python3 -c 'import sys; print(100 < int(sys.argv[1]) < 4000)' "$app_ref"
+  app_hush
   expect "Sound is on for the app sound" on notes sound on
   expect "Do Not Disturb turns on for the app sound" on notes silence on
   expect_poll "the app sound watch runs under Do Not Disturb" '[]' app_held
@@ -4086,8 +4107,7 @@ print(json.dumps(None if p is None else [p.get("mute"), p.get("softMute")]))' "$
   expect "the call's mute and soft mute stay off" '[false, false]' app_props smoke-chat-call
   expect "Do Not Disturb turns off with the chime held" off notes silence off
   expect_poll "with Do Not Disturb off and Sound on nothing is watched" null app_held
-  expect_poll "the chime is heard once Do Not Disturb is off" heard app_level vgs-smoke-speakers
-  expect "the chime's soft mute is lifted" '[false, false]' app_props smoke-chat-chime
+  expect_poll "the chime plays at its own level once Do Not Disturb is off" own app_own vgs-smoke-speakers
   app_hush
   app_chime "Chat with Sound on" smoke-chat-plain
   expect_poll "with Sound on and Do Not Disturb off the chime is heard" heard app_level vgs-smoke-speakers
@@ -4098,11 +4118,10 @@ print(json.dumps(None if p is None else [p.get("mute"), p.get("softMute")]))' "$
   expect_poll "with Sound off the chime is held" '["smoke-chat-quiet"]' app_held
   expect_poll "with Sound off the chime is not heard" silent app_level vgs-smoke-speakers
   expect "with Sound off the call is heard" heard app_level vgs-smoke-headphones
-  # The service goes with the chime held, as at a shell exit.
+  # The service goes with the chime held, as when both states turn back.
   expect "disabling the service with the chime held is allowed" ok ipc shell setPluginEnabled vgs.notifications false
   expect_poll "the disabled service is gone" False record_exists vgs.notifications
-  expect_poll "the chime is heard once the service that held it is gone" heard app_level vgs-smoke-speakers
-  expect "the gone service's soft mute is lifted" '[false, false]' app_props smoke-chat-quiet
+  expect_poll "the chime plays at its own level once the service that held it is gone" own app_own vgs-smoke-speakers
   app_hush
   expect "enabling the service again is allowed" ok ipc shell setPluginEnabled vgs.notifications true
   expect_poll "the service is built again" True record_exists vgs.notifications
@@ -4115,8 +4134,7 @@ print(json.dumps(None if p is None else [p.get("mute"), p.get("softMute")]))' "$
   expect "the killed shell left the chime's soft mute on" '[false, true]' app_props smoke-chat-killed
   if adopt_shell "$app_killed"; then
     expect_poll "the next shell built the notification service" True record_exists vgs.notifications
-    expect_poll "the next shell lifts the soft mute the killed one left" '[false, false]' app_props smoke-chat-killed
-    expect_poll "the chime the killed shell held is heard" heard app_level vgs-smoke-speakers
+    expect_poll "the next shell lifts the mute the killed one left: the chime plays at its own level" own app_own vgs-smoke-speakers
     expect "the next shell holds nothing" '[]' app_held
   fi
   app_hush
