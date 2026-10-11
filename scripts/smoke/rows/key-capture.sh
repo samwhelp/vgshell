@@ -20,7 +20,7 @@
 # a capture entered the submap: the reload leaves it and the shell ends
 # the capture on Hyprland's submap change.
 # No latency is measured; each reading polls every 200 ms.
-# inputs: shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.js shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.themes/manifest.json shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/HyprlandState.qml scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.themes/manifest.json shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/HyprlandState.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 kc_hypr_lua="$home/.config/hypr/hyprland.lua"
@@ -54,11 +54,13 @@ kc_capture() {
   expect "$label: the user bind on the same keys did not fire" 0 kc_marker "$marker"
 }
 # TYPED LABEL TEXT WANT BOUND: the same key typed into the field's text
-# entry, and the layer loaded with the Settings bind as BOUND, kc_bound's
-# reading: after the reset first, so a stored key whose layer matches the
-# one before the reset is read from its own reload.
+# entry. BOUND is kc_bound's reading of the Settings bind for that key,
+# which the capture before it also stored: the layer is read loaded with
+# it, then with the reset's key, then with it again, so each wait reads a
+# layer that differs from the one before it.
 kc_typed() {
   local label="$1"
+  kc_loaded "$label" vgs.settings:toggle "$4"
   key_reset "$label"
   kc_loaded "$label" vgs.settings:toggle "64 m"
   expect "$label: the field's text entry opens" typing settings_key_invoke typeKeyField
