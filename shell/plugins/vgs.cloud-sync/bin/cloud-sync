@@ -764,12 +764,17 @@ function runPair(pair, control) {
 
 // ----------------------------------------------------------------- units
 
-// One ExecStart= or Environment= word, quoted as systemd reads it back: a
-// backslash and a quote escaped, `%` and `$` doubled so nothing expands.
-function systemdQuote(arg) {
+// One word of DIRECTIVE's line, quoted as systemd reads it back: a
+// backslash and a quote escaped, and `%` doubled so no specifier expands,
+// which every line does. A command line, ExecStart= or ExecStopPost=, also
+// expands `$`, so its words double it (systemd.service(5), Command lines);
+// Environment= gives `$` no special meaning, so it stays single there
+// (systemd.exec(5), Environment=).
+function systemdQuote(directive, arg) {
     const s = String(arg);
     if (CONTROL.test(s)) refuse("unit-argument=control-character");
-    return "\"" + s.replace(/\\/g, "\\\\").replace(/"/g, "\\\"").replace(/%/g, "%%").replace(/\$/g, "$$$$") + "\"";
+    const quoted = s.replace(/\\/g, "\\\\").replace(/"/g, "\\\"").replace(/%/g, "%%");
+    return "\"" + (directive === "Environment" ? quoted : quoted.replace(/\$/g, "$$$$")) + "\"";
 }
 
 function engineHash() {
@@ -793,11 +798,11 @@ function serviceText(hash) {
         "",
         "[Service]",
         "Type=oneshot",
-        "Environment=" + env.map(systemdQuote).join(" "),
-        "ExecStart=" + runner.concat(["run"]).map(systemdQuote).join(" "),
+        "Environment=" + env.map(word => systemdQuote("Environment", word)).join(" "),
+        "ExecStart=" + runner.concat(["run"]).map(word => systemdQuote("ExecStart", word)).join(" "),
         // Runs after any end of the run, a kill included, so the status
         // record does not keep reading `running`.
-        "ExecStopPost=" + runner.concat(["status", "--quiet"]).map(systemdQuote).join(" "),
+        "ExecStopPost=" + runner.concat(["status", "--quiet"]).map(word => systemdQuote("ExecStopPost", word)).join(" "),
         "SuccessExitStatus=" + EXIT_BUSY,
         "Nice=10",
         "IOSchedulingClass=idle",

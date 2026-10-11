@@ -798,12 +798,13 @@ function unitWords(value, commandLine) {
 }
 
 // install hands the service every directory as systemd reads it back, a
-// quote, a space, a percent sign and a backslash in each included, and
-// names the engine copy under them the same way. A control character in
-// a directory is refused before any unit is written.
+// quote, a space, a percent sign, a dollar sign and a backslash in each
+// included, and names the engine copy under them the same way on both
+// command lines. A control character in a directory is refused before
+// any unit is written.
 function caseUnitWords(runner) {
     const w = world();
-    const odd = path.join(w.root, "a \"quoted\" 100% back\\slash");
+    const odd = path.join(w.root, "a \"quoted\" 100% $HOME back\\slash");
     const dirs = {
         XDG_CONFIG_HOME: path.join(odd, "config"),
         XDG_STATE_HOME: path.join(odd, "state"),
@@ -825,7 +826,9 @@ function caseUnitWords(runner) {
     const engineRoot = path.join(dirs.XDG_DATA_HOME, "vgshell", "cloud-sync", "engine");
     const engines = fs.readdirSync(engineRoot);
     assert.equal(engines.length, 1);
-    assert.deepEqual(unitWords(value("ExecStart"), true), [process.execPath, path.join(engineRoot, engines[0], "cloud-sync"), "run"]);
+    const engine = path.join(engineRoot, engines[0], "cloud-sync");
+    assert.deepEqual(unitWords(value("ExecStart"), true), [process.execPath, engine, "run"]);
+    assert.deepEqual(unitWords(value("ExecStopPost"), true), [process.execPath, engine, "status", "--quiet"]);
     const v = world();
     v.env.XDG_STATE_HOME = path.join(v.root, "state\nnext");
     const refused = cli(v, ["install"], runner);
@@ -1172,6 +1175,8 @@ async function controls() {
     await mustFail("secret attributes", mutant("secret attributes", "return verb.concat([\"service\", SECRET_SERVICE, \"account\", account], extra);", "return verb.concat([\"service\", SECRET_SERVICE, \"user\", account], extra);"), caseAuthorize);
     await mustFail("unit backslash", mutant("unit backslash", ".replace(/\\\\/g, \"\\\\\\\\\")", ""), caseUnitWords);
     await mustFail("unit quote", mutant("unit quote", ".replace(/\"/g, \"\\\\\\\"\")", ""), caseUnitWords);
+    await mustFail("unit dollar in ExecStart", mutant("unit dollar in ExecStart", "quoted.replace(/\\$/g, \"$$$$\")", "quoted"), caseUnitWords);
+    await mustFail("unit dollar in Environment", mutant("unit dollar in Environment", "directive === \"Environment\" ? quoted : ", ""), caseUnitWords);
     await mustFail("unit percent", mutant("unit percent", ".replace(/%/g, \"%%\")", ""), caseUnitWords);
     await mustFail("unit control character", mutant("unit control character", "if (CONTROL.test(s)) refuse(\"unit-argument=control-character\");", ""), caseUnitWords);
     await mustFail("pairs-reset keeps the damaged file", mutant("pairs-reset keeps the damaged file", "fs.renameSync(pairsFile, kept);\n        fs.renameSync(temp, pairsFile);", "fs.renameSync(temp, pairsFile);"), casePairsReset);
