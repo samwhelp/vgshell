@@ -11,8 +11,9 @@
 // bin/lib/theme-download.js into a scratch folder under LISTINGS, read by
 // the install's member rule, and kept as LISTINGS/<sha256>.json; the
 // archive is removed at once. LISTINGS defaults to vgs-catalog-listings in
-// the checkout's git directory, beside scripts/validate's last-pass
-// records, since a validate row's home is removed after the row.
+// the repository's common git directory, which outlives a validate row's
+// home and is shared by every worktree: a listing is keyed by the
+// archive's sha256, so one fetch serves each checkout.
 // VGS_THEME_ASSET_BASE replaces the pin's `<repo>/releases/download`, and
 // VGS_TEST_RUN allows a file:// base, as for `vgshell theme wallpapers`.
 //
@@ -46,8 +47,8 @@ function readJson(file) {
 }
 
 function defaultListings() {
-    const git = spawnSync("git", ["-C", repo, "rev-parse", "--path-format=absolute", "--git-dir"], { encoding: "utf8" });
-    if (git.status !== 0) throw new Unreadable("check-catalog-wallpaper-names: unreadable git-dir status=" + git.status);
+    const git = spawnSync("git", ["-C", repo, "rev-parse", "--path-format=absolute", "--git-common-dir"], { encoding: "utf8" });
+    if (git.status !== 0) throw new Unreadable("check-catalog-wallpaper-names: unreadable git-common-dir status=" + git.status);
     return path.join(git.stdout.trim(), "vgs-catalog-listings");
 }
 
