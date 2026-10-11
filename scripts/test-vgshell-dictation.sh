@@ -6,7 +6,7 @@ suite=test-vgshell-dictation
 tree="$tmp/tree"; commands="$tmp/commands"
 mkdir -p "$tree/bin/lib" "$tree/config" "$commands" "$tmp/home"
 cp -- "$repo/bin/vgshell" "$repo/bin/vgshell-dictation" "$tree/bin/"
-cp -- "$repo/bin/lib/voxtype.sh" "$repo/bin/lib/tui.sh" "$tree/bin/lib/"
+cp -R -- "$repo/bin/lib/." "$tree/bin/lib/"
 cp -R -- "$repo/config/voxtype" "$tree/config/"
 cat >"$commands/voxtype" <<EOF2
 #!/bin/sh
