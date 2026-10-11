@@ -986,7 +986,6 @@ Item {
                     width: parent.width
                     rows: [
                         { key: "Headphones", text: "Headphones", secondary: "Connected", iconName: "headphones", battery: 0.72 },
-                        { key: "Earbuds", text: "Earbuds", secondary: "Connecting…", iconName: "headphones", busy: true },
                         { key: "Mouse", text: "Mouse", secondary: "Connected", iconName: "mouse", battery: 0.08 },
                         { key: "Printer", text: "Printer", secondary: "Stopped: Paper jam", secondaryTone: "danger", iconName: "printer-x" },
                         { key: "Speaker", text: "Speaker", secondary: "Not connected", iconName: "speaker", badge: "Nearby", badgeTone: "info" }
@@ -995,6 +994,11 @@ Item {
                     menuOf: row => row.key === "Headphones"
                         ? [{ key: "rename", text: "Rename" }, { key: "trust", text: "Trust" }, { key: "forget", text: "Forget" }]
                         : row.key === "Mouse" ? [{ key: "rename", text: "Rename" }, { key: "forget", text: "Forget" }] : []
+                }
+                DeviceList {
+                    width: parent.width
+                    rows: [{ key: "Earbuds", text: "Earbuds", secondary: "Connecting…", iconName: "headphones", busy: true }]
+                    actionOf: row => ({ text: "Connect" })
                 }
                 }
                 Section {
