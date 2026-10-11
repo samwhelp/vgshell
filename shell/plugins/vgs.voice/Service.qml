@@ -39,10 +39,10 @@ Item {
     // destroyed: an exit it did not ask for is logged and acted on.
     property bool bridgeStopping: false
     property bool closing: false
-    // The end time of the last run of each of VoiceLogic.CONFIG_TUIS this
+    // The end time of the last run of each of VoiceLogic.RESTART_TUIS this
     // instance read, undefined until its first read, so a run that ended
     // before it started restarts nothing.
-    property var configSeenEnds: undefined
+    property var restartSeenEnds: undefined
     // The level the on-screen display draws from the latest
     // voxtype-audio-bridge frame; zero while no bridge runs.
     property real level: 0
@@ -100,26 +100,27 @@ Item {
         refreshSetup();
     }
     onRequirementsRevisionChanged: refreshSetup()
-    // Configure and Choose model can each change voxtype's config.
+    // Configure and Choose model can each change voxtype's config, and
+    // Stop the other voxtype frees the place the core's daemon takes.
     onTuiStateChanged: {
-        noteConfigEnds();
+        noteRestartEnds();
         refreshSetup();
         readFeedback();
     }
     onBridgeWantedChanged: bridgeWanted ? startBridge() : stopBridge()
 
-    // A run of Configure or Choose model that ended with code 0 since the
-    // last read has the core start its daemon again, which reads the
-    // config the run left.
-    function noteConfigEnds() {
+    // A run of one of VoiceLogic.RESTART_TUIS that ended with code 0 since
+    // the last read has the core start its daemon again, which probes for
+    // another daemon and reads the config the run left.
+    function noteRestartEnds() {
         if (tuiState === null) return;
         const ends = {};
         let finished = false;
-        for (const name of VoiceLogic.CONFIG_TUIS) {
-            if (VoiceLogic.runFinished(configSeenEnds === undefined ? undefined : configSeenEnds[name], tuiState[name])) finished = true;
+        for (const name of VoiceLogic.RESTART_TUIS) {
+            if (VoiceLogic.runFinished(restartSeenEnds === undefined ? undefined : restartSeenEnds[name], tuiState[name])) finished = true;
             ends[name] = tuiState[name].endedAt;
         }
-        configSeenEnds = ends;
+        restartSeenEnds = ends;
         if (finished) restartDaemon();
     }
 

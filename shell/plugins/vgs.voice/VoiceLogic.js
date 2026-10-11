@@ -79,7 +79,7 @@ var DAEMON_LINES = {
     absent: "voxtype is not running.",
     starting: "",
     ready: "",
-    elsewhere: "Another voxtype is already running, so VGS cannot start its own.",
+    elsewhere: "Another voxtype is already running. Stop the other voxtype so VGS can start its own.",
     failed: "voxtype did not start."
 };
 
@@ -88,7 +88,9 @@ var DAEMON_LINES = {
 // `daemon` word: { tone, text, lines, action, engine, model }. Ready reads
 // the version and the model; otherwise each line names one thing that is
 // missing. `action` names the manifest's step that applies: `install`
-// without voxtype, `setup` while a line stands, "" once ready.
+// without voxtype, `stop` while another voxtype holds the daemon's place,
+// whatever else is missing, since the core's setup cannot free it, `setup`
+// while another line stands, "" once ready.
 function setupState(reads, daemon) {
     if (reads.present === false)
         return { tone: "warning", text: "Set up needed", lines: ["voxtype is not installed."], action: "install", engine: DEFAULT_ENGINE, model: DEFAULT_MODEL };
@@ -100,7 +102,7 @@ function setupState(reads, daemon) {
     if (!engineAvailable(reads.engines || "", engine)) lines.push("The active build cannot use " + engine + ".");
     if (!modelInstalled(reads.models || "", engine, model)) lines.push("The speech model is missing.");
     if (DAEMON_LINES[daemon] !== "") lines.push(DAEMON_LINES[daemon]);
-    if (lines.length > 0) return { tone: "warning", text: "Set up needed", lines: lines, action: "setup", engine: engine, model: model };
+    if (lines.length > 0) return { tone: "warning", text: "Set up needed", lines: lines, action: daemon === "elsewhere" ? "stop" : "setup", engine: engine, model: model };
     var version = versionOf(reads.version || "");
     var summary = (version === "" ? "voxtype" : "voxtype " + version) + " \u00b7 " + model;
     return { tone: "ok", text: "Ready", lines: [summary], action: "", engine: engine, model: model };
@@ -139,10 +141,11 @@ function modelData(state, setup) {
     return { engine: state.engine !== "" ? state.engine : setup.engine, model: state.model !== "" ? state.model : setup.model };
 }
 
-// The screens that change voxtype's config, which a daemon reads when it
-// starts: the core starts its daemon again after a run of one ends with
-// code 0.
-var CONFIG_TUIS = ["configure", "model"];
+// The screens whose end with code 0 has the core start its daemon again:
+// Configure and Choose model change voxtype's config, which a daemon reads
+// when it starts, and Stop the other voxtype frees the place the core's
+// daemon takes, which the core reads only when it starts one.
+var RESTART_TUIS = ["configure", "model", "stop-other"];
 
 // Whether RUN, one entry of shell.tui.state, holds a run that ended with
 // code 0 since SEEN, the endedAt this instance read last. SEEN is

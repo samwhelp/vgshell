@@ -104,6 +104,17 @@
       },
       "optional": false,
       "purpose": "Copies dictated text to the clipboard when paste mode needs it"
+    },
+    {
+      "command": "systemctl",
+      "packages": {
+        "pacman": "systemd",
+        "apt": "systemd",
+        "dnf": "systemd",
+        "nix": "systemd"
+      },
+      "optional": true,
+      "purpose": "Stops another voxtype service so VGS can run its own"
     }
   ],
   "status": {
@@ -134,6 +145,10 @@
         "setup": {
           "label": "Set up",
           "dictation": "setup"
+        },
+        "stop": {
+          "label": "Stop the other voxtype",
+          "tui": "stop-other"
         }
       }
     },
@@ -171,6 +186,13 @@
         "icon": "brain",
         "group": "Voice"
       }
+    },
+    "stop-other": {
+      "script": "tui/stop-other.sh",
+      "title": "Stop the other voxtype",
+      "requires": [
+        "systemctl"
+      ]
     }
   },
   "sounds": {

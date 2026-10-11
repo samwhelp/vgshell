@@ -24,7 +24,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 The Setup section of the Voice Settings page shows Ready with the voxtype version and the speech model, or names what is missing. When voxtype is missing, Voice first offers to install it.
 
-Set up copies the default voxtype config when you have none, adds the start and stop sounds, enables the speech engine and downloads the speech model. A step that needs your password says so before it asks. VGS then starts voxtype itself, and runs it while a plugin that dictates is on; Voice needs no voxtype service of your own. If another voxtype is already running, the Setup section says so, and Voice dictates once that one is stopped.
+Set up copies the default voxtype config when you have none, adds the start and stop sounds, enables the speech engine and downloads the speech model. A step that needs your password says so before it asks. VGS then starts voxtype itself, and runs it while a plugin that dictates is on; Voice needs no voxtype service of your own. If another voxtype is already running, Setup offers Stop the other voxtype. It shows the voxtype service it found and asks before it turns that service off. It removes the service file only when it is your own, and keeps a service a package installed. VGS then starts its own voxtype without a restart.
 
 | Setting | What it changes |
 | --- | --- |

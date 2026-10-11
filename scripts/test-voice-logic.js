@@ -50,7 +50,8 @@ function verify(logic) {
     ["voxtype not found offers the install", { present: false }, "failed", "warning", "install", 1, null],
     ["voxtype not found before the capability is read offers the install", { present: false }, "", "warning", "install", 1, null],
     ["no daemon is not ready", readsReady, "absent", "warning", "setup", 1, null],
-    ["a daemon the shell did not start is not ready", readsReady, "elsewhere", "warning", "setup", 1, null],
+    ["a daemon the shell did not start offers to stop it", readsReady, "elsewhere", "warning", "stop", 1, null],
+    ["a daemon the shell did not start offers to stop it before the setup", readsMissing, "elsewhere", "warning", "stop", 3, null],
     ["a daemon that failed is not ready", readsReady, "failed", "warning", "setup", 1, null],
     ["a missing model is not ready", Object.assign({}, readsReady, { models: modelsMissing }), "ready", "warning", "setup", 1, null],
     ["no version still reads ready", Object.assign({}, readsReady, { version: "" }), "ready", "ok", "", 1, "parakeet-tdt-0.6b-v3"],
@@ -184,9 +185,11 @@ const controls = [
   ["the transcription after Voice's stop reads idle", "phase: after ? \"transcribing\" : \"idle\"", "phase: \"idle\""],
   ["model presence ignored", "row.name === wanted && row.installed === true", "row.name === wanted"],
   ["engine compiled ignored", "return row.compiled === true;", "return true;"],
-  ["setup never offers action", "if (lines.length > 0) return { tone: \"warning\", text: \"Set up needed\", lines: lines, action: \"setup\",", "if (lines.length > 0) return { tone: \"warning\", text: \"Set up needed\", lines: lines, action: \"\","],
+  ["setup never offers action", "if (lines.length > 0) return { tone: \"warning\", text: \"Set up needed\", lines: lines, action: daemon === \"elsewhere\" ? \"stop\" : \"setup\",", "if (lines.length > 0) return { tone: \"warning\", text: \"Set up needed\", lines: lines, action: \"\","],
   ["a daemon that is not ready reads ready", "    if (DAEMON_LINES[daemon] !== \"\") lines.push(", "    if (false) lines.push("],
-  ["a daemon the shell did not start reads as one that failed", "    elsewhere: \"Another voxtype is already running, so VGS cannot start its own.\",", "    elsewhere: \"voxtype did not start.\","],
+  ["a daemon the shell did not start reads as one that failed", "    elsewhere: \"Another voxtype is already running. Stop the other voxtype so VGS can start its own.\",", "    elsewhere: \"voxtype did not start.\","],
+  ["a daemon the shell did not start offers Set up", "action: daemon === \"elsewhere\" ? \"stop\" : \"setup\",", "action: \"setup\","],
+  ["any line offers Stop the other voxtype", "action: daemon === \"elsewhere\" ? \"stop\" : \"setup\",", "action: \"stop\","],
   ["an unknown daemon word reads ready", "    if (DAEMON_LINES[daemon] === undefined)\n", "    if (false)\n"],
   ["voxtype absent offers Set up", "lines: [\"voxtype is not installed.\"], action: \"install\",", "lines: [\"voxtype is not installed.\"], action: \"setup\","],
   ["the version is not read", "return found === null ? \"\" : found[1];", "return \"\";"],
@@ -230,20 +233,24 @@ try {
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }
-// The requirement logic over the shipped manifest: every Voice screen runs
-// voxtype, so a press without it raises the requirement notice in place of
-// the script, which then opens the screen once it is found. No screen
-// needs systemctl: the core runs voxtype, and no user unit does.
+// The requirement logic over the shipped manifest: Configure and Choose
+// model run voxtype, so a press without it raises the requirement notice in
+// place of the script, which then opens the screen once it is found. Only
+// Stop the other voxtype needs systemctl: the core runs voxtype, and no
+// user unit does.
 const pluginLogic = load(path.join(repo, "shell", "Core", "PluginLogic.js"));
 const manifestFile = path.join(repo, "shell", "plugins", "vgs.voice", "manifest.json");
 const logic = load(file);
+// The screens that run voxtype.
+const VOXTYPE_TUIS = ["configure", "model"];
 function verifyRequirements(raw) {
   const judged = pluginLogic.validateManifest(raw, path.dirname(manifestFile));
   assert.ok(judged.ok, `the Voice manifest is accepted: ${judged.error}`);
   const missing = ["voxtype", "voxtype-audio-bridge"];
   const runner = { launcher: "present", busy: [], run: "r1" };
-  same(Object.keys(judged.manifest.tui).sort(), Array.from(logic.CONFIG_TUIS).sort(), "the screens Voice ships are the two whose end restarts the daemon");
-  for (const name of logic.CONFIG_TUIS) {
+  same(Object.keys(judged.manifest.tui).sort(), Array.from(logic.RESTART_TUIS).sort(), "the screens Voice ships are the three whose end restarts the daemon");
+  same(Array.from(logic.RESTART_TUIS).sort(), ["configure", "model", "stop-other"], "Configure, Choose model and Stop the other voxtype restart the daemon");
+  for (const name of VOXTYPE_TUIS) {
     same(pluginLogic.tuiMissingRequirements(judged.manifest, name, missing), ["voxtype"], `${name} without voxtype asks for it before its script`);
     same(pluginLogic.tuiMissingRequirements(judged.manifest, name, ["systemctl"]), [], `${name} without systemctl runs its script`);
     same(pluginLogic.tuiMissingRequirements(judged.manifest, name, []), [], `${name} with voxtype present runs its script`);
@@ -260,17 +267,21 @@ function verifyRequirements(raw) {
   same(act({ present: false }, "failed"), { ok: true, kind: "install", commands: ["voxtype", "voxtype-audio-bridge"] }, "without voxtype the setup entry's step installs it");
   same(act(readsMissing, "ready"), { ok: true, kind: "core", name: "dictation-setup" }, "Set up opens the core's dictation setup");
   same(act(readsReady, "ready").ok, false, "a ready Voice offers no step");
+  same(act(readsReady, "elsewhere"), { ok: true, kind: "tui", name: "stop-other" }, "another voxtype running opens Stop the other voxtype");
+  same(pluginLogic.tuiMissingRequirements(judged.manifest, "stop-other", missing), [], "Stop the other voxtype runs without voxtype");
+  same(pluginLogic.tuiMissingRequirements(judged.manifest, "stop-other", ["systemctl"]), ["systemctl"], "Stop the other voxtype without systemctl asks for it before its script");
 }
 const shipped = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
 verifyRequirements(shipped);
-for (const name of logic.CONFIG_TUIS) {
+for (const name of VOXTYPE_TUIS) {
   const unrequired = JSON.parse(JSON.stringify(shipped));
   assert.deepEqual(unrequired.tui[name].requires, ["voxtype"], `control unrequired ${name}: the shipped screen requires voxtype`);
   delete unrequired.tui[name].requires;
   assert.throws(() => verifyRequirements(unrequired), `control unrequired ${name}: a manifest copy whose ${name} does not require voxtype passed`);
 }
 const manifestControls = [
-  ["a manifest copy whose Configure needs systemctl", raw => { raw.tui.configure.requires.push("systemctl"); raw.requirements.push({ command: "systemctl", packages: { pacman: "systemd" }, optional: true, purpose: "Restarts the Voice user service" }); }],
+  ["a manifest copy whose Configure needs systemctl", raw => { raw.tui.configure.requires.push("systemctl"); }],
+  ["a manifest copy whose elsewhere step is Set up", raw => { raw.status.setup.actions.stop = { label: "Stop the other voxtype", dictation: "setup" }; }],
   ["a manifest copy that keeps its own Set up screen", raw => { raw.tui.setup = JSON.parse(JSON.stringify(raw.tui.model)); raw.status.setup.actions.setup = { label: "Set up", tui: "setup" }; }],
   ["a manifest copy whose Set up installs voxtype", raw => { raw.status.setup.actions.setup = { label: "Set up", install: ["voxtype"] }; }],
 ];
@@ -299,4 +310,4 @@ delete stored.sounds.feedback.held;
 stored.sounds.feedback.default = "own";
 assert.throws(() => verifyFeedback(stored), "control stored: a manifest copy whose dictation event the core stores passed");
 
-console.log(`test-voice-logic: ok controls=${controls.length + 3 + manifestControls.length}`);
+console.log(`test-voice-logic: ok controls=${controls.length + VOXTYPE_TUIS.length + 1 + manifestControls.length}`);
