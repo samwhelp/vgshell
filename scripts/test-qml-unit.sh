@@ -798,6 +798,7 @@ mutations=(
   "the icon button ignores pressed colour|controls/IconButton.qml|root.down|false|tst_button.qml"
   "the icon button ignores checked colour|controls/IconButton.qml|root.checked|false|tst_button.qml"
   "the icon button ignores hover colour|controls/IconButton.qml|root.hovered|false|tst_button.qml"
+  "the icon button regains its hover fill|controls/IconButton.qml|: root.checked ? Theme.button.checked.background : root.tokens.background|: root.hovered ? root.tokens.hover : root.checked ? Theme.button.checked.background : root.tokens.background|tst_button.qml"
   "the disabled icon button dims its icon too|controls/IconButton.qml|root.enabled && !(|!(|tst_button.qml"
   "a filled icon button dims its icon at rest|controls/IconButton.qml|root.variant === \"ghost\" && |true && |tst_button.qml"
   "the button ignores hover|controls/Button.qml|hovered ? tokens.hover :|false ? tokens.hover :|tst_button.qml"

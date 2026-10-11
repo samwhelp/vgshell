@@ -3,9 +3,9 @@ import qs.Commons
 import qs.Ui
 
 // A square button with one icon and no text. `label` is what a screen
-// reader says for it and, unless `tooltip` says more, what its tooltip
-// says; a button without one is logged, since an icon alone names nothing. The ghost variant is the default, so a row
-// of icon buttons draws no fills until one is hovered. A ghost button's
+// reader says for it and what its action tooltip says; a button without
+// one is logged, since an icon alone names nothing. Hover draws no fill.
+// The ghost variant is the default. A ghost button's
 // icon rests in `color.textMuted` and takes the variant's foreground on
 // hover, focus, press or checked; a filled variant's icon keeps its
 // foreground, which its fill is chosen to carry. The rest colour is
@@ -21,6 +21,8 @@ Button {
 
     property string label: ""
     property string tooltip: label
+    // A state tone names a Theme.color token, including in a plugin-owned look.
+    property string tone: ""
     readonly property real glyphStart: leftPadding + contentItem.painted[0]
     readonly property real glyphEnd: rightPadding + contentItem.size - contentItem.painted[2]
 
@@ -32,12 +34,24 @@ Button {
     implicitWidth: controlHeight
     Accessible.name: label
 
+    background: Rectangle {
+        implicitHeight: root.controlHeight
+        radius: Theme.button.radius
+        color: root.down ? (root.checked ? Theme.button.checked.pressed : root.tokens.pressed)
+            : root.checked ? Theme.button.checked.background : root.tokens.background
+        border.width: Theme.button.border
+        border.color: root.checked ? Theme.button.checked.border : root.tokens.border
+        Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
+        FocusRing { target: root }
+    }
+
     Component.onCompleted: if (label === "") console.error("IconButton: label is required, icon=" + JSON.stringify(iconName))
 
     contentItem: Icon {
         name: root.iconName
         size: root.sizeTokens.icon
-        color: root.variant === "ghost" && root.enabled && !(root.hovered || root.visualFocus || root.down || root.checked) ? Theme.color.textMuted : root.foreground
+        opacity: root.down ? Theme.opacity.disabled : 1
+        color: root.tone !== "" ? Theme.color[root.tone] : root.variant === "ghost" && root.enabled && !(root.hovered || root.visualFocus || root.down || root.checked) ? Theme.color.textMuted : root.foreground
         Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
     }
 

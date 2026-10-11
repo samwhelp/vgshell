@@ -34,7 +34,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 - Do keep the shipped layout scale on the 4 px grid. `GRID_EXCEPTIONS` in `scripts/test-theme-logic.js` names the permitted classes, and that test walks every length token. Keep row heights independent of the control size scale, so changing buttons does not resize every list.
 - Do give a component whose text differs from a shared type role its own role in the `text` group, a scale of `font.size`, and never change a shared role for one component: `item` and `itemHint` draw fields, selects and list items, and a menu entry draws in `menuItem` and `menuItemHint`. `scripts/qml-tests/tst_label.qml` pins every role's size.
 - Do keep the shipped theme and every catalog entry readable at the floors `ThemeLogic.readabilityShortfalls` states. `scripts/check-theme-contrast.js` judges them.
-- Do draw rest, hover, pressed, focus, disabled and checked from their own tokens, each different from rest, and never draw hover or press on an item a click cannot change. A bar item is the one exception: hover draws no fill, so the bar stays still under a passing pointer. Review holds it; `scripts/qml-tests/tst_button.qml`, `tst_toggles.qml` and `tst_baritem.qml` pin the shipped controls.
+- Do draw rest, hover, pressed, focus, disabled and checked from their own tokens, each different from rest, and never draw hover or press on an item a click cannot change. A bar item or an icon button draws no hover fill; its glyph brightens from `color.textMuted` to the foreground. Keyboard focus keeps its focus ring, and press keeps a visible change. Review holds it; `scripts/qml-tests/tst_button.qml`, `tst_toggles.qml` and `tst_baritem.qml` pin the shipped controls.
 
 ### Appearance values
 
@@ -114,6 +114,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 
 ### Copy
 
+- Do use an icon button's label as its tooltip: two or three words naming its action, with no explanation. Bar widget status readings keep their status text.
 - Do write text a user reads in ASD-STE100 Simplified Technical English. Name the result of a check or the action the user takes, never the internal operation. Review holds it.
 - Do keep a plugin description to one or two short sentences with no feature list, and a hint to one sentence; longer help goes behind an `InfoButton`. Review holds it.
 - Do keep diagnostic keys, reason codes and command errors in the log, and map a plugin's own messages to a plain sentence before the plugin shows them. A user's own commands and their output stay unchanged. Review holds it.

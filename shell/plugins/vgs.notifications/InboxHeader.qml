@@ -7,10 +7,9 @@ import qs.Ui
 // under it, then the Sound, Do Not Disturb and History icons and one pill,
 // Mark all read (Inbox) or Clear history (History). The History icon stays
 // in its place in both views and is checked while the History shows, where
-// a click goes back to the Inbox. Sound off and Do Not Disturb on draw the
-// same signal, their glyph and the checked box, so a state away from the
-// normal one reads the same on both. Each icon's box is IconBox, round as
-// the header, and each icon's screen-reader name states its state. Its
+// a click goes back to the Inbox. Sound off and Do Not Disturb on draw
+// warning glyphs; History open draws an accent glyph. Each icon's
+// screen-reader name states its state. Its
 // caller supplies state and handles each request.
 Item {
     id: header
@@ -23,7 +22,7 @@ Item {
     property string subtitle: ""
     // Whether a notification that shows may play the shell's sound, and
     // whether the user chose a sound for it on the Sounds page: with none
-    // chosen nothing plays, which the Sound icon's tooltip says.
+    // chosen nothing plays.
     property bool sound: true
     property bool soundChosen: false
     property bool dnd: false
@@ -40,23 +39,11 @@ Item {
     // own rounded end: the controls inset is the square-corner floor.
     readonly property real titleInset: Math.max(textColumn, Math.ceil(Inset.clearing(look.header.controlsInset, look.radius.full, width, height, look.radius.clearance, titles.y)))
 
-    // The box behind a header icon, in place of the shared Button's: the
-    // look's colours on the look's full rounding, so a checked icon draws a
-    // circle in the round header, not the theme's square. The rest is
-    // clear; hover, press and checked draw as the shared button orders them.
-    component IconBox: Rectangle {
+    // The header icons draw only their glyph and keyboard focus ring.
+    component IconBox: Item {
         id: box
 
-        required property var look
         required property Item button
-        readonly property var tokens: look.header.icon
-
-        radius: look.radius.full
-        color: button.checked ? (button.down ? tokens.checkedPressed : button.hovered ? tokens.checkedHover : tokens.checked)
-            : button.down ? tokens.pressed : button.hovered ? tokens.hover : tokens.rest
-        border.width: tokens.borderWidth
-        border.color: button.checked ? tokens.border : tokens.rest
-        Behavior on color { ColorAnim { duration: box.look.motion.duration.short4; curve: box.look.motion.curve.standard } }
         FocusRing { target: box.button }
     }
 
@@ -115,7 +102,7 @@ Item {
         x: Math.round(titles.x + title.width + header.look.header.titleGap - glyphStart)
         y: Math.round(titles.y + title.y + (title.height - height) / 2)
         size: "sm"
-        background: IconBox { look: header.look; button: gear }
+        background: IconBox { button: gear }
         iconName: "settings"
         label: "Settings"
         onClicked: header.settingsHost.openSettingsPage()
@@ -136,37 +123,33 @@ Item {
             IconButton {
                 id: soundIcon
                 size: "sm"
-                background: IconBox { look: header.look; button: soundIcon }
+                background: IconBox { button: soundIcon }
                 iconName: header.sound ? "volume-2" : "volume-off"
-                label: "Notification sound"
-                Accessible.name: label + (header.sound ? ", on" : ", off")
+                label: header.sound ? "Mute sound" : "Unmute sound"
+                Accessible.name: "Notification sound" + (header.sound ? ", on" : ", off")
+                tone: header.sound ? "" : "warning"
                 checked: !header.sound
-                tooltip: !header.sound ? "The VGS notification sound is off. Click to turn it on."
-                    : header.soundChosen ? "The VGS notification sound is on. Click to turn it off."
-                    : "The VGS notification sound is on. No sound plays until you select one in System Settings → Sounds. Click to turn it off."
                 onClicked: header.soundRequested(!header.sound)
             }
             IconButton {
                 id: dndIcon
                 size: "sm"
-                background: IconBox { look: header.look; button: dndIcon }
+                background: IconBox { button: dndIcon }
                 iconName: header.dnd ? "bell-off" : "bell"
-                label: "Do Not Disturb"
-                Accessible.name: label + (header.dnd ? ", on" : ", off")
-                tooltip: header.dnd ? "Do Not Disturb is on. New notifications go to History and do not show. Click to turn it off."
-                    : "Do Not Disturb is off. Click to keep new notifications in History without showing them."
+                label: header.dnd ? "Allow notifications" : "Do not disturb"
+                Accessible.name: "Do Not Disturb" + (header.dnd ? ", on" : ", off")
+                tone: header.dnd ? "warning" : ""
                 checked: header.dnd
                 onClicked: header.dndRequested(!header.dnd)
             }
             IconButton {
                 id: historyIcon
                 size: "sm"
-                background: IconBox { look: header.look; button: historyIcon }
+                background: IconBox { button: historyIcon }
                 iconName: "rotate-ccw-clock"
-                label: "History"
-                Accessible.name: label + (header.history ? ", open" : ", closed")
-                tooltip: header.history ? "The panel shows History. Click to show unread notifications."
-                    : "The panel shows unread notifications. Click to show History."
+                label: header.history ? "Show unread" : "Show history"
+                Accessible.name: "History" + (header.history ? ", open" : ", closed")
+                tone: header.history ? "accent" : ""
                 checked: header.history
                 onClicked: header.modeRequested(header.history ? "inbox" : "history")
             }

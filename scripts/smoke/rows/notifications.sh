@@ -1271,10 +1271,10 @@ expect_poll "the inbox header title starts on a card's text column and clears it
 # pill inside the header. A state word, such as `absent`, prints as it is.
 header_controls() {
   local icons
-  icons="$(ipc smoke itemValues panel vgs.notifications IconButton label,glyphStart)" && [[ $icons == \[* ]] || { echo "${icons:-unread}"; return; }
+  icons="$(ipc smoke itemValues panel vgs.notifications IconButton Accessible.name,glyphStart)" && [[ $icons == \[* ]] || { echo "${icons:-unread}"; return; }
   ipc smoke descendantGeometry panel vgs.notifications | py_reply 'import json,sys
 rows = json.load(sys.stdin)
-labels = [[v["label"], v["glyphStart"]] for v in json.loads(sys.argv[1])]
+labels = [[v["Accessible.name"].split(",")[0], v["glyphStart"]] for v in json.loads(sys.argv[1])]
 header = next((r["box"] for r in rows if r["type"] == "InboxHeader" and r["box"][3] > 0), None)
 if header is None: print("absent"); sys.exit()
 inside = lambda b: header[0] <= b[0] and b[0] + b[2] <= header[0] + header[2] and header[1] <= b[1] and b[1] + b[3] <= header[1] + header[3]
@@ -1334,22 +1334,20 @@ expect "control: the contract refuses another view's pill" "violation pill" head
 expect "control: the contract refuses an icon after the pill" "violation order" header_controls_value "Mark all read" 6 < <(header_controls_planted 'v["icons"][3][1][0] = 412')
 expect "control: the contract refuses an icon off the header's centre" "violation order" header_controls_value "Mark all read" 6 < <(header_controls_planted 'v["icons"][1][1][1] = 4')
 expect_poll "the inbox header holds its gear on the title's line, three icons and one pill" ok checked_header_controls "Mark all read"
-# Each icon shows its state and names it in its tooltip, and a click
-# changes the state: Sound and Do Not Disturb are stored, and History
-# shows the History, whose header keeps the same places with Clear history
-# as its pill, and shows the Inbox again. No sound is chosen for the
-# notification event here, which the Sound icon's tooltip says while Sound
-# is on. Sound off and Do Not Disturb on draw one signal, the checked box,
-# and each icon's screen-reader name states its state. header_icon LABEL
-# PROPERTY reads one property of an icon as JSON, header_icon_state LABEL
-# its glyph, whether it draws checked and its Accessible.name, and
-# header_signals whether Sound and Do Not Disturb each draw checked.
-header_icon() { ipc smoke readMatchingDescendant panel vgs.notifications IconButton label "$1" "$2"; }
-header_icon_state() { ipc smoke itemValues panel vgs.notifications IconButton label,iconName,checked,Accessible.name | py_reply 'import json,sys; print(next((json.dumps([v["iconName"], v["checked"], v["Accessible.name"]]) for v in json.load(sys.stdin) if v["label"] == sys.argv[1]), "absent"))' "$1"; }
-header_signals() { ipc smoke itemValues panel vgs.notifications IconButton label,checked | py_reply 'import json,sys; c = {v["label"]: v["checked"] for v in json.load(sys.stdin)}; print(json.dumps([c.get("Notification sound"), c.get("Do Not Disturb")]))'; }
+# Action labels change with state; accessible names keep the control's identity.
+header_label() { ipc smoke itemValues panel vgs.notifications IconButton label,Accessible.name | py_reply 'import json,sys; print(next((v["label"] for v in json.load(sys.stdin) if v["Accessible.name"].split(",")[0] == sys.argv[1]), "absent"))' "$1"; }
+header_icon() { ipc smoke readMatchingDescendant panel vgs.notifications IconButton label "$(header_label "$1")" "$2"; }
+header_icon_state() { ipc smoke itemValues panel vgs.notifications IconButton label,iconName,checked,Accessible.name | py_reply 'import json,sys; print(next((json.dumps([v["iconName"], v["checked"], v["Accessible.name"]]) for v in json.load(sys.stdin) if v["Accessible.name"].split(",")[0] == sys.argv[1]), "absent"))' "$1"; }
+header_signals() { ipc smoke itemValues panel vgs.notifications IconButton Accessible.name,checked | py_reply 'import json,sys; c = {v["Accessible.name"].split(",")[0]: v["checked"] for v in json.load(sys.stdin)}; print(json.dumps([c.get("Notification sound"), c.get("Do Not Disturb")]))'; }
+header_tone() { # NAME: actual glyph colour and any background colour
+  ipc smoke itemValues panel vgs.notifications IconButton Accessible.name,contentItem.color,background.color | py_reply 'import json,sys; print(next((json.dumps([v["contentItem.color"], v.get("background.color")]) for v in json.load(sys.stdin) if v["Accessible.name"].split(",")[0] == sys.argv[1]), "absent"))' "$1"
+}
+note_warning="$(ipc smoke themeValue color.warning)" || fail "the warning token is unreadable"
+note_accent="$(ipc smoke themeValue color.accent)" || fail "the accent token is unreadable"
+header_tone_want() { python3 -c 'import json,sys; print(json.dumps([sys.argv[1], None]))' "$1"; }
 click_header_icon() { # LABEL
   local rect x y
-  rect="$(ipc smoke labelledGeometry panel vgs.notifications IconButton "$1")" && [[ $rect == \[* ]] || return 1
+  rect="$(ipc smoke labelledGeometry panel vgs.notifications IconButton "$(header_label "$1")")" && [[ $rect == \[* ]] || return 1
   summon_drawn panel vgs.notifications || return 1
   read -r x y < <(panel_point "$rect" - -) || return 1
   hover "$((x + 1))" "$y" && click "$x" "$y"
@@ -1366,7 +1364,7 @@ header_tip_dnd_off="$(header_icon "Do Not Disturb" tooltip)" || header_tip_dnd_o
 header_tip_inbox="$(header_icon History tooltip)" || header_tip_inbox=unread
 point_header_icon() { # LABEL: the pointer resting on that icon
   local rect x y
-  rect="$(ipc smoke labelledGeometry panel vgs.notifications IconButton "$1")" && [[ $rect == \[* ]] || return 1
+  rect="$(ipc smoke labelledGeometry panel vgs.notifications IconButton "$(header_label "$1")")" && [[ $rect == \[* ]] || return 1
   read -r x y < <(panel_point "$rect" - -) || return 1
   hover "$((x + 1))" "$y" && hover "$x" "$y"
 }
@@ -1381,6 +1379,8 @@ expect "the Do Not Disturb icon shows and names it off" '["bell", false, "Do Not
 click_header_icon "Do Not Disturb" || fail "the click on the Do Not Disturb icon failed"
 expect_poll "a click on the Do Not Disturb icon turns it on" true state_at dnd
 expect_poll "the Do Not Disturb icon shows it on, checked, and names it" '["bell-off", true, "Do Not Disturb, on"]' header_icon_state "Do Not Disturb"
+expect_poll "Sound off draws a warning glyph without a filled circle" "$(header_tone_want "$note_warning")" header_tone "Notification sound"
+expect_poll "Do Not Disturb on draws a warning glyph without a filled circle" "$(header_tone_want "$note_warning")" header_tone "Do Not Disturb"
 expect "Sound off and Do Not Disturb on draw the same signal" '[true, true]' header_signals
 expect "the Do Not Disturb icon's tooltip names each state" True tips_differ "$header_tip_dnd_off" "$(header_icon "Do Not Disturb" tooltip)"
 click_header_icon "Notification sound" || fail "the second click on the Sound icon failed"
@@ -1393,6 +1393,7 @@ expect "the History icon is not checked over the Inbox and names it closed" '["r
 click_header_icon History || fail "the click on the History icon failed"
 expect_poll "a click on the History icon shows the History" '"history"' read_notes panelMode
 expect_poll "the History icon is checked over the History and names it open" '["rotate-ccw-clock", true, "History, open"]' header_icon_state History
+expect_poll "History open draws an accent glyph without a filled circle" "$(header_tone_want "$note_accent")" header_tone History
 expect_poll "the History's header keeps the same places, with Clear history as its pill" ok checked_header_controls "Clear history"
 expect "the History icon's tooltip names each view" True tips_differ "$header_tip_inbox" "$(header_icon History tooltip)"
 click_header_icon History || fail "the second click on the History icon failed"
@@ -2011,10 +2012,13 @@ needle = '        objectName: "notificationSettingsGear"\n'
 assert text.count(needle) == 1, "the settings gear occurs once"
 text = text.replace(needle, needle + '        visible: false\n')
 # The Sound state control: the Sound icon loses its state name and its
-# checked box.
-for line in ('                Accessible.name: label + (header.sound ? ", on" : ", off")\n', '                checked: !header.sound\n'):
+# checked state. The second control restores the old filled checked box.
+for line in ('                checked: !header.sound\n',):
     assert text.count(line) == 1, "the Sound icon's line occurs once: " + line
     text = text.replace(line, "")
+needle = "    component IconBox: Item {\n"
+assert text.count(needle) == 1
+text = text.replace(needle, "    component IconBox: Rectangle {\n        color: button.checked ? button.tokens.pressed : button.tokens.background\n")
 path.write_text(text)
 PY
 rescan "a rescan builds the drawer without a visible gear"
@@ -2025,8 +2029,12 @@ drawer_settings_control() { (failures=0; behaviour_failures=0; expect "the point
 expect "control: removing the gear turns the Settings assertion red" 1 drawer_settings_control
 expect "Sound turns off in the control drawer" off notes sound off
 sound_state_control() { (failures=0; behaviour_failures=0; expect "the Sound icon shows Sound off, checked, and names it" '["volume-off", true, "Notification sound, off"]' header_icon_state "Notification sound" >"$sandbox/sound-state-control.log"; echo "$failures"); }
-expect_poll "the control Sound icon reads its fixed name, unchecked" '["volume-off", false, "Notification sound"]' header_icon_state "Notification sound"
+expect_poll "the control Sound icon reads unchecked" '["volume-off", false, "Notification sound, off"]' header_icon_state "Notification sound"
 expect "control: a Sound icon with a fixed name and no checked box turns the Sound state assertion red" 1 sound_state_control
+expect "Do Not Disturb turns on for the old checked-box control" on notes silence on
+header_box_control() { (failures=0; behaviour_failures=0; expect "Do Not Disturb on draws a warning glyph without a filled circle" "$(header_tone_want "$note_warning")" header_tone "Do Not Disturb" >"$sandbox/header-box-control.log"; echo "$failures"); }
+expect "control: the old filled checked box fails the glyph-only check" 1 header_box_control
+expect "Do Not Disturb turns off after the checked-box control" off notes silence off
 expect "Sound turns on again in the control drawer" on notes sound on
 expect "the control never opens a Settings page" absent drawer_settings_page
 expect "the control drawer closes" ok notes close
@@ -2315,7 +2323,7 @@ expect_poll "Space on a selected pill removes its row" none key_of "Keyboard fir
 # Space and Enter run each one; the gear's two keys are read above, where
 # Settings opens. header_focus reads the control that holds the keys as
 # [type, label, focus shown, ring shown, in view].
-header_focus() { ipc smoke focused panel vgs.notifications | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
+header_focus() { ipc smoke focused panel vgs.notifications | py_reply 'import json,sys; v=json.load(sys.stdin); names={"Mute sound":"Notification sound", "Unmute sound":"Notification sound", "Do not disturb":"Do Not Disturb", "Allow notifications":"Do Not Disturb", "Show history":"History", "Show unread":"History"}; v[1]=names.get(v[1],v[1]); print(json.dumps(v))'; }
 header_tab() { # LABEL TYPE NAME: one Tab, then the keys on control NAME with its ring shown
   type_keys -k Tab || fail "sending Tab to $1 failed"
   expect_poll "Tab reaches $1, its focus ring shown" "[\"$2\", \"$3\", true, true, true]" header_focus
@@ -2377,9 +2385,9 @@ expect_poll "a shown notification starts one player" "$((note_sound_before + 1))
 expect "the player is handed the chosen sound's file" pop.wav note_sound_last
 close_note "$note_sound_id"
 expect_poll "the notification with a sound closes" 0 note_status onScreen
-# With a sound chosen, the Sound icon's tooltip no longer says none is.
+# Choosing a sound keeps the action tooltip independent of setup.
 expect "the inbox opens over the chosen sound" ok notes inbox
-expect_poll "the Sound icon's tooltip names the chosen sound's state" True tips_differ "$header_tip_sound_unchosen" "$(header_icon "Notification sound" tooltip)"
+expect "the Sound tooltip stays on its action with a sound chosen" "$header_tip_sound_unchosen" header_icon "Notification sound" tooltip
 expect "the inbox over the chosen sound closes" ok notes close
 expect_poll "the inbox over the chosen sound closed" '""' read_notes panelMode
 # Sound off: a notification shows and starts no player; with Sound on
