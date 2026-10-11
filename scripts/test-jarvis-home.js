@@ -5,7 +5,7 @@
 // block of this repository's own, what a folder that already holds files
 // keeps, a home that holds an older package, the refusal of a link at the
 // home, at every layout path and inside skills/base, the folder a setting
-// names, the bounded read of its text, the skill index, a memory note read by
+// names, the remembered homes list and its Settings offers, the bounded read of its text, the skill index, a memory note read by
 // its path, the one program of the home, the kendex mail tool, and a kendex
 // home, where the base package is kendex's render of it, which no model can
 // write, and skills/base is gone. Each
@@ -209,6 +209,18 @@ world(() => {
             for (const [setting, base] of [[7, home], ["~/Jarvis", "relative"], ["~/Jarvis", undefined]])
                 keyed(() => Home.resolve(setting, base), "path", "types");
             assert.deepEqual(Home.guard("/h/Jarvis"), { root: "/h/Jarvis", open: "state" });
+        },
+        rememberOffers(Home) {
+            const names = Array.from({ length: 12 }, (_, index) => path.join(home, "homes", "h" + index));
+            assert.deepEqual(Home.remember([], names[0]), [names[0]], "a new absolute path is first");
+            assert.deepEqual(Home.remember([names[0], names[1]], names[1]), [names[1], names[0]], "an existing path moves to the front once");
+            assert.deepEqual(Home.remember(names.slice(0, 12), names[11]), [names[11]].concat(names.slice(0, 9)),
+                "the newest path is first, with at most ten paths");
+            assert.deepEqual(Home.remember([names[0], "relative", names[1]], names[2]), [names[2], names[0], names[1]],
+                "only absolute remembered paths stay");
+            assert.deepEqual(Home.offers([path.join(home, "Jarvis"), path.join(home, "work/One")], home),
+                [{ label: "~/Jarvis", value: "~/Jarvis" }, { label: "~/work/One", value: "~/work/One" }]);
+            keyed(() => Home.offers([path.dirname(home)], home), "path", "an offer must stay inside the user's home");
         },
         // A file's text whole within its bound, or too-large; never a cut
         // text, a link's target or bytes that are no UTF-8.
@@ -616,6 +628,13 @@ world(() => {
         ["path-bound", " || Buffer.byteLength(file) > PATH_BYTES", "", "resolves"],
         ["control-characters", ' || /[\\x00-\\x1f\\x7f]/.test(named)', "", "resolves"],
         ["open-entry", 'const OPEN = "state";', 'const OPEN = "skills";', "resolves"],
+        ["remember-first", "return [folder].concat(found.filter(item => item !== folder)).slice(0, HOMES);",
+            "return found.concat([folder]).slice(0, HOMES);", "rememberOffers"],
+        ["remember-once", "found.filter(item => item !== folder)", "found", "rememberOffers"],
+        ["remember-bound", "const HOMES = 10;", "const HOMES = 11;", "rememberOffers"],
+        ["remember-absolute", 'typeof item === "string" && path.isAbsolute(item)', 'typeof item === "string"', "rememberOffers"],
+        ["offers-relative", 'return "~/" + relative.split(path.sep).join("/");',
+            'return file;', "rememberOffers"],
         ["read-bound", 'if (limit !== null && content.length > limit) return { kind: "too-large" };', "", "reads"],
         ["read-utf8", '{ kind: "text", text: new TextDecoder("utf-8", { fatal: true })', '{ kind: "text", text: new TextDecoder("utf-8", { fatal: false })', "reads"],
         ["read-kind", 'if (!fs.fstatSync(fd).isFile()) fail("kind");', "", "reads"],

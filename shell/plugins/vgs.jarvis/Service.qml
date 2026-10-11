@@ -190,6 +190,8 @@ Item {
             const cleared = shell.status.set(key, []);
             if (cleared !== "ok") throw new Error("jarvis: " + cleared);
         }
+        const homes = shell.status.set("homes", homeOffers([]));
+        if (homes !== "ok") throw new Error("jarvis: " + homes);
         const audioReport = shell.status.set("audio", { tone: "info", text: "Reading devices" });
         if (audioReport !== "ok") throw new Error("jarvis: " + audioReport);
         const quiet = shell.status.set("level", { capture: 0, playback: 0 });
@@ -547,6 +549,12 @@ Item {
         const systemDefault = key === "microphones" ? "@DEFAULT_AUDIO_SOURCE@" : "@DEFAULT_AUDIO_SINK@";
         return [{ label: "System default", value: systemDefault }].concat(devices);
     }
+    function homeOffers(homes) {
+        const offers = [{ label: "None", value: "" }].concat(homes);
+        if (!offers.some(choice => choice.value === "~/Jarvis"))
+            offers.push({ label: "~/Jarvis", value: "~/Jarvis" });
+        return offers;
+    }
 
     function broken(reason) {
         cause = reason;
@@ -582,6 +590,11 @@ Item {
                         const report = shell.status.set("audio", { tone: "ok", text: "Device list ready" });
                         if (report !== "ok") throw new Error("jarvis: " + report);
                     }
+                    continue;
+                }
+                if (message.type === "homes") {
+                    const reply = shell.status.set("homes", homeOffers(message.homes));
+                    if (reply !== "ok") throw new Error("jarvis: " + reply);
                     continue;
                 }
                 if (message.type === "request") {

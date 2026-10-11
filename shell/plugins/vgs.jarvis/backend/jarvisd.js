@@ -2,7 +2,7 @@
 // jarvisd --tree ABSOLUTE_VGS_TREE
 // Stdin is the service's lease. EOF exits 0; a partial line or a refused
 // message exits 65. Task-store or confirmation-audit failure exits 74. Node below 22 or a
-// mute-store failure exits 78. Stdout carries status/state
+// mute or homes record failure exits 78. Stdout carries status/state
 // messages and shell requests judged by JarvisProtocol; stderr carries keyed jarvis: failures.
 // A reply for a request that awaits none exits 65 like any refused message.
 // Startup validates coding-task records and publishes their durable producer,
@@ -81,6 +81,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     // The user's home folder as it was last judged: path is the folder the
     // setting names, or null, and state what the engine and help read.
     let homeFolder = { path: null, state: { kind: "none" } };
+    let homes = [];
 
     // Each judgement names the folder again and creates what it lacks; a
     // refused folder holds the engine with its keyed cause, and the gate
@@ -116,8 +117,16 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     // setup step's cause for the shell's setup view.
     function judgeSetup() {
         homeFolder = judgeHome(context.settings.home);
+        rememberHome();
         configured(engine.configure(context.settings));
         scheduleMemoryReconcile();
+    }
+
+    function rememberHome() {
+        if (homeFolder.state.kind !== "ready" || homes[0] === homeFolder.state.path) return;
+        homes = Home.remember(homes, homeFolder.state.path);
+        storeHomes(homes);
+        publishHomes();
     }
 
     function scheduleMemoryReconcile() {
@@ -162,7 +171,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         void audio.close("protocol");
         refuse(error.message.startsWith("jarvis: tasks=") || error.message.startsWith("jarvis: task=")
             || error.message.startsWith("jarvis: audit=") ? 74
-            : error.message.startsWith("jarvis: mute=") ? 78 : 65, error.message);
+            : error.message.startsWith("jarvis: mute=") || error.message.startsWith("jarvis: homes=") ? 78 : 65, error.message);
     }
 
     // Adapt the shared request result to the task display's text contract.
@@ -229,57 +238,92 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
             throw new Error("jarvis: protocol=identity");
     }
 
-    function readMute() {
+    function readRecord(area, name, limit, judge, absent) {
         let fd;
         try {
-            fd = fs.openSync(path.join(context.directories.state, "mute.json"),
+            fd = fs.openSync(path.join(context.directories.state, name),
                 fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
-            if (!fs.fstatSync(fd).isFile()) throw new Error("jarvis: mute=record-not-file");
-            const bytes = Buffer.alloc(65);
+            if (!fs.fstatSync(fd).isFile()) throw new Error("jarvis: " + area + "=record-not-file");
+            const bytes = Buffer.alloc(limit + 1);
             const size = fs.readSync(fd, bytes, 0, bytes.length, 0);
-            if (size > 64) throw new Error("jarvis: mute=record-size");
+            if (size > limit) throw new Error("jarvis: " + area + "=record-size");
             let value;
             try { value = JSON.parse(bytes.subarray(0, size).toString("utf8")); }
-            catch { throw new Error("jarvis: mute=record-json"); }
-            if (value === null || typeof value !== "object" || Array.isArray(value)
-                    || Object.keys(value).join(",") !== "muted" || typeof value.muted !== "boolean")
-                throw new Error("jarvis: mute=record-shape");
-            return value.muted;
+            catch { throw new Error("jarvis: " + area + "=record-json"); }
+            return judge(value);
         } catch (error) {
-            if (error.code === "ENOENT") return false;
-            if (error.message.startsWith("jarvis: mute=")) throw error;
-            throw new Error("jarvis: mute=read-failed");
+            if (error.code === "ENOENT") return absent;
+            if (error.message.startsWith("jarvis: " + area + "=")) throw error;
+            throw new Error("jarvis: " + area + "=read-failed");
         } finally {
             if (fd !== undefined) {
-                try { fs.closeSync(fd); } catch { throw new Error("jarvis: mute=read-close-failed"); }
+                try { fs.closeSync(fd); } catch { throw new Error("jarvis: " + area + "=read-close-failed"); }
             }
         }
     }
 
-    function storeMute(muted) {
+    function storeRecord(area, name, value) {
         const directory = context.directories.state;
-        const file = path.join(directory, ".mute-" + process.pid);
+        const file = path.join(directory, "." + name + "-" + process.pid);
         let fd;
         let owned = false;
         try {
             fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
             fd = fs.openSync(file, "wx", 0o600);
             owned = true;
-            fs.writeFileSync(fd, JSON.stringify({ muted }) + "\n");
+            fs.writeFileSync(fd, JSON.stringify(value) + "\n");
             fs.closeSync(fd);
             fd = undefined;
-            fs.renameSync(file, path.join(directory, "mute.json"));
+            fs.renameSync(file, path.join(directory, name));
         } catch (error) {
-            throw new Error("jarvis: mute=write-failed");
+            if (error.message.startsWith("jarvis: " + area + "=")) throw error;
+            throw new Error("jarvis: " + area + "=write-failed");
         } finally {
             if (fd !== undefined) {
-                try { fs.closeSync(fd); } catch { throw new Error("jarvis: mute=write-close-failed"); }
+                try { fs.closeSync(fd); } catch { throw new Error("jarvis: " + area + "=write-close-failed"); }
             }
             if (owned) {
                 try { fs.unlinkSync(file); }
-                catch (error) { if (error.code !== "ENOENT") throw new Error("jarvis: mute=cleanup-failed"); }
+                catch (error) { if (error.code !== "ENOENT") throw new Error("jarvis: " + area + "=cleanup-failed"); }
             }
         }
+    }
+
+    function readMute() {
+        return readRecord("mute", "mute.json", 64, value => {
+            if (value === null || typeof value !== "object" || Array.isArray(value)
+                    || Object.keys(value).join(",") !== "muted" || typeof value.muted !== "boolean")
+                throw new Error("jarvis: mute=record-shape");
+            return value.muted;
+        }, false);
+    }
+
+    function storeMute(muted) { storeRecord("mute", "mute.json", { muted }); }
+
+    function readHomes() {
+        return readRecord("homes", "homes.json", 40960, value => {
+            if (value === null || typeof value !== "object" || Array.isArray(value)
+                    || Object.keys(value).join(",") !== "homes" || !Array.isArray(value.homes)
+                    || value.homes.length > 10)
+                throw new Error("jarvis: homes=record-shape");
+            const seen = new Set();
+            for (const folder of value.homes) {
+                if (typeof folder !== "string" || !path.isAbsolute(folder) || /[\x00-\x1f\x7f]/.test(folder)
+                        || Buffer.byteLength(folder) > 4096 || seen.has(folder))
+                    throw new Error("jarvis: homes=record-shape");
+                seen.add(folder);
+            }
+            try { Home.offers(value.homes, process.env.HOME); }
+            catch { throw new Error("jarvis: homes=record-shape"); }
+            return value.homes;
+        }, []);
+    }
+
+    function storeHomes(value) { storeRecord("homes", "homes.json", { homes: value }); }
+
+    function publishHomes() {
+        write({ v: 1, type: "homes", gen: runner.state.gen, revision: context.revision,
+            homes: Home.offers(homes, process.env.HOME) });
     }
 
     function fault(reason) {
@@ -452,6 +496,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                 }
                 context = message;
                 if (first) {
+                    homes = readHomes();
+                    publishHomes();
                     audit = Audit.create({ state: context.directories.state });
                     fs.mkdirSync(context.directories.runtime, { recursive: true, mode: 0o700 });
                     const profile = () => runner.state.settings.policy ?? "standard";

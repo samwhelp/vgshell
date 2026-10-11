@@ -2,7 +2,7 @@
 .import "Session.js" as Session
 
 // Shell produces hello, intent, indicator, shown, requirements-scan, tui-state and reply. Voice confirmation
-// is daemon-internal. Daemon produces status/state/devices/level/audio-fault,
+// is daemon-internal. Daemon produces status/state/devices/homes/level/audio-fault,
 // request, tasks, task-answer and transcript. A line excludes its LF.
 // A transcript is one speaker's caption segment: partial text grows under
 // a rising rev; final closes the segment.
@@ -510,6 +510,21 @@ function accept(line, direction) {
                 if (Object.prototype.hasOwnProperty.call(seen, choice.value)) fail("choice-duplicate");
                 Object.defineProperty(seen, choice.value, { value: true });
             }
+        }
+        break;
+    case "homes":
+        if (direction !== "daemon") fail("direction-homes");
+        keys(message, ["v", "type", "gen", "revision", "homes"], "homes");
+        var values = message.homes;
+        if (!Array.isArray(values) || values.length > 10) fail("home-choices");
+        var seen = {};
+        for (var choice of values) {
+            keys(choice, ["label", "value"], "home-choice");
+            if (typeof choice.label !== "string" || !/^[^\x00-\x1f\x7f]{1,60}$/.test(choice.label)
+                    || typeof choice.value !== "string" || !/^~\/[^\x00-\x1f\x7f]{1,200}$/.test(choice.value))
+                fail("home-choice");
+            if (Object.prototype.hasOwnProperty.call(seen, choice.value)) fail("home-duplicate");
+            Object.defineProperty(seen, choice.value, { value: true });
         }
         break;
     case "level":

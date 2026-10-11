@@ -57,6 +57,8 @@ const HEAD_BYTES = 4096;
 const LINE_CHARS = 160;
 // Linux PATH_MAX, the anchored walk's own bound.
 const PATH_BYTES = 4096;
+// The home list is a short Settings offer list, not a history.
+const HOMES = 10;
 // The one program Jarvis starts from the home: lane-mail, which kendex
 // installs here with its orch skill, writes the Jarvis session's mailbox
 // (D105). It runs the orch skill's own scripts and the home's kendex
@@ -98,6 +100,34 @@ function resolve(setting, userHome) {
  * refused but the entry named open and what lies below it.
  */
 function guard(home) { return { root: home, open: OPEN }; }
+
+function relativeHome(folder, userHome) {
+    if (typeof folder !== "string" || typeof userHome !== "string" || !path.isAbsolute(folder) || !path.isAbsolute(userHome))
+        fail("path");
+    const base = path.resolve(userHome);
+    const file = path.resolve(folder);
+    const relative = path.relative(base, file);
+    if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) fail("path");
+    return "~/" + relative.split(path.sep).join("/");
+}
+
+/** Put FOLDER first, once, among at most ten absolute paths. */
+function remember(list, folder) {
+    const found = Array.isArray(list) ? list.filter(item => typeof item === "string" && path.isAbsolute(item)) : [];
+    if (typeof folder !== "string" || !path.isAbsolute(folder)) return found.slice(0, HOMES);
+    return [folder].concat(found.filter(item => item !== folder)).slice(0, HOMES);
+}
+
+/** Settings choices for remembered homes, relative to the user's home. */
+function offers(list, userHome) {
+    if (!Array.isArray(list)) return [];
+    const found = [];
+    for (const folder of list) {
+        const value = relativeHome(folder, userHome);
+        found.push({ label: value, value });
+    }
+    return found;
+}
 
 // Hold the home folder itself open. The folders above it are the user's own
 // path and resolve as the system gives them; the home is never a link.
@@ -581,4 +611,4 @@ function mailbox(home) {
     return held(home, MAILBOX, O_RDONLY | O_DIRECTORY, () => true) === true;
 }
 
-module.exports = { PACKAGE, resolve, layout, guard, baseSet, read, skills, skill, note, notes, mailTool, mailbox, directory };
+module.exports = { PACKAGE, resolve, remember, offers, layout, guard, baseSet, read, skills, skill, note, notes, mailTool, mailbox, directory };

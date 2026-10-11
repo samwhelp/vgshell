@@ -62,8 +62,10 @@ async function inside() {
                 revision: hello.revision, availability: { kind: "checking" } }] : []);
             const keepMemory = expected.some(frame => frame.type === "memory");
             const keepMemoryInbox = expected.some(frame => frame.type === "memory-inbox");
+            const keepHomes = expected.some(frame => frame.type === "homes");
             assert.deepEqual(frames.filter(frame => frame.type !== "shell-status"
-                && (keepMemory || frame.type !== "memory") && (keepMemoryInbox || frame.type !== "memory-inbox")), expected);
+                && (keepMemory || frame.type !== "memory") && (keepMemoryInbox || frame.type !== "memory-inbox")
+                && (keepHomes || frame.type !== "homes")), expected);
             cases++;
         } finally { clearTimeout(timeout); if (child.exitCode === null) child.kill("SIGKILL"); }
     }
@@ -263,6 +265,68 @@ async function inside() {
     await control("home-each-hello", "                judgeSetup();\n", "                if (first) judgeSetup(); else configured(engine.configure(context.settings));\n", homeStatus);
     await control("home-rejudged", " && engine.homeHeld()) judgeSetup();", " && engine.homeHeld()) void judgeSetup;", homeStatus);
     await control("home-rejudged-held", ' && engine.homeHeld()) judgeSetup();', ') judgeSetup();', homeStatus);
+    // Homes offered to Settings are daemon state records, never files below
+    // a Jarvis home: startup publishes the saved list, an accepted home joins
+    // homes.json and the homes message, and a refused folder does neither.
+    async function homesRecord(file) {
+        const base = fs.realpathSync(process.env.HOME);
+        const prior = path.join(base, "homes/prior/Jarvis");
+        const accepted = path.join(base, "homes/accepted/Jarvis");
+        const refused = path.join(base, "homes/refused/Jarvis");
+        for (const folder of [prior, accepted, refused]) fs.rmSync(folder, { recursive: true, force: true });
+        fs.mkdirSync(path.join(refused, "skills"), { recursive: true });
+        fs.rmSync(path.join(refused, "skills"), { recursive: true });
+        fs.symlinkSync(base, path.join(refused, "skills"));
+        fs.mkdirSync(hello.directories.state, { recursive: true });
+        const record = path.join(hello.directories.state, "homes.json");
+        fs.writeFileSync(record, JSON.stringify({ homes: [prior] }) + "\n", { mode: 0o600 });
+        const child = cp.spawn("node", [file, "--tree", tree], { env: {
+            PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
+            XDG_DATA_HOME: process.env.XDG_DATA_HOME
+        }, stdio: ["pipe", "pipe", "pipe"] });
+        let out = "", err = "";
+        child.stdout.on("data", data => { out += data; });
+        child.stderr.on("data", data => { err += data; });
+        const closed = once(child, "close");
+        const messages = () => out.split("\n").slice(0, -1).map(line => JSON.parse(line));
+        const homes = () => messages().filter(frame => frame.type === "homes").map(frame => frame.homes.map(row => row.value));
+        const named = setting => ({ ...hello, settings: { ...hello.settings, home: setting } });
+        const wait = async predicate => {
+            for (let attempts = 0; attempts < 500; attempts++) {
+                if (predicate()) return;
+                assert.equal(child.exitCode, null, "daemon exited: " + err);
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+            assert.fail("homes record timeout: " + out + err);
+        };
+        try {
+            child.stdin.write(JSON.stringify(named("~/homes/accepted/Jarvis")) + "\n");
+            await wait(() => homes().some(list => list[0] === "~/homes/accepted/Jarvis"));
+            assert.deepEqual(homes().slice(0, 2), [["~/homes/prior/Jarvis"], ["~/homes/accepted/Jarvis", "~/homes/prior/Jarvis"]]);
+            assert.deepEqual(JSON.parse(fs.readFileSync(record, "utf8")), { homes: [accepted, prior] });
+            for (const folder of [accepted, prior]) {
+                const relative = path.relative(folder, record);
+                assert.equal(relative.startsWith("..") || path.isAbsolute(relative), true, "homes.json stays outside " + folder);
+            }
+            const count = homes().length;
+            child.stdin.write(JSON.stringify(named("~/homes/refused/Jarvis")) + "\n");
+            await wait(() => messages().some(frame => frame.type === "status" && frame.causes[0] === "home=link"));
+            assert.deepEqual(JSON.parse(fs.readFileSync(record, "utf8")), { homes: [accepted, prior] });
+            assert.equal(homes().length, count, "a refused home publishes no homes change");
+            assert.equal(homes().flat().includes("~/homes/refused/Jarvis"), false);
+            child.stdin.end();
+            assert.deepEqual(await closed, [0, null], err);
+        } finally { if (child.exitCode === null) child.kill("SIGKILL"); }
+        assert.equal(err, "jarvis: home=link\n");
+        cases++;
+    }
+    await homesRecord(daemon);
+    await control("homes-record-store", "        storeHomes(homes);\n", "", homesRecord);
+    await control("homes-record-wire", "        storeHomes(homes);\n        publishHomes();\n", "        storeHomes(homes);\n", homesRecord);
+    await control("homes-record-ready-only", 'if (homeFolder.state.kind !== "ready" || homes[0] === homeFolder.state.path) return;',
+        'if (false) return;', homesRecord);
+    await control("homes-record-state-dir", "        const directory = context.directories.state;\n",
+        "        const directory = homeFolder.state.path;\n", homesRecord);
     await control("reply-wire", "requests.reply(message);", "void message;", unknownReply);
     await control("hyprctl-environment", 'const environment = { PATH: process.env.PATH || "/usr/bin:/bin", LANG: "C.UTF-8" };',
         'const environment = { ...process.env, LANG: "C.UTF-8" };', probe);
@@ -520,7 +584,7 @@ async function inside() {
     await control("mute-restore", 'if (first && readMute()) runner.dispatch({ type: "mute" });',
         'if (false && first && readMute()) runner.dispatch({ type: "mute" });', restoreCheck);
     fs.writeFileSync(muteFile, JSON.stringify({ muted: false }));
-    await control("mute-store", 'fs.renameSync(file, path.join(directory, "mute.json"));',
+    await control("mute-store", 'fs.renameSync(file, path.join(directory, name));',
         'void directory;', muteCheck);
     await control("intent-consumer", 'runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }\n                                : message.intent === "say" ? { type: "say", text: message.text }\n                                : { type: message.intent });',
         'void message.intent;', muteCheck);
@@ -538,7 +602,7 @@ async function inside() {
         w.send("mute");
     }, "hold", 78, "jarvis: mute=write-failed");
     fs.rmdirSync(muteFile);
-    await control("mute-size", 'if (size > 64) throw new Error("jarvis: mute=record-size");', 'void size;',
+    await control("mute-size", 'if (size > limit) throw new Error("jarvis: " + area + "=record-size");', 'void size;',
         async file => {
             fs.writeFileSync(muteFile, '{"muted":false}' + " ".repeat(51));
             await run(file, [JSON.stringify(hello) + "\n"], 78, "jarvis: mute=record-size");
