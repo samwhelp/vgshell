@@ -894,6 +894,40 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     // turn asks again; relay.line is TaskVoice's own line,
     // null for the engine's reply to an answer; relay.done is set once the
     // line was heard to its end or reported back.
+    // A short command Tools.match names: one call the router judges, audits
+    // and reads back inside the thinking turn Session opened, with no model
+    // call. Jarvis says what became of it, and the brain's next request
+    // carries an account of it, as a late result does.
+    const FAST_LINES = { completed: "Done.", unknown: "I asked for it, but I could not confirm it.",
+        failed: "That did not work.", cancelled: "That did not work." };
+    function fastTurn(c, e, done, call) {
+        if (c.turn !== null) fail("brain-busy");
+        const request = { kind: "tool-call", id: crypto.randomUUID(), tool: call.id, arguments: call.args, proposer: "matcher" };
+        const turn = { gen: e.gen, op: e.op, done, labels: new Set(["desktop"]), speech: null, stopped: false, speaking: false,
+            delegation: e.delegation, feedbackTimer: null, relay: null, phase: "fast", calls: [request], answers: new Map(),
+            routing: request, caption: "", fast: { text: e.text } };
+        c.turn = turn;
+        c.last = turn;
+        router.route(request, { gen: turn.gen, op: turn.op });
+    }
+    function fastDone(c, turn, outcome, item) {
+        const call = turn.routing;
+        turn.routing = null;
+        c.results.push(Policy.summary("[done without you] The user said " + JSON.stringify(turn.fast.text) + ". Jarvis ran "
+            + call.tool + " " + JSON.stringify(call.arguments) + " with no model call, which ended " + outcome + ": " + item.content,
+        [Policy.item(turn.fast.text, ["speech"]), item]));
+        try {
+            const line = Speakable.create(LANGUAGE);
+            for (const sentence of [...line.push(FAST_LINES[outcome]), ...line.finish()]) say(c, turn, sentence);
+            if (turn.stopped) return;
+            turn.phase = "done";
+            c.turn = null;
+            turn.speech?.end();
+            concluded(c, turn);
+            turn.done("brain-done");
+        } catch (error) { failed(c, turn, error); }
+    }
+
     function relayTurn(c, e, done, relay) {
         if (c.turn !== null) fail("brain-busy");
         const turn = { gen: e.gen, op: e.op, done, labels: new Set(), speech: null, stopped: false, speaking: false,
@@ -972,7 +1006,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         void relayLine(c, turn, reply.text, reply.labels);
     }
 
+    // Only the brain's own reply has a heard prefix to report.
     function heard(c, turn, text) {
+        if (turn.fast !== undefined) return;
         c.heard = { turn, labels: [...turn.labels], text };
     }
     // A Realtime reply's heard account for an interruption, or null when the
@@ -1022,6 +1058,11 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                     return;
                 }
             }
+            const call = Tools.match(e.text);
+            if (call !== null) {
+                fastTurn(c, e, done, call);
+                return;
+            }
             if (c.brain === null) {
                 // The home text is read at each conversation's first turn, so
                 // the user's last edit is the one a brain gets. A text that
@@ -1068,9 +1109,12 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (c.live === null && turn.relay === null) heard(c, turn, "");
             unheard(c, turn);
             const routing = turn.phase === "routing";
+            // A fast call that already started reports its real outcome to
+            // the brain's next request.
+            if (turn.phase === "fast" && turn.routing !== null) c.late.set(turn.routing.id, { call: turn.routing, op: turn.op });
             // A queued or relay turn owns no adapter request. Its prior cancellation
             // still blocks the next turn and this cancellation's acknowledgement.
-            c.quiet = (turn.phase === "queued" || turn.phase === "relay" || c.brain === null ? c.quiet : c.brain.cancel()).then(() => {
+            c.quiet = (["queued", "relay", "fast"].includes(turn.phase) || c.brain === null ? c.quiet : c.brain.cancel()).then(() => {
                 // Every call in history gets an answer, so the next request is
                 // valid. A running call's real outcome follows on a later turn.
                 if (routing && c.brain !== null) c.brain.record({ kind: "tool-results", results: turn.calls.map(call => {
@@ -1101,6 +1145,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (c === null || c.gen !== value.gen || value.results.length !== 1) return;
             const { id, item, image } = value.results[0];
             const turn = c.turn;
+            if (turn !== null && turn.op === value.op && turn.phase === "fast" && turn.routing?.id === id) {
+                fastDone(c, turn, value.outcome, item);
+                return;
+            }
             if (turn !== null && turn.op === value.op && turn.phase === "routing" && turn.routing?.id === id) {
                 // A result's image stays with its text for the tool-results turn.
                 turn.answers.set(id, image === undefined ? { item } : { item, image });

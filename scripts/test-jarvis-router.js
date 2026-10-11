@@ -357,6 +357,26 @@ esac
             assert.equal(w.results.at(-1).results[0].id, "model-windows.list");
             assert.equal(w.results.at(-1).final, true);
         }],
+        // A call the engine's local matcher proposed passes the same gate and
+        // audit as a brain's, and both of its records name the matcher.
+        ["matcher", implementation => {
+            const w = make(implementation);
+            const turn = w.runner.state.turn;
+            const route = request => w.router.route({ kind: "tool-call", id: "fast-1", tool: "workspaces.focus",
+                arguments: { workspace: 3 }, ...request }, { gen: turn.gen, op: turn.op });
+            for (const request of [{ proposer: "brain" }, { proposer: "" }, { kind: "approval", tool: "harness.command",
+                arguments: { command: "ls", cwd: fixtures.project }, proposer: "matcher" }])
+                assert.throws(() => route(request), { message: "jarvis: router=proposer" });
+            assert.equal(route({ proposer: "matcher" }).kind, "proposed");
+            assert.equal(w.starts.length, 1);
+            assert.deepEqual([w.records[0].decision, w.records[0].outcome, w.records[0].proposer], ["allow", "pending", "matcher"]);
+            w.answers[0]({ outcome: "completed", content: "fixture workspace" });
+            assert.deepEqual([w.rows().at(-1).outcome, w.rows().at(-1).proposer], ["completed", "matcher"]);
+            assert.equal(w.results.at(-1).results[0].id, "fast-1");
+            w.newTurn();
+            assert.equal(w.call("windows.list").kind, "proposed");
+            assert.equal(w.records.at(-1).proposer, undefined, "a brain's call names no proposer");
+        }],
         ["refuse", implementation => {
             const w = make(implementation); w.lock(true);
             assert.equal(w.call("windows.list").reason, "session-locked");
@@ -424,6 +444,15 @@ esac
             const named = make(implementation);
             named.call("shell.line", { line: "date", cwd: fixtures.project, network: false });
             assert.equal(named.runner.state.approval.text, "Run shell text date in " + fixtures.project + ", network false");
+        }],
+        // A window target the executor resolves is named as the user says it.
+        ["window-target-sentence", implementation => {
+            const w = make(implementation, Session, { profile: "cautious" });
+            w.call("windows.close", { window: "active" });
+            assert.equal(w.runner.state.approval.text, "Close window in focus");
+            const named = make(implementation, Session, { profile: "cautious" });
+            named.call("windows.close", { window: "class:chromium" });
+            assert.equal(named.runner.state.approval.text, "Close window of class chromium");
         }],
         ["approval-size", implementation => {
             const w = make(implementation, Session, { profile: "trusted" });
@@ -757,6 +786,10 @@ esac
             const old = w.runner.state.turn;
             w.dispatch({ type: "stop" }); w.newTurn();
             assert.equal(w.call("windows.list", {}, old).reason, "stale-turn");
+            // The matcher's call is held to the same thinking turn.
+            assert.equal(w.router.route({ kind: "tool-call", id: "fast-old", tool: "media.mute", arguments: { muted: true },
+                proposer: "matcher" }, { gen: old.gen, op: old.op }).reason, "stale-turn");
+            assert.deepEqual([w.rows().at(-1).decision, w.rows().at(-1).proposer], ["refuse", "matcher"]);
             assert.equal(w.starts.length, 0);
         }],
         ["outcome-lifetime", implementation => {
@@ -921,6 +954,11 @@ esac
             ["held-harness-kind", "id, tool: value.call.id,", 'id, tool: "harness.command",', "harness-approval"],
             ["held-harness-path", 'value.call.id + "\\n" + canonical(value.call.args)', 'value.call.id + "\\n" + canonical({...value.call.args, write: []})', "harness-approval"],
             ["sentence", 'sentence(value.call, decision.scope)', '"model text"', "typed-sentence"],
+            ["window-active-sentence", 'if (field === "window" && value === "active") return "in focus";', "", "window-target-sentence"],
+            ["window-class-sentence", 'if (field === "window" && value.startsWith("class:")) return "of class " + value.slice("class:".length);', "", "window-target-sentence"],
+            ["proposer-judged", 'if (request.proposer !== undefined && (request.proposer !== "matcher" || request.kind !== "tool-call"))', "if (false)", "matcher"],
+            ["proposer-before", 'confirmed: value.confirmed, outcome: "pending", ...proposer(value) }', 'confirmed: value.confirmed, outcome: "pending" }', "matcher"],
+            ["proposer-record", 'decision, confirmed: value.confirmed ?? "none", outcome, ...proposer(value),', 'decision, confirmed: value.confirmed ?? "none", outcome,', "matcher"],
             ["folderless-label", 'field === "cwd" && Tools.TABLE[call.id].executor === "sandbox" ? "a new empty folder" : "default"', '"default"', "folderless-sentence"],
             ["approval-size", "Buffer.byteLength(text) > RESULT_BYTES", "false", "approval-size"],
             ["result-size", "bytes.length <= RESULT_BYTES", "true", "result-size"],

@@ -1240,6 +1240,79 @@ async function cases(kit, server, only = null) {
         assert.deepEqual(w.faults, []);
     });
 
+    // A short command takes the local fast path: one call through the real
+    // router and audit, no brain request, a fixed spoken line, and an
+    // account of it in the brain's next request.
+    const FAST_ACCOUNT = "[done without you] The user said \"Please go to workspace three.\". Jarvis ran workspaces.focus "
+        + "{\"workspace\":3} with no model call, which ended completed: focused undefined";
+    await run("fast-path", async w => {
+        const first = await say(w, utterance("Please go to workspace three."));
+        await until(() => w.s().playback.kind === "playing", "the fast path's line speaks");
+        await playOut(w);
+        await until(() => w.s().turn.kind === "none", "the fast turn ends");
+        assert.equal(w.server.requests.length, first, "no brain request: no model call");
+        assert.deepEqual(w.executions.map(call => [call.id, call.args]), [["workspaces.focus", { workspace: 3 }]]);
+        assert.deepEqual(control.spoken, ["Done."]);
+        assert.deepEqual(assistantCaptions(w).map(row => row.slice(2)), [["partial", 1, "Done."], ["final", 2, "Done."]]);
+        assert.deepEqual(w.rows().filter(row => row.kind === "action").map(row => [row.tool, row.decision, row.outcome, row.proposer]),
+            [["workspaces.focus", "allow", "pending", "matcher"], ["workspaces.focus", "allow", "completed", "matcher"]],
+            "Policy allowed the call and the audit names the matcher before and after it ran");
+        const second = await say(w, utterance("Thanks."));
+        server.replies.push(text("You are welcome."));
+        const body = await requested(w, second + 1, "the next words reach the brain");
+        assert.deepEqual(user(body), [FAST_ACCOUNT + "\n\nThanks."], "the brain hears what was done without it, once");
+        await until(() => w.s().playback.kind === "playing", "the brain's reply speaks");
+        await playOut(w);
+        assert.deepEqual(w.faults, []);
+    });
+
+    // Words the matcher does not name reach the brain unchanged.
+    await run("fast-path-unmatched", async w => {
+        const first = await say(w, utterance("Bow to workspace three."));
+        const body = await requested(w, first + 1, "the misheard words reach the brain");
+        assert.deepEqual(user(body), ["Bow to workspace three."]);
+        assert.deepEqual(w.executions, []);
+        server.replies.push(text("Which workspace?"));
+        await until(() => w.s().playback.kind === "playing", "the brain's reply speaks");
+        await playOut(w);
+    });
+
+    // The fast path's line was never the brain's reply: cutting it off
+    // adds no heard prefix.
+    await run("fast-path-barge-in", async w => {
+        const first = await say(w, utterance("Please go to workspace three."));
+        await until(() => w.s().turn.kind === "none" && w.s().playback.kind !== "idle", "the fast path's line plays");
+        control.utterances.push(utterance("Stop there."));
+        w.runner.dispatch({ type: "talk-down" });
+        await until(() => w.s().capture.kind === "open", "capture reopens after the flush");
+        w.runner.dispatch({ type: "talk-up" });
+        server.replies.push(text("Stopped."));
+        const body = await requested(w, first + 1, "the request after the barge-in");
+        assert.deepEqual(user(body), [FAST_ACCOUNT + "\n\nStop there."]);
+        await until(() => w.s().playback.kind === "playing", "the brain's reply speaks");
+        await playOut(w);
+    });
+
+    // A fast call still running when the user speaks again reports its real
+    // outcome to the brain's next request.
+    await run("fast-path-interrupted", async w => {
+        const first = await say(w, utterance("Please go to workspace three."));
+        await until(() => w.held.length === 1, "the stand-in executor holds the fast call");
+        control.utterances.push(utterance("Wait."));
+        w.runner.dispatch({ type: "talk-down" });
+        await until(() => w.s().capture.kind === "open", "capture reopens while the call runs");
+        w.held[0]({ outcome: "completed", content: "workspace shown late" });
+        await turn();
+        w.runner.dispatch({ type: "talk-up" });
+        server.replies.push(text("Waiting."));
+        const body = await requested(w, first + 1, "the request after the interruption");
+        assert.deepEqual(user(body), ["[late result] Your interrupted call workspaces.focus ended completed: workspace shown late\n\nWait."],
+            "the real outcome reaches the next request, with no heard prefix");
+        await until(() => w.s().playback.kind === "playing", "the brain's reply speaks");
+        await playOut(w);
+        assert.deepEqual(w.faults, []);
+    }, { holdTools: true });
+
     // A segment closes at the wire's bound; a failed reply closes its words.
     await run("caption-segments", async w => {
         const first = await say(w, utterance("What time is it?"));
@@ -2342,6 +2415,11 @@ world(async () => {
             ["interrupted-answers", "if (routing && c.brain !== null) c.brain.record(", "if (false) c.brain.record(", "stale-outcome"],
             ["not-started", 'return router.interrupted(call, "not-started");', 'return router.interrupted(call, "running");', "stale-outcome"],
             ["late-result", "c.results.push(lateItem(late.call, value.outcome, item));", "void lateItem;", "stale-outcome"],
+            ["fast-match", "const call = Tools.match(e.text);", "const call = null;", "fast-path"],
+            ["fast-account", "c.results.push(Policy.summary(\"[done without you]", "void ((\"[done without you]", "fast-path"],
+            ["fast-proposer", ', proposer: "matcher" };', " };", "fast-path"],
+            ["fast-heard", "        if (turn.fast !== undefined) return;\n", "", "fast-path-barge-in"],
+            ["fast-late", 'if (turn.phase === "fast" && turn.routing !== null) c.late.set(', "if (false) c.late.set(", "fast-path-interrupted"],
             ["history-taint", "router.observe(turn, reply.release.labels);", "void reply;", "history-taint"],
             ["toggle-adoption", 'c.unbound !== null && c.unbound.state === "running" ? c.unbound : null',
                 "c.unbound", "toggle-turns"],

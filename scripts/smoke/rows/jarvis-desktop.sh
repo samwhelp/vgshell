@@ -1,7 +1,10 @@
 # Jarvis's window, workspace and application tools against the
 # nested Hyprland. A disposable daemon copy carries scripted Session ports
 # and a test-only driver that routes each call through the real router,
-# Policy, audit, executors, request wire and service. The daemon's hyprctl
+# Policy, audit, executors, request wire and service. Then a typed short
+# command takes the chained engine's local fast path through the same
+# router, with no model call: the scripted brain answers only after a
+# reply gate this row never opens. The daemon's hyprctl
 # is a stand-in pinned to this sandbox's instance, so no read reaches the
 # live session. No audio, account, provider or network runs. Each result
 # is read twice: the tool's own outcome, and Hyprland's state read by the
@@ -285,6 +288,55 @@ expect "the daemon read Hyprland and never dispatched" none \
 expect "every routed call was proposed" none \
   python3 -c 'import json,sys; rows=[json.loads(l) for l in open(sys.argv[1])]; bad=[r for r in rows if "route" in r and r["route"] != "proposed"]; print("none" if not bad else bad[:3])' \
   "$jd_driver/results.jsonl"
+
+# The fast path: scripted capture, brain and playback ports, the real
+# chained engine, router, Policy, audit and executors, and no driver.
+jd_session() { # FIELD of the daemon's Session state: its kind
+  ipc smoke jarvisProcess | py_reply 'import json,sys
+d=json.load(sys.stdin)["status"].get("detail")
+print("pending" if d is None else d["state"][sys.argv[1]]["kind"])' "$1"
+}
+jd_matched() { # TOOL: the outcome of the matcher's last audited call of TOOL, or none
+  cat -- "$jd_audit"/*.jsonl 2>/dev/null | python3 -c 'import json,sys
+rows=[r for r in map(json.loads, filter(str.strip, sys.stdin)) if r.get("proposer") == "matcher" and r["tool"] == sys.argv[1]]
+print(rows[-1]["outcome"] if rows else "none")' "$1"
+}
+jd_said() { ipc smoke statusValues vgs.jarvis | py_reply 'import json,sys; t=json.load(sys.stdin)["transcript"]; print("" if t is None else t["role"] + ": " + t["text"])'; }
+jd_fast_install() { # ENGINE_EDIT: python that edits the engine copy, or empty
+  jarvis_disable
+  cp -- "$sandbox/jarvis-desktop-backend-before" "$jd_backend"
+  cp -- "$sandbox/jarvis-desktop-engine-before" "$jd_engine"
+  "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jd_backend" "$jd_gates"
+  "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" --chained-engine "$jd_engine"
+  [[ -z $1 ]] || python3 -c "$1" "$jd_engine"
+  jarvis_rescan
+  jarvis_enable
+}
+jd_fast() { # TEXT WORKSPACE
+  expect "Jarvis takes the typed short command" ok ipc vgs.jarvis invoke say "$1"
+  expect_poll "the fast path shows workspace $2" "\"$2\"" jd_monitor activeWorkspace
+}
+jd_fast_install ""
+jd_fast "Please go to workspace three." 3
+expect_poll "the audit names the matcher's completed call" completed jd_matched workspaces.focus
+expect_poll "Jarvis says the fast path's line" "assistant: Done." jd_said
+touch -- "$jd_gates/played"
+expect_poll "the fast turn ends without the brain's reply" none jd_session turn
+expect_poll "its line plays to the end" idle jd_session playback
+jd_fast "Go to workspace one." 1
+touch -- "$jd_gates/played"
+expect_poll "the second fast turn ends" none jd_session turn
+# Control: an engine that never matches hands the words to the brain,
+# whose reply never comes, so the workspace stays.
+jd_fast_install 'import sys
+from pathlib import Path
+p = Path(sys.argv[1]); s = p.read_text()
+needle = "const call = Tools.match(e.text);"
+assert s.count(needle) == 1
+p.write_text(s.replace(needle, "const call = null;"))'
+jd_control_count="$( (failures=0 row_class=behaviour; jd_fast "Please go to workspace three." 3 >"$sandbox/jarvis-desktop-fast-control.log"; echo "$failures") )"
+expect "control: an engine without the matcher fails the fast path once" 1 printf '%s' "$jd_control_count"
+expect "the control's waiting turn stops" ok ipc vgs.jarvis invoke stop ""
 
 jarvis_disable
 cp -- "$sandbox/jarvis-desktop-engine-before" "$jd_engine"

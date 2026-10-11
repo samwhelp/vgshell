@@ -20,6 +20,9 @@ function sentence(call, scope) {
         const value = call.args[field];
         // Without cwd the sandbox runs the command in a new empty folder (Sandbox.js run).
         if (value === undefined) return field === "cwd" && Tools.TABLE[call.id].executor === "sandbox" ? "a new empty folder" : "default";
+        // A window target the executor resolves when it acts.
+        if (field === "window" && value === "active") return "in focus";
+        if (field === "window" && value.startsWith("class:")) return "of class " + value.slice("class:".length);
         return typeof value === "string" ? value : canonical(value);
     });
     const args = call.args;
@@ -87,12 +90,16 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
         }
     }
 
+    // The audit names the local matcher as an action's proposer (Tools.match).
+    function proposer(value) { return value.proposer === undefined ? {} : { proposer: value.proposer }; }
+
     // A capture's facts (target box, size, hash) enter the audit; its image never does.
     function record(value, decision, outcome) {
         const capture = value.answer?.capture;
         return audit.record({ kind: "action", gen: value.turn.gen, op: value.turn.op,
             tool: value.call.id, args: value.call.args, effect: value.decision?.effect ?? null,
-            decision, confirmed: value.confirmed ?? "none", outcome, ...(capture === undefined ? {} : { capture }) });
+            decision, confirmed: value.confirmed ?? "none", outcome, ...proposer(value),
+            ...(capture === undefined ? {} : { capture }) });
     }
 
     // One result item shape for every answer a brain receives for a call. A
@@ -209,13 +216,18 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
     /**
      * Route a brain's tool call, kind "tool-call", or a harness program's
      * approval request, kind "approval". Each reaches only its own rows.
-     * There is deliberately no confirmation API.
+     * A tool call the engine's local matcher proposed carries proposer
+     * "matcher" and passes the same gate. There is deliberately no
+     * confirmation API.
      */
     function route(request, turn) {
-        const value = { request: request.id, call: { id: request.tool, args: request.arguments }, turn };
+        const value = { request: request.id, call: { id: request.tool, args: request.arguments }, turn,
+            ...(request.proposer === undefined ? {} : { proposer: request.proposer }) };
         if (!Number.isSafeInteger(turn.gen) || turn.gen < 0 || !Number.isSafeInteger(turn.op) || turn.op < 1)
             throw new Error("jarvis: router=turn");
         if (request.kind !== "tool-call" && request.kind !== "approval") throw new Error("jarvis: router=request-kind");
+        if (request.proposer !== undefined && (request.proposer !== "matcher" || request.kind !== "tool-call"))
+            throw new Error("jarvis: router=proposer");
         if (closed) return refuse(value, "router-closed");
         // Arriving calls cannot outrun Session's monotonic deadline judge.
         dispatch({ type: "deadline", gen: turn.gen, op: turn.op });
@@ -325,7 +337,7 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
         value.action = { gen: e.gen, op: e.op };
         const admitted = audit.before({ kind: "action", gen: value.turn.gen, op: value.turn.op,
             tool: value.call.id, args: value.call.args, effect: fresh.effect, decision: prior.kind,
-            confirmed: value.confirmed, outcome: "pending" }, () => {
+            confirmed: value.confirmed, outcome: "pending", ...proposer(value) }, () => {
             if (accepted && prior.scope !== undefined) grants.add(prior.scope);
             try {
                 const origin = Tools.TABLE[value.call.id].origin === true
