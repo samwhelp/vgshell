@@ -18,7 +18,8 @@
 # route, by the pointer and by Return, into a stand-in that records it.
 # The Bar's Open with select reads the browser profiles when it opens, and
 # a calendar day opens in the profile chosen.
-# The Jarvis Home folder field offers None, ~/Jarvis and a custom folder.
+# The disabled Jarvis page's Home folder field, fed by the homes Jarvis
+# publishes, offers only Custom… while Jarvis publishes none.
 # The window takes the shown page's height on each page or tab change at
 # its top-left corner, and every listed plugin's Details ends inside it or
 # shows the scroll area's bottom edge cue.
@@ -253,11 +254,11 @@ expect "the window toggles the bare fixture back on from its page" ok ipc smoke 
 expect_poll "the window's rows show the bare fixture enabled after its page's readings" '{"acme.bare": true, "acme.probe": true, "vgs.bar": true}' manager_rows
 expect "the window opens the Jarvis page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.jarvis
 expect_poll "the Jarvis page opens on Settings" 0 settings_tab
-# The Jarvis Home folder field: a Select of None, ~/Jarvis and a custom
-# folder, with None, the empty value, chosen.
+# The Jarvis Home folder field: a Select fed by the homes Jarvis publishes.
+# Disabled, Jarvis publishes none, so it offers only Custom…, unset.
 home_field() { ipc smoke invokeInstance window vgs.settings fieldChoice "{\"id\":\"vgs.jarvis\",\"key\":\"$1\"}"; }
-home_state() { home_field home | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([[m["label"] for m in d["model"]], [m["value"] for m in d["model"]][:2], d["value"], d["shown"]]))'; }
-expect_poll "the Jarvis Home folder field offers None, ~/Jarvis and a custom folder, with None chosen" '[["None", "~/Jarvis", "Custom\u2026"], ["", "~/Jarvis"], "", "None"]' home_state
+home_state() { home_field home | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([[m["label"] for m in d["model"]], d["value"], d["enabled"]]))'; }
+expect_poll "the disabled Jarvis page's Home folder field offers only Custom\u2026, unset" '[["Custom\u2026"], "", false]' home_state
 expect "control: a field the Jarvis page lacks reads absent" absent home_field homeFolder
 expect_poll "control: the disabled Jarvis page, with settings to change, draws the hint to turn it on" drawn enabled_hint Jarvis
 # The short fixture reaches the same scroll reader, which must refuse it
