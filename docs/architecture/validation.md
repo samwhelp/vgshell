@@ -87,6 +87,9 @@ A broken environment that reads as a pass hides the regression the check exists 
 `scripts/jarvis-selftest.sh` runs one turn of the shipped daemon, engine, speech sidecar and audio children in the nested sandbox, outside `jarvis_env_run`, and writes one record. The Jarvis rules above bind suites; these bind the self-test.
 
 - Never select the self-test from `scripts/validate`; a person or a lane runs it by hand, and `validate` holds only its host-side test. Review holds it.
+- Do add a Jarvis voice item's utterance as a case in `scripts/jarvis-selftest-cases/`, run that case once with `scripts/jarvis-selftest.sh --suite <case>`, and report the case record's verdict, first audio and longest gap in `done:`. `scripts/test-jarvis-selftest.sh` holds the comparison.
+- Do read first audio and the longest silent gap from the speakers' monitor. `scripts/test-jarvis-selftest.sh` holds the measure.
+- Never treat the self-test as a room test. Synthetic speech or a recording fed digitally proves the chain, not a microphone, room noise, echo or distance. The time stamps are late by the capture latency, and no budget is enforced.
 - Do run the checkout's Jarvis plugin unchanged: no stand-in, scripted port or instrumented copy. `scripts/test-jarvis-selftest.sh` holds it.
 - Do hand the sandbox the accounts the run names and no other value of the caller's environment: a sign-in's directory variable, or a saved key's reference, which holds no secret. `scripts/test-jarvis-selftest.sh` holds it.
 - Do read a stored key only here, the one keyring step the owner allows any run: Jarvis's lookup goes to the caller's session bus through a filter that passes `org.freedesktop.secrets` its lookup calls and nothing else. No other test or row gets that bus. `scripts/test-jarvis-selftest.sh` holds the filter.

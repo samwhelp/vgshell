@@ -40,6 +40,9 @@
 #   PipeWire's loopback, whose source side a capture names as its
 #   microphone, and devices_voice_feed_state reads whether a capture reads
 #   it, for the Jarvis self-test (scripts/jarvis-selftest.sh).
+# - devices_speaker_record OUT records the private speakers' monitor as
+#   timestamped peak blocks, devices_speaker_stop stops that recorder, and
+#   devices_speaker_sounds CAPTURE reads sound spans for the Jarvis self-test.
 # - devices_ready ROW, a device row's first line: devices_up, then
 #   devices_guard over the running shell. A missing prerequisite or a
 #   guard that reads a leak records ROW not measured and returns 1, and
@@ -308,6 +311,88 @@ print("absent=sink" if sink not in names else "absent=source" if source not in n
 devices_voice_feed() { # FILE
   "${shell_env[@]}" pw-cat --playback --target "$devices_voice_feed_sink" \
     -P '{ node.name = "smoke-voice-player" node.dont-fallback = true node.dont-reconnect = true }' -- "$1"
+}
+
+# devices_speaker_record OUT: timestamped 10 ms peak blocks from the
+# private speakers' monitor, written as JSONL. The recorder is a process
+# group the caller's teardown can stop.
+devices_speaker_pid=""
+devices_speaker_record() { # OUT
+  spawn "$devices_dir/speaker-record.log" "${shell_env[@]}" python3 -c '
+import json, subprocess, sys, time
+out = sys.argv[1]
+rate, samples_per_block, bytes_per_sample = 16000, 160, 2
+cmd = ["pw-record", "--target", "vgs-smoke-speakers", "-P", "{ stream.capture.sink = true node.name = \"vgs-smoke-speaker-record\" node.dont-fallback = true node.dont-reconnect = true }", "--rate", "16000", "--channels", "1", "--format", "s16", "--latency", "10ms", "--raw", "-"]
+child = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+pending = b""
+try:
+    with open(out, "w", buffering=1) as file:
+        while True:
+            chunk = child.stdout.read(4096)
+            if not chunk:
+                break
+            data = pending + chunk
+            complete = len(data) // (samples_per_block * bytes_per_sample) * (samples_per_block * bytes_per_sample)
+            arrival = time.time() * 1000
+            total_samples = len(data) // bytes_per_sample
+            for offset in range(0, complete, samples_per_block * bytes_per_sample):
+                block = data[offset:offset + samples_per_block * bytes_per_sample]
+                values = [int.from_bytes(block[i:i+2], "little", signed=True) for i in range(0, len(block), 2)]
+                remaining = total_samples - offset // bytes_per_sample
+                start = arrival - remaining * 1000 / rate
+                file.write(json.dumps({"at": round(start), "peak": max(abs(v) for v in values) if values else 0}, separators=(",", ":")) + "\n")
+            pending = data[complete:]
+finally:
+    child.terminate()
+    try:
+        child.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        child.kill()
+        child.wait()
+' "$1"
+  devices_speaker_pid="$spawn_pid"
+}
+# devices_speaker_stop: stop the speaker recorder process group and wait up
+# to 5 s for it to leave.
+devices_speaker_stop() {
+  [[ -n ${devices_speaker_pid:-} ]] || return 0
+  kill -TERM -- "-$devices_speaker_pid" 2>/dev/null || true
+  for _ in $(seq 1 50); do kill -0 "$devices_speaker_pid" 2>/dev/null || break; sleep 0.1; done
+}
+# devices_speaker_sounds CAPTURE: the loud spans in CAPTURE as JSON
+# [[start_ms,end_ms], ...]. Absent, empty and partial input read as a state.
+devices_speaker_sounds() { # CAPTURE
+  python3 - "$1" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+if not os.path.exists(path):
+    print("[]")
+    sys.exit(0)
+runs, current = [], None
+try:
+    lines = open(path, errors="replace")
+except OSError:
+    print("[]")
+    sys.exit(0)
+for line in lines:
+    try:
+        row = json.loads(line)
+        at, peak = int(row["at"]), int(row["peak"])
+    except Exception:
+        continue
+    if peak <= 100:
+        continue
+    if current is None:
+        current = [at, at + 10]
+    elif at - current[1] < 60:
+        current[1] = at + 10
+    else:
+        runs.append(current)
+        current = [at, at + 10]
+if current is not None:
+    runs.append(current)
+print(json.dumps(runs, separators=(",", ":")))
+PY
 }
 devices_failed() { # KEY LOG
   devices_state="failed=$1"

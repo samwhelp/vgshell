@@ -69,6 +69,7 @@ node shell/plugins/vgs.jarvis/backend/accounts.js --tree "$PWD" sign-in-folders 
 scripts/jarvis-selftest.sh --wav shell/plugins/vgs.jarvis/fixtures/probe.wav --brain <id>   # a recorded voice
 scripts/jarvis-selftest.sh --tts "What time is it?" --brain <id>                            # a sentence the pinned voice speaks
 scripts/jarvis-selftest.sh --type "What time is it?" --brain <id>                           # a typed line
+scripts/jarvis-selftest.sh --suite volume --brain <id>                                       # one acceptance case
 ```
 
 - The record goes under `tmp/selftest-records/` unless `--out` names a file. The last line of the run is `selftest=<key>`, and exit 77 means the run could not run.

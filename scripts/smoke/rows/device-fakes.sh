@@ -7,7 +7,9 @@
 # shell's own PATH. It reads the voice feed end to end: a tone played into
 # its sink is in what a recorder on its source took, the feed reads ready
 # only while that recorder reads it, and a recorder with nothing played
-# takes silence. It reads that neither the sandbox PipeWire nor its
+# takes silence. It reads the speaker monitor recorder: silence makes no
+# sound, and one second played to the speakers makes one captured sound. It
+# reads that neither the sandbox PipeWire nor its
 # WirePlumber holds a sound or camera node after WirePlumber has loaded
 # its profile, that the rfkill block changed
 # the stand-in's state file alone, that a stand-in answers only what a row
@@ -87,6 +89,22 @@ expect_poll "a second recorder makes the feed ready again" ready devices_voice_f
 if devices_voice_feed "$feed_tone" >"$sandbox/voice-feed-player.log" 2>&1; then ok "the tone plays into the feed's sink to its end"; else fail "the tone did not play into the feed's sink: $sandbox/voice-feed-player.log"; fi
 expect_poll "the tone played into the feed's sink is in what the recorder on its source took" sound feed_took tone
 feed_stop
+# The speaker monitor: one second of the same tone played into the speakers'
+# null sink is captured from that sink's monitor.
+speaker_capture="$sandbox/speaker-capture.jsonl"
+devices_speaker_record "$speaker_capture"
+speaker_record_ready() { [[ -s $speaker_capture ]] && echo ready || echo waiting; }
+expect_poll "the speaker recorder writes its first block" ready speaker_record_ready
+expect "control: with nothing played the speaker capture holds no sounds" '[]' devices_speaker_sounds "$speaker_capture"
+if "${shell_env[@]}" pw-cat --playback --target vgs-smoke-speakers -P '{ node.dont-fallback = true node.dont-reconnect = true }' "$feed_tone" >"$sandbox/speaker-player.log" 2>&1; then ok "the tone plays into the speakers sink to its end"; else fail "the tone did not play into the speakers sink: $sandbox/speaker-player.log"; fi
+speaker_sound_duration() { devices_speaker_sounds "$speaker_capture" | py_reply 'import json,sys
+sounds=json.load(sys.stdin)
+if len(sounds) != 1:
+    print("count=%d" % len(sounds)); sys.exit()
+duration=sounds[0][1]-sounds[0][0]
+print("in-range" if 900 <= duration <= 1100 else "duration=%d" % duration)'; }
+expect_poll "the tone played into the speakers sink is captured as one one-second sound" in-range speaker_sound_duration
+devices_speaker_stop
 # The private PipeWire and WirePlumber hold no sound or camera node after
 # WirePlumber has loaded its profile and monitors.
 for name in pipewire wireplumber; do
