@@ -1411,7 +1411,8 @@ expect "the inbox closes after header geometry" ok notes close
 # and a chip. The fixture set runs on a clear screen. Summary-only cards
 # reach the title measure the tier is judged from: a title that fits the
 # compact text width stays compact, and one that wraps there or holds a
-# line break is regular.
+# line break is regular. The fixtures are critical so their cards run no
+# clock and stay readable until the dismiss under slow host load.
 tier_image="$repo/scripts/smoke/fixtures/theme-image.jpg"
 tier_fits_person="[acme] from Edsger Dijkstra"
 tier_wraps_image="Tier wrapping title: a screenshot saved to the clipboard and to the pictures folder"
@@ -1421,19 +1422,44 @@ expect "clearing the screen before the media tiers is allowed" ok notes dismiss-
 expect_poll "the screen is clear before the media tiers" 0 note_status onScreen
 tier_compact=("Tier image" "[acme] from Grace Hopper" "[acme] in edsger, barbara" "$tier_fits_person")
 tier_regular=("$tier_wraps_image" "$tier_wraps_person" "$tier_break_image" "Tier image saved" "[acme] from Alan Turing" "[acme] in ada, grace" "[acme] in ada, grace, alan" "[acme] in ada, grace, alan, edsger" "[acme] in ada, grace, alan, edsger, barbara, ken, linus" "New message in tier-room")
-notify smoke-shot 0 "Tier image" "" '[]' "{\"image-path\": <\"$tier_image\">}" 0 >/dev/null
-notify Slack 0 "[acme] from Grace Hopper" "" '[]' '{"desktop-entry": <"slack">}' 0 >/dev/null
-notify Slack 0 "[acme] in edsger, barbara" "" '[]' '{"desktop-entry": <"slack">}' 0 >/dev/null
-notify smoke-shot 0 "Tier image saved" "Saved: screenshot.png" '[]' "{\"image-path\": <\"$tier_image\">}" 0 >/dev/null
-notify Slack 0 "[acme] from Alan Turing" "lunch at noon?" '[]' '{"desktop-entry": <"slack">}' 0 >/dev/null
+notify smoke-shot 0 "Tier image" "" '[]' "{\"image-path\": <\"$tier_image\">, \"urgency\": <byte 2>}" 0 >/dev/null
+notify Slack 0 "[acme] from Grace Hopper" "" '[]' '{"desktop-entry": <"slack">, "urgency": <byte 2>}' 0 >/dev/null
+notify Slack 0 "[acme] in edsger, barbara" "" '[]' '{"desktop-entry": <"slack">, "urgency": <byte 2>}' 0 >/dev/null
+notify smoke-shot 0 "Tier image saved" "Saved: screenshot.png" '[]' "{\"image-path\": <\"$tier_image\">, \"urgency\": <byte 2>}" 0 >/dev/null
+notify Slack 0 "[acme] from Alan Turing" "lunch at noon?" '[]' '{"desktop-entry": <"slack">, "urgency": <byte 2>}' 0 >/dev/null
 for tier_group in "ada, grace" "ada, grace, alan" "ada, grace, alan, edsger" "ada, grace, alan, edsger, barbara, ken, linus"; do
-  notify Slack 0 "[acme] in $tier_group" "ada: the notes are up" '[]' '{"desktop-entry": <"slack">}' 0 >/dev/null
+  notify Slack 0 "[acme] in $tier_group" "ada: the notes are up" '[]' '{"desktop-entry": <"slack">, "urgency": <byte 2>}' 0 >/dev/null
 done
-notify "" 0 "New message in tier-room" $'app.slack.com\n\nada: the notes are up' '[]' '{}' 0 >/dev/null
-notify Slack 0 "$tier_fits_person" "" '[]' '{"desktop-entry": <"slack">}' 0 >/dev/null
-notify smoke-shot 0 "$tier_wraps_image" "" '[]' "{\"image-path\": <\"$tier_image\">}" 0 >/dev/null
-notify Slack 0 "$tier_wraps_person" "" '[]' '{"desktop-entry": <"slack">}' 0 >/dev/null
-notify smoke-shot 0 "$tier_break_image" "" '[]' "{\"image-path\": <\"$tier_image\">}" 0 >/dev/null
+notify "" 0 "New message in tier-room" $'app.slack.com\n\nada: the notes are up' '[]' '{"urgency": <byte 2>}' 0 >/dev/null
+notify Slack 0 "$tier_fits_person" "" '[]' '{"desktop-entry": <"slack">, "urgency": <byte 2>}' 0 >/dev/null
+notify smoke-shot 0 "$tier_wraps_image" "" '[]' "{\"image-path\": <\"$tier_image\">, \"urgency\": <byte 2>}" 0 >/dev/null
+notify Slack 0 "$tier_wraps_person" "" '[]' '{"desktop-entry": <"slack">, "urgency": <byte 2>}' 0 >/dev/null
+notify smoke-shot 0 "$tier_break_image" "" '[]' "{\"image-path\": <\"$tier_image\">, \"urgency\": <byte 2>}" 0 >/dev/null
+tier_held_value() { # ROWS CLOCKS SUMMARY...
+  python3 -c 'import json,sys
+rows = json.loads(sys.argv[1])
+clocks = json.loads(sys.argv[2])
+summaries = sys.argv[3:]
+absent = False
+clock = False
+for summary in summaries:
+    keys = [key for key, row_summary in rows if row_summary == summary]
+    if not keys:
+        absent = True
+    elif any(key in clocks for key in keys):
+        clock = True
+problems = []
+if absent: problems.append("absent")
+if clock: problems.append("clock")
+print("ok" if not problems else "violation " + ",".join(problems))' "$@"
+}
+tier_held() { # SUMMARY...
+  local rows clocks
+  rows="$(ipc smoke modelRows vgs.notifications rows key,summary)" || return
+  clocks="$(read_notes clocks)" || return
+  tier_held_value "$rows" "$clocks" "$@"
+}
+expect_poll "every media tier card is on screen with no clock, so it stays until dismissed" ok tier_held "${tier_compact[@]}" "${tier_regular[@]}"
 # One card's tier, where its text block starts and its slot's size, as
 # `tier=<tier> left=<px> slot=<px>x<px>`: the block starts at its title,
 # its body or the workspace icon before the title, whichever is leftmost.
@@ -1524,6 +1550,8 @@ checked_group() { # PLACES CHIP SUMMARY
 }
 expect "the tier predicate rejects two text starts in one tier" "violation x" tier_contract_value compact "tier=compact left=54 slot=${note_media_compact_size}x${note_media_compact_size}" "tier=compact left=66 slot=${note_media_compact_size}x${note_media_compact_size}"
 expect "the tier predicate rejects a card of another tier" "violation tier" tier_contract_value compact "tier=compact left=54 slot=${note_media_compact_size}x${note_media_compact_size}" "tier=regular left=54 slot=${note_media_compact_size}x${note_media_compact_size}"
+expect "the hold predicate rejects a tier card with a clock" "violation clock" tier_held_value '[["k1", "A"]]' '{"k1": {"since": 1, "remaining": 8000}}' A
+expect "the hold predicate rejects a missing tier card" "violation absent" tier_held_value '[]' '{}' A
 # The planted faces use the regular slot from Appearance.js and its 0.6 face share.
 expect "the group predicate rejects a face outside the slot" "violation outside" group_fit_value 2 "" '{"slot": [0, 0, 40, 40], "faces": [[[0, 0, 24, 24], "A"], [[30, 16, 24, 24], "B"]]}'
 expect "the group predicate rejects a missing face" "violation count" group_fit_value 3 "" '{"slot": [0, 0, 40, 40], "faces": [[[0, 0, 24, 24], "A"], [[16, 16, 24, 24], "B"]]}'
