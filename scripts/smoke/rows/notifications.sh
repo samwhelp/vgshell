@@ -1344,7 +1344,7 @@ header_tone() { # NAME: actual glyph colour and any background colour
 }
 note_warning="$(ipc smoke themeValue color.warning)" || fail "the warning token is unreadable"
 note_accent="$(ipc smoke themeValue color.accent)" || fail "the accent token is unreadable"
-header_tone_want() { python3 -c 'import json,sys; print(json.dumps([sys.argv[1], None]))' "$1"; }
+header_tone_want() { python3 -c 'import json,sys; print(json.dumps([json.loads(sys.argv[1]), None]))' "$1"; }
 click_header_icon() { # LABEL
   local rect x y
   rect="$(ipc smoke labelledGeometry panel vgs.notifications IconButton "$(header_label "$1")")" && [[ $rect == \[* ]] || return 1
