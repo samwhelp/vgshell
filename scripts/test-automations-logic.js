@@ -226,11 +226,12 @@ function verify(logic) {
         "OnCalendar=*-*-* 08:30:00", "OnCalendar=*-*-* 17:00:00", "AccuracySec=1s", "Persistent=true", "",
         "[Install]", "WantedBy=timers.target", ""].join("\n"));
     assert.match(logic.timerUnit(automation({})), /\nPersistent=false\n/, "no catch-up is Persistent=false");
-    const service = logic.serviceUnit(automation({}), ["/usr/bin/flock", "/home/a b/100%/$HOME/\"q\"\\"], ["XDG_STATE_HOME=/s"]);
+    const service = logic.serviceUnit(automation({}), ["/usr/bin/flock", "/home/a b/100%/$HOME/\"q\"\\"], ["XDG_STATE_HOME=/s/100%/$HOME/\"q\"\\", "AUTOMATION_NOTE=$5"]);
     assert.match(service, /\nExecStart="\/usr\/bin\/flock" "\/home\/a b\/100%%\/\$\$HOME\/\\"q\\"\\\\"\n/, "ExecStart quotes every argument as systemd reads it");
-    assert.match(service, /\nEnvironment="XDG_STATE_HOME=\/s"\n/);
+    assert.match(service, /\nEnvironment="XDG_STATE_HOME=\/s\/100%%\/\$HOME\/\\"q\\"\\\\" "AUTOMATION_NOTE=\$5"\n/, "Environment= keeps $ single, since systemd does not expand it there");
     assert.match(service, /\nType=oneshot\n/);
-    assert.throws(() => logic.systemdQuote("a\nb"), /control character/);
+    assert.throws(() => logic.systemdQuote("ExecStart", "a\nb"), /control character/);
+    assert.throws(() => logic.systemdQuote("Environment", "a\nb"), /control character/);
     same(["vgs-automation-backup.timer", "vgs-automation-backup.service", "vgs-automation-Backup.timer", "other.timer", "vgs-automation-backup.timer~"].map(logic.isOwnedUnit), [true, true, false, false, false]);
     const lines = logic.cronLines([automation({ schedule: TWICE_DAILY }), automation({ id: "paused", enabled: false })], a => ["/bin/runner", "run", a.id], ["XDG_STATE_HOME=/it's"]);
     same(lines, ["30 8 * * * env 'XDG_STATE_HOME=/it'\\''s' '/bin/runner' 'run' 'backup'", "0 17 * * * env 'XDG_STATE_HOME=/it'\\''s' '/bin/runner' 'run' 'backup'"], "a paused automation has no line, and one without catch-up no startup line");
@@ -480,7 +481,8 @@ const CONTROLS = [
     ["a derived id steps past a taken one", "for (var n = 2; taken.indexOf(id) !== -1; n++) id = base + \"-\" + n;", "var n = 2;"],
     ["an edit keeps the id", "if (hasOwn(changes, \"id\") && changes.id !== id) return { ok: false, error: \"definition.id: fixed=\" + id };", "if (false) return null;"],
     ["a unit argument doubles %", ".replace(/%/g, \"%%\")", ""],
-    ["a unit argument doubles $", ".replace(/\\$/g, \"$$$$\")", ""],
+    ["an ExecStart= argument doubles $", ".replace(/\\$/g, \"$$$$\")", ""],
+    ["an Environment= word keeps $ single", "directive === \"Environment\" ? quoted : ", ""],
     ["catch-up is Persistent=true", "lines.push(\"Persistent=\" + (automation.catchUp ? \"true\" : \"false\"));", "lines.push(\"Persistent=true\");"],
     ["a paused automation has no cron line", "if (!automations[i].enabled) continue;", "if (false) continue;"],
     ["catch-up runs at startup under cron", "if (automations[i].catchUp) out.push(\"@reboot \" + command);", ""],

@@ -762,13 +762,17 @@ function isOwnedUnit(name) {
     return match !== null && ID_PATTERN.test(match[1]);
 }
 
-// One argument of an ExecStart= or Environment= line, quoted as systemd
-// reads it back: a backslash and a quote escaped, `%` doubled so no
-// specifier expands, `$` doubled so no variable does.
-function systemdQuote(arg) {
+// One word of DIRECTIVE's line, quoted as systemd reads it back: a
+// backslash and a quote escaped, and `%` doubled so no specifier expands,
+// which every line does. A command line, ExecStart=, also expands `$`, so
+// its words double it (systemd.service(5), Command lines); Environment=
+// gives `$` no special meaning, so it stays single there (systemd.exec(5),
+// Environment=).
+function systemdQuote(directive, arg) {
     var s = String(arg);
     if (/[\u0000-\u001f\u007f]/.test(s)) throw new Error("automations: unit argument " + JSON.stringify(s) + " holds a control character");
-    return "\"" + s.replace(/\\/g, "\\\\").replace(/"/g, "\\\"").replace(/%/g, "%%").replace(/\$/g, "$$$$") + "\"";
+    var quoted = s.replace(/\\/g, "\\\\").replace(/"/g, "\\\"").replace(/%/g, "%%");
+    return "\"" + (directive === "Environment" ? quoted : quoted.replace(/\$/g, "$$$$")) + "\"";
 }
 
 function timerUnit(automation) {
@@ -800,8 +804,8 @@ function serviceUnit(automation, argv, environment) {
         "",
         "[Service]",
         "Type=oneshot",
-        "Environment=" + environment.map(systemdQuote).join(" "),
-        "ExecStart=" + argv.map(systemdQuote).join(" "),
+        "Environment=" + environment.map(function (word) { return systemdQuote("Environment", word); }).join(" "),
+        "ExecStart=" + argv.map(function (word) { return systemdQuote("ExecStart", word); }).join(" "),
         "SuccessExitStatus=75",
         ""
     ].join("\n");
