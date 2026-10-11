@@ -273,10 +273,11 @@ function voiceLoading(values) {
 }
 
 // The daemon has not answered for the voice: no status yet, Checking or
-// Loading.
+// Loading. A ready voice's microphone check row is info too, and offers its
+// action.
 function voicePending(values) {
     var voice = values.setupVoice;
-    return !voice || voice.tone === "info";
+    return !voice || (voice.tone === "info" && !offered(voice));
 }
 
 function keySetting(name) {
@@ -345,7 +346,10 @@ function view(values, keys, mode) {
             tooltipDetails: ["AI model: " + brain].concat(value.tooltipDetails) };
     }
     var muteOn = state !== null && muted(state.mute);
-    var armed = state !== null && state.capture !== null && typeof state.capture === "object" && state.capture.kind === "open" && state.capture.mode === "armed" && detail.phase === "armed";
+    // The wake-word capture, from its opening: Session's phase reads armed
+    // only once it is open.
+    var armed = state !== null && state.capture !== null && typeof state.capture === "object" && state.capture.mode === "armed"
+        && (state.capture.kind === "opening" || (state.capture.kind === "open" && detail.phase === "armed"));
     // The local sidecar drops every wake frame until its voice is ready, so
     // an armed capture over a pending voice reads loading below.
     if (state !== null && !(armed && voicePending(values)) && microphoneOpen(state.capture)) return withBrain(look("listening", armed ? "Jarvis is listening for Hey Jarvis" : "Jarvis is listening",

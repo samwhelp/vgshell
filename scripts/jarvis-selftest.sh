@@ -1280,6 +1280,9 @@ bar="$(bar_key)" || stopped bar-unread
 daemon_applied() { ipc smoke jarvisProcess | selftest_daemon "$settings"; }
 widget_state() { ipc smoke readInstance "$bar" vgs.jarvis view | py_reply 'import json,sys; print(json.load(sys.stdin)["state"])'; }
 traced() { ipc smoke jarvisTrace | selftest_last "$1"; }
+# The trace starts before the waits, so the record holds every widget state
+# of the start.
+[[ $(ipc smoke beginJarvisTrace "$bar") == ok ]] || stopped trace-not-started
 # The sidecar loads its models before the gate comes up: LocalSpeech.js
 # gives it 60 s, and this wait bounds that and the account check.
 selftest_wait 120 applied daemon_applied || stopped_gate not-ready "$reading"
@@ -1290,7 +1293,6 @@ speaker_capture="$sandbox/selftest-speaker.jsonl"
 devices_speaker_record "$speaker_capture"
 speaker_state() { [[ -s $speaker_capture ]] && echo ready || echo waiting; }
 selftest_wait 10 ready speaker_state || stopped speaker-capture-not-started
-[[ $(ipc smoke beginJarvisTrace "$bar") == ok ]] || stopped trace-not-started
 
 input_started_ms=""
 speech_end_ms=""
