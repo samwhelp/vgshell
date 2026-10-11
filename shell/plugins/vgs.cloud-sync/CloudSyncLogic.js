@@ -86,6 +86,27 @@ var CONFLICT_TEXT = {
     renamed: "Renamed on Google Drive"
 };
 
+var PAIR_RULE_TEXT = {
+    shape: "Folder pair {id} is not a valid folder pair.",
+    id: "Folder pair {id} has an invalid ID.",
+    label: "Folder pair {id} has an invalid name.",
+    direction: "Folder pair {id} has an invalid direction.",
+    remote: "Folder pair {id} has an invalid Google Drive folder.",
+    "drive-root": "Folder pair {id} uses the whole Drive.",
+    local: "Folder pair {id} has an invalid folder on this computer.",
+    "home-or-above": "Folder pair {id} uses your home folder or a folder above it.",
+    "repository-root": "Folder pair {id} uses a Git repository.",
+    "state-overlap": "Folder pair {id} overlaps the folder where Cloud Sync keeps its records.",
+    "vgs-overlap": "Folder pair {id} overlaps a VGS folder.",
+    "unit-overlap": "Folder pair {id} overlaps the folder for system services.",
+    "repository-inside": "Folder pair {id} holds a Git repository.",
+    "duplicate-id": "Folder pair {id} has the same ID as another folder pair.",
+    "local-overlap": "Folder pair {id} overlaps another folder pair.",
+    "remote-overlap": "Folder pair {id} overlaps another Google Drive folder pair."
+};
+
+var PAIRS_RESET_HINT = "Start again to keep the damaged file and make an empty list.";
+
 // What a failed request to the runner reads as, by its operation.
 var PROBLEM_TEXT = {
     start: "VGS could not start a sync.",
@@ -219,8 +240,28 @@ function errorText(error, onPage) {
     if (error === null) return "";
     if (error.kind === "credential-absent" && hasOwn(TOKEN_DIRECTION, error.account))
         return "Google Drive is not signed in for " + TOKEN_DIRECTION[error.account] + ". Select Sign in " + (onPage === true ? "below." : "on the Cloud Sync page in Settings.");
+    if (error.kind === "pairs-invalid") return pairListProblem(error);
     if (onPage === true && hasOwn(PAGE_ERROR_TEXT, error.kind)) return PAGE_ERROR_TEXT[error.kind];
     return hasOwn(ERROR_TEXT, error.kind) ? ERROR_TEXT[error.kind] : ERROR_DEFAULT;
+}
+
+// The pair list reader's detail as one sentence a user reads. The keyed
+// detail stays in the log and status record for support.
+function pairListProblem(error) {
+    if (error === null || error.kind !== "pairs-invalid" || !isText(error.detail)) return ERROR_TEXT["pairs-invalid"];
+    if (error.detail === "pairs-file=not-json") return "The folder pair list file is not valid JSON.";
+    if (/^pairs-file=unreadable-/.test(error.detail)) return "VGS cannot read the folder pair list file.";
+    if (error.detail === "pairs-file=shape") return "The folder pair list file does not hold a list of folder pairs.";
+    var match = /^pair=([^ ]+) rule=([^ ]+)$/.exec(error.detail);
+    if (match !== null && hasOwn(PAIR_RULE_TEXT, match[2])) {
+        var id = match[1] === "?" ? "entry" : match[1];
+        return PAIR_RULE_TEXT[match[2]].replace("{id}", id);
+    }
+    return ERROR_TEXT["pairs-invalid"];
+}
+
+function pairListResetHint(error) {
+    return pairListProblem(error) + " " + PAIRS_RESET_HINT;
 }
 
 function conflictText(kind) {
@@ -246,6 +287,7 @@ function reviewDirs(conflict) {
 // it names, which errorText reads.
 function publishedError(error) {
     if (error === null) return null;
+    if (error.kind === "pairs-invalid" && isText(error.detail)) return { kind: error.kind, detail: error.detail };
     return isText(error.account) ? { kind: error.kind, account: error.account } : { kind: error.kind };
 }
 
@@ -351,10 +393,10 @@ function scheduleValue(units) {
 
 // The `pairs` value of CLOUD: each pair's label and direction, with Add a
 // folder pair while there is none and Remove a folder pair once one
-// exists; while the runner cannot read the list it offers neither, since
-// it refuses both.
+// exists; while the runner cannot read the list it offers Reset, the one
+// change the runner accepts in that state.
 function pairsValue(cloud) {
-    if (!pairListValid(cloud)) return { tone: "danger", text: "Not readable", hint: errorText(cloud.lastError, true) };
+    if (!pairListValid(cloud)) return { tone: "danger", text: "Not readable", hint: pairListResetHint(cloud.lastError), action: "reset" };
     var pairs = cloud.pairs;
     if (pairs.length === 0) return { tone: "warning", text: "None", action: "add", hint: NO_PAIRS_HINT };
     return {

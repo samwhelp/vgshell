@@ -43,6 +43,9 @@
 //   cloud-sync pairs [--lines]
 //       one JSON line, { pairs, error }; with --lines, one `<id>\t<label>`
 //       line per pair, for the Remove a folder pair TUI's list.
+//   cloud-sync pairs-reset
+//       while the pair list is invalid, keeps the damaged list beside it,
+//       starts a valid empty list and prints `reset=<kept-name>`.
 //   cloud-sync pair-add --definition <json> | pair-remove <id>
 //       one validated change to the pair list; prints `added=<id>` or
 //       `removed=<id>`. Removing a pair deletes no file.
@@ -118,7 +121,7 @@ const FAILURE_STATES = {
     "authorization-refused": "authorization-required",
     offline: "offline"
 };
-const USAGE = "usage: cloud-sync run [--pair <id>] | status [--quiet] | attention-seen <key> | probe | authorize pull|upload | sign-out pull|upload | install | start | pause [--pair <id>] | resume [--pair <id>] | pairs [--lines] | pair-add --definition <json> | pair-remove <id>";
+const USAGE = "usage: cloud-sync run [--pair <id>] | status [--quiet] | attention-seen <key> | probe | authorize pull|upload | sign-out pull|upload | install | start | pause [--pair <id>] | resume [--pair <id>] | pairs [--lines] | pairs-reset | pair-add --definition <json> | pair-remove <id>";
 
 function bad(first) {
     process.stderr.write("cloud-sync: refused: " + first + "\n" + USAGE + "\n");
@@ -1202,6 +1205,31 @@ function pairsVerb(words) {
     else for (const pair of read.pairs) process.stdout.write(pair.id + "\t" + pair.label + "\n");
 }
 
+function stamp() {
+    return new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function pairsResetVerb(words) {
+    if (words.length !== 0) bad("argument=" + words[0]);
+    let keptName = "";
+    withStateLock(() => {
+        const read = readPairs();
+        if (read.error === null) refuse("pairs=valid");
+        keptName = "pairs.json.damaged-" + stamp();
+        const kept = path.join(path.dirname(pairsFile), keptName);
+        try {
+            fs.lstatSync(kept);
+            refuse("kept=exists");
+        } catch (e) {
+            if (e.code !== "ENOENT") throw e;
+        }
+        fs.renameSync(pairsFile, kept);
+        writeJson(pairsFile, { pairs: [] });
+        writeStatus();
+    });
+    process.stdout.write("reset=" + keptName + "\n");
+}
+
 function pairAddVerb(words) {
     if (words.length !== 2 || words[0] !== "--definition") bad("option=--definition value=missing");
     let pair;
@@ -1250,6 +1278,7 @@ case "start": startVerb(rest); break;
 case "pause": pauseVerb(rest, true); break;
 case "resume": pauseVerb(rest, false); break;
 case "pairs": pairsVerb(rest); break;
+case "pairs-reset": pairsResetVerb(rest); break;
 case "pair-add": pairAddVerb(rest); break;
 case "pair-remove": pairRemoveVerb(rest); break;
 default: bad("verb=" + (verb || "missing"));

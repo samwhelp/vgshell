@@ -20,8 +20,10 @@
 # Sync now asks systemd
 # to start the one service, which the systemctl stand-in logs, and runs no
 # rclone, and its Remove beside a pair hands the terminal the remove TUI
-# for that pair; a Drive-side add and change reach the mirror after one
-# run; a local edit since the last download keeps both versions and reads
+# for that pair; an invalid pair list publishes the reset step to Settings
+# and the window, and the runner keeps the damaged file beside an empty
+# list; a Drive-side add and change reach the mirror after one run; a
+# local edit since the last download keeps both versions and reads
 # `local-edit` in the published status, and the service asks for one
 # notification for it, which the core delivers or drops by its own rule
 # (rows/notify.sh), and has the runner record it as notified; a Drive
@@ -97,6 +99,15 @@ cs_click_sync() { click_in "window:Cloud Sync" window vgs.cloud-sync Button "Syn
 # The window footer's primary action and whether it is enabled.
 cs_window_primary() { ipc smoke readInstance window vgs.cloud-sync footer | py_reply 'import json,sys; p=json.load(sys.stdin)["primary"]; print(json.dumps([p["action"], p["enabled"]]))'; }
 cs_click_remove() { click_in "window:Cloud Sync" window vgs.cloud-sync RowAction Remove && echo ok; }
+cs_click_reset() { click_in "window:Cloud Sync" window vgs.cloud-sync Button "Start the folder pair list again" && echo ok; }
+cs_reset_output() { cs_answer pairs-reset | py_reply 'import sys
+s=sys.stdin.read().strip()
+print("reset=kept exit=0" if s.startswith("reset=pairs.json.damaged-") and s.endswith(" exit=0") else s)'; }
+cs_pairs_json() { py_reply 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))' "$cs_home/.config/vgshell/cloud-sync/pairs.json"; }
+cs_kept_pairs_bytes() { py_reply 'import glob,sys
+files=glob.glob(sys.argv[1] + "/pairs.json.damaged-*")
+print(open(files[0]).read() if len(files) == 1 else "kept-count=%d" % len(files))' "$cs_home/.config/vgshell/cloud-sync"; }
+cs_remove_kept_pairs() { rm -f -- "$cs_home"/.config/vgshell/cloud-sync/pairs.json.damaged-*; }
 cs_dropped() { ipc smoke readInstance service vgs.cloud-sync smokeDropped; }
 cs_dropped_after() { local now; now="$(cs_dropped)" || return; [[ $now =~ ^[0-9]+$ && $now -gt $1 ]] && echo read || echo "$now"; }
 # The attention key the runner's record holds, and the one the service
@@ -380,6 +391,28 @@ SH
 
   # The world as the row found it.
   expect "the pair is removed" removed=docs cs pair-remove docs
+  printf '{"pairs": [' >"$cs_home/.config/vgshell/cloud-sync/pairs.json"
+  expect "the service reads the damaged pair list" ok ipc vgs.cloud-sync invoke refresh ""
+  expect_poll "the damaged pair list offers Reset in status" '["danger", "Not readable", "reset"]' cs_pairs
+  expect "the window is summoned for the damaged pair list" ok ipc shell summon window vgs.cloud-sync '{}'
+  expect_poll "the window reads the damaged pair list" false ipc smoke readInstance window vgs.cloud-sync pairsValid
+  forget_record
+  expect "the window reset step is clicked" ok cs_click_reset
+  expect_poll "the window reset hands the terminal the reset TUI" "$(words vgs.cloud-sync/reset-pairs tui/reset-pairs.sh)" recorded_tail
+  expect_run_end "the window reset run ends" vgs.cloud-sync/reset-pairs
+  expect "the damaged-list window is hidden" ok ipc shell hide window vgs.cloud-sync
+  settings_page_open vgs.cloud-sync
+  forget_record
+  expect "the Settings pair-list repair is pressed" ok settings_act vgs.cloud-sync pairs
+  expect_poll "Settings hands the terminal the reset TUI" "$(words vgs.cloud-sync/reset-pairs tui/reset-pairs.sh)" recorded_tail
+  expect_run_end "the Settings reset run ends" vgs.cloud-sync/reset-pairs
+  settings_page_close vgs.cloud-sync
+  expect "the runner resets the damaged pair list" "reset=kept exit=0" cs_reset_output
+  expect "the damaged pair list is kept" '{"pairs": [' cs_kept_pairs_bytes
+  expect "the new pair list is empty" '{"pairs": []}' cs_pairs_json
+  expect "the service reads the empty pair list" ok ipc vgs.cloud-sync invoke refresh ""
+  expect_poll "the empty pair list offers Add again" '["warning", "None", "add"]' cs_pairs
+  cs_remove_kept_pairs
   rm -f -- "$home/.config/systemd/user/vgs-cloud-sync.service" "$home/.config/systemd/user/vgs-cloud-sync.timer"
   expect "the service reads the record again" ok ipc vgs.cloud-sync invoke refresh ""
   expect_poll "with no pair and no unit the sync reads not set up" '["warning", "Not set up"]' cs_sync

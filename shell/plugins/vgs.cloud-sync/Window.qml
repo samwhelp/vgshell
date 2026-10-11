@@ -8,7 +8,9 @@ import "CloudSyncLogic.js" as Logic
 // the bar and the Settings page also read) in its tone's colour, then the
 // last complete sync, the pause and the last problem. Folder pairs lists
 // each pair by its label, direction and state, with Remove, which opens
-// the remove TUI for that pair; To review lists each file Cloud Sync kept,
+// the remove TUI for that pair; while the folder pair list is invalid, it
+// offers the reset TUI, which keeps the damaged list and starts an empty
+// one. To review lists each file Cloud Sync kept,
 // a local edit, a Drive deletion or a Drive rename, under its folder
 // pair's label, with Open folders, which opens the folders that hold its
 // versions. The footer holds Sync now, enabled only when a sync can
@@ -148,6 +150,14 @@ FocusScope {
                             }
                         ]
                     }
+                }
+                EmptyState {
+                    width: parent.width
+                    visible: root.known && !root.pairsValid
+                    iconName: "file-x"
+                    text: root.known ? Logic.pairListResetHint(root.cloud.lastError) : ""
+                    actionText: "Start the folder pair list again"
+                    onActivated: root.run("reset-pairs")
                 }
                 EmptyState {
                     width: parent.width

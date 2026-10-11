@@ -55,7 +55,7 @@ Item {
     readonly property int secretRevision: shell === null ? 0 : shell.secrets.revision
     // The end of each setup TUI's last run, whoever opened it: Settings,
     // the window or the launcher.
-    readonly property string tuiEnds: shell === null ? "" : JSON.stringify(["setup", "add-pair", "remove-pair", "connect-drive", "connect-upload", "sign-out-drive", "sign-out-upload"]
+    readonly property string tuiEnds: shell === null ? "" : JSON.stringify(["setup", "add-pair", "remove-pair", "reset-pairs", "connect-drive", "connect-upload", "sign-out-drive", "sign-out-upload"]
         .map(name => shell.tui.state[name] ? shell.tui.state[name].endedAt : null))
 
     onShellChanged: start()

@@ -903,6 +903,43 @@ function caseSignOut(runner) {
     assert.equal(cli(v, ["sign-out", "both"], runner).status, 2);
 }
 
+// pairs-reset is only for an invalid list: it keeps the damaged bytes,
+// starts a valid empty list, refreshes status and lets pair changes work
+// again. A valid or absent list is never reset.
+function casePairsReset(runner) {
+    const w = world();
+    const file = path.join(w.home, ".config", "vgshell", "cloud-sync", "pairs.json");
+    const damaged = "{\"pairs\": [";
+    write(file, damaged);
+    const out = cli(w, ["pairs-reset"], runner);
+    assert.equal(out.status, 0, out.stderr);
+    assert.match(out.stdout, /^reset=pairs\.json\.damaged-\d{8}T\d{6}Z\n$/);
+    const keptName = out.stdout.trim().slice("reset=".length);
+    const kept = path.join(path.dirname(file), keptName);
+    assert.equal(fs.existsSync(kept), true, "the damaged file is kept");
+    assert.equal(read(kept), damaged, "the damaged bytes are kept exactly");
+    assert.deepEqual(JSON.parse(read(file)), { pairs: [] });
+    const rendered = JSON.parse(read(path.join(w.state, "status.json")));
+    assert.equal(rendered.lastError, null);
+    assert.deepEqual(rendered.pairs, []);
+    addPair(w, runner);
+    const validBefore = read(file);
+    const refused = cli(w, ["pairs-reset"], runner);
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /^cloud-sync: refused: pairs=valid$/m);
+    assert.equal(read(file), validBefore, "a valid list is unchanged");
+    assert.deepEqual(fs.readdirSync(path.dirname(file)).filter(name => name.startsWith("pairs.json.damaged-")).sort(), [keptName]);
+
+    const absent = world();
+    const absentFile = path.join(absent.home, ".config", "vgshell", "cloud-sync", "pairs.json");
+    const absentOut = cli(absent, ["pairs-reset"], runner);
+    assert.equal(absentOut.status, 1);
+    assert.match(absentOut.stderr, /^cloud-sync: refused: pairs=valid$/m);
+    assert.equal(fs.existsSync(absentFile), false, "an absent list stays absent");
+
+    assert.equal(cli(world(), ["pairs-reset", "extra"], runner).status, 2);
+}
+
 // attention-seen marks the record's key notified across renders, pause
 // and resume, and a process that reads it afresh; a new key reads
 // notified=false again.
@@ -1046,6 +1083,8 @@ async function controls() {
     await mustFail("sign-in resets", mutant("sign-in resets", "if (state.state === \"authorization-required\") writePairState(", "if (false) writePairState("), caseSignOut);
     await mustFail("pause keeps notified", mutant("pause keeps notified", "paused ? control.pausedPairs : [], notifiedKey: control.notifiedKey }", "paused ? control.pausedPairs : [] }"), caseAttention);
     await mustFail("child environment", mutant("child environment", "const env = { LANG: \"C.UTF-8\" };", "const env = Object.assign({ LANG: \"C.UTF-8\" }, process.env);"), caseCopy);
+    await mustFail("pairs-reset keeps the damaged file", mutant("pairs-reset keeps the damaged file", "fs.renameSync(pairsFile, kept);\n        writeJson(pairsFile, { pairs: [] });", "writeJson(pairsFile, { pairs: [] });"), casePairsReset);
+    await mustFail("pairs-reset refuses a valid list", mutant("pairs-reset refuses a valid list", "if (read.error === null) refuse(\"pairs=valid\");", "if (false) refuse(\"pairs=valid\");"), casePairsReset);
     const rules = [...new Set(validationRows(world()).map(row => row.rule).filter(rule => rule !== null))];
     for (const rule of rules) {
         const text = read(RUNNER);
@@ -1069,6 +1108,7 @@ async function main() {
     caseProbe();
     caseAuthorize();
     caseSignOut();
+    casePairsReset();
     caseAttention();
     caseRunKey();
     caseNoLeak();

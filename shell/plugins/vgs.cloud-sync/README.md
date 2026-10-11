@@ -31,6 +31,8 @@ Open the Cloud Sync page in Settings. The Setup section and the Download and Upl
 
 Remove a folder pair, on the Settings page or beside the pair in the Cloud Sync window, stops the sync of a pair. Its files stay on this computer and on Drive.
 
+If the folder pair list cannot be read, select Start the folder pair list again. VGS keeps the damaged list beside a new empty list.
+
 When a Sign-in line reads Sign-in refused, select Sign in again in that group. Sign out removes the sign-in from your keyring and deletes no file.
 
 [developer.md](developer.md) states how a sync works, the files and the runner's commands.

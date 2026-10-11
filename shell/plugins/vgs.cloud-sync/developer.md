@@ -20,7 +20,7 @@ rclone reads the remote and the credential from its environment alone, with `--c
 
 ## Files
 
-- `~/.config/vgshell/cloud-sync/pairs.json`: the folder pairs, `{ pairs: [{ id, label, direction, remote, local }] }`. Add a folder pair and Remove a folder pair change it through `pair-add` and `pair-remove`, which judge every pair.
+- `~/.config/vgshell/cloud-sync/pairs.json`: the folder pairs, `{ pairs: [{ id, label, direction, remote, local }] }`. Add a folder pair and Remove a folder pair change it through `pair-add` and `pair-remove`, which judge every pair. Start the folder pair list again runs `pairs-reset`, which keeps a damaged list beside a new empty list.
 - `~/.local/state/vgshell/cloud-sync/status.json`: the status record the plugin's service watches and publishes.
 - `~/.local/state/vgshell/cloud-sync/control.json`: the pause record and the attention key last notified, so both survive a restart.
 - `~/.local/state/vgshell/cloud-sync/pairs/<id>/`: each pair's state, inventory and conflict copies.

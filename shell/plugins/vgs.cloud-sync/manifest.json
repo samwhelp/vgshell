@@ -26,6 +26,7 @@
     "setup": { "script": "tui/setup.sh", "title": "Set up hourly sync", "requires": ["node", "systemctl"] },
     "add-pair": { "script": "tui/add-pair.sh", "title": "Add a folder pair", "requires": ["node", "gum"], "entry": { "label": "Add a folder pair", "icon": "folder-plus", "group": "Cloud Sync" } },
     "remove-pair": { "script": "tui/remove-pair.sh", "title": "Remove a folder pair", "requires": ["node", "gum"] },
+    "reset-pairs": { "script": "tui/reset-pairs.sh", "title": "Start the folder pair list again", "requires": ["node", "gum"] },
     "connect-drive": { "script": "tui/connect-drive.sh", "title": "Sign in for Download", "requires": ["node", "rclone", "secret-tool", "xdg-open", "curl"] },
     "connect-upload": { "script": "tui/connect-upload.sh", "title": "Sign in for Upload", "requires": ["node", "rclone", "secret-tool", "xdg-open", "curl"] },
     "sign-out-drive": { "script": "tui/sign-out-drive.sh", "title": "Sign out of Download", "requires": ["node", "secret-tool"] },
@@ -51,7 +52,8 @@
       "group": "Setup",
       "actions": {
         "add": { "label": "Add a folder pair", "tui": "add-pair" },
-        "remove": { "label": "Remove a folder pair", "tui": "remove-pair", "tone": "danger" }
+        "remove": { "label": "Remove a folder pair", "tui": "remove-pair", "tone": "danger" },
+        "reset": { "label": "Start the folder pair list again", "tui": "reset-pairs" }
       }
     },
     "downloadKeys": {

@@ -317,6 +317,7 @@ f share/vgshell/shell/plugins/vgs.cloud-sync/tui/connect-drive.sh
 f share/vgshell/shell/plugins/vgs.cloud-sync/tui/connect-upload.sh
 f share/vgshell/shell/plugins/vgs.cloud-sync/tui/connect.sh
 f share/vgshell/shell/plugins/vgs.cloud-sync/tui/remove-pair.sh
+f share/vgshell/shell/plugins/vgs.cloud-sync/tui/reset-pairs.sh
 f share/vgshell/shell/plugins/vgs.cloud-sync/tui/setup.sh
 f share/vgshell/shell/plugins/vgs.cloud-sync/tui/sign-out-drive.sh
 f share/vgshell/shell/plugins/vgs.cloud-sync/tui/sign-out-upload.sh
