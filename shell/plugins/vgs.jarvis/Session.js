@@ -8,6 +8,7 @@
 var SESSION_SETTINGS = ["mode", "voiceProvider", "voice", "language", "brain", "model", "effort", "fallbacks", "customBaseUrl", "home", "policy", "cloudVision", "account", "voiceAccount"];
 var RESPONSE_TIMEOUT_MS = 60000;
 var COLLECTION_TIMEOUT_MS = 60000;
+var VOICE_CHECK_MS = 3000;
 var PLAYBACK_TIMEOUT_MS = 300000;
 var APPROVAL_TIMEOUT_MS = 60000;
 var APPROVAL_DRAW_MS = 700;
@@ -23,7 +24,7 @@ var EVENTS = [
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
     "final", "say", "collect-failed", "brain-done", "brain-failed", "brain-ended", "cancelled", "play", "played",
     "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "deadline", "lease-ended",
-    "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "wake"
+    "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "wake", "voice-check", "voice-checked"
 ];
 
 function initial() {
@@ -35,13 +36,14 @@ function initial() {
         action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
         conversation: { kind: "ended" }, input: { kind: "released" },
         indicator: { kind: "gone" }, duplex: { kind: "half" }, toggleAt: null,
-        engine: { kind: "chained" }, speech: { kind: "closed" }
+        engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }
     };
 }
 
 // One phase judge for the wire and the shell. Closing/flushing do not claim
 // listening/speaking; mute completion waits for capture's close acknowledgment.
 function phaseOf(s) {
+    if (s.check.kind === "recording" && s.capture.kind === "open") return "listening";
     if (s.gate.kind === "down") return "down";
     if (s.fault.kind !== "none") return "error";
     if (s.approval.kind === "held") return "confirming";
@@ -58,6 +60,7 @@ function phaseOf(s) {
 // Demand precedes capture admission. Waiting for capture here would wait
 // forever for the indicator that must be presented before capture opens.
 function indicatorWanted(s) {
+    if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) return true;
     if (s.capture.kind !== "closed") return true;
     var phase = phaseOf(s);
     if (phase !== "idle" && phase !== "down") return true;
@@ -126,6 +129,7 @@ function requestToolCancel(s, effects) {
 }
 
 function end(s, effects, at, reason, stopTool) {
+    if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) s.check = { kind: "ready" };
     if (s.conversation.kind !== "ended") {
         s.gen++;
         s.conversation = { kind: "ended" };
@@ -144,10 +148,18 @@ function canEngage(s) {
     return s.gate.kind === "up" && s.mute.kind === "off" && s.fault.kind !== "error";
 }
 
+function canCheck(s) {
+    return s !== null && ["ready", "done"].indexOf(s.check.kind) !== -1 && s.fault.kind === "none" && s.mute.kind === "off"
+        && (s.gate.kind === "up" || s.gate.reason === "unconfigured")
+        && s.turn.kind === "none" && s.playback.kind === "idle" && s.action.kind !== "running" && s.approval.kind !== "held";
+}
+
 function canCapture(s) {
-    return canEngage(s) && s.indicator.kind === "shown"
+    var checking = s.input.kind === "check" && (s.gate.kind === "up" || s.gate.reason === "unconfigured")
+        && s.fault.kind === "none" && s.mute.kind === "off" && ["waiting", "recording"].indexOf(s.check.kind) !== -1;
+    return (canEngage(s) || checking) && s.indicator.kind === "shown"
         && s.playback.kind === "idle" && s.turn.kind !== "cancelling" && s.input.kind !== "released"
-        && (s.conversation.kind !== "ended" || s.input.kind === "armed");
+        && (s.conversation.kind !== "ended" || s.input.kind === "armed" || checking);
 }
 
 // Always mode listens for the wake word only while Jarvis is otherwise
@@ -156,6 +168,7 @@ function canCapture(s) {
 // local chained engine's alone; it collects no utterance.
 function armedWanted(s) {
     return s.settings.mode === "always" && s.engine.kind === "chained" && canEngage(s)
+        && ["waiting", "recording", "finishing"].indexOf(s.check.kind) === -1
         && s.turn.kind === "none" && s.playback.kind === "idle"
         && s.approval.kind === "none" && s.action.kind === "none";
 }
@@ -256,11 +269,12 @@ function reconcile(s, effects, at) {
         var mode = s.input.kind === "held" ? "hold" : s.input.kind === "woken" ? "conversation" : s.input.kind;
         var e = effect(s, effects, "capture-open", { mode: mode });
         s.capture = { kind: "opening", gen: e.gen, op: e.op, mode: mode };
+        if (mode === "check") s.check = { kind: "waiting", gen: e.gen, op: e.op, deadline: at + COLLECTION_TIMEOUT_MS };
     }
     if (s.turn.kind === "collecting" && s.capture.kind === "closing" && s.turn.deadline === null)
         s.turn.deadline = at + COLLECTION_TIMEOUT_MS;
     // The duplex voice model owns turn-taking; no utterance is collected.
-    if (s.engine.kind === "chained" && canCapture(s) && s.input.kind !== "armed"
+    if (s.engine.kind === "chained" && canCapture(s) && s.input.kind !== "armed" && s.input.kind !== "check"
             && (s.capture.kind === "opening" || s.capture.kind === "open") && s.turn.kind === "none") {
         var collect = effect(s, effects, "collect", {});
         s.turn = { kind: "collecting", gen: collect.gen, op: collect.op, partial: "", deadline: at + COLLECTION_TIMEOUT_MS };
@@ -274,6 +288,7 @@ function reconcile(s, effects, at) {
 
 function start(s, effects, mode, at) {
     if (!canEngage(s)) return;
+    if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) end(s, effects, at, "talk", false);
     if (s.conversation.kind === "ended") {
         s.gen++;
         s.conversation = { kind: "active" };
@@ -372,6 +387,13 @@ function listenNow(s, effects, at) {
 }
 
 function expire(s, effects, at) {
+    if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1 && at >= s.check.deadline) {
+        if (s.check.kind === "recording") {
+            s.input = { kind: "released" };
+            closeCapture(s, effects);
+            s.check = { kind: "finishing", gen: s.check.gen, op: s.check.op, deadline: at + COLLECTION_TIMEOUT_MS };
+        } else end(s, effects, at, "check-timeout", false);
+    }
     // A woken request that heard nothing was a false wake: Always mode goes
     // back to waiting for the word, with no fault to clear first.
     if (s.turn.kind === "collecting" && s.turn.deadline !== null && at >= s.turn.deadline) {
@@ -422,9 +444,10 @@ function reduce(state, e) {
         if (e.engine !== "chained" && e.engine !== "duplex") throw new Error("jarvis: session=engine");
         var settingsChanged = changedSettings(s.settings, e.settings) || s.engine.kind !== e.engine;
         var devicesChanged = s.settings.microphone !== e.settings.microphone || s.settings.speaker !== e.settings.speaker;
+        if (devicesChanged && s.check.kind === "done") s.check = { kind: "ready" };
         if (devicesChanged && s.fault.kind === "error" && s.fault.reason === "device-lost")
             s.fault = { kind: "none" };
-        if (settingsChanged) {
+        if (settingsChanged || devicesChanged && ["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) {
             var before = s.gen;
             end(s, effects, e.at, "settings", false);
             if (s.gen === before) s.gen++;
@@ -434,14 +457,30 @@ function reduce(state, e) {
         if (s.settings.sounds !== true && s.playback.kind === "feedback") flushPlayback(s, effects);
         s.engine = { kind: e.engine };
         if (e.locked !== false || !e.configured) {
-            end(s, effects, e.at, "gate", false);
+            if (e.locked !== false || e.checkReady !== true || ["waiting", "recording", "finishing"].indexOf(s.check.kind) === -1) end(s, effects, e.at, "gate", false);
             s.gate = { kind: "down", reason: e.locked === null ? "lock-unknown"
                 : e.locked ? "locked" : "unconfigured" };
         } else s.gate = { kind: "up" };
+        if (e.checkReady !== true) {
+            if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) end(s, effects, e.at, "voice-unavailable", false);
+            s.check = { kind: "unavailable" };
+        } else if (s.check.kind === "unavailable") s.check = { kind: "ready" };
         break;
     }
     case "indicator":
         s.indicator = { kind: e.shown ? "shown" : "gone" };
+        if (!e.shown && s.input.kind === "check" && s.capture.kind !== "closed") end(s, effects, e.at, "indicator", false);
+        break;
+    case "voice-check":
+        if (!canCheck(s)) break;
+        end(s, effects, e.at, "voice-check", false);
+        s.check = { kind: "waiting", gen: s.gen, op: operation(s), deadline: e.at + COLLECTION_TIMEOUT_MS };
+        s.input = { kind: "check" };
+        break;
+    case "voice-checked":
+        if (!live(s, e, "check", ["finishing"])) { stale(s); break; }
+        if (["ready", "silent", "not-heard"].indexOf(e.result) === -1) throw new Error("jarvis: session=check-result");
+        s.check = { kind: "done", result: e.result };
         break;
     case "talk-down":
         if (s.approval.kind === "held") {
@@ -499,17 +538,20 @@ function reduce(state, e) {
         if (s.turn.kind === "cancelling") s.turn = { kind: "none" };
         break;
     case "cancel":
+        if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) end(s, effects, e.at, "cancel", false);
         s.input = { kind: "released" };
         closeCapture(s, effects);
         cancelTurn(s, effects, e.at);
         dropApproval(s, effects, "cancel", e.at);
         break;
     case "interrupt":
+        if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) end(s, effects, e.at, "interrupt", false);
         interrupt(s, effects, e.at);
         break;
     case "capture-opened":
         if (!live(s, e, "capture", ["opening"])) { stale(s); break; }
         s.capture.kind = "open";
+        if (s.capture.mode === "check") s.check = { kind: "recording", gen: e.gen, op: e.op, deadline: e.at + VOICE_CHECK_MS };
         if (s.turn.kind === "collecting") s.turn.deadline = s.input.kind === "woken" ? e.at + WAKE_SILENCE_MS : null;
         if (s.fault.kind === "retrying") s.fault = { kind: "none" };
         break;
@@ -520,6 +562,7 @@ function reduce(state, e) {
             ? { kind: "retrying", reason: e.reason, retry: retry + 1 }
             : { kind: "error", reason: e.reason, retry: retry };
         closeCapture(s, effects);
+        if (s.input.kind === "check") end(s, effects, e.at, "capture-failed", false);
         if (s.turn.kind === "collecting") s.turn = { kind: "none" };
         break;
     }
@@ -560,6 +603,7 @@ function reduce(state, e) {
         break;
     case "say":
         if (sayRefusal(s) !== null) break;
+        if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) end(s, effects, e.at, "say", false);
         recover(s, effects, e.at);
         commitUserText(s, effects, e.text, e.at, 1);
         break;
@@ -762,6 +806,7 @@ function reduce(state, e) {
         break;
     case "deadline":
         if (live(s, e, "turn", ["collecting", "thinking", "cancelling"])
+                || live(s, e, "check", ["waiting", "recording", "finishing"])
                 || live(s, e, "playback", ["playing", "feedback"])
                 || live(s, e, "approval", ["held"]) || live(s, e, "action", ["running"]))
             expire(s, effects, e.at);
@@ -784,9 +829,10 @@ var REGIONS = {
     action: { none: "", running: "gen op tool brain limit cancellation" },
     approval: { none: "", held: "purpose gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain" },
     fault: { none: "", error: "reason retry", retrying: "reason retry" }, conversation: { ended: "", active: "", interrupted: "" },
-    input: { released: "", held: "", conversation: "", "follow-up": "", armed: "", woken: "" },
+    input: { released: "", held: "", conversation: "", "follow-up": "", armed: "", woken: "", check: "" },
     indicator: { gone: "", shown: "" }, duplex: { half: "" },
-    engine: { chained: "", duplex: "" }, speech: { closed: "", open: "gen op reply" }
+    engine: { chained: "", duplex: "" }, speech: { closed: "", open: "gen op reply" },
+    check: { unavailable: "", ready: "", waiting: "gen op deadline", recording: "gen op deadline", finishing: "gen op deadline", done: "result" }
 };
 
 function exact(value, names) {
@@ -839,7 +885,8 @@ function validate(s) {
         }
         if (region === "approval" && r.kind === "held" && ["action", "release"].indexOf(r.purpose) === -1) return false;
         if (region === "capture" && fields.indexOf("mode") !== -1
-                && ["hold", "conversation", "follow-up", "armed"].indexOf(r.mode) === -1) return false;
+                && ["hold", "conversation", "follow-up", "armed", "check"].indexOf(r.mode) === -1) return false;
+        if (region === "check" && r.kind === "done" && ["ready", "silent", "not-heard"].indexOf(r.result) === -1) return false;
         if (region === "playback" && r.kind === "feedback" && ["start", "working"].indexOf(r.cue) === -1) return false;
         if (region === "gate" && r.kind === "down"
                 && ["starting", "unconfigured", "node", "lock-unknown", "locked"].indexOf(r.reason) === -1) return false;

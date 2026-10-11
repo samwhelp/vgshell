@@ -384,7 +384,7 @@ function accept(line, direction) {
             if (!printable(message.text, 1, TRANSCRIPT_CHARS) || message.text.trim() === "") fail("say-text");
         } else {
             keys(message, fields, "intent");
-            if (["talk-down", "talk-up", "mute", "stop"].indexOf(message.intent) === -1) fail("intent");
+            if (["talk-down", "talk-up", "mute", "stop", "voice-check"].indexOf(message.intent) === -1) fail("intent");
         }
         break;
     case "shown":

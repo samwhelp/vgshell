@@ -444,7 +444,8 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     fs.mkdirSync(state);
     fs.copyFileSync(path.join(__dirname, "fixtures/jarvis-local-speech/standin.py"), path.join(local, "venv/bin/python"));
     fs.chmodSync(path.join(local, "venv/bin/python"), 0o700);
-    fs.writeFileSync(path.join(local, "scenario.json"), JSON.stringify({ start: "held", utterances: [{ final: "Captured once." }] }));
+    fs.writeFileSync(path.join(local, "scenario.json"), JSON.stringify({ start: "held", utterances: [{ final: "Captured once." }],
+        checks: [ending === "check-ready" ? { afterFrames: 1 } : {}] }));
     assert.equal(cp.spawnSync("python3", ["-I", "-c", "import os,sys;os.mkfifo(sys.argv[1])", path.join(local, "ready-gate")]).status, 0);
     if (ending !== "missing") fs.writeFileSync(path.join(state, "local-ready.json"), JSON.stringify({ tier: "small", data: fs.realpathSync(local) }));
     if (ending === "muted") fs.writeFileSync(path.join(state, "mute.json"), JSON.stringify({ muted: true }));
@@ -467,13 +468,33 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     child.stdin.on("error", e => { if (e.code !== "EPIPE") throw e; });
     const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
     const hello = (locked = false) => send({ type: "hello", locked,
-        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: ending === "brain" ? "" : "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", cloudVision: "ask", privateWindows: "bitwarden" },
+        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: ending === "brain" || ending.startsWith("check-") ? "" : "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", cloudVision: "ask", privateWindows: "bitwarden" },
         keys: { talk: null, mute: null, stop: null, confirm: null, console: null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     const intent = name => send({ type: "intent", intent: name });
     const before = server.requests.length;
     try {
         hello(ending === "locked");
         await until(() => status() && s(), "shipped daemon publishes admission: " + error);
+        if (ending.startsWith("check-")) {
+            await until(() => starts().length === 1, "the setup check has one local speech owner");
+            fs.writeFileSync(path.join(local, "ready-gate"), "R");
+            await until(() => s().check.kind === "ready", "local voice can be checked without a brain");
+            assert.equal(s().gate.kind, "down");
+            if (ending === "check-silent") fs.writeFileSync(path.join(process.env.HOME, "capture-silent"), "");
+            intent("voice-check");
+            await until(() => s().check.kind === "waiting", "the check waits for the indicator");
+            assert.equal(s().capture.kind, "closed");
+            send({ type: "indicator", shown: true });
+            await until(() => s().check.kind === "recording", "selected stand-in microphone opens");
+            await until(() => s().check.kind === "done", "the microphone check finishes", OBSERVE_MS);
+            assert.equal(s().check.result, ending.slice(6));
+            await until(() => s().capture.kind === "closed", "the check's owned recorder exits");
+            assert.deepEqual([s().conversation.kind, s().turn.kind, s().brain.kind, server.requests.length],
+                ["ended", "none", "closed", before]);
+            assert.equal(starts().length, 1);
+            assert.equal(logs().some(row => row.listen), false, "check audio never reaches transcription");
+            return;
+        }
         if (["missing", "brain", "locked", "muted"].includes(ending)) {
             if (ending === "muted") assert.equal(s().mute.kind, "on");
             else assert.equal(s().gate.kind, "down");
@@ -486,7 +507,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
             assert.equal(s().capture.kind, "closed");
             assert.equal(s().conversation.kind, "ended");
             assert.equal(server.requests.length, before);
-            if (["missing", "brain"].includes(ending)) assert.equal(starts().length, 0);
+            if (ending === "missing") assert.equal(starts().length, 0);
             return;
         }
         assert.equal(s().gate.kind, "up", "healthy loading admits Talk");
@@ -573,7 +594,10 @@ async function loadingTalk(server, ending = "ready", edits = []) {
         child.stdin.end();
         const timer = setTimeout(() => child.kill("SIGKILL"), OBSERVE_MS);
         try { const [code, signal] = await closed; assert.equal(signal, null); assert.equal(code, 0, error); }
-        finally { clearTimeout(timer); server.closeAll(); fs.rmSync(path.join(process.env.HOME, "no-devices"), { force: true }); }
+        finally {
+            clearTimeout(timer); server.closeAll();
+            for (const file of ["no-devices", "capture-silent"]) fs.rmSync(path.join(process.env.HOME, file), { force: true });
+        }
     }
 }
 
@@ -2341,12 +2365,12 @@ world(async () => {
         console.log("control=memory refusal admitted detected");
         controls++;
         await daemonSpeech(server, [], "held");
-        for (const ending of ["ready", "stop", "mute", "lock", "lease", "fault", "locked", "muted", "missing", "brain", "device"])
+        for (const ending of ["ready", "stop", "mute", "lock", "lease", "fault", "locked", "muted", "missing", "brain", "device", "check-ready", "check-silent", "check-not-heard"])
             await loadingTalk(server, ending);
         for (const ending of ["ready", "refused", "unset"]) await alwaysTalk(server, ending);
         for (const [name, file, needle, replacement] of [
-            ["wake sink removed", "backend/ChainedEngine.js", '            if (e.mode === "armed") return spotting(e);\n', ""],
-            ["wake not dispatched", "backend/ChainedEngine.js", 'if (result.kind === "woke") dispatch({ type: "wake", gen: e.gen, op: e.op });', "void result;"],
+            ["wake sink removed", "backend/ChainedEngine.js", '            if (e.mode === "armed" || e.mode === "check") return spotting(e);\n', ""],
+            ["wake not dispatched", "backend/ChainedEngine.js", 'else if (result.kind === "woke") dispatch({ type: "wake", gen: e.gen, op: e.op });', "else void result;"],
             ["Always refusal removed", "backend/ChainedEngine.js", 'settings.mode === "always" && (settings.voiceProvider', 'false && (settings.voiceProvider']
         ]) {
             await assert.rejects(() => alwaysTalk(server, name === "Always refusal removed" ? "refused" : "ready", [[file, needle, replacement]]),

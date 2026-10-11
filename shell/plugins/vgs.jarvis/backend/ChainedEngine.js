@@ -155,7 +155,7 @@ function select(settings, accounts, directories) {
     const speech = selectSpeech(settings, accounts, directories);
     const brain = selectBrain(settings, accounts);
     const failing = [speech, brain].filter(step => step.kind !== "ready");
-    if (failing.length > 0) return { ...failing[0], causes: failing.map(step => step.cause) };
+    if (failing.length > 0) return { ...failing[0], speech, causes: failing.map(step => step.cause) };
     return { kind: "ready", speech, brain: brain.brain, entries: brain.entries };
 }
 
@@ -185,7 +185,7 @@ function heldByHome(plan, home) {
     default: fail("home-state");
     }
     if (cause === null) return plan;
-    return { ...unconfigured(cause), causes: [cause, ...(plan.kind === "ready" ? [] : plan.causes)] };
+    return { ...unconfigured(cause), speech: plan.speech, causes: [cause, ...(plan.kind === "ready" ? [] : plan.causes)] };
 }
 
 // Always mode listens for the wake word on this computer, so it needs a row
@@ -305,11 +305,16 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     let homeHeld = false;
 
     function configuration() {
-        if (plan.kind !== "ready") return plan;
-        if (plan.speech.lifetime === "daemon" && speechState.kind === "starting")
+        const local = plan.speech?.kind === "ready" && plan.speech.lifetime === "daemon";
+        const cause = local && speechState.kind === "starting" ? "speech=local-loading"
+            : local && speechState.kind === "refused" ? "speech=local-" + speechState.error.code.split(" ")[0] : null;
+        if (plan.kind !== "ready") {
+            const { speech, ...answer } = plan;
+            return cause === null ? answer : { ...answer, cause, causes: [cause, ...answer.causes] };
+        }
+        if (local && speechState.kind === "starting")
             return { kind: "loading", cause: "speech=local-loading", causes: ["speech=local-loading"] };
-        if (plan.speech.lifetime === "daemon" && speechState.kind === "refused") {
-            const cause = "speech=local-" + speechState.error.code.split(" ")[0];
+        if (local && speechState.kind === "refused") {
             return { kind: "unconfigured", cause, causes: [cause] };
         }
         return { kind: "ready" };
@@ -535,15 +540,15 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         return utterance;
     }
 
-    // The wake word, while Always mode waits: capture reaches only the
-    // daemon-owned local sidecar. No conversation exists, so nothing is
-    // released or audited; the word dispatches wake for this capture.
+    // Always mode and the setup check share the daemon-owned local spotter.
+    // Neither starts a conversation or sends audio to a brain.
     function spotting(e) {
-        if (plan.kind !== "ready" || plan.speech.wake !== true) fail("wake-unavailable");
+        if (plan.speech?.wake !== true || e.mode !== "check" && plan.kind !== "ready") fail("wake-unavailable");
         if (daemonSpeech === null) startSpeech(plan.speech);
         const { sink, frames } = captured(() => true);
-        void daemonSpeech.spot(frames).outcome.then(result => {
-            if (result.kind === "woke") dispatch({ type: "wake", gen: e.gen, op: e.op });
+        void daemonSpeech.spot(frames, { check: e.mode === "check" }).outcome.then(result => {
+            if (result.kind === "checked") dispatch({ type: "voice-checked", gen: e.gen, op: e.op, result: result.result });
+            else if (result.kind === "woke") dispatch({ type: "wake", gen: e.gen, op: e.op });
             else if (result.kind === "failed" && !sink.destroyed) sink.destroy(result.error);
         });
         return sink;
@@ -1222,7 +1227,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             const selected = plan;
             plan = heldByHome(plan, home());
             homeHeld = plan !== selected;
-            if (plan.kind === "ready" && plan.speech.lifetime === "daemon") {
+            if (plan.speech?.kind === "ready" && plan.speech.lifetime === "daemon") {
                 // A completed setup publication can repair an initial
                 // refusal. Ordinary hellos leave that runtime unloaded.
                 const published = speechState.kind === "refused" && speechState.publication !== plan.speech.publication;
@@ -1236,6 +1241,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
          * it again at the user's next request.
          */
         homeHeld: () => homeHeld,
+        checkReady: () => plan.speech?.wake === true && daemonSpeech?.status().kind === "ready",
         observe(s) {
             if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === "ended")) end();
             if (s.playback.kind === "feedback") {
@@ -1298,7 +1304,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // A live collection adopts the new utterance; otherwise it waits
         // unbound, replacing and abandoning any earlier unbound one.
         captureSink(e) {
-            if (e.mode === "armed") return spotting(e);
+            if (e.mode === "armed" || e.mode === "check") return spotting(e);
             const c = current(e.gen);
             if (c.live !== null) return c.live.captureSink(e);
             const utterance = transcription(c, e);

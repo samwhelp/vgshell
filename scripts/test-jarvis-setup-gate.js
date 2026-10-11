@@ -23,6 +23,21 @@ const settings = load(path.join(__dirname, "..", "shell", "plugins", "vgs.settin
 const settingsRows = sections => sections.reduce((all, section) => all.concat(section.items), []);
 const protocol = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "JarvisProtocol.js"));
 
+// This terminal only sends the request. It never owns capture or opens audio.
+function verifyMicrophoneAction(script, root) {
+    const library = path.join(root, "tui-lib"), command = path.join(root, "vgshell");
+    fs.writeFileSync(library, 'vgs_tui_header() { printf "%s\\n" "$@"; }\nvgs_tui_error() { printf "%s\\n" "$*" >&2; }\n');
+    fs.writeFileSync(command, '#!/bin/bash\n[[ $# == 6 && $1 == ipc && $2 == call && $3 == vgs.jarvis && $4 == invoke && $5 == check-microphone && -z $6 ]] || exit 2\nprintf "%s\\n" "$CHECK_REPLY"\n', { mode: 0o700 });
+    for (const reply of ["ok", "refused: microphone-check=unavailable"]) {
+        const result = cp.spawnSync("/bin/bash", [script], { encoding: "utf8",
+            env: { PATH: root, VGS_TUI_LIB: library, CHECK_REPLY: reply } });
+        assert.equal(result.status, reply === "ok" ? 0 : 1, "the action reports daemon refusal");
+        assert.match(result.stdout, /Say Hey Jarvis.*three seconds/);
+        assert.match(result.stdout, /Settings > Jarvis/);
+        if (reply !== "ok") assert.match(result.stderr, /cannot check the microphone/);
+    }
+}
+
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "SetupGate.js");
 const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
 const ABSENT = { tone: "warning", text: "Browser needs setup", action: true };
@@ -435,7 +450,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
                 brains: [], voiceAccounts: [], search: { found: row.apps.length, partial: "" } }), refreshed: () => {} };
         vm.runInNewContext("(function() { with(root) { return (" + publishAccounts[0] + ").call(root); } })()",
             { root, Gate: gate, Words: words, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
-        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, accountReader: root, localRuntime: { setupCause: "" }, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
+        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, accountReader: root, localRuntime: { setupCause: "" }, sessionState: null, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
         try {
             assert.deepEqual([values.setupModel.tone, values.setupModel.action], row.want, row.name);
             const entry = judge.statusRows(manifest, values, []).find(item => item.key === "setupModel");
@@ -541,6 +556,7 @@ function verifyVoiceConsumers(gate, pageSource) {
     ]) {
         const values = { ...plain(gate.readiness({ kind: "answered", causes })),
             localRuntime: { tone: "warning", text: "Not set up", action: true } };
+        values.setupVoice = gate.voiceCheck(values.setupVoice, null);
         const row = { status: judge.statusRows(manifest, values, []) };
         const detailsEntry = vm.runInNewContext("(" + accessor[0] + ")", { row })("setupVoice");
         const settingsEntry = settingsRows(settings.settingsSections([], row.status)).find(item => item.entry.key === "setupVoice").entry;
@@ -679,7 +695,8 @@ function verifyReadiness(gate) {
         "no Copilot account, no row");
     for (const answer of answers)
         for (const [key, value] of Object.entries(plain(gate.readiness(answer))))
-            assert.equal(judge.statusWrite(manifest, {}, key, value).ok, true, "the manifest judge accepts " + key + " for " + JSON.stringify(answer));
+            assert.equal(judge.statusWrite(manifest, {}, key, key === "setupVoice" ? gate.voiceCheck(value, null) : value).ok, true,
+                "the manifest judge accepts " + key + " for " + JSON.stringify(answer));
     for (const [key, value] of [["setupBrowser", READY], ["setupBrowser", ABSENT], ["setupInput", ABSENT]])
         assert.equal(judge.statusWrite(manifest, {}, key, plain(gate.optionalStep(key, value))).ok, true, "the manifest judge accepts " + key);
     const published = {
@@ -688,6 +705,7 @@ function verifyReadiness(gate) {
         setupInput: plain(gate.optionalStep("setupInput", ABSENT))
     };
     const fixtureManifest = plain(manifest);
+    published.setupVoice = gate.voiceCheck(published.setupVoice, null);
     published.setupVoice.hint = "fixture state voice guidance";
     for (const key of ["setupVoice", "setupBrowser", "setupInput"]) {
         fixtureManifest.status[key].hint = "fixture declaration " + key;
@@ -721,6 +739,14 @@ function verifyTiers(gate) {
 }
 
 function verify(gate) {
+    for (const [check, tone, action] of [[{ kind: "ready" }, "info", "check"],
+        [{ kind: "waiting" }, "info", undefined], [{ kind: "recording" }, "info", undefined],
+        [{ kind: "finishing" }, "info", undefined], [{ kind: "done", result: "ready" }, "ok", "check"],
+        [{ kind: "done", result: "silent" }, "warning", "check"], [{ kind: "done", result: "not-heard" }, "warning", "check"]]) {
+        const value = gate.voiceCheck(gate.DONE, check);
+        assert.deepEqual([value.tone, value.action], [tone, action]);
+        assert.equal(judge.statusWrite(manifest, {}, "setupVoice", value).ok, true);
+    }
     verifyReadiness(gate);
     verifyTiers(gate);
     verifyModelConsumers(gate, fs.readFileSync(serviceFile, "utf8"), fs.readFileSync(accountsFile, "utf8"));
@@ -816,6 +842,7 @@ console.log("test-jarvis-setup-gate: consumer=Settings,Details hint=Choose an AI
 // Each control removes one rule from a copy and keeps the text around it:
 // [label, needle, replacement].
 const CONTROLS = [
+    ["silent check is ready", 'if (check.result === "silent") return { tone: "warning"', 'if (check.result === "silent") return { tone: "ok"'],
     ["the AI model hint names the Settings field", '"brain=unselected": "Choose an AI model in Settings > AI model."', '"brain=unselected": "Choose an AI model in Settings."', "Settings AI model hint"],
     ["present keys still offer Add key", 'var absent = keys !== undefined && keys.every(function (key) { return key.value === "absent"; });', 'var absent = keys !== undefined;'],
     ["a signed-in app still offers Add key", 'access.kind === "absent"', 'access.kind !== "checking"'],
@@ -895,6 +922,12 @@ const CONTROLS = [
 const source = fs.readFileSync(file, "utf8");
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-setup-gate-control-"));
 try {
+    const microphoneAction = path.join(path.dirname(file), "tui/check-microphone.sh");
+    verifyMicrophoneAction(microphoneAction, temp);
+    const wrongAction = path.join(temp, "wrong-microphone-action.sh");
+    fs.writeFileSync(wrongAction, fs.readFileSync(microphoneAction, "utf8").replace("invoke check-microphone", "invoke talk-down"));
+    assert.throws(() => verifyMicrophoneAction(wrongAction, temp), assert.AssertionError);
+    console.log("test-jarvis-setup-gate: control=microphone-action-target rejected=true");
     const serviceSource = fs.readFileSync(serviceFile, "utf8");
     const accountsSource = fs.readFileSync(accountsFile, "utf8");
     const localRuntimeSource = fs.readFileSync(localRuntimeFile, "utf8");

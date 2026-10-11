@@ -20,7 +20,7 @@
 # Automatic with none; the run's end writes back the tier it left ready,
 # which opens nothing, and nor does a wanted tier that is ready. Its
 # control is a LocalTier copy that opens no run.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-local-speech/standin.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js
+# inputs: scripts/fixtures/jarvis/audio-tool.py shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-local-speech/standin.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js
 set -euo pipefail
 local_reader="$repo/shell/plugins/vgs.jarvis/LocalRuntime.qml"
 local_tui="$repo/shell/plugins/vgs.jarvis/tui/setup-local.sh"
@@ -105,7 +105,7 @@ print(json.dumps(out))
 }
 setup_fresh='[["setup", ["warning"], [], 3], ["setupModel", ["warning"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupBrowser", true], ["setupInput", true]]'
 setup_voice_left='[["setup", ["warning"], [], 2], ["setupModel", ["success"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupBrowser", true], ["setupInput", true]]'
-setup_ready='[["setup", ["success"], [], 1], ["setupModel", ["success"], [], 1], ["setupVoice", ["success"], [], 1], ["setupBrowser", true], ["setupInput", true]]'
+setup_ready='[["setup", ["success"], [], 1], ["setupModel", ["success"], [], 1], ["setupVoice", ["info"], ["check-microphone"], 2], ["setupBrowser", true], ["setupInput", true]]'
 # BRAIN as the Jarvis AI model setting, "" for none, delivered by a reload.
 setup_brain() { # BRAIN
   python3 - "$setup_config" "$1" <<'PY'
@@ -594,6 +594,45 @@ rm -rf -- "${home:?}/.pi"
 setup_brain ""
 rescan "a rescan after the Pi stand-in goes starts"
 expect_poll "without Pi the Setup section reads both steps to do again" "$setup_fresh" setup_rows
+# The check uses the daemon's selected synthetic source and local wake
+# sidecar. No brain is selected and no utterance is sent.
+setup_write_marker || fail "the voice-check marker is not written"
+python3 - "$setup_data/local/scenario.json" <<'PYSCENARIO'
+import json,sys
+open(sys.argv[1],"w").write(json.dumps({"start":"ready", "checks":[{"afterFrames":1},{},{}]}))
+PYSCENARIO
+setup_brain ""
+local_open status
+setup_check_state() {
+  ipc smoke jarvisProcess | py_reply 'import json,sys; d=json.load(sys.stdin)["status"].get("detail"); print(json.dumps(d["state"]["check"]) if d else "pending")'
+}
+setup_check_result() {
+  ipc smoke jarvisProcess | py_reply 'import json,sys; d=json.load(sys.stdin)["status"].get("detail"); s=d["state"] if d else {}; c=s.get("check",{}); print(c.get("result","pending") if c.get("kind")=="done" and s["capture"]["kind"]=="closed" and s["turn"]["kind"]=="none" and s["brain"]["kind"]=="closed" else "pending")'
+}
+setup_check_row() {
+  status_row vgs.jarvis setupVoice | py_reply 'import json,sys; r=json.load(sys.stdin); v=r["value"]; print(json.dumps([v["tone"],v["text"],v.get("hint"),r["action"]["tui"]]))'
+}
+expect_poll "local voice can be checked before choosing an AI model" '{"kind": "ready"}' setup_check_state
+setup_check_pid="$(ipc smoke jarvisProcess | jarvis_launcher_pid)"
+setup_check_pid="$(jarvis_descendants "$setup_check_pid")"
+setup_check_home="$(python3 - "$setup_check_pid" <<'PYHOME'
+from pathlib import Path
+import sys
+values=dict(value.split(b"=",1) for value in Path("/proc/"+sys.argv[1]+"/environ").read_bytes().split(b"\0") if b"=" in value)
+print(values[b"HOME"].decode())
+PYHOME
+)" || fail "the synthetic audio world's home is unreadable"
+expect "Check microphone asks the daemon to start" ok ipc vgs.jarvis invoke check-microphone ''
+expect_poll "the selected stand-in source wakes the detector" ready setup_check_result
+expect_poll "Voice reports Ready and keeps the check action" '["ok", "Ready", null, "check-microphone"]' setup_check_row
+expect "Check microphone can run again" ok ipc vgs.jarvis invoke check-microphone ''
+expect_poll "sound without the wake phrase is not Ready" not-heard setup_check_result
+expect_poll "Voice gives the quiet-room guidance in full" '["warning", "Not heard", "Jarvis did not hear Hey Jarvis: try again closer or in a quieter room", "check-microphone"]' setup_check_row
+: >"$setup_check_home/capture-silent"
+expect "Check microphone can check a silent source" ok ipc vgs.jarvis invoke check-microphone ''
+expect_poll "an all-zero stand-in source is silent" silent setup_check_result
+expect_poll "Voice gives the microphone Settings path in full" '["warning", "Muted or silent", "The microphone is muted or sends silence. Check Settings > Jarvis > Voice > Microphone.", "check-microphone"]' setup_check_row
+rm -f -- "${setup_check_home:?}/capture-silent"
 settings_page_close vgs.jarvis
 jarvis_disable
 jarvis_restore_requirements

@@ -9,14 +9,15 @@ under it, and loads only after setup's readiness judge answers ready.
 Wire, both directions: frames of a u32be header length, a u32be payload length,
 a UTF-8 JSON object header and the payload bytes. Audio is float32 little-endian
 mono. Ids are positive integers; each new request takes a larger id.
-  in:  {type:"listen", id, detect}; {type:"wake", id}; {type:"audio", id} + 16 kHz samples;
+  in:  {type:"listen", id, detect}; {type:"wake", id}; {type:"check", id}; {type:"audio", id} + 16 kHz samples;
        {type:"end", id}; {type:"abort", id};
        {type:"speak", id} + one sentence's UTF-8 text
   out: {type:"ready"} once; {type:"partial", id, text, rev}; {type:"final", id, text};
-       {type:"woke", id}; {type:"audio", id} + samples;
+       {type:"woke", id}; {type:"checked", id, result}; {type:"audio", id} + samples;
        {type:"spoken", id, rate}; {type:"failed", id?, cause}
 A wake request spots the keyword in its audio and answers woke once; it has no
-end, only abort. One listen or wake request is open at a time.
+end, only abort. A check uses that same detector until end, then answers ready,
+silent (only zero or no samples), or not-heard. One input request is open at a time.
 A failed frame without an id ends the sidecar. A message for an utterance the
 sidecar already answered crossed that answer and is dropped. Stdin EOF exits 0;
 the runtime not ready exits 77; a protocol violation exits 65; other failures 1.
@@ -245,8 +246,11 @@ class Wake:
     """One wake capture on one keyword stream; its state is the stream's, so
     memory stays fixed however long the capture runs."""
 
-    def __init__(self, speech):
+    def __init__(self, speech, check=False):
         self.speech = speech
+        self.check = check
+        self.heard = False
+        self.sound = False
         # None is a keyword the model cannot encode, as measure-local's probe reads it.
         self.stream = speech.spotter.create_stream(speech.keywords)
         if self.stream is None:
@@ -254,13 +258,20 @@ class Wake:
 
     def push(self, received):
         """Whether the keyword ended in these samples."""
+        self.sound = self.sound or any(received)
+        if self.check and self.heard:
+            return False
         spotter = self.speech.spotter
         self.stream.accept_waveform(RATE, self.speech.waveform(received))
         while spotter.is_ready(self.stream):
             spotter.decode_stream(self.stream)
             if spotter.get_result(self.stream):
-                return True
+                self.heard = True
+                return not self.check
         return False
+
+    def result(self):
+        return "ready" if self.heard else "not-heard" if self.sound else "silent"
 
 
 def little(samples):
@@ -311,6 +322,7 @@ def send(writer, header, payload=b""):
 
 # The keys each inbound type carries, and whether it carries a payload.
 SHAPES = {"listen": ({"type", "id", "detect"}, False), "wake": ({"type", "id"}, False),
+          "check": ({"type", "id"}, False),
           "audio": ({"type", "id"}, True), "end": ({"type", "id"}, False),
           "abort": ({"type", "id"}, False), "speak": ({"type", "id"}, True)}
 
@@ -333,11 +345,11 @@ def serve(reader, writer, speech):
                 raise Protocol("listen=invalid")
             utterances[ident] = Utterance(speech, header["detect"])
             continue
-        if kind == "wake":
+        if kind in ("wake", "check"):
             if not fresh or utterances:
                 raise Protocol("wake=invalid")
             try:
-                utterances[ident] = Wake(speech)
+                utterances[ident] = Wake(speech, kind == "check")
             except Failed as failure:
                 send(writer, {"type": "failed", "id": ident, "cause": str(failure)})
             continue
@@ -391,7 +403,10 @@ def serve(reader, writer, speech):
                 utterances.pop(ident, None)
                 send(writer, {"type": "failed", "id": ident, "cause": str(failure)})
         elif isinstance(utterances[ident], Wake):
-            raise Protocol("end=wake")
+            wake = utterances.pop(ident)
+            if not wake.check:
+                raise Protocol("end=wake")
+            send(writer, {"type": "checked", "id": ident, "result": wake.result()})
         else:
             samples = utterances.pop(ident).samples
             try:

@@ -83,6 +83,20 @@ var HOME_TODO = {
 var HOME_STEP_TODO = "Jarvis cannot use the home folder. Check that you can open and change it, or choose another folder in Settings > Home." + HOME_AGAIN;
 var HOME_READY = { hidden: true };
 var DONE = { tone: "ok", text: "Done", action: false };
+// Voice setup uses Session's check result, which only the local wake detector supplies.
+function voiceCheck(value, check) {
+    if (check === null || check.kind === "unavailable") return value.action === true
+        ? Object.assign({}, value, { action: "setup" }) : noAction(value);
+    if (check.kind === "waiting" || check.kind === "recording")
+        return { tone: "info", text: "Say Hey Jarvis", hint: "The microphone is open for three seconds." };
+    if (check.kind === "finishing") return { tone: "info", text: "Checking" };
+    if (check.kind === "done") {
+        if (check.result === "ready") return { tone: "ok", text: "Ready", action: "check" };
+        if (check.result === "silent") return { tone: "warning", text: "Muted or silent", hint: "The microphone is muted or sends silence. Check Settings > Jarvis > Voice > Microphone.", action: "check" };
+        return { tone: "warning", text: "Not heard", hint: "Jarvis did not hear Hey Jarvis: try again closer or in a quieter room", action: "check" };
+    }
+    return { tone: "info", text: "Not checked", hint: "Press Check microphone, then say Hey Jarvis.", action: "check" };
+}
 var CHECKING = { tone: "info", text: "Checking", action: false };
 var LOADING = { tone: "info", text: "Loading", action: false };
 // The summary declares no action, so its value carries none: the manifest

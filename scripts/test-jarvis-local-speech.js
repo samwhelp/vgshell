@@ -476,7 +476,20 @@ async function wake(folder) {
     cases++;
 }
 
-const CASES = { selection, utterance, antiAlias, streaming, partialViolations, failures, abort, backlog, close, speaking, speechWaits, longReply, wake };
+async function microphoneCheck(folder) {
+    const w = runtime({ checks: [{}, {}, {}, { afterFrames: 1 }] });
+    const speech = adapter(folder, w);
+    try {
+        await until(() => speech.status().kind === "ready", "check sidecar ready", OBSERVE_MS);
+        for (const [pcm, result] of [[Buffer.alloc(0), "silent"], [Buffer.alloc(24000 * 3 * 2), "silent"],
+            [tone(1000, 3, 0.5), "not-heard"], [tone(1000, 3, 0.5), "ready"]])
+            assert.deepEqual(await speech.spot(frames(pcm), { check: true }).outcome, { kind: "checked", result });
+        assert.deepEqual(w.log().filter(entry => entry.checked).map(entry => entry.result), ["silent", "silent", "not-heard", "ready"]);
+        assert.equal(w.log().some(entry => entry.listen), false, "the check never starts transcription");
+    } finally { speech.close(); }
+    cases++;
+}
+const CASES = { selection, utterance, antiAlias, streaming, partialViolations, failures, abort, backlog, close, speaking, speechWaits, longReply, wake, microphoneCheck };
 // Controls: name, edits to LocalSpeech.js, the case that must turn red.
 const CONTROLS = [
     ["partial delivery", [['if (utterance !== undefined) utterance.partial(header);', 'if (false) utterance.partial(header);']], "streaming"],
@@ -502,7 +515,8 @@ const CONTROLS = [
     ["woke unsettled", [['request(header, "wake")?.settle({ kind: "woke" });', ""]], "wake"],
     ["frames before ready sent", [['                    if (life.kind !== "ready") continue;\n', ""]], "wake"],
     ["wake not resampled", [["sendAudio(id, stream.resampler.push(fromPcm(bytes)));", "sendAudio(id, fromPcm(bytes));"]], "wake"],
-    ["ended wake kept", [["if (step.done) { abort(); return; }", "if (step.done) return;"]], "wake"],
+    ["ended wake kept", [["if (!check || stream.kind !== \"sent\") { abort(); return; }", "if (!check || stream.kind !== \"sent\") return;"]], "wake"],
+    ["check outcome forged", [['request(header, "check")?.settle({ kind: "checked", result: header.result });', 'request(header, "check")?.settle({ kind: "checked", result: "ready" });']], "microphoneCheck"],
     ["no wake abort", [['if (stream.kind === "sent" && life.kind !== "ended") write({ type: "abort", id });', ""]], "wake"],
     ["no backlog bound", [["if (child.stdin.writableLength > BACKLOG_BYTES) {", "if (false) {"]], "backlog"],
     ["close leaves the process", [['        child.kill("SIGKILL");\n', ""]], "close"],

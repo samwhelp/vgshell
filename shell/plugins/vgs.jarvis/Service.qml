@@ -78,6 +78,11 @@ Item {
             shell.ipc.handle("mute", () => { intent("mute"); return "ok"; });
             shell.ipc.handle("say", text => say(text));
             shell.ipc.handle("stop", () => { intent("stop"); return "ok"; });
+            shell.ipc.handle("check-microphone", () => {
+                if (locked || !Session.canCheck(sessionState)) return "refused: microphone-check=unavailable";
+                intent("voice-check");
+                return "ok";
+            });
             shell.ipc.handle("memory-confirm", text => memoryIntent("memory-confirm", text));
             shell.ipc.handle("memory-discard", text => memoryIntent("memory-discard", text));
             // The console's Stop button and `vgshell ipc call vgs.jarvis
@@ -150,6 +155,7 @@ Item {
             ? { kind: "answered", causes: [setupCause].concat(answer.causes) }
             : answer;
         const values = Gate.readiness(merged);
+        values.setupVoice = Gate.voiceCheck(values.setupVoice, sessionState === null ? null : sessionState.check);
         values.setupModel = Gate.modelStep(values.setupModel, shell.status.values["keys"], accountReader.modelAccess);
         for (const key of Object.keys(values)) {
             const reply = shell.status.set(key, values[key]);
@@ -658,6 +664,7 @@ Item {
                     if (fault.kind !== "none" && (sessionState === null || JSON.stringify(sessionState.fault) !== JSON.stringify(fault)))
                         console.warn("jarvis: fault=" + fault.reason + " kind=" + fault.kind);
                     sessionState = message.state;
+                    publishShellSetup();
                     const result = shell.status.set("detail", { phase: message.phase, seq: message.seq, state: message.state, brain: message.brain });
                     if (result !== "ok") throw new Error("jarvis: " + result);
                     deliverMute();

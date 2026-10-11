@@ -150,7 +150,7 @@
     "claude": { "type": "state", "label": "Claude Code", "group": "AI model", "action": { "label": "Install Claude Code", "install": ["claude"] } },
     "codex": { "type": "state", "label": "Codex", "group": "AI model", "action": { "label": "Install Codex", "install": ["codex"] } },
     "setupModel": { "type": "state", "label": "AI model", "group": "Setup", "hint": "Jarvis uses the AI model to answer you.", "actions": { "key": { "label": "Add key", "tui": "add-key" }, "signIn": { "label": "Sign in", "tui": "sign-in" }, "update": { "label": "Update Pi", "install": ["pi"] } } },
-    "setupVoice": { "type": "state", "label": "Voice", "group": "Setup", "hint": "Jarvis uses the selected voice provider to hear you and speak.", "action": { "label": "Set up local voice", "tui": "setup-local" } },
+    "setupVoice": { "type": "state", "label": "Voice", "group": "Setup", "hint": "Jarvis uses the selected voice provider to hear you and speak.", "actions": { "setup": { "label": "Set up local voice", "tui": "setup-local" }, "check": { "label": "Check microphone", "tui": "check-microphone" } } },
     "setupBrowser": { "type": "state", "label": "Browser", "group": "Setup", "hint": "Set up the browser so Jarvis can use websites for you.", "action": { "label": "Set up browser", "tui": "setup-browser" } },
     "setupInput": { "type": "state", "label": "Input", "group": "Setup", "hint": "Check input so Jarvis can type and click for you.", "action": { "label": "Check input", "tui": "setup-input" } },
     "setupFleet": { "type": "state", "label": "Agent fleet", "group": "Setup", "hint": "Jarvis can hand a request for your agent fleet to your Jarvis session.", "action": { "label": "Install kendex", "tui": "setup-fleet" } },
@@ -160,6 +160,7 @@
       "link": { "text": "GitHub Copilot settings", "url": "https://github.com/settings/copilot/features" } }
   },
   "tui": {
+    "check-microphone": { "script": "tui/check-microphone.sh", "title": "Check Jarvis microphone", "requires": [], "entry": { "label": "Check microphone", "icon": "mic", "group": "Jarvis" } },
     "sign-in": { "script": "tui/sign-in.sh", "title": "Sign in to Jarvis AI", "requires": ["gum", "node"],
       "entry": { "label": "Sign in", "icon": "log-in", "group": "Jarvis" } },
     "add-key": { "script": "tui/add-key.sh", "title": "Add Jarvis key", "requires": ["gum", "node", "secret-tool", "busctl"],

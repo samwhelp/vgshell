@@ -109,6 +109,8 @@ wakes = list(scenario.get("wakes", []))
 received = {}
 listening = {}
 spotting = {}
+checking = {}
+checks = list(scenario.get("checks", []))
 while True:
     prefix = read(8)
     if prefix is None:
@@ -124,6 +126,15 @@ while True:
     elif kind == "wake":
         record({"wake": ident})
         spotting[ident] = 0
+    elif kind == "check":
+        record({"check": ident})
+        checking[ident] = {"heard": False, "sound": False, "frames": 0, "action": checks.pop(0) if checks else {}}
+    elif kind == "audio" and ident in checking:
+        check = checking[ident]
+        check["sound"] |= any(v for (v,) in struct.iter_unpack("<f", payload))
+        check["frames"] += 1
+        if "afterFrames" in check["action"] and check["frames"] >= check["action"]["afterFrames"]:
+            check["heard"] = True
     elif kind == "audio" and ident in spotting:
         received.setdefault(ident, []).extend(v for (v,) in struct.iter_unpack("<f", payload))
         spotting[ident] += 1
@@ -157,8 +168,15 @@ while True:
                 utterances.pop(0)
     elif kind == "abort":
         spotting.pop(ident, None)
+        checking.pop(ident, None)
         record({"abort": ident, "samples": len(received.pop(ident, []))})
     elif kind == "end":
+        if ident in checking:
+            check = checking.pop(ident)
+            result = "ready" if check["heard"] else "not-heard" if check["sound"] else "silent"
+            record({"checked": ident, "result": result})
+            send({"type": "checked", "id": ident, "result": result})
+            continue
         if ident not in listening:
             record({"crossed-end": ident})
             continue

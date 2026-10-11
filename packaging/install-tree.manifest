@@ -468,6 +468,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/requirements-local.lock
 f share/vgshell/shell/plugins/vgs.jarvis/setup-local
 f share/vgshell/shell/plugins/vgs.jarvis/tui/accounts.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/add-key.sh
+f share/vgshell/shell/plugins/vgs.jarvis/tui/check-microphone.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-browser.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-fleet.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-input.sh

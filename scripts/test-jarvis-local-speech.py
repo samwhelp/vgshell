@@ -257,7 +257,7 @@ def serve(m, messages, model):
     highest = 0
     for message in messages:
         header = message[0]
-        if header["id"] > highest and header["type"] not in ("listen", "speak", "wake"):
+        if header["id"] > highest and header["type"] not in ("listen", "speak", "wake", "check"):
             explicit.append(({"type": "listen", "id": header["id"], "detect": False},))
         highest = max(highest, header["id"])
         explicit.append(message)
@@ -462,6 +462,20 @@ def bound_case(m):
         raise AssertionError(f"utterance bound {out}")
 
 
+def microphone_cases(m):
+    for name, amplitude, wakes, expected in [("silence", 0, None, "silent"),
+            ("not detected", 0.5, None, "not-heard"), ("detected", 0.5, 1, "ready")]:
+        spotter = Spotter(at=wakes)
+        model = speech(m, [], 80000, spotter=spotter)
+        out = serve(m, [({"type": "check", "id": 1},), ({"type": "audio", "id": 1}, floats(16000, amplitude)),
+            ({"type": "audio", "id": 1}, floats(16000, amplitude)),
+            ({"type": "audio", "id": 1}, floats(16000, amplitude)), ({"type": "end", "id": 1},)], model)
+        if [h for h, _ in out] != [{"type": "checked", "id": 1, "result": expected}]:
+            raise AssertionError(f"{name}: {out}")
+        if spotter.streams[0].keywords != KEYWORDS or model.recognizer.created != 0:
+            raise AssertionError("the check must use the wake detector, without transcription")
+
+
 # Wire violations: each frame list must end the sidecar with this protocol key.
 VIOLATIONS = [
     ("unknown type", [frame({"type": "hello", "id": 1})], "message=invalid type=hello"),
@@ -643,6 +657,10 @@ def guarded(check, *args):
 
 # Controls: name, needle, replacement, the case that must turn red.
 CONTROLS = [
+    ("check follows detector", 'return "ready" if self.heard else "not-heard" if self.sound else "silent"',
+     'return "ready"', microphone_cases),
+    ("check detects silence", "self.sound = self.sound or any(received)", "self.sound = True", microphone_cases),
+    ("check records detector wake", "self.heard = True", "self.heard = False", microphone_cases),
     ("captions during capture", 'if partial is not None:', 'if False:', streaming_cases),
     ("cached captions", 'speech.captions.decode_stream(self.stream)',
      'self.stream = speech.captions.create_stream(); speech.captions.decode_stream(self.stream)', streaming_cases),
@@ -750,6 +768,7 @@ class LocalSpeech(unittest.TestCase):
         wake_cases(m)
         violation_cases(m)
         bound_case(load())
+        microphone_cases(load())
 
     def test_readiness(self):
         m = load()

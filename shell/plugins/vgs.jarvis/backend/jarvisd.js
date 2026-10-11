@@ -109,7 +109,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         // loading cause remains until the same child reports model readiness.
         // Session still owns lock, mute, fault and indicator admission.
         runner.dispatch({ type: "snapshot", locked: context.locked, engine: engine.engine(),
-            configured: configuration.kind === "ready" || configuration.kind === "loading", settings: context.settings });
+            configured: configuration.kind === "ready" || configuration.kind === "loading", checkReady: engine.checkReady(), settings: context.settings });
     }
 
     // Judge the home and the engine again; the status carries each failing
@@ -336,7 +336,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         audio.observe(state);
         if (engine !== null) engine.observe(state);
         if (voice !== null) voice.session(state);
-        if (state.gate.kind === "down") void audio.teardown("gate", ["capture", "playback"]);
+        if (state.gate.kind === "down" && !Session.canCapture(state)) void audio.teardown("gate", ["capture", "playback"]);
         if (!ending && context !== null) write({ v: 1, type: "state", gen: state.gen,
             revision: context.revision, seq: ++seq, state, phase, brain: engine === null ? "" : engine.answering() });
     });

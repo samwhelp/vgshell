@@ -396,6 +396,21 @@ const tests = [
         w.pending.flush();
         assert.equal(w.runner.state.playback.kind, "idle");
     }],
+    ["check-timer", impl => {
+        const w = world(impl);
+        w.dispatch("snapshot", { locked: false, configured: false, engine: "chained", checkReady: true, settings: {} });
+        w.dispatch("voice-check");
+        w.pending.open();
+        assert.deepEqual([...w.timers.values()].map(timer => timer.deadline), [3000]);
+        w.tick(2999);
+        assert.equal(w.runner.state.capture.kind, "open");
+        w.tick(3000);
+        assert.equal(w.runner.state.capture.kind, "closing");
+        assert.equal(w.calls.at(-1).name, "close");
+        w.pending.close();
+        w.runner.close();
+        assert.equal(w.timers.size, 0);
+    }],
     ["timer-release", impl => {
         const w = world(impl);
         thinking(w);
@@ -443,6 +458,7 @@ const source = fs.readFileSync(file, "utf8");
 let controls = 0;
 try {
     const mutants = [
+        ["check timer scheduled", 'this.state.approval, this.state.check, toolDeadline', 'this.state.approval, toolDeadline', "check-timer"],
         ["delegation-identity", 'delegation: task => done("delegation", task),', 'delegation: task => done("delegation", { ...task, id: "changed" }),', "delegation-identity"],
         ["speech-due", 'due: due => done("speech-due", { due }),', "due: () => {},", "speech-due-identity"],
         ["speech-due-value", 'due: due => done("speech-due", { due }),', 'due: () => done("speech-due", { due: true }),', "speech-due-identity"],

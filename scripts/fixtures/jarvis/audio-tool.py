@@ -82,7 +82,7 @@ if name == "pw-record":
             os.write(1, b"\0" * 65536)
     try:
         while True:
-            os.write(1, b"\0\x40" * 240)
+            os.write(1, (b"\0\0" if (home / "capture-silent").exists() else b"\0\x40") * 240)
             time.sleep(0.01)  # Synthetic PCM clock, never a real audio device.
     except BrokenPipeError:
         sys.exit(0)

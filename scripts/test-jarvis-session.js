@@ -13,7 +13,7 @@ const copy = value => JSON.parse(JSON.stringify(value));
 const events = ["snapshot", "indicator", "talk-down", "talk-up", "toggle", "mute", "unmute", "mute-toggle", "stop",
     "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial", "final", "say", "collect-failed", "brain-done",
     "brain-failed", "brain-ended", "cancelled", "play", "played", "flushed", "tool", "tool-done", "approval",
-    "shown", "confirm", "approval-cancel", "deadline", "lease-ended", "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "wake"];
+    "shown", "confirm", "approval-cancel", "deadline", "lease-ended", "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "wake", "voice-check", "voice-checked"];
 assert.deepEqual(copy(Session.EVENTS), events, "every supported event enters the pair matrix");
 const snapshot = extra => ({ type: "snapshot", at: 0, locked: false, engine: "chained", configured: true,
     settings: {}, ...extra });
@@ -98,6 +98,47 @@ function alwaysThinking(logic) {
     return step(logic, s, callback("capture-closed", s.capture, 31)).state;
 }
 const table = [
+    ["voice-check-lifetime", logic => {
+        let s = step(logic, logic.initial(), snapshot({ configured: false, checkReady: true })).state;
+        assert.equal(logic.canCheck(s), true);
+        for (const blocked of [{ ...s, gate: { kind: "down", reason: "locked" } }, { ...s, mute: { kind: "on" } },
+            { ...s, turn: thinking(logic).turn }, { ...s, action: acting(logic).action }, { ...s, approval: held(logic).approval }]) {
+            assert.equal(logic.canCheck(blocked), false);
+            assert.equal(step(logic, blocked, event("voice-check", 1)).state.check.kind, "ready");
+        }
+        const waiting = step(logic, s, event("voice-check", 10));
+        assert.equal(logic.indicatorWanted(waiting.state), true);
+        assert.deepEqual(kinds(waiting), [], "microphone waits for the indicator");
+        s = step(logic, waiting.state, event("indicator", 11, { shown: true })).state;
+        assert.deepEqual([s.capture.kind, s.capture.mode, s.turn.kind, s.brain.kind], ["opening", "check", "none", "closed"]);
+        s = step(logic, s, callback("capture-opened", s.capture, 20)).state;
+        assert.equal(logic.validate(s), true);
+        assert.equal(s.check.deadline, 3020);
+        assert.equal(logic.canCapture(s), true, "local setup needs no brain or home");
+        const early = step(logic, s, callback("voice-checked", s.check, 21, { result: "ready" })).state;
+        assert.equal(early.check.kind, "recording", "an early wake cannot close the three-second sample");
+        const closing = step(logic, s, callback("deadline", s.check, 3020));
+        assert.deepEqual(kinds(closing), ["capture-close"]);
+        assert.equal(closing.state.check.kind, "finishing");
+        for (const result of ["ready", "silent", "not-heard"]) {
+            const checked = step(logic, closing.state, callback("voice-checked", s.check, 3021, { result })).state;
+            assert.deepEqual(checked.check, { kind: "done", result });
+            const changed = step(logic, checked, snapshot({ at: 3022, configured: false, checkReady: true,
+                settings: { ...checked.settings, microphone: "other" } })).state;
+            assert.equal(changed.check.kind, "ready", "a result belongs to the checked microphone");
+        }
+        for (const trigger of [event("mute", 30), event("stop", 30), event("lease-ended", 30),
+            event("indicator", 30, { shown: false }), event("cancel", 30), event("interrupt", 30),
+            snapshot({ at: 30, configured: false, checkReady: true, settings: { ...s.settings, microphone: "other" } }), snapshot({ at: 30, configured: false, checkReady: true, locked: true }),
+            snapshot({ at: 30, checkReady: false })]) {
+            const stopped = step(logic, s, trigger).state;
+            assert.equal(stopped.capture.kind, "closing", trigger.type);
+            assert.equal(logic.canCapture(stopped), false, trigger.type);
+            assert.equal(stopped.input.kind, "released", trigger.type);
+            assert.equal(["waiting", "recording", "finishing"].includes(stopped.check.kind), false, trigger.type);
+            assert.notEqual(step(logic, stopped, callback("voice-checked", s.check, 31, { result: "ready" })).state.check.kind, "done");
+        }
+    }],
     ["always-arms", logic => {
         const configured = step(logic, logic.initial(), snapshot({ settings: always })).state;
         assert.deepEqual([configured.input.kind, configured.capture.kind, configured.conversation.kind], ["armed", "closed", "ended"]);
@@ -1738,6 +1779,10 @@ let controls = 0;
 try {
     // Each independent lifetime rule has its own planted defect.
     const mutants = [
+        ["check deadline", 'deadline: e.at + VOICE_CHECK_MS', 'deadline: e.at + COLLECTION_TIMEOUT_MS', "voice-check-lifetime"],
+        ["check indicator", 'if (!e.shown && s.input.kind === "check" && s.capture.kind !== "closed")', 'if (false)', "voice-check-lifetime"],
+        ["check result identity", 'if (!live(s, e, "check", ["finishing"]))', 'if (false)', "voice-check-lifetime"],
+        ["check admission", 'if (!canCheck(s)) break;', 'if (false) break;', "voice-check-lifetime"],
         ["collect-limit", 's.turn.kind === "collecting" && s.turn.deadline !== null && at >= s.turn.deadline', 'false && s.turn.kind === "collecting" && s.turn.deadline !== null && at >= s.turn.deadline', "collection-deadline"],
         ["playback-limit", '["playing", "feedback"].indexOf(s.playback.kind) !== -1 && s.playback.deadline !== null && at >= s.playback.deadline', 'false && ["playing", "feedback"].indexOf(s.playback.kind) !== -1 && s.playback.deadline !== null && at >= s.playback.deadline', "playback-deadline"],
         ["feedback-start-sounds", 's.settings.sounds === true && s.engine.kind === "chained"', 'true && s.engine.kind === "chained"', "feedback-start"],
@@ -1892,7 +1937,7 @@ try {
         ["tool-cancel", 's.action.kind !== "running" || s.action.cancellation.kind !== "available"',
             's.action.kind !== "running" || (false && s.action.cancellation.kind !== "available")', "tool-cancel"],
         ["outcome", 'outcome: e.outcome', 'outcome: "unknown"', "tool-outcome"],
-        ["serial", 's.action.kind === "none" && s.approval', '(true || s.action.kind === "none") && s.approval', "tool-serial"],
+        ["serial", 's.conversation.kind === "active" && s.action.kind === "none" && s.approval', 's.conversation.kind === "active" && (true || s.action.kind === "none") && s.approval', "tool-serial"],
         ["held", 's.approval.kind === "none";', '(true || s.approval.kind === "none");', "tool-held"],
         ["interrupt-tools", 's.conversation.kind === "active" && s.action', '(true || s.conversation.kind === "active") && s.action', "tool-interrupted"],
         ["tool-bound", "at >= s.action.limit.deadline", "false && at >= s.action.limit.deadline", "tool-deadline"],
@@ -1950,7 +1995,7 @@ try {
         ["armed-chained", 's.settings.mode === "always" && s.engine.kind === "chained" && canEngage(s)', 's.settings.mode === "always" && canEngage(s)', "always-disarms"],
         ["armed-engaged", 's.settings.mode === "always" && s.engine.kind === "chained" && canEngage(s)', 's.settings.mode === "always" && s.engine.kind === "chained"', "always-disarms"],
         ["armed-no-collect", 'canCapture(s) && s.input.kind !== "armed"', "canCapture(s)", "always-arms"],
-        ["armed-ended-capture", '(s.conversation.kind !== "ended" || s.input.kind === "armed")', 's.conversation.kind !== "ended"', "always-arms"],
+        ["armed-ended-capture", '(s.conversation.kind !== "ended" || s.input.kind === "armed" || checking)', '(s.conversation.kind !== "ended" || checking)', "always-arms"],
         ["armed-indicator", 's.input.kind === "armed"\n        || ', "", "always-arms"],
         ["wake-armed-only", ' || s.capture.mode !== "armed") { stale(s); break; }', ") { stale(s); break; }", "always-wake"],
         ["wake-starts", 'start(s, effects, "woken", e.at);\n        break;\n    case "capture-closed":', 'break;\n    case "capture-closed":', "always-wake"],
@@ -2018,7 +2063,7 @@ try {
             'if (false && ["pending", "expired"].indexOf(r[f].kind) === -1) return false;', "wire-limit-tag"],
         ["state-limit-time", 'if (r[f].kind === "pending" && (!Number.isFinite(r[f].deadline) || r[f].deadline < 0)) return false;',
             'if (false && r[f].kind === "pending" && (!Number.isFinite(r[f].deadline) || r[f].deadline < 0)) return false;', "wire-limit-time"],
-        ["state-mode", '&& ["hold", "conversation", "follow-up", "armed"].indexOf(r.mode) === -1) return false;',
+        ["state-mode", '&& ["hold", "conversation", "follow-up", "armed", "check"].indexOf(r.mode) === -1) return false;',
             '&& false && ["hold", "conversation", "follow-up", "armed"].indexOf(r.mode) === -1) return false;', "wire-capture-mode"],
         ["state-gate", '&& ["starting", "unconfigured", "node", "lock-unknown", "locked"].indexOf(r.reason) === -1) return false;',
             '&& false && ["starting", "unconfigured", "node", "lock-unknown", "locked"].indexOf(r.reason) === -1) return false;', "wire-gate-reason"],
