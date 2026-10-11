@@ -107,23 +107,31 @@ try:
         heard(speech.transcribe(long), words, tier + " 60 s")
         if bound is not None and (not recognizer.sizes or max(recognizer.sizes) > bound):
             raise RuntimeError(f"bound-exceeded {tier}: {recognizer.sizes}")
-        payload = sidecar.little(array("f", clip)).tobytes()
-        def audio_frames(ident):
+        def audio_frames(ident, samples):
+            payload = sidecar.little(array("f", samples)).tobytes()
             return b"".join(frame({"type": "audio", "id": ident}, payload[at:at + sidecar.PAYLOAD_BYTES])
                             for at in range(0, len(payload), sidecar.PAYLOAD_BYTES))
-        # The clip holds no keyword: the real spotter decodes it and answers nothing.
-        stream = frame({"type": "wake", "id": 1}) + audio_frames(1) + frame({"type": "abort", "id": 1})
-        stream += frame({"type": "listen", "id": 2, "detect": False}) + audio_frames(2)
-        stream += frame({"type": "end", "id": 2}) + frame({"type": "speak", "id": 3}, text.encode())
+        # The clip opens with the wake phrase. The control speaks only words of
+        # the model's own keywords.txt, which must not wake Jarvis.
+        voiced = loaded["tts"].generate("Play music. Alexa. Hello world.", sid=0, speed=1)
+        others = np.asarray(voiced.samples, dtype=np.float32)
+        others = np.interp(np.arange(len(others) * sidecar.RATE // voiced.sample_rate) * voiced.sample_rate / sidecar.RATE,
+                           np.arange(len(others)), others).astype(np.float32)
+        others = np.concatenate([others, np.zeros(sidecar.RATE, dtype=np.float32)])
+        stream = frame({"type": "wake", "id": 1}) + audio_frames(1, clip) + frame({"type": "abort", "id": 1})
+        stream += frame({"type": "wake", "id": 2}) + audio_frames(2, others) + frame({"type": "abort", "id": 2})
+        stream += frame({"type": "listen", "id": 3, "detect": False}) + audio_frames(3, clip)
+        stream += frame({"type": "end", "id": 3}) + frame({"type": "speak", "id": 4}, text.encode())
         output = io.BytesIO()
         sidecar.serve(io.BytesIO(stream), output, speech)
         replies = answers(output.getvalue())
         final = [h for h, _ in replies if h["type"] == "final"]
         spoken = [h for h, _ in replies if h["type"] == "spoken"]
         audio = sum(len(p) for h, p in replies if h["type"] == "audio")
-        if any(h["id"] == 1 for h, _ in replies):
-            raise RuntimeError(f"wake-mismatch {tier}: {[h for h, _ in replies if h['id'] == 1]}")
-        if len(final) != 1 or spoken != [{"type": "spoken", "id": 3, "rate": chosen["tts"]["outputSampleRate"]}] or audio < 4 * spoken[0]["rate"]:
+        woken = [h for h, _ in replies if h["id"] in (1, 2)]
+        if woken != [{"type": "woke", "id": 1}]:
+            raise RuntimeError(f"wake-mismatch {tier}: {woken}")
+        if len(final) != 1 or spoken != [{"type": "spoken", "id": 4, "rate": chosen["tts"]["outputSampleRate"]}] or audio < 4 * spoken[0]["rate"]:
             raise RuntimeError(f"wire-mismatch {tier}: {[h for h, _ in replies][-3:]} audio={audio}")
         heard(final[0]["text"], words, tier + " wire")
         print(json.dumps({"tier": tier, "chunk_samples": recognizer.sizes, "bound": bound, "spoken_bytes": audio}), flush=True)

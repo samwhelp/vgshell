@@ -228,8 +228,8 @@ class LocalContract(unittest.TestCase):
              'if sum(segment["samples"] for segment in result["segments"]) < fixture["minimumSpeechSamples"]:', "speech-mismatch"),
             ("smart-turn", {"probability": 0.1},
              'if result["probability"] <= fixture["minimumTurnProbability"]:', "turn-mismatch"),
-            ("wake", {"decode_calls": 0},
-             'if result["decode_calls"] <= 0:', "wake-not-decoded"),
+            ("wake", {"partial_count": 0, "decode_calls": 3},
+             'if result["partial_count"] <= 0:', "wake-not-spotted"),
         ]
         for engine, result, needle, diagnostic in cases:
             with self.subTest(engine=engine, diagnostic=diagnostic):

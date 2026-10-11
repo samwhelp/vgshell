@@ -320,10 +320,13 @@ def load(artifact, root, provider, np, sherpa):
         return sherpa.VoiceActivityDetector(config, buffer_size_in_seconds=120)
     if engine == "wake":
         suffix = "-epoch-12-avg-2-chunk-16-left-64.int8.onnx"
+        # create_stream(keywords) adds to the keywords_file list, so the model's
+        # own keywords.txt (ALEXA, HELLO WORLD, ...) would wake Jarvis too. The
+        # default four active paths missed spoken renders of the phrase.
         return sherpa.KeywordSpotter(
             encoder=str(d / ("encoder" + suffix)), decoder=str(d / ("decoder" + suffix)),
             joiner=str(d / ("joiner" + suffix)), tokens=str(d / "tokens.txt"),
-            keywords_file=str(d / "keywords.txt"), **options)
+            keywords_file=os.devnull, max_active_paths=8, **options)
     if engine == "smart-turn":
         import onnxruntime as ort
         from transformers import WhisperFeatureExtractor
@@ -441,8 +444,8 @@ def outcome(artifact, result, value):
         if result["probability"] <= fixture["minimumTurnProbability"]:
             raise ValueError("fixture=turn-mismatch")
     elif engine == "wake":
-        if result["decode_calls"] <= 0:
-            raise ValueError("fixture=wake-not-decoded")
+        if result["partial_count"] <= 0:
+            raise ValueError("fixture=wake-not-spotted")
     else:
         raise ValueError(f"engine=unknown value={engine}")
 

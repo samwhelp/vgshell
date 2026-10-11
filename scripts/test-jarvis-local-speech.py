@@ -224,7 +224,7 @@ class Spotter:
         return "HEY_JARVIS" if self.at is not None and stream.decoded >= self.at else ""
 
 
-KEYWORDS = "▁HE Y ▁JA R V IS @HEY_JARVIS"
+KEYWORDS = json.loads((PLUGIN / "artifacts.json").read_text())["fixture"]["wakeTokens"]
 
 
 def speech(m, segments, bound, recognizer=None, voice=None, rate=22050, captions=None, turn=lambda s: 1.0, spotter=None):

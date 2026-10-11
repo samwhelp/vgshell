@@ -43,7 +43,7 @@
     "transcriptWords": ["read", "this", "local", "test"],
     "minimumSpeechSamples": 16000,
     "minimumTurnProbability": 0.5,
-    "wakeTokens": "▁HE Y ▁JA R V IS @HEY_JARVIS"
+    "wakeTokens": "▁HE Y ▁JA R VI S :2.5 @HEY_JARVIS"
   },
   "tiers": {
     "small": {"provider": "cpu", "name": "Small", "description": "English, quickest to set up", "downloadBytes": 796490765, "artifacts": ["moonshine", "piper", "silero", "smart-turn", "wake", "nemotron"]},
