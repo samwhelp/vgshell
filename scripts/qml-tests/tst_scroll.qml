@@ -13,8 +13,9 @@ import qs.Unit
 // on the track pages; it shows while hovered or scrolling and fades to
 // `scrollArea.idleOpacity` after `scrollArea.fadeDelay`. A select's long
 // list keeps the gutter clear at each entry's end, under the bar. An
-// overflowing area draws a lasting edge cue at each edge where content is
-// clipped, and none while its content fits.
+// overflowing area fades its content toward what lies behind it at each
+// edge with content beyond, shows it in full at an end it rests at, and
+// marks each clipped edge with a hairline; content that fits shows no fade.
 Item {
     id: root
     width: 400
@@ -71,6 +72,24 @@ Item {
             Column {
                 width: parent.width
                 Repeater { model: 10; Rectangle { width: parent.width; height: 20; color: "transparent" } }
+            }
+        }
+    }
+    // Opaque rows of one colour over a background of another, `rows` rows
+    // of 20 px in a 100 px view.
+    Component {
+        id: fadeCase
+        Rectangle {
+            property alias area: fadeArea
+            property int rows: 10
+            z: 10
+            width: 120
+            height: 100
+            color: "#00ff00"
+            ScrollArea {
+                id: fadeArea
+                anchors.fill: parent
+                Column { width: parent.width; Repeater { model: fadeArea.parent.rows; Rectangle { width: parent.width; height: 20; color: "#ff00ff" } } }
             }
         }
     }
@@ -149,29 +168,57 @@ Item {
             verify(inset.bar.x + inset.bar.width <= inset.width, "bar ends inside the scroll area");
         }
 
-        // The drawn edge cues of AREA as { above, below }: its gradient
-        // shades over the content clip's top and bottom edges.
-        function cues(area) {
-            const shades = area.children.filter(child => child.gradient !== undefined && child.gradient !== null);
-            compare(shades.length, 2, "the area holds a top and a bottom cue");
-            const top = area.focusInset;
-            const bottom = area.height - area.focusInset;
-            const above = shades.find(child => child.y === top);
-            const below = shades.find(child => child.y + child.height === bottom);
-            verify(above !== undefined && below !== undefined && above !== below, "one cue lies on each edge of the view");
-            return { above: above, below: below };
+        // The colour of HOLDER's pixel on row Y, mid-row, as drawn.
+        function drawn(holder, y) {
+            verify(waitForRendering(holder));
+            return grabImage(holder).pixel(20, y);
         }
 
-        function test_an_edge_cue_marks_each_clipped_edge() {
-            const drawn = cues(area);
-            compare([area.cueAbove, area.cueBelow, drawn.above.visible, drawn.below.visible], [false, true, false, true], "at the top only the bottom cue shows");
-            verify(drawn.below.height > 0 && drawn.below.width > 0, "the bottom cue has a size");
-            area.contentY = 40;
-            compare([area.cueAbove, area.cueBelow, drawn.above.visible, drawn.below.visible], [true, true, true, true], "midway both cues show");
-            area.contentY = area.contentHeight - area.height;
-            compare([area.cueAbove, area.cueBelow, drawn.above.visible, drawn.below.visible], [true, false, true, false], "at the end only the top cue shows");
-            const fits = cues(short);
-            compare([short.cueAbove, short.cueBelow, fits.above.visible, fits.below.visible], [false, false, false, false], "content that fits shows no cue");
+        function near(actual, expected) {
+            const want = Qt.color(expected);
+            return Math.abs(actual.r - want.r) + Math.abs(actual.g - want.g) + Math.abs(actual.b - want.b) < 0.1;
+        }
+
+        // Each edge row is read just inside the hairline that marks it.
+        function edges(holder) {
+            const line = Theme.divider.thickness;
+            return { top: drawn(holder, line), middle: drawn(holder, holder.height / 2), bottom: drawn(holder, holder.height - 1 - line), topLine: drawn(holder, 0), bottomLine: drawn(holder, holder.height - 1) };
+        }
+
+        function test_the_content_fades_at_each_edge_with_content_beyond() {
+            const holder = createTemporaryObject(fadeCase, root);
+            const view = holder.area;
+            const row = "#ff00ff", back = holder.color, line = Theme.color.borderStrong;
+            tryVerify(() => view.overflowing, 1000, "ten rows overflow the view");
+
+            let seen = edges(holder);
+            verify(near(seen.top, row) && near(seen.topLine, row), "at the top the top edge shows its row in full: " + seen.top + " " + seen.topLine);
+            verify(near(seen.middle, row), "mid-view shows the row: " + seen.middle);
+            verify(near(seen.bottom, back), "at the top the bottom edge fades to the background: " + seen.bottom);
+            verify(near(seen.bottomLine, line), "a hairline marks the clipped bottom edge: " + seen.bottomLine);
+            compare([view.fadeAbove, view.fadeBelow], [0, 1], "at the top only the bottom band fades");
+
+            view.contentY = 50;
+            seen = edges(holder);
+            verify(near(seen.top, back) && near(seen.bottom, back), "midway both edges fade to the background: " + seen.top + " " + seen.bottom);
+            verify(near(seen.middle, row), "mid-view shows the row: " + seen.middle);
+            verify(near(seen.topLine, line) && near(seen.bottomLine, line), "a hairline marks each clipped edge: " + seen.topLine + " " + seen.bottomLine);
+            compare([view.fadeAbove, view.fadeBelow], [1, 1], "midway both bands fade in full");
+
+            view.contentY = view.contentHeight - view.height;
+            seen = edges(holder);
+            verify(near(seen.top, back), "at the end the top edge fades to the background: " + seen.top);
+            verify(near(seen.topLine, line), "a hairline marks the clipped top edge: " + seen.topLine);
+            verify(near(seen.bottom, row) && near(seen.bottomLine, row), "at the end the bottom edge shows its row in full: " + seen.bottom + " " + seen.bottomLine);
+            compare([view.fadeAbove, view.fadeBelow], [1, 0], "at the end only the top band fades");
+
+            holder.rows = 5;
+            view.contentY = 0;
+            tryVerify(() => !view.overflowing, 1000, "five rows fill the view exactly");
+            seen = edges(holder);
+            for (const edge of ["topLine", "top", "middle", "bottom", "bottomLine"])
+                verify(near(seen[edge], row), "content that fits shows its " + edge + " row in full: " + seen[edge]);
+            compare([view.fadeAbove, view.fadeBelow], [0, 0], "content that fits has no band");
         }
 
         function test_the_thumb_is_the_view_share_and_never_below_the_minimum() {

@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Window
 import QtQuick.Templates as T
 import qs.Commons
@@ -21,19 +22,22 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // the item under the pointer, which selects text where text is selectable.
 // It takes the wheel and a touch only while its content overflows, so a
 // touch on an area that fits reaches what lies under it, such as a scrim
-// that closes a full-screen view. While the content overflows, an edge cue
-// lies over each edge where content is clipped: a shade `space.lg` deep
-// that fades the content into the surface, toward `color.scrim`, the
-// background colour at partial alpha, so it reads on light and dark
-// themes alike, and a `divider.thickness` hairline in `color.borderStrong`
-// along the clipped edge. It marks the bottom while content
-// continues below the view, the top while content is scrolled under it,
-// `cueBelow` and `cueAbove`. Unlike the bar it never fades, so a page cut
-// at the window's edge says so at rest; it takes no input. The hairline
-// spans the viewport alone, so a holder that draws its own line on an
-// edge, as Pane's divider under a sticky header and over a sticky footer
-// does, turns this one off there with `cueLineAbove` or `cueLineBelow`;
-// the shade stays.
+// that closes a full-screen view. While the content overflows, it fades
+// out across a `scrollArea.fadeHeight` band at each edge, at most half the
+// view: a mask on the content's alpha, so every part of it, text, outline
+// and fill alike, fades toward whatever lies behind the area on any
+// surface and theme. Each band's strength, `fadeAbove` and `fadeBelow`,
+// grows in as content comes to lie beyond its edge, so an end the view
+// rests at shows its content in full. A `divider.thickness` hairline in
+// `color.borderStrong` marks each edge where content is clipped, the
+// bottom while content continues below the view and the top while content
+// is scrolled under it, `cueBelow` and `cueAbove`. Unlike the bar neither
+// fades with time, so a page cut at the window's edge says so at rest;
+// neither takes input. The bar, the focus ring and the hairlines lie
+// outside the mask, so they never fade. The hairline spans the viewport
+// alone, so a holder that draws its own line on an edge, as Pane's divider
+// under a sticky header and over a sticky footer does, turns this one off
+// there with `cueLineAbove` or `cueLineBelow`; the fade stays.
 Flickable {
     id: root
 
@@ -53,6 +57,9 @@ Flickable {
     // Under half a pixel of clipped content is float noise, as for the bar.
     readonly property bool cueAbove: overflowing && !barHeld && contentY >= 0.5
     readonly property bool cueBelow: overflowing && !barHeld && contentHeight - height - contentY >= 0.5
+    readonly property real fadeExtent: Math.min(Theme.scrollArea.fadeHeight, contentClip.height / 2)
+    readonly property real fadeAbove: overflowing && !barHeld ? fadeStrength(contentY) : 0
+    readonly property real fadeBelow: overflowing && !barHeld ? fadeStrength(contentHeight - height - contentY) : 0
     readonly property alias bar: scrollBar
     readonly property Item focusProxy: keyboardFocus
 
@@ -79,6 +86,17 @@ Flickable {
         return bottom;
     }
 
+    // The strength of a band with `distance` of content beyond its edge:
+    // full once a band's depth of content lies beyond it.
+    function fadeStrength(distance) {
+        return Math.max(0, Math.min(1, distance / Math.max(1, fadeExtent)));
+    }
+    function maskColor(alpha) {
+        const color = Qt.color(Theme.color.text);
+        color.a = alpha;
+        return color;
+    }
+
     function checkInset() {
         if (!barOverContent && Theme.scrollArea.gutter > rightInset)
             console.error("ScrollArea: gutter=" + Theme.scrollArea.gutter + " exceeds rightInset=" + rightInset);
@@ -93,14 +111,10 @@ Flickable {
         contentY = Math.max(0, Math.min(contentHeight - height, contentY + delta));
     }
     Component.onCompleted: {
-        updateContentParent();
+        // Reparent after Flickable has installed its declared children.
+        contentItem.parent = contentOrigin;
         checkInset();
     }
-    // Reparent after Flickable has installed its declared children.
-    function updateContentParent() {
-        contentItem.parent = keyboardScroll ? contentOrigin : root;
-    }
-    onKeyboardScrollChanged: Qt.callLater(updateContentParent)
     onRightInsetChanged: checkInset()
     onBarOverContentChanged: checkInset()
 
@@ -134,12 +148,38 @@ Flickable {
 
     // Clip scrolling content before it reaches the area's ring. When a
     // child takes focus, its existing padding holds the child's ring.
+    // Qt's Item layer effect consumes a texture-backed mask's alpha
+    // (doc.qt.io/qt-6/qml-qtquick-effects-multieffect.html); the layer
+    // holds the content alone, so the bar, ring and hairlines stay whole.
     Item {
         id: contentClip
         parent: root
         anchors.fill: parent
         anchors.margins: root.focusInset + root.clipPadding
         clip: true
+        layer.enabled: root.visible && height > 0 && root.overflowing && !root.barHeld
+        layer.smooth: true
+        layer.effect: MultiEffect {
+            maskEnabled: true
+            maskSource: fadeMask
+            maskThresholdMin: 0.5
+            maskSpreadAtMin: 1
+        }
+    }
+
+    Rectangle {
+        id: fadeMask
+        parent: root
+        anchors.fill: contentClip
+        visible: false
+        layer.enabled: contentClip.layer.enabled
+        layer.smooth: true
+        gradient: Gradient {
+            GradientStop { position: 0; color: root.maskColor(1 - root.fadeAbove) }
+            GradientStop { position: root.fadeExtent / Math.max(1, contentClip.height); color: root.maskColor(1) }
+            GradientStop { position: 1 - root.fadeExtent / Math.max(1, contentClip.height); color: root.maskColor(1) }
+            GradientStop { position: 1; color: root.maskColor(1 - root.fadeBelow) }
+        }
     }
 
     // Preserve the content coordinates while its existing padding becomes
@@ -165,38 +205,20 @@ Flickable {
         Keys.onPressed: event => { event.accepted = root.handleScrollKey(event); }
     }
 
-    // The edge cues lie over the content and under the bar, whose z is 1.
+    // The hairlines lie over the content and under the bar, whose z is 1.
     Rectangle {
         parent: root
         anchors { left: contentClip.left; right: contentClip.right; top: contentClip.top }
-        height: Theme.space.lg
-        visible: root.cueAbove
-        gradient: Gradient {
-            GradientStop { position: 0; color: Theme.color.scrim }
-            GradientStop { position: 1; color: "transparent" }
-        }
-        Rectangle {
-            anchors { left: parent.left; right: parent.right; top: parent.top }
-            height: Theme.divider.thickness
-            color: Theme.color.borderStrong
-            visible: root.cueLineAbove
-        }
+        height: Theme.divider.thickness
+        color: Theme.color.borderStrong
+        visible: root.cueAbove && root.cueLineAbove
     }
     Rectangle {
         parent: root
         anchors { left: contentClip.left; right: contentClip.right; bottom: contentClip.bottom }
-        height: Theme.space.lg
-        visible: root.cueBelow
-        gradient: Gradient {
-            GradientStop { position: 0; color: "transparent" }
-            GradientStop { position: 1; color: Theme.color.scrim }
-        }
-        Rectangle {
-            anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-            height: Theme.divider.thickness
-            color: Theme.color.borderStrong
-            visible: root.cueLineBelow
-        }
+        height: Theme.divider.thickness
+        color: Theme.color.borderStrong
+        visible: root.cueBelow && root.cueLineBelow
     }
 
     ScrollBar {

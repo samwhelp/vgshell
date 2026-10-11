@@ -62,7 +62,8 @@
 # still draws at scale 1, so QT_SCREEN_SCALE_FACTORS sets it; a run under
 # qmltestrunner 6.11.2 drew a half-pixel step as one device pixel there.
 #
-# The shader test runs under xvfb-run, which picks the first display whose
+# The shader tests, which read pixels a MultiEffect draws, run under
+# xvfb-run, which picks the first display whose
 # /tmp/.X<n>-lock is absent and only then starts Xvfb, so two runs at once,
 # as the parallel mutations of scripts/test-qml-unit.sh make, can pick one
 # display and the second Xvfb fails. The fence keeps the host's /tmp, so
@@ -255,10 +256,10 @@ for file in "${files[@]}"; do
   file_status=0
   render_command=(env -i)
   render_environment=()
-  if [[ ${file##*/} == tst_notification_scroll.qml ]]; then
+  if [[ ${file##*/} == tst_notification_scroll.qml || ${file##*/} == tst_scroll.qml ]]; then
     # Offscreen defaults to Qt's Software renderer, which cannot paint
     # MultiEffect. An isolated X display supplies a software OpenGL
-    # context for this shader test. xvfb-run owns its auth file and
+    # context for these shader tests. xvfb-run owns its auth file and
     # display cleanup; no caller display or Wayland socket enters Qt.
     for tool in Xvfb xvfb-run xauth flock; do
       if ! command -v "$tool" >/dev/null 2>&1; then

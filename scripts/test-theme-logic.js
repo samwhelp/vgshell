@@ -290,13 +290,15 @@ const DEFAULTS = [
     ["menu.typeahead", 1000],
     ["menu.item.check", "#ff5a36ff"],
     // The scroll bar: 4 px thick, 2 px in, inside an 8 px gutter, a thumb
-    // of at least 24 px, faded out 800 ms after the last scroll.
+    // of at least 24 px, faded out 800 ms after the last scroll; the
+    // content fades across a 48 px band: mul(24, 2) = 48.
     ["scrollArea.barWidth", 4],
     ["scrollArea.barInset", 2],
     ["scrollArea.gutter", 8],
     ["scrollArea.minThumb", 24],
     ["scrollArea.idleOpacity", 0],
     ["scrollArea.fadeDelay", 800],
+    ["scrollArea.fadeHeight", 48],
     ["scrollArea.fade", 250],
     // A list row with a secondary line takes the row group's 56.
     ["listItem.twoLineHeight", 56],

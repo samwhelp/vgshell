@@ -929,7 +929,9 @@ Item {
         // `menu.radius` less the border round. What shows is the item's box
         // cut by each clipping ancestor, whose cut edges draw square, and,
         // when an ancestor's layer masks it through a MultiEffect, cut to
-        // that mask too; a mask inside the interior keeps it there.
+        // that mask too; a mask inside the interior keeps it there. A mask
+        // that is not, such as a scroll area's square edge fade, proves
+        // nothing, and an outer mask or clip may still keep it inside.
         function drawsInside(item, radius, window) {
             const border = Theme.border.thin;
             const outer = Math.min(Theme.menu.radius, window.width / 2, window.height / 2);
@@ -943,7 +945,7 @@ Item {
                     if (effect !== undefined) {
                         const mask = boxIn(effect.maskSource, window);
                         const r = Math.min(effect.maskSource.radius, mask.width / 2, mask.height / 2);
-                        return cornerPoints(mask.x, mask.y, mask.x + mask.width, mask.y + mask.height, [r, r, r, r]).every(([x, y]) => inRounded(x, y, inner));
+                        if (cornerPoints(mask.x, mask.y, mask.x + mask.width, mask.y + mask.height, [r, r, r, r]).every(([x, y]) => inRounded(x, y, inner))) return true;
                     }
                 }
                 if (a.clip) {

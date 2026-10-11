@@ -981,7 +981,10 @@ var TOKENS = {
     // inside a `gutter` the content leaves free while it overflows; a thumb
     // never shorter than `minThumb`. It shows while hovered or scrolling
     // and fades to `idleOpacity` `fadeDelay` milliseconds after, over
-    // `fade`.
+    // `fade`. The content fades out across a `fadeHeight` band at each
+    // edge where it is clipped: the notification panel's header band,
+    // since qs.Ui cannot read a plugin-owned look and the spacing tokens
+    // name gaps, not a fade band.
     scrollArea: {
         barWidth: length("{space.xs}"),
         barInset: length("{space.xxs}"),
@@ -992,7 +995,8 @@ var TOKENS = {
         barHover: color("{color.textFaint}"),
         idleOpacity: share(0),
         fadeDelay: number(800, 0, 5000),
-        fade: duration("{motion.duration.slow}")
+        fade: duration("{motion.duration.slow}"),
+        fadeHeight: length("mul({space.xxl}, 2)")
     },
 
     // A title that opens a menu of choices: its text over an underline
