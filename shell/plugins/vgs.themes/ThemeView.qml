@@ -53,6 +53,9 @@ FocusScope {
 
     property var cards: []
     property string filterText: ""
+    // A press on the search field armed it for typing; cleared with the
+    // filter or when the rail loses the keyboard.
+    property bool searchArmed: false
     readonly property var shownCards: BrowserLogic.shown(cards, filterText)
     // The selected theme's name, kept across a filter and a refresh; the
     // displayed theme's until the first card is chosen.
@@ -251,12 +254,15 @@ FocusScope {
 
     // Escape: the filter first, then the browser.
     function cancel() {
-        if (filterText !== "") filterText = "";
-        else closeRequested();
+        if (filterText !== "") {
+            filterText = "";
+            searchArmed = false;
+        } else closeRequested();
     }
 
     function editFilter(edit) {
         filterText = BrowserLogic.editFilter(filterText, edit);
+        if (edit.kind === "clear") searchArmed = false;
     }
 
     function start() {
@@ -374,6 +380,7 @@ FocusScope {
                 preloadFullImages: true
                 anchors.fill: parent
                 focus: true
+                onActiveFocusChanged: if (!activeFocus) root.searchArmed = false
                 devicePixelRatio: root.shell === null || root.shell.screens.current === null ? Screen.devicePixelRatio : root.shell.screens.current.devicePixelRatio
                 tabSteps: false
                 spaceActivates: false
@@ -425,9 +432,10 @@ FocusScope {
                 }
 
                 // The filter as a search field. The rail keeps the keyboard,
-                // so the field shows `filterText` and a steady cursor
-                // without taking the focus, and a press on it hands the
-                // keyboard back to the rail.
+                // so the field shows `filterText` without taking the focus,
+                // and a press on it hands the keyboard back to the rail.
+                // At rest it shows its icon and placeholder alone; a typed
+                // filter or a press on it shows a steady cursor.
                 // The field bounds its own width to its tokens.
                 TextField {
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -437,7 +445,7 @@ FocusScope {
                     text: root.filterText
                     // Qt keeps this while the field never takes the
                     // focus, and draws it unblinking (TextInput.cursorVisible).
-                    cursorVisible: true
+                    cursorVisible: root.filterText !== "" || root.searchArmed
                     activeFocusOnPress: false
                     activeFocusOnTab: false
 
@@ -446,7 +454,10 @@ FocusScope {
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.IBeamCursor
-                        onPressed: root.focusRail()
+                        onPressed: {
+                            root.focusRail();
+                            root.searchArmed = true;
+                        }
                     }
                 }
 

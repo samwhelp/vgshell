@@ -397,7 +397,12 @@ expect "the browser includes the shipped vgs card" True has_card vgs
 expect_poll "the retained catalog reaches the installed list with nord" True has_card nord
 expect "the applied theme is selected" '"vgs"' view_value selectedName
 expect_poll "the resting theme view draws the selected theme's name and the search placeholder beside its cards and tabs" '["Search themes", "Vgs"]' rest_texts
-expect "the resting search field is empty, shows a cursor and leaves the keyboard with the rail" '["", "Search themes", true, false]' search_field
+expect "the resting search field is empty, shows no cursor and leaves the keyboard with the rail" '["", "Search themes", false, false]' search_field
+click_in vgs:overlay overlay vgs.themes TextField "" || fail "the click on the empty theme search field failed"
+expect_poll "a press on the empty search field shows a cursor without the keyboard" '["", "Search themes", true, false]' search_field
+expect "a press on the empty search field leaves the keyboard with the rail" true rail_focused
+type_keys -M ctrl -k u -m ctrl || fail "sending Ctrl+U to the pressed theme search field failed"
+expect_poll "Ctrl+U puts the pressed search field back at rest" '["", "Search themes", false, false]' search_field
 expect_poll "every side card names its theme" named slices_named
 expect_poll "every side card's name starts the inset up its slice, in h2, white over its shadow, above its card's wash" '[]' slice_look
 # The browser's layout, one finding per broken rule, `[]` the pass: its
@@ -905,6 +910,39 @@ expect_poll "control: a field that takes the press holds the keyboard" true ipc 
 expect "control: a field that takes the press leaves the rail unfocused" false rail_focused
 search_control_close "control: the search focus copy"
 plugin_restore ThemeView.qml "search focus"
+# Controls for the cursor: a copy whose field shows it at rest, and one
+# whose press arms nothing. In the second, x and BackSpace, typed after the
+# press, order the reading after it.
+cursor_binding='cursorVisible: root.filterText !== "" || root.searchArmed'
+cursor_open() { # LABEL
+  press_themes || { fail "$1: typing SUPER+SHIFT+T failed"; return 1; }
+  expect_poll "$1: SUPER+SHIFT+T opens the browser" 1 layer_count vgs:overlay
+  expect_poll "$1: the browser read its cards" true view_value loaded
+}
+# cursor_pressed LABEL VALUE: press the empty field, then type x and erase
+# it, VALUE the view's filterText reader.
+cursor_pressed() { # LABEL VALUE
+  click_in vgs:overlay overlay vgs.themes TextField "" || { fail "$1: the click on the empty search field failed"; return 1; }
+  type_keys x || { fail "$1: typing x failed"; return 1; }
+  expect_poll "$1: x reaches the filter" '"x"' "$2" filterText
+  type_keys -k BackSpace || { fail "$1: sending BackSpace failed"; return 1; }
+  expect_poll "$1: BackSpace empties the filter" '""' "$2" filterText
+}
+plugin_control ThemeView.qml "resting cursor" "$cursor_binding" 'cursorVisible: true'
+cursor_open "control: the resting cursor copy"
+expect "control: a field that always shows its cursor shows it at rest" '["", "Search themes", true, false]' search_field
+search_control_close "control: the resting cursor copy"
+plugin_restore ThemeView.qml "resting cursor"
+cursor_open "the pressed cursor"
+cursor_pressed "the pressed cursor" view_value
+expect "a pressed field keeps its cursor once its typed filter is erased" '["", "Search themes", true, false]' search_field
+search_control_close "the pressed cursor"
+plugin_control ThemeView.qml "pressed cursor" 'root.searchArmed = true;' ''
+cursor_open "control: the pressed cursor copy"
+cursor_pressed "control: the pressed cursor copy" view_value
+expect "control: a press that arms nothing leaves the erased field without a cursor" '["", "Search themes", false, false]' search_field
+search_control_close "control: the pressed cursor copy"
+plugin_restore ThemeView.qml "pressed cursor"
 
 # vgs, applied, ships Black; a click on the source line's Show all
 # switches to all, turns the line to Show theme and leaves the keys with
@@ -971,7 +1009,12 @@ expect "two screens show the scope control" true wall_value scoped
 expect_poll "the selection starts on the image every screen shows" "$nord_a" wall_selected
 expect "the wallpaper card decodes at card size times screen scale" True card_source_size_matches "$nord_a"
 expect_poll "the resting wallpaper view draws its search placeholder, source line and scope control alone" '["All monitors", "Search wallpapers", "Show all", "This monitor"]' rest_texts
-expect "the resting wallpaper search field is empty, shows a cursor and leaves the keyboard with the view" '["", "Search wallpapers", true, false]' search_field
+expect "the resting wallpaper search field is empty, shows no cursor and leaves the keyboard with the view" '["", "Search wallpapers", false, false]' search_field
+click_in vgs:overlay overlay vgs.themes TextField "" || fail "the click on the empty wallpaper search field failed"
+expect_poll "a press on the empty wallpaper search field shows a cursor without the keyboard" '["", "Search wallpapers", true, false]' search_field
+browser_focused "a press on the empty wallpaper search field leaves the keyboard with the view"
+type_keys -M ctrl -k u -m ctrl || fail "sending Ctrl+U to the pressed wallpaper search field failed"
+expect_poll "Ctrl+U puts the pressed wallpaper search field back at rest" '["", "Search wallpapers", false, false]' search_field
 
 # The wallpaper filter: text reaches the filter, filters the rail, Space
 # stays text, Ctrl+U clears, Clear filter works from the empty state, and
@@ -991,7 +1034,7 @@ expect_poll "a wallpaper filter no card matches empties the rail" 0 wall_count
 expect "the wallpaper search field shows the filter no card matches" '["zzqx", "Search wallpapers", true, false]' search_field
 click_in vgs:overlay overlay vgs.themes Button "Clear filter" || fail "the wallpaper Clear filter click failed"
 expect_poll "Clear filter clears the wallpaper filter" '""' wall_value filterText
-expect_poll "Clear filter puts the wallpaper search field back at rest" '["", "Search wallpapers", true, false]' search_field
+expect_poll "Clear filter puts the wallpaper search field back at rest" '["", "Search wallpapers", false, false]' search_field
 type_keys "b." || fail "typing the wallpaper filter before Escape failed"
 expect_poll "the wallpaper filter is set before Escape" '"b."' wall_value filterText
 type_keys -k Escape || fail "sending Escape with a wallpaper filter failed"
@@ -999,6 +1042,26 @@ expect_poll "Escape clears the wallpaper filter" '""' wall_value filterText
 expect "Escape with a wallpaper filter keeps the browser open" 1 layer_count vgs:overlay
 type_keys -k Escape || fail "sending Escape after clearing the wallpaper filter failed"
 expect_poll "Escape with no wallpaper filter closes the browser" 0 layer_count vgs:overlay
+wall_cursor_open() { # LABEL
+  press_wallpapers || { fail "$1: typing SUPER+SHIFT+W failed"; return 1; }
+  expect_poll "$1: SUPER+SHIFT+W opens the browser" 1 layer_count vgs:overlay
+  expect_poll "$1: the wallpaper view read its lists" true wall_value loaded
+}
+plugin_control WallpaperView.qml "resting cursor" "$cursor_binding" 'cursorVisible: true'
+wall_cursor_open "control: the resting wallpaper cursor copy"
+expect "control: a wallpaper field that always shows its cursor shows it at rest" '["", "Search wallpapers", true, false]' search_field
+search_control_close "control: the resting wallpaper cursor copy"
+plugin_restore WallpaperView.qml "resting cursor"
+wall_cursor_open "the pressed wallpaper cursor"
+cursor_pressed "the pressed wallpaper cursor" wall_value
+expect "a pressed wallpaper field keeps its cursor once its typed filter is erased" '["", "Search wallpapers", true, false]' search_field
+search_control_close "the pressed wallpaper cursor"
+plugin_control WallpaperView.qml "pressed cursor" 'root.searchArmed = true;' ''
+wall_cursor_open "control: the pressed wallpaper cursor copy"
+cursor_pressed "control: the pressed wallpaper cursor copy" wall_value
+expect "control: a wallpaper press that arms nothing leaves the erased field without a cursor" '["", "Search wallpapers", false, false]' search_field
+search_control_close "control: the pressed wallpaper cursor copy"
+plugin_restore WallpaperView.qml "pressed cursor"
 
 plugin_control WallpaperView.qml "wallpaper typing" $'case "":\n                if (event.key === Qt.Key_Backspace' $'case "":\n                return;\n                if (event.key === Qt.Key_Backspace'
 press_wallpapers || fail "typing SUPER+SHIFT+W for the wallpaper typing control failed"

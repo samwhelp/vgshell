@@ -67,6 +67,9 @@ FocusScope {
     readonly property string applied: Theme.name
     readonly property var cards: images === null ? [] : BrowserLogic.wallpaperCards(images, entries, applied, source)
     property string filterText: ""
+    // A press on the search field armed it for typing; cleared with the
+    // filter or when the view loses the keyboard.
+    property bool searchArmed: false
     readonly property var shownCards: BrowserLogic.wallpaperShown(cards, filterText)
     // The image the chosen scope shows now, "" for none.
     readonly property string shownPath: BrowserLogic.shownPath(scope, wallpaper.path, wallpaper.screenPaths, screenName)
@@ -109,6 +112,7 @@ FocusScope {
     Item {
         id: keyboard
         focus: true
+        onActiveFocusChanged: if (!activeFocus) root.searchArmed = false
         Keys.onPressed: event => {
             const shift = (event.modifiers & Qt.ShiftModifier) !== 0;
             const control = (event.modifiers & Qt.ControlModifier) !== 0;
@@ -206,12 +210,15 @@ FocusScope {
     function takeKeys() { keyboard.forceActiveFocus(); }
 
     function cancel() {
-        if (filterText !== "") filterText = "";
-        else closeRequested();
+        if (filterText !== "") {
+            filterText = "";
+            searchArmed = false;
+        } else closeRequested();
     }
 
     function editFilter(edit) {
         filterText = BrowserLogic.editFilter(filterText, edit);
+        if (edit.kind === "clear") searchArmed = false;
     }
 
     function navigate(direction) {
@@ -419,9 +426,10 @@ FocusScope {
                 spacing: Theme.stack.group
 
                 // The filter as a search field. The view keeps the keyboard,
-                // so the field shows `filterText` and a steady cursor
-                // without taking the focus, and a press on it hands the
-                // keyboard back to the view.
+                // so the field shows `filterText` without taking the focus,
+                // and a press on it hands the keyboard back to the view.
+                // At rest it shows its icon and placeholder alone; a typed
+                // filter or a press on it shows a steady cursor.
                 // The field bounds its own width to its tokens.
                 TextField {
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -431,7 +439,7 @@ FocusScope {
                     text: root.filterText
                     // Qt keeps this while the field never takes the
                     // focus, and draws it unblinking (TextInput.cursorVisible).
-                    cursorVisible: true
+                    cursorVisible: root.filterText !== "" || root.searchArmed
                     activeFocusOnPress: false
                     activeFocusOnTab: false
 
@@ -440,7 +448,10 @@ FocusScope {
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.IBeamCursor
-                        onPressed: root.takeKeys()
+                        onPressed: {
+                            root.takeKeys();
+                            root.searchArmed = true;
+                        }
                     }
                 }
 
