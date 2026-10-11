@@ -1397,6 +1397,14 @@ function workingFeedback(logic) {
     s = step(logic, s, snapshot({ at: 35, settings: { sounds: true } })).state;
     return step(logic, s, callback("feedback", s.turn, 40)).state;
 }
+function lineFeedback(logic) {
+    let s = thinking(logic);
+    return step(logic, s, callback("feedback", s.turn, 40, { cue: "line" })).state;
+}
+function lineReply(logic) {
+    const s = lineFeedback(logic);
+    return step(logic, s, callback("play", s.turn, 41, { interruptible: true })).state;
+}
 function pendingFeedbackReply(logic) {
     const s = workingFeedback(logic);
     const flushing = step(logic, s, snapshot({ at: 41, settings: { sounds: false } })).state;
@@ -1457,6 +1465,34 @@ table.push(["feedback-start", logic => {
         ["stale operation", s, { ...s.turn, op: s.turn.op + 1 }],
         ["ended turn", step(logic, s, callback("brain-done", s.turn, 41)).state, s.turn]
     ]) assert.equal(kinds(step(logic, state, callback("feedback", owner, 42))).includes("playback-start"), false, label);
+}], ["feedback-line", logic => {
+    let s = thinking(logic);
+    const line = step(logic, s, callback("feedback", s.turn, 40, { cue: "line" }));
+    assert.deepEqual([line.state.playback.kind, line.state.playback.cue, logic.phaseOf(line.state), logic.canCapture(line.state)],
+        ["feedback", "line", "thinking", false], "a spoken feedback line keeps the thinking phase but closes capture");
+    assert.equal(logic.validate(line.state), true);
+    const disabled = step(logic, line.state, snapshot({ at: 41, settings: { sounds: false } }));
+    assert.equal(disabled.state.playback.kind, "feedback", "sound settings do not flush speech lines");
+    const waiting = step(logic, disabled.state, callback("play", s.turn, 42, { interruptible: true }));
+    assert.deepEqual([waiting.state.playback.kind, waiting.state.playback.reply.kind, waiting.effects],
+        ["feedback", "waiting", []], "reply waits for a line player");
+    assert.equal(logic.phaseOf(waiting.state), "speaking", "a reply held behind a line already shows speaking");
+    const admitted = step(logic, waiting.state, callback("played", waiting.state.playback, 43));
+    assert.deepEqual([admitted.state.playback.kind, admitted.state.playback.source, admitted.state.playback.admission.kind],
+        ["playing", s.turn.op, "started"], "line completion starts the waiting reply");
+    s = lineFeedback(logic);
+    const repeated = step(logic, s, callback("feedback", s.turn, 41, { cue: "line" }));
+    assert.deepEqual([repeated.state.playback, repeated.effects], [s.playback, []], "another waiting line uses the same stream");
+    const held = step(logic, s, callback("approval", s.turn, 41, { purpose: "release", id: "held", digest: "a".repeat(64),
+        physical: false, text: "Fixture", tool: "fixture", timeoutMs: 1000, cancellable: false }));
+    assert.equal(held.state.playback.kind, "flushing", "approval flushes a spoken line");
+    assert.equal(kinds(held).includes("playback-flush"), true);
+    s = lineReply(logic);
+    const dropped = step(logic, s, event("talk-down", 42));
+    assert.equal(dropped.state.playback.kind, "flushing", "Talk drops a reply waiting behind a line");
+    assert.equal(dropped.state.playback.reply.kind, "none");
+    const stale = step(logic, thinking(logic), callback("feedback", { ...s.turn, op: s.turn.op + 100 }, 42, { cue: "line" }));
+    assert.equal(stale.state.playback.kind, "idle", "stale line callbacks are ignored");
 }], ["feedback-approval", logic => {
     for (const purpose of ["action", "release"]) {
         const s = workingFeedback(logic);
@@ -1828,12 +1864,20 @@ try {
         ["feedback-start-engine", 's.settings.sounds === true && s.engine.kind === "chained"', 's.settings.sounds === true', "feedback-start"],
         ["feedback-start-approval", '&& s.playback.kind === "idle" && s.approval.kind === "none") {', '&& s.playback.kind === "idle") {', "feedback-start"],
         ["feedback-start-busy", '&& s.playback.kind === "idle" && s.approval.kind === "none") {', '&& s.approval.kind === "none") {', "feedback-start"],
-        ["feedback-cue-shape", 'if (region === "playback" && r.kind === "feedback" && ["start", "working"].indexOf(r.cue) === -1) return false;', 'void region;', "wire-feedback-cue"],
-        ["feedback-disable", 'if (s.settings.sounds !== true && s.playback.kind === "feedback") flushPlayback(s, effects);', 'void s;', "feedback-start"],
-        ["feedback-working-sounds", 's.settings.sounds !== true || s.playback.kind !== "idle" || !canEngage(s)', 's.playback.kind !== "idle" || !canEngage(s)', "feedback-working"],
-        ["feedback-working-busy", 's.settings.sounds !== true || s.playback.kind !== "idle" || !canEngage(s)', 's.settings.sounds !== true || !canEngage(s)', "feedback-working"],
+        ["feedback-cue-shape", 'if (region === "playback" && r.kind === "feedback" && ["start", "working", "line"].indexOf(r.cue) === -1) return false;', 'void region;', "wire-feedback-cue"],
+        ["feedback-disable", 'if (s.settings.sounds !== true && s.playback.kind === "feedback" && s.playback.cue !== "line") flushPlayback(s, effects);', 'void s;', "feedback-start"],
+        ["feedback-working-sounds", 'cue !== "line" && s.settings.sounds !== true', 'false', "feedback-working"],
+        ["feedback-working-busy", 'if (s.playback.kind !== "idle") break;', 'if (false) break;', "feedback-working"],
         ["feedback-working-held", '|| s.conversation.kind !== "active" || s.approval.kind !== "none") break;', '|| s.conversation.kind !== "active") break;', "feedback-working"],
-        ["feedback-approval-flush", 'if (s.playback.kind === "feedback" && s.playback.cue === "working") flushPlayback(s, effects);',
+        ["feedback-line-sounds", 'if ((cue !== "line" && s.settings.sounds !== true) || !canEngage(s)',
+            'if ((cue === "line" || s.settings.sounds !== true) || !canEngage(s)', "feedback-line"],
+        ["feedback-line-snapshot", 's.settings.sounds !== true && s.playback.kind === "feedback" && s.playback.cue !== "line"',
+            's.settings.sounds !== true && s.playback.kind === "feedback"', "feedback-line"],
+        ["feedback-line-play", 'if (s.playback.kind === "feedback" && s.playback.cue === "line" && s.playback.source === e.op) {',
+            'if (false && s.playback.kind === "feedback" && s.playback.cue === "line" && s.playback.source === e.op) {', "feedback-line"],
+        ["feedback-working-play", 'if (s.playback.kind === "feedback" && s.playback.cue === "working" && s.playback.source === e.op) {',
+            'if (false && s.playback.kind === "feedback" && s.playback.cue === "working" && s.playback.source === e.op) {', "feedback-working"],
+        ["feedback-approval-flush", 'if (s.playback.kind === "feedback" && (s.playback.cue === "working"\n                || s.playback.cue === "line" && s.playback.reply.kind === "none")) flushPlayback(s, effects);',
             'if (false) flushPlayback(s, effects);', "feedback-approval"],
         ["pending-play-admission", 'if (s.playback.kind === "flushing" && s.conversation.kind === "active") {',
             'if (false && s.playback.kind === "flushing" && s.conversation.kind === "active") {', "feedback-pending-reply"],
@@ -2024,7 +2068,8 @@ try {
         ["due-stop", 'closeSpeech(s, effects, reason === "lease" ? "abort" : "graceful");', "", "duplex-due-stop"],
         ["due-talk", 'target: s.speech.op });\n        s.speech.reply = { kind: "none" };', "target: s.speech.op });", "duplex-due-talk"],
         ["due-idle", 'end(s, effects, e.at, "idle", false);', "", "duplex-due-idle"],
-        ["chained-speaks", 'if (s.playback.kind === "playing" || s.speech', "if (s.speech", "chained-play-speaks"],
+        ["chained-speaks", 'if (s.playback.kind === "playing" || s.playback.kind === "feedback"', 'if (s.playback.kind === "feedback"', "chained-play-speaks"],
+        ["line-reply-speaks", '|| s.playback.kind === "feedback" && s.playback.reply.kind === "waiting"\n', "\n", "feedback-line"],
         ["engine-required", 'if (e.engine !== "chained" && e.engine !== "duplex") throw new Error("jarvis: session=engine");', "", "duplex-engine"]
     ];
     mutants.push(

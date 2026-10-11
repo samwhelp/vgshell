@@ -504,7 +504,7 @@ world(async () => {
                 assert.deepEqual(engine.configure({brain: "claude-fixture"}), {kind: "ready"});
                 const {gen, turn: {op}} = w.runner.state;
                 let verdict;
-                engine.brain.send({gen, op, owner: 1, text: "read twice"}, kind => {verdict = kind;});
+                engine.brain.send({gen, op, owner: 1, text: "read twice"}, kind => { if (kind === "brain-done") verdict = kind; });
                 await w.until(() => w.runner.state.approval.kind === "held", "Claude result asks for release");
                 const held = w.runner.state.approval;
                 assert.equal(held.purpose, "release");

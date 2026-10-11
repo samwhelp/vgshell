@@ -49,8 +49,10 @@ function phaseOf(s) {
     if (s.approval.kind === "held") return "confirming";
     if (s.action.kind === "running") return "acting";
     // A duplex reply speaks from the moment its words go to the voice, as a
-    // chained reply does from its play, before the voice's first audio.
-    if (s.playback.kind === "playing" || s.speech.kind === "open" && s.speech.reply.kind === "due") return "speaking";
+    // chained reply does from its play, before the voice's first audio, and
+    // as one held behind a spoken line does.
+    if (s.playback.kind === "playing" || s.playback.kind === "feedback" && s.playback.reply.kind === "waiting"
+            || s.speech.kind === "open" && s.speech.reply.kind === "due") return "speaking";
     if (s.turn.kind === "thinking" || s.turn.kind === "cancelling") return "thinking";
     if (s.capture.kind === "open" && s.capture.mode !== "armed") return "listening";
     if (s.capture.kind === "open") return "armed";
@@ -302,7 +304,7 @@ function start(s, effects, mode, at) {
             && s.playback.kind === "idle" && s.approval.kind === "none") {
         var cue = operation(s);
         s.playback = { kind: "feedback", gen: s.gen, op: cue, source: cue, cue: "start",
-            admission: { kind: "waiting" }, deadline: at + PLAYBACK_TIMEOUT_MS };
+            admission: { kind: "waiting" }, deadline: at + PLAYBACK_TIMEOUT_MS, reply: { kind: "none" } };
     }
     reconcile(s, effects, at);
 }
@@ -457,7 +459,7 @@ function reduce(state, e) {
             s.fault = { kind: "none" };
         }
         s.settings = JSON.parse(JSON.stringify(e.settings));
-        if (s.settings.sounds !== true && s.playback.kind === "feedback") flushPlayback(s, effects);
+        if (s.settings.sounds !== true && s.playback.kind === "feedback" && s.playback.cue !== "line") flushPlayback(s, effects);
         s.engine = { kind: e.engine };
         if (e.locked !== false || !e.configured) {
             if (e.locked !== false || e.checkReady !== true || ["waiting", "recording", "finishing"].indexOf(s.check.kind) === -1) end(s, effects, e.at, "gate", false);
@@ -643,7 +645,8 @@ function reduce(state, e) {
         s.turn = { kind: "none" };
         if (e.type === "brain-done" && ["playing", "feedback"].indexOf(s.playback.kind) !== -1)
             s.playback.deadline = e.at + PLAYBACK_TIMEOUT_MS;
-        if (e.type === "brain-done" && s.playback.kind === "flushing" && s.playback.reply.kind === "waiting")
+        if (e.type === "brain-done" && (s.playback.kind === "flushing" || s.playback.kind === "feedback")
+                && s.playback.reply.kind === "waiting")
             s.playback.reply.deadline = e.at + PLAYBACK_TIMEOUT_MS;
         if (e.type === "brain-failed") {
             s.fault = { kind: "error", reason: e.reason, retry: 0 };
@@ -659,6 +662,10 @@ function reduce(state, e) {
         break;
     case "play":
         if (!live(s, e, "turn", ["thinking"])) { stale(s); break; }
+        if (s.playback.kind === "feedback" && s.playback.cue === "line" && s.playback.source === e.op) {
+            s.playback.reply = { kind: "waiting", gen: e.gen, source: e.op, interruptible: e.interruptible, deadline: null };
+            break;
+        }
         if (s.playback.kind === "feedback" && s.playback.cue === "working" && s.playback.source === e.op) {
             s.playback = { kind: "playing", gen: s.playback.gen, op: s.playback.op, source: e.op,
                 interruptible: e.interruptible, admission: s.playback.admission, deadline: s.playback.deadline };
@@ -677,7 +684,11 @@ function reduce(state, e) {
         break;
     case "played":
         if (!live(s, e, "playback", ["playing", "feedback"])) { stale(s); break; }
-        s.playback = { kind: "idle" };
+        var lineReply = s.playback.kind === "feedback" ? s.playback.reply : { kind: "none" };
+        s.playback = lineReply.kind === "waiting" && lineReply.gen === s.gen && s.conversation.kind === "active" && canEngage(s)
+            ? { kind: "playing", gen: lineReply.gen, op: operation(s), source: lineReply.source,
+                interruptible: lineReply.interruptible, admission: { kind: "waiting" }, deadline: lineReply.deadline }
+            : { kind: "idle" };
         break;
     case "flushed":
         if (!live(s, e, "playback", ["flushing"])) { stale(s); break; }
@@ -694,10 +705,14 @@ function reduce(state, e) {
         break;
     case "feedback":
         if (!live(s, e, "turn", ["thinking"])) { stale(s); break; }
-        if (s.settings.sounds !== true || s.playback.kind !== "idle" || !canEngage(s)
+        var cue = e.cue === "line" ? "line" : "working";
+        if ((cue !== "line" && s.settings.sounds !== true) || !canEngage(s)
                 || s.conversation.kind !== "active" || s.approval.kind !== "none") break;
-        s.playback = { kind: "feedback", gen: s.gen, op: operation(s), source: e.op, cue: "working",
-            admission: { kind: "waiting" }, deadline: null };
+        if (s.playback.kind === "feedback" && s.playback.source === e.op
+                && ["working", "line"].indexOf(s.playback.cue) !== -1) break;
+        if (s.playback.kind !== "idle") break;
+        s.playback = { kind: "feedback", gen: s.gen, op: operation(s), source: e.op, cue: cue,
+            admission: { kind: "waiting" }, deadline: null, reply: { kind: "none" } };
         break;
     case "tool":
         if (!live(s, e, "turn", ["thinking"])) { stale(s); break; }
@@ -721,7 +736,8 @@ function reduce(state, e) {
         if (!canPropose(s)) break;
         toolDuration(e);
         var purpose = e.purpose === "release" ? "release" : "action";
-        if (s.playback.kind === "feedback" && s.playback.cue === "working") flushPlayback(s, effects);
+        if (s.playback.kind === "feedback" && (s.playback.cue === "working"
+                || s.playback.cue === "line" && s.playback.reply.kind === "none")) flushPlayback(s, effects);
         var hold = effect(s, effects, "approval-show", { id: e.id, digest: e.digest, purpose: purpose });
         s.approval = { kind: "held", purpose: purpose, gen: hold.gen, op: hold.op, id: e.id, digest: e.digest,
             deadline: e.at + APPROVAL_TIMEOUT_MS, shownAt: null, physical: e.physical,
@@ -833,7 +849,7 @@ var REGIONS = {
     turn: { none: "", collecting: "gen op partial deadline", thinking: "gen op deadline", cancelling: "gen op deadline" },
     brain: { closed: "", acquired: "gen op" },
     playback: { idle: "", playing: "gen op source interruptible admission deadline",
-        feedback: "gen op source cue admission deadline", flushing: "gen op reply" },
+        feedback: "gen op source cue admission deadline reply", flushing: "gen op reply" },
     action: { none: "", running: "gen op tool brain limit cancellation" },
     approval: { none: "", held: "purpose gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain" },
     fault: { none: "", error: "reason retry", retrying: "reason retry" }, conversation: { ended: "", active: "", interrupted: "" },
@@ -895,7 +911,7 @@ function validate(s) {
         if (region === "capture" && fields.indexOf("mode") !== -1
                 && ["hold", "conversation", "follow-up", "armed", "check"].indexOf(r.mode) === -1) return false;
         if (region === "check" && r.kind === "done" && ["ready", "silent", "not-heard"].indexOf(r.result) === -1) return false;
-        if (region === "playback" && r.kind === "feedback" && ["start", "working"].indexOf(r.cue) === -1) return false;
+        if (region === "playback" && r.kind === "feedback" && ["start", "working", "line"].indexOf(r.cue) === -1) return false;
         if (region === "gate" && r.kind === "down"
                 && ["starting", "unconfigured", "node", "lock-unknown", "locked"].indexOf(r.reason) === -1) return false;
     }

@@ -106,6 +106,29 @@ rows=json.load(sys.stdin)
 print("drawn" if any(v["visible"] and v["text"]==sys.argv[1] and box[2]>0 and box[3]>0 for _,box,v in rows) else "absent")
 ' "$1"
 }
+# What the scripted voice was asked to say since record FROM, each sentence
+# named: the long request's two stated steps, its answer, and any other line,
+# which in that turn is the acknowledgement.
+jarvis_bubble_said() { # FROM|count
+  python3 - "$jarvis_key_gates/effects.jsonl" "$1" <<'PY'
+import json,sys
+try:
+    rows=[json.loads(line) for line in open(sys.argv[1]) if line.strip()]
+except (OSError, ValueError):
+    rows=[]
+said=[row.get("text","") for row in rows if row.get("kind")=="speech-speak"]
+if sys.argv[2]=="count":
+    print(len(said))
+    sys.exit(0)
+names=[]
+for text in said[int(sys.argv[2]):]:
+    if "Reading the Fidelity pages" in text: names.append("step1")
+    elif "Searching records" in text: names.append("step2")
+    elif "The balance is ready" in text: names.append("answer")
+    else: names.append("ack")
+print(",".join(names) or "none")
+PY
+}
 # Re-publish a real caption from the ended conversation to test the generation
 # consumer after the next turn has supplied its own authoritative user text.
 jarvis_bubble_old_caption() {
@@ -440,6 +463,27 @@ expect "the worded bubble keeps its presented indicator" presented jarvis_bubble
 geometry expect_poll "the worded bubble stays at bottom centre" bottom-centre jarvis_bubble_geometry
 read -r words_x words_y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(round(x+w/2),round(y+h/2))' "$(control_box vgs:layer vgs.jarvis QQuickItem clip true)")
 jarvis_bubble_pass "$words_x" "$words_y"
+jarvis_key_stop
+jarvis_key_stop_assertion
+jarvis_bubble_begin
+# One long request: the scripted brain states a step at once, a second step
+# behind its gate and the answer behind the reply gate. Each line's playback
+# ends at the played gate. The first step waits for the engine's progress
+# threshold, so it polls past it; a step is spoken once, and the answer
+# follows the lines.
+said_from="$(jarvis_bubble_said count)"
+touch "$jarvis_key_gates/long-request"
+jarvis_bubble_think
+expect_poll "a long Jarvis request speaks its acknowledgement at once" ack jarvis_bubble_said "$said_from"
+jarvis_key_gate played
+expect_poll "past the threshold the long request speaks its stated step" ack,step1 jarvis_bubble_said "$said_from"
+jarvis_key_gate second-step
+jarvis_key_gate played
+expect_poll "a changed step is spoken once" ack,step1,step2 jarvis_bubble_said "$said_from"
+jarvis_key_gate reply
+jarvis_key_gate played
+expect_poll "the answer follows the progress lines with no line repeated" ack,step1,step2,answer jarvis_bubble_said "$said_from"
+rm -f -- "${jarvis_key_gates:?}/long-request"
 jarvis_key_stop
 jarvis_key_stop_assertion
 jarvis_bubble_begin

@@ -549,7 +549,7 @@ world(async () => {
             assert.deepEqual(plan, { kind: "ready" });
             const { gen, turn: { op } } = w.runner.state;
             const send = text => new Promise(resolve => engine.brain.send({ gen, op, owner: 1, text },
-                (verdict, detail) => resolve([verdict, detail])));
+                (verdict, detail) => { if (["brain-done", "brain-ended", "brain-failed"].includes(verdict)) resolve([verdict, detail]); }));
             for (let turn = 0; turn < 40; turn++) assert.deepEqual(await send("turn " + turn), ["brain-done", undefined]);
             assert.deepEqual(await send("one more"), ["brain-ended", { reason: "brain=context-limit" }]);
             assert.equal(received("session/prompt").length, 40);

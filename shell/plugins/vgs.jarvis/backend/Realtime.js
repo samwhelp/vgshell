@@ -233,6 +233,11 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         }, IDLE_MS);
     }
     function quiet(session) { return session.speech.active === null && session.speech.queue.length === 0; }
+    function replyPending(session) {
+        return session.speech.active !== null && !session.speech.active.line
+            || session.speech.queue.some(words => !words.line)
+            || [session.playing, session.next, session.taken].some(reply => reply !== null && reply.marks.some(mark => !mark.line));
+    }
     // A playing reply ends once no words have waited for REPLY_GAP_MS.
     function settle(session) {
         clear(session, "gap");
@@ -254,7 +259,8 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             return true;
         const words = speech.queue.shift();
         speech.chars -= words.text.length;
-        speech.active = { id: null, discarded: false, said: false, text: words.text, request: session.delegation, reply: null };
+        speech.active = { id: null, discarded: false, said: false, text: words.text, request: session.delegation, reply: null,
+            line: words.line === true };
         clear(session, "gap");
         // A response that never ends would hold every later word.
         session.timers.words = clock.set(() => failed(session, "live=response-timeout"), RESPONSE_WAIT_MS);
@@ -393,7 +399,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
                 const active = asked(session, event.id, false);
                 // A whole response marks where its audio ends in the reply that carries it.
                 if (!active.discarded && active.reply !== null)
-                    active.reply.marks.push({ request: active.request, end: active.reply.bytes, text: active.text });
+                    active.reply.marks.push({ request: active.request, end: active.reply.bytes, text: active.text, line: active.line });
                 session.speech.active = null;
                 clear(session, "words");
                 activity(session);
@@ -479,9 +485,21 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         }
     };
 
-    function commentary(id, item) {
+    function commentary(id, item, options = {}) {
         const session = live;
         if (session === null || session.state.kind !== "running" || session.delegation !== id) return false;
+        const isLine = options.line === true;
+        if (isLine) {
+            const waiting = session.speech.queue.findIndex(words => words.line === true);
+            if (waiting !== -1) {
+                session.speech.chars -= session.speech.queue[waiting].text.length;
+                session.speech.queue.splice(waiting, 1);
+            }
+        } else {
+            session.speech.chars -= session.speech.queue.filter(words => words.line === true)
+                .reduce((sum, words) => sum + words.text.length, 0);
+            session.speech.queue = session.speech.queue.filter(words => !words.line);
+        }
         // Speakable sentences enter here; each response keeps its sentence's source labels.
         let text = item.content;
         while (text !== "") {
@@ -490,7 +508,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             text = text.slice(prefix.length);
             if (session.speech.chars + prefix.length > QUEUE_CHARS) fail("speech-queue");
             session.speech.chars += prefix.length;
-            session.speech.queue.push({ text: prefix, item });
+            session.speech.queue.push({ text: prefix, item, line: isLine });
         }
         // The first audio of these words raises speak; until then the session
         // shows the reply as due. A waiting or open reply carries them.
@@ -561,11 +579,12 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         if (session === null || session.delegation !== id) return null;
         const { said, taken, op } = session;
         return Object.freeze({
-            pending: !quiet(session) || session.next !== null || taken !== null,
+            pending: replyPending(session),
             text(report) {
                 const bytes = report !== null && report.source === op ? report.heardFrames * 2 : 0;
                 return [...said, ...(taken === null ? [] : taken.marks.filter(mark => mark.end <= bytes))]
                     .filter(mark => mark.request === id)
+                    .filter(mark => !mark.line)
                     .reduce((all, mark) => all + (all === "" || all.endsWith(" ") ? "" : " ") + mark.text, "").trimEnd();
             }
         });

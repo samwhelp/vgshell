@@ -443,8 +443,10 @@ world(async () => {
                 assert.equal(received("turn/start").length, 1, "replacement starts only after Codex completion");
                 fs.writeFileSync(barrier, "release");
                 const current = op + (cancelQueued ? 2 : 1);
-                await until(() => callbacks.some(value => value.id === current), "the current replacement finishes after Codex completion");
-                assert.deepEqual(callbacks, [{ id: current, kind: "brain-done", detail: undefined }]);
+                await until(() => callbacks.some(value => value.id === current && value.kind === "brain-done"),
+                    "the current replacement finishes after Codex completion");
+                assert.deepEqual(callbacks.filter(value => value.kind !== "transcript"),
+                    [{ id: current, kind: "brain-done", detail: undefined }]);
                 assert.equal(firstCancelled, true);
                 assert.equal(queuedCancelled, cancelQueued);
                 assert.deepEqual(received("turn/start").map(value => value.params.input[0].text),
@@ -508,7 +510,7 @@ world(async () => {
                 assert.deepEqual(engine.configure({brain: "codex-fixture"}), {kind: "ready"});
                 const {gen, turn: {op}} = w.runner.state;
                 let verdict;
-                engine.brain.send({gen, op, owner: 1, text: "read twice"}, kind => {verdict = kind;});
+                engine.brain.send({gen, op, owner: 1, text: "read twice"}, kind => { if (kind === "brain-done") verdict = kind; });
                 await until(() => w.runner.state.approval.kind === "held", "Codex result asks for release");
                 const held = w.runner.state.approval;
                 assert.equal(held.purpose, "release");
@@ -544,7 +546,7 @@ world(async () => {
             assert.deepEqual(engine.configure({ brain: "codex-fixture" }), { kind: "ready" });
             const { gen, turn: { op } } = w.runner.state;
             const send = text => new Promise(resolve => engine.brain.send({ gen, op, owner: 1, text },
-                (verdict, detail) => resolve([verdict, detail])));
+                (verdict, detail) => { if (["brain-done", "brain-ended", "brain-failed"].includes(verdict)) resolve([verdict, detail]); }));
             for (let turn = 0; turn < 40; turn++) assert.deepEqual(await send("turn " + turn), ["brain-done", undefined]);
             assert.deepEqual(await send("one more"), ["brain-ended", { reason: "brain=context-limit" }]);
         },

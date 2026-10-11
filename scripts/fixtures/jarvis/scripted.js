@@ -16,14 +16,18 @@ const crypto = require("node:crypto");
 const REPLY = Array(24).fill("scripted reply").join(" ");
 // One gate table per daemon; the chained driver waits on the same gates.
 let gates = null;
+let gatesRoot = null;
+// The daemon's effect record, which the speech row also writes.
+let record = null;
 // Set once the engine copy selects the chained plan.
 let chained = false;
 
 function ports(root, engine, state) {
     fs.mkdirSync(root, { recursive: true });
+    gatesRoot = root;
     const waiting = new Map();
     let collect = null;
-    const record = (kind, values) => fs.appendFileSync(path.join(root, "effects.jsonl"),
+    record = (kind, values) => fs.appendFileSync(path.join(root, "effects.jsonl"),
         JSON.stringify({ ...values, kind }) + "\n");
     const wait = (gate, done) => waiting.set(gate, done);
     gates = { wait, drop: gate => waiting.delete(gate) };
@@ -172,7 +176,10 @@ function readyPlan() {
         speech: { recipients: [{ kind: "local", provider: "scripted-speech", account: "" }],
             open: () => ({
                 transcribe() { throw new Error("scripted: unexpected-transcription"); },
-                async *speak(sentences) { for await (const sentence of sentences) void sentence; },
+                async *speak(sentences) {
+                    for await (const sentence of sentences)
+                        record("speech-speak", { text: sentence.content, labels: sentence.labels });
+                },
                 close() {}
             }) },
         brain, entries: [brain] };
@@ -186,6 +193,7 @@ const driver = { create() {
     const end = () => {
         if (pending === null) return Promise.resolve();
         gates.drop("reply");
+        gates.drop("second-step");
         const resolve = pending;
         pending = null;
         resolve?.({ value: undefined, done: true });
@@ -196,16 +204,27 @@ const driver = { create() {
         // As WireBrain does, the request releases its items' labels.
         send(request) {
             const labels = [...new Set(request.items.flatMap(item => item.labels))];
-            const steps = [{ kind: "text", text: REPLY }, { kind: "done", reason: "stop" }];
+            const scriptedLong = gatesRoot !== null && fs.existsSync(path.join(gatesRoot, "long-request"));
+            const steps = scriptedLong
+                ? [{ kind: "text", text: "<step>Reading the Fidelity pages</step>" },
+                    { gate: "second-step" },
+                    { kind: "text", text: "<step>Searching records</step>" },
+                    { gate: "reply" },
+                    { kind: "text", text: "The balance is ready." },
+                    { kind: "done", reason: "stop" }]
+                : [{ gate: "reply" }, { kind: "text", text: REPLY }, { kind: "done", reason: "stop" }];
             let opened = false;
             const events = { [Symbol.asyncIterator]() { return { next() {
-                if (opened) return Promise.resolve(steps.length ? { value: steps.shift(), done: false } : { value: undefined, done: true });
+                if (steps.length === 0) return Promise.resolve({ value: undefined, done: true });
+                const step = steps.shift();
+                if (step.gate === undefined) return Promise.resolve({ value: step, done: false });
+                if (opened && step.gate === "reply") return Promise.resolve(steps.length ? { value: steps.shift(), done: false } : { value: undefined, done: true });
                 return new Promise(resolve => {
                     pending = resolve;
-                    gates.wait("reply", () => {
+                    gates.wait(step.gate, () => {
                         opened = true;
                         pending = null;
-                        resolve({ value: steps.shift(), done: false });
+                        resolve(steps.length ? { value: steps.shift(), done: false } : { value: undefined, done: true });
                     });
                 });
             } }; } };

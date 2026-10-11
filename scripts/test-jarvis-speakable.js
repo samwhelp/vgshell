@@ -63,6 +63,31 @@ assert.deepEqual(counts, { markdown: 4, code: 1, url: 1, path: 1, symbol: 0, num
 assert.deepEqual(Speakable.violations("All done.", "es"),
     { markdown: 0, code: 0, url: 0, path: 0, symbol: 0, number: 0, unit: 0, date: 0, time: 0 });
 assert.equal(Object.isFrozen(counts), true);
+const stepStream = Speakable.create("en", { tools: [] });
+assert.deepEqual(stepStream.push("<step>Reading the Fidelity pages</step> "), []);
+assert.deepEqual(stepStream.steps(), ["Reading the Fidelity pages"], "a closed step is exposed and silent");
+assert.deepEqual(stepStream.steps(), [], "steps are consumed once");
+assert.deepEqual(stepStream.push("Done. "), ["Done."], "later prose still speaks");
+assert.deepEqual(stepStream.finish(), []);
+const openStep = Speakable.create("en", { tools: [] });
+assert.deepEqual(openStep.push("<step>" + "Reading the pages. ".repeat(20)), Array(20).fill("Reading the pages."),
+    "an unclosed step falls back to prose at the element bound");
+const acknowledgements = [
+    ["Check the Fidelity pages for my balance", "Checking the Fidelity pages."],
+    ["please open my settings and change the theme", "Opening your settings."],
+    ["Hey Jarvis, find me a calendar", "Finding a calendar."],
+    ["Show me the windows", "Showing the windows."],
+    ["Find us a cafe", "Finding a cafe."],
+    ["Tell me the time", "On it."],
+    ["Explain the window layout", "On it."],
+    ["What is the balance?", "Let me check."],
+    ["Can you help?", "Let me check."],
+    ["hello there", "On it."],
+    ["check one two three four five six", "On it."],
+    ["check sk-abcdefghijklmnopqrstu", "On it."]
+];
+for (const [input, expected] of acknowledgements)
+    assert.equal(Speakable.acknowledgement(input), expected, "acknowledgement: " + input);
 const overflow = [
     ["chunk", "a".repeat(16385)], ["token", "https://" + "a".repeat(4090)],
     ["sentence", "a ".repeat(2049)], ["output", ("4".repeat(4000) + ". ").repeat(4)]
@@ -124,9 +149,9 @@ world("js", root => {
         // One row for each rule of what stays silent in a reply. A rule's
         // control reads the fixture only that rule keeps silent.
         ...[
-            ["element-content", 'if (reply !== null && tag.element !== null) mode = { kind: "element", closer: "</" + tag.element.toLowerCase(), held: "" };', "", "element"],
+            ["element-content", 'if (reply !== null && tag.element !== null) mode = { kind: "element", closer: "</" + tag.element.toLowerCase(),\n                        held: "", step: tag.element.toLowerCase() === "step" };', "", "element"],
             ["element-name", "[A-Za-z_:][A-Za-z0-9_:-]*(?:\\.[A-Za-z0-9_:-]+)*", "[A-Za-z][A-Za-z0-9:-]*", "element-names"],
-            ["element-end", 'if (end !== null) { pending = rest.slice(end[0].length); mode = PROSE; plain(" ", output); continue; }', "", "element"],
+            ["element-end", 'if (end !== null) {\n                        if (mode.step && mode.held.trim() !== "") statedSteps.push(mode.held.replace(/\\s+/gu, " ").trim());\n                        pending = rest.slice(end[0].length); mode = PROSE; plain(" ", output); continue;\n                    }', "", "element"],
             ["element-letter-case", "if (pending.toLowerCase().startsWith(mode.closer)) {", "if (pending.startsWith(mode.closer)) {", "element-letter-case"],
             ["element-unclosed", 'while (mode.kind === "element") {', "while (false) {", "element-unclosed"],
             ["json-value", 'if (judged === "json") {', "if (false) {", "json-object"],
@@ -165,7 +190,24 @@ world("js", root => {
             ["reply-only-json", 'if (reply !== null && (first === "{" || first === "[")) {', 'if (first === "{" || first === "[") {', "json-object"],
             ["reply-only-table", 'if (reply !== null && first === "|" && ', 'if (first === "|" && ', "table"]
         ].map(([name, needle, replacement, fixture]) =>
-            [name, needle, replacement, logic => spoken(logic, fixtures.find(row => row.name === fixture))])
+                [name, needle, replacement, logic => spoken(logic, fixtures.find(row => row.name === fixture))]),
+            ["step-record", "if (mode.step && mode.held.trim() !== \"\") statedSteps.push", "if (false) statedSteps.push", logic => {
+                const stream = logic.create("en", { tools: [] });
+                stream.push("<step>Read pages</step>");
+                assert.deepEqual(stream.steps(), ["Read pages"]);
+            }],
+            ["step-once", "const answer = statedSteps.slice(); statedSteps.length = 0; return answer;", "return statedSteps;", logic => {
+                const stream = logic.create("en", { tools: [] });
+                stream.push("<step>Read pages</step>");
+                stream.steps();
+                assert.deepEqual(stream.steps(), []);
+            }],
+            ["ack-secret", "if (cleaned === \"\" || Redact.secret(cleaned)) return fallback(cleaned);", "if (cleaned === \"\") return fallback(cleaned);", logic =>
+                assert.equal(logic.acknowledgement("check sk-abcdefghijklmnopqrstu"), "On it.")],
+            ["ack-pronoun", "const mapped = { my: \"your\", me: \"you\", mine: \"yours\", i: \"you\" }[lower];",
+                "const mapped = undefined;", logic => assert.equal(logic.acknowledgement("open my settings"), "Opening your settings.")],
+            ["ack-bound", "if (object.length > 5) return fallback(cleaned);", "if (false) return fallback(cleaned);", logic =>
+                assert.equal(logic.acknowledgement("check one two three four five six"), "On it.")]
     ];
     for (const [name, needle, replacement, check] of rows) {
         control(root, name, "Speakable.js", needle, replacement, check); controls++;

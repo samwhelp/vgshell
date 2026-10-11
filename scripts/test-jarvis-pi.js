@@ -426,7 +426,9 @@ world(async () => {
             const { gen, turn: { op } } = w.runner.state;
             // A turn's verdict, or the error the engine threw starting it.
             const send = text => new Promise(resolve => {
-                try { engine.brain.send({ gen, op, owner: 1, text }, (verdict, detail) => resolve([verdict, detail])); }
+                try { engine.brain.send({ gen, op, owner: 1, text }, (verdict, detail) => {
+                    if (["brain-done", "brain-ended", "brain-failed"].includes(verdict)) resolve([verdict, detail]);
+                }); }
                 catch (error) { resolve(["threw", error.message]); }
             });
             for (let turn = 0; turn < 40; turn++) assert.deepEqual(await send("turn " + turn), ["brain-done", undefined]);

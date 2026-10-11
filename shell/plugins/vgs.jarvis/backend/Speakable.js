@@ -13,6 +13,7 @@
 // closing tag may still come: the wait a stray tag costs, kept short.
 "use strict";
 const { languageCode, expand } = require("./SpeechLanguage.js");
+const Redact = require("./Redact.js");
 const LIMITS = Object.freeze({ chunk: 16384, token: 4096, sentence: 4096, output: 65536, element: 256 });
 const KINDS = ["markdown", "code", "url", "path", "symbol", "number", "unit", "date", "time"];
 const URL_START = /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|www\.|mailto:)/u;
@@ -120,6 +121,7 @@ function create(language, reply = null) {
     // sentence or line.
     let mode = PROSE;
     let lifecycle = "open";
+    const statedSteps = [];
     const counts = Object.fromEntries(KINDS.map(kind => [kind, 0]));
 
     function note(kind) {
@@ -207,7 +209,10 @@ function create(language, reply = null) {
                 const rest = pending.slice(mode.closer.length);
                 if (pending.toLowerCase().startsWith(mode.closer)) {
                     const end = /^\s*>/u.exec(rest);
-                    if (end !== null) { pending = rest.slice(end[0].length); mode = PROSE; plain(" ", output); continue; }
+                    if (end !== null) {
+                        if (mode.step && mode.held.trim() !== "") statedSteps.push(mode.held.replace(/\s+/gu, " ").trim());
+                        pending = rest.slice(end[0].length); mode = PROSE; plain(" ", output); continue;
+                    }
                     if (!final && rest.trim() === "") return;
                 } else if (!final && mode.closer.startsWith(pending.toLowerCase())) return;
                 if (mode.held.length === LIMITS.element) { pending = mode.held + pending; mode = PROSE; continue; }
@@ -267,7 +272,8 @@ function create(language, reply = null) {
                 const tag = htmlCandidate(pending, reply !== null);
                 if (tag.kind === "tag") {
                     note("markdown"); pending = pending.slice(tag.length); plain(" ", output);
-                    if (reply !== null && tag.element !== null) mode = { kind: "element", closer: "</" + tag.element.toLowerCase(), held: "" };
+                    if (reply !== null && tag.element !== null) mode = { kind: "element", closer: "</" + tag.element.toLowerCase(),
+                        held: "", step: tag.element.toLowerCase() === "step" };
                     continue;
                 }
                 if (!final && tag.kind === "pending") return;
@@ -384,6 +390,8 @@ function create(language, reply = null) {
         push(chunk) { return run(chunk, false); },
         /** Close the text stream and return its final fragment, if any. */
         finish() { return run("", true); },
+        /** Return and clear step text stated since the last read. */
+        steps() { const answer = statedSteps.slice(); statedSteps.length = 0; return answer; },
         /** Snapshot machine-detectable violations, with no transcript or audio. */
         counts() { return Object.freeze({ ...counts }); }
     });
@@ -397,4 +405,49 @@ function violations(text, language) {
     return stream.counts();
 }
 
-module.exports = { create, violations, limits: LIMITS };
+const VERBS = Object.freeze({
+    check: "Checking", open: "Opening", find: "Finding", read: "Reading", search: "Searching", look: "Looking",
+    get: "Getting", set: "Setting", run: "Running", start: "Starting", stop: "Stopping", show: "Showing",
+    make: "Making", create: "Creating", add: "Adding", remove: "Removing",
+    delete: "Deleting", update: "Updating", send: "Sending", write: "Writing", list: "Listing", move: "Moving",
+    switch: "Switching", focus: "Focusing", close: "Closing", turn: "Turning", mute: "Muting", unmute: "Unmuting"
+});
+const QUESTION_START = new Set(["who", "what", "when", "where", "why", "how", "is", "are", "am", "was", "were",
+    "do", "does", "did", "can", "could", "would", "will", "should"]);
+const CLAUSE = new Set(["for", "and", "then", "so", "because", "before", "after", "with"]);
+const ADDRESSES = /^(?:(?:please|jarvis|hey jarvis|hey|can you|could you|would you|will you)\b[\s,]*)+/iu;
+const WORD = /[\p{L}\p{N}'-]+/gu;
+
+function fallback(cleaned) {
+    const words = cleaned.toLowerCase().match(WORD) ?? [];
+    return cleaned.includes("?") || QUESTION_START.has(words[0] ?? "") ? "Let me check." : "On it.";
+}
+
+function swapPronoun(word) {
+    const lower = word.toLowerCase();
+    const mapped = { my: "your", me: "you", mine: "yours", i: "you" }[lower];
+    if (mapped === undefined) return word;
+    return /^[A-Z]/u.test(word) ? mapped[0].toUpperCase() + mapped.slice(1) : mapped;
+}
+
+function acknowledgement(transcript) {
+    const cleaned = typeof transcript === "string" ? transcript.replace(/[\x00-\x1f\x7f]/g, " ").replace(/\s+/gu, " ").trim() : "";
+    if (cleaned === "" || Redact.secret(cleaned)) return fallback(cleaned);
+    let text = cleaned.replace(ADDRESSES, "").trim();
+    if (text === "") return fallback(cleaned);
+    const words = text.match(WORD) ?? [];
+    if (words.length === 0) return fallback(cleaned);
+    const verb = VERBS[words[0].toLowerCase()];
+    if (verb === undefined) return fallback(cleaned);
+    const object = [];
+    for (const word of words.slice(1)) {
+        if (CLAUSE.has(word.toLowerCase())) break;
+        if (object.length === 0 && ["me", "us"].includes(word.toLowerCase())) continue;
+        object.push(swapPronoun(word));
+        if (object.length > 5) return fallback(cleaned);
+    }
+    if (object.length === 0) return verb + ".";
+    return verb + " " + object.join(" ") + ".";
+}
+
+module.exports = { create, violations, acknowledgement, limits: LIMITS };

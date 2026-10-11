@@ -682,6 +682,29 @@ world(async () => {
             "words read from a file leave under the file label");
     }
 
+    async function lineQueue(kit) {
+        const { w, conn } = await conversing(kit);
+        const request = w.delegations[0].delegation;
+        const line = text => w.engine.commentary(request, kit.Policy.item(text, ["speech"]), { line: true });
+        assert.equal(line("First line."), true);
+        assert.equal(words(await conn.event(SPEAK)), "First line.", "an asked line is spoken");
+        assert.equal(line("Second line."), true);
+        assert.equal(line("Third line."), true);
+        conn.send(script("reply-old"));
+        conn.play("done-old");
+        assert.equal(words(await conn.event(SPEAK)), "Third line.", "a newer waiting line replaces an older one");
+        assert.equal(line("Fourth line."), true);
+        assert.equal(w.engine.commentary(request, kit.Policy.item("Answer words.", ["speech"])), true);
+        conn.send(script("reply-new"));
+        conn.play("done-new");
+        assert.equal(words(await conn.event(SPEAK)), "Answer words.", "reply words drop a waiting line");
+        assert.deepEqual(conn.events.filter(event => event.type === SPEAK).map(words), ["First line.", "Third line.", "Answer words."]);
+        w.dispatch("interrupt");
+        heard(conn, "item_next", "Next?");
+        await until(() => w.delegations.length === 2, "a new turn follows line-only speech");
+        assert.equal(w.delegations[1].text, "Next?", "line speech creates no heard-prefix user text");
+    }
+
     // The account of an interrupted reply: the responses the user heard to
     // their end. Audio's flush report credits frames of the reply at the speaker.
     async function heardAccount(kit) {
@@ -1303,7 +1326,9 @@ world(async () => {
                 await wait(() => last().approval.shownAt !== null, "the action is drawn");
                 fs.writeFileSync(offset, "1000");
                 send({ type: "intent", intent: "confirm", id: approval.id, digest: approval.digest, source: "key" });
-                await wait(() => conn.count(SPEAK) > 0 || last()?.fault.kind === "error", "the approved result returns as spoken words");
+                await wait(() => fs.existsSync(victim) === false && server.requests.length === 2 && conn.count(SPEAK) > 0
+                    || last()?.fault.kind === "error",
+                    "the approved result returns as spoken words");
                 assert.ok(conn.count(SPEAK) > 0, JSON.stringify(last()?.fault));
                 assert.equal(fs.existsSync(victim), false);
                 assert.equal(server.requests.length, 2);
@@ -1312,11 +1337,11 @@ world(async () => {
                 // count is the barrier; the assertions below read the frames.
                 const speakable = require(path.join(kit.folder, "Speakable.js")).create("", { tools: [] });
                 const sentences = [...speakable.push(answer), ...speakable.finish()].length;
-                await wait(() => conn.count(SPEAK) === sentences && last()?.turn.kind === "none", "every sentence of the result is spoken");
+                await wait(() => conn.count(SPEAK) >= sentences + 1 && last()?.turn.kind === "none", "every sentence of the result is spoken");
                 const observed = fs.readFileSync(frameAudits, "utf8").trim().split("\n").map(JSON.parse)
                     .filter(value => value.frame.type === SPEAK);
                 const commentary = conn.events.filter(value => value.type === SPEAK);
-                assert.deepEqual(commentary.map(words), ["Completed.", "Visit example."], "the voice reads the brain's sentences and nothing else of its text");
+                assert.deepEqual(commentary.map(words).slice(-2), ["Completed.", "Visit example."], "the voice reads the brain's sentences and nothing else of its result text");
                 assert.ok(rows().some(row => row.kind === "action" && row.effect === "destructive" && row.confirmed === "physical"));
                 assert.deepEqual(observed.map(value => value.frame), commentary);
                 assert.deepEqual({ check: "commentary-audit-before-send", audited: observed.every(value =>
@@ -1332,7 +1357,7 @@ world(async () => {
                 assert.equal(last().approval.text.includes("openai-realtime"), false, "release shows no adapter id");
                 assert.equal(server.requests.length, 1, "no tool result reaches the brain while release is held");
                 send({ type: "intent", intent: "cancel", id: last().approval.id });
-                await wait(() => conn.count(SPEAK) > 0, "the refused release completes with a withheld result");
+                await wait(() => server.requests.length === 2 && conn.count(SPEAK) > 0, "the refused release completes with a withheld result");
                 assert.equal(server.requests.length, 2);
                 const tool = server.requests[1].body.messages.find(value => value.role === "tool");
                 assert.equal(tool.tool_call_id, "read_call");
@@ -1355,7 +1380,7 @@ world(async () => {
                 await wait(() => last().capture.kind === "open", "capture opens for the second turn");
                 server.replies.push(BrainFixture.text("First part. Second part. Third part."));
                 // 0.1 s of speech, then 20 s that the interruption cuts.
-                conn.voice = [4800, 960000];
+                conn.voice = [4800, 4800, 960000];
                 const second = messages.length;
                 heard(conn, "item_user_2", "And now?");
                 send({ type: "intent", intent: "talk-up" });
@@ -1390,7 +1415,7 @@ world(async () => {
                 await wait(() => requestClosed, "cancel closes the old brain request");
                 releaseReply();
                 if (only === "replacement") {
-                    await wait(() => conn.count(SPEAK) > 0, "the new delegation returns after cancellation");
+                    await wait(() => server.requests.length === 2 && conn.count(SPEAK) > 0, "the new delegation returns after cancellation");
                     assert.equal(server.requests.length, 2);
                     const commentary = conn.events.filter(value => value.type === SPEAK);
                     assert.ok(commentary.every(value => !words(value).includes("Late")));
@@ -1399,7 +1424,8 @@ world(async () => {
                         await wait(() => last()?.conversation.kind === "ended", "stop ends delegated work");
                         await wait(() => conn.ended, "stop closes the old speech transport");
                     } else await wait(() => last()?.turn.kind === "none", "interrupt ends delegated work");
-                    assert.equal(conn.count(SPEAK), 0, "stale brain work never reaches the voice");
+                    assert.ok(conn.events.filter(value => value.type === SPEAK).every(value => !words(value).includes("Late")),
+                        "stale brain work never reaches the voice");
                 }
                 assert.equal(fs.existsSync(victim), true, "stale work starts no file action");
             }
@@ -1418,7 +1444,7 @@ world(async () => {
 
     const cases = { roundTrip, idle, idleRestarts, idleTurn, idleThinking, idleApproval, closing, captions, interruptPlaying,
         interruptQueued, replacedReply, heardAccount, replyDue, replyDueCarried, releaseDue, labels, failures, unread, redirect,
-        startTimeout, responseTimeout, keys, opening, releaseLifetime, pacing, replyQueue, backlog, delegation, violations,
+        startTimeout, responseTimeout, keys, opening, releaseLifetime, pacing, replyQueue, backlog, delegation, lineQueue, violations,
         daemonDelegation, daemonStale: kit => daemonDelegation(kit, "stale"), daemonRelease: kit => daemonDelegation(kit, "release"),
         daemonReplacement: kit => daemonDelegation(kit, "replacement"), daemonInterrupt: kit => daemonDelegation(kit, "interrupt"),
         daemonHeard: kit => daemonDelegation(kit, "heard") };
@@ -1459,6 +1485,10 @@ world(async () => {
             ["blank-turn", 'if (event.text.trim() === "") break;', "", as("delegation")],
             ["stale-delegation", " || session.delegation !== id) return false;", ") return false;", as("delegation")],
             ["replaced-words", "// Words still waiting answer the request this one replaces.\n                session.speech.queue = [];\n                session.speech.chars = 0;", "", as("delegation")],
+            ["line-replace", "const waiting = session.speech.queue.findIndex(words => words.line === true);",
+                "const waiting = -1;", as("lineQueue")],
+            ["line-drop-for-reply", "session.speech.queue = session.speech.queue.filter(words => !words.line);",
+                "session.speech.queue = session.speech.queue;", as("lineQueue")],
             ["flush-delegation", 'session.delegation = null;\n            conclude(session, "assistant");', 'conclude(session, "assistant");', as("interruptPlaying")],
             ["flush-words", 'session.speech.queue = [];\n            session.speech.chars = 0;\n            if (session.speech.active', "if (session.speech.active", as("interruptPlaying")],
             ["discard", "if (!active.discarded) output(session, active, event.pcm);", "output(session, active, event.pcm);", as("interruptPlaying")],
@@ -1487,7 +1517,7 @@ world(async () => {
             ["heard-played", "session.said.push(...session.taken.marks);", "", as("heardAccount")],
             ["heard-request", "\n                    .filter(mark => mark.request === id)", "", as("heardAccount")],
             ["heard-other-request", "if (session === null || session.delegation !== id) return null;", "if (session === null) return null;", as("heardAccount")],
-            ["heard-pending", "pending: !quiet(session) || session.next !== null || taken !== null,", "pending: false,", as("heardAccount")],
+            ["heard-pending", "pending: replyPending(session),", "pending: false,", as("heardAccount")],
             ["reply-end-activity", 'clear(session, "gap");\n            activity(session);\n        });', 'clear(session, "gap");\n        });', as("idle")],
             ["idle-reply", "if (session.playing !== null || session.next !== null || !quiet(session)) return;", "if (!quiet(session)) return;", as("idle")],
             ["idle-words", "if (session.playing !== null || session.next !== null || !quiet(session)) return;",
@@ -1573,7 +1603,7 @@ world(async () => {
             ["daemon-commentary", "c.live.commentary(turn.delegation, item);", "void item;", "action"],
             ["daemon-router-tools", "tools: router.offer()", "tools: []", "action"],
             ["daemon-router-approval", "router.route(call, { gen: turn.gen, op: turn.op });", "void call;", "action"],
-            ["daemon-speakable", "for (const sentence of text.push(event.text))", "for (const sentence of [event.text])", "action"],
+            ["daemon-speakable", "const sentences = text.push(event.text);", "const sentences = [event.text];", "action"],
             ["daemon-recipient-provider", 'provider: account.provider, account: account.id, origin: Net.endpoint(provider.base).origin',
                 'provider: provider.id, account: account.id, origin: Net.endpoint(provider.base).origin', "release"],
             ["daemon-release-request", "if (needed.length === 0) return;", "return;", "release"],

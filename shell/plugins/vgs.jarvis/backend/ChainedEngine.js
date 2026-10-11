@@ -25,6 +25,7 @@ const LocalSpeech = require("./LocalSpeech.js");
 const { PCM_RATE } = require("./Audio.js");
 const Realtime = require("./Realtime.js");
 const TaskVoice = require("./TaskVoice.js");
+const Redact = require("./Redact.js");
 
 // Speech adapter rows in selection order. A row is {select({settings,
 // accounts, directories})} answering {kind:"ready", recipients, open({net,
@@ -50,6 +51,8 @@ const CAPTURE_BYTES = 16 * 1024;
 const RELEASE_EFFECT = "external";
 // One local working sound for a still-silent turn, without a speech request.
 const WORKING_AFTER_MS = 1200;
+// Owner ruling VGS-1320: longer than a few seconds gets one spoken progress line per stated step.
+const PROGRESS_AFTER_MS = 4000;
 
 function earcon(kind) {
     const frames = PCM_RATE * (kind === "start" ? 80 : 120) / 1000;
@@ -575,8 +578,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             for (;;) {
                 if (sentences.length !== 0) {
                     const value = sentences.shift();
-                    queued -= value.content.length;
-                    return { value, done: false };
+                    queued -= value.item.content.length;
+                    return { value: value.item, done: false };
                 }
                 if (ended) return { value: undefined, done: true };
                 await input.wait();
@@ -594,20 +597,44 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             } catch (error) { readable.destroy(error); }
         }
         void pump();
+        // Lines still waiting for synthesis; a reply or a newer line drops them.
+        function dropLines() {
+            for (let at = sentences.length - 1; at >= 0; at--) {
+                if (!sentences[at].line) continue;
+                queued -= sentences[at].item.content.length;
+                sentences.splice(at, 1);
+            }
+        }
         return {
             readable, handed: false,
             queue(item) {
                 if (queued + item.content.length > SENTENCE_TEXT) fail("speech-queue");
                 queued += item.content.length;
-                sentences.push(item);
+                sentences.push({ item, line: false });
                 input.notify();
             },
+            // A line joins the stream behind what synthesis has taken; a newer
+            // line replaces one that still waits, so at most one waits.
+            queueLine(items) {
+            dropLines();
+                for (const item of items) {
+                    if (queued + item.content.length > SENTENCE_TEXT) fail("speech-queue");
+                    queued += item.content.length;
+                    sentences.push({ item, line: true });
+                }
+                input.notify();
+            },
+            dropLines,
             end() { ended = true; input.notify(); }
         };
     }
 
     function say(c, turn, sentence, labels = [...turn.labels]) {
         if (turn.stopped) return;
+        // The answer drops every line that has not started; one that plays
+        // finishes first, as Session holds the reply behind it.
+        turn.pendingLine = null;
+        turn.waitingLine = null;
         const item = Policy.item(sentence, labels);
         if (c.live !== null) {
             c.live.commentary(turn.delegation, item);
@@ -617,13 +644,98 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (turn.speech === null) {
                 turn.speech = speech(c);
             }
+            turn.speech.dropLines();
             if (!turn.speaking) {
                 turn.speaking = true;
+                clearProgress(turn);
                 turn.done("play", { interruptible: true });
             }
             turn.speech.queue(item);
         });
         caption(c, turn, sentence);
+    }
+
+    function normalizedLine(text) {
+        return text.toLowerCase().replace(/[.!?]+$/u, "").replace(/\s+/gu, " ").trim();
+    }
+
+    // A line, the acknowledgement or a progress line, is Jarvis's word while
+    // the brain works, never its reply: it leaves through the reply's release
+    // and audit, is never repeated in a turn, and a secret is never spoken.
+    // While the working sound's stream is open the line joins it. Otherwise
+    // it plays in a stream of its own, which Session admits as feedback, so
+    // the microphone opens again once it has played; a line asked for while
+    // one plays waits, replacing an older waiting one.
+    function line(c, turn, text, labels) {
+        if (turn.stopped || turn.speaking || turn.replyStarted || Redact.secret(text)) return false;
+        const key = normalizedLine(text);
+        if (key === "" || turn.lines.has(key)) return false;
+        try {
+            const speakable = Speakable.create(LANGUAGE);
+            const sentences = [...speakable.push(text), ...speakable.finish()];
+            if (sentences.length === 0) return false;
+            if (c.live === null && (turn.lineStream !== null || turn.pendingLine !== null)) {
+                turn.waitingLine = { text, labels };
+                return true;
+            }
+            turn.lines.add(key);
+            const items = sentences.map(sentence => Policy.item(sentence, labels));
+            // A line is no reply the user waits for: one the gate would ask
+            // about or withhold is not spoken, and the turn goes on.
+            if (items.some(item => Policy.release(item, c.recipients, c.grants).kind !== "send")) return false;
+            for (const [at, item] of items.entries()) {
+                if (c.live !== null) c.live.commentary(turn.delegation, item, { line: true });
+                else transfer(c, turn, item, () => {});
+                caption(c, turn, sentences[at]);
+            }
+            if (c.live !== null) return true;
+            const playing = state().playback;
+            if (turn.speech !== null && playing.kind === "feedback" && playing.cue === "working" && playing.source === turn.op) {
+                turn.linePrefix += (turn.linePrefix === "" ? "" : " ") + sentences.join(" ");
+                turn.speech.queueLine(items);
+                return true;
+            }
+            turn.pendingLine = items;
+            turn.done("feedback", { cue: "line" });
+            return true;
+        } catch (error) {
+            failed(c, turn, error);
+            return false;
+        }
+    }
+
+    // Session admitted the turn's line: its stream is made once, holds the
+    // line alone and ends with it.
+    function lineAdmitted(c, turn) {
+        const stream = speech(c);
+        turn.lineStream = stream;
+        stream.queueLine(turn.pendingLine ?? []);
+        turn.pendingLine = null;
+        stream.end();
+    }
+
+    // The words of the working sound's stream that were lines, not the reply.
+    function withoutLinePrefix(turn, text) {
+        if (text === "" || turn.linePrefix === "") return text;
+        if (turn.linePrefix.startsWith(text)) return "";
+        return text.startsWith(turn.linePrefix + " ") ? text.slice(turn.linePrefix.length + 1) : text;
+    }
+
+    function progress(c, turn) {
+        if (clock === undefined) return;
+        turn.progressTimer = clock.set(() => {
+            turn.progressTimer = null;
+            turn.progressDue = true;
+            if (conversation !== c || turn.stopped || turn.speaking || !session.live(state(), turn, "turn", ["thinking"])) return;
+            if (turn.step !== null) line(c, turn, turn.step, [...turn.labels]);
+        }, PROGRESS_AFTER_MS);
+    }
+
+    function stated(c, turn, stream) {
+        for (const step of stream.steps()) {
+            turn.step = step;
+            if (turn.progressDue) line(c, turn, step, [...turn.labels]);
+        }
     }
 
     async function switchBrain(c) {
@@ -688,12 +800,19 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
 
     function stop(turn) {
         turn.stopped = true;
+        turn.pendingLine = null;
+        turn.waitingLine = null;
         quiet(turn);
+        clearProgress(turn);
         turn.speech?.end();
     }
     function quiet(turn) {
         if (turn.feedbackTimer !== null) clock.clear(turn.feedbackTimer);
         turn.feedbackTimer = null;
+    }
+    function clearProgress(turn) {
+        if (turn.progressTimer !== null && turn.progressTimer !== undefined) clock.clear(turn.progressTimer);
+        turn.progressTimer = null;
     }
     function working(c, turn) {
         if (c.live !== null || state().settings.sounds !== true || clock === undefined) return;
@@ -810,15 +929,17 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 const event = step.value;
                 switch (event.kind) {
                 case "text":
-                    if (event.text !== "") turn.replyStarted = true;
                     brainText?.write(turn, event.text);
                     // Only a sentence for speech ends the wait the working
                     // sound covers: text Speakable keeps silent, as before a
                     // tool call, leaves the sound due.
-                    for (const sentence of text.push(event.text)) {
+                    const sentences = text.push(event.text);
+                    if (sentences.length !== 0) turn.replyStarted = true;
+                    for (const sentence of sentences) {
                         quiet(turn);
                         say(c, turn, sentence);
                     }
+                    stated(c, turn, text);
                     break;
                 case "tool-call": calls.push(event); break;
                 case "done":
@@ -829,10 +950,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                         turn.calls = calls;
                         turn.phase = "routing";
                     }
-                    for (const sentence of text.finish()) say(c, turn, sentence);
+                    const rest = text.finish();
+                    if (rest.length !== 0) turn.replyStarted = true;
+                    for (const sentence of rest) say(c, turn, sentence);
+                    stated(c, turn, text);
                     if (turn.stopped) return;
                     if (event.reason === "tool-calls") next(c, turn);
                     else {
+                        clearProgress(turn);
                         turn.phase = "done";
                         c.turn = null;
                         turn.speech?.end();
@@ -1092,13 +1217,16 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             const turn = { gen: e.gen, op: e.op, done, labels: new Set(), speech: null, stopped: false, speaking: false, delegation: e.delegation,
                 feedbackTimer: null, relay: null,
                 phase: "queued", calls: [], answers: new Map(), routing: null, caption: "", resendText: e.text, owner: e.owner,
-                routed: false, replyStarted: false };
+                routed: false, replyStarted: false, progressTimer: null, progressDue: false, step: null, lines: new Set(),
+                linePrefix: "", lineStream: null, pendingLine: null, waitingLine: null };
             if (e.text.trim() === "") {
                 done("brain-done");
                 return;
             }
             c.turn = turn;
             c.last = turn;
+            line(c, turn, Speakable.acknowledgement(e.text), ["speech"]);
+            progress(c, turn);
             working(c, turn);
             const items = [];
             if (c.heard !== null) items.push(heardItem(c.heard));
@@ -1190,6 +1318,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             start(e, done, failed) {
                 const c = conversation;
                 const turn = c?.last;
+                const playing = state().playback;
+                const lineRun = playing.kind === "feedback" && playing.cue === "line" && playing.op === e.op ? turn?.lineStream ?? null : null;
                 return port.start(e, (...result) => {
                     // A prompt heard to its end holds the conversation's
                     // next words; a flushed one is asked again later.
@@ -1198,7 +1328,15 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                         if (turn.relay.ask !== null) c.relay = turn.relay.ask;
                     }
                     if (conversation === c) c?.live?.played(e.source);
+                    const next = lineRun !== null && turn.lineStream === lineRun;
+                    if (next) turn.lineStream = null;
                     done(...result);
+                    // Session is idle again, or plays the reply it held, so
+                    // the waiting line can ask for its own playback.
+                    if (!next || conversation !== c || turn.waitingLine === null) return;
+                    const waiting = turn.waitingLine;
+                    turn.waitingLine = null;
+                    if (session.live(state(), turn, "turn", ["thinking"])) line(c, turn, waiting.text, waiting.labels);
                 }, failed);
             },
             flush(e, done) {
@@ -1206,6 +1344,16 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 // teardown must not mark its later reply as interrupted.
                 const c = conversation;
                 const turn = c?.last;
+                // While a line's stream exists Session's playback is that
+                // line's, handed to Audio or not yet: the flush ends it. Its
+                // report is the line's, so a reply held behind it was heard
+                // not at all.
+                const flushedLine = turn !== undefined && turn !== null && turn.lineStream !== null && turn.lineStream !== undefined;
+                if (flushedLine) {
+                    if (!turn.lineStream.handed) turn.lineStream.readable.destroy();
+                    turn.lineStream = null;
+                    turn.waitingLine = null;
+                }
                 const speaking = turn?.speaking === true;
                 // A Realtime reply's account is read here: the speech port's
                 // flush follows this effect and drops it. Until Audio
@@ -1215,7 +1363,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 return port.flush(e, report => {
                     if (account !== null && conversation === c && c.last === turn) heard(c, turn, account.text(report));
                     const own = speaking && c.live === null && conversation === c && c.last === turn && (report === null || report.source === turn.op);
-                    if (own && turn.relay === null) heard(c, turn, report === null ? "" : report.heardText);
+                    if (own && turn.relay === null) heard(c, turn, report === null || flushedLine ? "" : withoutLinePrefix(turn, report.heardText));
                     else if (own) unheard(c, turn);
                     done(report);
                 });
@@ -1257,6 +1405,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                     c.turn.speech = speech(c);
                     c.turn.speech.readable.push(earcon("working"));
                 }
+                if (s.playback.cue === "line" && c.turn !== null && c.turn.op === s.playback.source
+                        && c.turn.lineStream === null) lineAdmitted(c, c.turn);
             } else if (conversation?.feedback !== null && conversation?.feedback !== undefined) {
                 conversation.feedback.readable.destroy();
                 conversation.feedback = null;
@@ -1335,7 +1485,12 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (conversation?.feedback?.source === op) return conversation.feedback.readable;
             if (conversation?.live !== null && conversation?.live !== undefined) return conversation.live.playbackSource(op);
             const turn = conversation?.last;
-            if (!turn || turn.op !== op || turn.speech === null || turn.speech.handed) return null;
+            if (!turn || turn.op !== op) return null;
+            if (turn.lineStream && !turn.lineStream.handed) {
+                turn.lineStream.handed = true;
+                return turn.lineStream.readable;
+            }
+            if (turn.speech === null || turn.speech.handed) return null;
             turn.speech.handed = true;
             return turn.speech.readable;
         },
