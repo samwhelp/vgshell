@@ -1039,6 +1039,44 @@ const table = [
         assert.equal(r.state.approval.kind, "none");
         assert.equal(r.effects.find(e => e.kind === "approval-ended").reason, "timeout");
     }],
+    ["approval-end-capture", logic => {
+        function openHeld(id = "held", at = 40) {
+            let s = thinking(logic, true);
+            assert.equal(s.input.kind, "conversation");
+            assert.equal(s.capture.kind, "opening");
+            s = step(logic, s, callback("capture-opened", s.capture, 32)).state;
+            assert.equal(s.capture.kind, "open");
+            const r = step(logic, s, callback("approval", s.turn, at, { id, digest: "a".repeat(64),
+                physical: false, text: "Delete the fixture", tool: "fixture", timeoutMs: 100, cancellable: true }));
+            assert.deepEqual(kinds(r), ["approval-show"]);
+            assert.equal(r.state.capture.kind, "open");
+            return r.state;
+        }
+        function assertSecondHoldOpensNoCapture(state, at) {
+            const r = step(logic, state, callback("approval", state.turn, at, { id: "again", digest: "b".repeat(64),
+                physical: false, text: "Delete the fixture again", tool: "fixture", timeoutMs: 100, cancellable: true }));
+            assert.equal(kinds(r).includes("approval-show"), true);
+            assert.equal(kinds(r).includes("capture-open"), false);
+            assert.equal(r.state.turn.kind, "thinking");
+        }
+        let s = openHeld();
+        const timedOut = step(logic, s, callback("deadline", s.approval, 60040));
+        assert.equal(kinds(timedOut).includes("capture-close"), true, "timeout closes the answer capture");
+        assert.equal(timedOut.state.input.kind, "released");
+        assert.equal(timedOut.state.approval.kind, "none");
+        assert.equal(timedOut.effects.find(e => e.kind === "approval-ended")?.reason, "timeout");
+        s = step(logic, timedOut.state, callback("capture-closed", timedOut.state.capture, 60041)).state;
+        assertSecondHoldOpensNoCapture(s, 60042);
+
+        s = openHeld();
+        const cancelled = step(logic, s, callback("approval-cancel", s.approval, 50));
+        assert.equal(kinds(cancelled).includes("capture-close"), true, "cancel closes the answer capture");
+        assert.equal(cancelled.state.input.kind, "released");
+        assert.equal(cancelled.state.approval.kind, "none");
+        assert.equal(cancelled.effects.find(e => e.kind === "approval-ended")?.reason, "cancel");
+        s = step(logic, cancelled.state, callback("capture-closed", cancelled.state.capture, 51)).state;
+        assertSecondHoldOpensNoCapture(s, 52);
+    }],
     ["interrupt", logic => {
         const s = speaking(logic);
         const r = step(logic, s, event("interrupt", 50));
@@ -2010,6 +2048,10 @@ try {
             'dropApproval(s, effects, "thinking-timeout", at);', "approval-end-reasons"],
         ["approval-bound", 's.approval.kind === "held" && at >= s.approval.deadline',
             's.approval.kind === "held" && false && at >= s.approval.deadline', "approval-timeout"],
+        ["approval-timeout-capture-close", 'if (s.approval.kind === "held" && at >= s.approval.deadline) {\n        dropApproval(s, effects, "timeout", at);\n        s.input = { kind: "released" };\n        closeCapture(s, effects);\n    }',
+            'if (s.approval.kind === "held" && at >= s.approval.deadline) {\n        dropApproval(s, effects, "timeout", at);\n    }', "approval-end-capture", "timeout closes the answer capture"],
+        ["approval-cancel-capture-close", 'dropApproval(s, effects, "cancel", e.at);\n        s.input = { kind: "released" };\n        closeCapture(s, effects);',
+            'dropApproval(s, effects, "cancel", e.at);', "approval-end-capture", "cancel closes the answer capture"],
         ["late-callback", 'if (e.type !== "deadline") expire(s, effects, e.at);',
             'if (false && e.type !== "deadline") expire(s, effects, e.at);', "late-callback"],
         ["lease-close", 'if (s.brain.kind === "closed") return;',

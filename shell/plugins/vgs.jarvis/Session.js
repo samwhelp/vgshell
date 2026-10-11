@@ -422,7 +422,11 @@ function expire(s, effects, at) {
         closeBrain(s, effects);
         s.turn = { kind: "none" };
     }
-    if (s.approval.kind === "held" && at >= s.approval.deadline) dropApproval(s, effects, "timeout", at);
+    if (s.approval.kind === "held" && at >= s.approval.deadline) {
+        dropApproval(s, effects, "timeout", at);
+        s.input = { kind: "released" };
+        closeCapture(s, effects);
+    }
     if (s.action.kind === "running" && s.action.limit.kind === "pending" && at >= s.action.limit.deadline) {
         requestToolCancel(s, effects);
         effect(s, effects, "tool-outcome", { gen: s.action.gen, target: s.action.brain,
@@ -788,6 +792,8 @@ function reduce(state, e) {
     case "approval-cancel":
         if (e.id !== s.approval.id || e.gen !== s.approval.gen) { stale(s); break; }
         dropApproval(s, effects, "cancel", e.at);
+        s.input = { kind: "released" };
+        closeCapture(s, effects);
         break;
     case "speak":
         if (!live(s, e, "speech", ["open"])) { stale(s); break; }
