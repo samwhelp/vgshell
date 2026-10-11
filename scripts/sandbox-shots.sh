@@ -689,9 +689,9 @@ centre_of() { python3 -c 'import json,sys; t=sys.argv[1]; r=json.loads(t) if t.s
 # hover_on LABEL HOST ID TYPE TEXT [SURFACE]: the pointer on the centre of
 # that item, held until the item reports the pointer over it twice in a
 # row, so a hover shot shows the hover state; an item that has no hover
-# state of its own is hover_text's. A layer's item is found through
-# point_item in scripts/smoke/harness.sh; a window's item needs SURFACE,
-# the window's surface name, since its box is read in the window.
+# state of its own is hover_text's. Both go through point_item in
+# scripts/smoke/harness.sh; a window's item needs SURFACE, the window's
+# surface name, since its box is read in the window.
 # window_point SURFACE HOST ID TYPE TEXT: that window item's centre on the
 # output, as `X Y`.
 # arriving by two motions: the launcher follows the pointer only once it
@@ -705,22 +705,13 @@ window_point() {
 # position read on a reset output is not where it sits once the mode is
 # taken again for the shot.
 hover_on() {
-  local x y i held=0
   settle_hold || { fail "$1: the held mode could not be taken again"; return 1; }
   if [[ -z ${6:-} ]]; then
     if ! point_item "$2" "$3" "$4" "$5" >/dev/null; then fail "$1: $4 \"$5\" under $2 $3 never reported the pointer"; return 1; fi
-    ok "$1"; return 0
+  elif ! point_item "$6" "$2" "$3" "$4" "$5" >/dev/null; then
+    fail "$1: $4 \"$5\" in $6 never reported the pointer"; return 1
   fi
-  for i in $(seq 1 50); do
-    if read -r x y < <(window_point "$6" "$2" "$3" "$4" "$5"); then
-      hover "$((x + i % 2))" "$y" || { fail "$1: the hover failed"; return 1; }
-      if [[ $(ipc smoke itemHovered "$2" "$3" "$4" "$5") == true ]]; then held=$((held + 1)); else held=0; fi
-      if (( held >= 2 )); then ok "$1"; return 0; fi
-    fi
-    sleep 0.1
-  done
-  fail "$1: $4 \"$5\" in $6 never reported the pointer"
-  return 1
+  ok "$1"
 }
 # hover_text LABEL HOST ID TYPE TEXT: the pointer on the centre of a text
 # that has no hover state; the caller proves the state the hover drives.

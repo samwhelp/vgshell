@@ -1089,7 +1089,12 @@ click_centre() {
 # popup:HOST_KEY ID SCOPE_TYPE SCOPE_TEXT TYPE TEXT for the first visible,
 # enabled control TYPE reading TEXT in an open menu or popover of a built
 # instance, inside the item SCOPE_TYPE drawing SCOPE_TEXT unless SCOPE_TYPE
-# is empty (the probe's popupItem). The probe answers layer and window
+# is empty (the probe's popupItem), or
+# scoped:TITLE HOST_KEY ID SCOPE_TYPE SCOPE_TEXT TYPE TEXT for the first
+# visible, enabled control TYPE reading TEXT inside the first shown
+# SCOPE_TYPE that draws SCOPE_TEXT in window TITLE, such as one row's
+# button among rows that each draw one with the same text (the probe's
+# scopedItem). The probe answers layer and window
 # item boxes in their windows, so the surface position from the compositor
 # is added.
 control_box() {
@@ -1097,15 +1102,17 @@ control_box() {
   if [[ $1 == popup:* ]]; then ipc smoke popupItemGeometry "${1#popup:}" "$2" "$3" "$4" "$5" "$6"; return; fi
   if [[ $1 == vgs:* ]]; then rect="$(ipc smoke layerItemGeometry "$2" "$3" "$4" "$5")" || return 1
   elif [[ $1 == window:* ]]; then rect="$(ipc smoke windowGeometry "$2" "$3" "$4" "$5")" || return 1
+  elif [[ $1 == scoped:* ]]; then rect="$(ipc smoke scopedWindowGeometry "$2" "$3" "$4" "$5" "$6" "$7")" || return 1
   else ipc smoke itemGeometry "$1" "$2" "$3" "$4"; return; fi
   if [[ $rect == absent ]]; then echo absent; return; fi
-  surface="$(surface_box "$1")" || return 1
+  surface="$(surface_box "${1/#scoped:/window:}")" || return 1
   python3 -c 'import json,sys; l=json.loads(sys.argv[1]); r=json.loads(sys.argv[2]); print(json.dumps([l[0] + r[0], l[1] + r[1], r[2], r[3]]))' "$surface" "$rect"
 }
 control_hovered() {
   if [[ $1 == popup:* ]]; then ipc smoke popupItemHovered "${1#popup:}" "$2" "$3" "$4" "$5" "$6"
   elif [[ $1 == vgs:* ]]; then ipc smoke layerItemHovered "$2" "$3" "$4" "$5"
   elif [[ $1 == window:* ]]; then ipc smoke itemHovered "$2" "$3" "$4" "$5"
+  elif [[ $1 == scoped:* ]]; then ipc smoke scopedItemHovered "$2" "$3" "$4" "$5" "$6" "$7"
   else ipc smoke itemHovered "$1" "$2" "$3" "$4"
   fi
 }
@@ -1132,6 +1139,7 @@ point_item() { # LOOKUP [DX DY]
   local n=4 lookup rect seen="" x="" y="" px hovered held=0 i
   [[ $1 == vgs:* || $1 == window:* ]] && n=5
   [[ $1 == popup:* ]] && n=6
+  [[ $1 == scoped:* ]] && n=7
   if (( $# != n && $# != n + 2 )); then echo "point_item: refused: arguments=$# lookup=$n" >&2; return 1; fi
   lookup=("${@:1:n}")
   shift "$n"
@@ -2362,22 +2370,18 @@ settings_page_close() {
 # and its description, listing, Manage, Status and Requirements are on
 # Details. settings_tab: the index of the page shown, 0 for Settings and 1
 # for Details. settings_tab_click TEXT: a real click on the strip's tab
-# TEXT, brought into view first; the pointer moves there a pixel off
-# before it presses, since a window mapped since the last press takes no
-# click until the pointer moves. settings_details:
+# TEXT, brought into view first, once the tab reports the pointer, through
+# point_item; it fails at the press with the cause when the tab never
+# does. settings_details:
 # the mapped window's page moved to Details by that click, for every row
 # that reads or presses something drawn there.
 settings_tab() { ipc smoke readDescendant window vgs.settings TabPages currentIndex; }
 settings_tab_click() {
-  local shown rect x y
+  local shown
   shown="$(ipc smoke revealText window vgs.settings QQuickTabButton "$1")" || return 1
   [[ $shown =~ ^[0-9.]+$ ]] || { echo "settings_tab_click: no tab $1 to reveal: $shown" >&2; return 1; }
   sleep 0.2
-  rect="$(ipc smoke windowGeometry window vgs.settings QQuickTabButton "$1")" || return 1
-  [[ $rect == \[* ]] || { echo "settings_tab_click: no tab $1: $rect" >&2; return 1; }
-  read -r x y < <(at_centre window:Plugins "$rect") || return 1
-  hover "$((x + 1))" "$y" || return 1
-  click "$x" "$y"
+  click_item window:Plugins window vgs.settings QQuickTabButton "$1" || { echo "settings_tab_click: pointer-not-ready=$1" >&2; return 1; }
 }
 settings_details() {
   expect_poll "the Settings window is mapped for its Details page" 1 window_count Plugins
@@ -2431,17 +2435,18 @@ settings_open_tui() { ipc smoke invokeInstance window vgs.settings openTui "{\"i
 # on the Settings window's shown, enabled item of TYPE, Button unless given,
 # reading TEXT, inside the first shown SCOPE_TYPE drawing SCOPE_TEXT when
 # given, the page scrolled first so the first such item lies in view, as a
-# user scrolls to a step below the fold. An unscoped press waits until the
-# item reports the pointer, through point_item, and fails at the press with
-# the cause when it never does.
+# user scrolls to a step below the fold. The press waits until the item
+# reports the pointer, through point_item, and fails at the press with the
+# cause when it never does.
 settings_press() {
-  local shown type=Button
+  local shown type=Button lookup
   if [[ $1 == --type ]]; then type="$2"; shift 2; fi
   shown="$(ipc smoke revealText window vgs.settings "$type" "$1")" || return 1
   [[ $shown =~ ^[0-9.]+$ ]] || { echo "settings_press: no $type $1 to reveal: $shown" >&2; return 1; }
   sleep 0.2
-  if [[ $# -eq 3 ]]; then click_scoped_in window:Plugins window vgs.settings "$2" "$3" "$type" "$1"
-  elif ! click_item window:Plugins window vgs.settings "$type" "$1"; then
+  if [[ $# -eq 3 ]]; then lookup=(scoped:Plugins window vgs.settings "$2" "$3" "$type" "$1")
+  else lookup=(window:Plugins window vgs.settings "$type" "$1"); fi
+  if ! click_item "${lookup[@]}"; then
     echo "settings_press: pointer-not-ready=$type $1" >&2
     return 1
   fi

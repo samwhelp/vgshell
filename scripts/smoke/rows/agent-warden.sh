@@ -307,6 +307,11 @@ expect_poll "the Warden info dialog opens again for the outside press" "shown|sh
 read -r warden_info_outside_x warden_info_outside_y < <(outside_surface_point window:Plugins) || fail "the outside point for the Warden info dialog is unreadable"
 click "$warden_info_outside_x" "$warden_info_outside_y" || fail "the outside press for the Warden info dialog failed"
 expect_poll "a press outside closes the Warden info dialog" absent warden_info_closed
+warden_info_unready() {
+  (control_hovered() { echo false; }
+   if settings_press --type InfoButton "About Warden" StatusRow Warden 2>&1 >/dev/null; then echo pressed; fi)
+}
+expect "a scoped press the Warden row's info icon cannot take yet fails at the press with its cause" "settings_press: pointer-not-ready=InfoButton About Warden" warden_info_unready
 info_control_dir="$repo/shell/Core/InfoButtonControl"
 mkdir -p -- "$info_control_dir"
 python3 - "$repo/shell/Ui/controls/InfoButton.qml" "$info_control_dir/InfoButton.qml" <<'PY'

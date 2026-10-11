@@ -2171,7 +2171,6 @@ Scope {
         // The first visible, enabled item named `type` under an instance
         // whose `text`, or `label` for an icon button, is `text`, as its
         // box in its window's coordinates, or "absent".
-        // windowGeometry for the item scopedItem finds.
         // popupItem's box in screen coordinates, so a row clicks an entry
         // of an open menu or a control in an open popover, and whether it
         // reports the pointer over it: "true", "false", or "absent".
@@ -2198,9 +2197,15 @@ Scope {
             }
             return "absent";
         }
+        // windowGeometry for the item scopedItem finds, and whether it
+        // reports the pointer over it: "true", "false", or "absent".
         function scopedWindowGeometry(hostKey: string, id: string, scopeType: string, scopeText: string, type: string, text: string): string {
             const found = root.scopedItem(hostKey, id, scopeType, scopeText, type, text);
             return found === null ? "absent" : root.json(root.windowBox(found));
+        }
+        function scopedItemHovered(hostKey: string, id: string, scopeType: string, scopeText: string, type: string, text: string): string {
+            const found = root.scopedItem(hostKey, id, scopeType, scopeText, type, text);
+            return found === null ? "absent" : String(found.hovered === true);
         }
         function windowGeometry(hostKey: string, id: string, type: string, text: string): string {
             return root.labelledBox(hostKey, id, type, text, true);
