@@ -24,7 +24,7 @@ A rename in one directory is atomic, so no reader sees half a theme. Writing the
 
 A managed form proves itself, so the runner tells its own file from the user's with no marker file, and disable removes only its own. A theme the user must confirm over their own file is a theme that silently fails to apply.
 
-A wallpaper another program draws must not be covered by a bare background colour, so no image means no surface. A download on the theme lock or the queue would hold every list and apply behind it. A hidden panel is destroyed, so a result it owned would vanish mid-apply.
+A wallpaper another program draws must not be covered by a bare background colour, so no image means no surface. The default theme `vgs` holds one image, Black, so applying it covers such a wallpaper as any theme with wallpapers does; a package with no image leaves it visible. A download on the theme lock or the queue would hold every list and apply behind it. A hidden panel is destroyed, so a result it owned would vanish mid-apply.
 
 ## Rules
 
