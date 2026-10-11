@@ -46,15 +46,20 @@ Item {
         }
     }
 
+    readonly property var notificationRows: Array.from({ length: 12 }, (_, index) => ({
+        key: "boundary-" + index, app: "Boundary test",
+        summary: "Notification " + index, body: "An overflowing shipped panel"
+    }))
+
     Notifications.Panel {
         id: panel
         width: implicitWidth
         height: 300
         visible: false
-        rows: Array.from({ length: 12 }, (_, index) => ({
-            key: "boundary-" + index, app: "Boundary test",
-            summary: "Notification " + index, body: "An overflowing shipped panel"
-        }))
+        // Drive the shipped open/refresh lifecycle through its snapshot
+        // interface. The service owns data; this unit test owns its input.
+        shell: ({ status: { revision: 0 }, settings: {}, ipc: { call: (name, arg) =>
+            name === "panel-state" ? JSON.stringify({ mode: "inbox", rows: scene.notificationRows }) : "ok" } })
     }
 
     Component {
@@ -72,6 +77,7 @@ Item {
                 panel.selectIndex(0);
                 panelParts().view.contentY = 0;
             }
+            panel.close();
             panel.visible = false;
             panel.height = 300;
             frame.visible = true;
@@ -95,10 +101,14 @@ Item {
             verify(title !== null);
             const header = title.parent.parent;
             const view = scrollbar.flickable;
-            const faces = descendants(view.contentItem).filter(child => child.reportHover !== undefined && child.card !== undefined);
+            const slots = descendants(view.contentItem).filter(child => child.extent !== undefined && child.entry !== undefined);
+            const cardFaces = () => descendants(view.contentItem).filter(child => child.reportHover !== undefined && child.card !== undefined);
             const headerInset = header.mapToItem(panel, 0, 0).y;
             return {
-                scroll: scrollbar.parent, view: view, header: header, faces: faces,
+                scroll: scrollbar.parent, view: view, header: header, slots: slots,
+                get faces() { return cardFaces(); },
+                faceAt: index => cardFaces().find(face => face.key === panel.rows[index].key),
+                slotOf: face => slots.find(slot => slot.entry.key === face.key),
                 headerBottom: header.mapToItem(panel, 0, header.height).y,
                 gutter: headerInset + Theme.divider.thickness + Theme.focusRing.width + Theme.focusRing.offset
             };
@@ -108,9 +118,37 @@ Item {
             frame.visible = false;
             panel.height = height;
             panel.visible = true;
+            panel.open("{}");
             const parts = panelParts();
-            tryVerify(() => parts.view.contentHeight > parts.view.height && parts.faces.length === panel.rows.length);
+            tryVerify(() => parts.view.contentHeight > parts.view.height && parts.slots.length === panel.rows.length);
+            waitViewport(parts);
+            verify(parts.faces.length < panel.rows.length, "offscreen rows keep slots without constructing cards");
             return parts;
+        }
+
+        function waitViewport(parts) {
+            tryVerify(() => {
+                const visible = parts.slots.filter(slot => {
+                    const y = slot.mapToItem(parts.view, 0, panel.look.card.gap - panel.look.card.lift * slot.hover).y;
+                    return y < parts.view.height && y + slot.height - panel.look.card.gap > 0;
+                });
+                return visible.length > 0 && visible.every(slot => {
+                    const face = parts.faceAt(slot.index);
+                    return face !== undefined && face.width > 0 && face.height > 0
+                        && Math.abs(face.height + panel.look.card.gap - slot.height) < 0.5;
+                });
+            });
+        }
+
+        function bringRowIntoView(parts, index) {
+            const slot = parts.slots[index];
+            const top = slot.mapToItem(parts.view.contentItem, 0, 0).y;
+            parts.view.contentY = Math.max(0, Math.min(top - parts.scroll.fadeExtent,
+                parts.view.contentHeight - parts.view.height));
+            waitViewport(parts);
+            const face = parts.faceAt(index);
+            verify(face !== undefined, "scrolling builds the actual offscreen card");
+            return face;
         }
 
         function grabPanel() {
@@ -163,7 +201,7 @@ Item {
             view.contentY = row.offset !== undefined ? row.offset : travel * row.progress;
             const rest = view.contentY === 0;
             if (!rest) verify(view.contentY > 0 && view.contentY < travel);
-            if (rest) fuzzyCompare(parts.faces[0].parent.mapToItem(panel, 0, 0).y, parts.headerBottom + parts.gutter, 0.5,
+            if (rest) fuzzyCompare(parts.slots[0].mapToItem(panel, 0, 0).y, parts.headerBottom + parts.gutter, 0.5,
                 "at rest the first card's slot starts where the gutter ends");
             // Test ink crosses the shipped clip in the side room, beside
             // the cards and the header. This proves actual clipped and
@@ -229,8 +267,8 @@ Item {
         function test_active_card_keeps_the_fade(row) {
             const parts = showPanel(400);
             const view = parts.view;
-            const face = parts.faces[6];
-            const slot = face.parent;
+            const face = bringRowIntoView(parts, 6);
+            const slot = parts.slots[6];
             const list = slot.parent;
             if (row.keyboard) panel.selectIndex(6);
             // Place the card's face in the band: its top just under the
@@ -281,18 +319,18 @@ Item {
             const view = parts.view;
             const band = parts.scroll.topExtent;
             verify(band > 2 * parts.gutter, "the band is taller than the gutter: " + [band, parts.gutter]);
-            const faded = parts.faces[5];
+            const faded = bringRowIntoView(parts, 5);
             view.contentY = faded.mapToItem(view.contentItem, 0, faded.height / 2).y - band / 2;
             verify(view.contentY >= band && view.contentY < view.contentHeight - view.height);
             const clear = parts.faces.find(face => {
-                const top = face.parent.mapToItem(view, 0, 0).y;
-                return top >= band && top + face.parent.height <= view.height - band;
+                const top = parts.slotOf(face).mapToItem(view, 0, 0).y;
+                return top >= band && top + parts.slotOf(face).height <= view.height - band;
             });
             verify(clear !== undefined, "a card stands between the bands");
-            const inks = [inkOver(faded.parent), inkOver(clear.parent)];
+            const inks = [inkOver(parts.slots[5]), inkOver(parts.slotOf(clear))];
             try {
                 const painted = grabPanel();
-                const x = Math.floor(faded.parent.mapToItem(scene, faded.parent.width / 2, 0).x);
+                const x = Math.floor(parts.slots[5].mapToItem(scene, parts.slots[5].width / 2, 0).x);
                 const middle = face => painted.red(x, Math.floor(face.mapToItem(scene, 0, face.height / 2).y));
                 compare(middle(clear), 255, "a card between the bands paints in full");
                 verify(middle(faded) >= 95 && middle(faded) <= 160,
@@ -325,7 +363,7 @@ Item {
             verify(expected < view.height / 2, "the band fits the view: " + [expected, view.height]);
             const profiles = [];
             for (const index of row.top ? [0, 1, 2] : [5, 6, 7]) {
-                const slot = parts.faces[index].parent;
+                const slot = parts.slots[index];
                 const slotTop = slot.mapToItem(view.contentItem, 0, 0).y;
                 view.contentY = row.top ? slotTop + row.past : slotTop + slot.height - row.past - view.height;
                 verify(view.contentY > 0 && travel - view.contentY >= expected, "row " + (index + 1) + " lies inside the travel");
@@ -367,9 +405,9 @@ Item {
         // card to the second once, and no step reads neither or both.
         function test_pointer_crosses_the_gap_once() {
             const parts = showPanel(600);
-            const upper = parts.faces[1];
-            const lower = parts.faces[2];
-            const x = upper.parent.mapToItem(panel, upper.parent.width / 2, 0).x;
+            const upper = parts.faceAt(1);
+            const lower = parts.faceAt(2);
+            const x = parts.slots[1].mapToItem(panel, parts.slots[1].width / 2, 0).x;
             const from = Math.round(upper.mapToItem(panel, 0, upper.height / 2).y);
             const to = Math.round(lower.mapToItem(panel, 0, lower.height / 2).y);
             verify(lower.mapToItem(panel, 0, lower.height).y < panel.height - parts.scroll.fadeExtent,
@@ -398,14 +436,16 @@ Item {
         function test_keyboard_reveal_clears_the_bands() {
             const parts = showPanel(480);
             const view = parts.view;
-            const list = parts.faces[0].parent.parent;
-            verify(parts.faces.every(face => face.parent.height <= view.height - 2 * parts.scroll.fadeExtent),
+            const list = parts.slots[0].parent;
+            verify(parts.slots.every(slot => slot.height <= view.height - 2 * parts.scroll.fadeExtent),
                 "every card fits between the bands");
             list.forceActiveFocus(Qt.TabFocusReason);
             tryCompare(list, "activeFocus", true);
             const check = (index, key) => {
                 compare(panel.currentIndex, index);
-                const slot = parts.faces[index].parent;
+                waitViewport(parts);
+                const slot = parts.slots[index];
+                verify(parts.faceAt(index) !== undefined, key + " reveals the actual selected card");
                 const top = slot.mapToItem(view.contentItem, 0, 0).y;
                 const travel = view.contentHeight - view.height;
                 verify(top >= view.contentY + parts.scroll.fadeExtent - 0.5 || view.contentY <= 0,
@@ -415,7 +455,7 @@ Item {
                 const ink = inkOver(slot);
                 try {
                     const painted = grabPanel();
-                    const face = parts.faces[index];
+                    const face = parts.faceAt(index);
                     const x = Math.floor(slot.mapToItem(scene, slot.width / 2, 0).x);
                     const faceTop = Math.ceil(face.mapToItem(scene, 0, 0).y) + 1;
                     for (let y = faceTop; y < faceTop + face.height - 2; y += 3)

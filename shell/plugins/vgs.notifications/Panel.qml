@@ -550,6 +550,13 @@ FocusScope {
                         width: root.look.card.width
                         height: extent
                         property bool positioned: false
+                        // Keep an existing face until its tray fade finishes.
+                        // Loader.active must not read Loader.item: creating or
+                        // destroying that item would change its own binding.
+                        property bool holdsTray: false
+                        function updateTrayRetention() {
+                            holdsTray = faceLoader.item !== null && faceLoader.item.card.trayReserve > 0;
+                        }
                         readonly property real viewY: list.y + y + listScroll.topGutter - listScroll.flickable.contentY
                         function reportHeight() {
                             if (faceLoader.item !== null && faceLoader.item.height > 0)
@@ -560,15 +567,23 @@ FocusScope {
 
                         HoverHandler { id: pointer }
 
+                        Connections {
+                            target: faceLoader.item === null ? null : faceLoader.item.card
+                            function onTrayReserveChanged() { Qt.callLater(slot.updateTrayRetention); }
+                        }
+
                         Loader {
                             id: faceLoader
                             active: slot.positioned && root.initialLayoutReady && root.opened && listScroll.flickable.height > 0
                                 && ((slot.viewY + y < listScroll.flickable.height
                                     && slot.viewY + y + slot.height - root.look.card.gap > 0)
-                                    || item !== null && item.card.trayReserve > 0)
+                                    || slot.holdsTray)
                             width: parent.width
                             y: root.look.card.gap - root.look.card.lift * slot.hover
-                            onItemChanged: Qt.callLater(slot.reportHeight)
+                            onItemChanged: {
+                                Qt.callLater(slot.reportHeight);
+                                Qt.callLater(slot.updateTrayRetention);
+                            }
                             onActiveChanged: if (!active) root.restoreRowHeight(slot.entry.key)
                             sourceComponent: Component {
                                 CardFace {

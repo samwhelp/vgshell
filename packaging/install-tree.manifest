@@ -559,6 +559,7 @@ f share/vgshell/shell/plugins/vgs.notifications/NotificationLogic.js
 f share/vgshell/shell/plugins/vgs.notifications/Orb.qml
 f share/vgshell/shell/plugins/vgs.notifications/Panel.qml
 f share/vgshell/shell/plugins/vgs.notifications/PillButton.qml
+f share/vgshell/shell/plugins/vgs.notifications/RowMeasure.qml
 f share/vgshell/shell/plugins/vgs.notifications/Service.qml
 f share/vgshell/shell/plugins/vgs.notifications/SlackPhotos.qml
 f share/vgshell/shell/plugins/vgs.notifications/Stack.qml
