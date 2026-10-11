@@ -650,10 +650,11 @@ nested_elapsed_secs() {
 # fallback timer. Upstream aquamarine 7bb8bdf (#415) fixes it. The check
 # reads the state once, at the first FALLBACK reading, so it also ends a
 # start whose host answered nothing in the 2 s before it; once the host's
-# aquamarine carries the fix, only such a start should reach it. A run
-# planted on 2026-10-11 on host cachy with strace delaying every recvmsg
-# of the nested Hyprland by 100 ms kept this state, FALLBACK:0x0 from
-# 2.38 s, no wl_pointer and no host window, for the whole 60 s bound.
+# aquamarine carries the fix, only such a start should reach it. On host
+# cachy on 2026-10-11, one start of `qml-smoke.sh --first-bar-runs 1` at
+# load 14.95 kept this state, FALLBACK:0x0 from 2.38 s, no wl_pointer and
+# no host window, for the whole 60 s bound; this check named one start of
+# ten in `--first-bar-runs 10` at load 13.87 at 2.30 s.
 # host_windows_before is empty when the host showed no nested window.
 host_windows_since() {
   local current
