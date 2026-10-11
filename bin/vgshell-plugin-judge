@@ -34,9 +34,11 @@
 //       `written` or `unchanged`. Either file that PluginLogic.configError
 //       refuses is refused as `malformed`; a user file an editor keeps
 //       saving during the write is refused as `changed` (editFile).
-//   vgshell-plugin-judge requirements text|json <id>
+//   vgshell-plugin-judge requirements text|json <shipped-config> <user-config> <id>
 //       read `bin/vgshell-scan` JSON on stdin and print the requirements of
-//       plugin <id>, the one the shell's registry would hold under it:
+//       plugin <id>, the one the shell's registry would hold under it, the
+//       versions read only when the configuration the two files make
+//       effective enables it:
 //       with text one line per requirement,
 //       `<state> <name>[ (<package>)][ optional]: <purpose>`, and with
 //       json one line, a list of rows (below). An id no accepted manifest
@@ -78,11 +80,12 @@
 // `{ manager, name }` PackageManagers.installGroups picks for this system, or
 // null: the state and the package the shell's requirement notice shows.
 // `requirements` and `doctor` read the version and the holder of each
-// present command with a floor through the commands the shell reads them
+// present command with a floor of the core and of an enabled plugin through the commands the shell reads them
 // with, `bin/vgshell-scan --versions` and `vgshell pkg detect --json
 // --holders`, once per command, so a command below its floor is
 // `outdated` and a package its holder's manager names wins. A command
-// whose version could not be read stays `present`. Detection runs once
+// whose version could not be read stays `present`, and so does every
+// command of a disabled plugin, whose commands run nowhere. Detection runs once
 // per command, and only when a requirement it reports names a package.
 //
 // Every refusal is one line on stderr, `vgshell: refused: <key>=<value>`, and
@@ -406,10 +409,13 @@ main(() => {
         break;
     }
     case "requirements": {
-        const [form, id] = args;
+        const [form, shippedPath, userPath, id] = args;
         const json = format(form) === "json";
+        const shipped = readConfig(logic, shippedPath, "shipped-config");
+        const user = readConfig(logic, userPath, "user-config", true);
         const plugin = pluginOf(registryOf(readScan()), id);
-        const rows = reportRows(plugin.manifest.requirements, plugin.missing, systemRead({ [id]: plugin.manifest }, { [id]: plugin.missing }, [id]));
+        const enabled = logic.isEnabled(logic.effectiveConfig(shipped, user), plugin.manifest, logic.activeBarId(shipped, "")) ? [id] : [];
+        const rows = reportRows(plugin.manifest.requirements, plugin.missing, systemRead({ [id]: plugin.manifest }, { [id]: plugin.missing }, enabled));
         if (json) process.stdout.write(JSON.stringify(rows) + "\n");
         else print(rows.map(rowLine));
         break;

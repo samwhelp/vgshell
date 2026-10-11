@@ -231,7 +231,9 @@ row_doctor() {
 # them: PluginLogic.noticeView over the versions `vgshell-scan --versions`
 # answers Registry.qml and the managers and holders `vgshell-pkg detect`
 # answers Notices.qml, each run with the shell's own argv and judged by the
-# shell's own reader. It prints one JSON line, `[{ state, package }]`.
+# shell's own reader. The argv and the commands copy Registry.readVersions,
+# Notices.detectCommand and Notices.holderCommands: a change there changes
+# this copy. It prints one JSON line, `[{ state, package }]`.
 notice_view="$tmp/notice-view.js"
 cat >"$notice_view" <<'JS'
 #!/usr/bin/env node
@@ -264,8 +266,12 @@ floor_rows="[{'state': 'outdated', 'package': {'manager': 'aur', 'name': 'need-o
 # The notice, doctor and plugin requirements agree on acme.floor's state
 # and package. The notice's rows are matched first, so a fixture that never
 # reaches outdated or the holder fails here rather than in the reports.
+# While acme.floor lands disabled, its command runs nowhere: no version
+# read and no holder query, so it reads present with the first package.
 row_floor_agrees() {
   req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/floor.git"
+  REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- plugin requirements acme.floor
+  [[ $status == 0 ]] && out_is "present vgs-need-old (need-old): Old" && ! grep -q -- "-Qoq" "$log" || { why "plugin requirements, acme.floor disabled"; return 1; }
   printf '{ "version": 1, "plugins": [ { "id": "acme.floor" } ] }\n' >"$2/vgshell/shell.json"
   REQ_PATH="$tools" req "$notice_view" plain "" "$2" "$rt_empty" REPO="$repo" -- "$2/vgshell/plugins/acme.floor"
   [[ $status == 0 ]] && json_is "$tmp/out" "d == $floor_rows" || { why "the notice's rows"; return 1; }
@@ -351,6 +357,7 @@ declare -a CONTROLS=(
   "the core's commands are looked up on PATH" vgshell-plugin-judge '.filter(name => !onPath(name))' '.filter(name => false)' row_doctor
   "a row carries this system's package" vgshell-plugin-judge '{ package: picks[i] }' '{ package: null }' row_requirements_json
   "doctor and plugin requirements read a command's version" vgshell-plugin-judge 'logic.requirementRows({ requirements }, missing, read.versions)' 'logic.requirementRows({ requirements }, missing, {})' row_floor_agrees
+  "a disabled plugin's version is not read" vgshell-plugin-judge ' ? [id] : [];' ' ? [id] : [id];' row_floor_agrees
   "the package is the one its holder's manager names" vgshell-plugin-judge 'logic.PackageManagers.installGroups(rows, read.found).picks' 'rows.map(row => logic.PackageManagers.packageFor(row.packages, read.found))' row_floor_agrees
   "nix gets no install command" vgshell-plugin-judge 'lines.push(group.installs ? ' 'lines.push(true ? ' row_nix_by_hand
   "add tells the shell which plugin it installed" vgshell '  rescan_if_running pluginInstalled "$id"' '  rescan_if_running rescanPlugins' row_offer_accepted

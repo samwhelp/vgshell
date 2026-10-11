@@ -89,10 +89,11 @@
 # shell would hold under <id>, enabled or not:
 # `<state> <name>[ (<package>)][ optional]: <purpose>`, state `present`,
 # `missing` or `outdated`, judged as the shell's requirement notice judges
-# it: a present command with a floor has its version read and its holder
-# looked up as the shell does, so a command below its floor is `outdated`,
-# the package named is the one its holder's manager provides, and a command
-# whose version cannot be read stays `present`. `doctor` prints the same
+# it: a present command with a floor of the core or an enabled plugin has
+# its version read and its holder looked up as the shell does, so a command
+# below its floor is `outdated` and the package named is the one its
+# holder's manager provides; a command whose version cannot be read, and
+# every command of a disabled plugin, stays `present`. `doctor` prints the same
 # lines, each led by `core` or the plugin's id, for config/requirements.json
 # and every plugin the configuration enables, then one line, `session <present|missing|unknown>
 # uwsm-managed: <text>`, which says whether the session is uwsm-managed,
@@ -2529,7 +2530,7 @@ case "$cmd" in
         if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\n' >&2; try_help; exit 2; fi
         if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
         scan="$(plugin_scan)" || exit 1
-        node "$judge" requirements "$format" "$id" <<<"$scan"
+        node "$judge" requirements "$format" "$root/config/shell.json" "$config_home/vgshell/shell.json" "$id" <<<"$scan"
         ;;
       settings)
         id="${1:-}"
