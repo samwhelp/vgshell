@@ -273,6 +273,13 @@ function voiceLoading(values) {
         && !!model && model.tone === "ok" && !offered(model);
 }
 
+// The daemon has not answered for the voice: no status yet, Checking or
+// Loading.
+function voicePending(values) {
+    var voice = values.setupVoice;
+    return !voice || voice.tone === "info";
+}
+
 function keySetting(name) {
     return "Set " + name + " key in Settings > Jarvis.";
 }
@@ -341,8 +348,8 @@ function view(values, keys, mode) {
     var muteOn = state !== null && muted(state.mute);
     var armed = state !== null && state.capture !== null && typeof state.capture === "object" && state.capture.kind === "open" && state.capture.mode === "armed" && detail.phase === "armed";
     // The local sidecar drops every wake frame until its voice is ready, so
-    // an armed capture over a loading voice reads loading below.
-    if (state !== null && !(armed && voiceLoading(values)) && microphoneOpen(state.capture)) return withBrain(look("listening", armed ? "Jarvis is listening for Hey Jarvis" : "Jarvis is listening",
+    // an armed capture over a pending voice reads loading below.
+    if (state !== null && !(armed && voicePending(values)) && microphoneOpen(state.capture)) return withBrain(look("listening", armed ? "Jarvis is listening for Hey Jarvis" : "Jarvis is listening",
         [armed ? "Say Hey Jarvis." : "Speak now."], muteOn, effectiveKeys));
     if (daemon !== null && daemon.tone === "danger") return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
     if (daemon !== null && daemon.tone === "warning" && daemon.lines !== undefined) return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
@@ -356,7 +363,7 @@ function view(values, keys, mode) {
     if (down && state.gate.reason === "unconfigured" && homeRefused(values)) return withBrain(textLook("off", homeText(values), muteOn, effectiveKeys));
     if (down && state.gate.reason === "unconfigured" && setupChecking(values))
         return withBrain(look("loading", "Jarvis is checking setup", ["Wait for the check to finish."], muteOn, effectiveKeys));
-    if ((!down || state.gate.reason === "unconfigured") && voiceLoading(values))
+    if ((!down || state.gate.reason === "unconfigured") && (armed || voiceLoading(values)))
         return withBrain(look("loading", "Jarvis is loading its voice", ["Wait for local voice to load."], muteOn, effectiveKeys));
     if (down) return withBrain(textLook("off", state.gate.reason === "unconfigured" ? unconfiguredText(values) : GATE_TEXT[state.gate.reason], muteOn, effectiveKeys));
     switch (detail.phase) {

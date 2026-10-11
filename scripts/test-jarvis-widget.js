@@ -69,6 +69,8 @@ const OVERFLOW = { tone: "danger", text: "capture-overflow" };
 const ARMED = { capture: { kind: "open", gen: 1, op: 2, mode: "armed" } };
 const VOICE_LOADING = SetupGate.readiness({ kind: "answered", causes: ["speech=local-loading"] });
 const VOICE_READY = SetupGate.readiness({ kind: "answered", causes: [] });
+const VOICE_CHECKING = SetupGate.readiness({ kind: "checking" });
+const PROBE_TIMEOUT = SetupGate.readiness({ kind: "answered", causes: ["setup=probe-timeout"] });
 const up = (regions, extra) => Object.assign({ daemon: READY, audio: DEVICES, detail: detail(regions) }, extra);
 
 const MUTE = "Click or press Super+Shift+Right Alt to mute.";
@@ -106,7 +108,11 @@ const CASES = [
     ["listening", up(OPEN), ["listening", "audio-lines", "accent", tip("Jarvis is listening", ["Speak now.", MUTE])]],
     ["capture opening", up({ capture: { kind: "opening", gen: 1, op: 2, mode: "conversation" } }),
         ["listening", "audio-lines", "accent", tip("Jarvis is listening", ["Speak now.", MUTE])]],
-    ["armed", up({ capture: { kind: "open", gen: 1, op: 2, mode: "armed" } }),
+    ["armed before the first setup status", up(ARMED),
+        ["loading", "loader", "info", tip("Jarvis is loading its voice", ["Wait for local voice to load.", MUTE])]],
+    ["armed while setup is checking", up(ARMED, VOICE_CHECKING),
+        ["loading", "loader", "info", tip("Jarvis is loading its voice", ["Wait for local voice to load.", MUTE])]],
+    ["armed after a setup probe timeout", up(ARMED, PROBE_TIMEOUT),
         ["listening", "audio-lines", "accent", tip("Jarvis is listening for Hey Jarvis", ["Say Hey Jarvis.", MUTE])]],
     ["armed while the voice loads", up(ARMED, VOICE_LOADING),
         ["loading", "loader", "info", tip("Jarvis is loading its voice", ["Wait for local voice to load.", MUTE])]],
@@ -329,7 +335,10 @@ const CONTROLS = [
     ["file prompt repeats its path as detail", 'lines.slice(2).join("\\n")', 'lines.slice(1).join("\\n")'],
     ["detail flag is dropped", 'detail: filePrompt && lines.length > 2', 'detail: false'],
     ["an open microphone is not listening", "microphoneOpen(state.capture)) return", "false) return"],
-    ["an armed capture reads listening while the voice loads", "!(armed && voiceLoading(values)) && microphoneOpen", "microphoneOpen"],
+    ["an armed capture reads listening while the voice loads", "!(armed && voicePending(values)) && microphoneOpen", "microphoneOpen"],
+    ["an armed capture reads listening before the voice status", "!(armed && voicePending(values)) && microphoneOpen", "!(armed && voiceLoading(values)) && microphoneOpen"],
+    ["an armed pending voice reaches the phase table", '&& (armed || voiceLoading(values)))', '&& voiceLoading(values))'],
+    ["an answered voice step reads pending", 'return !voice || voice.tone === "info";', 'return !voice || voice.tone !== "ok";'],
     ["a daemon problem is not a problem", 'daemon.tone === "danger") return', 'false) return'],
     ["a retrying daemon problem is not a problem", 'daemon.tone === "warning" && daemon.lines !== undefined) return', 'false) return'],
     ["a Session error is not a problem", 'detail.phase === "error") return', 'false) return'],
@@ -339,7 +348,7 @@ const CONTROLS = [
     ["muting is not muted", 'case "muting": case "on": return true;', 'case "on": return true;'],
     ["a lowered gate is not off", 'if (down) return withBrain(textLook("off"', 'if (false) return withBrain(textLook("off"'],
     ["loading reads ready", 'return withBrain(look("loading", "Jarvis is loading its voice", ["Wait for local voice to load."], muteOn, effectiveKeys));', 'return withBrain(look("ready", "Jarvis is ready", [readyAction(effectiveMode, effectiveKeys)], muteOn, effectiveKeys));'],
-    ["loading overrides a privacy gate", '(!down || state.gate.reason === "unconfigured") && voiceLoading(values)', 'voiceLoading(values)'],
+    ["loading overrides a privacy gate", '(!down || state.gate.reason === "unconfigured") && (armed || voiceLoading(values))', '(armed || voiceLoading(values))'],
     ["thinking reads speaking", 'case "thinking":\n        return withBrain(look("working", WORK_TEXT[detail.phase], [stopAction(effectiveKeys)], muteOn, effectiveKeys));', 'case "thinking":\n        return withBrain(look("speaking", "Jarvis is speaking", [stopAction(effectiveKeys)], muteOn, effectiveKeys));'],
     ["speaking reads working", 'return withBrain(look("speaking", "Jarvis is speaking", [stopAction(effectiveKeys)], muteOn, effectiveKeys));', 'return withBrain(look("working", "Jarvis is speaking", [stopAction(effectiveKeys)], muteOn, effectiveKeys));'],
     ["the click line follows the icon, not the mute region", 'var verb = muteOn ? "unmute" : "mute";', 'var verb = false ? "unmute" : "mute";'],
