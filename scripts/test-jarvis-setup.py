@@ -170,6 +170,8 @@ class Setup(unittest.TestCase):
     def test_each_tier_uses_the_manifest(self):
         for tier in self.spec["tiers"]:
             with self.subTest(tier=tier):
+                shutil.rmtree(self.data / "models", ignore_errors=True)
+                self.reset_calls()
                 self.config["tier"] = tier
                 self.write_config()
                 self.install()
@@ -177,7 +179,7 @@ class Setup(unittest.TestCase):
                 calls = [json.loads(line) for line in (self.data / "calls.jsonl").read_text().splitlines()]
                 urls = [call[-1] for call in calls if call[0] == "curl"]
                 expected = [a["url"] for a in self.spec["artifacts"] if a["id"] in self.spec["tiers"][tier]["artifacts"]]
-                self.assertEqual(set(urls[-len(expected):]), set(expected))
+                self.assertEqual(urls, expected)
                 if self.spec["tiers"][tier]["provider"] == "cuda":
                     wheel = self.spec["runtimes"]["sherpa-onnx"]["cudaWheel"]
                     self.assertIn(wheel["url"], (self.data / "requirements-cuda.lock").read_text())
@@ -273,10 +275,19 @@ class Setup(unittest.TestCase):
         self.spec = json.loads(original)
         self.ready()
         artifact = next(a for a in self.spec["artifacts"]
-                        if a["id"] == self.spec["tiers"]["small"]["artifacts"][0])
-        artifact["sha256"] = "0" * 64
+                        if a["id"] in self.spec["tiers"]["small"]["artifacts"]
+                        and a["directory"] != "." and not a.get("auxiliaryDirectories"))
+        archive = self.data / "models" / Path(artifact["url"]).name
+        archive_bytes = archive.read_bytes()
+        archive.write_bytes(b"identity-only archive hash")
+        artifact["sha256"] = hashlib.sha256(archive.read_bytes()).hexdigest()
         (self.plugin / "artifacts.json").write_text(json.dumps(self.spec))
         self.not_ready()
+        needle = 'if {key: item for key, item in saved.items() if key != "memory"} != identity(judge, tier, data):'
+        self.mutant(needle, 'if False and ' + needle[3:])
+        self.ready()
+        (self.plugin / "setup-local").write_text((PLUGIN / "setup-local").read_text())
+        archive.write_bytes(archive_bytes)
         (self.plugin / "artifacts.json").write_text(original)
         self.spec = json.loads(original)
         self.mutant("hashed_files = [", 'hashed_files = [("artifacts.json", HERE / "artifacts.json"),')
@@ -308,6 +319,41 @@ class Setup(unittest.TestCase):
         self.install()
         self.ready()
         self.assertEqual([call[-1] for call in self.calls() if call[0] == "curl"], [])
+        small = set(self.spec["tiers"]["small"]["artifacts"])
+        medium = set(self.spec["tiers"]["medium"]["artifacts"])
+        by_id = {artifact["id"]: artifact for artifact in self.spec["artifacts"]}
+        small_only = [by_id[name] for name in self.spec["tiers"]["small"]["artifacts"] if name not in medium]
+        old_entries = []
+        for old in small_only:
+            old_entries.append(self.data / "models" / Path(old["url"]).name)
+            if old["directory"] != ".":
+                old_entries.append(self.data / "models" / old["directory"])
+        self.reset_calls()
+        self.config["tier"] = "medium"
+        self.write_config()
+        self.install()
+        self.ready()
+        expected = [by_id[name]["url"] for name in self.spec["tiers"]["medium"]["artifacts"] if name not in small]
+        self.assertEqual([call[-1] for call in self.calls() if call[0] == "curl"], expected)
+        for path in old_entries:
+            self.assertFalse(path.exists(), path)
+        self.config["tier"] = "small"
+        self.write_config()
+        self.install()
+        self.ready()
+        self.reset_calls()
+        self.mutant("        if path.name in keep:\n", "        if True or path.name in keep:\n")
+        self.config["tier"] = "medium"
+        self.write_config()
+        self.install()
+        self.ready()
+        for path in old_entries:
+            self.assertTrue(path.exists(), path)
+        (self.plugin / "setup-local").write_text((PLUGIN / "setup-local").read_text())
+        self.config["tier"] = "small"
+        self.write_config()
+        self.install()
+        self.ready()
         artifact = next(a for a in self.spec["artifacts"]
                         if a["id"] in self.spec["tiers"]["small"]["artifacts"] and a["directory"] != ".")
         corrupt = next(iter(artifact["files"]))
