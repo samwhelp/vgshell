@@ -24,6 +24,77 @@ FocusScope {
     property bool soundChosen: false
     property bool silenced: false
     property var rows: []
+    ListModel { id: panelModel }
+    property var measuredRows: ({})
+    property var measuredLook: null
+    property var changedImages: ({})
+    RowMeasure {
+        id: rowMeasure
+        visible: false
+        measureOnly: true
+        onResourcesChanged: source => {
+            root.changedImages[source] = true;
+            Qt.callLater(root.remeasureRows);
+        }
+        rowCard: ({ look: root.look, pad: root.look.card.pad, summary: "", title: "", singleLine: true,
+            showsBadge: false, enrichment: null, workspace: "", workspaceIcon: "", bodySegments: [] })
+    }
+    onLookChanged: if (opened) reconcileRows(rows)
+    function remeasureRows() {
+        if (!opened) return;
+        for (const entry of rows)
+            if (changedImages[entry.workspaceIcon || ""] || changedImages[entry.image || rowMeasure.iconPath(entry.appIcon || "")]) delete measuredRows[entry.key];
+        changedImages = ({});
+        reconcileRows(rows);
+    }
+    function rowHeight(entry, payload) {
+        if (measuredLook !== look) { measuredRows = ({}); measuredLook = look; }
+        let cached = measuredRows[entry.key];
+        if (cached === undefined || cached.payload !== payload) {
+            const height = rowMeasure.measure(entry, look, listScroll.textColumn) + look.card.gap;
+            cached = { payload: payload, height: height, measured: height };
+            measuredRows[entry.key] = cached;
+        }
+        return cached.height;
+    }
+    function actualRowHeight(key, height) {
+        const cached = measuredRows[key];
+        if (indexOfKey(key) === -1 || cached === undefined || cached.height === height) return;
+        cached.height = height;
+        panelModel.setProperty(indexOfKey(key), "extent", height);
+        Qt.callLater(() => { if (opened) revealRow(currentIndex); });
+    }
+    function restoreRowHeight(key) {
+        const cached = measuredRows[key];
+        if (cached !== undefined) actualRowHeight(key, cached.measured);
+    }
+
+    // Qt ListModel moves retain delegates (Qt 6 ListModel.move). Keep the
+    // notification key's card when a snapshot changes its place or data.
+    function reconcileRows(next) {
+        for (let i = 0; i < next.length; ++i) {
+            const payload = JSON.stringify(next[i]);
+            const extent = rowHeight(next[i], payload);
+            let at = i;
+            while (at < panelModel.count && panelModel.get(at).key !== next[i].key) ++at;
+            if (at === panelModel.count) panelModel.insert(i, { key: next[i].key, payload: payload, extent: extent });
+            else {
+                if (at !== i) panelModel.move(at, i, 1);
+                if (panelModel.get(i).payload !== payload) panelModel.setProperty(i, "payload", payload);
+                if (panelModel.get(i).extent !== extent) panelModel.setProperty(i, "extent", extent);
+            }
+        }
+        if (panelModel.count > next.length) panelModel.remove(next.length, panelModel.count - next.length);
+        // Keep unread/history heights while this panel lives, but do not
+        // keep removed notification keys beyond the store's row limit.
+        const keys = Object.keys(measuredRows);
+        let excess = keys.length - Logic.HISTORY_MAX - Logic.LIVE_MAX;
+        for (const key of keys) {
+            if (excess <= 0) break;
+            if (indexOfKey(key) === -1) { delete measuredRows[key]; --excess; }
+        }
+        rowMeasure.trimImages(next);
+    }
     readonly property int rowCount: rows.length
     property int currentIndex: 0
     property int actionIndex: -1
@@ -174,6 +245,7 @@ FocusScope {
             silenced = state.silenced === true;
             refreshing = true;
             rows = Array.isArray(state.rows) ? state.rows : [];
+            reconcileRows(rows);
             const kept = indexOfKey(previousKey);
             if (rows.length === 0) currentIndex = -1;
             else if (kept !== -1) currentIndex = kept;
@@ -188,6 +260,7 @@ FocusScope {
             console.warn("notifications panel: state " + e.message);
             refreshing = true;
             rows = [];
+            panelModel.clear();
             currentIndex = -1;
             selectedKey = "";
             actionIndex = -1;
@@ -242,6 +315,7 @@ FocusScope {
     // there. Nothing lifts the fade from a selected card, so a reveal into
     // the view alone, as KeyNav's, would leave it faded at an edge.
     function revealRow(index) {
+        list.forceLayout();
         const slot = rowRepeater.itemAt(index);
         if (slot === null) return;
         const view = listScroll.flickable;
@@ -280,6 +354,7 @@ FocusScope {
         const next = rows.slice();
         next.splice(at, 1);
         rows = next;
+        reconcileRows(rows);
         selectIndex(rows.length === 0 ? -1 : Math.min(at, rows.length - 1));
     }
 
@@ -411,6 +486,12 @@ FocusScope {
                 id: list
                 Layout.preferredWidth: root.look.card.width
                 width: root.look.card.width
+                onPositioningComplete: {
+                    for (let i = 0; i < rowRepeater.count; ++i) {
+                        const slot = rowRepeater.itemAt(i);
+                        if (slot !== null) slot.positioned = true;
+                    }
+                }
                 activeFocusOnTab: true
                 focusPolicy: Qt.StrongFocus
                 focus: true
@@ -446,7 +527,7 @@ FocusScope {
 
                 Repeater {
                     id: rowRepeater
-                    model: root.rows
+                    model: panelModel
 
                     // The slot, the gap above its card and the card, is the
                     // card's hover area: the slots tile the list with no
@@ -455,51 +536,72 @@ FocusScope {
                     // of it.
                     Item {
                         id: slot
-                        required property var modelData
+                        required property string payload
+                        required property real extent
+                        readonly property var entry: JSON.parse(payload)
                         required property int index
                         readonly property bool selected: root.currentIndex === index
-                        readonly property real hover: selected || face.hovered ? 1 : 0
+                        readonly property real hover: selected || pointer.hovered ? 1 : 0
                         width: root.look.card.width
-                        height: face.height + root.look.card.gap
+                        height: extent
+                        property bool positioned: false
+                        readonly property real viewY: list.y + y + listScroll.topGutter - listScroll.flickable.contentY
+                        function reportHeight() {
+                            if (faceLoader.item !== null && faceLoader.item.height > 0)
+                                root.actualRowHeight(entry.key, faceLoader.item.height + root.look.card.gap);
+                        }
 
                         onSelectedChanged: if (selected) root.updateSelectionHover()
 
                         HoverHandler { id: pointer }
 
-                        CardFace {
-                            id: face
-                            look: root.look
-                            key: slot.modelData.key || ""
-                            textColumn: listScroll.textColumn
-                            hovered: pointer.hovered
-                            anchors.horizontalCenter: parent.horizontalCenter
+                        Loader {
+                            id: faceLoader
+                            active: slot.positioned && root.opened && listScroll.flickable.height > 0
+                                && ((slot.viewY + y < listScroll.flickable.height
+                                    && slot.viewY + y + slot.height - root.look.card.gap > 0)
+                                    || item !== null && item.card.trayReserve > 0)
+                            width: parent.width
                             y: root.look.card.gap - root.look.card.lift * slot.hover
-                            width: card.fullWidth
-                            height: card.fullHeight
-                            app: slot.modelData.app || ""
-                            appIcon: slot.modelData.appIcon || ""
-                            summary: slot.modelData.summary || ""
-                            body: slot.modelData.body || ""
-                            image: slot.modelData.image || ""
-                            desktopEntry: slot.modelData.desktopEntry || ""
-                            urgency: slot.modelData.urgency === undefined ? Logic.URGENCY.normal : slot.modelData.urgency
-                            hintIcon: slot.modelData.hintIcon || ""
-                            hintTone: slot.modelData.hintTone || ""
-                            workspace: slot.modelData.workspace || ""
-                            workspaceIcon: slot.modelData.workspaceIcon || ""
-                            faceImages: slot.modelData.faceImages || []
-                            emoji: slot.modelData.emoji || null
-                            actions: slot.modelData.actions || []
-                            showActions: (slot.selected || hovered) && actions.length > 0
-                            actionIndex: slot.selected ? root.actionIndex : -1
-                            keyboardActions: true
-                            glassChoice: root.glassChoice
-                            edgeVisible: slot.hover > 0
-                            edgeBoost: 1 + root.look.edge.hoverBoost * slot.hover
-                            onHoverRequested: (key, on) => root.setHover(key, on)
-                            onActionTriggered: id => root.choose(slot.modelData.key, id)
-                            onCloseRequested: root.choose(slot.modelData.key, "dismiss")
-                            onCardClicked: root.choose(slot.modelData.key, "open")
+                            onItemChanged: Qt.callLater(slot.reportHeight)
+                            onActiveChanged: if (!active) root.restoreRowHeight(slot.entry.key)
+                            sourceComponent: Component {
+                                CardFace {
+                                    id: face
+                                    look: root.look
+                                    key: slot.entry.key || ""
+                                    textColumn: listScroll.textColumn
+                                    hovered: pointer.hovered
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    width: card.fullWidth
+                                    height: card.fullHeight
+                                    onHeightChanged: Qt.callLater(slot.reportHeight)
+                                    app: slot.entry.app || ""
+                                    appIcon: slot.entry.appIcon || ""
+                                    summary: slot.entry.summary || ""
+                                    body: slot.entry.body || ""
+                                    image: slot.entry.image || ""
+                                    desktopEntry: slot.entry.desktopEntry || ""
+                                    urgency: slot.entry.urgency === undefined ? Logic.URGENCY.normal : slot.entry.urgency
+                                    hintIcon: slot.entry.hintIcon || ""
+                                    hintTone: slot.entry.hintTone || ""
+                                    workspace: slot.entry.workspace || ""
+                                    workspaceIcon: slot.entry.workspaceIcon || ""
+                                    faceImages: slot.entry.faceImages || []
+                                    emoji: slot.entry.emoji || null
+                                    actions: slot.entry.actions || []
+                                    showActions: (slot.selected || hovered) && actions.length > 0
+                                    actionIndex: slot.selected ? root.actionIndex : -1
+                                    keyboardActions: true
+                                    glassChoice: root.glassChoice
+                                    edgeVisible: slot.hover > 0
+                                    edgeBoost: 1 + root.look.edge.hoverBoost * slot.hover
+                                    onHoverRequested: (key, on) => root.setHover(key, on)
+                                    onActionTriggered: id => root.choose(slot.entry.key, id)
+                                    onCloseRequested: root.choose(slot.entry.key, "dismiss")
+                                    onCardClicked: root.choose(slot.entry.key, "open")
+                                }
+                            }
                         }
                     }
                 }

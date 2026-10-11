@@ -72,7 +72,7 @@ Item {
     // The content, or a caption-only card's caption, with `pad` all round.
     // The content never outgrows maxHeight less that pad: the body shows
     // only the lines that fit.
-    readonly property real fullHeight: captionOnly ? Math.ceil(captionText.implicitHeight) + 2 * pad : content.implicitHeight + 2 * pad
+    readonly property real fullHeight: captionOnly ? Math.ceil(captionText.implicitHeight) + 2 * pad : textBlock.fullHeight(showsSlot ? mediaSlot.implicitHeight : 0)
     readonly property real pad: look.card.pad
     // The stack's text column: text without media starts this far in from
     // either end, and every text ends this far from the right end.
@@ -88,7 +88,7 @@ Item {
     // NotificationLogic.enrich's reading of this sender, or null.
     readonly property var enrichment: Logic.enrich(app, desktopEntry, appIcon, summary, body)
     readonly property bool showsFaces: enrichment !== null && enrichment.faces.length > 0
-    readonly property bool showsBadge: enrichment !== null && workspace.length > 0 && workspaceIcon.length > 0 && badgeImage.status === Image.Ready
+    readonly property bool showsBadge: enrichment !== null && workspace.length > 0 && workspaceIcon.length > 0 && textBlock.badgeStatus === Image.Ready
     // What the media slot draws: the people the rule read, else the
     // notification's image, else the Lucide icon its x-vgs-icon hint names,
     // else its application's icon; none when the one-line summary opens
@@ -101,7 +101,7 @@ Item {
     // summary that fits that width is one line, a longer one or one with a
     // line break two, and a body adds at least one.
     readonly property real compactTitleWidth: fullWidth - pad - look.media.compact.size - look.card.gapIcon - textColumn - (showsBadge ? look.badge.size + look.badge.gap : 0)
-    readonly property int compactLines: (summaryRow.visible ? (title.indexOf("\n") === -1 && titleMeasure.advanceWidth <= compactTitleWidth ? 1 : 2) : 0) + (singleLine ? 0 : 1)
+    readonly property int compactLines: (summary.length > 0 ? (title.indexOf("\n") === -1 && textBlock.titleAdvance <= compactTitleWidth ? 1 : 2) : 0) + (singleLine ? 0 : 1)
     readonly property string mediaTier: Logic.mediaTier(compactLines)
     readonly property real contentLeftInset: showsSlot ? pad : textColumn
     readonly property real contentWidth: Math.max(0, fullWidth - contentLeftInset - textColumn)
@@ -175,100 +175,12 @@ Item {
             glyphColor: card.hintTone === "" ? card.look.text.foreground : card.look.tone[card.hintTone]
         }
 
-        ColumnLayout {
+        RowMeasure {
             id: textBlock
+            rowCard: card
             Layout.fillWidth: true
             Layout.rightMargin: card.trayReserve
             Layout.alignment: Qt.AlignVCenter
-            spacing: card.look.card.lineGap
-
-            RowLayout {
-                id: summaryRow
-                Layout.fillWidth: true
-                visible: card.summary.length > 0
-                spacing: card.showsBadge ? card.look.badge.gap : 0
-
-                // The workspace's icon, level with the summary's first line.
-                // Its image loads while hidden, and the name gives way to it
-                // only once it has.
-                ClippingRectangle {
-                    objectName: "notificationBadge"
-                    Layout.preferredWidth: card.showsBadge ? card.look.badge.size : 0
-                    Layout.preferredHeight: card.look.badge.size
-                    Layout.alignment: Qt.AlignTop
-                    Layout.topMargin: Math.max(0, (titleMetrics.height - card.look.badge.size) / 2)
-                    visible: card.showsBadge
-                    radius: card.look.badge.radius
-                    color: card.look.badge.fill
-
-                    Image {
-                        id: badgeImage
-                        anchors.fill: parent
-                        source: card.enrichment !== null && card.workspace.length > 0 ? card.workspaceIcon : ""
-                        // The helper rewrites the same file when it reads
-                        // the workspace list again.
-                        cache: false
-                        sourceSize.width: card.look.badge.size * Screen.devicePixelRatio
-                        sourceSize.height: card.look.badge.size * Screen.devicePixelRatio
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        smooth: true
-                    }
-                }
-
-                Text {
-                    id: titleText
-                    objectName: "notificationTitleText"
-                    // The specification makes the summary one line of plain
-                    // text, so it is never read as markup.
-                    textFormat: Text.PlainText
-                    Layout.fillWidth: true
-                    text: card.title
-                    color: card.look.text.foreground
-                    font.family: card.look.font.family.sans
-                    font.pixelSize: card.look.text.title.size
-                    font.weight: card.look.text.title.weight
-                    style: Text.Raised
-                    styleColor: card.look.text.summaryShadow
-                    wrapMode: Text.WordWrap
-                    elide: Text.ElideRight
-                    maximumLineCount: card.look.card.summaryLines
-                }
-
-                FontMetrics {
-                    id: titleMetrics
-                    font: titleText.font
-                }
-
-                TextMetrics {
-                    id: titleMeasure
-                    font: titleText.font
-                    text: card.title
-                }
-            }
-
-            ImageText {
-                id: bodyText
-                objectName: "notificationBodyText"
-                // The height left for the body under maxHeight, and so the
-                // whole lines it shows; the last one elides.
-                // The column's spacing is the one gap under the summary.
-                readonly property real room: card.look.card.maxHeight - 2 * card.pad - (summaryRow.visible ? summaryRow.implicitHeight + textBlock.spacing : 0)
-                Layout.fillWidth: true
-                visible: !card.singleLine
-                // StyledText, since the server advertises body markup. The
-                // body's fade is its colour's alpha, so an emoji draws at
-                // full strength.
-                segments: card.bodySegments
-                color: card.look.text.body.color
-                font: Qt.font({ family: card.look.font.family.sans, pixelSize: card.look.text.body.size })
-                maximumLineCount: Math.max(1, Math.floor(room / bodyMetrics.height))
-            }
-
-            FontMetrics {
-                id: bodyMetrics
-                font: bodyText.font
-            }
         }
     }
 

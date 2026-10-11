@@ -28,7 +28,7 @@
 # already plays: "with Sound off the call is heard" failed, reading silent,
 # and "the chime that opens with the notification is held" failed, the
 # held list naming the call beside the chime until the hold ran out.
-# inputs: shell/Core/Sounds.qml scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
+# inputs: scripts/fixtures/notifications/state-v2.json shell/Core/Sounds.qml scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 # The app sound part needs the private PipeWire up before Quickshell's
@@ -1657,11 +1657,11 @@ expect "dismissing the emoji cards is allowed" ok notes dismiss-all
 expect_poll "no card is left before the emoji latencies" 0 note_status onScreen
 # The latencies with custom emoji, each read once: from the notify call to
 # the card's body naming its images on every screen, and from the history
-# call to forty such panel rows being present. The toast probe counts the
+# call to its visible panel cards being present. The toast probe counts the
 # image texts of the measured card alone: the layers can still hold the
 # items of dismissed emoji cards when a new card arrives, and their texts
 # would end the reading before the card draws. The inbox probe counts the
-# panel's image texts, so it does not move the forty row objects through
+# panel's image texts, so it does not move all row objects through
 # IPC on each poll. Each reader is one smoke IPC round trip a poll, the
 # cost the budgets were measured with: the budgets and their runs are in
 # scripts/qml-smoke.sh's header. Each reading is judged by harness.sh's
@@ -1853,11 +1853,12 @@ cpu_start="$(cpu_some_us)"
 own_start="$(own_cpu_some_us)"
 start="$(date +%s%3N)"
 notes history >/dev/null
-latency_since "the emoji inbox latency reader" "$start" 40 inbox_images
+latency_since "the emoji inbox latency reader" "$start" 1 inbox_images
 emoji_inbox_ms="$latency_ms"
 path_pressure emoji_inbox "$cpu_start" "$own_start" "$start"
 latency_pressure_check notifications emoji_inbox "$emoji_inbox_ms" "$path_pressure_pct" "$emoji_inbox_budget_ms"
-expect "the probe counts exactly the forty visible emoji inbox rows" 40 inbox_images
+expect "all forty emoji rows remain in the panel model" 40 panel_count
+expect "the emoji inbox constructs only its visible cards" True python3 -c 'import sys; print(0 < int(sys.argv[1]) < 40)' "$(inbox_images)"
 # The history's slim scroll bar shows while forty cards overflow the
 # screen and hides on a history that fits. The control for its rule is the
 # SlimScrollBar mutation "a slim bar shows on content that fits"
@@ -1865,7 +1866,7 @@ expect "the probe counts exactly the forty visible emoji inbox rows" 40 inbox_im
 note_scroll_bars() { ipc smoke readDescendant panel vgs.notifications SlimScrollBar visible | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(json.dumps([False if t == "absent" else json.loads(t)]))'; }
 expect_poll "the forty-card history shows its scroll bar" '[true]' note_scroll_bars
 # The full history: sixty more make the hundred the history keeps, and the
-# History panel shows every one within the forty-card budget, read the same
+# History panel retains every row and builds its visible cards, read the same
 # way from the history call.
 expect "the forty-card history closes" ok notes close
 expect_poll "the forty-card history closed" '""' read_notes panelMode
@@ -1875,11 +1876,12 @@ cpu_start="$(cpu_some_us)"
 own_start="$(own_cpu_some_us)"
 start="$(date +%s%3N)"
 notes history >/dev/null
-latency_since "the full history latency reader" "$start" 100 inbox_images
+latency_since "the full history latency reader" "$start" 1 inbox_images
 full_history_ms="$latency_ms"
 path_pressure full_history "$cpu_start" "$own_start" "$start"
 latency_pressure_check notifications full_history "$full_history_ms" "$path_pressure_pct" "$emoji_inbox_budget_ms"
-expect "the probe counts every one of the hundred emoji history rows" 100 inbox_images
+expect "all hundred emoji rows remain in the panel model" 100 panel_count
+expect "the full history constructs only its visible cards" True python3 -c 'import sys; print(0 < int(sys.argv[1]) < 100)' "$(inbox_images)"
 expect "the emoji inbox closes" ok notes close
 expect_poll "the emoji inbox closed" '""' read_notes panelMode
 expect "clearing the emoji history is allowed" ok notes clear-history
@@ -4428,6 +4430,211 @@ print(json.dumps(None if p is None else [p.get("mute"), p.get("softMute")]))' "$
 fi
 
 # Disabling and enabling again, three times over, leaves nothing behind.
+# BEGIN notification-panel-latency
+# The owner workload keeps 100 stored entries. Measure the first actual
+# window frame with the requested model and visible cards placed. The
+# observer runs in the sandbox copy and ships no plugin API. It reads the
+# same Qt frame acknowledgment as the baseline, not GPU presentation time.
+ipc smoke runnerDrop >/dev/null
+expect "the latency observer slot is free" absent ipc smoke runnerRecord
+expect "notifications stop before the 100-row latency file" ok ipc shell setPluginEnabled vgs.notifications false
+expect_poll "the latency service is gone" False record_exists vgs.notifications
+mkdir -p -- "$home/.local/state/vgshell/notifications"
+python3 - "$repo/scripts/fixtures/notifications/state-v2.json" "$home/.local/state/vgshell/notifications/state.json" "$repo/scripts/smoke/fixtures/theme-image.jpg" <<'PYFIX'
+import json,pathlib,sys,time
+source,target,image=map(pathlib.Path,sys.argv[1:]);v=json.loads(source.read_text())
+v.update(version=3, sound=True, dnd=False, readBefore=0, boot=pathlib.Path('/proc/sys/kernel/random/boot_id').read_text().strip())
+shift=int(time.time()*1000)-60000-v['history'][0]['timestamp']
+for row in v['history']:
+    row['timestamp']+=shift
+    row['key']=str(row['timestamp'])+'-'+str(row['originalId'])
+    if row['image']:row['image']=image.as_uri()
+assert len(v['history'])==100 and v['live']==[]
+target.write_text(json.dumps(v))
+PYFIX
+printf '%s\n' '{"schemaVersion":1,"name":"vgs","tokens":{}}' >"$home/.config/vgshell/theme.json.next"
+mv -T -- "$home/.config/vgshell/theme.json.next" "$home/.config/vgshell/theme.json"
+expect_poll "the 100-row timings use dark" vgs ipc smoke themeName
+expect "the latency history starts" ok ipc shell setPluginEnabled vgs.notifications true
+expect_poll "the latency service reads all hundred entries" 100 note_status history
+cat >"$repo/shell/NotificationLatencyProbe.qml" <<'QML'
+import QtQuick
+import QtQuick.Window
+import Quickshell
+import qs.Core
+
+// Disposable observer: no instrumentation enters the installed plugin.
+Scope {
+    id: root
+    property var reading: null
+    property var panel: null
+    property var view: null
+    property var frameWindow: null
+    property var keptFace: null
+    function instance(kind) {
+        for (const key of Object.keys(Plugins.built))
+            for (const row of Plugins.built[key])
+                if (row.id === "vgs.notifications" && row.kind === kind) return row.instance;
+        return null;
+    }
+    function find(item, name) {
+        if (item === null) return null;
+        if (String(item).split("(")[0].replace(/(_QML(TYPE)?_\d+)+$/, "") === name) return item;
+        for (const child of Array.from(item.children || [])) {
+            // A CardFace has no scroll view and can contain many text items.
+            if (String(child).startsWith("CardFace") && name !== "CardFace") continue;
+            const found = find(child, name);
+            if (found !== null) return found;
+        }
+        return null;
+    }
+    function setup(ctx, arg, done) {
+        const service = instance("service"), store = find(service, "Store");
+        if (store === null || store.history.length !== 100) return "invalid-workload";
+        if (arg === "refused") store.refuse("corrupt", "notifications: synthetic latency refusal");
+        store.setReadBefore(0);
+        return "ok";
+    }
+    function half(ctx, arg, done) {
+        const store = find(instance("service"), "Store");
+        store.setReadBefore(store.history[Math.floor(store.history.length / 2)].timestamp);
+        return "ok";
+    }
+    function begin(ctx, arg, done) {
+        reading = { operation: arg, started: Date.now(), first: -1, frames: [], modelRows: 0, visibleCards: 0 };
+        if (arg === "open") instance("service").showPanel("inbox");
+        else {
+            panel = instance("panel");
+            keptFace = find(panel, "CardFace");
+            panel.call("panel-opened", arg);
+            panel.refresh();
+        }
+        frameWindow = null;
+        if (!attach()) attachPanel.restart();
+        return "ok";
+    }
+    function attach() {
+        panel = instance("panel");
+        if (panel === null) return false;
+        const scroll = find(panel, "CardScroll");
+        if (scroll === null) return false;
+        view = scroll.flickable;
+        frameWindow = panel.Window.window;
+        if (frameWindow === null) return false;
+        frameWindow.update();
+        return true;
+    }
+    Timer { id: attachPanel; interval: 1; repeat: true; onTriggered: if (root.attach()) stop() }
+    function frame() {
+        if (reading === null || panel === null || view === null) return;
+        const elapsed = Date.now() - reading.started;
+        if (elapsed > 1000) return;
+        const wanted = reading.operation === "inbox" ? 50 : 100;
+        if (!panel.opened || panel.rows.length !== wanted || view.height <= 0 || view.width <= 0) return;
+        const pending = [view.contentItem];
+        let visible = 0, built = 0, bottom = -Infinity, pendingCards = false;
+        while (pending.length > 0) {
+            const slot = pending.pop();
+            const children = Array.from(slot.children || []);
+            // Every lightweight slot whose final card crosses the view
+            // must have that card. A last card alone cannot acknowledge
+            // an incomplete viewport or a stale estimated slot height.
+            if (slot.payload !== undefined && slot.extent !== undefined) {
+                const loader = children.find(child => child.item !== undefined && child.active !== undefined);
+                if (loader !== undefined) {
+                    const top = loader.mapToItem(view, 0, 0).y;
+                    const wantedHeight = slot.extent - panel.look.card.gap;
+                    if (top < view.height && top + wantedHeight > 0
+                        && (loader.item === null || loader.item.height !== wantedHeight
+                            || loader.item.width !== panel.look.card.width || !slot.positioned)) pendingCards = true;
+                }
+            }
+            if (!children.some(face => String(face).startsWith("CardFace"))) {
+                pending.push(...children);
+                continue;
+            }
+            ++built;
+            const top = slot.mapToItem(view, 0, 0).y;
+            if (slot.height <= 0 || top >= view.height || top + slot.height <= 0) continue;
+            ++visible;
+            bottom = Math.max(bottom, top + slot.height);
+        }
+        if (pendingCards || visible === 0 || bottom < view.height) return;
+        reading.modelRows = panel.rows.length;
+        reading.visibleCards = visible;
+        reading.frames.push(elapsed);
+        if (reading.first < 0) {
+            reading.first = elapsed;
+            reading.firstConstructed = built;
+            reading.firstVisible = visible;
+            reading.firstContentHeight = view.contentHeight;
+            reading.retained = reading.operation === "open" || keptFace === find(panel, "CardFace");
+        }
+    }
+    Connections {
+        target: root.frameWindow
+        function onFrameSwapped() { root.frame(); }
+    }
+    function record() { return reading; }
+}
+QML
+expect "the notification frame observer loads" ok ipc smoke runnerLoad "$repo/shell/NotificationLatencyProbe.qml"
+panel_latency_record() { ipc smoke runnerRecord; }
+panel_latency_ready() { panel_latency_record | py_reply 'import json,sys;v=json.load(sys.stdin);print(v is not None and v["first"]>=0)'; }
+panel_latency_sampled() { panel_latency_record | py_reply 'import json,sys,time;v=json.load(sys.stdin);print(v is not None and int(time.time()*1000)-v["started"]>=700)'; }
+panel_latency_dir="$sandbox/notification-panel-latency"
+mkdir -p -- "$panel_latency_dir"
+for panel_latency_state in loaded refused; do
+    for panel_latency_trial in 1 2 3; do
+        expect "the $panel_latency_state hundred-row timing is prepared" ok ipc smoke runnerCall setup "$panel_latency_state"
+        panel_latency_cpu="$(cpu_some_us)"
+        panel_latency_start="$(now_ms)"
+        for panel_latency_action in open history inbox; do
+            if [[ $panel_latency_action == history ]]; then
+                expect "half is marked read outside switch timing" ok ipc smoke runnerCall half ''
+                expect_poll "the unread half settles" 50 panel_count
+            fi
+            expect "the real $panel_latency_action operation starts" ok ipc smoke runnerCall begin "$panel_latency_action"
+            expect_poll "the $panel_latency_action cards have a frame" True panel_latency_ready
+            expect_poll "the $panel_latency_action motion is sampled" True panel_latency_sampled
+            panel_latency_record >"$panel_latency_dir/$panel_latency_state-$panel_latency_action-$panel_latency_trial.json"
+        done
+        printf '{"hostCpuSomePct":%s}\n' "$(cpu_some_pct "$panel_latency_cpu" "$(cpu_some_us)" "$(( $(now_ms)-panel_latency_start ))")" >"$panel_latency_dir/$panel_latency_state-pressure-$panel_latency_trial.json"
+        expect "the timing panel closes" ok notes close
+        expect_poll "the timing panel is destroyed" absent ipc smoke readInstance panel vgs.notifications opened
+    done
+done
+python3 - "$panel_latency_dir" <<'PYVERDICT' || fail "the hundred-row notification panel misses its latency or frame-gap bound"
+import json,pathlib,statistics,sys
+root=pathlib.Path(sys.argv[1]);failed=[]
+for state in ('loaded','refused'):
+    for action,bound in [('open',140),('history',50),('inbox',50)]:
+        readings=[json.loads((root/f'{state}-{action}-{i}.json').read_text()) for i in (1,2,3)]
+        samples=[v['first'] for v in readings];median=statistics.median(samples)
+        print(f'notification-panel-latency: store={state} operation={action} samples={samples} median_ms={median} bound_ms={bound}')
+        if min(samples)<0 or median>=bound:failed.append(f'{state}-{action}')
+        # Recorded Main geometry for this exact mixed-height fixture:
+        # hundred rows94*68+6*62, fifty rows49*68+1*62, gap8, gutter13, tail24.
+        expected_height = 3831 if action == 'inbox' else 7601
+        if any(v.get('firstContentHeight')!=expected_height for v in readings):failed.append(f'{state}-{action}-scroll-height')
+        if any(v.get('retained') is not True for v in readings):failed.append(f'{state}-{action}-retention')
+        if any(v.get('firstConstructed')!=v.get('firstVisible') for v in readings):failed.append(f'{state}-{action}-offscreen')
+        if action=='open':
+            gaps=[b-a for v in readings for a,b in zip(v['frames'],v['frames'][1:]) if b<=v['first']+400]
+            limit=41 if state=='loaded' else 58
+            maximum=max(gaps) if gaps else -1
+            print(f'notification-panel-latency: store={state} open_frame_gap_max_ms={maximum} bound_ms={limit}')
+            if maximum<0 or maximum>limit:failed.append(f'{state}-frames')
+    pressure=[json.loads((root/f'{state}-pressure-{i}.json').read_text())['hostCpuSomePct'] for i in (1,2,3)]
+    print(f'notification-panel-latency: store={state} host_cpu_some_pct={pressure}')
+if failed:raise SystemExit('notification-panel-latency: failed='+','.join(failed))
+PYVERDICT
+mkdir -p -- "$source_repo/tmp/smoke-artifacts"
+cp -R -- "$panel_latency_dir" "$source_repo/tmp/smoke-artifacts/notifications-panel-latency-$(date +%s%N)"
+expect "the latency observer unloads" ok ipc smoke runnerDrop
+expect "the latency history clears and resets refusal" ok notes clear-history
+# END notification-panel-latency
+
 for round in 1 2 3; do
   expect "disable round $round is allowed" ok ipc shell setPluginEnabled vgs.notifications false
   expect_poll "disable round $round destroyed the service" False record_exists vgs.notifications
