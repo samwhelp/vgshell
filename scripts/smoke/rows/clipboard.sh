@@ -44,7 +44,11 @@
 # and a service that starts no watcher again. The shortcuts' control is a
 # paste key the row sends to the active window alone, as a sender that
 # reads Hyprland's active window does: the application under the launcher
-# receives it and the launcher's field stays empty.
+# receives it and the launcher's field stays empty. The open launcher puts
+# Hyprland in the overlay capture submap, vgs:capture, where no bind of the
+# default map runs, so the layer repeats the three binds there; that
+# control is the generated layer with those lines taken out and loaded:
+# SUPER+V then types its letter into the launcher's field and pastes nothing.
 # Every clipboard program runs with the nested socket in its environment.
 # `input:resolve_binds_by_sym` is on while the row types its key, since a
 # bind resolves a virtual keyboard's key only by keysym, and the row puts
@@ -455,8 +459,38 @@ if clip_window "$sandbox/clipboard-keys-app.log" smoke.clipboard-app "Clipboard 
 
   expect "enabling the launcher is allowed" ok ipc shell setPluginEnabled vgs.launcher true
   expect_poll "the launcher service is built" True record_exists vgs.launcher
+
+  # The control of the capture submap: the layer without the plugin's copy,
+  # paste and cut binds inside its two capture submaps, loaded by Hyprland.
+  clip_layer="$home/.local/state/vgshell/hypr/vgs.lua"
+  clip_capture_bind='    hl\.bind\(.*hl\.dsp\.global\("vgs\.clipboard:(copy|paste|cut)"\)'
+  clip_capture_binds() { python3 -c 'import re,sys; print(sum(1 for line in open(sys.argv[1]) if re.match(sys.argv[2], line)))' "$clip_layer" "$clip_capture_bind"; }
+  expect "the layer repeats the copy, paste and cut binds in both capture submaps" 6 clip_capture_binds
+  cp -p -- "$clip_layer" "$sandbox/clipboard-layer.kept"
+  python3 -c 'import re,sys
+from pathlib import Path
+path = Path(sys.argv[1])
+assert not path.is_symlink()
+lines = path.read_text().splitlines(keepends=True)
+kept = [line for line in lines if not re.match(sys.argv[2], line)]
+assert len(lines) - len(kept) == 6, len(lines) - len(kept)
+path.write_text("".join(kept))' "$clip_layer" "$clip_capture_bind" || fail "control: the layer's capture binds are taken out"
+  expect "control: Hyprland loads the layer without the capture binds" ok hypr reload config-only
+  expect "control: the launcher opens over the application" ok ipc vgs.launcher invoke toggle ''
+  expect_poll "control: the launcher holds the keyboard" true ipc smoke activeFocusIn overlay vgs.launcher
+  expect_poll "control: the open launcher puts Hyprland in the capture submap" vgs:capture key_submap
+  clip_press v || fail "control: typing SUPER+V in the capture submap failed"
+  expect_poll "control: without the binds in the capture submap the launcher's field takes the key as text, not the paste" '"v"' clip_field text
+  expect "control: the loaded layer still holds no capture bind of the plugin" 0 clip_capture_binds
+  expect "control: the launcher closes" ok ipc vgs.launcher invoke toggle ''
+  expect_poll "control: the closed launcher leaves no overlay" 0 layer_count vgs:overlay
+  cp -p -- "$sandbox/clipboard-layer.kept" "$clip_layer"
+  expect "Hyprland loads the layer the shell wrote again" ok hypr reload config-only
+  expect "the layer holds its capture binds again" 6 clip_capture_binds
+
   expect "the launcher opens over the application" ok ipc vgs.launcher invoke toggle ''
   expect_poll "the launcher is the one overlay" 1 layer_count vgs:overlay
+  expect_poll "the open launcher puts Hyprland in the capture submap" vgs:capture key_submap
   expect_poll "the launcher holds the keyboard" true ipc smoke activeFocusIn overlay vgs.launcher
   expect "the application is still Hyprland's active window" '["smoke.clipboard-app", "Clipboard application"]' active_window
   expect_poll "the launcher's search field starts empty" '""' clip_field text
@@ -471,6 +505,7 @@ if clip_window "$sandbox/clipboard-keys-app.log" smoke.clipboard-app "Clipboard 
   clip_from="$(clip_lines "$sandbox/clipboard-keys-app.log")"
   clip_press v || fail "launcher: typing SUPER+V failed"
   expect_poll "SUPER+V pastes into the launcher's search field" '"smoke shortcut paste"' clip_field text
+  expect "the paste leaves Hyprland in the capture submap" vgs:capture key_submap
   expect "SUPER+V over the launcher opens no clipboard history" 1 clip_closed 1
   expect "the launcher still holds the keyboard" true ipc smoke activeFocusIn overlay vgs.launcher
   type_keys -M ctrl -k a -m ctrl || fail "launcher: selecting the field's text failed"
@@ -479,6 +514,7 @@ if clip_window "$sandbox/clipboard-keys-app.log" smoke.clipboard-app "Clipboard 
   expect_poll "another text is on the clipboard" "smoke shortcut other" clip_holds
   clip_press c || fail "launcher: typing SUPER+C failed"
   expect_poll "SUPER+C copies the launcher field's selection" "smoke shortcut paste" clip_holds
+  expect "the copy leaves Hyprland in the capture submap" vgs:capture key_submap
   expect "a copy leaves the field's text" '"smoke shortcut paste"' clip_field text
   clip_copy "smoke shortcut other"
   expect_poll "the other text is on the clipboard again" "smoke shortcut other" clip_holds
