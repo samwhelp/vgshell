@@ -102,7 +102,7 @@ FocusScope {
                     model: root.known ? root.standing.lines : []
                     Label {
                         required property var modelData
-                        width: parent.width
+                        width: layout.contentWidth
                         role: "hint"
                         text: modelData.text
                         color: modelData.tone === "danger" ? Theme.color.danger : Theme.color.textFaint
