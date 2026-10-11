@@ -17,11 +17,11 @@ import "CloudSyncLogic.js" as Logic
 // The service asks the runner to render it afresh at start and after each
 // of its setup TUIs ends, which also reads a run cut short as interrupted.
 // The keys are probed at start, after each write the core makes from the
-// Settings page's masked fields, after a sign-in or sign-out TUI ends and
-// when the pairs' directions change. The probe's account address reaches
-// the published sign-in values alone, `download` and `upload`, which the
-// Settings page draws and the `status` IPC answer returns with every
-// published value; never the bar, the window or a log line.
+// Settings page's masked fields, after a Connect or Sign out TUI ends and
+// when the pair list changes. The probe's account address reaches the
+// published account value alone, which the Settings page draws and the
+// `status` IPC answer returns with every published value; never the bar,
+// the window or a log line.
 //
 //   vgshell ipc call vgs.cloud-sync invoke <name> ""   with <name>:
 //     status    the published values, JSON
@@ -55,7 +55,7 @@ Item {
     readonly property int secretRevision: shell === null ? 0 : shell.secrets.revision
     // The end of each setup TUI's last run, whoever opened it: Settings,
     // the window or the launcher.
-    readonly property string tuiEnds: shell === null ? "" : JSON.stringify(["setup", "add-pair", "remove-pair", "reset-pairs", "connect-drive", "connect-upload", "sign-out-drive", "sign-out-upload"]
+    readonly property string tuiEnds: shell === null ? "" : JSON.stringify(["setup", "add-pair", "remove-pair", "reset-pairs", "connect", "sign-out"]
         .map(name => shell.tui.state[name] ? shell.tui.state[name].endedAt : null))
 
     onShellChanged: start()

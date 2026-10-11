@@ -55,6 +55,7 @@ mkdir -p -- "$cs_stub/secrets" "$cs_dir/controls"
 cs_use() { # HOME RUNTIME RUNNER
   cs_home="$1" cs_rt="$2" cs_file="$3"
   cs_drive="$(dirname -- "$1")/cloudsync-drive/Docs"
+  cs_second="$(dirname -- "$1")/cloudsync-second/Shared"
   cs_mirror="$1/cloudsync/docs"
   cs_state="$1/.local/state/vgshell/cloud-sync"
   mkdir -p -- "$cs_drive"
@@ -72,6 +73,7 @@ cs_conflicts() { cs status | py_reply 'import json,sys; print(json.dumps(sorted(
 cs_kept() { cs status | py_reply 'import json,sys; c=[c for c in json.load(sys.stdin)["conflicts"] if c["kind"] == "both-changed"]; print(open(c[0]["storedPath"]).read() if c else "none")'; }
 cs_copies() { if [[ -f $cs_stub/rclone.calls ]]; then grep -c '"copy"' -- "$cs_stub/rclone.calls" || true; else echo 0; fi; }
 cs_blocked() { if [[ -e $cs_stub/blocked ]]; then echo yes; else echo no; fi; }
+cs_second_shared() { if [[ -e $cs_second/local.txt ]]; then echo yes; else echo no; fi; }
 # The values the shell's service publishes, and one of them.
 cs_values() { ipc vgs.cloud-sync invoke status ""; }
 cs_value() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin)
@@ -145,6 +147,16 @@ check_removed() {
   expect "a run after a Drive deletion finishes" "pair=docs result=idle exit=0" cs_answer run
   expect "the file Drive removed stays" "added on Drive" cs_read b.txt
   expect "the record reads removed-on-drive" '[["both-changed", "a.txt"], ["removed-on-drive", "b.txt"]]' cs_conflicts
+}
+check_shared_folder() {
+  mkdir -p -- "$(dirname -- "$cs_drive")/Shared" "$cs_home/cloudsync/shared"
+  printf '%s' "made outside Cloud Sync" >"$(dirname -- "$cs_drive")/Shared/original.txt"
+  expect "the shared pair is added" added=shared cs pair-add --definition "{\"id\":\"shared\",\"label\":\"Shared\",\"remote\":\"Shared\",\"local\":\"$cs_home/cloudsync/shared\"}"
+  printf '%s' "local add" >"$cs_home/cloudsync/shared/local.txt"
+  expect "a run uploads into the existing shared Drive folder" "pair=shared result=idle exit=0" cs_answer run --pair shared
+  expect "the local add reaches the shared Drive folder" "local add" cat -- "$(dirname -- "$cs_drive")/Shared/local.txt"
+  expect "no second shared folder is created" no cs_second_shared
+  expect "the shared pair is removed" removed=shared cs pair-remove shared
 }
 # cs_release: the held copy let go, through a write that waits at most
 # 10 s for the stand-in to open the pipe, so a copy that never reached its
@@ -230,6 +242,12 @@ cloudsync_row() {
   cat >"$shim/rclone" <<SH
 #!/usr/bin/env bash
 python3 -c 'import json,os,sys; print(json.dumps({"argv": sys.argv[1:], "env": {k: v for k, v in os.environ.items() if k.startswith("RCLONE_")}}))' "\$@" >>"$cs_stub/rclone.calls"
+scope="\${RCLONE_CONFIG_VGSDRIVE_SCOPE:-}"
+if [[ \$scope != drive && \$3 == copy && \${6:-} == vgsdrive:Shared ]]; then
+  mkdir -p -- "$cs_second"
+  cp -a -- "\$5/." "$cs_second/"
+  exit 0
+fi
 export RCLONE_CONFIG_VGSDRIVE_TYPE=local
 unset RCLONE_CONFIG_VGSDRIVE_CLIENT_ID RCLONE_CONFIG_VGSDRIVE_CLIENT_SECRET RCLONE_CONFIG_VGSDRIVE_TOKEN RCLONE_CONFIG_VGSDRIVE_SCOPE
 cd "\$(dirname -- "\$HOME")/cloudsync-drive" || exit 9
@@ -308,6 +326,7 @@ SH
   expect_poll "the service asks for one notification for the local edit" "$(cs_attention)" cs_notified
   expect_poll "the service has the runner record the local edit as notified" true cs_record_notified
   check_removed
+  check_shared_folder
   expect_poll "the service publishes the Drive deletion" '[["both-changed", "a.txt"], ["removed-on-drive", "b.txt"]]' cs_published_conflicts
   check_lock
 
@@ -364,6 +383,7 @@ SH
   # Controls: each runner rule broken in a copy, in a world of its own.
   expect "control: a dry-run copy fails the copy check" red control_red copy 'rclone(["copy", remotePath(pair), pair.local,' 'rclone(["copy", "--dry-run", remotePath(pair), pair.local,' check_copy
   expect "control: every displaced file taken as the runner's own fails the both-changed check" red control_red both-changed "const unedited = base !== undefined" "const unedited = true || base !== undefined" check_copy check_local_edit
+  expect "control: drive.file creates a second shared folder" red control_red full-drive-scope 'const DRIVE_SCOPE = "drive";' 'const DRIVE_SCOPE = "drive.file";' check_shared_folder
   expect "control: a lock always granted fails the lock check" red control_red lock "if (out.status === 0) return fd;" "if (out.status === 0 || true) return fd;" check_copy check_lock
 
   # Control: a plugin copy whose service drops every read of the record

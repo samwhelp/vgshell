@@ -21,15 +21,16 @@
 //       the presence of every credential account, read without unlocking
 //       the store, as one JSON line; a token's row carries `user`, the
 //       Google account's address, when its keyring item names one.
-//   cloud-sync authorize pull|upload
-//       Google's consent for the direction's OAuth client, in the browser
+//   cloud-sync authorize
+//       Google's consent for Cloud Sync's OAuth client, in the browser
 //       rclone opens, and the token it returns stored in the keyring as the
 //       account's one token item, with the account's address as its `user`
 //       attribute when Google names it; pairs that waited for a sign-in read
-//       idle; prints `authorized=<direction>`. The Sign in floating TUIs run it.
-//   cloud-sync sign-out pull|upload
-//       clears the direction's token from the keyring; the client keys and
-//       every file stay. The pull sign-out marks pairs as needing a sign-in.
+//       idle; prints `authorized=drive`. The Sign in floating TUI runs it.
+//   cloud-sync sign-out
+//       clears the token from the keyring and records each pair as needing a
+//       sign-in, an attention the user's own action notifies of; prints
+//       `signed-out=drive`. The client keys and every file stay.
 //   cloud-sync install
 //       writes the units, reloads the user manager when they changed and
 //       enables the timer; prints `installed=<timer> changed=<n>`.
@@ -74,13 +75,12 @@ const TIMER = "vgs-cloud-sync.timer";
 // the label and the account as its item label, and authorize does the same.
 const SECRET_SERVICE = "vgs-cloud-sync";
 const SECRET_LABEL = "VGS Cloud Sync";
-// The read credential can see the Drive folders; the write credential has
-// drive.file and can see only files rclone created or the user opened with
-// it.
-const DIRECTIONS = ["pull", "upload"];
-const SCOPES = { pull: "drive.readonly", upload: "drive.file" };
+// One credential reads and writes the folder pairs with Google Drive's full
+// drive scope. The runner still never asks rclone to delete.
+const DRIVE_SCOPE = "drive";
 const CREDENTIAL_PARTS = ["client-id", "client-secret", "token"];
 const OLD_DIRECTIONS = ["pull", "upload"];
+const OLD_ACCOUNTS = [].concat(...OLD_DIRECTIONS.map(direction => CREDENTIAL_PARTS.map(part => direction + "-" + part)));
 // The remote exists only in the rclone child's environment.
 const REMOTE = "vgsdrive";
 const REMOTE_ENV = "RCLONE_CONFIG_VGSDRIVE_";
@@ -118,7 +118,7 @@ const FAILURE_STATES = {
     "authorization-refused": "authorization-required",
     offline: "offline"
 };
-const USAGE = "usage: cloud-sync run [--pair <id>] | status [--quiet] | attention-seen <key> | probe | authorize pull|upload | sign-out pull|upload | install | start | pause [--pair <id>] | resume [--pair <id>] | pairs [--lines] | pairs-reset | pair-add --definition <json> | pair-remove <id>";
+const USAGE = "usage: cloud-sync run [--pair <id>] | status [--quiet] | attention-seen <key> | probe | authorize | sign-out | install | start | pause [--pair <id>] | resume [--pair <id>] | pairs [--lines] | pairs-reset | pair-add --definition <json> | pair-remove <id>";
 
 function bad(first) {
     process.stderr.write("cloud-sync: refused: " + first + "\n" + USAGE + "\n");
@@ -466,7 +466,7 @@ function isPaused(control, id) {
 
 function readPairState(id) {
     const read = readJson(path.join(pairDir(id), "state.json"));
-    const empty = { state: "idle", startedAt: null, lastAttempt: null, lastSuccess: null, lastError: null, changes: null, records: [], uploads: { state: "on" } };
+    const empty = { state: "idle", startedAt: null, lastAttempt: null, lastSuccess: null, lastError: null, changes: null, records: [] };
     return read.kind === "ok" && plain(read.value) ? Object.assign(empty, read.value) : empty;
 }
 
@@ -497,7 +497,7 @@ function migratePairStateIfNeeded(id) {
     if (Array.isArray(state.localEdits)) {
         for (const edit of state.localEdits) {
             if (!plain(edit) || typeof edit.path !== "string" || typeof edit.stored !== "string") continue;
-            addRecord(records, { kind: "local-edit", path: edit.path, stored: edit.stored, since: typeof edit.at === "string" ? edit.at : now() });
+            addRecord(records, { kind: "both-changed", path: edit.path, stored: edit.stored, since: typeof edit.at === "string" ? edit.at : now() });
         }
         delete state.localEdits;
     }
@@ -561,11 +561,11 @@ function readSecret(tool, account) {
 
 // { kind: "found", values: { part: value } }, or the first account that
 // failed: { kind: "absent"|"locked"|"unavailable", account, reason? }.
-function readCredential(direction) {
+function readCredential() {
     const tool = which("secret-tool");
     const values = {};
     for (const part of CREDENTIAL_PARTS) {
-        const account = direction + "-" + part;
+        const account = part;
         if (tool === null) return { kind: "unavailable", account: account, reason: "secret-tool-missing" };
         const got = readSecret(tool, account);
         if (got.kind !== "found") return Object.assign({ account: account }, got);
@@ -612,10 +612,52 @@ function clearAccount(tool, account) {
     if (out.status !== 0) refuse("clear=failed exit=" + out.status + " account=" + account);
 }
 
+function clearAccountResult(tool, account) {
+    const out = run(tool, secretArgs(["clear"], account), { timeout: 30000, killSignal: "SIGKILL" });
+    if (out.status === 1 && out.stderr === "") return { ok: true };
+    if (out.status !== 0) return { ok: false, reason: "clear-failed", account: account };
+    return { ok: true };
+}
+
 function storeSecret(tool, account, value, extra = []) {
     const stored = childProcess.spawnSync(tool, secretArgs(["store", "--label=" + SECRET_LABEL + " " + account], account, extra),
         { input: value, encoding: "utf8", stdio: ["pipe", "ignore", "pipe"], env: childEnv(), timeout: 30000, killSignal: "SIGKILL" });
     return stored.status === 0 ? { ok: true } : { ok: false, reason: "store-failed", account: account };
+}
+
+function migrateCredentialsIfNeeded() {
+    const tool = which("secret-tool");
+    if (tool === null) return;
+    const oldPresence = OLD_ACCOUNTS.map(account => [account, probeAccount(tool, account).presence]);
+    if (!oldPresence.some(row => row[1] !== "absent")) return;
+    if (oldPresence.some(row => row[1] === "locked" || row[1] === "unavailable")) {
+        const row = oldPresence.find(r => r[1] === "locked" || r[1] === "unavailable");
+        log("migration=held reason=credential-" + row[1] + " account=" + row[0]);
+        return;
+    }
+    for (const part of ["client-id", "client-secret"]) {
+        if (probeAccount(tool, part).presence !== "absent") continue;
+        const from = ["pull-" + part, "upload-" + part].map(account => [account, readSecret(tool, account)]).find(row => row[1].kind === "found");
+        if (from === undefined) continue;
+        const stored = storeSecret(tool, part, from[1].value);
+        if (!stored.ok) {
+            log("migration=held reason=" + stored.reason + " account=" + stored.account);
+            return;
+        }
+    }
+    for (const account of OLD_ACCOUNTS) {
+        const cleared = clearAccountResult(tool, account);
+        if (!cleared.ok) {
+            log("migration=held reason=" + cleared.reason + " account=" + account);
+            return;
+        }
+    }
+    const left = OLD_ACCOUNTS.map(account => [account, probeAccount(tool, account).presence]).find(row => row[1] !== "absent");
+    if (left !== undefined) {
+        log("migration=held reason=credential-" + left[1] + " account=" + left[0]);
+        return;
+    }
+    log("migration=credentials result=written");
 }
 
 // ----------------------------------------------------------------- rclone
@@ -636,13 +678,13 @@ function remotePath(pair) {
 // native-app, "Refreshing an access token"), and golang.org/x/oauth2 keeps
 // the one it sent (internal/token.go, RetrieveToken). So nothing is stored
 // back.
-function rcloneEnv(direction, values) {
+function rcloneEnv(values) {
     const extra = {};
     extra[REMOTE_ENV + "TYPE"] = "drive";
     extra[REMOTE_ENV + "CLIENT_ID"] = values["client-id"];
     extra[REMOTE_ENV + "CLIENT_SECRET"] = values["client-secret"];
     extra[REMOTE_ENV + "TOKEN"] = values.token;
-    extra[REMOTE_ENV + "SCOPE"] = SCOPES[direction];
+    extra[REMOTE_ENV + "SCOPE"] = DRIVE_SCOPE;
     return childEnv(extra);
 }
 
@@ -728,7 +770,7 @@ function driveDiffers(base, item) {
     return base.size !== item.Size || base.mtimeMs !== Date.parse(item.ModTime) || (base.hash !== null && md5 !== null && base.hash !== md5);
 }
 
-function classifyBeforeCopy(pair, listing, inventory, records, writePaths) {
+function classifyBeforeCopy(pair, listing, inventory, records) {
     const byPath = {};
     const pathOfId = {};
     for (const item of listing) {
@@ -746,7 +788,7 @@ function classifyBeforeCopy(pair, listing, inventory, records, writePaths) {
             addRecord(records, { kind: to === null ? "removed-on-drive" : "renamed", path: rel, to: to });
         } else if (local === null && item === undefined) {
             // Gone on both sides: no review record remains.
-        } else if (writePaths.has(rel) && baselineDiffers(base, local) && driveDiffers(base, item)) {
+        } else if (baselineDiffers(base, local) && driveDiffers(base, item)) {
             const driveTime = Date.parse(item.ModTime);
             if (local.mtimeMs >= driveTime) addRecord(records, { kind: "both-changed", path: rel });
         }
@@ -764,8 +806,8 @@ function classifyBeforeCopy(pair, listing, inventory, records, writePaths) {
 // baseline (size, modification time, and md5 where the baseline has one)
 // is this runner's own earlier download, which is removed, the one
 // deletion the runner makes. Any other displaced file is kept and
-// recorded as both-changed for files this client can write, else local-edit.
-function classifyDisplaced(id, inventory, records, writePaths) {
+// recorded as both-changed.
+function classifyDisplaced(id, inventory, records) {
     const root = path.join(pairDir(id), "conflicts");
     const kept = records.slice();
     const known = new Set(kept.map(r => r.stored));
@@ -780,9 +822,8 @@ function classifyDisplaced(id, inventory, records, writePaths) {
         if (unedited) {
             fs.unlinkSync(file);
         } else {
-            const kind = writePaths.has(rel) ? "both-changed" : "local-edit";
-            addRecord(kept, { kind: kind, path: rel, stored: stored });
-            log("pair=" + id + " " + kind + "=kept");
+            addRecord(kept, { kind: "both-changed", path: rel, stored: stored });
+            log("pair=" + id + " both-changed=kept");
         }
     }
     for (const dir of fs.existsSync(root) ? fs.readdirSync(root) : []) removeEmptyDirs(path.join(root, dir));
@@ -850,13 +891,6 @@ function writeExportExcludeFile(pair, paths) {
     return file;
 }
 
-function writePathListFile(pair, name, paths, escaped) {
-    if (paths.length === 0) return null;
-    const file = path.join(pairDir(pair.id), name);
-    writeAtomic(file, paths.map(rel => escaped ? rcloneFilterLiteral(rel) : rel).join("\n") + "\n");
-    return file;
-}
-
 // --------------------------------------------------------------- one pair
 
 function failureState(kind) {
@@ -874,92 +908,35 @@ function rcloneFailed(state, result) {
     return failed(state, result.kind, result.exit === null ? {} : { exit: result.exit });
 }
 
-function parseListing(result, state) {
-    try {
-        return { ok: true, listing: JSON.parse(result.stdout) };
-    } catch (_e) {
-        return { ok: false, state: failed(state, "listing-unreadable") };
-    }
-}
-
-function pathMap(listing) {
-    const map = {};
-    for (const item of listing) map[item.Path] = item;
-    return map;
-}
-
-function runPairSync(pair, state, readCredential, writeCredential, lock) {
+function runPairSync(pair, state, env, secrets, lock) {
     const inventory = readInventory(pair.id);
     state.records = pruneConflictStorage(pair.id, state.records || []);
     const stamp = now().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z") + "-" + process.pid;
     const backup = path.join(pairDir(pair.id), "conflicts", stamp);
     const common = filterArgs().concat(["--drive-export-formats", EXPORT_FORMATS]);
-    const readSecrets = CREDENTIAL_PARTS.map(part => readCredential.values[part]);
-    const readEnv = rcloneEnv("pull", readCredential.values);
-    const listed = rclone(["lsjson", "-R", "--files-only", "--fast-list", "--hash", "--hash-type", "md5", remotePath(pair)].concat(common), readEnv, readSecrets, lock);
+    const listed = rclone(["lsjson", "-R", "--files-only", "--fast-list", "--hash", "--hash-type", "md5", remotePath(pair)].concat(common), env, secrets, lock);
     if (!listed.ok) return rcloneFailed(state, listed);
-    const parsed = parseListing(listed, state);
-    if (!parsed.ok) return parsed.state;
-    const listing = parsed.listing;
-    const readByPath = pathMap(listing);
-    let uploads = { state: "on" };
-    let writeListing = [];
-    let writePaths = new Set();
-    if (writeCredential.kind === "found") {
-        const writeSecrets = CREDENTIAL_PARTS.map(part => writeCredential.values[part]);
-        const writeEnv = rcloneEnv("upload", writeCredential.values);
-        // Google drive.file reaches files the app created or the user opened
-        // with it; rclone documents it as access to files created by rclone
-        // only. If the write credential cannot see this folder, an unfiltered
-        // upload would create another folder of the same name.
-        const wrote = rclone(["lsjson", "-R", "--files-only", "--fast-list", remotePath(pair)].concat(filterArgs()), writeEnv, writeSecrets, lock);
-        if (!wrote.ok && wrote.kind === "source-missing") uploads = { state: "off", reason: "folder-not-created" };
-        else if (!wrote.ok) return rcloneFailed(state, wrote);
-        else {
-            const writeParsed = parseListing(wrote, state);
-            if (!writeParsed.ok) return writeParsed.state;
-            writeListing = writeParsed.listing;
-            writePaths = new Set(writeListing.map(item => item.Path));
-        }
-    } else {
-        const kind = writeCredential.kind === "unavailable" ? writeCredential.reason : "credential-" + writeCredential.kind;
-        uploads = { state: "off", reason: kind };
+    let listing;
+    try {
+        listing = JSON.parse(listed.stdout);
+    } catch (_e) {
+        return failed(state, "listing-unreadable");
     }
-    const localListed = rclone(["lsjson", "-R", "--files-only", pair.local].concat(filterArgs()), childEnv(), [], lock);
-    if (!localListed.ok) return rcloneFailed(state, localListed);
-    const localParsed = parseListing(localListed, state);
-    if (!localParsed.ok) return localParsed.state;
-    const exportSet = new Set(exportPaths(listing, inventory));
-    const writeByPath = pathMap(writeListing);
-    const uploadSet = new Set();
-    if (uploads.state === "on") {
-        for (const item of localParsed.listing) {
-            if (exportSet.has(item.Path)) continue;
-            if (!hasOwn(readByPath, item.Path)) uploadSet.add(item.Path);
-            else if (hasOwn(writeByPath, item.Path) && Date.parse(item.ModTime) > Date.parse(writeByPath[item.Path].ModTime)) uploadSet.add(item.Path);
-        }
-    }
-    state.records = classifyBeforeCopy(pair, listing, inventory, state.records, writePaths);
+    state.records = classifyBeforeCopy(pair, listing, inventory, state.records);
     // rclone's own atomic download, a `.partial` name renamed when whole,
     // keeps a cut-off run from leaving a half file in the mirror;
     // --backup-dir moves every local file the copy replaces into conflict
     // storage first.
-    const downloadExclude = writePathListFile(pair, "download-excludes.txt", Array.from(uploadSet).sort(), true);
-    const downloadArgs = ["copy", remotePath(pair), pair.local, "--backup-dir", backup].concat(common);
-    if (downloadExclude !== null) downloadArgs.push("--exclude-from", downloadExclude);
-    const downloaded = rclone(downloadArgs, readEnv, readSecrets, lock);
-    if (downloadExclude !== null) fs.rmSync(downloadExclude, { force: true });
-    state.records = classifyDisplaced(pair.id, inventory, state.records, writePaths);
+    const downloaded = rclone(["copy", "--update", remotePath(pair), pair.local, "--backup-dir", backup].concat(common), env, secrets, lock);
+    state.records = classifyDisplaced(pair.id, inventory, state.records);
     if (!downloaded.ok) return rcloneFailed(state, downloaded);
-    if (uploads.state === "on" && uploadSet.size > 0) {
-        const uploadList = writePathListFile(pair, "upload-files.txt", Array.from(uploadSet).sort(), false);
-        const writeSecrets = CREDENTIAL_PARTS.map(part => writeCredential.values[part]);
-        const writeEnv = rcloneEnv("upload", writeCredential.values);
-        const uploaded = rclone(["copy", "--update", pair.local, remotePath(pair), "--files-from-raw", uploadList].concat(filterArgs()), writeEnv, writeSecrets, lock);
-        fs.rmSync(uploadList, { force: true });
-        if (!uploaded.ok) return rcloneFailed(state, uploaded);
-    }
-    const listedAgain = rclone(["lsjson", "-R", "--files-only", "--fast-list", "--hash", "--hash-type", "md5", remotePath(pair)].concat(common), readEnv, readSecrets, lock);
+    const excludes = writeExportExcludeFile(pair, exportPaths(listing, inventory));
+    const uploadArgs = ["copy", "--update", pair.local, remotePath(pair)].concat(filterArgs());
+    if (excludes !== null) uploadArgs.push("--exclude-from", excludes);
+    const uploaded = rclone(uploadArgs, env, secrets, lock);
+    if (excludes !== null) fs.rmSync(excludes, { force: true });
+    if (!uploaded.ok) return rcloneFailed(state, uploaded);
+    const listedAgain = rclone(["lsjson", "-R", "--files-only", "--fast-list", "--hash", "--hash-type", "md5", remotePath(pair)].concat(common), env, secrets, lock);
     if (!listedAgain.ok) return rcloneFailed(state, listedAgain);
     let nextListing;
     try {
@@ -969,7 +946,7 @@ function runPairSync(pair, state, readCredential, writeCredential, lock) {
     }
     const next = nextInventory(pair, nextListing, inventory);
     writeJson(path.join(pairDir(pair.id), "inventory.json"), { entries: next.entries });
-    return Object.assign(state, { state: "idle", uploads: uploads, lastSuccess: now(), lastError: null, records: state.records, changes: next.changes });
+    return Object.assign(state, { state: "idle", lastSuccess: now(), lastError: null, records: state.records, changes: next.changes });
 }
 
 // One pair under its lock: `busy` when another run holds it.
@@ -984,13 +961,14 @@ function runPair(pair, control) {
             writeStatus();
             return begun;
         });
-        const readCred = readCredential("pull");
-        if (readCred.kind === "found") {
-            const writeCred = readCredential("upload");
-            state = runPairSync(pair, state, readCred, writeCred, fd);
+        const credential = readCredential();
+        if (credential.kind === "found") {
+            const secrets = CREDENTIAL_PARTS.map(part => credential.values[part]);
+            const env = rcloneEnv(credential.values);
+            state = runPairSync(pair, state, env, secrets, fd);
         } else {
-            const kind = readCred.kind === "unavailable" ? readCred.reason : "credential-" + readCred.kind;
-            state = failed(state, kind, { account: readCred.account });
+            const kind = credential.kind === "unavailable" ? credential.reason : "credential-" + credential.kind;
+            state = failed(state, kind, { account: credential.account });
         }
         state.startedAt = null;
         withStateLock(() => {
@@ -1163,7 +1141,7 @@ function renderStatus() {
         }
         if (state !== "running" && isPaused(control, pair.id)) state = "paused";
         pairs.push({
-            id: pair.id, label: pair.label, remote: pair.remote, state: state, uploads: stored.uploads || { state: "on" },
+            id: pair.id, label: pair.label, remote: pair.remote, state: state,
             lastSuccess: stored.lastSuccess, staleAfter: staleAfter(stored.lastSuccess), lastError: lastError, changes: stored.changes
         });
         conflicts = conflicts.concat(conflictsOf(pair, stored));
@@ -1232,6 +1210,7 @@ function pairOption(words) {
 
 function runVerb(words) {
     const only = pairOption(words);
+    migrateCredentialsIfNeeded();
     const read = readPairs();
     if (read.error !== null) {
         withStateLock(writeStatus);
@@ -1275,14 +1254,12 @@ function probeVerb(words) {
     const tool = which("secret-tool");
     const needed = readPairs().pairs.length > 0;
     const credentials = [];
-    for (const direction of DIRECTIONS)
-        for (const part of CREDENTIAL_PARTS) {
-            const account = direction + "-" + part;
-            const probed = probeAccount(tool, account);
-            const row = { account: account, presence: probed.presence, needed: needed };
-            if (part === "token" && probed.user !== null) row.user = probed.user;
-            credentials.push(row);
-        }
+    for (const part of CREDENTIAL_PARTS) {
+        const probed = probeAccount(tool, part);
+        const row = { account: part, presence: probed.presence, needed: needed };
+        if (part === "token" && probed.user !== null) row.user = probed.user;
+        credentials.push(row);
+    }
     process.stdout.write(JSON.stringify({ credentials: credentials }) + "\n");
 }
 
@@ -1344,19 +1321,18 @@ function accountAddress(token) {
     return validAddress(address) ? { kind: "read", address: address } : { kind: "unread", reason: "address-invalid" };
 }
 
-// `rclone authorize drive` for one direction's client, which rclone
+// `rclone authorize drive` for Cloud Sync's client, which rclone
 // reads from RCLONE_DRIVE_CLIENT_ID and RCLONE_DRIVE_CLIENT_SECRET in its
-// environment (fs/configmap.go, optionEnvVars), never from argv, with that
-// direction's scope. rclone's link and messages reach the terminal on
+// environment (fs/configmap.go, optionEnvVars), never from argv, with the
+// drive scope. rclone's link and messages reach the terminal on
 // stderr; its stdout, the token, stays in this process and reaches
 // secret-tool on stdin alone, with no newline, as SecretWriter writes.
 function authorizeVerb(words) {
-    if (words.length !== 1 || DIRECTIONS.indexOf(words[0]) === -1) bad("direction=" + (words[0] || "missing"));
-    const direction = words[0];
+    if (words.length !== 0) bad("argument=" + words[0]);
     const tool = requireCommand("secret-tool");
     const client = {};
     for (const part of ["client-id", "client-secret"]) {
-        const account = direction + "-" + part;
+        const account = part;
         const got = readSecret(tool, account);
         if (got.kind !== "found") refuse("credential=" + (got.kind === "unavailable" ? got.reason : got.kind) + " account=" + account);
         client[part] = got.value;
@@ -1366,20 +1342,20 @@ function authorizeVerb(words) {
     const env = childEnv(Object.assign(session, {
         RCLONE_DRIVE_CLIENT_ID: client["client-id"],
         RCLONE_DRIVE_CLIENT_SECRET: client["client-secret"],
-        RCLONE_DRIVE_SCOPE: SCOPES[direction]
+        RCLONE_DRIVE_SCOPE: DRIVE_SCOPE
     }));
     const out = childProcess.spawnSync(requireCommand("rclone"), ["--config", "/dev/null", "authorize", "drive"],
         { encoding: "utf8", stdio: ["inherit", "pipe", "inherit"], env: env, timeout: AUTHORIZE_MS, killSignal: "SIGTERM" });
     if (out.status !== 0) refuse("authorize=failed exit=" + out.status);
     const token = pastedToken(out.stdout);
     if (token === null) refuse("authorize=no-token");
-    const account = direction + "-token";
+    const account = "token";
     const read = accountAddress(token);
     if (read.kind === "unread") log("account=unread reason=" + read.reason);
     // The account's older items go before the store, so one item remains:
     // an item without `user` matches every search of the account, so it
     // could not be cleared after the store without the new one. A store
-    // that fails after this leaves the direction signed out.
+    // that fails after this leaves Cloud Sync signed out.
     clearAccount(tool, account);
     const stored = storeSecret(tool, account, token, read.kind === "read" ? ["user", read.address] : []);
     if (!stored.ok) refuse("store=failed account=" + account);
@@ -1393,25 +1369,23 @@ function authorizeVerb(words) {
         }
         writeStatus();
     });
-    process.stdout.write("authorized=" + direction + "\n");
+    process.stdout.write("authorized=drive\n");
 }
 
-// Each pair that no run holds reads as credential-absent from now on when
-// the read credential is cleared; a running pair records what its run read.
-// The user asked for this, so the attention it makes counts
+// Each pair that no run holds reads as credential-absent from now on, as
+// its next run would record; a running pair records what its run read. The user asked for this, so the attention it makes counts
 // as notified, unless the record held one not yet notified.
 function signOutVerb(words) {
-    if (words.length !== 1 || DIRECTIONS.indexOf(words[0]) === -1) bad("direction=" + (words[0] || "missing"));
-    const direction = words[0];
+    if (words.length !== 0) bad("argument=" + words[0]);
     const tool = requireCommand("secret-tool");
-    const account = direction + "-token";
+    const account = "token";
     clearAccount(tool, account);
     const left = probeAccount(tool, account).presence;
     if (left === "locked") refuse("credential=locked account=" + account);
     if (left !== "absent") refuse("sign-out=incomplete presence=" + left + " account=" + account);
     withStateLock(() => {
         const before = renderStatus().attention;
-        if (direction === "pull") for (const pair of readPairs().pairs) {
+        for (const pair of readPairs().pairs) {
             if (lockHeld(pairLock(pair.id))) continue;
             writePairState(pair.id, failed(readPairState(pair.id), "credential-absent", { account: account }));
         }
@@ -1419,7 +1393,7 @@ function signOutVerb(words) {
         if (after !== null && (before === null || before.notified)) writeJson(controlFile, Object.assign(readControl(), { notifiedKey: after.key }));
         writeStatus();
     });
-    process.stdout.write("signed-out=" + direction + "\n");
+    process.stdout.write("signed-out=drive\n");
 }
 
 function startVerb(words) {

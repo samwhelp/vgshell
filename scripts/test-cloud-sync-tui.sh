@@ -72,21 +72,21 @@ PY
   status=0; screen="$(env -i PATH="$tools" HOME="$home" TERM=dumb VGS_TUI_LIB="$TMP_ROOT/plain-lib.sh" VGS_PLUGIN_ID=vgs.cloud-sync VGS_PLUGIN_DIR="$plugin" XDG_STATE_HOME="$home/.local/state" TMP_ROOT="$TMP_ROOT" bash "$script" "$@" 2>&1)" || status=$?; calls="$(python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in open(sys.argv[1]) if l.strip()]))' "$TMP_ROOT/calls")"; }
 defined(){ python3 -c 'import json,sys; c=json.loads(sys.argv[1]); print(json.dumps(json.loads(c[0][2]), sort_keys=True) if len(c)==1 and c[0][:2]==["pair-add","--definition"] else "calls="+sys.argv[1])' "$calls"; }
 case_setup(){ tui "$1" "" ""; [[ $status == 0 && $calls == '[["install"]]' ]] && shows "runs every hour"; }
-case_connect(){ tui "$1" "" "" pull; [[ $status == 0 && $calls == '[["authorize", "pull"]]' ]] && shows "signed in"; }
-case_connect_refusal(){ tui "$1" "fail cloud-sync: refused: credential=absent account=pull-client-secret" "" pull; [[ $status == 1 ]] && shows "Add the client ID and the client secret" && ! shows "credential=absent"; }
+case_connect(){ tui "$1" "" ""; [[ $status == 0 && $calls == '[["authorize"]]' ]] && shows "Google Drive is connected"; }
+case_connect_refusal(){ tui "$1" "fail cloud-sync: refused: credential=absent account=client-secret" ""; [[ $status == 1 ]] && shows "Add the client ID and the client secret" && ! shows "credential=absent"; }
 case_add_pair(){ plain_tui "$1" "" "$(printf '%s\n' 'My "Docs" \\ 2026' 'Docs/Taxes/' "$home/gdrive/")"; [[ $status == 0 ]] || return 1; [[ $(defined) == "$(python3 -c 'import json,sys; print(json.dumps({"id":"my-docs-2026","label":"My \\"Docs\\" \\\\ 2026","remote":"Docs/Taxes","local":sys.argv[1]+"/gdrive"}, sort_keys=True))' "$home")" ]]; }
 case_add_refusal(){ plain_tui "$1" "fail cloud-sync: refused: pair=docs rule=local-overlap" "$(printf '%s\n' Docs Docs "$home/gdrive")"; [[ $status == 1 ]] && shows "overlaps" && ! shows "rule=local-overlap"; }
 case_remove(){ tui "$1" "" "$(printf '%s\n' docs yes)"; [[ $status == 0 && $calls == '[["pairs", "--lines"], ["pair-remove", "docs"]]'  ]]; }
 case_reset(){ tui "$1" "" yes; [[ $status == 0 && $calls == '[["pairs-reset"]]' ]]; }
-case_sign_out(){ tui "$1" "" yes pull; [[ $status == 0 && $calls == '[["sign-out", "pull"]]' ]] && shows "signed out"; }
-case_sign_out_refusal(){ tui "$1" "fail cloud-sync: refused: credential=locked account=pull-token" yes pull; [[ $status == 1 ]] && shows "keyring is locked" && ! shows "credential=locked"; }
+case_sign_out(){ tui "$1" "" yes; [[ $status == 0 && $calls == '[["sign-out"]]' ]] && shows "signed out"; }
+case_sign_out_refusal(){ tui "$1" "fail cloud-sync: refused: credential=locked account=token" yes; [[ $status == 1 ]] && shows "keyring is locked" && ! shows "credential=locked"; }
 case_args(){ for script in setup add-pair connect sign-out reset-pairs; do tui "$plugin/tui/$script.sh" "" "" extra; [[ $status == 2 && $calls == '[]' ]] || return 1; done; tui "$plugin/tui/remove-pair.sh" "" "" docs extra; [[ $status == 2 && $calls == '[]' ]]; }
 CASES=(case_setup:setup case_connect:connect case_connect_refusal:connect case_remove:remove-pair case_reset:reset-pairs case_sign_out:sign-out case_sign_out_refusal:sign-out case_args:setup)
 copy_scripts
 for entry in "${CASES[@]}"; do c="${entry%%:*}"; s="${entry#*:}"; if "$c" "$plugin/tui/$s.sh"; then ok "${c#case_}"; else fail "${c#case_}: status=$status calls=$calls screen=[${screen//$'\n'/ | }]"; fi; done
 CONTROL_CASES=(case_setup case_connect case_sign_out case_sign_out_refusal)
 CONTROL_SCRIPTS=(setup connect sign-out sign-out)
-CONTROL_NEEDLES=('"$runner" install >>"$log"' '"$runner" authorize "$direction" >>"$log"' '"$runner" sign-out "$direction" >>"$log"' '*credential=locked*)')
+CONTROL_NEEDLES=('"$runner" install >>"$log"' '"$runner" authorize >>"$log"' '"$runner" sign-out >>"$log"' '*credential=locked*)')
 CONTROL_REPL=('true >>"$log"' '"$runner" authorize drive >>"$log"' '"$runner" sign-out drive >>"$log"' '*credential=no-such*)')
 for i in "${!CONTROL_CASES[@]}"; do copy_scripts; script="$plugin/tui/${CONTROL_SCRIPTS[i]}.sh"; if ! python3 - "$script" "${CONTROL_NEEDLES[i]}" "${CONTROL_REPL[i]}" <<'PY2'
 import sys

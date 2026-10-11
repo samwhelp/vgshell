@@ -167,9 +167,9 @@
         "gum"
       ]
     },
-    "connect-drive": {
-      "script": "tui/connect-drive.sh",
-      "title": "Sign in for Download",
+    "connect": {
+      "script": "tui/connect.sh",
+      "title": "Connect Google Drive",
       "requires": [
         "node",
         "rclone",
@@ -178,28 +178,9 @@
         "curl"
       ]
     },
-    "connect-upload": {
-      "script": "tui/connect-upload.sh",
-      "title": "Sign in for Upload",
-      "requires": [
-        "node",
-        "rclone",
-        "secret-tool",
-        "xdg-open",
-        "curl"
-      ]
-    },
-    "sign-out-drive": {
-      "script": "tui/sign-out-drive.sh",
-      "title": "Sign out of Download",
-      "requires": [
-        "node",
-        "secret-tool"
-      ]
-    },
-    "sign-out-upload": {
-      "script": "tui/sign-out-upload.sh",
-      "title": "Sign out of Upload",
+    "sign-out": {
+      "script": "tui/sign-out.sh",
+      "title": "Sign out of Google Drive",
       "requires": [
         "node",
         "secret-tool"
@@ -212,7 +193,7 @@
       "type": "state",
       "label": "Cloud Sync",
       "group": "Setup",
-      "info": "Cloud Sync copies each folder pair both ways. Newer files win. It never deletes a file. Older copies on this computer stay in Cloud Sync records for 30 days. Older copies on Google Drive stay in the file version history for 30 days, up to 100 versions."
+      "info": "Cloud Sync copies each folder pair both ways. Newer files win. It never deletes a file. Older copies on this computer stay in Cloud Sync records for 30 days. Older copies on Google Drive stay in the file version history for 30 days."
     },
     "schedule": {
       "type": "state",
@@ -243,60 +224,34 @@
         }
       }
     },
-    "downloadKeys": {
+    "keys": {
       "type": "presenceList",
       "label": "Keys",
-      "group": "Download: Google Drive to this computer",
-      "hint": "Get a client ID and secret for Download from Google Cloud credentials.",
+      "group": "Google Drive",
+      "hint": "Get one OAuth client ID of type Desktop app from Google Cloud credentials.",
       "link": {
         "text": "Google Cloud credentials",
         "url": "https://console.cloud.google.com/apis/credentials"
       },
-      "info": "In Google Cloud, create an OAuth client ID of type Desktop app for Download. It reads the Google Drive folders of every pair. Add the client ID and secret, then select Sign in."
+      "info": "Add the client ID and secret. Then select Connect. VGS stores every key in your keyring."
     },
-    "download": {
+    "account": {
       "type": "state",
-      "label": "Sign-in",
-      "group": "Download: Google Drive to this computer",
+      "label": "Google Drive",
+      "group": "Google Drive",
+      "info": "Connect lets Cloud Sync read and change files in your Google Drive. It copies only your folder pairs and never deletes a file.",
       "actions": {
         "signIn": {
-          "label": "Sign in",
-          "tui": "connect-drive"
+          "label": "Connect",
+          "tui": "connect"
         },
         "reconnect": {
-          "label": "Sign in again",
-          "tui": "connect-drive"
+          "label": "Connect again",
+          "tui": "connect"
         },
         "signOut": {
           "label": "Sign out",
-          "tui": "sign-out-drive",
-          "tone": "danger"
-        }
-      }
-    },
-    "uploadKeys": {
-      "type": "presenceList",
-      "label": "Keys",
-      "group": "Upload: this computer to Google Drive",
-      "hint": "Get a client ID and secret for Upload from Google Cloud credentials.",
-      "info": "Use a second OAuth client ID of type Desktop app for Upload. It writes only files Cloud Sync made and adds new files."
-    },
-    "upload": {
-      "type": "state",
-      "label": "Sign-in",
-      "group": "Upload: this computer to Google Drive",
-      "actions": {
-        "signIn": {
-          "label": "Sign in",
-          "tui": "connect-upload"
-        },
-        "reconnect": {
-          "label": "Sign in again",
-          "tui": "connect-upload"
-        },
-        "signOut": {
-          "label": "Sign out",
-          "tui": "sign-out-upload",
+          "tui": "sign-out",
           "tone": "danger"
         }
       }

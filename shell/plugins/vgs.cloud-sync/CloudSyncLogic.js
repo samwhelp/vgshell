@@ -14,11 +14,11 @@
 var STATES = ["idle", "running", "paused", "offline", "authorization-required", "error", "not-set-up"];
 var PAIR_STATES = ["idle", "running", "paused", "offline", "authorization-required", "error"];
 var UNITS = ["installed", "absent", "stale"];
-var CONFLICT_KINDS = ["local-edit", "both-changed", "removed-locally", "removed-on-drive", "renamed"];
+var CONFLICT_KINDS = ["both-changed", "removed-locally", "removed-on-drive", "renamed"];
 var PRESENCES = ["present", "absent", "locked", "unavailable"];
 // The credential accounts of the manifest's `secrets`, in the order the
 // Setup section lists them (bin/cloud-sync probe prints the same set).
-var ACCOUNTS = ["pull-client-id", "pull-client-secret", "pull-token", "upload-client-id", "upload-client-secret", "upload-token"];
+var ACCOUNTS = ["client-id", "client-secret", "token"];
 
 // The conflicts the window lists: the published values share one 64 KiB
 // ceiling (PluginLogic.STATUS_MAX_BYTES) with the rest, and a removed
@@ -56,8 +56,8 @@ var BADGE_TONES = { ok: "success", info: "info", warning: "warning", danger: "da
 // a sync error.
 var ERROR_TEXT = {
     offline: "Google Drive cannot be reached. Cloud Sync tries again at the next sync.",
-    "authorization-refused": "Google Drive did not accept the sign-in. Select Sign in again on the Cloud Sync page in Settings.",
-    "credential-absent": "A Google Drive key is missing. Add it on the Cloud Sync page in Settings.",
+    "authorization-refused": "Google Drive did not accept Connect. Select Connect again on the Cloud Sync page in Settings.",
+    "credential-absent": "A Google Drive key or connection is missing. Add the client ID and secret, then select Connect on the Cloud Sync page in Settings.",
     "credential-locked": "Your keyring is locked. Unlock it to sync.",
     "source-missing": "A Google Drive folder of a folder pair does not exist.",
     "rclone-missing": "rclone is not installed.",
@@ -71,13 +71,10 @@ var ERROR_DEFAULT = "The sync stopped with an error. Cloud Sync tries again at t
 // The Settings page's own words where ERROR_TEXT sends the user to that
 // page: its fields stand below the sync value.
 var PAGE_ERROR_TEXT = {
-    "authorization-refused": "Google Drive did not accept the sign-in. Select Sign in again below.",
-    "credential-absent": "A Google Drive key is missing. Add the client ID and secret below."
+    "authorization-refused": "Google Drive did not accept Connect. Select Connect again below.",
+    "credential-absent": "A Google Drive key or connection is missing. Add the client ID and secret, then select Connect below."
 };
-var TOKEN_DIRECTION = { "pull-token": "Download", "upload-token": "Upload" };
-
 var CONFLICT_TEXT = {
-    "local-edit": "Changed here. Your edit is kept for 30 days and is not uploaded.",
     "both-changed": "Changed here and on Google Drive. The older copy is kept for 30 days.",
     "removed-locally": "Removed here. Cloud Sync copied it back from Google Drive.",
     "removed-on-drive": "Removed from Google Drive. The copy here stays.",
@@ -155,7 +152,7 @@ function pairOk(p) {
 function conflictOk(c) {
     return isObject(c) && CONFLICT_KINDS.indexOf(c.kind) !== -1 && isText(c.pairLabel) && isText(c.path)
         && isText(c.localPath) && c.localPath.charAt(0) === "/"
-        && ((c.kind !== "both-changed" && c.kind !== "local-edit") || !hasOwn(c, "storedPath") || (isText(c.storedPath) && c.storedPath.charAt(0) === "/"))
+        && (c.kind !== "both-changed" || !hasOwn(c, "storedPath") || (isText(c.storedPath) && c.storedPath.charAt(0) === "/"))
         && (c.kind !== "renamed" || isText(c.to)) && isTime(c.since);
 }
 
@@ -205,7 +202,7 @@ function parseProbe(text) {
         var c = doc.credentials[i];
         if (!isObject(c) || ACCOUNTS.indexOf(c.account) === -1 || PRESENCES.indexOf(c.presence) === -1 || typeof c.needed !== "boolean")
             return { ok: false, error: "probe=credential" };
-        if (hasOwn(c, "user") && (!/-token$/.test(c.account) || !isAddress(c.user)))
+        if (hasOwn(c, "user") && (c.account !== "token" || !isAddress(c.user)))
             return { ok: false, error: "probe=user account=" + c.account };
         presence[c.account] = { presence: c.presence, needed: c.needed };
         if (hasOwn(c, "user")) presence[c.account].user = c.user;
@@ -235,8 +232,8 @@ function badgeTone(tone) {
 // its own fields below instead of sending the user to itself.
 function errorText(error, onPage) {
     if (error === null) return "";
-    if (error.kind === "credential-absent" && hasOwn(TOKEN_DIRECTION, error.account))
-        return "Google Drive is not signed in for " + TOKEN_DIRECTION[error.account] + ". Select Sign in " + (onPage === true ? "below." : "on the Cloud Sync page in Settings.");
+    if (error.kind === "credential-absent" && error.account === "token")
+        return "Google Drive is not connected. Select Connect " + (onPage === true ? "below." : "on the Cloud Sync page in Settings.");
     if (onPage === true && hasOwn(PAGE_ERROR_TEXT, error.kind)) return PAGE_ERROR_TEXT[error.kind];
     return hasOwn(ERROR_TEXT, error.kind) ? ERROR_TEXT[error.kind] : ERROR_DEFAULT;
 }
@@ -275,7 +272,7 @@ function problemText(operation, firstLine) {
 // for a local edit also the folder that keeps the local version.
 function reviewDirs(conflict) {
     var dirs = [dirname(conflict.localPath)];
-    if ((conflict.kind === "local-edit" || conflict.kind === "both-changed") && conflict.storedPath !== undefined) dirs.push(dirname(conflict.storedPath));
+    if (conflict.kind === "both-changed" && conflict.storedPath !== undefined) dirs.push(dirname(conflict.storedPath));
     return dirs;
 }
 
@@ -310,7 +307,7 @@ function cloudValue(record, problem) {
         staleAfter: msOf(record.staleAfter),
         lastError: publishedError(record.lastError),
         pairs: record.pairs.map(function (p) {
-            return { id: p.id, label: p.label, remote: p.remote, uploads: p.uploads || { state: "on" }, state: p.state, lastSuccess: msOf(p.lastSuccess), staleAfter: msOf(p.staleAfter), lastError: publishedError(p.lastError) };
+            return { id: p.id, label: p.label, remote: p.remote, state: p.state, lastSuccess: msOf(p.lastSuccess), staleAfter: msOf(p.staleAfter), lastError: publishedError(p.lastError) };
         }),
         conflicts: conflicts,
         conflictCount: record.conflicts.length,
@@ -326,7 +323,7 @@ function reviewLine(count) {
 
 // Where the whole sync stands: { text, tone, icon, cause }, or null before
 // the first record. CLOUD is the published `cloud` value. Hourly sync not
-// set up comes first, then no folder pair, then sign-in needed or a
+// set up comes first, then no folder pair, then Connect needed or a
 // failed sync, of the whole sync or of any pair, since the runner ranks a
 // running pair above another pair's failure; then files to review, then
 // the state, an idle one by the data's age. "Up to date" is a pair's word
@@ -403,45 +400,36 @@ function pairsValue(cloud) {
     };
 }
 
-// The `downloadKeys` or `uploadKeys` presence list of DIRECTION, `pull` or
-// `upload`: its client ID and secret, each with the account the masked
-// field stores.
-function keyItems(presence, direction) {
-    return [["Client ID", direction + "-client-id"], ["Client secret", direction + "-client-secret"]].map(function (pair) {
+// The `keys` presence list: the client ID and secret, each with the
+// account the masked field stores.
+function keyItems(presence) {
+    return [["Client ID", "client-id"], ["Client secret", "client-secret"]].map(function (pair) {
         var account = pair[1];
         return { label: pair[0], value: presence[account].presence, secret: account };
     });
 }
 
-function uploadsOff(record) {
-    if (record === null) return null;
-    var off = record.pairs.find(function (p) { return p.uploads && p.uploads.state === "off"; });
-    return off === undefined ? null : off.uploads.reason;
-}
-
-function signInValue(presence, direction, record) {
-    var states = [direction + "-client-id", direction + "-client-secret", direction + "-token"].map(function (a) { return presence[a].presence; });
+// The `account` connection value from the probe's PRESENCE and RECORD.
+function signInValue(presence, record) {
+    var states = ["client-id", "client-secret", "token"].map(function (a) { return presence[a].presence; });
     if (states.indexOf("locked") !== -1) return { tone: "warning", text: "Keyring locked", hint: "Unlock your keyring to sync." };
     if (states.indexOf("unavailable") !== -1) return { tone: "warning", text: "Unknown", hint: "VGS cannot read your keyring." };
-    if (states[0] !== "present" || states[1] !== "present") return { tone: "info", text: "Not signed in", hint: "Add the client ID and secret first." };
-    if (states[2] !== "present") return { tone: "warning", text: "Not signed in", action: "signIn" };
-    var reason = direction === "upload" ? uploadsOff(record) : null;
-    if (reason === "folder-not-created") return { tone: "warning", text: "Uploads off", hint: "The Google Drive folder was not made by Cloud Sync, so nothing uploads to it." };
-    if (reason && reason.indexOf("credential-") === 0) return { tone: "warning", text: "Uploads off", action: "signIn", hint: "Sign in for Upload to send files to Google Drive." };
+    if (states[0] !== "present" || states[1] !== "present") return { tone: "info", text: "Not connected", hint: "Add the client ID and secret first." };
+    if (states[2] !== "present") return { tone: "warning", text: "Not connected", action: "signIn" };
     var refused = record !== null && record.pairs.some(function (p) {
         return p.state === "authorization-required" && p.lastError !== null && p.lastError.kind === "authorization-refused";
     });
-    if (refused) return { tone: "danger", text: "Sign-in refused", action: "reconnect", hint: "Google Drive did not accept the sign-in." };
-    var user = presence[direction + "-token"].user;
-    var named = user === undefined ? "" : "Signed in as " + user + ".";
-    return { tone: "ok", text: "Signed in", hint: named !== "" && named.length <= HINT_MAX ? named : "Signed in.", action: "signOut" };
+    if (refused) return { tone: "danger", text: "Connect refused", action: "reconnect", hint: "Google Drive did not accept Connect." };
+    var user = presence.token.user;
+    var named = user === undefined ? "" : "Connected as " + user + ".";
+    return { tone: "ok", text: "Connected", hint: named !== "" && named.length <= HINT_MAX ? named : "Connected.", action: "signOut" };
 }
 
 // The values the service publishes (the manifest's `status`): from the
 // record, `sync`, the headline; `schedule`, the hourly units; `pairs`;
 // `cloud`, the data the widget and the window draw; and `lastSync`, the
 // time of the last complete sync, or null to clear it. From the probe,
-// each direction's key list and sign-in. RECORD and PRESENCE are null
+// the key list and connection. RECORD and PRESENCE are null
 // until their first answer, which leaves their values out.
 function statusValues(record, presence, problem, now) {
     var values = {};
@@ -454,10 +442,8 @@ function statusValues(record, presence, problem, now) {
         values.lastSync = cloud.lastSuccess;
     }
     if (presence !== null) {
-        values.downloadKeys = keyItems(presence, "pull");
-        values.download = signInValue(presence, "pull", record);
-        values.uploadKeys = keyItems(presence, "upload");
-        values.upload = signInValue(presence, "upload", record);
+        values.keys = keyItems(presence);
+        values.account = signInValue(presence, record);
     }
     return values;
 }
@@ -519,9 +505,7 @@ function windowStatus(cloud, now, timeText) {
 // a Badge tone.
 function pairRow(pair, now) {
     var view = stateView(pair.state, pair.staleAfter, now);
-    var secondary = pair.remote || "Two-way";
-    if (pair.uploads && pair.uploads.state === "off") secondary += " · uploads off";
-    return { id: pair.id, label: pair.label, secondary: secondary, icon: "folder-sync", text: view.text, tone: badgeTone(view.tone) };
+    return { id: pair.id, label: pair.label, secondary: pair.remote || "Two-way", icon: "folder-sync", text: view.text, tone: badgeTone(view.tone) };
 }
 
 // One conflict's row in the window: its path, and what happened.
@@ -547,7 +531,7 @@ function conflictGroups(conflicts) {
 }
 
 // Whether a run would copy PAIR: not paused, and not waiting for a key or
-// a sign-in only the user can add. A locked keyring is not one: the run
+// Connect only the user can add. A locked keyring is not one: the run
 // reads the keyring again, so Sync now stays the way to retry after an
 // unlock.
 function pairCanSync(pair) {
@@ -589,7 +573,7 @@ function notification(record) {
     if (record.attention === null) return null;
     var reasons = record.attention.reasons;
     if (reasons.indexOf("authorization-required") !== -1)
-        return { title: "Cloud Sync needs a sign-in", message: errorText(record.lastError === null ? { kind: "authorization-refused" } : record.lastError), tone: "danger" };
+        return { title: "Cloud Sync needs Connect", message: errorText(record.lastError === null ? { kind: "authorization-refused" } : record.lastError), tone: "danger" };
     if (reasons.indexOf("error") !== -1)
         return { title: "Cloud Sync failed", message: errorText(record.lastError), tone: "danger" };
     if (reasons.indexOf("conflicts") !== -1)
