@@ -96,8 +96,9 @@ FocusScope {
     // Built-in placement and same-named schema fields share one section.
     // Ungrouped fields follow built-ins, then each group in the order its
     // first entry appears. The manifest's key order is the schema's. A `list` entry
-    // has its own section, `lists`. A `hideEmpty` field has no place while
-    // its select model is empty: nothing is offered for it.
+    // whose group exists on the page follows that group; one whose group is
+    // absent stays with ungrouped lists at the end. A `hideEmpty` field has
+    // no place while its select model is empty: nothing is offered for it.
     readonly property var sections: {
         if (row === null) return [];
         const out = row.builtins.map(builtin => ({ group: builtin.name, keys: [], builtin: builtin }));
@@ -112,10 +113,24 @@ FocusScope {
             }
             section.keys.push(key);
         }
-        return out.filter(s => s.builtin !== null || s.keys.length > 0);
+        const kept = out.filter(s => s.builtin !== null || s.keys.length > 0);
+        for (const key of Object.keys(row.schema).filter(key => row.schema[key].type === "list")) {
+            const group = row.schema[key].group;
+            const section = group === undefined ? undefined : kept.find(s => s.group === group);
+            if (section !== undefined) {
+                if (section.lists === undefined) section.lists = [];
+                section.lists.push(key);
+            }
+        }
+        return kept;
     }
 
-    readonly property var lists: row === null ? [] : Object.keys(row.schema).filter(key => row.schema[key].type === "list")
+    readonly property var lists: {
+        if (row === null) return [];
+        const groups = page.sections.map(section => section.group);
+        return Object.keys(row.schema).filter(key => row.schema[key].type === "list"
+            && (row.schema[key].group === undefined || groups.indexOf(row.schema[key].group) === -1));
+    }
     // The Settings tab's status sections in drawn order, with their rows,
     // keys and setup actions.
     readonly property var settingsSections: row === null ? [] : Steps.settingsSections(row.tuis, row.status)
@@ -577,6 +592,34 @@ FocusScope {
                                     onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
                                     onOpenLink: url => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, url); }
                                     onChoicesWanted: if (page !== null && page.row !== null) page.panel.refreshChoices(pluginId, spec.optionsFrom)
+                                }
+                            }
+
+                            Repeater {
+                                model: ScriptModel {
+                                    values: section.modelData.lists || []
+                                }
+                                Section {
+                                    id: groupedListSection
+                                    required property string modelData
+                                    width: section.width
+                                    title: page.row.schema[modelData].label
+                                    description: page.row.schema[modelData].description === undefined ? "" : page.row.schema[modelData].description
+                                    info: page.row.schema[modelData].info === undefined ? "" : page.row.schema[modelData].info
+
+                                    ListField {
+                                        width: groupedListSection.width
+                                        pluginId: page.row.id
+                                        key: groupedListSection.modelData
+                                        spec: page.row.schema[groupedListSection.modelData]
+                                        value: page.row.settings[groupedListSection.modelData]
+                                        choices: page.row.settingChoices[groupedListSection.modelData] || []
+                                        status: page.row.status
+                                        editable: page.editable
+                                        edits: unsaved
+                                        onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
+                                        onOpenLink: url => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, url); }
+                                    }
                                 }
                             }
                         }

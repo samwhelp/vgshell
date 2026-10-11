@@ -426,6 +426,40 @@ Item {
             releasePage(page, original);
         }
 
+        function test_grouped_lists_follow_their_group() {
+            const original = root.pageRow;
+            root.pageRow = Object.assign({}, original, {
+                schema: {
+                    mode: { type: "boolean", label: "Mode", group: "Main" },
+                    grouped: { type: "list", label: "Grouped list", group: "Main",
+                        items: { item: { type: "string", label: "Item", presets: [{ value: "", label: "None" }] } },
+                        defaults: { item: "" } },
+                    unknown: { type: "list", label: "Unknown list", group: "Missing",
+                        items: { item: { type: "string", label: "Item", presets: [{ value: "", label: "None" }] } },
+                        defaults: { item: "" } },
+                    plain: { type: "list", label: "Plain list",
+                        items: { item: { type: "string", label: "Item", presets: [{ value: "", label: "None" }] } },
+                        defaults: { item: "" } }
+                },
+                settings: { mode: true, grouped: [], unknown: [], plain: [] }, binds: []
+            });
+            const page = createTemporaryObject(pluginPageComponent, root);
+            verify(page !== null);
+            try {
+                tryVerify(() => page.sections.length === 1);
+                compare(page.sections[0].group, "Main");
+                compare(page.sections[0].lists, ["grouped"]);
+                compare(page.lists, ["unknown", "plain"]);
+                const sections = descendants(page).filter(item => item instanceof Section && item.title !== "Keys");
+                tryVerify(() => sections.some(item => item.title === "Grouped list"));
+                const titles = sections.filter(item => ["Main", "Grouped list", "Unknown list", "Plain list"].indexOf(item.title) !== -1)
+                    .sort((a, b) => a.mapToItem(page, 0, 0).y - b.mapToItem(page, 0, 0).y).map(item => item.title);
+                compare(titles, ["Main", "Grouped list", "Unknown list", "Plain list"]);
+            } finally {
+                releasePage(page, original);
+            }
+        }
+
         function test_a_hide_empty_field_has_no_place_while_nothing_is_offered() {
             const original = root.pageRow;
             const choices = { type: "string", optionsFrom: "items" };
