@@ -455,7 +455,7 @@ Item {
         }
         if (!card.entered || reopened) card.enter();
         rebuildDisplay();
-        Qt.callLater(() => keyCatcher.forceActiveFocus());
+        Qt.callLater(() => field.forceActiveFocus());
     }
 
     function setFilter(next) {
@@ -1001,22 +1001,10 @@ Item {
         }
 
         // pointer-cursor-exempt: it holds the presses on the card, so they never reach the click-away area
-        // keyboard-path: the card itself has no action; keyCatcher owns the launcher keys
+        // keyboard-path: the card itself has no action; the search field owns the launcher keys
         MouseArea {
             anchors.fill: parent
             onClicked: {}
-        }
-
-        // focus-indicator: the search caret and the ListCursor plate show the launcher focus
-        Item {
-            id: keyCatcher
-            anchors.fill: parent
-            focus: true
-
-            Keys.priority: Keys.BeforeItem
-            Keys.onPressed: event => {
-                event.accepted = root.handleKey(event);
-            }
         }
 
         Column {
@@ -1040,16 +1028,16 @@ Item {
                     }
                 }
 
+                // The placeholder and the open-with title, drawn while the
+                // field shows no text.
                 Text {
                     id: headerText
                     textFormat: Text.PlainText
-                    anchors.left: searchGlyph.right
-                    anchors.leftMargin: root.look.header.textGap
-                    anchors.right: menuButton.visible ? menuButton.left : parent.right
-                    anchors.rightMargin: root.look.header.textInset
+                    anchors.left: field.left
+                    anchors.right: field.right
                     anchors.verticalCenter: parent.verticalCenter
                     text: root.openWithTarget ? "Open \u201c" + root.openWithTarget.name + "\u201d with\u2026"
-                        : root.filterText || (root.requestMode ? root.prompt : (root.spotlightRoot || !root.items[root.activeMenu] ? "Search" : (root.items[root.activeMenu].title || root.items[root.activeMenu].label)))
+                        : root.filterText ? "" : (root.requestMode ? root.prompt : (root.spotlightRoot || !root.items[root.activeMenu] ? "Search" : (root.items[root.activeMenu].title || root.items[root.activeMenu].label)))
                     color: root.look.text.foreground
                     opacity: root.filterText ? 1 : root.look.text.header.idle
                     font.family: root.look.font.family.sans
@@ -1060,12 +1048,60 @@ Item {
                     elide: Text.ElideLeft
                 }
 
+                // The search: Qt's own text input, so paste, copy, selection
+                // and caret moves work as in any field. `filterText` stays the
+                // one source the launcher reads. A user edit changes the text
+                // inside the item and leaves this binding in place; only a
+                // QML assignment would break it, and setText ignores an equal
+                // value, so the launcher's own writes reach the field without
+                // a loop (qquicktextinput.cpp, Qt 6.11.2). Qt pastes the
+                // primary selection on a middle-button release where the
+                // clipboard supports it, as zwp_primary_selection does.
+                // focus-indicator: the launcher's caret and the ListCursor plate show the launcher focus
+                TextInput {
+                    id: field
+                    anchors.left: searchGlyph.right
+                    anchors.leftMargin: root.look.header.textGap
+                    anchors.right: menuButton.visible ? menuButton.left : parent.right
+                    anchors.rightMargin: root.look.header.textInset
+                    anchors.verticalCenter: parent.verticalCenter
+                    focus: true
+                    clip: true
+                    text: root.filterText
+                    // The open-with title replaces the query, which stays the search.
+                    opacity: root.openWithTarget ? 0 : 1
+                    color: root.look.text.foreground
+                    selectionColor: root.look.caret.halo
+                    selectedTextColor: root.look.text.foreground
+                    font.family: root.look.font.family.sans
+                    font.pixelSize: root.look.text.header.size
+                    font.letterSpacing: root.look.text.header.letterSpacing
+                    // The launcher draws its own Caret, so the field's stays empty.
+                    cursorDelegate: Item {}
+                    // Qt's TextInput sets no pointer shape of its own.
+                    HoverHandler {
+                        cursorShape: Qt.IBeamCursor
+                    }
+
+                    // Before the field, so the launcher's keys win; a key
+                    // handleKey leaves goes on to the field.
+                    Keys.priority: Keys.BeforeItem
+                    Keys.onPressed: event => {
+                        event.accepted = root.handleKey(event);
+                    }
+                    onTextEdited: {
+                        root.setFilter(text);
+                        caret.nudge();
+                    }
+                }
+
                 Caret {
                     id: caret
                     look: root.look
                     height: Math.round(headerText.font.pixelSize * root.look.caret.height)
                     anchors.verticalCenter: parent.verticalCenter
-                    x: headerText.x + (root.filterText ? Math.min(headerText.contentWidth, headerText.width) + root.look.caret.gap : -root.look.caret.rest)
+                    x: root.openWithTarget ? headerText.x + Math.min(headerText.contentWidth, headerText.width) + root.look.caret.gap
+                        : field.x + (root.filterText ? field.cursorRectangle.x + root.look.caret.gap : -root.look.caret.rest)
                     running: root.opened
                     lit: root.searching
                     Behavior on x {
@@ -1217,6 +1253,8 @@ Item {
         count: displayModel.count
         currentIndex: root.selectedIndex
         wrap: true
+        // While the field shows text, Home, End and Delete edit it.
+        textEntry: root.filterText !== "" && !root.openWithTarget
         spaceActivates: false
         pageSize: root.pageRows()
         cursor: cursorPlate
@@ -1301,11 +1339,6 @@ Item {
             else cancel();
             return true;
         }
-        if (filterText && key === Qt.Key_Backspace && plain) {
-            setFilter(filterText.slice(0, -1));
-            caret.nudge();
-            return true;
-        }
         if (filterText && ((key === Qt.Key_Backspace && event.modifiers === Qt.ControlModifier) || (key === Qt.Key_W && event.modifiers === Qt.ControlModifier))) {
             setFilter(MenuModel.dropWord(filterText));
             caret.nudge();
@@ -1319,7 +1352,8 @@ Item {
             goBack();
             return true;
         }
-        if (key === Qt.Key_Right && plain) {
+        // Right moves the field's caret until it reaches the end of the text.
+        if (key === Qt.Key_Right && plain && (openWithTarget || field.cursorPosition === field.length)) {
             if (cursorActive && displayModel.count > 0) activateMenuLike(selectedIndex);
             if (displayModel.count > 0) cursorActive = true;
             return true;
@@ -1333,12 +1367,7 @@ Item {
             else if (displayModel.count > 0) cursorActive = true;
             return true;
         }
-        const text = event.text;
-        if (text && text.length === 1 && text.charCodeAt(0) >= 32 && text.charCodeAt(0) !== 127 && (plain || event.modifiers === Qt.ShiftModifier)) {
-            setFilter(filterText + text);
-            caret.nudge();
-            return true;
-        }
+        // Text, paste, copy, selection and caret keys go to the field.
         return false;
     }
 }

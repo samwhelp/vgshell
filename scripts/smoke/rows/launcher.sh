@@ -1,7 +1,7 @@
 # The launcher, vgs.launcher: a first-party overlay, bar entry and service.
 # The harness starts it disabled; this row enables it, drives every path
 # that opens it (the shortcut, the service's IPC, the host's summon and the
-# bar entry), types into it on the nested seat and reads what it drew back
+# bar entry), types and pastes into it on the nested seat and reads what it drew back
 # through the probe: its rows, its look and its shader, and the hand over a
 # row. A picker answers
 # through two files under the sandbox's runtime directory, read here. The
@@ -207,6 +207,51 @@ expect_poll "the query searched the rows" True launcher_has_row action Reboot
 focused
 type_keys -k Escape -k Escape || fail "sending Escape failed"
 expect_poll "Escape clears the search, then closes" 0 layer_count vgs:overlay
+
+# The search is a text field: Ctrl+V and Shift+Insert paste the clipboard,
+# Left moves the caret inside the text, a middle click on the field pastes
+# the primary selection, and Ctrl+A then Ctrl+C copies the field. The two
+# selections hold different texts, so each reading names its source. The
+# block leaves both selections empty and the pointer where it found it.
+launcher_field() { ipc smoke readShownDescendant overlay vgs.launcher QQuickTextInput "$1"; }
+clip_text() { "${shell_env[@]}" wl-paste --no-newline "$@"; }
+if command -v wl-copy >/dev/null && command -v wl-paste >/dev/null; then
+  pointer_before="${pointer_at:-10 $((mon_h - 10))}"
+  expect "the launcher summons for paste" ok ipc shell summon overlay vgs.launcher '{}'
+  focused "the launcher holds the keyboard for paste"
+  "${shell_env[@]}" wl-copy -- "smoke launch" >/dev/null 2>&1 </dev/null || fail "setting the clipboard failed"
+  type_keys -M ctrl -k v -m ctrl || fail "sending Ctrl+V failed"
+  expect_poll "Ctrl+V pastes the clipboard into the search" '"smoke launch"' read_launcher filterText
+  expect_poll "the pasted search ranks the planted application first" '["app", "Smoke Launch Probe"]' first_row
+  type_keys -k Left || fail "sending Left in the search failed"
+  expect_poll "Left moves the caret inside the text" 11 launcher_field cursorPosition
+  expect "Left inside the text keeps the search" '"smoke launch"' read_launcher filterText
+  type_keys -M ctrl -k u -m ctrl || fail "sending Ctrl+U failed"
+  expect_poll "Ctrl+U empties the field" '""' launcher_field text
+  type_keys -M shift -k Insert -m shift || fail "sending Shift+Insert failed"
+  expect_poll "Shift+Insert pastes the clipboard into the search" '"smoke launch"' read_launcher filterText
+  type_keys -M ctrl -k u -m ctrl || fail "sending Ctrl+U failed"
+  expect_poll "Ctrl+U empties the search" '""' read_launcher filterText
+  "${shell_env[@]}" wl-copy --primary -- "launch probe" >/dev/null 2>&1 </dev/null || fail "setting the primary selection failed"
+  field_box="$(ipc smoke windowGeometry overlay vgs.launcher QQuickTextInput "")" || field_box=absent
+  expect_cursor "the search field shows the I-beam" text vgs:overlay "$field_box"
+  if [[ $field_box == \[* ]] && read -r field_x field_y < <(at_centre vgs:overlay "$field_box"); then
+    middle_click "$field_x" "$field_y" || fail "the middle click on the search failed"
+    expect_poll "a middle click pastes the primary selection into the search" '"launch probe"' read_launcher filterText
+  else
+    fail "the search field has no box: $field_box"
+  fi
+  type_keys -M ctrl -k a -k c -m ctrl || fail "sending Ctrl+A and Ctrl+C failed"
+  expect_poll "Ctrl+A then Ctrl+C copies the field" "launch probe" clip_text
+  type_keys -k Escape -k Escape || fail "sending Escape after paste failed"
+  expect_poll "Escape clears the pasted search, then closes" 0 layer_count vgs:overlay
+  "${shell_env[@]}" wl-copy --clear >/dev/null 2>&1 </dev/null || fail "clearing the clipboard failed"
+  "${shell_env[@]}" wl-copy --primary --clear >/dev/null 2>&1 </dev/null || fail "clearing the primary selection failed"
+  read -r field_x field_y <<<"$pointer_before"
+  hover "$field_x" "$field_y" || fail "putting the pointer back after paste failed"
+else
+  fail "launcher: wl-copy or wl-paste is unavailable"
+fi
 
 # TUI rows open their TUI through the tui capability. The argv reaches the
 # stand-in xdg-terminal-exec harness.sh's terminal_stand_in wrote, read
