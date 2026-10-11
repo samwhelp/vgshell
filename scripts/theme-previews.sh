@@ -10,7 +10,7 @@
 # archive applies first, is fetched once for each pin into
 # tmp/theme-previews/wallpapers by scripts/theme-preview-wallpaper.js, which
 # prints the path the scene is handed. --dotfiles is the stow tree whose
-# tmux/ and nvim/ the scene's terminal runs, ~/dotfiles by default. The
+# tmux/ and nvim/ the scene's terminal runs, ~/.dot by default. The
 # scene runs with --modes dark --size 1920x1190 --scale 2, the theme card's
 # shape (carousel.expandedWidth by expandedHeight in shell/Commons/Tokens.js)
 # at 3840x2380 device pixels, into tmp/theme-previews/<UTC time>; --from DIR
@@ -28,7 +28,7 @@ set -euo pipefail
 JPEG_OPTIONS=(-strip -sampling-factor 4:4:4 -quality 88)
 
 repo="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)"
-dotfiles="$HOME/dotfiles"
+dotfiles="$HOME/.dot"
 from=""
 themes=()
 refuse() { printf 'theme-previews: refused: %s=%s\n' "$1" "$2" >&2; exit 2; }

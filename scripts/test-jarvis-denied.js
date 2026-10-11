@@ -244,8 +244,8 @@ world(() => {
     };
     brokenLinks(Denied);
     // A rule-named link directly in a base protects its resolved target, as
-    // a dotfile manager's ~/.claude-work link to ~/dotfiles/claude-work.
-    const dotfiles = path.join(home, "dotfiles", "claude-work");
+    // a dotfile manager's ~/.claude-work link to ~/.dot/claude-work.
+    const dotfiles = path.join(home, ".dot", "claude-work");
     fs.mkdirSync(dotfiles, { recursive: true });
     fs.writeFileSync(path.join(dotfiles, ".credentials.json"), "synthetic credentials: never opened\n");
     fs.symlinkSync(dotfiles, path.join(home, ".claude-dotfiles"));
