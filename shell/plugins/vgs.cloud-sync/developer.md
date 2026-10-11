@@ -4,7 +4,7 @@
 
 `bin/cloud-sync` is the runner, one Node file. It owns the folder pair list, the systemd user units, one lock per pair, the credential reads, the rclone calls, each pair's inventory, the review records and the status record. Its header states every verb, its output, its exit codes and its refusals.
 
-Set up hourly sync runs `install`. It copies the runner to `~/.local/share/vgshell/cloud-sync/engine/<hash>/`, because the shell runs plugins from a snapshot that a restart removes. It writes `vgs-cloud-sync.service` and `vgs-cloud-sync.timer` under `~/.config/systemd/user/` and enables the timer: hourly while the user is logged in, and once at the next login after a missed hour. The units hold no secret.
+Set up hourly sync runs `install`. It copies the runner to `~/.local/share/vgshell/cloud-sync/engine/<hash>/`, because the shell runs plugins from a snapshot that a restart removes. It writes `vgs-cloud-sync.service` and `vgs-cloud-sync.timer` under `~/.config/systemd/user/` and enables the timer: hourly while the user is logged in, and once at the next login after a missed hour. The units hold no secret. When the units name another runner copy, such as one an earlier version installed, the next runner invocation rewrites them to name itself and reloads the user manager; it never installs units that do not exist.
 
 Each run is the service. Sync now in the window and `start` on the command line ask systemd for that same service, so a sync never runs twice at once. A run takes each pair's lock under `$XDG_RUNTIME_DIR/vgshell/cloud-sync/`; a pair whose lock another run holds reads `busy` and copies nothing.
 
