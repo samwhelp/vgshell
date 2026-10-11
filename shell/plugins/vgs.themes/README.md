@@ -48,4 +48,4 @@ The browsers show no key hints. These keys work in both:
 | Esc | Clears the filter, then closes the browser. |
 | Tab, Shift+Tab | Switch between the theme browser and the wallpaper browser. |
 
-Typing filters the cards. Backspace erases a character, Ctrl+Backspace a word and Ctrl+U the whole filter. In the wallpaper browser, Alt+S does what Show all and Show theme do, and Alt+M switches between All monitors and This monitor.
+Typing filters the cards, and the search field under them shows what you typed. Backspace erases a character, Ctrl+Backspace a word and Ctrl+U the whole filter. In the wallpaper browser, Alt+S does what Show all and Show theme do, and Alt+M switches between All monitors and This monitor.

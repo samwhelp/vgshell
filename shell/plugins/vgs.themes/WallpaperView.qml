@@ -6,7 +6,7 @@ import "BrowserLogic.js" as BrowserLogic
 
 // The wallpaper view of the browser: the applied theme's wallpapers, or
 // every package's and the user folder's, as angled cards on a rail, one
-// dim source line under it, Show all or Show theme, and with two screens
+// search field and one dim source line under it, Show all or Show theme, and with two screens
 // or more a scope control, All monitors or This monitor. At rest the view
 // draws the cards, the tabs and those controls alone: the selection, which
 // opens on the image the scope shows, marks it. Enter or a click on the selected
@@ -22,7 +22,8 @@ import "BrowserLogic.js" as BrowserLogic
 // Keys, BrowserLogic.WALLPAPER_KEYS: Left and Up step back, Right and Down
 // step forward, Home and End go to the first and the last card, and Enter
 // sets the selected image or runs the selected card. Tab and Shift+Tab
-// switch the top tabs. A printable character types into the filter,
+// switch the top tabs. A printable character types into the filter, which
+// the search field shows,
 // Backspace erases a character, Ctrl+Backspace a word and Ctrl+U the whole
 // filter. Escape clears the filter, then asks to close. Alt+S or a click
 // on the source line flips the source, and Alt+M flips the scope while its
@@ -417,13 +418,28 @@ FocusScope {
                 width: Math.min(layout.contentWidth, Theme.carousel.expandedWidth)
                 spacing: Theme.stack.group
 
-                Label {
-                    role: "h3"
-                    width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    elide: Text.ElideMiddle
-                    visible: root.filterText !== ""
+                // The filter as a search field. The view keeps the keyboard,
+                // so the field shows `filterText` and a steady cursor
+                // without taking the focus, and a press on it hands the
+                // keyboard back to the view.
+                TextField {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    leadingIcon: "search"
+                    placeholderText: "Search wallpapers"
                     text: root.filterText
+                    // Qt keeps this while the field never takes the
+                    // focus, and draws it unblinking (TextInput.cursorVisible).
+                    cursorVisible: true
+                    activeFocusOnPress: false
+                    activeFocusOnTab: false
+
+                    // pointer-cursor-exempt: the field shows the I-beam; a press only hands the keyboard to the view
+                    // keyboard-path: the view holds the keyboard
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.IBeamCursor
+                        onPressed: root.takeKeys()
+                    }
                 }
 
                 // The source line names the source a click shows, its eye

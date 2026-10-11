@@ -7,8 +7,8 @@ import "BrowserLogic.js" as BrowserLogic
 // The theme view of the browser: every shipped, installed and catalog
 // theme as an angled card on one rail, a typed filter, and Enter or a
 // click on the selected card installing a catalog theme if it needs it and
-// applying it. At rest the view draws the cards, the tabs and the
-// selected theme's name under the rail: the selection, which opens on the
+// applying it. At rest the view draws the cards, the tabs, and the
+// selected theme's name and the search field under the rail: the selection, which opens on the
 // applied theme, marks it, and a busy card turns its own Spinner while its
 // install or apply runs. After an apply of a theme whose wallpapers are
 // not downloaded, a Dialog offers the download; Download runs it on the
@@ -23,7 +23,8 @@ import "BrowserLogic.js" as BrowserLogic
 // and Down step as Left and Right do. Tab and Shift+Tab switch the top
 // tabs. A printable character types into the filter, Backspace erases a character, Ctrl+Backspace a word and Ctrl+U
 // the whole filter. Escape clears the filter, then asks to close. Enter
-// applies the selected card.
+// applies the selected card. The rail holds the keyboard; the search
+// field shows the filter and never takes the focus.
 //
 // The view is built with the overlay. It draws retained service data
 // without starting a catalog, list or image read on open.
@@ -423,13 +424,28 @@ FocusScope {
                     text: root.selected === null ? "" : root.selected.label
                 }
 
-                Label {
-                    role: "h3"
-                    width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    elide: Text.ElideMiddle
-                    visible: root.filterText !== ""
+                // The filter as a search field. The rail keeps the keyboard,
+                // so the field shows `filterText` and a steady cursor
+                // without taking the focus, and a press on it hands the
+                // keyboard back to the rail.
+                TextField {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    leadingIcon: "search"
+                    placeholderText: "Search themes"
                     text: root.filterText
+                    // Qt keeps this while the field never takes the
+                    // focus, and draws it unblinking (TextInput.cursorVisible).
+                    cursorVisible: true
+                    activeFocusOnPress: false
+                    activeFocusOnTab: false
+
+                    // pointer-cursor-exempt: the field shows the I-beam; a press only hands the keyboard to the rail
+                    // keyboard-path: the rail holds the keyboard
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.IBeamCursor
+                        onPressed: root.focusRail()
+                    }
                 }
 
                 Repeater {

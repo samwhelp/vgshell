@@ -2,7 +2,8 @@
 # nested seat opens it, and every row reads what it holds back through the
 # probe: the view's cards and state through readDescendant, the images the
 # cards draw through images, the texts it draws beside its rail and tabs
-# through descendantGeometry, and its Dialog's through itemTexts. The rows page, filter, install and apply a catalog
+# through descendantGeometry, its search field through the TextField's
+# text, placeholder, drawn cursor and focus, and its Dialog's through itemTexts. The rows page, filter, install and apply a catalog
 # entry, and answer the wallpaper offer both ways. akane's card draws its
 # package preview. The old keys, SUPER+T
 # and SUPER+W, open nothing, and each view's key moves an open browser to
@@ -36,8 +37,9 @@ selected_preview() { view_value selected | py_reply 'import json,sys; print(json
 offer_name() { view_value offer | py_reply 'import json,sys; o=json.load(sys.stdin); print("none" if o is None else o["name"])'; }
 # rest_texts: every text the browser draws outside its rail and its tabs,
 # sorted and once each; rest_has TEXT: whether TEXT is one of them. At rest
-# the theme view draws none, and the wallpaper view its source line and,
-# with two screens, its scope control.
+# the theme view draws the selected name and its search field's
+# placeholder, and the wallpaper view that placeholder, its source line
+# and, with two screens, its scope control.
 rest_texts() {
   ipc smoke descendantGeometry overlay vgs.themes | py_reply '
 import json, sys
@@ -50,6 +52,16 @@ def under(j):
 print(json.dumps(sorted({r["text"] for i, r in enumerate(rows) if isinstance(r.get("text"), str) and r["text"] != "" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0 and not under(i)})))'
 }
 rest_has() { rest_texts | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }
+# search_field: the shown view's search field as [text, placeholder,
+# cursor shown, holds the keyboard], read from its TextField.
+search_field() {
+  local text placeholder cursor focus
+  text="$(ipc smoke readDescendant overlay vgs.themes TextField text)" || return
+  placeholder="$(ipc smoke readDescendant overlay vgs.themes TextField placeholderText)" || return
+  cursor="$(ipc smoke readDescendant overlay vgs.themes TextField cursorVisible)" || return
+  focus="$(ipc smoke readDescendant overlay vgs.themes TextField activeFocus)" || return
+  printf '[%s, %s, %s, %s]\n' "$text" "$placeholder" "$cursor" "$focus"
+}
 # slice_names: the side cards the rail shows and how many of them draw no
 # name, as [shown, unnamed]: a side card is a shown AngledCard other than
 # the selected one, the largest, and it names its theme with a visible
@@ -384,7 +396,8 @@ expect_poll "the browser read the list, the catalog and the images" true view_va
 expect "the browser includes the shipped vgs card" True has_card vgs
 expect_poll "the retained catalog reaches the installed list with nord" True has_card nord
 expect "the applied theme is selected" '"vgs"' view_value selectedName
-expect_poll "the resting theme view draws the selected theme's name alone beside its cards and tabs" '["Vgs"]' rest_texts
+expect_poll "the resting theme view draws the selected theme's name and the search placeholder beside its cards and tabs" '["Search themes", "Vgs"]' rest_texts
+expect "the resting search field is empty, shows a cursor and leaves the keyboard with the rail" '["", "Search themes", true, false]' search_field
 expect_poll "every side card names its theme" named slices_named
 expect_poll "every side card's name starts the inset up its slice, in h2, white over its shadow, above its card's wash" '[]' slice_look
 # The browser's layout, one finding per broken rule, `[]` the pass: its
@@ -521,6 +534,9 @@ expect_poll "Ctrl+PageUp switches back to the theme view" '"themes"' ipc smoke r
 # The filter and the scope.
 type_keys "nor" || fail "typing the filter failed"
 expect_poll "typing reaches the filter" '"nor"' view_value filterText
+expect "the search field shows the typed filter and a cursor without the keyboard" '["nor", "Search themes", true, false]' search_field
+click_in vgs:overlay overlay vgs.themes TextField nor || fail "the click on the theme search field failed"
+expect_poll "a click on the search field leaves the keyboard with the rail" true rail_focused
 type_keys -M ctrl -k u -m ctrl || fail "sending Ctrl+U failed"
 expect_poll "Ctrl+U clears the filter" '""' view_value filterText
 type_keys "gruvy " || fail "typing a two-word theme filter failed"
@@ -596,6 +612,7 @@ clear_filter() { # LABEL
   expect_poll "$1: the browser read its cards" true view_value loaded
   type_keys zzqx || { fail "$1: typing the filter failed"; return 1; }
   expect_poll "$1: a filter no card matches empties the rail" 0 view_count
+  expect "$1: the search field shows the filter no card matches" '["zzqx", "Search themes", true, false]' search_field
   click_in vgs:overlay overlay vgs.themes Button "Clear filter" || { fail "$1: the click on Clear filter failed"; return 1; }
 }
 clear_filter "Clear filter"
@@ -859,10 +876,35 @@ plugin_control ThemeView.qml "resting text" $'                id: caption\n' $' 
 press_themes || fail "typing SUPER+SHIFT+T for the resting text control failed"
 expect_poll "SUPER+SHIFT+T opens the resting text control browser" 1 layer_count vgs:overlay
 expect_poll "the resting text control read its cards" true view_value loaded
-expect_poll "control: a key hint under the rail is a resting text" '["Enter", "Vgs"]' rest_texts
+expect_poll "control: a key hint under the rail is a resting text" '["Enter", "Search themes", "Vgs"]' rest_texts
 type_keys -k Escape || fail "sending Escape to the resting text control failed"
 expect_poll "Escape closes the resting text control browser" 0 layer_count vgs:overlay
 plugin_restore ThemeView.qml "resting text"
+# Controls for the search field: a copy whose field does not show the
+# filter, and one whose field takes the keyboard on a press.
+search_control() { # LABEL
+  press_themes || { fail "$1: typing SUPER+SHIFT+T failed"; return 1; }
+  expect_poll "$1: SUPER+SHIFT+T opens the browser" 1 layer_count vgs:overlay
+  expect_poll "$1: the browser read its cards" true view_value loaded
+  type_keys nor || { fail "$1: typing the filter failed"; return 1; }
+  expect_poll "$1: typing reaches the filter" '"nor"' view_value filterText
+}
+search_control_close() { # LABEL
+  expect "$1: the browser hides" ok ipc shell hide overlay vgs.themes
+  expect_poll "$1: the browser closes" 0 layer_count vgs:overlay
+}
+plugin_control ThemeView.qml "search text" '                    text: root.filterText' '                    text: ""'
+search_control "control: the search text copy"
+expect "control: a field that does not show the filter reads empty" '["", "Search themes", true, false]' search_field
+search_control_close "control: the search text copy"
+plugin_restore ThemeView.qml "search text"
+plugin_control ThemeView.qml "search focus" 'onPressed: root.focusRail()' 'onPressed: parent.forceActiveFocus()'
+search_control "control: the search focus copy"
+click_in vgs:overlay overlay vgs.themes TextField nor || fail "control: the click on the search focus copy's field failed"
+expect_poll "control: a field that takes the press holds the keyboard" true ipc smoke readDescendant overlay vgs.themes TextField activeFocus
+expect "control: a field that takes the press leaves the rail unfocused" false rail_focused
+search_control_close "control: the search focus copy"
+plugin_restore ThemeView.qml "search focus"
 
 # vgs, applied, ships Black; a click on the source line's Show all
 # switches to all, turns the line to Show theme and leaves the keys with
@@ -928,7 +970,8 @@ expect "the view starts on every monitor" '"every"' wall_value scope
 expect "two screens show the scope control" true wall_value scoped
 expect_poll "the selection starts on the image every screen shows" "$nord_a" wall_selected
 expect "the wallpaper card decodes at card size times screen scale" True card_source_size_matches "$nord_a"
-expect_poll "the resting wallpaper view draws its source line and scope control alone" '["All monitors", "Show all", "This monitor"]' rest_texts
+expect_poll "the resting wallpaper view draws its search placeholder, source line and scope control alone" '["All monitors", "Search wallpapers", "Show all", "This monitor"]' rest_texts
+expect "the resting wallpaper search field is empty, shows a cursor and leaves the keyboard with the view" '["", "Search wallpapers", true, false]' search_field
 
 # The wallpaper filter: text reaches the filter, filters the rail, Space
 # stays text, Ctrl+U clears, Clear filter works from the empty state, and
@@ -936,14 +979,19 @@ expect_poll "the resting wallpaper view draws its source line and scope control 
 type_keys "b." || fail "typing the wallpaper filter failed"
 expect_poll "typing reaches the wallpaper filter" '"b."' wall_value filterText
 expect_poll "the wallpaper filter keeps b.jpg alone" "[\"$nord_b\"]" wall_keys
+expect "the wallpaper search field shows the typed filter and a cursor without the keyboard" '["b.", "Search wallpapers", true, false]' search_field
+click_in vgs:overlay overlay vgs.themes TextField b. || fail "the click on the wallpaper search field failed"
+browser_focused "a click on the wallpaper search field leaves the keyboard with the view"
 type_keys -k space || fail "sending Space to the wallpaper filter failed"
 expect_poll "Space in the wallpaper filter stays text" '"b. "' wall_value filterText
 type_keys -M ctrl -k u -m ctrl || fail "clearing the wallpaper filter failed"
 expect_poll "Ctrl+U clears the wallpaper filter" '""' wall_value filterText
 type_keys "zzqx" || fail "typing the empty wallpaper filter failed"
 expect_poll "a wallpaper filter no card matches empties the rail" 0 wall_count
+expect "the wallpaper search field shows the filter no card matches" '["zzqx", "Search wallpapers", true, false]' search_field
 click_in vgs:overlay overlay vgs.themes Button "Clear filter" || fail "the wallpaper Clear filter click failed"
 expect_poll "Clear filter clears the wallpaper filter" '""' wall_value filterText
+expect_poll "Clear filter puts the wallpaper search field back at rest" '["", "Search wallpapers", true, false]' search_field
 type_keys "b." || fail "typing the wallpaper filter before Escape failed"
 expect_poll "the wallpaper filter is set before Escape" '"b."' wall_value filterText
 type_keys -k Escape || fail "sending Escape with a wallpaper filter failed"
