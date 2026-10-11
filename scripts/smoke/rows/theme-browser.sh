@@ -1164,7 +1164,7 @@ expect_poll "Right after the click steps the rail" "$nord_b" wall_selected
 expect "Right after the click leaves the scope" '"this"' wall_value scope
 type_keys -k Escape || fail "sending Escape after the scope word click failed"
 expect_poll "Escape closes the browser after the scope word click" 0 layer_count vgs:overlay
-plugin_control WallpaperView.qml "scope tone" 'color: scopeWord.index === root.scopeIndex ? Theme.carousel.hintActive : ' 'color: '
+plugin_control WallpaperView.qml "scope tone" 'color: chosen ? Theme.carousel.hintActive : ' 'color: '
 press_wallpapers || fail "typing SUPER+SHIFT+W for the scope tone control failed"
 expect_poll "SUPER+SHIFT+W opens the scope tone control's browser" 1 layer_count vgs:overlay
 expect_poll "the scope tone control's view read its lists" true wall_value loaded
