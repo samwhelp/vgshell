@@ -923,6 +923,31 @@ settings_drag_page_down() { # LABEL
   fail "$1 scroll area is unreadable: ${area:-}"
   return 1
 }
+# settings_page_fit: `overflows` when the page's one scroll area holds
+# content taller than its view by the half pixel ScrollBar.qml's `needed`
+# counts, with its bar shown, and `fits` when it does not, with its bar
+# hidden; a bar that disagrees with the heights, or an unreadable area,
+# answers what was read.
+settings_page_fit() {
+  local area
+  area="$(settings_scroll)" && [[ $area == \{* ]] || { echo "area=${area:-unread}"; return; }
+  python3 -c 'import json,sys
+a = json.loads(sys.argv[1])
+over = a["contentHeight"] - a["height"] >= 0.5
+print(("overflows" if over else "fits") if over == a["barVisible"] else "contentHeight=%s height=%s barVisible=%s" % (a["contentHeight"], a["height"], a["barVisible"]))' "$area"
+}
+# settings_scrolled_shot MODE NAME LABEL: the shown page dragged down its
+# bar as settings-MODE-NAME-scrolled when it overflows its view; a page that
+# fits takes no scrolled shot, since a drag there moves nothing.
+settings_scrolled_shot() {
+  local fit
+  fit="$(settings_page_fit)"
+  case $fit in
+    overflows) settings_drag_page_down "$3" && take "settings-$1-$2-scrolled" ;;
+    fits) ok "$3 fits its view: no settings-$1-$2-scrolled shot" ;;
+    *) fail "$3's fit is unreadable: $fit" ;;
+  esac
+}
 settings_at_top() { settings_scroll | python3 -c 'import json,sys; t=sys.stdin.read(); a=json.loads(t) if t.startswith("{") else None; print(a is not None and int(a["contentY"]) == 0)'; }
 settings_close() {
   expect "the Settings window closes" ok ipc shell hide "$settings_kind" vgs.settings
@@ -1195,8 +1220,7 @@ scene_settings() { # MODE
     settings_scroll_to 0 >/dev/null || fail "the Agent Warden page did not scroll to the top"
     expect_poll "the Agent Warden page is at its top" True settings_at_top
     take "settings-$1-agent-warden"
-    settings_drag_page_down "the Agent Warden page" || true
-    take "settings-$1-agent-warden-scrolled"
+    settings_scrolled_shot "$1" agent-warden "the Agent Warden page"
   fi
   if "$has_voice"; then
     if voice_dictates; then
@@ -1307,8 +1331,7 @@ EOF
     settings_scroll_to 0 >/dev/null || fail "the Bar page did not scroll to the top"
     expect_poll "the Bar page is at its top" True settings_at_top
     take "settings-$1-bar"
-    settings_drag_page_down "the Bar page" || true
-    take "settings-$1-bar-scrolled"
+    settings_scrolled_shot "$1" bar "the Bar page"
   fi
   # The automations' page at its top, the plugin enabled over the stand-ins
   # rows/automations.sh reads (automations_stand_ins in
