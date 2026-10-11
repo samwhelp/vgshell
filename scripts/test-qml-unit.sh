@@ -1355,7 +1355,7 @@ mutations=(
   "an accepted text stays as typed|../plugins/vgs.settings/SettingField.qml|        input.text = heldText;|        {}|tst_settings_edits.qml"
   "an accepted text reports no write|../plugins/vgs.settings/SettingField.qml|if (edits !== null) edits.wrote();|{}|tst_settings_edits.qml"
   "a read-only field keeps its draft|../plugins/vgs.settings/SettingField.qml|    onEditableChanged: if (!editable) discard()|    onEditableChanged: {}|tst_settings_edits.qml"
-  "a hidden custom row keeps its draft|../plugins/vgs.settings/SettingField.qml|onCustomVisibleChanged: if (!customVisible && editing(customLoader.item)) customLoader.item.revert()|onCustomVisibleChanged: {}|tst_settings_edits.qml"
+  "a hidden custom row keeps its draft|../plugins/vgs.settings/SettingField.qml|else if (editing(customLoader.item)) customLoader.item.revert();|else {}|tst_settings_edits.qml"
   "the custom editor writes a text its check refuses|../plugins/vgs.settings/SettingField.qml|function save() { if (problemText === \"\") root.commit(input); }|function save() { root.commit(input); }|tst_settings_edits.qml"
   "a text field's discard restores nothing|../plugins/vgs.settings/SettingField.qml|function revert() { text = field.heldText; }|function revert() {}|tst_settings_edits.qml"
   "a destroyed field stays in the set|../plugins/vgs.settings/SettingField.qml|    Component.onDestruction: if (edits !== null) edits.forget(root)|    Component.onDestruction: {}|tst_settings_edits.qml"
