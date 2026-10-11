@@ -16,14 +16,23 @@ const { load } = require("../bin/lib/qml-library.js");
 
 const file = path.join(__dirname, "..", "shell", "Core", "DictationModel.js");
 const DIR = "/run/user/1000/vgshell/dictation";
+const STATE_PATH = "/run/user/1000/voxtype/state";
 // What `voxtype status --format json` prints, src/status_json.rs.
 const line = (alt, model) => JSON.stringify({ text: "", alt: alt, class: alt, tooltip: "", model: model || "parakeet-tdt-0.6b-v3", device: "default", backend: "ONNX CPU" });
 const PROBE = ["ran", "probe", 0, line("stopped") + "\n"];
-const CONFIG = [["ran", "audio.max_duration_secs", 0, "210\n"], ["ran", "audio.device", 0, "default\n"], ["ran", "engine", 0, "parakeet\n"]];
+const CONFIG = [
+    ["ran", "audio.max_duration_secs", 0, "210\n"],
+    ["ran", "audio.device", 0, "default\n"],
+    ["ran", "engine", 0, "parakeet\n"],
+    ["ran", "output.mode", 0, "paste\n"],
+    ["ran", "output.auto_submit", 0, "true\n"],
+    ["ran", "text.smart_auto_submit", 0, "false\n"]
+];
 // Holder `a` leases, the start steps pass, and the follower prints idle.
-const READY = [["lease", "a"], PROBE, ...CONFIG, ["ran", "directory", 0, ""], ["status", line("idle")]];
+const READY = [["lease", "a"], PROBE, ...CONFIG, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("idle")]];
 const BOTH = [...READY, ["lease", "b"]];
 const TEXT_START = "run:voxtype record start --file=" + DIR + "/1.txt --no-auto-submit --no-smart-auto-submit --no-osd";
+const TYPE_START = "run:voxtype record start --auto-submit --no-smart-auto-submit --paste";
 const REMOVE = "run:rm -f -- " + DIR + "/1.txt " + DIR + "/1.txt.done";
 const WAIT = "run:voxtype record stop --wait --json --timeout 60";
 const CANCEL = "run:voxtype record cancel";
@@ -43,14 +52,17 @@ const CASES = [
     ["the probe's stopped reads the config, one key at a time",
         [["lease", "a"], "|", PROBE, CONFIG[0]],
         { daemon: "starting", child: "none" }, ["run:voxtype config get audio.max_duration_secs", "run:voxtype config get audio.device"]],
-    ["the last start step starts the daemon and its follower",
+    ["the last start step removes the killed daemon's state file before the child starts",
         [["lease", "a"], PROBE, ...CONFIG, "|", ["ran", "directory", 0, ""]],
+        { daemon: "starting", child: "none" }, ["run:rm -f -- " + STATE_PATH]],
+    ["the clean step starts the daemon and its follower",
+        [["lease", "a"], PROBE, ...CONFIG, ["ran", "directory", 0, ""], "|", ["ran", "clean", 0, ""]],
         { daemon: "starting", child: "running" }, ["daemon", "follow"]],
     ["the follower's idle reads the daemon ready, with what the config and the line name",
         [...READY],
         { daemon: "ready", phase: "idle", holder: "", engine: "parakeet", model: "parakeet-tdt-0.6b-v3", device: "default" }, null],
     ["the follower's stopped, printed before the daemon holds its lock, is not ready",
-        [["lease", "a"], PROBE, ...CONFIG, ["ran", "directory", 0, ""], ["status", line("stopped")]],
+        [["lease", "a"], PROBE, ...CONFIG, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("stopped")]],
         { daemon: "starting" }, null],
     ["a second lease starts nothing",
         [...READY, "|", ["lease", "b"]],
@@ -77,7 +89,13 @@ const CASES = [
         [["lease", "a"], "|", ["ran", "probe", 1, ""]],
         { daemon: "failed", child: "none" }, ["log", "abort"]],
     ["a cap the config does not state fails the start",
-        [["lease", "a"], PROBE, ["ran", "audio.max_duration_secs", 0, "null\n"], ["ran", "audio.device", 0, "default\n"], "|", ["ran", "engine", 0, "parakeet\n"]],
+        [["lease", "a"], PROBE, ["ran", "audio.max_duration_secs", 0, "null\n"], CONFIG[1], CONFIG[2], CONFIG[3], CONFIG[4], "|", CONFIG[5]],
+        { daemon: "failed", child: "none" }, ["log", "abort"]],
+    ["an output mode outside voxtype's set fails the start",
+        [["lease", "a"], PROBE, CONFIG[0], CONFIG[1], CONFIG[2], ["ran", "output.mode", 0, "weird\n"], CONFIG[4], "|", CONFIG[5]],
+        { daemon: "failed", child: "none" }, ["log", "abort"]],
+    ["a boolean output override outside voxtype's set fails the start",
+        [["lease", "a"], PROBE, CONFIG[0], CONFIG[1], CONFIG[2], CONFIG[3], ["ran", "output.auto_submit", 0, "maybe\n"], "|", CONFIG[5]],
         { daemon: "failed", child: "none" }, ["log", "abort"]],
     ["a daemon that ends on its own reads failed",
         [...READY, "|", ["exited", 1]],
@@ -90,7 +108,14 @@ const CASES = [
         { holder: "" }, []],
     ["mode type records with voxtype's own output",
         [...READY, "|", ["start", "a", "type", "ok"]],
-        { holder: "a", mode: "type" }, ["run:voxtype record start"]],
+        { holder: "a", mode: "type" }, [TYPE_START]],
+    ["a start after a killed daemon reads starting until the new daemon's own word",
+        [["lease", "a"], PROBE, ...CONFIG, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("stopped")], "|",
+            ["start", "a", "type", "refused: dictation=daemon-starting"], ["status", line("idle")]],
+        { daemon: "ready", phase: "idle", holder: "" }, []],
+    ["a type start after a killed text recording passes the configured output",
+        [...TAKEN, ["exited", null], ["restart", "ok"], PROBE, ...CONFIG, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("idle")], "|", ["start", "a", "type", "ok"]],
+        { holder: "a", mode: "type" }, [TYPE_START]],
     ["mode text records to a file and arms the cancel a second before the cap",
         [...READY, "|", ["start", "a", "text", "ok"]],
         { holder: "a", mode: "text" }, ["timer=209000", TEXT_START]],
@@ -153,7 +178,7 @@ const CASES = [
         { holder: "" }, []],
     ["a daemon that took the start signal and never recorded reads idle after the stop",
         [...TAKEN, ["stop", "a", "ok"], ["ran", "stop", 3, answer("empty", "")], ["ran", "remove", 0, ""], read("idle"), "|", ["start", "a", "type", "ok"]],
-        { holder: "a", phase: "idle" }, ["run:voxtype record start"]],
+        { holder: "a", phase: "idle" }, [TYPE_START]],
     ["a stop the follower printed nothing for leaves the daemon's own word",
         [...READY, ["start", "a", "type", "ok"], ["ran", "start", 0, ""], ["stop", "a", "ok"], ["ran", "stop", 0, ""], "|", read("transcribing"),
             ["start", "a", "type", "refused: dictation=engine-busy state=transcribing"]],
@@ -211,7 +236,7 @@ const CASES = [
         { holder: "" }, ["log", CANCEL, REMOVE]],
     ["a type recording arms no deadline",
         [...READY, "|", ["start", "a", "type", "ok"], ["ran", "start", 0, ""]],
-        { holder: "a", timer: "none" }, ["run:voxtype record start"]],
+        { holder: "a", timer: "none" }, [TYPE_START]],
     ["a recording the daemon ended on its own is over",
         [...READY, ["start", "a", "type", "ok"], ["ran", "start", 0, ""], ["status", line("recording")], ["status", line("transcribing")], "|", ["status", line("idle")]],
         { holder: "", phase: "idle" }, []],
@@ -251,7 +276,7 @@ const word = e => e.kind === "run" ? "run:" + e.argv.join(" ") : e.kind === "tim
 
 function verify(M) {
     for (const [label, events, want, effects] of CASES) {
-        let model = M.initial(DIR), seen = null;
+        let model = M.initial(DIR, STATE_PATH), seen = null;
         for (const event of events) {
             if (event === "|") {
                 seen = [];
@@ -268,9 +293,9 @@ function verify(M) {
         for (const key of Object.keys(want)) assert.deepEqual(JSON.parse(JSON.stringify(got[key])), want[key], `${label}: ${key}`);
         if (effects !== null) assert.deepEqual(seen, effects, `${label}: effects`);
     }
-    assert.throws(() => M.release(M.initial(DIR), "a"), /release by a which holds none/, "a release with no lease is an error");
-    assert.throws(() => M.start(M.initial(DIR), "a", "type"), /start by a which holds no lease/, "a start with no lease is an error");
-    assert.deepEqual(Object.keys(JSON.parse(JSON.stringify(M.record(M.initial(DIR))))).sort(), ["child", "daemon", "holder", "holders", "mode"], "the lending record holds no path and no text");
+    assert.throws(() => M.release(M.initial(DIR, STATE_PATH), "a"), /release by a which holds none/, "a release with no lease is an error");
+    assert.throws(() => M.start(M.initial(DIR, STATE_PATH), "a", "type"), /start by a which holds no lease/, "a start with no lease is an error");
+    assert.deepEqual(Object.keys(JSON.parse(JSON.stringify(M.record(M.initial(DIR, STATE_PATH))))).sort(), ["child", "daemon", "holder", "holders", "mode"], "the lending record holds no path and no text");
 }
 
 verify(load(file));
@@ -283,10 +308,15 @@ const CONTROLS = [
     ["a release cancels that holder's recording", "    } else if (t.recording !== null && t.recording.holder === id) {\n        cancelRecording(t, effects, \"\");\n    }", "    }"],
     ["restart is refused while a recording runs", '    if (t.recording !== null) answer = "refused: dictation=busy holder=" + t.recording.holder;\n    else if (t.holders.length === 0)', "    if (t.holders.length === 0)"],
     ["a daemon elsewhere starts nothing", '        } else if (alt.word !== "stopped") {', "        } else if (false) {"],
+    ["today's reading of the old state file is removed before the child starts", '        step(s, effects, CLEAN);\n        return;', '        s.step = "child";\n        s.child = "running";\n        effects.push({ kind: "daemon" }, { kind: "follow" });\n        return;'],
     ["the deadline cancels a text recording", '        cancelRecording(t, effects, "");\n    } else if (timer === "grace"', '    } else if (timer === "grace"'],
     ["a text recording arms the deadline", '        setTimer(t, effects, "cap", (t.maxSecs - CAP_MARGIN_S) * 1000);\n', ""],
     ["the deadline is a second before the cap", "var CAP_MARGIN_S = 1;", "var CAP_MARGIN_S = 0;"],
     ["a text recording is written to a file", 'argv.push("--file=" + t.recording.path, ', "argv.push("],
+    ["today's carried override is replaced by type-start flags", '    } else if (mode === "type") {\n        argv = argv.concat(t.typeFlags);\n    }\n', ""],
+    ["the configured output mode selects the output flag", '        "--" + mode\n', '        "--type"\n'],
+    ["the boolean output config selects the auto-submit flag", '        autoSubmit === "true" ? "--auto-submit" : "--no-auto-submit",\n', '        autoSubmit === "true" ? "--no-auto-submit" : "--no-auto-submit",\n'],
+    ["a bad output mode config fails the start", '    if (OUTPUT_MODES.indexOf(mode) === -1) return "config output.mode=" + JSON.stringify(mode);\n', '    if (false) return "config output.mode=" + JSON.stringify(mode);\n'],
     ["a stop by another holder is refused", '    if (s.recording.holder !== id) return "refused: dictation=not-holder holder=" + s.recording.holder;\n', ""],
     ["the transcript's file is removed", '            if (r.mode === "text") run(effects, "remove", ["rm", "-f", "--", r.path, r.path + ".done"]);\n', ""],
     ["an ok answer with no words is empty", ' || (data.status === "ok" && data.text.trim() === "")', ""],
@@ -309,7 +339,7 @@ const CONTROLS = [
     ["a daemon that takes no cancel is ended at the grace", '        effects.push({ kind: "log", line: "dictation: cancel=unread state=" + t.status });\n        endChild(t, effects);', '        effects.push({ kind: "log", line: "dictation: cancel=unread state=" + t.status });'],
     ["a daemon that ends on its own fails", '        fail(t, effects, "ended code=" + (code === null ? "none" : code));\n', ""],
     ["the follower's stopped is not ready", '    if (word === "stopped") return { model: t, effects: effects };\n', ""],
-    ["an unreadable cap fails the start", "    if (!Number.isInteger(secs) || secs <= CAP_MARGIN_S) return false;\n", ""],
+    ["an unreadable cap fails the start", '    if (!Number.isInteger(secs) || secs <= CAP_MARGIN_S) return "config max_duration_secs=" + JSON.stringify(s.config["audio.max_duration_secs"]);\n', ""],
     ["the lending record names no path", "function record(s) {\n    return {\n", "function record(s) {\n    return {\n        path: s.recording === null ? \"\" : s.recording.path,\n"]
 ];
 const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "test-dictation-model-")));

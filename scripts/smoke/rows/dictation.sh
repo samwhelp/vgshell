@@ -31,15 +31,18 @@
 # - with the shell killed during a `text` recording, its runner stopped so
 #   that no shell comes back first, no stand-in process remains and the
 #   wtype stand-in recorded no call.
+# - the next daemon after that kill removes the killed daemon's state file
+#   before its child starts, reads `starting` while the new model loads,
+#   then replaces the killed text recording's file override on a `type`
+#   start;
 # Controls, each its own edit of one copy of the tree, started in place of
 # the tree: a probe that reads no daemon tries a second one, which the
 # stand-in refuses; a `text` start that arms no deadline reaches the cap,
 # which types; children started without the parent-death signal outlive
 # the killed shell, and the cap types; a last release that ends no child
 # leaves the daemon with no holder. A second copy, whose last release sends
-# no cancel, leaves the file override, and the next daemon's `type`
-# recording goes to a file and is not typed. The row ends with a fresh
-# shell of the tree, both fixtures disabled and the stand-ins put away.
+# no cancel, leaves the file override. The row ends with a fresh shell of
+# the tree, both fixtures disabled and the stand-ins put away.
 # Every poll is expect_poll's, one read each 0.2 s; no latency budget is
 # claimed.
 # inputs: scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/plugins/acme.dictation-other/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Capabilities.qml shell/Core/PluginLogic.js bin/vgshell-dictation bin/lib/voxtype.sh bin/lib/tui.sh config/voxtype/* scripts/smoke/rows/capabilities.sh
@@ -51,11 +54,13 @@ dictation_cap="$sandbox/voxtype-max-secs"
 dictation_notes="$sandbox/voxtype-daemon.log"
 dictation_typed="$sandbox/voxtype-wtype.log"
 dictation_deaf="$sandbox/voxtype-no-capture"
+dictation_loading="$sandbox/voxtype-loading"
+dictation_follow="$sandbox/voxtype-follow.log"
 mkdir -p "$dictation_fixture" "$dictation_other"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.dictation/." "$dictation_fixture/"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.dictation-other/." "$dictation_other/"
 printf '%s' 'the stand-in heard this' >"$dictation_words"
-rm -f -- "${dictation_cap:?}" "${dictation_notes:?}" "${dictation_typed:?}" "${dictation_deaf:?}"
+rm -f -- "${dictation_cap:?}" "${dictation_notes:?}" "${dictation_typed:?}" "${dictation_deaf:?}" "${dictation_loading:?}" "${dictation_follow:?}"
 
 dictate() { ipc "$1" invoke "$2" "${3:-}"; } # ID VERB [ARG]
 # A holder's reading of the capability's state: daemon, phase and the
@@ -72,6 +77,7 @@ dictation_files() {
 dictation_noted() { if [[ -s $dictation_notes ]]; then tr '\n' ' ' <"$dictation_notes" | sed 's/ $//'; echo; else echo none; fi; }
 dictation_wtype() { if [[ -s $dictation_typed ]]; then cat -- "$dictation_typed"; else echo none; fi; }
 dictation_forget() { rm -f -- "${dictation_notes:?}" "${dictation_typed:?}"; }
+dictation_follow_first() { if [[ -s $dictation_follow ]]; then sed -n '1p' "$dictation_follow"; else echo absent; fi; }
 # Whether the stand-in's file override, which outlives its daemon, is there.
 dictation_override() { if [[ -e $rt_dir/voxtype/output_mode_override ]]; then echo kept; else echo absent; fi; }
 dictation_none="daemon=0 follower=0 other=0 children=0"
@@ -378,6 +384,28 @@ expect "the killed shell's recording reached no wtype call" none dictation_wtype
 expect "the killed shell's daemon noted no cap" start dictation_noted
 dictation_reap_runner
 
+expect "the killed daemon left its state file" recording cat "$rt_dir/voxtype/state"
+expect "the killed text recording left its file override" kept dictation_override
+: >"$dictation_loading"
+rm -f -- "${dictation_follow:?}"
+start_shell "$repo" "$sandbox/dictation-after-kill.log"
+expect_poll "the next daemon and its follower run while the model loads" "$dictation_one" dictation_processes
+expect_poll "the next daemon's follower read no word of the killed one" stopped dictation_follow_first
+expect "a start while the next daemon loads is refused" "refused: dictation=daemon-starting" dictate acme.dictation start type
+expect "the holder reads the next daemon starting while it loads" "starting idle -" dictation_state acme.dictation
+rm -f -- "${dictation_loading:?}"
+expect_poll "the next daemon's own word reads it ready" "ready idle -" dictation_state acme.dictation
+dictation_forget
+expect "a type recording starts after the killed text recording" ok dictate acme.dictation start type
+expect_poll "the type recording after the kill runs" "ready recording acme.dictation" dictation_state acme.dictation
+expect "the type recording after the kill stops" ok dictate acme.dictation stop
+expect_poll "the type recording after the kill is typed" "-d 10 -- second turn" dictation_wtype
+expect_poll "the type stop after the kill hands over typed" '{"kind": "typed"}' dictation_last acme.dictation
+expect "the type recording after the kill wrote no file" "700 0" dictation_files
+expect_poll "the daemon is idle after the type recording after the kill" "ready idle -" dictation_state acme.dictation
+stop_shell || :
+expect_poll "the stand-ins from the after-kill shell are gone" "$dictation_none" dictation_processes
+
 # The controls, on one copy of the tree with one edit per rule.
 copy_tree dictation-controls
 dictation_edits=true
@@ -454,16 +482,6 @@ if edit_tree dictation-uncancelled shell/Core/DictationModel.js \
   expect_poll "control: the second copy's daemon ends" "$dictation_none" dictation_processes
   expect "control: the second copy's daemon ended with no cancel" "started start stopped" dictation_noted
   expect "control: a last release that sends no cancel leaves the file override" kept dictation_override
-  expect "control: enabling the fixture again on the second copy is allowed" ok ipc shell setPluginEnabled acme.dictation true
-  expect_poll "control: the second copy's next daemon reads ready" "ready idle -" dictation_state acme.dictation
-  expect "control: a type recording starts on that daemon" ok dictate acme.dictation start type
-  expect_poll "control: that type recording runs" "ready recording acme.dictation" dictation_state acme.dictation
-  expect "control: that type recording stops" ok dictate acme.dictation stop
-  expect_poll "control: the type recording's words go to the left override's file" "700 2" dictation_files
-  expect "control: the type recording is not typed" none dictation_wtype
-  expect_poll "control: the second copy's daemon is idle" "ready idle -" dictation_state acme.dictation
-  expect "control: disabling the fixture on the second copy is allowed" ok ipc shell setPluginEnabled acme.dictation false
-  expect_poll "control: the second copy's children are gone" "$dictation_none" dictation_processes
   stop_shell || :
   find "$dictation_dir" -mindepth 1 -delete
   rm -f -- "${rt_dir:?}/voxtype/output_mode_override"
@@ -474,4 +492,4 @@ expect "the fixture is disabled on the tree's shell" ok ipc shell setPluginEnabl
 expect_poll "the tree's shell holds no dictation after the controls" null lent holders.dictation
 expect_poll "the tree's shell runs no stand-in process" "$dictation_none" dictation_processes
 dictation_stand_ins off
-rm -f -- "${dictation_words:?}" "${dictation_notes:?}" "${dictation_typed:?}"
+rm -f -- "${dictation_words:?}" "${dictation_notes:?}" "${dictation_typed:?}" "${dictation_loading:?}" "${dictation_follow:?}"

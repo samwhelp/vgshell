@@ -16,7 +16,7 @@ Scope {
     // them: each id that enters is a lease and each that leaves a release.
     property var holders: []
     // Replaced whole on every event, so the provider's `state` is bindable.
-    property var model: Model.initial(Quickshell.env("XDG_RUNTIME_DIR") + "/vgshell/dictation")
+    property var model: Model.initial(Quickshell.env("XDG_RUNTIME_DIR") + "/vgshell/dictation", Quickshell.env("XDG_RUNTIME_DIR") + "/voxtype/state")
     // The commands the model asked for that have not started, oldest first.
     property var queue: []
     // The callback of the stop that waits, or null.

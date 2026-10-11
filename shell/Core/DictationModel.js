@@ -53,13 +53,18 @@ var PROBE = "probe";
 var STATE = "state";
 var STATUS_ARGV = ["voxtype", "status", "--format", "json"];
 var DIRECTORY = "directory";
-var CONFIG_KEYS = ["audio.max_duration_secs", "audio.device", "engine"];
+var CLEAN = "clean";
+var CONFIG_KEYS = ["audio.max_duration_secs", "audio.device", "engine", "output.mode", "output.auto_submit", "text.smart_auto_submit"];
+var OUTPUT_MODES = ["type", "clipboard", "paste", "file"];
 
 // DIR is the 0700 directory the `text` transcripts are written in.
-function initial(dir) {
+// STATE_PATH is voxtype's documented state_file=auto path, which a killed
+// daemon leaves behind because only a graceful shutdown removes it
+// (docs/CONFIGURATION.md, src/daemon.rs:4606).
+function initial(dir, statePath) {
     return {
-        dir: dir, holders: [], daemon: "absent", step: "", child: "none", timer: "none",
-        recording: null, files: 0, pending: 0, status: "idle", config: {}, maxSecs: 0, engine: "", model: "", device: ""
+        dir: dir, statePath: statePath, holders: [], daemon: "absent", step: "", child: "none", timer: "none",
+        recording: null, files: 0, pending: 0, status: "idle", config: {}, maxSecs: 0, engine: "", model: "", device: "", typeFlags: []
     };
 }
 
@@ -95,6 +100,7 @@ function steps(s) {
     for (var i = 0; i < CONFIG_KEYS.length; i++)
         out.push({ tag: CONFIG_KEYS[i], argv: ["voxtype", "config", "get", CONFIG_KEYS[i]] });
     out.push({ tag: DIRECTORY, argv: ["install", "-d", "-m", "700", "--", s.dir] });
+    out.push({ tag: CLEAN, argv: ["rm", "-f", "--", s.statePath] });
     return out;
 }
 
@@ -133,6 +139,7 @@ function step(s, effects, tag) {
 function begin(s, effects) {
     s.daemon = "starting";
     s.config = {};
+    s.typeFlags = [];
     if (s.child !== "none") s.step = "exit";
     else step(s, effects, PROBE);
 }
@@ -244,6 +251,8 @@ function start(s, id, mode) {
         t.recording.path = t.dir + "/" + t.files + ".txt";
         argv.push("--file=" + t.recording.path, "--no-auto-submit", "--no-smart-auto-submit", "--no-osd");
         setTimer(t, effects, "cap", (t.maxSecs - CAP_MARGIN_S) * 1000);
+    } else if (mode === "type") {
+        argv = argv.concat(t.typeFlags);
     }
     command(t, effects, "start", argv);
     return { model: t, effects: effects, answer: "ok" };
@@ -299,11 +308,26 @@ function transcript(code, out) {
 
 function configured(s) {
     var secs = Number(s.config["audio.max_duration_secs"]);
-    if (!Number.isInteger(secs) || secs <= CAP_MARGIN_S) return false;
+    if (!Number.isInteger(secs) || secs <= CAP_MARGIN_S) return "config max_duration_secs=" + JSON.stringify(s.config["audio.max_duration_secs"]);
+    var mode = s.config["output.mode"];
+    if (OUTPUT_MODES.indexOf(mode) === -1) return "config output.mode=" + JSON.stringify(mode);
+    var autoSubmit = s.config["output.auto_submit"];
+    if (autoSubmit !== "true" && autoSubmit !== "false") return "config output.auto_submit=" + JSON.stringify(autoSubmit);
+    var smartAutoSubmit = s.config["text.smart_auto_submit"];
+    if (smartAutoSubmit !== "true" && smartAutoSubmit !== "false") return "config text.smart_auto_submit=" + JSON.stringify(smartAutoSubmit);
     s.maxSecs = secs;
     s.device = s.config["audio.device"];
     s.engine = s.config.engine;
-    return true;
+    // `record start` writes these per-recording override files before it
+    // signals the daemon (src/app/record.rs:36-68). A killed recording can
+    // leave the prior files; voxtype clears them only at output, cancel,
+    // cap and reset (src/daemon.rs:2623, 2754).
+    s.typeFlags = [
+        autoSubmit === "true" ? "--auto-submit" : "--no-auto-submit",
+        smartAutoSubmit === "true" ? "--smart-auto-submit" : "--no-smart-auto-submit",
+        "--" + mode
+    ];
+    return "";
 }
 
 // One start step ended with CODE and OUT.
@@ -327,6 +351,14 @@ function stepped(s, effects, tag, code, out) {
         return;
     }
     if (tag === DIRECTORY) {
+        // voxtype writes its pid before it loads its model, and
+        // `status --follow` can read the old state while that pid lives
+        // (src/daemon_status.rs:160, src/app/status.rs). The new daemon's
+        // first own word comes only after the model load (src/daemon.rs:3329).
+        step(s, effects, CLEAN);
+        return;
+    }
+    if (tag === CLEAN) {
         s.step = "child";
         s.child = "running";
         effects.push({ kind: "daemon" }, { kind: "follow" });
@@ -335,8 +367,11 @@ function stepped(s, effects, tag, code, out) {
     s.config[tag] = text;
     var next = CONFIG_KEYS[CONFIG_KEYS.indexOf(tag) + 1];
     if (next !== undefined) step(s, effects, next);
-    else if (configured(s)) step(s, effects, DIRECTORY);
-    else fail(s, effects, "config max_duration_secs=" + JSON.stringify(s.config["audio.max_duration_secs"]));
+    else {
+        var problem = configured(s);
+        if (problem === "") step(s, effects, DIRECTORY);
+        else fail(s, effects, problem);
+    }
 }
 
 // The last record command of an ended recording ended: the daemon is read

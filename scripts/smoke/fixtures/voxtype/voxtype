@@ -11,8 +11,13 @@
 # the file override and types the words (src/daemon.rs:3995-4027). The
 # override outlives the daemon: only an output, a cancel and the cap
 # remove it, and a daemon start removes the cancel file alone
-# (src/daemon.rs:3044-3046). A recording's start consumes a cancel left
-# from before it (src/daemon.rs:1140-1148).
+# (src/daemon.rs:3044-3046). The state file outlives a SIGKILL too: only
+# a graceful end removes it (src/daemon.rs:4606), and a daemon writes its
+# first word only after its model loads (src/daemon.rs:3329), which the
+# stand-in holds while voxtype-loading exists. `record start` takes the
+# output and submit flags (src/cli/record.rs) and writes the output one as
+# the override. A recording's start consumes a cancel left from before it
+# (src/daemon.rs:1140-1148).
 #
 # Its daemon hears the words of $control/voxtype-words, never a
 # microphone, and types through the `wtype` stand-in beside this file,
@@ -21,7 +26,8 @@
 # voxtype-words and voxtype-max-secs, the cap `config get` answers, and
 # appends each thing its daemon did, one word a line, to
 # voxtype-daemon.log: started, start, stop, cancel, cap, stopped, and
-# refused for a second daemon. While voxtype-no-capture exists the daemon
+# refused for a second daemon; its status follower appends each state it
+# prints to voxtype-follow.log. While voxtype-no-capture exists the daemon
 # takes the start signal and records nothing, as one that cannot open its
 # capture device (start_recording_capture, src/daemon.rs:1136), and notes
 # no-capture.
@@ -95,13 +101,17 @@ run_daemon() {
     note refused
     exit 1
   fi
-  rm -f -- "${run:?}/state" "${run:?}/cancel"
+  rm -f -- "${run:?}/cancel"
   printf '%s\n' "$$" >"$lock"
-  set_state idle
-  note started
   trap on_start USR1
   trap on_stop USR2
-  trap 'note stopped; exit 0' TERM INT
+  trap 'rm -f -- "${run:?}/state"; note stopped; exit 0' TERM INT
+  note started
+  while [[ -e $control/voxtype-loading ]]; do
+    sleep "$POLL" &
+    wait "$!"
+  done
+  set_state idle
   while :; do
     if [[ $(cat -- "$run/state") == recording ]]; then
       if [[ -e $run/cancel ]]; then
@@ -154,7 +164,14 @@ record_start() { # ARG...
   local pid arg
   pid="$(daemon_pid)" || no_daemon
   for arg in "$@"; do
-    [[ $arg == --file=* ]] && printf 'file:%s' "${arg#--file=}" >"$override"
+    case "$arg" in
+      --file=*) printf 'file:%s' "${arg#--file=}" >"$override" ;;
+      --file) printf '%s' file >"$override" ;;
+      --type) printf '%s' type >"$override" ;;
+      --clipboard) printf '%s' clipboard >"$override" ;;
+      --paste) printf '%s' paste >"$override" ;;
+      *) ;;
+    esac
   done
   kill -USR1 "$pid"
 }
@@ -171,7 +188,10 @@ case "$*" in
     last=""
     while :; do
       now="$(state_now)"
-      [[ $now == "$last" ]] || state_json "$now"
+      if [[ $now != "$last" ]]; then
+        state_json "$now"
+        printf '%s\n' "$now" >>"$control/voxtype-follow.log"
+      fi
       last="$now"
       sleep "$POLL"
     done
@@ -192,7 +212,7 @@ case "$*" in
       if [[ $* == 'record stop' || $(state_now) == recording ]]; then kill -USR2 "$pid"; else kill -USR1 "$pid"; fi
     fi
     ;;
-  'record start --file='*) record_start "${@:3}" ;;
+  'record start --'*) record_start "${@:3}" ;;
   'record stop --wait --json --timeout '*) stop_wait ;;
   'record cancel')
     daemon_pid >/dev/null || no_daemon
@@ -202,6 +222,9 @@ case "$*" in
   'config get audio.max_duration_secs') max_secs ;;
   'config get audio.device') printf '%s\n' default ;;
   'config get engine') printf '%s\n' parakeet ;;
+  'config get output.mode') printf '%s\n' type ;;
+  'config get output.auto_submit') printf '%s\n' false ;;
+  'config get text.smart_auto_submit') printf '%s\n' false ;;
   'config get engine --json') printf '%s\n' '{"value":"parakeet"}' ;;
   'config get parakeet.model --json') printf '%s\n' '{"value":"parakeet-tdt-0.6b-v3"}' ;;
   'config get audio.feedback.enabled --json')
