@@ -27,10 +27,8 @@
     "add-pair": { "script": "tui/add-pair.sh", "title": "Add a folder pair", "requires": ["node", "gum"], "entry": { "label": "Add a folder pair", "icon": "folder-plus", "group": "Cloud Sync" } },
     "remove-pair": { "script": "tui/remove-pair.sh", "title": "Remove a folder pair", "requires": ["node", "gum"] },
     "reset-pairs": { "script": "tui/reset-pairs.sh", "title": "Start the folder pair list again", "requires": ["node", "gum"] },
-    "connect-drive": { "script": "tui/connect-drive.sh", "title": "Sign in for Download", "requires": ["node", "rclone", "secret-tool", "xdg-open", "curl"] },
-    "connect-upload": { "script": "tui/connect-upload.sh", "title": "Sign in for Upload", "requires": ["node", "rclone", "secret-tool", "xdg-open", "curl"] },
-    "sign-out-drive": { "script": "tui/sign-out-drive.sh", "title": "Sign out of Download", "requires": ["node", "secret-tool"] },
-    "sign-out-upload": { "script": "tui/sign-out-upload.sh", "title": "Sign out of Upload", "requires": ["node", "secret-tool"] }
+    "connect": { "script": "tui/connect.sh", "title": "Connect Google Drive", "requires": ["node", "rclone", "secret-tool", "xdg-open", "curl"] },
+    "sign-out": { "script": "tui/sign-out.sh", "title": "Sign out of Google Drive", "requires": ["node", "secret-tool"] }
   },
   "settings": {},
   "status": {
@@ -38,7 +36,7 @@
       "type": "state",
       "label": "Cloud Sync",
       "group": "Setup",
-      "info": "Cloud Sync copies the Google Drive folder of each Download folder pair to this computer, and the folder of each Upload folder pair to Google Drive. It runs every hour while you are logged in. It never deletes a file. A file you changed here, or that Google Drive removed, stays and shows in the Cloud Sync window for review."
+      "info": "Cloud Sync copies each folder pair both ways. Newer files win. It never deletes a file. Older copies on this computer stay in Cloud Sync records for 30 days. Older copies on Google Drive stay in the file version history for 30 days, up to 100 versions."
     },
     "schedule": {
       "type": "state",
@@ -56,39 +54,23 @@
         "reset": { "label": "Start the folder pair list again", "tui": "reset-pairs" }
       }
     },
-    "downloadKeys": {
+    "keys": {
       "type": "presenceList",
       "label": "Keys",
-      "group": "Download: Google Drive to this computer",
-      "hint": "Get a client ID and secret for each direction from Google Cloud credentials.",
+      "group": "Google Drive",
+      "hint": "Get one OAuth client ID of type Desktop app from Google Cloud credentials.",
       "link": { "text": "Google Cloud credentials", "url": "https://console.cloud.google.com/apis/credentials" },
-      "info": "In Google Cloud, create an OAuth client ID of type Desktop app for Download, and a second one for Upload. Add each client ID and secret in its group. Then select Sign in in each group. VGS stores every key in your keyring."
+      "info": "Add the client ID and secret. Then select Connect. VGS stores every key in your keyring."
     },
-    "download": {
+    "account": {
       "type": "state",
-      "label": "Sign-in",
-      "group": "Download: Google Drive to this computer",
+      "label": "Google Drive",
+      "group": "Google Drive",
+      "info": "Connect lets Cloud Sync read and change files in your Google Drive. It copies only your folder pairs and never deletes a file.",
       "actions": {
-        "signIn": { "label": "Sign in", "tui": "connect-drive" },
-        "reconnect": { "label": "Sign in again", "tui": "connect-drive" },
-        "signOut": { "label": "Sign out", "tui": "sign-out-drive", "tone": "danger" }
-      }
-    },
-    "uploadKeys": {
-      "type": "presenceList",
-      "label": "Keys",
-      "group": "Upload: this computer to Google Drive",
-      "hint": "Use a second client ID and secret for Upload.",
-      "info": "Use a second OAuth client ID of type Desktop app for Upload. It reaches only the files and folders that Cloud Sync made."
-    },
-    "upload": {
-      "type": "state",
-      "label": "Sign-in",
-      "group": "Upload: this computer to Google Drive",
-      "actions": {
-        "signIn": { "label": "Sign in", "tui": "connect-upload" },
-        "reconnect": { "label": "Sign in again", "tui": "connect-upload" },
-        "signOut": { "label": "Sign out", "tui": "sign-out-upload", "tone": "danger" }
+        "signIn": { "label": "Connect", "tui": "connect" },
+        "reconnect": { "label": "Connect again", "tui": "connect" },
+        "signOut": { "label": "Sign out", "tui": "sign-out", "tone": "danger" }
       }
     },
     "lastSync": { "type": "time", "label": "Last sync" },
