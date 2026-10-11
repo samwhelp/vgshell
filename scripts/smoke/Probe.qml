@@ -36,6 +36,26 @@ Scope {
         target: Capabilities.tuis
         function onPendingChanged() { root.traceRun("pending", Capabilities.tuis.pending.map(p => p.key)); }
     }
+    // The core's own time each TUI key went idle, which harness.sh's
+    // expect_run_end reads through tuiIdleAt. Busy is what key_idle reads
+    // from the same lending record: pending, or a run still running. The
+    // binding follows every property record() reads, so a key's stamp is
+    // taken in the change that idled it. Only a key seen busy gets a stamp,
+    // and a busy key holds none.
+    readonly property var tuiBusy: {
+        const t = Capabilities.tuis.record();
+        return t.pending.concat(Object.keys(t.runs).filter(key => t.runs[key].running !== null));
+    }
+    property var tuiBusyBefore: []
+    property var tuiIdleStamps: ({})
+    onTuiBusyChanged: {
+        const now = Date.now();
+        const stamps = Object.assign({}, tuiIdleStamps);
+        for (const key of tuiBusyBefore) if (tuiBusy.indexOf(key) === -1) stamps[key] = now;
+        for (const key of tuiBusy) delete stamps[key];
+        tuiIdleStamps = stamps;
+        tuiBusyBefore = tuiBusy;
+    }
     // The Jarvis self-test's trace (scripts/jarvis-selftest.sh). While
     // jarvisTraceBar names the bar that holds the Jarvis widget, each change
     // of the widget's state, of the Session phase and of the caption the
@@ -941,6 +961,12 @@ Scope {
             root.runTraceKey = "";
             root.runTraceEvents = [];
             return root.json(events);
+        }
+        // `busy` while KEY is busy, else the Date.now stamp of its last
+        // change to idle, `0` for a key idle since before the probe looked.
+        function tuiIdleAt(key: string): string {
+            if (root.tuiBusy.indexOf(key) !== -1) return "busy";
+            return String(root.tuiIdleStamps[key] ?? 0);
         }
         // The self-test's trace: begin over the bar HOSTKEY names, a mark
         // the runner sets at its input's start, and the events so far.

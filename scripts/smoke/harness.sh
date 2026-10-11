@@ -2928,24 +2928,55 @@ expect_within() { # LABEL READING WANT CEILING_MS CMD...
 }
 # A run ends in the core through one chain: the presenter exits and moves
 # its ended record into $rt_dir/vgshell/tui, the core's FolderListModel lists
-# the new name, a FileView reads the file, and TuiRunner's runs move, which
-# key_idle reads. expect_run_end LABEL KEY waits for KEY to read `idle`
-# within run_end_ceiling_ms and prints each reading as
-# latency_run_end_ms. A key still busy at the ceiling fails, and the row
-# prints what the record directory holds for the key beside the core's
-# view, so a run whose ended record is on disk while the core still reports
-# it running reads as a listing the core missed, not a slow presenter.
-# scripts/smoke/rows/tui.sh holds the controls: a run that never ends
-# fails the row at the ceiling, and so does an idle read that ends past it.
-# The ceiling is twice the highest of 108 readings,
-# 248 ms, from six runs of scripts/qml-smoke.sh on the owner's machine
-# (host cachy, AMD Ryzen 9 9950X) on 2026-09-29 at host load 4 to 9; the
-# median reading was 22 ms, a first poll that found the run already ended.
+# the new name, a FileView reads the file, and TuiRunner's runs move. The
+# probe stamps the moment the core's lending record shows the key idle,
+# idle as key_idle reads it (tuiIdleAt in scripts/smoke/Probe.qml).
+# expect_run_end LABEL KEY reads that stamp through run_idle_at every
+# 0.2 s and prints latency_run_end_ms, the core's idle stamp minus the time
+# of the call. The poll only fetches the stamp, so a slow read adds nothing
+# to the reading. A reading past
+# run_end_ceiling_ms fails, and so does a key that a read begun after the
+# ceiling still finds busy, printed as latency_run_end_ms=over. Both
+# clocks are CLOCK_REALTIME milliseconds. A failure prints what the record
+# directory holds for the key beside the core's view, so a run whose ended
+# record is on disk while the core still reports it running reads as a
+# listing the core missed, not a slow presenter. scripts/smoke/rows/tui.sh
+# holds the controls: a run that never ends fails, a run that ends past
+# the ceiling fails with its reading, and a run that ends in time passes
+# through a reader slower than the ceiling.
+# The ceiling is twice the highest of 108 poll readings, 248 ms, from six
+# runs of scripts/qml-smoke.sh on the owner's machine (host cachy, AMD
+# Ryzen 9 9950X) on 2026-09-29 at host load 4 to 9. On the same host, the
+# voice row's stage trace over 27 scripts/main-run.sh runs on main from
+# 2026-10-09 to 2026-10-11 (VGS-1336) shows the core read the run ended 2
+# to 87 ms after the presenter's end, median 3 ms, at cpu_some_pct 0.2 to
+# 11.1, while the poll's readings were 48 to 559 ms. Those poll readings
+# are no longer the reading.
 run_end_ceiling_ms=500
+run_idle_at() { ipc smoke tuiIdleAt "$1"; } # KEY
 expect_run_end() { # LABEL KEY
-  local failed_before="$failures"
-  expect_within "$1" run_end idle "$run_end_ceiling_ms" key_idle "$2"
-  [[ $failures -eq $failed_before ]] || run_end_records "$2"
+  local label="$1" key="$2" start began got reading err="$sandbox/reader-$BASHPID.stderr"
+  start="$(now_ms)"
+  while :; do
+    began="$(now_ms)"
+    if ! got="$(run_idle_at "$key" 2>"$err")"; then got="a failed read${got:+: $got}"; fi
+    reader_stderr "$label" "$err" || return 0
+    if [[ $got =~ ^[0-9]+$ ]]; then
+      reading=$(( got > start ? got - start : 0 ))
+      printf '  latency_run_end_ms=%d ceiling_ms=%d\n' "$reading" "$run_end_ceiling_ms"
+      if (( reading <= run_end_ceiling_ms )); then ok "$label"; return 0; fi
+      fail "$label: the core ended the run $reading ms after the call, past the ceiling of $run_end_ceiling_ms ms"
+      run_end_records "$key"
+      return 0
+    fi
+    if (( began - start > run_end_ceiling_ms )); then
+      printf '  latency_run_end_ms=over ceiling_ms=%d\n' "$run_end_ceiling_ms"
+      fail "$label: got $got from a read begun $(( began - start )) ms after the call, past the ceiling of $run_end_ceiling_ms ms"
+      run_end_records "$key"
+      return 0
+    fi
+    sleep 0.2
+  done
 }
 run_end_records() { # KEY
   local core
