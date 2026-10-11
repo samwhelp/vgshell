@@ -2313,6 +2313,16 @@ expect_poll "Delete marks the dismissed row's entry read" true entry_read "Keybo
 expect "Delete keeps the dismissed row in the history" True in_history "Keyboard third"
 expect_poll "the selection moves to the next row after Delete" "Keyboard second" panel_selected_summary
 expect_poll "the inbox list has focus after Delete removes a row" True panel_focus_on_list
+# The opened row's toast is gone and its entry stored: Delete on it marks
+# that entry read, the dismissal of a card whose toast already left.
+type_keys -k Up || fail "sending Up to the stored inbox row failed"
+expect_poll "Up selects the opened row, whose toast is gone" "Keyboard fourth" panel_selected_summary
+expect "the opened row has no toast" none key_of "Keyboard fourth"
+type_keys -k Delete || fail "sending Delete to the stored inbox row failed"
+expect_poll "Delete removes the stored row from the inbox" False has_row panel "Keyboard fourth"
+expect_poll "Delete marks the stored row's entry read" true entry_read "Keyboard fourth"
+expect_poll "the selection moves to the next row after the stored row's Delete" "Keyboard second" panel_selected_summary
+expect_poll "the inbox list has focus after Delete on the stored row" True panel_focus_on_list
 type_keys -k Right -k Return || fail "sending Right and Return to the inbox action pill failed"
 expect_poll "Return on a selected pill delivers its default action" 1 delivered "$keyboard_second_id" default
 expect_poll "Return on a selected pill takes its notification off the screen" none key_of "Keyboard second"
@@ -2374,8 +2384,40 @@ expect_poll "the entry dismissed in the Inbox is a History row" True has_row pan
 expect "a dismiss on its History card is allowed" left notes choose "{\"key\": \"$(history_key "Keyboard third")\", \"choice\": \"dismiss\"}"
 expect_poll "control: a History dismissal deletes the entry" False in_history "Keyboard third"
 expect "the History row of the deleted entry is gone" False has_row panel "Keyboard third"
+expect "the stored row's entry is a History row" True has_row panel "Keyboard fourth"
+expect "a dismiss on the stored row's History card is allowed" left notes choose "{\"key\": \"$(history_key "Keyboard fourth")\", \"choice\": \"dismiss\"}"
+expect_poll "the History dismissal deletes the stored row's entry" False in_history "Keyboard fourth"
 expect "the History over the read entry closes" ok notes close
 expect_poll "the History over the read entry closed" '""' read_notes panelMode
+# Must fail: a Service.qml copy whose dismissal of a stored Inbox row
+# deletes, as before the read mark. The same Delete on a row whose toast
+# left then leaves no history entry.
+service_qml="$repo/shell/plugins/vgs.notifications/Service.qml"
+cp -- "$service_qml" "$sandbox/Service.qml.kept"
+python3 - "$service_qml" <<'PY'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+needle = 'if (at === -1 && reason === "dismiss") store.dismissHistory(key, panelMode);'
+assert text.count(needle) == 1, "the stored row's dismissal occurs once"
+open(path, "w").write(text.replace(needle, 'if (at === -1 && reason === "dismiss") store.dismissHistory(key, "history");'))
+PY
+rescan "a rescan builds the deleting service copy"
+expect_poll "the deleting service copy is built" True record_exists vgs.notifications
+notify smoke-app 0 "Stored control" "" '[]' '{"urgency": <byte 1>}' 0 >/dev/null
+expect_poll "the control's toast shows" True has_row live "Stored control"
+expect "the control's toast is dismissed on screen" ok notes dismiss-all
+expect_poll "the control's toast has left" none key_of "Stored control"
+expect_poll "the control's entry is stored" True in_history "Stored control"
+expect "the inbox opens over the deleting service copy" ok notes inbox
+expect_poll "the inbox selects the control's stored row" "Stored control" panel_selected_summary
+type_keys -k Delete || fail "sending Delete to the deleting service copy failed"
+expect_poll "control: a service copy that deletes a stored Inbox row keeps no history entry" False in_history "Stored control"
+expect "the inbox over the deleting service copy closes" ok notes close
+expect_poll "the inbox over the deleting service copy closed" '""' read_notes panelMode
+cp -- "$sandbox/Service.qml.kept" "$service_qml"
+rescan "a rescan restores the real service"
+expect_poll "the restored service is built" True record_exists vgs.notifications
 
 # The notification sound, with a sound chosen for the event.
 note_sound_config="$home/.config/vgshell/shell.json"
