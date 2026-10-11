@@ -78,7 +78,7 @@ var CONFLICT_TEXT = {
     "both-changed": "Changed here and on Google Drive. The older copy is kept for 30 days.",
     "removed-locally": "Removed here. Cloud Sync copied it back from Google Drive.",
     "removed-on-drive": "Removed from Google Drive. The copy here stays.",
-    renamed: "Renamed on Google Drive"
+    renamed: "Renamed on Google Drive. The old name was copied back to Google Drive."
 };
 
 var PAIR_RULE_TEXT = {
@@ -511,7 +511,7 @@ function pairRow(pair, now) {
 // One conflict's row in the window: its path, and what happened.
 function conflictRow(conflict) {
     var what = conflictText(conflict.kind);
-    if (conflict.kind === "renamed") what += " to " + conflict.to;
+    if (conflict.kind === "renamed") what += " New name: " + conflict.to + ".";
     return { label: conflict.path, secondary: what, dirs: conflict.dirs };
 }
 

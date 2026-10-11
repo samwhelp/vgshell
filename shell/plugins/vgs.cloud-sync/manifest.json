@@ -4,7 +4,7 @@
   "name": "Cloud Sync",
   "version": "0.1.0",
   "author": "VanillaGreen",
-  "description": "Keep Google Drive folders on this computer, and send one folder to Google Drive.",
+  "description": "Keep Google Drive folders on this computer and in Google Drive. Cloud Sync copies both ways and never deletes a file.",
   "license": "MIT",
   "icon": "cloud-sync",
   "kinds": ["service", "bar-widget", "window"],

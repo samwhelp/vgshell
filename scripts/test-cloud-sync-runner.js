@@ -774,8 +774,8 @@ function caseInstall(runner) {
     assert.deepEqual(read(path.join(w.stub, "systemctl.calls")).trim().split("\n").slice(2), ["--user enable --now vgs-cloud-sync.timer", "--user start --no-block vgs-cloud-sync.service"]);
     write(path.join(unitDir, "vgs-cloud-sync.service"), service.replace(engines[0], "0000000000000000"));
     const s = status(w, runner);
-    assert.equal(s.units, "stale");
-    assert.deepEqual(s.attention.reasons, ["units-stale"]);
+    assert.equal(s.units, "installed");
+    assert.ok(read(path.join(unitDir, "vgs-cloud-sync.service")).includes(engines[0]));
 }
 
 // The words of one unit line's value as systemd reads them back, the

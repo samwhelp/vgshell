@@ -327,7 +327,7 @@ function verify(L) {
     for (const [label, rec, want] of footers) same(footer(rec), want, "footer: " + label);
     same(L.conflictGroups(cloud.conflicts).map(g => [g.label, g.rows.map(r => [r.label, r.secondary])]), [
         ["Documents", [["taxes/2025.xlsx", "Changed here and on Google Drive. The older copy is kept for 30 days."], ["old.txt", "Removed from Google Drive. The copy here stays."]]],
-        ["Agent uploads", [["a.txt", "Renamed on Google Drive to b.txt"]]]
+        ["Agent uploads", [["a.txt", "Renamed on Google Drive. The old name was copied back to Google Drive. New name: b.txt."]]]
     ]);
     same(L.conflictGroups(cloud.conflicts)[1].rows[0].dirs, ["/home/me/outbox"]);
 

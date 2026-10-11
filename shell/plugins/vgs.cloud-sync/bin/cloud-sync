@@ -125,6 +125,10 @@ function bad(first) {
     process.exit(2);
 }
 
+function stampOf(ms) {
+    return new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z") + "-" + process.pid;
+}
+
 function refuse(first) {
     process.stderr.write("cloud-sync: refused: " + first + "\n");
     process.exit(1);
@@ -424,8 +428,6 @@ function migratePairListIfNeeded() {
         const again = readJson(pairsFile);
         if (again.kind !== "ok" || !oldPairList(again.value)) return;
         const pairs = again.value.pairs.map(pair => ({ id: pair.id, label: pair.label, local: pair.local, remote: pair.remote }));
-        const error = pairsError(pairs);
-        if (error !== null) refuse(error);
         writeJson(pairsFile, { pairs: pairs });
         log("migration=pairs old=direction result=written");
     });
@@ -492,17 +494,27 @@ function migratePairStateIfNeeded(id) {
     const state = stateRead.kind === "ok" && plain(stateRead.value) ? Object.assign({}, stateRead.value) : {};
     const inventory = inventoryRead.kind === "ok" && plain(inventoryRead.value) && plain(inventoryRead.value.entries) ? inventoryRead.value.entries : {};
     const records = Array.isArray(state.records) ? state.records.slice() : [];
+    const migrationTime = Date.now();
+    const migratedStamp = stampOf(migrationTime);
     if (Array.isArray(state.localEdits)) {
         for (const edit of state.localEdits) {
             if (!plain(edit) || typeof edit.path !== "string" || typeof edit.stored !== "string") continue;
-            addRecord(records, { kind: "both-changed", path: edit.path, stored: edit.stored, since: typeof edit.at === "string" ? edit.at : now() });
+            const slash = edit.stored.indexOf("/");
+            const renamed = slash === -1 ? edit.stored : migratedStamp + edit.stored.slice(slash);
+            const oldFile = path.join(pairDir(id), "conflicts", edit.stored);
+            const newFile = path.join(pairDir(id), "conflicts", renamed);
+            if (fs.existsSync(oldFile) && oldFile !== newFile) {
+                fs.mkdirSync(path.dirname(newFile), { recursive: true });
+                fs.renameSync(oldFile, newFile);
+            }
+            addRecord(records, { kind: "both-changed", path: edit.path, stored: renamed, since: new Date(migrationTime).toISOString() });
         }
         delete state.localEdits;
     }
     for (const rel of Object.keys(inventory)) {
         const entry = inventory[rel];
         if (!plain(entry) || (entry.state !== "removed-on-drive" && entry.state !== "renamed")) continue;
-        addRecord(records, { kind: entry.state, path: rel, since: typeof entry.since === "string" ? entry.since : now(), to: entry.to });
+        addRecord(records, { kind: entry.state, path: rel, since: new Date(migrationTime).toISOString(), to: entry.to });
         delete entry.state;
         delete entry.since;
         delete entry.to;
@@ -623,6 +635,7 @@ function storeSecret(tool, account, value, extra = []) {
 function migrateCredentialsIfNeeded() {
     const tool = which("secret-tool");
     if (tool === null) return;
+    if (probeAccount(tool, "token").presence !== "absent") return;
     const oldPresence = OLD_ACCOUNTS.map(account => [account, probeAccount(tool, account).presence]);
     if (!oldPresence.some(row => row[1] !== "absent")) return;
     if (oldPresence.some(row => row[1] === "locked" || row[1] === "unavailable")) {
@@ -630,15 +643,20 @@ function migrateCredentialsIfNeeded() {
         log("migration=held reason=credential-" + row[1] + " account=" + row[0]);
         return;
     }
-    for (const part of ["client-id", "client-secret"]) {
+    const pull = ["pull-client-id", "pull-client-secret"].map(account => [account, readSecret(tool, account)]);
+    const upload = ["upload-client-id", "upload-client-secret"].map(account => [account, readSecret(tool, account)]);
+    const source = pull.every(row => row[1].kind === "found") ? pull : upload.every(row => row[1].kind === "found") ? upload : null;
+    if (source !== null) for (const [index, part] of ["client-id", "client-secret"].entries()) {
         if (probeAccount(tool, part).presence !== "absent") continue;
-        const from = ["pull-" + part, "upload-" + part].map(account => [account, readSecret(tool, account)]).find(row => row[1].kind === "found");
-        if (from === undefined) continue;
-        const stored = storeSecret(tool, part, from[1].value);
+        const stored = storeSecret(tool, part, source[index][1].value);
         if (!stored.ok) {
             log("migration=held reason=" + stored.reason + " account=" + stored.account);
             return;
         }
+    }
+    if (probeAccount(tool, "client-id").presence !== "present" || probeAccount(tool, "client-secret").presence !== "present") {
+        log("migration=held reason=credential-incomplete");
+        return;
     }
     for (const account of OLD_ACCOUNTS) {
         const cleared = clearAccountResult(tool, account);
@@ -707,7 +725,7 @@ function rclone(args, env, secrets, lock) {
 // ------------------------------------------------------- conflict records
 
 function recordKey(record) {
-    return record.kind + "\n" + record.path;
+    return record.kind + "\n" + record.path + "\n" + (record.stored || "");
 }
 
 function addRecord(records, record) {
@@ -771,6 +789,14 @@ function classifyBeforeCopy(pair, listing, inventory, records) {
     for (const item of listing) {
         byPath[item.Path] = item;
         if (item.ID) pathOfId[item.ID] = item.Path;
+    }
+    for (const item of listing) {
+        if (hasOwn(inventory, item.Path)) continue;
+        const local = localEntry(path.join(pair.local, item.Path));
+        if (local === null) continue;
+        const driveTime = Date.parse(item.ModTime);
+        const differs = item.Size !== local.size || (item.Size === local.size && md5File(path.join(pair.local, item.Path)) !== (plain(item.Hashes) ? item.Hashes.md5 : null));
+        if (differs && local.mtimeMs >= driveTime) addRecord(records, { kind: "both-changed", path: item.Path });
     }
     for (const rel of Object.keys(inventory).sort()) {
         const base = inventory[rel];
@@ -868,13 +894,19 @@ function nextInventory(pair, listing, before) {
         // Slides and Drawings with Size -1. They are exports, so a local
         // export file can differ in size and still belong to the baseline.
         const exportItem = item.Size === -1;
-        const matches = exportItem ? modTime === Math.floor(st.mtimeMs) : item.Size === st.size && modTime === Math.floor(st.mtimeMs);
         const old = hasOwn(before, item.Path) ? before[item.Path] : undefined;
-        const baseline = matches || exportItem ? { size: item.Size, mtimeMs: modTime, hash: md5, id: item.ID || null, export: exportItem || undefined } : old;
+        // After both copy legs, Drive's listed state is the agreed baseline
+        // whenever a local file exists. A later local save then reads as a
+        // local change against this Drive state, not as both sides changed.
+        const baseline = { size: item.Size, mtimeMs: modTime, hash: md5, id: item.ID || null, export: exportItem || undefined };
         if (baseline === undefined) continue;
         if (old === undefined) added += 1;
         else if (old.size !== baseline.size || old.mtimeMs !== baseline.mtimeMs || old.export !== baseline.export) updated += 1;
         entries[item.Path] = baseline;
+    }
+    for (const rel of Object.keys(before)) {
+        if (!before[rel].export || hasOwn(entries, rel) || !fs.existsSync(path.join(pair.local, rel))) continue;
+        entries[rel] = before[rel];
     }
     return { entries: entries, changes: { added: added, updated: updated } };
 }
@@ -938,6 +970,9 @@ function runPairSync(pair, state, env, secrets, lock) {
         const downloaded = rclone(["copy", "--update", remotePath(pair), pair.local, "--backup-dir", backup].concat(common), env, secrets, lock);
         state.records = classifyDisplaced(pair.id, inventory, state.records);
         if (!downloaded.ok) return rcloneFailed(state, downloaded);
+        // If a later leg fails, the downloaded mirror still agrees with
+        // Drive's first listing, so keep that baseline.
+        writeJson(path.join(pairDir(pair.id), "inventory.json"), { entries: nextInventory(pair, listing, inventory).entries });
     }
     const excludes = writeExportExcludeFile(pair, exportPaths(listing, inventory));
     const uploadArgs = ["copy", "--update", pair.local, remotePath(pair)].concat(filterArgs());
@@ -1085,24 +1120,36 @@ function ensureEngine(hash) {
     }
 }
 
-function installVerb(words) {
-    if (words.length !== 0) bad("argument=" + words[0]);
-    // The service shares its locks with the plugin and the command line
-    // through this directory, so a unit without it is never written.
-    if (lockDir === "") refuse("runtime-dir=unset");
+function writeInstall(existingOnly) {
     const hash = engineHash();
     ensureEngine(hash);
     const wanted = {};
     wanted[SERVICE] = serviceText(hash);
     wanted[TIMER] = timerText();
-    const changed = Object.keys(wanted).filter(name => readText(path.join(unitDir, name)) !== wanted[name]);
+    const names = Object.keys(wanted).filter(name => !existingOnly || readText(path.join(unitDir, name)) !== null);
+    const changed = names.filter(name => readText(path.join(unitDir, name)) !== wanted[name]);
     for (const name of changed) writeAtomic(path.join(unitDir, name), wanted[name], 0o644);
     if (changed.length > 0) systemctl(["daemon-reload"]);
-    systemctl(["enable", "--now", TIMER]);
-    for (const name of fs.readdirSync(engineRoot))
+    if (!existingOnly || names.indexOf(TIMER) !== -1) systemctl(["enable", "--now", TIMER]);
+    for (const name of fs.existsSync(engineRoot) ? fs.readdirSync(engineRoot) : [])
         if (name !== hash) fs.rmSync(path.join(engineRoot, name), { recursive: true, force: true });
+    return changed.length;
+}
+
+function refreshStaleInstallIfNeeded() {
+    if (unitsState() !== "stale") return;
+    if (readText(path.join(unitDir, SERVICE)) === null && readText(path.join(unitDir, TIMER)) === null) return;
+    writeInstall(true);
+}
+
+function installVerb(words) {
+    if (words.length !== 0) bad("argument=" + words[0]);
+    // The service shares its locks with the plugin and the command line
+    // through this directory, so a unit without it is never written.
+    if (lockDir === "") refuse("runtime-dir=unset");
+    const changed = writeInstall(false);
     withStateLock(writeStatus);
-    process.stdout.write("installed=" + TIMER + " changed=" + changed.length + "\n");
+    process.stdout.write("installed=" + TIMER + " changed=" + changed + "\n");
 }
 
 // ----------------------------------------------------------------- status
@@ -1503,6 +1550,7 @@ const verb = process.argv[2];
 const rest = process.argv.slice(3);
 migratePairListIfNeeded();
 migratePairStatesIfNeeded();
+if (verb !== "install") refreshStaleInstallIfNeeded();
 switch (verb) {
 case "run": runVerb(rest); break;
 case "status": statusVerb(rest); break;
