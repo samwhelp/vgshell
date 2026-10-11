@@ -368,7 +368,7 @@ kendex_home() { # DIR
 # workflow_get DIR EXPR: EXPR of DIR's own fleet state, read by DIR's own
 # workflow-state.
 workflow_get() { (cd -- "$1" && env -i PATH="$path" "$BASH" .agents/skills/orch/scripts/workflow-state get oversee "$2" 2>>"$tmp/err"); }
-# lane_send DIR FILE: the text in FILE sent to the master session's mailbox
+# lane_send DIR FILE: the text in FILE sent to the Jarvis session's mailbox
 # in DIR by DIR's own lane-mail.
 lane_send() { # DIR FILE
   (cd -- "$1" && env -i PATH="$path" "$BASH" .agents/skills/orch/scripts/lane-mail send --item overseer --directive \
@@ -387,9 +387,9 @@ holds "a write under the home copy's state/ leaves the named folder byte for byt
 control plant "a runner whose home copy is the folder itself" '  cp -a -- "$1" "$2"' '  ln -s -- "$1" "$2"' home_untouched
 control plant "a runner whose home copy lies outside the sandbox's HOME" '  home_copy="$home/jarvis-home"' '  home_copy="$sandbox/jarvis-home"' home_untouched
 control plant "a runner whose settings name the folder itself" '"$devices_voice_feed_source" "$home_copy" "$voice"' '"$devices_voice_feed_source" "$home_source" "$voice"' home_untouched
-# The master session's mailbox in the home copy: the run reads it before
-# Jarvis starts, as the master does, which makes it where the folder has
-# none and leaves no row the folder held to be taken as the turn's.
+# The Jarvis session's mailbox in the home copy: the run reads it before
+# Jarvis starts, as the Jarvis session does, which makes it where the folder
+# has none and leaves no row the folder held to be taken as the turn's.
 mail_row='{"id":"1791633000-1-1","text":"an earlier request"}'
 mail_made() {
   make_folder
@@ -943,7 +943,7 @@ holds "the run records an overseer in the home copy alone" overseer_copy
 control plant "a runner that records no overseer in the home copy" '  selftest_overseer "$home_copy" || stopped overseer-unrecorded' '  :' overseer_copy
 # hands HOME TEXT_JSON: the text TEXT_JSON spells as a JSON string, which
 # can hold half of a surrogate pair as a model's call can, handed to the
-# master session's mailbox in HOME by the plugin's guidance executor with
+# Jarvis session's mailbox in HOME by the plugin's guidance executor with
 # HOME's kendex mail tool, as Jarvis hands a request; prints its answer.
 hands() { # HOME TEXT_JSON
   env -i PATH="$path" HOME="$world" "$node_bin" - "$repo" "$@" <<'JS'
@@ -952,7 +952,7 @@ hands() { # HOME TEXT_JSON
     const backend = path.join(tree, "shell/plugins/vgs.jarvis/backend");
     require(path.join(backend, "Core.js")).use(tree);
     require(path.join(backend, "ComputerHelp.js")).create(undefined, null, () => home, process.env)
-        .start({ id: "master.request", args: { text: JSON.parse(text) } }, answer => {
+        .start({ id: "fleet.request", args: { text: JSON.parse(text) } }, answer => {
             if (answer.outcome !== "completed") { process.stderr.write(JSON.stringify(answer) + "\n"); process.exitCode = 1; }
             else console.log(answer.content);
         });
@@ -981,7 +981,7 @@ rows = json.load(open(sys.argv[1]))["mailbox"]
 sys.exit(not (len(rows) == 1 and rows[0]["text"] == "Rebase the lanes.\nThen report �." and rows[0]["id"] in sys.argv[2]))
 PY
 }
-holds "a request Jarvis's executor hands over during the turn is in the record, as the master's reader prints it" finish_mail
+holds "a request Jarvis's executor hands over during the turn is in the record, as the Jarvis session's reader prints it" finish_mail
 control cut_functions "a verdict that reads no mailbox" '    mailbox="$(selftest_mailbox "$tree" "$home_copy")" || stopped mailbox-unread' '    :' finish_mail
 control cut_functions "a reader of another lane's mailbox" 'inbox --item overseer' 'inbox --item other' finish_mail
 

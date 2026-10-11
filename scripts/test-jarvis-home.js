@@ -444,7 +444,7 @@ world(() => {
             fs.writeFileSync(git, "gitdir: /elsewhere/.git/worktrees/home\n");
             assert.equal(Home.mailTool(folder), path.join(folder, TOOL), "a worktree's .git file");
         },
-        // The master session's mailbox folder, which Jarvis never makes: a
+        // The Jarvis session's mailbox folder, which Jarvis never makes: a
         // folder at its place, reached through no link.
         mailbox(Home) {
             const folder = fresh();
@@ -460,7 +460,7 @@ world(() => {
             assert.equal(Home.mailbox(folder), false, "a linked mailbox");
             fs.rmSync(path.join(folder, "tmp/lane-mail/overseer"));
             fs.mkdirSync(path.join(folder, "tmp/lane-mail/overseer"));
-            assert.equal(Home.mailbox(folder), true, "the master's mailbox folder");
+            assert.equal(Home.mailbox(folder), true, "the Jarvis session's mailbox folder");
             assert.deepEqual(fs.readdirSync(path.join(folder, "tmp/lane-mail/overseer")), [], "nothing is made in it");
         }
     };

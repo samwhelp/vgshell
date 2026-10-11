@@ -165,7 +165,7 @@ function create({ session, state, dispatch, context, audit, result }) {
      * optional available() must return literal true at offer, route and start.
      * The guidance executor's optional topics() lists the help topics it can
      * read now, each one the help row's own rule admits, and its optional
-     * fleet() must return literal true at offer for the master.request row.
+     * fleet() must return literal true at offer for the fleet.request row.
      */
     function register(id, executor) {
         if (closed || registry.has(id) || !Object.values(Tools.TABLE).some(row => row.executor === id)
@@ -187,13 +187,13 @@ function create({ session, state, dispatch, context, audit, result }) {
     }
 
     // A harness program proposes its own actions; no brain is offered them.
-    // Nor the master.request row while the home holds no mail tool to hand
+    // Nor the fleet.request row while the home holds no mail tool to hand
     // it with. Other rows depend on their executor's own availability.
     function offer() {
         if (closed) return [];
         const fleet = registry.get("guidance")?.fleet;
         return Object.entries(Tools.TABLE).filter(([id, row]) => row.proposer === undefined && available(row) !== null
-                && (id !== "master.request" || fleet === undefined || fleet() === true))
+                && (id !== "fleet.request" || fleet === undefined || fleet() === true))
             .map(([id, row]) => {
                 const parameters = structuredClone(row.schema);
                 if (id === "help" && registry.get("guidance").topics !== undefined) {
@@ -231,7 +231,7 @@ function create({ session, state, dispatch, context, audit, result }) {
         if (refined.kind === "refuse") return refuse(value, refined.reason);
         value.call = refined.call;
         value.refined = refined;
-        // One request reaches the master for what the user said in a turn.
+        // One request a turn reaches the Jarvis session.
         if (row.once === true && spent.has(turn.gen + ":" + turn.op + ":" + value.call.id)) return refuse(value, "turn-limit");
         value.executor = available(refined);
         if (value.executor === null) return refuse(value, "executor-unavailable");

@@ -170,11 +170,11 @@ esac
         const mail = fleetHome();
         let chosen = mail.folder;
         w.router.register("guidance", Help.create(undefined, null, () => chosen, mail.environment));
-        const offered = () => w.router.offer().some(row => row.id === "master.request");
+        const offered = () => w.router.offer().some(row => row.id === "fleet.request");
         let at = 0;
         // The call, then the user's Confirm key once the draw guard has passed.
         const ask = text => {
-            assert.equal(w.call("master.request", { text }).kind, "held", "a request for the master waits for the user");
+            assert.equal(w.call("fleet.request", { text }).kind, "held", "a request for the Jarvis session waits for the user");
             w.show(); w.time(at += 700);
         };
         const confirmed = async () => {
@@ -188,7 +188,7 @@ esac
         };
         const hand = (text, mode = "ok") => { mail.mode(mode); ask(text); return confirmed(); };
         const turn = () => { w.dispatch({ type: "stop" }); w.newTurn(); };
-        assert.equal(offered(), false, "no mail tool, no master.request row");
+        assert.equal(offered(), false, "no mail tool, no fleet.request row");
         mail.install(0o755);
         mail.mailbox();
         assert.equal(offered(), false, "a home inside another repository, with none of its own, offers none");
@@ -197,9 +197,9 @@ esac
         assert.equal(offered(), false, "a mail tool without its execute bit offers none");
         mail.install(0o755);
         fs.rmSync(path.join(mail.folder, "tmp"), { recursive: true });
-        assert.equal(offered(), false, "no mailbox yet: no master session has read this folder's mail");
+        assert.equal(offered(), false, "no mailbox yet: no Jarvis session has read this folder's mail");
         mail.mailbox();
-        assert.equal(offered(), true, "the home's mail tool and the master's mailbox offer the row");
+        assert.equal(offered(), true, "the home's mail tool and the Jarvis session's mailbox offer the row");
         const [outcome, content] = await hand("Rebase the lanes.\nThen report.");
         assert.equal(outcome, "completed");
         assert.deepEqual(mail.rows(), ["row-1"]);
@@ -220,15 +220,15 @@ esac
         assert.deepEqual(calls[2].argv.slice(0, 5), ["events", "--box", "to-lane", "--after", "0"], "the read-back starts past the count");
         assert.deepEqual(calls[1].env, { HOME: mail.environment.HOME, LC_ALL: "C.UTF-8", PATH: mail.environment.PATH,
             GIT_CEILING_DIRECTORIES: path.dirname(mail.folder) }, "lane-mail gets the variables it reads, no key, and git stays in the home");
-        assert.deepEqual(w.call("master.request", { text: "And one more." }), { kind: "refuse", reason: "turn-limit" }, "a second request in one turn");
+        assert.deepEqual(w.call("fleet.request", { text: "And one more." }), { kind: "refuse", reason: "turn-limit" }, "a second request in one turn");
         turn();
         assert.equal((await hand("Next turn."))[0], "completed", "the next turn hands one again");
         assert.deepEqual(mail.rows(), ["row-1", "row-2"]);
         assert.equal(mail.calls()[2].argv[4], "1", "the read-back starts past the rows before");
         turn();
-        assert.deepEqual(await hand("No master.", "refuse"), ["failed", "master-request:overseer-absent"], "lane-mail's refusal by its key");
-        assert.deepEqual(await hand("Unkeyed.", "unkeyed"), ["failed", "master-request:send-refused"]);
-        assert.deepEqual(await hand("Not counted.", "unread"), ["failed", "master-request:lane-foreign"], "a mailbox that cannot be counted is not written");
+        assert.deepEqual(await hand("No overseer.", "refuse"), ["failed", "fleet-request:overseer-absent"], "lane-mail's refusal by its key");
+        assert.deepEqual(await hand("Unkeyed.", "unkeyed"), ["failed", "fleet-request:send-refused"]);
+        assert.deepEqual(await hand("Not counted.", "unread"), ["failed", "fleet-request:lane-foreign"], "a mailbox that cannot be counted is not written");
         assert.deepEqual(mail.calls().map(call => call.argv[0]), ["events"]);
         assert.equal((await hand("Tried again."))[0], "completed", "a call that failed leaves the turn its one request");
         turn();
@@ -239,29 +239,29 @@ esac
         assert.deepEqual([repeated[0], repeated[1].includes("row-1")], ["completed", true], "a duplicate that reads back is handed");
         assert.deepEqual(mail.calls()[2].argv.slice(0, 5), ["events", "--box", "to-lane", "--after", "0"], "a duplicate reads back the whole mailbox");
         assert.equal(mail.rows().length, 3, "a duplicate adds no row");
-        assert.equal(w.call("master.request", { text: "After it." }).reason, "turn-limit", "a duplicate counts as the turn's request");
+        assert.equal(w.call("fleet.request", { text: "After it." }).reason, "turn-limit", "a duplicate counts as the turn's request");
         turn();
         for (const [mode, label] of [["silent", "an exit 0 with no receipt"], ["lost", "a receipt whose row does not read back"], ["failed-exit", "a receipt beside a failed exit"],
             ["duplicate-gone", "a duplicate whose row does not read back"]]) {
             assert.equal((await hand("Maybe.", mode))[0], "unknown", label + " is not reported as handed");
-            assert.equal(w.call("master.request", { text: "After it." }).reason, "turn-limit", label + ": a request that may have landed counts");
+            assert.equal(w.call("fleet.request", { text: "After it." }).reason, "turn-limit", label + ": a request that may have landed counts");
             turn();
         }
         mail.mode("ok");
         ask("Gone before the press.");
         mail.remove();
-        assert.deepEqual(await confirmed(), ["failed", "master-request:mail-tool-absent"], "the tool is found again at the start");
+        assert.deepEqual(await confirmed(), ["failed", "fleet-request:mail-tool-absent"], "the tool is found again at the start");
         turn();
         mail.install(0o755);
         ask("No repository at the press.");
         mail.unrepository();
-        assert.deepEqual(await confirmed(), ["failed", "master-request:mail-tool-absent"], "the home's own repository is found again at the start");
+        assert.deepEqual(await confirmed(), ["failed", "fleet-request:mail-tool-absent"], "the home's own repository is found again at the start");
         assert.deepEqual(mail.calls(), [], "no run in a home that is no repository of its own");
         turn();
         mail.repository();
         chosen = null;
-        assert.equal(offered(), false, "no home, no master.request row");
-        assert.deepEqual(await hand("No home."), ["failed", "master-request:home-unchosen"]);
+        assert.equal(offered(), false, "no home, no fleet.request row");
+        assert.deepEqual(await hand("No home."), ["failed", "fleet-request:home-unchosen"]);
     }
     async function browserHelp(implementation) {
         browserFixture.mode({});
@@ -694,27 +694,27 @@ esac
             assert.deepEqual(topics(), ["input", "shell", "vision"], "no home, no home topic");
             assert.deepEqual(read("own/alpha").slice(0, 2), ["failed", "help-read:help-topic-unavailable"]);
         }],
-        // A request for the master session: offered while the home holds the
+        // A request for the Jarvis session: offered while the home holds the
         // kendex mail tool, held for the user's confirmation, and handed with
         // that tool, run by argv in the home with a picked environment and
         // the text in a private file, then answered by what its read-back
         // shows. A turn hands one; a call that failed added none, so the turn
         // may try again, and one that may have added a row counts.
-        ["master-request", (implementation, _folder, Help = require(path.join(backend, "ComputerHelp.js"))) => {
+        ["fleet-request", (implementation, _folder, Help = require(path.join(backend, "ComputerHelp.js"))) => {
             // A mask that leaves a file readable by others, so only the
             // request's own mode keeps its text private.
             const mask = process.umask(0o022);
             return masterRequest(implementation, Help).finally(() => process.umask(mask));
         }],
         // A send that never ends is ended by its bound and may have acted.
-        ["master-request-bound", async (implementation, _folder, Help = require(path.join(backend, "ComputerHelp.js"))) => {
+        ["fleet-request-bound", async (implementation, _folder, Help = require(path.join(backend, "ComputerHelp.js"))) => {
             const w = make(implementation);
             const mail = fleetHome();
             mail.install(0o755);
             mail.repository();
             mail.mode("hang");
             w.router.register("guidance", Help.create(undefined, null, () => mail.folder, mail.environment));
-            assert.equal(w.call("master.request", { text: "Hang." }).kind, "held");
+            assert.equal(w.call("fleet.request", { text: "Hang." }).kind, "held");
             w.show(); w.time(700);
             const before = w.results.length;
             w.confirm();
@@ -925,12 +925,12 @@ esac
             ["approval-size", "Buffer.byteLength(text) > RESULT_BYTES", "false", "approval-size"],
             ["result-size", "bytes.length <= RESULT_BYTES", "true", "result-size"],
             ["home-whole", 'labels.includes("home") || bytes.length <= RESULT_BYTES', "bytes.length <= RESULT_BYTES", "home-help"],
-            ["fleet-offer", '(id !== "master.request" || fleet === undefined || fleet() === true)', "true", "master-request"],
-            ["once-limit", 'if (row.once === true && spent.has(turn.gen + ":" + turn.op + ":" + value.call.id)) return refuse(value, "turn-limit");', "", "master-request"],
-            ["once-failed", ' && e.outcome !== "failed")', ")", "master-request"],
+            ["fleet-offer", '(id !== "fleet.request" || fleet === undefined || fleet() === true)', "true", "fleet-request"],
+            ["once-limit", 'if (row.once === true && spent.has(turn.gen + ":" + turn.op + ":" + value.call.id)) return refuse(value, "turn-limit");', "", "fleet-request"],
+            ["once-failed", ' && e.outcome !== "failed")', ")", "fleet-request"],
             ["once-turn", [['spent.has(turn.gen + ":" + turn.op + ":" + value.call.id)', "spent.has(value.call.id)"],
                 ['spent.add(value.turn.gen + ":" + value.turn.op + ":" + value.call.id);', "spent.add(value.call.id);"],
-                ["            spent.clear();\n", ""]], null, "master-request"],
+                ["            spent.clear();\n", ""]], null, "fleet-request"],
             ["final-timeout", 'const final = state().action.kind === "none";', "const final = true;", "timeout-and-cleanup"],
             ["final-field", 'outcome, final, kind: "tool-results",', 'outcome, final: false, kind: "tool-results",', "allow"],
             ["unavailable-executor", 'if (value.executor === null) return refuse(value, "executor-unavailable");',
@@ -956,29 +956,29 @@ esac
             ["home-topics", "ComputerHelp.js", "topics: () => shipped.concat(skills(home())),", "topics: () => shipped,", "ComputerHelp.js"],
             ["home-unchosen", "ComputerHelp.js", 'if (folder === null) throw new Error("help-topic-unavailable");', "", "ComputerHelp.js"],
             ["home-skill-empty", "ComputerHelp.js", '                    if (text === "") throw new Error("help-file-empty");\n', "", "ComputerHelp.js"],
-            ["request-tool", "ComputerHelp.js", "return folder !== null && Home.mailTool(folder) !== null && Home.mailbox(folder);", "return folder !== null && Home.mailbox(folder);", "ComputerHelp.js", "master-request"],
-            ["request-mailbox", "ComputerHelp.js", "return folder !== null && Home.mailTool(folder) !== null && Home.mailbox(folder);", "return folder !== null && Home.mailTool(folder) !== null;", "ComputerHelp.js", "master-request"],
-            ["request-own-repository", "Home.js", "    if (own !== true) return null;\n", "", "ComputerHelp.js", "master-request"],
-            ["request-ceiling", "ComputerHelp.js", 'const env = { LC_ALL: "C.UTF-8", GIT_CEILING_DIRECTORIES: path.dirname(folder) };', 'const env = { LC_ALL: "C.UTF-8" };', "ComputerHelp.js", "master-request"],
-            ["request-duplicate", "ComputerHelp.js", "        if (duplicate !== undefined) {", "        if (false) {", "ComputerHelp.js", "master-request"],
-            ["request-duplicate-whole", "ComputerHelp.js", '            after = "0";\n', "", "ComputerHelp.js", "master-request"],
-            ["request-unchosen", "ComputerHelp.js", 'if (folder === null) return failed("home-unchosen");', "", "ComputerHelp.js", "master-request"],
-            ["request-found-again", "ComputerHelp.js", 'if (tool === null) return failed("mail-tool-absent");', "", "ComputerHelp.js", "master-request"],
-            ["request-counted", "ComputerHelp.js", 'if (header === null) return failed(refusal(counted, "mailbox-unread"));', "", "ComputerHelp.js", "master-request"],
-            ["request-refusal-key", "ComputerHelp.js", 'return failed(refusal(sent, "send-refused"));', 'return failed("send-refused");', "ComputerHelp.js", "master-request"],
-            ["request-refused-failed", "ComputerHelp.js", "sent.code !== null && sent.code !== 0 && id === undefined", "false", "ComputerHelp.js", "master-request"],
-            ["request-receipt-exit", "ComputerHelp.js", "sent.code !== 0 || id === undefined", "id === undefined", "ComputerHelp.js", "master-request"],
-            ["request-read-back", "ComputerHelp.js", "JSON.parse(line).id === id", "true", "ComputerHelp.js", "master-request"],
-            ["request-after-count", "ComputerHelp.js", "let after = header[1];", 'let after = "0";', "ComputerHelp.js", "master-request"],
+            ["request-tool", "ComputerHelp.js", "return folder !== null && Home.mailTool(folder) !== null && Home.mailbox(folder);", "return folder !== null && Home.mailbox(folder);", "ComputerHelp.js", "fleet-request"],
+            ["request-mailbox", "ComputerHelp.js", "return folder !== null && Home.mailTool(folder) !== null && Home.mailbox(folder);", "return folder !== null && Home.mailTool(folder) !== null;", "ComputerHelp.js", "fleet-request"],
+            ["request-own-repository", "Home.js", "    if (own !== true) return null;\n", "", "ComputerHelp.js", "fleet-request"],
+            ["request-ceiling", "ComputerHelp.js", 'const env = { LC_ALL: "C.UTF-8", GIT_CEILING_DIRECTORIES: path.dirname(folder) };', 'const env = { LC_ALL: "C.UTF-8" };', "ComputerHelp.js", "fleet-request"],
+            ["request-duplicate", "ComputerHelp.js", "        if (duplicate !== undefined) {", "        if (false) {", "ComputerHelp.js", "fleet-request"],
+            ["request-duplicate-whole", "ComputerHelp.js", '            after = "0";\n', "", "ComputerHelp.js", "fleet-request"],
+            ["request-unchosen", "ComputerHelp.js", 'if (folder === null) return failed("home-unchosen");', "", "ComputerHelp.js", "fleet-request"],
+            ["request-found-again", "ComputerHelp.js", 'if (tool === null) return failed("mail-tool-absent");', "", "ComputerHelp.js", "fleet-request"],
+            ["request-counted", "ComputerHelp.js", 'if (header === null) return failed(refusal(counted, "mailbox-unread"));', "", "ComputerHelp.js", "fleet-request"],
+            ["request-refusal-key", "ComputerHelp.js", 'return failed(refusal(sent, "send-refused"));', 'return failed("send-refused");', "ComputerHelp.js", "fleet-request"],
+            ["request-refused-failed", "ComputerHelp.js", "sent.code !== null && sent.code !== 0 && id === undefined", "false", "ComputerHelp.js", "fleet-request"],
+            ["request-receipt-exit", "ComputerHelp.js", "sent.code !== 0 || id === undefined", "id === undefined", "ComputerHelp.js", "fleet-request"],
+            ["request-read-back", "ComputerHelp.js", "JSON.parse(line).id === id", "true", "ComputerHelp.js", "fleet-request"],
+            ["request-after-count", "ComputerHelp.js", "let after = header[1];", 'let after = "0";', "ComputerHelp.js", "fleet-request"],
             ["request-environment", "ComputerHelp.js", "for (const name of MAIL_ENVIRONMENT) if (environment[name] !== undefined) env[name] = environment[name];",
-                "Object.assign(env, environment);", "ComputerHelp.js", "master-request"],
-            ["request-folder", "ComputerHelp.js", "{ env, cwd: folder,", "{ env,", "ComputerHelp.js", "master-request"],
-            ["request-root", "ComputerHelp.js", '"--item", "overseer", "--root", folder]', '"--item", "overseer"]', "ComputerHelp.js", "master-request"],
-            ["request-file-removed", "ComputerHelp.js", "} finally { fs.rmSync(scratch, { recursive: true, force: true }); }", "} finally { void scratch; }", "ComputerHelp.js", "master-request"],
-            ["request-file-private", "ComputerHelp.js", '{ mode: 0o600, flag: "wx" }', '{ mode: 0o644, flag: "wx" }', "ComputerHelp.js", "master-request"],
-            ["request-bound", "ComputerHelp.js", "deadline: MAIL_MS, group: true", "deadline: 60000, group: true", "ComputerHelp.js", "master-request-bound"],
-            ["request-once", "Tools.js", "command: null, once: true, schema: { text: text } }", "command: null, schema: { text: text } }", "ToolRouter.js", "master-request"],
-            ["request-confirmed", "Tools.js", 'effect: "exec", executor: "guidance"', 'effect: "reversible", executor: "guidance"', "ToolRouter.js", "master-request"]
+                "Object.assign(env, environment);", "ComputerHelp.js", "fleet-request"],
+            ["request-folder", "ComputerHelp.js", "{ env, cwd: folder,", "{ env,", "ComputerHelp.js", "fleet-request"],
+            ["request-root", "ComputerHelp.js", '"--item", "overseer", "--root", folder]', '"--item", "overseer"]', "ComputerHelp.js", "fleet-request"],
+            ["request-file-removed", "ComputerHelp.js", "} finally { fs.rmSync(scratch, { recursive: true, force: true }); }", "} finally { void scratch; }", "ComputerHelp.js", "fleet-request"],
+            ["request-file-private", "ComputerHelp.js", '{ mode: 0o600, flag: "wx" }', '{ mode: 0o644, flag: "wx" }', "ComputerHelp.js", "fleet-request"],
+            ["request-bound", "ComputerHelp.js", "deadline: MAIL_MS, group: true", "deadline: 60000, group: true", "ComputerHelp.js", "fleet-request-bound"],
+            ["request-once", "Tools.js", "command: null, once: true, schema: { text: text } }", "command: null, schema: { text: text } }", "ToolRouter.js", "fleet-request"],
+            ["request-confirmed", "Tools.js", 'effect: "exec", executor: "guidance"', 'effect: "reversible", executor: "guidance"', "ToolRouter.js", "fleet-request"]
         ]) {
             await mutant(path.join(backend, source), name, needle, replacement,
                 consumer === "ToolRouter.js" ? byName(row) : help => byName(row)(Router, null, help), consumer);

@@ -2,7 +2,7 @@
 // regular Markdown file per family, and the skills of the user's Jarvis home
 // folder, read through Home.js. Browser readiness adds
 // its provider to this same owner. As the one executor that holds the home,
-// it also hands a request to the master session's mailbox there, through
+// it also hands a request to the Jarvis session's mailbox there, through
 // the mail tool kendex installs in the home (Home.mailTool). Its answer
 // states what was read back, the row in the mailbox: nothing here shows that
 // a session reads that mailbox now.
@@ -16,7 +16,7 @@ const Home = require("./Home.js");
 const ROOT = path.join(__dirname, "skills/computer");
 const LIMIT = 8192;
 // The key a failed call's cause follows, by row; a help read's otherwise.
-const FAILED = { "master.request": "master-request:" };
+const FAILED = { "fleet.request": "fleet-request:" };
 // Each lane-mail run, the count read, the send and the read-back, ends by
 // this bound: a recovery bound for a tool that hangs, not a measured
 // latency.
@@ -60,7 +60,7 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
             throw error;
         }
     }
-    // One lane-mail run on the master session's mailbox in the home FOLDER:
+    // One lane-mail run on the Jarvis session's mailbox in the home FOLDER:
     // argv alone, no shell, in the home, where lane-mail finds its
     // repository. The git ceiling keeps that search in the home, whatever
     // repository holds the folder above it.
@@ -74,8 +74,8 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
     // keyed first stderr line, else OTHER.
     const refusal = (result, other) =>
         (result.kind === "exited" && REFUSAL.exec(result.stderr.split("\n")[0])?.[1]) || other;
-    const failed = cause => ({ outcome: "failed", content: FAILED["master.request"] + cause });
-    // Hand TEXT to the master session's mailbox with the home's mail tool,
+    const failed = cause => ({ outcome: "failed", content: FAILED["fleet.request"] + cause });
+    // Hand TEXT to the Jarvis session's mailbox with the home's mail tool,
     // found again here: the mailbox's count, then the send, its text in a
     // private file, then the rows past that count read back; for a send
     // lane-mail refuses as a duplicate, the whole mailbox, where the row it
@@ -110,22 +110,22 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
         // A run the bound or a signal ended, or a receipt beside a failed
         // exit, or an exit 0 with none, may have appended.
         else if (sent.kind !== "exited" || sent.code !== 0 || id === undefined)
-            return { outcome: "unknown", content: "Unknown: lane-mail ended without a receipt, so the request may be in the master session's mailbox or not." };
+            return { outcome: "unknown", content: "Unknown: lane-mail ended without a receipt, so the request may be in the Jarvis session's mailbox or not." };
         const back = await mail(tool, folder, ["events", "--box", "to-lane", "--after", after]);
         const rows = back.kind === "exited" && back.code === 0 ? back.stdout.split("\n").slice(1) : [];
         const found = rows.some(line => {
             try { return JSON.parse(line).id === id; } catch { return false; }
         });
         return found
-            ? { outcome: "completed", content: "Completed: the request is in the master session's mailbox as row " + id + ". The session acts on it when it next reads its mail." }
-            : { outcome: "unknown", content: "Unknown: lane-mail sent the request as row " + id + ", but the row did not read back from the master session's mailbox." };
+            ? { outcome: "completed", content: "Completed: the request is in the Jarvis session's mailbox as row " + id + ". The session acts on it when it next reads its mail." }
+            : { outcome: "unknown", content: "Unknown: lane-mail sent the request as row " + id + ", but the row did not read back from the Jarvis session's mailbox." };
     }
     return { commands: [], timeoutMs: Math.max(browser === null ? 2000 : browser.timeoutMs, 3 * MAIL_MS + 1000), cancellable: false,
         // Read at each offer: the user adds a skill without a restart.
         topics: () => shipped.concat(skills(home())),
-        // And the mail tool and the master's mailbox at each offer: the user
-        // installs the tool from Setup, and the master session makes its
-        // mailbox when it first reads this folder's mail.
+        // And the mail tool and the Jarvis session's mailbox at each offer:
+        // the user installs the tool from Setup, and the Jarvis session
+        // makes its mailbox when it first reads this folder's mail.
         fleet() {
             const folder = home();
             return folder !== null && Home.mailTool(folder) !== null && Home.mailbox(folder);
@@ -138,7 +138,7 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
         start(call, done) {
             let fd;
             try {
-                if (call.id === "master.request") {
+                if (call.id === "fleet.request") {
                     request(call.args.text).then(done, error => done(failed(error.code || error.message)));
                     return;
                 }

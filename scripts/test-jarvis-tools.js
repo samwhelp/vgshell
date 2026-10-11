@@ -5,6 +5,33 @@ const { assert, fs, path, tree, world, seed, mutant } = require("./fixtures/jarv
 const file = path.join(tree, "shell/plugins/vgs.jarvis/backend/Tools.js");
 const Tools = require(file);
 
+// Jarvis's words name the session that runs the fleet "the Jarvis session",
+// never "master". The uses left name something else: a GitHub blob/master
+// link and a pty's master end. A new use, tracked or not, fails here; this
+// file, which names the word, is the one file the scan leaves out.
+const masterAllowed = {
+    "scripts/fixtures/jarvis/accounts-tui.py": 4,
+    "scripts/fixtures/jarvis/key-tui.py": 5,
+    "scripts/test-jarvis-claude-task.js": 1,
+    "shell/plugins/vgs.jarvis/artifacts.json": 1,
+    "shell/plugins/vgs.jarvis/backend/Audio.js": 2,
+};
+const masterUses = listing => Object.fromEntries(listing.split("\n").filter(Boolean).map(line => {
+    const at = line.lastIndexOf(":");
+    return [line.slice(0, at), Number(line.slice(at + 1))];
+}));
+// Outside the confined world, whose PATH holds no git.
+if (process.argv[2] !== "--inside") {
+    const scan = paths => {
+        const result = require("node:child_process").spawnSync("git", ["-C", tree, "grep", "--untracked", "-c", "-I", "-i", "-w", "master", "--", ...paths], { encoding: "utf8" });
+        assert.equal(result.status, 0, "git grep for master: " + result.stderr);
+        return masterUses(result.stdout);
+    };
+    assert.deepEqual(scan(["shell/plugins/vgs.jarvis", "docs/architecture/jarvis.md", "docs/architecture/jarvis-outbound.md",
+        "docs/decisions/D105-jarvis-home-folder.md", "scripts/*jarvis*", ":(exclude)scripts/test-jarvis-tools.js"]), masterAllowed, "a new use of the word master");
+    assert.ok(scan(["scripts/test-jarvis-tools.js"])["scripts/test-jarvis-tools.js"] > 0, "control: the scan finds this file's uses");
+}
+
 world(() => {
     const { project } = seed();
     const target = path.join(project, "new");
@@ -16,7 +43,7 @@ world(() => {
         ["memory.read", { ids: ["facts/My team.md"] }, "read", "home"],
         ["memory.propose", { id: "facts/new.md", text: "Remember this." }, "reversible"],
         ["memory.replace", { id: "facts/new.md", text: "Remember this.", hash: "a".repeat(64) }, "persistent"],
-        ["master.request", { text: "Rebase the lanes.\nThen report." }, "exec"],
+        ["fleet.request", { text: "Rebase the lanes.\nThen report." }, "exec"],
         ["windows.list", {}, "read"], ["windows.focus", { window }, "reversible"],
         ["windows.reveal", { window }, "reversible"],
         ["windows.move", { window, x: 0, y: -1 }, "reversible"],
@@ -109,7 +136,7 @@ world(() => {
         ["shell.argv", { argv: ["date"], cwd: "relative", network: false }],
         ["task.start", { goal: "synthetic task" }], ["harness.command", { command: "ls" }],
         ["files.read", { path: target, effect: "read" }],
-        ["master.request", { text: "" }], ["master.request", { text: "request", to: "overseer" }],
+        ["fleet.request", { text: "" }], ["fleet.request", { text: "request", to: "overseer" }],
         ["files.read", { path: target + "\n" }], ["files.write", { path: target }],
         ["media.volume", { value: 1.01 }], ["media.volume", { value: NaN }],
         ["media.brightness", { value: 0 }], ["media.brightness", { value: 101 }], ["media.brightness", { value: 1.5 }],

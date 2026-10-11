@@ -20,7 +20,7 @@ tree="${lib%/bin/lib/tui.sh}"
     "Open Install kendex from the Jarvis page in Settings." || exit
 vgs_tui_lock jarvis-fleet-setup
 vgs_tui_header "Set up the agent fleet" "Installs the kendex mail tool in the Jarvis home folder." \
-  "Jarvis then hands a request for your agent fleet to its master session."
+  "Jarvis then hands a request for your agent fleet to your Jarvis session."
 
 settings="$(vgs_tui_logged "$log" "$tree/bin/vgshell" plugin settings "$VGS_PLUGIN_ID")" ||
   vgs_tui_refuse "$log" 1 "jarvis: fleet-setup=settings-unreadable" \
@@ -65,4 +65,4 @@ helper tool >/dev/null ||
   vgs_tui_refuse "$log" 1 "jarvis: fleet-setup=still-missing" \
     "kendex finished, but Jarvis cannot find its mail tool in the home folder." || exit
 vgs_tui_step "Agent fleet ready"
-vgs_tui_success "Jarvis offers fleet requests once your master session reads this folder's mail."
+vgs_tui_success "Jarvis offers fleet requests once your Jarvis session reads this folder's mail."

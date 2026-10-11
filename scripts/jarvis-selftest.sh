@@ -44,12 +44,12 @@
 # --home PATH copies that folder into the sandbox's HOME and names the copy
 # as the Jarvis home folder; the folder itself is read twice, for its
 # checksums before and after, and never written. Where the copy holds the
-# kendex mail tool, the run records a master session in the copy's fleet
+# kendex mail tool, the run records a Jarvis session in the copy's fleet
 # state with the copy's own kendex workflow-state, so the send Jarvis makes
-# with that tool lands. The run reads the copy's master session mailbox as
-# the master does, with the checkout's lane-mail: once before Jarvis starts,
-# which makes the mailbox where the folder has none and marks the rows it
-# holds as read, and once after the turn, for the rows the turn added.
+# with that tool lands. The run reads the copy's Jarvis session mailbox as
+# the Jarvis session does, with the checkout's lane-mail: once before Jarvis
+# starts, which makes the mailbox where the folder has none and marks the
+# rows it holds as read, and once after the turn, for the rows the turn added.
 # --confirm key confirms each request Jarvis shows as its Confirm key does,
 # with one press a request, made once Session's draw guard has passed;
 # none, the default, answers none, so a request ends on Jarvis's own bound.
@@ -76,7 +76,7 @@
 # (each brain turn's text as the brain wrote it, before Jarvis chose what to
 # speak, from the trace the daemon writes for a test run alone), `tools`
 # (each audit record of a tool call as {tool, decision, confirmed, outcome},
-# names only), `mailbox` (with --home, each row the master session's read of
+# names only), `mailbox` (with --home, each row the Jarvis session's read of
 # its mailbox hands over after the turn, as lane-mail prints it; null
 # without), `widget` (each bar widget state as {ms, state}), `end`
 # {kind, phase, fault} and `passed`. Every ms counts from the input's start
@@ -252,10 +252,10 @@ selftest_overseer() { # HOME
   (cd -- "$1" && env -i PATH="$PATH" "$BASH" "$tool" update oversee '.overseer //= {}' >/dev/null)
 }
 
-# selftest_mailbox TREE HOME: the master session's read of its mailbox in the
-# Jarvis home folder HOME, by TREE's own lane-mail, the reader the master
-# runs: each row no read handed over before, one JSON object a line. The
-# read moves the mailbox's cursor, and a first read makes the mailbox.
+# selftest_mailbox TREE HOME: the Jarvis session's read of its mailbox in the
+# Jarvis home folder HOME, by TREE's own lane-mail, the reader the Jarvis
+# session runs: each row no read handed over before, one JSON object a line.
+# The read moves the mailbox's cursor, and a first read makes the mailbox.
 selftest_mailbox() { # TREE HOME
   env -i PATH="$PATH" "$BASH" "$1/.agents/skills/orch/scripts/lane-mail" inbox --item overseer --root "$2"
 }
@@ -754,8 +754,8 @@ if [[ -n $home_source ]]; then
   home_sum="$(selftest_tree_sum "$home_source")" || stopped home-unread
   selftest_home_copy "$home_source" "$home_copy" || stopped home-not-copied
   selftest_overseer "$home_copy" || stopped overseer-unrecorded
-  # The master's read before the turn: the read after it hands over only
-  # the rows the turn added.
+  # The Jarvis session's read before the turn: the read after it hands over
+  # only the rows the turn added.
   selftest_mailbox "$source_repo" "$home_copy" >/dev/null || stopped mailbox-unread
 fi
 # The settings Jarvis starts with, written while it is still disabled.

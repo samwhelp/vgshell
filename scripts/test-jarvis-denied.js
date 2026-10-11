@@ -305,7 +305,7 @@ world(() => {
     function homeGuard(judge) {
         // The layout's entries, then what a harness session in the folder
         // would read, a folder of the user's own, two names beside state, the
-        // master session's mailbox and the kendex mail tool that writes it.
+        // Jarvis session's mailbox and the kendex mail tool that writes it.
         for (const name of ["AGENTS.md", "CLAUDE.md", "skills", "skills/own/new.md", "memory", "memory/MEMORY.md", "memory/inbox/note.md",
             ".claude", ".claude/settings.json", ".codex", ".codex/config.toml",
             ".mcp.json", "AGENTS.override.md", "README.md", "notes/plan.md", "state.md", "state-2/log.md",

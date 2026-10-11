@@ -5,7 +5,7 @@
 // it, since a link there could hand another file to every brain. Home text
 // gives knowledge, never permission: the gate stays the only source of that.
 // It also finds the one program Jarvis starts from the home, the kendex
-// mail tool that writes the master session's mailbox there.
+// mail tool that writes the Jarvis session's mailbox there.
 // Contract: docs/decisions/D105-jarvis-home-folder.md.
 "use strict";
 const fs = require("node:fs");
@@ -49,7 +49,7 @@ const LINE_CHARS = 160;
 // Linux PATH_MAX, the anchored walk's own bound.
 const PATH_BYTES = 4096;
 // The one program Jarvis starts from the home: lane-mail, which kendex
-// installs here with its orch skill, writes the master session's mailbox
+// installs here with its orch skill, writes the Jarvis session's mailbox
 // (D105). It runs the orch skill's own scripts and the home's kendex
 // settings in turn; Jarvis starts no other path of the home.
 const MAIL_TOOL = ".agents/skills/orch/scripts/lane-mail";
@@ -58,8 +58,8 @@ const MAIL_TOOL = ".agents/skills/orch/scripts/lane-mail";
 // one it would take a repository the home lies inside, and that one's
 // settings and .env.local.
 const OWN_REPOSITORY = ".git";
-// The master session's mailbox folder, as lane-mail lays it out below its
-// root. The master session makes it when it first reads its mail; Jarvis
+// The Jarvis session's mailbox folder, as lane-mail lays it out below its
+// root. The Jarvis session makes it when it first reads its mail; Jarvis
 // never does.
 const MAILBOX = "tmp/lane-mail/overseer";
 // A YAML block scalar's header: > or |, then an optional chomping mark and
@@ -501,7 +501,7 @@ function held(home, entry, flags, act) {
  * link and a regular file with its owner's execute bit, in a home that is
  * its own repository (OWN_REPOSITORY, a folder or a file, no link); else
  * null, as while the home cannot be read. The caller runs it by this path:
- * the home's writers are the user, VGS and the master session (D105), and
+ * the home's writers are the user, VGS and the Jarvis session (D105), and
  * the gate keeps every model out of the folder.
  */
 function mailTool(home) {
@@ -516,7 +516,7 @@ function mailTool(home) {
     });
 }
 
-/** Whether the home holds the master session's mailbox folder, no link on the way. */
+/** Whether the home holds the Jarvis session's mailbox folder, no link on the way. */
 function mailbox(home) {
     return held(home, MAILBOX, O_RDONLY | O_DIRECTORY, () => true) === true;
 }

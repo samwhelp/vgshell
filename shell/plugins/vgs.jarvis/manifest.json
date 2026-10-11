@@ -145,7 +145,7 @@
     "setupVoice": { "type": "state", "label": "Voice", "group": "Setup", "hint": "Jarvis uses the selected voice provider to hear you and speak.", "action": { "label": "Set up local voice", "tui": "setup-local" } },
     "setupBrowser": { "type": "state", "label": "Browser", "group": "Setup", "hint": "Set up the browser so Jarvis can use websites for you.", "action": { "label": "Set up browser", "tui": "setup-browser" } },
     "setupInput": { "type": "state", "label": "Input", "group": "Setup", "hint": "Check input so Jarvis can type and click for you.", "action": { "label": "Check input", "tui": "setup-input" } },
-    "setupFleet": { "type": "state", "label": "Agent fleet", "group": "Setup", "hint": "Jarvis can hand a request for your agent fleet to its master session.", "action": { "label": "Install kendex", "tui": "setup-fleet" } },
+    "setupFleet": { "type": "state", "label": "Agent fleet", "group": "Setup", "hint": "Jarvis can hand a request for your agent fleet to your Jarvis session.", "action": { "label": "Install kendex", "tui": "setup-fleet" } },
     "memory": { "type": "state", "label": "Memory search", "group": "Setup" },
     "copilotMemory": { "type": "state", "label": "Copilot Memory", "group": "Setup",
       "hint": "Open GitHub Copilot settings and set Copilot Memory to Disabled. GitHub keeps this memory in your account, where only you can turn it off.",

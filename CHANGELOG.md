@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Jarvis calls the session that runs your agent fleet your Jarvis session: in the confirmation before a fleet request, the Agent fleet row under Setup, its setup window and the Jarvis README. Before, it called it the master session.
 - A button that offers to install a missing command shows the install notice on every press. Before, a press within 10 minutes of Not now showed nothing, in Agent Warden, Bluetooth, Sound, Network, Capture, Clipboard and VPN. VPN's Import WireGuard opens the import once the install ends. A plugin raises an offer with no press through `shell.requirements.suggest`, which still waits 10 minutes after Not now.
 - On a small screen such as 1366x768, a floating terminal window, such as btop from System Monitor's See all, shows its whole border. Before, its top edge lay under the bar and its bottom edge past the screen.
 - A click on the Voice mic in the bar starts dictation, and a second click stops it, as the dictation key does. Without voxtype, a click offers to install it, then opens Set up. Before, a click opened voxtype's Configure screen. Configure is now Voxtype Settings in the mic's right-click menu.

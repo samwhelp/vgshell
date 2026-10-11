@@ -55,11 +55,11 @@ const TABLE = {
     "memory.read": { sentence: "Read memory notes {ids}", effect: "read", executor: "memory", command: null, schema: { ids: { type: "array", minItems: 1, maxItems: MEMORY_BATCH, items: notePath } }, source: "home", labelled: true },
     "memory.propose": { sentence: "Add memory note {id}", effect: "reversible", executor: "memory", command: null, schema: { id: notePath, text: memoryText }, origin: true },
     "memory.replace": { sentence: "Replace memory note {id}", effect: "persistent", executor: "memory", command: null, schema: { id: notePath, text: memoryText, hash: sha256 }, origin: true },
-    // The master session runs the user's agent fleet and reads the home's
+    // The Jarvis session runs the user's agent fleet and reads the home's
     // mailbox, where the home's kendex mail tool appends the request. once:
     // the router admits one a turn. A request starts work elsewhere, as a
     // task does.
-    "master.request": { sentence: "Put this request in the mailbox of the user's master session:\n{text}", effect: "exec", executor: "guidance", command: null, once: true, schema: { text: text } },
+    "fleet.request": { sentence: "Put this request in the mailbox of your Jarvis session:\n{text}", effect: "exec", executor: "guidance", command: null, once: true, schema: { text: text } },
     "windows.list": { sentence: "List windows", effect: "read", executor: "windows", command: "hyprctl", schema: {} },
     "windows.focus": { sentence: "Focus window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowId } },
     "windows.reveal": { sentence: "Reveal window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowId } },

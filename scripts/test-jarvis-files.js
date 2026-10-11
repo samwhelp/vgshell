@@ -235,7 +235,7 @@ world(async () => {
         assert.equal(read(row[1]), "beta protected secret\n", row[0] + " untouched");
     }
     // The Jarvis home folder (D105): the write, move and delete tools refuse
-    // every path in it and leave every byte, the master session's mailbox
+    // every path in it and leave every byte, the Jarvis session's mailbox
     // and the kendex mail tool among them, no new file is made in it, one a
     // harness session there would read among them, and state/ takes all
     // three.
