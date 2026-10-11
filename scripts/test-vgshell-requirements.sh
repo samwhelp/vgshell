@@ -99,8 +99,10 @@ req() {
   fi
 }
 out_is() { [[ "$(cat -- "$tmp/out")" == "$1" ]] || { printf 'out: [%s]\nwant: [%s]\n' "$(cat -- "$tmp/out")" "$1" >"$tmp/why"; return 1; }; }
-# A pseudo-terminal ends each line with a carriage return.
-out_has() { tr -d '\r' <"$tmp/out" | grep -qxF -- "$1"; }
+# A pseudo-terminal ends each line with a carriage return. grep reads the
+# whole stream: grep -q stops at its first match, and under pipefail the
+# SIGPIPE tr then takes on a long output fails the match.
+out_has() { tr -d '\r' <"$tmp/out" | grep -xF -- "$1" >/dev/null; }
 err_is() { [[ "$(cat -- "$tmp/err")" == "$1" ]]; }
 log_is() { [[ "$(cat -- "$log")" == "$1" ]] || { printf 'log: [%s]\nwant: [%s]\n' "$(cat -- "$log")" "$1" >"$tmp/why"; return 1; }; }
 log_has() { grep -qxF -- "$1" "$log"; }
