@@ -369,7 +369,6 @@ var WALLPAPER_KEYS = [
     { key: Ui.KeyNavLogic.KEY.End, action: "last" },
     { key: Ui.KeyNavLogic.KEY.Return, action: "activate" },
     { key: Ui.KeyNavLogic.KEY.Enter, action: "activate" },
-    { key: Ui.KeyNavLogic.KEY.Space, action: "activate" },
     { key: ESCAPE_KEY, action: "close" }
 ];
 
@@ -458,10 +457,11 @@ function wallpaperOffer(entries, name) {
 // then its download or update card; `all` is every image, packages first
 // and the user folder last.
 //
-// An image card is { kind: "image", key, path, background, theme }: `key`
-// its path. The offer card is { kind, key, path: null, background: null,
-// theme, label }: `kind` and `key` `download` or `update`, `label` the
-// line the card draws under its icon.
+// An image card is { kind: "image", key, path, background, theme, name }:
+// `key` is its path and `name` is null when the package gave it none. The
+// offer card is { kind, key, path: null, background: null, theme, label }:
+// `kind` and `key` `download` or `update`, `label` the line the card draws
+// under its icon.
 function wallpaperCards(images, entries, applied, source) {
     if (source !== "theme" && source !== "all") throw new Error("source=" + JSON.stringify(source) + " want=theme|all");
     var card = function (image) {
@@ -470,7 +470,8 @@ function wallpaperCards(images, entries, applied, source) {
             key: image.path,
             path: image.path,
             background: image.background,
-            theme: image.theme
+            theme: image.theme,
+            name: image.name === undefined ? null : image.name
         };
     };
     if (source === "all") {
@@ -491,6 +492,21 @@ function wallpaperCards(images, entries, applied, source) {
         });
     }
     return out;
+}
+
+// Whether CARD matches the wallpaper filter TEXT: image cards match their
+// package name or file name, and an offer card matches only an empty
+// filter.
+function wallpaperMatches(card, text) {
+    var needle = String(text).toLowerCase();
+    if (needle === "") return true;
+    if (card.kind !== "image") return false;
+    var name = card.name === null ? "" : String(card.name);
+    return name.toLowerCase().indexOf(needle) !== -1 || card.background.toLowerCase().indexOf(needle) !== -1;
+}
+
+function wallpaperShown(list, text) {
+    return list.filter(function (card) { return wallpaperMatches(card, text); });
 }
 
 // The index to select in the wallpaper cards LIST: the card whose key is

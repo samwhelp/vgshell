@@ -57,7 +57,7 @@
 //       the applied package's images, or with `all` every accepted
 //       package's and the user folder's; one `background=<file>
 //       theme=<name|-> path=<image>` line each, or under `json`
-//       `{ state, images: [{ background, theme, path }], reason }`.
+//       `{ state, images: [{ background, theme, name, path }], reason }`.
 //   vgshell-theme-judge accept <dir> [<name>]
 //       judge the package in DIR as an installed package, for `vgshell theme
 //       add` (no NAME: it lands under its document's own name) and `vgshell
@@ -279,12 +279,17 @@ function latin1(bytes) {
 // terminal.json is a symlink is refused `symlink`, with `files` null. Any
 // other read failure throws the fs error.
 function readPackage(dir, shipped) {
-    const judge = files => logic.acceptPackage(tokens, {
-        directoryName: path.basename(dir),
-        themeJson: text(files.theme),
-        terminalJson: text(files.terminal),
-        shipped: shipped
-    });
+    const judge = files => {
+        const payload = {
+            directoryName: path.basename(dir),
+            themeJson: text(files.theme),
+            terminalJson: text(files.terminal),
+            shipped: shipped
+        };
+        if (shipped && files.theme !== undefined)
+            payload.backgrounds = backgrounds.images(dir, "theme=" + path.basename(dir) + " reason");
+        return logic.acceptPackage(tokens, payload);
+    };
     // `package-theme` is the judge reaching the document it was not given.
     const byName = () => judge({});
     let read;
@@ -624,11 +629,11 @@ function checkCatalog(dirArg) {
 // One package: `state` is `ok`, `refused` with its `reason`, or `shadowed`
 // by an installed package of its name, which is never read. `palette` is
 // the resolved palette group of an accepted package. `files`, `values`, the
-// judge's resolved tokens, and `terminal`, its slots or null, stay in this
-// process.
+// judge's resolved tokens, `terminal`, its slots or null, and `backgrounds`,
+// its image name map, stay in this process.
 function packageRow(base, name, source) {
     const dir = path.join(base, name);
-    const row = { name, source, path: dir, state: "refused", reason: null, palette: null, files: null, values: null, terminal: null };
+    const row = { name, source, path: dir, state: "refused", reason: null, palette: null, files: null, values: null, terminal: null, backgrounds: null };
     let judged;
     try {
         judged = readPackage(dir, source === "shipped");
@@ -645,6 +650,7 @@ function packageRow(base, name, source) {
     row.values = judged.verdict.values;
     row.palette = row.values.palette;
     row.terminal = judged.verdict.terminal;
+    row.backgrounds = judged.verdict.backgrounds;
     return row;
 }
 
@@ -676,7 +682,7 @@ function packageSet(configDir, key, requested) {
     }
     for (const name of dirs(SHIPPED, true)) {
         if (resolved.has(name)) {
-            rows.push({ name, source: "shipped", path: path.join(SHIPPED, name), state: "shadowed", reason: null, palette: null, files: null, values: null, terminal: null });
+            rows.push({ name, source: "shipped", path: path.join(SHIPPED, name), state: "shadowed", reason: null, palette: null, files: null, values: null, terminal: null, backgrounds: null });
             continue;
         }
         const row = packageRow(SHIPPED, name, "shipped");
@@ -2063,7 +2069,7 @@ function acceptedPackage(configDir, name, key) {
 function backgroundSources(configDir, key) {
     const { resolved } = packageSet(configDir, key);
     const packages = [...resolved.keys()].sort().map(name => resolved.get(name)).filter(row => row.state === "ok");
-    return packages.map(row => ({ theme: row.name, dir: row.path })).concat([{ theme: null, dir: configDir }]);
+    return packages.map(row => ({ theme: row.name, dir: row.path, names: row.backgrounds })).concat([{ theme: null, dir: configDir, names: {} }]);
 }
 
 // A step cycles the applied package's images in name order from the one
@@ -2145,10 +2151,11 @@ function listBackgrounds(result, scope, configDir, stateDir) {
         sources = backgroundSources(configDir, key);
     } else {
         const name = appliedPackage(stateDir, key);
-        sources = [{ theme: name, dir: acceptedPackage(configDir, name, key).path }];
+        const row = acceptedPackage(configDir, name, key);
+        sources = [{ theme: name, dir: row.path, names: row.backgrounds }];
     }
     result.images = sources.flatMap(s => backgrounds.images(s.dir, key)
-        .map(file => ({ background: file, theme: s.theme, path: backgrounds.imagePath(s.dir, file) })));
+        .map(file => ({ background: file, theme: s.theme, name: s.names[file] || null, path: backgrounds.imagePath(s.dir, file) })));
     result.state = "ok";
 }
 

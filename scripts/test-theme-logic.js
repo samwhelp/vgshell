@@ -17,6 +17,7 @@ const TOKENS = load(path.join(__dirname, "..", "shell", "Commons", "Tokens.js"))
 
 const at = (tree, dotted) => dotted.split(".").reduce((node, key) => node[key], tree);
 const document = tokens => JSON.stringify({ schemaVersion: 1, name: "probe", tokens: tokens });
+const documentWith = fields => JSON.stringify(Object.assign({ schemaVersion: 1, name: "probe", tokens: {} }, fields));
 const TERMINAL_SLOTS = Object.fromEntries(Array.from({ length: 16 }, (_, index) => [`color${index}`, "#000000"]));
 
 // Resolved defaults, by token: the expression and the arithmetic.
@@ -796,6 +797,22 @@ function verify(judge) {
         assert.deepEqual(Object.keys(result).sort(), ["detail", "ok", "reason", "token"], label);
     }
 
+    const backgroundNames = judge.accept(TOKENS, documentWith({ backgrounds: { "black.png": "Black", "wide.avif": "Blue Ridge" } }));
+    assert.equal(backgroundNames.ok, true, backgroundNames.ok ? "" : judge.refusalLine(backgroundNames));
+    assert.deepEqual(plain(backgroundNames.backgrounds), { "black.png": "Black", "wide.avif": "Blue Ridge" });
+    for (const [label, text, reason, detail] of [
+        ["three words", documentWith({ backgrounds: { "a.png": "Blue Ridge Day" } }), "background-name", 'file=a.png got="Blue Ridge Day"'],
+        ["empty name", documentWith({ backgrounds: { "a.png": "" } }), "background-name", 'file=a.png got=""'],
+        ["bad key", documentWith({ backgrounds: { "nested/a.png": "Blue" } }), "background-file", 'file="nested/a.png"'],
+        ["not an object", documentWith({ backgrounds: [] }), "backgrounds", "got=[]"]
+    ]) {
+        const result = judge.accept(TOKENS, text);
+        assert.equal(result.ok, false, label);
+        assert.equal(result.reason, reason, label);
+        assert.equal(result.token, "backgrounds", label);
+        assert.equal(result.detail, detail, label);
+    }
+
     const shippedVgs = judge.acceptPackage(TOKENS, {
         directoryName: "vgs",
         themeJson: fs.readFileSync(path.join(repo, "themes", "vgs", "theme.json"), "utf8"),
@@ -815,7 +832,26 @@ function verify(judge) {
     });
     assert.equal(packageWithoutTerminal.ok, true, packageWithoutTerminal.ok ? "" : judge.refusalLine(packageWithoutTerminal));
     assert.equal(packageWithoutTerminal.terminal, null);
+    assert.deepEqual(plain(packageWithoutTerminal.backgrounds), {});
     assert.equal(at(packageWithoutTerminal.values, "palette.accent"), "#abcdefff");
+
+    const absentShippedBackground = judge.acceptPackage(TOKENS, {
+        directoryName: "probe",
+        themeJson: documentWith({ backgrounds: { "missing.png": "Missing" } }),
+        backgrounds: [],
+        shipped: true
+    });
+    assert.equal(absentShippedBackground.ok, false);
+    assert.equal(absentShippedBackground.reason, "background-absent");
+    assert.equal(absentShippedBackground.token, "backgrounds");
+    assert.equal(absentShippedBackground.detail, "file=missing.png");
+    const absentInstalledBackground = judge.acceptPackage(TOKENS, {
+        directoryName: "probe",
+        themeJson: documentWith({ backgrounds: { "missing.png": "Missing" } }),
+        shipped: false
+    });
+    assert.equal(absentInstalledBackground.ok, true, absentInstalledBackground.ok ? "" : judge.refusalLine(absentInstalledBackground));
+    assert.deepEqual(plain(absentInstalledBackground.backgrounds), { "missing.png": "Missing" });
 
     const packageRefusals = [
         [{ directoryName: "vgs", themeJson: JSON.stringify({ schemaVersion: 1, name: "vgs", tokens: {} }), shipped: false }, "reserved-name", ""],
@@ -1457,6 +1493,12 @@ const CONTROLS = [
     ["table defect throws", "if (defect !== \"\")\n        throw new Error(\"theme: token table: \"", "if (false)\n        throw new Error(\"theme: token table: \""],
     ["package name", "if (!isPackageName(files.directoryName))", "if (false)"],
     ["package name pattern", "PACKAGE_NAME_PATTERN.test(name)", "true"],
+    ["backgrounds object", "if (!isPlainObject(document.backgrounds))", "if (false)"],
+    ["background file name", 'if (file === "" || file.indexOf("/") !== -1 || file.charAt(0) === ".")', "if (false)"],
+    ["background display name", 'if (typeof name !== "string" || !/^\\S+( \\S+)?$/.test(name))', "if (false)"],
+    ["accept states background names", "backgrounds: backgrounds.backgrounds", "backgrounds: {}"],
+    ["only shipped backgrounds need files", "if (files.shipped === true && Object.keys(shell.backgrounds).length > 0)", "if (Object.keys(shell.backgrounds).length > 0)"],
+    ["shipped background exists", "if (!hasOwn(available, named[i]))", "if (false)"],
     ["output name pattern", "OUTPUT_NAME_PATTERN.test(name)", "true"],
     ["set every screen", 'return ["--every-screen"];', 'return ["--screen", screen];'],
     ["set output name", 'return isOutputName(screen) ? ["--screen", screen] : null;', 'return ["--screen", screen];'],
@@ -1589,7 +1631,7 @@ const CONTROLS = [
     ["appearance layer groups", "hyprland[member.hyprland] = sources[key] !== \"hyprland\";", "hyprland[member.hyprland] = true;"],
     ["appearance theme speed", "motionSpeed: themeScale > 0 ? 1 / themeScale : 1", "motionSpeed: 1"],
     ["appearance published fallback", "result = withAppearance(tokens, accepted, {});\n    }", "}"],
-    ["accept states its overrides", "values: result.values, overrides: stated.overrides };", "values: result.values, overrides: {} };"]
+    ["accept states its overrides", "values: result.values, overrides: stated.overrides, backgrounds: backgrounds.backgrounds };", "values: result.values, overrides: {}, backgrounds: backgrounds.backgrounds };"]
 ];
 
 const source = fs.readFileSync(judgeFile, "utf8");

@@ -62,7 +62,7 @@ A monitor shows its own image once `bin/vgshell theme background set <path> --sc
 
 A package `preview.jpg`, the theme on a real desktop, draws first on a card; an installed catalog theme draws its catalog package's. Without one, the selected card draws the package's first wallpaper over its background, else its background and name. Side cards draw the package's colours and its name.
 
-In the theme browser, typing filters by package name or label. When no theme matches, Clear filter clears the filter, as Esc does. In the wallpaper browser, Alt+S, as a click on the source line under the rail does, switches between the applied theme's wallpapers and every wallpaper, Alt+M between All monitors and This monitor, and Space sets the selected wallpaper or runs the Download or Update card. Tab, Shift+Tab, Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageDown and Ctrl+PageUp switch between the two browsers.
+In the theme browser, typing filters by package name or label. In the wallpaper browser, typing filters by wallpaper name or image file name; image cards carry `name`, null when none, from `vgshell theme background list --json`. When no card matches, Clear filter clears the filter, as Esc does. In the wallpaper browser, Alt+S, as a click on the source line under the rail does, switches between the applied theme's wallpapers and every wallpaper, and Alt+M switches between All monitors and This monitor. Tab, Shift+Tab, Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageDown and Ctrl+PageUp switch between the two browsers.
 
 ## Browser theming
 

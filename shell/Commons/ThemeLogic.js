@@ -13,7 +13,7 @@
 var SCHEMA_VERSION = 1;
 
 // Every key a shell document may carry. An unknown key is refused.
-var DOCUMENT_KEYS = ["schemaVersion", "name", "tokens"];
+var DOCUMENT_KEYS = ["schemaVersion", "name", "tokens", "backgrounds"];
 
 // The types a token may declare.
 var TYPES = ["color", "length", "body-lines", "number", "duration", "family", "weight", "flag", "easing", "choice"];
@@ -624,10 +624,30 @@ function overridesOf(tokens, tree) {
     return failure === null ? { ok: true, overrides: out } : failure;
 }
 
+function acceptBackgrounds(document) {
+    if (document.backgrounds === undefined)
+        return { ok: true, backgrounds: {} };
+    if (!isPlainObject(document.backgrounds))
+        return refusal("backgrounds", "backgrounds", "got=" + JSON.stringify(document.backgrounds));
+    var keys = Object.keys(document.backgrounds);
+    var out = {};
+    for (var i = 0; i < keys.length; i++) {
+        var file = keys[i];
+        if (file === "" || file.indexOf("/") !== -1 || file.charAt(0) === ".")
+            return refusal("background-file", "backgrounds", "file=" + JSON.stringify(file));
+        var name = document.backgrounds[file];
+        if (typeof name !== "string" || !/^\S+( \S+)?$/.test(name))
+            return refusal("background-name", "backgrounds", "file=" + file + " got=" + JSON.stringify(name));
+        out[file] = name;
+    }
+    return { ok: true, backgrounds: out };
+}
+
 // Judge and resolve one shell document, given as text. Answers
-// { ok: true, name, values, overrides } or one refusal; nothing of a
-// refused document is part of the answer. `overrides` is what the document
-// states, which withAppearance resolves again under a user's values.
+// { ok: true, name, values, overrides, backgrounds } or one refusal;
+// nothing of a refused document is part of the answer. `overrides` is what
+// the document states, which withAppearance resolves again under a user's
+// values.
 function accept(tokens, text) {
     var document;
     try {
@@ -648,13 +668,16 @@ function accept(tokens, text) {
     var tree = document.tokens === undefined ? {} : document.tokens;
     if (!isPlainObject(tree))
         return refusal("tokens", "", "got=" + JSON.stringify(tree));
+    var backgrounds = acceptBackgrounds(document);
+    if (!backgrounds.ok)
+        return backgrounds;
     var stated = overridesOf(tokens, tree);
     if (!stated.ok)
         return stated;
     var result = resolve(tokens, stated.overrides);
     if (!result.ok)
         return result;
-    return { ok: true, name: document.name, values: result.values, overrides: stated.overrides };
+    return { ok: true, name: document.name, values: result.values, overrides: stated.overrides, backgrounds: backgrounds.backgrounds };
 }
 
 // --- plugin-owned appearance
@@ -876,7 +899,21 @@ function acceptPackage(tokens, files) {
     var terminal = acceptTerminal(files.terminalJson);
     if (!terminal.ok)
         return terminal;
-    return { ok: true, name: shell.name, values: shell.values, terminal: terminal.slots };
+    if (files.shipped === true && Object.keys(shell.backgrounds).length > 0) {
+        if (!Array.isArray(files.backgrounds))
+            return refusal("background-list", "backgrounds", "got=" + JSON.stringify(files.backgrounds));
+        var available = {};
+        for (var i = 0; i < files.backgrounds.length; i++)
+            available[files.backgrounds[i]] = true;
+        var named = Object.keys(shell.backgrounds);
+        for (i = 0; i < named.length; i++)
+            // Installed catalog packages can land before their wallpaper
+            // download; shipped packages carry their images in this tree,
+            // where offline validation can judge the declared names.
+            if (!hasOwn(available, named[i]))
+                return refusal("background-absent", "backgrounds", "file=" + named[i]);
+    }
+    return { ok: true, name: shell.name, values: shell.values, terminal: terminal.slots, backgrounds: shell.backgrounds };
 }
 
 // --- the theme catalog
@@ -1034,7 +1071,7 @@ function defaults(tokens) {
     var result = resolve(tokens, {});
     if (!result.ok)
         throw new Error(refusalLine(result));
-    return { ok: true, name: DEFAULT_NAME, values: result.values, overrides: {} };
+    return { ok: true, name: DEFAULT_NAME, values: result.values, overrides: {}, backgrounds: {} };
 }
 
 // Every dotted path the table holds, groups and tokens both, for the

@@ -20,13 +20,14 @@ import "BrowserLogic.js" as BrowserLogic
 // the lists again and stays open.
 //
 // Keys, BrowserLogic.WALLPAPER_KEYS: Left and Up step back, Right and Down
-// step forward, Home and End go to the first and the last card, Enter sets
-// the selected image or runs the selected card, and Escape asks to close.
-// Tab and Shift+Tab switch the top tabs. Alt+S or a click on the source
-// line flips the source, and Alt+M flips the scope while its control
-// shows. An item of the view holds the
-// keyboard and the rail never takes the focus, so Tab cannot leave the
-// view before the view handles it.
+// step forward, Home and End go to the first and the last card, and Enter
+// sets the selected image or runs the selected card. Tab and Shift+Tab
+// switch the top tabs. A printable character types into the filter,
+// Backspace erases a character, Ctrl+Backspace a word and Ctrl+U the whole
+// filter. Escape clears the filter, then asks to close. Alt+S or a click
+// on the source line flips the source, and Alt+M flips the scope while its
+// control shows. An item of the view holds the keyboard and the rail never
+// takes the focus, so Tab cannot leave the view before the view handles it.
 //
 // The view is built with each open and destroyed with the browser, so the
 // scope starts on All monitors every time. It reads every image and the
@@ -64,6 +65,8 @@ FocusScope {
     readonly property string screenName: shell === null || shell.screens.current === null ? "" : shell.screens.current.name
     readonly property string applied: Theme.name
     readonly property var cards: images === null ? [] : BrowserLogic.wallpaperCards(images, entries, applied, source)
+    property string filterText: ""
+    readonly property var shownCards: BrowserLogic.wallpaperShown(cards, filterText)
     // The image the chosen scope shows now, "" for none.
     readonly property string shownPath: BrowserLogic.shownPath(scope, wallpaper.path, wallpaper.screenPaths, screenName)
     // The selected card's key once a key or a click moved it.
@@ -71,7 +74,7 @@ FocusScope {
     property bool moved: false
     // True while the view itself moves the rail, so the move is no choice.
     property bool seeding: false
-    readonly property var selected: carousel.currentIndex >= 0 && carousel.currentIndex < cards.length ? cards[carousel.currentIndex] : null
+    readonly property var selected: carousel.currentIndex >= 0 && carousel.currentIndex < shownCards.length ? shownCards[carousel.currentIndex] : null
 
     // The step this view runs, { step, key, name } with `step` `set`,
     // `download`, `update` or `apply`, `key` the card it runs for and
@@ -106,17 +109,19 @@ FocusScope {
         id: keyboard
         focus: true
         Keys.onPressed: event => {
+            const shift = (event.modifiers & Qt.ShiftModifier) !== 0;
+            const control = (event.modifiers & Qt.ControlModifier) !== 0;
+            const alt = (event.modifiers & Qt.AltModifier) !== 0;
+            const meta = (event.modifiers & Qt.MetaModifier) !== 0;
             const action = BrowserLogic.wallpaperAction(
                 event.key,
-                (event.modifiers & Qt.ShiftModifier) !== 0,
-                (event.modifiers & Qt.ControlModifier) !== 0,
-                (event.modifiers & Qt.AltModifier) !== 0,
-                (event.modifiers & Qt.MetaModifier) !== 0,
+                shift,
+                control,
+                alt,
+                meta,
                 root.scoped
             );
             switch (action) {
-            case "":
-                return;
             case "back":
                 carousel.step(-1);
                 break;
@@ -127,13 +132,13 @@ FocusScope {
                 carousel.currentIndex = 0;
                 break;
             case "last":
-                carousel.currentIndex = Math.max(0, root.cards.length - 1);
+                carousel.currentIndex = Math.max(0, root.shownCards.length - 1);
                 break;
             case "activate":
                 root.activate();
                 break;
             case "close":
-                root.closeRequested();
+                root.cancel();
                 break;
             case "source":
                 root.flipSource();
@@ -146,6 +151,12 @@ FocusScope {
                 break;
             case "tab-previous":
                 root.switchRequested(-1);
+                break;
+            case "":
+                if (event.key === Qt.Key_Backspace && !alt && !meta) root.editFilter({ kind: control ? "eraseWord" : "erase" });
+                else if (event.key === Qt.Key_U && control && !alt && !meta && !shift) root.editFilter({ kind: "clear" });
+                else if (!control && !alt && !meta && BrowserLogic.typable(event.text)) root.editFilter({ kind: "type", text: event.text });
+                else return;
                 break;
             default:
                 throw new Error("themes: wallpaper action=" + action);
@@ -168,11 +179,12 @@ FocusScope {
     // image the chosen scope shows; the first card when neither is shown.
     function reselect() {
         seeding = true;
-        carousel.currentIndex = BrowserLogic.wallpaperSelection(cards, moved ? selectedKey : shownPath);
+        carousel.currentIndex = BrowserLogic.wallpaperSelection(shownCards, moved ? selectedKey : shownPath);
         seeding = false;
     }
 
     onCardsChanged: reselect()
+    onShownCardsChanged: reselect()
     onShownPathChanged: if (!moved) reselect()
 
     function flipSource() {
@@ -191,6 +203,15 @@ FocusScope {
     }
 
     function takeKeys() { keyboard.forceActiveFocus(); }
+
+    function cancel() {
+        if (filterText !== "") filterText = "";
+        else closeRequested();
+    }
+
+    function editFilter(edit) {
+        filterText = BrowserLogic.editFilter(filterText, edit);
+    }
 
     function navigate(direction) {
         switch (direction) {
@@ -359,16 +380,16 @@ FocusScope {
                 devicePixelRatio: root.shell === null || root.shell.screens.current === null ? Screen.devicePixelRatio : root.shell.screens.current.devicePixelRatio
                 tabSteps: false
                 model: ScriptModel {
-                    values: root.cards.map(card => Object.assign({ railKey: BrowserLogic.railKey(card.key, root.imageGeneration(card.theme || "")), generation: root.imageGeneration(card.theme || "") }, card))
+                    values: root.shownCards.map(card => Object.assign({ railKey: BrowserLogic.railKey(card.key, root.imageGeneration(card.theme || "")), generation: root.imageGeneration(card.theme || "") }, card))
                     objectProp: "railKey"
                 }
                 delegate: WallpaperCard {
                     busy: root.job !== null && root.job.key === modelData.key
                 }
                 onCurrentIndexChanged: {
-                    if (root.seeding || currentIndex >= root.cards.length) return;
+                    if (root.seeding || currentIndex < 0 || currentIndex >= root.shownCards.length) return;
                     root.moved = true;
-                    root.selectedKey = root.cards[currentIndex].key;
+                    root.selectedKey = root.shownCards[currentIndex].key;
                 }
                 onActivated: root.activate()
             }
@@ -378,9 +399,14 @@ FocusScope {
             EmptyState {
                 anchors.centerIn: parent
                 width: Math.min(parent.width, Theme.carousel.expandedWidth)
-                visible: root.cards.length === 0 && root.imagesReason === ""
-                iconName: root.loaded ? "image-off" : ""
-                text: BrowserLogic.wallpaperEmpty(root.loaded, root.source, root.applied)
+                visible: root.shownCards.length === 0 && root.imagesReason === ""
+                iconName: !root.loaded ? "" : root.filterText === "" ? "image-off" : "search-x"
+                text: !root.loaded ? BrowserLogic.wallpaperEmpty(root.loaded, root.source, root.applied) : root.filterText === "" ? BrowserLogic.wallpaperEmpty(root.loaded, root.source, root.applied) : "No wallpaper matches " + JSON.stringify(root.filterText)
+                actionText: root.loaded && root.filterText !== "" ? "Clear filter" : ""
+                onActivated: {
+                    root.editFilter({ kind: "clear" });
+                    Qt.callLater(root.takeKeys);
+                }
             }
         }
 
@@ -390,6 +416,15 @@ FocusScope {
                 x: (layout.contentWidth - width) / 2
                 width: Math.min(layout.contentWidth, Theme.carousel.expandedWidth)
                 spacing: Theme.stack.group
+
+                Label {
+                    role: "h3"
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideMiddle
+                    visible: root.filterText !== ""
+                    text: root.filterText
+                }
 
                 // The source line names the source a click shows, its eye
                 // open while it offers every image and shut while it offers

@@ -23,6 +23,7 @@ Item {
     property bool busy: false
 
     readonly property bool offer: modelData.kind !== "image"
+    readonly property bool named: !offer && typeof modelData.name === "string" && modelData.name !== ""
 
     anchors.fill: parent
 
@@ -64,6 +65,30 @@ Item {
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
         onStatusChanged: if (status === Image.Error) console.warn("themes: wallpaper card image unreadable path=" + root.modelData.path)
+    }
+
+    Rectangle {
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.card.padding
+        width: Math.min(parent.width - 2 * Theme.angledCard.skew, nameLabel.implicitWidth + 2 * Theme.card.padding)
+        height: nameLabel.implicitHeight + 2 * Theme.card.padding
+        visible: root.named
+        color: Theme.card.background
+        border.color: Theme.card.border
+        border.width: Theme.card.borderWidth
+        radius: Theme.card.radius
+
+        Label {
+            id: nameLabel
+            anchors.centerIn: parent
+            width: parent.width - 2 * Theme.card.padding
+            role: "bodyStrong"
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
+            text: root.named ? root.modelData.name : ""
+            color: Theme.color.text
+        }
     }
 
     Spinner {

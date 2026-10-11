@@ -17,7 +17,7 @@ link="$state/background"; doc="$state/backgrounds.json"
 # hidden image, a directory with an image name, a symlink to an image, which
 # no package contributes, and a dangling link. nord holds none. Both are
 # installed, so a control's tree copy links the same image paths.
-theme_pkg "$cfg/vgshell/themes/dusk" '{ "schemaVersion": 1, "name": "dusk", "tokens": { "palette": { "accent": "#111111" } } }'
+theme_pkg "$cfg/vgshell/themes/dusk" '{ "schemaVersion": 1, "name": "dusk", "tokens": { "palette": { "accent": "#111111" } }, "backgrounds": { "a.JPG": "Dawn", "c.png": "Sea" } }'
 theme_pkg "$cfg/vgshell/themes/nord" '{ "schemaVersion": 1, "name": "nord", "tokens": { "palette": { "accent": "#222222" } } }'
 images="$cfg/vgshell/themes/dusk/backgrounds"; mkdir -p "$images/d.png"
 printf 'b' >"$images/b.png"; printf 'a' >"$images/a.JPG"; printf 't' >"$images/notes.txt"; printf 'h' >"$images/.hidden.png"
@@ -51,7 +51,7 @@ at() { printf '"%s/%s"' "$images" "$1"; }
 json_line() { printf '{"state":"%s","background":%s,"theme":%s,"path":%s,"reason":%s}' "$@"; }
 step_line() { printf 'ok background=%s theme=dusk path=%s/%s' "$1" "$images" "$1"; }
 set_line() { printf 'ok background=%s theme=%s path=%s%s' "$1" "$2" "$3" "${4:+ screen=$4}"; } # FILE THEME PATH [SCREEN]
-entry() { printf '{"background":"%s","theme":%s,"path":"%s"}' "$1" "$2" "$3"; } # FILE THEME_JSON PATH
+entry() { printf '{"background":"%s","theme":%s,"name":%s,"path":"%s"}' "$1" "$2" "$3" "$4"; } # FILE THEME_JSON NAME_JSON PATH
 
 tinst "next before any apply is refused" "$cfg" "$rt_empty" 1 "" "vgshell: refused: background=next reason=not-applied path=$state/theme.name" theme background next
 tinst "an apply of a package with images is accepted" "$cfg" "$rt_empty" 0 "ok theme=dusk state=applied shell=applied" "" theme apply dusk
@@ -131,13 +131,13 @@ shipped = set(os.listdir(sys.argv[2])) - {"targets"}
 got = [i for i in d["images"] if i["theme"] not in shipped]
 sys.exit(0 if list(d) == ["state", "images", "reason"] and d["state"] == "ok" and d["reason"] is None and got == json.loads(sys.argv[3]) else 1)' "$tmp/out" "$repo/themes" "$1"
 }
-dusk_images="$(entry a.JPG '"dusk"' "$images/a.JPG"),$(entry b.png '"dusk"' "$images/b.png"),$(entry c.png '"dusk"' "$images/c.png")"
+dusk_images="$(entry a.JPG '"dusk"' '"Dawn"' "$images/a.JPG"),$(entry b.png '"dusk"' null "$images/b.png"),$(entry c.png '"dusk"' '"Sea"' "$images/c.png")"
 two_screens() { printf '{"DP-1":"%s","HDMI-A-1":"%s"}' "$1" "$2"; } # DP-1_PATH HDMI-A-1_PATH
 
 tinst "list of a package with no images names none" "$cfg" "$rt_empty" 0 "" "" theme background list
 tinst "list under --json prints an empty list" "$cfg" "$rt_empty" 0 '{"state":"ok","images":[],"reason":null}' "" theme background --json list
 tinst "list --all under --json is accepted" "$cfg" "$rt_empty" 0 "$any_out" "" theme background --json list --all
-check "list --all names each accepted package's images in name order, then the user folder's" list_all_is "[$dusk_images,$(entry s.png '"sea"' "$tree/themes/sea/backgrounds/s.png"),$(entry u.png null "$user/u.png")]"
+check "list --all names each accepted package's images in name order, then the user folder's" list_all_is "[$dusk_images,$(entry s.png '"sea"' null "$tree/themes/sea/backgrounds/s.png"),$(entry u.png null null "$user/u.png")]"
 tinst "list --all ends with the user folder's image, named by no package" "$cfg" "$rt_empty" 0 "background=u.png theme=- path=$user/u.png" "" theme background list --all
 tinst "set of a user-folder image is accepted" "$cfg" "$rt_empty" 0 "$(set_line u.png - "$user/u.png")" "" theme background set "$user/u.png"
 check "set links the user-folder image" links_at "$user/u.png"
@@ -394,7 +394,7 @@ reset_dusk "scope control"
 judge_control scope 'if (scope === "all") {' 'if (true) {'
 tinst "the scope mutant's list ends with the user folder's image" "$cfg" "$rt_empty" 0 "background=u.png theme=- path=$user/u.png" "" theme background list
 reset_dusk "user folder control"
-judge_control user-folder '.concat([{ theme: null, dir: configDir }])' '.concat([])'
+judge_control user-folder '.concat([{ theme: null, dir: configDir, names: {} }])' '.concat([])'
 tinst "the user-folder mutant refuses a user-folder image as outside" "$cfg" "$rt_empty" 1 "" "vgshell: refused: background=set reason=outside path=$user/u.png" theme background set "$user/u.png"
 reset_dusk "state directory control"
 bg_control state-dir '    writing(stateDir, key, () => fs.mkdirSync(stateDir, { recursive: true }));' ''

@@ -308,7 +308,7 @@ const WALLPAPER_KEYS = [
     ["a control chord passes on", K.S, false, true, true, false, true, ""],
     ["a meta chord passes on", K.Return, false, false, false, true, false, ""],
     ["Q passes on", K.Q, false, false, false, false, true, ""],
-    ["Space activates", K.Space, false, false, false, false, false, "activate"]
+    ["Space passes to the filter", K.Space, false, false, false, false, false, ""]
 ];
 
 // The wallpaper view: sources, scopes, cards, the offer card, the keys
@@ -353,29 +353,42 @@ function verifyWallpapers(logic) {
     ]) assert.equal(logic.wallpaperOffer(entries, "nord"), want, label);
 
     const images = [
-        { background: "a.jpg", theme: "akane", path: "/t/akane/backgrounds/a.jpg" },
-        { background: "u.jpg", theme: null, path: "/u/u.jpg" },
-        { background: "a.jpg", theme: "nord", path: "/t/nord/backgrounds/a.jpg" },
-        { background: "b.jpg", theme: "nord", path: "/t/nord/backgrounds/b.jpg" }
+        { background: "a.jpg", theme: "akane", name: "Morning", path: "/t/akane/backgrounds/a.jpg" },
+        { background: "u.jpg", theme: null, name: null, path: "/u/u.jpg" },
+        { background: "a.jpg", theme: "nord", name: "Blue Ridge", path: "/t/nord/backgrounds/a.jpg" },
+        { background: "b.jpg", theme: "nord", name: null, path: "/t/nord/backgrounds/b.jpg" }
     ];
-    const cardRow = c => [c.kind, c.key, c.path, c.theme];
+    const cardRow = c => [c.kind, c.key, c.path, c.theme, c.name === undefined ? null : c.name];
     same(logic.wallpaperCards(images, catalog(true, pin(4000000), true, false), "nord", "theme").map(cardRow), [
-        ["image", "/t/nord/backgrounds/a.jpg", "/t/nord/backgrounds/a.jpg", "nord"],
-        ["image", "/t/nord/backgrounds/b.jpg", "/t/nord/backgrounds/b.jpg", "nord"]
+        ["image", "/t/nord/backgrounds/a.jpg", "/t/nord/backgrounds/a.jpg", "nord", "Blue Ridge"],
+        ["image", "/t/nord/backgrounds/b.jpg", "/t/nord/backgrounds/b.jpg", "nord", null]
     ], "theme lists the applied package's images");
     const updating = logic.wallpaperCards(images, catalog(true, pin(4000000), true, true), "nord", "theme");
-    same(updating.map(cardRow).slice(2), [["update", "update", null, "nord"]], "the update card comes last");
+    same(updating.map(cardRow).slice(2), [["update", "update", null, "nord", null]], "the update card comes last");
     const downloading = logic.wallpaperCards([], catalog(true, pin(4000000), false, false), "nord", "theme");
-    same(downloading.map(cardRow), [["download", "download", null, "nord"]]);
+    same(downloading.map(cardRow), [["download", "download", null, "nord", null]]);
     for (const offer of [updating[2], downloading[0]]) assert.ok(typeof offer.label === "string" && offer.label !== "", offer.kind + " card names itself");
     same(logic.wallpaperCards(images, catalog(true, pin(4000000), true, true), "nord", "all").map(cardRow), [
-        ["image", "/t/akane/backgrounds/a.jpg", "/t/akane/backgrounds/a.jpg", "akane"],
-        ["image", "/t/nord/backgrounds/a.jpg", "/t/nord/backgrounds/a.jpg", "nord"],
-        ["image", "/t/nord/backgrounds/b.jpg", "/t/nord/backgrounds/b.jpg", "nord"],
-        ["image", "/u/u.jpg", "/u/u.jpg", null]
+        ["image", "/t/akane/backgrounds/a.jpg", "/t/akane/backgrounds/a.jpg", "akane", "Morning"],
+        ["image", "/t/nord/backgrounds/a.jpg", "/t/nord/backgrounds/a.jpg", "nord", "Blue Ridge"],
+        ["image", "/t/nord/backgrounds/b.jpg", "/t/nord/backgrounds/b.jpg", "nord", null],
+        ["image", "/u/u.jpg", "/u/u.jpg", null, null]
     ], "all lists every package's images, the user folder last, and no card");
     same(logic.wallpaperCards(images, null, "vgs", "theme"), [], "a package with no images and no catalog has no card");
     assert.throws(() => logic.wallpaperCards(images, null, "nord", "some"), /source="some" want=theme\|all/);
+
+    // Wallpaper filter rows: [label, filter, wanted card keys].
+    const wallpaperList = logic.wallpaperCards(images, catalog(true, pin(4000000), true, true), "nord", "theme");
+    const wallpaperFilterRows = [
+        ["name match in any case", "blue", ["/t/nord/backgrounds/a.jpg"]],
+        ["file-name match", "b.jpg", ["/t/nord/backgrounds/b.jpg"]],
+        ["no match", "black", []],
+        ["empty filter keeps all", "", ["/t/nord/backgrounds/a.jpg", "/t/nord/backgrounds/b.jpg", "update"]],
+        ["offer card hidden by a non-empty filter", "update", []],
+        ["unnamed card matches by file name", "b.", ["/t/nord/backgrounds/b.jpg"]]
+    ];
+    for (const [label, filter, want] of wallpaperFilterRows)
+        same(logic.wallpaperShown(wallpaperList, filter).map(c => c.key), want, label);
 
     const list = logic.wallpaperCards(images, catalog(true, pin(4000000), true, true), "nord", "theme");
     assert.equal(logic.wallpaperSelection(list, "/t/nord/backgrounds/b.jpg"), 1);
@@ -449,7 +462,10 @@ const CONTROLS = [
     ["offer needs bytes", " || !(e.imagery.size > 0)", ""],
     ["update card", 'return e.imageryUpdate ? "update" : null;', "return null;"],
     ["theme source is the applied package", "return i.theme === applied; }).map(card);", "return true; }).map(card);"],
-    ["user folder last", "return packaged.concat(user).map(card);", "return images.map(card);"]
+    ["user folder last", "return packaged.concat(user).map(card);", "return images.map(card);"],
+    ["wallpaper cards carry names", "name: image.name === undefined ? null : image.name", "name: null"],
+    ["wallpaper name matches", "return name.toLowerCase().indexOf(needle) !== -1 || card.background.toLowerCase().indexOf(needle) !== -1;", "return card.background.toLowerCase().indexOf(needle) !== -1;"],
+    ["wallpaper offer matches only empty filters", "if (card.kind !== \"image\") return false;", ""]
 ];
 
 try {
