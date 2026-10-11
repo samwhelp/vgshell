@@ -579,7 +579,7 @@ fi
 # children itself.
 # The fence uses a private pid namespace, so the host window for this run
 # is the aquamarine stableId that appears after the compositor starts.
-host_windows_before="$(host_nested_windows)" || true
+host_windows_before="$(host_nested_windows)" || host_windows_before=unreadable
 spawn "$sandbox/hyprland.log" "${sandbox_env[@]}" "${shell_start_words[@]}" \
   DBUS_SESSION_BUS_ADDRESS="unix:path=$rt_dir/bus" DBUS_SYSTEM_BUS_ADDRESS="unix:path=$rt_dir/system-bus" \
   WAYLAND_DISPLAY="$host_socket" Hyprland --config "$home/.config/hypr/hyprland.lua"
@@ -735,7 +735,7 @@ elif [[ -n $compositor_gone ]]; then
 elif [[ -n $nested_backend_unannounced_seen ]]; then
   printf 'qml-smoke: status=not-measured nested-backend=unannounced monitors=%s mice=%s host_new_windows=none secs=%s\n' "$monitors_seen" "$nested_mice_seen" "$nested_monitor_ready_secs"
   printf 'qml-smoke: nested-monitor-readings monitors=%s\n' "$nested_monitor_readings"
-  echo "the nested compositor listed only Hyprland's FALLBACK output, no host pointer and no host window, so aquamarine did not announce the Wayland backend; the host's aquamarine needs upstream 7bb8bdf. Run the smoke again"
+  echo "the nested compositor's Wayland backend (aquamarine 0.15.1) announced no output and sent the host no window, so no monitor will get a size; the host's aquamarine needs upstream 7bb8bdf (#415). Run the smoke again"
   exit 77
 elif [[ -n $monitors_seen ]]; then
   printf 'qml-smoke: status=not-measured nested-monitor=unsized monitors=%s secs=%s bound_secs=%d\n' "$monitors_seen" "$nested_monitor_ready_secs" "$nested_monitor_wait_secs"

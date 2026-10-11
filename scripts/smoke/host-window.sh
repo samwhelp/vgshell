@@ -51,15 +51,17 @@ host_nested_windows() {
   python3 -c '
 import json, sys
 try:
-    clients = json.loads(sys.argv[1])
-    for c in clients:
+    rows = []
+    for c in json.loads(sys.argv[1]):
         if c["class"] != "aquamarine":
             continue
         size = c["size"]
-        print("%s pid=%s size=%sx%s workspace=%s mapped=%s" % (
+        rows.append("%s pid=%s size=%sx%s workspace=%s mapped=%s" % (
             c["stableId"], c["pid"], size[0], size[1],
             c["workspace"]["name"], str(c["mapped"]).lower()))
 except (ValueError, KeyError, TypeError, IndexError):
     print("unreadable"); sys.exit(1)
+for row in rows:
+    print(row)
 ' "$clients"
 }

@@ -368,6 +368,8 @@ window_cases=(
   'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; mkdir -p "$D/bin"; cp -- "$T/bin/hyprctl" "$T/bin/host-clients.json" "$T/bin/host-monitors.json" "$D/bin/"; : >"$D/bin/fail-clients"; out="$(PATH="$D/bin:$PATH" host_nested_windows)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
   "nested host windows missing stableId are unreadable"
   'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; mkdir -p "$D/bin"; cp -- "$T/bin/hyprctl" "$T/bin/host-clients.json" "$T/bin/host-monitors.json" "$D/bin/"; python3 -c "import json,sys; p=sys.argv[1]; data=json.load(open(p)); del data[0]['\''stableId'\'']; json.dump(data, open(p, '\''w'\''))" "$D/bin/host-clients.json"; out="$(PATH="$D/bin:$PATH" host_nested_windows)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
+  "nested host windows with a later window missing stableId print nothing else"
+  'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; mkdir -p "$D/bin"; cp -- "$T/bin/hyprctl" "$T/bin/host-clients.json" "$T/bin/host-monitors.json" "$D/bin/"; python3 -c "import json,sys; p=sys.argv[1]; data=json.load(open(p)); del data[2]['\''stableId'\'']; json.dump(data, open(p, '\''w'\''))" "$D/bin/host-clients.json"; out="$(PATH="$D/bin:$PATH" host_nested_windows)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
 )
 run_cases "$window_helper" window_cases
 # shellcheck disable=SC2016
@@ -396,6 +398,8 @@ window_controls=(
   $'host_nested_windows() {\n  local clients\n  if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then echo unreadable; return 1; fi\n  clients="$(timeout 2 hyprctl -j clients 2>/dev/null)" || { echo unreadable; return 1; }' $'host_nested_windows() {\n  local clients\n  if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then echo unreadable; return 1; fi\n  clients="$(timeout 2 hyprctl -j clients 2>/dev/null)" || true' "nested host windows with a failed clients read are unreadable"
   "nested windows missing stableId is not caught"
   'except (ValueError, KeyError, TypeError, IndexError):' 'except (ValueError, TypeError, IndexError):' "nested host windows missing stableId are unreadable"
+  "nested windows print rows before the whole reply parses"
+  $'        rows.append("%s pid=%s size=%sx%s workspace=%s mapped=%s" % (' $'        print("%s pid=%s size=%sx%s workspace=%s mapped=%s" % (' "nested host windows with a later window missing stableId print nothing else"
 )
 run_controls "$window_helper" window_cases window_controls
 
