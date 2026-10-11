@@ -20,7 +20,7 @@
 # self-test.
 #
 # The input is one of:
-#   --wav FILE   a recorded voice, played into the sandbox PipeWire's voice
+#   --wav FILE   a recorded 16-bit PCM WAV, played into the sandbox PipeWire's voice
 #                feed (scripts/smoke/devices.sh), whose source side is the
 #                microphone Jarvis records with its own pw-record. The feed
 #                starts only once the bar widget reads the microphone open
@@ -306,6 +306,16 @@ print(values[-1] if values else "none")
 ' "$1"
 }
 
+# selftest_service_phase: the current Session phase, from Service.qml
+# status.detail.phase. The trace can start after an Always capture is armed.
+selftest_service_phase() {
+  ipc smoke jarvisProcess | py_reply '
+import json, sys
+detail = json.load(sys.stdin)["status"].get("detail")
+print(detail.get("phase", "none") if detail else "none")
+'
+}
+
 # selftest_turn: the turn's progress, from the Session phases after the
 # `input` mark in the probe's trace on stdin: `ended=<phase>` once Jarvis has
 # worked and rests again (idle, listening or armed), or a fault or the gate
@@ -439,22 +449,23 @@ print(json.dumps({"firstMs": first, "longestGapMs": max(gaps or [0])}, separator
 PY
 }
 
-# selftest_audio_record SOUNDS_JSON SPEECH_END_MS WINDOW_END_MS INPUT_START_MS:
-# the record's audio object, with absolute capture spans moved to input time.
-selftest_audio_record() { # SOUNDS_JSON SPEECH_END_MS WINDOW_END_MS INPUT_START_MS
+# selftest_audio_record SOUNDS_JSON SPEECH_END_MS WINDOW_END_MS: the
+# record's audio object with absolute shell-clock spans. selftest_record moves
+# them onto the trace input mark's clock.
+selftest_audio_record() { # SOUNDS_JSON SPEECH_END_MS WINDOW_END_MS
   local measure
   measure="$(selftest_audio "$1" "$2" "$3")" || return 1
-  python3 - "$1" "$2" "$4" "$measure" <<'PY'
+  python3 - "$1" "$2" "$measure" <<'PY'
 import json, sys
-sounds, speech_end, start, measure = json.loads(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), json.loads(sys.argv[4])
-print(json.dumps({"speechEndMs": speech_end - start, "firstMs": measure["firstMs"], "longestGapMs": measure["longestGapMs"], "sounds": [[int(s) - start, int(e) - start] for s, e in sounds]}, separators=(",", ":")))
+sounds, speech_end, measure = json.loads(sys.argv[1]), int(sys.argv[2]), json.loads(sys.argv[3])
+print(json.dumps({"speechEndMs": speech_end, "firstMs": measure["firstMs"], "longestGapMs": measure["longestGapMs"], "sounds": [[int(s), int(e)] for s, e in sounds]}, separators=(",", ":")))
 PY
 }
 
-# selftest_speech_tail WAV: milliseconds after WAV's last sample louder
-# than two percent of its peak. A bad WAV stops the run.
-selftest_speech_tail() { # WAV
-  python3 - "$1" <<'PY' || stopped wav-unreadable "$1"
+# selftest_wav_tail WAV: milliseconds after WAV's last sample louder than
+# two percent of its peak. The self-test accepts 16-bit PCM WAV only.
+selftest_wav_tail() { # WAV
+  python3 - "$1" <<'PY'
 import array, sys, wave
 try:
     with wave.open(sys.argv[1], "rb") as file:
@@ -484,10 +495,16 @@ print(round((frames - last_frame) * 1000 / rate))
 PY
 }
 
-# selftest_open KIND MODE VALUE WAV: open one turn, set input_started_ms and
-# speech_end_ms, and feed the input. Always mode sends no Talk intent.
-selftest_open() { # KIND MODE VALUE WAV
-  local kind="$1" mode="$2" value="$3" sound="${4:-}" reply feed_done tail
+# selftest_speech_tail WAV: compatibility wrapper for host controls.
+selftest_speech_tail() { # WAV
+  selftest_wav_tail "$1" || stopped wav-unreadable "$1"
+}
+
+# selftest_open KIND MODE VALUE WAV TAIL_MS: open one turn, set
+# input_started_ms and speech_end_ms, and feed the input. Always mode sends no
+# Talk intent.
+selftest_open() { # KIND MODE VALUE WAV TAIL_MS
+  local kind="$1" mode="$2" value="$3" sound="${4:-}" tail="${5:-0}" reply feed_done
   if [[ $kind == type ]]; then
     [[ $(ipc smoke markJarvisTrace input) == ok ]] || stopped trace-not-marked
     input_started_ms="$(now_ms)"
@@ -497,7 +514,7 @@ selftest_open() { # KIND MODE VALUE WAV
     return 0
   fi
   if [[ $mode == always ]]; then
-    selftest_wait 30 armed traced phase || stopped microphone-not-open "phase=$reading"
+    selftest_wait 30 armed selftest_service_phase || stopped microphone-not-open "phase=$reading"
     selftest_wait 10 ready devices_voice_feed_state || stopped no-voice-feed "$reading"
     [[ $(ipc smoke markJarvisTrace input) == ok ]] || stopped trace-not-marked
     input_started_ms="$(now_ms)"
@@ -513,7 +530,6 @@ selftest_open() { # KIND MODE VALUE WAV
     devices_voice_feed "$sound" || stopped no-voice-feed player-failed
     feed_done="$(now_ms)"
   fi
-  tail="$(selftest_speech_tail "$sound")" || return 1
   speech_end_ms=$((feed_done - tail))
 }
 
@@ -539,6 +555,8 @@ for row in map(json.loads, open(brain_text)):
     raw[-1] += row["text"]
 first = next(i for i, e in enumerate(events) if e["kind"] == "mark" and e["value"] == "input")
 start = events[first]["at"]
+audio = {**audio, "speechEndMs": None if audio.get("speechEndMs") is None else int(audio["speechEndMs"]) - start,
+         "sounds": [[int(s) - start, int(e) - start] for s, e in audio.get("sounds", [])]}
 heard, sentences, shown, segment = None, [], "", None
 for event in events[first:]:
     if event["kind"] != "caption":
@@ -697,7 +715,8 @@ if kind == "wav" and not os.path.isfile(os.path.join(root, value)):
 if data["mode"] not in ("toggle", "always") or data["confirm"] not in ("none", "key"):
     print(f"case=malformed path={path} reason=enum", file=sys.stderr)
     sys.exit(1)
-if not all(isinstance(data[key], list) and all(isinstance(word, str) and word for word in data[key]) for key in ("heard", "said")):
+word_pattern = __import__("re").compile(r"^[a-z0-9]+(?:\|[a-z0-9]+)*$")
+if not all(isinstance(data[key], list) and data[key] and all(isinstance(word, str) and word_pattern.fullmatch(word) for word in data[key]) for key in ("heard", "said")):
     print(f"case=malformed path={path} reason=words", file=sys.stderr)
     sys.exit(1)
 if not isinstance(data["tool"], str) or data["tool"] == "":
@@ -778,10 +797,17 @@ selftest_suite_summary() { # CASES MATCHED DIFFER NOT_RUN FAILED DIR
   if ((not_run > 0)); then return 77; fi
   return 0
 }
+# selftest_suite_stopped CASES MATCHED DIFFER NOT_RUN FAILED DIR: print a
+# partial suite summary after a signal and fail the suite.
+selftest_suite_stopped() { # CASES MATCHED DIFFER NOT_RUN FAILED DIR
+  local cases="$1" matched="$2" differ="$3" not_run="$4" failed="$5" dir="$6"
+  printf 'selftest=suite cases=%s matched=%s differ=%s not-run=%s dir=%s stopped=signal\n' "$cases" "$matched" "$differ" "$not_run" "$dir"
+  return 1 # signal stops the suite
+}
 
 # selftest_suite CASE: run one or every case as child self-tests.
 selftest_suite() { # NAME
-  local suite_name="$1" dir="$out" case_file name source status verdict record fields matched=0 differ=0 not_run=0 failed=0 total=0
+  local suite_name="$1" dir="$out" case_file name source status verdict record fields matched=0 differ=0 not_run=0 failed=0 total=0 seen=0
   local -a case_files=() case_args=() child_args=()
   if [[ $suite_name == all ]]; then
     while IFS= read -r case_file; do case_files+=("$case_file"); done < <(find "$selftest_cases_dir" -maxdepth 1 -type f -name '*.json' | LC_ALL=C sort)
@@ -794,10 +820,20 @@ selftest_suite() { # NAME
   selftest_gpu_fence
   total="${#case_files[@]}"
   mkdir -p -- "$dir"
+  suite_stop=false
+  trap 'suite_stop=true' INT TERM HUP
   for case_file in "${case_files[@]}"; do
     name="$(basename "$case_file" .json)"
     mode="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["mode"])' "$case_file")" || return 1
     record="$dir/$name.json"
+    python3 - "$record" <<'PY'
+import os, sys
+for path in (sys.argv[1], sys.argv[1] + ".next"):
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+PY
     status=0
     source=case
     case_args=()
@@ -826,7 +862,13 @@ selftest_suite() { # NAME
       printf 'case=%s source=%s verdict=failed status=%s\n' "$name" "$source" "$status"
       failed=$((failed + 1))
     fi
+    seen=$((seen + 1))
+    if [[ $suite_stop == true ]]; then
+      selftest_suite_stopped "$seen" "$matched" "$differ" "$not_run" "$failed" "$dir"
+      return 1
+    fi
   done
+  trap - INT TERM HUP
   selftest_suite_summary "$total" "$matched" "$differ" "$not_run" "$failed" "$dir"
 }
 
@@ -843,6 +885,7 @@ brain=""
 home_source=""
 voice=local
 voices_dir=""
+input_tail=0
 mode=toggle
 mode_seen=false
 confirm=none
@@ -944,6 +987,26 @@ fi
 if [[ $input_kind == wav ]]; then
   [[ -f $input_value && -r $input_value ]] || refuse "argument=--wav value=$input_value reason=unreadable"
   input_value="$(readlink -f -- "$input_value")"
+  mkdir -p -- "$repo/tmp/selftest-records"
+  input_tail_file="$repo/tmp/selftest-records/wav-tail-$$"
+  if ! selftest_wav_tail "$input_value" >"$input_tail_file"; then
+    python3 - "$input_tail_file" <<'PY'
+import os, sys
+try:
+    os.unlink(sys.argv[1])
+except FileNotFoundError:
+    pass
+PY
+    refuse "argument=--wav value=$input_value reason=wav-not-pcm16"
+  fi
+  input_tail="$(cat -- "$input_tail_file")"
+  python3 - "$input_tail_file" <<'PY'
+import os, sys
+try:
+    os.unlink(sys.argv[1])
+except FileNotFoundError:
+    pass
+PY
 fi
 if [[ -n $home_source ]]; then
   [[ -d $home_source ]] || refuse "argument=--home value=$home_source reason=not-a-directory"
@@ -1040,6 +1103,8 @@ if [[ $input_kind == tts ]]; then
   selftest_speak "$plugin" "$local_root" "$input_value" "$wav" || status=$?
   [[ $status -ne 77 ]] || unavailable local-inputs-unavailable
   [[ $status -eq 0 ]] || stopped tts-failed "exit=$status"
+  if ! selftest_wav_tail "$wav" >"$sandbox/selftest-input.tail"; then stopped tts-unreadable; fi
+  input_tail="$(cat -- "$sandbox/selftest-input.tail")"
 elif [[ $input_kind == wav ]]; then
   wav="$input_value"
 fi
@@ -1142,7 +1207,9 @@ traced() { ipc smoke jarvisTrace | selftest_last "$1"; }
 # The sidecar loads its models before the gate comes up: LocalSpeech.js
 # gives it 60 s, and this wait bounds that and the account check.
 selftest_wait 120 applied daemon_applied || stopped not-ready "$reading"
-selftest_wait 120 ready widget_state || stopped not-ready "widget=$reading"
+widget_want=ready
+[[ $mode == always ]] && widget_want=listening
+selftest_wait 120 "$widget_want" widget_state || stopped not-ready "widget=$reading"
 speaker_capture="$sandbox/selftest-speaker.jsonl"
 devices_speaker_record "$speaker_capture"
 speaker_state() { [[ -s $speaker_capture ]] && echo ready || echo waiting; }
@@ -1151,7 +1218,7 @@ selftest_wait 10 ready speaker_state || stopped speaker-capture-not-started
 
 input_started_ms=""
 speech_end_ms=""
-selftest_open "$input_kind" "$mode" "$input_value" "${wav:-}"
+selftest_open "$input_kind" "$mode" "$input_value" "${wav:-}" "$input_tail"
 
 turn=waiting
 turn_until=$((SECONDS + 300))
@@ -1175,9 +1242,9 @@ fault="$(ipc smoke jarvisProcess | py_reply 'import json,sys; d=json.load(sys.st
 ipc vgs.jarvis invoke stop "" >/dev/null || true
 window_end_ms="$(now_ms)"
 selftest_wait 10 idle traced phase || true
-devices_speaker_stop
+devices_speaker_stop || stopped speaker-capture-not-stopped
 speaker_sounds="$(devices_speaker_sounds "$speaker_capture")" || speaker_sounds='[]'
-audio_json="$(selftest_audio_record "$speaker_sounds" "$speech_end_ms" "$window_end_ms" "$input_started_ms")" || stopped audio-unread
+audio_json="$(selftest_audio_record "$speaker_sounds" "$speech_end_ms" "$window_end_ms")" || stopped audio-unread
 ipc smoke jarvisTrace >"$sandbox/selftest-trace.json" || stopped trace-unread
 
 selftest_finish "$turn" "$home_sum" "$auth_log" "$failures" "$sandbox/selftest-trace.json" "$home/.local/state/vgshell/jarvis/audit" "$out" \

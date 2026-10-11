@@ -319,12 +319,15 @@ devices_voice_feed() { # FILE
 devices_speaker_pid=""
 devices_speaker_record() { # OUT
   spawn "$devices_dir/speaker-record.log" "${shell_env[@]}" python3 -c '
-import json, subprocess, sys, time
+import json, signal, subprocess, sys, time
 out = sys.argv[1]
 rate, samples_per_block, bytes_per_sample = 16000, 160, 2
 cmd = ["pw-record", "--target", "vgs-smoke-speakers", "-P", "{ stream.capture.sink = true node.name = \"vgs-smoke-speaker-record\" node.dont-fallback = true node.dont-reconnect = true }", "--rate", "16000", "--channels", "1", "--format", "s16", "--latency", "10ms", "--raw", "-"]
 child = subprocess.Popen(cmd, stdout=subprocess.PIPE)
 pending = b""
+def stop(signum, frame):
+    child.terminate()
+signal.signal(signal.SIGTERM, stop)
 try:
     with open(out, "w", buffering=1) as file:
         while True:
@@ -343,7 +346,8 @@ try:
                 file.write(json.dumps({"at": round(start), "peak": max(abs(v) for v in values) if values else 0}, separators=(",", ":")) + "\n")
             pending = data[complete:]
 finally:
-    child.terminate()
+    if child.poll() is None:
+        child.terminate()
     try:
         child.wait(timeout=5)
     except subprocess.TimeoutExpired:
@@ -357,7 +361,12 @@ finally:
 devices_speaker_stop() {
   [[ -n ${devices_speaker_pid:-} ]] || return 0
   kill -TERM -- "-$devices_speaker_pid" 2>/dev/null || true
-  for _ in $(seq 1 50); do kill -0 "$devices_speaker_pid" 2>/dev/null || break; sleep 0.1; done
+  for _ in $(seq 1 50); do kill -0 -- "-$devices_speaker_pid" 2>/dev/null || break; sleep 0.1; done
+  if kill -0 -- "-$devices_speaker_pid" 2>/dev/null; then
+    devices_speaker_pid=""
+    return 1
+  fi
+  devices_speaker_pid=""
 }
 # devices_speaker_sounds CAPTURE: the loud spans in CAPTURE as JSON
 # [[start_ms,end_ms], ...]. Absent, empty and partial input read as a state.

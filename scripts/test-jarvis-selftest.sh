@@ -206,8 +206,8 @@ plant() { cp -- "$1" "$tree/scripts/jarvis-selftest.sh"; }
 functions="$tmp/functions.sh"
 cut_functions() { # RUNNER
   { sed -n '/^py_reply() {/,/^}/p; /^now_ms() {/p' "$repo/scripts/smoke/harness.sh"
-    for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
-      selftest_woke selftest_end selftest_audio selftest_audio_record selftest_speech_tail selftest_open selftest_case_check selftest_compare selftest_case_child_args selftest_suite_summary selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$1"; done
+    for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_service_phase selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
+      selftest_woke selftest_end selftest_audio selftest_audio_record selftest_wav_tail selftest_speech_tail selftest_open selftest_case_check selftest_compare selftest_case_child_args selftest_suite_summary selftest_suite_stopped selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$1"; done
     sed -n '/^devices_speaker_sounds() {/,/^}/p' "$repo/scripts/smoke/devices.sh"; } >"$functions"
 }
 call() { selftest_node="$node_bin" bash -c 'set -euo pipefail; source "$1"; shift; "$@"' _ "$functions" "$@"; }
@@ -274,6 +274,15 @@ holds "an id no account has is refused" refused "jarvis-selftest: refused: argum
 holds "a second input is refused" refused "jarvis-selftest: refused: argument=--tts reason=one-input" --type hello --tts hello --brain "$sign_in"
 holds "no input is refused" refused "jarvis-selftest: refused: argument=input reason=missing want=--wav|--tts|--type" --brain "$sign_in"
 holds "a WAV that is not there is refused" refused "jarvis-selftest: refused: argument=--wav value=$tmp/absent.wav reason=unreadable" --wav "$tmp/absent.wav" --brain "$sign_in"
+bad_wav_refused() {
+  python3 - "$tmp/bad.wav" <<'PY'
+import wave, sys
+with wave.open(sys.argv[1], "wb") as f:
+    f.setnchannels(1); f.setsampwidth(1); f.setframerate(8000); f.writeframes(b"\x80" * 80)
+PY
+  refused "jarvis-selftest: refused: argument=--wav value=$tmp/bad.wav reason=wav-not-pcm16" --wav "$tmp/bad.wav" --brain "$sign_in"
+}
+holds "a WAV that is not 16-bit PCM is refused" bad_wav_refused
 holds "cold start mode rejects a turn input" refused "jarvis-selftest: refused: argument=--cold reason=exclusive-with-input" --cold 1 --type hello
 holds "cold start mode rejects a brain" refused "jarvis-selftest: refused: argument=--cold reason=exclusive-with-brain" --cold 1 --brain "$sign_in"
 # What a key read ends on with nothing started. Each case saves its own
@@ -500,11 +509,21 @@ case_files_hold() {
   [[ -f $repo/scripts/jarvis-selftest-cases/volume.json && -f $repo/scripts/jarvis-selftest-cases/question.json && -f $repo/scripts/jarvis-selftest-cases/long.json && -f $repo/scripts/jarvis-selftest-cases/wake.json ]]
 }
 case_file_malformed() {
-  printf '{"input":{"tts":"hello"},"mode":"toggle","confirm":"none","heard":[],"tool":"none","said":[],"extra":true}\n' >"$tmp/bad-case.json"
+  printf '{"input":{"tts":"hello"},"mode":"toggle","confirm":"none","heard":["hello"],"tool":"none","said":["ok"],"extra":true}\n' >"$tmp/bad-case.json"
   ! call selftest_case_check "$tmp/bad-case.json" >/dev/null 2>&1
 }
 holds "every acceptance case file is well formed and the required cases exist" case_files_hold
 holds "a malformed acceptance case file is refused" case_file_malformed
+case_file_empty_words() {
+  printf '{"input":{"tts":"hello"},"mode":"toggle","confirm":"none","heard":[],"tool":"none","said":["ok"]}\n' >"$tmp/bad-case.json"
+  ! call selftest_case_check "$tmp/bad-case.json" >/dev/null 2>&1
+}
+case_file_bad_alt() {
+  printf '{"input":{"tts":"hello"},"mode":"toggle","confirm":"none","heard":["two words"],"tool":"none","said":["ok"]}\n' >"$tmp/bad-case.json"
+  ! call selftest_case_check "$tmp/bad-case.json" >/dev/null 2>&1
+}
+holds "an acceptance case file with an empty word list is refused" case_file_empty_words
+holds "an acceptance case file with an invalid alternative token is refused" case_file_bad_alt
 control cut_functions "a case check that accepts missing keys" 'if set(data) != keys:' 'if False and set(data) != keys:' case_file_malformed
 
 case_child_args_local() {
@@ -566,13 +585,13 @@ control_devices() { # LABEL OLD NEW CASE
   local label="$1" old="$2" new="$3" case="$4"
   if ! mutate "$repo/scripts/smoke/devices.sh" "$old" "$new" "$mutant"; then fail "control: $label: its defect did not apply"; return; fi
   { sed -n '/^py_reply() {/,/^}/p; /^now_ms() {/p' "$repo/scripts/smoke/harness.sh"
-    for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
-      selftest_woke selftest_end selftest_audio selftest_audio_record selftest_speech_tail selftest_open selftest_case_check selftest_compare selftest_case_child_args selftest_suite_summary selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$runner"; done
+    for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_service_phase selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
+      selftest_woke selftest_end selftest_audio selftest_audio_record selftest_wav_tail selftest_speech_tail selftest_open selftest_case_check selftest_compare selftest_case_child_args selftest_suite_summary selftest_suite_stopped selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$runner"; done
     sed -n '/^devices_speaker_sounds() {/,/^}/p' "$mutant"; } >"$functions"
   if "$case"; then fail "control: $label stayed green"; else ok "control: $label"; fi
   cut_functions "$runner"
 }
-control_devices "a sound reader that does not join a short closure" 'elif at - current[1] < 60:' 'elif at - current[1] < 40:' audio_measure_case
+control_devices "a sound reader that does not join a short closure" 'elif at - current[1] < 60:' 'elif at - current[1] < 0:' audio_measure_case
 
 
 echo "--- wake opening and no-wake"
@@ -585,8 +604,8 @@ open_case() { # MODE WANT_INTENT WANT_PHASE
     devices_voice_feed() { echo feed >>"$log"; }
     selftest_speech_tail() { echo 0; }
     stopped() { echo "stopped $*" >>"$log"; return 1; }
-    ipc() { echo "ipc $*" >>"$log"; case "$*" in *markJarvisTrace*) echo ok ;; *say*) echo ok ;; *) echo ok ;; esac; }
-    selftest_open wav "$mode" ignored "$log.wav"
+    ipc() { echo "ipc $*" >>"$log"; case "$*" in smoke\ jarvisProcess) printf "%s\n" "{\"status\":{\"detail\":{\"phase\":\"$phase_word\"}}}" ;; *markJarvisTrace*) echo ok ;; *say*) echo ok ;; *) echo ok ;; esac; }
+    selftest_open wav "$mode" ignored "$log.wav" 0
   ' _ "$functions" "$tmp/open.log" "$open_mode" "$phase_word" || return 1
   if [[ $want_intent == yes ]]; then grep -q 'intent talk-down' "$tmp/open.log"; else ! grep -q 'intent talk-down' "$tmp/open.log"; fi
 }
@@ -603,13 +622,20 @@ print(json.dumps([{"kind":"mark","at":50,"value":"input"}]))
 PY
 }
 wake_reads_armed() { [[ "$(wake_trace | call selftest_woke)" == armed && "$(wake_empty_trace | call selftest_woke)" == armed && "$(call selftest_end no-wake)" == no-wake ]]; }
+wake_woke_trace() { python3 - <<'PY'
+import json
+print(json.dumps([{"kind":"mark","at":50,"value":"input"},{"kind":"phase","at":60,"value":"armed"},{"kind":"phase","at":70,"value":"thinking"}]))
+PY
+}
+wake_reads_woke() { [[ "$(wake_woke_trace | call selftest_woke)" == woke ]]; }
 holds "Always mode opens without a Talk intent and waits for armed" open_always
 holds "Toggle mode opens with the Talk intent" open_toggle
 holds "a trace that stays armed after the input mark reads no-wake" wake_reads_armed
+holds "a wake trace that leaves armed reads woke" wake_reads_woke
 control cut_functions "an Always open that sends the Talk intent" 'if [[ $mode == always ]]; then
-    selftest_wait 30 armed traced phase' 'if [[ $mode == always ]]; then
+    selftest_wait 30 armed selftest_service_phase' 'if [[ $mode == always ]]; then
     ipc smoke invokeInstance service vgs.jarvis intent talk-down >/dev/null || stopped talk-not-sent
-    selftest_wait 30 armed traced phase' open_always
+    selftest_wait 30 armed selftest_service_phase' open_always
 control cut_functions "a verdict that takes no-wake as completed" '    no-wake) echo no-wake ;;' '    no-wake) echo completed ;;' wake_reads_armed
 
 suite_summary_case() { # CASES MATCHED DIFFER NOT_RUN FAILED DIR WANT_STATUS
@@ -620,6 +646,10 @@ suite_summary_case() { # CASES MATCHED DIFFER NOT_RUN FAILED DIR WANT_STATUS
 holds "suite summary exits 0 when all cases matched" suite_summary_case 2 2 0 0 0 "$tmp/suite" 0
 holds "suite summary exits 1 when any case differs" suite_summary_case 2 1 1 0 0 "$tmp/suite" 1
 holds "suite summary exits 77 when a case could not run and none differed" suite_summary_case 2 1 0 1 0 "$tmp/suite" 77
+holds "suite summary exits 1 when a case failed without a record and none differed" suite_summary_case 2 1 0 0 1 "$tmp/suite" 1
+suite_stopped_case() { local status=0; call selftest_suite_stopped 2 1 0 0 0 "$tmp/suite" >"$tmp/out" || status=$?; [[ $status -eq 1 && "$(<"$tmp/out")" == "selftest=suite cases=2 matched=1 differ=0 not-run=0 dir=$tmp/suite stopped=signal" ]]; }
+holds "a stopped suite prints a signal summary and exits 1" suite_stopped_case
+control cut_functions "a stopped suite summary that exits successfully" '  return 1 # signal stops the suite' '  return 0 # signal stops the suite' suite_stopped_case
 
 echo "--- a saved key: the filtered secrets bus"
 keyring_cases() {
@@ -777,7 +807,11 @@ SH
   # needs no prepared local voice.
   voice_named() {
     local held=0
-    : >"$tmp/voice.wav"
+    python3 - "$tmp/voice.wav" <<'PY'
+import array, sys, wave
+with wave.open(sys.argv[1], "wb") as f:
+    f.setnchannels(1); f.setsampwidth(2); f.setframerate(16000); f.writeframes(array.array("h", [0] * 160).tobytes())
+PY
     inputs=()
     key_run present --wav "$tmp/voice.wav" --brain "$sign_in" --voice realtime
     [[ $status -eq 0 && "$(tail -n 1 -- "$tmp/harness.log")" == "start_shell CLAUDE_CONFIG_DIR=$world/.claude $trace_word" && ! -e $sandbox/home/.local/share/vgshell/jarvis/local &&
@@ -950,7 +984,7 @@ json.dump(events, open(sys.argv[1], "w"))
 PY
 }
 record() { # END KEPT [VOICE] [MAILBOX] → the verdict word; the record in record.json
-  call selftest_record "$tmp/trace.json" "$tmp/audit" "$tmp/record.json" idle "" wav /voice.wav cli:b "/a home" "${3:-local}" toggle key "${4:-}" "$1" "$2" "$tmp/brain.jsonl" '{"speechEndMs":200,"firstMs":350,"longestGapMs":120,"sounds":[[50,130],[550,900]]}'
+  call selftest_record "$tmp/trace.json" "$tmp/audit" "$tmp/record.json" idle "" wav /voice.wav cli:b "/a home" "${3:-local}" toggle key "${4:-}" "$1" "$2" "$tmp/brain.jsonl" '{"speechEndMs":1200,"firstMs":350,"longestGapMs":120,"sounds":[[1050,1130],[1550,1900]]}'
 }
 # sentences_are VOICE FORM WANT_JSON: the record's sentences for a trace of
 # FORM read as VOICE's.
@@ -1050,7 +1084,7 @@ finish_case() { # ROW
     checks) checks=1 ;;
   esac
   call selftest_finish "$turn" "$sum" "$tmp/auth.calls" "$checks" "$tmp/trace.json" "$tmp/audit" "$tmp/record.json" \
-    idle "" wav /voice.wav cli:b "$folder" local toggle key "$repo" "$finish_copy" "$tmp/brain.jsonl" '{"speechEndMs":200,"firstMs":350,"longestGapMs":120,"sounds":[[550,900]]}' >"$tmp/out" 2>"$tmp/err" || status=$?
+    idle "" wav /voice.wav cli:b "$folder" local toggle key "$repo" "$finish_copy" "$tmp/brain.jsonl" '{"speechEndMs":1200,"firstMs":350,"longestGapMs":120,"sounds":[[1550,1900]]}' >"$tmp/out" 2>"$tmp/err" || status=$?
   [[ $status -eq $want_status && "$(tail -n 1 -- "$tmp/out")" == "selftest=$end record=$tmp/record.json" ]] || return 1
   [[ "$(python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print(r["end"]["kind"], r["passed"])' "$tmp/record.json")" == "$end $passed" ]]
 }
@@ -1154,7 +1188,7 @@ finish_mail() {
   call selftest_mailbox "$repo" "$finish_copy" >/dev/null || return 1
   answer="$(hands "$finish_copy" '"Rebase the lanes.\nThen report \ud83d."')" || return 1
   call selftest_finish ended=idle "$sum" "$tmp/auth.calls" 0 "$tmp/trace.json" "$tmp/audit" "$tmp/record.json" \
-    idle "" type hello cli:b "$folder" local toggle key "$repo" "$finish_copy" "$tmp/brain.jsonl" '{"speechEndMs":0,"firstMs":300,"longestGapMs":100,"sounds":[[300,700]]}' >"$tmp/out" 2>"$tmp/err" || return 1
+    idle "" type hello cli:b "$folder" local toggle key "$repo" "$finish_copy" "$tmp/brain.jsonl" '{"speechEndMs":1000,"firstMs":300,"longestGapMs":100,"sounds":[[1300,1700]]}' >"$tmp/out" 2>"$tmp/err" || return 1
   python3 - "$tmp/record.json" "$answer" <<'PY'
 import json, sys
 rows = json.load(open(sys.argv[1]))["mailbox"]
