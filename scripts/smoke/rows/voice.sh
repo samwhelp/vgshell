@@ -46,7 +46,14 @@
 # opens `core/dictation-setup`; its end with code 0 starts the daemon
 # again, Voice reads the model the stub then reports, and the section
 # reads Ready. Its control: the core's daemon ended by the row reads Set up
-# needed with Set up first, and Set up's run brings Ready back. A stand-in
+# needed with Set up first, and Set up's run brings Ready back. With a
+# stand-in daemon the row starts, as a voxtype user unit runs one, Voice
+# reads the daemon elsewhere and the section offers Stop the other voxtype,
+# `vgs.voice/stop-other`; the row ends that daemon while the run is held,
+# and the run's end with code 0 has the core start its own daemon in the
+# same shell. Its control: a disposable VoiceLogic.js whose RESTART_TUIS
+# leaves out stop-other keeps elsewhere once Voice reads the end and over
+# three times the shipped restart's time, at least two seconds. A stand-in
 # bin/vgshell-pkg answers detection with pacman and paru, whatever the
 # host runs, for that part alone. It closes its client window and puts
 # back the shell.json and the pointer position it found: its Settings
@@ -1250,6 +1257,141 @@ expect_poll "the test dictation is stopped and typed" "start stop" voice_noted
 expect_poll "the wtype stand-in typed the test dictation" "-d 10 -- the stand-in heard this" voice_last_typed
 expect_poll "the daemon reads idle after the test dictation" "ready idle -" voice_state
 settings_page_close vgs.voice
+
+# Stop the other voxtype: a stand-in daemon the row starts, as a voxtype
+# user unit runs one, holds the place the core's daemon takes. Voice reads
+# it elsewhere and its Setup offers the step; the row ends that daemon
+# while the step's run is held, as the step's systemctl would, and the
+# run's end with code 0 has the core start its own daemon in the same
+# shell.
+voice_own_pid=""
+voice_own_daemon() {
+  "${shell_env[@]}" PATH="$shell_start_path" "$voice_stub" daemon >>"$sandbox/voice-own-daemon.log" 2>&1 &
+  voice_own_pid=$!
+}
+voice_own_state() { "${shell_env[@]}" PATH="$shell_start_path" "$voice_stub" status --format json | py_reply 'import json,sys; print(json.load(sys.stdin)["alt"])'; }
+voice_own_end() {
+  [[ -z $voice_own_pid ]] || { kill -TERM "$voice_own_pid" 2>/dev/null || true; wait "$voice_own_pid" 2>/dev/null || true; }
+  voice_own_pid=""
+}
+# The shell's start time in clock ticks, field 22 of /proc/PID/stat: the
+# same value while no shell has started in its place; `gone` once it ends.
+voice_shell_start() {
+  python3 - "$shell_qs_pid" <<'PY'
+import sys
+try:
+    print(open(f"/proc/{sys.argv[1]}/stat").read().rsplit(")", 1)[1].split()[19])
+except (OSError, IndexError):
+    print("gone")
+PY
+}
+# The stop-other run as Voice's service reads it, shell.tui.state: `ended
+# code=N` once it reads an end other than BEFORE, the endedAt before the
+# run, else `waiting`. The service restarts the daemon in the handler of
+# that same change, so a restart it asks for has begun once this reads
+# ended.
+voice_stop_other_end() { ipc smoke readInstance service vgs.voice tuiState | py_reply 'import json,sys; r=(json.load(sys.stdin) or {}).get("stop-other") or {}; print(json.dumps(r.get("endedAt")))'; }
+voice_stop_other_ended() { # BEFORE
+  ipc smoke readInstance service vgs.voice tuiState | py_reply '
+import json,sys
+r=(json.load(sys.stdin) or {}).get("stop-other") or {}
+ended=r.get("endedAt")
+print("ended code=%s" % r.get("code") if ended is not None and json.dumps(ended) != sys.argv[1] and not r.get("running") else "waiting")
+' "$1"
+}
+# What the stand-in's daemons note over MS milliseconds: the first note,
+# or `none` when they note nothing in that time.
+voice_noted_within() { # MS
+  local until=$(( $(now_ms) + $1 ))
+  while [[ $(voice_noted) == none ]] && (( $(now_ms) < until )); do sleep 0.2; done
+  voice_noted
+}
+voice_setup_elsewhere='{"chips": [["Set up needed", "warning"]], "buttons": [["Stop the other voxtype", "accent", true, false], ["Configure", "accent", true, false], ["Choose model", "accent", true, false]]}'
+voice_elsewhere_line="Another voxtype is already running. Stop the other voxtype so VGS can start its own."
+# voice_stop_other LABEL: from Voice enabled over the core's daemon, the
+# row's own daemon holds the place, Voice offers the step, the step's run
+# is held while that daemon ends, and the run ends; the stand-in's notes
+# are forgotten after that daemon's end, so a start after it is the core's.
+voice_stop_other() { # LABEL
+  expect "$1: disabling Voice is allowed" ok ipc shell setPluginEnabled vgs.voice false
+  expect_poll "$1: disabling Voice ends the core's daemon" "daemon=0 follower=0 other=0 children=0" dictation_processes
+  voice_own_daemon
+  expect_poll "$1: the row's own stand-in daemon answers" idle voice_own_state
+  expect "$1: the row's own daemon is the one stand-in process, no child of the shell" "daemon=1 follower=0 other=0 children=0" dictation_processes
+  voice_forget
+  expect "$1: enabling Voice beside that daemon is allowed" ok ipc shell setPluginEnabled vgs.voice true
+  expect_poll "$1: Voice builds beside that daemon" True record_exists vgs.voice
+  expect_poll "$1: Voice reads that daemon elsewhere" "elsewhere idle -" voice_state
+  expect "$1: the core tried no second daemon" none voice_noted
+  expect_poll "$1: Setup offers Stop the other voxtype" stop voice_setup_offered
+  settings_page_open vgs.voice
+  expect_poll "$1: the Setup section draws Set up needed with Stop the other voxtype first" "$voice_setup_elsewhere" voice_setup_section
+  expect "$1: the Setup section's line says another voxtype runs" true voice_setup_line "$voice_elsewhere_line"
+  voice_stop_other_before="$(voice_stop_other_end)" || voice_stop_other_before=unread
+  forget_record
+  hold_runs
+  expect "$1: Stop the other voxtype is answered" ok settings_act vgs.voice setup
+  expect_poll "$1: Stop the other voxtype hands the terminal its screen" "$(words vgs.voice/stop-other tui/stop-other.sh)" recorded_tail
+  voice_own_end
+  expect_poll "$1: the row's own daemon is gone while the run is held" "daemon=0 follower=0 other=0 children=0" dictation_processes
+  voice_forget
+  release_runs
+  expect_run_end "$1: the Stop the other voxtype run ends" vgs.voice/stop-other
+  voice_stop_other_at="$(now_ms)"
+  expect_poll "$1: Voice reads the run's end with code 0" "ended code=0" voice_stop_other_ended "$voice_stop_other_before"
+  forget_record
+  settings_page_close vgs.voice
+}
+if [[ $(shell_resolves systemctl) == none ]]; then
+  fail "the shell resolves no systemctl, which Stop the other voxtype requires, so its press would raise a notice"
+fi
+voice_shell_started="$(voice_shell_start)"
+voice_stop_other "Stop the other voxtype"
+expect_poll "the run's end with code 0 has the core start its own daemon" started voice_noted
+voice_restart_ms="$(( $(now_ms) - voice_stop_other_at ))"
+expect_poll "Voice reads the core's own daemon ready" "ready idle -" voice_state
+expect_poll "the core's daemon and follower run, children of the shell" "daemon=1 follower=1 other=0 children=2" dictation_processes
+expect "the core started its daemon once" started voice_noted
+expect_poll "nothing is offered once the core's daemon runs" none voice_setup_offered
+expect "the shell is the one that ran before the step, with no restart" "$voice_shell_started" voice_shell_start
+# Control: a disposable copy of VoiceLogic.js whose RESTART_TUIS leaves out
+# stop-other, today's probe, restarts nothing at the same run's end: the
+# daemon still reads elsewhere, though the row's own daemon is gone. The
+# service's handler that would restart has run once Voice reads the end,
+# so the core's record reads elsewhere then; the stand-in's notes are read
+# over three times the shipped restart's time, at least two seconds.
+voice_restart_file="$repo/shell/plugins/vgs.voice/VoiceLogic.js"
+cp -- "$voice_restart_file" "$sandbox/voice-restart-before"
+expect "disabling Voice for the stop-other control is allowed" ok ipc shell setPluginEnabled vgs.voice false
+python3 - "$voice_restart_file" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1]); assert not p.is_symlink()
+needle, replacement = 'var RESTART_TUIS = ["configure", "model", "stop-other"];', 'var RESTART_TUIS = ["configure", "model"];'
+s = p.read_text(); assert s.count(needle) == 1
+changed = s.replace(needle, replacement); assert changed != s
+p.write_text(changed)
+PY
+rescan "the Voice stop-other control copy is scanned"
+expect "enabling Voice for the stop-other control is allowed" ok ipc shell setPluginEnabled vgs.voice true
+expect_poll "Voice builds for the stop-other control" True record_exists vgs.voice
+expect_poll "control: the copy reads the core's daemon ready" "ready idle -" voice_state
+voice_stop_other "control"
+expect "control: once Voice reads the end, the core's record still reads the daemon elsewhere" "elsewhere none vgs.voice" dictation_lent
+voice_settle_ms=$(( voice_restart_ms * 3 > 2000 ? voice_restart_ms * 3 : 2000 ))
+expect "control: a run end that restarts nothing has the core start no daemon in ${voice_settle_ms} ms" none voice_noted_within "$voice_settle_ms"
+expect "control: Voice still reads the daemon elsewhere" "elsewhere idle -" voice_state
+expect "control: Setup still offers Stop the other voxtype" stop voice_setup_offered
+expect "control: no stand-in daemon runs" "daemon=0 follower=0 other=0 children=0" dictation_processes
+expect "disabling Voice after the stop-other control is allowed" ok ipc shell setPluginEnabled vgs.voice false
+cp -- "$sandbox/voice-restart-before" "$voice_restart_file"
+rescan "the shipped Voice logic is scanned again after the stop-other control"
+expect "enabling Voice after the stop-other control is allowed" ok ipc shell setPluginEnabled vgs.voice true
+expect_poll "Voice builds after the stop-other control" True record_exists vgs.voice
+expect_poll "Voice reads the core's daemon ready after the stop-other control" "ready idle -" voice_state
+expect_poll "one daemon and one follower run after the stop-other control" "daemon=1 follower=1 other=0 children=2" dictation_processes
+expect_poll "nothing is offered after the stop-other control" none voice_setup_offered
+expect "the shell is still the one that ran before the step" "$voice_shell_started" voice_shell_start
 expect "disabling Voice after the setup rows is allowed" ok ipc shell setPluginEnabled vgs.voice false
 expect_poll "disabling Voice after the setup rows ends the core's daemon" "daemon=0 follower=0 other=0 children=0" dictation_processes
 cp -- "$voice_pkg_real" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
