@@ -58,7 +58,7 @@ const START_CAUSES = [
     ["jarvis: hello=timeout", "Jarvis did not answer in time", "Turn Jarvis off and on again in Settings > Jarvis."],
     ["jarvis: node=20.19.5 need=22", "Jarvis needs Node 22 or later", "Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis."],
     ["jarvis: daemon=exit code=1 status=0", "Jarvis daemon stopped", "Turn Jarvis off and on again in Settings > Jarvis."],
-    ["jarvis: protocol=identity", "Jarvis and its daemon could not understand each other", "Turn Jarvis off and on again in Settings > Jarvis."],
+    ["jarvis: protocol=identity", "Jarvis message error", "Turn Jarvis off and on again in Settings > Jarvis."],
     ["jarvis: setup=probe-timeout", "Jarvis setup check timed out", "Turn Jarvis off and on again in Settings > Jarvis."]
 ];
 const SETTING_CAUSES = [
@@ -113,6 +113,8 @@ const CASES = [
     ["armed while setup is checking", up(ARMED, VOICE_CHECKING),
         ["loading", "loader", "info", tip("Jarvis is loading its voice", ["Wait for local voice to load.", MUTE])]],
     ["armed after a setup probe timeout", up(ARMED, PROBE_TIMEOUT),
+        ["listening", "audio-lines", "accent", tip("Jarvis is listening for Hey Jarvis", ["Say Hey Jarvis.", MUTE])]],
+    ["armed with its voice step to do", up(ARMED, { setupVoice: TODO, setupModel: MODEL_DONE }),
         ["listening", "audio-lines", "accent", tip("Jarvis is listening for Hey Jarvis", ["Say Hey Jarvis.", MUTE])]],
     ["armed while the voice loads", up(ARMED, VOICE_LOADING),
         ["loading", "loader", "info", tip("Jarvis is loading its voice", ["Wait for local voice to load.", MUTE])]],

@@ -22,6 +22,8 @@ const settings = load(path.join(__dirname, "..", "shell", "plugins", "vgs.settin
 // Every row the Settings tab's status sections draw, in drawn order.
 const settingsRows = sections => sections.reduce((all, section) => all.concat(section.items), []);
 const protocol = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "JarvisProtocol.js"));
+const session = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "Session.js"));
+const widget = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "WidgetView.js"));
 
 // This terminal only sends the request. It never owns capture or opens audio.
 function verifyMicrophoneAction(script, root) {
@@ -85,7 +87,8 @@ const READINESS = [
     ["nothing set up", { kind: "answered", causes: ["speech=local-not-set-up", "brain=unselected"] }, "warning", ["setupVoice", "setupModel"], ["setupVoice"]],
     ["local voice only", { kind: "answered", causes: ["speech=local-not-ready"] }, "warning", ["setupVoice"], []],
     ["local voice ready timeout", { kind: "answered", causes: ["speech=local-ready-timeout"] }, "warning", ["setupVoice"], []],
-    ["probe timeout", { kind: "answered", causes: ["setup=probe-timeout"] }, "warning", ["setupVoice"], []],
+    ["probe timeout", { kind: "answered", causes: ["setup=probe-timeout"] }, "ok", [], []],
+    ["probe timeout beside an AI model cause", { kind: "answered", causes: ["setup=probe-timeout", "brain=unselected"] }, "warning", ["setupModel"], []],
     ["the AI model only", { kind: "answered", causes: ["brain=account-unavailable"] }, "warning", ["setupModel"], []],
     // ChainedEngine's cause while no speech row exists has no hint of its own.
     ["a cause with no hint of its own", { kind: "answered", causes: ["speech=no-adapter"] }, "warning", ["setupVoice"], ["setupVoice"]],
@@ -138,6 +141,12 @@ const START_CAUSES = [
     ["probe timeout", "jarvis: setup=probe-timeout", "probe-timeout"]
 ];
 const ARBITRARY_STDERR = "SyntaxError: fixture";
+// The widest start cause title the VGS-1228 sheets show whole in the Setup
+// status chip at the Settings window's default width: "Jarvis did not
+// answer in time" (tmp/landed-sheets/VGS-1228/r2/jarvis-setup-dark-1.png in
+// the base checkout, After 55f0ab7e). The chip draws capitals in a fixed
+// width font, so a title's characters measure its width.
+const CHIP_TITLE_MAX = "Jarvis did not answer in time".length;
 // The Local voice setting: [label, the setting, the pick, the ready tier or
 // null, the run a change to the setting starts (null for none), the setting
 // after a run ended with that ready tier (null to keep it)].
@@ -585,8 +594,7 @@ function verifyReadiness(gate) {
             const step = got[key];
             const open = todo.includes(key);
             const action = key === "setupModel" ? model ?? "key" : true;
-            const expectedLines = open && answer.kind === "answered" && (answer.causes[0] === "speech=local-ready-timeout" || answer.causes[0] === "setup=probe-timeout")
-                ? [answer.causes[0] === "setup=probe-timeout" ? "jarvis: setup=probe-timeout" : answer.causes[0]] : undefined;
+            const expectedLines = open && answer.kind === "answered" && answer.causes[0] === "speech=local-ready-timeout" ? [answer.causes[0]] : undefined;
             assert.deepEqual([step.tone, step.action, step.lines], open ? ["warning", action, expectedLines] : ["ok", DONE_ACTION[key], undefined], label + ": " + key);
             if (!open || declared.includes(key)) assert.equal(step.hint, undefined, label + ": " + key + " keeps its declared hint");
             else assert.equal(typeof step.hint === "string" && step.hint !== "" && !/=/.test(step.hint), true,
@@ -600,7 +608,9 @@ function verifyReadiness(gate) {
     assert.equal(localReadyTimeout.hint, "Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis.", "local voice timeout words");
     const probeTimeout = plain(gate.readiness({ kind: "answered", causes: ["setup=probe-timeout"] }));
     assert.equal(probeTimeout.setup.lines[0], "jarvis: setup=probe-timeout", "probe timeout detail line");
-    assert.equal(probeTimeout.setupVoice.hint, "Jarvis setup check timed out. Turn Jarvis off and on again in Settings > Jarvis.", "probe timeout words");
+    assert.equal(typeof probeTimeout.setup.hint === "string" && probeTimeout.setup.hint !== "" && !/=/.test(probeTimeout.setup.hint), true,
+        "probe timeout: the ready summary carries its caution");
+    assert.deepEqual(probeTimeout.setupVoice, { tone: "ok", text: "Done", action: false }, "probe timeout: the voice step offers no setup");
     for (const cause of ["speech=local-memory-insufficient", "speech=local-memory-unavailable"]) {
         const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setup.tone, got.setupVoice.tone, got.setupVoice.action, got.setupModel.tone],
@@ -740,10 +750,10 @@ function verifyTiers(gate) {
 
 function verify(gate) {
     for (const check of [{ kind: "ready" }, { kind: "done", result: "ready" }]) {
-        const value = gate.voiceCheck(gate.readiness({ kind: "answered", causes: ["setup=probe-timeout"] }).setupVoice, check);
+        const value = gate.voiceCheck(gate.readiness({ kind: "answered", causes: ["speech=local-ready-timeout"] }).setupVoice, check);
         assert.deepEqual(plain(value), { tone: "warning", text: "To do",
-            hint: "Jarvis setup check timed out. Turn Jarvis off and on again in Settings > Jarvis.",
-            action: "setup", lines: ["jarvis: setup=probe-timeout"] }, "voice setup cause survives microphone check");
+            hint: "Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis.",
+            action: "setup", lines: ["speech=local-ready-timeout"] }, "voice setup cause survives microphone check");
     }
     for (const [check, tone, action] of [[{ kind: "ready" }, "info", "check"],
         [{ kind: "waiting" }, "info", undefined], [{ kind: "recording" }, "info", undefined],
@@ -754,7 +764,9 @@ function verify(gate) {
         assert.deepEqual([value.tone, value.action], [tone, action]);
         assert.equal(judge.statusWrite(manifest, {}, "setupVoice", value).ok, true);
     }
+    verifyOneReadiness(gate);
     verifyReadiness(gate);
+    verifyChipTitles(gate);
     verifyTiers(gate);
     verifyModelConsumers(gate, fs.readFileSync(serviceFile, "utf8"), fs.readFileSync(accountsFile, "utf8"));
     verifyVoice(gate, fs.readFileSync(serviceFile, "utf8"), fs.readFileSync(accountsFile, "utf8"));
@@ -890,8 +902,11 @@ const CONTROLS = [
     ["Always mode offers the local install action", ' && cause !== "speech=always-local-voice";', ";"],
     ["Always mode has no hint of its own", '    "speech=always-local-voice": ', '    "speech=always-local-voice-unused": '],
     ["a cause marks no step", "out[REQUIRED[step]] = hint === undefined", "void (hint === undefined)"],
-    ["a cause marks the other step", 'speech: "setupVoice", setup: "setupVoice", brain: "setupModel" };', 'speech: "setupModel", setup: "setupVoice", brain: "setupVoice" };'],
-    ["probe timeout marks the wrong step", 'setup: "setupVoice", ', 'setup: "setupModel", '],
+    ["a cause marks the other step", 'speech: "setupVoice", brain: "setupModel" };', 'speech: "setupModel", brain: "setupVoice" };'],
+    ["a caution reads not ready", 'blocking.length === 0 ? { tone: "ok", text: "Ready", hint:', 'false ? { tone: "ok", text: "Ready", hint:', "the bar and the Setup status state one readiness"],
+    ["a caution turns its step to do", 'var blocking = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });\n        var out',
+        'var blocking = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });\n        REQUIRED.setup = "setupVoice"; TODO["setup=probe-timeout"] = CAUTION["setup=probe-timeout"]; blocking = answer.causes;\n        var out'],
+    ["a wire-defect title overflows the chip", 'title: "Jarvis message error"', 'title: "Jarvis and its daemon could not understand each other"', "fits the Setup status chip"],
     ["a home cause marks no step", 'if (REQUIRED[step] === "setupHome") {', 'if (false) {'],
     ["a home text cause marks the voice step", 'guidance: "setupHome", ', 'guidance: "setupVoice", '],
     ["the home causes share one hint", "hint: Object.prototype.hasOwnProperty.call(HOME_TODO, cause) ? HOME_TODO[cause] : HOME_STEP_TODO };", "hint: HOME_STEP_TODO };"],
@@ -1167,6 +1182,37 @@ function verifySetupButtons(gate, manifest) {
                     label + ": the row's press opens the fleet setup");
         }
 }
+// Every cause the Setup table knows states one readiness on the bar and in
+// the Setup status. Session's gate follows the daemon alone (jarvisd.js
+// configured): up while its causes are none or only speech=local-loading,
+// else down unconfigured. The shell's own cause, LocalRuntime.qml's
+// setupCause, never reaches the daemon.
+function verifyOneReadiness(gate) {
+    const shellCause = /setupCause: timedOut \? "([^"]+)"/.exec(fs.readFileSync(localRuntimeFile, "utf8"))[1];
+    const daemonCauses = [...Object.keys(gate.TODO), ...Object.keys(gate.HOME_TODO), ...Object.keys(gate.MEMORY), "speech=local-loading"];
+    assert.equal(daemonCauses.includes(shellCause), false, "the shell's cause is no daemon cause");
+    const sets = [[], [shellCause], ...daemonCauses.map(cause => [cause]), ...daemonCauses.map(cause => [shellCause, cause])];
+    const keys = { talk: "Super+Right Alt", mute: "Super+Shift+Right Alt", stop: "Super+Alt+Period", confirm: "Super+Alt+Y" };
+    for (const causes of sets) {
+        const status = plain(gate.readiness({ kind: "answered", causes }));
+        const configured = causes.every(cause => cause === shellCause || cause === "speech=local-loading");
+        const state = Object.assign(plain(session.initial()), { gate: configured ? { kind: "up" } : { kind: "down", reason: "unconfigured" } });
+        assert.equal(session.validate(state), true, causes.join(",") + ": a Session record");
+        const bar = widget.view(Object.assign({ daemon: { tone: "info", text: "Ready" }, audio: { tone: "ok", text: "Devices" },
+            detail: { phase: session.phaseOf(state), seq: 1, state } }, status), keys, "hold");
+        assert.equal(bar.state === "ready", status.setup.tone === "ok", causes.join(",") + ": the bar and the Setup status state one readiness");
+        if (causes.includes(shellCause) && bar.state === "ready")
+            assert.equal(bar.tooltipDetails.includes(status.setup.hint), true, causes.join(",") + ": the bar shows the caution");
+    }
+}
+
+function verifyChipTitles(gate) {
+    const titles = gate.START_CAUSES.map(([, words]) => words.title).concat([gate.DAEMON_EXIT.title]);
+    assert.equal(titles.length >= 6, true, "the start cause table is read");
+    for (const title of titles)
+        assert.equal(title.length <= CHIP_TITLE_MAX, true, JSON.stringify(title) + " fits the Setup status chip");
+}
+
 function verifyProbeTimeoutConsumer(source) {
     assert.equal(source.includes('Gate.startCause(setupCause)'), true,
         "probe timeout words come from SetupGate");

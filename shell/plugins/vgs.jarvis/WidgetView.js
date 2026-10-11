@@ -17,7 +17,8 @@
 //   speaking   playback is speaking
 //   ready      Session is idle
 // An offered setup step with a cause hint and keyed detail line keeps its
-// setup title and shows that hint, whether Jarvis is off or ready.
+// setup title and shows that hint while Jarvis is off; a ready Setup
+// summary's caution shows under ready.
 // A tone is `calm` or a group of Theme.badge.tone. A value outside the
 // shapes the service and Session.js produce throws a keyed error; nothing
 // falls back.
@@ -243,13 +244,11 @@ function unconfiguredText(values) {
     return GATE_TEXT.unconfigured;
 }
 
-function setupCauseHint(values) {
-    for (var i = 0; i < SETUP_TEXT.length; i++) {
-        var step = values[SETUP_TEXT[i][0]];
-        if (step && step.tone === "warning" && offered(step) && step.hint && hasCauseLine(step))
-            return step.hint;
-    }
-    return null;
+// The caution of a ready Setup summary: SetupGate gives a ready summary a
+// hint only for a cause that leaves Jarvis taking requests.
+function setupCaution(values) {
+    var setup = values.setup;
+    return !!setup && setup.tone === "ok" && typeof setup.hint === "string" ? setup.hint : null;
 }
 
 // Only the published Checking and Done steps can explain a closed gate
@@ -376,7 +375,7 @@ function view(values, keys, mode) {
     case "speaking":
         return withBrain(look("speaking", "Jarvis is speaking", [stopAction(effectiveKeys)], muteOn, effectiveKeys));
     case "idle":
-        var hint = setupCauseHint(values);
+        var hint = setupCaution(values);
         return withBrain(look("ready", "Jarvis is ready", hint === null ? [readyAction(effectiveMode, effectiveKeys)]
             : [readyAction(effectiveMode, effectiveKeys), hint], muteOn, effectiveKeys));
     default:

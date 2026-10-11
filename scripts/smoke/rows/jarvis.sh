@@ -249,9 +249,11 @@ setup = status.get("setup", {})
 voice = status.get("setupVoice", {})
 ok = row.get("tone") == "warning" and row.get("text") == "Jarvis setup check timed out"
 ok = ok and "jarvis: setup=probe-timeout" in row.get("lines", [])
-ok = ok and setup.get("tone") == "warning" and "jarvis: setup=probe-timeout" in setup.get("lines", [])
-ok = ok and voice.get("tone") == "warning" and "Jarvis setup check timed out" in voice.get("hint", "")
-ok = ok and widget.get("state") in ("off", "ready") and "Jarvis setup check timed out" in "\n".join([widget.get("tooltip", "")] + widget.get("tooltipDetails", []))
+# The daemon never reads the probe timeout, so both surfaces read ready
+# with it as a caution, and the voice step offers no setup.
+ok = ok and setup.get("tone") == "ok" and "jarvis: setup=probe-timeout" in setup.get("lines", [])
+ok = ok and voice.get("tone") != "warning" and voice.get("action") != "setup"
+ok = ok and widget.get("state") == "ready" and setup.get("hint", "") in widget.get("tooltipDetails", [])
 print("probe-timeout" if ok else "pending")
 PY
 }
