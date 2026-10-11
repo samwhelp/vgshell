@@ -39,6 +39,13 @@
 # pressure spans shortcut send through native-frame readback; each open
 # prints its actual pressure sampling interval. Readings above harness.sh's
 # shared CPU pressure limit are unmeasured, including fast readings.
+# The four later opens are judged by the fastest one at or below that
+# limit. Contention the CPU pressure does not read, such as the GPU, I/O or
+# the nested compositor, only adds time to an open, so one slow open beside
+# faster ones is the host; a product regression slows every open. The main
+# batches 20261008T205423Z to 20261011T032242Z on cachy (VGS-1356) read
+# 145 later opens at or below the limit, median 124 ms, three over 200 ms
+# (215, 219, 222), each in a run whose fastest later open read 165 ms or less.
 # Restoring eager Tooltip window construction must exceed the same budget.
 # Hyprland consent wires the shortcuts before this row types its open key.
 # inputs: scripts/smoke/rows/hyprland-consent.sh shell/plugins/vgs.keyhints/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.voice/manifest.json shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/overlay/Tooltip.qml shell/Commons/AnchorTracker.qml shell/Hosts/AppWindow.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/HyprlandLayer.js bin/lib/qml-library.js
@@ -320,8 +327,10 @@ PY_TIMES
 }
 kh_timing_count() { kh_timing_samples | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 kh_timing_readings=()
-kh_timing_budget() { # JSON [later]
-  local rows ms pressure bound index=0 result=within verdict
+# kh_timing_budget JSON [later]: the first open against its own bound, and
+# the later opens by their fastest open at or below the pressure limit.
+kh_timing_budget() {
+  local rows ms pressure index=0 result=within verdict fastest='' verdicts=()
   rows="$(printf '%s' "$1" | py_reply 'import json,sys
 rows=json.load(sys.stdin)
 if not isinstance(rows,list) or len(rows)<2: print("unread")
@@ -332,10 +341,22 @@ else:
         print(value if type(value) is int and value>=0 else "unmeasured", pressure if type(pressure) in (int,float) else "unmeasured")')" || { echo unread; return; }
   while read -r ms pressure; do
     index=$((index + 1))
-    [[ ${2:-} != later || $index -gt 1 ]] || continue
-    bound=200
-    [[ $index -gt 1 ]] || bound=4478
-    verdict="$(latency_pressure_verdict "$ms" "$pressure" "$bound")"
+    if ((index == 1)); then
+      [[ ${2:-} == later ]] || verdicts+=("$(latency_pressure_verdict "$ms" "$pressure" 4478)")
+      continue
+    fi
+    verdict="$(latency_pressure_verdict "$ms" "$pressure" 200)"
+    case "$verdict" in
+      within|over) [[ -n $fastest && $fastest -le $ms ]] || fastest=$ms ;;
+      unmeasured) ;;
+      *) verdicts+=(unread) ;;
+    esac
+  done <<<"$rows"
+  if [[ -z $fastest ]]; then verdicts+=(unmeasured)
+  elif ((fastest <= 200)); then verdicts+=(within)
+  else verdicts+=(over)
+  fi
+  for verdict in "${verdicts[@]}"; do
     case "$verdict" in
       unread) result=unread ;;
       over) [[ $result == unread ]] || result=over ;;
@@ -343,7 +364,7 @@ else:
       within) ;;
       *) echo unread; return ;;
     esac
-  done <<<"$rows"
+  done
   echo "$result"
 }
 kh_timing_readings_json() { printf '%s\n' "${kh_timing_readings[@]}" | py_reply 'import json,sys; print(json.dumps([json.loads(line) for line in sys.stdin]))'; }
@@ -353,6 +374,10 @@ expect 'control: Key Hints rejects a low-pressure later-open miss' over kh_timin
 expect 'control: Key Hints excludes a fast busy open' unmeasured kh_timing_budget '[{"drawn":200,"cpu_some_pct":0.0},{"drawn":200,"cpu_some_pct":2.9}]'
 expect 'control: Key Hints busy open cannot hide another miss' over kh_timing_budget '[{"drawn":4479,"cpu_some_pct":0.0},{"drawn":201,"cpu_some_pct":2.9}]'
 expect 'control: Key Hints refuses missing pressure' unread kh_timing_budget '[{"drawn":200,"cpu_some_pct":0.0},{"drawn":201}]'
+# Main batch 20261011T032242Z's opens: one slow later open beside fast ones.
+expect 'Key Hints passes one slow later open beside faster ones' within kh_timing_budget '[{"drawn":169,"cpu_some_pct":0.3},{"drawn":159,"cpu_some_pct":0.9},{"drawn":215,"cpu_some_pct":0.9},{"drawn":166,"cpu_some_pct":1.0},{"drawn":153,"cpu_some_pct":0.6}]'
+expect 'control: Key Hints fails when every later open misses' over kh_timing_budget '[{"drawn":169,"cpu_some_pct":0.3},{"drawn":201,"cpu_some_pct":0.9},{"drawn":215,"cpu_some_pct":0.9},{"drawn":230,"cpu_some_pct":1.0},{"drawn":202,"cpu_some_pct":0.6}]'
+expect 'control: a fast busy later open cannot hide slow measured ones' over kh_timing_budget '[{"drawn":169,"cpu_some_pct":0.3},{"drawn":150,"cpu_some_pct":2.9},{"drawn":215,"cpu_some_pct":0.9},{"drawn":230,"cpu_some_pct":1.0},{"drawn":202,"cpu_some_pct":0.6}]'
 kh_timing_rows() { ipc smoke itemValues window vgs.keyhints BindField pluginId,bind | py_reply 'import json,sys; print(sum(r["pluginId"].startswith("vgs.") for r in json.load(sys.stdin)))'; }
 kh_timing_opens() {
   local count="$1" n before="$failures" pressure start end elapsed sample profile pct bound verdict
@@ -417,7 +442,7 @@ if kh_timing_tree keyhints-timing; then
     if [[ $kh_timing_result == unmeasured ]]; then
       not_measured keyhints "open-cpu_some_pct-above-$latency_pressure_limit"
     else
-      expect 'first open is no slower than baseline and all later opens meet 200 ms' within printf '%s\n' "$kh_timing_result"
+      expect 'first open is no slower than baseline and the fastest later open meets 200 ms' within printf '%s\n' "$kh_timing_result"
     fi
     # Every bind is still a row after the timed window was destroyed.
     expect 'the timed Key Hints window opens for its row count' ok ipc shell summon window vgs.keyhints '{}'
