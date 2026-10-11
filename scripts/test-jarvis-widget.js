@@ -344,7 +344,7 @@ const CONTROLS = [
     ["file prompt loses its path", 'path: filePrompt && lines.length > 1 ? lines[1] : ""', 'path: filePrompt && lines.length > 1 ? lines[0] : ""'],
     ["file prompt repeats its path as detail", 'lines.slice(2).join("\\n")', 'lines.slice(1).join("\\n")'],
     ["detail flag is dropped", 'detail: filePrompt && lines.length > 2', 'detail: false'],
-    ["an open microphone is not listening", "microphoneOpen(state.capture))\n        return", "false)\n        return"],
+    ["an open microphone is not listening", "microphoneOpen(state.capture)) return", "false) return"],
     ["a follow-up sounds like a normal capture", 'followUp ? "Jarvis is listening for a follow-up" : "Jarvis is listening"',
         'false ? "Jarvis is listening for a follow-up" : "Jarvis is listening"'],
     ["an armed capture reads listening while the voice loads", "!(armed && voicePending(values)) && microphoneOpen", "microphoneOpen"],

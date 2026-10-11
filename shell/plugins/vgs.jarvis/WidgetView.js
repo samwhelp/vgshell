@@ -354,9 +354,8 @@ function view(values, keys, mode) {
         && (state.capture.kind === "opening" || state.capture.kind === "open");
     // The local sidecar drops every wake frame until its voice is ready, so
     // an armed capture over a pending voice reads loading below.
-    if (state !== null && !(armed && voicePending(values)) && microphoneOpen(state.capture))
-        return withBrain(look("listening", armed ? "Jarvis is listening for Hey Jarvis"
-            : followUp ? "Jarvis is listening for a follow-up" : "Jarvis is listening",
+    if (state !== null && !(armed && voicePending(values)) && microphoneOpen(state.capture)) return withBrain(look("listening",
+        armed ? "Jarvis is listening for Hey Jarvis" : followUp ? "Jarvis is listening for a follow-up" : "Jarvis is listening",
         [armed ? "Say Hey Jarvis." : followUp ? "Speak now. No wake word needed." : "Speak now."], muteOn, effectiveKeys));
     if (daemon !== null && daemon.tone === "danger") return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
     if (daemon !== null && daemon.tone === "warning" && daemon.lines !== undefined) return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
