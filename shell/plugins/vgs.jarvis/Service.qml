@@ -35,6 +35,15 @@ Item {
     readonly property bool bubbleWanted: !lockObservation() && lifetime.kind === "ready" && cause === ""
         && sessionState !== null && Session.indicatorWanted(sessionState)
     readonly property bool indicatorPresented: bubbles.some(item => item !== null && item.presented)
+    // The console's box while a request waits for an answer, so the bubble
+    // on that output can stand clear of the message field: { output, x, y,
+    // width, height } in the logical pixels of a passive layer there, which
+    // covers the output less the edges Hyprland reserves; null otherwise.
+    property var consoleBox: null
+    property int consoleReads: 0
+    readonly property string heldKey: sessionState !== null && sessionState.approval.kind === "held"
+        ? sessionState.gen + ":" + sessionState.approval.id : ""
+    onHeldKeyChanged: readConsoleBox()
     property double sentRequirementsRevision: -1
     readonly property var requirementsRevision: shell === null ? -1 : shell.requirements.revision
     readonly property bool locked: lockObservation()
@@ -302,6 +311,39 @@ Item {
         } catch (error) { return "refused: " + error.message; }
         send(fields);
         return "ok";
+    }
+
+    // The console is the one mapped client of the shell's app-id,
+    // `org.vgs.shell`, titled with this plugin's name, as the window host
+    // titles it (vgs.settings Window.fitWindow reads its own the same way).
+    // A reply after the hold ended, or behind a newer read, sets nothing.
+    function readConsoleBox() {
+        const key = heldKey;
+        const serial = ++consoleReads;
+        if (key === "" || shell === null) {
+            consoleBox = null;
+            return;
+        }
+        shell.compositor.readWindows(state => {
+            if (serial !== consoleReads || key !== heldKey) return;
+            const failed = why => { consoleBox = null; console.warn("jarvis: console-box=" + why); };
+            if (!state.ok) return failed(state.error);
+            const own = state.clients.filter(c => c.class === "org.vgs.shell" && c.title === shell.manifest.name && c.mapped);
+            if (own.length === 0) {
+                consoleBox = null;
+                return;
+            }
+            if (own.length !== 1) return failed("clients=" + own.length);
+            const client = own[0];
+            const monitors = state.monitors.filter(m => m.id === client.monitor);
+            if (monitors.length !== 1) return failed("monitors=" + monitors.length + " id=" + client.monitor);
+            const monitor = monitors[0];
+            const reserved = monitor.reserved;
+            if (!Array.isArray(reserved) || reserved.length !== 4 || !reserved.every(n => Number.isFinite(n)))
+                return failed("reserved monitor=" + monitor.name);
+            consoleBox = { output: monitor.name, x: client.at[0] - monitor.x - reserved[0],
+                y: client.at[1] - monitor.y - reserved[1], width: client.size[0], height: client.size[1] };
+        });
     }
 
     function summonConsole() {
@@ -679,6 +721,22 @@ Item {
     Component {
         id: bubble
         Jarvis.Bubble { service: root }
+    }
+
+    // While a request is held, the console's box is read again when a window
+    // maps, closes or moves to another workspace: Hyprland posts movewindowv2
+    // from CWindow::moveToWorkspace alone (v0.56.2
+    // src/desktop/view/Window.cpp:534-580) and no event for a floating drag
+    // or resize, so a console dragged into the bubble during one request is
+    // followed at the next read, not live. rawEvent: Quickshell 0.3.1,
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Hyprland/Hyprland
+    Connections {
+        target: Hyprland
+        enabled: root.heldKey !== ""
+        function onRawEvent(event) {
+            if (event.name === "openwindow" || event.name === "closewindow" || event.name === "movewindowv2")
+                root.readConsoleBox();
+        }
     }
 
     Process {

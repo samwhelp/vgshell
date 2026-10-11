@@ -19,6 +19,16 @@ Item {
         && card.width > 0 && card.height > 0 && card.x >= 0 && card.y >= 0
         && card.width <= width && card.height + Theme.voiceBubble.margin <= height
     readonly property var hold: state !== null && state.approval.kind === "held" ? state.approval : null
+    // A held request would cover the console's message field and hint line
+    // where the console on this screen reaches the band the card draws in at
+    // the bottom; the card then takes the top edge. Both boxes are in this
+    // layer's coordinates (Service.consoleBox).
+    readonly property var consoleBox: service === null ? null : service.consoleBox
+    readonly property bool overConsole: hold !== null && consoleBox !== null && screen !== null
+        && consoleBox.output === screen.name
+        && consoleBox.y + consoleBox.height > height - Theme.voiceBubble.margin - card.height
+        && consoleBox.y < height - Theme.voiceBubble.margin
+        && consoleBox.x < card.x + card.width && consoleBox.x + consoleBox.width > card.x
     property var displayedHold: null
     property var approvalFrames: []
     property var synchronizedHold: null
@@ -96,6 +106,15 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: Theme.voiceBubble.margin
+        anchors.topMargin: Theme.voiceBubble.margin
+        // AnchorChanges releases the bottom anchor as it sets the top one,
+        // where two bindings could hold both for a moment and stretch the
+        // card: https://doc.qt.io/qt-6/qml-qtquick-anchorchanges.html
+        states: State {
+            name: "top"
+            when: root.overConsole
+            AnchorChanges { target: card; anchors.bottom: undefined; anchors.top: root.top }
+        }
 
         Pane {
             id: pane

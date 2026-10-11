@@ -4,7 +4,7 @@
 # captions. No real audio, provider, authentication or network runs.
 # Presentation and state poll once per IPC round trip; no latency budget is
 # claimed.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/plugins/vgs.bar/* shell/Ui/feedback/VoiceOrb.qml shell/Core/Layers.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/diagnostics.sh
+# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/plugins/vgs.bar/* shell/Ui/feedback/VoiceOrb.qml shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/diagnostics.sh
 set -euo pipefail
 
 jarvis_bubble_state() {
@@ -269,6 +269,54 @@ jarvis_bubble_accept() { # key|BUTTON EFFECT EXPECTED
   fi
   expect "the answer reaches the request owner exactly once" "$3" jarvis_key_effects "$2"
 }
+# The console's message field and hint line against the bubble's card, in
+# layout pixels: `clear` when the card meets neither and both lie whole
+# inside the focused output, `overlap` or `outside` otherwise. The field is
+# the console's one TextField, read by its empty text: no draft is typed.
+jarvis_bubble_console() {
+  local field hint card output
+  field="$(control_box window:Jarvis window vgs.jarvis TextField '')" &&
+    hint="$(control_box window:Jarvis window vgs.jarvis Label 'Confirm or cancel the request first')" &&
+    card="$(control_box vgs:layer vgs.jarvis Surface level raised)" &&
+    output="$(hypr -j monitors | py_reply 'import json,sys; m=next(m for m in json.load(sys.stdin) if m["focused"]); print(json.dumps([m["x"], m["y"], m["width"] / m["scale"], m["height"] / m["scale"]]))')" || return 1
+  [[ $field == \[* && $hint == \[* && $card == \[* ]] || { echo absent; return; }
+  python3 -c '
+import json,sys
+field,hint,card,out=map(json.loads,sys.argv[1:5])
+inside=lambda r: r[0]>=out[0] and r[1]>=out[1] and r[0]+r[2]<=out[0]+out[2] and r[1]+r[3]<=out[1]+out[3]
+meets=lambda a,b: a[0]<b[0]+b[2] and b[0]<a[0]+a[2] and a[1]<b[1]+b[3] and b[1]<a[1]+a[3]
+print("outside" if not (inside(field) and inside(hint)) else "overlap" if meets(card,field) or meets(card,hint) else "clear")
+' "$field" "$hint" "$card" "$output"
+}
+# The console's address and the position that puts its bottom edge on its
+# output's work-area bottom, inside the band the card draws in at the
+# bottom, whatever size the nested output has: `ADDRESS X Y`.
+jarvis_bubble_console_low() {
+  local client monitors
+  client="$(window_of Jarvis address at size monitor)" && monitors="$(hypr -j monitors)" || return 1
+  python3 -c '
+import json,sys
+(address,at,size,monitor),ms=map(json.loads,sys.argv[1:3])
+m=next(m for m in ms if m["id"]==monitor)
+print(address, at[0], int(m["y"] + m["height"] / m["scale"] - m["reserved"][3] - size[1]))
+' "$client" "$monitors"
+}
+jarvis_bubble_console_hold() {
+  local address x y
+  expect "the Jarvis console summons over the bubble's client" ok ipc shell summon window vgs.jarvis '{}'
+  expect_poll "the Jarvis console maps" 1 window_count Jarvis
+  read -r address x y < <(jarvis_bubble_console_low) || { fail "the console's low position is readable"; return 0; }
+  expect "the console moves into the bubble's bottom band" ok probe dispatch "moveWindow $address $x $y"
+  geometry expect_poll "the console's low position is read back" "[[$x, $y]]" window_of Jarvis at
+  jarvis_bubble_approval action
+  expect_poll "the held request over the console is drawn" drawn jarvis_bubble_acknowledged
+}
+jarvis_bubble_console_close() {
+  jarvis_key_stop
+  jarvis_key_stop_assertion
+  expect "the Jarvis console hides" ok ipc shell hide window vgs.jarvis
+  expect_poll "the Jarvis console unmaps" 0 window_count Jarvis
+}
 
 jarvis_bubble_engine="$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
 cp -- "$jarvis_bubble_engine" "$sandbox/jarvis-bubble-engine-before"
@@ -358,6 +406,10 @@ for jarvis_bubble_answer in key Confirm Cancel Yes No; do
   jarvis_key_stop
   jarvis_key_stop_assertion
 done
+jarvis_bubble_console_hold
+geometry expect_poll "a held request leaves the console's field and hint line whole" clear jarvis_bubble_console
+jarvis_bubble_console_close
+expect_poll "the client below Jarvis has keyboard focus again" '["smoke.other", "Other window"]' active_window
 
 jarvis_bubble_reply="$(python3 -c 'print(" ".join(["scripted reply"] * 24))')"
 jarvis_bubble_begin
@@ -446,7 +498,7 @@ cp -- "$jarvis_bubble_file" "$sandbox/jarvis-bubble-before"
 # The position reader must reject that reversal, regardless of button copy.
 jarvis_bubble_fixture="$repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js"
 cp -- "$jarvis_bubble_fixture" "$sandbox/jarvis-bubble-fixture-before"
-for jarvis_bubble_mutant in geometry focus words lines head generation approval-key approval-button approval-cancel approval-shown approval-caption approval-kind approval-path approval-role approval-order; do
+for jarvis_bubble_mutant in geometry console focus words lines head generation approval-key approval-button approval-cancel approval-shown approval-caption approval-kind approval-path approval-role approval-order; do
   jarvis_bubble_mutation_file="$jarvis_bubble_file"
   if [[ $jarvis_bubble_mutant == approval-key || $jarvis_bubble_mutant == approval-shown ]]; then
     jarvis_bubble_mutation_file="$jarvis_key_service"
@@ -460,6 +512,7 @@ import sys
 p=Path(sys.argv[1]); assert not p.is_symlink()
 needle,replacement={
     "geometry": ("anchors.bottomMargin: Theme.voiceBubble.margin", "anchors.bottomMargin: Theme.voiceBubble.margin + Theme.voiceBubble.gap"),
+    "console": ("when: root.overConsole", "when: false"),
     "focus": ("screen.name === service.focusedOutput", "true"),
     "words": ('caption !== null && caption.gen', "false && caption.gen"),
     "lines": ("Theme.voiceBubble.textLines * tail.lineBox", "(Theme.voiceBubble.textLines + 1) * tail.lineBox"),
@@ -482,6 +535,13 @@ PY
   jarvis_rescan
   jarvis_enable
   case "$jarvis_bubble_mutant" in
+    console)
+      jarvis_bubble_console_hold
+      geometry expect_poll "control: today's bottom placement fails the same console reader" overlap jarvis_bubble_console
+      jarvis_bubble_console_close
+      jarvis_disable
+      cp -- "$sandbox/jarvis-bubble-before" "$jarvis_bubble_file"
+      continue ;;
     approval-*)
       jarvis_bubble_approval action
       case "$jarvis_bubble_mutant" in

@@ -2285,6 +2285,13 @@ print("none" if not s else s[-1]["role"]+":"+s[-1]["text"]+":"+s[-1]["stage"])
 '
   }
   jarvis_console_lifetime() { ipc smoke jarvisProcess | py_reply 'import json,sys; print(json.load(sys.stdin)["lifetime"]["kind"])'; }
+  jarvis_console_approval() {
+    ipc smoke jarvisProcess | py_reply '
+import json,sys
+a=json.load(sys.stdin)["status"]["detail"]["state"]["approval"]
+print("drawn" if a["kind"]=="held" and a["shownAt"] is not None else a["kind"])
+'
+  }
   jarvis_console_mute() { ipc smoke jarvisProcess | py_reply 'import json,sys; print(json.load(sys.stdin)["status"]["detail"]["state"]["mute"]["kind"])'; }
   jarvis_console_focused() {
     ipc smoke itemValues window vgs.jarvis TextField activeFocus | py_reply '
@@ -2318,6 +2325,7 @@ print("true" if any(row.get("activeFocus") is True for row in json.load(sys.stdi
   jarvis_console_restore
 
   "$node_bin" "$checkout/scripts/fixtures/jarvis/scripted.js" "$backend" "$gates" --mapped-indicator
+  "$node_bin" "$checkout/scripts/fixtures/jarvis/scripted.js" --held-approvals "$backend"
   tree_rescan "the Jarvis scripted daemon is scanned"
   expect "enabling vgs.jarvis for console images is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
   expect_poll "the Jarvis scripted daemon answers hello" ready jarvis_started
@@ -2334,6 +2342,15 @@ print("true" if any(row.get("activeFocus") is True for row in json.load(sys.stdi
   expect_poll "the Jarvis console shows the typed user line" "user:typed from console:final" jarvis_console_last
   park_pointer
   take_posed "jarvis-console-$1-thinking"
+  : >"$gates/approve-action"
+  expect_poll "the Jarvis console turn holds a drawn confirmation" drawn jarvis_console_approval
+  park_pointer
+  take_posed "jarvis-console-$1-confirming"
+  expect "the Jarvis console confirmation stops" ok ipc vgs.jarvis invoke stop ''
+  expect_poll "the stopped confirmation ends" none jarvis_console_approval
+  # A refused say sends nothing, so the poll sends the turn once.
+  expect_poll "the Jarvis console IPC says the typed turn again" ok ipc vgs.jarvis invoke say "typed from console"
+  expect_poll "the Jarvis console shows the repeated typed line" "user:typed from console:final" jarvis_console_last
   : >"$gates/brain"
   expect_poll "the Jarvis console shows the scripted reply" "assistant:scripted utterance:partial" jarvis_console_last
   park_pointer
