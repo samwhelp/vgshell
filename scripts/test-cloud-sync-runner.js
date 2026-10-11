@@ -39,6 +39,8 @@ const os = require("node:os");
 const path = require("node:path");
 
 const RUNNER = path.join(__dirname, "..", "shell", "plugins", "vgs.cloud-sync", "bin", "cloud-sync");
+// The runner's rclone remote, as every Drive path in its argv names it.
+const REMOTE_PREFIX = "vgsdrive:";
 
 function which(command) {
     for (const dir of String(process.env.PATH || "").split(path.delimiter)) {
@@ -1211,6 +1213,23 @@ function casePruneConflictStorage(runner) {
     assert.ok(!status(w, runner).conflicts.some(c => c.path === "old-record.txt"));
 }
 
+// No rclone call of W can delete or move a file: no deleting verb or flag,
+// and --backup-dir only on the download leg, into the pair's own records.
+function assertNoDeletingArgv(w) {
+    for (const call of rcloneCalls(w)) {
+        const words = call.argv;
+        const shown = JSON.stringify(words);
+        for (const word of words) {
+            assert.ok(!/^(sync|bisync|move|moveto|delete|deletefile|purge|rmdir|rmdirs|cleanup|dedupe)$/.test(word), shown);
+            assert.ok(!word.startsWith("--delete") && !word.startsWith("--remove-") && word !== "--drive-use-trash=false", shown);
+        }
+        const at = words.indexOf("--backup-dir");
+        if (at === -1) continue;
+        assert.ok(words[3] === "--update" && words[4].startsWith(REMOTE_PREFIX), "backup only on the download leg: " + shown);
+        assert.ok(words[at + 1].startsWith(path.join(w.state, "pairs") + "/"), "backup inside the pair records: " + shown);
+    }
+}
+
 function caseForbiddenRcloneArgv(runner) {
     const w = world();
     addPair(w, runner);
@@ -1218,10 +1237,107 @@ function caseForbiddenRcloneArgv(runner) {
     runOk(w, runner);
     write(path.join(w.mirror, "b.txt"), "two\n");
     runOk(w, runner);
-    for (const call of rcloneCalls(w)) for (const word of call.argv) {
-        assert.ok(!/^(sync|bisync|move|moveto|delete|deletefile|purge|rmdir|rmdirs|cleanup|dedupe)$/.test(word), JSON.stringify(call.argv));
-        assert.ok(!word.startsWith("--delete") && !word.startsWith("--remove-") && word !== "--drive-use-trash=false", JSON.stringify(call.argv));
+    assertNoDeletingArgv(w);
+}
+
+// Every world the cases made, so the argv rule holds over every run.
+function assertNoDeletingArgvAnywhere() {
+    let checked = 0;
+    for (const name of fs.readdirSync(scratch)) {
+        if (!/^w\d+$/.test(name)) continue;
+        const root = path.join(scratch, name);
+        assertNoDeletingArgv({ stub: path.join(root, "stub"), state: path.join(root, "home", ".local", "state", "vgshell", "cloud-sync") });
+        checked += 1;
     }
+    assert.equal(checked, worlds);
+}
+
+const OLD_SECRETS = {
+    "pull-client-id": "old-pull-client",
+    "pull-client-secret": "old-pull-secret",
+    "pull-token": "old-pull-token",
+    "upload-client-id": "old-upload-client",
+    "upload-client-secret": "old-upload-secret",
+    "upload-token": "old-upload-token"
+};
+
+function plantOldSecrets(w) {
+    for (const [account, value] of Object.entries(OLD_SECRETS)) write(path.join(w.stub, "secrets", account), value);
+}
+
+function assertMigratedSecrets(w) {
+    assert.equal(read(path.join(w.stub, "secrets", "client-id")), "old-pull-client");
+    assert.equal(read(path.join(w.stub, "secrets", "client-secret")), "old-pull-secret");
+    assert.deepEqual(tokenItems(w), []);
+    for (const account of Object.keys(OLD_SECRETS))
+        assert.equal(fs.existsSync(path.join(w.stub, "secrets", account)), false, account);
+}
+
+// The first run of the new runner over the previous version's files: the
+// six old keyring accounts go, the client keys move to the one credential,
+// no token is kept, so the status asks for Connect; the pair list, the
+// pair's state and its inventory are rewritten in the new form.
+function caseCredentialMigration(runner) {
+    const w = world({ secrets: [] });
+    plantOldSecrets(w);
+    const pairsFile = path.join(w.env.XDG_CONFIG_HOME, "vgshell", "cloud-sync", "pairs.json");
+    write(pairsFile, JSON.stringify({ pairs: [{ id: "docs", label: "Documents", direction: "pull", remote: "Docs", local: w.mirror }] }));
+    const pairDir = path.join(w.state, "pairs", "docs");
+    write(path.join(pairDir, "state.json"), JSON.stringify({
+        state: "idle", startedAt: null, lastAttempt: null, lastSuccess: null, lastError: null, changes: null,
+        localEdits: [{ path: "a.txt", stored: "20990101T000000Z-1/a.txt", at: "2099-01-01T00:00:00.000Z" }]
+    }));
+    write(path.join(pairDir, "conflicts", "20990101T000000Z-1", "a.txt"), "kept edit\n");
+    write(path.join(pairDir, "inventory.json"), JSON.stringify({ entries: {
+        "b.txt": { size: 1, mtimeMs: 1, hash: null, id: null, state: "removed-on-drive", since: "2099-01-01T00:00:00.000Z" }
+    } }));
+    const out = cli(w, ["run"], runner);
+    assert.equal(out.stdout, "pair=docs result=authorization-required\n", out.stderr);
+    assertMigratedSecrets(w);
+    assert.deepEqual(JSON.parse(read(pairsFile)), { pairs: [{ id: "docs", label: "Documents", local: w.mirror, remote: "Docs" }] });
+    const state = JSON.parse(read(path.join(pairDir, "state.json")));
+    assert.equal(Object.prototype.hasOwnProperty.call(state, "localEdits"), false);
+    assert.deepEqual(state.records.map(r => [r.kind, r.path]).sort(), [["both-changed", "a.txt"], ["removed-on-drive", "b.txt"]]);
+    assert.equal(JSON.parse(read(path.join(pairDir, "inventory.json"))).entries["b.txt"].state, undefined);
+    const s = status(w, runner);
+    assert.equal(s.pairs[0].state, "authorization-required");
+    assert.deepEqual([s.lastError.kind, s.lastError.account], ["credential-absent", "token"]);
+    assert.ok(s.attention.reasons.includes("authorization-required"));
+}
+
+// The shell probes at start, so the probe migrates too.
+function caseCredentialMigrationProbe(runner) {
+    const w = world({ secrets: [] });
+    plantOldSecrets(w);
+    const probe = cli(w, ["probe"], runner);
+    assert.equal(probe.status, 0, probe.stderr);
+    assertMigratedSecrets(w);
+    const rows = JSON.parse(probe.stdout).credentials.map(c => [c.account, c.presence]);
+    assert.deepEqual(rows, [["client-id", "present"], ["client-secret", "present"], ["token", "absent"]]);
+}
+
+// A pair never synced whose Drive folder does not exist yet: the upload
+// leg creates it.
+function caseMissingRemoteFirstSync(runner) {
+    const w = world();
+    addPair(w, runner);
+    write(path.join(w.mirror, "first.txt"), "first\n");
+    const out = cli(w, ["run"], runner);
+    assert.equal(out.stdout, "pair=docs result=idle\n", out.stderr);
+    assert.equal(read(path.join(w.drive, "Docs", "first.txt")), "first\n");
+}
+
+// A synced pair whose Drive folder went away is an error, not a re-upload.
+function caseMissingRemoteWithBaseline(runner) {
+    const w = world();
+    addPair(w, runner);
+    drive(w, "a.txt", "one\n", 1700000000);
+    runOk(w, runner);
+    fs.rmSync(path.join(w.drive, "Docs"), { recursive: true, force: true });
+    const out = cli(w, ["run"], runner);
+    assert.equal(out.stdout, "pair=docs result=error\n", out.stderr);
+    assert.equal(status(w, runner).lastError.kind, "source-missing");
+    assert.equal(fs.existsSync(path.join(w.drive, "Docs")), false);
 }
 
 // ----------------------------------------------------------- the controls
@@ -1256,6 +1372,11 @@ async function controls() {
     await mustFail("local-newer both-changed", mutant("local-newer both-changed", "if (local.mtimeMs >= driveTime) addRecord(records, { kind: \"both-changed\", path: rel });", ""), caseBothChangedLocalNewer);
     await mustFail("export no upload", mutant("export no upload", "if (excludes !== null) uploadArgs.push(\"--exclude-from\", excludes);", ""), caseExportNoUpload);
     await mustFail("prune conflict storage", mutant("prune conflict storage", "const cutoff = Date.now() - KEEP_MS;", "const cutoff = 0;"), casePruneConflictStorage);
+    await mustFail("credential migration", mutant("credential migration", "migrateCredentialsIfNeeded();\n    const read = readPairs();", "const read = readPairs();"), caseCredentialMigration);
+    await mustFail("credential migration in probe", mutant("credential migration in probe", "migrateCredentialsIfNeeded();\n    const tool = which(\"secret-tool\");\n    const needed", "const tool = which(\"secret-tool\");\n    const needed"), caseCredentialMigrationProbe);
+    await mustFail("pair list migration", mutant("pair list migration", "if (read.kind !== \"ok\" || !oldPairList(read.value)) return;", "return;"), caseCredentialMigration);
+    await mustFail("missing remote keeps the error", mutant("missing remote keeps the error", "(listed.kind !== \"source-missing\" || hasBaseline)", "listed.kind !== \"source-missing\""), caseMissingRemoteWithBaseline);
+    await mustFail("missing remote creates", mutant("missing remote creates", "const emptyRemote = !listed.ok && listed.kind === \"source-missing\";", "const emptyRemote = false;"), caseMissingRemoteFirstSync);
     await mustFail("forbidden argv", mutant("forbidden argv", "const uploadArgs = [\"copy\", \"--update\", pair.local, remotePath(pair)].concat(filterArgs());", "const uploadArgs = [\"copy\", \"--update\", pair.local, remotePath(pair), \"--delete-after\"].concat(filterArgs());"), caseForbiddenRcloneArgv);
     await mustFail("attention key", mutant("attention key", "conflicts.map(c => [c.kind, c.pair, c.path, c.since]), cause])", "conflicts.map(c => [c.kind, c.pair, c.path, c.since]), lastError])"), caseFailures);
     await mustFail("orphaned copy lock", mutant("orphaned copy lock", "stdio: [\"ignore\", \"pipe\", \"pipe\", lock] });", "stdio: [\"ignore\", \"pipe\", \"pipe\"] });"), caseInterrupted);
@@ -1331,6 +1452,11 @@ async function main() {
     caseRunKey();
     caseNoLeak();
     caseFullDriveSharedFolder();
+    caseCredentialMigration();
+    caseCredentialMigrationProbe();
+    caseMissingRemoteFirstSync();
+    caseMissingRemoteWithBaseline();
+    assertNoDeletingArgvAnywhere();
     await controls();
     console.log("test-cloud-sync-runner: ok");
 }
