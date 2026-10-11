@@ -142,18 +142,23 @@ check_local_add() {
   expect "the local add reaches Drive" "local add" cat -- "$cs_drive/local.txt"
 }
 check_local_edit() {
+  local want='[["both-changed", "a.txt"]]'
+  if [[ -n ${cs_local_edit_records:-} ]]; then want="$cs_local_edit_records"; fi
   printf '%s' "edited here, a longer local version" >"$cs_mirror/a.txt"
+  touch -d '2000-01-01T00:00:00Z' -- "$cs_mirror/a.txt"
   expect "a run after a local edit finishes" "pair=docs result=idle exit=0" cs_answer run
   expect "the mirror holds the Drive version" "one, changed on Drive" cs_read a.txt
   expect "the local edit is kept" "edited here, a longer local version" cs_kept
-  expect "the record reads both-changed" '[["both-changed", "a.txt"]]' cs_conflicts
+  expect "the record reads both-changed" "$want" cs_conflicts
 }
 check_removed() {
+  local want='[["removed-on-drive", "b.txt"]]'
+  if [[ -n ${cs_removed_records:-} ]]; then want="$cs_removed_records"; fi
   rm -- "$cs_drive/b.txt"
   expect "a run after a Drive deletion finishes" "pair=docs result=idle exit=0" cs_answer run
   expect "the file Drive removed stays" "added on Drive" cs_read b.txt
   expect "the file Drive removed returns to Drive" "added on Drive" cat -- "$cs_drive/b.txt"
-  expect "the record reads removed-on-drive" '[["both-changed", "a.txt"], ["removed-on-drive", "b.txt"]]' cs_conflicts
+  expect "the record reads removed-on-drive" "$want" cs_conflicts
 }
 check_removed_locally() {
   cs_put local-gone.txt "drive copy"
@@ -173,16 +178,22 @@ check_export() {
   expect "the export did not upload" "exported" cat -- "$cs_drive/native.docx"
 }
 check_prune() {
-  local old young
-  old="$cs_state/pairs/docs/conflicts/20000101T000000Z-1/old.txt"
-  young="$cs_state/pairs/docs/conflicts/29990101T000000Z-1/young.txt"
+  local prune_drive prune_local old young
+  prune_drive="$(dirname -- "$cs_drive")/Prune"
+  prune_local="$cs_home/cloudsync/prune"
+  mkdir -p -- "$prune_drive" "$prune_local"
+  expect "the prune pair is added" added=prune cs pair-add --definition "{\"id\":\"prune\",\"label\":\"Prune\",\"remote\":\"Prune\",\"local\":\"$prune_local\"}"
+  old="$cs_state/pairs/prune/conflicts/20000101T000000Z-1/old.txt"
+  young="$cs_state/pairs/prune/conflicts/29990101T000000Z-1/young.txt"
   mkdir -p -- "$(dirname -- "$old")" "$(dirname -- "$young")"
   printf old >"$old"
   printf young >"$young"
-  cs_put prune.txt "one"
-  expect "a run prunes old conflict storage" "pair=docs result=idle exit=0" cs_answer run
+  printf '%s' "one" >"$prune_drive/prune.txt"
+  expect "a run prunes old conflict storage" "pair=prune result=idle exit=0" cs_answer run --pair prune
   expect "the old conflict store is pruned" old-pruned cs_path_state "$old" old-present old-pruned
   expect "the young conflict store is kept" young-kept cs_path_state "$young" young-kept young-gone
+  expect "the prune pair is removed" removed=prune cs pair-remove prune
+  rm -rf -- "$prune_local" "$prune_drive" "$cs_state/pairs/prune"
 }
 check_shared_folder() {
   mkdir -p -- "$(dirname -- "$cs_drive")/Shared" "$cs_home/cloudsync/shared"
@@ -248,11 +259,11 @@ check_lock() {
 # control_red NAME CHECK...: the checks against a runner copy whose FROM
 # reads TO, in a world of its own; `red` when they fail, as they must.
 control_red() { # NAME FROM TO CHECK...
-  local name="$1" from="$2" to="$3" dir="$cs_dir/controls/$1" log
+  local from="$2" to="$3" dir="$cs_dir/controls/$1" log edit_error
   shift 3
   mkdir -p -- "$dir/home" "$dir/run"
   log="$dir/checks.log"
-  python3 - "$cs_runner" "$dir/cloud-sync" "$from" "$to" <<'PY' || { echo "edit-failed"; return; }
+  if ! edit_error="$(python3 - "$cs_runner" "$dir/cloud-sync" "$from" "$to" 2>&1 <<'PY'
 import sys
 source, target, old, new = sys.argv[1:]
 text = open(source).read()
@@ -260,6 +271,10 @@ if text.count(old) != 1:
     sys.exit("occurs %d times" % text.count(old))
 open(target, "w").write(text.replace(old, new))
 PY
+  )"; then
+    printf 'edit-failed %s\n' "$edit_error"
+    return
+  fi
   cmp -s -- "$cs_runner" "$dir/cloud-sync" && { echo unchanged; return; }
   (
     failures=0 behaviour_failures=0
@@ -333,7 +348,7 @@ SH
   expect "Cloud Sync starts disabled" '[null, false]' cs_lent
   expect "enabling Cloud Sync is allowed" ok ipc shell setPluginEnabled vgs.cloud-sync true
   expect "placing Cloud Sync's widget is allowed" ok ipc shell setPluginPlaced vgs.cloud-sync true
-  expect_poll "the service holds its status record and IPC target" '[["account", "cloud", "keys", "lastSync", "pairs", "schedule", "sync"], true]' cs_lent
+  expect_poll "the service holds its status record and IPC target" '[["account", "cloud", "keys", "pairs", "schedule", "sync"], true]' cs_lent
   expect_poll "with no pair and no unit the sync reads not set up" '["warning", "Not set up"]' cs_sync
   expect_poll "with no unit the hourly sync offers Set up" '["warning", "Not set up", true]' cs_schedule
   expect_poll "with no folder pair the pairs offer Add" '["warning", "None", "add"]' cs_pairs
@@ -375,19 +390,19 @@ SH
   expect_poll "the service publishes the pair's state" '["Documents: Up to date"]' cs_value sync.lines
   expect_poll "the service publishes the pair and its Drive folder" '["Documents: Docs"]' cs_value pairs.lines
   expect_poll "the service publishes the last sync" set cs_last_sync
-  check_local_edit
-  expect_poll "the service publishes the local edit" '[["both-changed", "a.txt"]]' cs_published_conflicts
+  cs_local_edit_records='[["both-changed", "a.txt"], ["removed-locally", "local-gone.txt"]]' check_local_edit
+  expect_poll "the service publishes the local edit" '[["both-changed", "a.txt"], ["removed-locally", "local-gone.txt"]]' cs_published_conflicts
   expected_errors+=('notify: unsent plugin=vgs\.cloud-sync')
   expect_poll "the service asks for one notification for the local edit" "$(cs_attention)" cs_notified
   expect_poll "the service has the runner record the local edit as notified" true cs_record_notified
-  check_removed
+  cs_removed_records='[["both-changed", "a.txt"], ["removed-locally", "local-gone.txt"], ["removed-on-drive", "b.txt"]]' check_removed
   check_shared_folder
-  expect_poll "the service publishes the Drive deletion" '[["both-changed", "a.txt"], ["removed-on-drive", "b.txt"]]' cs_published_conflicts
+  expect_poll "the service publishes the Drive deletion" '[["both-changed", "a.txt"], ["removed-locally", "local-gone.txt"], ["removed-on-drive", "b.txt"]]' cs_published_conflicts
   check_lock
 
   # The widget names the pair and its state, never a file.
   expect "with a folder pair the widget shows" true cs_widget_shown
-  expect_poll "the widget's tooltip leads with the files to review and names the pair" '["Cloud Sync: 2 files to review", ["Documents: Up to date"]]' cs_widget
+  expect_poll "the widget's tooltip leads with the files to review and names the pair" '["Cloud Sync: 3 files to review", ["Documents: Up to date"]]' cs_widget
   expect "the widget's tooltip names no file" False cs_widget_names_files
 
   # The window, and Sync now through the one service.
@@ -428,7 +443,7 @@ SH
   stop_shell || fail "cloudsync: the shell stops before the restart"
   start_shell "$repo" "$sandbox/qs-cloudsync.log" || return 0
   expect_poll "after a restart the service publishes the pause" true cs_value cloud.paused
-  expect_poll "after a restart the sync still names the files to review" '["warning", "2 files to review"]' cs_sync
+  expect_poll "after a restart the sync still names the files to review" '["warning", "3 files to review"]' cs_sync
   expect_poll "after a restart the pair reads paused" '["Documents: Paused"]' cs_value sync.lines
   expect "Resume through the service" ok ipc vgs.cloud-sync invoke resume ""
   expect_poll "the service publishes the resume" false cs_value cloud.paused

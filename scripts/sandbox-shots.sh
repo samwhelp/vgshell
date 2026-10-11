@@ -4879,6 +4879,28 @@ if [[ \${1:-} == search && \${3:-} == vgs-cloud-sync && \$# -eq 5 ]]; then
   fi
   exit 0
 fi
+if [[ \${1:-} == clear && \${2:-} == service && \${3:-} == vgs-cloud-sync && \${4:-} == account && \$# -eq 5 ]]; then
+  if [[ -f "$cs/secrets/\$5" ]]; then rm -f -- "$cs/secrets/\$5"; exit 0; fi
+  exit 1
+fi
+if [[ \${1:-} == store ]]; then
+  shift
+  [[ \${1:-} == --label=* ]] && shift
+  account= user=
+  while [[ \$# -gt 1 ]]; do
+    case "\$1" in
+      account) account="\$2" ;;
+      user) user="\$2" ;;
+    esac
+    shift 2
+  done
+  if [[ -n \$account ]]; then
+    secret="\$(cat)"
+    printf '%s\\n' "\$secret" >"$cs/secrets/\$account"
+    [[ -z \$user ]] || printf '%s\\n' "\$user" >>"$cs/secrets/\$account"
+    exit 0
+  fi
+fi
 case "\${1:-}" in search) exit 0 ;; lookup) exit 1 ;; esac
 exit 1
 SH
@@ -4934,6 +4956,7 @@ SH
   rm -f -- "$cs/fail"
   # Set up, with a change on both sides and a Drive deletion to review.
   printf '# Notes, edited here\n' >"$home/cloudsync-$m/Drive/Documents/notes.md"
+  touch -d '2000-01-01T00:00:00Z' -- "$home/cloudsync-$m/Drive/Documents/notes.md"
   rm -f -- "$drive/Documents/budget.xlsx"
   printf '# Notes, edited on Drive\n' >"$drive/Documents/notes.md"
   csr run || fail "cloudsync scene: review run"
@@ -4944,6 +4967,7 @@ SH
   csr status || true
   cs_shots "$m" 9-pairs-invalid error pairs-invalid
   csr pairs-reset || fail "cloudsync scene: pairs-reset"
+  rm -f -- "$cs/secrets/client-id" "$cs/secrets/client-secret" "$cs/secrets/token"
   for a in pull-client-id pull-client-secret pull-token upload-client-id upload-client-secret upload-token; do printf 'old\n' >"$cs/secrets/$a"; done
   printf '{"pairs":[{"id":"documents","label":"Documents","direction":"pull","remote":"Documents","local":"%s"}]}\n' "$home/cloudsync-$m/Drive/Documents" >"$pairs_file"
   csr run || true
