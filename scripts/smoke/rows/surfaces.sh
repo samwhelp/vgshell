@@ -432,8 +432,9 @@ fi
 # while its plugin has pressedOnOtherScreen(), as the launcher does, so the
 # fixture's overlay, which has none, leaves the far monitor's presses
 # alone. A monitor removed while a panel shows takes its catcher with it,
-# and the panel stays. The far monitor is a headless
-# output the row gives a mode, right of the first. The click tool maps a
+# and the panel stays. The far monitor is a second nested Wayland output,
+# placed right of the first: a headless one read 0x0 here (cachy,
+# 2026-10-11), as compositor-reveal.sh notes. The click tool maps a
 # point over the whole layout (Hyprland v0.56.2
 # CPointerManager::warpAbsolute), so these presses pass the layout's size.
 # A catcher takes a press only once it has drawn, as a fresh summon does,
@@ -478,21 +479,35 @@ far_catchers() { layers_of "$1-outside"; }
 # holds a bar as the first does: NAMESPACE's own layer keeps the first
 # monitor's reserved space or ignores it, and the catcher does the same.
 far_want() {
-  local own
+  local own fx fy fw fh
   own="$(surface_box "$1")" || return 1
-  python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(json.dumps([[0, y, 1280, 720 - (int(sys.argv[2]) - h)]]))' "$own" "$mon_h"
+  read -r fx fy fw fh < <(far_box) || return 1
+  python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); fw,fh,mh=map(int,sys.argv[2:]); print(json.dumps([[0, y, fw, fh - (mh - h)]]))' "$own" "$fw" "$fh" "$mon_h"
+}
+# far_sized: `sized` once the far monitor stands right of the first with a
+# mode, else its position and size.
+far_sized() {
+  local x y w h
+  read -r x y w h < <(far_box) || return 1
+  if [[ $x == "$mon_w" && $y == 0 && $w -gt 0 && $h -gt 0 ]]; then echo sized; else echo "$x $y $w $h"; fi
 }
 menu_marks() { ipc smoke readInstance menu acme.surfaces smokePressMarks; }
+# menu_marker_press: presses the marker of the menu the panel opened. Qt
+# places that popup from its parent, the panel's layer, whose origin on the
+# output it does not know, so the layer's origin is added, as
+# smoke_marker_press adds it for an item in the panel.
 menu_marker_press() {
-  local box x y
+  local box layer x y
   box="$(ipc smoke invokeInstance menu acme.surfaces smokeMarkerGeometry '')" || return 1
   [[ $box == \[* ]] || { echo "$box"; return 1; }
-  read -r x y < <(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); print(int(b[0] + b[2] / 2), int(b[1] + b[3] / 2))' "$box") || return 1
+  layer="$(surface_box vgs:panel)" || return 1
+  read -r x y < <(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); l=json.loads(sys.argv[2]); print(int(l[0] + b[0] + b[2] / 2), int(l[1] + b[1] + b[3] / 2))' "$box" "$layer") || return 1
   layout_click "$x" "$y" && echo ok
 }
-expect "the far monitor is given a mode" ok hypr eval "hl.monitor({ output = \"$far_output\", mode = \"1280x720\", position = \"${mon_w}x0\", scale = 1 })"
-expect "the nested compositor adds the far monitor" ok hypr output create headless "$far_output"
-expect_poll "the far monitor stands right of the first at its mode" "$mon_w 0 1280 720" far_box
+expect "the far monitor is placed right of the first" ok hypr eval "hl.monitor({ output = \"$far_output\", mode = \"preferred\", position = \"${mon_w}x0\", scale = 1 })"
+expect "the nested compositor adds the far monitor" ok hypr output create wayland "$far_output"
+expect_poll "the far monitor stands right of the first with a mode" sized far_sized
+read -r _ _ far_w far_h < <(far_box) || fail "the far monitor's size is readable"
 expect_poll "the far monitor gets its bar" "$((monitors + 1))" bar_count
 expect "the first monitor takes the focus for the panel" ok near_focus
 expect "a panel summons on the first monitor" ok ipc shell summon panel acme.surfaces "{\"closeMarker\":\"$sandbox/closed-by-far-press\"}"
@@ -528,7 +543,7 @@ expect "the launcher is enabled for the far press" ok ipc shell setPluginEnabled
 expect "the first monitor takes the focus for the launcher" ok near_focus
 expect "the launcher summons on the first monitor" ok ipc shell summon overlay vgs.launcher '{}'
 summon_drawn overlay vgs.launcher || fail "the launcher never drew before the far press"
-geometry expect_poll "the launcher's catcher covers the whole far monitor, its bar included" "[[0, 0, 1280, 720]]" far_catchers vgs:overlay
+geometry expect_poll "the launcher's catcher covers the whole far monitor, its bar included" "[[0, 0, $far_w, $far_h]]" far_catchers vgs:overlay
 expect "a press on the far monitor closes the launcher" closed far_press vgs:overlay
 expect_poll "the closed launcher's catcher is gone" "[]" far_catchers vgs:overlay
 expect "the launcher is disabled again" ok ipc shell setPluginEnabled vgs.launcher false
