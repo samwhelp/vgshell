@@ -169,8 +169,8 @@ function inKeyedGroup(entry, keyed) {
 // keys, entry, label, step, button }: `key` the entry's, `keys` whether it
 // draws as a key list, `step` whether its offered action draws beside it,
 // `button` that action (stepButton) or null. The page's one primary action
-// is the first offered one in that order whose tone is not danger
-// (markPrimary).
+// is the first offered one in that order whose tone is not danger, an
+// optional step's only while no other is offered (markPrimary).
 function settingsSections(tuis, status) {
     var keyed = keyedGroups(status);
     var setup = status.filter(function (entry) { return entry.group === SETUP_GROUP && !listsKeys(entry); });
@@ -242,8 +242,11 @@ function flowButtons(tuis, status, beside) {
 // Mark the one primary action of SECTIONS, settingsSections' list: the
 // first offered step action in drawn order, the step rows of a section and
 // then its offered buttons, whose tone is not danger, so the next step
-// reads first and a removal is never the page's main action. Each button
-// of a section's `buttons` then takes its key.
+// reads first and a removal is never the page's main action. A step whose
+// state reads info is optional, such as a sign-in the plugin works
+// without: it is primary only while no other step offers an action, so an
+// open required step after it reads first. Each button of a section's
+// `buttons` then takes its key.
 function markPrimary(sections) {
     var found = false;
     function mark(button) {
@@ -251,9 +254,13 @@ function markPrimary(sections) {
         button.primary = true;
         found = true;
     }
+    [false, true].forEach(function (optional) {
+        sections.forEach(function (section) {
+            section.items.forEach(function (item) { if (item.button !== null && (item.entry.tone === "info") === optional) mark(item.button); });
+            if (!optional) section.buttons.forEach(function (button) { if (button.offered) mark(button); });
+        });
+    });
     sections.forEach(function (section) {
-        section.items.forEach(function (item) { if (item.button !== null) mark(item.button); });
-        section.buttons.forEach(function (button) { if (button.offered) mark(button); });
         section.buttons.forEach(function (button) { button.key = button.name + " " + button.label + " " + button.enabled + " " + button.tone + " " + button.primary; });
     });
 }

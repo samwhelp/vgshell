@@ -773,11 +773,11 @@ function verify(gate) {
         }
     }
     verifySetupButtons(gate, judged);
-    // Its control: the manifest without the fleet TUI's entry, which the
-    // manager then does not list.
-    const unlisted = plain(judged);
-    unlisted.tui["setup-fleet"].entry = null;
-    assert.throws(() => verifySetupButtons(gate, unlisted), assert.AssertionError, "an unlisted setup TUI turns the check red");
+    // Its control: the manifest with a launcher entry for the fleet TUI,
+    // which the manager then lists in every state.
+    const listed = plain(judged);
+    listed.tui["setup-fleet"].entry = { label: "Install kendex", icon: "workflow", group: "Jarvis" };
+    assert.throws(() => verifySetupButtons(gate, listed), assert.AssertionError, "a listed fleet TUI turns the check red");
     assert.deepEqual(plain(judge.tuiMissingRequirements(judged, "setup-fleet", ["kendex", "git", "tmux"])), ["git", "kendex"],
         "the setup terminal needs git and kendex");
     for (const command of ["git", "kendex"])
@@ -1106,19 +1106,24 @@ try {
     fs.rmSync(temp, { recursive: true, force: true });
 }
 console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length + FLEET.length} controls=${CONTROLS.length + 10 + 55}`);
-// Settings draws a step's button only for a TUI the manager lists
-// (Steps.stepButton), so every TUI a Setup step's action opens in MANIFEST,
-// a judged manifest, is a listed one, and the offered fleet row draws its
-// button.
+// The fleet setup terminal opens from the Agent fleet row alone: in
+// MANIFEST, a judged manifest, the launcher lists no fleet TUI and the
+// Settings page draws none while the row is hidden, and the offered row
+// draws its button, whose press the core turns into that terminal.
 function verifySetupButtons(gate, manifest) {
-    const listed = judge.listedTuiRows(manifest, []).map(tui => tui.name);
-    for (const [key, entry] of Object.entries(manifest.status).filter(([, entry]) => entry.group === "Setup"))
-        for (const action of [entry.action, ...Object.values(entry.actions ?? {})].filter(action => action?.tui !== undefined))
-            assert.equal(listed.includes(action.tui), true, key + ": the TUI " + action.tui + " its action opens is listed");
-    for (const missing of [[], ["kendex"]]) {
-        const row = judge.statusRows(manifest, { setupFleet: plain(gate.fleetStep("/h/Jarvis", null)) }, missing).find(entry => entry.key === "setupFleet");
-        assert.notEqual(settings.stepButton(judge.listedTuiRows(manifest, missing), row), null, "the fleet row draws its button, missing " + missing);
-    }
+    for (const [label, home, tool, shown] of FLEET)
+        for (const missing of [[], ["kendex"]]) {
+            const tuis = judge.listedTuiRows(manifest, missing);
+            assert.equal(tuis.some(tui => tui.name === "setup-fleet"), false, label + ": the launcher lists no fleet setup");
+            const value = plain(gate.fleetStep(home, tool));
+            const sections = settings.settingsSections(tuis, judge.statusRows(manifest, { setupFleet: value }, missing));
+            const fleet = sections.flatMap(section => section.buttons).filter(button => button.name === "setup-fleet");
+            const row = settingsRows(sections).find(item => item.key === "setupFleet");
+            assert.deepEqual([fleet.length, row !== undefined && row.button !== null], [0, shown], label + ": only the shown fleet row draws its setup, missing " + missing);
+            if (shown)
+                assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { setupFleet: value }, "setupFleet")), { ok: true, kind: "tui", name: "setup-fleet" },
+                    label + ": the row's press opens the fleet setup");
+        }
 }
 function verifyProbeTimeoutConsumer(source) {
     assert.equal(source.includes('Gate.startCause(setupCause)'), true,

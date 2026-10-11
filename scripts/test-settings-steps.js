@@ -123,6 +123,17 @@ const ROWS = [
         [["keys", "Add key"], ["accounts", "Accounts"]]]
 ];
 
+// An optional step, one whose state reads info, before a required one:
+// [label, published values, the Setup section's step rows as [key, the
+// button as [label, primary] or null]].
+const OPTIONAL = { tone: "info", text: "Optional", action: "key" };
+const PRIMARY = [
+    ["an optional step before an open required one leaves it the primary", { summary: { tone: "warning", text: "Not ready" }, model: OPTIONAL, browser: TODO },
+        [["model", ["Add key", false]], ["browser", ["Set up browser", true]]]],
+    ["an optional step is the primary while no required step is open", { summary: { tone: "ok", text: "Ready" }, model: OPTIONAL, browser: DONE },
+        [["model", ["Add key", true]], ["browser", null]]]
+];
+
 // A plugin whose keys the core stores in two groups of their own, each
 // with its sign-in step, beside a Setup group with a headline and a step,
 // and a key list of no group.
@@ -301,6 +312,9 @@ function verify(logic) {
         same(drawn, want, "settingsSections: " + label);
         same(logic.detailEntries(status).map(entry => entry.key), ["sync", "pairs", "downCount", "last"], "a keyed group's keys and states leave Details: " + label);
     }
+    for (const [label, values, want] of PRIMARY)
+        same(logic.settingsSections(STEPPED_TUIS, producer.statusRows(STEPPED, values, [])).find(section => section.title === "Setup").items
+            .map(item => [item.key, item.button === null ? null : [item.button.label, item.button.primary]]), want, "primary: " + label);
     for (const [label, manifest, tuis, values, want] of FLOWS)
         same(flowOf(logic, tuis, producer.statusRows(manifest, values, [])).map(b => [b.name, b.label, b.tone, b.primary]), want, "primary: " + label);
     // statusView: what a line draws of a state, with its lines.
@@ -371,7 +385,9 @@ const CONTROLS = [
     ["a danger action is primary", 'if (found || button.tone === "danger") return;', "if (found) return;"],
     ["every action is primary", 'if (found || button.tone === "danger") return;', 'if (button.tone === "danger") return;'],
     ["a screen no step offers is primary", "section.buttons.forEach(function (button) { if (button.offered) mark(button); });", "section.buttons.forEach(function (button) { mark(button); });"],
-    ["no action is primary", "        button.primary = true;\n", ""]
+    ["no action is primary", "        button.primary = true;\n", ""],
+    ["an optional step is primary before a required one", '(item.entry.tone === "info") === optional', "true"],
+    ["an optional step is never primary", "[false, true].forEach(function (optional) {", "[false].forEach(function (optional) {"]
 ];
 
 const source = fs.readFileSync(file, "utf8");
@@ -394,4 +410,4 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-settings-steps: ok entries=${ENTRIES.length} rows=${ROWS.length} sections=${SECTIONS.length} controls=${CONTROLS.length}`);
+console.log(`test-settings-steps: ok entries=${ENTRIES.length} rows=${ROWS.length} sections=${SECTIONS.length} primary=${PRIMARY.length} controls=${CONTROLS.length}`);
