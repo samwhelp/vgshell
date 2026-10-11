@@ -148,6 +148,13 @@ world("jg", root => {
     const linked = home("linked", "");
     fs.rmSync(path.join(linked, "AGENTS.md"));
     fs.symlinkSync(path.join(full, "AGENTS.md"), path.join(linked, "AGENTS.md"));
+    // The state layer is last and holds no blank line: split it off the
+    // text before it, and require the folder's own state/ path in it.
+    const stateLast = (instructions, folder, what) => {
+        const cut = instructions.lastIndexOf("\n\n");
+        assert.equal(instructions.slice(cut + 2).includes(path.join(folder, "state") + "."), true, what + ": the last layer names <folder>/state");
+        return instructions.slice(0, cut);
+    };
     function homeText(logic, copy = backend) {
         require(path.join(copy, "Core.js")).use(tree);
         for (const row of fixtures) {
@@ -166,20 +173,21 @@ world("jg", root => {
             assert.deepEqual(["- base/gamma: Gamma line", "- own/alpha: Alpha skill"].map(line => added.split("\n").includes(line)), [true, true],
                 row.class + ": the skill index, name and first line");
             assert.equal(added.includes("ALPHA-BODY"), false, "a skill body is read on demand, never composed");
-            assert.equal(added.endsWith("\n\n- [Team](facts/team.md): MEMORY-MARKER"), true, row.class + ": the memory index, each line whole");
-            assert.deepEqual(value.layers, [...row.layers, "home/persona", "home/AGENTS.md", "home/skills", "home/MEMORY.md"]);
+            assert.equal(stateLast(added, full, row.class).endsWith("\n\n- [Team](facts/team.md): MEMORY-MARKER"), true, row.class + ": the memory index, each line whole");
+            assert.deepEqual(value.layers, [...row.layers, "home/persona", "home/AGENTS.md", "home/skills", "home/MEMORY.md", "home/state"]);
             assert.equal(value.afterToolResult, plain.afterToolResult, "the home text is not repeated after a tool result");
             assert.equal(plain.withHome(full).instructions, value.instructions, "a composed guidance reads the home again");
-            assert.equal(logic.compose(row.engine, row.class, row.language, bare).instructions, plain.instructions, "an empty home adds nothing");
-            assert.deepEqual(logic.compose(row.engine, row.class, row.language, bare).layers, row.layers);
+            const empty = logic.compose(row.engine, row.class, row.language, bare);
+            assert.equal(stateLast(empty.instructions, bare, row.class + " empty home"), plain.instructions, "an empty home adds only its state folder");
+            assert.deepEqual(empty.layers, [...row.layers, "home/state"]);
         }
-        assert.equal(logic.compose("chained", "text", "en", edge).instructions.endsWith("x".repeat(8192)), true, "a persona of exactly the bound is whole");
+        assert.equal(stateLast(logic.compose("chained", "text", "en", edge).instructions, edge, "edge").endsWith("x".repeat(8192)), true, "a persona of exactly the bound is whole");
         assert.throws(() => logic.compose("chained", "text", "en", oversize), { message: "jarvis: guidance=home-too-large" });
-        assert.equal(logic.compose("chained", "text", "en", personaEdge).instructions.endsWith("p".repeat(3072)), true, "a persona of exactly its bound is whole");
+        assert.equal(stateLast(logic.compose("chained", "text", "en", personaEdge).instructions, personaEdge, "persona edge").endsWith("p".repeat(3072)), true, "a persona of exactly its bound is whole");
         assert.throws(() => logic.compose("chained", "text", "en", personaOver), { message: "jarvis: guidance=home-persona-too-large" });
         let edged;
         assert.doesNotThrow(() => { edged = logic.compose("chained", "text", "en", memoryEdge); }, "a memory index of exactly its bound composes");
-        assert.equal(edged.instructions.endsWith("m".repeat(4096)), true, "and is whole");
+        assert.equal(stateLast(edged.instructions, memoryEdge, "memory edge").endsWith("m".repeat(4096)), true, "and is whole");
         assert.throws(() => logic.compose("chained", "text", "en", memoryOver), { message: "jarvis: guidance=home-memory-too-large" });
         for (const folder of [crowded, many])
             assert.throws(() => logic.compose("chained", "local", "en", folder), { message: "jarvis: guidance=home-skills-too-large" });
@@ -207,7 +215,9 @@ world("jg", root => {
         ["skills-bound", "if (!listed.complete || Buffer.byteLength(index) > MAX_LAYER_BYTES)", "if (!listed.complete)"],
         ["skills-complete", "if (!listed.complete || Buffer.byteLength(index) > MAX_LAYER_BYTES)", "if (Buffer.byteLength(index) > MAX_LAYER_BYTES)"],
         ["skill-line", '(skill.line === "" ? "" : ": " + skill.line)', '""'],
-        ["read-again", "withHome: folder => compose(engine, brainClass, language, folder)", "withHome: () => compose(engine, brainClass, language)"]
+        ["read-again", "withHome: folder => compose(engine, brainClass, language, folder)", "withHome: () => compose(engine, brainClass, language)"],
+        ["state-root", "path.join(home, Home.guard(home).open)", "home"],
+        ["state-layer", 'out.push(["home/state", ', 'if (false) out.push(["home/state", ']
     ]) {
         control(root, name, "Guidance.js", needle, replacement, logic => homeText(logic, path.join(root, name))); controls++;
     }

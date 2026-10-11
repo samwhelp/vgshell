@@ -6,7 +6,8 @@
 // the user's Jarvis home folder or null: a brain gets the base package's
 // persona and the home's AGENTS.md after the shipped layers, then the index of
 // its skills, each read on demand through the help tool, then memory/MEMORY.md,
-// the memory bootstrap that points to the memory tools when they are offered.
+// the memory bootstrap that points to the memory tools when they are offered,
+// then the path of the home's state/ folder, the one its file tools reach.
 // The voice model only reads the brain's words aloud and gets no
 // home text (D105).
 // Read failures and bounds throw keyed errors. No cache or session store.
@@ -49,9 +50,10 @@ function layer(name) {
 }
 
 // The home's layers as [name, text] pairs: the persona, then the user's
-// AGENTS.md, which may refine it, the skill index and the memory layer. A
-// text over its bound refuses whole: a cut persona would read as the user's
-// own words, and a cut memory index would hide the notes below the cut.
+// AGENTS.md, which may refine it, the skill index, the memory layer and the
+// state folder's path. A text over its bound refuses whole: a cut persona
+// would read as the user's own words, and a cut memory index would hide the
+// notes below the cut.
 function homeLayers(home) {
     const out = [];
     const persona = Home.read(home, Home.baseSet(home) + "/" + Home.PACKAGE + "/persona.md", MAX_PERSONA_BYTES);
@@ -70,6 +72,9 @@ function homeLayers(home) {
     if (memory.kind !== "text") throw new Error("jarvis: guidance=home-memory-too-large");
     if (memory.text.trim() !== "")
         out.push(["home/MEMORY.md", "The user's memory notes. When offered, use memory search before answering from memory, then memory read by id. Say which note the answer came from. The memory/MEMORY.md bootstrap:\n\n" + memory.text.trim()]);
+    // The folder the gate leaves open, by the name the gate reads, since the
+    // file tools take only absolute paths.
+    out.push(["home/state", "Your state folder is " + path.join(home, Home.guard(home).open) + ". It is the one place in your home folder that your file tools can list, read and write. They refuse every other path in the home folder, and a search of the home folder itself."]);
     return out;
 }
 
