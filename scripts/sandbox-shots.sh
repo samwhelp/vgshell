@@ -3007,7 +3007,7 @@ EOF
   else
     expect "the setup holder's page opens" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin acme.dictation
     settings_tab_click Settings || { fail "dictation-setup: the Settings tab did not open"; return; }
-    settings_press --type RowAction "Set up" || { fail "dictation-setup: Set up did not open"; return; }
+    settings_press "Set up" || { fail "dictation-setup: Set up did not open"; return; }
   fi
   settings_close
   dictation_setup_confirm() { [[ -e $sandbox/dictation-setup-confirm ]] && echo asking || echo waiting; }
