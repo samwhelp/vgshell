@@ -43,7 +43,7 @@
 # limit. Contention the CPU pressure does not read, such as the GPU, I/O or
 # the nested compositor, only adds time to an open, so one slow open beside
 # faster ones is the host; a product regression slows every open. The main
-# batches 20261008T205423Z to 20261011T032242Z on cachy (VGS-1356) read
+# batches 20261008T083545Z to 20261011T032242Z on cachy (VGS-1356) read
 # 145 later opens at or below the limit, median 124 ms, three over 200 ms
 # (215, 219, 222), each in a run whose fastest later open read 165 ms or less.
 # Restoring eager Tooltip window construction must exceed the same budget.
@@ -330,7 +330,7 @@ kh_timing_readings=()
 # kh_timing_budget JSON [later]: the first open against its own bound, and
 # the later opens by their fastest open at or below the pressure limit.
 kh_timing_budget() {
-  local rows ms pressure index=0 result=within verdict fastest='' verdicts=()
+  local rows ms pressure index=0 result=within verdict fastest='' fastest_verdict=unmeasured verdicts=()
   rows="$(printf '%s' "$1" | py_reply 'import json,sys
 rows=json.load(sys.stdin)
 if not isinstance(rows,list) or len(rows)<2: print("unread")
@@ -347,15 +347,12 @@ else:
     fi
     verdict="$(latency_pressure_verdict "$ms" "$pressure" 200)"
     case "$verdict" in
-      within|over) [[ -n $fastest && $fastest -le $ms ]] || fastest=$ms ;;
+      within|over) [[ -n $fastest && $fastest -le $ms ]] || { fastest=$ms; fastest_verdict=$verdict; } ;;
       unmeasured) ;;
       *) verdicts+=(unread) ;;
     esac
   done <<<"$rows"
-  if [[ -z $fastest ]]; then verdicts+=(unmeasured)
-  elif ((fastest <= 200)); then verdicts+=(within)
-  else verdicts+=(over)
-  fi
+  verdicts+=("$fastest_verdict")
   for verdict in "${verdicts[@]}"; do
     case "$verdict" in
       unread) result=unread ;;
@@ -377,6 +374,7 @@ expect 'control: Key Hints refuses missing pressure' unread kh_timing_budget '[{
 # Main batch 20261011T032242Z's opens: one slow later open beside fast ones.
 expect 'Key Hints passes one slow later open beside faster ones' within kh_timing_budget '[{"drawn":169,"cpu_some_pct":0.3},{"drawn":159,"cpu_some_pct":0.9},{"drawn":215,"cpu_some_pct":0.9},{"drawn":166,"cpu_some_pct":1.0},{"drawn":153,"cpu_some_pct":0.6}]'
 expect 'control: Key Hints fails when every later open misses' over kh_timing_budget '[{"drawn":169,"cpu_some_pct":0.3},{"drawn":201,"cpu_some_pct":0.9},{"drawn":215,"cpu_some_pct":0.9},{"drawn":230,"cpu_some_pct":1.0},{"drawn":202,"cpu_some_pct":0.6}]'
+expect 'Key Hints passes a fastest later open of exactly 200 ms' within kh_timing_budget '[{"drawn":169,"cpu_some_pct":0.3},{"drawn":215,"cpu_some_pct":0.9},{"drawn":200,"cpu_some_pct":0.9}]'
 expect 'control: a fast busy later open cannot hide slow measured ones' over kh_timing_budget '[{"drawn":169,"cpu_some_pct":0.3},{"drawn":150,"cpu_some_pct":2.9},{"drawn":215,"cpu_some_pct":0.9},{"drawn":230,"cpu_some_pct":1.0},{"drawn":202,"cpu_some_pct":0.6}]'
 kh_timing_rows() { ipc smoke itemValues window vgs.keyhints BindField pluginId,bind | py_reply 'import json,sys; print(sum(r["pluginId"].startswith("vgs.") for r in json.load(sys.stdin)))'; }
 kh_timing_opens() {
