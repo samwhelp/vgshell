@@ -58,7 +58,9 @@
 # shell's PATH; jarvis-console is the Jarvis console window over the
 # scripted daemon fixture in each conversation state, taken only when
 # named; clipboard is the clipboard history over copies made on the
-# nested instance's own clipboard, taken only when named; voice is Voice's
+# nested instance's own clipboard, taken only when named; capture is
+# Capture's widget, panel and Settings page at the Recording section, taken
+# only when named; voice is Voice's
 # on-screen display while dictating, its plasma orb fed by stand-ins for
 # voxtype's status stream and audio bridge, so no audio device opens, taken
 # only when named; voice-setup is the requirement notice Voice's Set up
@@ -2145,7 +2147,8 @@ scene_panels() { # MODE
   scene_themes_panel "$1"
 }
 
-# Capture's idle widget and options panel. No action or recorder is started.
+# Capture's idle widget, options panel and Settings page Recording section.
+# No action or recorder is started.
 scene_capture() { # MODE
   expect "Capture is placed for its widget image" ok ipc shell setPluginPlaced vgs.capture true
   expect_poll "Capture's widget is built for its image" false ipc smoke readInstance "$(bar_key)" vgs.capture recording
@@ -2156,6 +2159,14 @@ scene_capture() { # MODE
   park_pointer
   take "capture-$1-panel"
   expect "Capture's panel hides" ok ipc shell hide panel vgs.capture
+  expect "the Settings window opens for the Capture page" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings window maps for the Capture page" 1 settings_count
+  expect "the window opens the Capture page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.capture
+  expect_poll "the Capture page is shown" '"vgs.capture"' settings_page
+  settings_tab_click Settings || fail "the click on the Settings tab failed"
+  expect_poll "the Capture page shows Settings" 0 settings_tab
+  jarvis_anchor_shot "capture-settings-$1-recording" SectionHeader Recording
+  settings_close
 }
 
 # AI Usage's dropdown from its widget, at rest, then scrolled halfway down
@@ -2461,6 +2472,7 @@ jarvis_anchor_shot() {
 # Whether the Setup section draws its rows: four chips and the Accounts
 # button.
 jarvis_setup_drawn() { ipc smoke setupSection "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); s=json.loads(t) if t.startswith("{") else None; print(s is not None and len(s["chips"]) >= 4 and any(b[0] == "Accounts" for b in s["buttons"]))'; }
+jarvis_backups_drawn() { ipc smoke invokeInstance "$settings_kind" vgs.settings listItems '{"id":"vgs.jarvis","key":"fallbacks"}' | py_reply 'import json,sys; t=sys.stdin.read(); print(t!="absent" and len(json.loads(t)) == 2)'; }
 jarvis_cause_status_rows() { # CAUSE PHASE
   "$node_bin" - "$repo" "$1" "$2" <<'JS'
 const fs = require("node:fs");
@@ -2551,7 +2563,9 @@ scene_jarvis-setup() { # MODE
   expect_poll "the Jarvis Setup section draws its rows" True jarvis_setup_drawn
   jarvis_anchor_shot "jarvis-setup-$1" SectionHeader Setup
   jarvis_backups plant
+  expect_poll "the Jarvis backup model list shows two rows" True jarvis_backups_drawn
   jarvis_anchor_shot "jarvis-settings-$1-model" SectionHeader "AI model"
+  jarvis_anchor_shot "jarvis-settings-$1-backups" SectionHeader "Backup models"
   jarvis_backups clear
   settings_close
   expect "disabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
@@ -2696,7 +2710,8 @@ jarvis_backups() {
   [[ $1 == plant || $1 == clear ]] || fail "unknown Jarvis backup model action: $1"
   grep -q '"fallbacks"' "$repo/shell/plugins/vgs.jarvis/manifest.json" || return 0
   if [[ $1 == plant ]]; then
-    ids="$(env -i PATH="$sandbox/outdated-no-path" HOME="$home" XDG_STATE_HOME="$home/.local/state" XDG_CONFIG_HOME="$home/.config" \
+    mkdir -p -- "$sandbox/jarvis-backups-no-path" || fail "the Jarvis backup PATH stand-in is not made"
+    ids="$(env -i PATH="$sandbox/jarvis-backups-no-path" HOME="$home" XDG_STATE_HOME="$home/.local/state" XDG_CONFIG_HOME="$home/.config" \
       XDG_DATA_HOME="$home/.local/share" "$node_bin" "$repo/shell/plugins/vgs.jarvis/backend/accounts.js" --tree "$repo" list |
       py_reply 'import json,sys; rows=json.load(sys.stdin); print("\n".join(row["id"] for row in rows[:2]))')" ||
       fail "the account helper lists no backup model ids"
