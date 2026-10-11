@@ -20,7 +20,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, cloudsync, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, dictation-setup, jarvis-console, jarvis-setup, jarvis-fleet, outdated, jarvis-causes, plugin-messages, traffic, ai-usage, sysmon, tui-edges, appearance, sounds or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-setup, jarvis-fleet, outdated, jarvis-causes, plugin-messages, traffic, ai-usage, sysmon, tui-edges, appearance, sounds or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -69,6 +69,10 @@
 # core toast or its notification card where the tree sends one, and
 # Voice's Settings page once the
 # stand-ins report it ready, taken only when named;
+# voice-elsewhere is Voice's Settings page beside a voxtype daemon the
+# shell did not start, then once that daemon has ended, after the page's
+# Stop the other voxtype run ended with code 0 where the tree offers it,
+# taken only when named;
 # dictation-setup captures the floating setup terminal at its model
 # confirmation, over the voxtype stand-in and a real kitty terminal.
 # With --rev on a tree before the core setup, it captures Voice's Set up.
@@ -271,7 +275,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|dictation-setup|voice-keys|jarvis-console|jarvis-setup|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
+    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-setup|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -397,6 +401,7 @@ scene_ships() {
     jarvis-console) ships_plugin vgs.jarvis ;;
     voice) ships_plugin vgs.voice ;;
     voice-setup) ships_plugin vgs.voice vgs.settings ;;
+    voice-elsewhere) ships_plugin vgs.voice vgs.settings && tree_has shell/plugins/vgs.voice/manifest.json '"dictation"' ;;
     dictation-setup) ships_plugin vgs.settings && { [[ -x $tree/bin/vgshell-dictation ]] || { [[ -n $rev ]] && ships_plugin vgs.voice; }; } ;;
     plugin-messages) ships_plugin vgs.clipboard vgs.lock vgs.notifications ;;
     voice-keys) [[ $manager_scene == settings ]] && ships_plugin vgs.voice ;;
@@ -3335,6 +3340,96 @@ voice_setup_launcher_ready() {
     expect "a request before the stand-in's probe answers launcher-missing" "refused: tui=core/doctor reason=launcher-missing" ipc shell openTui core/doctor
   fi
   expect_poll "the launcher state is present for the Voice setup run" present voice_setup_launcher
+}
+
+# Voice's Settings page beside a voxtype daemon the shell did not start,
+# one the scene starts as rows/dictation.sh's own daemon stands for one
+# the user's session runs: the core's probe finds it answering and reads
+# it elsewhere. The daemon then ends with TERM, as the step's
+# `systemctl --user disable --now` ends it. A tree whose Voice offers Stop
+# the other voxtype runs that step over the stand-in terminal (harness.sh's
+# terminal_stand_in), which runs `true` for the script, and is shot once
+# the core's daemon, started again on the run's code 0, reads ready; an
+# older tree is shot after a bounded wait, still reading elsewhere. The
+# model reads installed throughout, so the daemon's is the only Setup
+# line. Enablement and stand-ins are put back, and no daemon is left.
+voice_elsewhere_pid=""
+voice_elsewhere_state() { "${shell_env[@]}" PATH="$shell_start_path" "$shim/voxtype" status --format json | py_reply 'import json,sys; print(json.load(sys.stdin)["alt"])'; }
+voice_elsewhere_end() {
+  [[ -z $voice_elsewhere_pid ]] || { kill -TERM "$voice_elsewhere_pid" 2>/dev/null || true; wait "$voice_elsewhere_pid" 2>/dev/null || true; }
+  voice_elsewhere_pid=""
+}
+scene_voice-elsewhere() { # MODE
+  local voice_found settings_found stood=() command before stops=false
+  tree_has shell/plugins/vgs.voice/manifest.json '"stop-other"' && stops=true
+  voice_found="$(plugin_enabled vgs.voice)" || voice_found=unread
+  settings_found="$(plugin_enabled vgs.settings)" || settings_found=unread
+  [[ $voice_found == True || $voice_found == False ]] || fail "vgs.voice's enablement is unreadable before the Voice elsewhere scene: $voice_found"
+  [[ $settings_found == True || $settings_found == False ]] || fail "vgs.settings' enablement is unreadable before the Voice elsewhere scene: $settings_found"
+  voice_stand_ins
+  : >"$voice_model_installed"
+  # Voice's required commands stand in where the shell finds none, so
+  # enabling it raises no notice of its own.
+  for command in wtype wl-copy; do
+    [[ $(shell_resolves "$command") == none ]] || continue
+    printf '#!/bin/sh\nexit 0\n' >"$shim/$command"
+    chmod 755 "$shim/$command"
+    stood+=("$command")
+  done
+  rescan "the Voice elsewhere scene's stand-ins are scanned"
+  # Disabling Voice ends the core's daemon, which would refuse the other.
+  if [[ $voice_found == True ]]; then
+    expect "disabling vgs.voice before the other voxtype starts is allowed" ok ipc shell setPluginEnabled vgs.voice false
+    expect_poll "vgs.voice is gone before the other voxtype starts" False record_exists vgs.voice
+  fi
+  expect_poll "no voxtype daemon answers before the other one starts" stopped voice_elsewhere_state
+  "${shell_env[@]}" PATH="$shell_start_path" "$shim/voxtype" daemon >>"$sandbox/voice-elsewhere-daemon.log" 2>&1 &
+  voice_elsewhere_pid=$!
+  expect_poll "the other voxtype daemon answers" idle voice_elsewhere_state
+  if [[ $settings_found == False ]]; then
+    expect "enabling vgs.settings for the Voice elsewhere scene is allowed" ok ipc shell setPluginEnabled vgs.settings true
+    expect_poll "vgs.settings is built for the Voice elsewhere scene" True record_exists vgs.settings
+  fi
+  expect "enabling vgs.voice beside the other voxtype is allowed" ok ipc shell setPluginEnabled vgs.voice true
+  expect_poll "vgs.voice is built beside the other voxtype" True record_exists vgs.voice
+  expect_poll "the core reads the other voxtype's daemon elsewhere" "elsewhere idle" voice_daemon
+  voice_setup_page "Voice's page beside another voxtype" "voice-elsewhere-$1-page" "Set up needed"
+  [[ $stops == false ]] || expect_poll "Voice offers Stop the other voxtype" stop voice_setup_wanted
+
+  voice_elsewhere_end
+  expect_poll "the other voxtype daemon has ended" stopped voice_elsewhere_state
+  if [[ $stops == true ]]; then
+    voice_setup_key=vgs.voice/stop-other
+    terminal_stand_in
+    voice_setup_launcher_ready
+    before="$(voice_setup_run)" || before=unread
+    voice_setup_press "the Stop the other voxtype run"
+    expect_poll "the Stop the other voxtype run ends with code 0" 0 voice_setup_code "$before"
+    expect_poll "the core's daemon is ready after the Stop the other voxtype run" "ready idle" voice_daemon
+    voice_setup_page "Voice's page after the other voxtype stopped" "voice-elsewhere-$1-page-after" "Ready"
+  else
+    # A tree from before the step: a short bounded wait, 2 s, for a probe
+    # it never makes.
+    for _ in $(seq 1 10); do [[ $(voice_daemon) == "elsewhere idle" ]] || break; sleep 0.2; done
+    voice_setup_page "Voice's page after the other voxtype stopped" "voice-elsewhere-$1-page-after" "Set up needed"
+  fi
+
+  # Disabling Voice ends the core's daemon; Voice is enabled again without
+  # the stand-ins when the scene found it on.
+  expect "disabling vgs.voice after the Voice elsewhere scene is allowed" ok ipc shell setPluginEnabled vgs.voice false
+  expect_poll "vgs.voice is gone after the Voice elsewhere scene" False record_exists vgs.voice
+  if [[ $settings_found == False ]]; then
+    expect "disabling vgs.settings after the Voice elsewhere scene is allowed" ok ipc shell setPluginEnabled vgs.settings false
+    expect_poll "vgs.settings is gone after the Voice elsewhere scene" False record_exists vgs.settings
+  fi
+  expect_poll "no voxtype daemon answers after the Voice elsewhere scene" stopped voice_elsewhere_state
+  voice_stand_ins_removed
+  for command in "${stood[@]}"; do rm -f -- "${shim:?}/$command"; done
+  rescan "the Voice elsewhere scene's stand-ins are removed"
+  if [[ $voice_found == True ]]; then
+    expect "enabling vgs.voice again after the Voice elsewhere scene is allowed" ok ipc shell setPluginEnabled vgs.voice true
+    expect_poll "vgs.voice is built again after the Voice elsewhere scene" True record_exists vgs.voice
+  fi
 }
 
 # The themes panel summoned over the shipped and catalog packages, the
