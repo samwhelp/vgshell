@@ -191,7 +191,8 @@
       "script": "tui/stop-other.sh",
       "title": "Stop the other voxtype",
       "requires": [
-        "systemctl"
+        "systemctl",
+        "voxtype"
       ]
     }
   },

@@ -233,11 +233,11 @@ try {
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }
-// The requirement logic over the shipped manifest: Configure and Choose
-// model run voxtype, so a press without it raises the requirement notice in
-// place of the script, which then opens the screen once it is found. Only
-// Stop the other voxtype needs systemctl: the core runs voxtype, and no
-// user unit does.
+// The requirement logic over the shipped manifest: Configure, Choose model
+// and Stop the other voxtype run voxtype, so a press without it raises the
+// requirement notice in place of the script, which then opens the screen
+// once it is found. Only Stop the other voxtype needs systemctl: the core
+// runs voxtype, and no user unit does.
 const pluginLogic = load(path.join(repo, "shell", "Core", "PluginLogic.js"));
 const manifestFile = path.join(repo, "shell", "plugins", "vgs.voice", "manifest.json");
 const logic = load(file);
@@ -268,7 +268,7 @@ function verifyRequirements(raw) {
   same(act(readsMissing, "ready"), { ok: true, kind: "core", name: "dictation-setup" }, "Set up opens the core's dictation setup");
   same(act(readsReady, "ready").ok, false, "a ready Voice offers no step");
   same(act(readsReady, "elsewhere"), { ok: true, kind: "tui", name: "stop-other" }, "another voxtype running opens Stop the other voxtype");
-  same(pluginLogic.tuiMissingRequirements(judged.manifest, "stop-other", missing), [], "Stop the other voxtype runs without voxtype");
+  same(pluginLogic.tuiMissingRequirements(judged.manifest, "stop-other", missing), ["voxtype"], "Stop the other voxtype without voxtype asks for it before its script");
   same(pluginLogic.tuiMissingRequirements(judged.manifest, "stop-other", ["systemctl"]), ["systemctl"], "Stop the other voxtype without systemctl asks for it before its script");
 }
 const shipped = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
