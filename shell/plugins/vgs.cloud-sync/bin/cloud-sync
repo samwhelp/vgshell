@@ -479,18 +479,16 @@ function readInventory(id) {
     return read.kind === "ok" && plain(read.value) && plain(read.value.entries) ? read.value.entries : {};
 }
 
+function oldPairState(value) {
+    return plain(value) && Array.isArray(value.localEdits);
+}
+
 function migratePairStateIfNeeded(id) {
     const stateFile = path.join(pairDir(id), "state.json");
     const inventoryFile = path.join(pairDir(id), "inventory.json");
     const stateRead = readJson(stateFile);
+    if (stateRead.kind !== "ok" || !oldPairState(stateRead.value)) return;
     const inventoryRead = readJson(inventoryFile);
-    const hasOldState = stateRead.kind === "ok" && plain(stateRead.value) && Array.isArray(stateRead.value.localEdits);
-    const hasOldInventory = inventoryRead.kind === "ok" && plain(inventoryRead.value) && plain(inventoryRead.value.entries)
-        && Object.keys(inventoryRead.value.entries).some(rel => {
-            const entry = inventoryRead.value.entries[rel];
-            return plain(entry) && (entry.state === "removed-on-drive" || entry.state === "renamed");
-        });
-    if (!hasOldState && !hasOldInventory) return;
     const state = stateRead.kind === "ok" && plain(stateRead.value) ? Object.assign({}, stateRead.value) : {};
     const inventory = inventoryRead.kind === "ok" && plain(inventoryRead.value) && plain(inventoryRead.value.entries) ? inventoryRead.value.entries : {};
     const records = Array.isArray(state.records) ? state.records.slice() : [];
@@ -511,7 +509,7 @@ function migratePairStateIfNeeded(id) {
     }
     state.records = records;
     writeJson(stateFile, state);
-    if (hasOldInventory) writeJson(inventoryFile, { entries: inventory });
+    if (inventoryRead.kind === "ok") writeJson(inventoryFile, { entries: inventory });
     log("migration=pair-state pair=" + id + " result=written");
 }
 
@@ -526,10 +524,7 @@ function migratePairStatesIfNeeded() {
     }
     const old = ids.some(id => {
         const stateRead = readJson(path.join(pairDir(id), "state.json"));
-        const inventoryRead = readJson(path.join(pairDir(id), "inventory.json"));
-        return stateRead.kind === "ok" && plain(stateRead.value) && Array.isArray(stateRead.value.localEdits)
-            || inventoryRead.kind === "ok" && plain(inventoryRead.value) && plain(inventoryRead.value.entries)
-            && Object.keys(inventoryRead.value.entries).some(rel => plain(inventoryRead.value.entries[rel]) && (inventoryRead.value.entries[rel].state === "removed-on-drive" || inventoryRead.value.entries[rel].state === "renamed"));
+        return stateRead.kind === "ok" && oldPairState(stateRead.value);
     });
     if (!old) return;
     withStateLock(() => ids.forEach(migratePairStateIfNeeded));
@@ -751,7 +746,7 @@ function pruneConflictStorage(id, records) {
 function localEntry(file) {
     try {
         const st = fs.lstatSync(file);
-        return st.isFile() ? { size: st.size, mtimeMs: Math.floor(st.mtimeMs), hash: md5File(file) } : null;
+        return st.isFile() ? { size: st.size, mtimeMs: Math.floor(st.mtimeMs) } : null;
     } catch (_e) {
         return null;
     }
@@ -760,7 +755,7 @@ function localEntry(file) {
 function baselineDiffers(base, entry) {
     if (base === undefined || base.export) return false;
     if (entry === null) return true;
-    return base.size !== entry.size || base.mtimeMs !== entry.mtimeMs || (base.hash !== null && base.hash !== entry.hash);
+    return base.size !== entry.size || base.mtimeMs !== entry.mtimeMs;
 }
 
 function driveDiffers(base, item) {
@@ -780,23 +775,33 @@ function classifyBeforeCopy(pair, listing, inventory, records) {
     for (const rel of Object.keys(inventory).sort()) {
         const base = inventory[rel];
         const item = byPath[rel];
-        const local = localEntry(path.join(pair.local, rel));
+        const localPath = path.join(pair.local, rel);
+        const local = localEntry(localPath);
         if (local === null && item !== undefined) {
+            // Baseline path vanished locally but still exists on Drive:
+            // download restores it without deleting Drive's copy.
             addRecord(records, { kind: "removed-locally", path: rel });
         } else if (local !== null && item === undefined) {
+            // Baseline path vanished from Drive but still exists locally:
+            // upload restores it, or `renamed` records the Drive object id's
+            // new path while never deleting the old local name.
             const to = base.id && hasOwn(pathOfId, base.id) ? pathOfId[base.id] : null;
             addRecord(records, { kind: to === null ? "removed-on-drive" : "renamed", path: rel, to: to });
         } else if (local === null && item === undefined) {
             // Gone on both sides: no review record remains.
         } else if (baselineDiffers(base, local) && driveDiffers(base, item)) {
+            // Both sides changed since the baseline. When local is newer,
+            // upload wins and Drive keeps the older version in its 30-day
+            // version history, so no local stored copy is recorded.
             const driveTime = Date.parse(item.ModTime);
             if (local.mtimeMs >= driveTime) addRecord(records, { kind: "both-changed", path: rel });
         }
     }
     return records.filter(record => {
         const item = byPath[record.path];
-        const local = localEntry(path.join(pair.local, record.path));
-        if ((record.kind === "removed-locally" || record.kind === "removed-on-drive" || record.kind === "renamed") && item === undefined && local === null) return false;
+        const localGone = !fs.existsSync(path.join(pair.local, record.path));
+        if ((record.kind === "removed-locally" || record.kind === "removed-on-drive" || record.kind === "renamed")
+            && item === undefined && localGone) return false;
         return true;
     });
 }
@@ -915,10 +920,12 @@ function runPairSync(pair, state, env, secrets, lock) {
     const backup = path.join(pairDir(pair.id), "conflicts", stamp);
     const common = filterArgs().concat(["--drive-export-formats", EXPORT_FORMATS]);
     const listed = rclone(["lsjson", "-R", "--files-only", "--fast-list", "--hash", "--hash-type", "md5", remotePath(pair)].concat(common), env, secrets, lock);
-    if (!listed.ok) return rcloneFailed(state, listed);
+    const hasBaseline = Object.keys(inventory).length > 0;
+    if (!listed.ok && (listed.kind !== "source-missing" || hasBaseline)) return rcloneFailed(state, listed);
+    const emptyRemote = !listed.ok && listed.kind === "source-missing";
     let listing;
     try {
-        listing = JSON.parse(listed.stdout);
+        listing = emptyRemote ? [] : JSON.parse(listed.stdout);
     } catch (_e) {
         return failed(state, "listing-unreadable");
     }
@@ -927,9 +934,11 @@ function runPairSync(pair, state, env, secrets, lock) {
     // keeps a cut-off run from leaving a half file in the mirror;
     // --backup-dir moves every local file the copy replaces into conflict
     // storage first.
-    const downloaded = rclone(["copy", "--update", remotePath(pair), pair.local, "--backup-dir", backup].concat(common), env, secrets, lock);
-    state.records = classifyDisplaced(pair.id, inventory, state.records);
-    if (!downloaded.ok) return rcloneFailed(state, downloaded);
+    if (!emptyRemote) {
+        const downloaded = rclone(["copy", "--update", remotePath(pair), pair.local, "--backup-dir", backup].concat(common), env, secrets, lock);
+        state.records = classifyDisplaced(pair.id, inventory, state.records);
+        if (!downloaded.ok) return rcloneFailed(state, downloaded);
+    }
     const excludes = writeExportExcludeFile(pair, exportPaths(listing, inventory));
     const uploadArgs = ["copy", "--update", pair.local, remotePath(pair)].concat(filterArgs());
     if (excludes !== null) uploadArgs.push("--exclude-from", excludes);
@@ -1251,6 +1260,7 @@ function attentionSeenVerb(words) {
 
 function probeVerb(words) {
     if (words.length !== 0) bad("argument=" + words[0]);
+    migrateCredentialsIfNeeded();
     const tool = which("secret-tool");
     const needed = readPairs().pairs.length > 0;
     const credentials = [];
@@ -1373,8 +1383,9 @@ function authorizeVerb(words) {
 }
 
 // Each pair that no run holds reads as credential-absent from now on, as
-// its next run would record; a running pair records what its run read. The user asked for this, so the attention it makes counts
-// as notified, unless the record held one not yet notified.
+// its next run would record; a running pair records what its run read. The
+// user asked for this, so the attention it makes counts as notified,
+// unless the record held one not yet notified.
 function signOutVerb(words) {
     if (words.length !== 0) bad("argument=" + words[0]);
     const tool = requireCommand("secret-tool");

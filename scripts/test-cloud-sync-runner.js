@@ -1125,6 +1125,51 @@ function caseNoLeak() {
     }
 }
 
+function caseCredentialMigration(runner) {
+    const w = world({ secrets: [] });
+    for (const [account, value] of Object.entries({
+        "pull-client-id": "old-pull-client",
+        "pull-client-secret": "old-pull-secret",
+        "pull-token": "old-pull-token",
+        "upload-client-id": "old-upload-client",
+        "upload-client-secret": "old-upload-secret",
+        "upload-token": "old-upload-token"
+    })) write(path.join(w.stub, "secrets", account), value);
+    const probe = cli(w, ["probe"], runner);
+    assert.equal(probe.status, 0, probe.stderr);
+    assert.equal(fs.existsSync(path.join(w.stub, "secrets", "client-id")), true);
+    assert.equal(fs.existsSync(path.join(w.stub, "secrets", "client-secret")), true);
+    assert.equal(read(path.join(w.stub, "secrets", "client-id")), "old-pull-client");
+    assert.equal(read(path.join(w.stub, "secrets", "client-secret")), "old-pull-secret");
+    assert.equal(fs.existsSync(path.join(w.stub, "secrets", "token")), false);
+    for (const account of ["pull-client-id", "pull-client-secret", "pull-token", "upload-client-id", "upload-client-secret", "upload-token"])
+        assert.equal(fs.existsSync(path.join(w.stub, "secrets", account)), false, account);
+    addPair(w, runner);
+    const out = cli(w, ["run"], runner);
+    assert.equal(out.stdout, "pair=docs result=authorization-required\n", out.stderr);
+    assert.equal(status(w, runner).lastError.account, "token");
+}
+
+function caseMissingRemoteFirstSync(runner) {
+    const w = world();
+    addPair(w, runner);
+    write(path.join(w.mirror, "first.txt"), "first\n");
+    const out = cli(w, ["run"], runner);
+    assert.equal(out.stdout, "pair=docs result=idle\n", out.stderr);
+    assert.equal(read(path.join(w.drive, "Docs", "first.txt")), "first\n");
+}
+
+function caseMissingRemoteWithBaseline(runner) {
+    const w = world();
+    addPair(w, runner);
+    drive(w, "a.txt", "one\n", 1700000000);
+    runOk(w, runner);
+    fs.rmSync(path.join(w.drive, "Docs"), { recursive: true, force: true });
+    const out = cli(w, ["run"], runner);
+    assert.equal(out.stdout, "pair=docs result=error\n", out.stderr);
+    assert.equal(status(w, runner).lastError.kind, "source-missing");
+}
+
 function caseFullDriveSharedFolder(runner) {
     const w = world();
     const local = path.join(w.home, "mirror", "shared");
@@ -1204,6 +1249,8 @@ async function controls() {
     await mustFail("unit control character", mutant("unit control character", "if (CONTROL.test(s)) refuse(\"unit-argument=control-character\");", ""), caseUnitWords);
     await mustFail("pairs-reset keeps the damaged file", mutant("pairs-reset keeps the damaged file", "fs.renameSync(pairsFile, kept);\n        fs.renameSync(temp, pairsFile);", "fs.renameSync(temp, pairsFile);"), casePairsReset);
     await mustFail("pairs-reset refuses a valid list", mutant("pairs-reset refuses a valid list", "if (read.error === null) refuse(\"pairs=valid\");", "if (false) refuse(\"pairs=valid\");"), casePairsReset);
+    await mustFail("credential migration", mutant("credential migration", "const OLD_ACCOUNTS = [].concat(...OLD_DIRECTIONS.map(direction => CREDENTIAL_PARTS.map(part => direction + \"-\" + part)));", "const OLD_ACCOUNTS = [];"), caseCredentialMigration);
+    await mustFail("missing remote first sync", mutant("missing remote first sync", "const emptyRemote = !listed.ok && listed.kind === \"source-missing\";", "const emptyRemote = false;"), caseMissingRemoteFirstSync);
     const rules = [...new Set(validationRows(world()).map(row => row.rule).filter(rule => rule !== null))];
     for (const rule of rules) {
         const text = read(RUNNER);
@@ -1232,6 +1279,9 @@ async function main() {
     caseAttention();
     caseRunKey();
     caseNoLeak();
+    caseCredentialMigration();
+    caseMissingRemoteFirstSync();
+    caseMissingRemoteWithBaseline();
     caseFullDriveSharedFolder();
     await controls();
     console.log("test-cloud-sync-runner: ok");

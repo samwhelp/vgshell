@@ -10,7 +10,7 @@ Each run is the service. Sync now in the window and `start` on the command line 
 
 Each folder pair runs two rclone copies with `--update`: Drive to this computer, then this computer to Drive. The runner never asks rclone to delete, move, sync or bisync. The download leg uses `--backup-dir` under the pair's records, so a local file the copy replaces moves there first. A displaced file that matches the baseline is the runner's own copy and is removed. Any other displaced file is kept and listed as `both-changed`. The runner prunes conflict storage and review records after 30 days.
 
-A file removed on this computer is listed as `removed-locally` and returns from Drive. A file removed on Drive is listed as `removed-on-drive` and returns to Drive. A rename that Drive's object id shows is listed as `renamed`.
+A file removed on this computer is listed as `removed-locally` and returns from Drive. A file removed on Drive is listed as `removed-on-drive` and returns to Drive. A rename that Drive's object id shows is listed as `renamed`; the old name returns to Drive because Cloud Sync never deletes.
 
 Google-native documents list from rclone's Drive backend with size -1. The runner treats those entries as exports and writes an exclude file for the upload leg. A local file at an export's name is never uploaded.
 
