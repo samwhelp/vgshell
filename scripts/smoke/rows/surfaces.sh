@@ -439,7 +439,7 @@ fi
 # open through the same presses.
 far_output=SMOKE-SURFACES-FAR
 # layout_size: the layout's width and height, its origin at 0,0.
-layout_size() { hypr -j monitors | python3 -c 'import json,sys; ms=json.load(sys.stdin); assert all(m["x"] >= 0 and m["y"] >= 0 for m in ms); print(max(m["x"] + round(m["width"] / m["scale"]) for m in ms), max(m["y"] + round(m["height"] / m["scale"]) for m in ms))'; }
+layout_size() { hypr -j monitors | py_reply 'import json,sys; ms=json.load(sys.stdin); assert all(m["x"] >= 0 and m["y"] >= 0 for m in ms); print(max(m["x"] + round(m["width"] / m["scale"]) for m in ms), max(m["y"] + round(m["height"] / m["scale"]) for m in ms))'; }
 # layout_click X Y [move]: a press, or with `move` a pointer move, at
 # layout point X Y.
 layout_click() {
@@ -453,7 +453,7 @@ near_focus() {
   layout_click 40 "$((mon_h - 40))" move || return 1
   hypr dispatch "hl.dsp.focus({ monitor = \"$screen_name\" })"
 }
-far_box() { hypr -j monitors | python3 -c 'import json,sys; m=next(m for m in json.load(sys.stdin) if m["name"] == sys.argv[1]); print(m["x"], m["y"], m["width"], m["height"])' "$far_output"; }
+far_box() { hypr -j monitors | py_reply 'import json,sys; m=next(m for m in json.load(sys.stdin) if m["name"] == sys.argv[1]); print(m["x"], m["y"], m["width"], m["height"])' "$far_output"; }
 # far_press NAMESPACE: presses the far monitor's centre until no NAMESPACE
 # layer is mapped; `closed`, or `open` after the fifth press.
 far_press() {
