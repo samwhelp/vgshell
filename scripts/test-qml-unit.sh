@@ -441,6 +441,8 @@ mutations=(
   "the scroll area leaves no gutter|layout/ScrollArea.qml|contentWidth: width - 2 * focusInset - (barOverContent ? 0 : rightInset)|contentWidth: width|tst_scroll.qml"
   "the scroll area's gutter comes and goes with the overflow|layout/ScrollArea.qml|contentWidth: width - 2 * focusInset - (barOverContent ? 0 : rightInset)|contentWidth: overflowing ? width - rightInset : width|tst_scroll.qml"
   "the scroll area draws no hairline over content clipped below|layout/ScrollArea.qml|visible: root.cueBelow && root.cueLineBelow|visible: false|tst_scroll.qml"
+  "the scroll area draws no tint over content clipped below|layout/ScrollArea.qml|opacity: root.fadeBelow|opacity: 0|tst_scroll.qml"
+  "the scroll area draws no tint over content scrolled above|layout/ScrollArea.qml|opacity: root.fadeAbove|opacity: 0|tst_scroll.qml"
   "the scroll area never fades its content|layout/ScrollArea.qml|layer.enabled: root.visible && height > 0 && root.overflowing && !root.barHeld|layer.enabled: false|tst_scroll.qml"
   "the scroll area fades its bottom edge at the end|layout/ScrollArea.qml|fadeStrength(contentHeight - height - contentY)|fadeStrength(fadeExtent)|tst_scroll.qml"
   "the scroll area reveals an item into the fade band|layout/ScrollArea.qml|Theme.focusRing.offset + Theme.focusRing.width + fadeExtent|Theme.focusRing.offset + Theme.focusRing.width|tst_scroll.qml"

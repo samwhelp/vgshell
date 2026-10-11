@@ -15,7 +15,9 @@ import qs.Unit
 // list keeps the gutter clear at each entry's end, under the bar. An
 // overflowing area fades its content toward what lies behind it at each
 // edge with content beyond, shows it in full at an end it rests at, and
-// marks each clipped edge with a hairline; content that fits shows no fade.
+// marks each clipped edge with a hairline and, at rest, a tint over the
+// band that reads over a fill the colour of the page; content that fits
+// shows no fade and no tint.
 Item {
     id: root
     width: 400
@@ -75,14 +77,15 @@ Item {
             }
         }
     }
-    // Opaque rows of one colour over a background of another, `rows` rows
-    // of 20 px in a 100 px view.
+    // Opaque rows of `rowColor` over a background of another colour, `rows`
+    // rows of 20 px in a 100 px view.
     Component {
         id: fadeCase
         Rectangle {
             property alias area: fadeArea
             property alias rowItems: fadeRows
             property int rows: 10
+            property color rowColor: "#ff00ff"
             z: 10
             width: 120
             height: 100
@@ -90,7 +93,7 @@ Item {
             ScrollArea {
                 id: fadeArea
                 anchors.fill: parent
-                Column { width: parent.width; Repeater { id: fadeRows; model: fadeArea.parent.rows; Rectangle { width: parent.width; height: 20; color: "#ff00ff" } } }
+                Column { width: parent.width; Repeater { id: fadeRows; model: fadeArea.parent.rows; Rectangle { width: parent.width; height: 20; color: fadeArea.parent.rowColor } } }
             }
         }
     }
@@ -186,7 +189,9 @@ Item {
             return { top: drawn(holder, line), middle: drawn(holder, holder.height / 2), bottom: drawn(holder, holder.height - 1 - line), topLine: drawn(holder, 0), bottomLine: drawn(holder, holder.height - 1) };
         }
 
+        // The fade alone, under a clear tint; the tint has its own test.
         function test_the_content_fades_at_each_edge_with_content_beyond() {
+            compare(UnitTheme.override({ scrollArea: { edgeTint: "#00000000" } }), "ok");
             const holder = createTemporaryObject(fadeCase, root);
             const view = holder.area;
             const row = "#ff00ff", back = holder.color, line = Theme.color.borderStrong;
@@ -220,6 +225,30 @@ Item {
             for (const edge of ["topLine", "top", "middle", "bottom", "bottomLine"])
                 verify(near(seen[edge], row), "content that fits shows its " + edge + " row in full: " + seen[edge]);
             compare([view.fadeAbove, view.fadeBelow], [0, 0], "content that fits has no band");
+        }
+
+        // Rows the colour of the background stand for a field that crosses
+        // the edge: the fade alone draws nothing over them, the tint does.
+        function test_a_clipped_edge_draws_a_tint_at_rest_over_a_page_coloured_fill() {
+            const holder = createTemporaryObject(fadeCase, root, { rowColor: "#00ff00" });
+            const view = holder.area, back = holder.color;
+            tryVerify(() => view.overflowing, 1000, "ten rows overflow the view");
+            tryCompare(view.bar, "active", false, 2000, "the view is at rest");
+
+            let seen = edges(holder);
+            verify(!near(seen.bottom, back), "at the top a tint marks the bottom edge: " + seen.bottom);
+            verify(near(seen.top, back), "at the top the top edge has no tint: " + seen.top);
+
+            view.contentY = view.contentHeight - view.height;
+            seen = edges(holder);
+            verify(!near(seen.top, back), "at the end a tint marks the top edge: " + seen.top);
+            verify(near(seen.bottom, back), "at the end the bottom edge has no tint: " + seen.bottom);
+
+            holder.rows = 5;
+            view.contentY = 0;
+            tryVerify(() => !view.overflowing, 1000, "five rows fill the view exactly");
+            seen = edges(holder);
+            verify(near(seen.top, back) && near(seen.bottom, back), "content that fits has no tint: " + seen.top + " " + seen.bottom);
         }
 
         // A row revealed below the view lands clear of the bottom band, so

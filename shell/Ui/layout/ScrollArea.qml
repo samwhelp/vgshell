@@ -31,13 +31,17 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // rests at shows its content in full. A `divider.thickness` hairline in
 // `color.borderStrong` marks each edge where content is clipped, the
 // bottom while content continues below the view and the top while content
-// is scrolled under it, `cueBelow` and `cueAbove`. Unlike the bar neither
-// fades with time, so a page cut at the window's edge says so at rest;
-// neither takes input. The bar, the focus ring and the hairlines lie
-// outside the mask, so they never fade. The hairline spans the viewport
-// alone, so a holder that draws its own line on an edge, as Pane's divider
-// under a sticky header and over a sticky footer does, turns this one off
-// there with `cueLineAbove` or `cueLineBelow`; the fade stays.
+// is scrolled under it, `cueBelow` and `cueAbove`. Over each such band a
+// tint grows to `scrollArea.edgeTint` at the edge with the band's
+// strength, so a field the colour of the page that crosses the edge reads
+// as passing under it rather than ending at the hairline. Unlike the bar
+// neither the hairline nor the tint fades with time, so a page cut at the
+// window's edge says so at rest; neither takes input. The bar, the focus
+// ring, the tints and the hairlines lie outside the mask, so they never
+// fade. The hairline spans the viewport alone, so a holder that draws its
+// own line on an edge, as Pane's divider under a sticky header and over a
+// sticky footer does, turns this one off there with `cueLineAbove` or
+// `cueLineBelow`; the fade and the tint stay.
 Flickable {
     id: root
 
@@ -60,6 +64,9 @@ Flickable {
     readonly property real fadeExtent: Math.min(Theme.scrollArea.fadeHeight, contentClip.height / 2)
     readonly property real fadeAbove: overflowing && !barHeld ? fadeStrength(contentY) : 0
     readonly property real fadeBelow: overflowing && !barHeld ? fadeStrength(contentHeight - height - contentY) : 0
+    // The tint's own colour at no alpha: a gradient from transparent black
+    // would darken the band's middle in a dark theme.
+    readonly property color clearTint: withAlpha(Theme.scrollArea.edgeTint, 0)
     readonly property alias bar: scrollBar
     readonly property Item focusProxy: keyboardFocus
 
@@ -92,7 +99,10 @@ Flickable {
         return Math.max(0, Math.min(1, distance / Math.max(1, fadeExtent)));
     }
     function maskColor(alpha) {
-        const color = Qt.color(Theme.color.text);
+        return withAlpha(Theme.color.text, alpha);
+    }
+    function withAlpha(base, alpha) {
+        const color = Qt.color(base);
         color.a = alpha;
         return color;
     }
@@ -207,7 +217,30 @@ Flickable {
         Keys.onPressed: event => { event.accepted = root.handleScrollKey(event); }
     }
 
-    // The hairlines lie over the content and under the bar, whose z is 1.
+    // The tints and hairlines lie over the content and under the bar,
+    // whose z is 1.
+    Rectangle {
+        parent: root
+        anchors { left: contentClip.left; right: contentClip.right; top: contentClip.top }
+        height: root.fadeExtent
+        opacity: root.fadeAbove
+        visible: root.cueAbove
+        gradient: Gradient {
+            GradientStop { position: 0; color: Theme.scrollArea.edgeTint }
+            GradientStop { position: 1; color: root.clearTint }
+        }
+    }
+    Rectangle {
+        parent: root
+        anchors { left: contentClip.left; right: contentClip.right; bottom: contentClip.bottom }
+        height: root.fadeExtent
+        opacity: root.fadeBelow
+        visible: root.cueBelow
+        gradient: Gradient {
+            GradientStop { position: 0; color: root.clearTint }
+            GradientStop { position: 1; color: Theme.scrollArea.edgeTint }
+        }
+    }
     Rectangle {
         parent: root
         anchors { left: contentClip.left; right: contentClip.right; top: contentClip.top }
