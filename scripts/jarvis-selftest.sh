@@ -4,6 +4,7 @@
 # Usage: scripts/jarvis-selftest.sh --cold N [--out FILE]
 #        scripts/jarvis-selftest.sh --suite NAME|all --brain ID
 #                                   [--voice local|realtime]
+#                                   [--voices DIR]
 #                                   [--home PATH] [--out DIR]
 #        scripts/jarvis-selftest.sh (--wav FILE | --tts TEXT | --type TEXT)
 #                                   --brain ID [--home PATH]
@@ -63,8 +64,10 @@
 # with one press a request, made once Session's draw guard has passed;
 # none, the default, answers none, so a request ends on Jarvis's own bound.
 # --suite NAME runs one case from scripts/jarvis-selftest-cases/. --suite all
-# runs every case, sorted by name. A suite writes records under OUT when
-# --out names a directory, otherwise under tmp/selftest-records/suite-<UTC>.
+# runs every case, sorted by name. --voices DIR lets a suite use DIR/<case>.wav
+# for a case input, without changing tracked cases. A suite writes records
+# under OUT when --out names a directory, otherwise under
+# tmp/selftest-records/suite-<UTC>.
 # --out FILE is the record for a single turn; the default is a new file under
 # tmp/selftest-records/.
 #
@@ -92,7 +95,8 @@
 # its mailbox hands over after the turn, as lane-mail prints it; null
 # without), `widget` (each bar widget state as {ms, state}), `audio`
 # {speechEndMs, firstMs, longestGapMs, sounds}, `end` {kind, phase, fault}
-# and `passed`. Every ms counts from the input's start on the shell's own
+# and `passed`. A suite comparison adds `case.source`: `case` for the tracked
+# input or `local` for --voices. Every ms counts from the input's start on the shell's own
 # clock except firstMs and longestGapMs, which are relative to speech end.
 # `end.kind` is completed, fault, gate-down, no-wake or timeout; `passed`
 # is true only for a completed turn with a heard text, in
@@ -702,12 +706,13 @@ if not isinstance(data["tool"], str) or data["tool"] == "":
 PY
 }
 
-# selftest_compare CASE_FILE RECORD: add the case verdict to RECORD and
-# print `match` or `differs fields=a,b`.
-selftest_compare() { # CASE_FILE RECORD
-  python3 - "$1" "$2" <<'PY'
+# selftest_compare CASE_FILE RECORD SOURCE: add the case verdict to RECORD and
+# print `match` or `differs fields=a,b`. SOURCE is case for tracked input
+# and local for --voices.
+selftest_compare() { # CASE_FILE RECORD SOURCE
+  python3 - "$1" "$2" "${3:-case}" <<'PY'
 import json, os, re, sys
-case_file, record_file = sys.argv[1:]
+case_file, record_file, source = sys.argv[1:]
 case = json.load(open(case_file))
 record = json.load(open(record_file))
 def tokens(text):
@@ -731,12 +736,36 @@ if not has_words(spoken, case["said"]):
     fields.append("said")
 if (record.get("audio") or {}).get("firstMs") is None:
     fields.append("audio")
-record["case"] = {"name": os.path.splitext(os.path.basename(case_file))[0], "expect": {key: case[key] for key in ("heard", "tool", "said")}, "differs": fields}
+record["case"] = {"name": os.path.splitext(os.path.basename(case_file))[0], "source": source, "expect": {key: case[key] for key in ("heard", "tool", "said")}, "differs": fields}
 with open(record_file + ".next", "w") as out:
     json.dump(record, out, indent=2, ensure_ascii=False)
     out.write("\n")
 os.replace(record_file + ".next", record_file)
 print("match" if not fields else "differs fields=" + ",".join(fields))
+PY
+}
+
+
+# selftest_case_child_args CASE_FILE VOICES_DIR: source=<case|local> then
+# the child selftest input, mode and confirmation arguments, one per line.
+selftest_case_child_args() { # CASE_FILE VOICES_DIR
+  local root="${selftest_cases_dir:-$(dirname -- "$1")}"
+  python3 - "$root" "$1" "$2" <<'PY'
+import json, os, sys
+root, path, voices = sys.argv[1:]
+name = os.path.splitext(os.path.basename(path))[0]
+case = json.load(open(path))
+local = os.path.join(voices, name + ".wav") if voices else ""
+if local and os.path.isfile(local):
+    source, kind, value = "local", "wav", local
+else:
+    source = "case"
+    kind, value = next(iter(case["input"].items()))
+    if kind == "wav":
+        value = os.path.join(root, value)
+print("source=" + source)
+for word in ("--" + kind, value, "--mode", case["mode"], "--confirm", case["confirm"]):
+    print(word)
 PY
 }
 
@@ -752,7 +781,7 @@ selftest_suite_summary() { # CASES MATCHED DIFFER NOT_RUN FAILED DIR
 
 # selftest_suite CASE: run one or every case as child self-tests.
 selftest_suite() { # NAME
-  local suite_name="$1" dir="$out" case_file name status verdict record fields matched=0 differ=0 not_run=0 failed=0 total=0
+  local suite_name="$1" dir="$out" case_file name source status verdict record fields matched=0 differ=0 not_run=0 failed=0 total=0
   local -a case_files=() case_args=() child_args=()
   if [[ $suite_name == all ]]; then
     while IFS= read -r case_file; do case_files+=("$case_file"); done < <(find "$selftest_cases_dir" -maxdepth 1 -type f -name '*.json' | LC_ALL=C sort)
@@ -768,44 +797,33 @@ selftest_suite() { # NAME
   for case_file in "${case_files[@]}"; do
     name="$(basename "$case_file" .json)"
     mode="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["mode"])' "$case_file")" || return 1
+    record="$dir/$name.json"
+    status=0
+    source=case
+    case_args=()
+    while IFS= read -r word; do
+      if [[ $word == source=* ]]; then source="${word#source=}"; else case_args+=("$word"); fi
+    done < <(selftest_case_child_args "$case_file" "$voices_dir")
     if [[ $mode == always && $voice == realtime ]]; then
-      printf 'case=%s skipped=always-local-voice\n' "$name"
+      printf 'case=%s source=%s skipped=always-local-voice\n' "$name" "$source"
       not_run=$((not_run + 1))
       continue
     fi
-    record="$dir/$name.json"
-    status=0
-    case_args=()
-    while IFS= read -r word; do case_args+=("$word"); done < <(python3 - "$selftest_cases_dir" "$case_file" <<'PY'
-import json, os, sys
-root, path = sys.argv[1:]
-case = json.load(open(path))
-kind, value = next(iter(case["input"].items()))
-if kind == "wav":
-    value = os.path.join(root, value)
-print("--" + kind)
-print(value)
-print("--mode")
-print(case["mode"])
-print("--confirm")
-print(case["confirm"])
-PY
-)
     child_args=("${case_args[@]}" --brain "$brain" --voice "$voice")
     [[ -z $home_source ]] || child_args+=(--home "$home_source")
     child_args+=(--out "$record")
     "$self" "${child_args[@]}" || status=$?
     if [[ $status -eq 77 ]]; then
-      printf 'case=%s verdict=not-run status=77\n' "$name"
+      printf 'case=%s source=%s verdict=not-run status=77\n' "$name" "$source"
       not_run=$((not_run + 1))
     elif [[ -f $record ]]; then
-      verdict="$(selftest_compare "$case_file" "$record")" || return 1
+      verdict="$(selftest_compare "$case_file" "$record" "$source")" || return 1
       case "$verdict" in
-        match) printf 'case=%s verdict=match record=%s\n' "$name" "$record"; matched=$((matched + 1)) ;;
-        differs*) fields="${verdict#differs fields=}"; printf 'case=%s verdict=differs fields=%s record=%s\n' "$name" "$fields" "$record"; differ=$((differ + 1)) ;;
+        match) printf 'case=%s source=%s verdict=match record=%s\n' "$name" "$source" "$record"; matched=$((matched + 1)) ;;
+        differs*) fields="${verdict#differs fields=}"; printf 'case=%s source=%s verdict=differs fields=%s record=%s\n' "$name" "$source" "$fields" "$record"; differ=$((differ + 1)) ;;
       esac
     else
-      printf 'case=%s verdict=failed status=%s\n' "$name" "$status"
+      printf 'case=%s source=%s verdict=failed status=%s\n' "$name" "$source" "$status"
       failed=$((failed + 1))
     fi
   done
@@ -824,6 +842,7 @@ cold_count=0
 brain=""
 home_source=""
 voice=local
+voices_dir=""
 mode=toggle
 mode_seen=false
 confirm=none
@@ -882,9 +901,9 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 && -n $2 ]] || refuse "argument=$1 value=${2-}"
       [[ -z $input_kind ]] || refuse "argument=$1 reason=one-input"
       input_kind="${1#--}"; input_value="$2"; shift 2 ;;
-    --brain|--home|--out)
+    --brain|--home|--out|--voices)
       [[ $# -ge 2 && -n $2 ]] || refuse "argument=$1 value=${2-}"
-      case "$1" in --brain) brain="$2" ;; --home) home_source="$2" ;; --out) out="$2" ;; esac
+      case "$1" in --brain) brain="$2" ;; --home) home_source="$2" ;; --out) out="$2" ;; --voices) voices_dir="$2" ;; esac
       shift 2 ;;
     --voice)
       [[ $# -ge 2 && $2 =~ ^(local|realtime)$ ]] || refuse "argument=--voice value=${2-}"
@@ -905,8 +924,10 @@ if [[ -n $suite_name ]]; then
   [[ $mode_seen == false ]] || refuse "argument=--suite reason=exclusive-with-mode"
   [[ $confirm_seen == false ]] || refuse "argument=--suite reason=exclusive-with-confirm"
   [[ -n $brain ]] || refuse "argument=--brain reason=missing"
+  [[ -z $voices_dir || -d $voices_dir ]] || refuse "argument=--voices value=$voices_dir reason=not-a-directory"
   [[ $suite_name == all || -f $selftest_cases_dir/$suite_name.json ]] || refuse "argument=--suite value=$suite_name reason=unknown-case"
 elif ((cold_count > 0)); then
+  [[ -z $voices_dir ]] || refuse "argument=--voices reason=requires-suite"
   [[ -z $input_kind ]] || refuse "argument=--cold reason=exclusive-with-input"
   [[ -z $brain ]] || refuse "argument=--cold reason=exclusive-with-brain"
   [[ -z $home_source ]] || refuse "argument=--cold reason=exclusive-with-home"
@@ -914,6 +935,7 @@ elif ((cold_count > 0)); then
   [[ $mode_seen == false ]] || refuse "argument=--mode reason=exclusive-with-cold"
   [[ $confirm == none ]] || refuse "argument=--cold reason=exclusive-with-confirm"
 else
+  [[ -z $voices_dir ]] || refuse "argument=--voices reason=requires-suite"
   [[ -n $input_kind ]] || refuse "argument=input reason=missing want=--wav|--tts|--type"
   [[ -n $brain ]] || refuse "argument=--brain reason=missing"
   [[ $mode != always || $input_kind != type ]] || refuse "argument=--mode value=always reason=always-needs-voice"

@@ -207,7 +207,7 @@ functions="$tmp/functions.sh"
 cut_functions() { # RUNNER
   { sed -n '/^py_reply() {/,/^}/p; /^now_ms() {/p' "$repo/scripts/smoke/harness.sh"
     for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
-      selftest_woke selftest_end selftest_audio selftest_audio_record selftest_speech_tail selftest_open selftest_case_check selftest_compare selftest_suite_summary selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$1"; done
+      selftest_woke selftest_end selftest_audio selftest_audio_record selftest_speech_tail selftest_open selftest_case_check selftest_compare selftest_case_child_args selftest_suite_summary selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$1"; done
     sed -n '/^devices_speaker_sounds() {/,/^}/p' "$repo/scripts/smoke/devices.sh"; } >"$functions"
 }
 call() { selftest_node="$node_bin" bash -c 'set -euo pipefail; source "$1"; shift; "$@"' _ "$functions" "$@"; }
@@ -456,6 +456,8 @@ holds "a suite refuses a direct input" refused "jarvis-selftest: refused: argume
 holds "a suite refuses a direct mode" refused "jarvis-selftest: refused: argument=--suite reason=exclusive-with-mode" --suite volume --mode toggle --brain "$sign_in"
 holds "a suite refuses a direct confirmation mode" refused "jarvis-selftest: refused: argument=--suite reason=exclusive-with-confirm" --suite volume --confirm key --brain "$sign_in"
 holds "an unknown suite case is refused" refused "jarvis-selftest: refused: argument=--suite value=absent reason=unknown-case" --suite absent --brain "$sign_in"
+holds "voices without a suite is refused" refused "jarvis-selftest: refused: argument=--voices reason=requires-suite" --type hello --voices "$tmp" --brain "$sign_in"
+holds "a voices directory that is absent is refused" refused "jarvis-selftest: refused: argument=--voices value=$tmp/no-voices reason=not-a-directory" --suite volume --voices "$tmp/no-voices" --brain "$sign_in"
 
 
 echo "--- the acceptance case files and comparison"
@@ -473,7 +475,7 @@ path, heard, tools, sentence, first, passed = sys.argv[1:]
 json.dump({"passed": passed == "true", "heard": heard, "tools": json.loads(tools), "sentences": [{"ms": 1, "text": sentence}], "audio": {"firstMs": None if first == "null" else int(first), "longestGapMs": 10, "speechEndMs": 0, "sounds": []}}, open(path, "w"))
 PY
 }
-compare_match() { write_compare_case; write_compare_record "two plus two" '[]' "It is 4." 300 true; [[ "$(call selftest_compare "$compare_case" "$compare_record")" == match ]] && grep -q '"differs": \[\]' "$compare_record"; }
+compare_match() { write_compare_case; write_compare_record "two plus two" '[]' "It is 4." 300 true; [[ "$(call selftest_compare "$compare_case" "$compare_record" case)" == match ]] && grep -q '"source": "case"' "$compare_record" && grep -q '"differs": \[\]' "$compare_record"; }
 compare_heard() { write_compare_case; write_compare_record "two two" '[]' "It is 4." 300 true; [[ "$(call selftest_compare "$compare_case" "$compare_record")" == "differs fields=heard" ]]; }
 compare_tool_missing() { write_compare_case; python3 - "$compare_case" <<'PY'
 import json,sys
@@ -504,6 +506,23 @@ case_file_malformed() {
 holds "every acceptance case file is well formed and the required cases exist" case_files_hold
 holds "a malformed acceptance case file is refused" case_file_malformed
 control cut_functions "a case check that accepts missing keys" 'if set(data) != keys:' 'if False and set(data) != keys:' case_file_malformed
+
+case_child_args_local() {
+  local voices="$tmp/voices" got
+  mkdir -p "$voices"
+  : >"$voices/volume.wav"
+  got="$(call selftest_case_child_args "$repo/scripts/jarvis-selftest-cases/volume.json" "$voices")" || return 1
+  [[ "$got" == $'source=local\n--wav\n'"$voices/volume.wav"$'\n--mode\ntoggle\n--confirm\nkey' ]]
+}
+case_child_args_case() {
+  local voices="$tmp/voices" got
+  mkdir -p "$voices"
+  got="$(call selftest_case_child_args "$repo/scripts/jarvis-selftest-cases/question.json" "$voices")" || return 1
+  [[ "$got" == $'source=case\n--tts\nPlease tell me what two plus two is.\n--mode\ntoggle\n--confirm\nnone' ]]
+}
+holds "a local recording replaces that case's input and reports source local" case_child_args_local
+holds "a case without a local recording keeps its tracked input and reports source case" case_child_args_case
+control cut_functions "a suite child argument builder that ignores local recordings" 'if local and os.path.isfile(local):' 'if False and local and os.path.isfile(local):' case_child_args_local
 
 
 echo "--- the audio measure"
@@ -548,7 +567,7 @@ control_devices() { # LABEL OLD NEW CASE
   if ! mutate "$repo/scripts/smoke/devices.sh" "$old" "$new" "$mutant"; then fail "control: $label: its defect did not apply"; return; fi
   { sed -n '/^py_reply() {/,/^}/p; /^now_ms() {/p' "$repo/scripts/smoke/harness.sh"
     for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
-      selftest_woke selftest_end selftest_audio selftest_audio_record selftest_speech_tail selftest_open selftest_case_check selftest_compare selftest_suite_summary selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$runner"; done
+      selftest_woke selftest_end selftest_audio selftest_audio_record selftest_speech_tail selftest_open selftest_case_check selftest_compare selftest_case_child_args selftest_suite_summary selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$runner"; done
     sed -n '/^devices_speaker_sounds() {/,/^}/p' "$mutant"; } >"$functions"
   if "$case"; then fail "control: $label stayed green"; else ok "control: $label"; fi
   cut_functions "$runner"
