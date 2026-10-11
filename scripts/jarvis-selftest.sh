@@ -316,6 +316,29 @@ print(detail.get("phase", "none") if detail else "none")
 '
 }
 
+# selftest_gate_context: two lines from a jarvisProcess reply on stdin. The
+# first is `gate=<kind>` for stop keys. The second is a diagnostic line with
+# setup, daemon and gate as compact JSON. Missing detail reads gate=none.
+selftest_gate_context() {
+  py_reply '
+import json, sys
+def compact(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+try:
+    service = json.load(sys.stdin)
+    values = service.get("status") or {}
+    detail = values.get("detail") or {}
+    state = detail.get("state") or {}
+    gate = state.get("gate") or {"kind": "none"}
+    gate_word = gate.get("kind", "none") if isinstance(gate, dict) else "none"
+    print("gate=" + str(gate_word))
+    print("selftest: setup=" + compact(values.get("setup")) + " daemon=" + compact(values.get("daemon")) + " gate=" + compact(gate))
+except Exception:
+    print("gate=none")
+    print("selftest: setup=null daemon=null gate={\"kind\":\"none\"}")
+'
+}
+
 # selftest_turn: the turn's progress, from the Session phases after the
 # `input` mark in the probe's trace on stdin: `ended=<phase>` once Jarvis has
 # worked and rests again (idle, listening or armed), or a fault or the gate
@@ -514,7 +537,7 @@ selftest_open() { # KIND MODE VALUE WAV TAIL_MS
     return 0
   fi
   if [[ $mode == always ]]; then
-    selftest_wait 30 armed selftest_service_phase || stopped microphone-not-open "phase=$reading"
+    selftest_wait 30 armed selftest_service_phase || stopped_gate microphone-not-open "phase=$reading"
     selftest_wait 10 ready devices_voice_feed_state || stopped no-voice-feed "$reading"
     [[ $(ipc smoke markJarvisTrace input) == ok ]] || stopped trace-not-marked
     input_started_ms="$(now_ms)"
@@ -902,6 +925,20 @@ stopped() {
   printf 'selftest=%s\n' "$*"
   exit 1
 }
+# stopped_gate KEY...: stop with the current Jarvis gate kind added to KEY,
+# and print setup, daemon and gate details before the final selftest line.
+stopped_gate() {
+  local context gate detail
+  context="$(ipc smoke jarvisProcess | selftest_gate_context)" || context='gate=none
+selftest: setup=null daemon=null gate={"kind":"none"}'
+  [[ $context == gate=* ]] || context='gate=none
+selftest: setup=null daemon=null gate={"kind":"none"}'
+  gate="${context%%$'\n'*}"
+  detail="${context#*$'\n'}"
+  [[ $detail != "$context" ]] || detail='selftest: setup=null daemon=null gate={"kind":"none"}'
+  printf '%s\n' "$detail"
+  stopped "$@" "$gate"
+}
 # selftest_finish TURN HOME_SUM AUTH_LOG FAILURES TRACE AUDIT OUT PHASE FAULT
 # KIND VALUE BRAIN HOME VOICE MODE CONFIRM TREE HOME_COPY BRAIN_TEXT AUDIO_JSON: the run's
 # one verdict.
@@ -1206,10 +1243,10 @@ widget_state() { ipc smoke readInstance "$bar" vgs.jarvis view | py_reply 'impor
 traced() { ipc smoke jarvisTrace | selftest_last "$1"; }
 # The sidecar loads its models before the gate comes up: LocalSpeech.js
 # gives it 60 s, and this wait bounds that and the account check.
-selftest_wait 120 applied daemon_applied || stopped not-ready "$reading"
+selftest_wait 120 applied daemon_applied || stopped_gate not-ready "$reading"
 widget_want=ready
 [[ $mode == always ]] && widget_want=listening
-selftest_wait 120 "$widget_want" widget_state || stopped not-ready "widget=$reading"
+selftest_wait 120 "$widget_want" widget_state || stopped_gate not-ready "widget=$reading"
 speaker_capture="$sandbox/selftest-speaker.jsonl"
 devices_speaker_record "$speaker_capture"
 speaker_state() { [[ -s $speaker_capture ]] && echo ready || echo waiting; }

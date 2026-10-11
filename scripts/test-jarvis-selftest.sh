@@ -206,7 +206,7 @@ plant() { cp -- "$1" "$tree/scripts/jarvis-selftest.sh"; }
 functions="$tmp/functions.sh"
 cut_functions() { # RUNNER
   { sed -n '/^py_reply() {/,/^}/p; /^now_ms() {/p' "$repo/scripts/smoke/harness.sh"
-    for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_service_phase selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
+    for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_service_phase selftest_gate_context selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
       selftest_woke selftest_end selftest_audio selftest_audio_record selftest_wav_tail selftest_speech_tail selftest_open selftest_case_check selftest_compare selftest_case_child_args selftest_suite_summary selftest_suite_stopped selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$1"; done
     sed -n '/^devices_speaker_sounds() {/,/^}/p' "$repo/scripts/smoke/devices.sh"; } >"$functions"
 }
@@ -585,7 +585,7 @@ control_devices() { # LABEL OLD NEW CASE
   local label="$1" old="$2" new="$3" case="$4"
   if ! mutate "$repo/scripts/smoke/devices.sh" "$old" "$new" "$mutant"; then fail "control: $label: its defect did not apply"; return; fi
   { sed -n '/^py_reply() {/,/^}/p; /^now_ms() {/p' "$repo/scripts/smoke/harness.sh"
-    for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_service_phase selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
+    for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_service_phase selftest_gate_context selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
       selftest_woke selftest_end selftest_audio selftest_audio_record selftest_wav_tail selftest_speech_tail selftest_open selftest_case_check selftest_compare selftest_case_child_args selftest_suite_summary selftest_suite_stopped selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$runner"; done
     sed -n '/^devices_speaker_sounds() {/,/^}/p' "$mutant"; } >"$functions"
   if "$case"; then fail "control: $label stayed green"; else ok "control: $label"; fi
@@ -860,6 +860,15 @@ daemon_rows=(
 )
 daemon_reads() { local want="${1%%|*}" rest="${1#*|}"; [[ "$(call selftest_daemon "${rest#*|}" <<<"${rest%%|*}")" == "$want" ]]; }
 for row in "${daemon_rows[@]}"; do holds "the service reader answers ${row%%|*}" daemon_reads "$row"; done
+gate_context_reads() {
+  local reply='{"status":{"setup":{"tone":"warning","lines":["choose a brain"]},"daemon":{"tone":"danger","text":"offline"},"detail":{"state":{"gate":{"kind":"unconfigured","reason":"brain"}}}}}'
+  [[ "$(printf '%s\n' "$reply" | call selftest_gate_context)" == 'gate=unconfigured'$'\n''selftest: setup={"lines":["choose a brain"],"tone":"warning"} daemon={"text":"offline","tone":"danger"} gate={"kind":"unconfigured","reason":"brain"}' ]]
+}
+gate_context_absent_detail() {
+  [[ "$(printf '%s\n' '{"status":{"setup":null,"daemon":null}}' | call selftest_gate_context)" == 'gate=none'$'\n''selftest: setup=null daemon=null gate={"kind":"none"}' ]]
+}
+holds "the gate context reader names gate, setup and daemon from jarvisProcess" gate_context_reads
+holds "the gate context reader reports gate none with absent detail" gate_context_absent_detail
 # trace PHASES_BEFORE PHASES_AFTER: phase events around the input mark.
 trace() { python3 -c 'import json,sys; before, after = (a.split() for a in sys.argv[1:]); print(json.dumps([{"kind": "phase", "at": i, "value": p} for i, p in enumerate(before)] + [{"kind": "mark", "at": 50, "value": "input"}] + [{"kind": "phase", "at": 60 + i, "value": p} for i, p in enumerate(after)]))' "$1" "$2"; }
 turn_rows=(
@@ -880,6 +889,7 @@ for row in "${turn_rows[@]}"; do holds "the turn reader answers ${row%%|*} for p
 no_mark() { [[ "$(echo '[{"kind": "phase", "at": 1, "value": "thinking"}, {"kind": "phase", "at": 2, "value": "idle"}]' | call selftest_turn)" == waiting ]]; }
 holds "the turn reader waits where the trace holds no input mark" no_mark
 control cut_functions "a service reader that compares no setting" 'missing = [key for key in want if held.get(key) != want[key]]' 'missing = []' daemon_reads "${daemon_rows[3]}"
+control cut_functions "a gate context reader that ignores the live gate" 'gate = state.get("gate") or {"kind": "none"}' 'gate = {"kind": "none"}' gate_context_reads
 control cut_functions "a turn reader that ends before Jarvis worked" 'or worked and last in' 'or last in' turn_reads "${turn_rows[3]}"
 control cut_functions "a turn reader that counts the phases before the input" 'phases = [e["value"] for e in events[marks[0]:] if e["kind"] == "phase"] if marks else []
 last = phases[-1]' 'phases = [e["value"] for e in events if e["kind"] == "phase"] if marks else []
