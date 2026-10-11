@@ -16,13 +16,13 @@ Google-native documents list from rclone's Drive backend with size -1. The runne
 
 The upload leg passes no backup folder. Google Drive creates a new revision when rclone updates an existing file. Drive keeps purgeable non-head blob revisions for 30 days or 100 revisions, whichever comes first, while `--drive-keep-revision-forever` stays false.
 
-rclone reads the remote and the credential from its environment alone, with `--config /dev/null`: the client id, the client secret and the token come from the keyring through `secret-tool`, never from argv, a file or a log. The credential uses the `drive` scope.
+rclone reads the remote and the credential from its environment alone, with `--config /dev/null`: the client id, the client secret and the token come from the keyring through `secret-tool`, never from argv, a file or a log. Downloads use the `drive.readonly` scope. Uploads use `drive.file`, which writes files Cloud Sync made and adds new files.
 
-`authorize` stores the token as the account's one keyring item, with the Google account's address in its `user` attribute; it reads the address from Drive's `about` resource through `curl`, the access token on curl's stdin. `probe` reports that address as the token row's `user`.
+`authorize pull|upload` stores the token as the account's one keyring item, with the Google account's address in its `user` attribute; it reads the address from Drive's `about` resource through `curl`, the access token on curl's stdin. `probe` reports that address as the token row's `user`.
 
-`sign-out` clears the token and marks pairs as needing Connect; the client keys and every file stay.
+`sign-out pull|upload` clears that direction's token; the client keys and every file stay. Clearing the pull token marks pairs as needing a sign-in.
 
-The first run of this version migrates old `pull-*` and `upload-*` client keys to `client-id` and `client-secret`, removes old tokens because their scopes are wrong, rewrites old pair directions away, and converts old review state to `records`.
+The first run of this version rewrites old pair directions away and converts old review state to `records`. Credentials stay in the existing Download and Upload accounts.
 
 `attention-seen <key>` records in `control.json` that the service notified of that attention key, and the status record's `attention.notified` reads it, so a shell start does not notify again.
 
@@ -36,7 +36,7 @@ The first run of this version migrates old `pull-*` and `upload-*` client keys t
 
 ## The plugin
 
-The service runs the runner's `status --quiet` at start and after each setup window closes, watches `status.json`, and runs `probe` for the presence of each key. It publishes `sync`, the headline with one line per pair; `schedule`, the hourly units with their set-up step; `pairs`, the folder pairs with their add and remove steps; `keys` and `account`, the Google Drive keys and connection state with Connect and Sign out; `lastSync`; and `cloud`, the data that the widget and the window draw. `CloudSyncLogic.js` holds every decision about what they show. The service notifies of the record's `attention` while its `notified` is false, then runs `attention-seen` with its key.
+The service runs the runner's `status --quiet` at start and after each setup window closes, watches `status.json`, and runs `probe` for the presence of each key. It publishes `sync`, the headline with one line per pair; `schedule`, the hourly units with their set-up step; `pairs`, the folder pairs with their add and remove steps; `downloadKeys`, `download`, `uploadKeys` and `upload`, the Google Drive keys and sign-in states with Sign in and Sign out; `lastSync`; and `cloud`, the data that the widget and the window draw. `CloudSyncLogic.js` holds every decision about what they show. The service notifies of the record's `attention` while its `notified` is false, then runs `attention-seen` with its key.
 
 The plugin's IPC: `vgshell ipc call vgs.cloud-sync invoke <name> ""` with `status`, `sync`, `pause`, `resume`, `refresh` or `open`. The service's header states each answer.
 

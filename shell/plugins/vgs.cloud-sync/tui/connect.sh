@@ -1,30 +1,39 @@
 #!/usr/bin/env bash
-# Google consent for Cloud Sync's OAuth client: the runner's `authorize`
-# opens Google's page in the browser through rclone and stores the token it
-# returns in the keyring. The token never reaches this script, the screen or
-# the log. Keyed lines go to the Cloud Sync setup log; the screen shows a
-# plain sentence.
+# Google's consent for one direction's OAuth client, which connect-drive.sh
+# and connect-upload.sh run: the runner's `authorize` opens Google's page
+# in the browser through rclone and stores the token it returns in the
+# keyring. The token never reaches this script, the screen or the log.
+# Keyed lines go to the Cloud Sync setup log; the screen shows a plain
+# sentence.
+#
+#   connect.sh pull|upload
 set -euo pipefail
 # shellcheck source=/dev/null
 source "$VGS_TUI_LIB"
 log="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/cloud-sync/setup.log"
 runner="$VGS_PLUGIN_DIR/bin/cloud-sync"
 mkdir -p -- "${log%/*}"
-[[ $# == 0 ]] || vgs_tui_refuse "$log" 2 "cloud-sync: refused: arguments=none" "Select Connect on the Cloud Sync page in Settings." || exit
-vgs_tui_header "Connect Google Drive" "Cloud Sync copies your folder pairs both ways and never deletes a file." \
-  "Connect lets Cloud Sync read and change files in your Google Drive." \
-  "The connection stays in your desktop keyring. VGS does not show it."
+case "${1:-}:$#" in
+  pull:1) group="Download" long="Download: Google Drive to this computer" ;;
+  upload:1) group="Upload" long="Upload: this computer to Google Drive" ;;
+  *) vgs_tui_refuse "$log" 2 "cloud-sync: refused: direction=${1:-missing}" "Select Sign in in the Download or Upload group on the Cloud Sync page in Settings." || exit ;;
+esac
+direction="$1"
+vgs_tui_header "Sign in for $group" "$long" "Sign in to Google in your browser and allow access." \
+  "The sign-in stays in your desktop keyring. VGS does not show it."
 vgs_tui_step "Google opens in your browser. Come back here when the browser says that you can close it."
 logged="$(stat -c %s -- "$log" 2>/dev/null)" || logged=0
-if vgs_tui_logged "$log" "$runner" authorize >>"$log"; then
-  vgs_tui_success "Google Drive is connected."
+if vgs_tui_logged "$log" "$runner" authorize "$direction" >>"$log"; then
+  vgs_tui_success "You are signed in to Google Drive for $group."
   exit 0
 fi
+# The refusal this run logged, not an earlier run's.
 refusal="$(tail -c "+$((logged + 1))" -- "$log" | grep '^cloud-sync: refused: ' | tail -n 1)" || refusal=""
 case "$refusal" in
-  *"credential=absent account=client-"*) vgs_tui_failed "$log" "Add the client ID and the client secret on the Cloud Sync page in Settings first." ;;
+  *"credential=absent account=$direction-client-"*)
+    vgs_tui_failed "$log" "Add the client ID and the client secret in the $group group on the Cloud Sync page in Settings first." ;;
   *credential=locked*) vgs_tui_failed "$log" "Your keyring is locked. Unlock it, then try again." ;;
-  *authorize=no-token*) vgs_tui_failed "$log" "Google did not send a connection. Try again, and allow access in the browser." ;;
-  *) vgs_tui_failed "$log" "VGS could not connect Google Drive." ;;
+  *authorize=no-token*) vgs_tui_failed "$log" "Google did not send a sign-in. Try again, and allow access in the browser." ;;
+  *) vgs_tui_failed "$log" "VGS could not sign you in to Google Drive." ;;
 esac
 exit 1

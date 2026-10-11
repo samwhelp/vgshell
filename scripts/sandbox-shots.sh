@@ -4944,10 +4944,10 @@ SH
   csr status || true
   cs_shots "$m" 9-pairs-invalid error pairs-invalid
   csr pairs-reset || fail "cloudsync scene: pairs-reset"
-  for a in pull-client-id pull-client-secret pull-token upload-client-id upload-client-secret upload-token; do printf 'old\n' >"$cs/secrets/$a"; done
-  printf '{"pairs":[{"id":"documents","label":"Documents","direction":"pull","remote":"Documents","local":"%s"}]}\n' "$home/cloudsync-$m/Drive/Documents" >"$pairs_file"
+  cs_pairs
+  rm -f -- "${cs:?}/secrets/upload-token"
   csr run || true
-  cs_shots "$m" 10-migrated authorization-required credential-absent
+  cs_shots "$m" 10-uploads-off idle none
 
   rm -f -- "$pairs_file".damaged-* "$home/.config/systemd/user/vgs-cloud-sync.service" "$home/.config/systemd/user/vgs-cloud-sync.timer" "$cs"/secrets/*
   # The service watches status.json; its directory stays so the watch holds.

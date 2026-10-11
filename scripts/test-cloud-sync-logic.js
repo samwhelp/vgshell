@@ -23,21 +23,21 @@ const conflicts = [
   { kind:"renamed", pair:"docs", pairLabel:"Documents", path:"e.txt", to:"f.txt", localPath:"/home/me/gdrive/e.txt", since:iso(NOW-1000) }
 ];
 function record(over={}) { return Object.assign({ state:"idle", paused:false, units:"installed", lastSuccess:iso(NOW-1000), staleAfter:iso(NOW+1000), lastError:null, pairs:[pair], conflicts:[], attention:null, writtenAt:iso(NOW) }, over); }
-function probe(over={}) { return { credentials:["client-id","client-secret","token"].map(account => Object.assign({account, presence:"present", needed:true}, account==="token"?{user:"person@example.com"}:{}, over[account]||{})) }; }
+function probe(over={}) { return { credentials:["pull-client-id","pull-client-secret","pull-token","upload-client-id","upload-client-secret","upload-token"].map(account => Object.assign({account, presence:"present", needed:true}, account.endsWith("-token")?{user:"person@example.com"}:{}, over[account]||{})) }; }
 function same(a,b,m){ if (m === undefined) assert.deepEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b))); else assert.deepEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)), m); }
 function verify(L) {
   assert.equal(L.parseStatus(JSON.stringify(record())).ok, true);
   same(L.parseStatus(JSON.stringify(record({ pairs:[Object.assign({}, pair, { direction:"pull" })] }))), {ok:false,error:"status=pairs"}, "status rejects direction");
   assert.equal(L.parseStatus(JSON.stringify(record({ conflicts }))).ok, true, "new conflict kinds pass");
   same(L.parseStatus(JSON.stringify(record({ conflicts:[Object.assign({}, conflicts[0], { storedPath:"relative" })] }))), {ok:false,error:"status=conflicts"}, "stored path must be absolute");
-  same(L.parseProbe(JSON.stringify(probe())).presence.token.user, "person@example.com");
-  same(L.parseProbe(JSON.stringify({credentials: probe({"client-id":{user:"person@example.com"}}).credentials})), {ok:false,error:"probe=user account=client-id"});
-  same(Object.keys(L.statusValues(record(), L.parseProbe(JSON.stringify(probe())).presence, "", NOW)).sort(), ["account","cloud","keys","lastSync","pairs","schedule","sync"]);
+  same(L.parseProbe(JSON.stringify(probe())).presence["pull-token"].user, "person@example.com");
+  same(L.parseProbe(JSON.stringify({credentials: probe({"pull-client-id":{user:"person@example.com"}}).credentials})), {ok:false,error:"probe=user account=pull-client-id"});
+  same(Object.keys(L.statusValues(record(), L.parseProbe(JSON.stringify(probe())).presence, "", NOW)).sort(), ["cloud","download","downloadKeys","lastSync","pairs","schedule","sync","upload","uploadKeys"]);
   const values = L.statusValues(record({conflicts}), L.parseProbe(JSON.stringify(probe())).presence, "", NOW);
-  same(values.keys.map(k=>[k.secret,k.value]), [["client-id","present"],["client-secret","present"]]);
-  same(values.account, {tone:"ok", text:"Connected", hint:"Connected as person@example.com.", action:"signOut"});
-  same(L.statusValues(null, L.parseProbe(JSON.stringify(probe({token:{presence:"absent"}}))).presence, "", NOW).account, {tone:"warning", text:"Not connected", action:"signIn"});
-  same(L.statusValues(record({pairs:[Object.assign({}, pair, {state:"authorization-required", lastError:{kind:"authorization-refused"}})]}), L.parseProbe(JSON.stringify(probe())).presence, "", NOW).account, {tone:"danger", text:"Connect refused", action:"reconnect", hint:"Google Drive did not accept Connect."});
+  same(values.downloadKeys.map(k=>[k.secret,k.value]), [["pull-client-id","present"],["pull-client-secret","present"]]);
+  same(values.download, {tone:"ok", text:"Signed in", hint:"Signed in as person@example.com.", action:"signOut"});
+  same(L.statusValues(null, L.parseProbe(JSON.stringify(probe({"pull-token":{presence:"absent"}}))).presence, "", NOW).download, {tone:"warning", text:"Not signed in", action:"signIn"});
+  same(L.statusValues(record({pairs:[Object.assign({}, pair, {state:"authorization-required", lastError:{kind:"authorization-refused"}})]}), L.parseProbe(JSON.stringify(probe())).presence, "", NOW).download, {tone:"danger", text:"Sign-in refused", action:"reconnect", hint:"Google Drive did not accept the sign-in."});
   same(values.pairs.lines, ["Documents: Docs"]);
   same(L.pairRow(values.cloud.pairs[0], NOW), {id:"docs", label:"Documents", secondary:"Docs", icon:"folder-sync", text:"Up to date", tone:"success"});
   assert.equal(L.headline(values.cloud, NOW).text, "5 files to review");
@@ -48,19 +48,17 @@ function verify(L) {
     ["d.txt", "Removed from Google Drive. The copy here stays.", ["/home/me/gdrive"]],
     ["e.txt", "Renamed on Google Drive to f.txt", ["/home/me/gdrive"]]
   ]);
-  assert.equal(L.errorText({kind:"credential-absent", account:"token"}, true), "Google Drive is not connected. Select Connect below.");
-  same(L.notification(record({state:"authorization-required", lastError:{kind:"credential-absent", account:"token"}, attention:{reasons:["authorization-required"],key:"k",notified:false}})), {title:"Cloud Sync needs Connect", message:"Google Drive is not connected. Select Connect on the Cloud Sync page in Settings.", tone:"danger"});
+  assert.equal(L.errorText({kind:"credential-absent", account:"pull-token"}, true), "Google Drive is not signed in for Download. Select Sign in below.");
+  same(L.notification(record({state:"authorization-required", lastError:{kind:"credential-absent", account:"pull-token"}, attention:{reasons:["authorization-required"],key:"k",notified:false}})), {title:"Cloud Sync needs a sign-in", message:"Google Drive is not signed in for Download. Select Sign in on the Cloud Sync page in Settings.", tone:"danger"});
 }
 verify(load(file));
 const source = fs.readFileSync(file, "utf8");
 const controls = [
   ["status rejects direction", 'return isObject(p) && !hasOwn(p, "direction") && isText(p.id) && isText(p.label) && isText(p.remote)', "return isObject(p) && isText(p.id) && isText(p.label)"],
-  ["new conflicts", 'var CONFLICT_KINDS = ["both-changed", "removed-locally", "removed-on-drive", "renamed"];', 'var CONFLICT_KINDS = ["removed-on-drive", "renamed"];'],
-  ["stored folder", 'if (conflict.kind === "both-changed" && conflict.storedPath !== undefined) dirs.push(dirname(conflict.storedPath));', ""],
-  ["one account", 'values.keys = keyItems(presence);\n        values.account = signInValue(presence, record);', 'values.downloadKeys = keyItems(presence);'],
-  ["token user only", 'c.account !== "token" || !isAddress(c.user)', 'false'],
-  ["connect wording", 'return "Google Drive is not connected. Select Connect "', 'return "Google Drive is not signed in. Select Sign in "'],
-  ["pair remote", 'secondary: pair.remote || "Two-way", icon: "folder-sync"', 'secondary: "Download", icon: "folder-down"']
+  ["new conflicts", 'var CONFLICT_KINDS = ["local-edit", "both-changed", "removed-locally", "removed-on-drive", "renamed"];', 'var CONFLICT_KINDS = ["removed-on-drive", "renamed"];'],
+  ["stored folder", 'if ((conflict.kind === "local-edit" || conflict.kind === "both-changed") && conflict.storedPath !== undefined) dirs.push(dirname(conflict.storedPath));', ""],
+  ["token user only", '!/-token$/.test(c.account) || !isAddress(c.user)', 'false'],
+  ["pair remote", 'var secondary = pair.remote || "Two-way";', 'var secondary = "Download";']
 ];
 for (const [label, needle, replacement] of controls) {
   const count = source.split(needle).length - 1;
