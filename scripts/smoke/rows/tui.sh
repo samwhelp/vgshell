@@ -311,12 +311,12 @@ expect "the late run's reading is a number past the ceiling" over run_end_readin
 expect "the late run ended with its code" '[false, 8, true]' wait_state
 expect_poll "the late-end control's window closes" 0 wait_window
 
-# Control for expect_within's deadline, which notices.sh and other rows
-# use: a read that answers idle only once the ceiling has passed fails as a
-# read that never answers idle does.
-late_idle() { local ms=$((run_end_ceiling_ms + 100)); sleep "$((ms / 1000)).$(printf '%03d' $((ms % 1000)))"; echo idle; }
-late_answer() { (failures=0 behaviour_failures=0; expect_within "the late answer" run_end idle "$run_end_ceiling_ms" late_idle >/dev/null; echo "$failures"); }
-expect "the run-end row fails an idle read that ends past its ceiling" 1 late_answer
+# Control for expect_within's deadline, which notices.sh uses, with the
+# run-end ceiling as its value: a read that answers idle only once the
+# ceiling has passed fails as a read that never answers idle does.
+late_idle() { sleep "$(ms_seconds $((run_end_ceiling_ms + 100)))"; echo idle; }
+late_answer() { (failures=0 behaviour_failures=0; expect_within "the late answer" late idle "$run_end_ceiling_ms" late_idle >/dev/null; echo "$failures"); }
+expect "expect_within fails an answer read past its ceiling" 1 late_answer
 
 # A disabled plugin's TUIs leave the list and no longer open.
 expect "disabling the tui fixture is allowed" ok ipc shell setPluginEnabled acme.tui false
