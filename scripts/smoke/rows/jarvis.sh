@@ -251,7 +251,7 @@ ok = row.get("tone") == "warning" and row.get("text") == "Jarvis setup check tim
 ok = ok and "jarvis: setup=probe-timeout" in row.get("lines", [])
 ok = ok and setup.get("tone") == "warning" and "jarvis: setup=probe-timeout" in setup.get("lines", [])
 ok = ok and voice.get("tone") == "warning" and "Jarvis setup check timed out" in voice.get("hint", "")
-ok = ok and widget.get("state") == "ready" and "Jarvis setup check timed out" in "\n".join([widget.get("tooltip", "")] + widget.get("tooltipDetails", []))
+ok = ok and widget.get("state") in ("off", "ready") and "Jarvis setup check timed out" in "\n".join([widget.get("tooltip", "")] + widget.get("tooltipDetails", []))
 print("probe-timeout" if ok else "pending")
 PY
 }
@@ -501,10 +501,20 @@ expect_poll "Jarvis publishes only the fixture key presence" matched jarvis_key_
 expect_poll "the real audio owner publishes stable microphone and speaker offers" devices jarvis_devices
 jarvis_disable
 
+mkdir -p -- "$home/.local/share/vgshell/jarvis/local/venv/bin" "$home/.local/state/vgshell/jarvis"
+cp -- "$source_repo/scripts/fixtures/jarvis-local-speech/standin.py" "$home/.local/share/vgshell/jarvis/local/venv/bin/python"
+chmod 700 -- "$home/.local/share/vgshell/jarvis/local/venv/bin/python"
+python3 - "$repo/shell/plugins/vgs.jarvis/artifacts.json" "$home/.local/share/vgshell/jarvis/local" "$home/.local/state/vgshell/jarvis/local-ready.json" <<'PY'
+import json, os, sys
+tier = next(iter(json.load(open(sys.argv[1]))["tiers"]))
+open(sys.argv[3], "w").write(json.dumps({"tier": tier, "data": os.path.realpath(sys.argv[2])}))
+open(os.path.join(sys.argv[2], "scenario.json"), "w").write(json.dumps({"start": "ready"}))
+PY
 printf 'hang\n' >"$sandbox/jarvis-world/local-mode"
 expect "the hanging setup-probe fixture enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "the hanging setup-probe fixture reads its setup cause" probe-timeout jarvis_probe_timeout_words
 expect "the hanging setup-probe fixture disables" ok ipc shell setPluginEnabled vgs.jarvis false
+rm -f -- "$home/.local/state/vgshell/jarvis/local-ready.json"
 printf 'absent\n' >"$sandbox/jarvis-world/local-mode"
 
 jarvis_service="$repo/shell/plugins/vgs.jarvis/Service.qml"

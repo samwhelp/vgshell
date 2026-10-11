@@ -433,7 +433,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
                 brains: [], voiceAccounts: [], search: { found: row.apps.length, partial: "" } }), refreshed: () => {} };
         vm.runInNewContext("(function() { with(root) { return (" + publishAccounts[0] + ").call(root); } })()",
             { root, Gate: gate, Words: words, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
-        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, accountReader: root, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
+        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, accountReader: root, localRuntime: { setupCause: "" }, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
         try {
             assert.deepEqual([values.setupModel.tone, values.setupModel.action], row.want, row.name);
             const entry = judge.statusRows(manifest, values, []).find(item => item.key === "setupModel");
@@ -567,7 +567,9 @@ function verifyReadiness(gate) {
             const step = got[key];
             const open = todo.includes(key);
             const action = key === "setupModel" ? model ?? "key" : true;
-            assert.deepEqual([step.tone, step.action, step.lines], open ? ["warning", action, undefined] : ["ok", DONE_ACTION[key], undefined], label + ": " + key);
+            const expectedLines = open && answer.kind === "answered" && (answer.causes[0] === "speech=local-ready-timeout" || answer.causes[0] === "setup=probe-timeout")
+                ? [answer.causes[0] === "setup=probe-timeout" ? "jarvis: setup=probe-timeout" : answer.causes[0]] : undefined;
+            assert.deepEqual([step.tone, step.action, step.lines], open ? ["warning", action, expectedLines] : ["ok", DONE_ACTION[key], undefined], label + ": " + key);
             if (!open || declared.includes(key)) assert.equal(step.hint, undefined, label + ": " + key + " keeps its declared hint");
             else assert.equal(typeof step.hint === "string" && step.hint !== "" && !/=/.test(step.hint), true,
                 label + ": a plain hint, no keyed cause on screen");
@@ -866,7 +868,7 @@ const CONTROLS = [
     ["the brain causes share one hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = STEP_TODO[step];"],
     ["an unknown cause has no hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = TODO[cause];"],
     ["local voice repeats its action as its hint", "var STEP_TODO = { brain:", 'var STEP_TODO = { speech: "fixture repeat", brain:'],
-    ["a step to do draws its hint as a line", ': { tone: "warning", text: "To do", hint: hint, action: action };', ': { tone: "warning", text: "To do", lines: [hint], action: action };', "nothing set up: setupModel"],
+    ["a step to do draws its hint as a line", 'lines === undefined ? { tone: "warning", text: "To do", hint: hint, action: action }', 'false ? { tone: "warning", text: "To do", hint: hint, action: action }'],
     ["a stopped summary draws its reason as a line", 'hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." }', 'lines: ["Jarvis stopped after a problem. Turn Jarvis off and on again."] }'],
     ["causes leave the summary ready", 'setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" }', 'setup: true ? { tone: "ok", text: "Ready" }'],
     ["checking reads done", 'return { setup: CHECKING_SUMMARY, setupHome: HOME_READY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };', 'return { setup: CHECKING_SUMMARY, setupHome: HOME_READY, setupVoice: DONE, setupModel: noAction(DONE) };'],

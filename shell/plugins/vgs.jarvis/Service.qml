@@ -27,7 +27,6 @@ Item {
     property var sessionState: null
     property var conversationLog: []
     property var setupAnswer: ({ kind: "checking" })
-    property var shellSetupCauses: []
     // The request handlers, built on the first request; see requestHandlers().
     property var requests: null
     property var bubbles: []
@@ -132,10 +131,10 @@ Item {
     // The Setup section's summary and required steps for ANSWER
     // (SetupGate.readiness), and the input step from its reader's VALUE.
     function publishSetup(answer) {
-        if (answer.kind === "answered") setupAnswer = answer;
-        else if (answer.kind === "checking") setupAnswer = answer;
-        const merged = answer.kind === "answered" && shellSetupCauses.length > 0
-            ? { kind: "answered", causes: answer.causes.concat(shellSetupCauses.filter(cause => answer.causes.indexOf(cause) === -1)) }
+        setupAnswer = answer;
+        const setupCause = localRuntime.setupCause;
+        const merged = answer.kind === "answered" && setupCause !== "" && answer.causes.indexOf(setupCause) === -1
+            ? { kind: "answered", causes: [setupCause].concat(answer.causes) }
             : answer;
         const values = Gate.readiness(merged);
         values.setupModel = Gate.modelStep(values.setupModel, shell.status.values["keys"], accountReader.modelAccess);
@@ -145,7 +144,6 @@ Item {
         }
     }
     function publishShellSetup() {
-        shellSetupCauses = localRuntime.setupCause === "" ? [] : [localRuntime.setupCause];
         publishSetup(setupAnswer);
     }
     function publishInput(value) {
@@ -164,7 +162,6 @@ Item {
         cause = "";
         lastDiagnostic = "";
         setupAnswer = { kind: "checking" };
-        shellSetupCauses = [];
         audioHealth = { kind: "reading" };
         sessionState = null;
         indicatorDelivery = { kind: "unknown" };

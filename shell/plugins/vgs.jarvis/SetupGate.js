@@ -121,6 +121,10 @@ function setupCauseLine(cause) {
     if (cause === "setup=probe-timeout") return statusCauseLine("jarvis: setup=probe-timeout");
     return statusCauseLine(cause);
 }
+
+function stepCauseLines(cause) {
+    return cause === "speech=local-ready-timeout" || cause === "setup=probe-timeout" ? [setupCauseLine(cause)] : undefined;
+}
 // The installed voice stays verified. Reinstalling it cannot free memory.
 var MEMORY = {
     "speech=local-memory-insufficient": { tone: "warning", text: "Not enough memory",
@@ -200,8 +204,10 @@ function readiness(answer) {
             }
             var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];
             var action = step === "brain" ? (cause === "brain=signed-out" ? "signIn" : cause === "brain=pi-update" ? "update" : "key") : setupActs(cause);
+            var lines = stepCauseLines(cause);
             out[REQUIRED[step]] = hint === undefined ? { tone: "warning", text: "To do", action: action }
-                : { tone: "warning", text: "To do", hint: hint, action: action };
+                : lines === undefined ? { tone: "warning", text: "To do", hint: hint, action: action }
+                    : { tone: "warning", text: "To do", hint: hint, action: action, lines: lines };
         });
         return out;
     }

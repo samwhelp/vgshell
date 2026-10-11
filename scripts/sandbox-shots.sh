@@ -2427,6 +2427,7 @@ function literal(source, pattern, label) {
   return match[1];
 }
 const gate = lib(path.join(repo, "shell/plugins/vgs.jarvis/SetupGate.js"));
+const session = lib(path.join(repo, "shell/plugins/vgs.jarvis/Session.js"));
 const service = fs.readFileSync(path.join(repo, "shell/plugins/vgs.jarvis/Service.qml"), "utf8");
 const readyText = literal(service, /publish\("info", message\.daemon === "locked" \? "Locked; no capture" : "([^"]+)"\)/, "ready literal");
 const audioReady = literal(service, /shell\.status\.set\("audio", \{ tone: "ok", text: "([^"]+)" \}\)/, "audio literal");
@@ -2434,13 +2435,18 @@ const rows = [["audio", { tone: "ok", text: audioReady }], ["setupHome", { hidde
 const hasStartCause = typeof gate.startCause === "function";
 const unchecked = { tone: "warning", text: "Not checked", action: false };
 const uncheckedModel = { tone: "warning", text: "Not checked" };
-function addReady(answer) {
-  rows.push(["daemon", { tone: "info", text: readyText }], ["detail", null]);
+function detail(gate) {
+  const state = JSON.parse(JSON.stringify(session.initial()));
+  state.gate = gate;
+  return { phase: session.phaseOf(state), seq: 1, state };
+}
+function addReady(answer, gateValue) {
+  rows.push(["daemon", { tone: "info", text: readyText }], ["detail", detail(gateValue || { kind: "up" })]);
   const values = gate.readiness(answer);
   for (const key of ["setup", "setupVoice", "setupModel"]) rows.push([key, values[key]]);
 }
 if (phase === "before") {
-  if (cause === "speech=local-ready-timeout" || cause === "setup=probe-timeout") addReady({ kind: "answered", causes: [] });
+  if (cause === "speech=local-ready-timeout" || cause === "setup=probe-timeout") addReady({ kind: "answered", causes: [] }, { kind: "up" });
   else {
     const danger = literal(service, /publish\("danger", "([^"]+)"\)/, "old danger literal");
     rows.push(["detail", null], ["daemon", { tone: "danger", text: danger }]);
@@ -2448,7 +2454,7 @@ if (phase === "before") {
     for (const key of ["setup", "setupVoice", "setupModel"]) rows.push([key, values[key]]);
   }
 } else if (cause === "speech=local-ready-timeout" || cause === "setup=probe-timeout") {
-  addReady({ kind: "answered", causes: [cause] });
+  addReady({ kind: "answered", causes: [cause] }, cause === "speech=local-ready-timeout" ? { kind: "down", reason: "unconfigured" } : { kind: "up" });
   if (cause === "setup=probe-timeout") {
     const problem = gate.startCause(cause);
     rows.push(["localRuntime", { tone: "warning", text: problem.title, hint: problem.action, action: true, lines: [problem.lines[0]] }]);
