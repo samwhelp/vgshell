@@ -13,7 +13,13 @@
 # SUPER+SPACE, its marker appears and the stored key stays. Every key goes
 # to the nested instance alone, through wtype on its seat, and the row
 # puts the harness hyprland.lua back at its end.
-# No latency is measured; each reading polls every 200 ms for up to 5 s.
+# Each step that stores a key or enables a plugin rewrites the layer, and
+# the shell's reload after that write leaves the pass-through submap, so a
+# capture waits until Hyprland holds the bind the step wrote. The control
+# for that wait asks the shell to write the layer and reload Hyprland once
+# a capture entered the submap: the reload leaves it and the shell ends
+# the capture on Hyprland's submap change.
+# No latency is measured; each reading polls every 200 ms.
 # inputs: shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.js shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.themes/manifest.json shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/HyprlandState.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
@@ -21,6 +27,12 @@ kc_hypr_lua="$home/.config/hypr/hyprland.lua"
 # The click helper's monitor size, as rows/bar.sh reads it.
 read -r mon_w mon_h < <(hypr -j monitors | py_reply 'import json,sys; m=json.load(sys.stdin)[0]; print(m["width"], m["height"])')
 kc_marker() { [[ -f $1 ]] && echo 1 || echo 0; }
+# kc_bound DESCRIPTION: the default-map bind Hyprland holds with that
+# description, as "MODMASK key" with the key in lower case, or `absent`.
+# kc_loaded LABEL DESCRIPTION WANT: kc_bound read until it is WANT, the
+# layer the step before it wrote loaded.
+kc_bound() { hypr -j binds | py_reply 'import json,sys; b=[x for x in json.load(sys.stdin) if x["description"] == sys.argv[1] and x.get("submap", "") in ("", "default")]; print("%d %s" % (b[0]["modmask"], b[0]["key"].lower()) if b else "absent")' "$1"; }
+kc_loaded() { expect_poll "$1: Hyprland holds the layer's $2 bind as $3" "$3" kc_bound "$2"; }
 kc_open() {
   expect "$1: Settings is summoned on its own page" ok ipc shell summon window vgs.settings '{"plugin":"vgs.settings"}'
   expect_poll "$1: the Settings window shows its own page" '"vgs.settings"' ipc smoke readInstance window vgs.settings page
@@ -41,15 +53,20 @@ kc_capture() {
   expect_poll "$label: the commit leaves the pass-through submap" default key_submap
   expect "$label: the user bind on the same keys did not fire" 0 kc_marker "$marker"
 }
-# TYPED LABEL TEXT WANT: the same key typed into the field's text entry.
+# TYPED LABEL TEXT WANT BOUND: the same key typed into the field's text
+# entry, and the layer loaded with the Settings bind as BOUND, kc_bound's
+# reading: after the reset first, so a stored key whose layer matches the
+# one before the reset is read from its own reload.
 kc_typed() {
   local label="$1"
   key_reset "$label"
+  kc_loaded "$label" vgs.settings:toggle "64 m"
   expect "$label: the field's text entry opens" typing settings_key_invoke typeKeyField
   type_keys "$2" || fail "$label: typing the text failed"
   type_keys -k Return || fail "$label: Return in the text entry failed"
   expect_poll "$label: the typed key is stored as the captured one" "\"$3\"" settings_key
   expect_poll "$label: the field holds the keyboard again" true settings_key_field focus
+  kc_loaded "$label" vgs.settings:toggle "$4"
 }
 
 hypr_lua_save key-capture
@@ -63,8 +80,10 @@ expect "the nested instance reloads with the key capture harness binds without c
 kc_space_line="$(grep -nF 'hl.bind("SUPER + SPACE"' "$kc_hypr_lua" | cut -d: -f1)"
 
 expect "enabling Launcher, whose shortcut asks for SUPER+SPACE, is allowed" ok ipc shell setPluginEnabled vgs.launcher true
+kc_loaded "enabling Launcher" vgs.launcher:toggle "64 space"
 kc_open "key capture"
 key_reset "key capture start"
+kc_loaded "key capture start" vgs.settings:toggle "64 m"
 for _ in $(seq 1 60); do
   [[ $(settings_key_field focus) == true ]] && break
   type_keys -k Tab || { fail "key capture: Tab failed"; break; }
@@ -74,13 +93,29 @@ expect "the field shows its focus ring for the Tab focus" true settings_key_fiel
 
 kc_capture "SUPER+SPACE" SUPER+SPACE "$sandbox/key-capture-space" -M logo -k space -m logo
 expect_poll "the field names the Launcher shortcut and the user bind holding SUPER+SPACE by its file and line" "\"Also used by Launcher (toggle), your Hyprland config at ~/.config/hypr/hyprland.lua line $kc_space_line.\"" settings_key_field conflict
-kc_typed "SUPER+SPACE typed" "super+space" SUPER+SPACE
+# Launcher's id sorts first, so it holds SUPER+SPACE and the Settings bind is skipped.
+kc_typed "SUPER+SPACE typed" "super+space" SUPER+SPACE absent
 kc_capture "CTRL+ALT+T" CTRL+ALT+T "$sandbox/key-capture-t" -M ctrl -M alt -k t -m alt -m ctrl
-kc_typed "CTRL+ALT+T typed" "ctrl+alt+t" CTRL+ALT+T
+kc_typed "CTRL+ALT+T typed" "ctrl+alt+t" CTRL+ALT+T "12 t"
 kc_capture "F5" F5 "$sandbox/key-capture-f5" -k F5
-kc_typed "F5 typed" "F5" F5
+kc_typed "F5 typed" "F5" F5 "0 f5"
+
+# The control for the waits: the layer reload a key store starts, run
+# after the capture entered the submap. The capture timeout ends a capture
+# as `timeout`, so only the reload's leave logs `end=compositor`.
+type_keys -k Return || fail "control reload: Return on the field failed"
+expect_poll "control reload: Return starts a capture" true settings_key_field capturing
+expect_poll "control reload: the capture enters the pass-through submap" vgs:passthrough key_submap
+kc_ends="$(log_lines 'capture: end=compositor')" || fail "control reload: the instance log is unreadable"
+expect "control reload: the shell writes the layer and reloads Hyprland" ok ipc shell renderHyprland
+expect_log "control reload: the reload's leave ends the capture" "$((kc_ends + 1))" 'capture: end=compositor'
+expect "control reload: Hyprland is back in its default map" default key_submap
+expect_poll "control reload: the field sees the capture end" false settings_key_field capturing
+expect "control reload: the stored key stays F5" '"F5"' settings_key
+expect "control reload: the field takes the focus again" focused settings_key_invoke focusKeyField
 
 expect "enabling Themes, whose shortcut asks for SUPER+SHIFT+T, is allowed" ok ipc shell setPluginEnabled vgs.themes true
+kc_loaded "enabling Themes" vgs.themes:themes "65 t"
 kc_capture "SUPER+SHIFT+T" SUPER+SHIFT+T "$sandbox/key-capture-none" -M logo -M shift -k t -m shift -m logo
 expect_poll "the field names the Themes shortcut asking for SUPER+SHIFT+T" '"Also used by Themes (themes)."' settings_key_field conflict
 kc_reveal_unbind() { local at; at="$(ipc smoke revealText window vgs.settings IconButton Unbind)" || return; [[ $at != absent ]] && echo shown || echo absent; }
