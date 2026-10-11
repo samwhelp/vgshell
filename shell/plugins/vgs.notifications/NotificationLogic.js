@@ -12,7 +12,7 @@
 // running clocks of the toasts on screen, the per-application rules that
 // read a sender's workspace and people, the Slack token rows, photo and
 // custom emoji lookups, which two notifications are one message sent
-// twice, and the VGS hints a sender may add and what a click on a card
+// twice, which app stream Do Not Disturb or Sound off mutes, and the VGS hints a sender may add and what a click on a card
 // that carries them does.
 
 // Every notification that leaves the screen goes into the history, which
@@ -876,6 +876,61 @@ function bypassesSilence(appName, urgency, hints) {
     if (urgency !== URGENCY.critical) return false;
     if (String(appName || "") === "notify-send") return true;
     return isPlainObject(hints) && typeof hints["x-vgs-plugin"] === "string" && hints["x-vgs-plugin"] !== "";
+}
+
+// --------------------------------------------------------- app sounds
+
+// Do Not Disturb and Sound off also quiet the sound an app plays itself
+// for a notification, in its own PipeWire stream, while the app's other
+// audio plays on. A notification that arrives in either state arms its
+// app for APP_SOUND_ARM ms; a stream of that app that starts to play in
+// that time is muted until it pauses, at most APP_SOUND_HOLD ms. A stream
+// that already plays when the notification comes, such as a call, is never
+// muted. Read on the owner's desktop, 2026-10-10, pw-dump --monitor against
+// dbus-monitor, six Slack messages (VGS-1311): Slack opens a new stream 74
+// to 121 ms after its Notify call and pauses it 11.6 to 12.0 s later.
+var APP_SOUND_ARM = 1000;
+var APP_SOUND_HOLD = 15000;
+
+// The names a notification's app goes by, in lower case, as the app's
+// streams name it: its desktop entry and its app name.
+function soundApps(desktopEntry, appName) {
+    var out = [];
+    [desktopEntry, appName].forEach(function (name) {
+        var key = String(name || "").toLowerCase();
+        if (key !== "" && out.indexOf(key) === -1) out.push(key);
+    });
+    return out;
+}
+
+// Whether a stream whose PipeWire properties are PROPS is one of APPS'.
+function streamOfApps(props, apps) {
+    if (!isPlainObject(props)) return false;
+    return ["application.name", "application.process.binary"].some(function (key) {
+        return typeof props[key] === "string" && apps.indexOf(props[key].toLowerCase()) !== -1;
+    });
+}
+
+// One output stream's next step under Silence. HOLD is its mute, null or
+// { phase, until }: `waiting` while a paused stream may start, `playing`
+// once it has; ARMED its app's latest arm, null or { at, until }; STREAM {
+// corked, since }: corked true while paused, false while it plays and null
+// for a stream that does not say, since the time it was first seen. A
+// paused stream is muted before it plays, so the sound's first samples are
+// silent too. Answers { hold, change }; change is `mute`, `again` (the
+// mute is set once more as the stream starts, since a volume written
+// between the two lifts it), `release` or "".
+function appSoundStep(hold, armed, stream, now) {
+    if (hold === null) {
+        if (armed === null || now >= armed.until) return { hold: null, change: "" };
+        if (stream.corked === true) return { hold: { phase: "waiting", until: armed.until }, change: "mute" };
+        if (stream.since < armed.at) return { hold: null, change: "" };
+        return { hold: { phase: "playing", until: now + APP_SOUND_HOLD }, change: "mute" };
+    }
+    if (hold.phase === "waiting" && stream.corked !== true)
+        return { hold: { phase: "playing", until: now + APP_SOUND_HOLD }, change: "again" };
+    if (now >= hold.until || (hold.phase === "playing" && stream.corked === true)) return { hold: null, change: "release" };
+    return { hold: hold, change: "" };
 }
 
 // ---------------------------------------------------------- lifetime

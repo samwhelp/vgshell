@@ -23,9 +23,13 @@
 # on a source_tree copy whose service plays the event whatever Silence
 # says: "a critical notification under Silence starts no player" failed,
 # reading one player more.
-# inputs: shell/Core/Sounds.qml shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
+# inputs: shell/Core/Sounds.qml scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
+# The app sound part needs the private PipeWire up before Quickshell's
+# Pipewire service is first read, which the first Do Not Disturb does.
+app_sound_devices=yes
+devices_ready "notifications app sound" || app_sound_devices=no
 note_state="$home/.local/state/vgshell/notifications/state.json"
 note_images="$home/.local/state/vgshell/notifications/images"
 notes() { ipc vgs.notifications invoke "$1" "${2:-}"; }
@@ -4019,6 +4023,105 @@ if stop_shell && start_shell "$repo" "$sandbox/notifications-restart-qs.log"; th
   expect "Do Not Disturb turns off after the shell restart" off notes silence off
 else
   fail "the shell did not stop and start again for the Sound and Do Not Disturb restart"
+fi
+
+# An app's own notification sound under Do Not Disturb or Sound off.
+# Smoke Chat, a made-up app, plays a 440 Hz tone in the sandbox's private
+# PipeWire through stand-in streams: its call to Smoke Headphones, playing
+# before its notification, and its chime to Smoke Speakers, opened just
+# after it, as Slack opens its chime's stream 74 to 121 ms after its
+# notification (VGS-1311). What a sink plays is read from its monitor:
+# `heard` above an RMS of 100, `silent` below. The chime is silent while
+# Do Not Disturb is on or Sound is off and the call is heard throughout,
+# its own mute and soft mute off; the chime is heard again once both turn
+# back, once the service that held it goes, and once a shell started after
+# a SIGKILL scans for the mute the killed one left.
+if [[ $app_sound_devices == yes ]]; then
+  app_tone="$sandbox/app-sound-tone.wav"
+  python3 -c 'import math,struct,sys,wave
+w = wave.open(sys.argv[1], "wb"); w.setnchannels(1); w.setsampwidth(2); w.setframerate(48000)
+second = b"".join(struct.pack("<h", int(8000 * math.sin(2 * math.pi * 440 * i / 48000))) for i in range(48000))
+w.writeframes(second * 300)' "$app_tone" || fail "the app sound tone could not be written"
+  # app_level SINK: `heard` or `silent`, from SINK's monitor for 0.8 s.
+  app_level() { # SINK
+    local take="$sandbox/app-level-$1.wav"
+    rm -f -- "${take:?}"
+    timeout 0.8 "${shell_env[@]}" pw-record --target "$1" -P '{ stream.capture.sink = true }' --channels 1 --format s16 --rate 48000 "$take" >/dev/null 2>&1 || true
+    python3 -c 'import struct,sys
+d = open(sys.argv[1], "rb").read()[44:]
+n = len(d) // 2
+if n < 4800: sys.exit("short take: %d samples" % n)
+s = struct.unpack("<%dh" % n, d[:n * 2])
+print("heard" if (sum(x * x for x in s) / n) ** 0.5 > 100 else "silent")' "$take"
+  }
+  # app_props NODE: the stream NODE's [mute, softMute] as PipeWire holds
+  # them, null while there is no such stream.
+  app_props() { # NODE
+    "${shell_env[@]}" pw-dump | py_reply 'import json,sys
+p = next(((o["info"].get("params") or {}).get("Props", [{}])[0] for o in json.load(sys.stdin) if o.get("type") == "PipeWire:Interface:Node" and (o["info"].get("props") or {}).get("node.name") == sys.argv[1]), None)
+print(json.dumps(None if p is None else [p.get("mute"), p.get("softMute")]))' "$1"
+  }
+  # The node names the service holds under a mute, null while it watches none.
+  app_held() { note_status appSounds | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps(None if v is None else v["held"]))'; }
+  app_play() { # NODE SINK
+    spawn "$sandbox/$1.log" "${shell_env[@]}" pw-cat --playback --target "$2" -P "{ application.name = \"Smoke Chat\" node.name = \"$1\" }" "$app_tone"
+  }
+  # app_chime SUMMARY NODE: Smoke Chat's notification, then its chime.
+  app_chime() { # SUMMARY NODE
+    notify "Smoke Chat" 0 "$1" "" '[]' '{"desktop-entry": <"smoke-chat">}' 0 >/dev/null || fail "$1: the notification was not sent"
+    app_play "$2" vgs-smoke-speakers
+    app_chime_pid="$spawn_pid"
+  }
+  app_hush() { kill -- "-$app_chime_pid" 2>/dev/null || true; }
+  expect "Sound is on for the app sound" on notes sound on
+  expect "Do Not Disturb turns on for the app sound" on notes silence on
+  expect_poll "the app sound watch runs under Do Not Disturb" '[]' app_held
+  app_play smoke-chat-call vgs-smoke-headphones
+  app_call_pid="$spawn_pid"
+  expect_poll "Smoke Chat's call plays" heard app_level vgs-smoke-headphones
+  app_chime "Chat under Do Not Disturb" smoke-chat-chime
+  expect_poll "the chime that opens with the notification is held" '["smoke-chat-chime"]' app_held
+  expect_poll "that chime is not heard" silent app_level vgs-smoke-speakers
+  expect "the call is heard while the chime is held" heard app_level vgs-smoke-headphones
+  expect "the call's mute and soft mute stay off" '[false, false]' app_props smoke-chat-call
+  expect "Do Not Disturb turns off with the chime held" off notes silence off
+  expect_poll "with Do Not Disturb off and Sound on nothing is watched" null app_held
+  expect_poll "the chime is heard once Do Not Disturb is off" heard app_level vgs-smoke-speakers
+  expect "the chime's soft mute is lifted" '[false, false]' app_props smoke-chat-chime
+  app_hush
+  app_chime "Chat with Sound on" smoke-chat-plain
+  expect_poll "with Sound on and Do Not Disturb off the chime is heard" heard app_level vgs-smoke-speakers
+  expect "with Sound on and Do Not Disturb off nothing is watched" null app_held
+  app_hush
+  expect "Sound turns off for the app sound" off notes sound off
+  app_chime "Chat with Sound off" smoke-chat-quiet
+  expect_poll "with Sound off the chime is held" '["smoke-chat-quiet"]' app_held
+  expect_poll "with Sound off the chime is not heard" silent app_level vgs-smoke-speakers
+  expect "with Sound off the call is heard" heard app_level vgs-smoke-headphones
+  # The service goes with the chime held, as at a shell exit.
+  expect "disabling the service with the chime held is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+  expect_poll "the disabled service is gone" False record_exists vgs.notifications
+  expect_poll "the chime is heard once the service that held it is gone" heard app_level vgs-smoke-speakers
+  expect "the gone service's soft mute is lifted" '[false, false]' app_props smoke-chat-quiet
+  app_hush
+  expect "enabling the service again is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+  expect_poll "the service is built again" True record_exists vgs.notifications
+  expect_poll "Sound is still off" false note_status sound
+  app_chime "Chat before a SIGKILL" smoke-chat-killed
+  expect_poll "the chime before the SIGKILL is held" '["smoke-chat-killed"]' app_held
+  expect_poll "the chime before the SIGKILL is not heard" silent app_level vgs-smoke-speakers
+  app_killed="$shell_qs_pid"
+  kill -KILL "$app_killed" || fail "the SIGKILL to the shell pid $app_killed failed"
+  expect "the killed shell left the chime's soft mute on" '[false, true]' app_props smoke-chat-killed
+  if adopt_shell "$app_killed"; then
+    expect_poll "the next shell built the notification service" True record_exists vgs.notifications
+    expect_poll "the next shell lifts the soft mute the killed one left" '[false, false]' app_props smoke-chat-killed
+    expect_poll "the chime the killed shell held is heard" heard app_level vgs-smoke-speakers
+    expect "the next shell holds nothing" '[]' app_held
+  fi
+  app_hush
+  kill -- "-$app_call_pid" 2>/dev/null || true
+  expect "Sound turns back on after the app sound" on notes sound on
 fi
 
 # Disabling and enabling again, three times over, leaves nothing behind.

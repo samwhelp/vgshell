@@ -106,8 +106,8 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             spacing: header.look.header.iconGap
 
-            // The shell's own sound alone: an application's sound is not
-            // the shell's to stop, and the tooltip claims no more.
+            // The shell's own sound. Sound off also mutes the sound an app
+            // plays itself for a notification, which the Sounds page says.
             IconButton {
                 size: "sm"
                 iconName: header.sound ? "volume-2" : "volume-off"

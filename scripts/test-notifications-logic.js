@@ -298,6 +298,42 @@ function verify(logic) {
     ])
         assert.equal(logic.bypassesSilence(app, urgency, hints), want, "silence: " + label);
 
+    // An app's own notification sound under Do Not Disturb or Sound off:
+    // which names an app goes by, which streams are its, and each step of
+    // a stream, [label, hold, arm, stream, now, the next hold, the change].
+    // The arm comes at 1000.
+    same(logic.soundApps("slack", "Slack"), ["slack"], "a desktop entry and an app name that differ only in case are one app");
+    same(logic.soundApps("org.example.Chat", "Example Chat"), ["org.example.chat", "example chat"], "an app goes by its desktop entry and its app name");
+    same(logic.soundApps(undefined, ""), [], "a notification that names no app arms none");
+    for (const [label, props, want] of [
+        ["a stream named by its app", { "application.name": "Slack" }, true],
+        ["a stream named by its program", { "application.name": "Chromium", "application.process.binary": "slack" }, true],
+        ["another app's stream", { "application.name": "Spotify", "application.process.binary": "spotify" }, false],
+        ["a stream not yet bound", {}, false],
+        ["no properties at all", null, false]
+    ])
+        assert.equal(logic.streamOfApps(props, ["slack"]), want, "app stream: " + label);
+    const ARM = logic.APP_SOUND_ARM, HOLD = logic.APP_SOUND_HOLD;
+    assert.ok(ARM >= 121 && ARM < HOLD, "the arm outlasts Slack's slowest stream and ends before a hold");
+    assert.ok(HOLD > 12000, "a hold outlasts Slack's chime stream, which pauses 12 s after it starts");
+    const armed = { at: 1000, until: 1000 + ARM };
+    for (const [label, hold, arm, stream, now, wantHold, wantChange] of [
+        ["a stream that opens and plays after its app's notification is muted", null, armed, { corked: false, since: 1075 }, 1150, { phase: "playing", until: 1150 + HOLD }, "mute"],
+        ["a stream that opens paused is muted before it plays", null, armed, { corked: true, since: 1075 }, 1080, { phase: "waiting", until: 1000 + ARM }, "mute"],
+        ["a paused stream of the app is muted before it plays again", null, armed, { corked: true, since: 0 }, 1000, { phase: "waiting", until: 1000 + ARM }, "mute"],
+        ["a stream that already plays, such as a call, is never muted", null, armed, { corked: false, since: 0 }, 1100, null, ""],
+        ["a stream that already plays and does not say so is never muted", null, armed, { corked: null, since: 0 }, 1100, null, ""],
+        ["no arm, no mute", null, null, { corked: false, since: 1075 }, 1150, null, ""],
+        ["a stream that opens once the arm ended is not muted", null, armed, { corked: false, since: 1000 + ARM }, 1000 + ARM, null, ""],
+        ["a waiting stream that starts to play is muted again and held", { phase: "waiting", until: 1000 + ARM }, armed, { corked: false, since: 1075 }, 1150, { phase: "playing", until: 1150 + HOLD }, "again"],
+        ["a waiting stream that stays paused through the arm is released", { phase: "waiting", until: 1000 + ARM }, null, { corked: true, since: 1075 }, 1000 + ARM, null, "release"],
+        ["a waiting stream stays muted while the arm runs", { phase: "waiting", until: 1000 + ARM }, armed, { corked: true, since: 1075 }, 1500, { phase: "waiting", until: 1000 + ARM }, ""],
+        ["a playing stream stays muted while it plays", { phase: "playing", until: 1150 + HOLD }, null, { corked: false, since: 1075 }, 5000, { phase: "playing", until: 1150 + HOLD }, ""],
+        ["a playing stream that pauses is released", { phase: "playing", until: 1150 + HOLD }, null, { corked: true, since: 1075 }, 12900, null, "release"],
+        ["a stream still playing at the hold's end is released", { phase: "playing", until: 1150 + HOLD }, null, { corked: false, since: 1075 }, 1150 + HOLD, null, "release"]
+    ])
+        same(logic.appSoundStep(hold, arm, stream, now), { hold: wantHold, change: wantChange }, "app sound: " + label);
+
     // Lifetimes: [urgency, sender's timeout, the duration setting in
     // milliseconds, milliseconds shown].
     for (const [urgency, asked, normal, want] of [[U.low, 0, 8000, 5000], [U.low, 7000, 8000, 7000], [U.normal, 0, 8000, 8000], [U.normal, 3000, 8000, 8000], [U.normal, 12000, 8000, 12000], [U.normal, 90000, 8000, 30000], [U.critical, 5000, 8000, 0], [U.normal, -1, 8000, 8000], [U.normal, NaN, 8000, 8000],
@@ -928,6 +964,14 @@ const CONTROLS = [
     ["a plugin hint is a string", 'typeof hints["x-vgs-plugin"] === "string" && hints', 'hints'],
     ["a plugin hint is not empty", ' && hints["x-vgs-plugin"] !== "";', ';'],
     ["critical stays", "if (urgency === URGENCY.critical) return 0;", ""],
+    ["an app's names fold case", 'var key = String(name || "").toLowerCase();', 'var key = String(name || "");'],
+    ["a stream's program names its app", '["application.name", "application.process.binary"]', '["application.name"]'],
+    ["a stream that already plays is never muted", "if (stream.since < armed.at) return { hold: null, change: \"\" };", ""],
+    ["a paused stream is muted before it plays", 'if (stream.corked === true) return { hold: { phase: "waiting", until: armed.until }, change: "mute" };', ""],
+    ["the arm ends", "if (armed === null || now >= armed.until) return", "if (armed === null) return"],
+    ["a stream that starts to play is muted again", 'change: "again" };', 'change: "" };'],
+    ["a pause releases a playing stream", ' || (hold.phase === "playing" && stream.corked === true)', ""],
+    ["a hold ends", "if (now >= hold.until || ", "if (false || "],
     ["lifetime ceiling", "return Math.min(MAX_LIFETIME, Math.max(floor, Math.round(asked)));", "return Math.max(floor, Math.round(asked));"],
     ["the duration setting is the normal floor", "var floor = urgency === URGENCY.low ? Math.min(LOW_LIFETIME, normal) : normal;", "var floor = urgency === URGENCY.low ? Math.min(LOW_LIFETIME, normal) : 8000;"],
     ["a low toast stays no longer than the setting", "Math.min(LOW_LIFETIME, normal)", "LOW_LIFETIME"],
