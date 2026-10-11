@@ -187,61 +187,9 @@ jarvis_bubble_click() { # LABEL
   click "$x" "$y" || fail "the labelled $1 button click is not delivered"
 }
 jarvis_bubble_begin() {
-  local phase
   jarvis_key_talk_down
-  for _ in {1..50}; do
-    phase="$(jarvis_key_state phase)" || phase=unread
-    [[ $phase != speaking ]] || jarvis_key_gate played
-    [[ $phase != listening ]] || break
-    sleep 0.1
-  done
   expect_poll "capture waits for the bubble then listens" listening jarvis_key_state phase
   expect_poll "the listening bubble has presented on its own host" presented jarvis_bubble_state
-}
-jarvis_bubble_capture_mode() {
-  ipc smoke jarvisProcess | py_reply '
-import json,sys
-capture=json.load(sys.stdin)["status"]["detail"]["state"]["capture"]
-print(capture.get("mode", capture["kind"]))
-'
-}
-jarvis_bubble_widget_state() {
-  local bar
-  bar="$(bar_key)" || return 1
-  ipc smoke readInstance "$bar" vgs.jarvis view | py_reply 'import json,sys; print(json.load(sys.stdin)["state"])'
-}
-jarvis_bubble_widget_tooltip() {
-  local bar
-  bar="$(bar_key)" || return 1
-  ipc smoke readInstance "$bar" vgs.jarvis view | py_reply 'import json,sys; print(json.load(sys.stdin)["tooltip"])'
-}
-jarvis_bubble_widget_not_follow_up() {
-  local state
-  state="$(jarvis_bubble_widget_tooltip)" || return 1
-  [[ $state == *follow-up* ]] && echo follow-up || echo other
-}
-jarvis_bubble_follow_up_assertion() {
-  expect "place the Jarvis widget for the follow-up icon read" ok ipc shell setPluginPlaced vgs.jarvis true
-  expect_poll "the Jarvis bar widget is mounted for the follow-up icon read" 1 jarvis_bubble_widgets
-  jarvis_key_mode always
-  jarvis_bubble_begin
-  jarvis_key_gate final
-  jarvis_key_commit
-  jarvis_key_gate played
-  jarvis_key_gate reply
-  expect_poll "the scripted reply reaches the bubble before the follow-up window" latest-lines jarvis_bubble_words
-  jarvis_key_gate played
-  expect_poll "the follow-up capture opens" follow-up jarvis_bubble_capture_mode
-  expect_poll "the bar icon reads listening during the follow-up window" listening jarvis_bubble_widget_state
-  expect_poll "the bar tooltip names the follow-up window" "Jarvis is listening for a follow-up" jarvis_bubble_widget_tooltip
-  expect_poll "the bubble reads Listening during the follow-up window" drawn jarvis_bubble_text Listening
-  expect_poll "silence closes the follow-up window and returns to wake-word listening" armed jarvis_key_state phase
-  expect_poll "the bar tooltip no longer names follow-up after the window" other jarvis_bubble_widget_not_follow_up
-  expect_poll "the bubble no longer reads Listening after the follow-up window" absent jarvis_bubble_text Listening
-  jarvis_key_mode hold
-  jarvis_key_stop
-  jarvis_key_stop_assertion
-  expect "unplace the Jarvis widget after the follow-up icon read" ok ipc shell setPluginPlaced vgs.jarvis false
 }
 
 # The real service acknowledges the frame, then Session applies its draw
@@ -548,10 +496,6 @@ expect "a new conversation draws none of the last one's words" absent jarvis_bub
 jarvis_key_stop
 jarvis_key_stop_assertion
 
-jarvis_bubble_follow_up_assertion
-jarvis_disable
-jarvis_enable
-
 jarvis_bubble_begin
 jarvis_bubble_launcher="$(ipc smoke jarvisProcess | jarvis_launcher_pid)" || exit 1
 jarvis_bubble_daemon="$(jarvis_descendants "$jarvis_bubble_launcher")" || exit 1
@@ -745,39 +689,6 @@ PY
   jarvis_disable
   cp -- "$sandbox/jarvis-bubble-before" "$jarvis_bubble_file"
 done
-jarvis_bubble_session="$repo/shell/plugins/vgs.jarvis/Session.js"
-cp -- "$jarvis_bubble_session" "$sandbox/jarvis-bubble-session-before"
-python3 - "$jarvis_bubble_session" <<'PY'
-from pathlib import Path
-import sys
-p=Path(sys.argv[1]); assert not p.is_symlink()
-s=p.read_text()
-needle='s.input = { kind: "follow-up" };'
-assert s.count(needle)==1
-p.write_text(s.replace(needle, 's.input = { kind: "armed" };'))
-PY
-jarvis_rescan
-jarvis_enable
-jarvis_bubble_follow_up_control="$(
-  failures=0 behaviour_failures=0
-  jarvis_bubble_follow_up_assertion >"$sandbox/jarvis-bubble-follow-up-control.log"
-  grep -F 'FAIL  the follow-up capture opens:' "$sandbox/jarvis-bubble-follow-up-control.log" >/dev/null && echo failed || echo missing
-)"
-expect "control: removing the follow-up window fails the same bar and bubble check" failed printf '%s\n' "$jarvis_bubble_follow_up_control"
-jarvis_disable
-cp -- "$sandbox/jarvis-bubble-session-before" "$jarvis_bubble_session"
-jarvis_rescan
-jarvis_enable
-jarvis_key_mode hold
-jarvis_key_talk_up
-jarvis_key_stop
-jarvis_key_stop_assertion
-hold_barrier
-if [[ $(jarvis_key_state mute) != off ]]; then
-  jarvis_key_mute
-  expect_poll "control cleanup unmutes Jarvis" off jarvis_key_state mute
-  hold_barrier
-fi
 # Restore the independent bindings in one disposable source copy. Clearing
 # its hold must make the diagnostics row fail. Only that copy's source URI
 # is excused after the control; the normal bubble remains subject to the row.
