@@ -207,7 +207,7 @@ functions="$tmp/functions.sh"
 cut_functions() { # RUNNER
   { sed -n '/^py_reply() {/,/^}/p; /^now_ms() {/p' "$repo/scripts/smoke/harness.sh"
     for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_service_phase selftest_voice_state selftest_gate_context selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
-      selftest_woke selftest_end selftest_audio selftest_audio_record selftest_wav_tail selftest_speech_tail selftest_open selftest_case_check selftest_compare selftest_case_child_args selftest_suite_summary selftest_suite_stopped selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$1"; done
+      selftest_woke selftest_end selftest_audio selftest_audio_record selftest_wav_tail selftest_speech_tail selftest_open selftest_case_check selftest_compare selftest_case_child_args selftest_tts_voice selftest_suite_summary selftest_suite_stopped selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$1"; done
     sed -n '/^devices_speaker_sounds() {/,/^}/p' "$repo/scripts/smoke/devices.sh"; } >"$functions"
 }
 call() { selftest_node="$node_bin" bash -c 'set -euo pipefail; source "$1"; shift; "$@"' _ "$functions" "$@"; }
@@ -485,15 +485,15 @@ json.dump({"passed": passed == "true", "heard": heard, "tools": json.loads(tools
 PY
 }
 compare_match() { write_compare_case; write_compare_record "two plus two" '[]' "It is 4." 300 true; [[ "$(call selftest_compare "$compare_case" "$compare_record" case)" == match ]] && grep -q '"source": "case"' "$compare_record" && grep -q '"differs": \[\]' "$compare_record"; }
-compare_heard() { write_compare_case; write_compare_record "two two" '[]' "It is 4." 300 true; [[ "$(call selftest_compare "$compare_case" "$compare_record")" == "differs fields=heard" ]]; }
+compare_heard() { write_compare_case; write_compare_record 'two "two"' '[]' "It is 4." 300 true; [[ "$(call selftest_compare "$compare_case" "$compare_record")" == 'differs fields=heard heard="two \"two\"" expected="two|2 plus"' ]]; }
 compare_tool_missing() { write_compare_case; python3 - "$compare_case" <<'PY'
 import json,sys
 p=sys.argv[1]; d=json.load(open(p)); d["tool"]="media.volume"; json.dump(d, open(p,"w"))
 PY
-  write_compare_record "two plus" '[]' "It is 4." 300 true; [[ "$(call selftest_compare "$compare_case" "$compare_record")" == "differs fields=tool" ]]; }
-compare_tool_none() { write_compare_case; write_compare_record "two plus" '[{"tool":"media.volume","outcome":"completed"}]' "It is 4." 300 true; [[ "$(call selftest_compare "$compare_case" "$compare_record")" == "differs fields=tool" ]]; }
-compare_said() { write_compare_case; write_compare_record "two plus" '[]' "It is five." 300 true; [[ "$(call selftest_compare "$compare_case" "$compare_record")" == "differs fields=said" ]]; }
-compare_turn_audio() { write_compare_case; write_compare_record "two plus" '[]' "It is 4." null false; [[ "$(call selftest_compare "$compare_case" "$compare_record")" == "differs fields=turn,audio" ]]; }
+  write_compare_record "two plus" '[]' "It is 4." 300 true; [[ "$(call selftest_compare "$compare_case" "$compare_record")" == "differs fields=tool heard=\"two plus\" expected=\"two|2 plus\"" ]]; }
+compare_tool_none() { write_compare_case; write_compare_record "two plus" '[{"tool":"media.volume","outcome":"completed"}]' "It is 4." 300 true; [[ "$(call selftest_compare "$compare_case" "$compare_record")" == "differs fields=tool heard=\"two plus\" expected=\"two|2 plus\"" ]]; }
+compare_said() { write_compare_case; write_compare_record "two plus" '[]' "It is five." 300 true; [[ "$(call selftest_compare "$compare_case" "$compare_record")" == "differs fields=said heard=\"two plus\" expected=\"two|2 plus\"" ]]; }
+compare_turn_audio() { write_compare_case; write_compare_record "two plus" '[]' "It is 4." null false; [[ "$(call selftest_compare "$compare_case" "$compare_record")" == "differs fields=turn,audio heard=\"two plus\" expected=\"two|2 plus\"" ]]; }
 holds "comparison accepts matching heard words, no tool, spoken alternatives and audio" compare_match
 holds "comparison differs when the heard transcript lacks a word" compare_heard
 holds "comparison differs when an expected completed tool call is absent" compare_tool_missing
@@ -502,6 +502,7 @@ holds "comparison differs when the spoken reply lacks a word" compare_said
 holds "comparison accepts alternatives and reports turn plus missing audio" compare_turn_audio
 control cut_functions "a comparison that skips the heard field" 'if not has_words(record.get("heard"), case["heard"]):' 'if False and not has_words(record.get("heard"), case["heard"]):' compare_heard
 control cut_functions "a comparison that skips the tool field" 'elif not any(row.get("tool") == case["tool"] for row in tools):' 'elif False and not any(row.get("tool") == case["tool"] for row in tools):' compare_tool_missing
+control cut_functions "a comparison line that leaves out the heard words" '" heard=" + quoted(record.get("heard") or "")' '""' compare_heard
 control cut_functions "a comparison that skips the said field" 'if not has_words(spoken, case["said"]):' 'if False and not has_words(spoken, case["said"]):' compare_said
 
 case_files_hold() {
@@ -543,6 +544,15 @@ holds "a local recording replaces that case's input and reports source local" ca
 holds "a case without a local recording keeps its tracked input and reports source case" case_child_args_case
 control cut_functions "a suite child argument builder that ignores local recordings" 'if local and os.path.isfile(local):' 'if False and local and os.path.isfile(local):' case_child_args_local
 
+
+# The text-to-speech voice is the one the prepared setup's tier loads.
+tts_voice_case() { # TIER WANT
+  printf '{"tier": "%s"}\n' "$1" >"$tmp/tts-marker.json"
+  [[ "$(call selftest_tts_voice "$repo/shell/plugins/vgs.jarvis" "$tmp/tts-marker.json")" == "$2" ]]
+}
+holds "a prepared setup that selects kokoro speaks with kokoro" tts_voice_case medium kokoro
+holds "a prepared setup that selects piper speaks with piper" tts_voice_case small piper
+control cut_functions "a fixed piper voice" 'print(speech.roles(artifacts, tier)["tts"]["id"])' 'print("piper")' tts_voice_case medium kokoro
 
 echo "--- the audio measure"
 audio_capture="$tmp/audio.jsonl"
@@ -586,7 +596,7 @@ control_devices() { # LABEL OLD NEW CASE
   if ! mutate "$repo/scripts/smoke/devices.sh" "$old" "$new" "$mutant"; then fail "control: $label: its defect did not apply"; return; fi
   { sed -n '/^py_reply() {/,/^}/p; /^now_ms() {/p' "$repo/scripts/smoke/harness.sh"
     for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_service_phase selftest_voice_state selftest_gate_context selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
-      selftest_woke selftest_end selftest_audio selftest_audio_record selftest_wav_tail selftest_speech_tail selftest_open selftest_case_check selftest_compare selftest_case_child_args selftest_suite_summary selftest_suite_stopped selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$runner"; done
+      selftest_woke selftest_end selftest_audio selftest_audio_record selftest_wav_tail selftest_speech_tail selftest_open selftest_case_check selftest_compare selftest_case_child_args selftest_tts_voice selftest_suite_summary selftest_suite_stopped selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$runner"; done
     sed -n '/^devices_speaker_sounds() {/,/^}/p' "$mutant"; } >"$functions"
   if "$case"; then fail "control: $label stayed green"; else ok "control: $label"; fi
   cut_functions "$runner"

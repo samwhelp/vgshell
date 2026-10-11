@@ -25,8 +25,8 @@
 #                microphone Jarvis records with its own pw-record. The feed
 #                starts only once the bar widget reads the microphone open
 #                and a capture stream reads that source.
-#   --tts TEXT   the same, over a WAV the pinned voice that made the plugin's
-#                probe.wav speaks from TEXT (fixtures/PROVENANCE).
+#   --tts TEXT   the same, over a WAV spoken from TEXT by the text-to-speech
+#                voice the prepared setup's tier loads, piper or kokoro.
 #   --type TEXT  the line sent through the plugin's `say` IPC handler.
 # A voice input opens the conversation through the service's Talk intent in
 # Toggle mode, or through the local wake word in Always mode, so the
@@ -216,21 +216,41 @@ selftest_local_inputs() {
   printf '%s\n%s\n' "$root" "$(readlink -f -- "$marker")"
 }
 
-# selftest_speak PLUGIN ROOT TEXT OUT: TEXT spoken into the WAV OUT by the
-# pinned voice that made PLUGIN's probe.wav, loaded by PLUGIN's own artifact
-# judge from the prepared setup ROOT, in a network namespace as the plugin's
-# sidecar runs, with OUT's directory as its HOME. Exit 77 when ROOT holds
-# no such voice.
-selftest_speak() { # PLUGIN ROOT TEXT OUT
-  env -i PATH="$PATH" HOME="$(dirname -- "$4")" LC_ALL=C.UTF-8 unshare --map-current-user --net -- \
-    "$2/venv/bin/python" -I - "$1" "$2/models" "$3" "$4" <<'PY'
+# selftest_tts_voice PLUGIN MARKER: the id of the text-to-speech artifact
+# Jarvis's local voice loads for the tier the ready marker MARKER names,
+# chosen by PLUGIN's own setup and sidecar, as the sidecar chooses it.
+selftest_tts_voice() { # PLUGIN MARKER
+  env -i PATH="$PATH" LC_ALL=C.UTF-8 python3 -B -I - "$1" "$2" <<'PY'
+import importlib.machinery, importlib.util, json, sys
+from pathlib import Path
+plugin, marker = Path(sys.argv[1]), sys.argv[2]
+def module(name, path):
+    loader = importlib.machinery.SourceFileLoader(name, str(path))
+    value = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(value)
+    return value
+setup = module("jarvis_setup", plugin / "setup-local")
+speech = module("jarvis_local_speech", plugin / "backend/local-speech.py")
+tier = json.load(open(marker))["tier"]
+artifacts, _ = setup.selected(setup.measurement().manifest(plugin / "artifacts.json"), tier)
+print(speech.roles(artifacts, tier)["tts"]["id"])
+PY
+}
+
+# selftest_speak PLUGIN ROOT VOICE TEXT OUT: TEXT spoken into the WAV OUT by
+# the artifact VOICE, loaded by PLUGIN's own artifact judge from the
+# prepared setup ROOT, in a network namespace as the plugin's sidecar runs,
+# with OUT's directory as its HOME. Exit 77 when ROOT holds no such voice.
+selftest_speak() { # PLUGIN ROOT VOICE TEXT OUT
+  env -i PATH="$PATH" HOME="$(dirname -- "$5")" LC_ALL=C.UTF-8 unshare --map-current-user --net -- \
+    "$2/venv/bin/python" -I - "$1" "$2/models" "$3" "$4" "$5" <<'PY'
 import importlib.machinery, importlib.util, sys, wave
 from pathlib import Path
-plugin, models, text, out = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
+plugin, models, voice_id, text, out = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5]
 loader = importlib.machinery.SourceFileLoader("jarvis_measure", str(plugin / "measure-local"))
 judge = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
 loader.exec_module(judge)
-voice = next(a for a in judge.manifest(plugin / "artifacts.json")["artifacts"] if a["id"] == "piper")
+voice = next(a for a in judge.manifest(plugin / "artifacts.json")["artifacts"] if a["id"] == voice_id)
 if not (models / voice["directory"]).is_dir():
     sys.exit(77)
 import numpy as np
@@ -764,7 +784,9 @@ PY
 }
 
 # selftest_compare CASE_FILE RECORD SOURCE: add the case verdict to RECORD and
-# print `match` or `differs fields=a,b`. SOURCE is case for tracked input
+# print `match` or `differs fields=a,b heard="..." expected="..."`: the
+# transcript Session committed beside the case's expected heard words, so a
+# mishearing reads on the suite's line. SOURCE is case for tracked input
 # and local for --voices.
 selftest_compare() { # CASE_FILE RECORD SOURCE
   python3 - "$1" "$2" "${3:-case}" <<'PY'
@@ -798,7 +820,8 @@ with open(record_file + ".next", "w") as out:
     json.dump(record, out, indent=2, ensure_ascii=False)
     out.write("\n")
 os.replace(record_file + ".next", record_file)
-print("match" if not fields else "differs fields=" + ",".join(fields))
+quoted = lambda text: json.dumps(text, ensure_ascii=False)
+print("match" if not fields else "differs fields=" + ",".join(fields) + " heard=" + quoted(record.get("heard") or "") + " expected=" + quoted(" ".join(case["heard"])))
 PY
 }
 
@@ -845,7 +868,7 @@ selftest_suite_stopped() { # CASES MATCHED DIFFER NOT_RUN FAILED DIR
 
 # selftest_suite CASE: run one or every case as child self-tests.
 selftest_suite() { # NAME
-  local suite_name="$1" dir="$out" case_file name source status verdict record fields matched=0 differ=0 not_run=0 failed=0 total=0 seen=0
+  local suite_name="$1" dir="$out" case_file name source status verdict record matched=0 differ=0 not_run=0 failed=0 total=0 seen=0
   local -a case_files=() case_args=() child_args=()
   if [[ $suite_name == all ]]; then
     while IFS= read -r case_file; do case_files+=("$case_file"); done < <(find "$selftest_cases_dir" -maxdepth 1 -type f -name '*.json' | LC_ALL=C sort)
@@ -894,7 +917,7 @@ PY
       verdict="$(selftest_compare "$case_file" "$record" "$source")" || return 1
       case "$verdict" in
         match) printf 'case=%s source=%s verdict=match record=%s\n' "$name" "$source" "$record"; matched=$((matched + 1)) ;;
-        differs*) fields="${verdict#differs fields=}"; printf 'case=%s source=%s verdict=differs fields=%s record=%s\n' "$name" "$source" "$fields" "$record"; differ=$((differ + 1)) ;;
+        differs*) printf 'case=%s source=%s verdict=%s record=%s\n' "$name" "$source" "$verdict" "$record"; differ=$((differ + 1)) ;;
       esac
     else
       printf 'case=%s source=%s verdict=failed status=%s\n' "$name" "$source" "$status"
@@ -1152,7 +1175,8 @@ if [[ $confirm == key ]]; then draw_ms="$(selftest_draw_ms "$source_repo")" || s
 if [[ $input_kind == tts ]]; then
   wav="$sandbox/selftest-input.wav"
   status=0
-  selftest_speak "$plugin" "$local_root" "$input_value" "$wav" || status=$?
+  tts_voice="$(selftest_tts_voice "$plugin" "$local_marker")" || stopped tts-voice-unread
+  selftest_speak "$plugin" "$local_root" "$tts_voice" "$input_value" "$wav" || status=$?
   [[ $status -ne 77 ]] || unavailable local-inputs-unavailable
   [[ $status -eq 0 ]] || stopped tts-failed "exit=$status"
   if ! selftest_wav_tail "$wav" >"$sandbox/selftest-input.tail"; then stopped tts-unreadable; fi
