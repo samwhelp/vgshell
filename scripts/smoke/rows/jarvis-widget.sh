@@ -54,9 +54,9 @@ if detail_lines:
 print(json.dumps([json.loads(icon), names[0] if len(names) == 1 else "colour=" + colour, tip_text]))
 PY
 }
-jarvis_widget_ready='["mic", "calm", "Jarvis is ready\nHold Super+Right Alt and speak.\nClick or press Super+Shift+Right Alt to mute."]'
-jarvis_widget_listening='["audio-lines", "accent", "Jarvis is listening\nSpeak now.\nClick or press Super+Shift+Right Alt to mute."]'
-jarvis_widget_muted='["mic-off", "neutral", "Jarvis is muted\nClick or press Super+Shift+Right Alt to unmute."]'
+jarvis_widget_ready='["mic", "calm", "Jarvis is ready\nAI model: Scripted\nHold Super+Right Alt and speak.\nClick or press Super+Shift+Right Alt to mute."]'
+jarvis_widget_listening='["audio-lines", "accent", "Jarvis is listening\nAI model: Scripted\nSpeak now.\nClick or press Super+Shift+Right Alt to mute."]'
+jarvis_widget_muted='["mic-off", "neutral", "Jarvis is muted\nAI model: Scripted\nClick or press Super+Shift+Right Alt to unmute."]'
 jarvis_widget_click() { click_centre "$jarvis_widget_key" vgs.jarvis || fail "the click on the Jarvis widget failed"; }
 jarvis_widget_click_mutes() { expect_poll "a click on the widget mutes Jarvis" "$jarvis_widget_muted" jarvis_widget; }
 jarvis_widget_click_control() { # LABEL
@@ -64,7 +64,7 @@ jarvis_widget_click_control() { # LABEL
    jarvis_widget_click_mutes >"$sandbox/jarvis-widget-click-$1-control.log"
    echo "$failures")
 }
-jarvis_widget_closing() { expect_poll "the widget reads listening while muting closes capture" '["audio-lines", "accent", "Jarvis is listening\nSpeak now.\nClick or press Super+Shift+Right Alt to unmute."]' jarvis_widget; }
+jarvis_widget_closing() { expect_poll "the widget reads listening while muting closes capture" '["audio-lines", "accent", "Jarvis is listening\nAI model: Scripted\nSpeak now.\nClick or press Super+Shift+Right Alt to unmute."]' jarvis_widget; }
 jarvis_widget_closing_control() {
   (failures=0 behaviour_failures=0
    jarvis_widget_closing >"$sandbox/jarvis-widget-closing-control.log"
@@ -190,10 +190,10 @@ expect_poll "talk down opens capture" listening jarvis_key_state phase
 expect_poll "the widget reads listening while Jarvis listens" "$jarvis_widget_listening" jarvis_widget
 jarvis_key_talk_up
 expect_poll "release commits the scripted utterance" thinking jarvis_key_state phase
-expect_poll "the widget reads working while Jarvis thinks" '["brain", "info", "Jarvis is thinking\nPress Super+Alt+Period to stop.\nClick or press Super+Shift+Right Alt to mute."]' jarvis_widget
+expect_poll "the widget reads working while Jarvis thinks" '["brain", "info", "Jarvis is thinking\nAI model: Scripted\nPress Super+Alt+Period to stop.\nClick or press Super+Shift+Right Alt to mute."]' jarvis_widget
 jarvis_widget_gate brain
 expect_poll "the scripted brain speaks" speaking jarvis_key_state phase
-expect_poll "the widget reads speaking during playback" '["volume-2", "accent", "Jarvis is speaking\nPress Super+Alt+Period to stop.\nClick or press Super+Shift+Right Alt to mute."]' jarvis_widget
+expect_poll "the widget reads speaking during playback" '["volume-2", "accent", "Jarvis is speaking\nAI model: Scripted\nPress Super+Alt+Period to stop.\nClick or press Super+Shift+Right Alt to mute."]' jarvis_widget
 jarvis_widget_gate played
 expect_poll "scripted playback returns to idle" idle jarvis_key_state phase
 expect_poll "the widget reads ready after the answer" "$jarvis_widget_ready" jarvis_widget

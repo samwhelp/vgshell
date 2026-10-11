@@ -41,7 +41,10 @@ FocusScope {
     function stateText() {
         const view = WidgetView.view(values, WidgetView.spelledKeys(shell === null ? null : shell.shortcut.keys, KeyNavLogic.keyCaps),
             shell === null ? "hold" : shell.settings.mode);
-        return view.state === "problem" || view.state === "off" ? view.tooltip + ". " + view.tooltipDetails[0] : view.tooltip;
+        const model = view.tooltipDetails.find(line => String(line).indexOf("AI model: ") === 0);
+        const modelText = model === undefined ? "" : "\n" + model;
+        const firstAction = view.tooltipDetails.find(line => String(line).indexOf("AI model: ") !== 0);
+        return view.state === "problem" || view.state === "off" ? view.tooltip + modelText + ". " + firstAction : view.tooltip + modelText;
     }
 
     function rows() {

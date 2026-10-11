@@ -37,6 +37,11 @@ function detail(regions) {
     assert.equal(Session.validate(s), true, "fixture is a Session record: " + JSON.stringify(regions));
     return { phase: Session.phaseOf(s), seq: 1, state: s };
 }
+function named(values, brain) {
+    const out = copy(values);
+    out.detail.brain = brain;
+    return out;
+}
 const down = reason => ({ gate: { kind: "down", reason } });
 const OPEN = { capture: { kind: "open", gen: 1, op: 2, mode: "hold" } };
 const CLOSING = { capture: { kind: "closing", gen: 1, op: 3 } };
@@ -148,9 +153,13 @@ const CASES = [
     ["gate lock unknown", up(down("lock-unknown")), ["off", "power-off", "neutral", tip("Jarvis is checking the screen lock", ["Wait for the screen lock check.", MUTE])]],
     ["gate locked", up(down("locked")), ["off", "power-off", "neutral", tip("Jarvis is off while the screen is locked", ["Unlock the screen to use Jarvis.", MUTE])]],
     ["thinking", up(THINKING), ["working", "brain", "info", tip("Jarvis is thinking", [STOP, MUTE])]],
+    ["thinking names the model", named(up(THINKING), "Fable 5.1"), ["working", "brain", "info", tip("Jarvis is thinking", ["AI model: Fable 5.1", STOP, MUTE])]],
     ["cancelling a turn", up({ turn: { kind: "cancelling", gen: 1, op: 4, deadline: 70 } }), ["working", "brain", "info", tip("Jarvis is thinking", [STOP, MUTE])]],
     ["speaking", up({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } }),
         ["speaking", "volume-2", "accent", tip("Jarvis is speaking", [STOP, MUTE])]],
+    ["speaking names the model", named(up({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } }), "Fable 5.1"),
+        ["speaking", "volume-2", "accent", tip("Jarvis is speaking", ["AI model: Fable 5.1", STOP, MUTE])]],
+    ["ready names the model", named(up({}), "Fable 5.1"), ["ready", "mic", "calm", tip("Jarvis is ready", ["AI model: Fable 5.1", HOLD, MUTE])]],
     ["confirming", up({ approval: { kind: "held", purpose: "action", gen: 1, op: 6, id: "a1", digest: "d1", deadline: 90, shownAt: null,
         physical: true, text: "Fixture action", tool: "fixture", timeoutMs: 1000, cancellable: false, brain: 4 } }),
         ["working", "brain", "info", tip("Jarvis is waiting for your confirmation", [CONFIRM, MUTE])]],
@@ -304,7 +313,7 @@ const CONTROLS = [
     ["memory explanation discarded", 'return { title: step.text, action: "Open Settings > Jarvis. " + step.hint };', 'return GATE_TEXT.unconfigured;'],
     ["checking setup reads off", 'state.gate.reason === "unconfigured" && setupChecking(values)', 'state.gate.reason === "unconfigured" && false'],
     ["checking hides an offered setup action", '!step || offered(step) ||', '!step ||'],
-    ["a refused home folder reads as another step", 'if (down && state.gate.reason === "unconfigured" && homeRefused(values)) return textLook("off", homeText(values), muteOn, effectiveKeys);', ''],
+    ["a refused home folder reads as another step", 'if (down && state.gate.reason === "unconfigured" && homeRefused(values)) return withBrain(textLook("off", homeText(values), muteOn, effectiveKeys));', ''],
     ["a home folder step with nothing to ask reads refused", 'return !!home && home.tone === "warning" && ', 'return !!home && '],
     ["missing requirements read checking", '(step.tone !== "info" && step.tone !== "ok")', 'false'],
     ["done steps read checking", 'return checking;', 'return true;'],
@@ -318,18 +327,18 @@ const CONTROLS = [
     ["a Session error is not a problem", 'detail.phase === "error") return', 'false) return'],
     ["an audio problem is not a problem", 'audio.tone === "danger") return', 'false) return'],
     ["no state yet is not loading", 'if (state === null) return textLook("loading"', 'if (false) return textLook("loading"'],
-    ["mute is not shown", 'if (muteOn) return look("muted"', 'if (false) return look("muted"'],
+    ["mute is not shown", 'if (muteOn) return withBrain(look("muted"', 'if (false) return withBrain(look("muted"'],
     ["muting is not muted", 'case "muting": case "on": return true;', 'case "on": return true;'],
-    ["a lowered gate is not off", 'if (down) return textLook("off"', 'if (false) return textLook("off"'],
-    ["loading reads ready", 'return look("loading", "Jarvis is loading its voice", ["Wait for local voice to load."], muteOn, effectiveKeys);', 'return look("ready", "Jarvis is ready", [readyAction(effectiveMode, effectiveKeys)], muteOn, effectiveKeys);'],
+    ["a lowered gate is not off", 'if (down) return withBrain(textLook("off"', 'if (false) return withBrain(textLook("off"'],
+    ["loading reads ready", 'return withBrain(look("loading", "Jarvis is loading its voice", ["Wait for local voice to load."], muteOn, effectiveKeys));', 'return withBrain(look("ready", "Jarvis is ready", [readyAction(effectiveMode, effectiveKeys)], muteOn, effectiveKeys));'],
     ["loading overrides a privacy gate", '(!down || state.gate.reason === "unconfigured") && voiceLoading(values)', 'voiceLoading(values)'],
-    ["thinking reads speaking", 'case "thinking":\n        return look("working", detail.brain ? detail.brain + " is thinking" : WORK_TEXT[detail.phase], [stopAction(effectiveKeys)], muteOn, effectiveKeys);', 'case "thinking":\n        return look("speaking", "Jarvis is speaking", [stopAction(effectiveKeys)], muteOn, effectiveKeys);'],
-    ["speaking reads working", 'return look("speaking", detail.brain ? "Jarvis is speaking for " + detail.brain : "Jarvis is speaking", [stopAction(effectiveKeys)], muteOn, effectiveKeys);', 'return look("working", "Jarvis is speaking", [stopAction(effectiveKeys)], muteOn, effectiveKeys);'],
+    ["thinking reads speaking", 'case "thinking":\n        return withBrain(look("working", WORK_TEXT[detail.phase], [stopAction(effectiveKeys)], muteOn, effectiveKeys));', 'case "thinking":\n        return withBrain(look("speaking", "Jarvis is speaking", [stopAction(effectiveKeys)], muteOn, effectiveKeys));'],
+    ["speaking reads working", 'return withBrain(look("speaking", "Jarvis is speaking", [stopAction(effectiveKeys)], muteOn, effectiveKeys));', 'return withBrain(look("working", "Jarvis is speaking", [stopAction(effectiveKeys)], muteOn, effectiveKeys));'],
     ["the click line follows the icon, not the mute region", 'var verb = muteOn ? "unmute" : "mute";', 'var verb = false ? "unmute" : "mute";'],
     ["any report tone is accepted", "tones.indexOf(value.tone) === -1", "false"],
     ["an unknown capture is closed", 'default: refuse("capture", capture);', "default: return false;"],
     ["an unknown gate reason is off", 'if (!hasOwn(GATE_TEXT, gate.reason)) refuse("gate", gate);', ""],
-    ["an unexpected phase reads ready", 'refuse("phase", detail.phase);', 'return look("ready", "Jarvis is ready", [readyAction(effectiveMode, effectiveKeys)], muteOn, effectiveKeys);'],
+    ["an unexpected phase reads ready", 'refuse("phase", detail.phase);', 'return withBrain(look("ready", "Jarvis is ready", [readyAction(effectiveMode, effectiveKeys)], muteOn, effectiveKeys));'],
     ["a fault shows its keyed reason", 'return fault.kind === "retrying" ? RETRYING : FAULT_TEXT[kind];', 'return { title: "Problem: " + fault.reason, action: RESTART };'],
     ["a brain fault reads as another", '[/^(brain|net)=/, "brain"],', ""],
     ["local voice timeout reads as generic speech", '[/^speech=local-ready-timeout$/, "localVoice"],\n', ""],
@@ -339,7 +348,7 @@ const CONTROLS = [
     ["a home text fault reads as another", '[/^(home=|guidance=home-)/, "home"],', '[/^home=/, "home"],'],
     ["a slow answer reads as another", '[/^thinking-timeout$/, "slow"],', ""],
     ["a retry asks for a restart", 'fault.kind === "retrying" ? RETRYING : FAULT_TEXT[kind]', "FAULT_TEXT[kind]"],
-    ["an audio problem shows its text", 'return textLook("problem", AUDIO_TEXT, muteOn, effectiveKeys)', 'return look("problem", "Audio problem: " + audio.text, [RESTART], muteOn, effectiveKeys)'],
+    ["an audio problem shows its text", 'return withBrain(textLook("problem", AUDIO_TEXT, muteOn, effectiveKeys))', 'return withBrain(look("problem", "Audio problem: " + audio.text, [RESTART], muteOn, effectiveKeys))'],
     ["an unconfigured gate names no step", 'state.gate.reason === "unconfigured" ? unconfiguredText(values) : GATE_TEXT[state.gate.reason]', 'GATE_TEXT[state.gate.reason]'],
     ["an offered step title reads generic", 'if (step && step.tone === "warning" && offered(step) && step.hint && hasCauseLine(step))\n            return { title: SETUP_TEXT[i][1].title, action: step.hint };', ''],
     ["ready drops setup cause hint", 'hint === null ? [readyAction(effectiveMode, effectiveKeys)]\n            : [readyAction(effectiveMode, effectiveKeys), hint]', 'true ? [readyAction(effectiveMode, effectiveKeys)]\n            : [readyAction(effectiveMode, effectiveKeys), hint]'],

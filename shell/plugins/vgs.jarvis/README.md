@@ -8,7 +8,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 ## Features
 
-- A bar icon that shows whether Jarvis is off, loading, ready, listening, working, speaking, muted or has a problem. Its tooltip says what to do next. A click toggles mute.
+- A bar icon that shows whether Jarvis is off, loading, ready, listening, working, speaking, muted or has a problem. Its tooltip says what to do next and names the answering AI model when one is active. A click toggles mute.
 
 - Talk, Mute, Stop and Console keys. Talk is Super with Right Alt, Mute is Super with Shift and Right Alt, Stop is Super with Alt and Period, and Console is Super with Alt and C.
 - The Console window lets you type a message to Jarvis, review the conversation, and stop the current turn without using the microphone.
@@ -39,7 +39,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 | --- | --- | --- | --- |
 | Off | `power-off` | Jarvis needs setup, a requirement, or an unlocked screen. | What setting or action turns Jarvis on. |
 | Loading | `loader` | Jarvis starts, checks setup or loads local voice. | What is loading and to wait. |
-| Ready | `mic` | Jarvis can listen. | How to talk: hold Talk, press Talk, or say Hey Jarvis. |
+| Ready | `mic` | Jarvis can listen. | How to talk: hold Talk, press Talk, or say Hey Jarvis. When an AI model is active, its name appears on its own line. |
 | Listening | `audio-lines` | The microphone is open. | Speak now, or say Hey Jarvis in Always mode. |
 | Working | `brain` | Jarvis is thinking, waiting for confirmation or using a tool. | What Jarvis is doing and the Stop or Confirm key to use. |
 | Speaking | `volume-2` | Jarvis plays its answer. | That Jarvis is speaking and the Stop key to use. |
