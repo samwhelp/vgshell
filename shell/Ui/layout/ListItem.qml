@@ -107,7 +107,7 @@ T.ItemDelegate {
 
     background: Rectangle {
         radius: Theme.listItem.radius
-        color: root.cursor !== null ? "transparent" : root.highlighted ? (root.down ? Theme.listItem.selectedPressed : Theme.listItem.selected) : root.down ? Theme.listItem.pressed : root.hovered ? Theme.listItem.hover : "transparent"
+        color: root.cursor !== null ? "transparent" : root.highlighted ? (root.down ? Theme.listItem.selectedPressed : Theme.listItem.selected) : root.down ? Theme.rowFill(Theme.listItem.pressed, true) : root.hovered ? Theme.rowFill(Theme.listItem.hover, false) : "transparent"
         Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
         FocusRing { target: root }
     }

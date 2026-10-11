@@ -53,6 +53,15 @@ Singleton {
         return toColor(ThemeLogic.formatColor(ThemeLogic.liftedOpaque(fill, glass.glass.solidLift)));
     }
 
+    // What a row's hover, or its press while PRESSED, draws: while every
+    // surface draws glass, the glass highlight (Glass.js); else FILL, the
+    // row's own token.
+    function rowFill(fill, pressed) {
+        if (!glassOn(false))
+            return fill;
+        return pressed ? glass.glass.highlightPressed : glass.glass.highlight;
+    }
+
     // Whether a surface whose own VGlass choice is OPTIN draws glass under
     // the user's Appearance values (ThemeLogic.glassOn).
     function glassOn(optIn) {

@@ -244,8 +244,8 @@ Item {
 
                 ListCursor {
                     id: plate
-                    color: Theme.menu.item.hover
-                    pressedColor: Theme.menu.item.pressed
+                    color: Theme.rowFill(Theme.menu.item.hover, false)
+                    pressedColor: Theme.rowFill(Theme.menu.item.pressed, true)
                     radius: Theme.menu.item.radius
                     onPointerLeft: if (!root.keyChose) root.currentIndex = -1
                 }

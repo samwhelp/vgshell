@@ -269,8 +269,8 @@ T.AbstractButton {
                 ListCursor {
                     id: plate
                     parent: entries.contentItem
-                    color: Theme.select.highlight
-                    pressedColor: Theme.menu.item.pressed
+                    color: Theme.rowFill(Theme.select.highlight, false)
+                    pressedColor: Theme.rowFill(Theme.menu.item.pressed, true)
                     radius: Theme.menu.item.radius
                 }
 

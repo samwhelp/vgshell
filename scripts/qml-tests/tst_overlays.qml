@@ -685,6 +685,14 @@ Item {
             verify(plate !== null, "the menu hands its entries a cursor");
             compare(plate.shown, true, "an open menu highlights its first reachable entry");
             compare(String(plate.color), String(Qt.color(Theme.menu.item.hover)));
+            // With the user's glass on, the plate draws the glass highlight.
+            verify(String(Qt.color(Theme.glass.glass.highlight)) !== String(Qt.color(Theme.menu.item.hover)), "the glass highlight is not the opaque hover");
+            Theme.appearanceInput = JSON.stringify({ glass: "on" });
+            try {
+                compare(String(plate.color), String(Qt.color(Theme.glass.glass.highlight)), "glass on draws the glass highlight");
+            } finally {
+                Theme.appearanceInput = "";
+            }
             verify(plate.target === items[0], "the highlighted entry holds the cursor");
             compare(String(items[0].background.color), "#00000000", "the entry draws no fill of its own");
             mouseMove(items[1], 10, 5);

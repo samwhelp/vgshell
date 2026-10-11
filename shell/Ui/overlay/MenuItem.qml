@@ -134,6 +134,6 @@ T.MenuItem {
 
     background: Rectangle {
         radius: Theme.menu.item.radius
-        color: root.cursor !== null ? "transparent" : root.down ? Theme.menu.item.pressed : root.highlighted || root.hovered ? Theme.menu.item.hover : "transparent"
+        color: root.cursor !== null ? "transparent" : root.down ? Theme.rowFill(Theme.menu.item.pressed, true) : root.highlighted || root.hovered ? Theme.rowFill(Theme.menu.item.hover, false) : "transparent"
     }
 }
