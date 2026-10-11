@@ -762,9 +762,9 @@ cases=(
   "harness-settings|kendex.local.toml|all|$repo_plan"
   "workflow|.github/workflows/example.yml|all|$repo_plan"
 )
-# The live suite now starts the real daemon. Its copied backend and the
-# shared core files are inputs, as well as its loopback brain and audio fixtures.
-with_live_consumer() { # FILE AREA EXPECTED
+# The live and Home suites start the real daemon. Expected plans include
+# those consumers of backend and shared source changes.
+with_daemon_consumers() { # FILE AREA EXPECTED
   python3 - "$1" "$2" "$3" <<'PYLIVE'
 import fnmatch, sys
 file, area, wanted = sys.argv[1:]
@@ -785,6 +785,24 @@ if area in ["cli", "offline", "all"] and command not in lines and any(fnmatch.fn
             break
     else:
         raise AssertionError("no later consumer in expected plan: " + file)
+home = "node scripts/test-jarvis-home.js"
+home_input = (file.startswith(("shell/plugins/vgs.jarvis/backend/", "shell/Core/", ".agents/skills/jarvis/"))
+              or file in {"shell/plugins/vgs.jarvis/manifest.json", "shell/plugins/vgs.jarvis/Session.js",
+                          "shell/plugins/vgs.jarvis/JarvisProtocol.js", "shell/plugins/vgs.jarvis/AccountProviders.js",
+                          "shell/Ui/icons/Lucide.js", "shell/Commons/SettingValues.js", "shell/Commons/DesktopLaunch.js",
+                          "shell/Commons/AccountDirectories.js", "bin/lib/qml-library.js", "bin/lib/judge-files.js",
+                          "bin/lib/anchored.js", "bin/lib/account-folders.js", "scripts/fixtures/jarvis/policy.js",
+                          "scripts/lib/jarvis-env.sh", "scripts/fixtures/jarvis/core.js"})
+if area in ["cli", "offline", "all"] and home not in lines and home_input:
+    earlier = {"session", "session-runner", "widget", "setup-gate", "protocol", "conversation", "tools", "requests",
+               "policy", "redact", "release", "sse", "providers", "net", "brain-openai", "brain-anthropic", "live", "denied"}
+    for at, line in enumerate(lines):
+        if ((line.startswith("node scripts/test-jarvis-") and line.removeprefix("node scripts/test-jarvis-").removesuffix(".js") not in earlier)
+                or line == "scripts/test-install-tree.sh"):
+            lines.insert(at, home)
+            break
+    else:
+        raise AssertionError("no later Home consumer in expected plan: " + file)
 print("\n".join(lines), end="")
 PYLIVE
 }
@@ -793,7 +811,10 @@ plan_consumer_case() { # SPEC
   name="${spec%%|*}"; rest="${spec#*|}"
   file="${rest%%|*}"; rest="${rest#*|}"
   area="${rest%%|*}"; wanted="${rest#*|}"
-  wanted="$(with_live_consumer "$file" "$area" "$wanted")"
+  if ! wanted="$(with_daemon_consumers "$file" "$area" "$wanted")"; then
+    fail "$name expected consumer plan could not be built"
+    return
+  fi
   d="$tmp/plan-$name"; fresh "$d"
   mkdir -p -- "$d/$(dirname -- "$file")"
   printf 'changed\n' >"$d/$file"
@@ -819,6 +840,32 @@ plan_consumer_case() { # SPEC
   done
 }
 parallel_cases plan_consumer_case plan-case "${cases[@]}"
+
+# The Home test loads the menu judge and runs the shipped daemon. Each
+# changed owner must select that consumer independently of the other suites.
+for home_input in shell/Core/PluginLogic.js shell/plugins/vgs.jarvis/backend/jarvisd.js; do
+  d="$tmp/plan-home-${home_input##*/}"; fresh "$d"
+  mkdir -p -- "$d/$(dirname -- "$home_input")"
+  printf 'changed\n' >"$d/$home_input"
+  test_area=offline
+  test_args=(--changed HEAD --list)
+  row "the Home test is selected for $home_input" "$d" 0 "" "node scripts/test-jarvis-home.js"
+  python3 - "$d/scripts/validate" "$home_input" <<'PYHOME'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1]); source = p.read_text()
+prefix = '  "cli|Jarvis home folder|'
+rows = [line for line in source.splitlines() if line.startswith(prefix)]
+edge = ' shell/Core/* ' if sys.argv[2].startswith('shell/Core/') else 'shell/plugins/vgs.jarvis/backend/* '
+assert len(rows) == 1 and rows[0].count(edge) == 1
+changed = source.replace(rows[0], rows[0].replace(edge, ' ', 1))
+assert changed != source
+p.write_text(changed)
+PYHOME
+  "${base_env[@]}" git -C "$d" add scripts/validate
+  "${base_env[@]}" git -C "$d" commit -q -m control
+  row "control: the omitted Home input loses selection for $home_input" "$d" 0 "" "!node scripts/test-jarvis-home.js"
+done
 
 # Settings' projection is also a consumer boundary for Jarvis recovery.
 d="$tmp/plan-jarvis-settings-steps-control"; fresh "$d"
@@ -959,7 +1006,9 @@ printf 'source\n' >"$d/shell/Core/Dispatch.js"
 # The removed path's consumers, and README.md's: the install tree and the
 # README check, and the ceiling row, since README.md is a document.
 rename_plan=$'node scripts/test-input-facts.js\nnode scripts/test-dispatch.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\npython3 scripts/test-capture.py\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows"$'python3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check$repo_plan"$'\ndoc_limits_check\nscripts/test-validate.sh'
-rename_plan="$(with_live_consumer shell/Core/Dispatch.js offline "$rename_plan")"
+if ! rename_plan="$(with_daemon_consumers shell/Core/Dispatch.js offline "$rename_plan")"; then
+  fail "the rename's expected consumer plan could not be built"
+fi
 if out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate offline --changed HEAD --list 2>"$tmp/plan.err")" && [[ $out == "$rename_plan" ]]; then ok "a rename selects consumers of the removed source path"; else fail "rename omitted the old path's consumers: $out"; fi
 
 d="$tmp/plan-shared"; fresh "$d"

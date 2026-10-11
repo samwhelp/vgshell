@@ -572,7 +572,11 @@ Item {
         const choice = homeMessage.homes.find(row => row.id === item);
         if (choice === undefined) return "refused: home=" + item + " reason=unlisted";
         const reply = shell.configure.set("home", choice.value);
-        if (reply !== "ok") console.warn("jarvis: home-setting " + reply);
+        if (reply !== "ok") {
+            console.warn("jarvis: home-setting " + reply);
+            notice({ title: "Jarvis home not changed", message: "The Home folder setting could not be saved.",
+                tone: "danger", icon: "folder" });
+        }
         return reply;
     }
 

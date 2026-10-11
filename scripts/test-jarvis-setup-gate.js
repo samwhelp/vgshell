@@ -411,6 +411,42 @@ const providersFile = path.join(path.dirname(file), "AccountProviders.js");
 const words = require(path.join(path.dirname(file), "AccountStatus.js"));
 const UNSELECTED = { kind: "answered", causes: ["brain=unselected"] };
 const SIGNED_OUT = { kind: "answered", causes: ["brain=signed-out"] };
+
+// Config.writeUser produces the two refused replies. Execute the shipped
+// shortcut and notice bodies, with only their capability endpoints supplied.
+function verifyHomeSwitch(serviceSource) {
+    const switchHome = serviceSource.match(/^    function switchHome\(item\) \{\n[\s\S]*?^    \}/m);
+    const notice = serviceSource.match(/^    function notice\(options\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(switchHome && notice, "the home shortcut and notice helper are present");
+    const id = "h0123456789ab", selected = "~/Other home", previous = "~/Current home";
+    for (const [name, item, reply] of [
+        ["saved", id, "ok"],
+        ["unreadable", id, "refused: user-config=unreadable path=/fixture/shell.json"],
+        ["read-only", id, "refused: user-config=unwritable path=/fixture/shell.json error=permission-denied"],
+        ["unlisted", "h000000000000", "ok"]
+    ]) {
+        let saved = previous;
+        const writes = [], notices = [], warnings = [];
+        const shell = {
+            configure: { set(key, value) { writes.push([key, value]); if (reply === "ok") saved = value; return reply; } },
+            notify: { send(options) { notices.push(JSON.parse(JSON.stringify(options))); return "ok"; } }
+        };
+        const result = vm.runInNewContext(notice[0] + "\n" + switchHome[0] + "\nswitchHome(" + JSON.stringify(item) + ");",
+            { shell, homeMessage: { homes: [{ id, value: selected }] }, console: { warn: text => warnings.push(text) } });
+        const listed = item === id, refused = listed && reply !== "ok";
+        assert.equal(result, listed ? reply : "refused: home=" + item + " reason=unlisted", name + ": the write result is retained");
+        assert.deepEqual(writes, listed ? [["home", selected]] : [], name + ": only a listed home writes");
+        assert.equal(saved, listed && !refused ? selected : previous, name + ": refused writes keep the home");
+        assert.equal(notices.length, refused ? 1 : 0, name + ": only a refused write sends a notice");
+        assert.deepEqual(warnings, refused ? ["jarvis: home-setting " + reply] : [], name + ": the refusal stays in the log");
+        if (refused) {
+            assert.equal(notices[0].tone, "danger");
+            assert.equal(notices[0].icon, "folder");
+            assert.ok(notices[0].title.length > 0 && notices[0].message.length > 0);
+            assert.doesNotMatch(notices[0].message, /user-config=|permission-denied/, name + ": diagnostics stay out of the notice");
+        }
+    }
+}
 // want: the AI model step's tone and the named action it offers, undefined
 // for none. An app is an account row of the helper's status: signIn is
 // whether Sign in serves its signed-out account.
@@ -953,6 +989,17 @@ try {
     assert.throws(() => verifyMicrophoneAction(wrongAction, temp), assert.AssertionError);
     console.log("test-jarvis-setup-gate: control=microphone-action-target rejected=true");
     const serviceSource = fs.readFileSync(serviceFile, "utf8");
+    verifyHomeSwitch(serviceSource);
+    console.log("test-jarvis-setup-gate: case=home-switch passed=true");
+    {
+        const needle = 'notice({ title: "Jarvis home not changed",';
+        assert.equal(serviceSource.split(needle).length, 2);
+        const changed = serviceSource.replace(needle, 'false && ' + needle);
+        const copy = path.join(temp, "home-switch-no-notice.qml");
+        fs.writeFileSync(copy, changed);
+        assert.throws(() => verifyHomeSwitch(fs.readFileSync(copy, "utf8")), assert.AssertionError);
+        console.log("test-jarvis-setup-gate: control=home-switch-notice rejected=true");
+    }
     const accountsSource = fs.readFileSync(accountsFile, "utf8");
     const localRuntimeSource = fs.readFileSync(localRuntimeFile, "utf8");
     {
