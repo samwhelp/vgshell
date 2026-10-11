@@ -31,10 +31,10 @@
       "link": { "text": "OpenAI API keys", "url": "https://platform.openai.com/api-keys" } },
     "localTier": { "type": "string", "label": "Local voice model", "group": "Local voice", "optionsFrom": "localTiers",
       "description": "Automatic is the model that runs best on this computer. Choosing another model downloads it now. This choice changes only what Jarvis hears; dictation with the Voice widget uses its own model." },
-    "brain": { "type": "string", "label": "AI model", "group": "AI model", "optionsFrom": "brains", "placeholder": "Choose a model",
-      "description": "The AI that answers you: an API key you added, or an app you are signed in to." },
+    "brain": { "type": "string", "label": "Account", "group": "AI model", "optionsFrom": "brains", "placeholder": "Choose an account",
+      "description": "The account Jarvis asks: an API key you added, or an app you are signed in to." },
     "model": { "type": "string", "label": "Model", "group": "AI model", "optionsFrom": "models", "hideEmpty": true,
-      "description": "The model that answers you, from the list of the app you chose above.",
+      "description": "The model that answers you, from the list that the app or API key you chose above offers.",
       "info": "Changing this ends the conversation." },
     "effort": { "type": "string", "label": "Effort", "group": "AI model", "optionsFrom": "efforts", "hideEmpty": true,
       "description": "How much the model thinks before it answers. More effort takes longer.",
@@ -43,7 +43,7 @@
       "description": "Jarvis tries these models, in order, when the answering app refuses or stops. It sends only the last request, not the earlier conversation.",
       "info": "Changing this ends the conversation.",
       "items": {
-        "brain": { "type": "string", "label": "AI model", "description": "The account or app Jarvis tries next.", "optionsFrom": "brains", "placeholder": "Choose a model" },
+        "brain": { "type": "string", "label": "Account", "description": "The account Jarvis tries next: an API key or an app.", "optionsFrom": "brains", "placeholder": "Choose an account" },
         "model": { "type": "string", "label": "Model", "description": "Empty uses Jarvis's normal default for that app or key.", "presets": [{ "value": "", "label": "Jarvis default" }], "allowCustom": true }
       },
       "defaults": { "brain": "", "model": "" } },
