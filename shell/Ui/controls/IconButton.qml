@@ -21,6 +21,8 @@ Button {
 
     property string label: ""
     property string tooltip: label
+    // Where the tooltip opens: Tooltip's `side`.
+    property string tooltipSide: "below"
     // A state tone names a Theme.color token, including in a plugin-owned look.
     property string tone: ""
     readonly property real glyphStart: leftPadding + contentItem.painted[0]
@@ -57,5 +59,6 @@ Button {
 
     Tooltip {
         text: root.tooltip
+        side: root.tooltipSide
     }
 }

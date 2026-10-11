@@ -8,7 +8,8 @@ import qs.Ui
 // value }` for a count row whose value column aligns with the other count
 // rows. After the theme's delay with the pointer resting on the item or
 // after keyboard focus reaches it, the tooltip opens in its own surface
-// under the item and takes no focus. It closes when the pointer leaves and
+// on the item's `side`, "below" (the default) or "right", and takes no
+// focus. It closes when the pointer leaves and
 // focus leaves, on a press on the item, when the item hides, and it does
 // not open while another overlay is open. After a press it stays closed
 // until the pointer leaves the item, so it never covers what the press
@@ -18,6 +19,10 @@ Item {
 
     property string text: ""
     property var details: []
+    // An item with a label under it opens its tooltip to the right, so the
+    // tooltip never covers that label.
+    property string side: "below"
+    readonly property int edge: edgeFor(side)
     property bool shown: false
     readonly property bool opened: popup.item !== null && popup.item.visible
     readonly property var tracker: popup.item === null ? null : popup.item.tracker
@@ -38,6 +43,12 @@ Item {
     readonly property bool resting: anchorItem !== null && anchorItem.visible && anchorItem.enabled && ((hover !== null && hover.hovered && !(press !== null && press.pressed) && !pressedHere) || focusResting) && text !== ""
 
     visible: false
+
+    function edgeFor(name) {
+        if (name === "below") return Edges.Bottom;
+        if (name === "right") return Edges.Right;
+        throw new Error("Tooltip: side=" + JSON.stringify(name) + " unexpected");
+    }
 
     Component.onCompleted: {
         if (anchorItem === null) return;
@@ -73,10 +84,13 @@ Item {
             id: window
 
             anchor.item: root.anchorItem
-            anchor.edges: Edges.Bottom
-            anchor.gravity: Edges.Bottom
+            // A negative margin grows the anchor rect past that edge, so the
+            // popup opens the gap away from the item.
+            anchor.edges: root.edge
+            anchor.gravity: root.edge
             anchor.adjustment: PopupAdjustment.Flip | PopupAdjustment.Slide
-            anchor.margins.bottom: -Theme.tooltip.gap
+            anchor.margins.bottom: root.edge === Edges.Bottom ? -Theme.tooltip.gap : 0
+            anchor.margins.right: root.edge === Edges.Right ? -Theme.tooltip.gap : 0
             // No grab: Quickshell makes this a Qt ToolTip, which an outside
             // click leaves open; grabFocus true is a Popup with an xdg_popup
             // grab the compositor dismisses on a click outside.

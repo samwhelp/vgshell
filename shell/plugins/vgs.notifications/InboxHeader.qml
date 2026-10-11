@@ -107,6 +107,8 @@ Item {
         background: IconBox { look: header.look; button: gear }
         iconName: "settings"
         label: "Settings"
+        // The subtitle sits under the gear's line.
+        tooltipSide: "right"
         onClicked: header.settingsHost.openSettingsPage()
     }
 

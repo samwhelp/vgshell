@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import Quickshell
 import qs.Commons
 import qs.Ui
 import qs.Unit
@@ -7,7 +8,9 @@ import qs.Unit
 // Button: the variant's fill and text, the hover and pressed fills, a
 // click by pointer and by keyboard, the checked fill, the disabled opacity,
 // the focus ring for keyboard focus, an unknown variant, and a theme
-// change that moves the fill and keeps the text readable.
+// change that moves the fill and keeps the text readable. An icon
+// button's tooltip opens under it, or to its right when its side says so,
+// the theme's gap away.
 Item {
     id: root
     width: 300
@@ -26,6 +29,7 @@ Item {
     Button { id: large; text: "Large"; iconName: "check"; size: "lg"; y: 350 }
     IconButton { id: smallIcon; iconName: "chevron-left"; label: "Back"; size: "sm"; y: 400 }
     IconButton { id: dangerIcon; iconName: "x"; label: "Close"; variant: "danger"; x: 200; y: 400 }
+    IconButton { id: besideIcon; iconName: "settings"; label: "Settings"; tooltipSide: "right"; x: 200; y: 160 }
     SignalSpy { id: clicks; target: primary; signalName: "clicked" }
 
     TestCase {
@@ -241,6 +245,28 @@ Item {
             compare(String(primary.foreground), "#000000");
             compare(UnitTheme.override({ button: { variant: { primary: { background: "#000000" } } } }), "ok");
             compare(String(primary.foreground), "#ffffff");
+        }
+
+        function test_icon_button_tooltip_opens_on_its_side_data() {
+            return [
+                { tag: "below", button: iconOnly, edge: Edges.Bottom, bottom: -Theme.tooltip.gap, right: 0 },
+                { tag: "right", button: besideIcon, edge: Edges.Right, bottom: 0, right: -Theme.tooltip.gap }
+            ];
+        }
+
+        // The stand-in window positions nothing; the anchor it is handed is
+        // what the compositor places the tooltip by.
+        function test_icon_button_tooltip_opens_on_its_side(data) {
+            const tip = data.button.data.find(child => child.anchorItem !== undefined && child.side !== undefined);
+            verify(tip !== undefined, "the icon button holds its tooltip");
+            tip.shown = true;
+            const anchor = tip.tracker.popup.anchor;
+            compare(anchor.item, data.button);
+            compare(anchor.edges, data.edge);
+            compare(anchor.gravity, data.edge);
+            compare(anchor.margins.bottom, data.bottom);
+            compare(anchor.margins.right, data.right);
+            tip.shown = false;
         }
     }
 }

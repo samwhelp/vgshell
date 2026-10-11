@@ -115,6 +115,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 ### Copy
 
 - Do use an icon button's label as its tooltip: two or three words naming its action, with no explanation. Bar widget status readings keep their status text.
+- Never let a tooltip cover a sibling label. An item with a label under it opens its tooltip to the right (`Tooltip`'s `side: "right"`, `IconButton`'s `tooltipSide`). `scripts/qml-tests/tst_button.qml` pins both sides.
 - Do write text a user reads in ASD-STE100 Simplified Technical English. Name the result of a check or the action the user takes, never the internal operation. Review holds it.
 - Do keep a plugin description to one or two short sentences with no feature list, and a hint to one sentence; longer help goes behind an `InfoButton`. Review holds it.
 - Do keep diagnostic keys, reason codes and command errors in the log, and map a plugin's own messages to a plain sentence before the plugin shows them. A user's own commands and their output stay unchanged. Review holds it.
