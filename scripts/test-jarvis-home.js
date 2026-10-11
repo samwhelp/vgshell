@@ -6,7 +6,9 @@
 // keeps, a home that holds an older package, the refusal of a link at the
 // home, at every layout path and inside skills/base, the folder a setting
 // names, the bounded read of its text, the skill index, a memory note read by
-// its path and the one program of the home, the kendex mail tool. Each
+// its path, the one program of the home, the kendex mail tool, and a kendex
+// home, where the base package is kendex's render of it, which no model can
+// write, and skills/base is gone. Each
 // control edits a copy of Home.js, or of the Tools.js rule it asks, one rule
 // at a time, and must turn a case red; one plants a project-instructions
 // block in a copy of the package and must fail that row.
@@ -14,6 +16,7 @@
 const cp = require("node:child_process");
 const { assert, fs, path, tree, world, seed, mutant } = require("./fixtures/jarvis/policy.js");
 const file = path.join(tree, "shell/plugins/vgs.jarvis/backend/Home.js");
+const denied = path.join(path.dirname(file), "Denied.js");
 
 // The layout VGS-1194 names, independent of the production table: each file
 // with what it must say, and each folder.
@@ -57,9 +60,11 @@ function shipped(folder) {
 const keyed = (run, cause, label) => assert.throws(run, { message: "jarvis: home=" + cause }, label);
 // The kendex mail tool in a home, where kendex's orch skill installs it.
 const TOOL = ".agents/skills/orch/scripts/lane-mail";
+// Where kendex renders the jarvis skill in a home it is installed in.
+const RENDER = ".agents/skills/jarvis";
 
 world(() => {
-    const { home } = seed();
+    const { home, roots } = seed();
     let serial = 0;
     const fresh = () => path.join(home, "homes", "h" + ++serial, "Jarvis");
 
@@ -462,19 +467,136 @@ world(() => {
             fs.mkdirSync(path.join(folder, "tmp/lane-mail/overseer"));
             assert.equal(Home.mailbox(folder), true, "the Jarvis session's mailbox folder");
             assert.deepEqual(fs.readdirSync(path.join(folder, "tmp/lane-mail/overseer")), [], "nothing is made in it");
+        },
+        // A home kendex is installed in, which VGS opened before as a home
+        // without it: the open removes skills/base, whatever stands there,
+        // and every read of the base package is kendex's render, a version
+        // other than the shipped one, byte for byte. kendex's other skills
+        // and a flat jarvis.md beside the render are no Jarvis skill, and a
+        // VGS update writes no skills/base again.
+        render(Home) {
+            for (const standing of ["copy", "link"]) {
+                const folder = kendex(Home);
+                const outside = path.join(path.dirname(folder), "outside");
+                fs.mkdirSync(outside);
+                fs.writeFileSync(path.join(outside, "SKILL.md"), "OUTSIDE\n");
+                if (standing === "link") {
+                    fs.rmSync(path.join(folder, "skills/base"), { recursive: true });
+                    fs.symlinkSync(outside, path.join(folder, "skills/base"));
+                }
+                const before = stamps(folder);
+                for (let update = 0; update < 2; update++) {
+                    assert.doesNotThrow(() => Home.layout(folder), standing);
+                    assert.equal(fs.lstatSync(path.join(folder, "skills/base"), { throwIfNoEntry: false }), undefined, standing + ": no skills/base");
+                    assert.deepEqual(stamps(folder), before, standing + ": the render keeps every byte");
+                    assert.deepEqual([fs.readdirSync(outside), fs.readFileSync(path.join(outside, "SKILL.md"), "utf8")], [["SKILL.md"], "OUTSIDE\n"], standing);
+                    assert.equal(Home.baseSet(folder), ".agents/skills");
+                    assert.equal(Home.skill(folder, "base/jarvis"), fs.readFileSync(path.join(folder, RENDER, "SKILL.md"), "utf8"), "the brain's skill text is the render's");
+                    assert.match(Home.skill(folder, "base/jarvis"), /RENDER-MARKER/);
+                    assert.deepEqual(Home.skills(folder).skills.map(skill => [skill.topic, skill.file]),
+                        [["base/jarvis", RENDER + "/SKILL.md"], ...REFERENCES.map(topic => [topic, RENDER + "/references/" + topic.slice(12) + ".md"]),
+                            ["base/jarvis/workflows/run", RENDER + "/workflows/run.md"]].sort(([left], [right]) => left < right ? -1 : 1));
+                    assert.equal(Home.read(folder, Home.baseSet(folder) + "/" + Home.PACKAGE + "/persona.md", null).text, "# Render persona\n");
+                    keyed(() => Home.skill(folder, "base/orch"), "absent", "kendex's other skill");
+                }
+            }
+        },
+        // A render that is partial, a link, or no tree of folders and regular
+        // files refuses the home with its cause, at the open and at each
+        // read, and the open changes nothing: VGS's copy stays as it was.
+        renderRefused(Home) {
+            const outside = path.join(home, "homes", "render-outside");
+            fs.cpSync(SHIPPED, outside, { recursive: true });
+            const agents = path.join(home, "homes", "agents-outside");
+            fs.cpSync(SHIPPED, path.join(agents, "skills/jarvis"), { recursive: true });
+            for (const [label, cause, spoil] of [
+                ["no SKILL.md", "package", folder => fs.rmSync(path.join(folder, RENDER, "SKILL.md"))],
+                ["no persona.md", "package", folder => fs.rmSync(path.join(folder, RENDER, "persona.md"))],
+                ["linked .agents", "link", folder => relink(folder, ".agents", agents)],
+                ["linked render", "link", folder => relink(folder, RENDER, outside)],
+                ["linked SKILL.md", "link", folder => relink(folder, RENDER + "/SKILL.md", path.join(outside, "SKILL.md"))],
+                ["linked reference", "link", folder => relink(folder, RENDER + "/references/memory.md", path.join(outside, "references/memory.md"))],
+                ["file render", "kind", folder => { fs.rmSync(path.join(folder, RENDER), { recursive: true }); fs.writeFileSync(path.join(folder, RENDER), ""); }],
+                ["fifo inside", "kind", folder => assert.equal(cp.spawnSync("python3", ["-c", "import os, sys; os.mkfifo(sys.argv[1])",
+                    path.join(folder, RENDER, "references/fifo.md")]).status, 0, "the test makes a FIFO")]
+            ]) {
+                const folder = kendex(Home);
+                spoil(folder);
+                const kept = listing(path.join(folder, "skills/base"));
+                keyed(() => Home.layout(folder), cause, label);
+                assert.deepEqual(listing(path.join(folder, "skills/base")), kept, label + ": the refused open keeps VGS's copy");
+                keyed(() => Home.skills(folder), cause, label + ": the index");
+                keyed(() => Home.skill(folder, "base/jarvis"), cause, label + ": the skill");
+            }
+        },
+        // A kendex home without the jarvis skill is a home without kendex's
+        // render: skills/base is VGS's copy, as before.
+        noRender(Home) {
+            const folder = fresh();
+            fs.mkdirSync(path.join(folder, ".agents/skills/orch"), { recursive: true });
+            fs.writeFileSync(path.join(folder, ".agents/skills/orch/SKILL.md"), "# Orch\n");
+            assert.doesNotThrow(() => Home.layout(folder));
+            shipped(folder);
+            assert.equal(Home.baseSet(folder), "skills/base");
+            assert.equal(Home.skill(folder, "base/jarvis"), fs.readFileSync(path.join(SHIPPED, "SKILL.md"), "utf8"));
+            assert.deepEqual(Home.skills(folder).skills.map(skill => skill.topic), ["base/jarvis", ...REFERENCES]);
         }
     };
+    // A home VGS opened without kendex, then given kendex's render of the
+    // jarvis skill in another version than the shipped one, beside another
+    // kendex skill and a flat jarvis.md that is no part of the render.
+    function kendex(Home) {
+        const folder = fresh();
+        Home.layout(folder);
+        shipped(folder);
+        const render = path.join(folder, RENDER);
+        fs.cpSync(SHIPPED, render, { recursive: true });
+        fs.writeFileSync(path.join(render, "SKILL.md"), "---\nname: jarvis\ndescription: Render.\n---\nRENDER-MARKER\n");
+        fs.writeFileSync(path.join(render, "persona.md"), "# Render persona\n");
+        fs.mkdirSync(path.join(render, "workflows"));
+        fs.writeFileSync(path.join(render, "workflows/run.md"), "# Run\n");
+        fs.mkdirSync(path.join(folder, ".agents/skills/orch"));
+        fs.writeFileSync(path.join(folder, ".agents/skills/orch/SKILL.md"), "# Orch\n");
+        fs.writeFileSync(path.join(folder, ".agents/skills/jarvis.md"), "FLAT\n");
+        return folder;
+    }
+    // Every entry of the render with its inode and change time.
+    function stamps(folder) {
+        return listing(path.join(folder, ".agents")).map(name => {
+            const stat = fs.lstatSync(path.join(folder, ".agents", name), { bigint: true });
+            return name + ":" + stat.ino + ":" + stat.mtimeNs;
+        });
+    }
+    function relink(folder, entry, target) {
+        fs.rmSync(path.join(folder, entry), { recursive: true });
+        fs.symlinkSync(target, path.join(folder, entry));
+    }
+    // The gate keeps every model out of the render as out of skills/base: no
+    // file tool, shell command or harness approval reaches it, and a
+    // sandboxed command finds .agents masked. state/ is the control: open.
+    function renderGate(Denied, Home = require(file)) {
+        const folder = kendex(Home);
+        Home.layout(folder);
+        const judge = Denied.create({ ...roots, jarvisHome: Home.guard(folder) });
+        for (const entry of [".agents", ".agents/skills", RENDER, RENDER + "/SKILL.md", RENDER + "/persona.md", RENDER + "/references/new.md", RENDER + "/workflows/run.md"])
+            for (const role of ["read", "tree-read", "write", "move", "remove", "workspace"])
+                assert.equal(judge.inspect(path.join(folder, entry), role).reason, "protected-path", entry + " " + role);
+        assert.equal(judge.masks.includes(path.join(folder, ".agents")), true, ".agents is masked from a sandboxed command");
+        assert.equal(judge.inspect(path.join(folder, "state/note.md"), "write").kind, "path", "state/ stays open");
+    }
 
     const Home = require(file);
     for (const [name, check] of Object.entries(CASES)) {
         check(Home);
         console.log("case=" + name + " passed");
     }
+    renderGate(require(denied));
+    console.log("case=renderGate passed");
     let controls = 0;
     for (const [name, needle, replacement, row, source = file] of [
         ["layout-entry", '    ["state", null],\n', "", "empty"],
         ["extra-file", '    ["state", null],\n', '    ["state", null], ["extra.md", ""],\n', "empty"],
-        ["base-copy", '        base(held.get("skills/base"));\n', "", "empty"],
+        ["base-copy", '        else base(held.get("skills/base"));\n', "", "empty"],
         ["base-again", "found.every(([name, content], index) =>", "false && found.every(([name, content], index) =>", "keeps"],
         ["base-compare", "content.equals(shipped[index][1])", "true", "update"],
         ["base-stray", "        if (name !== PACKAGE) fs.rmSync(child(fd, name), { recursive: true, force: true });\n", "        ;\n", "update"],
@@ -530,10 +652,29 @@ world(() => {
         ["mailbox-folder", 'const MAILBOX = "tmp/lane-mail/overseer";', 'const MAILBOX = "tmp/lane-mail";', "mailbox"],
         ["mailbox-kind", "return held(home, MAILBOX, O_RDONLY | O_DIRECTORY, () => true) === true;", "return held(home, MAILBOX, O_RDONLY | O_NONBLOCK, () => true) === true;", "mailbox"],
         ["tool-link", [['if (kind === "absent" || kind === "link") fail(kind);', 'if (kind === "absent") fail(kind);'],
-            ["(last ? flags : O_RDONLY | O_DIRECTORY) | O_NOFOLLOW", "(last ? flags : O_RDONLY | O_DIRECTORY)"]], null, "mailTool"]
+            ["(last ? flags : O_RDONLY | O_DIRECTORY) | O_NOFOLLOW", "(last ? flags : O_RDONLY | O_DIRECTORY)"]], null, "mailTool"],
+        ["render-place", 'const RENDER = ".agents/skills";', 'const RENDER = ".agents/skill";', "render"],
+        ["render-open", 'const set = source(held.get("."));', "const set = COPY;", "render"],
+        ["render-cutover", '        if (set === RENDER) fs.rmSync(', '        if (false) fs.rmSync(', "render"],
+        ["render-no-copy", "            if (entry === COPY && set === RENDER) continue;\n", "", "render"],
+        ["render-package-alone", "if (folder === RENDER) listed =", "if (false) listed =", "render"],
+        ["render-name", '    if (set === RENDER && named.name !== PACKAGE) fail("absent");\n', "", "render"],
+        ["render-flat", "    if (set !== RENDER) {", "    if (true) {", "render"],
+        ["render-partial", '        if (!RENDER_FILES.every(name => found.includes(name))) fail("package");\n', "", "renderRefused"],
+        ["render-link", '            if (kind === "link") return fail("link");\n', "", "renderRefused"],
+        ["render-tree", "const found = entries(at, 0).map(([name]) => name);", 'const found = fs.readdirSync("/proc/self/fd/" + at);', "renderRefused"],
     ]) {
         const result = mutant(source, name, needle, replacement, logic => CASES[row](logic), "Home.js");
         assert.equal(result, undefined);
+        controls++;
+        console.log("control=" + name + " detected");
+    }
+    // The gate's own rules, each held by the render's row.
+    for (const [name, needle, replacement] of [
+        ["render-gate", " || inJarvisHome(target.path, ancestor))", ")"],
+        ["render-masks", "protectedRoots.concat(accounts, jarvisHomeMasks())", "protectedRoots.concat(accounts)"]
+    ]) {
+        assert.equal(mutant(denied, name, needle, replacement, logic => renderGate(logic), "Denied.js"), undefined);
         controls++;
         console.log("control=" + name + " detected");
     }

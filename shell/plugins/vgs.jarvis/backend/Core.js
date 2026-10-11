@@ -38,7 +38,10 @@ function accounts() { return core().accounts; }
 function folders() { return core().folders; }
 /** bin/lib/anchored.js: child and directory. */
 function anchored() { return core().anchored; }
-/** The base package VGS ships for every Jarvis home: the kendex jarvis skill. */
+/**
+ * The base package VGS ships for every Jarvis home without kendex's render
+ * of it (Home.js baseSet): the kendex jarvis skill.
+ */
 function basePackage() {
     if (tree === null) throw new Error("jarvis: tree=unset");
     return path.join(tree, ".agents/skills/jarvis");

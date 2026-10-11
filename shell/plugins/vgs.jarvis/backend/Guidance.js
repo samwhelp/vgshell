@@ -54,7 +54,7 @@ function layer(name) {
 // own words, and a cut memory index would hide the notes below the cut.
 function homeLayers(home) {
     const out = [];
-    const persona = Home.read(home, "skills/base/" + Home.PACKAGE + "/persona.md", MAX_PERSONA_BYTES);
+    const persona = Home.read(home, Home.baseSet(home) + "/" + Home.PACKAGE + "/persona.md", MAX_PERSONA_BYTES);
     if (persona.kind !== "text") throw new Error("jarvis: guidance=home-persona-too-large");
     if (persona.text.trim() !== "") out.push(["home/persona", persona.text.trim()]);
     const agents = Home.read(home, "AGENTS.md", MAX_LAYER_BYTES);

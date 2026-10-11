@@ -1,7 +1,8 @@
 // The Jarvis home folder: the one folder the user picks, whose AGENTS.md,
 // skills, memory and state every brain uses the same way. This owner creates
-// the folder's missing entries, keeps skills/base a copy of the base package
-// VGS ships, and reads its text; it never follows a link at the home or below
+// the folder's missing entries, reads the base package from kendex's render
+// where kendex is installed in the home, else keeps skills/base a copy of the
+// one VGS ships, and reads its text; it never follows a link at the home or below
 // it, since a link there could hand another file to every brain. Home text
 // gives knowledge, never permission: the gate stays the only source of that.
 // It also finds the one program Jarvis starts from the home, the kendex
@@ -30,6 +31,14 @@ const LAYOUT = Object.freeze([
 // skills/base holds this one folder, a copy of the shipped base package
 // (Core.basePackage); the persona is its persona.md.
 const PACKAGE = "jarvis";
+// The two sets the base package is read from. kendex renders it at
+// RENDER/PACKAGE in a home it is installed in, beside kendex's other skills,
+// which are no Jarvis skill; COPY is VGS's copy, kept only in a home without
+// that render.
+const RENDER = ".agents/skills";
+const COPY = "skills/base";
+// The files of the package read by name: a render without one is partial.
+const RENDER_FILES = Object.freeze(["SKILL.md", "persona.md"]);
 // The one entry of the home the gate leaves a model: Jarvis writes it
 // through files.write. Every other path in the folder, an entry this layout
 // does not name among them, is the user's and VGS's alone.
@@ -195,16 +204,20 @@ function base(fd) {
 
 /**
  * Create the entries of LAYOUT the home lacks, and the home itself, and make
- * skills/base hold exactly the shipped base package. Any other entry already
+ * skills/base hold exactly the shipped base package, or, in a home holding
+ * kendex's render of it (source), remove skills/base. Any other entry already
  * there is kept byte for byte. A link at the home, at any layout path or
  * inside skills/base throws jarvis: home=link and is never followed; an
  * entry of the other kind throws home=kind, a shipped package that cannot
- * be read home=package, and a failed write home=unwritable.
+ * be read home=package, a render source refuses as it says, and a failed
+ * write home=unwritable.
  */
 function layout(home) {
     const held = new Map([[".", hold(home, true)]]);
     try {
+        const set = source(held.get("."));
         for (const [entry, content] of LAYOUT) {
+            if (entry === COPY && set === RENDER) continue;
             const parent = held.get(path.dirname(entry));
             const name = path.basename(entry);
             const kind = kindOf(parent, name);
@@ -216,11 +229,52 @@ function layout(home) {
             } else if (kind === "absent") createFile(parent, name, content);
             else if (kind !== "file") fail("kind");
         }
-        base(held.get("skills/base"));
+        // The cutover: the open that first reads the render removes VGS's
+        // copy, whatever entry stands there; a link goes, never followed.
+        if (set === RENDER) fs.rmSync(Core.anchored().child(held.get("skills"), path.basename(COPY)), { recursive: true, force: true });
+        else base(held.get("skills/base"));
     } catch (error) {
         if (/^jarvis: home=/.test(error.message)) throw error;
         fail("unwritable");
     } finally { for (const fd of held.values()) fs.closeSync(fd); }
+}
+
+// The set of the home held as FD that the base package is read from: RENDER
+// while the home holds RENDER/PACKAGE, else COPY. A render reached through a
+// link, holding a link or an entry neither a folder nor a regular file, or
+// without a file of RENDER_FILES throws home=link, home=kind or home=package:
+// it is refused, never passed over for the copy.
+function source(fd) {
+    const child = Core.anchored().child;
+    let at = fd;
+    try {
+        for (const part of [...RENDER.split("/"), PACKAGE]) {
+            const kind = kindOf(at, part);
+            if (kind === "absent") return COPY;
+            if (kind === "link") return fail("link");
+            if (kind !== "directory") return fail("kind");
+            const next = fs.openSync(child(at, part), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+            if (at !== fd) fs.closeSync(at);
+            at = next;
+        }
+        const found = entries(at, 0).map(([name]) => name);
+        if (!RENDER_FILES.every(name => found.includes(name))) fail("package");
+        return RENDER;
+    } catch (error) {
+        if (/^jarvis: home=/.test(error.message)) throw error;
+        return fail("unreadable");
+    } finally { if (at !== fd) fs.closeSync(at); }
+}
+
+/**
+ * The set of the home the base package is read from: ".agents/skills",
+ * kendex's render, or "skills/base", VGS's copy. source alone decides it,
+ * once for each open of the home: the layout, a skill index or a skill
+ * read. Throws as source does.
+ */
+function baseSet(home) {
+    const fd = hold(home, false);
+    try { return source(fd); } finally { fs.closeSync(fd); }
 }
 
 // Open ENTRY, a relative path of plain names, below the held home, each
@@ -355,7 +409,8 @@ function indexed(home, topic, file, optional) {
 
 /**
  * The home's skills in topic order: {skills: [{topic, file, line}], complete}.
- * A skill is `<name>.md` or `<name>/SKILL.md` directly in skills/base or
+ * A skill is `<name>.md` or `<name>/SKILL.md` directly in the base set
+ * (baseSet: kendex's render, holding the package alone, or skills/base) or
  * skills/own, a regular file under a name Tools.homeTopic admits; a folder
  * skill's `references/<reference>.md` is a skill of its own under
  * "<set>/<name>/<reference>", and its `workflows/<workflow>.md` one under
@@ -376,9 +431,11 @@ function skills(home) {
                 found.push(indexed(home, topic, folder + "/" + entry.name, false));
         }
     }
+    const base = baseSet(home);
     for (const set of SETS) {
-        const folder = "skills/" + set;
-        const listed = listing(home, folder);
+        const folder = set === "base" ? base : "skills/" + set;
+        let listed = listing(home, folder);
+        if (folder === RENDER) listed = { entries: listed.entries.filter(entry => entry.name === PACKAGE), complete: listed.complete };
         flat(folder, set + "/", listed);
         for (const entry of listed.entries) {
             const topic = set + "/" + entry.name;
@@ -415,14 +472,17 @@ function skills(home) {
 function skill(home, topic) {
     const named = Tools.homeTopic(topic);
     if (named === null) fail("absent");
-    const base = "skills/" + named.set + "/" + named.name;
+    const set = named.set === "base" ? baseSet(home) : "skills/" + named.set;
+    if (set === RENDER && named.name !== PACKAGE) fail("absent");
+    const base = set + "/" + named.name;
     const whole = file => read(home, file, null).text;
     if (named.file !== null) return whole(base + "/" + named.folder + "/" + named.file + ".md");
-    try { return whole(base + ".md"); }
-    catch (error) {
-        if (error.message !== "jarvis: home=absent") throw error;
-        return whole(base + "/SKILL.md");
+    // The render's set holds the package's folder alone, never a flat file.
+    if (set !== RENDER) {
+        try { return whole(base + ".md"); }
+        catch (error) { if (error.message !== "jarvis: home=absent") throw error; }
     }
+    return whole(base + "/SKILL.md");
 }
 
 /**
@@ -521,4 +581,4 @@ function mailbox(home) {
     return held(home, MAILBOX, O_RDONLY | O_DIRECTORY, () => true) === true;
 }
 
-module.exports = { PACKAGE, resolve, layout, guard, read, skills, skill, note, notes, mailTool, mailbox, directory };
+module.exports = { PACKAGE, resolve, layout, guard, baseSet, read, skills, skill, note, notes, mailTool, mailbox, directory };

@@ -139,6 +139,12 @@ world("jg", root => {
     const oversize = home("oversize", "x".repeat(8193));
     const crowded = home("crowded", "persona", Object.fromEntries(Array.from({ length: 60 }, (_, index) => ["own/s" + index + ".md", "y".repeat(200) + "\n"])));
     const many = home("many", "persona", Object.fromEntries(Array.from({ length: 257 }, (_, index) => ["own/s" + index + ".md", "z\n"])));
+    // A home kendex is installed in: the persona is its render's, never a
+    // skills/base copy beside it.
+    const rendered = home("rendered", "");
+    fs.mkdirSync(path.join(rendered, ".agents/skills/jarvis"), { recursive: true });
+    fs.writeFileSync(path.join(rendered, ".agents/skills/jarvis/SKILL.md"), "# Jarvis\n");
+    fs.writeFileSync(path.join(rendered, ".agents/skills/jarvis/persona.md"), "# Persona\nRENDER-PERSONA\n");
     const linked = home("linked", "");
     fs.rmSync(path.join(linked, "AGENTS.md"));
     fs.symlinkSync(path.join(full, "AGENTS.md"), path.join(linked, "AGENTS.md"));
@@ -178,6 +184,8 @@ world("jg", root => {
         for (const folder of [crowded, many])
             assert.throws(() => logic.compose("chained", "local", "en", folder), { message: "jarvis: guidance=home-skills-too-large" });
         assert.throws(() => logic.compose("chained", "text", "en", linked), { message: "jarvis: home=link" });
+        const persona = logic.compose("chained", "text", "en", rendered).instructions;
+        assert.deepEqual([persona.includes("RENDER-PERSONA"), persona.includes("PERSONA-MARKER")], [true, false], "a kendex home's persona is its render's");
     }
     homeText(Guidance);
     for (const [name, needle, replacement] of [
@@ -188,6 +196,7 @@ world("jg", root => {
         ["persona-bound", 'if (persona.kind !== "text") throw new Error("jarvis: guidance=home-persona-too-large");', ""],
         ["persona-layer", 'if (persona.text.trim() !== "") out.push(["home/persona", persona.text.trim()]);', ""],
         ["persona-empty", 'if (persona.text.trim() !== "")', "if (true)"],
+        ["persona-render", 'Home.baseSet(home) + "/" + Home.PACKAGE', '"skills/base/" + Home.PACKAGE'],
         ["voice-home", 'if (home !== null && brainClass === "duplex") throw new Error("jarvis: guidance=consumer");', ""],
         ["memory-bound", 'if (memory.kind !== "text") throw new Error("jarvis: guidance=home-memory-too-large");', ""],
         ["memory-cap-high", "const MAX_MEMORY_BYTES = 4096;", "const MAX_MEMORY_BYTES = 4097;"],
