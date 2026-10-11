@@ -464,13 +464,20 @@ function readInventory(id) {
 
 // ------------------------------------------------------------ credentials
 
+// The words after `secret-tool` for one account's items: VERB's words, the
+// attributes every item of this plugin carries, then EXTRA. An argv with
+// no shell between, so no word is quoted; a secret never enters it.
+function secretArgs(verb, account, extra = []) {
+    return verb.concat(["service", SECRET_SERVICE, "account", account], extra);
+}
+
 // One account's secret, searched without --unlock so an unattended run
 // raises no unlock prompt. `secret-tool search` prints the first match's
 // `label = ` and, only when its collection is unlocked, `secret = <value>`
 // on stdout (libsecret tool/secret-tool.c). The value stays in this
 // process and the rclone child's environment.
 function readSecret(tool, account) {
-    const out = run(tool, ["search", "service", SECRET_SERVICE, "account", account], { timeout: 10000, killSignal: "SIGKILL" });
+    const out = run(tool, secretArgs(["search"], account), { timeout: 10000, killSignal: "SIGKILL" });
     if (out.status !== 0) return { kind: "unavailable", reason: out.status === null ? "secret-tool-timeout" : "secret-tool-failed" };
     const lines = out.stdout.split("\n");
     const secret = lines.find(line => line.startsWith("secret = "));
@@ -508,7 +515,7 @@ function validAddress(value) {
 // attribute when it holds an address, else null.
 function probeAccount(tool, account) {
     if (tool === null) return { presence: "unavailable", user: null };
-    const out = run(tool, ["search", "service", SECRET_SERVICE, "account", account], { stdio: ["ignore", "ignore", "pipe"], timeout: 10000, killSignal: "SIGKILL" });
+    const out = run(tool, secretArgs(["search"], account), { stdio: ["ignore", "ignore", "pipe"], timeout: 10000, killSignal: "SIGKILL" });
     if (out.status !== 0) return { presence: "unavailable", user: null };
     const lines = out.stderr.split("\n");
     const found = lines.some(line => line.startsWith("attribute."));
@@ -527,7 +534,7 @@ function probeAccount(tool, account) {
 // item matched (tool/secret-tool.c, libsecret 0.21.8), which is nothing
 // to clear; an error it prints is a failure.
 function clearAccount(tool, account) {
-    const out = run(tool, ["clear", "service", SECRET_SERVICE, "account", account], { timeout: 30000, killSignal: "SIGKILL" });
+    const out = run(tool, secretArgs(["clear"], account), { timeout: 30000, killSignal: "SIGKILL" });
     if (out.status === 1 && out.stderr === "") return;
     if (out.status !== 0) refuse("clear=failed exit=" + out.status + " account=" + account);
 }
@@ -1131,8 +1138,8 @@ function authorizeVerb(words) {
     // could not be cleared after the store without the new one. A store
     // that fails after this leaves the direction signed out.
     clearAccount(tool, account);
-    const attributes = ["service", SECRET_SERVICE, "account", account].concat(read.kind === "read" ? ["user", read.address] : []);
-    const stored = childProcess.spawnSync(tool, ["store", "--label=" + SECRET_LABEL + " " + account].concat(attributes),
+    const storeArgs = secretArgs(["store", "--label=" + SECRET_LABEL + " " + account], account, read.kind === "read" ? ["user", read.address] : []);
+    const stored = childProcess.spawnSync(tool, storeArgs,
         { input: token, encoding: "utf8", stdio: ["pipe", "ignore", "pipe"], env: childEnv(), timeout: 30000, killSignal: "SIGKILL" });
     if (stored.status !== 0) refuse("store=failed exit=" + stored.status + " account=" + account);
     // With every credential of the direction now stored, its pairs that

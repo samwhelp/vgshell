@@ -74,9 +74,12 @@ const SECRETS = {
     "upload-token": "{\"access_token\":\"fake-access-77bb\",\"token_type\":\"Bearer\",\"refresh_token\":\"fake-refresh-a4c1\",\"expiry\":\"2026-01-01T00:00:00Z\"}"
 };
 // The token the rclone stand-in's `authorize` prints, as rclone v1.75.1
-// prints one: its JSON on one line between the paste lines.
-const CONSENT_TOKEN = "{\"access_token\":\"fake-consent-access-c0de\",\"token_type\":\"Bearer\",\"refresh_token\":\"fake-consent-refresh-f00d\",\"expiry\":\"2026-10-10T13:00:00Z\"}";
-const CONSENT_VALUES = ["fake-consent-access-c0de", "fake-consent-refresh-f00d"];
+// prints one: its JSON on one line between the paste lines. Its refresh
+// token holds a quote, a space and a percent sign, which reach the store
+// byte for byte and no argv.
+const CONSENT_REFRESH = "fake-consent-refresh-f00d \\\"50% off\\\"";
+const CONSENT_TOKEN = "{\"access_token\":\"fake-consent-access-c0de\",\"token_type\":\"Bearer\",\"refresh_token\":\"" + CONSENT_REFRESH + "\",\"expiry\":\"2026-10-10T13:00:00Z\"}";
+const CONSENT_VALUES = ["fake-consent-access-c0de", CONSENT_REFRESH];
 // The address the curl stand-in's about read answers with.
 const ACCOUNT = "someone@example.com";
 const ABOUT_URL = "https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)";
@@ -762,6 +765,75 @@ function caseInstall(runner) {
     assert.deepEqual(s.attention.reasons, ["units-stale"]);
 }
 
+// The words of one unit line's value as systemd reads them back, the
+// forms the runner writes and no other: whitespace between words, each word
+// double-quoted with `\\` and `\"` escaped (systemd.syntax(7) § Quoting),
+// `%%` for `%` (systemd.unit(5) § Specifiers), and on a command line `$$`
+// for `$` (systemd.service(5) § Command lines). Environment= gives `$` no
+// meaning (systemd.exec(5)).
+function unitWords(value, commandLine) {
+    const words = [];
+    let i = 0;
+    while (i < value.length) {
+        assert.equal(value[i], "\"", "an unquoted word at " + i + ": " + value);
+        let word = "";
+        for (i += 1; value[i] !== "\""; i += 1) {
+            assert.ok(i < value.length, "an unterminated word: " + value);
+            const pair = value.slice(i, i + 2);
+            if (value[i] === "\\") assert.ok(pair === "\\\\" || pair === "\\\"", "escape " + pair + ": " + value);
+            else if (value[i] === "%") assert.equal(pair, "%%", "a specifier: " + value);
+            else if (value[i] === "$" && commandLine) assert.equal(pair, "$$", "a variable: " + value);
+            else {
+                word += value[i];
+                continue;
+            }
+            word += pair[1];
+            i += 1;
+        }
+        i += 1;
+        if (i < value.length) assert.equal(value[i++], " ", "words run together: " + value);
+        words.push(word);
+    }
+    return words;
+}
+
+// install hands the service every directory as systemd reads it back, a
+// quote, a space, a percent sign and a backslash in each included, and
+// names the engine copy under them the same way. A control character in
+// a directory is refused before any unit is written.
+function caseUnitWords(runner) {
+    const w = world();
+    const odd = path.join(w.root, "a \"quoted\" 100% back\\slash");
+    const dirs = {
+        XDG_CONFIG_HOME: path.join(odd, "config"),
+        XDG_STATE_HOME: path.join(odd, "state"),
+        XDG_DATA_HOME: path.join(odd, "data"),
+        XDG_RUNTIME_DIR: path.join(odd, "run")
+    };
+    Object.assign(w.env, dirs);
+    fs.mkdirSync(dirs.XDG_RUNTIME_DIR, { recursive: true, mode: 0o700 });
+    const out = cli(w, ["install"], runner);
+    assert.equal(out.stdout, "installed=vgs-cloud-sync.timer changed=2\n", out.stderr);
+    const service = read(path.join(dirs.XDG_CONFIG_HOME, "systemd", "user", "vgs-cloud-sync.service"));
+    SEEN.push(service);
+    const value = key => {
+        const found = service.split("\n").filter(l => l.startsWith(key + "="));
+        assert.equal(found.length, 1, key);
+        return found[0].slice(key.length + 1);
+    };
+    assert.deepEqual(unitWords(value("Environment"), false).sort(), Object.entries(dirs).map(([name, dir]) => name + "=" + dir).sort());
+    const engineRoot = path.join(dirs.XDG_DATA_HOME, "vgshell", "cloud-sync", "engine");
+    const engines = fs.readdirSync(engineRoot);
+    assert.equal(engines.length, 1);
+    assert.deepEqual(unitWords(value("ExecStart"), true), [process.execPath, path.join(engineRoot, engines[0], "cloud-sync"), "run"]);
+    const v = world();
+    v.env.XDG_STATE_HOME = path.join(v.root, "state\nnext");
+    const refused = cli(v, ["install"], runner);
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /^cloud-sync: refused: unit-argument=control-character$/m);
+    assert.ok(!fs.existsSync(path.join(v.env.XDG_CONFIG_HOME, "systemd", "user", "vgs-cloud-sync.service")));
+}
+
 // The probe reads presence alone, a locked item included, and a token's
 // `user` attribute when it holds an address, a locked item's too.
 function caseProbe(runner) {
@@ -1079,8 +1151,8 @@ async function controls() {
     await mustFail("authorize store", mutant("authorize store", "{ input: token, encoding", "{ input: token + \"\\n\", encoding"), caseAuthorize);
     await mustFail("authorize scope", mutant("authorize scope", "RCLONE_DRIVE_SCOPE: SCOPES[direction]", "RCLONE_DRIVE_SCOPE: \"drive\""), caseAuthorize);
     await mustFail("token off curl's argv", mutant("token off curl's argv", "\"--header\", \"@-\", ABOUT_URL]", "\"--header\", \"Authorization: Bearer \" + access, ABOUT_URL]"), caseAuthorize);
-    await mustFail("user attribute", mutant("user attribute", ".concat(read.kind === \"read\" ? [\"user\", read.address] : [])", ".concat([])"), caseAuthorize);
-    await mustFail("one token item", mutant("one token item", "clearAccount(tool, account);\n    const attributes", "const attributes"), caseAuthorize);
+    await mustFail("user attribute", mutant("user attribute", ", read.kind === \"read\" ? [\"user\", read.address] : []);", ", []);"), caseAuthorize);
+    await mustFail("one token item", mutant("one token item", "clearAccount(tool, account);\n    const storeArgs", "const storeArgs"), caseAuthorize);
     await mustFail("unread logged", mutant("unread logged", "if (read.kind === \"unread\") log(\"account=unread reason=\" + read.reason);", ""), caseAuthorize);
     await mustFail("address judge", mutant("address judge", "function validAddress(value) {\n    return ", "function validAddress(value) {\n    return typeof value === \"string\" || "), caseAuthorize);
     await mustFail("probe user", mutant("probe user", "if (part === \"token\" && probed.user !== null) row.user = probed.user;", ""), caseProbe);
@@ -1097,6 +1169,11 @@ async function controls() {
     await mustFail("sign-in resets", mutant("sign-in resets", "if (state.state === \"authorization-required\") writePairState(", "if (false) writePairState("), caseSignOut);
     await mustFail("pause keeps notified", mutant("pause keeps notified", "paused ? control.pausedPairs : [], notifiedKey: control.notifiedKey }", "paused ? control.pausedPairs : [] }"), caseAttention);
     await mustFail("child environment", mutant("child environment", "const env = { LANG: \"C.UTF-8\" };", "const env = Object.assign({ LANG: \"C.UTF-8\" }, process.env);"), caseCopy);
+    await mustFail("secret attributes", mutant("secret attributes", "return verb.concat([\"service\", SECRET_SERVICE, \"account\", account], extra);", "return verb.concat([\"service\", SECRET_SERVICE, \"user\", account], extra);"), caseAuthorize);
+    await mustFail("unit backslash", mutant("unit backslash", ".replace(/\\\\/g, \"\\\\\\\\\")", ""), caseUnitWords);
+    await mustFail("unit quote", mutant("unit quote", ".replace(/\"/g, \"\\\\\\\"\")", ""), caseUnitWords);
+    await mustFail("unit percent", mutant("unit percent", ".replace(/%/g, \"%%\")", ""), caseUnitWords);
+    await mustFail("unit control character", mutant("unit control character", "if (CONTROL.test(s)) refuse(\"unit-argument=control-character\");", ""), caseUnitWords);
     await mustFail("pairs-reset keeps the damaged file", mutant("pairs-reset keeps the damaged file", "fs.renameSync(pairsFile, kept);\n        fs.renameSync(temp, pairsFile);", "fs.renameSync(temp, pairsFile);"), casePairsReset);
     await mustFail("pairs-reset refuses a valid list", mutant("pairs-reset refuses a valid list", "if (read.error === null) refuse(\"pairs=valid\");", "if (false) refuse(\"pairs=valid\");"), casePairsReset);
     const rules = [...new Set(validationRows(world()).map(row => row.rule).filter(rule => rule !== null))];
@@ -1119,6 +1196,7 @@ async function main() {
     caseExclusions();
     caseValidation();
     caseInstall();
+    caseUnitWords();
     caseProbe();
     caseAuthorize();
     caseSignOut();
