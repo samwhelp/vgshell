@@ -5,7 +5,7 @@ source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 suite=test-vgshell-dictation
 tree="$tmp/tree"; commands="$tmp/commands"
 mkdir -p "$tree/bin/lib" "$tree/config" "$commands" "$tmp/home"
-cp -- "$repo/bin/vgshell-dictation" "$tree/bin/"
+cp -- "$repo/bin/vgshell" "$repo/bin/vgshell-dictation" "$tree/bin/"
 cp -- "$repo/bin/lib/voxtype.sh" "$repo/bin/lib/tui.sh" "$tree/bin/lib/"
 cp -R -- "$repo/config/voxtype" "$tree/config/"
 cat >"$commands/voxtype" <<EOF2
@@ -30,7 +30,7 @@ done
 chmod +x "$commands"/* "$tree/bin/vgshell-system"
 setup_run() {
   local code=0
-  "${base_env[@]}" PATH="$commands:$base_path" VGS_TUI_UNATTENDED=1 XDG_CONFIG_HOME="$tmp/home/config & # \"quoted\"" "$tree/bin/vgshell-dictation" setup >"$tmp/setup.out" 2>&1 || code=$?
+  "${base_env[@]}" PATH="$commands:$base_path" VGS_TUI_UNATTENDED=1 XDG_CONFIG_HOME="$tmp/home/config & # \"quoted\"" "$tree/bin/vgshell" dictation setup >"$tmp/setup.out" 2>&1 || code=$?
   test "$code" == 0
 }
 config_dir="$tmp/home/config & # \"quoted\"/voxtype"

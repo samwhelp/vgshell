@@ -693,7 +693,7 @@ const CONTROLS = [
     ["a core row's arguments are judged", "if (!tuiArgsValid(row.argv.slice(1)))", "if (false)"],
     ["a core row's window is judged", "    var windowError = tuiWindowError(at, row);\n    if (windowError !== \"\")\n        return windowError;\n    return row.entry", "    return row.entry"],
     ["a core row's entry is judged", "return row.entry === null ? \"\" : tuiEntryError(at, row.entry);", "return \"\";"],
-    ["a core row may have no entry", "return row.entry === null ? \"\" : tuiEntryError(at, row.entry);", "return tuiEntryError(at, row.entry);", "tui: core/requirements-install.entry must be an object"],
+    ["a core row may have no entry", "return row.entry === null ? \"\" : tuiEntryError(at, row.entry);", "return tuiEntryError(at, row.entry);", "tui: core/dictation-setup.entry must be an object"],
     ["the core table throws on a defect", "if (error !== \"\")\n            throw new Error(\"tui: \" + error);", "if (false)\n            throw new Error(\"tui: \" + error);"],
     ["open resolves a core command under the core's bin/", "[coreBin + \"/\" + row.argv[0]]", "[row.argv[0]]"],
     ["the manager's actions are a table", "if (!hasOwn(MANAGER_TUIS, action))", "if (false)"],

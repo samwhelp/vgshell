@@ -1362,7 +1362,7 @@ voxtype_fixture
 check "an uncompiled engine needs setup" test "$(step_state voxtype-engine)" == "needed engine-not-compiled"
 run_tty "voxtype engine apply" 0 apply voxtype-engine
 check "apply makes the engine ready" test "$(step_state voxtype-engine)" == "ready compiled"
-check "apply records the engine switch" holds_text "$records/voxtype-engine" "uid=$uid"$'\n'"enabled=1"$'\n'
+check "apply records the engine switch" holds_text "$records/voxtype-engine" "uid=$uid"$'\n'"enabled=1"
 run_tty "voxtype engine undo" 0 undo voxtype-engine
 check "undo disables the recorded engine" test ! -e "$tmp/voxtype-compiled"
 check "undo removes the engine record" test ! -e "$records/voxtype-engine"

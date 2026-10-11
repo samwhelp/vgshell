@@ -398,11 +398,10 @@ Commands:
   pkg        Install, remove and upgrade system packages
   sudo       Turn on passwordless sudo for a set time
   system     Apply or undo one-time system setup steps
-  dictation  Set up the speech engine and model
   hypr       Connect the VGS Hyprland settings to hyprland.lua
   tui        Run a command in a VGS floating terminal
 
-Other commands: pid, ipc, log, version, edit
+Other commands: pid, ipc, log, version, edit, dictation
 
 Run 'vgshell <command> --help' for the options of one command.
 EOF_HELP

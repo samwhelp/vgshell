@@ -157,7 +157,8 @@ fi
 : >"$record.next"
 for a; do printf '%s\n' "$a" >>"$record.next"; done
 mv -f -- "$record.next" "$record"
-ln -sf -- "$stand_in" "$setup_tree/commands/voxtype"
+printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$stand_in" >"$setup_tree/commands/voxtype"
+chmod +x "$setup_tree/commands/voxtype"
 exec env VGS_TUI_UNATTENDED=1 PATH="$setup_tree/commands:$PATH" "${present[@]:0:j+1}" "$setup_tree/bin/vgshell-dictation" setup
 SCRIPT
 } >"$tui_terminal.next"
@@ -202,7 +203,7 @@ expect "the manager refuses setup on a fixture without dictation" 'unknown: acme
 expect "the refused setup starts no terminal" absent recorded
 rm -rf -- "${home:?}/.config/vgshell/plugins/acme.dictation-no-cap"
 rescan "the refused fixture is removed"
-ipc shell close window vgs.settings >/dev/null
+settings_page_close "dictation setup"
 cp -- "$tui_terminal" "$sandbox/dictation-terminal-setup"
 terminal_stand_in
 
