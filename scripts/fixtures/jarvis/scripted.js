@@ -167,11 +167,13 @@ function plan() {
 }
 
 // A local plan lets feedback use the real engine owner. The basic brain
-// remains scripted until the bubble row selects plan().
+// remains scripted until the bubble row selects plan(). Its guidance is the
+// product's for a local chained brain, read from the backend this file was
+// installed beside, so a turn with a home set composes as the product's does.
 function readyPlan() {
     const brain = { provider: { id: "scripted", driver: "scripted" }, model: "", label: "Scripted", account: null, key: null,
         recipient: { kind: "local", provider: "scripted-brain", account: "" },
-        guidance: { instructions: "", afterToolResult: null } };
+        guidance: require("./Guidance.js").compose("chained", "local", "") };
     return { kind: "ready",
         speech: { recipients: [{ kind: "local", provider: "scripted-speech", account: "" }],
             open: () => ({

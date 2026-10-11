@@ -659,6 +659,34 @@ jarvis_enable
 expect "the home row leaves no home set" "" jarvis_home_saved
 expect "the accepted home is empty after clearing" "" jarvis_home_held
 jarvis_disable
+
+# One typed turn on the scripted chained brain with a home set, inside the
+# same lease: the engine composes the home's layers over the fixture plan's
+# guidance, and the reply reaches the transcript. The fixture's reply gate
+# polls every 10 ms. The home clears before the next scripted row.
+jarvis_engine="$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
+cp -- "$jarvis_engine" "$sandbox/jarvis-engine-original"
+jarvis_turn_gates="$sandbox/jarvis-home-turn-gates"
+"$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jarvis_backend" "$jarvis_turn_gates"
+"$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" --chained-engine "$jarvis_engine"
+jarvis_rescan
+jarvis_enable
+jarvis_home_reply() {
+  ipc smoke statusValues vgs.jarvis | py_reply 'import json,sys
+t=json.load(sys.stdin)["transcript"]
+print("replied" if t is not None and t["role"] == "assistant" and "scripted reply" in t["text"] else "pending")'
+}
+expect "the turn's home is configured" ok jarvis_home_set "~/Launcher One"
+expect_poll "the turn's home is accepted" "~/Launcher One" jarvis_home_current
+expect "Jarvis takes typed words with a home set" ok ipc vgs.jarvis invoke say "Tell me something."
+: >"$jarvis_turn_gates/reply"
+expect_poll "the scripted brain replies with a home set" replied jarvis_home_reply
+expect "the turn's home clears" ok jarvis_home_set ""
+expect_poll "no home is held after the turn" "" jarvis_home_held
+jarvis_disable
+cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
+cp -- "$sandbox/jarvis-engine-original" "$jarvis_engine"
+rm -- "${repo:?}/shell/plugins/vgs.jarvis/backend/scripted-fixture.js"
 cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
 jarvis_rescan
 
