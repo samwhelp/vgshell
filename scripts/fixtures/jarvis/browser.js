@@ -106,7 +106,8 @@ async function daemonLease(ending, removeClose = false) {
                     gate: { kind: "down", reason: "unconfigured" },
                     mute: { kind: "off" }, capture: { kind: "closed" }, turn: { kind: "none" }, brain: { kind: "closed" },
                     playback: { kind: "idle" }, action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
-                    conversation: { kind: "ended" }, input: { kind: "released" }, indicator: { kind: "gone" },
+                    conversation: { kind: "ended" }, input: { kind: "released" }, followUp: { kind: "none" },
+                    indicator: { kind: "gone" },
                     duplex: { kind: "half" }, toggleAt: null,
                     engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }
                 }, phase: "down", brain: "" },
