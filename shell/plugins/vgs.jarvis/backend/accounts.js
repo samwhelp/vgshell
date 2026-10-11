@@ -125,7 +125,7 @@ async function main() {
     }
     case "sign-in":
         if (args.length !== 4) throw new Error("jarvis-accounts: arguments=add");
-        value = judge.signIn({ provider: args[1], directory: args[2], label: args[3] });
+        value = await judge.signIn({ provider: args[1], directory: args[2], label: args[3] });
         // Vendor output is inherited by the terminal. Only the exit code
         // reaches the TUI: no credential-bearing stream is captured.
         process.exitCode = value.kind === "signed-in" ? 0 : value.cause === "command-missing" ? 69 : 1;

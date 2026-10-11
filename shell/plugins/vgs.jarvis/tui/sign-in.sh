@@ -14,6 +14,7 @@ child_env=(env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8
   XDG_DATA_HOME="${XDG_DATA_HOME:-}" XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}"
   DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-}"
   CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-}" CODEX_HOME="${CODEX_HOME:-}" COPILOT_HOME="${COPILOT_HOME:-}"
+  PI_CODING_AGENT_DIR="${PI_CODING_AGENT_DIR:-}"
   DISPLAY="${DISPLAY:-}" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}"
   VGS_TUI_ACCENT="${VGS_TUI_ACCENT:-}" VGS_TUI_SUCCESS="${VGS_TUI_SUCCESS:-}"
   VGS_TUI_WARNING="${VGS_TUI_WARNING:-}" VGS_TUI_DANGER="${VGS_TUI_DANGER:-}")
@@ -21,7 +22,7 @@ vgs_tui_gum_env gum_env
 # shellcheck disable=SC2154 # vgs_tui_gum_env sets gum_env by its name
 gum() { "${child_env[@]}" "${gum_env[@]}" gum "$@"; }
 program="$VGS_PLUGIN_DIR/backend/accounts.js"
-vgs_tui_header "Sign in to an AI account" "Use your Claude Code, Codex or GitHub Copilot account as the Jarvis AI model." \
+vgs_tui_header "Sign in to an AI account" "Use your Claude Code, Codex, GitHub Copilot or Pi account as the Jarvis AI model." \
   "The app runs its own sign-in. Jarvis does not read or copy its login token."
 choices="$(vgs_tui_logged "$log" "${child_env[@]}" node "$program" --tree "$tree" providers sign-in "$(vgs_tui_columns)")" ||
   { vgs_tui_failed "$log" "Jarvis could not list the apps. Close this window and try again."; exit 1; }
@@ -38,6 +39,7 @@ entry="$(vgs_tui_logged "$log" "${child_env[@]}" node "$program" --tree "$tree" 
 IFS=$'\t' read -r dir label <<<"$entry"
 shown_dir="$dir"
 [[ $dir != "$HOME/"* ]] || shown_dir="~/${dir#"$HOME/"}"
+[[ $selected != pi ]] || vgs_tui_step "In Pi, type /login and choose your provider, then press Ctrl+D to come back."
 vgs_tui_confirm "Sign in to $label using $shown_dir?" || exit 130
 code=0
 "${child_env[@]}" node "$program" --tree "$tree" sign-in "$selected" "$dir" "$label" || code=$?

@@ -18,7 +18,7 @@ if len(sys.argv) > 4:
 env = {name: os.environ[name] for name in (
     "PATH", "HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME",
     "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")}
-for name in ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME", "TERM", "COLORTERM"):
+for name in ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME", "PI_CODING_AGENT_DIR", "TERM", "COLORTERM"):
     if name in os.environ:
         env[name] = os.environ[name]
 # The suite supplies synthetic presenter colors inside its private world.

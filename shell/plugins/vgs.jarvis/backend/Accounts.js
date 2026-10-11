@@ -243,15 +243,14 @@ class Accounts {
         // A name becomes one folder component, never a path supplied by the user.
         if (typeof label !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,59}$/.test(label))
             fail("sign-in=name-invalid");
-        const directoryName = "." + harness(providerId).folder + (folders.length === 0 ? "" : "-" + label);
-        const target = path.join(this.home, directoryName);
+        const target = path.join(this.home, harness(providerId).home + (folders.length === 0 ? "" : "-" + label));
         if (folders.some(item => item.directory === target)) fail("sign-in=name-in-use");
         return added({ provider: providerId, directory: target, label });
     }
 
     // The vendor owns its login and token store. Its output and prompts stay
     // on the terminal, never in our metadata, parser or setup log.
-    signIn(value) {
+    async signIn(value) {
         const entry = added(value);
         const row = signInProvider(entry.provider);
         if (process.stdin.isTTY !== true) fail("sign-in=terminal-required");
@@ -272,8 +271,11 @@ class Accounts {
         if (result.error || result.signal || result.status !== 0)
             return { kind: "refused", cause: result.error?.code === "ENOENT" ? "command-missing" : "login-failed" };
         const account = this.cliAccount({ provider: entry.provider, directory: entry.directory, label: entry.label });
-        // A row with no status command proves its sign-in by the marker the
-        // login writes, Copilot's config.json.
+        // Pi proves its sign-in by its own model list, never by the auth.json
+        // it writes before any sign-in. A row with no status command or model
+        // list proves its sign-in by the marker the login writes, Copilot's
+        // config.json.
+        if (row.id === "pi") account.state = await this.piState(entry.directory);
         const signedIn = account.state.kind === "signed-in" || (account.state.kind === "unchecked" && account.marker === "present");
         if (!signedIn) return { kind: "refused", cause: "not-signed-in" };
         this.add(entry);
@@ -409,27 +411,30 @@ class Accounts {
         }));
     }
 
-    /**
-     * Whether each found Pi setup lists a model, read by the user's own Pi
-     * from its own list, all at once, each bounded, with no prompt sent: a
-     * setup that lists one is signed in, one that lists none is found, and a
-     * failed read leaves it unavailable with its keyed cause.
-     */
+    // Whether each found Pi setup lists a model, all at once.
     async readModels() {
         await Promise.all(this.accounts.filter(item => item.provider === "pi" && item.source.kind === "cli")
-            .map(async item => {
-                if (this.runtime === "") { item.state = { kind: "unavailable", reason: "runtime-directory" }; return; }
-                try {
-                    const menu = await PiHarness.menu({ directory: item.source.directory, env: this.env, runtime: this.runtime });
-                    item.state = { kind: menu.length === 0 ? "found" : "signed-in" };
-                } catch (error) {
-                    // One setup's failed read leaves the other accounts listed.
-                    const key = /^jarvis: brain=(pi-[a-z0-9-]+)(?: |$)/.exec(error?.message ?? "");
-                    // setpriv exits 127 when it finds no pi to run.
-                    item.state = { kind: "unavailable", reason: key === null ? "pi-models-failed"
-                        : /^jarvis: brain=pi-exited code=127 /.test(error.message) ? "command-missing" : key[1] };
-                }
-            }));
+            .map(async item => { item.state = await this.piState(item.source.directory); }));
+    }
+
+    /**
+     * Whether the Pi setup in DIRECTORY lists a model, read by the user's own
+     * Pi from its own list, bounded, with no prompt sent: a setup that lists
+     * one is signed in, one that lists none is found, and a failed read is
+     * unavailable with its keyed cause.
+     */
+    async piState(directory) {
+        if (this.runtime === "") return { kind: "unavailable", reason: "runtime-directory" };
+        try {
+            const menu = await PiHarness.menu({ directory, env: this.env, runtime: this.runtime });
+            return { kind: menu.length === 0 ? "found" : "signed-in" };
+        } catch (error) {
+            // One setup's failed read leaves the other accounts listed.
+            const key = /^jarvis: brain=(pi-[a-z0-9-]+)(?: |$)/.exec(error?.message ?? "");
+            // setpriv exits 127 when it finds no pi to run.
+            return { kind: "unavailable", reason: key === null ? "pi-models-failed"
+                : /^jarvis: brain=pi-exited code=127 /.test(error.message) ? "command-missing" : key[1] };
+        }
     }
 
     /**

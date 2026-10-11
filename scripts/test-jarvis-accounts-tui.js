@@ -8,6 +8,10 @@ const { PROVIDERS } = require(path.join(plugin, "AccountProviders.js"));
 // cell plus the closing rule.
 const frame = columns => 3 * columns + 1;
 const HASH = /[0-9a-f]{32}/;
+// Pi's interactive app with no session, extension, skill, prompt template,
+// theme, context file, approval, tool or MCP server.
+const PI_SIGN_IN = ["--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files",
+    "--no-approve", "--no-tools", "--no-mcp"];
 // A script's own list of gum's words in place of the library's: GUM_*,
 // TERM and COLORTERM, without the base colours gum style reads.
 const OWN_GUM_LIST = 'gum_env=(TERM="${TERM:-}" COLORTERM="${COLORTERM:-}"); ' +
@@ -204,11 +208,10 @@ world(async () => {
     assert.ok(cliIds.includes("claude") && cliIds.includes("codex") && cliIds.includes("copilot"));
     assert.ok(cliIds.every(id => PROVIDERS.find(row => row.id === id)?.kind === "cli"));
     // The Sign in screen offers only CLI providers with a sign-in command:
-    // Copilot among them, never Pi, which has none.
+    // Copilot and Pi among them.
     const signInProviders = folder => {
         const ids = providerIds(folder, "sign-in");
-        assert.ok(ids.includes("claude") && ids.includes("codex") && ids.includes("copilot"));
-        assert.equal(ids.includes("pi"), false);
+        for (const id of ["claude", "codex", "copilot", "pi"]) assert.ok(ids.includes(id), "offered [" + id + "]");
         assert.ok(ids.every(id => Array.isArray(PROVIDERS.find(row => row.id === id)?.signIn)));
     };
     signInProviders(plugin);
@@ -307,13 +310,39 @@ if(outcome==="failure") process.exit(7);
 if(outcome!=="no-account") fs.writeFileSync(path.join(process.env.COPILOT_HOME,"config.json"),"{}");
 if(outcome==="failure-signed-in") process.exit(7);
 `, { mode: 0o700 });
+    // Pi's interactive run, where the user types /login, writes auth.json
+    // before any sign-in and the model a signed-in setup lists into
+    // PI_CODING_AGENT_DIR. Its RPC runs answer from pi-stub.js, each with a
+    // state folder of its own whose scenario lists that folder's models.
+    const piRecorded = path.join(tree, "scripts/fixtures/jarvis-pi/recorded.ndjson");
+    fs.writeFileSync(path.join(process.env.JARVIS_TEST_ROOT, "standins/pi"), `#!/usr/bin/env node
+const fs=require("node:fs"), path=require("node:path");
+const state=process.env.XDG_STATE_HOME, args=process.argv.slice(2), dir=process.env.PI_CODING_AGENT_DIR;
+fs.appendFileSync(path.join(state,"cli-calls"), JSON.stringify({args,env:process.env})+"\\n");
+const models=path.join(dir??"","fixture-models.json");
+if(args[0]!=="--version"&&args[0]!=="--mode"){
+    const outcome=fs.readFileSync(path.join(state,"sign-in-mode"),"utf8").trim();
+    console.log("fixture-login-code-private");
+    if(outcome==="failure") process.exit(7);
+    fs.writeFileSync(path.join(dir,"auth.json"),"{}");
+    const recorded=fs.readFileSync(${JSON.stringify(piRecorded)},"utf8").trim().split("\\n").map(line=>JSON.parse(line));
+    const model=recorded.find(row=>row.direction==="out"&&row.line.command==="get_available_models").line.data.models[0];
+    if(outcome!=="no-account") fs.writeFileSync(models,JSON.stringify([model]));
+    if(outcome==="failure-signed-in") process.exit(7);
+    process.exit(0);
+}
+const run=fs.mkdtempSync(path.join(state,"pi-run-"));
+fs.copyFileSync(${JSON.stringify(piRecorded)},path.join(run,"pi-recorded.ndjson"));
+fs.writeFileSync(path.join(run,"pi-scenario.json"),JSON.stringify({models:fs.existsSync(models)?JSON.parse(fs.readFileSync(models,"utf8")):[]}));
+process.execve(process.execPath,[process.execPath,${JSON.stringify(path.join(tree, "scripts/fixtures/jarvis-pi/pi-stub.js"))},...args],{...process.env,XDG_STATE_HOME:run});
+`, { mode: 0o700 });
     const records = () => fs.readFileSync(path.join(env.XDG_STATE_HOME, "cli-calls"), "utf8")
         .trim().split("\n").map(JSON.parse);
     const accountFile = path.join(env.XDG_STATE_HOME, "vgshell/jarvis/accounts.json");
     const clearSignIns = () => {
         fs.rmSync(accountFile, { force: true });
         for (const name of fs.readdirSync(env.HOME))
-            if (/^\.(claude|codex|copilot)(-|$)/.test(name)) fs.rmSync(path.join(env.HOME, name), { recursive: true, force: true });
+            if (/^\.(claude|codex|copilot|pi)(-|$)/.test(name)) fs.rmSync(path.join(env.HOME, name), { recursive: true, force: true });
     };
     const signIn = (folder, vendor, selection, label, outcome, confirm = "yes", roots = {}) => {
         fs.writeFileSync(path.join(env.XDG_STATE_HOME, vendor + "-mode"), "found");
@@ -324,11 +353,12 @@ if(outcome==="failure-signed-in") process.exit(7);
             env: { ...env, ...roots }, encoding: "utf8", timeout: 20000 });
     };
     const successfulSignIn = folder => {
-        for (const [vendor, argv, variable] of [["claude", ["auth", "login"], "CLAUDE_CONFIG_DIR"],
-            ["codex", ["login"], "CODEX_HOME"], ["copilot", ["login"], "COPILOT_HOME"]]) {
+        for (const [vendor, argv, variable, home, second] of [["claude", ["auth", "login"], "CLAUDE_CONFIG_DIR", ".claude", "work_2"],
+            ["codex", ["login"], "CODEX_HOME", ".codex", "work_2"], ["copilot", ["login"], "COPILOT_HOME", ".copilot", "work_2"],
+            ["pi", PI_SIGN_IN, "PI_CODING_AGENT_DIR", ".pi/agent", "work"]]) {
           clearSignIns();
-          for (const [label, suffix] of [["login-account", ""], ["work_2", "-work_2"]]) {
-            const target = path.join(env.HOME, "." + vendor + suffix);
+          for (const [label, suffix] of [["login-account", ""], [second, "-" + second]]) {
+            const target = path.join(env.HOME, home + suffix);
             const before = records().length;
             const gumBefore = fs.readFileSync(path.join(env.XDG_STATE_HOME, "gum-calls"), "utf8").trim().split("\n").length;
             const result = signIn(folder, vendor, "new", label, "success");
@@ -342,7 +372,7 @@ if(outcome==="failure-signed-in") process.exit(7);
             const calls = fs.readFileSync(path.join(env.XDG_STATE_HOME, "gum-calls"), "utf8").trim().split("\n").slice(gumBefore).map(JSON.parse);
             assert.equal(calls.filter(item => item.args[0] === "input").length, 1, "new account asks for a name only");
             const confirmation = calls.find(item => item.args[0] === "confirm");
-            assert.ok(confirmation?.args.at(-1).includes("~/." + vendor + suffix), "confirmation shows the derived folder");
+            assert.ok(confirmation?.args.at(-1).includes("~/" + home + suffix), "confirmation shows the derived folder");
             const login = records().slice(before).find(item => JSON.stringify(item.args) === JSON.stringify(argv));
             assert.ok(login, "the vendor login ran");
             assert.equal(login.env[variable], target);
@@ -350,11 +380,14 @@ if(outcome==="failure-signed-in") process.exit(7);
             assert.equal(login.env.VGSHELL_RUNNER_PID, undefined);
             const accounts = JSON.parse(cli(folder, "list"));
             const account = accounts.find(item => item.source.directory === target);
-            assert.equal(account.state.kind, vendor === "copilot" ? "unchecked" : "signed-in");
+            assert.equal(account.state.kind, ["copilot", "pi"].includes(vendor) ? "unchecked" : "signed-in");
             const presence = Object.fromEntries(PROVIDERS.filter(row => row.variable).map(row => [row.variable, false]));
             const listsBefore = records().filter(item => item.args.includes("--input-format")).length;
             const shown = JSON.parse(cli(folder, "presence", JSON.stringify(presence)));
             assert.ok(shown.brains.some(item => item.value === account.id), "signed-in account offered as AI model");
+            // Pi's own model list reads the fresh setup signed in.
+            if (vendor === "pi") assert.ok(shown.accounts.some(row => row.provider === "pi" && row.label.endsWith(" / " + label)
+                && row.state === "signed-in"), "the Pi account reads signed in");
             // The account answer starts no model list read: the Jarvis page
             // asks for the chosen sign-in's list in a request of its own.
             assert.equal(records().filter(item => item.args.includes("--input-format")).length, listsBefore, "no list read in the account answer");
@@ -403,7 +436,7 @@ if(outcome==="failure-signed-in") process.exit(7);
     };
     themedSignIn(plugin);
     const incompleteSignIn = folder => {
-        for (const vendor of ["claude", "copilot"])
+        for (const vendor of ["claude", "copilot", "pi"])
         for (const outcome of ["failure", "failure-signed-in", "no-account"] ) {
             clearSignIns();
             const result = signIn(folder, vendor, "new", "login-account", outcome);
@@ -412,6 +445,8 @@ if(outcome==="failure-signed-in") process.exit(7);
             assert.equal(terminal.includes(log), false, "failed login does not refer to a log without its details");
             assert.equal(terminal.includes(log.replace(env.HOME, "~")), false, "the abbreviated log path is also absent");
             assert.equal(fs.existsSync(accountFile), false, "failed or unconfirmed login is not remembered");
+            if (vendor === "pi" && outcome === "no-account")
+                assert.ok(fs.existsSync(path.join(env.HOME, ".pi/agent/auth.json")), "Pi wrote auth.json with no model");
         }
     };
     successfulSignIn(plugin);
@@ -434,9 +469,9 @@ if(outcome==="failure-signed-in") process.exit(7);
     };
     existingSignIn(plugin);
     const explicitSignIn = folder => {
-        const variables = ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME"];
+        const variables = ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME", "PI_CODING_AGENT_DIR"];
         for (const [vendor, variable, argv] of [["claude", "CLAUDE_CONFIG_DIR", ["auth", "login"]],
-            ["codex", "CODEX_HOME", ["login"]], ["copilot", "COPILOT_HOME", ["login"]]]) {
+            ["codex", "CODEX_HOME", ["login"]], ["copilot", "COPILOT_HOME", ["login"]], ["pi", "PI_CODING_AGENT_DIR", PI_SIGN_IN]]) {
             clearSignIns();
             const target = path.join(env.HOME, "manual-" + vendor);
             fs.mkdirSync(target, { recursive: true });
@@ -514,12 +549,12 @@ if(outcome==="failure-signed-in") process.exit(7);
         assert.equal(result.stdout, "", "no vendor output without a terminal");
     };
     terminalRequired(plugin);
-    // Pi has no sign-in command, so every sign-in verb refuses it.
-    const piRefused = folder => {
+    // A key provider has no sign-in command, so every sign-in verb refuses it.
+    const keyRefused = folder => {
         for (const [verb, args] of [
-            ["sign-in-folders", ["pi", "1000"]],
-            ["sign-in-entry", ["pi", "new", "work"]],
-            ["sign-in", ["pi", hand, "work"]]
+            ["sign-in-folders", ["openai", "1000"]],
+            ["sign-in-entry", ["openai", "new", "work"]],
+            ["sign-in", ["openai", hand, "work"]]
         ]) {
             const before = records().length;
             const result = cp.spawnSync("node", [path.join(folder, "backend/accounts.js"), "--tree", tree, verb, ...args],
@@ -529,11 +564,9 @@ if(outcome==="failure-signed-in") process.exit(7);
             assert.equal(records().length, before, "no vendor program for " + verb);
         }
     };
-    piRefused(plugin);
+    keyRefused(plugin);
     await control("backend/Accounts.js", "sign-in-terminal-required", 'if (process.stdin.isTTY !== true)',
         'if (false)', terminalRequired);
-    await control("AccountProviders.js", "sign-in-provider-list", 'if (kind === "sign-in") return row.kind === "cli" && Array.isArray(row.signIn);',
-        'if (kind === "sign-in") return row.kind === "cli";', signInProviders);
     await control("AccountProviders.js", "sign-in-copilot-row", 'command: null, signIn: ["copilot", "login"] }',
         'command: null }', signInProviders);
     await control("AccountProviders.js", "sign-in-copilot-argv", 'signIn: ["copilot", "login"]',
@@ -541,7 +574,15 @@ if(outcome==="failure-signed-in") process.exit(7);
     await control("backend/Accounts.js", "sign-in-copilot-marker", '(account.state.kind === "unchecked" && account.marker === "present")',
         'account.state.kind === "unchecked"', incompleteSignIn);
     await control("backend/Accounts.js", "sign-in-provider-refusal", 'if (row.kind !== "cli" || !Array.isArray(row.signIn)) fail("sign-in=provider");',
-        'if (row.kind !== "cli") fail("sign-in=provider");', piRefused);
+        '', keyRefused);
+    await control("AccountProviders.js", "sign-in-pi-row", 'command: null, signIn: ["pi",', 'command: null, unused: ["pi",', signInProviders);
+    await control("AccountProviders.js", "sign-in-pi-no-tools", '"--no-approve", "--no-tools", "--no-mcp"] }',
+        '"--no-approve", "--no-mcp"] }', successfulSignIn);
+    await control("backend/Accounts.js", "sign-in-pi-model-list", 'if (row.id === "pi") account.state = await this.piState(entry.directory);',
+        '', incompleteSignIn);
+    await control("backend/Accounts.js", "sign-in-folder-name", 'harness(providerId).home + (folders.length',
+        '"." + harness(providerId).folder + (folders.length', successfulSignIn);
+    await control("tui/sign-in.sh", "sign-in-pi-root", 'PI_CODING_AGENT_DIR="${PI_CODING_AGENT_DIR:-}"', 'PI_CODING_AGENT_DIR=""', explicitSignIn);
     await control("tui/sign-in.sh", "sign-in-gum-words", 'gum() { "${child_env[@]}" "${gum_env[@]}" gum "$@"; }',
         'gum() { "${child_env[@]}" gum "$@"; }', themedSignIn);
     await control("tui/sign-in.sh", "sign-in-gum-own-list", 'vgs_tui_gum_env gum_env', OWN_GUM_LIST, themedSignIn);

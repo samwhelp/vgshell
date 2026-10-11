@@ -11,8 +11,16 @@ var PROVIDERS = [
     // Copilot documents no status command; Verify proves the account answers.
     // Sign in runs `copilot login`, the sign-in GitHub documents for Copilot CLI.
     { id: "copilot", label: "GitHub Copilot", kind: "cli", command: null, signIn: ["copilot", "login"] },
-    // Pi's sign-in check needs a provider name; its own model list proves a setup.
-    { id: "pi", label: "Pi", kind: "cli", command: null },
+    // Pi has no login command: `/login` inside Pi is its documented sign-in.
+    // Sign in runs Pi's own app with backend/PiHarness.js's lockdown less RPC
+    // mode and --offline, since a sign-in needs the network, and with no
+    // tool, so a prompt typed there runs nothing. The app ends on Ctrl+D, a
+    // second Ctrl-C, and on the SIGHUP or SIGTERM a closed window sends (Pi
+    // 1.1.0's registerSignalHandlers, read in its release binary on
+    // 2026-10-11). Pi's sign-in check needs a provider name; its own model
+    // list proves a setup.
+    { id: "pi", label: "Pi", kind: "cli", command: null, signIn: ["pi", "--no-session", "--no-extensions", "--no-skills",
+        "--no-prompt-templates", "--no-themes", "--no-context-files", "--no-approve", "--no-tools", "--no-mcp"] },
     { id: "openai", label: "OpenAI", kind: "key", variable: "OPENAI_API_KEY", origin: "https://api.openai.com", keyPage: "https://platform.openai.com/api-keys",
         probe: { driver: "chat", path: "/v1/chat/completions", model: "gpt-4.1-nano", limit: "max_completion_tokens", header: "authorization", prefix: "Bearer " } },
     { id: "anthropic", label: "Anthropic", kind: "key", variable: "ANTHROPIC_API_KEY", origin: "https://api.anthropic.com", keyPage: "https://console.anthropic.com/settings/keys",
