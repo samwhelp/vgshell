@@ -169,9 +169,9 @@ function inKeyedGroup(entry, keyed) {
 // keys, entry, label, step, button }: `key` the entry's, `keys` whether it
 // draws as a key list, `step` whether its offered action draws beside it,
 // `button` that action (stepButton) or null. The page's one primary action
-// is the first unfinished offered one in that order whose action is not
-// danger, an optional step's only while no required one is offered
-// (markPrimary). A completed step keeps its repeat action secondary.
+// belongs to the first open required step in that order, while its action
+// is offered and not danger; an optional row action takes it only while
+// no required step is open (markPrimary). Flow screens stay secondary.
 function settingsSections(tuis, status) {
     var keyed = keyedGroups(status);
     var setup = status.filter(function (entry) { return entry.group === SETUP_GROUP && !listsKeys(entry); });
@@ -223,9 +223,8 @@ function stepButton(tuis, entry) {
 // Such another TUI that lacks a requirement takes no press and reads the
 // core's reason, the TUI's `withheld`: its press would only raise the
 // notice the step installs from; an offered step always takes its press.
-// Each { key, name, label, tone, stateTone, offered, primary, enabled, reason },
-// `stateTone` the source status tone, so completed steps stay secondary; `key`
-// naming the action as drawn, so a change of label, state or weight draws
+// Each { key, name, label, tone, offered, primary, enabled, reason }, `key`
+// naming the action as drawn, so a change of label or state draws
 // it anew (markPrimary sets it).
 function flowButtons(tuis, status, beside) {
     var out = [];
@@ -236,41 +235,42 @@ function flowButtons(tuis, status, beside) {
                 && entry.declaredTuis !== undefined && entry.declaredTuis.indexOf(name) !== -1;
         });
     }
-    function add(tui, label, tone, offered, stateTone) {
+    function add(tui, label, tone, offered) {
         var enabled = offered || tui.withheld === "";
-        out.push({ key: "", name: tui.name, label: label, tone: tone, stateTone: stateTone, offered: offered, primary: false, enabled: enabled, reason: enabled ? "" : tui.withheld });
+        out.push({ key: "", name: tui.name, label: label, tone: tone, offered: offered, primary: false, enabled: enabled, reason: enabled ? "" : tui.withheld });
     }
     status.forEach(function (entry) {
         if (entry.action === null || entry.action.tui === "") return;
         var tui = tuis.filter(function (t) { return t.name === entry.action.tui; })[0];
-        if (tui !== undefined && !has(tui.name)) add(tui, entry.action.label, entry.action.tone, true, entry.tone);
+        if (tui !== undefined && !has(tui.name)) add(tui, entry.action.label, entry.action.tone, true);
     });
-    tuis.forEach(function (tui) { if (!has(tui.name) && !blockedByDangerRow(tui.name)) add(tui, tui.label, "", false, ""); });
+    tuis.forEach(function (tui) { if (!has(tui.name) && !blockedByDangerRow(tui.name)) add(tui, tui.label, "", false); });
     return out;
 }
 
-// Mark the one primary action of SECTIONS, settingsSections' list: the
-// first unfinished offered step action in drawn order, the step rows of a section and
-// then its offered buttons, whose tone is not danger, so the next step
-// reads first and a removal is never the page's main action. A step whose
-// state reads info is optional, such as a sign-in the plugin works
-// without: it is primary only while no other step offers an action, so an
-// open required step after it reads first. A successful step still offers
-// its repeat action, but never as primary. Each button of a section's
-// `buttons` then takes its key.
+// Choose the first open required step before inspecting its action. An
+// actionless step cannot hand its primary to a later step or Flow screen.
+// The core's success tone marks completion and info marks optional steps.
+// Each Flow button keeps its drawing key, with secondary weight.
 function markPrimary(sections) {
-    var found = false;
-    function mark(button, stateTone) {
-        if (found || button.tone === "danger" || stateTone === "success") return;
-        button.primary = true;
-        found = true;
-    }
-    [false, true].forEach(function (optional) {
-        sections.forEach(function (section) {
-            section.items.forEach(function (item) { if (item.button !== null && (item.entry.tone === "info") === optional) mark(item.button, item.entry.tone); });
-            if (!optional) section.buttons.forEach(function (button) { if (button.offered) mark(button, button.stateTone); });
+    var first = null;
+    sections.some(function (section) {
+        return section.items.some(function (item) {
+            if (!item.step || item.entry.tone === "info" || item.entry.tone === "success") return false;
+            first = item;
+            return true;
         });
     });
+    if (first === null) sections.some(function (section) {
+        return section.items.some(function (item) {
+            if (item.step && item.entry.tone === "info" && item.button !== null && item.button.tone !== "danger") {
+                first = item;
+                return true;
+            }
+            return false;
+        });
+    });
+    if (first !== null && first.button !== null && first.button.tone !== "danger") first.button.primary = true;
     sections.forEach(function (section) {
         section.buttons.forEach(function (button) { button.key = button.name + " " + button.label + " " + button.enabled + " " + button.tone + " " + button.primary; });
     });
