@@ -3656,6 +3656,7 @@ printers_office='{"name": "Office", "uri": "ipp://office.local/ipp/print", "stat
 printers_lab='{"name": "Lab", "uri": "ipp://lab.local/ipp/print", "state": "idle", "message": "", "jobs": 0, "accepting": true}'
 printers_office_busy='{"name": "Office", "uri": "ipp://office.local/ipp/print", "state": "printing", "message": "", "jobs": 2, "accepting": true}'
 printers_lab_stopped='{"name": "Lab", "uri": "ipp://lab.local/ipp/print", "state": "stopped", "message": "Paper jam", "jobs": 0, "accepting": true}'
+printers_watch() { ipc smoke statusValues vgs.printers | py_reply 'import json,sys; v=json.load(sys.stdin).get("printers"); print("unpublished" if v is None else json.dumps(v["watch"]))'; }
 printers_count() { ipc smoke readInstance window vgs.printers printers | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 printers_found() { ipc smoke readInstance window vgs.printers foundList | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 printers_state() { ipc smoke readInstance window vgs.printers printers | py_reply 'import json,sys; print(" ".join(p["state"] for p in json.load(sys.stdin)))'; }
@@ -3673,6 +3674,7 @@ scene_printers() { # MODE
   expect "enabling vgs.printers for its shots is allowed" ok ipc shell setPluginEnabled vgs.printers true
   expect "the Printers section summons" ok ipc shell summon window vgs.system '{"pane":"vgs.printers"}'
   expect_poll "the Printers section lists no printer" 0 printers_count
+  expect_poll "the Printers watcher is ready for CUPS's notifications" '"ready"' printers_watch
   park_pointer
   take "printers-$1-empty"
   printers_plant "one printer" "{\"printers\": [$printers_office]}" PrinterAdded Office

@@ -125,6 +125,26 @@ function watchLine(line) {
     return { kind: "unknown" };
 }
 
+// --- the pane's views ---------------------------------------------------
+
+// The open views of the pane: { leases, next }. The watcher, and with it
+// the CUPS subscription, runs only while a lease is open, since nothing but
+// the pane shows live printer state.
+function viewIdle() { return { leases: [], next: 1 }; }
+
+// A new lease: { state, id }.
+function viewBegin(state) { return { state: { leases: state.leases.concat([state.next]), next: state.next + 1 }, id: state.next }; }
+
+// The end of lease ID: { state, known }, `known` false for an id no lease
+// holds.
+function viewEnd(state, id) {
+    var at = state.leases.indexOf(id);
+    if (at === -1) return { state: state, known: false };
+    var leases = state.leases.slice();
+    leases.splice(at, 1);
+    return { state: { leases: leases, next: state.next }, known: true };
+}
+
 // --- GVariant text ------------------------------------------------------
 
 // The value of TEXT, gdbus's print of a reply: a tuple or an array as a

@@ -15,8 +15,10 @@ import "PrintersLogic.js" as Logic
 //   find            ask CUPS for the devices it can reach
 //   retry           read the printers again, and start the watcher again
 //                   after it ended
-// Each answers `ok`, `busy` while a change runs, or a refusal; a change's
-// end is published, never answered.
+//   view begin      the pane opened; answers `lease=<id>`
+//   view end ID     the pane with lease ID closed; answers `ok`
+// Each other answers `ok`, `busy` while a change runs, or a refusal; a
+// change's end is published, never answered.
 //
 // It publishes the status `printing`, the Settings page's line, with the
 // service-cups step's Turn on printing action while CUPS is not running
@@ -24,12 +26,21 @@ import "PrintersLogic.js" as Logic
 // scheduler's state, the printers, the watcher, the change and the found
 // devices.
 //
-// The list is never polled. The service reads `lpstat` when it starts,
-// after the watcher's `ready` and after each CUPS notification it prints,
-// a read that comes while one runs read once more after it, and after
-// each requirement scan, a system step run that leaves the step ready and
-// `retry`, while it has not read the printers. A change's own end reads
-// nothing: the list follows CUPS's notification of it.
+// Only the pane shows live printer state, so the watcher, and with it the
+// CUPS subscription and dbus-monitor, runs only while a pane holds a view
+// lease (Pane.qml takes one when it opens and ends it when it closes or is
+// destroyed). With no lease open the service holds no process and no
+// subscription; the last lease's end stops the watcher, whose own trap
+// cancels the subscription.
+//
+// The list is never polled. The service reads `lpstat` once when a view
+// opens, when the Settings page shows the plugin (`status.viewed`), which
+// draws the `printing` line, after the watcher's `ready` and each CUPS
+// notification it prints, after each of its own changes ends, and on
+// `retry`; a read that comes while one runs reads once more after it.
+// While a view or the Settings page is shown and the printers are unread,
+// a requirement scan or a system step run that leaves the step ready reads
+// them again too.
 Item {
     id: root
 
@@ -41,6 +52,10 @@ Item {
     // Set while the service is destroyed, so the watcher's end it causes
     // is not taken for a failure.
     property bool closing: false
+    // The pane's open views, PrintersLogic.viewIdle() and on.
+    property var views: Logic.viewIdle()
+    readonly property bool shown: views.leases.length > 0
+    readonly property bool viewed: shell !== null && shell.status.viewed
 
     readonly property var missing: shell === null ? [] : shell.requirements.missing
     readonly property bool lpstatMissing: missing.indexOf("lpstat") !== -1
@@ -55,7 +70,8 @@ Item {
 
     // lpstat's last reading: { state: "unread" }, or lpstatReading's answer.
     property var reading: ({ state: "unread" })
-    // The watcher: off, starting, ready, or ended once it exited.
+    // The watcher: off, starting, ready, stopping once the last view
+    // closed, or ended once it exited on its own.
     property string watch: "off"
     property var op: Logic.opIdle()
     // The last find: { state: idle|finding|found|failed, devices }.
@@ -81,13 +97,22 @@ Item {
         shell.ipc.handle("address", arg => root.addAddress(arg));
         shell.ipc.handle("find", () => root.begin("find", "", Logic.findSteps()));
         shell.ipc.handle("retry", () => root.retry());
-        read();
+        shell.ipc.handle("view", arg => root.viewCall(arg));
         publish();
     }
     onViewChanged: publish()
     onPrintingChanged: publish()
-    onScansChanged: if (reading.state !== "read") read()
-    onStepChanged: if (step === "ready" && reading.state === "down") read()
+    onShownChanged: {
+        if (shown) {
+            if (watch === "ended") watch = "off";
+            read();
+        } else {
+            stopWatch();
+        }
+    }
+    onViewedChanged: if (viewed) read()
+    onScansChanged: if ((shown || viewed) && reading.state !== "read") read()
+    onStepChanged: if ((shown || viewed) && step === "ready" && reading.state === "down") read()
     Component.onDestruction: closing = true
 
     function publish() {
@@ -118,6 +143,33 @@ Item {
         watch = "starting";
         watcher.completion = null;
         watcher.running = true;
+    }
+
+    // Setting `running` to false sends SIGTERM (Quickshell 0.3.1,
+    // Process.running), which the watcher forwards to its second process,
+    // whose trap cancels the subscription.
+    function stopWatch() {
+        if (watcher.running) {
+            watch = "stopping";
+            watcher.running = false;
+        } else {
+            watch = "off";
+        }
+    }
+
+    // `begin`, or `end <id>`.
+    function viewCall(arg) {
+        if (arg === "begin") {
+            const begun = Logic.viewBegin(views);
+            views = begun.state;
+            return "lease=" + begun.id;
+        }
+        const match = /^end ([1-9][0-9]*)$/.exec(arg);
+        if (match === null) return "refused: view=" + JSON.stringify(arg) + " want=begin|end <id>";
+        const ended = Logic.viewEnd(views, Number(match[1]));
+        if (!ended.known) return "refused: lease=" + match[1] + " reason=unknown";
+        views = ended.state;
+        return "ok";
     }
 
     // NAME's printer of the last reading, or undefined.
@@ -169,6 +221,8 @@ Item {
         }
         if (op.kind === "find")
             found = op.phase === "done" ? { state: "found", devices: Logic.foundDevices(reply.value[1], printers) } : { state: "failed", devices: [] };
+        else
+            read();
     }
 
     // Each child gets PATH, HOME, which holds the user's lpoptions, CUPS's
@@ -196,7 +250,7 @@ Item {
             const reading = Logic.lpstatReading(code, readOutput.text);
             if (reading.state === "failed") console.warn("printers: lpstat reason=" + reading.reason + " " + readErrors.text.trim());
             root.reading = reading;
-            if (reading.state === "read" && root.watch === "off" && !root.watchMissing) root.startWatch();
+            if (root.shown && reading.state === "read" && root.watch === "off" && !root.watchMissing) root.startWatch();
             if (reader.again) {
                 reader.again = false;
                 root.read();
@@ -232,6 +286,12 @@ Item {
         onExited: (code, status) => { watcher.completion = { code: code }; }
         onRunningChanged: {
             if (running || root.closing) return;
+            if (root.watch === "stopping") {
+                root.watch = "off";
+                // A view that opened while the watcher stopped starts it again.
+                if (root.shown) root.read();
+                return;
+            }
             const code = watcher.completion === null ? "not-started" : watcher.completion.code;
             console.warn("printers: watcher ended exit=" + code + " " + watchErrors.text.trim().split("\n")[0]);
             root.watch = "ended";

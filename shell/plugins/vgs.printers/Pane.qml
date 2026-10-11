@@ -21,6 +21,12 @@ import "PrintersLogic.js" as Logic
 // While the printer helper is missing, every change button offers its
 // install instead.
 //
+// The pane holds the service's view lease from open() until close() or
+// its destruction, whichever comes first, so the service watches CUPS
+// only while the pane is shown. A lease the service refused, such as one
+// asked for before it was built, is logged and asked for again when
+// `shell` next changes.
+//
 // The payload is `{}`; the pane takes no keys.
 FocusScope {
     id: root
@@ -62,8 +68,38 @@ FocusScope {
     implicitHeight: content.implicitHeight
     focus: true
 
-    function open(payloadJson) {}
-    function close() {}
+    // Whether the pane is open, and the service's id for its view lease, 0
+    // while none is held.
+    property bool opened: false
+    property int viewLease: 0
+
+    function open(payloadJson) {
+        opened = true;
+        syncView();
+    }
+    function close() {
+        opened = false;
+        syncView();
+    }
+    onShellChanged: syncView()
+    Component.onDestruction: {
+        opened = false;
+        syncView();
+    }
+
+    function syncView() {
+        if (shell === null) return;
+        if (opened && viewLease === 0) {
+            const reply = shell.ipc.call("view", "begin");
+            const match = /^lease=([1-9][0-9]*)$/.exec(reply);
+            if (match === null) console.warn("printers: view lease " + reply);
+            else viewLease = Number(match[1]);
+        } else if (!opened && viewLease !== 0) {
+            const reply = shell.ipc.call("view", "end " + viewLease);
+            viewLease = 0;
+            if (reply !== "ok") console.warn("printers: view release " + reply);
+        }
+    }
 
     // Each answers the service's reply, or `offered` when the press
     // offered the printer helper's install instead.

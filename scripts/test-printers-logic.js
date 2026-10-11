@@ -127,6 +127,19 @@ function suite(logic) {
     assert.equal(logic.problemText(""), "");
     assert.equal(logic.problemText("unheard-of"), logic.PROBLEM_TEXT.failed);
 
+    // The pane's view leases: each end closes its own lease once.
+    let views = logic.viewIdle();
+    const first = logic.viewBegin(views);
+    const second = logic.viewBegin(first.state);
+    assert.deepEqual([first.id, second.id], [1, 2]);
+    assert.deepEqual(plain(second.state.leases), [1, 2]);
+    assert.deepEqual(plain(logic.viewEnd(second.state, 2).state.leases), [1]);
+    const ended = logic.viewEnd(second.state, 1);
+    assert.deepEqual([ended.known, plain(ended.state.leases)], [true, [2]]);
+    assert.deepEqual([logic.viewEnd(ended.state, 1).known, plain(logic.viewEnd(ended.state, 1).state.leases)], [false, [2]]);
+    assert.deepEqual(plain(logic.viewEnd(ended.state, 2).state.leases), []);
+    assert.equal(logic.viewBegin(logic.viewEnd(ended.state, 2).state).id, 3);
+
     // Driverless addresses.
     for (const [uri, want] of [
         ["ipp://lab.local:631/ipp/print", true],
@@ -226,6 +239,8 @@ try {
         ["another scheme passes the field", 'if (scheme !== "ipp" && scheme !== "ipps") return { ok: false, problem: "scheme" };', ""],
         ["an address keeps no default path", 'if (path === "" || path === "/") path = DEFAULT_PATH;', ""],
         ["Turn on printing offered while the step is ready", 'action: step === "needed" || step === "nixos" };', "action: true };"],
+        ["a view's end closes another lease", "leases.splice(at, 1);", "leases.splice(0, 1);"],
+        ["a view's end of an unknown lease closes one", "if (at === -1) return { state: state, known: false };", "if (at === -1) at = 0;"],
         ["the default printer loses its badge", 'badge: p.isDefault ? "Default" : "",', 'badge: "",']
     ]) {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");

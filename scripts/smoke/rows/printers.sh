@@ -11,28 +11,36 @@
 # fakes' system tree (devices_system_tree), where the systemctl stand-in
 # answers that cups.service runs.
 #
-# Rows: the watcher asks CUPS for one subscription with the dbus://
-# recipient and reports ready; the pane, mounted in the System window,
-# reads back no printer, one, two with a default, a busy one with its jobs
-# and a stopped one with its message, each after the world changed and
-# CUPS notified; Set as default calls PrinterSetDefault, Remove calls
-# PrinterDelete, Add on a found driverless device calls PrinterAdd with
-# the everywhere model, then enables it and lets it take jobs, Add on the
-# address field does the same for the address, and each change reaches
-# the world and the list; a found device that needs a driver opens Print
-# Settings and calls the helper not at all; an address of another scheme
-# is refused and calls nothing; with CUPS silent a change reaches the
-# world and the list keeps the old state until a notification comes, so
-# the list follows the signal alone; a refused authorisation leaves the
-# world as it was and the pane shows the change's failure; after disable
-# the subscription is cancelled and no watcher process or dbus-monitor
-# remains. The controls: a copy of the plugin whose changes call echo in
-# place of the helper and whose watcher cancels nothing: Set as default,
-# Remove and Add each leave the world as it was, and after disable the
-# subscription stays live. Every reading is expect_poll's: 25 reads 0.2 s
-# apart; a reading that something stays is pr_stays's: 10 reads 0.2 s
-# apart. The row leaves vgs.printers and vgs.system enabled or disabled as
-# it found them, the world empty and no planted systemctl answer.
+# Rows: with the section closed the enabled service runs no watcher and
+# CUPS holds no subscription of it; opening the section starts the watcher,
+# which asks CUPS for one subscription with the dbus:// recipient and
+# reports ready; the pane, mounted in the System window, reads back no
+# printer, one, two with a default, a busy one with its jobs and a stopped
+# one with its message, each after the world changed and CUPS notified;
+# Set as default calls PrinterSetDefault, Remove calls PrinterDelete, Add
+# on a found driverless device calls PrinterAdd with the everywhere model,
+# then enables it and lets it take jobs, Add on the address field does the
+# same for the address, and each change reaches the world and the list; a
+# found device that needs a driver opens Print Settings and calls the
+# helper not at all; an address of another scheme is refused and calls
+# nothing; with CUPS silent a change outside VGS stays off the list, so
+# the list follows CUPS's notifications and polls nothing, and the
+# service's own change reads lpstat at its end, which shows both; a
+# refused authorisation leaves the world as it was and the pane shows the
+# change's failure; closing the section cancels the subscription and
+# leaves no watcher process or dbus-monitor, and opening it again reads
+# the change the world took while it was closed and subscribes again;
+# after disable with the section open the subscription is cancelled and
+# nothing of the watcher remains. The controls: a copy of the plugin that
+# starts its watcher at enable, keeps it running after the section closes,
+# whose changes call echo in place of the helper and whose watcher cancels
+# nothing: the closed section runs a watcher, Set as default, Remove and
+# Add each leave the world as it was, the closed section keeps the
+# subscription live, and after disable it stays live. Every reading is
+# expect_poll's: 25 reads 0.2 s apart; a reading that something stays is
+# pr_stays's: 10 reads 0.2 s apart. The row leaves vgs.printers and
+# vgs.system enabled or disabled as it found them, the world empty and no
+# planted systemctl answer.
 # inputs: shell/plugins/vgs.printers/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* scripts/smoke/devices.sh shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
 
@@ -57,7 +65,6 @@ elif k.startswith("printer:"):
 else: print(json.dumps(w[k], sort_keys=True))' "$1"; }
 pr_world_state() { cups_world_read | py_reply 'import json,sys; w=json.load(sys.stdin); print(json.dumps([w["printers"], w["default"]], sort_keys=True))'; }
 pr_message() { pr_pane printers | py_reply 'import json,sys; print(json.dumps([p["message"] for p in json.load(sys.stdin) if p["name"] == sys.argv[1]][0]))' "$1"; }
-pr_phase() { pr_view op | py_reply 'import json,sys; print(json.load(sys.stdin)["phase"])'; }
 pr_count() { device_calls "$1" | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 pr_calls_since() { device_calls cups-pk-helper | py_reply 'import json,sys; print(json.dumps([[c["method"], c["args"]] for c in json.load(sys.stdin)[int(sys.argv[1]):]]))' "$1"; }
 # The ipptool calls since call N as [test file, recipient], "" for none.
@@ -70,6 +77,18 @@ print(json.dumps(out))' "$1"; }
 # `live`, `cancelled` or `unknown` for subscription ID.
 pr_subscription() { pr_world subscriptions | py_reply 'import json,sys; s=json.load(sys.stdin); i=int(sys.argv[1]); print("live" if i in s["live"] else "cancelled" if i in s["cancelled"] else "unknown")' "$1"; }
 pr_last_subscription() { pr_world subscriptions | py_reply 'import json,sys; print(json.load(sys.stdin)["next"] - 1)'; }
+pr_live_count() { pr_world subscriptions | py_reply 'import json,sys; print(len(json.load(sys.stdin)["live"]))'; }
+# pr_world_jobs NAME N: printer NAME's queued jobs set to N in the world,
+# as a change outside VGS makes it, with no notification.
+pr_world_jobs() {
+  local doc
+  doc="$(cups_world_read | py_reply 'import json,sys
+w=json.load(sys.stdin)
+for p in w["printers"]:
+    if p["name"] == sys.argv[1]: p["jobs"] = int(sys.argv[2])
+print(json.dumps({"printers": w["printers"]}))' "$1" "$2")" || return 1
+  cups_world "$doc"
+}
 pr_act() { ipc smoke invokeInstanceArgs window vgs.printers "$1" "{\"args\": $2}"; }
 # The watcher's processes the sandbox runs, from /proc: printers-watch's
 # two and its dbus-monitor, each with the sandbox's system bus.
@@ -116,14 +135,16 @@ pr_problem() {
 }
 pr_requirement() { ipc shell listPlugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin)["plugins"] if p["id"] == "vgs.printers"]; r=[r for r in p[0]["requirements"] if r["name"] == sys.argv[1]] if p else []; print(r[0]["state"] if r else "absent")' "$1"; }
 pr_status_record() { ipc shell lent | py_reply 'import json,sys; print("held" if "vgs.printers" in json.load(sys.stdin)["status"] else "absent")'; }
-# Enable the plugin and wait for its watcher and its first reading.
-pr_start() { # LABEL
+pr_enable() { # LABEL
   expect "enabling $1 is allowed" ok ipc shell setPluginEnabled vgs.printers true
   expect_poll "$1's service is built" True record_exists vgs.printers
-  expect_poll "$1's watcher reports ready" '"ready"' pr_view watch
-  expect_poll "$1 reads the scheduler running" '"read"' pr_view cups
+}
+# Open the section and wait for its watcher and its first reading.
+pr_open() { # LABEL
   expect "$1's section summons" ok ipc shell summon window vgs.system '{"pane":"vgs.printers"}'
   expect_poll "$1's section is mounted" '["vgs.printers"]' window_panes
+  expect_poll "$1's watcher reports ready" '"ready"' pr_view watch
+  expect_poll "$1 reads the scheduler running" '"read"' pr_view cups
 }
 
 pr_main() {
@@ -133,15 +154,20 @@ pr_main() {
   device_reply systemctl 0 "" is-active --quiet cups.service
   pr_was_system="$(plugin_enabled vgs.system)" || { fail "printers: vgs.system's enabled state is unreadable"; return 0; }
   pr_was="$(plugin_enabled vgs.printers)" || { fail "printers: vgs.printers's enabled state is unreadable"; pr_was=""; return 0; }
-  expect "the world starts with no printer" world=set cups_world '{"down": false, "printers": [], "default": "", "devices": [], "refuse": false, "quiet": false}'
+  expect "the world starts with no printer and no subscription" world=set cups_world '{"down": false, "printers": [], "default": "", "devices": [], "refuse": false, "quiet": false, "subscriptions": {"next": 1, "live": [], "cancelled": []}}'
   expect "enabling vgs.system is allowed" ok ipc shell setPluginEnabled vgs.system true
   rescan "a scan reads the printer helper on the sandbox's bus"
 
   local ipp_before calls_before subscription
   ipp_before="$(pr_count ipptool)" || { fail "printers: the ipptool stand-in's calls are unreadable"; return 0; }
-  pr_start "vgs.printers"
+  pr_enable "vgs.printers"
   expect "the printer helper reads present" present pr_requirement "$pr_helper"
-  expect "the watcher made one subscription with the dbus:// recipient" '[["subscribe.test", "dbus://"]]' pr_ipptool_since "$ipp_before"
+  expect "with the section closed no watcher runs" stays pr_stays '{"monitor": 0, "watch": 0}' pr_watchers
+  expect "with the section closed CUPS holds no subscription" 0 pr_live_count
+  expect "with the section closed the service asked CUPS for no subscription" '[]' pr_ipptool_since "$ipp_before"
+  pr_open "vgs.printers"
+  expect "opening the section made one subscription with the dbus:// recipient" '[["subscribe.test", "dbus://"]]' pr_ipptool_since "$ipp_before"
+  expect "the open section's watcher runs as two processes beside one dbus-monitor" '{"monitor": 1, "watch": 2}' pr_watchers
   subscription="$(pr_last_subscription)" || { fail "printers: the world's subscriptions are unreadable"; return 0; }
   expect "CUPS holds the watcher's subscription" live pr_subscription "$subscription"
 
@@ -204,14 +230,14 @@ pr_main() {
   expect_poll "the address becomes an enabled IPP queue" '["idle", true, "ipp://192.0.2.7/ipp/print"]' pr_world printer:192.0.2.7
   expect_poll "the list follows: the address's printer is listed" '[["192.0.2.7", "idle", 0, false], ["Lab_Printer", "idle", 0, false], ["Office", "idle", 0, true]]' pr_printers
 
-  # The list follows CUPS's notification alone.
+  # Silent CUPS: a change outside VGS stays off the list, and the service's
+  # own change reads lpstat at its end.
   expect "CUPS goes silent" world=set cups_world '{"quiet": true}'
+  expect "a change outside VGS queues three jobs on Office" world=set pr_world_jobs Office 3
+  expect "without a notification the list keeps Office with no job" stays pr_stays '[["192.0.2.7", "idle", 0, false], ["Lab_Printer", "idle", 0, false], ["Office", "idle", 0, true]]' pr_printers
   expect "Set as default on the address's printer answers ok" ok pr_act setDefault '["192.0.2.7"]'
   expect_poll "the silent change reaches CUPS" '"192.0.2.7"' pr_world default
-  expect_poll "the silent change ends" done pr_phase
-  expect "without a notification the list keeps Office the default" stays pr_stays '[["192.0.2.7", false], ["Lab_Printer", false], ["Office", true]]' pr_list
-  expect "CUPS notifies the change" signal=sent cups_signal PrinterModified 192.0.2.7
-  expect_poll "with the notification the list follows" '[["192.0.2.7", true], ["Lab_Printer", false], ["Office", false]]' pr_list
+  expect_poll "the change's own end reads lpstat: the new default and Office's jobs" '[["192.0.2.7", "idle", 0, true], ["Lab_Printer", "idle", 0, false], ["Office", "idle", 3, false]]' pr_printers
   expect "CUPS speaks again" world=set cups_world '{"quiet": false}'
 
   # A refused authorisation.
@@ -224,19 +250,34 @@ pr_main() {
   expect_poll "the section shows the change's failure" shown pr_problem
   expect "polkit allows again" world=set cups_world '{"refuse": false}'
 
-  # Disable: the subscription is cancelled and nothing of the watcher stays.
+  # Close: the subscription is cancelled and nothing of the watcher stays.
   expect "the watcher runs as two processes beside one dbus-monitor" '{"monitor": 1, "watch": 2}' pr_watchers
   expect "the System window closes" ok ipc shell hide window vgs.system
-  expect "disabling vgs.printers is allowed" ok ipc shell setPluginEnabled vgs.printers false
+  expect_poll "closing the section cancels the subscription" cancelled pr_subscription "$subscription"
+  expect_poll "closing the section leaves no watcher process or dbus-monitor" '{"monitor": 0, "watch": 0}' pr_watchers
+  expect "a change outside VGS while closed clears Office's jobs" world=set pr_world_jobs Office 0
+  expect "the closed section starts no watcher" stays pr_stays '{"monitor": 0, "watch": 0}' pr_watchers
+  ipp_before="$(pr_count ipptool)" || { fail "printers: the ipptool stand-in's calls are unreadable"; return 0; }
+  pr_open "the reopened section"
+  expect_poll "opening the section reads the change it missed" '[["192.0.2.7", "idle", 0, true], ["Lab_Printer", "idle", 0, false], ["Office", "idle", 0, false]]' pr_printers
+  expect "opening the section subscribes again" '[["subscribe.test", "dbus://"]]' pr_ipptool_since "$ipp_before"
+  subscription="$(pr_last_subscription)" || { fail "printers: the world's subscriptions are unreadable"; return 0; }
+  expect "CUPS holds the new subscription" live pr_subscription "$subscription"
+
+  # Disable with the section open: the subscription is cancelled and
+  # nothing of the watcher stays.
+  expect "disabling vgs.printers with its section open is allowed" ok ipc shell setPluginEnabled vgs.printers false
   expect_poll "the service is gone" False record_exists vgs.printers
   expect_poll "disable cancels the subscription" cancelled pr_subscription "$subscription"
   expect_poll "no watcher process or dbus-monitor remains" '{"monitor": 0, "watch": 0}' pr_watchers
   expect_poll "the status record is gone" absent pr_status_record
+  expect "the System window closes after the disable" ok ipc shell hide window vgs.system
 
   pr_controls
 }
 
-# The controls: a copy whose changes call echo in place of the helper and
+# The controls: a copy that starts its watcher at enable and keeps it after
+# the section closes, whose changes call echo in place of the helper and
 # whose watcher cancels nothing.
 pr_controls() {
   rm -rf -- "${pr_copy:?}"
@@ -256,6 +297,14 @@ new = new.replace('function removeSteps(name) { return [helperArgv("PrinterDelet
 new = new.replace('function addSteps(name, uri, info) {\n    return [', 'function addSteps(name, uri, info) {\n    return ' + fake + ';\n    return [')
 assert new != text
 open(logic, "w").write(new)
+service = os.path.join(root, "Service.qml")
+text = open(service).read()
+for old, rep in [('        shell.ipc.handle("view", arg => root.viewCall(arg));\n', '        shell.ipc.handle("view", arg => root.viewCall(arg));\n        read();\n'),
+                 ("if (root.shown && reading.state", "if (reading.state"),
+                 ('            watch = "stopping";\n            watcher.running = false;\n', '            watch = "ready";\n')]:
+    assert text.count(old) == 1, old
+    text = text.replace(old, rep)
+open(service, "w").write(text)
 watch = os.path.join(root, "bin", "printers-watch")
 text = open(watch).read()
 old = '    ipptool -T 5 -t -d "id=$subscription" "$uri" "$tests/cancel.test" >/dev/null 2>&1 || :\n'
@@ -264,7 +313,9 @@ open(watch, "w").write(text.replace(old, "    :\n"))
 PY
   rescan "a scan reads the Printers control copy"
   local subscription
-  pr_start "the control copy"
+  pr_enable "the control copy"
+  expect_poll "control: a copy that watches at enable runs its watcher while the section is closed" '{"monitor": 1, "watch": 2}' pr_watchers
+  pr_open "the control copy"
   subscription="$(pr_last_subscription)" || { fail "printers: the world's subscriptions are unreadable"; return 0; }
   expect "control: Set as default answers ok" ok pr_act setDefault '["Office"]'
   expect "control: a copy that drops PrinterSetDefault leaves CUPS's default" stays pr_stays '"192.0.2.7"' pr_world default
@@ -273,6 +324,7 @@ PY
   expect "control: Add on an address answers ok" ok pr_act addAddress '["192.0.2.8"]'
   expect "control: a copy that drops PrinterAdd adds no printer" stays pr_stays '["192.0.2.7", "Lab_Printer", "Office"]' pr_world names
   expect "the control copy's window closes" ok ipc shell hide window vgs.system
+  expect "control: a copy that keeps watching after close leaves the subscription live" stays pr_stays live pr_subscription "$subscription"
   expect "disabling the control copy is allowed" ok ipc shell setPluginEnabled vgs.printers false
   expect_poll "the control copy's watcher is gone" '{"monitor": 0, "watch": 0}' pr_watchers
   expect "control: a watcher that cancels nothing leaves the subscription live" live pr_subscription "$subscription"
