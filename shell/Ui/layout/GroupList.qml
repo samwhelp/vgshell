@@ -12,12 +12,16 @@ import qs.Ui
 // one and divides its own groups the same way, so every group of a section
 // is divided alike whatever holds it. With `divided` false the groups keep
 // their gap and draw no hairline, for a page whose rows carry none, such as
-// the Settings tab.
+// the Settings tab. `inkBelow()` is where the last shown group's drawn
+// content ends (Theme.inkBelow), so a section after the list measures its
+// heading space from that ink.
 Item {
     id: root
 
     default property alias groups: column.data
     property bool divided: true
+
+    function inkBelow() { return height - column.height + Theme.inkBelow(column); }
     // The y of each hairline, one per gap between two shown groups.
     readonly property var hairlines: {
         if (!divided) return [];

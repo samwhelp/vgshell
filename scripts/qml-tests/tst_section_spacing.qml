@@ -92,6 +92,33 @@ Item {
         }
     }
 
+    // A status section as a plugin page draws it: a GroupList of loaded
+    // fields, the last ending in a hint of one line or of two, then the
+    // next section.
+    Component {
+        id: statusThenSection
+        Column {
+            id: statusPage
+            property string hint: ""
+            width: 400
+            spacing: 0
+            Section {
+                title: "Status"
+                GroupList {
+                    divided: false
+                    Loader {
+                        width: parent.width
+                        sourceComponent: Field { label: "Setup"; inline: true; hint: statusPage.hint; Label { role: "item"; text: "Ready" } }
+                    }
+                }
+            }
+            Section {
+                title: "Setup"
+                Field { label: "One"; inline: true; width: parent.width; Label { role: "item"; text: "Ready" } }
+            }
+        }
+    }
+
     TestCase {
         name: "sectionSpacing"
         when: windowShown
@@ -191,6 +218,25 @@ Item {
             const gap = gapAbove(img, headings(flatHint)[1]);
             flatHint.visible = false;
             verify(Math.abs(gap - Theme.stack.heading) <= root.tolerance, "the heading sits " + gap + " px under the help line, not " + Theme.stack.heading);
+        }
+
+        function test_heading_space_after_a_status_hint_data() {
+            return [
+                { tag: "one line", hint: "Setup copies defaults.", lines: 1 },
+                { tag: "two lines", hint: "Setup copies defaults and downloads the speech model the dictation needs.", lines: 2 }
+            ];
+        }
+
+        function test_heading_space_after_a_status_hint(data) {
+            const page = createTemporaryObject(statusThenSection, root, { hint: data.hint });
+            verify(page !== null);
+            tryVerify(() => headings(page).length === 2, 2000, "the page heads two groups");
+            const hints = descendants(page).filter(child => child instanceof LinkText && child.text === data.hint);
+            compare(hints.length, 1);
+            compare(hints[0].lineCount, data.lines);
+            verify(waitForRendering(page));
+            const gap = gapAbove(grabImage(root), headings(page)[1]);
+            verify(Math.abs(gap - Theme.stack.heading) <= root.tolerance, "the heading sits " + gap + " px under the hint, not " + Theme.stack.heading);
         }
 
         // The control: a section spaced by its box under a switch row.
