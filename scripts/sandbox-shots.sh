@@ -2474,6 +2474,15 @@ jarvis_anchor_shot() {
 jarvis_setup_drawn() { ipc smoke setupSection "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); s=json.loads(t) if t.startswith("{") else None; print(s is not None and len(s["chips"]) >= 4 and any(b[0] == "Accounts" for b in s["buttons"]))'; }
 jarvis_ships_backups() { grep -q '"fallbacks"' "$repo/shell/plugins/vgs.jarvis/manifest.json"; }
 jarvis_backups_drawn() { ipc smoke invokeInstance "$settings_kind" vgs.settings listItems '{"id":"vgs.jarvis","key":"fallbacks"}' | py_reply 'import json,sys; t=sys.stdin.read(); print(t!="absent" and len(json.loads(t)) == 2)'; }
+jarvis_brain_choice_ids() {
+  ipc smoke readInstance "$settings_kind" vgs.settings plugins | py_reply 'import json,sys
+rows=json.load(sys.stdin)
+row=next((p for p in rows if p["id"]=="vgs.jarvis"), None)
+choices=[] if row is None else row.get("settingChoices", {}).get("brain", [])
+values=[c["value"] for c in choices if c.get("value") and "(unavailable)" not in c.get("label", "")]
+print("\n".join(values[:2]) if len(values) >= 2 else "waiting")'
+}
+jarvis_brain_choices_ready() { [[ $(jarvis_brain_choice_ids) != waiting ]] && echo True || echo False; }
 jarvis_cause_status_rows() { # CAUSE PHASE
   "$node_bin" - "$repo" "$1" "$2" <<'JS'
 const fs = require("node:fs");
@@ -2545,6 +2554,10 @@ jarvis_plant_cause() { # CAUSE PHASE
   [[ $failed == 0 ]] && echo ok || return 1
 }
 scene_jarvis-setup() { # MODE
+  local accounts_before="$sandbox/jarvis-backups-accounts-before"
+  if jarvis_ships_backups; then
+    jarvis_backup_choice_accounts plant "$accounts_before"
+  fi
   expect "enabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
   expect_poll "the Jarvis daemon answers hello without a restart" ready jarvis_started
   # Jarvis requires wlrctl, which the shell finds absent, so enabling it
@@ -2563,8 +2576,9 @@ scene_jarvis-setup() { # MODE
   expect_poll "the Jarvis page shows Settings" 0 settings_tab
   expect_poll "the Jarvis Setup section draws its rows" True jarvis_setup_drawn
   jarvis_anchor_shot "jarvis-setup-$1" SectionHeader Setup
-  jarvis_backups plant
   if jarvis_ships_backups; then
+    expect_poll "the Jarvis AI model choice list shows two rows" True jarvis_brain_choices_ready
+    jarvis_backups plant
     expect_poll "the Jarvis backup model list shows two rows" True jarvis_backups_drawn
   fi
   jarvis_anchor_shot "jarvis-settings-$1-model" SectionHeader "AI model"
@@ -2575,6 +2589,9 @@ scene_jarvis-setup() { # MODE
   settings_close
   expect "disabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
   expect_poll "vgs.jarvis is gone" absent ipc smoke jarvisProcess
+  if jarvis_ships_backups; then
+    jarvis_backup_choice_accounts restore "$accounts_before"
+  fi
 }
 
 # jarvis_home_setting CONFIG VALUE: the Jarvis home folder setting in the
@@ -2708,6 +2725,21 @@ outdated_notice_back() {
   [[ $(recorded) != absent && $(key_idle core/requirements-update) == idle && $(layer_count vgs:notice) == 1 ]] || { echo waiting; return; }
   ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["notices"]["shown"]; print("back" if s is not None and not s["installing"] else "waiting")'
 }
+jarvis_backup_choice_accounts() { # plant|restore BACKUP
+  local mode="$sandbox/jarvis-world/account-mode"
+  [[ $1 == plant || $1 == restore ]] || fail "unknown Jarvis backup account action: $1"
+  if [[ $1 == plant ]]; then
+    rm -f -- "$2"
+    [[ ! -e $mode ]] || cp -- "$mode" "$2"
+    printf 'copilot\n' >"$mode" || fail "the Jarvis backup account mode is not written"
+  else
+    if [[ -e $2 ]]; then
+      cp -- "$2" "$mode"
+    else
+      rm -f -- "$mode"
+    fi
+  fi
+}
 # jarvis_backups plant|clear: write the Jarvis backup model list in the
 # shell.json rows Jarvis reads, then reload it.
 jarvis_backups() {
@@ -2715,12 +2747,8 @@ jarvis_backups() {
   [[ $1 == plant || $1 == clear ]] || fail "unknown Jarvis backup model action: $1"
   jarvis_ships_backups || return 0
   if [[ $1 == plant ]]; then
-    mkdir -p -- "$sandbox/jarvis-backups-no-path" || fail "the Jarvis backup PATH stand-in is not made"
-    ids="$(env -i PATH="$sandbox/jarvis-backups-no-path" HOME="$home" XDG_STATE_HOME="$home/.local/state" XDG_CONFIG_HOME="$home/.config" \
-      XDG_DATA_HOME="$home/.local/share" "$node_bin" "$repo/shell/plugins/vgs.jarvis/backend/accounts.js" --tree "$repo" list |
-      py_reply 'import json,sys; rows=json.load(sys.stdin); print("\n".join(row["id"] for row in rows[:2]))')" ||
-      fail "the account helper lists no backup model ids"
-    [[ $(printf '%s\n' "$ids" | sed '/^$/d' | wc -l) -ge 2 ]] || fail "the account helper listed fewer than two backup model ids"
+    ids="$(jarvis_brain_choice_ids)" || fail "the Jarvis AI model choices are unreadable"
+    [[ $ids != waiting ]] || fail "the Jarvis AI model choice list has fewer than two rows"
   fi
   python3 - "$config" "$1" ${ids:+$ids} <<'PY' || fail "the Jarvis backup model setting is not written"
 import json, os, re, sys
