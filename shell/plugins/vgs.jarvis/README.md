@@ -8,32 +8,34 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 ## Features
 
-- A bar icon that shows whether Jarvis is off, loading, ready, listening, working, speaking, muted or has a problem. Its tooltip says what to do next and names the answering AI model when one is active. A click toggles mute.
+- A bar icon that shows what Jarvis is doing.
+- Keys to talk, mute, stop, confirm a request and open the Console.
+- A Console window to type to Jarvis instead of speaking.
+- A mute that stays on across restarts.
+- A listening bubble that lets clicks reach the window below.
+- Always talk mode: say Hey Jarvis to start a request.
+- A home folder with your instructions, skills and memory, shared by every AI model.
+- Requests to your agent fleet, sent after you confirm them.
+- An AI model from an API key or a signed-in app: Claude Code, Codex, GitHub Copilot, or Pi with its own providers.
+- Backup models that Jarvis tries when the answering model fails.
+- Local voice: speech to text and spoken replies on your computer.
+- Realtime voice from OpenAI with a saved OpenAI key.
+- Talk interrupts Jarvis while it speaks.
+- Provider keys kept in your desktop keyring.
+- Accounts finds the keys and sign-ins your other tools already have.
+- Verify checks that an account answers.
+- Window, workspace and application control.
+- File tools for your home folder.
+- Shell commands inside a sandbox.
+- Clipboard, media, volume and notification tools.
+- Screen reading, with private windows painted black.
+- A private browser that asks before it submits.
+- Coding tasks in tmux or a floating terminal.
+- Spoken questions and answers with your coding agents.
 
-- Talk, Mute, Stop and Console keys. Talk is Super with Right Alt, Mute is Super with Shift and Right Alt, Stop is Super with Alt and Period, and Console is Super with Alt and C.
-- The Console window lets you type a message to Jarvis, review the conversation, and stop the current turn without using the microphone.
-- Mute stays on across restarts and blocks talk input.
-- A listening bubble whose orb and text let clicks reach the application below.
-- Always talk mode: say Hey Jarvis to start a request. The word is heard by the local voice on this computer; nothing reaches the AI model until you speak after it. While Jarvis waits for the word its bubble shows a still orb.
-- A home folder you choose for what Jarvis knows: your instructions, skills, memory and state. Every AI model uses them the same way. No AI model can change anything in the folder but its `state/` part, apart from the request in the next item.
-- A request for your agent fleet goes to the mailbox of your Jarvis session, the session that runs it. Jarvis shows you the text and asks you to confirm it, then hands it to that mailbox in the home folder with the kendex mail tool there, and tells you the row's id once the mailbox reads it back. The Jarvis session acts on the request when it next reads its mail; Jarvis does not check that a session is running. A turn hands over one request. The mail tool is the one program in the home folder Jarvis starts. Agent fleet under Setup installs it, and Jarvis offers the request once your Jarvis session has read this folder's mail.
-- An AI model from an API key you added, or from an app you are signed in to, such as Claude Code, Codex, GitHub Copilot or Pi with its own providers.
-- Local voice: speech to text and spoken replies on your computer, with no network access, after Set up local voice.
-- Realtime voice with a saved OpenAI key. OpenAI hears you and speaks the reply. The selected AI model answers each request through Jarvis's action and release checks.
-- Half duplex audio: Jarvis closes its microphone while speech plays, and Talk interrupts speech.
-- Provider keys stored in your desktop keyring. Plugins shows whether a key is present, absent, locked or unavailable without reading it.
-- Accounts finds the account folders of other tools in your home, config and data folders, and can remember a key another tool stored without copying its value. A login hint never proves that the AI answers.
-- Verify sends one small request to an account after you consent, because a real request may cost money.
-- Window, workspace and application tools that read each change back from Hyprland before they report it done.
-- File tools that list, read, search, write, move and delete files in your home folder. They refuse credential stores, account folders and VGS's own files, and never follow a link out of your home folder.
-- Shell tools that keep commands inside a kernel sandbox. Plugins shows whether the sandbox is ready and offers Install Bubblewrap when it is missing.
-- Desktop tools that read and copy clipboard text, play, pause and skip media, set and mute the speaker volume, and show a notification. A clipboard read refuses a copy that a password manager marks as secret.
-- Screen tools that read the screen, a monitor, a window, a region or an area you draw, at most four times a turn. Windows of password managers and private browsing are painted black before a screenshot leaves Jarvis.
-- A private browser from Set up browser. Jarvis asks for input access to each site, a submit needs your confirmation, and password entry stays with you.
-- Coding tasks in their own tmux session or a floating terminal. Plugins shows how many are running. A stop ends every process of the task before it is recorded as stopped.
-- Jarvis speaks a coding agent's question and sends your spoken answer back to it. It calls a task done only when the agent reports it done. With no conversation open, it shows these as desktop notifications.
+## Bar icon
 
-### Bar icon states
+The icon's tooltip says what to do next and names the answering AI model when one is active. A click toggles mute.
 
 | State | Icon | When | What the tooltip tells you |
 | --- | --- | --- | --- |
@@ -46,17 +48,35 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 | Muted | `mic-off` | Privacy mute is on. | Click or press the Mute key to unmute. |
 | Problem | `circle-alert` | Jarvis or audio stopped with a fault. | What failed and what action to take, from the first failed start. |
 
+## Keys and voice
+
+| Key | Default | What it does |
+| --- | --- | --- |
+| Talk | Super with Right Alt | Opens the microphone; Talk mode decides whether you hold it or press it. Pressing it while Jarvis speaks interrupts it. |
+| Mute | Super with Shift and Right Alt | Turns the Jarvis microphone off, or on again. Mute stays on across restarts and blocks talk input. |
+| Stop | Super with Alt and Period | Ends what Jarvis is doing now: listening, thinking or speaking. |
+| Confirm | Super with Alt and Y | Confirms the Jarvis request shown on screen. |
+| Console | Super with Alt and C | Opens the Console window. |
+
+- The Console window lets you type a message to Jarvis, review the conversation, and stop the current turn without using the microphone.
+- The listening bubble's orb and text let clicks reach the application below. While Jarvis waits for Hey Jarvis, its bubble shows a still orb.
+- In Always talk mode the local voice on this computer hears Hey Jarvis. Nothing reaches the AI model until you speak after it.
+- Audio is half duplex: Jarvis closes its microphone while speech plays, and Talk interrupts speech.
+- Local voice runs speech to text and spoken replies on your computer, with no network access, after Set up local voice.
+- With the Realtime voice, OpenAI hears you and speaks the reply. The selected AI model answers each request through Jarvis's action and release checks.
+
 ## Setup
 
 The Setup section at the top of the Jarvis page says Ready when Jarvis has an AI model it can use and the selected voice provider, and Not ready when it does not. It offers Sign in, AI model, Voice, Browser and Input. The AI model and voice steps read Done or To do. Sign in is optional. A step with a setup action shows its action beside it. The browser and input steps read Optional until they are done. If start fails, Setup names the cause and shows the keyed cause on its detail line.
 
 Setup actions are buttons on the Jarvis page in Plugins or rows in the launcher's Jarvis group. These actions open a floating terminal. For the Realtime voice, use Add key under Setup at the top of this page to save an OpenAI key. With no OpenAI key, Jarvis uses the local voice and Setup does not ask for a key. Jarvis selects the only available OpenAI key when Realtime key is empty, and Voice provider Auto then uses the Realtime voice. With several keys, choose one under Voice.
 
-- Add key stores a new API key from an AI provider in your keyring, with hidden key input. You choose the provider from a list that names the page where it makes keys, then give the key a name.
+- Add key stores a new API key from an AI provider in your desktop keyring, with hidden key input. Plugins shows whether a key is present, absent, locked or unavailable without reading it. You choose the provider from a list that names the page where it makes keys, then give the key a name.
 - Sign in opens the app's own sign-in: Claude Code, Codex or GitHub Copilot. Give a new account a name, or select an existing account folder. Jarvis shows the folder before sign-in and creates it if needed. After sign-in, select the account as the AI model. The app keeps its login token.
 - Set up local voice downloads the local voice model that runs best on this computer; choose another under Local voice in Settings. It checks free space, downloads the models and a private runtime, and reports Ready only after verification and a bundled test clip succeed.
 - Set up browser checks an installed browser on a blank page, or offers a private download. The Browser driver row offers Install while agent-browser is missing.
-- Accounts adds a directory, chooses an existing keyring item by label or inspects login hints.
+- Accounts adds a directory, chooses an existing keyring item by label or inspects login hints. It finds the account folders of other tools in your home, config and data folders, and can remember a key another tool stored without copying its value. A login hint never proves that the AI answers.
+- Verify sends one small request to an account after you consent, because a real request may cost money.
 - Check input checks the desktop input tools.
 
 The shell's requirement notice installs a missing tool in one click.
@@ -85,9 +105,20 @@ With a GitHub Copilot account, Setup shows Copilot Memory. GitHub keeps that mem
 
 The keys are under Keys on the same page. Show in bar puts the bar icon back after Hide.
 
+## Tools
+
+- Window, workspace and application tools read each change back from Hyprland before they report it done.
+- File tools list, read, search, write, move and delete files in your home folder. They refuse credential stores, account folders and VGS's own files, and never follow a link out of your home folder.
+- Shell tools keep commands inside a kernel sandbox. Plugins shows whether the sandbox is ready and offers Install Bubblewrap when it is missing.
+- Desktop tools read and copy clipboard text, play, pause and skip media, set and mute the speaker volume, and show a notification. A clipboard read refuses a copy that a password manager marks as secret.
+- Screen tools read the screen, a monitor, a window, a region or an area you draw, at most four times a turn. Windows of password managers and private browsing are painted black before a screenshot leaves Jarvis.
+- The private browser comes from Set up browser. Jarvis asks for input access to each site, a submit needs your confirmation, and password entry stays with you.
+- Coding tasks run in their own tmux session or a floating terminal. Plugins shows how many are running. A stop ends every process of the task before it is recorded as stopped.
+- Jarvis speaks a coding agent's question and sends your spoken answer back to it. It calls a task done only when the agent reports it done. With no conversation open, it shows these as desktop notifications.
+
 ## Home folder
 
-Choose a folder under Home folder. Jarvis adds the entries the folder lacks and changes no file it finds outside `skills/base/`. It never follows a link in the folder, and it does not start with a folder that has a link in place of an entry below or anywhere in `skills/base/`.
+Choose a folder under Home folder. Every AI model uses your instructions, skills, memory and state in it the same way. No AI model can change anything in the folder but its `state/` part, apart from an agent fleet request. Jarvis adds the entries the folder lacks and changes no file it finds outside `skills/base/`. It never follows a link in the folder, and it does not start with a folder that has a link in place of an entry below or anywhere in `skills/base/`.
 
 | Entry | What it holds |
 | --- | --- |
@@ -104,6 +135,10 @@ A size limit applies only to what every conversation starts with: `AGENTS.md`, a
 The folder gives Jarvis knowledge, never permission. A skill that says an action needs no question changes nothing: Jarvis still asks before it deletes a file, runs a command or sends something.
 
 The AI models never run inside this folder. A setting, hook or server that you keep there for your own tools does not run in Jarvis. Each app's own memory is off while Jarvis uses the app.
+
+### Agent fleet requests
+
+A request for your agent fleet goes to the mailbox of your Jarvis session, the session that runs it. Jarvis shows you the text and asks you to confirm it, then hands it to that mailbox in the home folder with the kendex mail tool there, and tells you the row's id once the mailbox reads it back. The Jarvis session acts on the request when it next reads its mail; Jarvis does not check that a session is running. A turn hands over one request. The mail tool is the one program in the home folder Jarvis starts. Agent fleet under Setup installs it, and Jarvis offers the request once your Jarvis session has read this folder's mail.
 
 ### Memory add-ons
 
