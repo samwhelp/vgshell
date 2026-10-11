@@ -238,17 +238,6 @@ expect_poll "a click on the Copilot Memory link opens GitHub's Copilot settings"
 printf 'none\n' >"$sandbox/jarvis-world/account-mode"
 page_open accountSearch accounts "Jarvis accounts"
 expect_poll "without the Copilot account the row leaves the page" '[]' page_copilot
-# The Microphone field's description names where the feedback tones are
-# set, and a click on its link opens the Sounds page in the System window,
-# the panes holder, through the same pointer steps.
-page_hint="Set feedback tones in Appearance → Sounds."
-page_link="Appearance → Sounds"
-ipc smoke revealText window vgs.settings LinkText "$page_hint" >/dev/null || fail "the Microphone description is not on the page"
-expect_poll "no pane is mounted before the Sounds link's click" '[]' window_panes
-page_link_click || fail "the click on the Sounds link failed"
-expect_poll "a click on the Sounds link opens the Sounds page" '["vgs.sounds"]' window_panes
-expect "the System window hides after the Sounds link" ok ipc shell hide window vgs.system
-expect_poll "the System window is gone after the Sounds link" 0 window_count 'System Settings'
 
 # The model and effort of the chosen sign-in. The world's claude stand-in
 # lists Opus 5.5, its own default, Fable 5.1 and Haiku 4.5, which takes no
@@ -526,6 +515,29 @@ expect "the first backup model is removed" clicked ipc smoke invokeInstance wind
 expect_poll "the page draws one backup model" '["2"]' page_backups
 expect "the second backup model is removed" clicked ipc smoke invokeInstance window vgs.settings listRemove '{"id":"vgs.jarvis","key":"fallbacks","name":"2"}'
 expect_poll "the page draws no backup model" '[]' page_backups
+
+# The Microphone field's description names where the feedback tones are
+# set, and a click on its link opens the Sounds page in the System window,
+# the panes holder, through the same pointer steps. The sandbox starts with
+# the System window disabled, so the step enables it and puts it back. The
+# requirement notice that enabling Jarvis raised sits at the screen's
+# centre over the revealed field and takes the pointer there, so the step
+# closes it first; it comes last so no earlier step reads the notice
+# closed.
+page_system_was="$(plugin_enabled vgs.system)" || fail "vgs.system's enabled state is unreadable"
+expect "enabling the System window is allowed" ok ipc shell setPluginEnabled vgs.system true
+jarvis_notice_close
+page_hint="Set feedback tones in Appearance → Sounds."
+page_link="Appearance → Sounds"
+ipc smoke revealText window vgs.settings LinkText "$page_hint" >/dev/null || fail "the Microphone description is not on the page"
+expect_poll "no pane is mounted before the Sounds link's click" '[]' window_panes
+page_link_click || fail "the click on the Sounds link failed"
+expect_poll "a click on the Sounds link opens the Sounds page" '["vgs.sounds"]' window_panes
+expect "the System window hides after the Sounds link" ok ipc shell hide window vgs.system
+expect_poll "the System window is gone after the Sounds link" 0 window_count 'System Settings'
+[[ $page_system_was == True ]] && page_system_want=true || page_system_want=false
+expect "the System window's enablement is put back" ok ipc shell setPluginEnabled vgs.system "$page_system_want"
+expect_poll "vgs.system's enablement is as the row found it" "$page_system_was" plugin_enabled vgs.system
 settings_page_close vgs.jarvis
 jarvis_disable
 jarvis_notice_close
