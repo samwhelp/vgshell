@@ -27,7 +27,7 @@ Column {
     property bool editable: true
     property var edits: null
     signal apply(var value)
-    signal openLink(string url)
+    signal openLink(var link)
 
     readonly property var items: Array.isArray(value) ? value : []
     readonly property var fields: spec.items === undefined ? [] : Object.keys(spec.items)
@@ -107,7 +107,7 @@ Column {
                         editable: root.editable
                         edits: root.edits
                         onApply: v => root.setField(itemGroup.modelData.name, modelData, v)
-                        onOpenLink: url => root.openLink(url)
+                        onOpenLink: link => root.openLink(link)
                     }
                 }
             }

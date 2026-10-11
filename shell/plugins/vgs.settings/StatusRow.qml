@@ -35,7 +35,7 @@ GroupList {
     // The plugin's `secrets` label, which a line's masked field asks for.
     property string secretLabel: ""
 
-    signal openLink(string url)
+    signal openLink(var link)
 
     // The panel's last refusal or failure of this row's entry, or of
     // ACCOUNT's secret in it, "" for none and while the page is torn down,
@@ -56,7 +56,7 @@ GroupList {
         label: row.view.label
         hint: row.view.hint
         hintLink: row.view.link === null ? "" : row.view.link.text
-        onHintLinkActivated: row.openLink(row.view.link.url)
+        onHintLinkActivated: row.openLink(row.view.link)
         info: row.view.info
         tone: row.view.tone
         text: row.view.text

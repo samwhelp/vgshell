@@ -76,14 +76,14 @@ Item {
             key: "voiceAccount"
             spec: ({ type: "boolean", label: "Realtime key", description: "OpenAI API keys gives you a key.", link: { text: "OpenAI API keys", url: "https://platform.openai.com/api-keys" } })
             value: true
-            onOpenLink: url => root.opened.push(url)
+            onOpenLink: link => root.opened.push(link.url)
         }
         SettingField {
             id: customLinked
             key: "unit"
             spec: ({ type: "string", label: "Unit", description: "Units listed at the unit guide.", link: { text: "unit guide", url: "https://example.org/units" }, allowCustom: true, presets: [{ value: "kB" }] })
             value: "MiB"
-            onOpenLink: url => root.opened.push(url)
+            onOpenLink: link => root.opened.push(link.url)
         }
         Field {
             id: erred

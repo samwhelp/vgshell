@@ -5,7 +5,8 @@
 # setting reads its empty text, closed, beside Add key; without a command
 # only Accounts needs, the search row offers Install requirements and Add
 # key stays offered. With a Copilot account, and only then, Setup shows the
-# Copilot Memory step and its link to GitHub. With the fixture's key stored,
+# Copilot Memory step and its link to GitHub. A click on the Microphone
+# field's link opens the Sounds page. With the fixture's key stored,
 # the Setup section of the Settings tab draws the key list, a line per key
 # with its chip, and Details draws none; a manifest copy that groups the
 # list outside Setup fails both Setup readings. With a Claude Code account
@@ -22,7 +23,7 @@
 # No latency budget.
 # Poll once per nested IPC round trip. Only J09's process double and the
 # allow-listed TUI fixtures run here.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/Home.js shell/plugins/vgs.jarvis/backend/jarvisd.js shell/Ui/layout/GroupList.qml bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js shell/plugins/vgs.settings/* shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh shell/Commons/AnchorTracker.qml
+# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/Home.js shell/plugins/vgs.jarvis/backend/jarvisd.js shell/Ui/layout/GroupList.qml bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js shell/plugins/vgs.settings/* shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh shell/Commons/AnchorTracker.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml
 set -euo pipefail
 page_tuis="$repo/shell/plugins/vgs.jarvis/tui"
 page_manifest="$repo/shell/plugins/vgs.jarvis/manifest.json"
@@ -208,7 +209,7 @@ page_link_before="$(device_calls gio | py_reply 'import json,sys; print(len(json
 device_reply gio 0 "" open https://github.com/settings/copilot/features
 page_link_opens() { device_calls gio | py_reply 'import json,sys; print(json.dumps([" ".join(c) for c in json.load(sys.stdin)[int(sys.argv[1]):]]))' "$page_link_before"; }
 page_link_click() {
-  local rect last="" x y step
+  local rect last="" x y step steps
   for _ in $(seq 1 50); do
     rect="$(ipc smoke windowGeometry window vgs.settings LinkText "$page_hint")" || return 1
     [[ $rect == \[* && $rect == "$last" ]] && break
@@ -216,7 +217,8 @@ page_link_click() {
     sleep 0.1
   done
   [[ $rect == \[* && $rect == "$last" ]] || { echo "page_link_click: no still hint line: $rect" >&2; return 1; }
-  for step in $(seq 1 20); do
+  steps="$(python3 -c 'import json,sys; print(max(1, int(json.loads(sys.argv[1])[2] // 8)))' "$rect")" || return 1
+  for step in $(seq 1 "$steps"); do
     read -r x y < <(at_centre window:Plugins "$(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); print(json.dumps([r[0] + 8 * int(sys.argv[2]), r[1], 2, 16]))' "$rect" "$step")") || return 1
     hover "$x" "$y" || return 1
     sleep 0.1
@@ -230,6 +232,17 @@ expect_poll "a click on the Copilot Memory link opens GitHub's Copilot settings"
 printf 'none\n' >"$sandbox/jarvis-world/account-mode"
 page_open accountSearch accounts "Jarvis accounts"
 expect_poll "without the Copilot account the row leaves the page" '[]' page_copilot
+# The Microphone field's description names where the feedback tones are
+# set, and a click on its link opens the Sounds page in the System window,
+# the panes holder, through the same pointer steps.
+page_hint="Set feedback tones in Appearance → Sounds."
+page_link="Appearance → Sounds"
+ipc smoke revealText window vgs.settings LinkText "$page_hint" >/dev/null || fail "the Microphone description is not on the page"
+expect_poll "no pane is mounted before the Sounds link's click" '[]' window_panes
+page_link_click || fail "the click on the Sounds link failed"
+expect_poll "a click on the Sounds link opens the Sounds page" '["vgs.sounds"]' window_panes
+expect "the System window hides after the Sounds link" ok ipc shell hide window vgs.system
+expect_poll "the System window is gone after the Sounds link" 0 window_count 'System Settings'
 
 # The model and effort of the chosen sign-in. The world's claude stand-in
 # lists Opus 5.5, its own default, Fable 5.1 and Haiku 4.5, which takes no

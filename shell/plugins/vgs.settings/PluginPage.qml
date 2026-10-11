@@ -386,7 +386,7 @@ FocusScope {
                                                 panel: page.panel
                                                 pluginId: page.row === null ? "" : page.row.id
                                                 secretLabel: page.row === null ? "" : page.row.secretLabel
-                                                onOpenLink: url => { if (page !== null && page.row !== null) page.panel.openLink(page.row.id, url); }
+                                                onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(page.row.id, link); }
                                             }
                                         }
 
@@ -416,7 +416,7 @@ FocusScope {
                                                 lines: view.lines
                                                 hint: view.hint
                                                 hintLink: view.link === null ? "" : view.link.text
-                                                onHintLinkActivated: page.panel.openLink(page.row.id, view.link.url)
+                                                onHintLinkActivated: page.panel.openLink(page.row.id, view.link)
                                                 // The last refusal of the route its
                                                 // press takes.
                                                 error: page.row === null || page.panel === null ? ""
@@ -611,7 +611,7 @@ FocusScope {
                                     editable: page.editable
                                     edits: unsaved
                                     onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
-                                    onOpenLink: url => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, url); }
+                                    onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
                                     onChoicesWanted: if (page !== null && page.row !== null) page.panel.refreshChoices(pluginId, spec.optionsFrom)
                                 }
                             }
@@ -639,7 +639,7 @@ FocusScope {
                                         editable: page.editable
                                         edits: unsaved
                                         onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
-                                        onOpenLink: url => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, url); }
+                                        onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
                                     }
                                 }
                             }
@@ -669,7 +669,7 @@ FocusScope {
                                 editable: page.editable
                                 edits: unsaved
                                 onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
-                                onOpenLink: url => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, url); }
+                                onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
                             }
                         }
                     }
@@ -799,7 +799,7 @@ FocusScope {
                                         width: statusRows.width
                                         entry: page.statusEntry(modelData)
                                         panel: page.panel
-                                        onOpenLink: url => { if (page !== null && page.row !== null) page.panel.openLink(page.row.id, url); }
+                                        onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(page.row.id, link); }
                                         pluginId: page.row === null ? "" : page.row.id
                                         secretLabel: page.row === null ? "" : page.row.secretLabel
                                     }

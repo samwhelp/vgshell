@@ -444,11 +444,13 @@ FocusScope {
         return keep(id, shell.manager.open(id));
     }
 
-    // Open `url`, the address of a setting description's or a status hint's link, which the
-    // manager judged https (PluginLogic.linkError), in the default browser
-    // through the desktop open route. Plugin `id`'s page shows the reply.
-    function openLink(id, url) {
-        return keep(id, shell.run.detached(DesktopLaunch.open(url)));
+    // Open `link`, a setting description's or a status hint's link, which
+    // the manager judged (PluginLogic.linkError): a `pane` link opens that
+    // plugin's page in the panes holder over this window, as openPane does,
+    // and a `url` link its https address in the default browser through
+    // the desktop open route. Plugin `id`'s page shows the reply.
+    function openLink(id, link) {
+        return keep(id, link.pane !== undefined ? shell.manager.openPane(link.pane) : shell.run.detached(DesktopLaunch.open(link.url)));
     }
 
     // Open the plugin's page in the panes holder over this window, as

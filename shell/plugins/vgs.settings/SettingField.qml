@@ -25,8 +25,8 @@ import "Steps.js" as Steps
 // of its text the manager accepted. A field that ends in a description or
 // an error line takes the room a Field takes under it, as its own last row
 // is last in this column and takes none. A description's `link`, which
-// the manager judged an https address, draws as a link in it and asks the
-// page to open its address through `openLink`.
+// the manager judged (PluginLogic.linkError), draws as a link in it and
+// asks the page to open it through `openLink`.
 Column {
     id: root
 
@@ -57,7 +57,7 @@ Column {
     readonly property string heldText: value === undefined ? "" : String(value)
     readonly property bool edited: editing(loader.item) || editing(customLoader.item)
     signal apply(var value)
-    signal openLink(string url)
+    signal openLink(var link)
     // The select of a status-fed string opened: the page asks the plugin
     // to read its choices again.
     signal choicesWanted()
@@ -129,7 +129,7 @@ Column {
     }
     function displayNumber(v) { return spec.unit === undefined ? String(v) : SettingValues.quantityText(v, spec.unit); }
 
-    function openDescriptionLink() { openLink(spec.link.url); }
+    function openDescriptionLink() { openLink(spec.link); }
     // The nearest enclosing ScrollArea scrolls the least distance that
     // shows the custom editor; a field outside one has nothing to scroll.
     function revealCustom() {
