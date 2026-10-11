@@ -656,6 +656,7 @@ holds "Always mode opens without a Talk intent and waits for armed" open_always
 holds "Toggle mode opens with the Talk intent" open_toggle
 holds "Always mode waits out a loading voice and stops as voice-loading" voice_case '{"tone":"info","text":"Loading","action":false}' voice-loading
 holds "Always mode feeds once the voice step is done" voice_case '{"tone":"ok","text":"Done","action":false}' feed
+holds "Always mode feeds over a loaded voice whose microphone is not checked" voice_case '{"tone":"info","text":"Not checked","action":"check"}' feed
 holds "a trace that stays armed after the input mark reads no-wake" wake_reads_armed
 holds "a wake trace that leaves armed reads woke" wake_reads_woke
 control cut_functions "an Always open that sends the Talk intent" 'if [[ $mode == always ]]; then
@@ -663,6 +664,7 @@ control cut_functions "an Always open that sends the Talk intent" 'if [[ $mode =
     ipc smoke invokeInstance service vgs.jarvis intent talk-down >/dev/null || stopped talk-not-sent
     selftest_wait 30 armed selftest_service_phase' open_always
 control cut_functions "an Always open that feeds while the voice loads" '    selftest_wait 60 loaded selftest_voice_state || stopped_gate voice-loading "voice=$reading"' '    :' voice_case '{"tone":"info","text":"Loading","action":false}' voice-loading
+control cut_functions "an Always open that reads an unchecked microphone as a loading voice" ' and not offered else "loaded")' ' else "loaded")' voice_case '{"tone":"info","text":"Not checked","action":"check"}' feed
 control cut_functions "a verdict that takes no-wake as completed" '    no-wake) echo no-wake ;;' '    no-wake) echo completed ;;' wake_reads_armed
 
 suite_summary_case() { # CASES MATCHED DIFFER NOT_RUN FAILED DIR WANT_STATUS

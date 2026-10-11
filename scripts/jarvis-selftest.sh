@@ -338,12 +338,15 @@ print(detail.get("phase", "none") if detail else "none")
 }
 
 # selftest_voice_state: `loading` while Service.qml's status.setupVoice is
-# Checking or Loading (tone info), else `loaded`; a missing value reads loaded.
+# Checking or Loading (tone info, no action offered), else `loaded`: a loaded
+# voice's microphone check row is info too and offers its action. A missing
+# value reads loaded.
 selftest_voice_state() {
   ipc smoke jarvisProcess | py_reply '
 import json, sys
 voice = (json.load(sys.stdin)["status"] or {}).get("setupVoice")
-print("loading" if isinstance(voice, dict) and voice.get("tone") == "info" else "loaded")
+offered = isinstance(voice, dict) and (voice.get("action") is True or isinstance(voice.get("action"), str))
+print("loading" if isinstance(voice, dict) and voice.get("tone") == "info" and not offered else "loaded")
 '
 }
 
