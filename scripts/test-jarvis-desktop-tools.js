@@ -129,13 +129,15 @@ async function main() {
         ["media.volume", { value: 0.5 }, [["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "0.50"]], "", DONE],
         ["media.volume", { value: 1 }, [["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "1.00"]], "", DONE],
         ["media.volume", { value: 0.333 }, [["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "0.33"]], "", DONE],
+        ["media.volumeStep", { direction: "up" }, [["wpctl", "set-volume", "--limit", "1.0", "@DEFAULT_AUDIO_SINK@", "5%+"]], "", DONE],
+        ["media.volumeStep", { direction: "down" }, [["wpctl", "set-volume", "--limit", "1.0", "@DEFAULT_AUDIO_SINK@", "5%-"]], "", DONE],
         ["media.mute", { muted: true }, [["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "1"]], "", DONE],
         ["media.mute", { muted: false }, [["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "0"]], "", DONE],
         ["notify.notification", { title: "--hint=int:urgency:2", body: "-u critical" },
             [["notify-send", "--app-name=Jarvis", "--", "--hint=int:urgency:2", "-u critical"]], "", DONE]
     ];
-    const OFFERED = ["clipboard.read", "clipboard.write", "media.play", "media.pause", "media.next", "media.volume",
-        "media.mute", "notify.notification"];
+    const OFFERED = ["clipboard.read", "clipboard.write", "media.play", "media.pause", "media.next", "media.volumeStep",
+        "media.volume", "media.mute", "notify.notification"];
     // Present commands, then the offered tools and registered executors. A
     // brightnessctl on PATH offers nothing: vgs.displays owns brightness.
     const PROBES = [

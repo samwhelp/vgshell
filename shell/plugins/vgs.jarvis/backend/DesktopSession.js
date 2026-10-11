@@ -140,6 +140,25 @@ function targetWindow(value, before, steps, unmet = "failed") {
     return { steps: steps(address), unmet };
 }
 
+// The address a change's window target names in the state read before it:
+// the focused window for "active"; for "class:NAME", the mapped window of
+// that class or initial class, ignoring case, that the user focused last,
+// by the reveal rule's ranking (Dispatch.revealTarget).
+function resolveWindow(value, before, Dispatch) {
+    if (value === "active") {
+        const address = lower(before.active.address);
+        if (address === "") throw failed("No window has the focus.");
+        return address;
+    }
+    if (!value.startsWith("class:")) return value;
+    const name = value.slice("class:".length).toLowerCase();
+    const addresses = before.clients.filter(c => c.mapped && (lower(c.class) === name || lower(c.initialClass) === name))
+        .map(c => lower(c.address));
+    const target = Dispatch.revealTarget(before, addresses, null);
+    if (target.state === "none") throw failed("No window of class " + JSON.stringify(name) + " is open.");
+    return target.address;
+}
+
 /**
  * create({Dispatch, Launch, request, environment, clock, bounds, commands})
  * builds the four executor records the router registers, sharing one
@@ -219,7 +238,10 @@ function create({ Dispatch, Launch, request, environment, clock, bounds = BOUNDS
     }
 
     async function change(call) {
-        const plan = PLANS[call.id](call.args, await state());
+        const before = await state();
+        const resolved = call.args.window === undefined ? call.args
+            : { ...call.args, window: resolveWindow(call.args.window, before, Dispatch) };
+        const plan = PLANS[call.id](resolved, before);
         let seen = "";
         for (const { kind, args, judge } of plan.steps) {
             await ask(kind, args);
@@ -269,6 +291,10 @@ function create({ Dispatch, Launch, request, environment, clock, bounds = BOUNDS
             match = entry.terminal ? () => true
                 : c => classes.includes(lower(c.class)) || classes.includes(lower(c.initialClass));
             label = JSON.stringify(entry.name || entry.id);
+        } else if (call.id === "apps.terminal") {
+            await ask("run.detached", Launch.entry({ command: [], runInTerminal: true }));
+            match = () => true;
+            label = "a terminal";
         } else {
             const target = call.id === "apps.open" ? call.args.path : call.args.url;
             await ask("run.detached", Launch.open(target));

@@ -107,6 +107,23 @@ world(async () => {
         ["focus-unread", "windows.focus", { window: "0xa1" }, d => { d.modes["compositor.focusWindow"] = "unread"; }, "unknown", /requested\. Hyprland state could not be read/],
         ["focus-locked", "windows.focus", { window: "0xa1" }, d => { d.locked = true; }, "failed", /refused compositor\.focusWindow: refused: locked/],
         ["focus-absent", "windows.focus", { window: "0xdead" }, null, "failed", /Window 0xdead is not open/, d => assert.deepEqual(d.requests, [])],
+        // A class names the window of that class the user focused last
+        // (lowest focusHistoryID), by its class or initial class, in any case.
+        ["focus-class", "windows.focus", { window: "class:Fixture.App" }, null, "completed", /window 0xa1 has the focus/,
+            d => assert.deepEqual(d.requests, [{ kind: "compositor.focusWindow", args: ["0xa1"] }])],
+        ["focus-class-last", "windows.focus", { window: "class:fixture.app" }, d => {
+            const s = d.read(); s.clients[0].focusHistoryID = 2; s.active = "0xa1"; d.write(s);
+        }, "completed", /window 0xb2 has the focus/],
+        ["focus-initial-class", "windows.focus", { window: "class:fixture.first" }, d => {
+            const s = d.read(); s.clients[0].initialClass = "Fixture.First"; s.clients[0].focusHistoryID = 2; d.write(s);
+        }, "completed", /window 0xa1 has the focus/],
+        ["focus-class-absent", "windows.focus", { window: "class:fixture.none" }, null, "failed", /No window of class "fixture\.none" is open/,
+            d => assert.deepEqual(d.requests, [])],
+        ["close-active", "windows.close", { window: "active" }, null, "completed", /0xb2 is closed/,
+            d => assert.deepEqual(d.requests, [{ kind: "compositor.closeWindow", args: ["0xb2"] }])],
+        ["fullscreen-active", "windows.fullscreen", { window: "active", mode: "fullscreen", action: "set" }, null, "completed", /0xb2 fullscreen=2/],
+        ["active-none", "windows.close", { window: "active" }, d => { const s = d.read(); s.active = ""; d.write(s); },
+            "failed", /No window has the focus/, d => assert.deepEqual(d.requests, [])],
         ["reveal", "windows.reveal", { window: "0xa1" }, null, "completed", /0xa1 has the focus/],
         ["reveal-noop", "windows.reveal", { window: "0xa1" }, d => { d.modes["compositor.reveal"] = "noop"; }, "failed", /did not show/],
         ["move", "windows.move", { window: "0xa1", x: 140, y: 130 }, null, "completed", /at=\[140,130\]/],
@@ -161,6 +178,10 @@ world(async () => {
         ["launch-terminal", "apps.launch", { desktop: "fixture.tool" }, d => { d.launches["fixture-tool"] = { mode: "window", class: "fixture.terminal" }; },
             "completed", /class="fixture\.terminal"/,
             d => assert.deepEqual(d.runs, [["xdg-terminal-exec", "fixture-tool"]])],
+        ["terminal", "apps.terminal", {}, d => { d.launches["xdg-terminal-exec"] = { mode: "window", class: "fixture.terminal" }; },
+            "completed", /Started a terminal\. Read back: new window .*class="fixture\.terminal"/,
+            d => assert.deepEqual(d.requests.at(-1), { kind: "run.detached", args: ["xdg-terminal-exec"] })],
+        ["terminal-windowless", "apps.terminal", {}, null, "unknown", /started a terminal, but no window/],
         ["launch-unknown", "apps.launch", { desktop: "fixture.absent" }, null, "failed", /refused desktop\.launch: refused: desktop=unknown/,
             d => assert.deepEqual(d.runs, [])],
         ["launch-locked", "apps.launch", { desktop: "fixture.editor" }, d => { d.locked = true; }, "failed", /refused desktop\.launch: refused: locked/,
@@ -339,6 +360,13 @@ world(async () => {
         "return [step(", red(["fullscreen"]));
     await control("toggle-before", "action === \"unset\" ? false : !before", "action === \"unset\" ? false : before", red(["float-toggle-noop"]));
     await control("target-check", "if (clientOf(before, address) === undefined) throw failed(", "if (false) throw failed(", red(["focus-absent"]));
+    await control("class-rank", "Dispatch.revealTarget(before, addresses, null)", "{ state: \"reveal\", address: addresses[0] }", red(["focus-class-last"]));
+    await control("class-initial", " || lower(c.initialClass) === name", "", red(["focus-initial-class"]));
+    await control("class-case", "const name = value.slice(\"class:\".length).toLowerCase();", "const name = value.slice(\"class:\".length);", red(["focus-class"]));
+    await control("class-absent", "if (target.state === \"none\") throw failed(", "if (false) throw failed(", red(["focus-class-absent"]));
+    await control("active-target", "const address = lower(before.active.address);\n        if (address === \"\")", "const address = \"0xa1\";\n        if (address === \"\")", red(["close-active"]));
+    await control("active-none", "if (address === \"\") throw failed(\"No window has the focus.\");", "", red(["active-none"]));
+    await control("terminal-launch", "Launch.entry({ command: [], runInTerminal: true })", "Launch.entry({ command: [], runInTerminal: false })", red(["terminal"]));
     await control("monitor-resolve", "if (monitor === undefined) throw failed(", "if (false) throw failed(", red(["monitor-unknown"]));
     await control("refused-answer", "if (reply.answer !== \"ok\") throw failed(", "if (false) throw failed(", red(["focus-refused"]));
     await control("timeout-undecided", "case \"timeout\": throw new Ended(\"unknown\",", "case \"timeout\": throw new Ended(\"failed\",", red(["focus-silent"]));

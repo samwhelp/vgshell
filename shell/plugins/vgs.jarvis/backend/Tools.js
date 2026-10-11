@@ -19,6 +19,10 @@ const strings = { type: "array", minItems: 1, items: text };
 const url = { type: "string", format: "uri", pattern: "^https?://" };
 const desktop = { type: "string", pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]*$(?![\\s\\S])" };
 const windowId = { type: "string", pattern: "^0[xX][0-9a-fA-F]+$(?![\\s\\S])" };
+// A window a change acts on: an address, the focused window, or the window
+// of a class the user focused last. The compositor executor resolves the
+// name from the state it reads before the change (DesktopSession.js).
+const windowTarget = { type: "string", pattern: "^(?:0[xX][0-9a-fA-F]+|active|class:[A-Za-z0-9][A-Za-z0-9_.-]*)$(?![\\s\\S])" };
 // A regular workspace by id, the form a read-back can match exactly.
 const workspaceId = { type: "integer", minimum: 1, maximum: 2147483647 };
 const specialName = { type: "string", pattern: "^[A-Za-z0-9_-]+$(?![\\s\\S])" };
@@ -49,6 +53,10 @@ const sha256 = { type: "string", pattern: "^[0-9a-f]{64}$(?![\\s\\S])" };
 
 // Each row owns its argument shape, effect, executor, requirement and output
 // source. Executors may add a row only with a test and a real consumer.
+// heard lists the short commands match() maps to the row with no model
+// call: [phrases, args] pairs. A phrase is whole normalized words, where
+// {n} is a number and {name} one word; an args value "{n}" becomes that
+// number and "{name}" in a value becomes that word.
 const TABLE = {
     "help": { sentence: "Read help for {topic}", effect: "read", executor: "guidance", command: null, schema: { topic: helpTopic } },
     "memory.search": { sentence: "Search memory notes for {query}", effect: "read", executor: "memory", command: null, schema: { query: text, title: text, alias: text, since: date, until: date }, optional: ["title", "alias", "since", "until"], source: "home", labelled: true },
@@ -61,20 +69,23 @@ const TABLE = {
     // task does.
     "fleet.request": { sentence: "Put this request in the mailbox of your Jarvis session:\n{text}", effect: "exec", executor: "guidance", command: null, once: true, schema: { text: text } },
     "windows.list": { sentence: "List windows", effect: "read", executor: "windows", command: "hyprctl", schema: {} },
-    "windows.focus": { sentence: "Focus window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowId } },
-    "windows.reveal": { sentence: "Reveal window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowId } },
-    "windows.move": { sentence: "Move window {window} to {x}, {y}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowId, x: integer, y: integer } },
-    "windows.resize": { sentence: "Resize window {window} to {width} by {height}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowId, width: positive, height: positive } },
-    "windows.close": { sentence: "Close window {window}", effect: "persistent", executor: "compositor", command: "hyprctl", schema: { window: windowId } },
-    "windows.fullscreen": { sentence: "{action} {mode} for window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowId, mode: oneOf(["fullscreen", "maximized"]), action: oneOf(["set", "unset", "toggle"]) } },
-    "windows.float": { sentence: "{action} floating for window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowId, action: oneOf(["set", "unset", "toggle"]) } },
-    "windows.workspace": { sentence: "Move window {window} to workspace {workspace}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowId, workspace: workspaceId } },
+    "windows.focus": { sentence: "Focus window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowTarget }, heard: [[["focus {name}", "focus on {name}"], { window: "class:{name}" }]] },
+    "windows.reveal": { sentence: "Reveal window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowTarget } },
+    "windows.move": { sentence: "Move window {window} to {x}, {y}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowTarget, x: integer, y: integer } },
+    "windows.resize": { sentence: "Resize window {window} to {width} by {height}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowTarget, width: positive, height: positive } },
+    "windows.close": { sentence: "Close window {window}", effect: "persistent", executor: "compositor", command: "hyprctl", schema: { window: windowTarget }, heard: [[["close this window", "close the window", "close window"], { window: "active" }]] },
+    "windows.fullscreen": { sentence: "{action} {mode} for window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowTarget, mode: oneOf(["fullscreen", "maximized"]), action: oneOf(["set", "unset", "toggle"]) }, heard: [[["make this window full screen", "make the window full screen", "make it full screen", "full screen"], { window: "active", mode: "fullscreen", action: "set" }]] },
+    "windows.float": { sentence: "{action} floating for window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowTarget, action: oneOf(["set", "unset", "toggle"]) } },
+    "windows.workspace": { sentence: "Move window {window} to workspace {workspace}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowTarget, workspace: workspaceId } },
     "workspaces.list": { sentence: "List workspaces", effect: "read", executor: "windows", command: "hyprctl", schema: {} },
-    "workspaces.focus": { sentence: "Show workspace {workspace}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { workspace: workspaceId } },
+    "workspaces.focus": { sentence: "Show workspace {workspace}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { workspace: workspaceId }, heard: [[["go to workspace {n}", "switch to workspace {n}", "show workspace {n}", "workspace {n}"], { workspace: "{n}" }]] },
     "workspaces.special": { sentence: "Toggle special workspace {name}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { name: specialName } },
     "windows.monitor": { sentence: "Focus monitor {monitor}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { monitor: text } },
     "apps.list": { sentence: "List applications, optionally matching {query}", effect: "read", executor: "apps", command: null, schema: { query: text }, optional: ["query"] },
     "apps.launch": { sentence: "Launch application {desktop}", effect: "reversible", executor: "apps", command: "hyprctl", schema: { desktop: desktop } },
+    // The user's default terminal, which xdg-terminal-exec picks, as the
+    // shared launch rule starts a terminal entry (DesktopLaunch.js).
+    "apps.terminal": { sentence: "Open a terminal", effect: "reversible", executor: "apps", command: "hyprctl", schema: {}, heard: [[["open the terminal", "open a terminal", "open terminal", "open a new terminal"], {}]] },
     "apps.open": { sentence: "Open {path}", effect: "reversible", executor: "apps", command: "gio", schema: { path: absolute }, paths: [["path", "read"]] },
     "apps.url": { sentence: "Open {url}", effect: "reversible", executor: "apps", command: "gio", schema: { url: url } },
     "input.text": { sentence: "Type this exact text:\n{text}", effect: "input", executor: "input", command: "wtype", schema: { text: text }, input: "text" },
@@ -83,11 +94,12 @@ const TABLE = {
     "input.scroll": { sentence: "Scroll {direction} by {steps} at {x}, {y}", effect: "input", executor: "input", command: "wlrctl", alternatives: ["ydotool"], schema: { x: integer, y: integer, direction: oneOf(["up", "down", "left", "right"]), steps: { ...positive, maximum: 100 } }, input: "pointer" },
     "clipboard.read": { sentence: "Read the clipboard", effect: "read", executor: "clipboard", command: "wl-paste", schema: {}, source: "clipboard" },
     "clipboard.write": { sentence: "Write clipboard text {text}", effect: "reversible", executor: "clipboard", command: "wl-copy", schema: { text: text } },
-    "media.play": { sentence: "Play media", effect: "reversible", executor: "media", command: "playerctl", schema: {} },
-    "media.pause": { sentence: "Pause media", effect: "reversible", executor: "media", command: "playerctl", schema: {} },
-    "media.next": { sentence: "Play the next media item", effect: "reversible", executor: "media", command: "playerctl", schema: {} },
+    "media.play": { sentence: "Play media", effect: "reversible", executor: "media", command: "playerctl", schema: {}, heard: [[["play the music", "play music", "resume the music", "resume"], {}]] },
+    "media.pause": { sentence: "Pause media", effect: "reversible", executor: "media", command: "playerctl", schema: {}, heard: [[["pause the music", "pause music", "pause"], {}]] },
+    "media.next": { sentence: "Play the next media item", effect: "reversible", executor: "media", command: "playerctl", schema: {}, heard: [[["play the next track", "next track", "play the next song", "next song", "skip this song", "skip"], {}]] },
+    "media.volumeStep": { sentence: "Turn the volume {direction}", effect: "reversible", executor: "media", command: "wpctl", schema: { direction: oneOf(["up", "down"]) }, heard: [[["turn the volume up", "turn up the volume", "volume up", "louder"], { direction: "up" }], [["turn the volume down", "turn down the volume", "volume down", "quieter"], { direction: "down" }]] },
     "media.volume": { sentence: "Set volume to {value}", effect: "reversible", executor: "media", command: "wpctl", schema: { value: { type: "number", minimum: 0, maximum: 1 } } },
-    "media.mute": { sentence: "Set media mute to {muted}", effect: "reversible", executor: "media", command: "wpctl", schema: { muted: bool } },
+    "media.mute": { sentence: "Set media mute to {muted}", effect: "reversible", executor: "media", command: "wpctl", schema: { muted: bool }, heard: [[["mute the sound", "mute the audio", "mute"], { muted: true }], [["unmute the sound", "unmute the audio", "unmute"], { muted: false }]] },
     // 1% is the floor: 0% darkens some panels completely.
     "media.brightness": { sentence: "Set brightness to {value}", effect: "reversible", executor: "media", command: "brightnessctl", schema: { value: { type: "integer", minimum: 1, maximum: 100 } } },
     "notify.notification": { sentence: "Show notification {title}: {body}", effect: "reversible", executor: "notify", command: "notify-send", schema: { title: text, body: text } },
@@ -210,6 +222,59 @@ function refine(call) {
         labelled: refined.labelled === true, unconfined: row.unconfined === true };
 }
 
+// Words around a command that do not change it, and number words a
+// transcript spells out.
+const FILLER_BEFORE = /^(?:(?:please|jarvis|hey|ok|okay|now|(?:can|could|would|will) you)\s+)+/;
+const FILLER_AFTER = /(?:\s+(?:please|now|for me|thanks|thank you))+$/;
+const NUMBERS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+const SLOTS = { n: "([0-9]{1,4})", name: "([a-z0-9][a-z0-9_.-]*)" };
+
+function normalize(transcript) {
+    return transcript.toLowerCase().replace(/fullscreen/g, "full screen").replace(/[^a-z0-9_.' -]+/g, " ")
+        .replace(/[.']+(?=\s|$)/g, " ").split(/\s+/).filter(word => word !== "")
+        .map(word => NUMBERS.includes(word) ? String(NUMBERS.indexOf(word)) : word).join(" ")
+        .replace(FILLER_BEFORE, "").replace(FILLER_AFTER, "");
+}
+
+// Each heard phrase as one whole-transcript pattern, with its row and args.
+const HEARD = Object.entries(TABLE).flatMap(([id, row]) => (row.heard || []).flatMap(([phrases, args]) => phrases.map(phrase => {
+    const names = [];
+    const source = phrase.split(" ").map(word => {
+        const slot = /^\{(n|name)\}$/.exec(word);
+        if (slot === null) return word.replace(/[.]/g, "\\.");
+        names.push(slot[1]);
+        return SLOTS[slot[1]];
+    }).join(" ");
+    return { id, args, names, pattern: new RegExp("^" + source + "$") };
+})));
+
+function fill(args, values) {
+    return Object.fromEntries(Object.entries(args).map(([key, value]) => [key, typeof value !== "string" ? value
+        : value === "{n}" ? Number(values.n) : value.replace("{name}", () => values.name)]));
+}
+
+/**
+ * The one call a final transcript names with no model call, as {id, args},
+ * or null. A transcript that matches no heard phrase, or phrases of two
+ * calls, is null: the brain answers it. The router still refines, judges
+ * and audits the call.
+ * @param {string} transcript
+ */
+function match(transcript) {
+    if (typeof transcript !== "string") return null;
+    const text = normalize(transcript);
+    const calls = new Map();
+    for (const heard of HEARD) {
+        const found = heard.pattern.exec(text);
+        if (found === null) continue;
+        const call = { id: heard.id, args: fill(heard.args, Object.fromEntries(heard.names.map((name, i) => [name, found[i + 1]]))) };
+        calls.set(JSON.stringify(call), call);
+    }
+    if (calls.size !== 1) return null;
+    const [call] = calls.values();
+    return refine(call).kind === "call" ? call : null;
+}
+
 /**
  * The {set, name, folder, file} a home skill topic names, or null for any
  * other value. folder is "references" or "workflows" and file names one
@@ -263,4 +328,4 @@ for (const row of Object.values(TABLE)) {
 }
 freeze(TABLE);
 freeze(BROWSER);
-module.exports = { TABLE, BROWSER, HELP_TOPICS, refine, wireNames, homeTopic, memoryNote };
+module.exports = { TABLE, BROWSER, HELP_TOPICS, refine, match, wireNames, homeTopic, memoryNote };

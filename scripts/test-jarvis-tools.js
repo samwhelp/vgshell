@@ -45,6 +45,9 @@ world(() => {
         ["memory.replace", { id: "facts/new.md", text: "Remember this.", hash: "a".repeat(64) }, "persistent"],
         ["fleet.request", { text: "Rebase the lanes.\nThen report." }, "exec"],
         ["windows.list", {}, "read"], ["windows.focus", { window }, "reversible"],
+        // A change may name the focused window or a class; the executor resolves it.
+        ["windows.focus", { window: "class:org.Chromium_1-x" }, "reversible"],
+        ["windows.close", { window: "active" }, "persistent"],
         ["windows.reveal", { window }, "reversible"],
         ["windows.move", { window, x: 0, y: -1 }, "reversible"],
         ["windows.resize", { window, width: 1, height: 100 }, "reversible"],
@@ -56,6 +59,7 @@ world(() => {
         ["workspaces.list", {}, "read"], ["workspaces.focus", { workspace: 1 }, "reversible"],
         ["workspaces.special", { name: "magic_1-x" }, "reversible"],
         ["apps.list", {}, "read"], ["apps.list", { query: "fire" }, "read"], ["apps.launch", { desktop: "org.example.App.desktop" }, "reversible"],
+        ["apps.terminal", {}, "reversible"],
         ["apps.open", { path: target }, "reversible"],
         ["apps.url", { url: "https://example.test/" }, "reversible"],
         ["input.text", { text: "-literal" }, "input", null, "text"],
@@ -65,6 +69,7 @@ world(() => {
         ["clipboard.read", {}, "read", "clipboard"], ["clipboard.write", { text: "literal" }, "reversible"],
         ["media.play", {}, "reversible"], ["media.pause", {}, "reversible"], ["media.next", {}, "reversible"],
         ["media.volume", { value: 0 }, "reversible"], ["media.mute", { muted: false }, "reversible"],
+        ["media.volumeStep", { direction: "up" }, "reversible"], ["media.volumeStep", { direction: "down" }, "reversible"],
         ["media.brightness", { value: 1 }, "reversible"],
         ["notify.notification", { title: "title", body: "body" }, "reversible"],
         ["files.list", { path: target }, "read", "file"],
@@ -128,6 +133,9 @@ world(() => {
         ["media.mute", { muted: 0 }], ["input.click", { x: 0, y: 0, button: "unknown" }],
         ["apps.url", { url: "file:///etc/hosts" }], ["apps.url", { url: "https://user:secret@example.test/" }],
         ["apps.launch", { desktop: "sh -c id" }], ["windows.focus", { window: "all" }],
+        ["windows.focus", { window: "class:" }], ["windows.focus", { window: "class:a b" }], ["windows.close", { window: "Active" }],
+        ["windows.close", { window: "active\n" }], ["vision.window", { window: "active" }], ["vision.window", { window: "class:a" }],
+        ["media.volumeStep", { direction: "5%+" }], ["media.volumeStep", {}], ["apps.terminal", { desktop: "foot" }],
         ["workspaces.focus", { workspace: 0 }], ["workspaces.focus", { workspace: "1" }],
         ["workspaces.focus", { workspace: 2147483648 }], ["windows.workspace", { window, workspace: -1 }],
         ["workspaces.special", { name: "magic space" }], ["workspaces.special", { name: "special:magic" }],
@@ -257,7 +265,8 @@ world(() => {
         ["absolute", { id: "files.read", args: { path: "relative" } }],
         ["url", { id: "apps.url", args: { url: "file:///etc/hosts" } }],
         ["desktop", { id: "apps.launch", args: { desktop: "sh -c id" } }],
-        ["windowId", { id: "windows.focus", args: { window: "all" } }]
+        ["windowId", { id: "vision.window", args: { window: "all" } }],
+        ["windowTarget", { id: "windows.focus", args: { window: "all" } }]
     ];
     for (const [name, call] of descriptorCases) {
         const line = toolsSource.split("\n").find(line => line.startsWith("const " + name + " ="));
@@ -393,5 +402,46 @@ world(() => {
         control("optional-cwd-" + id, needle, needle.replace(' optional: ["cwd"],', ""), logic => check(logic, row));
     }
     control("immutable-call", "call: freeze(structuredClone(call))", "call: structuredClone(call)", frozen);
+
+    // The short commands of VGS-1318, as its recorded voice said them and
+    // as each voice transcribed them, map to one call with no model call.
+    // Expected calls are written here, not read from the table.
+    const heard = [
+        [" Please turn the volume up.", { id: "media.volumeStep", args: { direction: "up" } }],
+        ["Please turn the volume down.", { id: "media.volumeStep", args: { direction: "down" } }],
+        [" Please mute the sound.", { id: "media.mute", args: { muted: true } }],
+        [" Please focus Chromium.", { id: "windows.focus", args: { window: "class:chromium" } }],
+        [" Please go to workspace three.", { id: "workspaces.focus", args: { workspace: 3 } }],
+        ["Go to workspace 12.", { id: "workspaces.focus", args: { workspace: 12 } }],
+        [" Please open the terminal.", { id: "apps.terminal", args: {} }],
+        [" Please play the next track.", { id: "media.next", args: {} }],
+        [" Please pause the music.", { id: "media.pause", args: {} }],
+        ["Jarvis, could you pause the music, please?", { id: "media.pause", args: {} }],
+        [" Please make this window full screen.", { id: "windows.fullscreen", args: { window: "active", mode: "fullscreen", action: "set" } }],
+        ["Make this window fullscreen.", { id: "windows.fullscreen", args: { window: "active", mode: "fullscreen", action: "set" } }],
+        [" Please close this window.", { id: "windows.close", args: { window: "active" } }]
+    ];
+    // The local voice's mishearings in VGS-1318, a request with more in it
+    // than a short command, and a number the row refuses: the brain's.
+    const unmatched = ["Knew'd the sound.", "Next try", "Next, \"trash\"", "Pours the music,", "Turned the volume up,",
+        "Bow to workspace three.", "Turn the volume up to 80 percent.", "Close this window and open the terminal.",
+        "Go to workspace zero.", "Focus Chromium and Firefox.", "", "   ", 7, null];
+    const matching = logic => {
+        for (const [text, call] of heard) assert.deepEqual(logic.match(text), call, "match " + text);
+        for (const text of unmatched) assert.equal(logic.match(text), null, "no match " + JSON.stringify(text));
+        for (const [, call] of heard) assert.equal(logic.refine(call).kind, "call", "a matched call refines " + call.id);
+    };
+    matching(Tools);
+    control("match-whole", 'pattern: new RegExp("^" + source + "$")', 'pattern: new RegExp("^" + source)', matching);
+    control("match-filler", '.replace(FILLER_BEFORE, "")', "", matching);
+    control("match-numbers", 'NUMBERS.includes(word) ? String(NUMBERS.indexOf(word)) : word', "word", matching);
+    control("match-refined", 'return refine(call).kind === "call" ? call : null;', "return call;", matching);
+    // Phrases of two rows match the same words: neither row is taken.
+    const mediaPause = toolsSource.split("\n").find(line => line.trim().startsWith('"media.pause": {'));
+    const twoRows = [mediaPause, mediaPause.replace('"pause"]', '"pause", "skip this song"]')];
+    mutant(file, "match-two-rows", [twoRows], null, logic => assert.deepEqual(logic.match("Skip this song."), { id: "media.next", args: {} }));
+    controls++;
+    control("match-one-row", [twoRows, ["if (calls.size !== 1) return null;", "if (calls.size === 0) return null;"]], null,
+        logic => assert.equal(logic.match("Skip this song."), null));
     console.log("test-jarvis-tools: ok calls=" + cases.length + " controls=" + controls);
 });

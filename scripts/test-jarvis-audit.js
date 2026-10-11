@@ -255,6 +255,20 @@ world(() => {
             assert.equal(records(root)[0].tool, "unknown");
         });
     }
+    // An action the local matcher proposed says so; no other proposer or
+    // record kind carries the field.
+    function checkProposer(logic) {
+        const root = state();
+        withWriter(logic, { state: root }, writer => {
+            assert.equal(writer.record({ ...event, proposer: "matcher" }).kind, "recorded");
+            assert.equal(writer.record(event).kind, "recorded");
+            assert.deepEqual(records(root).map(record => record.proposer), ["matcher", undefined]);
+            for (const value of [{ ...event, proposer: "brain" }, { ...event, proposer: "" },
+                { ...event, kind: "release", tool: "release", decision: "send", proposer: "matcher" }])
+                assert.deepEqual(writer.record(value), { kind: "refuse", reason: "audit-write", cause: "proposer" });
+            assert.equal(records(root).length, 2, "a refused record writes nothing");
+        });
+    }
     // A vision capture's facts: numbers and a digest, never image bytes.
     const capture = { box: [0, 0, 320, 200], scale: 1.25, width: 400, height: 250, bytes: 1024, sha256: "0a".repeat(32), masks: 2 };
     const vision = { ...event, tool: "vision.screen", args: {}, effect: "read", outcome: "completed", capture };
@@ -289,7 +303,7 @@ world(() => {
             });
         });
     }
-    checkUnlinkFailure(Audit); checkClock(Audit); checkUnknownTool(Audit); checkCapture(Audit);
+    checkUnlinkFailure(Audit); checkClock(Audit); checkUnknownTool(Audit); checkCapture(Audit); checkProposer(Audit);
     for (const invalid of ["relative", "/", base + "/x/../y", null])
         assert.throws(() => Audit.create({ state: invalid }), { code: "state-path" });
     withWriter(Audit, { now: () => NaN }, writer => assert.equal(writer.record(event).kind, "refuse"));
@@ -353,6 +367,8 @@ world(() => {
         ["outcome enum", 'if (!["pending", "completed", "failed", "unknown", "cancelled"].includes(outcome))', 'if (false && !["pending", "completed", "failed", "unknown", "cancelled"].includes(outcome))',
             logic => checkField(logic, "outcome", "planted-key", "outcome")],
         ["tool identity", 'Object.hasOwn(Tools.TABLE, tool) ? tool : "unknown"', 'tool', checkUnknownTool],
+        ["proposer kept", '...(event.proposer === undefined ? {} : { proposer: event.proposer }),', "", checkProposer],
+        ["proposer judged", 'if (event.proposer !== undefined && (kind !== "action" || event.proposer !== "matcher")) fail("proposer");', "", checkProposer],
         ["capture keys", 'Object.keys(capture).sort().join(",") !== "box,bytes,height,masks,scale,sha256,width"', "false", checkCapture],
         ["capture scope", 'if (kind !== "action" || !Object.hasOwn(Tools.TABLE, tool) || Tools.TABLE[tool].executor !== "vision"', "if (false", checkCapture],
         ["capture digest", "!/^[0-9a-f]{64}$/.test(capture.sha256)", "false", checkCapture],

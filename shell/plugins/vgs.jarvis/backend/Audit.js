@@ -69,10 +69,13 @@ function eventRecord(event, time) {
     // text as the reason a release confirmation was refused.
     if (event.refusal !== undefined && (kind !== "release" || !["expired", "no-hold", "identity", "source",
         "early", "voice-physical", "voice-timing"].includes(event.refusal))) fail("refusal");
+    // An action the local matcher proposed, not a brain (Tools.match).
+    if (event.proposer !== undefined && (kind !== "action" || event.proposer !== "matcher")) fail("proposer");
     return { time, kind, gen, op,
         tool: kind === "release" ? "release" : Object.hasOwn(Tools.TABLE, tool) ? tool : "unknown",
         args: Redact.argumentsFor(kind, tool, event.args), effect, decision, confirmed, outcome,
         ...(event.refusal === undefined ? {} : { refusal: event.refusal }),
+        ...(event.proposer === undefined ? {} : { proposer: event.proposer }),
         ...(event.capture === undefined ? {} : { capture: captureRecord(kind, tool, event.capture) }) };
 }
 

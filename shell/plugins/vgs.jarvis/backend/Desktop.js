@@ -59,6 +59,8 @@ const ARGV = {
     "media.pause": () => ({ args: ["pause"] }),
     "media.next": () => ({ args: ["next"] }),
     "media.volume": args => ({ args: ["set-volume", SINK, args.value.toFixed(2)] }),
+    // A step never raises the volume past 100% (wpctl's --limit).
+    "media.volumeStep": args => ({ args: ["set-volume", "--limit", "1.0", SINK, args.direction === "up" ? "5%+" : "5%-"] }),
     "media.mute": args => ({ args: ["set-mute", SINK, args.muted ? "1" : "0"] }),
     // After --, model text cannot become an option.
     "notify.notification": args => ({ args: ["--app-name=Jarvis", "--", args.title, args.body] })

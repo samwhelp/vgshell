@@ -118,7 +118,8 @@ function desktopWorld(runtime, entries, Launch) {
         "compositor.focusMonitor": (s, [name]) => { for (const m of s.monitors) m.focused = m.name === name; },
         "run.detached": (s, argv) => {
             runs.push(Array.from(argv));
-            const launch = launches[argv[0] === "xdg-terminal-exec" ? argv[1] : argv[0]];
+            // A terminal with no command is the terminal itself.
+            const launch = launches[argv[0] === "xdg-terminal-exec" && argv.length > 1 ? argv[1] : argv[0]];
             if (launch !== undefined && launch.mode === "window")
                 s.clients.push(client("0x" + (serial++).toString(16), { class: launch.class, initialClass: launch.class, title: "Launched" }));
         }
