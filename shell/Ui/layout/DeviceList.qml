@@ -9,16 +9,18 @@ import qs.Ui
 // Down, Home, End
 // and the pages move the selection and the keyboard with it, through
 // KeyNav; Enter, Return, Space and a click run the row's action, and so
-// does its RowAction. Shift+F10 and the Menu key open a row's overflow
-// menu. With `removable`, Delete asks to remove the selected row (K9).
+// does its RowAction. A busy row shows a Spinner in the action slot and
+// emits no action. Shift+F10 and the Menu key open a row's overflow menu.
+// With `removable`, Delete asks to remove the selected row (K9).
 // The selection shows while the list holds the keyboard or the pointer is
 // over it, so two lists of one page never both show one. The selected row
 // holds the scope's focus, so a removed row's place takes the keyboard.
 //
 // Each entry of `rows` is a plain object: `key`, unique in the list, and
-// the DeviceRow's `text`, `secondary`, `secondaryTone`, `iconName`, `battery`, `badge`,
-// `badgeTone` and `badgeIcon` where it has them. `actionOf(row)` answers
-// the row's action as `{ text }`, or null for none;
+// the DeviceRow's `text`, `secondary`, `secondaryTone`, `iconName`,
+// `battery`, `badge`, `badgeTone`, `badgeIcon` and `busy` where it has
+// them. `actionOf(row)` answers the row's action as `{ text }`, or null
+// for none; a busy row ignores that action and shows a Spinner instead.
 // `menuOf(row)` its overflow menu as a list of `{ key, text, iconName }`.
 // The list acts on nothing itself: it emits `acted(key)`, `chose(key,
 // entry)` and `removed(key)`, and the owner acts.
@@ -98,6 +100,7 @@ FocusScope {
                 readonly property bool live: index < list.rows.length
                 readonly property var modelData: live ? list.rows[index] : ({ key: "", text: "" })
                 readonly property var rowAction: live ? list.actionOf(modelData) : null
+                readonly property bool busy: live && modelData.busy === true
                 width: column.width
                 focus: list.current === index
                 activeFocusOnTab: list.current === index
@@ -113,12 +116,20 @@ FocusScope {
                 badge: modelData.badge === undefined ? "" : modelData.badge
                 badgeTone: modelData.badgeTone === undefined ? "neutral" : modelData.badgeTone
                 badgeIcon: modelData.badgeIcon === undefined ? "" : modelData.badgeIcon
-                onClicked: list.acted(String(modelData.key))
+                function act() {
+                    if (busy) return;
+                    list.acted(String(modelData.key));
+                }
+                onClicked: act()
                 actions: [
+                    Spinner {
+                        visible: row.busy
+                        anchors.verticalCenter: parent.verticalCenter
+                    },
                     RowAction {
-                        visible: row.rowAction !== null
+                        visible: !row.busy && row.rowAction !== null
                         text: row.rowAction === null ? "" : row.rowAction.text
-                        onClicked: list.acted(String(row.modelData.key))
+                        onClicked: row.act()
                     }
                 ]
                 menuEntries: [

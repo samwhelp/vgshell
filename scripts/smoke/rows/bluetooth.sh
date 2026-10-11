@@ -25,11 +25,12 @@
 # from the keyboard, a code to type dismissed once paired, and a PIN typed
 # into the dialog that survives a later line of bluetoothctl's output;
 # Disconnect and Connect clicks move the headphones; a failed Connect shows
-# Connecting… and then one failure sentence, and Retry connects it again;
-# and a keyboard path from SUPER+PERIOD turns Bluetooth off and on, turns
-# Discoverable on, whose lease BlueZ's own end of Discoverable releases,
-# writes Hide when off, disconnects a device with Return and forgets it
-# with Delete, which removes it from the mock, and closes.
+# Connecting… with the busy spinner and then one failure sentence, and
+# Retry connects it again; and a keyboard path from SUPER+PERIOD turns
+# Bluetooth off and on, turns Discoverable on, whose lease BlueZ's own end
+# of Discoverable releases, writes Hide when off, disconnects a device with
+# Return and forgets it with Delete, which removes it from the mock, and
+# closes.
 #
 # The controls: one copy of the plugin whose discovery tick writes no stop,
 # a plain lease counter, and whose pairing never calls Pair. The counter
@@ -46,7 +47,7 @@
 # vgs.system enabled or disabled as it found them, discovery confirming,
 # the follow off and no planted systemctl answer, whichever step it
 # returns from.
-# inputs: shell/plugins/vgs.bluetooth/* shell/plugins/vgs.system/* shell/Ui/layout/Pane.qml shell/Ui/layout/DeviceList.qml shell/Ui/controls/RowAction.qml scripts/smoke/fixtures/devices/* shell/Core/BluetoothAgent.qml shell/Core/BluetoothAgentModel.js shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh
+# inputs: shell/plugins/vgs.bluetooth/* shell/plugins/vgs.system/* shell/Ui/layout/Pane.qml shell/Ui/layout/DeviceList.qml shell/Ui/controls/RowAction.qml shell/Ui/feedback/Spinner.qml scripts/smoke/fixtures/devices/* shell/Core/BluetoothAgent.qml shell/Core/BluetoothAgentModel.js shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
 
 bt_keyboard=00:1B:66:AA:BB:02
@@ -108,6 +109,27 @@ if text == "absent":
 else:
     print(json.dumps(json.loads(text), ensure_ascii=False))
 '
+}
+bt_busy_spinner() {
+  ipc smoke descendantGeometry window vgs.bluetooth | py_reply 'import json,sys
+rows=json.load(sys.stdin)
+target=sys.argv[1]
+row_index=None
+for i,row in enumerate(rows):
+    if row.get("type") == "DeviceRow" and row.get("text") == target and row.get("visible"):
+        row_index=i
+        break
+if row_index is None:
+    print("absent"); raise SystemExit
+def inside(index, owner):
+    at=index
+    while at is not None and at >= 0:
+        if at == owner:
+            return True
+        at=rows[at].get("parent")
+    return False
+print(any(row.get("type") == "Spinner" and row.get("visible") and inside(i, row_index) for i,row in enumerate(rows)))
+' "$1"
 }
 # `gone` once the mock holds no object for device MAC: its answer names
 # the unknown object; any other answer is printed.
@@ -356,6 +378,7 @@ bt_main() {
   expected_errors+=('Failed to connect to device .*br-connection-page-timeout')
   click_in "window:System Settings" window vgs.bluetooth RowAction Connect || fail "the click on the failing Connect failed"
   expect_poll "Connect shows the working state at once" '"Connecting…"' bt_secondary "$bt_headphones"
+  expect_poll "Connect shows the busy spinner at once" True bt_busy_spinner "Smoke Headphones"
   expect_poll "a connect BlueZ fails reads Not connected" '"Not connected"' bt_secondary "$bt_headphones"
   expect_poll "and one plain sentence names the device" '["Smoke Headphones did not answer. Check that it is on, nearby and not connected to another device."]' bt_failures
   expect "the headphones' Connect accepts again" installed bt_connect_answer "$bt_headphones" accept

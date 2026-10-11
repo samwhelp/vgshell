@@ -7,11 +7,12 @@ import qs.Unit
 // DeviceList: a DeviceRow per entry with the action and the menu its
 // owner names; one Tab stop, the selected row; arrows, Home and End move
 // the selection and the keyboard; Enter and the action button emit
-// `acted`, a menu entry `chose`; Delete emits `removed` only when
-// `removable`, and the row that takes a removed row's place takes the
-// keyboard; the selection shows only while the list holds the keyboard;
-// a change to the rows that keeps their count keeps the keyboard where it
-// is; a row's `secondaryTone` reaches its DeviceRow.
+// `acted`, a menu entry `chose`; a busy row shows a Spinner and emits no
+// action; Delete emits `removed` only when `removable`, and the row that
+// takes a removed row's place takes the keyboard; the selection shows only
+// while the list holds the keyboard; a change to the rows that keeps their
+// count keeps the keyboard where it is; a row's `secondaryTone` reaches
+// its DeviceRow.
 Item {
     id: root
     width: 480
@@ -41,12 +42,15 @@ Item {
         when: windowShown
 
         function trailing(row) { return row.contentItem.children[2].children; }
-        function actionOf(row) { return trailing(row)[1].children[0]; }
+        function spinnerOf(row) { return trailing(row)[1].children[0]; }
+        function actionOf(row) { return trailing(row)[1].children[1]; }
         function menuOf(row) { return trailing(row)[2].children.find(child => child.triggerCurrent !== undefined); }
 
         function init() {
             UnitTheme.reset();
             list.rows = root.three;
+            list.actionOf = row => row.key === "a" ? { text: "Disconnect" } : null;
+            list.menuOf = row => row.key === "a" ? [{ key: "rename", text: "Rename" }, { key: "forget", text: "Forget" }] : [];
             list.removable = false;
             list.current = 0;
             acted.clear();
@@ -113,6 +117,33 @@ Item {
             mouseClick(actionOf(list.rowAt(0)));
             compare(acted.count, 2);
             compare(acted.signalArguments[1][0], "a");
+        }
+
+        function test_a_busy_row_shows_a_spinner_and_takes_no_action() {
+            list.rows = [
+                { key: "busy", text: "Earbuds", secondary: "Connecting…", iconName: "headphones", busy: true },
+                { key: "ready", text: "Speaker", secondary: "Not connected", iconName: "speaker" }
+            ];
+            list.actionOf = row => ({ text: row.key === "busy" ? "Connect" : "Open" });
+            verify(spinnerOf(list.rowAt(0)).visible, "a busy row shows its spinner");
+            verify(!actionOf(list.rowAt(0)).visible, "a busy row hides its action");
+            mouseClick(list.rowAt(0));
+            compare(acted.count, 0, "a click on a busy row does not act");
+            focusList();
+            keyClick(Qt.Key_Return);
+            compare(acted.count, 0, "Return on a busy row does not act");
+            keyClick(Qt.Key_Space);
+            compare(acted.count, 0, "Space on a busy row does not act");
+            list.current = 1;
+            focusList();
+            verify(!spinnerOf(list.rowAt(1)).visible, "a ready row hides its spinner");
+            verify(actionOf(list.rowAt(1)).visible, "a ready row keeps its action");
+            mouseClick(list.rowAt(1));
+            compare(acted.count, 1);
+            compare(acted.signalArguments[0][0], "ready");
+            keyClick(Qt.Key_Return);
+            compare(acted.count, 2);
+            compare(acted.signalArguments[1][0], "ready");
         }
 
         function test_a_menu_entry_chooses() {

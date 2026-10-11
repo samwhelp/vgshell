@@ -451,13 +451,13 @@ function verifyDevices(logic) {
     attempts = logic.attemptPressed(attempts, address, action);
     d.state = "Connecting";
     let row = logic.deviceRows([d], stateOf, attempts).mine[0];
-    same([row.secondary, logic.mineAction(row)], ["Connecting…", null], "Connect shows the working state at once");
+    same([row.secondary, row.busy, logic.mineAction(row)], ["Connecting…", true, null], "Connect shows the working state at once");
 
     d.state = "Disconnected";
     attempts = logic.settleAttempts(attempts, logic.stateMap([d], stateOf));
     row = logic.deviceRows([d], stateOf, attempts).mine[0];
-    same([row.secondary, row.failed, logic.mineAction(row), logic.failureText(row.text)],
-        ["Not connected", true, { text: "Retry" }, name + " did not answer. Check that it is on, nearby and not connected to another device."],
+    same([row.secondary, row.busy, row.failed, logic.mineAction(row), logic.failureText(row.text)],
+        ["Not connected", false, true, { text: "Retry" }, name + " did not answer. Check that it is on, nearby and not connected to another device."],
         "a failed connect shows Retry and one failure sentence");
 
     const retry = logic.attemptPressed(attempts, address, logic.pressAction(d.state));
@@ -478,14 +478,14 @@ function verifyDevices(logic) {
     d.state = "Connected";
     attempts = logic.settleAttempts(attempts, logic.stateMap([d], stateOf));
     row = logic.deviceRows([d], stateOf, attempts).mine[0];
-    same([attempts, row.secondary, logic.mineAction(row), row.failed],
-        [{}, "Connected", { text: "Disconnect" }, false], "a successful connect clears the attempt");
+    same([attempts, row.secondary, row.busy, logic.mineAction(row), row.failed],
+        [{}, "Connected", false, { text: "Disconnect" }, false], "a successful connect clears the attempt");
     d.connected = false;
     d.state = "Disconnected";
     attempts = logic.settleAttempts(attempts, logic.stateMap([d], stateOf));
     row = logic.deviceRows([d], stateOf, attempts).mine[0];
-    same([attempts, row.secondary, row.failed, logic.mineAction(row)],
-        [{}, "Not connected", false, { text: "Connect" }], "a later drop by itself is not a failed connect");
+    same([attempts, row.secondary, row.busy, row.failed, logic.mineAction(row)],
+        [{}, "Not connected", false, false, { text: "Connect" }], "a later drop by itself is not a failed connect");
 
     same(logic.stateMap([device("A", "A", { state: "Connected" }), device("B", "B", { state: "Disconnecting" })], stateOf),
         { A: "Connected", B: "Disconnecting" }, "stateMap names every device state");

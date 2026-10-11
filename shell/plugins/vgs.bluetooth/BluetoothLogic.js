@@ -567,10 +567,11 @@ function deviceAt(devices, address) {
 // Plain rows of DEVICES, Quickshell BluetoothDevice objects, for the lists:
 // { mine, nearby }, each sorted by name, in the shape a qs.Ui DeviceList
 // takes ({ key, text, secondary, iconName, battery }) plus `connected`,
-// `trusted`, `pairing`, `state` and `failed`. A row holds primitives alone,
-// so no delegate keeps a device object BlueZ may remove while it is built;
-// actions find the device by address, the key. `mine` is every paired,
-// bonded or trusted device; `nearby` every other device that names itself.
+// `trusted`, `pairing`, `state`, `failed` and `busy`. A row holds
+// primitives alone, so no delegate keeps a device object BlueZ may remove
+// while it is built; actions find the device by address, the key. `mine`
+// is every paired, bonded or trusted device; `nearby` every other device
+// that names itself.
 function deviceRows(devices, stateOf, attempts) {
     var mine = [], nearby = [];
     for (var i = 0; i < devices.length; i++) {
@@ -590,7 +591,8 @@ function deviceRows(devices, stateOf, attempts) {
             trusted: d.trusted === true,
             pairing: d.pairing === true,
             state: state,
-            failed: attempts !== null && attempts !== undefined && attempts[address] === "failed"
+            failed: attempts !== null && attempts !== undefined && attempts[address] === "failed",
+            busy: state === "Connecting" || state === "Disconnecting"
         };
         (known ? mine : nearby).push(row);
     }
