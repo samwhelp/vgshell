@@ -3516,12 +3516,7 @@ except (ValueError,TypeError,KeyError,StopIteration): print("malformed")
 # A virtual panel keeps offscreen slots without CardFaces. Read the view
 # through an actual built face, rather than a fixed first-row summary.
 panel_current_view() {
-  local summary
-  summary="$(ipc smoke itemValues panel vgs.notifications CardFace summary | py_reply 'import json,sys
-v=json.load(sys.stdin)
-if not isinstance(v,list) or not v or not isinstance(v[0].get("summary"),str): raise ValueError("no built notification card")
-print(v[0]["summary"])')" || return
-  view_at_rest panel vgs.notifications "$summary"
+  ipc smoke notificationViewHolding panel vgs.notifications
 }
 fade_current_view() {
   fade_inventory || return

@@ -2306,6 +2306,22 @@ Scope {
                 height: view.height, acceptedButtons: view.acceptedButtons, box: root.windowBox(view)
             });
         }
+        // A virtual notification face can unload during a native wheel.
+        // Choose its view and read that view in the same event-loop turn.
+        function notificationViewHolding(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            const face = root.descendants(item).find(child => root.typeName(child) === "CardFace" && root.visibleInTree(child));
+            if (face === undefined) return "absent";
+            for (let view = face.parent; view !== null && view !== item.parent; view = view.parent) {
+                if (view.contentY === undefined || view.flickableDirection === undefined) continue;
+                return root.json({
+                    type: root.typeName(view), contentY: view.contentY, contentHeight: view.contentHeight,
+                    height: view.height, acceptedButtons: view.acceptedButtons, box: root.windowBox(view)
+                });
+            }
+            return "no-view";
+        }
         // Sets the mouse buttons that drag the view viewHolding finds, so a
         // row's control gives one view Qt's left-button drag back; answers
         // the buttons it held before.

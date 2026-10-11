@@ -177,9 +177,9 @@ long_inbox_rows() {
   local n shown=""
   for n in $(seq 1 39); do
     if [[ ${1:-} == estimate && $n == 20 ]]; then
-      # The initial image scan reserves media while its asynchronous file
-      # read runs. The real card removes it after this missing file fails.
-      notify smoke-app 0 "Long $n" "" '[]' "{\"urgency\": <byte 0>, \"image-path\": <\"$home/estimate-control-missing.png\">}" 0 >/dev/null
+      # This image exists for the initial estimate. The control removes
+      # its stored copy before this offscreen row first builds a card.
+      notify smoke-app 0 "Long $n" "" '[]' "{\"urgency\": <byte 0>, \"image-path\": <\"$home/estimate-control.jpg\">}" 0 >/dev/null
     else
       notify smoke-app 0 "Long $n" "A body long enough to wrap onto a second line of the card, so the card is tall" '[]' '{"urgency": <byte 0>}' 0 >/dev/null
     fi
@@ -351,6 +351,9 @@ long_inbox_ends() {
   top="$(long_inbox_settled)"
   before="$(panel_current_view)" || before=unread
   [[ $before == \{* ]] || { echo "view=$before"; return; }
+  if [[ ${nk_require_estimate_distinct:-false} == true ]]; then
+    nk_estimate_fixture_remove || { echo invalid-estimate-image; return; }
+  fi
   plan="$(nk_wheel_plan "$before")" || return
   spot="$(py_reply 'import json,sys;print(json.dumps(json.load(sys.stdin)["box"]))' <<<"$before")" || return
   read -r x y < <(panel_point "$spot" 4 -) || { echo "view=$before"; return; }
@@ -392,6 +395,22 @@ for line in open(sys.argv[1]):
 print("notification-estimate-fixture:"+json.dumps(rows),file=sys.stderr)
 print(bool(rows))
 PY_DISTINCT
+}
+nk_estimate_fixture_remove() {
+  local cache
+  cache="$(ipc smoke readInstance panel vgs.notifications measuredRows)" || return 1
+  python3 - "$cache" "$nk_estimate_key" "$nk_estimate_image" "$home" "$(look_at media.compact.size)" "$(look_at card.pad)" "$(look_at card.gap)" <<'PY_REMOVE'
+import json,os,sys
+cache=json.loads(sys.argv[1]);key,path,home=sys.argv[2:5]
+row=cache.get(key)
+media,pad,gap=map(float,sys.argv[5:])
+if not isinstance(row,dict) or row["collapsed"] is not None or row["estimate"]!=media+2*pad+gap:
+    raise SystemExit("estimate fixture has no unbuilt media estimate")
+if not os.path.realpath(path).startswith(os.path.realpath(home)+os.sep) or not os.path.isfile(path):
+    raise SystemExit("estimate fixture image is not a sandbox-owned file")
+print("notification-estimate-initial:"+json.dumps({"key":key,"estimate":row["estimate"],"collapsed":row["collapsed"],"image":path}),file=sys.stderr)
+os.unlink(path)
+PY_REMOVE
 }
 # nk_view_settled: the long inbox's view, the probe's viewHolding reading,
 # once two readings 0.1 s apart match whole, height and place both, so a
@@ -591,8 +610,17 @@ geometry expect "the long inbox list reaches the panel bottom at both scroll end
 # must change the established range during the same native roundtrip.
 cp -- "$nk_panel" "$sandbox/Panel.qml.keys-traced"
 expect "clearing the long inbox before the estimate fixture is allowed" ok notes clear-history
+cp -- "$repo/scripts/smoke/fixtures/theme-image.jpg" "$home/estimate-control.jpg"
+expect "Silence prevents a decoded toast image in the estimate fixture" on notes silence on
 expect "the estimate fixture's toasts leave the screen" 0 long_inbox_rows estimate
 expect_poll "the estimate fixture holds forty cards alone" 40 note_status history
+expect "Silence turns off after the estimate fixture is stored" off notes silence off
+read -r nk_estimate_key nk_estimate_image < <(note_state_py 'import json,os,sys
+rows=[r for r in json.load(open(sys.argv[1]))["history"] if r["summary"]=="Long 20"]
+if len(rows)!=1: raise SystemExit("estimate fixture has no unique Long 20")
+r=rows[0];path=r["image"].removeprefix("file://")
+if not os.path.isfile(path): raise SystemExit("estimate fixture image is not stored")
+print(r["key"],path)') || fail "the estimate fixture's stored image is unreadable"
 expect "disabling notifications before estimate restoration is allowed" ok ipc shell setPluginEnabled vgs.notifications false
 python3 - "$nk_panel" <<'PY_ESTIMATE_RESTORE'
 from pathlib import Path
