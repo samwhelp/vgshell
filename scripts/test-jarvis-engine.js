@@ -924,10 +924,14 @@ async function cases(kit, server, only = null) {
         assert.equal(w.s().playback.cue, "working");
         await until(() => w.writes.length > startWrites, "working PCM reaches the stand-in player");
         assert.equal(w.writes.slice(startWrites).some(write => write.pcm.some(byte => byte !== 0)), true);
+        w.advanceRunner(1200);
+        await advance(w, 6);
+        assert.equal(w.audio.playback.received, 2880, "only one working cue enters the stream");
         server.replies.push(text("Yes I am here."));
         await until(() => w.s().turn.kind === "none", "the brain finishes independently of playback");
         await playOut(w);
-        assert.equal(w.audio.lastPlayback.heardText, "Yes I am", "line words stay out of heard accounting");
+        assert.equal(w.audio.lastPlayback.writtenFrames, 2880 + 4 * Fixture.WORD_FRAMES);
+        assert.equal(w.audio.lastPlayback.heardText, "Yes I am", "only aligned assistant words enter heard accounting");
         assert.deepEqual(control.spoken, ["Let me check.", "Yes I am here."]);
         assert.deepEqual(w.faults, []);
         if (only === null) {
@@ -1032,8 +1036,10 @@ async function cases(kit, server, only = null) {
     for (const purpose of ["action", "release"]) await run("feedback-voice-" + purpose, async w => {
         const first = await say(w, utterance("Do the fixture."));
         await requested(w, first + 1, "the quiet request starts");
+        await until(() => control.spoken.length !== 0, "the acknowledgement speaks");
+        await playOut(w);
         w.advanceRunner(1200);
-        await until(() => control.spoken.length !== 0 && w.audio.playback?.kind === "feeding", "acknowledgement line enters Audio");
+        await until(() => w.s().playback.cue === "working" && w.audio.playback?.received === 2880, "working feedback enters Audio");
         const oldSource = w.audio.playbackFeed;
         server.replies.push(calls(purpose === "action"
             ? { id: "call_action", name: "shell_argv", arguments: { argv: ["true"], cwd: w.workspace, network: false } }
@@ -1178,6 +1184,28 @@ async function cases(kit, server, only = null) {
         assert.deepEqual(control.spoken, ["Checking the stacked status.", "Reading stacked status", "Counting stacked totals", "Done."]);
         assert.deepEqual(w.faults, []);
     });
+
+    // A line Session refused while an approval was held leaves no stream:
+    // a later step still speaks once the hold is answered.
+    await run("progress-after-refused-line", async w => {
+        const first = await say(w, utterance("Read my clipboard."));
+        server.replies.push([...text("<step>Reading the clipboard</step>").slice(0, 2),
+            ...calls({ id: "call_1", name: "clipboard_read", arguments: {} }).slice(1)]);
+        await until(() => w.s().approval.kind === "held", "clipboard release is held");
+        const h = w.s().approval;
+        w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
+        w.advanceRunner(4000);
+        await turn();
+        assert.equal(control.spoken.includes("Reading the clipboard"), false, "no line plays over a held approval");
+        w.runner.dispatch({ type: "confirm", gen: h.gen, id: h.id, digest: h.digest, source: "button" });
+        const held = gate();
+        server.replies.push(text("<step>Comparing the clipboard</step>", { wait: held.wait }, "Done."));
+        await requested(w, first + 2, "the granted result reaches the brain");
+        await until(() => control.spoken.includes("Comparing the clipboard"), "a later step speaks after the hold");
+        held.open();
+        await until(() => w.s().turn.kind === "none", "the turn completes");
+        assert.deepEqual(w.faults, []);
+    }, { fixture: { recipients: [{ kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9" }] } });
 
     // Talk while a reply waits behind a line: the line is cut and the reply
     // was heard not at all, which the brain's next request says.
@@ -1364,6 +1392,8 @@ async function cases(kit, server, only = null) {
     await run("barge-in-streaming", async w => {
         const first = await say(w, utterance("Tell me a story."));
         await requested(w, first + 1, "first request");
+        await until(() => control.spoken.length !== 0, "the acknowledgement speaks");
+        await playOut(w);
         const held = gate();
         server.replies.push(text("First part. ", { wait: held.wait }, "Second part."));
         await feeding(w, 2 * Fixture.WORD_FRAMES);
@@ -1377,7 +1407,7 @@ async function cases(kit, server, only = null) {
         server.replies.push(text("Fine."));
         const body = await requested(w, first + 2, "the request after barge-in");
         assert.deepEqual(body.messages.slice(1).map(message => [message.role, message.content]), [
-            ["user", "Tell me a story."], ["user", INTERRUPTED + "\n\nEnough."]]);
+            ["user", "Tell me a story."], ["user", heardOnly("First") + "\n\nEnough."]]);
         assert.equal(w.s().brain.kind, "acquired", "the interrupted conversation keeps its brain");
     });
 
@@ -1414,8 +1444,8 @@ async function cases(kit, server, only = null) {
         await replyPlays(w, "the final reply speaks");
         await playOut(w);
         assert.deepEqual(control.spoken.slice(-1), ["Focused it."]);
-        assert.deepEqual(assistantCaptions(w).map(row => row.slice(2)), [["partial", 1, "Focusing the editor."],
-            ["partial", 2, "Focusing the editor. Focused it."], ["final", 3, "Focusing the editor. Focused it."]],
+        assert.deepEqual(assistantCaptions(w).map(row => row.slice(2)), [["partial", 1, "On it."],
+            ["partial", 2, "On it. Focused it."], ["final", 3, "On it. Focused it."]],
         "a tool round's acknowledgement and reply are captioned once, at their end");
         assert.deepEqual(w.faults, []);
     });
@@ -2748,8 +2778,13 @@ world(async () => {
                 "quiet(turn);\n                    for (const sentence of sentences) {", "feedback-silenced-text"],
             ["feedback-disable-stream", 'turn.speech = null;\n            }\n            if (s.playback.kind',
                 'void turn.speech;\n            }\n            if (s.playback.kind', "feedback-disable-working"],
+            ...["action", "release"].map(purpose => ["feedback-approval-stream-" + purpose,
+                's.settings.sounds !== true || s.approval.kind === "held"', 's.settings.sounds !== true',
+                "feedback-voice-" + purpose]),
             ["feedback-flush-heard-context", "const speaking = turn?.speaking === true;",
                 "const speaking = c !== null && c !== undefined;", "feedback-delayed-flush"],
+            ["line-refused-retry", "if (c.live === null && turn.lineStream !== null) {",
+                "if (c.live === null && (turn.lineStream !== null || turn.pendingLine !== null)) {", "progress-after-refused-line"],
             ["line-flush-heard", 'report === null || flushedLine ? "" : withoutLinePrefix', 'report === null ? "" : withoutLinePrefix', "line-held-reply-interrupt"],
         ];
         for (const [name, needle, replacement, scenario] of plants) {

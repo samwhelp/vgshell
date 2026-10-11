@@ -1,1 +1,1 @@
-{"input":{"tts":"Please read my workspace notes and summarize the next action."},"mode":"toggle","confirm":"none","heard":["workspace","notes","summarize"],"tool":"none","said":["notes|action|summary"]}
+{"input": {"tts": "Please list the open windows and tell me which one is focused."},"mode": "toggle","confirm": "none","heard": ["windows","focused"],"tool": "windows.list","said": ["focus|focused"]}

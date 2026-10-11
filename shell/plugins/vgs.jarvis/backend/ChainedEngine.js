@@ -674,7 +674,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             const speakable = Speakable.create(LANGUAGE);
             const sentences = [...speakable.push(text), ...speakable.finish()];
             if (sentences.length === 0) return false;
-            if (c.live === null && (turn.lineStream !== null || turn.pendingLine !== null)) {
+            // Only a stream Session admitted plays; a line it refused, as
+            // while an approval is held, leaves no stream and the next line
+            // asks again.
+            if (c.live === null && turn.lineStream !== null) {
                 turn.waitingLine = { text, labels };
                 return true;
             }
@@ -683,12 +686,15 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             // A line is no reply the user waits for: one the gate would ask
             // about or withhold is not spoken, and the turn goes on.
             if (items.some(item => Policy.release(item, c.recipients, c.grants).kind !== "send")) return false;
+            // The Realtime voice captions the words it speaks, as for a reply.
+            if (c.live !== null) {
+                for (const item of items) c.live.commentary(turn.delegation, item, { line: true });
+                return true;
+            }
             for (const [at, item] of items.entries()) {
-                if (c.live !== null) c.live.commentary(turn.delegation, item, { line: true });
-                else transfer(c, turn, item, () => {});
+                transfer(c, turn, item, () => {});
                 caption(c, turn, sentences[at]);
             }
-            if (c.live !== null) return true;
             const playing = state().playback;
             if (turn.speech !== null && playing.kind === "feedback" && playing.cue === "working" && playing.source === turn.op) {
                 turn.linePrefix += (turn.linePrefix === "" ? "" : " ") + sentences.join(" ");

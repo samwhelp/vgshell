@@ -405,12 +405,11 @@ function violations(text, language) {
     return stream.counts();
 }
 
+// Verbs whose -ing form claims no action: it is said before the brain has
+// decided anything, and before any approval.
 const VERBS = Object.freeze({
-    check: "Checking", open: "Opening", find: "Finding", read: "Reading", search: "Searching", look: "Looking",
-    get: "Getting", set: "Setting", run: "Running", start: "Starting", stop: "Stopping", show: "Showing",
-    make: "Making", create: "Creating", add: "Adding", remove: "Removing",
-    delete: "Deleting", update: "Updating", send: "Sending", write: "Writing", list: "Listing", move: "Moving",
-    switch: "Switching", focus: "Focusing", close: "Closing", turn: "Turning", mute: "Muting", unmute: "Unmuting"
+    check: "Checking", find: "Finding", look: "Looking", read: "Reading", search: "Searching",
+    show: "Showing", list: "Listing", get: "Getting", open: "Opening"
 });
 const QUESTION_START = new Set(["who", "what", "when", "where", "why", "how", "is", "are", "am", "was", "were",
     "do", "does", "did", "can", "could", "would", "will", "should"]);
@@ -430,6 +429,13 @@ function swapPronoun(word) {
     return /^[A-Z]/u.test(word) ? mapped[0].toUpperCase() + mapped.slice(1) : mapped;
 }
 
+/**
+ * The line Jarvis says at once for a request that goes to the brain, built
+ * from the user's words with no model call: a verb of VERBS turned to its
+ * -ing form with at most five words of its object ("Checking the Fidelity
+ * pages."), else "Let me check." for a question and "On it." for anything
+ * else. A transcript that holds a secret is never echoed.
+ */
 function acknowledgement(transcript) {
     const cleaned = typeof transcript === "string" ? transcript.replace(/[\x00-\x1f\x7f]/g, " ").replace(/\s+/gu, " ").trim() : "";
     if (cleaned === "" || Redact.secret(cleaned)) return fallback(cleaned);

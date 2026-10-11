@@ -443,13 +443,15 @@ geometry expect_poll "a held request leaves the console's field and hint line wh
 jarvis_bubble_console_close
 expect_poll "the client below Jarvis has keyboard focus again" '["smoke.other", "Other window"]' active_window
 
-jarvis_bubble_reply="$(python3 -c 'print(" ".join(["scripted reply"] * 24))')"
+# The chained engine speaks its acknowledgement of "scripted utterance"
+# before the reply, and the caption carries both.
+jarvis_bubble_reply="$(python3 -c 'print("On it. " + " ".join(["scripted reply"] * 24))')"
 jarvis_bubble_begin
 jarvis_key_gate partial
 expect_poll "the user's partial draws while capture stays open" drawn jarvis_bubble_text 'scripted draft'
 expect "a drawn partial leaves the utterance collecting" collecting jarvis_key_state turn
 jarvis_bubble_think
-expect_poll "the final replaces the user's draft while the brain thinks" drawn jarvis_bubble_text 'scripted utterance'
+expect_poll "the acknowledgement replaces the user's draft while the brain thinks" drawn jarvis_bubble_text 'On it.'
 expect "the replaced draft leaves the bubble" absent jarvis_bubble_text 'scripted draft'
 jarvis_key_gate reply
 expect_poll "the reply replaces the user's final" latest-lines jarvis_bubble_words

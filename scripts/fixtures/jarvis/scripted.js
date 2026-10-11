@@ -187,6 +187,9 @@ function readyPlan() {
 
 // The wire brain's driver surface. Each response waits for the reply gate,
 // then streams REPLY and stops; cancel or close ends a waiting response.
+// With a long-request file in the gate folder, the response states a step at
+// once, a second step behind the second-step gate and its answer behind the
+// reply gate.
 const driver = { create() {
     let pending = null;
     // Only a waiting response holds the reply gate.
@@ -213,16 +216,13 @@ const driver = { create() {
                     { kind: "text", text: "The balance is ready." },
                     { kind: "done", reason: "stop" }]
                 : [{ gate: "reply" }, { kind: "text", text: REPLY }, { kind: "done", reason: "stop" }];
-            let opened = false;
             const events = { [Symbol.asyncIterator]() { return { next() {
                 if (steps.length === 0) return Promise.resolve({ value: undefined, done: true });
                 const step = steps.shift();
                 if (step.gate === undefined) return Promise.resolve({ value: step, done: false });
-                if (opened && step.gate === "reply") return Promise.resolve(steps.length ? { value: steps.shift(), done: false } : { value: undefined, done: true });
                 return new Promise(resolve => {
                     pending = resolve;
                     gates.wait(step.gate, () => {
-                        opened = true;
                         pending = null;
                         resolve(steps.length ? { value: steps.shift(), done: false } : { value: undefined, done: true });
                     });
