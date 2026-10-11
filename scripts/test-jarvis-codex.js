@@ -375,11 +375,13 @@ world(async () => {
             validWrites();
         },
         // The duplex voice replaces streaming work, including a replacement cancelled
-        // before Codex acknowledges the original turn/interrupt.
-        async engineReplacement(folder) {
+        // before Codex acknowledges the original turn/interrupt. held false is the
+        // control: Codex completes at once and writes no barrier row.
+        async engineReplacement(folder, held = true) {
             for (const cancelQueued of [false, true]) {
                 const barrier = path.join(process.env.JARVIS_TEST_ROOT, "interrupt-" + serial);
-                scenario({ interruptBarrier: barrier, turns: [[delta("unfinished"), { interrupt: true }], [{ complete: "completed" }]] });
+                const trace = barrier + "-text.jsonl";
+                scenario({ ...(held ? { interruptBarrier: barrier } : {}), turns: [[delta("unfinished"), { interrupt: true }], [{ complete: "completed" }]] });
                 Fixture.reset();
                 const { folder: copied, Engine } = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], folder);
                 const w = make(copied);
@@ -391,7 +393,7 @@ world(async () => {
                             reference: Secrets.ownReference("openai", "fixture", "https://api.openai.com") } }) }),
                     policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail(reason),
                     captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock,
-                    harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime } });
+                    harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime }, trace: { marker: "1", file: trace } });
                 owners.unshift(() => engine.close());
                 assert.deepEqual(engine.configure({ brain: "codex-fixture", voiceProvider: "realtime", voiceAccount: "live-fixture" }), { kind: "ready" });
                 const { gen, turn: { op } } = w.runner.state;
@@ -399,7 +401,11 @@ world(async () => {
                 const send = (id, text) => engine.brain.send({ gen, op: id, owner: 1, text, delegation: "del_" + id },
                     (kind, detail) => callbacks.push({ id, kind, detail }));
                 send(op, "first");
-                await until(() => read("codex-log").some(row => row.direction === "out" && row.message.method === "item/agentMessage/delta"), "Codex streams the original delegation");
+                // The engine's own trace, not the stub's log: the stub logs a message
+                // before it writes it, and a cancel before the harness reads
+                // turn/started is a different case.
+                await until(() => fs.readFileSync(trace, "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line))
+                    .some(value => value.op === op && value.text === "unfinished"), "the engine reads the original delegation's text");
                 let firstCancelled = false, queuedCancelled = false;
                 engine.brain.cancel({ gen, target: op }, () => { firstCancelled = true; });
                 send(op + 1, "queued replacement");
@@ -746,6 +752,10 @@ world(async () => {
             controls++;
             console.log("control=" + name + " detected");
         }
+        await assert.rejects(CASES.engineReplacement(plugin, false), { message: "Codex holds the original completion never held" });
+        for (const owner of owners.splice(0)) owner();
+        controls++;
+        console.log("control=interrupt-barrier detected");
         console.log("test-jarvis-codex: ok cases=" + cases + " controls=" + controls);
     } finally { for (const owner of owners.splice(0)) owner(); }
 }, standins => {
