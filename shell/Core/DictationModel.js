@@ -74,7 +74,7 @@ var OUTPUT_MODES = ["type", "clipboard", "paste", "file"];
 function initial(dir, statePath) {
     return {
         dir: dir, statePath: statePath, holders: [], daemon: "absent", step: "", child: "none", timer: "none",
-        recording: null, files: 0, pending: 0, status: "idle", config: {}, maxSecs: 0, engine: "", model: "", device: "", typeFlags: []
+        recording: null, late: false, files: 0, pending: 0, status: "idle", config: {}, maxSecs: 0, engine: "", model: "", device: "", typeFlags: []
     };
 }
 
@@ -256,6 +256,7 @@ function start(s, id, mode) {
     if (answer !== "") return { model: t, effects: effects, answer: answer };
     var argv = ["voxtype", "record", "start"];
     t.recording = { holder: id, mode: mode, phase: "starting", path: "" };
+    t.late = false;
     if (mode === "text") {
         t.files += 1;
         t.recording.path = t.dir + "/" + t.files + ".txt";
@@ -437,11 +438,19 @@ function ran(s, tag, code, out) {
     case STATE:
         var read = code === 0 ? phaseOf(statusOf(out.trim())) : null;
         if (read === null) fail(t, effects, "state " + (code === 0 ? "status=unread" : "code=" + (code === null ? "none" : code)));
-        // `stopped`: the child's exit reports a daemon that ended.
-        else if (read !== "stopped") t.status = read;
-        // Only checked reads the daemon under a held recording: a daemon
-        // still idle took the start signal and records nothing.
-        if (read === "idle" && r !== null && r.phase === "recording") drop(t, effects, "");
+        // `stopped`: the child's exit reports a daemon that ended. Only
+        // checked reads the daemon under a held recording, while the
+        // follower's word is idle; a word the follower printed since is
+        // newer than the read.
+        else if (read !== "stopped" && (r === null || t.status === "idle")) t.status = read;
+        // A daemon still idle at the check has not recorded, but may yet:
+        // its start handler awaits the media pause and the capture open
+        // before it writes `recording` (src/daemon.rs:4083-4203). So the
+        // dropped recording is marked, and status cancels a late one.
+        if (read === "idle" && r !== null && r.phase === "recording" && t.status === "idle") {
+            drop(t, effects, "");
+            t.late = true;
+        }
         drained(t, effects);
         break;
     default:
@@ -496,6 +505,15 @@ function status(s, line) {
     // ended is of an earlier recording, and a stop that waits takes the
     // transcript the daemon wrote before it went idle.
     if (t.status === "idle" && t.recording !== null && t.recording.phase === "recording") drop(t, effects, "");
+    // The recording the start check dropped began after all: nothing holds
+    // it, and at voxtype's own cap it would be typed. The cancel file it
+    // reads while it records was written after its start had removed the
+    // stale one (src/daemon.rs:1136-1148).
+    if (t.status === "recording" && t.recording === null && t.late) {
+        t.late = false;
+        effects.push({ kind: "log", line: "dictation: recording=cancelled reason=late-start" });
+        command(t, effects, "cancel", ["voxtype", "record", "cancel"]);
+    }
     drained(t, effects);
     return { model: t, effects: effects };
 }
@@ -506,6 +524,7 @@ function exited(s, code) {
     var t = clone(s), effects = [], was = t.child;
     t.child = "none";
     t.status = "idle";
+    t.late = false;
     if (t.timer === "grace" || t.timer === "drain") setTimer(t, effects, "none", 0);
     if (was !== "stopping") effects.push({ kind: "unfollow" });
     if (was === "running") {
