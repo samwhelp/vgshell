@@ -817,6 +817,7 @@ function verify(judge) {
         directoryName: "vgs",
         themeJson: fs.readFileSync(path.join(repo, "themes", "vgs", "theme.json"), "utf8"),
         terminalJson: fs.readFileSync(path.join(repo, "themes", "vgs", "terminal.json"), "utf8"),
+        backgrounds: ["black.png"],
         shipped: true
     });
     assert.equal(shippedVgs.ok, true, shippedVgs.ok ? "" : judge.refusalLine(shippedVgs));
@@ -824,6 +825,7 @@ function verify(judge) {
     assert.equal(shippedVgs.terminal.color0, "#0b0b0bff");
     assert.equal(shippedVgs.terminal.color15, "#ffffffff");
     assert.equal(Object.keys(shippedVgs.terminal).length, 16);
+    assert.deepEqual(plain(shippedVgs.backgrounds), { "black.png": "Black" });
 
     const packageWithoutTerminal = judge.acceptPackage(TOKENS, {
         directoryName: "probe",
