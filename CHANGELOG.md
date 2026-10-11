@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- In the notifications panel's header, Sound off shows its icon in a round accent box, as Do Not Disturb on and an open History do. Before, Sound off changed only its icon, and the box was square inside the round header. A screen reader names each icon's state: Notification sound on or off, Do Not Disturb on or off, History open or closed.
 - Jarvis calls the session that runs your agent fleet your Jarvis session: in the confirmation before a fleet request, the Agent fleet row under Setup, its setup window and the Jarvis README. Before, it called it the master session.
 - A button that offers to install a missing command shows the install notice on every press. Before, a press within 10 minutes of Not now showed nothing, in Agent Warden, Bluetooth, Sound, Network, Capture, Clipboard and VPN. VPN's Import WireGuard opens the import once the install ends. A plugin raises an offer with no press through `shell.requirements.suggest`, which still waits 10 minutes after Not now.
 - On a small screen such as 1366x768, a floating terminal window, such as btop from System Monitor's See all, shows its whole border. Before, its top edge lay under the bar and its bottom edge past the screen.

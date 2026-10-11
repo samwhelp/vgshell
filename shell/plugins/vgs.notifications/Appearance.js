@@ -276,7 +276,20 @@ var TOKENS = {
         controlsInset: length(10),
         // Between the icons and the pill, and between two icons.
         controlsGap: length(8),
-        iconGap: length(4)
+        iconGap: length(4),
+        // The box behind a header icon, round as the header is. A checked
+        // icon, a state away from the normal one or the History's view,
+        // draws the accent at the theme's checked-button strengths.
+        icon: {
+            rest: ink(0),
+            hover: ink(0.11),
+            pressed: ink(0.16),
+            checked: color("alpha({palette.accent}, 0.14)"),
+            checkedHover: color("alpha({palette.accent}, 0.22)"),
+            checkedPressed: color("alpha({palette.accent}, 0.3)"),
+            border: color("{palette.accent}"),
+            borderWidth: length(1)
+        }
     },
 
     // The slim bar a scrolling stack shows in its side room, as the

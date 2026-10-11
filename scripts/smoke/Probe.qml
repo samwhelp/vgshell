@@ -2434,7 +2434,12 @@ Scope {
             const names = properties === "" ? [] : properties.split(",");
             return root.json(root.descendants(item).filter(child => root.typeName(child) === type).map(child => {
                 const values = {};
-                for (const name of names) values[name] = child[name] !== null && typeof child[name] === "object" && "hslHue" in child[name] ? child[name].toString() : child[name];
+                // A dotted name reads through an attached object, as `Accessible.name`.
+                for (const name of names) {
+                    let value = child;
+                    for (const key of name.split(".")) value = value === null || value === undefined ? undefined : value[key];
+                    values[name] = value !== null && typeof value === "object" && "hslHue" in value ? value.toString() : value;
+                }
                 return values;
             }));
         }
