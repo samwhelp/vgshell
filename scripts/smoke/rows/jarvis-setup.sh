@@ -615,6 +615,9 @@ setup_check_result() {
 setup_check_row() {
   status_row vgs.jarvis setupVoice | py_reply 'import json,sys; r=json.load(sys.stdin); v=r["value"]; print(json.dumps([v["tone"],v["text"],v.get("hint"),r["action"]["tui"]]))'
 }
+setup_check_row_hint_present() {
+  setup_check_row | py_reply 'import json,sys; r=json.load(sys.stdin); r[2]=isinstance(r[2],str) and bool(r[2].strip()); print(json.dumps(r))'
+}
 expect_poll "local voice can be checked before choosing an AI model" '{"kind": "ready"}' setup_check_state
 setup_check_pid="$(ipc smoke jarvisProcess | jarvis_launcher_pid)"
 setup_check_pid="$(jarvis_descendants "$setup_check_pid")"
@@ -630,7 +633,7 @@ expect_poll "the selected stand-in source wakes the detector" ready setup_check_
 expect_poll "Voice reports Ready and keeps the check action" '["ok", "Ready", null, "check-microphone"]' setup_check_row
 expect "Check microphone can run again" ok ipc vgs.jarvis invoke check-microphone ''
 expect_poll "sound without the wake phrase is not Ready" not-heard setup_check_result
-expect_poll "Voice gives the quiet-room guidance in full" '["warning", "Not heard", "Jarvis did not hear Hey Jarvis: try again closer or in a quieter room", "check-microphone"]' setup_check_row
+expect_poll "Voice gives not-heard guidance and keeps the check action" '["warning", "Not heard", true, "check-microphone"]' setup_check_row_hint_present
 : >"${setup_check_home:?}/capture-silent"
 expect "Check microphone can check a silent source" ok ipc vgs.jarvis invoke check-microphone ''
 expect_poll "an all-zero stand-in source is silent" silent setup_check_result

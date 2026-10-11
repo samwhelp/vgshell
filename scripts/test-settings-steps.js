@@ -228,7 +228,7 @@ const FLOWS = [
         [["setup", "Set up again", "", false], ["configure", "Configure", "", false]]],
     ["a danger screen in the Flow is drawn in its tone and never primary",
         Object.assign({}, MANIFEST, { status: { warden: { type: "state", label: "Warden", group: "Setup" }, out: { type: "state", label: "Account", action: { label: "Sign out", tui: "setup", tone: "danger" } } } }), TUIS,
-        { warden: { tone: "ok", text: "Ready" }, out: { tone: "ok", text: "Signed in", action: true } },
+        { warden: { tone: "ok", text: "Ready" }, out: { tone: "warning", text: "Needs attention", action: true } },
         [["setup", "Sign out", "danger", false], ["configure", "Configure", "", false]]],
     ["a danger row offering a repair hides the listed screen it declares", DECLARED_FLOW, DECLARED_FLOW_TUIS,
         { summary: { tone: "warning", text: "Not ready" }, gate: { tone: "danger", text: "Broken", action: "repair" } },
