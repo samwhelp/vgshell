@@ -1161,12 +1161,18 @@ Scope {
             return title === undefined ? "absent" : root.json(root.windowBox(title));
         }
         // How the notice's scrim is drawn, as { visible, opacity, color,
-        // scrimToken, token }: the colour it draws, `color.scrim`, and
-        // whether the two are one colour; "absent" while no notice shows.
+        // scrimToken, token, under }: the colour it draws, `color.scrim`,
+        // whether the two are one colour, and whether it paints below the
+        // dialog, a lower `z` or the same `z` earlier in their shared
+        // parent's `children` (Qt 6 Item.z reference, the order
+        // Scrim.washesContent reads); "absent" while no notice shows.
         function noticeScrim(): string {
-            const scrim = Plugins.hosts.notice === undefined ? null : Plugins.hosts.notice.scrim;
-            if (scrim === null) return "absent";
-            return root.json({ visible: scrim.visible, opacity: scrim.opacity, color: String(scrim.color), scrimToken: String(Theme.color.scrim), token: Qt.colorEqual(scrim.color, Theme.color.scrim) });
+            const host = Plugins.hosts.notice;
+            const scrim = host === undefined ? null : host.scrim;
+            if (scrim === null || host.dialog === null) return "absent";
+            const kids = scrim.parent === host.dialog.parent ? scrim.parent.children : [];
+            const under = kids.length > 0 && (scrim.z < host.dialog.z || (scrim.z === host.dialog.z && kids.indexOf(scrim) < kids.indexOf(host.dialog)));
+            return root.json({ visible: scrim.visible, opacity: scrim.opacity, color: String(scrim.color), scrimToken: String(Theme.color.scrim), token: Qt.colorEqual(scrim.color, Theme.color.scrim), under: under });
         }
         // The dialog's height, its window's, and how many of its shown
         // scroll areas overflow, or "absent" while no notice shows.

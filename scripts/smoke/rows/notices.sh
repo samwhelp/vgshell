@@ -111,8 +111,9 @@ l, c = json.loads(sys.argv[1]), json.loads(sys.argv[2])
 if not isinstance(l, list) or not isinstance(c, list) or c[0] < 2: sys.exit(1)
 print(int(l[0] + c[0] / 2), int(l[1] + c[1] + c[3] / 2))' "$layer" "$card"
 }
-# notice_on_scrim X Y: `ok` when the layout point lies inside the notice's
-# scrim, drawn, above opacity 0 and in `color.scrim`; else the readings.
+# notice_on_scrim X Y: for the notice's scrim drawn under the dialog,
+# above opacity 0 and in `color.scrim`, `ok` when the layout point lies
+# inside it and `outside` when it does not; else the readings.
 notice_on_scrim() {
   local layer box drawn
   layer="$(surface_box vgs:notice)" || return 1
@@ -122,7 +123,8 @@ notice_on_scrim() {
   python3 -c 'import json,sys
 l, b, d, x, y = json.loads(sys.argv[1]), json.loads(sys.argv[2]), json.loads(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5])
 inside = l[0] + b[0] <= x < l[0] + b[0] + b[2] and l[1] + b[1] <= y < l[1] + b[1] + b[3]
-print("ok" if inside and d["visible"] and d["opacity"] > 0 and d["token"] else json.dumps({"layer": l, "point": [x, y], "box": b, "drawn": d}))' "$layer" "$box" "$drawn" "$1" "$2"
+drawn = d["visible"] and d["opacity"] > 0 and d["token"] and d["under"]
+print(("ok" if inside else "outside") if drawn else json.dumps({"layer": l, "point": [x, y], "box": b, "drawn": d}))' "$layer" "$box" "$drawn" "$1" "$2"
 }
 install_words() {
   words --app-id=org.vgs.tui "--title=VGS · Install requirements" -- "$tui_self" present --presentation full \
@@ -181,6 +183,8 @@ expect_poll "a click on the bar's widget while the notice shows reaches it" "$((
 read -r gap_x gap_y < <(notice_gap_point) || fail "the notice surface beside the dialog was not measured"
 read_count presses "the presses of the layer below the notice" read_layers presses
 expect "the point beside the dialog lies on the drawn scrim" ok notice_on_scrim "$gap_x" "$gap_y"
+read -r off_x < <(surface_box vgs:notice | py_reply 'import json,sys; print(int(json.load(sys.stdin)[0]) - 1)') || fail "the notice surface's left edge was not measured"
+expect "control: a point off the notice surface does not lie on the scrim" outside notice_on_scrim "$off_x" "$gap_y"
 hover_click "$gap_x" "$gap_y" || fail "the click beside the dialog failed"
 expect_poll "a click on the scrim beside the dialog reaches the layer below" "$((presses + 1))" read_layers presses
 title_rect="$(ipc smoke noticeWindowGeometry title)" || title_rect=""
