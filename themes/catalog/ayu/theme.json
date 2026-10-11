@@ -17,5 +17,11 @@
     "color": {
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.33)"
     }
+  },
+  "backgrounds": {
+    "1-ayu-aurora.png": "Dark Aurora",
+    "2-wh-n66kj6.jpg": "Orange Stripe",
+    "3-wh-57rg77.jpg": "Orange Waves",
+    "4-wh-g8xe1q.jpg": "Moon Glyph"
   }
 }

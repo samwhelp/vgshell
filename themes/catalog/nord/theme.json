@@ -19,5 +19,10 @@
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.38)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.15)"
     }
+  },
+  "backgrounds": {
+    "0-black-moon.jpg": "Black Moon",
+    "1-city-view.jpg": "City Window",
+    "2-night-hawks.png": "Nighthawks"
   }
 }

@@ -17,5 +17,10 @@
     "color": {
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.36)"
     }
+  },
+  "backgrounds": {
+    "1-totoro.png": "Totoro",
+    "2-waves.png": "Wire Waves",
+    "3-blue-eye.png": "Blue Eye"
   }
 }

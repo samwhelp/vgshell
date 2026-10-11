@@ -18,5 +18,10 @@
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.21)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.05)"
     }
+  },
+  "backgrounds": {
+    "1-01-poimandres.jpg": "Striped Planets",
+    "2-02-poimandres.jpg": "Night City",
+    "3-03-poimandres.jpg": "Studio Desk"
   }
 }

@@ -20,5 +20,11 @@
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.29)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.10)"
     }
+  },
+  "backgrounds": {
+    "1-wallhaven-x8jj9o.jpg": "Red Powerlines",
+    "2-wh-je3qeq.jpg": "Liquid Chrome",
+    "3-wh-x1qjyd.jpg": "Caution Sign",
+    "4-wh-l8rjvr.jpg": "Black Feathers"
   }
 }

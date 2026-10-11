@@ -18,5 +18,11 @@
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.35)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.03)"
     }
+  },
+  "backgrounds": {
+    "0-launch.png": "Orange Stripes",
+    "1-color-curves.jpg": "Color Curves",
+    "2-coffee-beans.jpg": "Coffee Beans",
+    "3-industrial-moon.jpg": "Moon City"
   }
 }

@@ -17,5 +17,9 @@
     "color": {
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.41)"
     }
+  },
+  "backgrounds": {
+    "1-cosmic.jpg": "Cosmic Clouds",
+    "2-meadow.jpg": "Misty Meadow"
   }
 }

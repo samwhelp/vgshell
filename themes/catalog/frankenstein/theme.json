@@ -21,5 +21,11 @@
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.15)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.12)"
     }
+  },
+  "backgrounds": {
+    "1-0-frankenstein.jpg": "Frankenstein",
+    "2-wh-r22xrq.jpg": "Green Network",
+    "3-wh-p8dxz3.jpg": "Code Rain",
+    "4-wh-p8r3de.jpg": "Green Texture"
   }
 }

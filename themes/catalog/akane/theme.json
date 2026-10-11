@@ -20,5 +20,15 @@
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.21)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.35)"
     }
+  },
+  "backgrounds": {
+    "1-6-akane.jpg": "Torii Mountain",
+    "2-7-akane.jpg": "Mountain Temple",
+    "3-8-akane.jpg": "Sunset Pagoda",
+    "4-5-akane.jpg": "Lake Pagoda",
+    "5-1-akane.jpg": "Ricefield Pagoda",
+    "6-3-akane.jpg": "Garden Bridge",
+    "7-4-akane.jpg": "Cliff Temple",
+    "8-2-akane.jpg": "Storm Temple"
   }
 }

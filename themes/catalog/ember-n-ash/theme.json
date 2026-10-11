@@ -19,5 +19,12 @@
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.12)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.31)"
     }
+  },
+  "backgrounds": {
+    "1-embernash.jpg": "Ember Forest",
+    "2-wh-d6yv9m.jpg": "Fractal Clouds",
+    "3-wh-85o99k.jpg": "Flame Skull",
+    "4-wh-m3rmry.jpg": "Woven Ribbons",
+    "5-wh-kx1gjd.jpg": "Flame Wings"
   }
 }

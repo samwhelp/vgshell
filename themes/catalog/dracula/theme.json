@@ -18,5 +18,11 @@
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.41)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.22)"
     }
+  },
+  "backgrounds": {
+    "1-dracula-aurora.png": "Purple Aurora",
+    "2-wh-768xly.jpg": "Purple Waves",
+    "3-wh-wqxrkq.jpg": "Light Tunnel",
+    "4-wh-m371r9.jpg": "Violet Mist"
   }
 }

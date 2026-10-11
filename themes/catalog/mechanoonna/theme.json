@@ -18,5 +18,10 @@
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.20)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.03)"
     }
+  },
+  "backgrounds": {
+    "1-bg1.jpg": "Cyber Geisha",
+    "2-bg2.jpg": "Tiger Kimono",
+    "3-bg3.jpg": "Masked Woman"
   }
 }

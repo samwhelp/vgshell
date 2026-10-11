@@ -17,5 +17,11 @@
     "color": {
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.41)"
     }
+  },
+  "backgrounds": {
+    "1-bg3.jpg": "Snow Shrine",
+    "2-bg4.jpg": "Snow Bridge",
+    "3-bg0.jpg": "Snow Torii",
+    "4-bg2.jpg": "Snow Pine"
   }
 }

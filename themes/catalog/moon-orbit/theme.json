@@ -22,5 +22,12 @@
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.23)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.24)"
     }
+  },
+  "backgrounds": {
+    "1-moon-orbit3.jpg": "Painted Streaks",
+    "2-moon-orbit2.jpg": "Blue Wave",
+    "3-moon-orbit5.jpg": "Solar Ring",
+    "4-moon-orbit.jpg": "Moon Lake",
+    "5-moon-orbit4.jpg": "Mushroom Shore"
   }
 }

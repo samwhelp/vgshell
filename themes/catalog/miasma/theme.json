@@ -21,5 +21,16 @@
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.36)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.18)"
     }
+  },
+  "backgrounds": {
+    "01-nature-of-fear.jpg": "Pale Figure",
+    "02-crowned.jpg": "Crowned Figure",
+    "03-fog-desends.jpg": "Fog Forest",
+    "04-miasma-wraith.jpg": "Green Wraith",
+    "05-asphyxiation.jpg": "Old Apparatus",
+    "06-wire-seraph.jpg": "Wire Seraph",
+    "07-fog-crossroads.jpg": "Forest Crossroads",
+    "08-gilded-static.jpg": "Gilded Lines",
+    "09-shrouded-visage.jpg": "Shrouded Face"
   }
 }

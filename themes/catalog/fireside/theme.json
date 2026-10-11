@@ -14,5 +14,10 @@
       "danger": "#e06b58",
       "info": "#b8b8b6"
     }
+  },
+  "backgrounds": {
+    "1-1.jpg": "Lake Campfire",
+    "2-3.jpg": "Mountain Sunset",
+    "3-2.jpg": "Night Campfire"
   }
 }

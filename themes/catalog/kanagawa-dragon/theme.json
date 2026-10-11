@@ -17,5 +17,12 @@
     "color": {
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.34)"
     }
+  },
+  "backgrounds": {
+    "1-kanagawa.jpg": "Great Wave",
+    "2-wh-ymvm17.jpg": "Red Smoke",
+    "3-wh-mdkx5k.jpg": "Dark Facets",
+    "4-wh-2yg1lg.jpg": "Dark Spiral",
+    "5-wh-pkq3zp.jpg": "Yellow Umbrella"
   }
 }

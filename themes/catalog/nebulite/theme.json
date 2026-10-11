@@ -18,5 +18,14 @@
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.34)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.08)"
     }
+  },
+  "backgrounds": {
+    "1-2.jpg": "Distant Earth",
+    "2-4.jpg": "Crescent Moon",
+    "3-wh-4ddk8g.jpg": "Blue Nebula",
+    "4-wh-k7orj7.jpg": "Pink Nebula",
+    "5-wh-4597p1.jpg": "Comet Trail",
+    "6-nebulite-1.jpg": "Pixel Planet",
+    "7-nebulite-3.jpg": "Moon Walker"
   }
 }

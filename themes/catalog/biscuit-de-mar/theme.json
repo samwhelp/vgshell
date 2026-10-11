@@ -18,5 +18,16 @@
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.36)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.18)"
     }
+  },
+  "backgrounds": {
+    "1-6-biscuit-emblem.jpg": "Biscuit Emblem",
+    "2-9-pastel-marsh.jpg": "Pastel Marsh",
+    "3-7-concrete-nocturne.jpg": "Concrete Entry",
+    "4-10-violet-tourer.jpg": "Violet Tourer",
+    "5-8-violet-forest.jpg": "Violet Forest",
+    "6-3-amber-beam.jpg": "Amber Beam",
+    "7-2-doorway-beams.jpg": "Doorway Beams",
+    "8-4-copper-arc.jpg": "Copper Arc",
+    "9-biscuit-de-mar-rainlight-bokeh.jpg": "Rainlight Bokeh"
   }
 }

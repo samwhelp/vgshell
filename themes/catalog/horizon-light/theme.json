@@ -20,5 +20,11 @@
       "warning": "mix({palette.warning}, contrast({palette.background}), 0.09)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.09)"
     }
+  },
+  "backgrounds": {
+    "1-coral-mountains-wh-96rgr1.jpg": "Coral Mountains",
+    "2-apricot-sphere-wh-g7l393.jpg": "Apricot Sphere",
+    "3-pastel-contours-wh-6dgl56.jpg": "Pastel Contours",
+    "4-coral-islands-wh-r27qy1.jpg": "Coral Islands"
   }
 }

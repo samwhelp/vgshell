@@ -18,5 +18,21 @@
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.41)",
       "success": "mix({palette.success}, contrast({palette.background}), 0.17)"
     }
+  },
+  "backgrounds": {
+    "1-in-the-groove.jpg": "Vinyl Record",
+    "10-retro-82-livingroom-1982.jpg": "City Lounge",
+    "11-retro-82-walkman.jpg": "Walkman",
+    "12-retro-82-pirate-bay.jpg": "Pirate Ship",
+    "13-retro-82-retro-spective.jpg": "Rainy Glass",
+    "14-retro-82-cassette.jpg": "Cassette Tape",
+    "2-dusk-guardian.jpg": "Dusk Stag",
+    "3-glassy-lines.jpg": "Glass Lines",
+    "4-gateway.jpg": "Orange Gateway",
+    "5-zen-boat.jpg": "Quiet Boat",
+    "6-abstract-pyramids.jpg": "Geometric Pyramids",
+    "7-the-journey.jpg": "Sunset Lake",
+    "8-glitter-glass.jpg": "Glitter Glass",
+    "9-retro-82-retro-sf.jpg": "Alien Vista"
   }
 }

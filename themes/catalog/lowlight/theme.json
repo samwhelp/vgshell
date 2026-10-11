@@ -20,5 +20,10 @@
       "warning": "mix({palette.warning}, contrast({palette.background}), 0.13)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.12)"
     }
+  },
+  "backgrounds": {
+    "1-bg2.jpg": "Pink Skyline",
+    "2-bg3.jpg": "Night Skyline",
+    "3-bg1.jpg": "Orange Cloud"
   }
 }

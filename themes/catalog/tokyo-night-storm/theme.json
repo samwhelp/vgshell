@@ -17,5 +17,16 @@
     "color": {
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.28)"
     }
+  },
+  "backgrounds": {
+    "0-swirl-buck.jpg": "Deer Swirl",
+    "1-sunset-lake.png": "Sunset Lake",
+    "2-pawel-czerwinski.jpg": "Purple Ribbons",
+    "3-milad-fakurian.jpg": "Magenta Fold",
+    "4-oma-cityscape.jpg": "Neon City",
+    "5-oma.jpg": "Pink Shapes",
+    "7-wh-y8m5wx.jpg": "Blue Particles",
+    "8-wh-6lkdv6.jpg": "Planet Field",
+    "9-wh-ly3gjl.jpg": "Torn Sky"
   }
 }

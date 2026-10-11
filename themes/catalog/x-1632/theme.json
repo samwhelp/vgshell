@@ -20,5 +20,13 @@
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.27)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.23)"
     }
+  },
+  "backgrounds": {
+    "1-3-foundry-overhead.jpg": "Foundry Floor",
+    "2-1-roadside-walker.jpg": "Roadside Mech",
+    "3-2-frost-spidertank.jpg": "Spider Tank",
+    "4-5-drydock-dreadnought.jpg": "Drydock Ship",
+    "5-4-lightwell-ruins.jpg": "Lightwell Ruins",
+    "6-0-x1632-sentry.jpg": "Sentry Mech"
   }
 }

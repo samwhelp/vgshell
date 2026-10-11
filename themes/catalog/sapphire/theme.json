@@ -14,5 +14,12 @@
       "danger": "#e95c4b",
       "info": "#f7c3c6"
     }
+  },
+  "backgrounds": {
+    "1-bg3.jpg": "Blue Diamond",
+    "2-bg4.jpg": "Moon Lake",
+    "3-bg3-b.jpg": "Crystal Diamond",
+    "4-bg2.jpg": "Star Clouds",
+    "5-bg1.jpg": "Aurora Lake"
   }
 }

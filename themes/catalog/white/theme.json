@@ -14,5 +14,10 @@
       "danger": "#2a2a2a",
       "info": "#1a1a1a"
     }
+  },
+  "backgrounds": {
+    "1-white.jpg": "White Rings",
+    "2-white.jpg": "White Layers",
+    "3-white.jpg": "White Tiles"
   }
 }

@@ -17,5 +17,12 @@
     "color": {
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.40)"
     }
+  },
+  "backgrounds": {
+    "1-itachi-uchiha.jpg": "Itachi",
+    "2-girl-with-hannya-mask.jpg": "Hannya Girl",
+    "3-character-with-glowing-eyes-and-katana.jpg": "Katana Warrior",
+    "4-cats-anime.jpg": "Porch Cats",
+    "5-japanese-castle-pixel-digital-art.jpg": "Japanese Castle"
   }
 }

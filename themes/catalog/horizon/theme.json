@@ -18,5 +18,11 @@
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.37)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.10)"
     }
+  },
+  "backgrounds": {
+    "1-coral-sunset-wh-6q9k17.jpg": "Coral Sunset",
+    "2-apricot-facets-wh-6od3px.jpg": "Apricot Facets",
+    "3-violet-orbit-wh-5gk9q1.jpg": "Violet Orbit",
+    "4-coral-particles-wh-83zyqo.jpg": "Coral Particles"
   }
 }

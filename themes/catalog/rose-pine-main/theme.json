@@ -18,5 +18,10 @@
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.41)",
       "success": "mix({palette.success}, contrast({palette.background}), 0.24)"
     }
+  },
+  "backgrounds": {
+    "1-rpd-plants.jpg": "Corner Plants",
+    "2-rpd-dots.jpg": "Dark Dots",
+    "3-rpd-circles.jpg": "Color Circles"
   }
 }

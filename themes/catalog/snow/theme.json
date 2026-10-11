@@ -18,5 +18,11 @@
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.02)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.05)"
     }
+  },
+  "backgrounds": {
+    "1-guf6ftdwgaagfez.jpg": "Snow Mountain",
+    "2-wh-7jwp69.jpg": "White Waves",
+    "3-wh-l31dy2.jpg": "Black Stones",
+    "4-wh-x6m913.jpg": "Contour Lines"
   }
 }

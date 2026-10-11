@@ -19,5 +19,11 @@
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.02)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.08)"
     }
+  },
+  "backgrounds": {
+    "1-01-pacific-breeze-2.jpg": "Palm Skyline",
+    "2-02-taxiway.jpg": "Taxiway",
+    "3-03-nobody-has-to-know.jpg": "Moon Bench",
+    "4-04-overview.jpg": "Palm Drive"
   }
 }

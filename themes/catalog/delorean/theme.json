@@ -14,5 +14,13 @@
       "danger": "#ff2a6d",
       "info": "#01cdfe"
     }
+  },
+  "backgrounds": {
+    "1-wh-q6k7yd.jpg": "Motel Car",
+    "2-wh-yml62x.jpg": "Cloud Room",
+    "3-wh-13ypx1.jpg": "Neon Skyline",
+    "4-delorean-1.jpg": "DeLorean Road",
+    "5-delorean-2.jpg": "Purple Mall",
+    "6-delorean-3.jpg": "Skate Shoe"
   }
 }

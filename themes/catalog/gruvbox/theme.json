@@ -18,5 +18,12 @@
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.25)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.11)"
     }
+  },
+  "backgrounds": {
+    "1-the-backwater.jpg": "River Woman",
+    "2-flower-basket.jpg": "Flower Basket",
+    "3-village-square.jpg": "Village Square",
+    "4-idyllic-procession.jpg": "Road Procession",
+    "5-leaves.jpg": "Fern Leaves"
   }
 }

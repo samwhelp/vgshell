@@ -14,5 +14,12 @@
       "danger": "#ff9fbc",
       "info": "#b2fff3"
     }
+  },
+  "backgrounds": {
+    "1-bg01.jpg": "Black Beach",
+    "2-bg02.jpg": "Pastel Pyramid",
+    "3-bg05.jpg": "Tall Building",
+    "4-bg03.jpg": "White Headphones",
+    "5-bg04.jpg": "Pastel City"
   }
 }

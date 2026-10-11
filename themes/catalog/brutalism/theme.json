@@ -20,5 +20,12 @@
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.49)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.09)"
     }
+  },
+  "backgrounds": {
+    "1-bg4.jpg": "Concrete Block",
+    "2-bg3.jpg": "Red Tower",
+    "3-bg2.jpg": "Concrete Banners",
+    "4-bg1.jpg": "Red Circle",
+    "5-bg0.jpg": "Skybridge Blocks"
   }
 }

@@ -19,5 +19,8 @@
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.20)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.15)"
     }
+  },
+  "backgrounds": {
+    "1-tree-tops.jpg": "Forest Mist"
   }
 }

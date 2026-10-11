@@ -18,5 +18,12 @@
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.17)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.18)"
     }
+  },
+  "backgrounds": {
+    "1-eldritch-aurora.png": "Green Aurora",
+    "2-wh-zmmjpg.jpg": "Purple Network",
+    "3-wh-5wwqg3.jpg": "Blue Network",
+    "4-wh-73zg19.jpg": "Violet Burst",
+    "5-eldritch-alt.jpg": "Octopus Hall"
   }
 }

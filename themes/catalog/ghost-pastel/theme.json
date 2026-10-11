@@ -14,5 +14,10 @@
       "danger": "#b37580",
       "info": "#979fec"
     }
+  },
+  "backgrounds": {
+    "1-1-ghostpastel.jpg": "Roadside Girl",
+    "2-2-ghostpastel.jpg": "Country Road",
+    "3-3-ghostpastel.jpg": "City Sunset"
   }
 }

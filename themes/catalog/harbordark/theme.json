@@ -18,5 +18,11 @@
       "success": "mix({palette.success}, contrast({palette.background}), 0.10)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.15)"
     }
+  },
+  "backgrounds": {
+    "1-hbg4.jpg": "Space Citadel",
+    "2-hbg3.jpg": "Skull Warrior",
+    "3-hbg2.jpg": "Car Blueprint",
+    "4-hbg1.jpg": "Rocket Launch"
   }
 }

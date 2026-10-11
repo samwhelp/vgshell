@@ -19,5 +19,10 @@
       "warning": "mix({palette.warning}, contrast({palette.background}), 0.33)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.03)"
     }
+  },
+  "backgrounds": {
+    "0-ship-at-sea.jpg": "Sunset Ship",
+    "1-dark-waters.jpg": "Dark Waters",
+    "2-dot-hands.jpg": "Touching Hands"
   }
 }

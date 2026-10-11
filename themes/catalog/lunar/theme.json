@@ -18,5 +18,11 @@
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.41)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.14)"
     }
+  },
+  "backgrounds": {
+    "1-2.jpg": "Dark Hallway",
+    "2-1.jpg": "Orbital Windows",
+    "3-3.jpg": "Starry Woods",
+    "4-4.jpg": "Mount Fuji"
   }
 }

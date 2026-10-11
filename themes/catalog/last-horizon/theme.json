@@ -17,5 +17,11 @@
     "color": {
       "warning": "mix({palette.warning}, contrast({palette.background}), 0.22)"
     }
+  },
+  "backgrounds": {
+    "1-eyes-wide.jpg": "Blue Eyes",
+    "2-blink.jpg": "Giant Eye",
+    "3-bokeh.jpg": "Bokeh Lights",
+    "4-new-horizons.jpg": "Red Horizon"
   }
 }

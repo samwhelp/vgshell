@@ -20,5 +20,9 @@
       "warning": "mix({palette.warning}, contrast({palette.background}), 0.37)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.13)"
     }
+  },
+  "backgrounds": {
+    "1-orb.png": "Pixel Orb",
+    "2-omarchy.png": "Pixel Wordmark"
   }
 }

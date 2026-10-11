@@ -19,5 +19,11 @@
       "success": "mix({palette.success}, contrast({palette.background}), 0.01)",
       "warning": "mix({palette.warning}, contrast({palette.background}), 0.16)"
     }
+  },
+  "backgrounds": {
+    "1-bg1.jpg": "Falling Figure",
+    "2-bg2.jpg": "Wolf Soldier",
+    "3-bg3.jpg": "Tiny Glyphs",
+    "4-omarchy.jpg": "Orange Wordmark"
   }
 }

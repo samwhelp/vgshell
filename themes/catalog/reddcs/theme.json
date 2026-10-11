@@ -20,5 +20,20 @@
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.16)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.30)"
     }
+  },
+  "backgrounds": {
+    "1-wh-96dekw.jpg": "Hammer Sickle",
+    "10-reddcs-caroline-skyline-06.jpg": "Orange Cloud",
+    "11-reddcs-anime-girl-dragon-tattoo.jpg": "Dragon Tattoo",
+    "12-reddcs-backiee-300488.jpg": "Katana Girl",
+    "13-reddcs-backiee-335899.jpg": "Motorcycle Rider",
+    "2-wh-j33q5q.jpg": "Neon Smoke",
+    "3-wh-kxm6m6.jpg": "Red Folds",
+    "4-wh-2ywpgy.jpg": "Red Grid",
+    "5-wh-wy7vyp.jpg": "Curved Panels",
+    "6-reddcs-caroline-skyline-01.jpg": "Dubai Sunset",
+    "7-reddcs-caroline-skyline-02.jpg": "Factory Horizon",
+    "8-reddcs-caroline-skyline-03.jpg": "Lighthouse Cloud",
+    "9-reddcs-caroline-skyline-05.jpg": "Sunset Ferry"
   }
 }

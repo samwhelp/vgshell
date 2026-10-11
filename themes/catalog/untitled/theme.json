@@ -18,5 +18,15 @@
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.41)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.09)"
     }
+  },
+  "backgrounds": {
+    "2-wh-jxryqq.jpg": "Black Marble",
+    "3-wh-m9wr19.jpg": "Fern Fronds",
+    "4-a-buffalo-trail-the-impending-storm.jpg": "Buffalo Storm",
+    "4-wh-yxw23k.jpg": "Black Grain",
+    "5-wh-6kd3wx.jpg": "Purple Leaves",
+    "6-cathedral-rocks-yosemite-valley-ca-1872.jpg": "Cathedral Rocks",
+    "7-lake-lucerne.jpg": "Lake Lucerne",
+    "8-mount-starr-king-yosemite.jpg": "Mountain Lake"
   }
 }

@@ -17,5 +17,17 @@
     "color": {
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.33)"
     }
+  },
+  "backgrounds": {
+    "0-swirl-buck.jpg": "Deer Swirl",
+    "1-sunset-lake.png": "Sunset Lake",
+    "10-wh-9m997x.jpg": "Neon Pyramids",
+    "2-pawel-czerwinski.jpg": "Purple Ribbons",
+    "3-milad-fakurian.jpg": "Magenta Fold",
+    "4-oma-cityscape.jpg": "Neon City",
+    "5-oma.jpg": "Pink Shapes",
+    "7-wh-7pz9go.jpg": "Blue Marble",
+    "8-wh-m9kxem.jpg": "Blue Flow",
+    "9-wh-3l8yj6.jpg": "Crescent Hills"
   }
 }

@@ -19,5 +19,12 @@
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.15)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.02)"
     }
+  },
+  "backgrounds": {
+    "1-totoro.png": "Totoro",
+    "2-waves.png": "Wire Waves",
+    "3-blue-eye.png": "Blue Eye",
+    "4-wh-x15y2z.jpg": "Red Gradient",
+    "5-wh-9dlpxk.jpg": "Glass Waves"
   }
 }

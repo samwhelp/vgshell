@@ -14,5 +14,9 @@
       "danger": "#50f872",
       "info": "#829dd4"
     }
+  },
+  "backgrounds": {
+    "1-synth-scape.jpg": "Synth Landscape",
+    "2-geometric.jpg": "Blue Geometry"
   }
 }

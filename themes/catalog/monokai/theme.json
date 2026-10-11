@@ -14,5 +14,11 @@
       "danger": "#f25e86",
       "info": "#78dce8"
     }
+  },
+  "backgrounds": {
+    "1-1.jpg": "Color Bar",
+    "2-wh-28x8pg.jpg": "Color Burst",
+    "3-wh-rrwp3w.jpg": "Green Waves",
+    "4-wh-kxdky1.jpg": "Green Ribbon"
   }
 }

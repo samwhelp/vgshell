@@ -19,5 +19,10 @@
       "warning": "mix({palette.warning}, contrast({palette.background}), 0.08)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.06)"
     }
+  },
+  "backgrounds": {
+    "1-glowing-city.jpg": "Glowing City",
+    "2-shaded-entrance.jpg": "Shaded Entrance",
+    "3-mountain-moon.jpg": "Mountain Moon"
   }
 }

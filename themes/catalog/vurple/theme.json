@@ -17,5 +17,11 @@
     "color": {
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.14)"
     }
+  },
+  "backgrounds": {
+    "1-wallhaven-ympwkk.jpg": "Blue Rings",
+    "2-wh-q6ggo7.jpg": "Purple Disk",
+    "3-wh-6krmpq.jpg": "Soft Glow",
+    "4-wh-v9zlxp.jpg": "Purple Valley"
   }
 }

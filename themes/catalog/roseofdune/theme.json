@@ -19,5 +19,13 @@
       "success": "mix({palette.success}, contrast({palette.background}), 0.07)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.06)"
     }
+  },
+  "backgrounds": {
+    "1-bg6.jpg": "Pink Courtyard",
+    "2-bg2.jpg": "Pastel Swirls",
+    "3-bg3.jpg": "Balloon Sunrise",
+    "4-bg1.jpg": "Blush Dunes",
+    "5-bg5.jpg": "Cherry Blossoms",
+    "6-bg4.jpg": "Snow Tree"
   }
 }

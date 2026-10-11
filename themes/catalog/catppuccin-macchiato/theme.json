@@ -17,5 +17,13 @@
     "color": {
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.32)"
     }
+  },
+  "backgrounds": {
+    "1-totoro.png": "Totoro",
+    "2-waves.png": "Wire Waves",
+    "3-blue-eye.png": "Blue Eye",
+    "4-wh-l3qowr.jpg": "Ribbon Sphere",
+    "5-wh-7je97y.jpg": "Spiral Wave",
+    "6-wh-g7eogd.jpg": "Ink Flow"
   }
 }

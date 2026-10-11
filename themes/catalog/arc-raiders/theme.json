@@ -19,5 +19,11 @@
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.25)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.25)"
     }
+  },
+  "backgrounds": {
+    "1-arcraiders.jpg": "Raider Squad",
+    "2-wh-p8j56e.jpg": "Neon Pyramid",
+    "3-wh-d6k32g.jpg": "Purple Ribbon",
+    "4-wh-qrjew7.jpg": "Glitch Rider"
   }
 }

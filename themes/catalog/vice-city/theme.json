@@ -17,5 +17,10 @@
     "color": {
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.31)"
     }
+  },
+  "backgrounds": {
+    "1-2-vice-city.jpg": "Neon Hotel",
+    "2-0-malibu.jpg": "Malibu Club",
+    "3-1-vice-city.jpg": "Neon Boulevard"
   }
 }

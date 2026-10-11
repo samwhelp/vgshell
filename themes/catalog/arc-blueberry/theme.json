@@ -18,5 +18,11 @@
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.33)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.05)"
     }
+  },
+  "backgrounds": {
+    "1-4.jpg": "Black Hole",
+    "2-3.jpg": "Ice Castle",
+    "3-2.jpg": "Neon Houses",
+    "4-1.jpg": "Space Station"
   }
 }

@@ -20,5 +20,13 @@
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.25)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.42)"
     }
+  },
+  "backgrounds": {
+    "1-bg1-1.jpg": "Eagle Head",
+    "2-bg1-3.jpg": "Small Eagle",
+    "3-bg2.jpg": "Anime Woman",
+    "4-bg3.jpg": "Raven Samurai",
+    "5-bg1.jpg": "Eagle Portrait",
+    "6-bg1-2.jpg": "Tiny Eagle"
   }
 }

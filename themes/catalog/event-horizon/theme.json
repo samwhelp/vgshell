@@ -18,5 +18,17 @@
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.39)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.11)"
     }
+  },
+  "backgrounds": {
+    "1-05-cosmic-fall.jpg": "Cosmic Fall",
+    "10-04-neon-singularity.jpg": "Neon Singularity",
+    "2-09-galaxy-profile.jpg": "Galaxy Profile",
+    "3-02-lost-in-nebula.jpg": "Nebula Astronaut",
+    "4-00-warp-speed.jpg": "Warp Speed",
+    "5-03-orbit-drifter.jpg": "Orbit Drifter",
+    "6-08-neon-visor.jpg": "Neon Visor",
+    "7-06-jellyfish-astronaut.jpg": "Jellyfish Astronaut",
+    "8-07-prism-shards.jpg": "Prism Shards",
+    "9-01-event-horizon.jpg": "Event Horizon"
   }
 }

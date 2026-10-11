@@ -17,5 +17,11 @@
     "color": {
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.35)"
     }
+  },
+  "backgrounds": {
+    "1-1-soho-dusk.jpg": "Neon Skyline",
+    "2-wh-p8zvr9.jpg": "Neon Pyramids",
+    "3-wh-9dryjx.jpg": "Purple Gradient",
+    "4-wh-o5vdd7.jpg": "Purple Waves"
   }
 }

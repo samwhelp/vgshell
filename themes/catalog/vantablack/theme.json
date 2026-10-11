@@ -14,5 +14,11 @@
       "danger": "#a4a4a4",
       "info": "#8d8d8d"
     }
+  },
+  "backgrounds": {
+    "0-dot-hands.jpg": "Dot Hands",
+    "1-twisted-stairs.jpg": "Spiral Stairs",
+    "2-layers-deep.jpg": "Dark Layers",
+    "3-layers-stacked.jpg": "Stacked Layers"
   }
 }

@@ -14,5 +14,11 @@
       "danger": "#fe4450",
       "info": "#03edf9"
     }
+  },
+  "backgrounds": {
+    "1-1-synthwave-84.jpg": "Neon Grid",
+    "2-wh-l8kw5p.jpg": "Purple Sunset",
+    "3-wh-1p9vg9.jpg": "Pink Skull",
+    "4-wh-xlpv8v.jpg": "Neon Triangle"
   }
 }

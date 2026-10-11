@@ -14,5 +14,11 @@
       "danger": "#f82a2a",
       "info": "#aaacac"
     }
+  },
+  "backgrounds": {
+    "1-bxry2.jpg": "Punk Mohawk",
+    "2-cryox3.jpg": "Cyber Portrait",
+    "3-arcyx.jpg": "Mask Soldier",
+    "4-draxo.jpg": "Robot Punk"
   }
 }

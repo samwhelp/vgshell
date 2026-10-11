@@ -19,5 +19,11 @@
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.02)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.18)"
     }
+  },
+  "backgrounds": {
+    "1-1.jpg": "Dune Sunrise",
+    "2-wh-8oqzok.jpg": "Blue Shell",
+    "3-wh-m9yz68.jpg": "Soft Ribbons",
+    "4-wh-rrl1kj.jpg": "Blue Cubes"
   }
 }

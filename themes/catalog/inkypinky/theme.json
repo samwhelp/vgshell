@@ -18,5 +18,13 @@
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.35)",
       "info": "mix({palette.info}, contrast({palette.background}), 0.07)"
     }
+  },
+  "backgrounds": {
+    "1-bg2.jpg": "Sky Bridge",
+    "2-bg4.jpg": "Pink Peaks",
+    "3-bg3b.jpg": "Moon Towers",
+    "4-bg3.jpg": "Pixel City",
+    "5-bg1-2.jpg": "Glass Tower",
+    "6-inkypinky-omarchy.jpg": "Pink Wordmark"
   }
 }

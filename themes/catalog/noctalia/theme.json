@@ -14,5 +14,14 @@
       "danger": "#fd4663",
       "info": "#a9aefe"
     }
+  },
+  "backgrounds": {
+    "1-noctalia-nightfall.png": "Blurred Night",
+    "2-wh-n6em3q.jpg": "Blue Star",
+    "3-wh-mdd63k.jpg": "Purple Network",
+    "4-wh-y866vx.jpg": "Blue Ink",
+    "5-wh-6kj1k7.jpg": "Milky Way",
+    "6-wh-2ermgm.jpg": "Orbiting Planets",
+    "7-wh-vmyj38.jpg": "Purple Orbit"
   }
 }
