@@ -151,15 +151,28 @@ present=("${args[@]:i}")
 for ((j=0; j < ${#present[@]}; j++)); do
   [[ ${present[j]} != -- ]] || break
 done
-if [[ ${present[*]:j+1} != *'/bin/vgshell dictation setup' || ${present[*]} != *'--record core/dictation-setup '* ]]; then
-  exec "$fallback" "$@"
+key=""
+for ((k=2; k < j; k+=2)); do
+  [[ ${present[k]} != --record ]] || key="${present[k+1]}"
+done
+[[ $key == core/dictation-setup ]] || exec "$fallback" "$@"
+command=("${present[@]:j+1}")
+expected_vgs="${present[0]%/bin/vgshell-tui}/shell/../bin/vgshell"
+if [[ ${#command[@]} != 3 || ${command[0]} != "$expected_vgs" || ${command[1]} != dictation || ${command[2]} != setup ]]; then
+  printf 'dictation adapter: refused argv=' >&2
+  printf ' %q' "${command[@]}" >&2
+  printf '\n' >&2
+  printf 'dictation adapter: refused argv=' >"$setup_tree/setup.out"
+  printf ' %q' "${command[@]}" >>"$setup_tree/setup.out"
+  printf '\n' >>"$setup_tree/setup.out"
+  exit 64
 fi
 : >"$record.next"
 for a; do printf '%s\n' "$a" >>"$record.next"; done
 mv -f -- "$record.next" "$record"
 printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$stand_in" >"$setup_tree/commands/voxtype"
 chmod +x "$setup_tree/commands/voxtype"
-exec env VGS_TUI_UNATTENDED=1 PATH="$setup_tree/commands:$PATH" "${present[@]:0:j+1}" "$setup_tree/bin/vgshell-dictation" setup
+exec env VGS_TUI_UNATTENDED=1 PATH="$setup_tree/commands:$PATH" "${present[@]:0:j+1}" "$setup_tree/bin/vgshell-dictation" setup >"$setup_tree/setup.out" 2>&1
 SCRIPT
 } >"$tui_terminal.next"
 chmod +x "$tui_terminal.next"
@@ -175,6 +188,8 @@ print('copied' if config['engine']=='parakeet' and config['audio']['feedback']['
 PY
 }
 dictation_setup_start() {
+  local expected_tree="${1:-$repo}"
+  local tui_self="$expected_tree/bin/vgshell-tui" core_vgshell="$expected_tree/shell/../bin/vgshell"
   forget_record
   expect "Set up opens the core dictation setup" ok dictation_setup_action
   expect_poll "Set up hands the terminal core/dictation-setup" "$(core_words core/dictation-setup "Set up dictation" org.vgs.tui dictation setup)" recorded
@@ -359,7 +374,7 @@ if [[ $dictation_edits == true ]]; then
   expect "control: a restart with no daemon elsewhere is allowed" ok dictate acme.dictation restart
   expect_poll "control: the copy's daemon reads ready" "ready idle -" dictation_state acme.dictation
   cp -- "$sandbox/dictation-terminal-setup" "$tui_terminal"
-  dictation_setup_start
+  dictation_setup_start "$sandbox/tree-dictation-controls"
   expect "control: suppressing the setup callback leaves the daemon unchanged" started dictation_noted
   terminal_stand_in
   expect "control: a text recording starts with no deadline" ok dictate acme.dictation start text
