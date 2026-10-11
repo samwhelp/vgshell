@@ -94,7 +94,7 @@ except Exception:
     print("absent"); raise SystemExit
 for row in doc.get("mine", []):
     if row.get("key") == target:
-        print(json.dumps(row.get("secondary", "")))
+        print(json.dumps(row.get("secondary", ""), ensure_ascii=False))
         break
 else:
     print("absent")
@@ -106,7 +106,7 @@ text=sys.stdin.read().strip()
 if text == "absent":
     print("absent")
 else:
-    print(json.dumps(json.loads(text)))
+    print(json.dumps(json.loads(text), ensure_ascii=False))
 '
 }
 # `gone` once the mock holds no object for device MAC: its answer names
