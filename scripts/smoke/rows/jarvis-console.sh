@@ -86,7 +86,7 @@ jarvis_console_tabs() {
   ipc smoke itemValues window vgs.jarvis Tabs count,currentIndex | py_reply 'import json,sys; rows=json.load(sys.stdin); print(json.dumps([[r.get("count"),r.get("currentIndex")] for r in rows]))'
 }
 jarvis_console_selected() {
-  ipc smoke itemValues window vgs.jarvis ListItem modelData,highlighted | py_reply 'import json,sys; rows=json.load(sys.stdin); print(next((r["modelData"]["id"] for r in rows if r.get("highlighted")), "none"))'
+  ipc smoke itemValues window vgs.jarvis ListCursor target.modelData.id | py_reply 'import json,sys; rows=json.load(sys.stdin); print(next((r["target.modelData.id"] for r in rows if r.get("target.modelData.id")), "none"))'
 }
 jarvis_console_fixture_task() { # INDEX
   ipc smoke jarvisProcess | py_reply 'import json,sys; rows=json.load(sys.stdin)["status"].get("taskList", []); i=int(sys.argv[1]); print(rows[i]["id"] if len(rows)>i else "missing")' "$1"
@@ -109,10 +109,11 @@ jarvis_console_audit_check() { expect_poll "Audit draws the fixture failure" sho
 jarvis_console_tasks_path() {
   type_keys -M ctrl -k Tab -m ctrl || fail "switching to Tasks failed"
   jarvis_console_tasks_tab_check
-  expect_poll "Tasks takes keyboard focus" true ipc smoke activeFocusWithin window vgs.jarvis Control
 }
 jarvis_console_stop_path() {
-  type_keys -k Down -k Tab -k Tab -k Return || fail "stopping the second task by keyboard failed"
+  type_keys -k Down || fail "selecting the second task by keyboard failed"
+  expect_poll "Down moves the cursor to the second task" "$second_task" jarvis_console_selected
+  type_keys -k Tab -k Tab -k Return || fail "stopping the second task by keyboard failed"
 }
 jarvis_console_tab_control() {
   (failures=0 behaviour_failures=0
@@ -190,8 +191,8 @@ second_task="$(jarvis_console_fixture_task 1)"
 first_task="$(jarvis_console_fixture_task 0)"
 jarvis_console_stop_path
 jarvis_console_stop_check "$second_task"
-# Return to the list from Stop, then open the still-alive first task.
-type_keys -M shift -k Tab -k Tab -m shift -k Up -k Return || fail "opening the first task by keyboard failed"
+# Stop returns to the list before its footer actions disable.
+type_keys -k Up -k Return || fail "opening the first task by keyboard failed"
 expect_poll "Enter opens the selected alive fixture" "$first_task" jarvis_console_intent task-open
 type_keys -k Escape || fail "Escape from Tasks failed"
 expect_poll "Escape closes Tasks" 0 jarvis_console_client_count

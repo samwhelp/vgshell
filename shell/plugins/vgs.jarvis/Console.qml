@@ -21,7 +21,7 @@ FocusScope {
     readonly property var state: detail === null || detail.state === undefined ? null : detail.state
     property int tab: 0
     property int selectedTask: 0
-    readonly property var taskRows: Array.isArray(values.taskList) ? values.taskList.slice().sort((a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id)) : []
+    readonly property var taskRows: Array.isArray(values.taskList) ? values.taskList : []
     readonly property var auditRows: Array.isArray(values.auditFailures) ? values.auditFailures.slice().reverse() : []
     readonly property var task: taskRows[selectedTask] === undefined ? null : taskRows[selectedTask]
     readonly property bool canStopTask: task !== null && ["starting", "working", "waiting"].includes(task.state)
@@ -51,20 +51,20 @@ FocusScope {
     function focusTab() {
         layout.scrollArea.contentY = 0;
         const control = tab === 0 ? entryField : tab === 1 ? tasksBody : auditBody;
-        control.forceActiveFocus(Qt.TabFocusReason);
+        control.forceActiveFocus(consoleTabs.focusReason);
         if (tab === 0) Qt.callLater(followEnd);
     }
 
     function taskState(row) {
         const words = { starting: "Starting", working: "Working", waiting: "Waiting for you",
             "reported-ok": "Done as reported", failed: "Failed", "reported-failed": "Failed",
-            stopped: "Stopped", lost: "Lost", exited: "Done", noisy: "Task record unreadable" };
+            stopped: "Stopped", lost: "Lost", exited: "Stopped", noisy: "Task record unreadable" };
         return words[row.state];
     }
 
     function taskDetail(row) {
         const failure = row.failure === null ? "" : typeof row.failure === "number" ? "Exited with code " + row.failure : String(row.failure);
-        return row.agent + " · " + taskState(row) + (failure === "" ? "" : " · " + failure);
+        return taskState(row) + (failure === "" ? "" : " · " + failure);
     }
 
     function taskAction(action) {
@@ -72,12 +72,17 @@ FocusScope {
         const reply = shell.ipc.call(action === "stop" ? "stop-task" : "open-task", task.id);
         problem = reply === "ok" ? "" : reply === "refused: jarvis=not-ready" ? "Jarvis is not ready"
             : action === "stop" ? "The coding task could not be stopped" : "The coding task could not be opened";
+        // Stop disables its button when the task ends. Return to the list
+        // before that transition, keeping the keyboard or pointer focus reason.
+        if (reply === "ok" && action === "stop") tasksBody.forceActiveFocus(taskStopButton.focusReason);
     }
 
     function auditDetail(row) {
         const result = row.decision === "refuse" ? "Refused" : row.decision === "withhold" ? "Withheld"
             : row.outcome === "failed" ? "Failed" : "Result unknown";
-        return result + (row.refusal === null ? "" : " · " + String(row.refusal).replaceAll("-", " "));
+        // Qt's QML String API supplies regex replacement:
+        // https://doc.qt.io/qt-6/qtqml-javascript-functionlist.html#string-objects
+        return result + (row.refusal === null ? "" : " · " + String(row.refusal).replace(/-/g, " "));
     }
 
     onTaskRowsChanged: {
@@ -87,8 +92,7 @@ FocusScope {
     }
     Keys.onPressed: event => {
         if (event.key === Qt.Key_Tab && (event.modifiers & Qt.ControlModifier)) {
-            tab = (tab + (event.modifiers & Qt.ShiftModifier ? 2 : 1)) % 3;
-            event.accepted = true;
+            event.accepted = consoleTabs.nav.handle(event);
         }
     }
     onTabChanged: { problem = ""; Qt.callLater(focusTab); }
@@ -168,6 +172,7 @@ FocusScope {
 
     function focusAfterMemory(index) {
         Qt.callLater(() => Qt.callLater(() => {
+            if (root.tab !== 0) return;
             const item = memoryList.itemAt(index) || memoryList.itemAt(index - 1);
             if (item !== null && item.confirmButton !== undefined) item.confirmButton.forceActiveFocus();
             else entryField.forceActiveFocus();
@@ -191,6 +196,7 @@ FocusScope {
     }
 
     function followEnd() {
+        if (tab !== 0) return;
         const view = layout.scrollArea;
         view.contentY = Math.max(0, view.contentHeight - view.height);
     }
@@ -243,6 +249,9 @@ FocusScope {
                 width: layout.contentWidth
                 model: ["Conversation", "Tasks", "Audit"]
                 currentIndex: root.tab
+                // KeyNavigation assigns the explicit Tab/Backtab target.
+                // https://doc.qt.io/qt-6/qml-qtquick-keynavigation.html
+                KeyNavigation.tab: root.tab === 0 ? entryField : root.tab === 1 ? tasksBody : auditBody
                 onCurrentIndexChanged: root.tab = currentIndex
             }
         ]
@@ -364,6 +373,8 @@ FocusScope {
             implicitHeight: taskColumn.implicitHeight
             focusPolicy: Qt.StrongFocus
             Keys.onPressed: event => { event.accepted = taskNav.handle(event); }
+            KeyNavigation.priority: KeyNavigation.BeforeItem
+            KeyNavigation.backtab: consoleTabs
             FocusRing { target: tasksBody; outside: true }
             ListCursor { id: taskCursor }
             KeyNav {
@@ -390,9 +401,11 @@ FocusScope {
                         width: tasksBody.width
                         text: modelData.goal
                         secondary: root.taskDetail(modelData)
+                        trailing: [Badge { text: modelData.agent; verbatim: true }]
                         secondaryTone: ["failed", "reported-failed", "lost"].includes(modelData.state) ? "danger" : ""
                         cursor: taskCursor
                         highlighted: root.selectedTask === index
+                        // keyboard-path: Tasks owns the cursor through KeyNav; its footer acts on the selection
                         focusPolicy: Qt.NoFocus
                         onPointed: root.selectedTask = index
                         onClicked: { root.selectedTask = index; tasksBody.forceActiveFocus(Qt.MouseFocusReason); }
@@ -409,6 +422,8 @@ FocusScope {
             implicitHeight: auditColumn.implicitHeight
             focusPolicy: Qt.StrongFocus
             Keys.onPressed: event => { if (layout.scrollArea.handleScrollKey(event)) event.accepted = true; }
+            KeyNavigation.priority: KeyNavigation.BeforeItem
+            KeyNavigation.backtab: consoleTabs
             FocusRing { target: auditBody; outside: true }
             // Audit rows are read-only, like the transcript, and take no cursor.
             contentItem: Column {
@@ -439,7 +454,7 @@ FocusScope {
                 Row {
                     spacing: Theme.control.gap
                     Button { text: "Open"; iconName: "external-link"; enabled: root.canOpenTask; onClicked: root.taskAction("open") }
-                    Button { text: "Stop"; iconName: "square"; enabled: root.canStopTask; onClicked: root.taskAction("stop") }
+                    Button { id: taskStopButton; text: "Stop"; iconName: "square"; enabled: root.canStopTask; onClicked: root.taskAction("stop") }
                 }
             },
             Column {
@@ -462,6 +477,8 @@ FocusScope {
 
                     TextField {
                         id: entryField
+                        KeyNavigation.priority: KeyNavigation.BeforeItem
+                        KeyNavigation.backtab: consoleTabs
                         width: parent.width - sendButton.width - stopButton.width - parent.spacing - parent.spacing
                         placeholderText: "Message Jarvis"
                         maximumLength: Session.TRANSCRIPT_CHARS
