@@ -26,6 +26,7 @@ esac
 logged="$(stat -c %s -- "$log" 2>/dev/null)" || logged=0
 answer=""
 if answer="$(vgs_tui_logged "$log" "$runner" pairs-reset)"; then
+  printf '%s\n' "$answer" >>"$log"
   kept="${answer#reset=}"
   [[ $kept != "$answer" && -n $kept ]] || kept="the damaged file"
   vgs_tui_success "Cloud Sync kept $kept and started an empty folder pair list."

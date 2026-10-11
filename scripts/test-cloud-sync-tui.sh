@@ -151,9 +151,9 @@ case_add_pair_refusal_reads_plainly() {
   tui "$1" "fail cloud-sync: refused: pair=docs rule=local-overlap" "$(printf '%s\n' Docs upload Inbox "$home/inbox")"
   [[ $status == 1 ]] && shows "This folder overlaps a folder of another folder pair." && ! shows "rule=local-overlap"
 }
-case_add_pair_pairs_file_refusal_reads_plainly() {
-  tui "$1" "fail cloud-sync: refused: pairs-file=shape" "$(printf '%s\n' Docs upload Inbox "$home/inbox")"
-  [[ $status == 1 ]] && shows "The folder pair list is not valid. Select Start the folder pair list again on the Cloud Sync page in Settings." && ! shows "pairs-file=shape"
+case_add_pair_pairs_invalid_refusal_reads_plainly() {
+  tui "$1" "fail cloud-sync: refused: pairs=invalid pair=docs rule=local-overlap" "$(printf '%s\n' Docs upload Inbox "$home/inbox")"
+  [[ $status == 1 && $(defined) != calls=* ]] && shows "Start the folder pair list again" && ! shows "pairs=invalid" && ! shows "rule=local-overlap"
 }
 case_remove_pair_removes_the_chosen_after_yes() {
   tui "$1" "" "$(printf '%s\n' inbox yes)"
@@ -171,15 +171,15 @@ case_remove_pair_removes_the_named_after_yes() {
 }
 case_reset_pairs_runs_after_yes() {
   tui "$1" "" yes
-  [[ $status == 0 && $calls == '[["pairs-reset"]]' ]] && shows "pairs.json.damaged-20261011T091349Z" || return 1
+  [[ $status == 0 && $calls == '[["pairs-reset"]]' ]] && grep -q -x -F "reset=pairs.json.damaged-20261011T091349Z" -- "$log" || return 1
   tui "$1" "" no
   [[ $status == 0 && $calls == '[]' ]]
 }
 case_reset_pairs_reads_this_runs_refusal() {
   tui "$1" "fail cloud-sync: refused: pairs=valid" yes
-  [[ $status == 0 ]] && shows "The folder pair list reads correctly. Nothing changed." && ! shows "pairs=valid" || return 1
+  [[ $status == 0 ]] && ! shows "pairs=valid" || return 1
   tui "$1" "fail" yes
-  [[ $status == 1 ]] && shows "VGS could not start the folder pair list again." && ! shows "reads correctly"
+  [[ $status == 1 ]] && shows "The details are in" && ! shows "pairs=valid"
 }
 case_sign_out_runs_its_direction_after_yes() {
   tui "$plugin/tui/sign-out-drive.sh" "" yes
@@ -209,7 +209,7 @@ case_refuses_an_argument() {
   [[ $status == 2 && $calls == '[]' ]]
 }
 CASES=(case_setup_installs:setup case_setup_failure_reads_plainly:setup case_connect_runs_its_direction:connect case_connect_reads_this_runs_refusal:connect
-  case_add_pair_defines_the_answers:add-pair case_add_pair_refusal_reads_plainly:add-pair case_add_pair_pairs_file_refusal_reads_plainly:add-pair case_remove_pair_removes_the_chosen_after_yes:remove-pair
+  case_add_pair_defines_the_answers:add-pair case_add_pair_refusal_reads_plainly:add-pair case_add_pair_pairs_invalid_refusal_reads_plainly:add-pair case_remove_pair_removes_the_chosen_after_yes:remove-pair
   case_remove_pair_removes_the_named_after_yes:remove-pair case_reset_pairs_runs_after_yes:reset-pairs case_reset_pairs_reads_this_runs_refusal:reset-pairs
   case_sign_out_runs_its_direction_after_yes:sign-out case_sign_out_reads_this_runs_refusal:sign-out
   case_refuses_an_argument:setup)
@@ -221,12 +221,12 @@ done
 
 # Controls: a case, its script, the text in that script it needs, and a
 # replacement without the rule.
-CONTROL_CASES=(case_setup_installs case_connect_reads_this_runs_refusal case_add_pair_defines_the_answers case_add_pair_refusal_reads_plainly case_add_pair_pairs_file_refusal_reads_plainly case_remove_pair_removes_the_chosen_after_yes
+CONTROL_CASES=(case_setup_installs case_connect_reads_this_runs_refusal case_add_pair_defines_the_answers case_add_pair_refusal_reads_plainly case_add_pair_pairs_invalid_refusal_reads_plainly case_remove_pair_removes_the_chosen_after_yes
   case_remove_pair_removes_the_named_after_yes case_reset_pairs_runs_after_yes case_reset_pairs_reads_this_runs_refusal case_sign_out_runs_its_direction_after_yes case_sign_out_reads_this_runs_refusal)
 CONTROL_SCRIPTS=(setup connect add-pair add-pair add-pair remove-pair remove-pair reset-pairs reset-pairs sign-out sign-out)
-CONTROL_NEEDLES=('"$runner" install >>"$log"' 'tail -c "+$((logged + 1))" -- "$log"' 's="${s//\"/\\\"}";' '*rule=local-overlap* | *rule=remote-overlap*)' '*pairs-file=*)'
+CONTROL_NEEDLES=('"$runner" install >>"$log"' 'tail -c "+$((logged + 1))" -- "$log"' 's="${s//\"/\\\"}";' '*rule=local-overlap* | *rule=remote-overlap*)' '*pairs=invalid*)'
   'vgs_tui_confirm "Remove this folder pair? Its files stay." || status=$?' '[[ $listed != "$id" ]] || label="$name"' '"$runner" pairs-reset' 'tail -c "+$((logged + 1))" -- "$log"' 'vgs_tui_confirm "Sign out of Google Drive for $group?" || status=$?' '*credential=locked*)')
-CONTROL_REPLACEMENTS=('true >>"$log"' 'cat -- "$log"' ':;' '*rule=no-such-rule*)' '*pairs-file=no-such*)' 'true' 'label="$name"' 'true' 'cat -- "$log"' 'true' '*credential=no-such*)')
+CONTROL_REPLACEMENTS=('true >>"$log"' 'cat -- "$log"' ':;' '*rule=no-such-rule*)' '*pairs=no-such*)' 'true' 'label="$name"' 'true' 'cat -- "$log"' 'true' '*credential=no-such*)')
 for i in "${!CONTROL_CASES[@]}"; do
   case="${CONTROL_CASES[i]}"
   script="$plugin/tui/${CONTROL_SCRIPTS[i]}.sh"

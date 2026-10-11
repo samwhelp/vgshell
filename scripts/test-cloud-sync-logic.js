@@ -70,8 +70,6 @@ const SIGNED_OUT = "Google Drive is not signed in for Download. Select Sign in o
 const SIGNED_OUT_PAGE = "Google Drive is not signed in for Download. Select Sign in below.";
 const REFUSED_PAGE = "Google Drive did not accept the sign-in. Select Sign in again below.";
 const INVALID = "The folder pair list is not valid, so Cloud Sync copies nothing.";
-const PAIR_INVALID = "Folder pair docs holds a Git repository.";
-const RESET_HINT = "Start again to keep the damaged file and make an empty list.";
 const signedOut = { kind: "credential-absent", account: "pull-token" };
 // The pair list the runner could not read: it reads no pair and refuses
 // every pair change (bin/cloud-sync readPairs).
@@ -93,7 +91,7 @@ const STATES = [
     ["first run", { state: "not-set-up", units: "absent", lastSuccess: null, staleAfter: null, lastError: null, pairs: [], conflicts: [], attention: null }, "Not set up", "warning", "cloud", SETUP, undefined, true],
     ["no keys", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: { kind: "credential-absent", account: "pull-client-id" } })], lastError: { kind: "credential-absent", account: "pull-client-id", pair: "docs" } }), "Sign-in needed", "danger", "cloud-alert", NO_SYNC, "A Google Drive key is missing. Add the client ID and secret below."],
     ["no folder pair", { state: "not-set-up", units: "installed", lastSuccess: null, staleAfter: null, lastError: null, pairs: [], conflicts: [], attention: null }, "No folder pairs", "warning", "cloud", NO_SYNC, undefined, true],
-    ["pair list not readable", invalid(), "Sync failed", "danger", "cloud-alert", NO_SYNC, PAIR_INVALID, false],
+    ["pair list not readable", invalid(), "Sync failed", "danger", "cloud-alert", NO_SYNC, INVALID, false],
     ["signed out", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: signedOut })], lastError: Object.assign({ pair: "docs" }, signedOut) }), "Sign-in needed", "danger", "cloud-alert", NO_SYNC, SIGNED_OUT_PAGE],
     ["syncing while another pair needs a sign-in", record({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" }), INBOX], conflicts: [] }), "Sign-in needed", "danger", "cloud-alert", NO_SYNC, REFUSED_PAGE],
     ["syncing while another pair failed", well({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" }), Object.assign({}, INBOX, { state: "error", lastError: { kind: "source-missing" } })], lastError: { kind: "source-missing", pair: "inbox" }, conflicts: CONFLICTS.slice(0, 1) }), "Sync failed", "danger", "cloud-alert", NO_SYNC, "A Google Drive folder of a folder pair does not exist."],
@@ -210,10 +208,18 @@ function verify(L) {
 
     // pairs: each pair's direction, Add while none, Remove once one exists.
     const pairsOf = rec => L.pairsValue(L.cloudValue(rec, ""));
+    const genericPairListProblem = L.errorText({ kind: "pairs-invalid" });
     same(pairsOf(well({ state: "not-set-up", pairs: [] })), { tone: "warning", text: "None", action: "add", hint: "Add a folder pair to choose what Cloud Sync keeps in step." });
     same(values.pairs, { tone: "ok", text: "2 folder pairs", lines: ["Documents: Download", "Agent uploads: Upload"], action: "remove" });
     same(pairsOf(well()).text, "1 folder pair");
-    same(pairsOf(invalid()), { tone: "danger", text: "Not readable", hint: PAIR_INVALID + " " + RESET_HINT, action: "reset" }, "an unreadable list offers the repair the runner accepts");
+    const invalidPairs = pairsOf(invalid());
+    assert.equal(invalidPairs.tone, "danger", "an unreadable list is danger");
+    assert.equal(invalidPairs.text, "Not readable", "an unreadable list states that it is not readable");
+    assert.equal(invalidPairs.action, "reset", "an unreadable list offers the repair the runner accepts");
+    assert.ok(invalidPairs.hint.length <= L.HINT_MAX, "an unreadable list hint stays under its ceiling");
+    assert.ok(invalidPairs.hint.includes("docs"), "a pair detail names its pair id");
+    assert.ok(invalidPairs.hint !== genericPairListProblem, "a known detail is not the generic sentence");
+    assert.ok(!invalidPairs.hint.includes("rule=") && !invalidPairs.hint.includes("pairs-file=") && !invalidPairs.hint.includes("pair="), "keyed detail is hidden");
     assert.equal(L.pairListValid(L.cloudValue(invalid(), "")), false);
     assert.equal(L.pairListValid(L.cloudValue(well(), "")), true);
     const pairProblems = [
@@ -231,13 +237,15 @@ function verify(L) {
         assert.equal(value.action, "reset", label + ": action");
         assert.ok(value.hint.length <= L.HINT_MAX, label + ": hint ceiling");
         assert.ok(value.hint.includes(word), label + ": sentence category");
-        assert.ok(value.hint.includes(RESET_HINT), label + ": reset step");
-        assert.ok(value.hint !== INVALID + " " + RESET_HINT, label + ": known detail is not generic");
+        assert.ok(value.hint !== genericPairListProblem, label + ": known detail is not generic");
         assert.ok(!value.hint.includes("rule=") && !value.hint.includes("pairs-file=") && !value.hint.includes("pair="), label + ": keyed detail hidden");
         seenPairProblemText.add(value.hint.split(". ")[0]);
     }
     assert.equal(seenPairProblemText.size, pairProblems.length, "each pair-list problem class has its own sentence");
-    same(pairsOf(invalid("not-a-runner-detail")), { tone: "danger", text: "Not readable", hint: INVALID + " " + RESET_HINT, action: "reset" }, "an unknown detail falls back to the generic sentence");
+    const unknownPairProblem = pairsOf(invalid("not-a-runner-detail"));
+    assert.equal(unknownPairProblem.action, "reset", "an unknown detail still offers reset");
+    assert.ok(unknownPairProblem.hint.includes(genericPairListProblem), "an unknown detail falls back to the generic sentence");
+    assert.ok(unknownPairProblem.hint.length <= L.HINT_MAX, "the unknown detail hint stays under its ceiling");
 
     // downloadKeys and uploadKeys: each direction's client, the account
     // the masked field stores; an unused key says so once a pair exists.

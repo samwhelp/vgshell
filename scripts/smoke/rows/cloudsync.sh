@@ -103,8 +103,8 @@ cs_click_reset() { click_in "window:Cloud Sync" window vgs.cloud-sync Button "St
 cs_reset_output() { cs_answer pairs-reset | py_reply 'import sys
 s=sys.stdin.read().strip()
 print("reset=kept exit=0" if s.startswith("reset=pairs.json.damaged-") and s.endswith(" exit=0") else s)'; }
-cs_pairs_json() { py_reply 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))' "$cs_home/.config/vgshell/cloud-sync/pairs.json"; }
-cs_kept_pairs_bytes() { py_reply 'import glob,sys
+cs_pairs_json() { python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))' "$cs_home/.config/vgshell/cloud-sync/pairs.json"; }
+cs_kept_pairs_bytes() { python3 -c 'import glob,sys
 files=glob.glob(sys.argv[1] + "/pairs.json.damaged-*")
 print(open(files[0]).read() if len(files) == 1 else "kept-count=%d" % len(files))' "$cs_home/.config/vgshell/cloud-sync"; }
 cs_remove_kept_pairs() { rm -f -- "$cs_home"/.config/vgshell/cloud-sync/pairs.json.damaged-*; }

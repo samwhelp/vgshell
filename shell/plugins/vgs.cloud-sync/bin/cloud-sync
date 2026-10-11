@@ -1201,7 +1201,7 @@ function pairsVerb(words) {
     if (words.length > 1 || (words.length === 1 && words[0] !== "--lines")) bad("argument=" + words[0]);
     const read = readPairs();
     if (words.length === 0) process.stdout.write(JSON.stringify(read) + "\n");
-    else if (read.error !== null) refuse(read.error);
+    else if (read.error !== null) refuse("pairs=invalid " + read.error);
     else for (const pair of read.pairs) process.stdout.write(pair.id + "\t" + pair.label + "\n");
 }
 
@@ -1223,8 +1223,10 @@ function pairsResetVerb(words) {
         } catch (e) {
             if (e.code !== "ENOENT") throw e;
         }
+        const temp = path.join(path.dirname(pairsFile), ".pairs.json.reset-" + process.pid);
+        fs.writeFileSync(temp, JSON.stringify({ pairs: [] }, null, 2) + "\n", { mode: 0o600 });
         fs.renameSync(pairsFile, kept);
-        writeJson(pairsFile, { pairs: [] });
+        fs.renameSync(temp, pairsFile);
         writeStatus();
     });
     process.stdout.write("reset=" + keptName + "\n");
@@ -1240,7 +1242,7 @@ function pairAddVerb(words) {
     }
     withStateLock(() => {
         const read = readPairs();
-        if (read.error !== null) refuse(read.error);
+        if (read.error !== null) refuse("pairs=invalid " + read.error);
         const next = read.pairs.concat([pair]);
         const error = pairsError(next);
         if (error !== null) refuse(error);
@@ -1254,7 +1256,7 @@ function pairRemoveVerb(words) {
     if (words.length !== 1) bad("argument=" + (words[1] || "missing"));
     withStateLock(() => {
         const read = readPairs();
-        if (read.error !== null) refuse(read.error);
+        if (read.error !== null) refuse("pairs=invalid " + read.error);
         if (!read.pairs.some(p => p.id === words[0])) refuse("pair=unknown");
         writeJson(pairsFile, { pairs: read.pairs.filter(p => p.id !== words[0]) });
         writeStatus();

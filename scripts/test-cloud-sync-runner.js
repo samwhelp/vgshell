@@ -937,6 +937,20 @@ function casePairsReset(runner) {
     assert.match(absentOut.stderr, /^cloud-sync: refused: pairs=valid$/m);
     assert.equal(fs.existsSync(absentFile), false, "an absent list stays absent");
 
+    const invalidPair = world();
+    const invalidPairFile = path.join(invalidPair.home, ".config", "vgshell", "cloud-sync", "pairs.json");
+    write(invalidPairFile, JSON.stringify({ pairs: [{ id: "docs", label: "Documents", direction: "pull", remote: "Docs", local: invalidPair.home }] }));
+    const prefixed = "cloud-sync: refused: pairs=invalid pair=docs rule=home-or-above";
+    const add = cli(invalidPair, ["pair-add", "--definition", JSON.stringify({ id: "more", label: "More", direction: "pull", remote: "More", local: path.join(invalidPair.home, "more") })], runner);
+    assert.equal(add.status, 1);
+    assert.match(add.stderr, new RegExp("^" + prefixed + "$", "m"));
+    const remove = cli(invalidPair, ["pair-remove", "docs"], runner);
+    assert.equal(remove.status, 1);
+    assert.match(remove.stderr, new RegExp("^" + prefixed + "$", "m"));
+    const lines = cli(invalidPair, ["pairs", "--lines"], runner);
+    assert.equal(lines.status, 1);
+    assert.match(lines.stderr, new RegExp("^" + prefixed + "$", "m"));
+
     assert.equal(cli(world(), ["pairs-reset", "extra"], runner).status, 2);
 }
 
@@ -1083,7 +1097,7 @@ async function controls() {
     await mustFail("sign-in resets", mutant("sign-in resets", "if (state.state === \"authorization-required\") writePairState(", "if (false) writePairState("), caseSignOut);
     await mustFail("pause keeps notified", mutant("pause keeps notified", "paused ? control.pausedPairs : [], notifiedKey: control.notifiedKey }", "paused ? control.pausedPairs : [] }"), caseAttention);
     await mustFail("child environment", mutant("child environment", "const env = { LANG: \"C.UTF-8\" };", "const env = Object.assign({ LANG: \"C.UTF-8\" }, process.env);"), caseCopy);
-    await mustFail("pairs-reset keeps the damaged file", mutant("pairs-reset keeps the damaged file", "fs.renameSync(pairsFile, kept);\n        writeJson(pairsFile, { pairs: [] });", "writeJson(pairsFile, { pairs: [] });"), casePairsReset);
+    await mustFail("pairs-reset keeps the damaged file", mutant("pairs-reset keeps the damaged file", "fs.renameSync(pairsFile, kept);\n        fs.renameSync(temp, pairsFile);", "fs.renameSync(temp, pairsFile);"), casePairsReset);
     await mustFail("pairs-reset refuses a valid list", mutant("pairs-reset refuses a valid list", "if (read.error === null) refuse(\"pairs=valid\");", "if (false) refuse(\"pairs=valid\");"), casePairsReset);
     const rules = [...new Set(validationRows(world()).map(row => row.rule).filter(rule => rule !== null))];
     for (const rule of rules) {

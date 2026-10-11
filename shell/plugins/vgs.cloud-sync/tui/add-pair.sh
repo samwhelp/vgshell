@@ -51,13 +51,13 @@ fi
 # The refusal this run logged, not an earlier run's.
 refusal="$(tail -c "+$((logged + 1))" -- "$log" | grep '^cloud-sync: refused: ' | tail -n 1)" || refusal=""
 case "$refusal" in
+  *pairs=invalid*) sentence="The folder pair list is not valid. Select Start the folder pair list again on the Cloud Sync page in Settings." ;;
   *rule=home-or-above*) sentence="Choose a folder inside your home folder, not your home folder itself." ;;
   *rule=repository-root*) sentence="Choose a folder that is not a Git repository." ;;
   *rule=repository-inside*) sentence="Choose a folder that holds no Git repository." ;;
   *rule=vgs-overlap* | *rule=unit-overlap*) sentence="Choose a folder outside the folders that hold VGS and your system services." ;;
   *rule=drive-root*) sentence="Choose a Google Drive folder, not the whole Drive." ;;
   *rule=local-overlap* | *rule=remote-overlap*) sentence="This folder overlaps a folder of another folder pair." ;;
-  *pairs-file=*) sentence="The folder pair list is not valid. Select Start the folder pair list again on the Cloud Sync page in Settings." ;;
   *rule=state-overlap*) sentence="Choose a folder outside the folder where Cloud Sync keeps its records." ;;
   *rule=remote) sentence="Enter the Google Drive folder as a path, such as Documents/Taxes." ;;
   *rule=local) sentence="Enter the folder on this computer as a full path, such as $HOME/Documents." ;;

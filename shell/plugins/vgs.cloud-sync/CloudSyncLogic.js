@@ -240,7 +240,6 @@ function errorText(error, onPage) {
     if (error === null) return "";
     if (error.kind === "credential-absent" && hasOwn(TOKEN_DIRECTION, error.account))
         return "Google Drive is not signed in for " + TOKEN_DIRECTION[error.account] + ". Select Sign in " + (onPage === true ? "below." : "on the Cloud Sync page in Settings.");
-    if (error.kind === "pairs-invalid") return pairListProblem(error);
     if (onPage === true && hasOwn(PAGE_ERROR_TEXT, error.kind)) return PAGE_ERROR_TEXT[error.kind];
     return hasOwn(ERROR_TEXT, error.kind) ? ERROR_TEXT[error.kind] : ERROR_DEFAULT;
 }
