@@ -21,7 +21,15 @@
 # alone, each after the window has the keyboard back from the overlay, read
 # from the toplevel helper's keyboard, key and modifier log, and a window
 # no desktop entry names receives no key and a notification shows. A
-# change the service refuses shows one too. The notifications are
+# change the service refuses shows one too. SUPER+C, SUPER+V and SUPER+X,
+# typed on the nested seat, send what has the keyboard that action's own
+# key: a terminal receives a key with Ctrl for a copy, with Shift for a
+# paste, with Ctrl and Shift for a paste while the clipboard holds an image
+# and none for a cut, an application a key with Ctrl for each, and the
+# launcher's search field, a layer over that application, takes the paste,
+# the copy of its selection and the cut, while the application under it
+# receives no key; no press opens the history, and a press over a window
+# no desktop entry names shows a notice. The notifications are
 # vgs.notifications' cards, enabled for the row and disabled again at its
 # end. Shift+Enter sends no key. Ctrl+P pins,
 # Delete removes an image entry and its file, and Shift+Delete then Enter
@@ -33,7 +41,10 @@
 # whose lines are dropped, a filter the overlay does not send, a terminal
 # sent the application's chord, a helper without the secret checks, a
 # thumbnail whose URL names another directory, a refusal without its notice,
-# and a service that starts no watcher again.
+# and a service that starts no watcher again. The shortcuts' control is a
+# paste key the row sends to the active window alone, as a sender that
+# reads Hyprland's active window does: the application under the launcher
+# receives it and the launcher's field stays empty.
 # Every clipboard program runs with the nested socket in its environment.
 # `input:resolve_binds_by_sym` is on while the row types its key, since a
 # bind resolves a virtual keyboard's key only by keysym, and the row puts
@@ -42,7 +53,7 @@
 # No latency is measured; each reading polls every 200 ms for up to 5 s,
 # the watcher's return for up to 8 s, and a control that reads nothing
 # happen reads it for 2 s, or for those 8 s where it waits for no watcher.
-# inputs: shell/plugins/vgs.clipboard/* shell/plugins/vgs.keyhints/* shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/Capabilities.qml shell/Core/IpcRegistry.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/Notifier.qml shell/plugins/vgs.notifications/* shell/Core/PluginLogic.js shell/Hosts/Summon* shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Ui/foundation/KeyNav* shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Ui/layout/ScrollArea.qml shell/Ui/controls/TextField.qml shell/Ui/feedback/Dialog.qml scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh shell/Commons/AnchorTracker.qml
+# inputs: shell/plugins/vgs.clipboard/* shell/plugins/vgs.keyhints/* shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/Capabilities.qml shell/Core/IpcRegistry.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/Notifier.qml shell/plugins/vgs.notifications/* shell/Core/PluginLogic.js shell/Hosts/Summon* shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Ui/foundation/KeyNav* shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Ui/layout/ScrollArea.qml shell/Ui/controls/TextField.qml shell/Ui/feedback/Dialog.qml scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh shell/Commons/AnchorTracker.qml shell/plugins/vgs.launcher/*
 set -euo pipefail
 
 for clip_tool in wl-copy wl-paste; do
@@ -97,7 +108,7 @@ clip_selected() { ipc smoke itemValues overlay vgs.clipboard ListItem text,highl
 # image entry is selected.
 clip_thumbs() { ipc smoke images overlay vgs.clipboard | py_reply 'import json,sys; print(json.dumps(sorted({(r[0], r[1]) for r in json.load(sys.stdin) if r[0] != ""})))'; }
 clip_read() { ipc smoke readInstance "$1" vgs.clipboard "$2"; }
-clip_lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([[s for s in d["shortcuts"] if s.startswith("vgs.clipboard")], [t for t in d["ipcTargets"] if t == "vgs.clipboard"]]))'; }
+clip_lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([sorted(s for s in d["shortcuts"] if s.startswith("vgs.clipboard")), [t for t in d["ipcTargets"] if t == "vgs.clipboard"]]))'; }
 # clip_listed: whether the user file's disabledPlugins and its plugins name
 # the plugin, as a JSON pair.
 clip_listed() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps(["vgs.clipboard" in d.get("disabledPlugins", []), any(r.get("id") == "vgs.clipboard" for r in d.get("plugins", []))]))' "$home/.config/vgshell/shell.json"; }
@@ -136,10 +147,12 @@ clip_open() {
 # clip_keys_of LOG FROM: what the window of LOG received after line FROM,
 # in order, as a JSON list: `enter` and `leave` as the keyboard comes and
 # goes, and for each key press the depressed modifier mask it arrived with:
-# 4 is Ctrl and 5 Ctrl with Shift in the map wtype brings. FROM is read
-# while the overlay has the keyboard, so `enter` before a mask says the key
-# came after the overlay gave the keyboard back. clip_lines LOG: the lines
-# LOG holds.
+# Hyprland sends the mask its send-shortcut dispatch names, 1 for Shift, 4
+# for Ctrl and 5 for both. FROM is read while the overlay has the keyboard,
+# so `enter` before a mask says the key came after the overlay gave the
+# keyboard back. clip_lines LOG: the lines LOG holds.
+# clip_no_key LOG FROM: `none` when the window of LOG receives no key press
+# after line FROM for 2 s.
 clip_lines() { python3 -c 'import sys; print(sum(1 for _ in open(sys.argv[1])))' "$1"; }
 clip_keys_of() {
   python3 -c 'import json,sys
@@ -151,6 +164,13 @@ for line in list(open(sys.argv[1]))[int(sys.argv[2]):]:
     elif words[:1] == ["key"] and words[2] == "pressed": out.append(mask)
 print(json.dumps(out))' "$1" "$2"
 }
+# clip_presses_of LOG FROM: the masks of clip_keys_of alone, for a window
+# whose keyboard comes and goes while a layer is open over it.
+clip_presses_of() { clip_keys_of "$1" "$2" | py_reply 'import json,sys; print(json.dumps([k for k in json.load(sys.stdin) if isinstance(k, int)]))'; }
+clip_no_key() { local got; for _ in $(seq 1 10); do got="$(clip_keys_of "$1" "$2")" || return 1; [[ $got != *[0-9]* ]] || { echo "$got"; return 0; }; sleep 0.2; done; echo none; }
+# clip_press KEY: SUPER+KEY typed on the nested seat, the default key of the
+# copy (c), paste (v) and cut (x) shortcuts.
+clip_press() { type_keys -M logo -k "$1" -m logo; }
 # clip_window LOG APP_ID TITLE: the toplevel helper mapped with the keyboard.
 clip_window() {
   open_toplevel "$1" "$2" "$3" || { fail "the helper window $2 maps"; return 1; }
@@ -174,7 +194,7 @@ expect "enabling the clipboard history is allowed" ok ipc shell setPluginEnabled
 expect_poll "enabling unlisted the id and wrote no plugins row" '[false, false]' clip_listed
 expect_poll "the clipboard history is enabled" True plugin_enabled vgs.clipboard
 expect_poll "the clipboard service is built" True record_exists vgs.clipboard
-expect_poll "the service registered its shortcut and IPC target" '[["vgs.clipboard:toggle"], ["vgs.clipboard"]]' clip_lent
+expect_poll "the service registered its shortcuts and IPC target" '[["vgs.clipboard:copy", "vgs.clipboard:cut", "vgs.clipboard:paste", "vgs.clipboard:toggle"], ["vgs.clipboard"]]' clip_lent
 expect_poll "the store is ready" '"ready"' clip_read service store
 expect_poll "the service runs one watcher" 1 clip_watchers
 clip_copy "smoke first copy"
@@ -214,7 +234,7 @@ clip_hint() { ipc smoke itemValues window vgs.keyhints BindField pluginId,bind |
 expect "enabling Key Hints is allowed" ok ipc shell setPluginEnabled vgs.keyhints true
 expect_poll "the Key Hints service is built" True record_exists vgs.keyhints
 expect "Key Hints is summoned" ok ipc shell summon window vgs.keyhints '{}'
-expect_poll "the Key Hints window lists the clipboard key" '[["toggle", "SUPER+CTRL+V"]]' clip_hint
+expect_poll "the Key Hints window lists the clipboard keys" '[["toggle", "SUPER+CTRL+V"], ["copy", "SUPER+C"], ["paste", "SUPER+V"], ["cut", "SUPER+X"]]' clip_hint
 expect "Key Hints is hidden" ok ipc shell hide window vgs.keyhints
 if [[ $clip_hints_before != True ]]; then expect "Key Hints is disabled again" ok ipc shell setPluginEnabled vgs.keyhints false; fi
 
@@ -263,7 +283,7 @@ if clip_window "$sandbox/clipboard-app.log" smoke.clipboard-app "Clipboard appli
 fi
 
 # A window no desktop entry names: no key, a notice, the entry on the clipboard.
-expected_errors+=('clipboard: paste key not sent: refused: input=unknown-application')
+expected_errors+=('clipboard: (pasteEntry|copy) key not sent: refused: input=unknown-application')
 expected_errors+=('QML Image at .*/Overlay\.qml\[[0-9:]+\]: Cannot open: file://.*/clipboard/images-moved/')
 if clip_window "$sandbox/clipboard-unknown.log" smoke.clipboard-unknown "Clipboard unknown"; then
   clip_unknown_pid="$toplevel_pid"
@@ -278,6 +298,9 @@ if clip_window "$sandbox/clipboard-unknown.log" smoke.clipboard-unknown "Clipboa
   expect_poll "the refused change shows a notice" 2 clip_cards
   expect "an unknown window has the keyboard back and receives no key" '["enter"]' clip_keys_of "$sandbox/clipboard-unknown.log" "$clip_from"
   expect "the entry stays on the clipboard" "smoke first copy" clip_holds
+  clip_press c || fail "unknown: typing SUPER+C failed"
+  expect_poll "a copy shortcut the core refuses shows a notice" 3 clip_cards
+  expect "an unknown window receives no key for the shortcut" none clip_no_key "$sandbox/clipboard-unknown.log" "$clip_from"
   close_toplevel "$clip_unknown_pid" "the unknown helper exits 0 on SIGTERM"
 fi
 
@@ -319,7 +342,7 @@ root = Path(sys.argv[1])
 changes = [
     ("Service.qml", 'shell.shortcut.register("toggle", "Clipboard history", () => root.toggle());', 'shell.shortcut.register("toggle", "Clipboard history", () => "ok");'),
     ("Service.qml", "stdout: SplitParser { onRead: line => root.captured(line) }", "stdout: SplitParser { onRead: line => {} }"),
-    ("Service.qml", 'History.pasteChord(kind === "terminal")', "History.pasteChord(false)"),
+    ("ClipboardHistory.js", 'return action === "pasteEntry" && kind === "terminal" ? ["CTRL_SHIFT", "v"] : null;', 'return action === "pasteEntry" && kind === "terminal" ? ["CTRL", "v"] : null;'),
     ("Service.qml", "            retry.restart();\n", ""),
     ("Service.qml", '        notice(title, message, true);\n        return "refused: " + key;', '        return "refused: " + key;'),
     ("Overlay.qml", 'shell.ipc.call("rows", filter)', 'shell.ipc.call("rows", "")'),
@@ -388,6 +411,86 @@ cp -R -- "$sandbox/clipboard-plugin.kept" "$clip_plugin"
 rescan "a rescan restores the clipboard plugin"
 expect_poll "the restored service is built" True record_exists vgs.clipboard
 expect_poll "the restored store is ready" '"ready"' clip_read service store
+
+# The copy, paste and cut shortcuts. A terminal first: each press sends one
+# key, read by the modifiers it arrives with, and a cut sends none.
+clip_closed() { local got; for _ in $(seq 1 10); do got="$(layer_count vgs:overlay)" || return 1; [[ $got == "$1" ]] || { echo "$got"; return 0; }; sleep 0.2; done; echo "$1"; }
+if clip_window "$sandbox/clipboard-keys-terminal.log" smoke.clipboard-terminal "Clipboard terminal"; then
+  clip_keys_pid="$toplevel_pid"
+  clip_copy "smoke shortcut text"
+  expect_poll "the shortcut text is on the clipboard" "smoke shortcut text" clip_holds
+  clip_from="$(clip_lines "$sandbox/clipboard-keys-terminal.log")"
+  clip_press c || fail "terminal: typing SUPER+C failed"
+  expect_poll "SUPER+C sends a terminal a key with Ctrl" '[4]' clip_keys_of "$sandbox/clipboard-keys-terminal.log" "$clip_from"
+  clip_from="$(clip_lines "$sandbox/clipboard-keys-terminal.log")"
+  clip_press v || fail "terminal: typing SUPER+V failed"
+  expect_poll "SUPER+V sends a terminal a key with Shift" '[1]' clip_keys_of "$sandbox/clipboard-keys-terminal.log" "$clip_from"
+  expect "SUPER+V over a terminal opens no clipboard history" 0 clip_closed 0
+  clip_from="$(clip_lines "$sandbox/clipboard-keys-terminal.log")"
+  clip_press x || fail "terminal: typing SUPER+X failed"
+  expect "SUPER+X sends a terminal no key" none clip_no_key "$sandbox/clipboard-keys-terminal.log" "$clip_from"
+  clip_copy_file image/png "$clip_image"
+  expect_poll "the image is on the clipboard" same clip_holds_image
+  clip_from="$(clip_lines "$sandbox/clipboard-keys-terminal.log")"
+  clip_press v || fail "terminal: typing SUPER+V over an image failed"
+  expect_poll "SUPER+V sends a terminal a key with Ctrl and Shift while the clipboard holds an image" '[5]' clip_keys_of "$sandbox/clipboard-keys-terminal.log" "$clip_from"
+  close_toplevel "$clip_keys_pid" "the shortcuts' terminal helper exits 0 on SIGTERM"
+fi
+
+# An application, then the launcher's search field over it: a layer, which
+# has the keyboard while Hyprland's active window is still the application.
+clip_launcher_before="$(plugin_enabled vgs.launcher)" || clip_launcher_before=unread
+clip_field() { ipc smoke readShownDescendant overlay vgs.launcher QQuickTextInput "$1"; }
+clip_field_stays() { local got; for _ in $(seq 1 10); do got="$(clip_field text)" || return 1; [[ $got == "$1" ]] || { echo "$got"; return 0; }; sleep 0.2; done; echo "$1"; }
+if clip_window "$sandbox/clipboard-keys-app.log" smoke.clipboard-app "Clipboard application"; then
+  clip_keys_pid="$toplevel_pid"
+  clip_copy "smoke shortcut paste"
+  expect_poll "the paste text is on the clipboard" "smoke shortcut paste" clip_holds
+  for clip_key_name in c v x; do
+    clip_from="$(clip_lines "$sandbox/clipboard-keys-app.log")"
+    clip_press "$clip_key_name" || fail "application: typing SUPER+$clip_key_name failed"
+    expect_poll "SUPER+$clip_key_name sends an application a key with Ctrl" '[4]' clip_keys_of "$sandbox/clipboard-keys-app.log" "$clip_from"
+  done
+  expect "SUPER+V over an application opens no clipboard history" 0 clip_closed 0
+
+  expect "enabling the launcher is allowed" ok ipc shell setPluginEnabled vgs.launcher true
+  expect_poll "the launcher service is built" True record_exists vgs.launcher
+  expect "the launcher opens over the application" ok ipc vgs.launcher invoke toggle ''
+  expect_poll "the launcher is the one overlay" 1 layer_count vgs:overlay
+  expect_poll "the launcher holds the keyboard" true ipc smoke activeFocusIn overlay vgs.launcher
+  expect "the application is still Hyprland's active window" '["smoke.clipboard-app", "Clipboard application"]' active_window
+  expect_poll "the launcher's search field starts empty" '""' clip_field text
+
+  # The control: the same key sent to the active window alone.
+  clip_from="$(clip_lines "$sandbox/clipboard-keys-app.log")"
+  expect "control: a paste key is sent to the active window" ok hypr dispatch 'hl.dsp.send_shortcut({ mods = "CTRL", key = "v", window = "class:smoke.clipboard-app" })'
+  expect_poll "control: the application under the launcher receives the key with Ctrl" '[4]' clip_presses_of "$sandbox/clipboard-keys-app.log" "$clip_from"
+  expect "control: a key sent to the active window leaves the launcher's field empty" '""' clip_field_stays '""'
+  expect_poll "control: the launcher holds the keyboard again" true ipc smoke activeFocusIn overlay vgs.launcher
+
+  clip_from="$(clip_lines "$sandbox/clipboard-keys-app.log")"
+  clip_press v || fail "launcher: typing SUPER+V failed"
+  expect_poll "SUPER+V pastes into the launcher's search field" '"smoke shortcut paste"' clip_field text
+  expect "SUPER+V over the launcher opens no clipboard history" 1 clip_closed 1
+  expect "the launcher still holds the keyboard" true ipc smoke activeFocusIn overlay vgs.launcher
+  type_keys -M ctrl -k a -m ctrl || fail "launcher: selecting the field's text failed"
+  expect_poll "the field's text is selected" '"smoke shortcut paste"' clip_field selectedText
+  clip_copy "smoke shortcut other"
+  expect_poll "another text is on the clipboard" "smoke shortcut other" clip_holds
+  clip_press c || fail "launcher: typing SUPER+C failed"
+  expect_poll "SUPER+C copies the launcher field's selection" "smoke shortcut paste" clip_holds
+  expect "a copy leaves the field's text" '"smoke shortcut paste"' clip_field text
+  clip_copy "smoke shortcut other"
+  expect_poll "the other text is on the clipboard again" "smoke shortcut other" clip_holds
+  clip_press x || fail "launcher: typing SUPER+X failed"
+  expect_poll "SUPER+X cuts the launcher field's selection" '""' clip_field text
+  expect_poll "the cut text is on the clipboard" "smoke shortcut paste" clip_holds
+  expect "the application under the launcher received no key from the shortcuts" none clip_no_key "$sandbox/clipboard-keys-app.log" "$clip_from"
+  expect "the launcher closes" ok ipc vgs.launcher invoke toggle ''
+  expect_poll "the closed launcher leaves no overlay" 0 layer_count vgs:overlay
+  if [[ $clip_launcher_before != True ]]; then expect "the launcher is disabled again" ok ipc shell setPluginEnabled vgs.launcher false; fi
+  close_toplevel "$clip_keys_pid" "the shortcuts' application helper exits 0 on SIGTERM"
+fi
 
 expect "disabling the clipboard history is allowed" ok ipc shell setPluginEnabled vgs.clipboard false
 expect_poll "disabling listed the id" '[true, false]' clip_listed

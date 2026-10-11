@@ -3,7 +3,7 @@
 // Pure decisions for vgs.clipboard: what a line of the capture helper
 // records, how a copy joins the history, what a pin, a removal and a clear
 // leave, which image files the history still names, the rows the overlay
-// draws for a filter and the key chord a paste sends. QML owns the
+// draws for a filter and the key chord each action sends. QML owns the
 // processes and the store; scripts/test-clipboard-history.js runs this file
 // under node.
 //
@@ -180,9 +180,38 @@ function rows(entries, query) {
     return out;
 }
 
-// The words after `wtype` that send the paste key to the focused window:
-// Ctrl+Shift+V for a terminal, which reads Ctrl+V as a control character,
-// and Ctrl+V for any other application.
-function pasteChord(terminal) {
-    return terminal ? ["-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl"] : ["-M", "ctrl", "-k", "v", "-m", "ctrl"];
+// Whether TARGET, the core's name for what holds the keyboard, is a
+// terminal: a terminal application, or the window of a VGS floating TUI,
+// which the core names a VGS surface that carries `terminal`.
+function terminal(target) {
+    return target.kind === "terminal" || (target.kind === "vgs" && target.terminal === true);
+}
+
+// The chord ACTION sends to TARGET, as the [modifiers, key] the
+// compositor's sendShortcut takes, or null when it sends none. TARGET's
+// kind is `terminal`, `application` or `vgs`, a VGS surface. `copy`,
+// `paste` and `cut` are the plugin's shortcuts. A terminal reads Ctrl+C,
+// Ctrl+V and Ctrl+X as control characters, so it takes Ctrl+Insert to
+// copy, Shift+Insert to paste, Ctrl+Shift+V when the clipboard holds an
+// IMAGE, which Shift+Insert does not paste, and no key to cut.
+// `pasteEntry` pastes the history entry the plugin put on the clipboard: a
+// terminal application takes Ctrl+Shift+V, which reads the clipboard at
+// every terminal's own defaults, and a VGS surface takes none.
+function chord(target, action, image) {
+    var kind = target.kind;
+    if (terminal(target)) {
+        if (action === "copy") return ["CTRL", "Insert"];
+        if (action === "paste") return image ? ["CTRL_SHIFT", "v"] : ["SHIFT", "Insert"];
+        return action === "pasteEntry" && kind === "terminal" ? ["CTRL_SHIFT", "v"] : null;
+    }
+    if (kind === "application" && action === "pasteEntry") return ["CTRL", "v"];
+    if (kind !== "application" && kind !== "vgs") return null;
+    if (action === "copy") return ["CTRL", "c"];
+    if (action === "paste") return ["CTRL", "v"];
+    return action === "cut" ? ["CTRL", "x"] : null;
+}
+
+// Whether TYPES, the lines of `wl-paste --list-types`, offer an image.
+function offersImage(types) {
+    return String(types).split("\n").some(function (type) { return type.indexOf("image/") === 0; });
 }

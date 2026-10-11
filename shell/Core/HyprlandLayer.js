@@ -91,9 +91,14 @@ var TUI_PADDING = { columns: 2, rows: 1 };
 // opacity at 1 (appWindowLines).
 var APP_WINDOW = { appId: "org.vgs.shell", rule: "vgs:window", glassRule: "vgs:window-glass" };
 
+// Whether a window class is a floating TUI's, whose window is a terminal.
+function tuiClass(value) {
+    return Object.keys(TUI_WINDOWS).some(function (size) { return value === TUI_WINDOWS[size].appId; });
+}
+
 // Every shell window class comes from these existing declarations.
 function inputProtectedClass(value) {
-    return value === APP_WINDOW.appId || Object.keys(TUI_WINDOWS).some(function (size) { return value === TUI_WINDOWS[size].appId; });
+    return value === APP_WINDOW.appId || tuiClass(value);
 }
 
 // The Hyprland options a manifest's `hyprland.options` may map a setting

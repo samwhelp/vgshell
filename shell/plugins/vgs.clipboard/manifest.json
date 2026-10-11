@@ -25,13 +25,15 @@
   ],
   "requirements": [
     { "command": "wl-paste", "packages": { "pacman": "wl-clipboard", "apt": "wl-clipboard", "dnf": "wl-clipboard", "nix": "wl-clipboard" }, "optional": false, "purpose": "Reads each copy for the history" },
-    { "command": "wl-copy", "packages": { "pacman": "wl-clipboard", "apt": "wl-clipboard", "dnf": "wl-clipboard", "nix": "wl-clipboard" }, "optional": false, "purpose": "Puts an entry of the history back on the clipboard" },
-    { "command": "wtype", "packages": { "pacman": "wtype", "apt": "wtype", "dnf": "wtype", "nix": "wtype" }, "optional": false, "purpose": "Sends the paste key to the application" }
+    { "command": "wl-copy", "packages": { "pacman": "wl-clipboard", "apt": "wl-clipboard", "dnf": "wl-clipboard", "nix": "wl-clipboard" }, "optional": false, "purpose": "Puts an entry of the history back on the clipboard" }
   ],
   "settings": {},
   "hyprland": {
     "binds": [
-      { "shortcut": "toggle", "key": "SUPER+CTRL+V", "info": "Opens your clipboard history, where you pick an earlier copy to paste, or closes it." }
+      { "shortcut": "toggle", "key": "SUPER+CTRL+V", "info": "Opens your clipboard history, where you pick an earlier copy to paste, or closes it." },
+      { "shortcut": "copy", "key": "SUPER+C", "info": "Copies the selection in the terminal, application or VGS field you work in." },
+      { "shortcut": "paste", "key": "SUPER+V", "info": "Pastes the clipboard into the terminal, application or VGS field you work in." },
+      { "shortcut": "cut", "key": "SUPER+X", "info": "Cuts the selection in the application or VGS field you work in. A terminal has no cut." }
     ]
   }
 }

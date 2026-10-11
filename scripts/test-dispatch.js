@@ -40,6 +40,8 @@ const formRows = [
     ["focusMonitor", ["desc:Built-in"], 'hl.dsp.focus({ monitor = "desc:Built-in" })', "focusmonitor desc:Built-in"],
     ["moveCursor", [120, -30], 'hl.dsp.cursor.move({ x = 120, y = -30 })', "movecursor 120 -30"],
     ["moveCursor", [-2147483648, 2147483647], 'hl.dsp.cursor.move({ x = -2147483648, y = 2147483647 })', "movecursor -2147483648 2147483647"],
+    ["sendShortcut", ["CTRL", "v"], 'hl.dsp.send_shortcut({ mods = "CTRL", key = "v" })', "sendshortcut CTRL,v, "],
+    ["sendShortcut", ["CTRL_SHIFT", "Insert"], 'hl.dsp.send_shortcut({ mods = "CTRL_SHIFT", key = "Insert" })', "sendshortcut CTRL_SHIFT,Insert, "],
 ];
 
 // rows: [name, dispatcher, args, want error]
@@ -76,6 +78,15 @@ const refusalRows = [
     ["cursor y cannot underflow stoi", "moveCursor", [0, -2147483649], "refused: dispatcher=moveCursor argument=1 value=-2147483649"],
     ["cursor x cannot use Lua's leading-zero spelling", "moveCursor", ["01", 0], 'refused: dispatcher=moveCursor argument=0 value="01"'],
     ["cursor y cannot be an object", "moveCursor", [0, {}], "refused: dispatcher=moveCursor argument=1 value={}"],
+    ["shortcut modifiers are named", "sendShortcut", ["HYPER", "v"], 'refused: dispatcher=sendShortcut argument=0 value="HYPER"'],
+    ["shortcut modifiers cannot be empty", "sendShortcut", ["", "v"], 'refused: dispatcher=sendShortcut argument=0 value=""'],
+    ["shortcut modifiers cannot add a classic field", "sendShortcut", ["CTRL,v,class:x", "v"], 'refused: dispatcher=sendShortcut argument=0 value="CTRL,v,class:x"'],
+    ["shortcut modifiers cannot hold a space", "sendShortcut", ["CTRL SHIFT", "v"], 'refused: dispatcher=sendShortcut argument=0 value="CTRL SHIFT"'],
+    ["shortcut key cannot end the Lua string", "sendShortcut", ["CTRL", 'v" })'], 'refused: dispatcher=sendShortcut argument=1 value="v\\" })"'],
+    ["shortcut key cannot name a window", "sendShortcut", ["CTRL", "v,class:x"], 'refused: dispatcher=sendShortcut argument=1 value="v,class:x"'],
+    ["shortcut key cannot be a pointer button", "sendShortcut", ["CTRL", "mouse:272"], 'refused: dispatcher=sendShortcut argument=1 value="mouse:272"'],
+    ["shortcut key cannot be a key code", "sendShortcut", ["CTRL", 36], "refused: dispatcher=sendShortcut argument=1 value=36"],
+    ["shortcut cannot take a window", "sendShortcut", ["CTRL", "v", "0xabc"], "refused: dispatcher=sendShortcut arguments=3 want=2"],
 ];
 
 function verifyDispatch(lib, report, forms = formRows) {
@@ -91,7 +102,7 @@ function verifyDispatch(lib, report, forms = formRows) {
     for (const name of lib.PLUGIN_DISPATCHERS)
         row("plugin dispatcher " + name + " has a form row", forms.some(r => r[0] === name), true);
     row("the provider exposes every supported operation", lib.PLUGIN_DISPATCHERS.slice().sort(),
-        ["closeWindow", "floatWindow", "focusMonitor", "focusWindow", "focusWorkspace", "fullscreenWindow", "moveCursor", "moveWindow", "moveWindowToWorkspace", "resizeWindow", "toggleSpecialWorkspace"]);
+        ["closeWindow", "floatWindow", "focusMonitor", "focusWindow", "focusWorkspace", "fullscreenWindow", "moveCursor", "moveWindow", "moveWindowToWorkspace", "resizeWindow", "sendShortcut", "toggleSpecialWorkspace"]);
     for (const [name, dispatcher, args, want] of refusalRows) {
         for (const lua of [true, false]) {
             const r = lib.request(dispatcher, args, lua);
@@ -353,7 +364,10 @@ try {
         ["decimal integer", "/^-?(0|[1-9][0-9]*)$/.test(value)", "true"],
         ["signed lower bound", "Number(value) >= -2147483648", "true"],
         ["signed upper bound", "Number(value) <= 2147483647", "true"],
-        ["positive size", "INTEGER.test(value) && Number(value) > 0", "INTEGER.test(value)"]
+        ["positive size", "INTEGER.test(value) && Number(value) > 0", "INTEGER.test(value)"],
+        ["named shortcut modifiers", "var MODIFIERS = /^(CTRL|SHIFT|ALT|SUPER)(_(CTRL|SHIFT|ALT|SUPER))*$/;", "var MODIFIERS = /^[A-Za-z_]*$/;"],
+        ["joined shortcut modifiers", "var MODIFIERS = /^(CTRL|SHIFT|ALT|SUPER)(_(CTRL|SHIFT|ALT|SUPER))*$/;", "var MODIFIERS = /^(CTRL|SHIFT|ALT|SUPER)([_ ,](CTRL|SHIFT|ALT|SUPER))*$/;"],
+        ["a shortcut key is a keysym name", "var KEYSYM = /^[A-Za-z][A-Za-z0-9_]*$/;", "var KEYSYM = /^[A-Za-z0-9_:]+$/;"]
     ];
     for (const [name, needle, replacement] of dispatchControls) {
         if (source.split(needle).length !== 2) { check("control " + name + " matches once", false, true); continue; }
@@ -367,7 +381,7 @@ try {
     }
     // One dropped effect per new dispatcher, in each dialect. Mutate the
     // table in a separately loaded copy, never the live judge or its file.
-    for (const name of ["fullscreenWindow", "floatWindow", "moveWindow", "resizeWindow", "focusMonitor", "moveCursor"]) {
+    for (const name of ["fullscreenWindow", "floatWindow", "moveWindow", "resizeWindow", "focusMonitor", "moveCursor", "sendShortcut"]) {
         for (const dialect of ["lua", "classic"]) {
             const mutant = path.join(scratch, "Dispatch.js");
             fs.writeFileSync(mutant, source);

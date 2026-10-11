@@ -173,8 +173,8 @@ function dispatchChecks(dispatch) {
         ["shell approval window protects keyboard", { clients: [client({ class: "org.vgs.shell" })] }, null, false, target("vgs", "org.vgs.shell")],
         ["shell approval window protects pointer", { clients: [client({ class: "org.vgs.shell" })] }, { x: 150, y: 150 }, false, target("vgs", "org.vgs.shell")],
         ["VGS window protects an overlapping application", { clients: [client(), client({ address: "0xdef", class: "org.vgs.shell" })] }, { x: 150, y: 150 }, false, target("vgs", "org.vgs.shell")],
-        ["TUI protects keyboard", { clients: [client({ class: "org.vgs.tui" })] }, null, false, target("vgs", "org.vgs.tui")],
-        ["TUI tall protects pointer", { clients: [client({ class: "org.vgs.tui.tall" })] }, { x: 150, y: 150 }, false, target("vgs", "org.vgs.tui.tall")]
+        ["TUI protects keyboard", { clients: [client({ class: "org.vgs.tui" })] }, null, false, { ok: true, target: { kind: "vgs", id: "org.vgs.tui", terminal: true }, cursor }],
+        ["TUI tall protects pointer", { clients: [client({ class: "org.vgs.tui.tall" })] }, { x: 150, y: 150 }, false, { ok: true, target: { kind: "vgs", id: "org.vgs.tui.tall", terminal: true }, cursor }]
     ];
     for (const [name, world, point, keyboardProtected, want] of rows)
         same(dispatch.inputTarget(batch(world), point, keyboardProtected, entries), want, name);
@@ -282,6 +282,8 @@ const controls = [
     [dispatchFile, dispatchChecks, "pointed VGS window protection", "if (HyprlandLayer.inputProtectedClass(client.class))", "if (false)"],
     [dispatchFile, dispatchChecks, "overlap refusal", 'if (target !== null) return refusal("overlap");', 'if (false) return refusal("overlap");'],
     [dispatchFile, dispatchChecks, "focused VGS window protection", "if (HyprlandLayer.inputProtectedClass(target.class))", "if (false)"],
+    [dispatchFile, dispatchChecks, "a TUI window is named a terminal", "return HyprlandLayer.tuiClass(windowClass) ? ", "return false ? "],
+    [dispatchFile, dispatchChecks, "a shell window is no terminal", "return HyprlandLayer.tuiClass(windowClass) ? ", "return true ? "],
     [dispatchFile, dispatchChecks, "visible workspace filtering", "return c.mapped && onScreen(c, monitors);", "return c.mapped;"],
     [dispatchFile, dispatchChecks, "mapped focused client", "return c.mapped && c.address === active.address;", "return c.address === active.address;"],
     [dispatchFile, dispatchChecks, "unknown application refusal", 'if (entry === undefined) return refusal("unknown-application");', 'if (entry === undefined) entry = entries[0];'],

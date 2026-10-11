@@ -1,6 +1,6 @@
 # Clipboard
 
-Clipboard keeps what you copy. Open the history with `SUPER+CTRL+V`, find an earlier copy and paste it again.
+Clipboard keeps what you copy. Open the history with `SUPER+CTRL+V`, find an earlier copy and paste it again. `SUPER+C`, `SUPER+V` and `SUPER+X` copy, paste and cut in a terminal, an application and a VGS field.
 
 ![The clipboard history](../../../docs/images/plugins/vgs.clipboard-history.webp)
 
@@ -14,11 +14,14 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Ctrl+P pins an entry. A pinned entry stays first, and stays when you clear the history or the history is full.
 - Delete removes an entry. Shift+Delete clears the history after a question.
 - A copy that a password manager marks as secret is never recorded.
+- `SUPER+C` copies, `SUPER+V` pastes and `SUPER+X` cuts. The same three keys work in a terminal, in an application and in a VGS field such as the launcher search. A terminal has no cut.
 
 ## Setup
 
 Clipboard ships with VGS and is on by default. It saves every copy to disk, so the history stays after a restart. A copy that the source app marks as secret is never saved, but a password copied from an app that does not mark it is saved like any other copy. To stop recording, open Plugins, select Clipboard in the plugin list and turn the plugin off; the history you have stays. To clear the history, press Shift+Delete in the Clipboard list and answer the question. Pinned entries stay.
 
-The Keys row on the plugin's Settings page changes `SUPER+CTRL+V`. The same page lists the tools Clipboard needs and installs the missing ones.
+The Keys rows on the plugin's Settings page change `SUPER+CTRL+V`, `SUPER+C`, `SUPER+V` and `SUPER+X`. The same page lists the tools Clipboard needs and installs the missing ones.
+
+The copy, paste and cut keys send the terminal its own copy and paste keys: Ctrl+Insert and Shift+Insert. If a terminal does not copy or paste with them, set those two keys in the settings of the terminal.
 
 [developer.md](developer.md) states what is recorded, where it is kept and the plugin's IPC functions.

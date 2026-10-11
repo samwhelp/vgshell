@@ -10,6 +10,17 @@ A paste puts the entry on the clipboard, closes the history and sends the paste 
 
 Up, Down, Page Up, Page Down, Ctrl+Home and Ctrl+End move the selection. Escape clears the search, then closes the history.
 
+## Copy, paste and cut
+
+`SUPER+C`, `SUPER+V` and `SUPER+X` are the shortcuts `vgs.clipboard:copy`, `vgs.clipboard:paste` and `vgs.clipboard:cut`. A press reads what has the keyboard from the core and sends it one key through Hyprland's send-shortcut dispatch, with no window named. The key reaches a VGS layer such as the launcher, which is never Hyprland's active window.
+
+| Target | Copy | Paste | Cut |
+|---|---|---|---|
+| A terminal, or the window of a VGS floating TUI | Ctrl+Insert | Shift+Insert, or Ctrl+Shift+V when the clipboard holds an image | no key |
+| Another application, or a VGS surface | Ctrl+C | Ctrl+V | Ctrl+X |
+
+A window that no desktop entry names receives no key, and a message shows. `ClipboardHistory.chord` holds the table.
+
 ## Recorded copies
 
 Text up to 1 MiB and an image up to 16 MiB. A larger copy is not recorded.
@@ -29,7 +40,7 @@ The history is in `clipboard/` under `~/.local/state/vgshell/`, or under `$XDG_S
 | `paste`, `copy`, `pin`, `delete` | an entry id | `ok`, or a `refused:` line. |
 | `clear` | none | Clears the history. Pinned entries stay. |
 
-The shortcut is `vgs.clipboard:toggle`, `SUPER+CTRL+V` by default. The IPC form, with the function's name and argument in place of `rows` and the filter:
+The history's shortcut is `vgs.clipboard:toggle`, `SUPER+CTRL+V` by default. The IPC form, with the function's name and argument in place of `rows` and the filter:
 
 ```text
 vgshell ipc call vgs.clipboard invoke rows 'png'

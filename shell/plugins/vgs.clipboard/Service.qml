@@ -9,6 +9,7 @@ import "ClipboardHistory.js" as History
 // and is read once, as the service is built. The overlay holds no history:
 // it asks for its rows and for every change through the plugin's own IPC.
 //   shortcut vgs.clipboard:toggle           SUPER+CTRL+V from the manifest
+//   shortcut vgs.clipboard:copy|paste|cut   SUPER+C, SUPER+V, SUPER+X
 //   vgshell ipc call vgs.clipboard invoke toggle ''
 //   vgshell ipc call vgs.clipboard invoke rows '<filter>'   { images, total, rows }
 //   vgshell ipc call vgs.clipboard invoke paste|copy|pin|delete '<entry id>'
@@ -27,6 +28,12 @@ import "ClipboardHistory.js" as History
 // which window has the keyboard and sends that window the paste key. No key
 // goes out unless the core names a terminal or an application; the entry
 // then stays on the clipboard and a notification says so.
+//
+// The copy, paste and cut shortcuts ask the core the same question and send
+// what has the keyboard, a VGS surface included, that action's own key.
+// Every key is History.chord's and goes out through the compositor's
+// sendShortcut, which names the modifiers the target reads, so the Super
+// the user still holds is no part of it.
 Item {
     id: root
 
@@ -63,6 +70,9 @@ Item {
         if (shell === null || registeredWith !== null) return;
         registeredWith = shell;
         shell.shortcut.register("toggle", "Clipboard history", () => root.toggle());
+        shell.shortcut.register("copy", "Copy", () => root.press("copy"));
+        shell.shortcut.register("paste", "Paste", () => root.press("paste"));
+        shell.shortcut.register("cut", "Cut", () => root.press("cut"));
         shell.ipc.handle("toggle", () => root.toggle());
         shell.ipc.handle("rows", filter => JSON.stringify({ images: root.storeDir + "/images", total: root.entries.length, rows: History.rows(root.entries, filter) }));
         shell.ipc.handle("paste", id => root.put(id, true));
@@ -148,10 +158,9 @@ Item {
         const entry = History.find(entries, id);
         if (entry === null) return unknownEntry();
         if (putting !== null) return refused("clipboard=busy", "Clipboard is busy", "An earlier entry is not pasted yet. Try again.");
-        const needed = (send ? ["wl-copy", "wtype"] : ["wl-copy"]).filter(command => missing.indexOf(command) !== -1);
-        if (needed.length > 0) {
-            shell.requirements.offer(needed);
-            return "refused: clipboard=missing " + needed.join(",");
+        if (missing.indexOf("wl-copy") !== -1) {
+            shell.requirements.offer(["wl-copy"]);
+            return "refused: clipboard=missing wl-copy";
         }
         putting = { send: send };
         run("copy", () => entry.type === "image" ? { args: ["copy", entry.mime, entry.id], input: null } : { args: ["copy", History.TEXT_MIME], input: entry.text }, code => root.copied(code));
@@ -166,25 +175,53 @@ Item {
         }
         const reply = shell.surfaces.hide("overlay");
         if (reply !== "ok") console.warn("clipboard: hide " + reply);
-        if (putting.send) shell.compositor.observeInput(null, seen => root.observed(seen));
+        if (putting.send) shell.compositor.observeInput(null, seen => root.observed("pasteEntry", seen));
         else putting = null;
     }
 
-    function observed(seen) {
-        const kind = seen.ok ? seen.target.kind : "";
-        if (kind !== "terminal" && kind !== "application") {
-            unsent(seen.ok ? "target=" + kind : seen.error);
-            return;
-        }
-        sender.code = null;
-        sender.command = ["wtype"].concat(History.pasteChord(kind === "terminal"));
-        sender.running = true;
+    // ------------------------------------------------------------ key sends
+
+    // One of the copy, paste and cut shortcuts.
+    function press(action) {
+        shell.compositor.observeInput(null, seen => root.observed(action, seen));
     }
 
-    function unsent(reason) {
-        putting = null;
-        console.warn("clipboard: paste key not sent: " + reason);
-        notice("Paste failed", "The entry is on the clipboard. Paste it with the key of the application.", true);
+    // ACTION is `copy`, `paste`, `cut` or `pasteEntry`, a paste of the
+    // history entry `put` placed on the clipboard.
+    function observed(action, seen) {
+        if (action === "pasteEntry") putting = null;
+        if (!seen.ok) {
+            unsent(action, seen.error);
+            return;
+        }
+        // Only a terminal's paste key depends on what the clipboard holds.
+        if (action !== "paste" || !History.terminal(seen.target)) {
+            send(action, seen.target, false);
+            return;
+        }
+        if (missing.indexOf("wl-paste") !== -1) {
+            shell.requirements.offer(["wl-paste"]);
+            return;
+        }
+        if (offered.running) return;
+        offered.target = seen.target;
+        offered.code = null;
+        offered.running = true;
+    }
+
+    function send(action, target, image) {
+        const chord = History.chord(target, action, image);
+        // A shortcut with no key for its target, a cut in a terminal, does
+        // nothing; an entry that is not pasted says so.
+        if (chord === null && action !== "pasteEntry") return;
+        const reply = chord === null ? "target=" + target.kind : shell.compositor.sendShortcut(chord[0], chord[1]);
+        if (reply !== "ok") unsent(action, reply);
+    }
+
+    function unsent(action, reason) {
+        console.warn("clipboard: " + action + " key not sent: " + reason);
+        if (action === "pasteEntry") notice("Paste failed", "The entry is on the clipboard. Paste it with the key of the application.", true);
+        else notice(action === "copy" ? "Copy failed" : action === "cut" ? "Cut failed" : "Paste failed", "VGS does not know the application that has the keyboard. Use the key of the application.", true);
     }
 
     // A TRANSIENT notice answers one key press and stays out of History; a
@@ -266,14 +303,23 @@ Item {
         }
     }
 
+    // What the clipboard offers, read for a paste into a terminal. wl-paste
+    // exits 1 while nothing is copied, which offers no image; a run that
+    // did not start emits only `runningChanged`, its code stays null, and
+    // no key goes out. The collector holds the whole output once `running`
+    // is false, as Compositor.qml's state read relies on.
     Process {
-        id: sender
+        id: offered
+        // The terminal the running read is for.
+        property var target: null
         property var code: null
+        command: ["wl-paste", "--list-types"]
+        stdout: StdioCollector { id: offeredTypes }
         onExited: exit => { code = exit; }
         onRunningChanged: {
-            if (running || root.putting === null) return;
-            if (code === 0) root.putting = null;
-            else root.unsent("wtype exit=" + (code === null ? "not-started" : code));
+            if (running) return;
+            if (code === null) root.unsent("paste", "wl-paste=not-started");
+            else root.send("paste", target, code === 0 && History.offersImage(offeredTypes.text));
         }
     }
 }

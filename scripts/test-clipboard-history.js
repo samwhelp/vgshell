@@ -3,7 +3,8 @@
 // ClipboardHistory.js: what a helper line records, how a copy joins the
 // history, the limit, what a pin, a removal and a clear leave, the stored
 // form, the image files no entry names, the overlay's rows for a filter
-// and the paste chord. Expected values are written here by hand.
+// and the chord of each action per target. Expected values are written
+// here by hand.
 // Controls edit one rule at a time in a copy of the logic and require this
 // suite to fail on each copy.
 "use strict";
@@ -119,9 +120,47 @@ function verify(logic) {
     assert.equal(logic.rows(long, "")[0].text.length, 8192, "rows: 8192 characters of an entry are shown");
     assert.equal(logic.rows(long, "tail").length, 0, "rows: text past the shown characters is not searched");
 
-    // ---- the paste chord
-    same(logic.pasteChord(false), ["-M", "ctrl", "-k", "v", "-m", "ctrl"], "pasteChord: an application takes Ctrl+V");
-    same(logic.pasteChord(true), ["-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl"], "pasteChord: a terminal takes Ctrl+Shift+V");
+    // ---- the chord of an action: [target, action, image, chord]. A
+    // target is named here by its kind, and `tui` is the core's name for a
+    // VGS floating TUI's window.
+    const targets = { tui: { kind: "vgs", id: "org.vgs.tui", terminal: true }, vgs: { kind: "vgs", id: "keyboard" }, shellWindow: { kind: "vgs", id: "org.vgs.shell" } };
+    const chords = [
+        ["tui", "copy", false, ["CTRL", "Insert"]],
+        ["tui", "paste", false, ["SHIFT", "Insert"]],
+        ["tui", "paste", true, ["CTRL_SHIFT", "v"]],
+        ["tui", "cut", false, null],
+        ["tui", "pasteEntry", false, null],
+        ["shellWindow", "copy", false, ["CTRL", "c"]],
+        ["terminal", "copy", false, ["CTRL", "Insert"]],
+        ["terminal", "paste", false, ["SHIFT", "Insert"]],
+        ["terminal", "paste", true, ["CTRL_SHIFT", "v"]],
+        ["terminal", "cut", false, null],
+        ["terminal", "pasteEntry", false, ["CTRL_SHIFT", "v"]],
+        ["application", "copy", false, ["CTRL", "c"]],
+        ["application", "paste", false, ["CTRL", "v"]],
+        ["application", "paste", true, ["CTRL", "v"]],
+        ["application", "cut", false, ["CTRL", "x"]],
+        ["application", "pasteEntry", false, ["CTRL", "v"]],
+        ["vgs", "copy", false, ["CTRL", "c"]],
+        ["vgs", "paste", false, ["CTRL", "v"]],
+        ["vgs", "paste", true, ["CTRL", "v"]],
+        ["vgs", "cut", false, ["CTRL", "x"]],
+        ["vgs", "pasteEntry", false, null],
+        ["", "paste", false, null],
+        ["application", "toggle", false, null],
+        ["terminal", "toggle", false, null]
+    ];
+    for (const [kind, action, image, want] of chords)
+        same(logic.chord(targets[kind] || { kind: kind, id: "smoke" }, action, image), want, `chord: ${action} for ${kind || "no target"}${image ? " with an image" : ""}`);
+
+    // ---- an image on the clipboard
+    const offers = [
+        ["an image type", "text/html\nimage/png\n", true],
+        ["text alone", "text/plain\nUTF8_STRING\n", false],
+        ["a type that only holds the word", "text/x-image/png\n", false],
+        ["nothing", "", false]
+    ];
+    for (const [label, types, want] of offers) assert.equal(logic.offersImage(types), want, "offersImage: " + label);
 }
 
 verify(load(file));
@@ -141,7 +180,18 @@ const CONTROLS = [
     ["an image file is named by its entry's id", "if (entries[i].type === \"image\") out.push(entries[i].id);", "if (entries[i].type === \"image\") out.push(entries[i].mime);"],
     ["a stored id counts once", "if (entry === null || seen[entry.id] === true) continue;", "if (entry === null) continue;"],
     ["a file an entry names is in use", "return kept[name] !== true && names.indexOf(name) === at;", "return names.indexOf(name) === at;"],
-    ["a terminal takes the shift chord", "return terminal ? [\"-M\", \"ctrl\", \"-M\", \"shift\", \"-k\", \"v\", \"-m\", \"shift\", \"-m\", \"ctrl\"] : ", "return "]
+    // The paste-only rule the plugin had: a terminal takes Ctrl+Shift+V,
+    // any other target Ctrl+V, whatever the action.
+    ["each action has its own chord", "    var kind = target.kind;\n", "    var kind = target.kind;\n    if (kind !== \"\") return kind === \"terminal\" ? [\"CTRL_SHIFT\", \"v\"] : [\"CTRL\", \"v\"];\n"],
+    ["a VGS TUI's window is a terminal", "(target.kind === \"vgs\" && target.terminal === true)", "false"],
+    ["a VGS surface is a terminal only when the core says so", "(target.kind === \"vgs\" && target.terminal === true)", "target.kind === \"vgs\""],
+    ["a terminal copies with Ctrl+Insert", "if (action === \"copy\") return [\"CTRL\", \"Insert\"];", "if (action === \"copy\") return [\"CTRL\", \"c\"];"],
+    ["a terminal pastes an image with Ctrl+Shift+V", "return image ? [\"CTRL_SHIFT\", \"v\"] : [\"SHIFT\", \"Insert\"];", "return [\"SHIFT\", \"Insert\"];"],
+    ["a terminal takes no cut", "return action === \"pasteEntry\" && kind === \"terminal\" ? [\"CTRL_SHIFT\", \"v\"] : null;", "return action === \"cut\" ? [\"CTRL\", \"x\"] : [\"CTRL_SHIFT\", \"v\"];"],
+    ["a history entry is not pasted into a VGS TUI", "return action === \"pasteEntry\" && kind === \"terminal\" ? ", "return action === \"pasteEntry\" ? "],
+    ["a history entry is not pasted into a VGS surface", "if (kind === \"application\" && action === \"pasteEntry\") return [\"CTRL\", \"v\"];", "if (action === \"pasteEntry\") return [\"CTRL\", \"v\"];"],
+    ["a VGS surface takes the application's chords", "if (kind !== \"application\" && kind !== \"vgs\") return null;", "if (kind !== \"application\") return null;"],
+    ["an image type starts its line", "return type.indexOf(\"image/\") === 0;", "return type.indexOf(\"image/\") !== -1;"]
 ];
 
 const source = fs.readFileSync(file, "utf8");

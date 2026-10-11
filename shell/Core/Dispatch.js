@@ -27,6 +27,13 @@ var SIZE = {
     test: function (value) { return INTEGER.test(value) && Number(value) > 0; }
 };
 
+// Hyprland reads a modifier list by the names it holds (stringToModMask),
+// so `_` joins them with no space or comma. A key is a keysym name alone:
+// Hyprland also takes a bare number, `code:N` and `mouse:N` there, which
+// would send a key outside the keymap or a pointer button.
+var MODIFIERS = /^(CTRL|SHIFT|ALT|SUPER)(_(CTRL|SHIFT|ALT|SUPER))*$/;
+var KEYSYM = /^[A-Za-z][A-Za-z0-9_]*$/;
+
 // Bound pending input independently of how long the compositor takes.
 var QUEUE_LIMIT = 32;
 var MONITOR_EVAL = /^[\x09\x0a\x0d\x20-\x7e]+$/;
@@ -89,6 +96,15 @@ var DISPATCHERS = {
         args: [INTEGER, INTEGER],
         lua: function (a) { return "hl.dsp.cursor.move({ x = " + a[0] + ", y = " + a[1] + " })"; },
         classic: function (a) { return "movecursor " + a[0] + " " + a[1]; }
+    },
+    // No window is named, so Hyprland sends the chord to the surface that
+    // holds the keyboard, a layer included, with the named modifiers in
+    // place of the held ones (Actions::pass, Hyprland 0.56.2). Classic
+    // sendshortcut wants three fields; the blank third names no window.
+    sendShortcut: {
+        args: [MODIFIERS, KEYSYM],
+        lua: function (a) { return "hl.dsp.send_shortcut({ mods = \"" + a[0] + "\", key = \"" + a[1] + "\" })"; },
+        classic: function (a) { return "sendshortcut " + a[0] + "," + a[1] + ", "; }
     }
 };
 
@@ -275,6 +291,12 @@ function windowState(text) {
 // including pass-through gaps: hyprctl exposes no input-region geometry.
 var INPUT_STATE_REQUEST = "j/clients;j/activewindow;j/monitors;j/layers;j/cursorpos";
 
+// A shell window's target. A floating TUI's window carries `terminal`: a
+// caller that sends it a key must know that it reads Ctrl+C as an interrupt.
+function shellWindowTarget(windowClass) {
+    return HyprlandLayer.tuiClass(windowClass) ? { kind: "vgs", id: windowClass, terminal: true } : { kind: "vgs", id: windowClass };
+}
+
 function inputTarget(text, point, keyboardProtected, entries) {
     var read = jsonReplies(text, [["clients", "array"], ["active", "object"], ["monitors", "array"],
         ["layers", "object"], ["cursor", "object"]], "input state");
@@ -320,7 +342,7 @@ function inputTarget(text, point, keyboardProtected, entries) {
             if (!rect(box)) return refusal("window-shape");
             if (contains(box, point)) {
                 if (HyprlandLayer.inputProtectedClass(client.class))
-                    return { ok: true, target: { kind: "vgs", id: client.class }, cursor: cursor };
+                    return { ok: true, target: shellWindowTarget(client.class), cursor: cursor };
                 // An overlapping client has no public stacking index. Refuse
                 // that ambiguity rather than guessing which receives input.
                 if (target !== null) return refusal("overlap");
@@ -330,7 +352,7 @@ function inputTarget(text, point, keyboardProtected, entries) {
     } else target = clients.find(function (c) { return c.mapped && c.address === active.address; }) || null;
     if (target === null && lowerLayer !== null) return { ok: true, target: { kind: "vgs", id: lowerLayer }, cursor: cursor };
     if (target === null || typeof target.class !== "string" || target.class === "") return refusal("target");
-    if (HyprlandLayer.inputProtectedClass(target.class)) return { ok: true, target: { kind: "vgs", id: target.class }, cursor: cursor };
+    if (HyprlandLayer.inputProtectedClass(target.class)) return { ok: true, target: shellWindowTarget(target.class), cursor: cursor };
     var entry = entries.find(function (e) { return [e.id, e.startupClass].indexOf(target.class.toLowerCase()) !== -1; });
     if (entry === undefined) return refusal("unknown-application");
     return { ok: true, target: { kind: entry.terminal ? "terminal" : "application", id: entry.id,
