@@ -7,7 +7,9 @@
 //     reply: "text" (Verify), turns: [[step, ...], ...], hang: bool, crash: "handshake",
 //     models: a model/list result in place of the recorded one,
 //     refuse: method (answered with a JSON-RPC error),
-//     interruptBarrier: path (completion waits for this fixture file) }
+//     interruptBarrier: path (completion waits for this fixture file),
+//     startBarrier: path (each turn/start answer waits for this fixture file,
+//     after a "start-held" row) }
 // A step is {notify, params}, {request, params} (waits for the answer),
 // {mcp: {tool, arguments}} (a tools/call through the thread's bridge server,
 // with tools/list first), {interrupt: true} (waits for turn/interrupt) or
@@ -149,13 +151,19 @@ function handle(message) {
         return;
     }
     case "turn/start": {
-        const id = "turn-" + ++turnCount;
-        respond({ turn: { id, items: [], status: "inProgress", error: null } });
-        write({ method: "turn/started", params: { threadId: THREAD, turn: { id, items: [], status: "inProgress", error: null } }, emittedAtMs: 1 });
-        const steps = scenario.reply !== undefined ? [
-            { notify: "item/agentMessage/delta", params: { threadId: "$THREAD", turnId: "$TURN", itemId: "m", delta: scenario.reply } },
-            { complete: "completed" }] : scenario.turns[turnCount - 1];
-        void turn(id, steps);
+        const count = ++turnCount, id = "turn-" + count;
+        void (async () => {
+            if (scenario.startBarrier) {
+                log("start-held", { turnId: id });
+                while (!fs.existsSync(scenario.startBarrier)) await new Promise(resolve => setTimeout(resolve, 5));
+            }
+            respond({ turn: { id, items: [], status: "inProgress", error: null } });
+            write({ method: "turn/started", params: { threadId: THREAD, turn: { id, items: [], status: "inProgress", error: null } }, emittedAtMs: 1 });
+            const steps = scenario.reply !== undefined ? [
+                { notify: "item/agentMessage/delta", params: { threadId: "$THREAD", turnId: "$TURN", itemId: "m", delta: scenario.reply } },
+                { complete: "completed" }] : scenario.turns[count - 1];
+            void turn(id, steps);
+        })();
         return;
     }
     case "turn/interrupt":

@@ -208,11 +208,13 @@ function create({ model, effort, recipients, account, gen, harness }) {
         if (turns >= TURNS) throw new Error("jarvis: brain=context-limit");
 
         // requested: turn/start is written, so only the program's completion
-        // acknowledges a cancel.
-        const current = { id: null, requested: false, items: new Map(), waiters: new Map(), text: new Map() };
+        // acknowledges a cancel. cancelled: a cancel came before the turn's id,
+        // so the turn/start answer sends its interrupt.
+        const current = { id: null, requested: false, cancelled: false, items: new Map(), waiters: new Map(), text: new Map() };
         const { handle, events } = Harness.stream({ run, detach: () => { if (active === current) active = null; },
             interrupt() {
-                if (current.id !== null && session !== null)
+                if (current.id === null) current.cancelled = true;
+                else if (session !== null)
                     session.program.call(id => Codex.turnInterrupt(id, session.thread, current.id)).catch(() => {});
                 return current.requested;
             },
@@ -236,7 +238,7 @@ function create({ model, effort, recipients, account, gen, harness }) {
                 const id = Codex.turnId(await opened.program.call(n => Codex.turnStart(n, opened.thread, text)));
                 if (current.id === null) current.id = id;
                 else if (current.id !== id) fail("turn-id");
-                if (handle.state() === "cancelling") opened.program.call(n => Codex.turnInterrupt(n, opened.thread, id)).catch(() => {});
+                if (current.cancelled) opened.program.call(n => Codex.turnInterrupt(n, opened.thread, id)).catch(() => {});
             } catch (error) { current.fault(error); }
         }
         active = current;

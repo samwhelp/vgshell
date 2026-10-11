@@ -374,6 +374,27 @@ world(async () => {
             assert.equal(received("turn/interrupt").length, 1);
             validWrites();
         },
+        // A cancel after turn/start is written and before its answer names the
+        // turn: the answer sends the one interrupt, Codex's completion settles
+        // the cancel and a replacement turn starts.
+        async earlyCancel(folder) {
+            const barrier = path.join(process.env.JARVIS_TEST_ROOT, "start-" + ++serial);
+            scenario({ startBarrier: barrier, turns: [[delta("unfinished"), { interrupt: true }], [delta("Next."), { complete: "completed" }]] });
+            const w = make(folder);
+            const iterator = w.say("long").events[Symbol.asyncIterator]();
+            const pending = assert.rejects(iterator.next(), { message: "jarvis: brain=cancelled" });
+            await until(() => read("codex-log").some(row => row.direction === "start-held"), "Codex holds the turn/start answer");
+            let cancelled = false;
+            const cancellation = w.brain.cancel().then(() => { cancelled = true; });
+            await pending;
+            fs.writeFileSync(barrier, "release");
+            await until(() => cancelled, "Codex completion settles the early cancel");
+            await cancellation;
+            assert.deepEqual(received("turn/interrupt").map(m => m.params.turnId), ["turn-1"], "one interrupt names the answered turn");
+            assert.deepEqual(await drain(w.say("next")), [{ kind: "text", text: "Next." }, { kind: "done", reason: "stop" }]);
+            assert.deepEqual(received("turn/start").map(m => m.params.input[0].text), ["long", "next"]);
+            validWrites();
+        },
         // The duplex voice replaces streaming work, including a replacement cancelled
         // before Codex acknowledges the original turn/interrupt. held false is the
         // control: Codex completes at once and writes no barrier row.
@@ -705,6 +726,8 @@ world(async () => {
             ["elicitation-kind", "backend/CodexHarness.js", [["respond(value.toolCall && ", "respond(true || "]], "bridge"],
             ["interrupt", "backend/CodexHarness.js", [["session.program.call(id => Codex.turnInterrupt(id, session.thread, current.id)).catch(() => {});\n                return current.requested;",
                 "return false;"]], "cancel"],
+            ["early-interrupt", "backend/CodexHarness.js", [["if (current.cancelled) opened.program.call(",
+                'if (handle.state() === "cancelling") opened.program.call(']], "earlyCancel"],
             ["cancel-owner", "backend/HarnessProgram.js", [['case "cancelled": case "cancelling":\n                    state = { kind: "ended" };',
                 'case "cancelled": case "cancelling":\n                    ended();']], "cancel"],
             ["queued-cancel-wait", "backend/ChainedEngine.js", [['turn.phase === "queued" || turn.phase === "relay" || c.brain === null ? c.quiet : c.brain.cancel()',
