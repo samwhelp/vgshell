@@ -8,7 +8,8 @@ import "BrowserLogic.js" as BrowserLogic
 // theme as an angled card on one rail, a typed filter, and Enter or a
 // click on the selected card installing a catalog theme if it needs it and
 // applying it. At rest the view draws the cards, the tabs, and the
-// selected theme's name and the search field under the rail: the selection, which opens on the
+// selected theme's name and a Type to search hint under the rail: the
+// selection, which opens on the
 // applied theme, marks it, and a busy card turns its own Spinner while its
 // install or apply runs. After an apply of a theme whose wallpapers are
 // not downloaded, a Dialog offers the download; Download runs it on the
@@ -23,8 +24,7 @@ import "BrowserLogic.js" as BrowserLogic
 // and Down step as Left and Right do. Tab and Shift+Tab switch the top
 // tabs. A printable character types into the filter, Backspace erases a character, Ctrl+Backspace a word and Ctrl+U
 // the whole filter. Escape clears the filter, then asks to close. Enter
-// applies the selected card. The rail holds the keyboard; the search
-// field shows the filter and never takes the focus.
+// applies the selected card.
 //
 // The view is built with the overlay. It draws retained service data
 // without starting a catalog, list or image read on open.
@@ -53,9 +53,6 @@ FocusScope {
 
     property var cards: []
     property string filterText: ""
-    // A press on the search field armed it for typing; cleared with the
-    // filter or when the rail loses the keyboard.
-    property bool searchArmed: false
     readonly property var shownCards: BrowserLogic.shown(cards, filterText)
     // The selected theme's name, kept across a filter and a refresh; the
     // displayed theme's until the first card is chosen.
@@ -254,15 +251,12 @@ FocusScope {
 
     // Escape: the filter first, then the browser.
     function cancel() {
-        if (filterText !== "") {
-            filterText = "";
-            searchArmed = false;
-        } else closeRequested();
+        if (filterText !== "") filterText = "";
+        else closeRequested();
     }
 
     function editFilter(edit) {
         filterText = BrowserLogic.editFilter(filterText, edit);
-        if (edit.kind === "clear") searchArmed = false;
     }
 
     function start() {
@@ -346,7 +340,8 @@ FocusScope {
     Keys.onPressed: event => root.handleKey(event)
 
     // One inset box centred on the output: the tabs in the header, the rail
-    // in the body, and the typed filter and the failures in the footer.
+    // in the body, and the typed filter or its hint and the failures in the
+    // footer.
     Pane {
         id: layout
         anchors.centerIn: parent
@@ -380,7 +375,6 @@ FocusScope {
                 preloadFullImages: true
                 anchors.fill: parent
                 focus: true
-                onActiveFocusChanged: if (!activeFocus) root.searchArmed = false
                 devicePixelRatio: root.shell === null || root.shell.screens.current === null ? Screen.devicePixelRatio : root.shell.screens.current.devicePixelRatio
                 tabSteps: false
                 spaceActivates: false
@@ -431,34 +425,23 @@ FocusScope {
                     text: root.selected === null ? "" : root.selected.label
                 }
 
-                // The filter as a search field. The rail keeps the keyboard,
-                // so the field shows `filterText` without taking the focus,
-                // and a press on it hands the keyboard back to the rail.
-                // At rest it shows its icon and placeholder alone; a typed
-                // filter or a press on it shows a steady cursor.
-                // The field bounds its own width to its tokens.
-                TextField {
-                    anchors.horizontalCenter: parent.horizontalCenter
+                Label {
+                    role: "h3"
                     width: parent.width
-                    leadingIcon: "search"
-                    placeholderText: "Search themes"
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideMiddle
+                    visible: root.filterText !== ""
                     text: root.filterText
-                    // Qt keeps this while the field never takes the
-                    // focus, and draws it unblinking (TextInput.cursorVisible).
-                    cursorVisible: root.filterText !== "" || root.searchArmed
-                    activeFocusOnPress: false
-                    activeFocusOnTab: false
+                }
 
-                    // pointer-cursor-exempt: the field shows the I-beam; a press only hands the keyboard to the rail
-                    // keyboard-path: the rail holds the keyboard
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.IBeamCursor
-                        onPressed: {
-                            root.focusRail();
-                            root.searchArmed = true;
-                        }
-                    }
+                // The wallpaper view's hint without its source line, hidden
+                // while the typed filter shows above it.
+                Label {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    visible: root.filterText === ""
+                    role: "itemHint"
+                    text: "Type to search"
+                    color: Theme.color.textFaint
                 }
 
                 Repeater {

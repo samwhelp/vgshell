@@ -331,7 +331,7 @@ function captureSection(pluginLines) {
         "                local in_default = bind ~= nil and (bind.submap == nil or bind.submap == \"\" or bind.submap == \"default\")",
         "                if direction ~= nil and in_default then",
         "                    hl.define_submap(capture.submap, function()",
-        "                        capture.bind(keys, hl.dsp.global(capture.globals[direction]), { description = capture.globals[direction] })",
+        "                        capture.bind(keys, hl.dsp.global(capture.globals[direction]), { description = capture.globals[direction], repeating = true })",
         "                    end)",
         "                end",
         "            end)",

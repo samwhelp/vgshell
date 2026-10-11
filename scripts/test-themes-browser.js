@@ -152,18 +152,14 @@ function verify(logic, files) {
         ["a label", { label: "Nord Two" }],
         ["a name", { name: "nord-two" }]
     ]) assert.notEqual(logic.cardKey(Object.assign({}, nordCard, change)), logic.cardKey(nordCard), label + " changes the key");
-    // A card's eight colours: the palette's background, the raised
-    // surface, then the palette's foreground, accent, info, success,
-    // warning and danger; none while either source lacks one.
-    const full = { background: "#000001ff", foreground: "#000003ff", accent: "#000004ff", success: "#000006ff", warning: "#000007ff", danger: "#000008ff", info: "#000005ff" };
-    const raised = { color: { surfaceRaised: "#000002ff", border: "#000009ff" } };
-    same(logic.swatches(full, raised), ["#000001ff", "#000002ff", "#000003ff", "#000004ff", "#000005ff", "#000006ff", "#000007ff", "#000008ff"]);
-    for (const [label, palette, tokens] of [
-        ["no palette", null, raised],
-        ["a palette without danger", Object.fromEntries(Object.entries(full).filter(([key]) => key !== "danger")), raised],
-        ["no tokens", full, null],
-        ["tokens without the raised surface", full, { color: { border: "#000009ff" } }]
-    ]) assert.equal(logic.swatches(palette, tokens), null, label + " gives no swatches");
+    // A card's sixteen colours: its terminal slots color0 to color15 in
+    // slot order, each made opaque; none while a slot is missing.
+    const slots = { color10: "#00000a80", color0: "#00000000", color1: "#00000111", color2: "#000002ff", color3: "#000003ff", color4: "#000004ff", color5: "#000005ff", color6: "#000006ff", color7: "#000007ff", color8: "#000008ff", color9: "#000009ff", color11: "#00000bff", color12: "#00000cff", color13: "#00000dff", color14: "#00000eff", color15: "#00000fff" };
+    same(logic.swatches(slots), ["#000000ff", "#000001ff", "#000002ff", "#000003ff", "#000004ff", "#000005ff", "#000006ff", "#000007ff", "#000008ff", "#000009ff", "#00000aff", "#00000bff", "#00000cff", "#00000dff", "#00000eff", "#00000fff"]);
+    for (const [label, terminal] of [
+        ["no terminal", null],
+        ["a terminal without color15", Object.fromEntries(Object.entries(slots).filter(([key]) => key !== "color15"))]
+    ]) assert.equal(logic.swatches(terminal), null, label + " gives no swatches");
     assert.equal(logic.railKey("/t/a.jpg", 7), logic.railKey("/t/a.jpg", 7), "one key in one generation is one card");
     assert.notEqual(logic.railKey("/t/a.jpg", 8), logic.railKey("/t/a.jpg", 7), "a new generation rebuilds the card");
     assert.notEqual(logic.railKey("/t/b.jpg", 7), logic.railKey("/t/a.jpg", 7), "another key is another card");
@@ -446,7 +442,8 @@ const CONTROLS = [
     ["an applied partial notice warns", "tone: applied(result) ? \"warning\" : \"danger\"", "tone: \"danger\""],
     ["rail key holds the generation", "return JSON.stringify([generation, key]);", "return JSON.stringify([key]);"],
     ["key holds the preview inputs", "return JSON.stringify([card.name, card.label, card.previewImage, card.palette, card.tokens, card.terminal]);", "return JSON.stringify([card.name, card.label]);"],
-    ["swatches read the raised surface", '    ["color", "surfaceRaised"],\n', ""],
+    ["swatches read every slot", "var SWATCH_COUNT = 16;", "var SWATCH_COUNT = 8;"],
+    ["swatches are opaque", 'out.push(value.slice(0, 7) + "ff");', "out.push(value);"],
     ["swatches need every colour", 'if (typeof value !== "string") return null;', 'if (typeof value !== "string") continue;'],
     ["partial names the panel", 'if (result.state === "partial") return', 'if (false) return'],
     ["shared Ctrl+Tab switches top tabs", "if (key === K.Tab || key === K.PageDown) return shift ? TAB_ACTIONS.previous : TAB_ACTIONS.next;", "if (false) return shift ? TAB_ACTIONS.previous : TAB_ACTIONS.next;"],

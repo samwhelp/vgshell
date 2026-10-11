@@ -167,29 +167,20 @@ function cardKey(card) {
     return JSON.stringify([card.name, card.label, card.previewImage, card.palette, card.tokens, card.terminal]);
 }
 
-// The eight colours a theme card shows, in order: top to bottom on a
-// slice, left to right under the selected card. Each names a group of the
-// card's tokens and a token of it; `palette` reads the card's palette.
-var SWATCHES = [
-    ["palette", "background"],
-    ["color", "surfaceRaised"],
-    ["palette", "foreground"],
-    ["palette", "accent"],
-    ["palette", "info"],
-    ["palette", "success"],
-    ["palette", "warning"],
-    ["palette", "danger"]
-];
+// The sixteen colours a theme card shows: its terminal slots color0 to
+// color15, in slot order, each fully opaque, so a card draws the theme's
+// exact values. A slice stacks them two side by side down eight rows, and
+// the selected card's foot lays them in two rows of eight.
+var SWATCH_COUNT = 16;
 
-// The `#rrggbbaa` colours of SWATCHES from a card's PALETTE and TOKENS, or
-// null when either lacks one, as a refused package's card does.
-function swatches(palette, tokens) {
+// The `#rrggbbff` colours of a card's TERMINAL slots, or null when it has
+// none or lacks one, as a refused package's card does.
+function swatches(terminal) {
     var out = [];
-    for (var i = 0; i < SWATCHES.length; i++) {
-        var group = SWATCHES[i][0] === "palette" ? palette : hasOwn(tokens, SWATCHES[i][0]) ? tokens[SWATCHES[i][0]] : null;
-        var value = hasOwn(group, SWATCHES[i][1]) ? group[SWATCHES[i][1]] : null;
+    for (var i = 0; i < SWATCH_COUNT; i++) {
+        var value = hasOwn(terminal, "color" + i) ? terminal["color" + i] : null;
         if (typeof value !== "string") return null;
-        out.push(value);
+        out.push(value.slice(0, 7) + "ff");
     }
     return out;
 }

@@ -6,9 +6,10 @@ import "BrowserLogic.js" as BrowserLogic
 
 // The wallpaper view of the browser: the applied theme's wallpapers, or
 // every package's and the user folder's, as angled cards on a rail, one
-// search field and one dim source line under it, Show all or Show theme, and with two screens
-// or more a scope control, All monitors or This monitor. At rest the view
-// draws the cards, the tabs and those controls alone: the selection, which
+// dim hint line under it, Type to search beside Show all or Show theme,
+// and with two screens or more the scope words, All monitors and This
+// monitor. At rest the view draws the cards, the tabs, that line and those
+// words alone: the selection, which
 // opens on the image the scope shows, marks it. Enter or a click on the selected
 // image sets it for the scope: on every screen, each screen's own image
 // cleared, or on the screen the browser shows on. The browser stays open
@@ -23,12 +24,12 @@ import "BrowserLogic.js" as BrowserLogic
 // step forward, Home and End go to the first and the last card, and Enter
 // sets the selected image or runs the selected card. Tab and Shift+Tab
 // switch the top tabs. A printable character types into the filter, which
-// the search field shows,
-// Backspace erases a character, Ctrl+Backspace a word and Ctrl+U the whole
-// filter. Escape clears the filter, then asks to close. Alt+S or a click
-// on the source line flips the source, and Alt+M flips the scope while its
-// control shows. An item of the view holds the keyboard and the rail never
-// takes the focus, so Tab cannot leave the view before the view handles it.
+// shows under the rail, Backspace erases a character, Ctrl+Backspace a
+// word and Ctrl+U the whole filter. Escape clears the filter, then asks to
+// close. Alt+S or a click on Show all flips the source, and Alt+M or a
+// click on a scope word flips the scope while the words show. An item of
+// the view holds the keyboard and the rail never takes the focus, so Tab
+// cannot leave the view before the view handles it.
 //
 // The view is built with each open and destroyed with the browser, so the
 // scope starts on All monitors every time. It reads every image and the
@@ -67,9 +68,6 @@ FocusScope {
     readonly property string applied: Theme.name
     readonly property var cards: images === null ? [] : BrowserLogic.wallpaperCards(images, entries, applied, source)
     property string filterText: ""
-    // A press on the search field armed it for typing; cleared with the
-    // filter or when the view loses the keyboard.
-    property bool searchArmed: false
     readonly property var shownCards: BrowserLogic.wallpaperShown(cards, filterText)
     // The image the chosen scope shows now, "" for none.
     readonly property string shownPath: BrowserLogic.shownPath(scope, wallpaper.path, wallpaper.screenPaths, screenName)
@@ -112,7 +110,6 @@ FocusScope {
     Item {
         id: keyboard
         focus: true
-        onActiveFocusChanged: if (!activeFocus) root.searchArmed = false
         Keys.onPressed: event => {
             const shift = (event.modifiers & Qt.ShiftModifier) !== 0;
             const control = (event.modifiers & Qt.ControlModifier) !== 0;
@@ -188,7 +185,8 @@ FocusScope {
         seeding = false;
     }
 
-    onCardsChanged: reselect()
+    // shownCards follows cards, so its change alone reselects: a handler on
+    // cards ran while the view was built, before shownCards held a list.
     onShownCardsChanged: reselect()
     onShownPathChanged: if (!moved) reselect()
 
@@ -210,15 +208,12 @@ FocusScope {
     function takeKeys() { keyboard.forceActiveFocus(); }
 
     function cancel() {
-        if (filterText !== "") {
-            filterText = "";
-            searchArmed = false;
-        } else closeRequested();
+        if (filterText !== "") filterText = "";
+        else closeRequested();
     }
 
     function editFilter(edit) {
         filterText = BrowserLogic.editFilter(filterText, edit);
-        if (edit.kind === "clear") searchArmed = false;
     }
 
     function navigate(direction) {
@@ -335,8 +330,9 @@ FocusScope {
     }
 
     // One inset box centred on the output, as the theme view's: the tabs and
-    // the scope in the header, the rail in the body, and the source line, a
-    // download's progress and the failures in the footer.
+    // the scope words in the header, the rail in the body, and the typed
+    // filter, the hint line, a download's progress and the failures in the
+    // footer.
     Pane {
         id: layout
         anchors.centerIn: parent
@@ -358,19 +354,36 @@ FocusScope {
                     onCurrentIndexChanged: if (currentIndex !== 1) root.switchRequested(-1)
                 }
 
-                // A segment click focuses the control, and a click on the chosen
-                // segment emits no `activated`, so the control hands the keyboard
-                // back to the view whenever it takes it, after the click ends.
-                SegmentedControl {
-                    id: scopeControl
+                // The scope words side by side, the chosen one brighter. A
+                // MouseArea takes no focus, so the view keeps the keyboard.
+                Row {
                     anchors.horizontalCenter: parent.horizontalCenter
                     visible: root.scoped
-                    model: BrowserLogic.SCREEN_SCOPES.map(s => s.label)
-                    currentIndex: root.scopeIndex
-                    onActiveFocusChanged: if (activeFocus) Qt.callLater(root.takeKeys)
-                    onActivated: index => {
-                        root.chooseScope(index);
-                        currentIndex = Qt.binding(() => root.scopeIndex);
+                    spacing: Theme.stack.group
+
+                    Repeater {
+                        model: BrowserLogic.SCREEN_SCOPES
+                        // keyboard-path: Alt+M flips the scope as a click does
+                        MouseArea {
+                            id: scopeWord
+                            required property var modelData
+                            required property int index
+                            width: scopeText.implicitWidth
+                            height: scopeText.implicitHeight
+                            hoverEnabled: true
+                            Accessible.role: Accessible.RadioButton
+                            Accessible.name: modelData.label
+                            Accessible.checked: index === root.scopeIndex
+                            onClicked: root.chooseScope(index)
+                            PointerCursor {}
+
+                            Label {
+                                id: scopeText
+                                role: "itemHint"
+                                text: scopeWord.modelData.label
+                                color: scopeWord.index === root.scopeIndex ? Theme.color.text : scopeWord.containsMouse ? Theme.color.textMuted : Theme.color.textFaint
+                            }
+                        }
                     }
                 }
             }
@@ -425,68 +438,61 @@ FocusScope {
                 width: Math.min(layout.contentWidth, Theme.carousel.expandedWidth)
                 spacing: Theme.stack.group
 
-                // The filter as a search field. The view keeps the keyboard,
-                // so the field shows `filterText` without taking the focus,
-                // and a press on it hands the keyboard back to the view.
-                // At rest it shows its icon and placeholder alone; a typed
-                // filter or a press on it shows a steady cursor.
-                // The field bounds its own width to its tokens.
-                TextField {
-                    anchors.horizontalCenter: parent.horizontalCenter
+                Label {
+                    role: "h3"
                     width: parent.width
-                    leadingIcon: "search"
-                    placeholderText: "Search wallpapers"
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideMiddle
+                    visible: root.filterText !== ""
                     text: root.filterText
-                    // Qt keeps this while the field never takes the
-                    // focus, and draws it unblinking (TextInput.cursorVisible).
-                    cursorVisible: root.filterText !== "" || root.searchArmed
-                    activeFocusOnPress: false
-                    activeFocusOnTab: false
-
-                    // pointer-cursor-exempt: the field shows the I-beam; a press only hands the keyboard to the view
-                    // keyboard-path: the view holds the keyboard
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.IBeamCursor
-                        onPressed: {
-                            root.takeKeys();
-                            root.searchArmed = true;
-                        }
-                    }
                 }
 
-                // The source line names the source a click shows, its eye
-                // open while it offers every image and shut while it offers
-                // the theme's alone. A MouseArea takes no focus, so the view
-                // keeps the keyboard.
-                // keyboard-path: Alt+S flips the source as a click does
-                MouseArea {
-                    id: sourceLine
+                Row {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    width: sourceRow.implicitWidth
-                    height: sourceRow.implicitHeight
-                    hoverEnabled: true
-                    Accessible.role: Accessible.Button
-                    Accessible.name: sourceText.text
-                    onClicked: root.flipSource()
-                    PointerCursor {}
+                    spacing: Theme.stack.inline
 
-                    Row {
-                        id: sourceRow
-                        spacing: Theme.stack.inline
+                    // Hidden while the typed filter shows above it.
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: root.filterText === ""
+                        role: "itemHint"
+                        text: "Type to search |"
+                        color: Theme.color.textFaint
+                    }
 
-                        Icon {
-                            anchors.verticalCenter: parent.verticalCenter
-                            name: BrowserLogic.WALLPAPER_SOURCES[root.sourceIndex].icon
-                            size: Theme.icon.size.sm
-                            color: sourceText.color
-                        }
-                        Label {
-                            id: sourceText
-                            anchors.verticalCenter: parent.verticalCenter
-                            role: "itemHint"
-                            text: BrowserLogic.WALLPAPER_SOURCES[root.sourceIndex].switchLabel
-                            color: sourceLine.containsMouse ? Theme.color.textMuted : Theme.color.textFaint
+                    // The source line names the source a click shows, its eye
+                    // open while it offers every image and shut while it offers
+                    // the theme's alone. A MouseArea takes no focus, so the view
+                    // keeps the keyboard.
+                    // keyboard-path: Alt+S flips the source as a click does
+                    MouseArea {
+                        id: sourceLine
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: sourceRow.implicitWidth
+                        height: sourceRow.implicitHeight
+                        hoverEnabled: true
+                        Accessible.role: Accessible.Button
+                        Accessible.name: sourceText.text
+                        onClicked: root.flipSource()
+                        PointerCursor {}
+
+                        Row {
+                            id: sourceRow
+                            spacing: Theme.stack.inline
+
+                            Icon {
+                                anchors.verticalCenter: parent.verticalCenter
+                                name: BrowserLogic.WALLPAPER_SOURCES[root.sourceIndex].icon
+                                size: Theme.icon.size.sm
+                                color: sourceText.color
+                            }
+                            Label {
+                                id: sourceText
+                                anchors.verticalCenter: parent.verticalCenter
+                                role: "itemHint"
+                                text: BrowserLogic.WALLPAPER_SOURCES[root.sourceIndex].switchLabel
+                                color: sourceLine.containsMouse ? Theme.color.textMuted : Theme.color.textFaint
+                            }
                         }
                     }
                 }

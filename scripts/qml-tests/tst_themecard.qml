@@ -14,11 +14,16 @@ Item {
     height: 240
 
     readonly property string imagePath: decodeURIComponent(String(Qt.resolvedUrl("images/red.png")).replace(/^file:\/\//, ""))
+    readonly property var terminal: {
+        const slots = {};
+        for (let index = 0; index < 16; index++) slots["color" + index] = "#202020ff";
+        return slots;
+    }
     function card(label, image) {
         return {
             name: label.toLowerCase(), label: label, state: "ok", generation: 0, previewImage: null, image: image,
             palette: { background: "#101010ff", foreground: "#eeeeeeff", accent: "#3366ffff", success: "#00aa00ff", warning: "#ccaa00ff", danger: "#aa0000ff", info: "#0066aaff" },
-            tokens: { color: { surfaceRaised: "#202020ff" } }
+            terminal: root.terminal
         };
     }
 

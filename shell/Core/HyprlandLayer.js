@@ -785,6 +785,9 @@ function overlayCapturePluginBindLines(plan) {
     return lines;
 }
 
+// A learned focus bind repeats while held (HL.BindOptions.repeating,
+// Hyprland 0.56.2 stubs), so holding it steps an overlay as a held arrow
+// key does; theme-browser compares the two holds.
 function overlayCaptureLines(plan) {
     var submap = OVERLAY_CAPTURE.submap;
     var namespace = OVERLAY_CAPTURE.namespace;
@@ -843,7 +846,7 @@ function overlayCaptureLines(plan) {
         "                local in_default = bind ~= nil and (bind.submap == nil or bind.submap == \"\" or bind.submap == \"default\")",
         "                if direction ~= nil and in_default then",
         "                    hl.define_submap(capture.submap, function()",
-        "                        capture.bind(keys, hl.dsp.global(capture.globals[direction]), { description = capture.globals[direction] })",
+        "                        capture.bind(keys, hl.dsp.global(capture.globals[direction]), { description = capture.globals[direction], repeating = true })",
         "                    end)",
         "                end",
         "            end)",

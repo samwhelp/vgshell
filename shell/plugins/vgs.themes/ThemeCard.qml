@@ -5,21 +5,21 @@ import qs.Ui
 import "BrowserLogic.js" as BrowserLogic
 import "Files.js" as Files
 
-// One theme's card on the browser's rail. A slice shows the theme's eight
-// colours (BrowserLogic.SWATCHES) stacked top to bottom and the theme's
-// name up the slice, reading upward from `carousel.sliceName.inset` above
+// One theme's card on the browser's rail. A slice shows the theme's
+// sixteen terminal colours (BrowserLogic.swatches) two side by side down
+// eight rows and the theme's name up the slice, reading upward from `carousel.sliceName.inset` above
 // its bottom edge, in the `carousel.sliceName` text and shadow, which no
 // mode changes: the shadow keeps the name readable on every colour of the
-// stack. The side card's dim washes the stack; the name sits in the card's
-// foreground, over the wash, so neither the dim nor a hover's lighter dim
-// reaches its colour or its shadow. The name runs along the slice's
+// stack. The stack and the name sit in the card's foreground, over the
+// side card's dim wash, so neither the dim nor a hover's lighter dim
+// reaches their colours or the name's shadow. The name runs along the slice's
 // slanted axis, so it lies parallel to both slanted edges and its gap from
 // each is the same at every height, bottom-anchored or not: half of the
 // slice's width less its lean, times the cosine of the slant, less half the
 // name's line box, at the carousel's unit. The selected card shows the
 // package's preview image when one ships, else the theme's first wallpaper
-// over its background, else its background and name, and the eight
-// colours across its foot. A card with no colours, a refused
+// over its background, else its background and name, and the sixteen
+// colours in two rows of eight across its foot. A card with no colours, a refused
 // package's, names its theme instead, across the card at its centre; that
 // name keeps the card's lean from each side, which clears the angled edge
 // at mid-height for every unit up to `carousel.maxScale` 2, where the drawn
@@ -38,15 +38,15 @@ Item {
     // delegates that declare it.
     property bool current: false
     // The card's layer over its dim wash, which the carousel hands only to
-    // delegates that declare it; null draws the name with the rest of the
-    // card.
+    // delegates that declare it; null draws the stack and the name with the
+    // rest of the card.
     property Item foreground: null
     // Whether the browser is installing, applying or downloading for this
     // theme.
     property bool busy: false
 
     readonly property var colors: modelData.palette
-    readonly property var swatches: BrowserLogic.swatches(modelData.palette, modelData.tokens)
+    readonly property var swatches: BrowserLogic.swatches(modelData.terminal)
     readonly property bool packagePreview: typeof modelData.previewImage === "string" && modelData.previewImage !== ""
     // An accepted package with no preview draws its own backdrop: its
     // wallpaper, else its background and name.
@@ -83,9 +83,10 @@ Item {
 
     ThemePaletteStrip {
         objectName: "paletteStack"
+        parent: root.foreground ?? root
         anchors.fill: parent
         visible: !root.expanded && root.swatches !== null
-        vertical: true
+        columns: 2
         colours: root.swatches === null ? [] : root.swatches
     }
 
@@ -98,6 +99,10 @@ Item {
         objectName: "sliceName"
         readonly property real inset: Theme.carousel.sliceName.inset
         parent: root.foreground ?? root
+        // The carousel hands `foreground` after both are built, so the
+        // stack and the name reparent in no set order; z keeps the name on
+        // top.
+        z: 1
         role: Theme.carousel.sliceName.role
         x: (parent.width - parent.height * Math.tan(root.lean)) / 2 + inset * Math.sin(root.lean)
         y: parent.height - inset * Math.cos(root.lean) - height / 2
@@ -159,6 +164,7 @@ Item {
         anchors.bottom: parent.bottom
         height: Theme.space.xxl
         visible: root.expanded && root.swatches !== null
+        columns: 8
         colours: root.swatches === null ? [] : root.swatches
     }
 

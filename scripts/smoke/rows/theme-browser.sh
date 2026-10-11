@@ -2,9 +2,13 @@
 # nested seat opens it, and every row reads what it holds back through the
 # probe: the view's cards and state through readDescendant, the images the
 # cards draw through images, the texts it draws beside its rail and tabs
-# through descendantGeometry, its search field through the TextField's
-# text, placeholder, drawn cursor and focus, and its Dialog's through itemTexts. The rows page, filter, install and apply a catalog
-# entry, and answer the wallpaper offer both ways. akane's card draws its
+# through descendantGeometry, the typed filter and the Type to search hint
+# among them, and its Dialog's through itemTexts. Neither view draws a
+# search field; a copy of each view with one is its control. The rows page,
+# filter, install and apply a catalog
+# entry, and answer the wallpaper offer both ways. Holding SUPER+D, the
+# user's focus bind, steps the rail as holding Right does; a layer whose
+# captured focus bind does not repeat is its control. akane's card draws its
 # package preview. The old keys, SUPER+T
 # and SUPER+W, open nothing, and each view's key moves an open browser to
 # that view; a manifest copy still bound to SUPER+T is their control. The sandbox copy's
@@ -14,7 +18,8 @@
 # lines, polled every 50 ms for at most 30 s, so the Dialog's progress and
 # the held close read back before the real download runs. The wallpaper
 # view's rows, SUPER+SHIFT+W, follow the theme view's: they flip its source,
-# from its source line and from Alt+S, and its scope, set an image for one screen and for every screen on a second
+# from its source line and from Alt+S, and its scope, from its words and
+# from Alt+M, set an image for one screen and for every screen on a second
 # headless output and read each screen's drawn image back, and run the
 # update card against a second archive the catalog pins anew. A copy of
 # WallpaperView.qml that sets every image as the current one is their
@@ -22,7 +27,7 @@
 # plugin disabled, and rows/theme-browse.sh leaves vgs applied with Black
 # current and nord not installed; this file enables the plugin and leaves
 # all four so.
-# inputs: shell/plugins/vgs.themes/* themes/catalog/* themes/vgs/* shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* shell/Ui/layout/CardCarousel.qml shell/Ui/layout/AngledCard.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/feedback/Dialog.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/fixtures/theme-image.jpg
+# inputs: shell/plugins/vgs.themes/* themes/catalog/* themes/vgs/* shell/Core/HyprlandLayer.js shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* shell/Ui/layout/CardCarousel.qml shell/Ui/layout/AngledCard.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/feedback/Dialog.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
 view_value() { ipc smoke readDescendant overlay vgs.themes ThemeView "$1"; }
 view_names() { view_value shownCards | py_reply 'import json,sys; print(json.dumps([c["name"] for c in json.load(sys.stdin)]))'; }
@@ -34,12 +39,13 @@ card_at() { view_value shownCards | py_reply 'import json,sys; print(json.load(s
 job_step() { view_value job | py_reply 'import json,sys; j=json.load(sys.stdin); print("none" if j is None else j["step"] + " " + j["name"])'; }
 selected_installed() { view_value selected | py_reply 'import json,sys; print(json.load(sys.stdin)["installed"])'; }
 selected_preview() { view_value selected | py_reply 'import json,sys; print(json.load(sys.stdin).get("previewImage"))'; }
+selected_slot() { view_value selected | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["terminal"][sys.argv[1]]))' "$1"; }
 offer_name() { view_value offer | py_reply 'import json,sys; o=json.load(sys.stdin); print("none" if o is None else o["name"])'; }
 # rest_texts: every text the browser draws outside its rail and its tabs,
 # sorted and once each; rest_has TEXT: whether TEXT is one of them. At rest
-# the theme view draws the selected name and its search field's
-# placeholder, and the wallpaper view that placeholder, its source line
-# and, with two screens, its scope control.
+# the theme view draws the selected name and its Type to search hint, and
+# the wallpaper view that hint beside its source line and, with two
+# screens, its scope words. A typed filter shows in place of the hint.
 rest_texts() {
   ipc smoke descendantGeometry overlay vgs.themes | py_reply '
 import json, sys
@@ -52,16 +58,9 @@ def under(j):
 print(json.dumps(sorted({r["text"] for i, r in enumerate(rows) if isinstance(r.get("text"), str) and r["text"] != "" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0 and not under(i)})))'
 }
 rest_has() { rest_texts | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }
-# search_field: the shown view's search field as [text, placeholder,
-# cursor shown, holds the keyboard], read from its TextField.
-search_field() {
-  local text placeholder cursor focus
-  text="$(ipc smoke readDescendant overlay vgs.themes TextField text)" || return
-  placeholder="$(ipc smoke readDescendant overlay vgs.themes TextField placeholderText)" || return
-  cursor="$(ipc smoke readDescendant overlay vgs.themes TextField cursorVisible)" || return
-  focus="$(ipc smoke readDescendant overlay vgs.themes TextField activeFocus)" || return
-  printf '[%s, %s, %s, %s]\n' "$text" "$placeholder" "$cursor" "$focus"
-}
+# search_field: whether the shown view draws a search field, `absent`
+# for none.
+search_field() { ipc smoke readDescendant overlay vgs.themes TextField visible; }
 # slice_names: the side cards the rail shows and how many of them draw no
 # name, as [shown, unnamed]: a side card is a shown AngledCard other than
 # the selected one, the largest, and it names its theme with a visible
@@ -241,29 +240,42 @@ band_click() {
   click "$x" "$y"
 }
 browser_focused() { expect_poll "${1:-the browser holds the keyboard}" true ipc smoke activeFocusIn overlay vgs.themes; }
-# A card's eight colours from its own palette and tokens, written out here
-# apart from BrowserLogic: the palette's background, the raised surface,
-# then the palette's foreground, accent, info, success, warning and danger.
-theme_eight_py='
-def eight(card):
-    p, c = card.get("palette") or {}, (card.get("tokens") or {}).get("color") or {}
-    v = [p.get("background"), c.get("surfaceRaised"), p.get("foreground"), p.get("accent"), p.get("info"), p.get("success"), p.get("warning"), p.get("danger")]
-    return v if all(isinstance(x, str) for x in v) else None
+# sixteen(card): a card's sixteen colours, written out here apart from
+# BrowserLogic: its terminal slots color0 to color15, each made opaque, as
+# the theme's terminal.json gives them; None without them.
+theme_sixteen_py='
+def sixteen(card):
+    t = card.get("terminal") or {}
+    v = [t.get("color%d" % i) for i in range(16)]
+    return [x[:7] + "ff" for x in v] if all(isinstance(x, str) for x in v) else None
 '
 # collapsed_stacks: one finding per broken rule, `[]` the pass. Every
-# shown slice, a visible paletteStack, is 8 bands across its whole width,
-# stacked top to bottom with no gap, each an eighth of its height
-# (`vertical`), in the eight colours of a shown theme, top first
-# (`colours`); and at least 3 slices show (`stacks`). The strips and their
-# drawn colours are read in the probe's one tree order.
+# shown slice, a visible paletteStack, is 16 blocks in 2 columns and 8
+# rows filling it with no gap, each half its width and an eighth of its
+# height, filled row by row (`grid`), in the sixteen colours of a shown
+# theme (`colours`), drawn after its card's dim wash, so the wash does not
+# reach it (`wash`, the rule slice_look reads for the name); and at least 3
+# slices show (`stacks`). The strips and their drawn colours are read in
+# the probe's one tree order.
 collapsed_stacks() {
   local shown colours
   shown="$(view_value shownCards)" || return
   colours="$(ipc smoke itemColours overlay vgs.themes ThemePaletteStrip QQuickRectangle)" || return
-  ipc smoke descendantGeometry overlay vgs.themes | py_reply "$theme_eight_py"'
+  ipc smoke descendantGeometry overlay vgs.themes | py_reply "$theme_sixteen_py"'
 import json, sys
 rows, shown, colours = json.load(sys.stdin), json.loads(sys.argv[1]), json.loads(sys.argv[2])
-want = [w for w in (eight(c) for c in shown if c.get("state") == "ok") if w is not None]
+want = [w for w in (sixteen(c) for c in shown if c.get("state") == "ok") if w is not None]
+def card_of(j):
+    while j != -1:
+        if rows[j]["type"] == "AngledCard": return j
+        j = rows[j]["parent"]
+    return -1
+def lineage(j):
+    out = []
+    while j != -1:
+        out.append(j)
+        j = rows[j]["parent"]
+    return out
 strips = [i for i, r in enumerate(rows) if r["type"] == "ThemePaletteStrip"]
 if len(strips) != len(colours):
     print(json.dumps(["readers strips=%d colours=%d" % (len(strips), len(colours))])); sys.exit()
@@ -272,43 +284,43 @@ for k, i in enumerate(strips):
     x, y, w, h = rows[i]["box"]
     if rows[i]["name"] != "paletteStack" or not rows[i]["visible"] or w <= 0 or h <= 0: continue
     stacks += 1
-    bands = sorted((r["box"] for r in rows if r["parent"] == i and r["type"] == "QQuickRectangle" and r["visible"]), key=lambda b: (b[1], b[0]))
-    at = y
-    for b in bands:
-        if len(bands) != 8 or abs(b[0] - x) > 1 or abs(b[2] - w) > 1 or abs(b[1] - at) > 1 or abs(b[3] - h / 8) > 1:
-            out.append("vertical stack=%d bands=%d band=%s stack=%s" % (k, len(bands), [round(v, 2) for v in b], [round(v, 2) for v in rows[i]["box"]])); break
-        at = b[1] + b[3]
+    blocks = [r["box"] for r in rows if r["parent"] == i and r["type"] == "QQuickRectangle" and r["visible"]]
+    for n, b in enumerate(blocks):
+        if len(blocks) != 16 or abs(b[0] - (x + n % 2 * w / 2)) > 1 or abs(b[2] - w / 2) > 1 or abs(b[1] - (y + n // 2 * h / 8)) > 1 or abs(b[3] - h / 8) > 1:
+            out.append("grid stack=%d blocks=%d block=%d box=%s stack=%s" % (k, len(blocks), n, [round(v, 2) for v in b], [round(v, 2) for v in rows[i]["box"]])); break
     if colours[k] not in want: out.append("colours stack=%d got=%s" % (k, colours[k]))
+    card = card_of(i)
+    washes = [j for j, r in enumerate(rows) if r["type"] == "QQuickRectangle" and r["parent"] != -1 and rows[r["parent"]]["type"] == "QQuickItem" and rows[r["parent"]]["parent"] == card]
+    if card == -1 or len(washes) != 1: out.append("wash stack=%d washes=%d" % (k, len(washes)))
+    elif rows[washes[0]]["visible"] and not any(rows[a]["parent"] == rows[washes[0]]["parent"] and a > washes[0] for a in lineage(i)): out.append("wash stack=%d" % k)
 if stacks < 3: out.append("stacks shown=%d" % stacks)
 print(json.dumps(out))' "$shown" "$colours"
 }
 # expanded_foot: the same for the selected card. One visible paletteStrip
-# lies along the card's foot as 8 bands side by side, left to right with
-# no gap, each an eighth of its width (`strip`), in the selected theme's
-# eight colours, left first (`strip-colours`).
+# lies along the card's foot as 16 blocks in 8 columns and 2 rows with no
+# gap, each an eighth of its width and half its height, filled row by row
+# (`strip`), in the selected theme's sixteen colours (`strip-colours`).
 expanded_foot() {
   local selected strips
   selected="$(view_value selected)" || return
   strips="$(ipc smoke itemColours overlay vgs.themes ThemePaletteStrip QQuickRectangle)" || return
-  ipc smoke descendantGeometry overlay vgs.themes | py_reply "$theme_eight_py"'
+  ipc smoke descendantGeometry overlay vgs.themes | py_reply "$theme_sixteen_py"'
 import json, sys
 rows, card, strips = json.load(sys.stdin), json.loads(sys.argv[1]), json.loads(sys.argv[2])
-want, out = eight(card), []
+want, out = sixteen(card), []
 def shown(r): return r["visible"] and r["box"][2] > 0 and r["box"][3] > 0
 cards = [r["box"] for r in rows if r["type"] == "AngledCard" and shown(r)]
 feet = [(k, i) for k, i in enumerate(i for i, r in enumerate(rows) if r["type"] == "ThemePaletteStrip") if rows[i]["name"] == "paletteStrip" and shown(rows[i])]
 if want is None or not cards or len(feet) != 1:
-    print(json.dumps(["readers eight=%s cards=%d strips=%d" % (want is not None, len(cards), len(feet))])); sys.exit()
+    print(json.dumps(["readers sixteen=%s cards=%d strips=%d" % (want is not None, len(cards), len(feet))])); sys.exit()
 cx, cy, cw, ch = max(cards, key=lambda b: b[2] * b[3])
 k, i = feet[0]
 sx, sy, sw, sh = rows[i]["box"]
-bands = sorted((r["box"] for r in rows if r["parent"] == i and r["type"] == "QQuickRectangle" and r["visible"]), key=lambda b: (b[0], b[1]))
-at = sx
+blocks = [r["box"] for r in rows if r["parent"] == i and r["type"] == "QQuickRectangle" and r["visible"]]
 if abs(sy + sh - (cy + ch)) > 1 or abs(sw - cw) > 1: out.append("strip strip=%s card=%s" % (rows[i]["box"], [cx, cy, cw, ch]))
-for b in bands:
-    if len(bands) != 8 or abs(b[1] - sy) > 1 or abs(b[3] - sh) > 1 or abs(b[0] - at) > 1 or abs(b[2] - sw / 8) > 1:
-        out.append("strip bands=%d band=%s strip=%s" % (len(bands), [round(v, 2) for v in b], [round(v, 2) for v in rows[i]["box"]])); break
-    at = b[0] + b[2]
+for n, b in enumerate(blocks):
+    if len(blocks) != 16 or abs(b[0] - (sx + n % 8 * sw / 8)) > 1 or abs(b[2] - sw / 8) > 1 or abs(b[1] - (sy + n // 8 * sh / 2)) > 1 or abs(b[3] - sh / 2) > 1:
+        out.append("strip blocks=%d block=%d box=%s strip=%s" % (len(blocks), n, [round(v, 2) for v in b], [round(v, 2) for v in rows[i]["box"]])); break
 if strips[k] != want: out.append("strip-colours got=%s want=%s" % (strips[k], want))
 print(json.dumps(out))' "$selected" "$strips"
 }
@@ -396,13 +408,8 @@ expect_poll "the browser read the list, the catalog and the images" true view_va
 expect "the browser includes the shipped vgs card" True has_card vgs
 expect_poll "the retained catalog reaches the installed list with nord" True has_card nord
 expect "the applied theme is selected" '"vgs"' view_value selectedName
-expect_poll "the resting theme view draws the selected theme's name and the search placeholder beside its cards and tabs" '["Search themes", "Vgs"]' rest_texts
-expect "the resting search field is empty, shows no cursor and leaves the keyboard with the rail" '["", "Search themes", false, false]' search_field
-click_in vgs:overlay overlay vgs.themes TextField "" || fail "the click on the empty theme search field failed"
-expect_poll "a press on the empty search field shows a cursor without the keyboard" '["", "Search themes", true, false]' search_field
-expect "a press on the empty search field leaves the keyboard with the rail" true rail_focused
-type_keys -M ctrl -k u -m ctrl || fail "sending Ctrl+U to the pressed theme search field failed"
-expect_poll "Ctrl+U puts the pressed search field back at rest" '["", "Search themes", false, false]' search_field
+expect_poll "the resting theme view draws the selected theme's name and the Type to search hint beside its cards and tabs" '["Type to search", "Vgs"]' rest_texts
+expect "the theme view draws no search field" absent search_field
 expect_poll "every side card names its theme" named slices_named
 expect_poll "every side card's name starts the inset up its slice, in h2, white over its shadow, above its card's wash" '[]' slice_look
 # The browser's layout, one finding per broken rule, `[]` the pass: its
@@ -464,7 +471,7 @@ geometry expect_poll "the browser's tabs and rail keep their places" '[]' browse
 for rule in inset order centre; do
   expect "control: the browser's $rule rule refuses its planted box" True browser_planted "$rule"
 done
-expect_poll "every shown slice stacks its theme's eight colours top to bottom" '[]' collapsed_stacks
+expect_poll "every shown slice draws its theme's sixteen colours, opaque, two by eight over its wash" '[]' collapsed_stacks
 type_keys -k Home || fail "sending Home before focus bind failed"
 focus_first="$(card_at 0)"
 focus_second="$(card_at 1)"
@@ -472,6 +479,51 @@ type_keys -M logo -k d -m logo || fail "sending the user's focus-right bind fail
 expect_poll "the user's focus-right bind moves the carousel inside the browser" "$focus_second" view_selected_name
 type_keys -M logo -k a -m logo || fail "sending the user's focus-left bind failed"
 expect_poll "the user's focus-left bind moves the carousel inside the browser" "$focus_first" view_selected_name
+# A 2 s hold of Right and of SUPER+D, each from the first card, steps the
+# rail as far, within the timing of two holds: Hyprland repeats the
+# captured focus bind at the keyboard's repeat rate and delay, which Qt
+# repeats Right at. Control: the layer with that bind's repeat removed,
+# reloaded, steps once for the hold.
+rail_index() { ipc smoke readDescendant overlay vgs.themes CardCarousel currentIndex; }
+# held_steps WTYPE_ARGS...: from the first card, the index one hold the
+# wtype arguments type leaves selected, read once two readings 0.2 s
+# apart match.
+held_steps() {
+  local before="" now
+  type_keys -k Home || return
+  for _ in $(seq 1 50); do [[ "$(rail_index)" == 0 ]] && break; sleep 0.1; done
+  type_keys "$@" || return
+  for _ in $(seq 1 50); do
+    now="$(rail_index)" || return
+    if [[ $now == "$before" ]]; then echo "$now"; return; fi
+    before="$now"; sleep 0.2
+  done
+  return 1
+}
+# steps_match ARROW SUPER: `match` when both holds stepped at least 5
+# cards and within 3 plus a tenth of the arrow's steps of each other.
+steps_match() { python3 -c 'import sys; a, s = map(int, sys.argv[1:]); print("match" if a >= 5 and s >= 5 and abs(a - s) <= 3 + a // 10 else "differs arrow=%d super=%d" % (a, s))' "$1" "$2"; }
+arrow_steps="$(held_steps -P Right -s 2000 -p Right)" || fail "the held Right failed"
+super_steps="$(held_steps -M logo -P d -s 2000 -p d -m logo)" || fail "the held SUPER+D failed"
+expect "holding SUPER+D steps the rail as holding Right does" match steps_match "${arrow_steps:-0}" "${super_steps:-0}"
+hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"
+cp -p -- "$hypr_layer" "$sandbox/vgs-layer-before-hold.lua"
+python3 - "$hypr_layer" <<'PY' || fail "control: the layer copy without repeat is made"
+import os, sys
+path = sys.argv[1]
+text = open(path).read()
+old = "{ description = capture.globals[direction], repeating = true }"
+assert text.count(old) == 1, "repeat binds=%d" % text.count(old)
+with open(path + ".next", "w") as f:
+    f.write(text.replace(old, "{ description = capture.globals[direction] }"))
+os.replace(path + ".next", path)
+PY
+expect "control: the nested instance reloads the layer without repeat" ok hypr reload config-only
+control_steps="$(held_steps -M logo -P d -s 2000 -p d -m logo)" || fail "control: the held SUPER+D failed"
+expect "control: a focus bind without repeat steps once for the hold" 1 printf '%s\n' "${control_steps:-none}"
+expect "control: a focus bind without repeat fails the hold check" "differs arrow=${arrow_steps:-0} super=1" steps_match "${arrow_steps:-0}" "${control_steps:-0}"
+cp -p -- "$sandbox/vgs-layer-before-hold.lua" "$hypr_layer.next" && mv -T -- "$hypr_layer.next" "$hypr_layer" || fail "putting the layer back after the hold control failed"
+expect "the nested instance reloads the layer with repeat" ok hypr reload config-only
 press_themes || fail "closing the browser after the focus bind check failed"
 expect_poll "the browser closes after the focus bind check" 0 layer_count vgs:overlay
 press_themes || fail "reopening the browser after the focus bind check failed"
@@ -486,30 +538,24 @@ type_keys "$first_card" || fail "typing $first_card failed"
 expect_poll "the filter selects the catalog card" "\"$first_card\"" view_value selectedName
 expect_poll "the catalog card draws its package preview" ready card_image "$repo/themes/catalog/$first_card/preview.jpg"
 expect "the catalog card decodes at card size times screen scale" True card_source_size_matches "$repo/themes/catalog/$first_card/preview.jpg"
-expect_poll "the selected card draws its eight colours across the foot" '[]' expanded_foot
-python3 - "$repo/themes/catalog/$first_card/theme.json" "$index" "$first_card" <<'PY'
+expect_poll "the selected card draws its sixteen colours, opaque, eight by two across the foot" '[]' expanded_foot
+python3 - "$repo/themes/catalog/$first_card/terminal.json" <<'PY'
 import json, os, sys
-theme_file, index_file, name = sys.argv[1:]
-theme = json.load(open(theme_file))
-theme.setdefault("tokens", {}).setdefault("palette", {})["accent"] = "#00ff00"
-with open(theme_file + ".next", "w") as f:
-    json.dump(theme, f)
-os.replace(theme_file + ".next", theme_file)
-doc = json.load(open(index_file))
-for entry in doc["entries"]:
-    if entry["name"] == name:
-        entry["palette"]["accent"] = "#00ff00ff"
-with open(index_file + ".next", "w") as f:
-    json.dump(doc, f)
-os.replace(index_file + ".next", index_file)
+terminal_file = sys.argv[1]
+terminal = json.load(open(terminal_file))
+terminal["slots"]["color4"] = "#00ff00"
+with open(terminal_file + ".next", "w") as f:
+    json.dump(terminal, f)
+os.replace(terminal_file + ".next", terminal_file)
 PY
-press_themes || fail "closing the browser for the package token change failed"
-expect_poll "the browser closes before the package token check" 0 layer_count vgs:overlay
-press_themes || fail "reopening the browser for the package token change failed"
-expect_poll "the browser reopens after the package token change" 1 layer_count vgs:overlay
-expect_poll "the browser rereads the changed package tokens" true view_value loaded
-type_keys "$first_card" || fail "typing $first_card after the token change failed"
-expect_poll "the selected card's foot follows the changed accent" '[]' expanded_foot
+press_themes || fail "closing the browser for the terminal colour change failed"
+expect_poll "the browser closes before the terminal colour check" 0 layer_count vgs:overlay
+press_themes || fail "reopening the browser for the terminal colour change failed"
+expect_poll "the browser reopens after the terminal colour change" 1 layer_count vgs:overlay
+expect_poll "the browser rereads the changed terminal colours" true view_value loaded
+type_keys "$first_card" || fail "typing $first_card after the terminal colour change failed"
+expect_poll "the selected card holds the changed color4" '"#00ff00ff"' selected_slot color4
+expect_poll "the selected card's foot follows the changed color4" '[]' expanded_foot
 expect "the selected catalog card is not installed" False selected_installed
 expect "a catalog card draws only its name and the typed filter beside the rail" "[\"Akane\", \"$first_card\"]" rest_texts
 
@@ -539,9 +585,6 @@ expect_poll "Ctrl+PageUp switches back to the theme view" '"themes"' ipc smoke r
 # The filter and the scope.
 type_keys "nor" || fail "typing the filter failed"
 expect_poll "typing reaches the filter" '"nor"' view_value filterText
-expect "the search field shows the typed filter and a cursor without the keyboard" '["nor", "Search themes", true, false]' search_field
-click_in vgs:overlay overlay vgs.themes TextField nor || fail "the click on the theme search field failed"
-expect_poll "a click on the search field leaves the keyboard with the rail" true rail_focused
 type_keys -M ctrl -k u -m ctrl || fail "sending Ctrl+U failed"
 expect_poll "Ctrl+U clears the filter" '""' view_value filterText
 type_keys "gruvy " || fail "typing a two-word theme filter failed"
@@ -555,6 +598,7 @@ type_keys -k BackSpace || fail "sending BackSpace failed"
 expect_poll "BackSpace erases a character" '"no"' view_value filterText
 type_keys "rd" || fail "typing the rest of the filter failed"
 expect_poll "the filter leaves nord alone" '["nord"]' view_names
+expect_poll "the footer shows the typed filter in place of the hint" '["Nord", "nord"]' rest_texts
 expect "the selection moves to the one match" '"nord"' view_value selectedName
 # Control: scripts/test-qml-unit.sh deletes CardCarousel's modelData rebind and tst_carousel.qml fails.
 expect "the drawn centre theme card matches the selected name after filtering" '"nord"' ipc smoke currentThemeCardName overlay vgs.themes
@@ -617,7 +661,8 @@ clear_filter() { # LABEL
   expect_poll "$1: the browser read its cards" true view_value loaded
   type_keys zzqx || { fail "$1: typing the filter failed"; return 1; }
   expect_poll "$1: a filter no card matches empties the rail" 0 view_count
-  expect "$1: the search field shows the filter no card matches" '["zzqx", "Search themes", true, false]' search_field
+  expect "$1: the footer shows the filter no card matches" True rest_has zzqx
+  expect "$1: the footer hides the hint while the filter shows" False rest_has "Type to search"
   click_in vgs:overlay overlay vgs.themes Button "Clear filter" || { fail "$1: the click on Clear filter failed"; return 1; }
 }
 clear_filter "Clear filter"
@@ -695,25 +740,14 @@ wall_has() { wall_value shownCards | py_reply 'import json,sys; keys=[c["key"] f
 wall_job() { wall_value job | py_reply 'import json,sys; j=json.load(sys.stdin); print("none" if j is None else j["step"])'; }
 nord_a="$installed/nord/backgrounds/a.jpg"; nord_b="$installed/nord/backgrounds/b.jpg"; nord_c="$installed/nord/backgrounds/c.jpg"
 wall_output=SMOKE-WALL
-# Whether the wallpaper view's scope control holds the keyboard.
-segment_focused() { ipc smoke readDescendant overlay vgs.themes SegmentedControl activeFocus; }
-scope_button_point() {
-  local box="" last="" held=0
-  smoke_poll_tries 100
-  for _ in $(seq 1 "$smoke_poll_n"); do
-    box="$(ipc smoke windowGeometry overlay vgs.themes QQuickButton "All monitors")" || return
-    [[ $box == \[* ]] || { held=0; last=""; sleep 0.1; continue; }
-    if [[ $box == "$last" ]]; then held=$((held + 1)); else held=0; last="$box"; fi
-    if [[ $held -ge 1 ]]; then at_centre vgs:overlay "$box"; return; fi
-    sleep 0.1
-  done
-  return 1
-}
-click_scope_all() {
-  local at x y
-  at="$(scope_button_point)" || return
-  read -r x y <<<"$at" || return
-  click "$x" "$y"
+# scope_tones: whether All monitors and This monitor each draw in the
+# text colour, as [all, this]; the chosen word does, the other fainter.
+scope_tones() {
+  local text all this
+  text="$(ipc smoke themeValue color.text)" || return
+  all="$(ipc smoke readMatchingDescendant overlay vgs.themes Label text "All monitors" color)" || return
+  this="$(ipc smoke readMatchingDescendant overlay vgs.themes Label text "This monitor" color)" || return
+  printf '[%s, %s]\n' "$([[ $all == "$text" ]] && echo true || echo false)" "$([[ $this == "$text" ]] && echo true || echo false)"
 }
 fixture_image="$repo/scripts/smoke/fixtures/theme-image.jpg"
 fixture_tall="$sandbox/theme-image-tall.jpg"
@@ -881,68 +915,21 @@ plugin_control ThemeView.qml "resting text" $'                id: caption\n' $' 
 press_themes || fail "typing SUPER+SHIFT+T for the resting text control failed"
 expect_poll "SUPER+SHIFT+T opens the resting text control browser" 1 layer_count vgs:overlay
 expect_poll "the resting text control read its cards" true view_value loaded
-expect_poll "control: a key hint under the rail is a resting text" '["Enter", "Search themes", "Vgs"]' rest_texts
+expect_poll "control: a key hint under the rail is a resting text" '["Enter", "Type to search", "Vgs"]' rest_texts
 type_keys -k Escape || fail "sending Escape to the resting text control failed"
 expect_poll "Escape closes the resting text control browser" 0 layer_count vgs:overlay
 plugin_restore ThemeView.qml "resting text"
-# Controls for the search field: a copy whose field does not show the
-# filter, and one whose field takes the keyboard on a press.
-search_control() { # LABEL
-  press_themes || { fail "$1: typing SUPER+SHIFT+T failed"; return 1; }
-  expect_poll "$1: SUPER+SHIFT+T opens the browser" 1 layer_count vgs:overlay
-  expect_poll "$1: the browser read its cards" true view_value loaded
-  type_keys nor || { fail "$1: typing the filter failed"; return 1; }
-  expect_poll "$1: typing reaches the filter" '"nor"' view_value filterText
-}
-search_control_close() { # LABEL
-  expect "$1: the browser hides" ok ipc shell hide overlay vgs.themes
-  expect_poll "$1: the browser closes" 0 layer_count vgs:overlay
-}
-plugin_control ThemeView.qml "search text" '                    text: root.filterText' '                    text: ""'
-search_control "control: the search text copy"
-expect "control: a field that does not show the filter reads empty" '["", "Search themes", true, false]' search_field
-search_control_close "control: the search text copy"
-plugin_restore ThemeView.qml "search text"
-plugin_control ThemeView.qml "search focus" $'onPressed: {\n                            root.focusRail();' $'onPressed: {\n                            parent.forceActiveFocus();'
-search_control "control: the search focus copy"
-click_in vgs:overlay overlay vgs.themes TextField nor || fail "control: the click on the search focus copy's field failed"
-expect_poll "control: a field that takes the press holds the keyboard" true ipc smoke readDescendant overlay vgs.themes TextField activeFocus
-expect "control: a field that takes the press leaves the rail unfocused" false rail_focused
-search_control_close "control: the search focus copy"
-plugin_restore ThemeView.qml "search focus"
-# Controls for the cursor: a copy whose field shows it at rest, and one
-# whose press arms nothing. In the second, x and BackSpace, typed after the
-# press, order the reading after it.
-cursor_binding='cursorVisible: root.filterText !== "" || root.searchArmed'
-cursor_open() { # LABEL
-  press_themes || { fail "$1: typing SUPER+SHIFT+T failed"; return 1; }
-  expect_poll "$1: SUPER+SHIFT+T opens the browser" 1 layer_count vgs:overlay
-  expect_poll "$1: the browser read its cards" true view_value loaded
-}
-# cursor_pressed LABEL VALUE: press the empty field, then type x and erase
-# it, VALUE the view's filterText reader.
-cursor_pressed() { # LABEL VALUE
-  click_in vgs:overlay overlay vgs.themes TextField "" || { fail "$1: the click on the empty search field failed"; return 1; }
-  type_keys x || { fail "$1: typing x failed"; return 1; }
-  expect_poll "$1: x reaches the filter" '"x"' "$2" filterText
-  type_keys -k BackSpace || { fail "$1: sending BackSpace failed"; return 1; }
-  expect_poll "$1: BackSpace empties the filter" '""' "$2" filterText
-}
-plugin_control ThemeView.qml "resting cursor" "$cursor_binding" 'cursorVisible: true'
-cursor_open "control: the resting cursor copy"
-expect "control: a field that always shows its cursor shows it at rest" '["", "Search themes", true, false]' search_field
-search_control_close "control: the resting cursor copy"
-plugin_restore ThemeView.qml "resting cursor"
-cursor_open "the pressed cursor"
-cursor_pressed "the pressed cursor" view_value
-expect "a pressed field keeps its cursor once its typed filter is erased" '["", "Search themes", true, false]' search_field
-search_control_close "the pressed cursor"
-plugin_control ThemeView.qml "pressed cursor" 'root.searchArmed = true;' ''
-cursor_open "control: the pressed cursor copy"
-cursor_pressed "control: the pressed cursor copy" view_value
-expect "control: a press that arms nothing leaves the erased field without a cursor" '["", "Search themes", false, false]' search_field
-search_control_close "control: the pressed cursor copy"
-plugin_restore ThemeView.qml "pressed cursor"
+# Control for the search field: a copy of the theme view that draws one.
+search_field_line=$'                id: caption\n'
+search_field_copy=$'                id: caption\n                TextField { width: parent.width; text: root.filterText }\n'
+plugin_control ThemeView.qml "search field" "$search_field_line" "$search_field_copy"
+press_themes || fail "typing SUPER+SHIFT+T for the search field control failed"
+expect_poll "SUPER+SHIFT+T opens the search field control browser" 1 layer_count vgs:overlay
+expect_poll "the search field control read its cards" true view_value loaded
+expect "control: a theme view with a search field draws one" true search_field
+expect "the search field control browser hides" ok ipc shell hide overlay vgs.themes
+expect_poll "the search field control browser closes" 0 layer_count vgs:overlay
+plugin_restore ThemeView.qml "search field"
 
 # vgs, applied, ships Black; a click on the source line's Show all
 # switches to all, turns the line to Show theme and leaves the keys with
@@ -1008,13 +995,8 @@ expect "the view starts on every monitor" '"every"' wall_value scope
 expect "two screens show the scope control" true wall_value scoped
 expect_poll "the selection starts on the image every screen shows" "$nord_a" wall_selected
 expect "the wallpaper card decodes at card size times screen scale" True card_source_size_matches "$nord_a"
-expect_poll "the resting wallpaper view draws its search placeholder, source line and scope control alone" '["All monitors", "Search wallpapers", "Show all", "This monitor"]' rest_texts
-expect "the resting wallpaper search field is empty, shows no cursor and leaves the keyboard with the view" '["", "Search wallpapers", false, false]' search_field
-click_in vgs:overlay overlay vgs.themes TextField "" || fail "the click on the empty wallpaper search field failed"
-expect_poll "a press on the empty wallpaper search field shows a cursor without the keyboard" '["", "Search wallpapers", true, false]' search_field
-browser_focused "a press on the empty wallpaper search field leaves the keyboard with the view"
-type_keys -M ctrl -k u -m ctrl || fail "sending Ctrl+U to the pressed wallpaper search field failed"
-expect_poll "Ctrl+U puts the pressed wallpaper search field back at rest" '["", "Search wallpapers", false, false]' search_field
+expect_poll "the resting wallpaper view draws its hint line and scope words alone" '["All monitors", "Show all", "This monitor", "Type to search |"]' rest_texts
+expect "the wallpaper view draws no search field" absent search_field
 
 # The wallpaper filter: text reaches the filter, filters the rail, Space
 # stays text, Ctrl+U clears, Clear filter works from the empty state, and
@@ -1022,19 +1004,17 @@ expect_poll "Ctrl+U puts the pressed wallpaper search field back at rest" '["", 
 type_keys "b." || fail "typing the wallpaper filter failed"
 expect_poll "typing reaches the wallpaper filter" '"b."' wall_value filterText
 expect_poll "the wallpaper filter keeps b.jpg alone" "[\"$nord_b\"]" wall_keys
-expect "the wallpaper search field shows the typed filter and a cursor without the keyboard" '["b.", "Search wallpapers", true, false]' search_field
-click_in vgs:overlay overlay vgs.themes TextField b. || fail "the click on the wallpaper search field failed"
-browser_focused "a click on the wallpaper search field leaves the keyboard with the view"
+expect_poll "the wallpaper footer shows the typed filter in place of the hint" '["All monitors", "Show all", "This monitor", "b."]' rest_texts
 type_keys -k space || fail "sending Space to the wallpaper filter failed"
 expect_poll "Space in the wallpaper filter stays text" '"b. "' wall_value filterText
 type_keys -M ctrl -k u -m ctrl || fail "clearing the wallpaper filter failed"
 expect_poll "Ctrl+U clears the wallpaper filter" '""' wall_value filterText
 type_keys "zzqx" || fail "typing the empty wallpaper filter failed"
 expect_poll "a wallpaper filter no card matches empties the rail" 0 wall_count
-expect "the wallpaper search field shows the filter no card matches" '["zzqx", "Search wallpapers", true, false]' search_field
+expect "the wallpaper footer shows the filter no card matches" True rest_has zzqx
 click_in vgs:overlay overlay vgs.themes Button "Clear filter" || fail "the wallpaper Clear filter click failed"
 expect_poll "Clear filter clears the wallpaper filter" '""' wall_value filterText
-expect_poll "Clear filter puts the wallpaper search field back at rest" '["", "Search wallpapers", false, false]' search_field
+expect_poll "Clear filter puts the wallpaper hint back" True rest_has "Type to search |"
 type_keys "b." || fail "typing the wallpaper filter before Escape failed"
 expect_poll "the wallpaper filter is set before Escape" '"b."' wall_value filterText
 type_keys -k Escape || fail "sending Escape with a wallpaper filter failed"
@@ -1042,26 +1022,14 @@ expect_poll "Escape clears the wallpaper filter" '""' wall_value filterText
 expect "Escape with a wallpaper filter keeps the browser open" 1 layer_count vgs:overlay
 type_keys -k Escape || fail "sending Escape after clearing the wallpaper filter failed"
 expect_poll "Escape with no wallpaper filter closes the browser" 0 layer_count vgs:overlay
-wall_cursor_open() { # LABEL
-  press_wallpapers || { fail "$1: typing SUPER+SHIFT+W failed"; return 1; }
-  expect_poll "$1: SUPER+SHIFT+W opens the browser" 1 layer_count vgs:overlay
-  expect_poll "$1: the wallpaper view read its lists" true wall_value loaded
-}
-plugin_control WallpaperView.qml "resting cursor" "$cursor_binding" 'cursorVisible: true'
-wall_cursor_open "control: the resting wallpaper cursor copy"
-expect "control: a wallpaper field that always shows its cursor shows it at rest" '["", "Search wallpapers", true, false]' search_field
-search_control_close "control: the resting wallpaper cursor copy"
-plugin_restore WallpaperView.qml "resting cursor"
-wall_cursor_open "the pressed wallpaper cursor"
-cursor_pressed "the pressed wallpaper cursor" wall_value
-expect "a pressed wallpaper field keeps its cursor once its typed filter is erased" '["", "Search wallpapers", true, false]' search_field
-search_control_close "the pressed wallpaper cursor"
-plugin_control WallpaperView.qml "pressed cursor" 'root.searchArmed = true;' ''
-wall_cursor_open "control: the pressed wallpaper cursor copy"
-cursor_pressed "control: the pressed wallpaper cursor copy" wall_value
-expect "control: a wallpaper press that arms nothing leaves the erased field without a cursor" '["", "Search wallpapers", false, false]' search_field
-search_control_close "control: the pressed wallpaper cursor copy"
-plugin_restore WallpaperView.qml "pressed cursor"
+plugin_control WallpaperView.qml "search field" "$search_field_line" "$search_field_copy"
+press_wallpapers || fail "typing SUPER+SHIFT+W for the wallpaper search field control failed"
+expect_poll "SUPER+SHIFT+W opens the wallpaper search field control browser" 1 layer_count vgs:overlay
+expect_poll "the wallpaper search field control view read its lists" true wall_value loaded
+expect "control: a wallpaper view with a search field draws one" true search_field
+expect "the wallpaper search field control browser hides" ok ipc shell hide overlay vgs.themes
+expect_poll "the wallpaper search field control browser closes" 0 layer_count vgs:overlay
+plugin_restore WallpaperView.qml "search field"
 
 plugin_control WallpaperView.qml "wallpaper typing" $'case "":\n                if (event.key === Qt.Key_Backspace' $'case "":\n                return;\n                if (event.key === Qt.Key_Backspace'
 press_wallpapers || fail "typing SUPER+SHIFT+W for the wallpaper typing control failed"
@@ -1150,36 +1118,38 @@ expect_poll "the scope control moves the other screen's image too" "$nord_b read
 plugin_restore WallpaperView.qml scope
 expect "set --every-screen puts nord's first image back on every screen" "ok background=a.jpg theme=nord path=$nord_a screen=*" vgshell_theme background set "$nord_a" --every-screen
 
-# A click on the scope segment already chosen hands the keyboard back as a
-# change does: Right then steps the rail and leaves the scope. Control: a
-# copy of the view whose scope control keeps the keyboard switches the
-# scope on Right.
-press_wallpapers || fail "typing SUPER+SHIFT+W for the segment click failed"
-expect_poll "SUPER+SHIFT+W opens the browser for the segment click" 1 layer_count vgs:overlay
-expect_poll "the segment-click view selects a.jpg" "$nord_a" wall_selected
-click_scope_all || fail "the click on the chosen All monitors segment failed"
-expect_poll "the view takes the keyboard back after a click on the chosen scope" false segment_focused
-type_keys -k Right || fail "sending Right after the segment click failed"
+# A click on a scope word chooses that scope, draws it in the text colour
+# and leaves the keyboard with the view: Right then steps the rail and
+# leaves the scope. Control: a copy whose words draw one colour.
+press_wallpapers || fail "typing SUPER+SHIFT+W for the scope word click failed"
+expect_poll "SUPER+SHIFT+W opens the browser for the scope word click" 1 layer_count vgs:overlay
+expect_poll "the scope word view selects a.jpg" "$nord_a" wall_selected
+expect "the chosen All monitors draws in the text colour, This monitor fainter" '[true, false]' scope_tones
+click_in vgs:overlay overlay vgs.themes Label "This monitor" || fail "the click on This monitor failed"
+expect_poll "a click on This monitor chooses it" '"this"' wall_value scope
+expect_poll "the clicked This monitor draws in the text colour, All monitors fainter" '[false, true]' scope_tones
+browser_focused "a click on a scope word leaves the keyboard with the view"
+type_keys -k Right || fail "sending Right after the scope word click failed"
 expect_poll "Right after the click steps the rail" "$nord_b" wall_selected
-expect "Right after the click leaves the scope" '"every"' wall_value scope
-type_keys -k Escape || fail "sending Escape after the segment click failed"
-expect_poll "Escape closes the browser after the segment click" 0 layer_count vgs:overlay
-plugin_control WallpaperView.qml "wallpaper focus" $'currentIndex: root.scopeIndex\n                    onActiveFocusChanged: if (activeFocus) Qt.callLater(root.takeKeys)' 'currentIndex: root.scopeIndex'
-press_wallpapers || fail "typing SUPER+SHIFT+W for the wallpaper focus control failed"
-expect_poll "SUPER+SHIFT+W opens the wallpaper focus control's browser" 1 layer_count vgs:overlay
-expect_poll "the wallpaper focus control's view read its lists" true wall_value loaded
-click_scope_all || fail "the click on the focus control's All monitors segment failed"
-type_keys -k Right || fail "sending Right to the wallpaper focus control failed"
-expect_poll "the wallpaper focus control's Right switches the scope" '"this"' wall_value scope
-press_wallpapers || fail "typing SUPER+SHIFT+W to close the wallpaper focus control failed"
-expect_poll "SUPER+SHIFT+W closes the wallpaper focus control's browser, whose keys the control holds" 0 layer_count vgs:overlay
-plugin_restore WallpaperView.qml "wallpaper focus"
-# Controls for the slices: a copy of the theme card whose stack lies
-# across the slice, and one whose stack reverses its colours.
-for control in vertical colours; do
+expect "Right after the click leaves the scope" '"this"' wall_value scope
+type_keys -k Escape || fail "sending Escape after the scope word click failed"
+expect_poll "Escape closes the browser after the scope word click" 0 layer_count vgs:overlay
+plugin_control WallpaperView.qml "scope tone" 'color: scopeWord.index === root.scopeIndex ? Theme.color.text : ' 'color: '
+press_wallpapers || fail "typing SUPER+SHIFT+W for the scope tone control failed"
+expect_poll "SUPER+SHIFT+W opens the scope tone control's browser" 1 layer_count vgs:overlay
+expect_poll "the scope tone control's view read its lists" true wall_value loaded
+expect "control: words that draw one colour show no chosen word" '[false, false]' scope_tones
+expect "the scope tone control browser hides" ok ipc shell hide overlay vgs.themes
+expect_poll "the scope tone control browser closes" 0 layer_count vgs:overlay
+plugin_restore WallpaperView.qml "scope tone"
+# Controls for the slices: a copy of the theme card whose stack is one
+# column, one whose stack reverses its colours, and one whose stack sits
+# under the wash.
+for control in grid colours wash; do
   case $control in
-    vertical) plugin_control ThemeCard.qml "stack $control" $'        vertical: true\n' '' ;;
-    colours) plugin_control ThemeCard.qml "stack $control" $'vertical: true\n        colours: root.swatches === null ? [] : root.swatches' $'vertical: true\n        colours: root.swatches === null ? [] : root.swatches.slice().reverse()' ;;
+    grid) plugin_control ThemeCard.qml "stack $control" $'        columns: 2\n' $'        columns: 1\n' ;;
+    colours) plugin_control ThemeCard.qml "stack $control" $'columns: 2\n        colours: root.swatches === null ? [] : root.swatches' $'columns: 2\n        colours: root.swatches === null ? [] : root.swatches.slice().reverse()' ;;
+    wash) plugin_control ThemeCard.qml "stack $control" $'        parent: root.foreground ?? root\n        anchors.fill: parent\n' $'        anchors.fill: parent\n' ;;
   esac
   press_themes || fail "typing SUPER+SHIFT+T for the stack $control control failed"
   expect_poll "SUPER+SHIFT+T opens the stack $control control browser" 1 layer_count vgs:overlay
