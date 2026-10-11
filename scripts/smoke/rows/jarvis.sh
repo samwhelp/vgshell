@@ -650,7 +650,7 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 s=p.read_text()
-needle='const result = shell.status.set("detail", { phase: message.phase, seq: message.seq, state: message.state });'
+needle='const result = shell.status.set("detail", { phase: message.phase, seq: message.seq, state: message.state, brain: message.brain });'
 assert s.count(needle)==1
 changed=s.replace(needle, needle.replace("= shell.status", "= false ? shell.status").replace(" });", ' }) : "ok";'))
 assert changed != s
