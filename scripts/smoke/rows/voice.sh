@@ -98,7 +98,7 @@
 # click's notice holds Set up to open after the install" failed, reading
 # {}, and "a click on the Voice widget after Not now raises the notice
 # again" failed, reading null.
-# inputs: shell/Core/Sounds.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* shell/Core/IpcRegistry.qml shell/Ui/BarWidget.qml shell/Ui/controls/BarItem.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Capabilities.qml
+# inputs: scripts/smoke/fixtures/voxtype/voxtype shell/Core/Sounds.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* shell/Core/IpcRegistry.qml shell/Ui/BarWidget.qml shell/Ui/controls/BarItem.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Capabilities.qml
 set -euo pipefail
 
 voice_log="$sandbox/voice-record.log"
@@ -124,43 +124,19 @@ printf '%s\n' '{"state":"recording","backend":"ONNX CPU","device":"default","mod
 : >"$voice_bridge_log"
 cat >"$voice_stub" <<EOF_STUB
 #!/usr/bin/env bash
-case "\$*" in
-  'status --follow --extended --format json')
-    printf '%s\n' "\$\$" >"$voice_status_pid"
-    [[ -e "$voice_status_hold" ]] && exec sleep infinity
-    exec tail -n +1 -f "$voice_states"
-    ;;
-  'record toggle'|'record start'|'record stop')
-    printf '%s\n' "\$*" >>"$voice_log"
-    # While the row asks, a toggle moves the status stream as voxtype's
-    # daemon does: idle to recording, any other state to idle.
-    if [[ "\$*" == 'record toggle' && -e "$voice_toggle_follows" ]]; then
-      if [[ "\$(tail -n 1 "$voice_states")" == '{"state":"idle"}' ]]; then next=recording; else next=idle; fi
-      printf '{"state":"%s"}\n' "\$next" >>"$voice_states"
-    fi
-    ;;
-  '--version') printf '%s\n' 'voxtype 1.1.0' ;;
-  'config get engine --json') printf '%s\n' '{"value":"parakeet"}' ;;
-  'config get parakeet.model --json') printf '%s\n' '{"value":"parakeet-tdt-0.6b-v3"}' ;;
-  'config get audio.feedback.enabled --json')
-    [[ -e "$voice_feedback_unreadable" ]] && { printf '%s\n' 'Error: Configuration error: Invalid config' >&2; exit 1; }
-    printf '{"file_value":%s,"key":"audio.feedback.enabled","value":%s}\n' "\$(cat "$voice_feedback")" "\$(cat "$voice_feedback")"
-    ;;
-  'config set audio.feedback.enabled true'|'config set audio.feedback.enabled false')
-    printf '%s\n' "\$*" >>"$voice_feedback_sets"
-    [[ -e "$voice_feedback_refused" ]] && { printf '%s\n' 'error: config editor: write: Permission denied (os error 13)' >&2; exit 1; }
-    [[ -e "$voice_feedback_dropped" ]] || printf '%s\n' "\$4" >"$voice_feedback"
-    ;;
-  'info models --json')
-    if [[ -e "$voice_installed" ]]; then
-      printf '%s\n' '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":true,"downloadable":true,"download_arg":"parakeet-tdt-0.6b-v3"}],"default":"parakeet-tdt-0.6b-v3"}},"verified":true}'
-    else
-      printf '%s\n' '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":false,"downloadable":true,"download_arg":"parakeet-tdt-0.6b-v3"}],"default":"parakeet-tdt-0.6b-v3"}},"verified":true}'
-    fi
-    ;;
-  'info engines --json') printf '%s\n' '[{"name":"whisper","compiled":true,"active":false},{"name":"parakeet","compiled":true,"active":true}]' ;;
-  *) ;;
-esac
+# The smoke's one voxtype stand-in, over this row's files.
+voice_log=$(printf %q "$voice_log")
+voice_status_pid=$(printf %q "$voice_status_pid")
+voice_status_hold=$(printf %q "$voice_status_hold")
+voice_states=$(printf %q "$voice_states")
+voice_toggle_follows=$(printf %q "$voice_toggle_follows")
+voice_installed=$(printf %q "$voice_installed")
+voice_feedback=$(printf %q "$voice_feedback")
+voice_feedback_sets=$(printf %q "$voice_feedback_sets")
+voice_feedback_unreadable=$(printf %q "$voice_feedback_unreadable")
+voice_feedback_refused=$(printf %q "$voice_feedback_refused")
+voice_feedback_dropped=$(printf %q "$voice_feedback_dropped")
+. $(printf %q "$repo/scripts/smoke/fixtures/voxtype/voxtype")
 EOF_STUB
 chmod 755 "$voice_stub"
 # The bridge's protocol: a connected line, then one frame each 50 ms, and a

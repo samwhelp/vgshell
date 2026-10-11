@@ -23,6 +23,7 @@ SecretWriter 1.0 SecretWriter.qml
 SystemSteps 1.0 SystemSteps.qml
 SudoGrant 1.0 SudoGrant.qml
 BluetoothAgent 1.0 BluetoothAgent.qml
+Dictation 1.0 Dictation.qml
 HyprlandLayer 1.0 HyprlandLayer.qml
 HyprlandState 1.0 HyprlandState.qml
 HyprctlReader 1.0 HyprctlReader.qml

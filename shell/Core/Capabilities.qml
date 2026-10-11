@@ -33,6 +33,10 @@ Singleton {
         active: root.holderIds("hyprland").length > 0 || shortcuts.keyCapture.wantsBinds
     }
     BluetoothAgent { id: bluetoothAgent }
+    Dictation {
+        id: dictation
+        holders: root.holderIds("dictation")
+    }
     MonitorState {
         id: monitorState
         active: root.holderIds("monitors").length > 0
@@ -217,6 +221,7 @@ Singleton {
         system: systemSteps.provider,
         sudo: sudoGrant.provider,
         bluetoothAgent: bluetoothAgent.provider,
+        dictation: dictation.provider,
         secrets: secrets.provider,
         hyprland: hyprlandState.provider,
         monitors: monitorState.provider,
@@ -546,6 +551,7 @@ Singleton {
             system: systemSteps.record(),
             sudo: sudoGrant.record(),
             bluetoothAgent: bluetoothAgent.record(),
+            dictation: dictation.record(),
             notices: Notices.record(),
             sounds: Sounds.record(),
             hyprland: hyprlandState.record(),

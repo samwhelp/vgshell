@@ -1,7 +1,12 @@
 # Capabilities, each driven through the fixture's own IPC target and read
 # back from the fixture, the core's lending record and the compositor or bus
 # the capability reaches.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/Capabilities.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/IdleRegistry.qml shell/Core/SessionLock.qml shell/Core/NotificationHub.qml shell/Core/Compositor.qml shell/Core/Dispatch.js scripts/smoke/rows/plugins.sh
+# dictation: the fixture acme.dictation holds it over the voxtype stand-in,
+# scripts/smoke/fixtures/voxtype/, which is on the shell's PATH only while
+# a row holds the capability, so no row starts the host's voxtype; the
+# daemon the core starts for the holder is the stand-in. The row puts the
+# stand-ins away again and leaves the fixture disabled.
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Capabilities.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/IdleRegistry.qml shell/Core/SessionLock.qml shell/Core/NotificationHub.qml shell/Core/Compositor.qml shell/Core/Dispatch.js scripts/smoke/rows/plugins.sh
 set -euo pipefail
 lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); v=d
 for k in sys.argv[1].split("."): v=v.get(k) if isinstance(v, dict) else None
@@ -152,3 +157,69 @@ type_keys -k Shift_L || fail "typing a key for the idle watch failed"
 expect_poll "a key reports the seat active again" '["idle", "active"]' idle_changes
 expect "the disposer drops the watch" ok probe idle-unwatch
 expect "the lending record lists no watch after the disposer" '[]' idle_watches
+
+# dictation_stand_ins on|off: the voxtype and wtype stand-ins in the shell's
+# stand-in directory, swapped whole. `on` returns 1 unless the shell then
+# resolves voxtype to the stand-in, so no caller enables a holder over the
+# host's command.
+dictation_stand_ins() { # on|off
+  local name
+  if [[ $1 == off ]]; then
+    rm -f -- "${shim:?}/voxtype" "${shim:?}/wtype"
+    return 0
+  fi
+  for name in voxtype wtype; do
+    cp -- "$repo/scripts/smoke/fixtures/voxtype/$name" "$shim/$name.next" && chmod 755 "$shim/$name.next" && mv -T -- "$shim/$name.next" "$shim/$name" || return 1
+  done
+  [[ $(shell_resolves voxtype) == "$shim/voxtype" ]]
+}
+# The stand-in's processes, by the verb each runs: its daemons, its status
+# followers and any other, and how many of them all are children of the
+# shell, shell_qs_pid. The sandbox's stand-in path names no other process.
+# With `pids` it prints their pids in place of the counts.
+dictation_processes() { # [pids]
+  python3 - "$shim/voxtype" "${shell_qs_pid:-none}" "${1:-counts}" <<'PY'
+import os, sys
+stand_in, shell, want = sys.argv[1:]
+counts = {"daemon": 0, "follower": 0, "other": 0, "children": 0}
+pids = []
+for pid in os.listdir("/proc"):
+    # This reader's own arguments name the stand-in too.
+    if not pid.isdigit() or int(pid) == os.getpid():
+        continue
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            args = f.read().decode(errors="replace").split("\0")
+        with open(f"/proc/{pid}/status") as f:
+            parent = next(line.split()[1] for line in f if line.startswith("PPid:"))
+    except (OSError, StopIteration, IndexError):
+        continue
+    if stand_in not in args:
+        continue
+    verb = args[args.index(stand_in) + 1:]
+    kind = "daemon" if verb[:1] == ["daemon"] else "follower" if verb[:2] == ["status", "--follow"] else "other"
+    counts[kind] += 1
+    counts["children"] += parent == shell
+    pids.append(pid)
+print(" ".join(pids) if want == "pids" else " ".join(f"{k}={v}" for k, v in counts.items()))
+PY
+}
+dictation_lent() { lent dictation | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["daemon"], d["child"], ",".join(d["holders"]) or "-")'; }
+dictation_fixture="$home/.config/vgshell/plugins/acme.dictation"
+mkdir -p "$dictation_fixture"
+cp -R "$repo/scripts/smoke/fixtures/plugins/acme.dictation/." "$dictation_fixture/"
+rescan "rescan after adding the dictation fixture answers ok"
+expect_poll "the dictation fixture is discovered" True plugin_known acme.dictation
+expect "no holder of dictation leaves no daemon" "absent none -" dictation_lent
+if dictation_stand_ins on; then
+  expect "enabling the dictation fixture is allowed" ok ipc shell setPluginEnabled acme.dictation true
+  dictation_holds() { ipc shell lent | py_reply 'import json,sys; h=json.load(sys.stdin)["holders"].get("dictation",[]); print("acme.dictation" in h and "acme.bare" not in h)'; }
+  expect_poll "the dictation capability is lent to its fixture and not the bare plugin" True dictation_holds
+  expect_poll "the core starts the daemon for the holder" "ready running acme.dictation" dictation_lent
+  expect_poll "the daemon and its follower are the stand-in, children of the shell" "daemon=1 follower=1 other=0 children=2" dictation_processes
+  expect "disabling the dictation fixture is allowed" ok ipc shell setPluginEnabled acme.dictation false
+  expect_poll "the daemon ends with its holder" "daemon=0 follower=0 other=0 children=0" dictation_processes
+else
+  fail "the shell does not resolve voxtype to the stand-in: $(shell_resolves voxtype)"
+fi
+dictation_stand_ins off

@@ -1,0 +1,2 @@
+{ "schemaVersion": 1, "id": "acme.dictation", "name": "Dictation", "version": "0.1.0", "author": "acme", "description": "smoke fixture holding the dictation capability",
+  "kinds": ["service"], "entryPoints": { "service": "Service.qml" }, "capabilities": ["dictation", "ipc"] }

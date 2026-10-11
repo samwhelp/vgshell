@@ -121,6 +121,10 @@ scratchpads
 # It installs its own fixture and restarts the shell for a control, so it
 # runs with the tail rows that do the same.
 settings-unsaved
+# It installs its own fixtures and restarts the shell for its kill and its
+# controls, so it runs with the tail rows that do the same; it reads
+# capabilities.sh's helpers and no state another row leaves.
+dictation
 # This row restarts the shell for its controls, so it runs with the tail rows that do the same.
 panes
 # After panes, which removes its fixture holder: vgs.system holds `panes`

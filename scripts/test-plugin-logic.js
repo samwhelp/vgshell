@@ -1401,6 +1401,7 @@ function suite(ctx, check) {
     }
     check("validateManifest normalizes absent sounds to an object", ctx.validateManifest(svc, "/p").manifest.sounds, {});
     check("soundSettings is a known capability and not exclusive", [ctx.validateManifest(Object.assign({}, svc, { capabilities: ["soundSettings"] }), "/p").ok, ctx.EXCLUSIVE_CAPABILITIES.indexOf("soundSettings")], [true, -1]);
+    check("dictation is a known capability and not exclusive", [ctx.validateManifest(Object.assign({}, svc, { capabilities: ["dictation"] }), "/p").ok, ctx.EXCLUSIVE_CAPABILITIES.indexOf("dictation")], [true, -1]);
     // The table against the tree: every sound names a shipped file, and
     // every shipped file is a sound a choice can name, beside the one
     // record of the sounds' origin and licence.
@@ -2051,8 +2052,10 @@ const CONTROLS = [
     ["a notify message escapes >", '.replace(/>/g, "&gt;");', ';'],
     ["a notify title ends the options", 'return argv.concat(["--", judged.title, message]);', 'return argv.concat([judged.title, message]);'],
     ["sounds is a manifest key", '"secrets", "sounds", "alwaysOn"];', '"secrets", "alwaysOn"];'],
-    ["sounds is a capability", '"appearance", "sounds", "soundSettings"];', '"appearance", "soundSettings"];'],
-    ["soundSettings is a capability", '"appearance", "sounds", "soundSettings"];', '"appearance", "sounds"];'],
+    ["sounds is a capability", '"appearance", "sounds", "soundSettings", ', '"appearance", "soundSettings", '],
+    ["soundSettings is a capability", '"appearance", "sounds", "soundSettings", ', '"appearance", "sounds", '],
+    ["dictation is a capability", '"soundSettings", "dictation"];', '"soundSettings"];'],
+    ["dictation is not exclusive", 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];', 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes", "dictation"];'],
     ["sounds is a non-empty object", "if (!isPlainObject(sounds) || Object.keys(sounds).length === 0)", "if (false)"],
     ["sounds holds an event", "if (!isPlainObject(sounds) || Object.keys(sounds).length === 0)", "if (!isPlainObject(sounds))"],
     ["sounds needs its capability", 'if (capabilities.indexOf("sounds") === -1)\n        return "sounds needs capability sounds";', ""],

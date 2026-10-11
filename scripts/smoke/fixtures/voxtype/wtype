@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# The wtype stand-in the voxtype stand-in types through: it types nothing
+# and appends its arguments, one line a call, to voxtype-wtype.log in the
+# directory above this file's, the sandbox for a copy in its stand-in
+# directory.
+printf '%s\n' "$*" >>"$(cd -- "$(dirname -- "$0")/.." && pwd)/voxtype-wtype.log"

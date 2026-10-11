@@ -1,6 +1,9 @@
 # The fixture widget check reads what rows/settings.sh leaves: the Settings
 # plugin disabled, so its widget is out of the centre section.
-# inputs: scripts/smoke/fixtures/plugins/acme.locker/* scripts/smoke/fixtures/plugins/acme.contention/* shell/plugins/vgs.themes/manifest.json shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Lifetime.js scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/IdleRegistry.qml shell/Core/NotificationHub.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/settings.sh
+# The dictation daemon, the core's child while a plugin holds `dictation`
+# (D106), over the stand-in rows/capabilities.sh puts on the shell's PATH:
+# disabling the last holder ends the daemon and its follower.
+# inputs: scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js scripts/smoke/fixtures/plugins/acme.locker/* scripts/smoke/fixtures/plugins/acme.contention/* shell/plugins/vgs.themes/manifest.json shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Lifetime.js scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/IdleRegistry.qml shell/Core/NotificationHub.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/settings.sh
 set -euo pipefail
 locker="$home/.config/vgshell/plugins/acme.locker"
 mkdir -p "$locker"
@@ -35,6 +38,19 @@ expect "disable released the tui capability" False fixture_holds_tui
 expect_poll "the compositor dropped the fixture's shortcut" 0 hypr_shortcuts
 expect "qs lists no IPC target for the disabled fixture" 0 ipc_targets
 expect "disabling the bare fixture is allowed" ok ipc shell setPluginEnabled acme.bare false
+
+if dictation_stand_ins on; then
+  expect "enabling the dictation fixture is allowed" ok ipc shell setPluginEnabled acme.dictation true
+  expect_poll "the daemon runs while the fixture holds dictation" "ready running acme.dictation" dictation_lent
+  expect_poll "the daemon and its follower are children of the shell" "daemon=1 follower=1 other=0 children=2" dictation_processes
+  expect "disabling the last dictation holder is allowed" ok ipc shell setPluginEnabled acme.dictation false
+  expect_poll "disable released the dictation hold" null lent holders.dictation
+  expect_poll "disabling the last holder ends the daemon" "daemon=0 follower=0 other=0 children=0" dictation_processes
+  expect_poll "the lending record reads no daemon and no child" "absent none -" dictation_lent
+else
+  fail "the shell does not resolve voxtype to the stand-in: $(shell_resolves voxtype)"
+fi
+dictation_stand_ins off
 
 # Both backgrounds become eligible in one configuration update, before the
 # registry's deferred lending snapshot sees the first holder.

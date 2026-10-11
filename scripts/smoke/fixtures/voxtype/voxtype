@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+# The smoke's voxtype stand-in, for the rows that put it on the shell's
+# PATH as `voxtype`; no row runs the host's command. It keeps voxtype
+# 1.1.0's own contract, by file of github.com/peteonrails/voxtype at tag
+# v1.1.0: one daemon per runtime directory behind `voxtype.lock`
+# (src/daemon.rs:3098-3135), a `state` file the status verbs read
+# (src/app/status.rs), `record start` and `record stop` as SIGUSR1 and
+# SIGUSR2 after the `output_mode_override` file, `record cancel` as a
+# `cancel` file (src/app/record.rs), a transcript's `.done` sidecar that
+# `record stop --wait --json` reads and removes, and the cap, which drops
+# the file override and types the words (src/daemon.rs:3995-4027).
+#
+# Its daemon hears the words of $control/voxtype-words, never a
+# microphone, and types through the `wtype` stand-in beside this file,
+# never the host's wtype. $control is the directory above this file's:
+# the sandbox, for a copy in its stand-in directory. There it reads
+# voxtype-words and voxtype-max-secs, the cap `config get` answers, and
+# appends each thing its daemon did, one word a line, to
+# voxtype-daemon.log: started, start, stop, cancel, cap, stopped, and
+# refused for a second daemon.
+#
+# rows/voice.sh starts no daemon. Its copy is a stub that sets the row's
+# own files as the voice_* variables and sources this file: the status
+# stream then follows the file the row appends states to, the record
+# verbs are logged and signal nothing, and the config and info verbs
+# answer from the row's files.
+set -u
+control="$(cd -- "$(dirname -- "$0")/.." && pwd)"
+run="${XDG_RUNTIME_DIR:-$control}/voxtype"
+lock="$run/voxtype.lock"
+override="$run/output_mode_override"
+POLL=0.05
+
+daemon_pid() {
+  local pid
+  pid="$(cat -- "$lock" 2>/dev/null)" && [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && printf '%s\n' "$pid"
+}
+state_now() { if daemon_pid >/dev/null; then cat -- "$run/state" 2>/dev/null || echo stopped; else echo stopped; fi; }
+# src/status_json.rs: text, alt, class, tooltip, then model, device, backend.
+state_json() { printf '{"text": "", "alt": "%s", "class": "%s", "tooltip": "", "model": "parakeet-tdt-0.6b-v3", "device": "default", "backend": "ONNX CPU"}\n' "$1" "$1"; }
+set_state() { printf '%s\n' "$1" >"$run/state.next" && mv -f -- "$run/state.next" "$run/state"; }
+max_secs() { cat -- "$control/voxtype-max-secs" 2>/dev/null || echo 210; }
+note() { printf '%s\n' "$1" >>"$control/voxtype-daemon.log"; }
+no_daemon() { printf '%s\n' 'Error: Voxtype daemon is not running.' >&2; exit 1; }
+
+# The recording's words go to the override's file with its sidecar, or
+# through the wtype stand-in with no override; no words write nothing.
+deliver() {
+  local words target=""
+  words="$(cat -- "$control/voxtype-words" 2>/dev/null)" || words=""
+  [[ -e $override ]] && target="$(cat -- "$override")"
+  rm -f -- "${override:?}"
+  [[ -n $words ]] || return 0
+  if [[ $target == file:* ]]; then
+    printf '%s' "$words" >"${target#file:}"
+    printf '{"status":"ok","chars":%s}\n' "${#words}" >"${target#file:}.done"
+  else
+    "$(dirname -- "$0")/wtype" -d 10 -- "$words"
+  fi
+}
+
+# The daemon's signals, each taken where it arrives: bash runs a trap
+# between two commands of the loop below, and at once out of its wait.
+recording_since=0
+on_start() {
+  [[ $(cat -- "$run/state") == idle ]] || return 0
+  recording_since="$(date +%s%3N)"
+  set_state recording
+  note start
+}
+on_stop() {
+  [[ $(cat -- "$run/state") == recording ]] || return 0
+  set_state transcribing
+  note stop
+  deliver
+  set_state idle
+}
+
+run_daemon() {
+  mkdir -p -- "$run"
+  if daemon_pid >/dev/null; then
+    printf '%s\n' 'Error: Another voxtype instance is already running' >&2
+    note refused
+    exit 1
+  fi
+  rm -f -- "${run:?}/state" "${run:?}/cancel" "${override:?}"
+  printf '%s\n' "$$" >"$lock"
+  set_state idle
+  note started
+  trap on_start USR1
+  trap on_stop USR2
+  trap 'note stopped; exit 0' TERM INT
+  while :; do
+    if [[ $(cat -- "$run/state") == recording ]]; then
+      if [[ -e $run/cancel ]]; then
+        rm -f -- "${run:?}/cancel" "${override:?}"
+        note cancel
+        set_state idle
+      elif (( $(date +%s%3N) - recording_since > $(max_secs) * 1000 )); then
+        rm -f -- "${override:?}"
+        set_state transcribing
+        note cap
+        deliver
+        set_state idle
+      fi
+    fi
+    sleep "$POLL" &
+    wait "$!"
+  done
+}
+
+# `record stop --wait --json`: the sidecar, or `empty` once the state has
+# read idle for 750 ms, as src/app/record.rs:259-311 polls.
+stop_wait() {
+  local pid target="" idle=0 words
+  pid="$(daemon_pid)" || no_daemon
+  [[ -e $override ]] && target="$(cat -- "$override")"
+  if [[ $target != file:* ]]; then
+    printf '%s\n' 'Error: --wait needs a transcript file: start the recording with --file, set output.mode = "file", or pass --wait-file <PATH>' >&2
+    exit 1
+  fi
+  target="${target#file:}"
+  rm -f -- "${target:?}.done"
+  kill -USR2 "$pid"
+  while :; do
+    if [[ -e $target.done ]]; then
+      rm -f -- "${target:?}.done"
+      words="$(cat -- "$target")"
+      python3 -c 'import json,sys; print(json.dumps({"chars": len(sys.argv[1]), "message": None, "status": "ok", "text": sys.argv[1]}))' "$words"
+      exit 0
+    fi
+    if [[ $(state_now) == idle ]]; then idle=$((idle + 1)); else idle=0; fi
+    if (( idle >= 15 )); then
+      printf '%s\n' '{"chars":0,"message":"the daemon returned to idle without producing a transcript","status":"empty","text":""}'
+      exit 3
+    fi
+    sleep "$POLL"
+  done
+}
+
+record_start() { # ARG...
+  local pid arg
+  pid="$(daemon_pid)" || no_daemon
+  for arg in "$@"; do
+    [[ $arg == --file=* ]] && printf 'file:%s' "${arg#--file=}" >"$override"
+  done
+  kill -USR1 "$pid"
+}
+
+case "$*" in
+  daemon) run_daemon ;;
+  'status --format json') state_json "$(state_now)" ;;
+  'status --follow --extended --format json')
+    if [[ -n ${voice_states:-} ]]; then
+      printf '%s\n' "$$" >"$voice_status_pid"
+      [[ -e $voice_status_hold ]] && exec sleep infinity
+      exec tail -n +1 -f "$voice_states"
+    fi
+    last=""
+    while :; do
+      now="$(state_now)"
+      [[ $now == "$last" ]] || state_json "$now"
+      last="$now"
+      sleep "$POLL"
+    done
+    ;;
+  'record toggle'|'record start'|'record stop')
+    if [[ -n ${voice_log:-} ]]; then
+      printf '%s\n' "$*" >>"$voice_log"
+      # While the row asks, a toggle moves the status stream as voxtype's
+      # daemon does: idle to recording, any other state to idle.
+      if [[ "$*" == 'record toggle' && -e $voice_toggle_follows ]]; then
+        if [[ "$(tail -n 1 "$voice_states")" == '{"state":"idle"}' ]]; then next=recording; else next=idle; fi
+        printf '{"state":"%s"}\n' "$next" >>"$voice_states"
+      fi
+    elif [[ $* == 'record start' ]]; then
+      record_start
+    else
+      pid="$(daemon_pid)" || no_daemon
+      if [[ $* == 'record stop' || $(state_now) == recording ]]; then kill -USR2 "$pid"; else kill -USR1 "$pid"; fi
+    fi
+    ;;
+  'record start --file='*) record_start "${@:3}" ;;
+  'record stop --wait --json --timeout '*) stop_wait ;;
+  'record cancel')
+    daemon_pid >/dev/null || no_daemon
+    : >"$run/cancel"
+    ;;
+  '--version') printf '%s\n' 'voxtype 1.1.0' ;;
+  'config get audio.max_duration_secs') max_secs ;;
+  'config get audio.device') printf '%s\n' default ;;
+  'config get engine') printf '%s\n' parakeet ;;
+  'config get engine --json') printf '%s\n' '{"value":"parakeet"}' ;;
+  'config get parakeet.model --json') printf '%s\n' '{"value":"parakeet-tdt-0.6b-v3"}' ;;
+  'config get audio.feedback.enabled --json')
+    [[ -e $voice_feedback_unreadable ]] && { printf '%s\n' 'Error: Configuration error: Invalid config' >&2; exit 1; }
+    printf '{"file_value":%s,"key":"audio.feedback.enabled","value":%s}\n' "$(cat "$voice_feedback")" "$(cat "$voice_feedback")"
+    ;;
+  'config set audio.feedback.enabled true'|'config set audio.feedback.enabled false')
+    printf '%s\n' "$*" >>"$voice_feedback_sets"
+    [[ -e $voice_feedback_refused ]] && { printf '%s\n' 'error: config editor: write: Permission denied (os error 13)' >&2; exit 1; }
+    [[ -e $voice_feedback_dropped ]] || printf '%s\n' "$4" >"$voice_feedback"
+    ;;
+  'info models --json')
+    if [[ -e ${voice_installed:-} ]]; then installed=true; else installed=false; fi
+    printf '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":%s,"downloadable":true,"download_arg":"parakeet-tdt-0.6b-v3"}],"default":"parakeet-tdt-0.6b-v3"}},"verified":true}\n' "$installed"
+    ;;
+  'info engines --json') printf '%s\n' '[{"name":"whisper","compiled":true,"active":false},{"name":"parakeet","compiled":true,"active":true}]' ;;
+  *) ;;
+esac

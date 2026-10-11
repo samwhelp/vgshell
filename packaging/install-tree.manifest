@@ -77,6 +77,8 @@ f share/vgshell/shell/Core/BluetoothAgentModel.js
 f share/vgshell/shell/Core/Capabilities.qml
 f share/vgshell/shell/Core/Compositor.qml
 f share/vgshell/shell/Core/Config.qml
+f share/vgshell/shell/Core/Dictation.qml
+f share/vgshell/shell/Core/DictationModel.js
 f share/vgshell/shell/Core/Dispatch.js
 f share/vgshell/shell/Core/HyprctlReader.qml
 f share/vgshell/shell/Core/HyprlandLayer.js
