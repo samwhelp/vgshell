@@ -1054,15 +1054,19 @@ Scope {
         // rest: `<id>=unbuilt` for one the core has not built, the id for
         // one with an image decoding or a file read in flight. A plugin the
         // host does not build, refused or failed at its revision as
-        // BackgroundHost's `ids` reads them, is left out.
+        // BackgroundHost's `ids` reads them, is left out. Until the first
+        // scan has landed and the user configuration has answered, no
+        // plugin has a slot key (Registry.buildRefusal), so every host
+        // reads `scan=pending` or `config=pending` in place of its plugins.
         function perScreenLayers(): string {
             const namespaces = { background: "vgs:background", cover: "vgs:cover" };
+            const pending = !Registry.scanned ? ["scan=pending"] : Config.notReady === "pending" ? ["config=pending"] : [];
             const out = [];
             for (const kind of Object.keys(namespaces))
                 for (const screen of Quickshell.screens) {
                     const hostKey = kind + ":" + screen.name;
                     const rows = (Plugins.built[hostKey] || []).filter(row => row.origin === "core" && row.instance !== null);
-                    const settling = [];
+                    const settling = pending.slice();
                     for (const id of Registry.enabledOfKind(kind)) {
                         if (Registry.slotKey(id) === "" || Plugins.failedRevision(hostKey, kind, id) === Registry.manifests[id].__revision) continue;
                         const row = rows.find(r => r.id === id);

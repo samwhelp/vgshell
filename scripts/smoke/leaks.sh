@@ -42,9 +42,14 @@ leak_seq=0
 
 # leak_reading: a new reading directory in leak_last. BASHPID keeps the
 # readings a planted row takes in a subshell apart from the outer row's.
+# leak_dir_next sets leak_next to the directory the next reading in this
+# shell writes, so a planted row can name its own end reading; it sets a
+# variable, since BASHPID in a command substitution is the subshell's.
+leak_dir_next() { leak_next="$sandbox/leaks/$BASHPID-$((leak_seq + 1))"; }
 leak_reading() {
+  leak_dir_next
   leak_seq=$((leak_seq + 1))
-  leak_last="$sandbox/leaks/$BASHPID-$leak_seq"
+  leak_last="$leak_next"
   leak_read "$leak_last"
 }
 
@@ -75,23 +80,35 @@ leak_read() { # DIR
 # image decoded, both asynchronous, which can end after start_shell
 # returns, so a reading taken before then misses a layer a later reading
 # sees. It reads every 100 ms for up to timeout_s and writes the
-# milliseconds it waited to DIR/layers.rest-ms. With no shell, or a probe
-# or compositor that does not answer, it returns at once and the layers
-# are read as they stand. At the bound, or on a reading it cannot judge,
-# it writes the last state to DIR/layers.unsettled and returns 1, so the
-# layers class reads as unreadable there.
+# milliseconds it waited to DIR/layers.rest-ms, and the first state not at
+# rest it read, if any, to DIR/layers.first-unsettled. With no shell, a
+# shell whose probe has no perScreenLayers, or a compositor that does not
+# answer, it returns at once and the layers are read as they stand; a
+# probe that fails otherwise, or answers no list, does the same and
+# leaves its reason in DIR/layers.unprobed. At the bound, or on a reading
+# it cannot judge, it writes the last state to DIR/layers.unsettled and
+# returns 1, so the layers class reads as unreadable there.
 leak_layers_rest() { # DIR
-  local start_ms probe layers state=no-reading
+  local start_ms probe layers state=no-reading reason
   [[ -n ${shell_qs_pid:-} ]] || return 0
   start_ms="$(now_ms)"
   while (( $(now_ms) - start_ms < timeout_s * 1000 )); do
-    probe="$(ipc smoke perScreenLayers 2>/dev/null)" && [[ $probe == \[* ]] || return 0
+    # Called in this shell, not a substitution, so ipc_last_reply holds
+    # the raw reply for the failure's reason.
+    if ! ipc smoke perScreenLayers >"$1/layers.probe" 2>/dev/null || ! probe="$(cat -- "$1/layers.probe")" || [[ $probe != \[* ]]; then
+      reason="$(vgs_ipc_reply_failure "$ipc_last_reply")" || reason=unclassified
+      [[ $reason == function-not-found ]] || printf 'reason=%s reply=%s\n' "$reason" "${ipc_last_reply:0:200}" >"$1/layers.unprobed"
+      rm -f -- "$1/layers.probe"
+      return 0
+    fi
+    rm -f -- "$1/layers.probe"
     layers="$(hypr -j layers 2>/dev/null)" || return 0
     state="$(leak_layers_state "$probe" "$layers")" || break
     if [[ $state == rest ]]; then
       echo "$(( $(now_ms) - start_ms ))" >"$1/layers.rest-ms"
       return 0
     fi
+    [[ -e $1/layers.first-unsettled ]] || printf '%s\n' "$state" >"$1/layers.first-unsettled"
     sleep 0.1
   done
   printf '%s\n' "$state" >"$1/layers.unsettled"

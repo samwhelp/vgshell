@@ -3823,6 +3823,14 @@ mkdir -p "$fade_theme_dir/backgrounds"
 printf '%s\n' '{"schemaVersion":1,"name":"fade-probe","tokens":{}}' >"$fade_theme_dir/theme.json"
 cp -- "$repo/scripts/smoke/fixtures/theme-image.jpg" "$fade_theme_dir/backgrounds/fixture.jpg"
 fade_themes_enabled="$(python3 -c 'import json,sys; print("false" if "vgs.themes" in json.load(open(sys.argv[1])).get("disabledPlugins",[]) else "true")' "$home/.config/vgshell/shell.json")"
+# `theme apply` replaces the background state, so the row keeps the state
+# file and link it found, and the background count they drew, to put back.
+fade_bg_kept="$sandbox/notifications-background-state"
+mkdir -p -- "$fade_bg_kept"
+fade_bg_before="$(layer_count vgs:background)" || fail "the background count is unreadable before the pixel probe"
+for fade_bg_name in backgrounds.json background; do
+  if [[ -e $bg_state/$fade_bg_name || -L $bg_state/$fade_bg_name ]]; then cp -P -p -- "$bg_state/$fade_bg_name" "$fade_bg_kept/$fade_bg_name" || fail "the pixel probe keeps $fade_bg_name"; fi
+done
 expect "the pixel probe enables its wallpaper host" ok ipc shell setPluginEnabled vgs.themes true
 "${shell_env[@]}" "$repo/bin/vgshell" theme apply fade-probe >/dev/null || fail "the pixel probe wallpaper applies"
 expect_poll "the pixel probe wallpaper is drawn" 1 layer_count vgs:background
@@ -3926,8 +3934,15 @@ cp -- "$sandbox/CardScroll.fade-kept.qml" "$fade_qml"
 rescan "a rescan restores the painted notification cards"
 expect_poll "the restored pixel probe service is built" True record_exists vgs.notifications
 "${shell_env[@]}" "$repo/bin/vgshell" theme apply vgs >/dev/null || fail "the pixel probe restores the theme"
-expect_poll "the pixel probe restores Black" "$monitors" layer_count vgs:background
+for fade_bg_name in backgrounds.json background; do
+  if [[ -e $fade_bg_kept/$fade_bg_name || -L $fade_bg_kept/$fade_bg_name ]]; then
+    mv -T -- "$fade_bg_kept/$fade_bg_name" "$bg_state/$fade_bg_name" || fail "the pixel probe puts back $fade_bg_name"
+  else
+    rm -f -- "${bg_state:?}/$fade_bg_name"
+  fi
+done
 expect "the pixel probe restores its wallpaper host enablement" ok ipc shell setPluginEnabled vgs.themes "$fade_themes_enabled"
+expect_poll "the pixel probe restores the background it found" "$fade_bg_before" layer_count vgs:background
 rm -rf -- "${fade_theme_dir:?}" "${home:?}/.config/vgshell/themes/fade-probe-dark" "${home:?}/.config/vgshell/themes/fade-probe-light"
 write_theme '{"schemaVersion":1,"name":"vgs","tokens":{}}'
 expect_poll "the pixel probe restores the dark look" '"#ffe8e8e8"' look_at text.foreground
