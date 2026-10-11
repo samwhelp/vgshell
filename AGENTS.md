@@ -13,7 +13,7 @@ A desktop shell for Hyprland, built on Quickshell 0.3.1. A small fixed core star
 
 ## Conventions
 
-- No migration, shim, fallback, alias or compatibility path, ever. A format change rewrites the owner's files once, as a cutover step the master runs. No decision record may require an old form.
+- No shim, fallback, alias or compatibility path, ever. A format change ships the in-place migration of the previous version in its commit, never a hand step, and keeps no old-form reader: D107.
 
 - Work targets `main`.
 - No branch protection, merge queue or commit/push gates. Two GitHub workflows exist; neither runs on a push or a pull request. `.github/workflows/nightly.yml` runs `scripts/validate --full` on `main` on a schedule, while the repository variable `NIGHTLY` is `on`, for the areas a hosted runner can run and reports only. `.github/workflows/kendex-refresh.yml`, adopted unedited from kendex, runs on each kendex release, every 6 hours and by hand; its `kendex/refresh` pull request merges at once, and lanes rebase over it as over any landing. PRs are optional and may merge immediately; direct pushes are welcome. Do not arm Kendex guards or wait for absent CI.

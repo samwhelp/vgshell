@@ -1256,6 +1256,24 @@ function parseState(text) {
     return { ok: true, state: { boot: parsed.boot, sound: parsed.sound, dnd: parsed.dnd, readBefore: parsed.readBefore, live: parsed.live.map(withHintRoles), history: parsed.history.map(withHintRoles) } };
 }
 
+// The state file's text as this version stores it: { text, migrated }. The
+// previous version, 2, named no Sound, which was on; its document gains that
+// and this version's number and keeps every other value, for parseState to
+// judge. Any other text comes back as it is.
+function migrateState(text) {
+    var same = { text: text, migrated: false };
+    var parsed;
+    try {
+        parsed = JSON.parse(String(text));
+    } catch (e) {
+        return same;
+    }
+    if (!isPlainObject(parsed) || parsed.version !== 2 || "sound" in parsed) return same;
+    parsed.version = STATE_VERSION;
+    parsed.sound = true;
+    return { text: JSON.stringify(parsed), migrated: true };
+}
+
 // A stored entry with every hint role, "" for one it leaves out.
 function withHintRoles(entry) {
     var out = {};

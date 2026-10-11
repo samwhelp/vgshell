@@ -12,7 +12,9 @@ import "NotificationLogic.js" as Logic
 // every change. A file from an earlier boot comes back without its toasts
 // and its history (NotificationLogic.fromBoot), and a history entry leaves
 // once it is NotificationLogic.HISTORY_AGE old, at load and when one timer,
-// armed to the oldest entry, fires. A file the judge refuses or the store
+// armed to the oldest entry, fires. A file of the previous version is
+// rewritten as this one when it is read (NotificationLogic.migrateState),
+// through the same judge. A file the judge refuses or the store
 // cannot read, or a boot id it cannot read, is never overwritten: the store
 // keeps working in memory, says why in `problem`, and writes again only
 // after `reset`, which the user asks for by clearing the history. A failed
@@ -66,7 +68,8 @@ Item {
     }
 
     function read(text) {
-        const judged = Logic.parseState(text);
+        const moved = Logic.migrateState(text);
+        const judged = Logic.parseState(moved.text);
         if (!judged.ok) {
             refuse("corrupt", "notifications: state refused: file=" + path + " reason=" + judged.error);
             return;
@@ -78,11 +81,11 @@ Item {
         live = current.state.live;
         history = current.state.history;
         status = "loaded";
-        // Written once, so the next start reads this boot's file.
-        if (current.cleared > 0) {
-            console.info("notifications: history from an earlier boot cleared: entries=" + current.cleared);
-            changed();
-        }
+        // Written once, so the next start reads this version's and this
+        // boot's file.
+        if (moved.migrated) console.info("notifications: state migrated: file=" + path + " version=" + Logic.STATE_VERSION);
+        if (current.cleared > 0) console.info("notifications: history from an earlier boot cleared: entries=" + current.cleared);
+        if (moved.migrated || current.cleared > 0) changed();
         prune();
     }
 

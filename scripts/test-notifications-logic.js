@@ -69,6 +69,19 @@ const BODIES = [
     ["an unnamed sender's first line without a blank line", "app.slack.com\nfleet: Done", "", "app.slack.com<br/>fleet: Done"]
 ];
 
+// The owner's version 2 state file of 2026-10-11, with every text a person
+// wrote, every path and every application but Slack replaced.
+const STATE_V2 = fs.readFileSync(path.join(__dirname, "fixtures", "notifications", "state-v2.json"), "utf8");
+// State files the migration leaves as they are, each for the judge to
+// refuse: [label, text, the error].
+const STATE_UNMIGRATED = [
+    ["the first version", stateText({ version: 1, sound: undefined }), "version want=3"],
+    ["a later version", stateText({ version: 4 }), "version want=3"],
+    ["a version 2 file that names Sound", stateText({ version: 2, sound: false }), "version want=3"],
+    ["not JSON", "{ nope", "not-json"],
+    ["a list", "[]", "not-object"]
+];
+
 // State files the judge refuses: [label, text, the error].
 const STATE_REFUSED = [
     ["an empty file", "", "not-json"],
@@ -417,6 +430,22 @@ function verify(logic) {
     same(logic.parseState(stateText({ live: [unhinted(8, 4)], history: [unhinted(7, 3)] })), { ok: true, state: { boot: BOOT, sound: true, dnd: false, readBefore: 0, live: [stored(8, 4)], history: [stored(7, 3)] } }, "entries without hint roles read back with each empty");
     same(logic.parseState(logic.serializeState(logic.emptyState(BOOT))), { ok: true, state: { boot: BOOT, sound: true, dnd: false, readBefore: 0, live: [], history: [] } }, "an empty state reads back");
     same(logic.parseState(logic.serializeState({ boot: BOOT, sound: false, dnd: true, readBefore: 50, live: good.live, history: good.history })).state, { boot: BOOT, sound: false, dnd: true, readBefore: 50, live: good.live, history: good.history }, "a state reads back as written");
+
+    // The previous version's file as the store reads it: migrated, judged
+    // by the one judge, and written back as this version.
+    const second = JSON.parse(STATE_V2);
+    same([second.version, "sound" in second, second.dnd, second.history.length], [2, false, true, 100], "the fixture is the version 2 file");
+    const moved = logic.migrateState(STATE_V2);
+    same(moved.migrated, true, "a version 2 file is migrated");
+    same(logic.parseState(moved.text), { ok: true, state: { boot: second.boot, sound: true, dnd: true, readBefore: second.readBefore, live: [], history: second.history } }, "a migrated file reads with its history, Silence and Sound on");
+    same(JSON.parse(logic.serializeState(logic.fromBoot(logic.parseState(moved.text).state, second.boot).state)), Object.assign({}, second, { version: 3, sound: true }), "a migrated file is written as version 3 with every other value kept");
+    for (const [label, text, want] of STATE_UNMIGRATED) {
+        same(logic.migrateState(text), { text: text, migrated: false }, "unmigrated: " + label);
+        same(logic.parseState(logic.migrateState(text).text), { ok: false, error: want }, "unmigrated and refused: " + label);
+    }
+    same(logic.migrateState(stateText({})), { text: stateText({}), migrated: false }, "this version's file is read as it is");
+    const broken = logic.migrateState(stateText({ version: 2, sound: undefined, history: {} }));
+    same([broken.migrated, logic.parseState(broken.text)], [true, { ok: false, error: "history want=list" }], "a version 2 file with a defect is refused by the same judge");
 
     // A start after a reboot: the same boot keeps everything; another boot
     // clears the toasts and the history and keeps Sound, Silence and Mark
@@ -988,6 +1017,11 @@ const CONTROLS = [
     ["the state file keeps its Sound", "        sound: state.sound,\n", ""],
     ["a read state keeps its Sound", "state: { boot: parsed.boot, sound: parsed.sound,", "state: { boot: parsed.boot, sound: true,"],
     ["a new state starts with Sound on", "return { boot: boot, sound: true, dnd: false,", "return { boot: boot, sound: false, dnd: false,"],
+    ["a version 2 file is migrated", "parsed.version !== 2 || ", "true || "],
+    ["only version 2 is migrated", "parsed.version !== 2 || ", ""],
+    ["a version 2 file names no Sound", ' || "sound" in parsed) return same;', ") return same;"],
+    ["a migrated file takes this version", "    parsed.version = STATE_VERSION;\n", ""],
+    ["a migrated file has Sound on", "parsed.sound = true;", "parsed.sound = false;"],
     ["a state names its boot", 'if (typeof parsed.boot !== "string" || parsed.boot === "") return', "if (false) return"],
     ["a state's boot is not empty", 'if (typeof parsed.boot !== "string" || parsed.boot === "") return', 'if (typeof parsed.boot !== "string") return'],
     ["the state file keeps its boot", "        boot: state.boot,\n", ""],
