@@ -11,7 +11,6 @@ BarWidget {
     readonly property string dictation: value === null ? "idle" : String(value.text)
     readonly property bool recording: dictation === "recording"
     readonly property bool transcribing: dictation === "transcribing"
-    readonly property bool stopped: dictation === "stopped"
     readonly property color itemTone: recording ? look.palette.accent : root.bar ? root.bar.foreground : "transparent"
 
     implicitWidth: item.implicitWidth
@@ -19,18 +18,16 @@ BarWidget {
     frameActions: [{ label: "Voxtype Settings", icon: "sliders-horizontal", action: root.configure }]
 
     // The service owns dictation: the click asks it for the toggle its keys
-    // run, and never starts a recording itself. `busy` is a toggle the
-    // service holds until the one in flight ends. Without voxtype the
-    // service starts none, and the click is the Settings page's Set up
-    // press: the setup entry's action, whose notice installs what is
-    // missing and then opens Set up, and which no earlier Not now holds back.
+    // run, and never starts a recording itself. The service logs a start
+    // or stop the core refuses. Without voxtype the service starts none,
+    // and the click is the Settings page's press on the setup entry's
+    // action, whose notice installs what is missing, and which no earlier
+    // Not now holds back.
     function toggle() {
         const reply = shell.ipc.call("toggle", "");
         if (reply === "refused: voxtype=missing") {
             const setup = shell.status.act("setup");
             if (setup !== "ok") console.warn("voice: setup " + setup);
-        } else if (reply !== "ok" && reply !== "busy") {
-            console.warn("voice: toggle " + reply);
         }
         return reply;
     }
@@ -49,7 +46,7 @@ BarWidget {
         active: root.recording || root.transcribing
         spinning: root.transcribing
         tone: root.itemTone
-        tooltip: root.recording ? "Recording" : root.transcribing ? "Transcribing" : root.stopped ? "Voice stopped" : "Voice"
+        tooltip: root.recording ? "Recording" : root.transcribing ? "Transcribing" : "Voice"
         onClicked: root.toggle()
     }
 }

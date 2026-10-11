@@ -2,7 +2,6 @@ import QtQuick
 import Quickshell.Hyprland
 import Quickshell.Io
 import qs.Commons
-import qs.Ui
 import "VoiceLogic.js" as VoiceLogic
 
 Item {
@@ -10,16 +9,22 @@ Item {
 
     property var shell: null
     property var registeredWith: null
-    property var lastStatus: ({ state: "idle", engine: "", model: "" })
     // What the running probe chain has read so far, by stage, for
     // VoiceLogic.setupState.
     property var setupRead: ({})
-    property var setupValue: ({ tone: "info", text: "Not checked", action: false, engine: VoiceLogic.DEFAULT_ENGINE, model: VoiceLogic.DEFAULT_MODEL })
+    property var setupValue: ({ tone: "info", text: "Not checked", action: "", engine: VoiceLogic.DEFAULT_ENGINE, model: VoiceLogic.DEFAULT_MODEL })
     property string probeStage: "idle"
-    property string pendingVerb: ""
-    property string activeVerb: ""
-    property var recordCompletion: null
+    // The core's one recording and its voxtype daemon, as the `dictation`
+    // capability lends them (D106): a new copy after each change.
+    readonly property var dictationState: shell === null ? null : shell.dictation.state
+    // What Voice shows of it, VoiceLogic.ownDictation: its own recording's
+    // phase, `idle` during another holder's.
     property string dictation: "idle"
+    property bool ownDictation: false
+    // The capability's word for the daemon, "" before the first read. Set
+    // up's state reads it.
+    readonly property string daemon: dictationState === null ? "" : dictationState.daemon
+    property string modelShown: ""
     // The dictation sounds run in flight (VoiceLogic.feedbackRun), null
     // while none runs; the Sounds page's choice that waits for it to end,
     // undefined for none; and what the last run read and ended with, a
@@ -30,29 +35,26 @@ Item {
     property var feedbackValue: null
     property string feedbackProblem: ""
     readonly property string configFile: Paths.configHome + "/voxtype/config.toml"
-    // Whether the service itself stopped the status follower or the bridge,
-    // or is being destroyed: an exit it did not ask for is logged and acted on.
-    property bool statusStopping: false
+    // Whether the service itself stopped the bridge, or is being
+    // destroyed: an exit it did not ask for is logged and acted on.
     property bool bridgeStopping: false
     property bool closing: false
-    // The end time of the last Set up run this instance read, undefined
-    // until its first read, so a run that ended before it started sends no
-    // notification.
-    property var setupSeenEnd: undefined
+    // The end time of the last run of each of VoiceLogic.CONFIG_TUIS this
+    // instance read, undefined until its first read, so a run that ended
+    // before it started restarts nothing.
+    property var configSeenEnds: undefined
     // The level the on-screen display draws from the latest
     // voxtype-audio-bridge frame; zero while no bridge runs.
     property real level: 0
     readonly property var missing: shell === null ? [] : shell.requirements.missing
     readonly property int requirementsRevision: shell === null ? 0 : shell.requirements.revision
     readonly property bool voxtypePresent: shell !== null && missing.indexOf("voxtype") === -1
-    readonly property bool systemctlPresent: shell !== null && missing.indexOf("systemctl") === -1
     readonly property var tuiState: shell === null ? null : shell.tui.state
-    readonly property bool statusRunning: statusProcess.running
     readonly property string dictationStatus: shell === null || shell.status.values.dictation === undefined ? "" : String(shell.status.values.dictation.text)
     readonly property var shortcutKeys: shell === null ? ({}) : shell.shortcut.keys
     readonly property string osdMode: shell === null ? "off" : String(shell.settings.osd)
     // The on-screen display shows, and its levels flow, while voxtype
-    // records or transcribes; a stopped daemon sends no audio.
+    // records or transcribes Voice's own dictation.
     readonly property bool osdActive: osdMode !== "off" && (dictation === "recording" || dictation === "transcribing")
     readonly property string focusedOutput: Hyprland.focusedMonitor === null ? "" : Hyprland.focusedMonitor.name
     readonly property bool bridgePresent: shell !== null && missing.indexOf("voxtype-audio-bridge") === -1
@@ -72,53 +74,71 @@ Item {
             shell.shortcut.register("toggle", "Start or stop dictation", root.toggle);
             shell.shortcut.register("tap", "Tap a key to dictate", root.toggle);
             shell.ipc.handle("toggle", root.toggle);
-            shell.shortcut.register("talk", "Dictate while held", () => root.record("start"), () => root.record("stop"));
+            shell.shortcut.register("talk", "Dictate while held", root.start, root.stop);
             shell.layers.show(osdLayer);
             const held = shell.sounds.hold("feedback", { read: () => root.readFeedback(), choose: value => root.chooseFeedback(value) });
             if (held !== "ok") console.error("voice: sounds " + held);
             Qt.callLater(root.readFeedback);
         }
-        if (voxtypePresent) Qt.callLater(root.startStatus);
         publishPresence();
-        refreshSetup();
     }
+    // The core's daemon failed to start while voxtype was missing; once it
+    // is found, the core starts one.
     onVoxtypePresentChanged: {
         publishPresence();
         readFeedback();
-        if (voxtypePresent) {
-            root.startStatus();
-            refreshSetup();
-        } else {
-            statusRestart.stop();
-            statusStopping = statusProcess.running;
-            statusProcess.running = false;
-            publishDictation("idle");
-        }
+        if (voxtypePresent && daemon === "failed") restartDaemon();
+        refreshSetup();
     }
+    onDictationStateChanged: applyDictation()
+    // Also the first read of Set up's state, when the shell arrives. A
+    // daemon that starts again, as after the core's dictation setup, may
+    // find a model that setup downloaded.
+    onDaemonChanged: refreshSetup()
     onMissingChanged: {
         publishPresence();
         refreshSetup();
     }
     onRequirementsRevisionChanged: refreshSetup()
-    // Configure and Set up can each change voxtype's config.
+    // Configure and Choose model can each change voxtype's config.
     onTuiStateChanged: {
-        noteSetupEnd();
+        noteConfigEnds();
         refreshSetup();
         readFeedback();
     }
     onBridgeWantedChanged: bridgeWanted ? startBridge() : stopBridge()
 
-    // A Set up run that ended with code 0 since the last read sends one
-    // notification naming the key the user dictates with, spelled as
-    // KeyCaps spells it.
-    function noteSetupEnd() {
+    // A run of Configure or Choose model that ended with code 0 since the
+    // last read has the core start its daemon again, which reads the
+    // config the run left.
+    function noteConfigEnds() {
         if (tuiState === null) return;
-        const setup = tuiState.setup;
-        if (VoiceLogic.setupFinished(setupSeenEnd, setup)) {
-            const reply = shell.notify.send({ title: "Voice is ready", message: VoiceLogic.readyMessage(shortcutKeys, key => KeyNavLogic.keyCaps(key).join("+")), tone: "success", icon: "mic" });
-            if (reply !== "ok") console.error("voice: notice " + reply);
+        const ends = {};
+        let finished = false;
+        for (const name of VoiceLogic.CONFIG_TUIS) {
+            if (VoiceLogic.runFinished(configSeenEnds === undefined ? undefined : configSeenEnds[name], tuiState[name])) finished = true;
+            ends[name] = tuiState[name].endedAt;
         }
-        setupSeenEnd = setup.endedAt;
+        configSeenEnds = ends;
+        if (finished) restartDaemon();
+    }
+
+    // A restart the capability refuses, as during a recording, is logged:
+    // the daemon then reads the config when it next starts.
+    function restartDaemon() {
+        const answer = shell.dictation.restart();
+        if (answer !== "ok") console.warn("voice: restart " + answer);
+        return answer;
+    }
+
+    // The capability's state changed: the dictation Voice shows and the
+    // Model row.
+    function applyDictation() {
+        if (dictationState === null) return;
+        const shown = VoiceLogic.ownDictation(dictationState, ownDictation);
+        ownDictation = shown.own;
+        if (shown.phase !== dictation) publishDictation(shown.phase);
+        publishModel();
     }
 
     function publishPresence() {
@@ -126,21 +146,35 @@ Item {
         publish("voxtype", voxtypePresent ? "present" : "absent");
     }
 
+    // The core retires a disabled plugin's status record, then lets go of
+    // its daemon: the capability's state moves once more under the
+    // instance, whose write is then refused as retired.
     function publish(key, value) {
         const reply = shell.status.set(key, value);
-        if (reply !== "ok") console.error("voice: status=" + key + " " + reply);
+        if (reply !== "ok" && !reply.endsWith(" reason=retired")) console.error("voice: status=" + key + " " + reply);
     }
 
     function publishDictation(state) {
         dictation = state;
-        const tone = state === "recording" ? "warning" : state === "transcribing" ? "info" : state === "stopped" ? "warning" : "ok";
+        const tone = state === "recording" ? "warning" : state === "transcribing" ? "info" : "ok";
         publish("dictation", { tone: tone, text: state });
     }
 
-    function setupStatusValue() {
-        const value = { tone: setupValue.tone, text: setupValue.text, action: setupValue.action };
-        if (setupValue.lines !== undefined && setupValue.lines.length > 0) value.lines = setupValue.lines;
-        return value;
+    function publishModel() {
+        const value = VoiceLogic.modelData(dictationState, setupValue);
+        const text = JSON.stringify(value);
+        if (text === modelShown) return;
+        modelShown = text;
+        publish("model", value);
+    }
+
+    // The published value names the manifest's action that applies, and
+    // none once set up.
+    function publishSetup() {
+        const value = { tone: setupValue.tone, text: setupValue.text, lines: setupValue.lines };
+        if (setupValue.action !== "") value.action = setupValue.action;
+        publish("setup", value);
+        publishModel();
     }
 
     // Read the dictation sounds value again and state it to the Sounds
@@ -165,16 +199,24 @@ Item {
         return "ok";
     }
 
+    // The restart stage runs no command: the core starts its daemon again,
+    // and its answer is the stage's end.
     function startFeedback(run) {
         feedbackRun = run;
-        feedbackProcess.command = VoiceLogic.feedbackCommand(run.stage, run.wanted, configFile);
+        const command = VoiceLogic.feedbackCommand(run.stage, run.wanted, configFile);
+        if (command === null) {
+            const answer = shell.dictation.restart();
+            stepFeedback(answer === "ok" ? 0 : 1, "", answer);
+            return;
+        }
+        feedbackProcess.command = command;
         feedbackProcess.running = true;
     }
 
-    // The stage's command ended: CODE is its exit code, -1 when it did not
+    // The stage ended: CODE is its command's exit code, -1 when it did not
     // start or was killed.
     function stepFeedback(code, out, complaint) {
-        const next = VoiceLogic.feedbackNext(feedbackRun, code, out, systemctlPresent);
+        const next = VoiceLogic.feedbackNext(feedbackRun, code, out);
         if (next.problem !== feedbackRun.problem)
             feedbackDetail = "stage=" + feedbackRun.stage + " exit=" + code + " " + complaint.split("\n")[0].slice(0, 200);
         if (next.stage !== "done") {
@@ -198,23 +240,6 @@ Item {
         feedbackProblem = problem;
         const reply = shell.sounds.report("feedback", value, VoiceLogic.FEEDBACK_PROBLEMS[problem]);
         if (reply !== "ok") console.error("voice: sounds " + reply);
-    }
-
-    function startStatus() {
-        if (!voxtypePresent || statusProcess.running) return;
-        statusProcess.command = ["setpriv", "--pdeathsig", "TERM", "--", "voxtype", "status", "--follow", "--extended", "--format", "json"];
-        statusProcess.running = true;
-    }
-
-    function applyStatus(line) {
-        const parsed = VoiceLogic.parseStatus(line);
-        if (!parsed.ok) {
-            console.warn("voice: status=line reason=" + parsed.reason);
-            return;
-        }
-        lastStatus = parsed;
-        publishDictation(parsed.state);
-        publish("model", VoiceLogic.modelData(parsed, setupValue));
     }
 
     // A bridge still exiting from a stop starts again from its exit, at once.
@@ -249,30 +274,34 @@ Item {
 
     // The one start or stop of dictation: the toggle key, the tap key and
     // the bar widget's click, which asks through the ipc handler, each run
-    // this function, so a change to it reaches all three.
+    // this function, so a change to it reaches all three. It starts while
+    // no recording of Voice's own runs, and stops that one otherwise.
     function toggle() {
-        return root.record("toggle");
+        if (!voxtypePresent) return "refused: voxtype=missing";
+        return dictationState.holder === VoiceLogic.HOLDER ? stop() : start();
     }
 
-    function record(verb) {
-        if (!voxtypePresent) return "refused: voxtype=missing";
-        if (recordProcess.running) {
-            pendingVerb = verb;
-            return "busy";
-        }
-        activeVerb = verb;
-        recordCompletion = null;
-        recordProcess.command = ["voxtype", "record", verb];
-        recordProcess.running = true;
-        return "ok";
+    // The recording is the core's, in mode `type`, which sends the words
+    // to voxtype's configured output. A refusal, as during another
+    // plugin's recording or while the daemon is not ready, is logged and
+    // changes nothing.
+    function start() {
+        const answer = shell.dictation.start("type");
+        if (answer !== "ok") console.warn("voice: start " + answer);
+        return answer;
+    }
+
+    function stop() {
+        const answer = shell.dictation.stop();
+        if (answer !== "ok") console.warn("voice: stop " + answer);
+        return answer;
     }
 
     function refreshSetup() {
-        if (shell === null) return;
+        if (dictationState === null) return;
         if (!voxtypePresent) {
-            setupValue = VoiceLogic.setupState({ present: false });
-            publish("setup", root.setupStatusValue());
-            publish("model", VoiceLogic.modelData(lastStatus, setupValue));
+            setupValue = VoiceLogic.setupState({ present: false }, daemon);
+            publishSetup();
             return;
         }
         if (probeProcess.running) return;
@@ -289,8 +318,6 @@ Item {
         case "model": return ["voxtype", "config", "get", VoiceLogic.configValue(setupRead.engine || "", VoiceLogic.DEFAULT_ENGINE) + ".model", "--json"];
         case "models": return ["voxtype", "info", "models", "--json"];
         case "engines": return ["voxtype", "info", "engines", "--json"];
-        case "unit": return ["systemctl", "--user", "is-enabled", "voxtype"];
-        case "active": return ["systemctl", "--user", "is-active", "voxtype"];
         }
         throw new Error("voice: probe stage " + JSON.stringify(stage) + " is not one of " + VoiceLogic.PROBE_STAGES.join(", "));
     }
@@ -301,49 +328,20 @@ Item {
         probeProcess.running = true;
     }
 
-    // Each stage's stdout is kept under its name; the service's two stages
-    // run only while systemctl is found, and read nothing otherwise.
+    // Each stage's stdout is kept under its name. The state reads the
+    // daemon's word as it is when the chain ends.
     function runNextProbe(out) {
         const read = Object.assign({}, setupRead);
         read[probeStage] = out;
         setupRead = read;
         const next = VoiceLogic.PROBE_STAGES[VoiceLogic.PROBE_STAGES.indexOf(probeStage) + 1];
-        if (next !== undefined && (systemctlPresent || VoiceLogic.SERVICE_STAGES.indexOf(next) === -1)) {
+        if (next !== undefined) {
             startProbe(next);
             return;
         }
         probeStage = "idle";
-        setupValue = VoiceLogic.setupState(setupRead);
-        publish("setup", root.setupStatusValue());
-        publish("model", VoiceLogic.modelData(lastStatus, setupValue));
-    }
-
-    // A follower that exits on its own, as one killed with voxtype does,
-    // leaves no state to read: dictation goes idle and the follower starts
-    // again.
-    Process {
-        id: statusProcess
-        property var completion: null
-        stdout: SplitParser { onRead: line => root.applyStatus(line) }
-        stderr: SplitParser { onRead: line => console.warn("voice: status " + line) }
-        onExited: (code, status) => { completion = { code: code, status: status }; }
-        onRunningChanged: {
-            if (running) return;
-            const requested = root.statusStopping || root.closing;
-            const exit = completion === null ? "unstarted" : "code=" + completion.code + " status=" + completion.status;
-            root.statusStopping = false;
-            completion = null;
-            if (requested) return;
-            console.warn("voice: status exited " + exit);
-            root.publishDictation("idle");
-            if (root.voxtypePresent) statusRestart.start();
-        }
-    }
-
-    Timer {
-        id: statusRestart
-        interval: 1100
-        onTriggered: root.startStatus()
+        setupValue = VoiceLogic.setupState(setupRead, daemon);
+        publishSetup();
     }
 
     Process {
@@ -371,7 +369,7 @@ Item {
     // socket does not spin. A Timer is not exact: with a 1000 ms interval
     // the voice smoke row read a restart 994 ms after it killed the bridge,
     // on host cachy on 2026-10-05, so the interval keeps a tenth of a
-    // second spare. The status follower's restart keeps the same bound.
+    // second spare.
     Timer {
         id: bridgeRestart
         interval: 1100
@@ -383,24 +381,8 @@ Item {
         Osd { service: root }
     }
 
-    Process {
-        id: recordProcess
-        stderr: StdioCollector { id: recordErr }
-        onExited: (code, status) => { root.recordCompletion = { code: code, status: status }; }
-        onRunningChanged: {
-            if (running) return;
-            if (root.recordCompletion === null || root.recordCompletion.code !== 0 || root.recordCompletion.status !== 0)
-                console.error("voice: record=" + root.activeVerb + " failed=" + JSON.stringify(root.recordCompletion) + "\n" + recordErr.text.trim());
-            if (root.pendingVerb !== "") {
-                const next = root.pendingVerb;
-                root.pendingVerb = "";
-                root.record(next);
-            }
-        }
-    }
-
     // One stage of a dictation sounds run. voxtype reads its config from
-    // the session's own environment, and systemctl its user bus.
+    // the session's own environment.
     Process {
         id: feedbackProcess
         property var completion: null
@@ -427,9 +409,7 @@ Item {
             const out = probeOut.text;
             const err = probeErr.text.trim();
             completion = null;
-            // systemctl answers a unit that is off on stderr too; that is
-            // a state, not a failure.
-            if (err !== "" && VoiceLogic.SERVICE_STAGES.indexOf(stage) === -1) console.warn("voice: probe=" + stage + " " + err);
+            if (err !== "") console.warn("voice: probe=" + stage + " " + err);
             root.runNextProbe(out);
         }
     }

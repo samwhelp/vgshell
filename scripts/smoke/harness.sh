@@ -100,6 +100,12 @@ print(row["count"] >= row["threshold"])' <<<"$sample"
 # Error lines a row provokes on purpose, as extended regexes; the log check
 # leaves out a line matching one of them.
 expected_errors=()
+# The lines the core logs when a plugin that holds `dictation`, as
+# vgs.voice does, is built while the shell finds no voxtype, as in every
+# smoke shell (qml-smoke.sh's shell_hidden_commands): its probe does not
+# start, and the daemon reads failed. A row that turns Voice on with no
+# stand-in for voxtype adds them to expected_errors.
+dictation_absent_errors=('WARN qml: dictation: probe code=127 ' 'WARN qml: dictation: daemon=failed reason=probe code=127$')
 ok() { printf '  ok    %s\n' "$*"; }
 # control_output LOG copies a must-fail control's log into the run log with
 # each line marked, so a reader never takes a planted FAIL for a real one.
@@ -991,14 +997,16 @@ PY
 # which no start finds; vgs.notifications reads its token only through the
 # secret-tool sentinel, which answers every search with nothing stored and
 # every lookup with no secret; vgs.ai-usage finds no account folder in
-# the sandbox HOME, so it runs no tool and sends no request; vgs.voice's
-# service probe reaches the systemctl stand-in, and only a host that has
-# voxtype runs it, to read its state; vgs.webapps lists its own icons
+# the sandbox HOME, so it runs no tool and sends no request; vgs.voice
+# holds `dictation`, whose core owner finds no voxtype, which the caller
+# hides (shell_hidden_commands), starts no daemon and logs
+# dictation_absent_errors; vgs.webapps lists its own icons
 # under the sandbox HOME and asks xdg-mime for the https default;
 # vgs.printers's lpstat and ipptool reach their stand-ins, which answer
 # from the sandbox's CUPS world, and its dbus-monitor listens on the
 # sandbox's system bus.
 default_set_prepare() { # PLUGINS_JSON [DISABLED_JSON]
+  expected_errors+=("${dictation_absent_errors[@]}")
   devtools_stand_ins
   updates_cache_fresh
   python3 - "$home/.config/vgshell/shell.json" "$1" "${2:-[]}" <<'PY'

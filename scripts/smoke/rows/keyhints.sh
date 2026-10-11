@@ -163,6 +163,8 @@ kh_voice_before="$(plugin_enabled vgs.voice)" || kh_voice_before=unread
 kh_themes_before="$(plugin_enabled vgs.themes)" || kh_themes_before=unread
 expect "enabling Themes for its Key Hints row is allowed" ok ipc shell setPluginEnabled vgs.themes true
 expect_poll "the Themes shortcut reaches Hyprland before its row is read" True kh_bound_has vgs.themes:themes
+# Voice holds `dictation`, and no smoke shell finds voxtype.
+expected_errors+=("${dictation_absent_errors[@]}")
 expect "enabling Voice is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "the Voice service is built" True record_exists vgs.voice
 expect "enabling Key Hints is allowed" ok ipc shell setPluginEnabled vgs.keyhints true

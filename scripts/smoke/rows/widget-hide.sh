@@ -131,7 +131,9 @@ expect "Hide leaves disabledPlugins as it was" "$hide_disabled_before" hide_disa
 # The restart is also an update: the user file is made one from before
 # vgs.voice and vgs.webapps shipped, so it names neither. Each is on after
 # the restart, Voice with its widget in its default section, while
-# vgs.tray, which that file turned off, stays off and in no bar.
+# vgs.tray, which that file turned off, stays off and in no bar. Voice
+# holds `dictation`, and no smoke shell finds voxtype.
+expected_errors+=("${dictation_absent_errors[@]}")
 stop_shell
 install_plugin_copy acme.pane acme.hideable-new "Hideable New" 10
 hide_before_update || fail "the user file from before the shipped plugins could not be written"

@@ -457,7 +457,11 @@ done
 
 # shellcheck disable=SC2034 # the harness sourced below reads it
 shell_output_scale="$scale"
-shell_hidden_commands=()
+# A plugin that holds `dictation`, as Voice does, has the core start a
+# voxtype daemon, so no shell of a run finds the host's voxtype or its
+# bridge (harness.sh's shell_hidden_commands); a scene that dictates stands
+# the smoke's stand-in in the shell's own directory.
+shell_hidden_commands=(voxtype voxtype-audio-bridge)
 # The setup steps' shots draw each install button, which a Settings page
 # offers only while its command is absent; on a host that has vsys, mise or
 # the browser-policy writer they would draw none. The shell finds those
@@ -465,23 +469,11 @@ shell_hidden_commands=()
 # its own stand-in for one, as panels does for vsys and devtools for mise,
 # still finds it, and the shot of that button is then skipped.
 if [[ " ${scenes[*]} " == *" settings "* && -f $tree/shell/plugins/vgs.settings/Steps.js ]]; then
-  # shellcheck disable=SC2034 # the harness sourced below reads it
-  shell_hidden_commands=(vsys mise vgshell-browser-policy)
+  shell_hidden_commands+=(vsys mise vgshell-browser-policy)
 fi
 if [[ " ${scenes[*]} " == *" by-hand "* ]]; then
   # shellcheck disable=SC2034 # the harness sourced below reads it
   shell_hidden_commands+=(pacman paru yay apt-get dnf5 dnf xbps-install emerge nix flatpak mise sudo doas run0)
-fi
-# Voice's Set up runs over stand-ins alone, so the shell finds no host
-# voxtype or bridge.
-if [[ " ${scenes[*]} " == *" voice-setup "* || " ${scenes[*]} " == *" dictation-setup "* ]]; then
-  shell_hidden_commands+=(voxtype voxtype-audio-bridge)
-fi
-# The Sounds section reads Voice's dictation sounds from a voxtype
-# stand-in, so the shell finds no host voxtype or bridge to start or to
-# ask.
-if [[ " ${scenes[*]} " == *" sounds "* && " ${scenes[*]} " != *" voice-setup "* ]]; then
-  shell_hidden_commands+=(voxtype voxtype-audio-bridge)
 fi
 # AI Usage reads the sign-ins through stand-ins alone, so the shell finds no
 # host claude or codex.
@@ -1202,7 +1194,10 @@ scene_settings() { # MODE
     take "settings-$1-agent-warden-scrolled"
   fi
   if "$has_voice"; then
-    cat >"$shim/voxtype" <<'EOF'
+    if voice_dictates; then
+      voice_stand_ins
+    else
+      cat >"$shim/voxtype" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
   'status --follow --extended --format json') printf '{"state":"idle","backend":"ONNX CPU","device":"default","model":"parakeet-tdt-0.6b-v3"}\n' ;;
@@ -1212,7 +1207,8 @@ case "$*" in
   'info engines --json') printf '[{"name":"whisper","compiled":true,"active":false},{"name":"parakeet","compiled":true,"active":true}]\n' ;;
 esac
 EOF
-    chmod 755 "$shim/voxtype"
+      chmod 755 "$shim/voxtype"
+    fi
     rescan "the Voice voxtype stand-in is scanned"
     expect "enabling vgs.voice is allowed" ok ipc shell setPluginEnabled vgs.voice true
     expect_poll "vgs.voice is built" True record_exists vgs.voice
@@ -1226,7 +1222,7 @@ EOF
     take "settings-$1-voice"
     expect "disabling vgs.voice is allowed" ok ipc shell setPluginEnabled vgs.voice false
     expect_poll "vgs.voice is gone" False record_exists vgs.voice
-    rm -f -- "$shim/voxtype"
+    voice_stand_ins_removed
     rescan "the Voice voxtype stand-in is removed"
   fi
   # The AI Usage page with its Sign in offered: the sandbox HOME holds no
@@ -2449,16 +2445,48 @@ scene_clipboard() { # MODE
   expect_poll "the clipboard history closes" 0 layer_count vgs:overlay
 }
 
-# Voice's on-screen display over the bare desktop: the stand-in status
-# stream holds recording and the stand-in bridge prints a frame every
-# 50 ms, then both are removed with the plugin disabled.
+# voice_dictates: whether the tree's Voice dictates through the core's
+# `dictation` capability, over the daemon the core starts; a tree from
+# before it follows voxtype's status stream itself.
+voice_dictates() { grep -qF '"dictation"' "$tree/shell/plugins/vgs.voice/manifest.json"; }
+# voice_stand_ins: the smoke's voxtype stand-in and its wtype
+# (scripts/smoke/fixtures/voxtype/) in the shell's stand-in directory, so
+# the daemon the core starts for Voice hears no microphone and types
+# nothing. Its copy answers the config and info verbs from this run's
+# files, as rows/voice.sh's does: dictation sounds read on, and the model
+# reads installed once voice_model_installed exists.
+voice_model_installed="$sandbox/voice-model-installed"
+voice_stand_ins() {
+  printf 'true\n' >"$sandbox/voice-feedback-value"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'voice_installed=%q voice_feedback=%q voice_feedback_sets=%q\n' "$voice_model_installed" "$sandbox/voice-feedback-value" "$sandbox/voice-feedback-sets"
+    printf 'voice_feedback_unreadable=%q voice_feedback_refused=%q voice_feedback_dropped=%q\n' "$sandbox/voice-feedback-unreadable" "$sandbox/voice-feedback-refused" "$sandbox/voice-feedback-dropped"
+    printf '. %q\n' "$repo/scripts/smoke/fixtures/voxtype/voxtype"
+  } >"$shim/voxtype"
+  cp -- "$repo/scripts/smoke/fixtures/voxtype/wtype" "$shim/wtype"
+  chmod 755 "$shim/voxtype" "$shim/wtype"
+}
+voice_stand_ins_removed() { rm -f -- "${shim:?}/voxtype" "${shim:?}/wtype" "${voice_model_installed:?}"; }
+# The capability's state as Voice reads it: its daemon and what Voice
+# shows of its own dictation.
+voice_daemon() { ipc smoke readInstance service vgs.voice dictationState | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["daemon"], d["phase"])'; }
+
+# Voice's on-screen display over the bare desktop: Voice records through
+# the core over the voxtype stand-in, or on a tree from before that a
+# stand-in status stream holds recording, and the stand-in bridge prints a
+# frame every 50 ms, then both are removed with the plugin disabled.
 scene_voice() { # MODE
-  cat >"$shim/voxtype" <<'EOF'
+  if voice_dictates; then
+    voice_stand_ins
+  else
+    cat >"$shim/voxtype" <<'EOF'
 #!/usr/bin/env bash
 [[ $* == 'status --follow --extended --format json' ]] || exit 0
 printf '{"state":"recording","backend":"ONNX CPU","device":"default","model":"parakeet-tdt-0.6b-v3"}\n'
 exec sleep infinity
 EOF
+  fi
   cat >"$shim/voxtype-audio-bridge" <<'EOF'
 #!/usr/bin/env bash
 printf '{"status":"connected"}\n'
@@ -2468,13 +2496,18 @@ EOF
   chmod 755 "$shim/voxtype" "$shim/voxtype-audio-bridge"
   rescan "the Voice stand-ins are scanned"
   expect "enabling vgs.voice for its display is allowed" ok ipc shell setPluginEnabled vgs.voice true
+  if voice_dictates; then
+    expect_poll "the core's daemon is ready for Voice's display" "ready idle" voice_daemon
+    expect "Voice starts a recording for its display" ok ipc vgs.voice invoke toggle ""
+  fi
   expect_poll "Voice draws its plasma orb while recording" 1 ipc smoke layerItemsWith vgs.voice Plasma active true
   expect_poll "the stand-in's frames reach Voice" true voice_level_flowing
   park_pointer
   take "voice-$1-osd"
   expect "disabling vgs.voice after its display is allowed" ok ipc shell setPluginEnabled vgs.voice false
   expect_poll "Voice's display is gone" 0 ipc smoke layerItemsWith vgs.voice Plasma active true
-  rm -f -- "${shim:?}/voxtype" "${shim:?}/voxtype-audio-bridge"
+  voice_stand_ins_removed
+  rm -f -- "${shim:?}/voxtype-audio-bridge"
   rescan "the Voice stand-ins are removed"
 }
 # Voice's Keys section on its Settings page, with Voice on so each row
@@ -3041,12 +3074,21 @@ EOF
 # bounded wait. Voice's Settings page is shot without voxtype and once the
 # stand-ins report the model installed and a systemctl stand-in the
 # service enabled and running, scrolled so its whole Setup section is in
-# view. A
+# view. A tree whose Voice dictates through the core (voice_dictates) has
+# no Set up screen of its own: its setup entry's step raises the notice
+# without voxtype and opens the core's dictation setup with it, over the
+# smoke's voxtype stand-in, and its page reads Ready once that stand-in
+# reports the model. A
 # tree whose Voice puts its setup state in the Setup group is shot once
 # the section draws its chip. Enablement, stand-ins and the package script
 # are put back, and the Settings window is hidden again.
 scene_voice-setup() { # MODE
-  local voice_found settings_found notes_found=True silence_found=false pkg_real="$sandbox/voice-setup-vgshell-pkg.real" systemctl_saved="$sandbox/voice-setup-systemctl.saved" stood=() command before notifies=false
+  local voice_found settings_found notes_found=True silence_found=false pkg_real="$sandbox/voice-setup-vgshell-pkg.real" systemctl_saved="$sandbox/voice-setup-systemctl.saved" stood=() command before notifies=false missing_chip="Requirements missing"
+  voice_setup_key=vgs.voice/setup
+  if voice_dictates; then
+    voice_setup_key=core/dictation-setup
+    missing_chip="Set up needed"
+  fi
   voice_found="$(plugin_enabled vgs.voice)" || voice_found=unread
   settings_found="$(plugin_enabled vgs.settings)" || settings_found=unread
   [[ $voice_found == True || $voice_found == False ]] || fail "vgs.voice's enablement is unreadable before the Voice setup scene: $voice_found"
@@ -3089,7 +3131,8 @@ process.exit(70);
 EOF_PKG
   chmod 755 "$sandbox/voice-setup-vgshell-pkg.stub"
   cp -- "$sandbox/voice-setup-vgshell-pkg.stub" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
-  rm -f -- "${shim:?}/voxtype" "${shim:?}/voxtype-audio-bridge"
+  voice_stand_ins_removed
+  rm -f -- "${shim:?}/voxtype-audio-bridge"
   rescan "the Voice setup scene's commands are scanned"
   expect_poll "voxtype is missing for the Voice setup dialog" missing voice_setup_requirement voxtype
   if [[ $settings_found == False ]]; then
@@ -3108,9 +3151,12 @@ EOF_PKG
   take "voice-setup-$1-dialog"
   type_keys -k Escape || fail "sending Escape to Voice's notice failed"
   expect_poll "Escape closes Voice's notice" 0 layer_count vgs:notice
-  voice_setup_page "Voice's page without voxtype" "voice-setup-$1-page-missing" "Requirements missing"
+  voice_setup_page "Voice's page without voxtype" "voice-setup-$1-page-missing" "$missing_chip"
 
-  cat >"$shim/voxtype" <<'EOF'
+  if voice_dictates; then
+    voice_stand_ins
+  else
+    cat >"$shim/voxtype" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
   'status --follow --extended --format json') printf '{"state":"idle"}\n'; exec sleep infinity ;;
@@ -3120,9 +3166,15 @@ case "$*" in
   'info engines --json') printf '[{"name":"parakeet","compiled":true,"active":true}]\n' ;;
 esac
 EOF
-  chmod 755 "$shim/voxtype"
+    chmod 755 "$shim/voxtype"
+  fi
   rescan "the voxtype stand-in is scanned"
   expect_poll "Voice finds the voxtype stand-in" true ipc smoke readInstance service vgs.voice voxtypePresent
+  if voice_dictates; then
+    expect_poll "the core starts its daemon once voxtype is found" "ready idle" voice_daemon
+    expect_poll "Voice offers Set up while the model is missing" setup voice_setup_wanted
+    voice_setup_page "Voice's page with Set up offered" "voice-setup-$1-page-needed" "Set up needed"
+  fi
   terminal_stand_in
   voice_setup_launcher_ready
   before="$(voice_setup_run)" || before=unread
@@ -3132,6 +3184,10 @@ EOF
     expect_poll "the finished Set up shows Voice's toast" 1 voice_setup_toasts
   elif [[ $notifies == true ]]; then
     expect_poll "the finished Set up shows Voice's notification" 1 voice_setup_cards
+  elif voice_dictates; then
+    # The run's end with code 0 starts the core's daemon again, and Voice
+    # sends no message of its own.
+    expect_poll "the core's daemon is ready after the Set up run" "ready idle" voice_daemon
   else
     # A tree from before the toast: a short bounded wait, 2 s, for the
     # page and the bar to settle after the run.
@@ -3147,13 +3203,18 @@ EOF
     expect "Voice's notification is dismissed" ok notes dismiss-all
     expect_poll "Voice's notification is gone after the Voice setup run" 0 on_screen
     expect "the history clears after the Voice setup run" ok notes clear-history
-  else
+  elif ! voice_dictates; then
     expect_poll "Voice's toast is gone after the Voice setup run" 0 voice_setup_toasts
   fi
-  # Ready: the stand-in reports its version and the model installed, and a
-  # systemctl stand-in, over whichever the sandbox holds, the service
-  # enabled and running.
-  cat >"$shim/voxtype" <<'EOF'
+  # Ready: the stand-in reports its version and the model installed, and,
+  # for a tree whose Voice probes a user unit, a systemctl stand-in, over
+  # whichever the sandbox holds, the service enabled and running.
+  if voice_dictates; then
+    : >"$voice_model_installed"
+    rescan "the ready stand-in is scanned"
+    expect_poll "Voice reads its setup ready" none voice_setup_wanted
+  else
+    cat >"$shim/voxtype" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
   '--version') printf 'voxtype 1.1.0\n' ;;
@@ -3164,18 +3225,19 @@ case "$*" in
   'info engines --json') printf '[{"name":"parakeet","compiled":true,"active":true}]\n' ;;
 esac
 EOF
-  rm -f -- "$systemctl_saved"
-  if [[ -e $shim/systemctl ]]; then mv -- "$shim/systemctl" "$systemctl_saved"; fi
-  cat >"$shim/systemctl" <<'EOF'
+    rm -f -- "$systemctl_saved"
+    if [[ -e $shim/systemctl ]]; then mv -- "$shim/systemctl" "$systemctl_saved"; fi
+    cat >"$shim/systemctl" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
   '--user is-enabled voxtype') printf 'enabled\n' ;;
   '--user is-active voxtype') printf 'active\n' ;;
 esac
 EOF
-  chmod 755 "$shim/voxtype" "$shim/systemctl"
-  rescan "the ready stand-ins are scanned"
-  expect_poll "Voice reads its setup ready" False voice_setup_wanted
+    chmod 755 "$shim/voxtype" "$shim/systemctl"
+    rescan "the ready stand-ins are scanned"
+    expect_poll "Voice reads its setup ready" False voice_setup_wanted
+  fi
   voice_setup_page "Voice's page once set up" "voice-setup-$1-page-ready" "Ready"
   if [[ $voice_found == False ]]; then
     expect "disabling vgs.voice after the Voice setup scene is allowed" ok ipc shell setPluginEnabled vgs.voice false
@@ -3190,20 +3252,29 @@ EOF
     expect "disabling vgs.notifications after the Voice setup scene is allowed" ok ipc shell setPluginEnabled vgs.notifications false
     expect_poll "vgs.notifications is gone after the Voice setup scene" False record_exists vgs.notifications
   fi
-  rm -f -- "${shim:?}/voxtype" "${shim:?}/systemctl"
-  if [[ -e $systemctl_saved ]]; then mv -- "$systemctl_saved" "$shim/systemctl"; fi
+  voice_stand_ins_removed
+  if ! voice_dictates; then
+    rm -f -- "${shim:?}/systemctl"
+    if [[ -e $systemctl_saved ]]; then mv -- "$systemctl_saved" "$shim/systemctl"; fi
+  fi
   for command in "${stood[@]}"; do rm -f -- "${shim:?}/$command"; done
   cp -- "$pkg_real" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
   rescan "the Voice setup scene's stand-ins are removed"
 }
 # voice_setup_press LABEL: Set up pressed on the Settings window, through
 # the manager's openTui as its Setup button hands it on (harness.sh's
-# settings_open_tui), then the window hidden, so the shot shows what the
-# press raised over the desktop.
+# settings_open_tui), or, for a tree whose Voice dictates through the
+# core, through the manager's act on the setup entry (settings_act), then
+# the window hidden, so the shot shows what the press raised over the
+# desktop.
 voice_setup_press() { # LABEL
   expect "$1: the Settings window opens" ok ipc shell summon "$settings_kind" vgs.settings '{}'
   expect_poll "$1: the Settings window maps" 1 settings_count
-  expect "$1: Set up is answered" ok settings_open_tui vgs.voice setup
+  if voice_dictates; then
+    expect "$1: the setup step is answered" ok settings_act vgs.voice setup
+  else
+    expect "$1: Set up is answered" ok settings_open_tui vgs.voice setup
+  fi
   settings_close
 }
 # voice_setup_page LABEL SHOT CHIP: the Settings window opened on Voice's
@@ -3240,14 +3311,14 @@ voice_setup_reveal() {
 voice_setup_in_view() { ipc smoke sectionSpan "$settings_kind" vgs.settings Setup | py_reply 'import json,sys; t=sys.stdin.read(); s=json.loads(t) if t.startswith("[") else None; print("in-view" if s is not None and s[0] >= s[2] - 0.5 and s[1] <= s[2] + s[3] + 0.5 else t.strip())'; }
 voice_setup_chip() { ipc smoke setupSection "$settings_kind" vgs.settings | py_reply 'import json,sys; c=json.load(sys.stdin)["chips"]; print(c[0][0] if c else "none")'; }
 # Whether Voice's own setup state offers Set up, as its service holds it.
-voice_setup_wanted() { ipc smoke readInstance service vgs.voice setupValue | py_reply 'import json,sys; print(json.load(sys.stdin).get("action"))'; }
+voice_setup_wanted() { ipc smoke readInstance service vgs.voice setupValue | py_reply 'import json,sys; a=json.load(sys.stdin).get("action"); print("none" if a == "" else a)'; }
 voice_setup_requirement() { ipc shell listPlugins | py_reply 'import json,sys; print([r["state"] for p in json.load(sys.stdin)["plugins"] if p["id"] == "vgs.voice" for r in p["requirements"] if r["name"] == sys.argv[1]][0])' "$1"; }
 # The run id of Set up's last ended run, or `none`.
-voice_setup_run() { ipc shell lent | py_reply 'import json,sys; r=json.load(sys.stdin)["tui"]["runs"].get("vgs.voice/setup") or {}; e=r.get("ended"); print(e["run"] if e else "none")'; }
+voice_setup_run() { ipc shell lent | py_reply 'import json,sys; r=json.load(sys.stdin)["tui"]["runs"].get(sys.argv[1]) or {}; e=r.get("ended"); print(e["run"] if e else "none")' "$voice_setup_key"; }
 # The code of Set up's ended run once it is another run than BEFORE and no
 # run of the key is live, else `pending`.
 voice_setup_code() { # BEFORE
-  ipc shell lent | py_reply 'import json,sys; r=json.load(sys.stdin)["tui"]["runs"].get("vgs.voice/setup") or {}; e=r.get("ended"); print(e["code"] if e and e["run"] != sys.argv[1] and r.get("running") is None else "pending")' "$1"
+  ipc shell lent | py_reply 'import json,sys; r=json.load(sys.stdin)["tui"]["runs"].get(sys.argv[2]) or {}; e=r.get("ended"); print(e["code"] if e and e["run"] != sys.argv[1] and r.get("running") is None else "pending")' "$1" "$voice_setup_key"
 }
 voice_setup_toasts() { ipc shell lent | py_reply 'import json,sys; t=json.load(sys.stdin)["toasts"]; print(sum(r["plugin"] == "vgs.voice" for k in ("visible", "waiting") for r in t[k]))'; }
 # Voice's cards in vgs.notifications' layer: the core sends Voice's
@@ -4048,14 +4119,18 @@ scene_sounds() { # MODE
   local user="$home/.config/vgshell/shell.json" saved="$sandbox/shell-before-sounds-shot.json" id box px py voice_found
   voice_found="$(plugin_enabled vgs.voice)" || voice_found=unread
   cp -- "$user" "$saved"
-  cat >"$shim/voxtype" <<'EOF'
+  if voice_dictates; then
+    voice_stand_ins
+  else
+    cat >"$shim/voxtype" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
   'status --follow --extended --format json') printf '{"state":"idle"}\n'; exec sleep infinity ;;
   'config get audio.feedback.enabled --json') printf '{"file_value":true,"key":"audio.feedback.enabled","value":true}\n' ;;
 esac
 EOF
-  chmod 755 "$shim/voxtype"
+    chmod 755 "$shim/voxtype"
+  fi
   rescan "the Sounds shots' voxtype stand-in is scanned"
   for id in vgs.system vgs.motion vgs.windows vgs.ui vgs.fonts vgs.sounds vgs.notifications vgs.voice vgs.jarvis; do
     ships_plugin "$id" || continue
@@ -4106,7 +4181,7 @@ PY
   cp -- "$saved" "$user.next" && mv -T -- "$user.next" "$user" || fail "the user file is put back after the Sounds shots"
   expect "the configuration reloads as the Sounds shots found it" ok ipc shell reloadConfig
   expect_poll "Voice's enablement is as the Sounds shots found it" "$voice_found" plugin_enabled vgs.voice
-  rm -f -- "${shim:?}/voxtype"
+  voice_stand_ins_removed
   rescan "the Sounds shots' voxtype stand-in is removed"
 }
 

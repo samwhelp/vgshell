@@ -23,6 +23,7 @@ import "Steps.js" as Steps
 // the plugin's stored keys and tokens of no group or of `Setup`, each entry
 // a StatusRow with one line per key, whose steps add, replace and remove a
 // key the core stores, then, on an unlabelled row from the value column,
+// the first entry's offered action when it opens no listed screen, then
 // one action per other setup screen the manifest lists, which opens it
 // through the manager: a screen an offered status action opens first, with
 // the action's label, then the others; then one section per other status
@@ -517,13 +518,21 @@ FocusScope {
                                                     id: setupScreen
                                                     required property var modelData
                                                     sourceComponent: modelData.primary ? primaryScreen : plainScreen
+                                                    // A screen opens through
+                                                    // the manager; the
+                                                    // headline's own action
+                                                    // is its act.
+                                                    function press() {
+                                                        if (modelData.status === "") page.panel.openTui(page.row.id, modelData.name);
+                                                        else page.panel.act(page.row.id, modelData.status);
+                                                    }
                                                     Component {
                                                         id: primaryScreen
                                                         Button {
                                                             text: setupScreen.modelData.label
                                                             variant: "primary"
                                                             enabled: page.editable && setupScreen.modelData.enabled
-                                                            onClicked: page.panel.openTui(page.row.id, setupScreen.modelData.name)
+                                                            onClicked: setupScreen.press()
                                                         }
                                                     }
                                                     Component {
@@ -532,7 +541,7 @@ FocusScope {
                                                             text: setupScreen.modelData.label
                                                             tone: setupScreen.modelData.tone === "danger" ? "danger" : "accent"
                                                             enabled: page.editable && setupScreen.modelData.enabled
-                                                            onClicked: page.panel.openTui(page.row.id, setupScreen.modelData.name)
+                                                            onClicked: setupScreen.press()
                                                             Tooltip { text: setupScreen.modelData.reason }
                                                         }
                                                     }
@@ -541,12 +550,12 @@ FocusScope {
                                         }
                                     }
                                     Repeater {
-                                        model: statusPart.modelData.buttons.map(button => button.name)
+                                        model: page.panel === null ? [] : statusPart.modelData.buttons.map(button => button.status === "" ? page.panel.tuiKey(button.name) : button.status)
                                         Label {
                                             required property string modelData
                                             role: "hint"
                                             color: Theme.color.danger
-                                            text: page.row === null || page.panel === null ? "" : page.panel.replyOf(page.row.id, page.panel.tuiKey(modelData))
+                                            text: page.row === null || page.panel === null ? "" : page.panel.replyOf(page.row.id, modelData)
                                             visible: text !== ""
                                             width: parent.width
                                             wrapMode: Text.Wrap

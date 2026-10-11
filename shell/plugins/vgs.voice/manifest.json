@@ -16,9 +16,9 @@
     "bar-widget": "Widget.qml"
   },
   "capabilities": [
+    "dictation",
     "ipc",
     "layers",
-    "notify",
     "requirements",
     "shortcut",
     "sounds",
@@ -104,17 +104,6 @@
       },
       "optional": false,
       "purpose": "Copies dictated text to the clipboard when paste mode needs it"
-    },
-    {
-      "command": "systemctl",
-      "packages": {
-        "pacman": "systemd",
-        "apt": "systemd",
-        "dnf": "systemd",
-        "nix": "systemd"
-      },
-      "optional": true,
-      "purpose": "Checks and restarts the Voice user service"
     }
   ],
   "status": {
@@ -133,10 +122,19 @@
       "type": "state",
       "label": "Setup",
       "group": "Setup",
-      "hint": "Setup copies defaults, downloads the speech model and enables the service.",
-      "action": {
-        "label": "Set up",
-        "tui": "setup"
+      "hint": "Setup copies defaults and downloads the speech model.",
+      "actions": {
+        "install": {
+          "label": "Install requirements",
+          "install": [
+            "voxtype",
+            "voxtype-audio-bridge"
+          ]
+        },
+        "setup": {
+          "label": "Set up",
+          "dictation": "setup"
+        }
       }
     },
     "model": {
@@ -154,8 +152,7 @@
       "script": "tui/configure.sh",
       "title": "Configure Voice",
       "requires": [
-        "voxtype",
-        "systemctl"
+        "voxtype"
       ],
       "entry": {
         "label": "Configure",
@@ -167,25 +164,11 @@
       "script": "tui/model.sh",
       "title": "Choose Voice model",
       "requires": [
-        "voxtype",
-        "systemctl"
+        "voxtype"
       ],
       "entry": {
         "label": "Choose model",
         "icon": "brain",
-        "group": "Voice"
-      }
-    },
-    "setup": {
-      "script": "tui/setup.sh",
-      "title": "Set up Voice",
-      "requires": [
-        "voxtype",
-        "systemctl"
-      ],
-      "entry": {
-        "label": "Set up again",
-        "icon": "download",
         "group": "Voice"
       }
     }

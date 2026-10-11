@@ -34,6 +34,21 @@ const MANIFEST = {
     }
 };
 
+// A page whose one Setup entry, the Status section's row, offers by its
+// value an action that opens no screen or one that opens a listed screen.
+const HEADED = {
+    requirements: [{ name: "acme-tool", bus: null, packages: {}, optional: true, purpose: "A tool", floor: "1.0.0" }],
+    tui: { configure: { script: "tui/configure.sh", title: "Configure", size: "default", presentation: "full", entry: null, requires: null } },
+    status: { setup: { type: "state", label: "Setup", group: "Setup", actions: { install: { label: "Install tool", install: ["acme-tool"] }, configure: { label: "Finish", tui: "configure" } } } }
+};
+const HEADED_TUIS = [{ name: "configure", label: "Configure", icon: "sliders-horizontal", withheld: "" }];
+// [label, published values, the Flow as [name, status, label, enabled]].
+const HEADED_FLOW = [
+    ["the headline's action that opens no screen draws first, as the entry's act", { setup: { tone: "warning", text: "To do", action: "install" } }, [["", "setup", "Install tool", true], ["configure", "", "Configure", true]]],
+    ["the headline's action that opens a screen draws as that screen", { setup: { tone: "warning", text: "To do", action: "configure" } }, [["configure", "", "Finish", true]]],
+    ["a headline that offers none draws the screens alone", { setup: { tone: "ok", text: "Ready" } }, [["configure", "", "Configure", true]]]
+];
+
 // A status entry's step: [label, key, published values, { offered }].
 const ENTRIES = [
     ["an absent presence offers its step", "token", { token: "absent" }, { offered: true }],
@@ -386,6 +401,10 @@ function verify(logic) {
             .map(row => [row.label, row.step, row.button === null ? null : [row.button.name, row.button.label]]), rows, "rows: " + label);
         same(flowOf(logic, tuis, status).map(b => [b.name, b.label]), flow, "Flow beside steps: " + label);
     }
+    for (const [label, values, want] of HEADED_FLOW)
+        same(flowOf(logic, HEADED_TUIS, producer.statusRows(HEADED, values, [])).map(b => [b.name, b.status, b.label, b.enabled]), want, "headline Flow: " + label);
+    same(new Set([{ setup: { tone: "warning", text: "To do", action: "install" } }, { setup: { tone: "ok", text: "Ready" } }]
+        .flatMap(values => flowOf(logic, HEADED_TUIS, producer.statusRows(HEADED, values, [])).map(b => b.key))).size, 2, "headline Flow: the entry's act and a screen are drawn as different buttons");
     // Each keyed group is a section after Setup, its key lists and states
     // in manifest order, and the one primary is the first offered step
     // that is no danger.
@@ -457,6 +476,9 @@ const CONTROLS = [
     ["a step drops its tone", "tone: entry.action.tone, primary: false };", "tone: \"\", primary: false };"],
     ["a step draws an action its value does not offer", "if (entry.action === null || !entry.action.offered) return null;", "if (entry.action === null) return null;"],
     ["a step's screen draws in the Flow too", "beside.indexOf(name) !== -1 || ", ""],
+    ["the headline's action that opens no screen draws nothing", 'if (step !== null && step.name === "")', "if (false)"],
+    ["the headline's action that opens a screen draws as an act too", 'if (step !== null && step.name === "")', "if (step !== null)"],
+    ["the headline's act names no entry", "status: headline.key, label: step.label", 'status: "", label: step.label'],
     ["a danger step's declared screen draws in the Flow too", " && !blockedByDangerRow(tui.name)", ""],
     ["the Status row reads Status", "label: entry.label, step: step,", 'label: step ? entry.label : "Status", step: step,'],
     ["the first Setup entry draws as a step", "items: [row(setup[0], false)]", "items: [row(setup[0], true)]"],

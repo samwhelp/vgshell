@@ -161,8 +161,9 @@ function inKeyedGroup(entry, keyed) {
 // - STATUS_TITLE: SETUP_GROUP's first entry, under its own label, with no
 //   step;
 // - SETUP_GROUP: each further entry of that group as a step row, then the
-//   key lists of group "" or SETUP_GROUP, then `buttons`, the screens no
-//   step row draws and no danger step owns now (flowButtons);
+//   key lists of group "" or SETUP_GROUP, then `buttons`, the headline's
+//   offered action and the screens no step row draws and no danger step
+//   owns now (flowButtons);
 // - each keyed group (keyedGroups): its key lists and states in manifest
 //   order, each state a step row.
 // A section with no item and no button is left out. Each item is { key,
@@ -193,7 +194,7 @@ function settingsSections(tuis, status) {
     });
     var out = [];
     if (setup.length > 0) out.push({ title: STATUS_TITLE, items: [row(setup[0], false)], buttons: [] });
-    var buttons = flowButtons(tuis, status, beside);
+    var buttons = flowButtons(tuis, status, beside, setup.length > 0 ? setup[0] : null);
     if (setupItems.length > 0 || buttons.length > 0) out.push({ title: SETUP_GROUP, items: setupItems, buttons: buttons });
     out = out.concat(groups);
     markPrimary(out);
@@ -216,19 +217,25 @@ function stepButton(tuis, entry) {
 // The Setup section's actions for TUIS and STATUS, in drawn order, leaving
 // out each listed TUI a step row draws beside it, BESIDE, and each listed
 // TUI a danger row declares while it offers another TUI as the repair:
-// first each TUI an offered action opens (a row's action names a TUI only
+// first the offered action of HEADLINE, the entry the Status section draws
+// with no step, or null, when it opens no listed screen (stepButton), a
+// press the manager's act on `status`, the entry's key; then each TUI an
+// offered action opens (a row's action names a TUI only
 // while it is offered), in status order, as that step, with the action's
 // label and tone; then every other TUI in manifest order, with its entry's
 // label.
 // Such another TUI that lacks a requirement takes no press and reads the
 // core's reason, the TUI's `withheld`: its press would only raise the
 // notice the step installs from; an offered step always takes its press.
-// Each { key, name, label, tone, offered, primary, enabled, reason }, `key`
-// naming the action as drawn, so a change of label or state draws
-// it anew (markPrimary sets it).
-function flowButtons(tuis, status, beside) {
+// Each { key, name, status, label, tone, offered, primary, enabled,
+// reason }, `status` "" for a screen, `key` naming the action as drawn, so
+// a change of label or state draws it anew (markPrimary sets it).
+function flowButtons(tuis, status, beside, headline) {
     var out = [];
-    function has(name) { return beside.indexOf(name) !== -1 || out.some(function (button) { return button.name === name; }); }
+    var step = headline === null ? null : stepButton(tuis, headline);
+    if (step !== null && step.name === "")
+        out.push({ key: "", name: "", status: headline.key, label: step.label, tone: step.tone, offered: true, primary: false, enabled: true, reason: "" });
+    function has(name) { return beside.indexOf(name) !== -1 || out.some(function (button) { return button.status === "" && button.name === name; }); }
     function blockedByDangerRow(name) {
         return status.some(function (entry) {
             return entry.tone === "danger" && entry.action !== null && true === entry.action.offered && entry.action.tui !== "" && entry.action.tui !== name
@@ -237,7 +244,7 @@ function flowButtons(tuis, status, beside) {
     }
     function add(tui, label, tone, offered) {
         var enabled = offered || tui.withheld === "";
-        out.push({ key: "", name: tui.name, label: label, tone: tone, offered: offered, primary: false, enabled: enabled, reason: enabled ? "" : tui.withheld });
+        out.push({ key: "", name: tui.name, status: "", label: label, tone: tone, offered: offered, primary: false, enabled: enabled, reason: enabled ? "" : tui.withheld });
     }
     status.forEach(function (entry) {
         if (entry.action === null || entry.action.tui === "") return;
@@ -272,6 +279,6 @@ function markPrimary(sections) {
     });
     if (first !== null && first.button !== null && first.button.tone !== "danger") first.button.primary = true;
     sections.forEach(function (section) {
-        section.buttons.forEach(function (button) { button.key = button.name + " " + button.label + " " + button.enabled + " " + button.tone + " " + button.primary; });
+        section.buttons.forEach(function (button) { button.key = button.name + " " + button.label + " " + button.enabled + " " + button.tone + " " + button.primary + " " + button.status; });
     });
 }

@@ -1,15 +1,12 @@
 .pragma library
 
-var STATES = ["idle", "recording", "transcribing", "stopped"];
+// The plugin id the `dictation` capability names as a recording's holder.
+var HOLDER = "vgs.voice";
 var DEFAULT_ENGINE = "parakeet";
 var DEFAULT_MODEL = "parakeet-tdt-0.6b-v3";
 
 function isObject(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function asString(value) {
-    return typeof value === "string" ? value : "";
 }
 
 function parseJson(text, fallback) {
@@ -28,20 +25,16 @@ function configValue(text, fallback) {
     return fallback;
 }
 
-function stateOf(raw) {
-    if (raw === "streaming") return "recording";
-    return STATES.indexOf(raw) === -1 ? "idle" : raw;
-}
-
-function parseStatus(line) {
-    var data = parseJson(line, null);
-    if (!isObject(data)) return { ok: false, reason: "json" };
-    var raw = asString(data.state) || asString(data.alt) || asString(data.class) || asString(data.status) || "idle";
-    var state = stateOf(raw);
-    var model = asString(data.model);
-    var backend = asString(data.backend);
-    var device = asString(data.device);
-    return { ok: true, state: state, rawState: raw, unknown: state === "idle" && raw !== "idle", backend: backend, device: device, model: model };
+// The dictation Voice shows from STATE, the `dictation` capability's, and
+// OWN, whether the last one it showed was its own: { own, phase }. A phase
+// shows only while Voice holds the recording, and through the
+// transcription after it: `record stop` ends before voxtype has the words,
+// so the capability then names no holder, and it takes no other start
+// until the daemon reads idle. Another holder's recording reads idle.
+function ownDictation(state, own) {
+    if (state.holder === HOLDER) return { own: true, phase: state.phase };
+    var after = own && state.holder === "" && (state.phase === "unread" || state.phase === "transcribing");
+    return { own: after, phase: after ? "transcribing" : "idle" };
 }
 
 function modelRows(modelsText, engine) {
@@ -69,16 +62,6 @@ function engineAvailable(enginesText, wanted) {
     return false;
 }
 
-function unitEnabled(text) {
-    var value = configValue(text, text).trim();
-    return value === "enabled" || value === "static";
-}
-
-// `systemctl --user is-active voxtype` answers `active` while the daemon runs.
-function unitActive(text) {
-    return String(text).trim() === "active";
-}
-
 // The version `voxtype --version` prints, as `voxtype 1.1.0`, or "".
 function versionOf(text) {
     var found = /\b(\d+\.\d+(?:\.\d+)?)\b/.exec(String(text));
@@ -86,30 +69,41 @@ function versionOf(text) {
 }
 
 // The stages the service reads Set up's state in, each one command's
-// stdout under its name (Service.probeCommand), and the two of them that
-// systemctl answers.
-var PROBE_STAGES = ["version", "engine", "model", "models", "engines", "unit", "active"];
-var SERVICE_STAGES = ["unit", "active"];
+// stdout under its name (Service.probeCommand).
+var PROBE_STAGES = ["version", "engine", "model", "models", "engines"];
+
+// What Set up's state says of the voxtype the core runs, by the
+// capability's `daemon` word, "" for one that needs no line: `starting`
+// and `ready`.
+var DAEMON_LINES = {
+    absent: "voxtype is not running.",
+    starting: "",
+    ready: "",
+    elsewhere: "Another voxtype is already running, so VGS cannot start its own.",
+    failed: "voxtype did not start."
+};
 
 // Set up's state from READS, the service's probe stdout by stage, with
-// `present` false while voxtype is not found: { tone, text, lines, action,
-// engine, model }. Ready reads the version and the model, then that the
-// service runs; otherwise each line names one thing that is missing, and
-// the action, Set up, is offered.
-function setupState(reads) {
+// `present` false while voxtype is not found, and DAEMON, the capability's
+// `daemon` word: { tone, text, lines, action, engine, model }. Ready reads
+// the version and the model; otherwise each line names one thing that is
+// missing. `action` names the manifest's step that applies: `install`
+// without voxtype, `setup` while a line stands, "" once ready.
+function setupState(reads, daemon) {
     if (reads.present === false)
-        return { tone: "warning", text: "Set up needed", lines: ["voxtype is not installed."], action: true, engine: DEFAULT_ENGINE, model: DEFAULT_MODEL };
+        return { tone: "warning", text: "Set up needed", lines: ["voxtype is not installed."], action: "install", engine: DEFAULT_ENGINE, model: DEFAULT_MODEL };
+    if (DAEMON_LINES[daemon] === undefined)
+        throw new Error("voice: daemon " + JSON.stringify(daemon) + " is not one of " + Object.keys(DAEMON_LINES).join(", "));
     var engine = configValue(reads.engine || "", DEFAULT_ENGINE);
     var model = configValue(reads.model || "", DEFAULT_MODEL);
     var lines = [];
     if (!engineAvailable(reads.engines || "", engine)) lines.push("The active build cannot use " + engine + ".");
     if (!modelInstalled(reads.models || "", engine, model)) lines.push("The speech model is missing.");
-    if (!unitEnabled(reads.unit || "")) lines.push("The Voice service is not enabled.");
-    if (!unitActive(reads.active || "")) lines.push("The Voice service is not running.");
-    if (lines.length > 0) return { tone: "warning", text: "Set up needed", lines: lines, action: true, engine: engine, model: model };
+    if (DAEMON_LINES[daemon] !== "") lines.push(DAEMON_LINES[daemon]);
+    if (lines.length > 0) return { tone: "warning", text: "Set up needed", lines: lines, action: "setup", engine: engine, model: model };
     var version = versionOf(reads.version || "");
     var summary = (version === "" ? "voxtype" : "voxtype " + version) + " \u00b7 " + model;
-    return { tone: "ok", text: "Ready", lines: [summary, "The Voice service is running."], action: false, engine: engine, model: model };
+    return { tone: "ok", text: "Ready", lines: [summary], action: "", engine: engine, model: model };
 }
 
 // The on-screen display's level from one voxtype-audio-bridge frame, as the
@@ -138,38 +132,24 @@ function frameLevel(peak, rms) {
     return Math.min(1, Math.pow(Math.max(peak, rms * RMS_WEIGHT) * LEVEL_GAIN, LEVEL_GAMMA));
 }
 
-function modelData(status, setup) {
-    var engine = setup && setup.engine ? setup.engine : DEFAULT_ENGINE;
-    var model = setup && setup.model ? setup.model : status && status.model ? status.model : DEFAULT_MODEL;
-    return { engine: engine, model: model };
+// The Model row: the engine and the model of the daemon the core runs,
+// from STATE, the capability's, and SETUP's, the configured ones, while no
+// daemon has named its own.
+function modelData(state, setup) {
+    return { engine: state.engine !== "" ? state.engine : setup.engine, model: state.model !== "" ? state.model : setup.model };
 }
 
-// The key a person dictates with, from KEYS, shell.shortcut.keys: the hold
-// key first, then the toggle key, then the tap key, as { kind, key }, kind
-// `hold`, `toggle`, `tap`, or `none` with key null when none is bound.
-function readyKey(keys) {
-    if (typeof keys.talk === "string") return { kind: "hold", key: keys.talk };
-    if (typeof keys.toggle === "string") return { kind: "toggle", key: keys.toggle };
-    if (typeof keys.tap === "string") return { kind: "tap", key: keys.tap };
-    return { kind: "none", key: null };
-}
+// The screens that change voxtype's config, which a daemon reads when it
+// starts: the core starts its daemon again after a run of one ends with
+// code 0.
+var CONFIG_TUIS = ["configure", "model"];
 
-// The message of the notification a finished Set up sends: readyKey's key, spelled
-// for people by SPELL.
-function readyMessage(keys, spell) {
-    var ready = readyKey(keys);
-    if (ready.kind === "hold") return "Hold " + spell(ready.key) + " to dictate.";
-    if (ready.kind === "toggle") return "Press " + spell(ready.key) + " to start or stop dictation.";
-    if (ready.kind === "tap") return "Tap " + spell(ready.key) + " to start or stop dictation.";
-    return "Set a key in Voice settings to dictate.";
-}
-
-// Whether SETUP, the `setup` entry of shell.tui.state, holds a run that
-// ended with code 0 since SEEN, the endedAt this instance read last. SEEN
-// is undefined before the instance's first read, so a run that ended before
-// the instance started shows nothing.
-function setupFinished(seen, setup) {
-    return seen !== undefined && setup.endedAt !== null && setup.endedAt !== seen && setup.code === 0;
+// Whether RUN, one entry of shell.tui.state, holds a run that ended with
+// code 0 since SEEN, the endedAt this instance read last. SEEN is
+// undefined before the instance's first read, so a run that ended before
+// the instance started restarts nothing.
+function runFinished(seen, run) {
+    return seen !== undefined && run.endedAt !== null && run.endedAt !== seen && run.code === 0;
 }
 
 // Dictation sounds are voxtype's own tones. Their one holder is voxtype's
@@ -179,7 +159,8 @@ function setupFinished(seen, setup) {
 // page's choice runs FEEDBACK_STAGES, one command each: read the value and
 // stop when it already is the choice, so nothing is written and nothing
 // restarts; read what the config file is; write through voxtype's own
-// `config set`; restart the voxtype user service; read the value back.
+// `config set`; have the core start its voxtype daemon again, which reads
+// the config; read the value back.
 var FEEDBACK_KEY = "audio.feedback.enabled";
 var FEEDBACK_ON = "own";
 var FEEDBACK_OFF = "";
@@ -219,15 +200,15 @@ function fileKind(text) {
 }
 
 // The command of STAGE of a feedback run that wants WANTED, with the
-// config file at CONFIG_FILE. `try-restart` restarts a running daemon and
-// starts none the user stopped.
+// config file at CONFIG_FILE, or null for `restart`, which runs none: the
+// service asks the `dictation` capability.
 function feedbackCommand(stage, wanted, configFile) {
     switch (stage) {
     case "read":
     case "verify": return ["voxtype", "config", "get", FEEDBACK_KEY, "--json"];
     case "kind": return ["stat", "--format=%f", "--", configFile];
     case "write": return ["voxtype", "config", "set", FEEDBACK_KEY, wanted === FEEDBACK_ON ? "true" : "false"];
-    case "restart": return ["systemctl", "--user", "try-restart", "voxtype"];
+    case "restart": return null;
     }
     throw new Error("voice: feedback stage " + JSON.stringify(stage) + " is not one of " + FEEDBACK_STAGES.join(", "));
 }
@@ -238,12 +219,13 @@ function feedbackRun(wanted) {
     return { stage: "read", wanted: wanted, value: null, problem: "" };
 }
 
-// RUN after its stage's command ended with exit CODE and stdout OUT:
-// { stage, wanted, value, problem }, `stage` the next one or `done`,
-// `value` the last one read and `problem` a key of FEEDBACK_PROBLEMS.
-// CAN_RESTART is whether systemctl is found; without it the write stands
-// and the run says the change waits for voxtype's next start.
-function feedbackNext(run, code, out, canRestart) {
+// RUN after its stage ended with exit CODE and stdout OUT: { stage,
+// wanted, value, problem }, `stage` the next one or `done`, `value` the
+// last one read and `problem` a key of FEEDBACK_PROBLEMS. The restart
+// stage's CODE is 0 when the capability took the restart; when it refused,
+// the write stands and the run says the change waits for voxtype's next
+// start.
+function feedbackNext(run, code, out) {
     var next = { stage: "done", wanted: run.wanted, value: run.value, problem: run.problem };
     switch (run.stage) {
     case "read":
@@ -258,11 +240,7 @@ function feedbackNext(run, code, out, canRestart) {
         return next;
     case "write":
         if (code !== 0) next.problem = "write";
-        else if (canRestart) next.stage = "restart";
-        else {
-            next.problem = "restart";
-            next.stage = "verify";
-        }
+        else next.stage = "restart";
         return next;
     case "restart":
         if (code !== 0) next.problem = "restart";
