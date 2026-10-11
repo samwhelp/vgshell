@@ -904,6 +904,7 @@ function soundApps(desktopEntry, appName) {
 }
 
 // Whether a stream whose PipeWire properties are PROPS is one of APPS'.
+// The sound rule matches apps the same way (holdMatches).
 function streamOfApps(props, apps) {
     if (!isPlainObject(props)) return false;
     return ["application.name", "application.process.binary"].some(function (key) {
@@ -911,20 +912,160 @@ function streamOfApps(props, apps) {
     });
 }
 
+// The sound rule, wireplumber/vgs-notification-sounds.lua: WirePlumber
+// itself holds a new output stream silent before it links it, so an app's
+// chime is silent from its first sample however late the shell reacts.
+// The shell writes the hold on the rule's metadata while mute is on: its
+// apps, every name the notifications the service keeps or arms go by, and
+// HOLD_ROLES, the media.role values of notification sounds. The rule
+// holds a stream only while the shell's pw-cli writer, `pid`, lives.
+var SOUND_RULE_METADATA = "vgs-notification-sounds";
+var HOLD_ROLES = ["notification", "event"];
+
+// The hold entry's JSON for the writer PID and APPS, as the rule parses it.
+function holdEntry(pid, apps) {
+    return JSON.stringify({ pid: pid, apps: apps, roles: HOLD_ROLES });
+}
+
+// The names, in lower case and in order, that ENTRIES' apps go by, each
+// entry a stored notification, followed by EXTRA's names: the hold's apps.
+// The entries are what the service keeps, so the list is as bounded as
+// the history.
+function holdApps(entries, extra) {
+    var out = [];
+    var add = function (name) {
+        if (out.indexOf(name) === -1) out.push(name);
+    };
+    for (var i = 0; i < entries.length; i++) soundApps(entries[i].desktopEntry, entries[i].app).forEach(add);
+    extra.forEach(add);
+    return out;
+}
+
+// Whether NEXT names an app WRITTEN does not, so the hold is written again.
+function holdGrows(written, next) {
+    return next.some(function (name) { return written.indexOf(name) === -1; });
+}
+
+// Whether the hold { apps, roles } names a stream whose PipeWire properties
+// are PROPS: its media.role, or its app as streamOfApps reads it, each in
+// lower case. The same match as the rule's `matches`.
+function holdMatches(hold, props) {
+    if (!isPlainObject(props)) return false;
+    var role = props["media.role"];
+    if (typeof role === "string" && hold.roles.indexOf(role.toLowerCase()) !== -1) return true;
+    return streamOfApps(props, hold.apps);
+}
+
+// How the rule held a stream: `role` or `app` for one it held, "" for one
+// it did not. WRITTEN is the hold as the shell last wrote it, { at, apps,
+// roles }, at when its first write started, or null before any; the rule
+// holds only streams that appear while it counts, so one first seen
+// before AT was not held. A stream that appears between a write's start
+// and its arrival reads as held: freeing one the rule did not hold writes
+// the mute it has and changes nothing.
+function ruleHeld(written, props, since) {
+    if (written === null || since < written.at || !holdMatches(written, props)) return "";
+    var role = props["media.role"];
+    return typeof role === "string" && written.roles.indexOf(role.toLowerCase()) !== -1 ? "role" : "app";
+}
+
+// The version the shell writes into the rule's WirePlumber fragment, from
+// the shipped script's TEXT, so an updated script carries a new one and
+// WirePlumber is restarted for it once: FNV-1a over its UTF-16 units, as
+// eight hex digits.
+function soundRuleVersion(text) {
+    var h = 0x811c9dc5;
+    for (var i = 0; i < text.length; i++) {
+        h ^= text.charCodeAt(i);
+        h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return ("0000000" + h.toString(16)).slice(-8);
+}
+
+// The WirePlumber configuration fragment that loads the rule from SCRIPT,
+// an absolute path, at VERSION. The main profile requires a virtual
+// feature that only wants the script's: a feature a profile marks
+// optional loads only when a loaded component wants or requires it, and a
+// wanted script that fails to load, as when its file is gone, leaves
+// WirePlumber and its audio running (measured on WirePlumber 0.5.18 in the
+// nested sandbox, VGS-1424). Strings are written as JSON strings, which
+// WirePlumber's SPA JSON reads.
+function soundRuleFragment(script, version) {
+    return [
+        "# VGS notifications: holds an app's own notification sound silent while",
+        "# Do Not Disturb is on or Sound is off. VGS writes this file.",
+        "wireplumber.components = [",
+        "  {",
+        "    name = " + JSON.stringify(script) + ", type = script/lua",
+        "    arguments = { version = " + JSON.stringify(version) + " }",
+        "    provides = custom.vgs-notification-sounds-script",
+        "  }",
+        "  {",
+        "    type = virtual, provides = custom.vgs-notification-sounds",
+        "    wants = [ custom.vgs-notification-sounds-script ]",
+        "  }",
+        "]",
+        "wireplumber.profiles = {",
+        "  main = {",
+        "    custom.vgs-notification-sounds = required",
+        "  }",
+        "}",
+        ""
+    ].join("\n");
+}
+
+// The version the running rule reports in pw-dump's TEXT, its metadata's
+// subject 0 `version`: { ok: true, version }, version "" while no rule
+// runs, or { ok: false, error } for text that is no pw-dump list.
+function soundRuleRunning(text) {
+    var objects;
+    try {
+        objects = JSON.parse(text);
+    } catch (e) {
+        return { ok: false, error: "json" };
+    }
+    if (!Array.isArray(objects)) return { ok: false, error: "not-list" };
+    for (var i = 0; i < objects.length; i++) {
+        var o = objects[i];
+        if (!isPlainObject(o) || o.type !== "PipeWire:Interface:Metadata" || !isPlainObject(o.props) || o.props["metadata.name"] !== SOUND_RULE_METADATA) continue;
+        var entries = Array.isArray(o.metadata) ? o.metadata : [];
+        for (var j = 0; j < entries.length; j++) {
+            var m = entries[j];
+            if (isPlainObject(m) && m.subject === 0 && m.key === "version" && typeof m.value === "string") return { ok: true, version: m.value };
+        }
+    }
+    return { ok: true, version: "" };
+}
+
+// What the installer does once it has read the running rule: RUNNING the
+// version it reports, "" for none, MARKER the version it last restarted
+// WirePlumber for, "" for none. `running`, `restart`, or `refused` when it
+// restarted for this version already, so a rule that does not come up
+// costs one restart and no loop.
+function soundRuleStep(version, running, marker) {
+    if (running === version) return "running";
+    return marker === version ? "refused" : "restart";
+}
+
 // One output stream's next step under Silence. HOLD is its mute, null or
 // { phase, until }: `waiting` while a paused stream may start, `playing`
 // once it has; ARMED its app's latest arm, null or { at, until }; STREAM {
 // corked, since }: corked true while paused, false while it plays and null
-// for a stream that does not say, since the time it was first seen. A
-// paused stream is muted before it plays, so the sound's first samples are
-// silent too. Answers { hold, change }; change is `mute`, `again` (the
-// mute is set once more as the stream starts, since a volume written
-// between the two lifts it), `release` or "".
-function appSoundStep(hold, armed, stream, now) {
+// for a stream that does not say, since the time it was first seen; RULED
+// how the sound rule held it, ruleHeld's answer, on the first step alone.
+// A paused stream is muted before it plays, so the sound's first samples
+// are silent too. A stream the rule held for its role is held as an armed
+// one; one it held for its app that no notification armed, such as a
+// call, is released at once. Answers { hold, change }; change is `mute`,
+// `again` (the mute is set once more as the stream starts, since a volume
+// written between the two lifts it), `release` or "".
+function appSoundStep(hold, armed, stream, now, ruled) {
     if (hold === null) {
-        if (armed === null || now >= armed.until) return { hold: null, change: "" };
-        if (stream.corked === true) return { hold: { phase: "waiting", until: armed.until }, change: "mute" };
-        if (stream.since < armed.at) return { hold: null, change: "" };
+        var arm = armed !== null && now < armed.until ? armed : ruled === "role" ? { at: stream.since, until: now + APP_SOUND_ARM } : null;
+        var free = { hold: null, change: ruled === "" ? "" : "release" };
+        if (arm === null) return free;
+        if (stream.corked === true) return { hold: { phase: "waiting", until: arm.until }, change: "mute" };
+        if (stream.since < arm.at) return free;
         return { hold: { phase: "playing", until: now + APP_SOUND_HOLD }, change: "mute" };
     }
     if (hold.phase === "waiting" && stream.corked !== true)

@@ -4338,10 +4338,29 @@ fi
 # `silent` below, and `own` within 15% of a chime's level before any mute.
 # The chime is silent while Do Not Disturb is on or Sound is off and the
 # call is heard throughout, its own mute and soft mute off; the chime plays
-# at its own level again once both turn back, once the service that held
-# it goes, and once a shell started after a SIGKILL scans for the mute the
-# killed one left. A lift that wrote `softMute: false` would leave the
+# at its own level again once both turn back and once the service that
+# held it goes. A lift that wrote `softMute: false` alone would leave the
 # chime at full level, which `own` refuses.
+# The sound rule (SoundRule.qml, wireplumber/vgs-notification-sounds.lua):
+# the service copies the script under the sandbox's XDG data home, writes
+# the WirePlumber fragment that loads the copy when it starts, and asks
+# the systemctl stand-in of scripts/smoke/devices.sh, never the host's, to
+# restart WirePlumber once per version; the row makes that restart on the
+# sandbox's private WirePlumber and reads the rule's version on its
+# metadata. After a SIGKILL the shell's pw-cli writer dies with it and the
+# chime it held plays again, and the next shell's first scan lifts a soft
+# mute left on a stream the rule did not hold. Then the rule alone:
+# with Sound off and the shell stopped by SIGSTOP from before the chime of
+# Smoke Ping, an app no earlier notification named, until after it ends,
+# a 5 s recording from before its notification is silent from its first
+# sample; Smoke Ping's call after it is freed at once and plays at its own
+# level, its mute and soft mute off. A writer killed while its shell runs
+# leaves the chime the rule held to the rule, which lifts it: no lift of
+# the shell's reaches it. The same take with Sound on records the chime.
+# Since VGS-1424 the SIGKILL part plants the soft mute the next shell's
+# scan lifts on the call: the killed shell's writer dies with it and the
+# rule lifts the chime, so the killed shell no longer leaves the chime's
+# soft mute on for that shell to find.
 if [[ $app_sound_devices == yes ]]; then
   app_tone="$sandbox/app-sound-tone.wav"
   python3 -c 'import math,struct,sys,wave
@@ -4390,6 +4409,93 @@ print(json.dumps(None if p is None else [p.get("mute"), p.get("softMute")]))' "$
     app_chime_pid="$spawn_pid"
   }
   app_hush() { kill -- "-$app_chime_pid" 2>/dev/null || true; }
+  # The sound rule (SoundRule.qml, wireplumber/vgs-notification-sounds.lua).
+  # rule_fragment KEY: the fragment's script path or version as the service
+  # wrote it, `absent` before it does.
+  rule_conf="$home/.config/wireplumber/wireplumber.conf.d/90-vgs-notification-sounds.conf"
+  rule_copy="$home/.local/share/wireplumber/scripts/vgs-notification-sounds.lua"
+  rule_shipped="$repo/shell/plugins/vgs.notifications/wireplumber/vgs-notification-sounds.lua"
+  rule_copied() { if cmp -s -- "$rule_shipped" "$rule_copy"; then echo same; elif [[ -e $rule_copy ]]; then echo differs; else echo absent; fi; }
+  rule_fragment() { # name|version
+    if [[ ! -e $rule_conf ]]; then echo absent; return; fi
+    python3 -c 'import re,sys
+text = open(sys.argv[1]).read()
+m = re.search(r"name = (\"[^\"]*\"), type = script/lua" if sys.argv[2] == "name" else r"arguments = \{ version = (\"[^\"]*\") \}", text)
+print(m.group(1) if m else "missing")' "$rule_conf" "$1"
+  }
+  # rule_meta KEY: the rule's metadata entry KEY on subject 0 as JSON, null
+  # while there is none, `absent` while no rule runs.
+  rule_meta() { # KEY
+    "${shell_env[@]}" pw-dump | py_reply 'import json,sys
+for o in json.load(sys.stdin):
+    if o.get("type") == "PipeWire:Interface:Metadata" and (o.get("props") or {}).get("metadata.name") == "vgs-notification-sounds":
+        print(json.dumps(next((m["value"] for m in o.get("metadata") or [] if m.get("subject") == 0 and m.get("key") == sys.argv[1]), None)))
+        break
+else:
+    print("absent")' "$1"
+  }
+  # rule_holds APP: whether the hold names APP and its pid is a pw-cli the
+  # running shell started.
+  rule_holds() { # APP
+    rule_meta hold | py_reply 'import json,os,sys
+h = json.load(sys.stdin)
+if not isinstance(h, dict): print("no-hold"); sys.exit()
+pid = h.get("pid")
+try:
+    comm = open("/proc/%d/comm" % pid).read().strip()
+    ppid = next(l.split()[1] for l in open("/proc/%d/status" % pid) if l.startswith("PPid:"))
+except (OSError, TypeError, StopIteration):
+    print("pid-gone"); sys.exit()
+print(json.dumps([sys.argv[1] in (h.get("apps") or []), comm, ppid == sys.argv[2], h.get("roles")]))' "$1" "$shell_qs_pid"
+  }
+  rule_phase() { note_status soundRule.phase; }
+  # The restarts of WirePlumber the shell asked of the systemctl stand-in.
+  rule_restarts() { device_calls systemctl | py_reply 'import json,sys; print(sum(1 for c in json.load(sys.stdin) if c == ["--user", "restart", "wireplumber.service"]))'; }
+  # rule_wireplumber_restart: the sandbox's private WirePlumber stopped and
+  # started again as scripts/smoke/devices.sh starts it, so it reads the
+  # fragment; devices_pid keeps the new group for the teardown.
+  rule_wireplumber_restart() {
+    kill -TERM -- "-${devices_pid[wireplumber]}" 2>/dev/null || true
+    for _ in $(seq 1 50); do kill -0 "${devices_pid[wireplumber]}" 2>/dev/null || break; sleep 0.1; done
+    if kill -0 "${devices_pid[wireplumber]}" 2>/dev/null; then fail "the private WirePlumber did not stop for the sound rule"; return; fi
+    spawn "$devices_dir/wireplumber-rule.log" "${shell_env[@]}" wireplumber --profile vgs-smoke
+    devices_pid[wireplumber]="$spawn_pid"
+  }
+  # The service copied the script and wrote the fragment when it first
+  # started, at the top of this row, and asked the systemctl stand-in,
+  # which answers no restart, to restart WirePlumber once; every later
+  # start at that version, and the row starts it many times before this
+  # part, asks none.
+  expect_poll "the service copies the shipped script into WirePlumber's user scripts" same rule_copied
+  expect "the sound rule's fragment names that copy" "\"$rule_copy\"" rule_fragment name
+  rule_version="$(rule_fragment version)"
+  expect "the fragment carries an eight-digit version" True python3 -c 'import re,sys; print(bool(re.fullmatch(r"\"[0-9a-f]{8}\"", sys.argv[1])))' "$rule_version"
+  expect_poll "the service asked one restart of WirePlumber" 1 rule_restarts
+  expect_poll "a later start at that version asks none" '"refused"' rule_phase
+  expect "disabling the service before its second start is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+  expect_poll "the service is gone before its second start" False record_exists vgs.notifications
+  expect "enabling the service at the same version is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+  expect_poll "a second start at the same version asks no restart" '"refused"' rule_phase
+  expect "the second start's restarts" 1 rule_restarts
+  # A new version finds no marker for it: the row removes the marker and
+  # lets the stand-in answer the restart, which the row then makes on the
+  # private WirePlumber itself while the service waits for the rule.
+  expect "disabling the service for a new version is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+  expect_poll "the service is gone for a new version" False record_exists vgs.notifications
+  rm -f -- "${home:?}/.local/state/vgshell/notifications/sound-rule-restarted"
+  device_reply systemctl 0 "" --user restart wireplumber.service
+  expect "enabling the service for a new version is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+  expect_poll "the service asks WirePlumber's restart for the new version" 2 rule_restarts
+  rule_wireplumber_restart
+  expect_poll "WirePlumber runs the rule at the shell's version" "$rule_version" rule_meta version
+  expect_poll "the service reads the rule running" '"running"' rule_phase
+  expect "disabling the service with the rule running is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+  expect_poll "the service is gone with the rule running" False record_exists vgs.notifications
+  expect "enabling the service with the rule running is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+  expect_poll "a start with the rule running reads it running" '"running"' rule_phase
+  expect "a start with the rule running asks no restart" 2 rule_restarts
+  device_reply_clear systemctl
+  expect "with Sound on and Do Not Disturb off the rule holds nothing" null rule_meta hold
   # The chime's own level, read with nothing armed and nothing muted.
   app_play smoke-chat-reference vgs-smoke-speakers 0.5
   app_chime_pid="$spawn_pid"
@@ -4432,19 +4538,116 @@ print(json.dumps(None if p is None else [p.get("mute"), p.get("softMute")]))' "$
   app_chime "Chat before a SIGKILL" smoke-chat-killed
   expect_poll "the chime before the SIGKILL is held" '["smoke-chat-killed"]' app_held
   expect_poll "the chime before the SIGKILL is not heard" silent app_level vgs-smoke-speakers
+  app_writer="$(rule_meta hold | py_reply 'import json,sys; h = json.load(sys.stdin); print(h["pid"] if isinstance(h, dict) else "none")')"
+  # app_hold_of PID: `killed` while the hold names PID, else `other`.
+  app_hold_of() { rule_meta hold | py_reply 'import json,sys; h = json.load(sys.stdin); print("killed" if isinstance(h, dict) and str(h.get("pid")) == sys.argv[1] else "other")' "$1"; }
+  app_gone() { if [[ -e /proc/$1 ]]; then echo alive; else echo gone; fi; }
+  # A soft mute the reaction alone left, on a stream the rule did not hold:
+  # planted on the call before the kill, as a shell leaves it.
+  app_call_id="$("${shell_env[@]}" pw-dump | py_reply 'import json,sys; print(next((o["id"] for o in json.load(sys.stdin) if o.get("type") == "PipeWire:Interface:Node" and (o["info"].get("props") or {}).get("node.name") == "smoke-chat-call"), "none"))')"
+  "${shell_env[@]}" pw-cli set-param "$app_call_id" Props '{ softMute: true }' >/dev/null 2>&1 || fail "the left soft mute could not be planted on node $app_call_id"
+  expect_poll "the planted soft mute silences the call" silent app_level vgs-smoke-headphones
   # Read before the kill, as stop_shell reads a shell before its TERM.
   shell_memory_note
   app_killed="$shell_qs_pid"
   kill -KILL "$app_killed" || fail "the SIGKILL to the shell pid $app_killed failed"
-  expect "the killed shell left the chime's soft mute on" '[false, true]' app_props smoke-chat-killed
+  expect_poll "the killed shell's writer dies with it" gone app_gone "$app_writer"
+  expect_poll "the chime the killed shell held plays at its own level again" own app_own vgs-smoke-speakers
+  expect "the lifted chime's mute and soft mute read off" '[false, false]' app_props smoke-chat-killed
+  expect_poll "the rule drops the killed shell's hold" other app_hold_of "$app_writer"
   if adopt_shell "$app_killed"; then
     expect_poll "the next shell built the notification service" True record_exists vgs.notifications
-    expect_poll "the next shell lifts the mute the killed one left: the chime plays at its own level" own app_own vgs-smoke-speakers
+    expect_poll "the next shell lifts the soft mute left behind: the call is heard" heard app_level vgs-smoke-headphones
     expect "the next shell holds nothing" '[]' app_held
   fi
   app_hush
   kill -- "-$app_call_pid" 2>/dev/null || true
+  # The rule, without the shell: a chime 0.6 s long from Smoke Ping, an app
+  # no earlier notification named, arrives with its notification while
+  # Sound is off. The speakers are recorded for 5 s from before the
+  # notification; once the hold names the app, the shell is stopped with
+  # SIGSTOP until the chime ends, so nothing but the rule can quiet it. A
+  # take counts a 1 ms window heard when a sample in it passes 100.
+  app_short="$sandbox/app-sound-chime.wav"
+  python3 -c 'import math,struct,sys,wave
+w = wave.open(sys.argv[1], "wb"); w.setnchannels(1); w.setsampwidth(2); w.setframerate(48000)
+w.writeframes(b"".join(struct.pack("<h", int(8000 * math.sin(2 * math.pi * 440 * i / 48000))) for i in range(28800)))' "$app_short" || fail "the chime could not be written"
+  # app_take_heard WAV: `silent` for a take of at least 4.5 s with no
+  # window heard, `heard` for one with at least 500 ms heard, else what
+  # it read.
+  app_take_heard() { # WAV
+    python3 -c 'import struct,sys
+d = open(sys.argv[1], "rb").read()[44:]
+n = len(d) // 2
+x = struct.unpack("<%dh" % n, d[:n * 2])
+heard = sum(1 for i in range(n // 48) if max(abs(v) for v in x[i * 48:(i + 1) * 48]) > 100)
+if n < 4.5 * 48000: print("short samples=%d" % n)
+elif heard == 0: print("silent")
+elif heard >= 500: print("heard")
+else: print("faint ms=%d" % heard)' "$1"
+  }
+  app_recording() { "${shell_env[@]}" pw-dump | py_reply 'import json,sys; print(any(o.get("type") == "PipeWire:Interface:Node" and (o["info"].get("props") or {}).get("node.name") == "app-take-recorder" for o in json.load(sys.stdin)))'; }
+  # app_take_start NAME: the recording starts, then Smoke Ping's
+  # notification is sent.
+  app_take_start() { # NAME
+    app_take_file="$sandbox/app-take-$1.wav"
+    app_take_ms="$(now_ms)"
+    spawn "$sandbox/app-take-$1.log" "${shell_env[@]}" pw-record --target vgs-smoke-speakers -P '{ node.name = "app-take-recorder" stream.capture.sink = true }' --channels 1 --format s16 --rate 48000 "$app_take_file"
+    app_take_rec="$spawn_pid"
+    expect_poll "$1: the recording runs" True app_recording
+    notify "Smoke Ping" 0 "Ping $1" "" '[]' '{"desktop-entry": <"smoke-ping">}' 0 >/dev/null || fail "$1: the notification was not sent"
+  }
+  # app_take_chime NAME: the shell stopped, the chime played to its end,
+  # the shell continued, and the recording stopped 5 s after it started.
+  app_take_chime() { # NAME
+    local chime_pid
+    kill -STOP "$shell_qs_pid" || fail "$1: the SIGSTOP to the shell failed"
+    spawn "$sandbox/app-take-$1-chime.log" "${shell_env[@]}" pw-cat --playback --target vgs-smoke-speakers --volume 0.5 -P '{ application.name = "Smoke Ping" node.name = "smoke-ping-chime" }' "$app_short"
+    chime_pid="$spawn_pid"
+    for _ in $(seq 1 50); do kill -0 "$chime_pid" 2>/dev/null || break; sleep 0.1; done
+    if kill -0 "$chime_pid" 2>/dev/null; then fail "$1: the chime did not end"; fi
+    kill -CONT "$shell_qs_pid" || fail "$1: the SIGCONT to the shell failed"
+    while (( $(now_ms) - app_take_ms < 5000 )); do sleep 0.1; done
+    kill -INT -- "-$app_take_rec" 2>/dev/null || true
+    for _ in $(seq 1 30); do kill -0 "$app_take_rec" 2>/dev/null || break; sleep 0.1; done
+  }
+  app_take_start muted
+  expect_poll "the hold names Smoke Ping with this shell's pw-cli writer" '[true, "pw-cli", true, ["notification", "event"]]' rule_holds "smoke ping"
+  app_take_chime muted
+  expect "with Sound off and the shell stopped the chime is silent from its first sample" silent app_take_heard "$app_take_file"
+  # A stream Smoke Ping opens after its chime, as a call: the rule holds
+  # it, and the shell frees it once it is linked, since no notification
+  # armed it.
+  spawn "$sandbox/smoke-ping-call.log" "${shell_env[@]}" pw-cat --playback --target vgs-smoke-headphones --volume 0.5 -P '{ application.name = "Smoke Ping" node.name = "smoke-ping-call" }' "$app_tone"
+  app_ping_call="$spawn_pid"
+  expect_poll "Smoke Ping's call after its chime plays at its own level" own app_own vgs-smoke-headphones
+  expect "the call's mute and soft mute read off" '[false, false]' app_props smoke-ping-call
+  kill -- "-$app_ping_call" 2>/dev/null || true
+  # The rule alone lifts what it holds when its writer goes: the writer is
+  # killed while the shell runs, so no lift of the shell's reaches the
+  # chime.
+  notify "Smoke Ping" 0 "Ping before the writer goes" "" '[]' '{"desktop-entry": <"smoke-ping">}' 0 >/dev/null || fail "the notification before the writer goes was not sent"
+  app_play_ping() { spawn "$sandbox/$1.log" "${shell_env[@]}" pw-cat --playback --target vgs-smoke-speakers --volume 0.5 -P "{ application.name = \"Smoke Ping\" node.name = \"$1\" }" "$app_tone"; }
+  app_play_ping smoke-ping-held
+  app_ping_held="$spawn_pid"
+  expect_poll "the chime before the writer goes is held" '["smoke-ping-held"]' app_held
+  expect_poll "the chime before the writer goes is not heard" silent app_level vgs-smoke-speakers
+  app_writer="$(rule_meta hold | py_reply 'import json,sys; h = json.load(sys.stdin); print(h["pid"] if isinstance(h, dict) else "none")')"
+  if [[ $app_writer =~ ^[0-9]+$ && $(cat "/proc/$app_writer/comm" 2>/dev/null) == pw-cli ]]; then
+    kill -KILL "$app_writer" || fail "the SIGKILL to the writer pid $app_writer failed"
+  else
+    fail "the hold names no pw-cli writer: $app_writer"
+  fi
+  expect_poll "the rule lifts the chime it held once the writer goes: it plays at its own level" own app_own vgs-smoke-speakers
+  expect "the chime the rule lifted reads mute and soft mute off" '[false, false]' app_props smoke-ping-held
+  kill -- "-$app_ping_held" 2>/dev/null || true
   expect "Sound turns back on after the app sound" on notes sound on
+  expect_poll "with Sound on the rule holds nothing" null rule_meta hold
+  # The take's control: with Sound on and Do Not Disturb off the same take
+  # records the chime.
+  app_take_start control
+  app_take_chime control
+  expect "with Sound on the same take records the chime" heard app_take_heard "$app_take_file"
 fi
 
 # Disabling and enabling again, three times over, leaves nothing behind.

@@ -8,7 +8,10 @@
 // sender's window, the paused and running clocks, the per-application
 // rules that read a sender's workspace, people and workspace icons, and
 // the VGS hints with what a click on a hinted card does, how a card's
-// body text reads against its card, and which Slack message a card opens.
+// body text reads against its card, which Slack message a card opens, and
+// an app's own notification sound: which streams the shell mutes or frees,
+// the sound rule's hold, its version, its WirePlumber fragment and the
+// installer's one restart.
 // Every expected value is written out by hand.
 //
 // The controls at the end edit a copy of the logic, one rule at a time, and
@@ -313,8 +316,8 @@ function verify(logic) {
 
     // An app's own notification sound under Do Not Disturb or Sound off:
     // which names an app goes by, which streams are its, and each step of
-    // a stream, [label, hold, arm, stream, now, the next hold, the change].
-    // The arm comes at 1000.
+    // a stream, [label, hold, arm, stream, now, how the sound rule held it,
+    // the next hold, the change]. The arm comes at 1000.
     same(logic.soundApps("slack", "Slack"), ["slack"], "a desktop entry and an app name that differ only in case are one app");
     same(logic.soundApps("org.example.Chat", "Example Chat"), ["org.example.chat", "example chat"], "an app goes by its desktop entry and its app name");
     same(logic.soundApps(undefined, ""), [], "a notification that names no app arms none");
@@ -330,22 +333,106 @@ function verify(logic) {
     assert.ok(ARM >= 121 && ARM < HOLD, "the arm outlasts Slack's slowest stream and ends before a hold");
     assert.ok(HOLD > 12000, "a hold outlasts Slack's chime stream, which pauses 12 s after it starts");
     const armed = { at: 1000, until: 1000 + ARM };
-    for (const [label, hold, arm, stream, now, wantHold, wantChange] of [
-        ["a stream that opens and plays after its app's notification is muted", null, armed, { corked: false, since: 1075 }, 1150, { phase: "playing", until: 1150 + HOLD }, "mute"],
-        ["a stream that opens paused is muted before it plays", null, armed, { corked: true, since: 1075 }, 1080, { phase: "waiting", until: 1000 + ARM }, "mute"],
-        ["a paused stream of the app is muted before it plays again", null, armed, { corked: true, since: 0 }, 1000, { phase: "waiting", until: 1000 + ARM }, "mute"],
-        ["a stream that already plays, such as a call, is never muted", null, armed, { corked: false, since: 0 }, 1100, null, ""],
-        ["a stream that already plays and does not say so is never muted", null, armed, { corked: null, since: 0 }, 1100, null, ""],
-        ["no arm, no mute", null, null, { corked: false, since: 1075 }, 1150, null, ""],
-        ["a stream that opens once the arm ended is not muted", null, armed, { corked: false, since: 1000 + ARM }, 1000 + ARM, null, ""],
-        ["a waiting stream that starts to play is muted again and held", { phase: "waiting", until: 1000 + ARM }, armed, { corked: false, since: 1075 }, 1150, { phase: "playing", until: 1150 + HOLD }, "again"],
-        ["a waiting stream that stays paused through the arm is released", { phase: "waiting", until: 1000 + ARM }, null, { corked: true, since: 1075 }, 1000 + ARM, null, "release"],
-        ["a waiting stream stays muted while the arm runs", { phase: "waiting", until: 1000 + ARM }, armed, { corked: true, since: 1075 }, 1500, { phase: "waiting", until: 1000 + ARM }, ""],
-        ["a playing stream stays muted while it plays", { phase: "playing", until: 1150 + HOLD }, null, { corked: false, since: 1075 }, 5000, { phase: "playing", until: 1150 + HOLD }, ""],
-        ["a playing stream that pauses is released", { phase: "playing", until: 1150 + HOLD }, null, { corked: true, since: 1075 }, 12900, null, "release"],
-        ["a stream still playing at the hold's end is released", { phase: "playing", until: 1150 + HOLD }, null, { corked: false, since: 1075 }, 1150 + HOLD, null, "release"]
+    for (const [label, hold, arm, stream, now, ruled, wantHold, wantChange] of [
+        ["a stream that opens and plays after its app's notification is muted", null, armed, { corked: false, since: 1075 }, 1150, "", { phase: "playing", until: 1150 + HOLD }, "mute"],
+        ["a stream that opens paused is muted before it plays", null, armed, { corked: true, since: 1075 }, 1080, "", { phase: "waiting", until: 1000 + ARM }, "mute"],
+        ["a paused stream of the app is muted before it plays again", null, armed, { corked: true, since: 0 }, 1000, "", { phase: "waiting", until: 1000 + ARM }, "mute"],
+        ["a stream that already plays, such as a call, is never muted", null, armed, { corked: false, since: 0 }, 1100, "", null, ""],
+        ["a stream that already plays and does not say so is never muted", null, armed, { corked: null, since: 0 }, 1100, "", null, ""],
+        ["no arm, no mute", null, null, { corked: false, since: 1075 }, 1150, "", null, ""],
+        ["a stream that opens once the arm ended is not muted", null, armed, { corked: false, since: 1000 + ARM }, 1000 + ARM, "", null, ""],
+        ["a waiting stream that starts to play is muted again and held", { phase: "waiting", until: 1000 + ARM }, armed, { corked: false, since: 1075 }, 1150, "", { phase: "playing", until: 1150 + HOLD }, "again"],
+        ["a waiting stream that stays paused through the arm is released", { phase: "waiting", until: 1000 + ARM }, null, { corked: true, since: 1075 }, 1000 + ARM, "", null, "release"],
+        ["a waiting stream stays muted while the arm runs", { phase: "waiting", until: 1000 + ARM }, armed, { corked: true, since: 1075 }, 1500, "", { phase: "waiting", until: 1000 + ARM }, ""],
+        ["a playing stream stays muted while it plays", { phase: "playing", until: 1150 + HOLD }, null, { corked: false, since: 1075 }, 5000, "", { phase: "playing", until: 1150 + HOLD }, ""],
+        ["a playing stream that pauses is released", { phase: "playing", until: 1150 + HOLD }, null, { corked: true, since: 1075 }, 12900, "", null, "release"],
+        ["a stream still playing at the hold's end is released", { phase: "playing", until: 1150 + HOLD }, null, { corked: false, since: 1075 }, 1150 + HOLD, "", null, "release"],
+        ["a stream the rule held for an armed app waits as an armed one", null, armed, { corked: true, since: 1075 }, 1080, "app", { phase: "waiting", until: 1000 + ARM }, "mute"],
+        ["a stream the rule held for an armed app that plays is held", null, armed, { corked: false, since: 1075 }, 1150, "app", { phase: "playing", until: 1150 + HOLD }, "mute"],
+        ["a stream the rule held for an app no notification armed, such as a call, is freed at once", null, null, { corked: false, since: 1075 }, 1150, "app", null, "release"],
+        ["a paused stream the rule held for an unarmed app is freed at once", null, null, { corked: true, since: 1075 }, 1080, "app", null, "release"],
+        ["a stream the rule held once its app's arm ended is freed", null, armed, { corked: false, since: 1000 + ARM }, 1000 + ARM, "app", null, "release"],
+        ["a stream the rule held that played before its app's arm is freed", null, armed, { corked: false, since: 900 }, 1100, "app", null, "release"],
+        ["a stream the rule held for its role is held while it plays", null, null, { corked: false, since: 1075 }, 1080, "role", { phase: "playing", until: 1080 + HOLD }, "mute"],
+        ["a paused stream the rule held for its role waits as an armed one", null, null, { corked: true, since: 1075 }, 1080, "role", { phase: "waiting", until: 1080 + ARM }, "mute"],
+        ["the rule's verdict counts on a stream's first step alone", { phase: "playing", until: 1150 + HOLD }, null, { corked: false, since: 1075 }, 5000, "app", { phase: "playing", until: 1150 + HOLD }, ""]
     ])
-        same(logic.appSoundStep(hold, arm, stream, now), { hold: wantHold, change: wantChange }, "app sound: " + label);
+        same(logic.appSoundStep(hold, arm, stream, now, ruled), { hold: wantHold, change: wantChange }, "app sound: " + label);
+
+    // The sound rule: which streams it held, [label, the hold as written,
+    // the stream's properties, when the shell first saw it, the verdict].
+    // The hold was first written at 500.
+    const written = { at: 500, apps: ["slack", "smoke chat"], roles: logic.HOLD_ROLES };
+    same(logic.HOLD_ROLES, ["notification", "event"], "the rule holds notification and event sounds by their role");
+    for (const [label, hold, props, since, want] of [
+        ["no hold written, nothing held", null, { "application.name": "Slack" }, 600, ""],
+        ["a stream seen before the hold was written was not held", written, { "application.name": "Slack" }, 499, ""],
+        ["a stream named by a held app", written, { "application.name": "Slack" }, 500, "app"],
+        ["a stream named by a held app's program", written, { "application.name": "Chromium", "application.process.binary": "slack" }, 600, "app"],
+        ["a stream whose role is a notification's, in any case", written, { "application.name": "Other", "media.role": "Event" }, 600, "role"],
+        ["a held app's stream with a notification role reads as held for its role", written, { "application.name": "Slack", "media.role": "notification" }, 600, "role"],
+        ["a stream with another role of another app", written, { "application.name": "Spotify", "media.role": "Music" }, 600, ""],
+        ["a stream not yet bound", written, {}, 600, ""],
+        ["no properties at all", written, null, 600, ""]
+    ])
+        assert.equal(logic.ruleHeld(hold, props, since), want, "rule held: " + label);
+    same(JSON.parse(logic.holdEntry(4242, ["slack", "smoke chat"])), { pid: 4242, apps: ["slack", "smoke chat"], roles: ["notification", "event"] }, "the hold entry the rule parses");
+    same(logic.holdApps([stored(1, 1, { desktopEntry: "slack", app: "Slack" }), stored(2, 2, { desktopEntry: "", app: "Smoke Chat" }), stored(3, 3, { desktopEntry: "slack", app: "Slack" })], ["org.example.chat", "slack"]),
+        ["slack", "smoke chat", "org.example.chat"], "the hold names every kept and armed app once, in lower case");
+    same(logic.holdApps([], []), [], "nothing kept or armed, no app held");
+    for (const [label, before, after, want] of [
+        ["the same apps", ["slack"], ["slack"], false],
+        ["an app fewer", ["slack", "smoke chat"], ["slack"], false],
+        ["a new app", ["slack"], ["slack", "smoke chat"], true],
+        ["a first app", [], ["slack"], true]
+    ])
+        assert.equal(logic.holdGrows(before, after), want, "hold grows: " + label);
+    // FNV-1a's published 32-bit vectors.
+    for (const [text, want] of [["", "811c9dc5"], ["a", "e40c292c"], ["foobar", "bf9cf968"]])
+        assert.equal(logic.soundRuleVersion(text), want, "rule version of " + JSON.stringify(text));
+    assert.equal(logic.soundRuleVersion("print(1)\n"), logic.soundRuleVersion("print(1)\n"), "one script, one version");
+    assert.notEqual(logic.soundRuleVersion("print(1)\n"), logic.soundRuleVersion("print(2)\n"), "a changed script, a new version");
+    // The fragment WirePlumber reads, its comment lines aside.
+    same(logic.soundRuleFragment("/usr/share/vgshell/shell/plugins/vgs.notifications/wireplumber/vgs-notification-sounds.lua", "0a1b2c3d").split("\n").filter(l => !l.startsWith("#")), [
+        "wireplumber.components = [",
+        "  {",
+        "    name = \"/usr/share/vgshell/shell/plugins/vgs.notifications/wireplumber/vgs-notification-sounds.lua\", type = script/lua",
+        "    arguments = { version = \"0a1b2c3d\" }",
+        "    provides = custom.vgs-notification-sounds-script",
+        "  }",
+        "  {",
+        "    type = virtual, provides = custom.vgs-notification-sounds",
+        "    wants = [ custom.vgs-notification-sounds-script ]",
+        "  }",
+        "]",
+        "wireplumber.profiles = {",
+        "  main = {",
+        "    custom.vgs-notification-sounds = required",
+        "  }",
+        "}",
+        ""
+    ], "the rule's fragment");
+    assert.equal(logic.SOUND_RULE_METADATA, "vgs-notification-sounds", "the metadata the rule owns");
+    // What pw-dump says about the running rule: [label, text, the answer].
+    const ruleMeta = (name, entries) => ({ id: 40, type: "PipeWire:Interface:Metadata", props: { "metadata.name": name }, metadata: entries });
+    for (const [label, objects, want] of [
+        ["the rule's version", [{ id: 0, type: "PipeWire:Interface:Core" }, ruleMeta("vgs-notification-sounds", [{ subject: 0, key: "hold", type: "Spa:String:JSON", value: "{}" }, { subject: 0, key: "version", type: "Spa:String", value: "0a1b2c3d" }])], { ok: true, version: "0a1b2c3d" }],
+        ["no rule running", [ruleMeta("default", [{ subject: 0, key: "version", type: "Spa:String", value: "x" }])], { ok: true, version: "" }],
+        ["the rule with no version yet", [ruleMeta("vgs-notification-sounds", [])], { ok: true, version: "" }],
+        ["a version on another subject", [ruleMeta("vgs-notification-sounds", [{ subject: 41, key: "version", type: "Spa:String", value: "x" }])], { ok: true, version: "" }]
+    ])
+        same(logic.soundRuleRunning(JSON.stringify(objects)), want, "running rule: " + label);
+    same(logic.soundRuleRunning("Error: failed to connect"), { ok: false, error: "json" }, "running rule: no pw-dump text");
+    same(logic.soundRuleRunning("{}"), { ok: false, error: "not-list" }, "running rule: no pw-dump list");
+    // The installer's step: [label, running version, marker, the step].
+    for (const [label, running, marker, want] of [
+        ["the rule runs at this version", "v2", "v1", "running"],
+        ["no rule runs and none was restarted for", "", "", "restart"],
+        ["an older rule runs", "v1", "v1", "restart"],
+        ["this version was restarted for once already", "", "v2", "refused"],
+        ["the rule runs at this version after its restart", "v2", "v2", "running"]
+    ])
+        assert.equal(logic.soundRuleStep("v2", running, marker), want, "rule step: " + label);
 
     // Lifetimes: [urgency, sender's timeout, the duration setting in
     // milliseconds, milliseconds shown].
@@ -1014,9 +1101,9 @@ const CONTROLS = [
     ["critical stays", "if (urgency === URGENCY.critical) return 0;", ""],
     ["an app's names fold case", 'var key = String(name || "").toLowerCase();', 'var key = String(name || "");'],
     ["a stream's program names its app", '["application.name", "application.process.binary"]', '["application.name"]'],
-    ["a stream that already plays is never muted", "if (stream.since < armed.at) return { hold: null, change: \"\" };", ""],
-    ["a paused stream is muted before it plays", 'if (stream.corked === true) return { hold: { phase: "waiting", until: armed.until }, change: "mute" };', ""],
-    ["the arm ends", "if (armed === null || now >= armed.until) return", "if (armed === null) return"],
+    ["a stream that already plays is never muted", "if (stream.since < arm.at) return free;", ""],
+    ["a paused stream is muted before it plays", 'if (stream.corked === true) return { hold: { phase: "waiting", until: arm.until }, change: "mute" };', ""],
+    ["the arm ends", "var arm = armed !== null && now < armed.until ? armed", "var arm = armed !== null ? armed"],
     ["a stream that starts to play is muted again", 'change: "again" };', 'change: "" };'],
     ["a pause releases a playing stream", ' || (hold.phase === "playing" && stream.corked === true)', ""],
     ["a hold ends", "if (now >= hold.until || ", "if (false || "],
@@ -1204,7 +1291,18 @@ const CONTROLS = [
     ["only a card's way in opens its message", "if (c !== \"open\" && c !== \"action:\" + primaryAction(offered)) return null;", ""],
     ["the primary action's pill is a way in", "c !== \"open\" && c !== \"action:\" + primaryAction(offered)", "c !== \"open\""],
     ["a browser's copy opens no message", " || read.source !== \"desktop\"", ""],
-    ["a card no rule reads opens no message", "if (read === null || read.source !== \"desktop\") return null;", "if (read === null) return { rule: \"\", arrival: 0, team: \"\" }; if (read.source !== \"desktop\") return null;"]
+    ["a card no rule reads opens no message", "if (read === null || read.source !== \"desktop\") return null;", "if (read === null) return { rule: \"\", arrival: 0, team: \"\" }; if (read.source !== \"desktop\") return null;"],
+    ["a stream the rule held for an unarmed app is freed", "var free = { hold: null, change: ruled === \"\" ? \"\" : \"release\" };", "var free = { hold: null, change: \"\" };"],
+    ["a stream the rule held for its role is held", " : ruled === \"role\" ? { at: stream.since, until: now + APP_SOUND_ARM } : null;", " : null;"],
+    ["a stream seen before the hold was not held", "if (written === null || since < written.at || !holdMatches(written, props)) return \"\";", "if (written === null || !holdMatches(written, props)) return \"\";"],
+    ["the hold matches a role", "if (typeof role === \"string\" && hold.roles.indexOf(role.toLowerCase()) !== -1) return true;", ""],
+    ["the hold is written again when an app joins", "return next.some(function (name) { return written.indexOf(name) === -1; });", "return false;"],
+    ["the version reads the script", "h ^= text.charCodeAt(i);", "h ^= 0;"],
+    ["one restart per version", "return marker === version ? \"refused\" : \"restart\";", "return \"restart\";"],
+    ["the rule's version is on subject 0", "if (isPlainObject(m) && m.subject === 0 && m.key === \"version\"", "if (isPlainObject(m) && m.key === \"version\""],
+    ["the main profile requires the feature that wants the script", '"    custom.vgs-notification-sounds = required",', '"    custom.vgs-notification-sounds = optional",'],
+    ["the hold entry names the roles", "return JSON.stringify({ pid: pid, apps: apps, roles: HOLD_ROLES });", "return JSON.stringify({ pid: pid, apps: apps, roles: [] });"],
+    ["the hold names the kept notifications' apps", "for (var i = 0; i < entries.length; i++) soundApps(entries[i].desktopEntry, entries[i].app).forEach(add);", ""]
 ];
 
 const source = fs.readFileSync(file, "utf8");

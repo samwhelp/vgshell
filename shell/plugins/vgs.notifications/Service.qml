@@ -27,7 +27,8 @@ import "NotificationLogic.js" as Logic
 // screen and records them in the history, bar a critical one from the bare
 // command line, which shows. A notification that shows plays the shell's
 // sound only with Sound on and Silence off; Sound off or Silence on also
-// mutes the sound an app plays itself for its notification (AppSounds).
+// mutes the sound an app plays itself for its notification (AppSounds,
+// with the WirePlumber rule SoundRule installs).
 // The service owns
 // the rows, their clocks, the notification objects it holds and the store;
 // the stack its layer draws on each screen is only a view of them.
@@ -150,11 +151,21 @@ Item {
 
     // An app's own notification sound is muted in the states in which the
     // shell plays none of its own, Do Not Disturb on or Sound off, so it
-    // is quiet with the shell's and plays with it (AppSounds.qml).
+    // is quiet with the shell's and plays with it (AppSounds.qml), from its
+    // first sample while WirePlumber runs the sound rule, which the service
+    // installs when it starts (SoundRule.qml).
+    SoundRule {
+        id: soundRule
+    }
     Loader {
         id: appSounds
         active: store.ready && (store.dnd || !store.sound)
-        sourceComponent: Component { AppSounds {} }
+        sourceComponent: Component {
+            AppSounds {
+                ruleRunning: soundRule.running
+                kept: store.live.concat(store.history)
+            }
+        }
     }
 
     // One per NotificationLogic rule that keeps a workspace list.
@@ -1126,6 +1137,7 @@ Item {
             sound: store.sound,
             silence: store.dnd,
             appSounds: appSounds.item === null ? null : appSounds.item.state(),
+            soundRule: soundRule.state(),
             panel: panelMode,
             store: { state: store.status, problem: store.problem },
             onScreen: rowKeys(() => true).length,

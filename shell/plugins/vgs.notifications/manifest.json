@@ -89,7 +89,10 @@
   },
   "requirements": [
     { "command": "pw-cli", "packages": { "pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire" }, "optional": true, "purpose": "Mutes an app's own notification sound while Sound is off or Do Not Disturb is on." },
-    { "command": "pw-dump", "packages": { "pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire" }, "optional": true, "purpose": "Finds an app sound that a stopped shell left muted." },
+    { "command": "pw-dump", "packages": { "pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire" }, "optional": true, "purpose": "Finds an app sound that a stopped shell left muted, and whether the sound rule runs." },
+    { "command": "pw-metadata", "packages": { "pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire" }, "optional": true, "purpose": "Tells the sound rule which apps to keep silent while Sound is off or Do Not Disturb is on." },
+    { "command": "systemctl", "packages": { "pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd" }, "optional": true, "purpose": "Restarts WirePlumber once so it loads the sound rule." },
+    { "command": "setpriv", "packages": { "pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux", "nix": "util-linux" }, "optional": true, "purpose": "Ends the sound rule's hold when the shell stops." },
     { "command": "xdg-open", "packages": { "pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils" }, "optional": false, "purpose": "Opens files and Slack messages from notifications." },
     { "command": "tail", "packages": { "pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "xbps": "coreutils", "emerge": "sys-apps/coreutils", "nix": "coreutils" }, "optional": true, "purpose": "Finds the Slack message a notification opens." },
     { "command": "node", "packages": { "pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "xbps": "nodejs", "emerge": "net-libs/nodejs", "nix": "nodejs" }, "optional": false, "purpose": "Shows Slack workspace icons, photos and custom emoji." },

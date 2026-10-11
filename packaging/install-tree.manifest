@@ -562,6 +562,7 @@ f share/vgshell/shell/plugins/vgs.notifications/PillButton.qml
 f share/vgshell/shell/plugins/vgs.notifications/RowMeasure.qml
 f share/vgshell/shell/plugins/vgs.notifications/Service.qml
 f share/vgshell/shell/plugins/vgs.notifications/SlackPhotos.qml
+f share/vgshell/shell/plugins/vgs.notifications/SoundRule.qml
 f share/vgshell/shell/plugins/vgs.notifications/Stack.qml
 f share/vgshell/shell/plugins/vgs.notifications/Store.qml
 f share/vgshell/shell/plugins/vgs.notifications/WorkspaceIcons.qml
@@ -576,6 +577,7 @@ f share/vgshell/shell/plugins/vgs.notifications/slack-photos.js
 f share/vgshell/shell/plugins/vgs.notifications/token-status.sh
 f share/vgshell/shell/plugins/vgs.notifications/tui/open.sh
 f share/vgshell/shell/plugins/vgs.notifications/tui/setup-slack.sh
+f share/vgshell/shell/plugins/vgs.notifications/wireplumber/vgs-notification-sounds.lua
 f share/vgshell/shell/plugins/vgs.polkit/PolkitModel.js
 f share/vgshell/shell/plugins/vgs.polkit/Prompt.qml
 f share/vgshell/shell/plugins/vgs.polkit/Service.qml
