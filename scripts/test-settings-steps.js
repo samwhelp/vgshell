@@ -149,11 +149,25 @@ const ROWS = [
 // [label, published values, the Setup section's step rows as [key, the
 // button as [label, primary] or null]].
 const OPTIONAL = { tone: "info", text: "Optional", action: "key" };
+// SetupGate.voiceCheck publishes an ok state with a repeat action. The
+// manager's real statusRows below normalizes that state tone to success.
+const REPEAT = { tone: "ok", text: "Ready", action: "key" };
+const BROWSER_REPEAT = { tone: "ok", text: "Ready", action: true };
 const PRIMARY = [
     ["an optional step before an open required one leaves it the primary", { summary: { tone: "warning", text: "Not ready" }, model: OPTIONAL, browser: TODO },
         [["model", ["Add key", false]], ["browser", ["Set up browser", true]]]],
     ["an optional step is the primary while no required step is open", { summary: { tone: "ok", text: "Ready" }, model: OPTIONAL, browser: DONE },
-        [["model", ["Add key", true]], ["browser", null]]]
+        [["model", ["Add key", true]], ["browser", null]]],
+    ["a completed repeat before an unfinished required step stays secondary", { model: REPEAT, browser: TODO },
+        [["model", ["Add key", false]], ["browser", ["Set up browser", true]]]],
+    ["only completed repeats leave the page without a primary", { model: REPEAT, browser: BROWSER_REPEAT },
+        [["model", ["Add key", false]], ["browser", ["Set up browser", false]]]],
+    ["a completed repeat before an optional step stays secondary", { model: REPEAT, browser: { tone: "info", text: "Optional", action: true } },
+        [["model", ["Add key", false]], ["browser", ["Set up browser", true]]]],
+    ["an optional step before a completed repeat remains primary", { model: OPTIONAL, browser: BROWSER_REPEAT },
+        [["model", ["Add key", true]], ["browser", ["Set up browser", false]]]],
+    ["an unfinished required step before a completed repeat remains primary", { model: KEY, browser: BROWSER_REPEAT },
+        [["model", ["Add key", true]], ["browser", ["Set up browser", false]]]]
 ];
 
 // A plugin whose keys the core stores in two groups of their own, each
@@ -224,7 +238,9 @@ const FLOWS = [
         []],
     ["a non-danger row offering another action keeps the listed screen in the Flow", DECLARED_FLOW, DECLARED_FLOW_TUIS,
         { summary: { tone: "ok", text: "Ready" }, gate: { tone: "ok", text: "Done", action: "repair" } },
-        [["listed", "Listed screen", "", false]]]
+        [["listed", "Listed screen", "", false]]],
+    ["a completed repeat in the Flow stays secondary without an unfinished step", MANIFEST, TUIS,
+        { warden: BROWSER_REPEAT }, [["setup", "Set up", "", false], ["configure", "Configure", "", false]]]
 ];
 
 // A plugin that stores keys: a state and the presence list of its accounts.
@@ -348,6 +364,8 @@ function verify(logic) {
             .map(item => [item.key, item.button === null ? null : [item.button.label, item.button.primary]]), want, "primary: " + label);
     for (const [label, manifest, tuis, values, want] of FLOWS)
         same(flowOf(logic, tuis, producer.statusRows(manifest, values, [])).map(b => [b.name, b.label, b.tone, b.primary]), want, "primary: " + label);
+    const completedFlow = flowOf(logic, TUIS, producer.statusRows(MANIFEST, { warden: BROWSER_REPEAT }, []))[0];
+    same([completedFlow.offered, completedFlow.enabled], [true, true], "a secondary completed repeat remains offered and enabled");
     // statusView: what a line draws of a state, with its lines.
     same(logic.statusView(producer.statusRows(MANIFEST, { warden: { tone: "ok", text: "Ready", lines: ["v1"] } }, []).find(e => e.key === "warden"), String),
         { label: "Warden", hint: "", info: "", link: null, offered: false, tone: "success", text: "Ready", lines: ["v1"], muted: false, items: [] }, "a reported state draws its text, tone and lines");
@@ -388,8 +406,8 @@ const CONTROLS = [
     ["a presence list of any group draws among the stored keys", 'entry.type === "presenceList" && entry.group === SETUP_GROUP', 'entry.type === "presenceList"'],
     ["a secret nothing is stored for draws its chip", 'if (item.access === "connect" && item.value === "absent") return { tone: "", text: "" };', ""],
     ["a signed-out account loses its chip", 'item.access === "connect" && item.value === "absent"', 'item.access === "connect"'],
-    ["an offered step keeps its screen's label", "add(tui, entry.action.label, entry.action.tone, true);", "add(tui, tui.label, entry.action.tone, true);"],
-    ["an offered screen drops its tone", "add(tui, entry.action.label, entry.action.tone, true);", "add(tui, entry.action.label, \"\", true);"],
+    ["an offered step keeps its screen's label", "add(tui, entry.action.label, entry.action.tone, true, entry.tone);", "add(tui, tui.label, entry.action.tone, true, entry.tone);"],
+    ["an offered screen drops its tone", "add(tui, entry.action.label, entry.action.tone, true, entry.tone);", "add(tui, entry.action.label, \"\", true, entry.tone);"],
     ["a screen draws twice", "if (tui !== undefined && !has(tui.name))", "if (tui !== undefined)"],
     ["a button's key ignores its label and state", 'button.key = button.name + " " + button.label + " " + button.enabled', 'button.key = button.name + " " + button.enabled'],
     ["a button's key ignores its weight", ' + " " + button.primary;', ";"],
@@ -414,17 +432,18 @@ const CONTROLS = [
     ["a keyed group draws its keys first", "status.filter(function (entry) { return entry.group === group && inKeyedGroup(entry, keyed); })", "status.filter(function (entry) { return entry.group === group && inKeyedGroup(entry, keyed); }).sort(function (a, b) { return listsKeys(b) - listsKeys(a); })"],
     ["a keyed group's step screen draws in the Flow too", "setupItems.concat.apply(setupItems, groups.map(function (section) { return section.items; }))", "setupItems"],
     ["an empty Setup section draws", "if (setupItems.length > 0 || buttons.length > 0) out.push", "if (true) out.push"],
-    ["a danger action is primary", 'if (found || button.tone === "danger") return;', "if (found) return;"],
-    ["every action is primary", 'if (found || button.tone === "danger") return;', 'if (button.tone === "danger") return;'],
-    ["a screen no step offers is primary", "section.buttons.forEach(function (button) { if (button.offered) mark(button); });", "section.buttons.forEach(function (button) { mark(button); });"],
+    ["a danger action is primary", ' || button.tone === "danger"', ""],
+    ["every action is primary", 'found || button.tone === "danger"', 'button.tone === "danger"'],
+    ["a completed repeat is primary", ' || stateTone === "success"', ""],
+    ["a completed Flow repeat loses its source state", "true, entry.tone);", 'true, "");'],
+    ["a screen no step offers is primary", "section.buttons.forEach(function (button) { if (button.offered) mark(button, button.stateTone); });", "section.buttons.forEach(function (button) { mark(button, button.stateTone); });"],
     ["no action is primary", "        button.primary = true;\n", ""],
     ["an optional step is primary before a required one", '(item.entry.tone === "info") === optional', "true"],
     ["an optional step is never primary", "[false, true].forEach(function (optional) {", "[false].forEach(function (optional) {"]
 ];
 
 const source = fs.readFileSync(file, "utf8");
-const scratchRoot = path.join(__dirname, "..", "tmp");
-fs.mkdirSync(scratchRoot, { recursive: true });
+const scratchRoot = "/tmp";
 const temp = fs.mkdtempSync(path.join(scratchRoot, "settings-steps-control-"));
 try {
     for (const [label, needle, replacement] of CONTROLS) {
@@ -435,6 +454,7 @@ try {
         try {
             verify(load(mutant));
         } catch (e) {
+            assert.ok(e instanceof assert.AssertionError, `control "${label}": must fail an assertion, not loading or execution`);
             failed = true;
         }
         assert.ok(failed, `control "${label}": the suite passed on logic without that rule`);
