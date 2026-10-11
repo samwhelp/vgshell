@@ -16,6 +16,7 @@ Item {
     onShellChanged: {
         if (shell === null || registered) return;
         registered = true;
+        shell.status.set("setup", "absent");
         shell.ipc.handle("start", mode => root.shell.dictation.start(mode));
         shell.ipc.handle("stop", () => root.shell.dictation.stop(result => {
             root.last = result;
@@ -24,4 +25,6 @@ Item {
         shell.ipc.handle("cancel", () => root.shell.dictation.cancel());
         shell.ipc.handle("restart", () => root.shell.dictation.restart());
     }
+
+    function statusAct(key) { return shell.status.act(key); }
 }

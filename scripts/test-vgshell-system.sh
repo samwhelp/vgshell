@@ -53,7 +53,7 @@ cp -- "$repo/shell/greeter.qml" "$vgs/shell/greeter.qml"
 # stat stand-in reads it, may write it, and other users read it.
 chmod -R go-w "$vgs"
 chmod 0755 "$vgs" "$vgs/shell" "$vgs/config" "$vgs/config/system" "$greeter_src"
-for tool in awk cat chmod chown env flock id install ln mkdir mv readlink rm rmdir sed sha256sum sleep kill tee touch; do
+for tool in python3 awk cat chmod chown env flock id install ln mkdir mv readlink rm rmdir sed sha256sum sleep kill tee touch; do
   tool_bin="$(command -v "$tool")" || { echo "$suite: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$tool_bin" "$bin/$tool"
 done
@@ -243,6 +243,7 @@ fresh() {
   : >"$tmp/operator"
   rm -f -- "$tmp"/{sudo.log,udevadm.log,systemctl.log,modprobe.log,tailscale.log,gum.log,gum-hook,foreign,sudo-exit,udev-fail,other-rule,i2c-rule,tailscaled-down,before-tree,after-tree,no-greeter,getent-fail,owners,greeter-name}
   printf '0\n' >"$tmp/gum-answer"
+  rm -f -- "${bin:?}/voxtype" "${tmp:?}/voxtype-compiled" "${tmp:?}/voxtype.log"
   rm -f -- "$bin/bandwhich" "$tmp/capture-caps" "$tmp/wrapper-caps" "$tmp/capture-probes" "$tmp/getcap-fail" "$tmp/setcap-fail" "$tmp/setcap.log"
 }
 capture_fixture() { printf '#!/bin/sh\nexit 64\n' >"$bin/bandwhich"; chmod 0755 "$bin/bandwhich"; }
@@ -314,7 +315,7 @@ last_out_is() { test "$(tail -n 1 "$tmp/out")" == "$1"; }
 sudo_calls() { cat -- "$tmp/sudo.log" 2>/dev/null; }
 no_sudo() { test ! -e "$tmp/sudo.log"; }
 state_json() { # STATE-REASON per step, table order
-  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"service-cups":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"},"reboot-notice":{"state":"absent","reason":"hook-missing"}}}' "$@"
+  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"service-cups":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"},"reboot-notice":{"state":"absent","reason":"hook-missing"},"voxtype-engine":{"state":"absent","reason":"command-missing"}}}' "$@"
 }
 step_state() { # STEP: the state status --json reads for it
   "${row_env[@]}" "$vgs/bin/vgshell" system status --json </dev/null 2>/dev/null |
@@ -1337,5 +1338,40 @@ for mutation in wrapper-path wrapper-probe; do
   run_nixos "the capture NixOS $mutation mutant's status" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
   check "the NixOS $mutation mutant fails the ready contract" capture_nixos_control_rejected "$mutation"
 done
+
+# This stand-in reads synthetic JSON and changes only its fixture file.
+voxtype_fixture() {
+  cat >"$bin/voxtype" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"$tmp/voxtype.log"
+case "\$*" in
+  'config get engine --json') echo '{"value":"parakeet"}' ;;
+  'info engines --json')
+    compiled=false; [ ! -e "$tmp/voxtype-compiled" ] || compiled=true
+    printf '[{"name":"parakeet","compiled":%s}]\n' "\$compiled" ;;
+  'setup onnx --enable') [ -e "$records/voxtype-engine" ] || exit 64; touch "$tmp/voxtype-compiled" ;;
+  'setup onnx --disable') rm -f -- "${tmp:?}/voxtype-compiled" ;;
+  *) exit 64 ;;
+esac
+EOF
+  chmod +x "$bin/voxtype"
+}
+place "$source_file"; fresh
+check "voxtype is absent without its command" test "$(step_state voxtype-engine)" == "absent command-missing"
+voxtype_fixture
+check "an uncompiled engine needs setup" test "$(step_state voxtype-engine)" == "needed engine-not-compiled"
+run_tty "voxtype engine apply" 0 apply voxtype-engine
+check "apply makes the engine ready" test "$(step_state voxtype-engine)" == "ready compiled"
+check "apply records the engine switch" holds_text "$records/voxtype-engine" "uid=$uid"$'\n'"enabled=1"$'\n'
+run_tty "voxtype engine undo" 0 undo voxtype-engine
+check "undo disables the recorded engine" test ! -e "$tmp/voxtype-compiled"
+check "undo removes the engine record" test ! -e "$records/voxtype-engine"
+touch "$tmp/voxtype-compiled"
+run "undo without an engine record" 0 "" undo voxtype-engine
+check "undo without a record leaves the engine compiled" test -e "$tmp/voxtype-compiled"
+control voxtype-unrecorded '  if ! read_record "$step"; then' '  if ! { read_record "$step" || { [[ $step == voxtype-engine ]] && record[enabled]=1; }; }; then'
+voxtype_fixture; touch "$tmp/voxtype-compiled"
+run_tty "control: engine undo without a record" 0 undo voxtype-engine
+check "control: the record guard rejects an unrecorded engine undo" test ! -e "$tmp/voxtype-compiled"
 
 rows_done "$suite"

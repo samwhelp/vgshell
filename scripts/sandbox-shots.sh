@@ -20,7 +20,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, cloudsync, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, jarvis-fleet, outdated, jarvis-causes, plugin-messages, traffic, ai-usage, sysmon, tui-edges, appearance, sounds or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, dictation-setup, jarvis-console, jarvis-setup, jarvis-fleet, outdated, jarvis-causes, plugin-messages, traffic, ai-usage, sysmon, tui-edges, appearance, sounds or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -68,7 +68,12 @@
 # Set up run over a voxtype stand-in ended with code 0, with Voice's
 # core toast or its notification card where the tree sends one, and
 # Voice's Settings page once the
-# stand-ins report it ready, taken only when named; voice-keys is the Keys
+# stand-ins report it ready, taken only when named;
+# dictation-setup captures the floating setup terminal at its model
+# confirmation, over the voxtype stand-in and a real kitty terminal.
+# With --rev on a tree before the core setup, it captures Voice's Set up.
+# No model download, system step or authentication runs.
+# voice-keys is the Keys
 # section of Voice's Settings page with Voice on, then the pointer on its
 # first key's info icon with that icon's tooltip open where the tree draws
 # one, taken only when named; jarvis-setup is the Jarvis page's row
@@ -266,7 +271,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
+    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|dictation-setup|voice-keys|jarvis-console|jarvis-setup|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -392,6 +397,7 @@ scene_ships() {
     jarvis-console) ships_plugin vgs.jarvis ;;
     voice) ships_plugin vgs.voice ;;
     voice-setup) ships_plugin vgs.voice vgs.settings ;;
+    dictation-setup) ships_plugin vgs.settings && { [[ -x $tree/bin/vgshell-dictation ]] || { [[ -n $rev ]] && ships_plugin vgs.voice; }; } ;;
     plugin-messages) ships_plugin vgs.clipboard vgs.lock vgs.notifications ;;
     voice-keys) [[ $manager_scene == settings ]] && ships_plugin vgs.voice ;;
     jarvis-setup|jarvis-fleet|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
@@ -468,7 +474,7 @@ if [[ " ${scenes[*]} " == *" by-hand "* ]]; then
 fi
 # Voice's Set up runs over stand-ins alone, so the shell finds no host
 # voxtype or bridge.
-if [[ " ${scenes[*]} " == *" voice-setup "* ]]; then
+if [[ " ${scenes[*]} " == *" voice-setup "* || " ${scenes[*]} " == *" dictation-setup "* ]]; then
   shell_hidden_commands+=(voxtype voxtype-audio-bridge)
 fi
 # The Sounds section reads Voice's dictation sounds from a voxtype
@@ -2915,6 +2921,112 @@ scene_jarvis-causes() { # MODE
 }
 
 voice_level_flowing() { ipc smoke readInstance service vgs.voice level | py_reply 'import json,sys; print(str(json.load(sys.stdin) > 0).lower())'; }
+
+scene_dictation-setup() { # MODE
+  local mode="$1" phase=after key=core/dictation-setup holder=acme.dictation
+  local kitty_bin gum_bin bg fg theme_name
+  kitty_bin="$(command -v kitty)" && gum_bin="$(command -v gum)" || { fail "dictation-setup: kitty or gum is missing"; return; }
+  if [[ ! -x $repo/bin/vgshell-dictation ]]; then
+    phase=before key=vgs.voice/setup holder=vgs.voice
+  fi
+  cp -- "$repo/scripts/smoke/fixtures/voxtype/voxtype" "$shim/voxtype"
+  cp -- "$repo/scripts/smoke/fixtures/voxtype/wtype" "$shim/wtype"
+  chmod 755 "$shim/voxtype" "$shim/wtype"
+  rescan "the dictation setup stand-ins are scanned"
+  expect "the setup scene resolves only its voxtype stand-in" "$shim/voxtype" shell_resolves voxtype
+  if [[ $phase == after ]]; then
+    mkdir -p -- "$home/.config/vgshell/plugins/acme.dictation"
+    cp -R -- "$fixtures/acme.dictation/." "$home/.config/vgshell/plugins/acme.dictation/"
+    rescan "the setup holder is scanned"
+  fi
+  expect "the setup holder enables over stand-ins" ok ipc shell setPluginEnabled "$holder" true
+  expect_poll "the setup holder is built" True record_exists "$holder"
+  expect "the setup Settings window enables" ok ipc shell setPluginEnabled vgs.settings true
+  expect_poll "the setup Settings window is built" True record_exists vgs.settings
+  close_notices
+
+  # Only gum is applied: terminal reload targets can signal host terminals.
+  cp -R -- "$checkout/themes/targets/gum" "$repo/themes/targets/gum"
+  theme_name="$(ipc smoke themeName)" || { fail "dictation-setup: the theme is unreadable"; return; }
+  if [[ $theme_name != vgs ]]; then
+    mkdir -p -- "$home/.config/vgshell/themes/$theme_name"
+    cp -- "$theme_file" "$home/.config/vgshell/themes/$theme_name/theme.json"
+  fi
+  sandbox_vgshell theme apply "$theme_name" >/dev/null || { fail "dictation-setup: gum's theme did not apply"; return; }
+  bg="$(ipc smoke themeValue color.background)" fg="$(ipc smoke themeValue color.text)"
+  python3 - "$bg" "$fg" "$sandbox/dictation-setup-kitty.conf" <<'PY' || { fail "dictation-setup: terminal colours are unreadable"; return; }
+import json,sys
+background,foreground=("#"+json.loads(v)[-6:] for v in sys.argv[1:3])
+with open(sys.argv[3],"w") as out:
+    out.write(f"background {background}\nforeground {foreground}\nconfirm_os_window_close 0\nshell_integration disabled\nenable_audio_bell no\n")
+PY
+  {
+    printf '#!/usr/bin/env bash\nset -euo pipefail\n'
+    printf 'marker=%q gum=%q\n' "$sandbox/dictation-setup-confirm" "$gum_bin"
+    printf '[[ ${1:-} != confirm ]] || : >"$marker"\nexec "$gum" "$@"\n'
+  } >"$shim/gum"
+  chmod 755 "$shim/gum"
+  rm -f -- "$sandbox/dictation-setup-confirm"
+  {
+    printf '#!/usr/bin/env bash\nset -euo pipefail\n'
+    printf 'kitty=%q config=%q presenter=%q key=%q core=%q voice=%q\n' "$kitty_bin" "$sandbox/dictation-setup-kitty.conf" "$tui_self" "$key" "$core_vgshell" "$repo/shell/plugins/vgs.voice/tui/setup.sh"
+    cat <<'EOF'
+app_id="" title=""
+while [[ $# -gt 0 && $1 != -- ]]; do
+  case "$1" in --app-id=*) app_id="${1#*=}" ;; --title=*) title="${1#*=}" ;; *) exit 70 ;; esac
+  shift
+done
+[[ $# -gt 0 ]] || exit 70
+shift
+[[ ${1:-} == "$presenter" && ${2:-} == present ]] || exit 70
+run=("$@") plugin="" dir="" record=""
+shift 2
+while [[ $# -ge 2 && $1 != -- ]]; do
+  case "$1" in --plugin) plugin="$2" ;; --dir) dir="$2" ;; --record) record="$2" ;; esac
+  shift 2
+done
+[[ ${1:-} == -- && $record == "$key" ]] || exit 70
+shift
+if [[ $key == core/dictation-setup ]]; then
+  [[ $# -eq 3 && $1 == "$core" && $2 == dictation && $3 == setup && -z $plugin && -z $dir ]] || exit 70
+else
+  [[ $# -eq 1 && $1 == tui/setup.sh && $plugin == vgs.voice && $dir == /* && -f $dir/tui/setup.sh && ! -L $dir/tui/setup.sh ]] || exit 70
+  cmp -s -- "$voice" "$dir/tui/setup.sh" || exit 70
+fi
+# kitty's documented --class retains the core's floating size class.
+# https://sw.kovidgoyal.net/kitty/invocation/
+exec "$kitty" --config "$config" --class "$app_id" --title "$title" "${run[@]}"
+EOF
+  } >"$tui_terminal"
+  chmod 755 "$tui_terminal"
+  voice_setup_launcher_ready
+  expect "the setup Settings window opens" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the setup Settings window maps" 1 settings_count
+  if [[ $phase == before ]]; then
+    expect "Voice's Set up opens" ok settings_open_tui vgs.voice setup
+  else
+    expect "the setup holder's page opens" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin acme.dictation
+    settings_tab_click Settings || { fail "dictation-setup: the Settings tab did not open"; return; }
+    settings_press --type RowAction "Set up" || { fail "dictation-setup: Set up did not open"; return; }
+  fi
+  settings_close
+  dictation_setup_confirm() { [[ -e $sandbox/dictation-setup-confirm ]] && echo asking || echo waiting; }
+  expect_poll "the setup terminal asks for the model download" asking dictation_setup_confirm
+  dictation_setup_windows() { hypr -j clients | py_reply 'import json,sys; print(sum(c["class"] == "org.vgs.tui" and c["mapped"] for c in json.load(sys.stdin)))'; }
+  expect_poll "the floating setup terminal maps" 1 dictation_setup_windows
+  dictation_setup_floating() { hypr -j clients | py_reply 'import json,sys; c=[c for c in json.load(sys.stdin) if c["class"] == "org.vgs.tui" and c["mapped"]]; print(str(len(c)==1 and c[0]["floating"]).lower())'; }
+  expect "the setup terminal floats" true dictation_setup_floating
+  park_pointer
+  take_posed "dictation-setup-$mode-$phase-confirm"
+  local address
+  address="$(hypr -j clients | py_reply 'import json,sys; c=[c for c in json.load(sys.stdin) if c["class"] == "org.vgs.tui" and c["mapped"]]; print(c[0]["address"] if len(c)==1 else "none")')"
+  [[ $address == 0x* ]] || { fail "dictation-setup: the floating terminal is unreadable"; return; }
+  expect "the setup terminal closes before any download" ok hypr dispatch "hl.dsp.window.close({ window = \"address:$address\" })"
+  expect_poll "the core sees the closed setup run" idle key_idle "$key"
+  expect "the setup holder disables" ok ipc shell setPluginEnabled "$holder" false
+  rm -f -- "$shim/gum" "$shim/voxtype" "$shim/wtype"
+  terminal_stand_in
+}
 
 # Voice's Set up as a first-time user meets it. Without voxtype, Set up on
 # the Settings window raises the core's requirement notice, which a stand-in

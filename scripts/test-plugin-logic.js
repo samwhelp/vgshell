@@ -29,6 +29,15 @@ function report(name, got, want) {
 
 // Every row against one loaded judge, `ctx`, each result handed to `check`.
 function suite(ctx, check) {
+    const dictationRaw = { schemaVersion: 1, id: "acme.dictation", name: "D", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "Service.qml" }, capabilities: ["dictation", "status"], status: { setup: { type: "presence", label: "Setup", action: { label: "Set up", dictation: "setup" } } } };
+    for (const [capability, value, accepted] of [[true, "setup", true], [false, "setup", false], [true, "restart", false], [true, null, false], [true, 1, false]]) {
+        const raw = JSON.parse(JSON.stringify(dictationRaw));
+        raw.capabilities = capability ? ["dictation", "status"] : ["status"];
+        raw.status.setup.action.dictation = value;
+        check("dictation action: capability=" + capability + " value=" + value, ctx.validateManifest(raw, "/p").ok, accepted);
+    }
+    const dictationManifest = ctx.validateManifest(dictationRaw, "/p").manifest;
+    check("dictation setup opens the core TUI", ctx.statusActionRequest(dictationManifest, "acme.dictation", true, { setup: "absent" }, "setup"), { ok: true, kind: "core", name: "dictation-setup" });
     const bar = { schemaVersion: 1, id: "vgs.bar", name: "Bar", version: "0.1.0", author: "VGS", description: "d", kinds: ["bar"], entryPoints: { bar: "Bar.qml" } };
     const clock = { schemaVersion: 1, id: "vgs.clock", name: "Clock", version: "0.1.0", author: "VGS", description: "d", kinds: ["bar-widget"], entryPoints: { "bar-widget": "Widget.qml" }, defaultSection: "center" };
     const svc = { schemaVersion: 1, id: "acme.svc", name: "S", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, settings: { x: 0 } };
@@ -303,7 +312,7 @@ function suite(ctx, check) {
         ["a data entry with an action", { capabilities: ["status"], requirements: [{ command: "gum", purpose: "q" }], status: { a: { type: "data", label: "A", action: { label: "Go", install: ["gum"] } } } }, "status.a.action needs a type whose value says when it applies"],
         // systemSteps (D081): steps of the core's closed table, read through capability system.
         ["systemSteps naming two steps", { capabilities: ["system"], systemSteps: ["apple-displays", "i2c-dev"] }, null],
-        ["every step of the table", { capabilities: ["system"], systemSteps: ["apple-displays", "i2c-dev", "service-bluetooth", "service-tailscaled", "service-cups", "tailscale-operator", "greeter", "bandwhich-capture", "reboot-notice"] }, null],
+        ["every step of the table", { capabilities: ["system"], systemSteps: ["apple-displays", "i2c-dev", "service-bluetooth", "service-tailscaled", "service-cups", "tailscale-operator", "greeter", "bandwhich-capture", "reboot-notice", "voxtype-engine"] }, null],
         ["systemSteps that is not a list", { capabilities: ["system"], systemSteps: "i2c-dev" }, "systemSteps must be a non-empty list of steps of the core's table"],
         ["an empty systemSteps", { capabilities: ["system"], systemSteps: [] }, "systemSteps must be a non-empty list"],
         ["a step outside the table", { capabilities: ["system"], systemSteps: ["etc-shadow"] }, "systemSteps.0 must be one of"],
@@ -411,7 +420,7 @@ function suite(ctx, check) {
     check("validateManifest normalizes absent requirements to a list", ctx.validateManifest(bar, "/p").manifest.requirements, []);
     check("validateManifest normalizes an absent systemSteps to a list", ctx.validateManifest(bar, "/p").manifest.systemSteps, []);
     check("validateManifest keeps the declared systemSteps", ctx.validateManifest(Object.assign({}, bar, { capabilities: ["system"], systemSteps: ["i2c-dev", "apple-displays"] }), "/p").manifest.systemSteps, ["i2c-dev", "apple-displays"]);
-    check("the system step table is bin/vgshell-system's", ctx.SYSTEM_STEPS, ["apple-displays", "i2c-dev", "service-bluetooth", "service-tailscaled", "service-cups", "tailscale-operator", "greeter", "bandwhich-capture", "reboot-notice"]);
+    check("the system step table is bin/vgshell-system's", ctx.SYSTEM_STEPS, ["apple-displays", "i2c-dev", "service-bluetooth", "service-tailscaled", "service-cups", "tailscale-operator", "greeter", "bandwhich-capture", "reboot-notice", "voxtype-engine"]);
     const trafficManifest = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.traffic/manifest.json"), "utf8")), "/traffic");
     check("traffic declares its judged capture system step", trafficManifest.ok, true);
     if (trafficManifest.ok) {
@@ -1831,7 +1840,10 @@ const CONTROLS = [
     ["a choice option offers its choices alone", "if (row.choices.indexOf(entry.options[o]) === -1)", "if (false)"],
     ["a free string option takes a string or an enum", "return entry.type === \"string\" || entry.type === \"enum\" ? \"\" : \"needs a string", "return true ? \"\" : \"needs a string"],
     ["a manifest carries its options", "options: clone(raw.hyprland.options || {})", "options: {}"],
-    ["an action is judged", "var badAction = statusActionError(entry.type, declared[a].action, at + declared[a].at, tui, requirements, system);", "var badAction = \"\";"],
+    ["dictation actions need the capability", 'if (capabilities.indexOf("dictation") === -1)', 'if (false)'],
+    ["dictation actions take setup alone", 'if (action.dictation !== "setup")', 'if (false)'],
+    ["dictation actions route to core", 'if (action.dictation !== undefined)\n        return { ok: true, kind: "core", name: "dictation-setup" };', 'if (action.dictation !== undefined)\n        return { ok: true, kind: "tui", name: "setup" };'],
+    ["an action is judged", "var badAction = statusActionError(entry.type, declared[a].action, at + declared[a].at, tui, requirements, system, capabilities);", "var badAction = \"\";"],
     ["an action sits on a presence or a state", "if (STATUS_ACTION_TYPES.indexOf(type) === -1)\n        return at + \" needs a type", "if (false)\n        return at + \" needs a type"],
     ["named actions sit on a state", "if (entry.type !== \"state\")\n                return at + \".actions needs", "if (false)\n                return at + \".actions needs"],
     ["an entry declares an action or named actions", "if (entry.action !== undefined && entry.actions !== undefined)", "if (false)"],

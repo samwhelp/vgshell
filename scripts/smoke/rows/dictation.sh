@@ -42,7 +42,7 @@
 # shell of the tree, both fixtures disabled and the stand-ins put away.
 # Every poll is expect_poll's, one read each 0.2 s; no latency budget is
 # claimed.
-# inputs: scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/plugins/acme.dictation-other/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Capabilities.qml shell/Core/PluginLogic.js scripts/smoke/rows/capabilities.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/plugins/acme.dictation-other/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Capabilities.qml shell/Core/PluginLogic.js bin/vgshell-dictation bin/lib/voxtype.sh bin/lib/tui.sh config/voxtype/* scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 dictation_other="$home/.config/vgshell/plugins/acme.dictation-other"
 dictation_dir="$rt_dir/vgshell/dictation"
@@ -121,6 +121,91 @@ expect "enabling the dictation fixture is allowed" ok ipc shell setPluginEnabled
 expect_poll "the holder reads the daemon ready" "ready idle -" dictation_state acme.dictation
 expect_poll "one daemon and one follower run, children of the shell" "$dictation_one" dictation_processes
 expect "the dictation directory is the owner's alone and empty" "700 0" dictation_files
+
+# The terminal runs the shipped setup only inside a private copy. Its
+# system helper refuses, and its voxtype is the stand-in, so even a setup
+# regression can reach neither authentication nor systemctl.
+dictation_setup_tree="$sandbox/dictation-setup-tree"
+mkdir -p "$dictation_setup_tree/bin/lib" "$dictation_setup_tree/config" "$dictation_setup_tree/commands"
+cp -- "$repo/bin/vgshell-dictation" "$dictation_setup_tree/bin/"
+cp -- "$repo/bin/lib/tui.sh" "$repo/bin/lib/voxtype.sh" "$dictation_setup_tree/bin/lib/"
+cp -R -- "$repo/config/voxtype" "$dictation_setup_tree/config/"
+printf '#!/bin/sh\nprintf "%%s\\n" forbidden >>%q\nexit 64\n' "$sandbox/dictation-setup-forbidden" >"$dictation_setup_tree/bin/vgshell-system"
+for name in sudo systemctl; do
+  cp -- "$dictation_setup_tree/bin/vgshell-system" "$dictation_setup_tree/commands/$name"
+done
+chmod +x "$dictation_setup_tree/bin/vgshell-system" "$dictation_setup_tree/commands/"*
+terminal_stand_in
+terminal_ready "dictation setup"
+cp -- "$tui_terminal" "$sandbox/dictation-terminal-default"
+{
+  printf '#!/usr/bin/env bash\n'
+  printf 'fallback=%q record=%q setup_tree=%q stand_in=%q\n' "$sandbox/dictation-terminal-default" "$tui_record" "$dictation_setup_tree" "$shim/voxtype"
+  cat <<'SCRIPT'
+args=("$@")
+for ((i=0; i < $#; i++)); do
+  [[ ${args[i]##*/} != vgshell-tui ]] || break
+done
+if ((i >= $#)); then exec "$fallback" "$@"; fi
+present=("${args[@]:i}")
+for ((j=0; j < ${#present[@]}; j++)); do
+  [[ ${present[j]} != -- ]] || break
+done
+if [[ ${present[*]:j+1} != *'/bin/vgshell dictation setup' || ${present[*]} != *'--record core/dictation-setup '* ]]; then
+  exec "$fallback" "$@"
+fi
+: >"$record.next"
+for a; do printf '%s\n' "$a" >>"$record.next"; done
+mv -f -- "$record.next" "$record"
+ln -sf -- "$stand_in" "$setup_tree/commands/voxtype"
+exec env VGS_TUI_UNATTENDED=1 PATH="$setup_tree/commands:$PATH" "${present[@]:0:j+1}" "$setup_tree/bin/vgshell-dictation" setup
+SCRIPT
+} >"$tui_terminal.next"
+chmod +x "$tui_terminal.next"
+mv -T -- "$tui_terminal.next" "$tui_terminal"
+dictation_setup_action() { ipc smoke invokeInstance service acme.dictation statusAct setup; }
+dictation_setup_defaults() {
+  python3 - "$home/.config/voxtype" <<'PY'
+import pathlib,sys,tomllib
+p=pathlib.Path(sys.argv[1]); f=p/'config.toml'
+if not f.exists(): print('absent'); raise SystemExit
+config=tomllib.loads(f.read_text())
+print('copied' if config['engine']=='parakeet' and config['audio']['feedback']['theme']==str(p/'sounds/bloop') and all((p/'sounds/bloop'/n).is_file() for n in ['start.wav','stop.wav','error.wav','LICENSE']) else 'wrong')
+PY
+}
+dictation_setup_start() {
+  forget_record
+  expect "Set up opens the core dictation setup" ok dictation_setup_action
+  expect_poll "Set up hands the terminal core/dictation-setup" "$(core_words core/dictation-setup "Set up dictation" org.vgs.tui dictation setup)" recorded
+  expect_run_end "the core dictation setup ends" core/dictation-setup
+}
+dictation_forget
+dictation_setup_start
+expect "dictation setup copied the core defaults into sandbox HOME" copied dictation_setup_defaults
+expect "dictation setup downloaded the configured model" 'setup --download --model parakeet-tdt-0.6b-v3 --no-post-install' cat "$sandbox/voxtype-setup.log"
+dictation_setup_safe() { if [[ -e $sandbox/dictation-setup-forbidden ]]; then echo forbidden; else echo clean; fi; }
+expect "dictation setup reached no system helper, sudo or systemctl" clean dictation_setup_safe
+expect_poll "a successful setup end restarts the core daemon" "stopped started" dictation_noted
+expect_poll "the restarted dictation daemon reads ready" "ready idle -" dictation_state acme.dictation
+# An invalid fixture with the same action but no capability is refused by
+# the manifest judge. The manager therefore has no plugin to act on.
+mkdir -p "$home/.config/vgshell/plugins/acme.dictation-no-cap"
+python3 - "$dictation_fixture/manifest.json" "$home/.config/vgshell/plugins/acme.dictation-no-cap/manifest.json" <<'PY'
+import json,sys
+p=json.load(open(sys.argv[1])); p['id']='acme.dictation-no-cap'; p['capabilities'].remove('dictation'); json.dump(p,open(sys.argv[2],'w'))
+PY
+expected_errors+=('acme.dictation-no-cap.*dictation needs capability dictation')
+rescan "the fixture without dictation is scanned"
+settings_page_open acme.dictation
+forget_record
+expect "the manager refuses setup on a fixture without dictation" 'unknown: acme.dictation-no-cap' settings_act acme.dictation-no-cap setup
+expect "the refused setup starts no terminal" absent recorded
+rm -rf -- "${home:?}/.config/vgshell/plugins/acme.dictation-no-cap"
+rescan "the refused fixture is removed"
+ipc shell close window vgs.settings >/dev/null
+cp -- "$tui_terminal" "$sandbox/dictation-terminal-setup"
+terminal_stand_in
+
 
 expect "a text recording starts" ok dictate acme.dictation start text
 expect_poll "the state names the recording's holder" "ready recording acme.dictation" dictation_state acme.dictation
@@ -253,6 +338,9 @@ edit_tree dictation-controls shell/Core/DictationModel.js \
   '    if (t.holders.length === 0) {
         end(t, effects, "");' \
   '    if (t.holders.length === 0) {' || dictation_edits=false
+edit_tree dictation-controls shell/Core/Capabilities.qml \
+  '            if (end.code === 0) dictation.restart();' \
+  '            if (false) dictation.restart();' || dictation_edits=false
 edit_tree dictation-controls shell/Core/Dictation.qml \
   '        return ["setpriv", "--pdeathsig", "KILL", "--", "bash", "-c", '"'"'[[ $PPID == "$1" ]] || exit 1; shift; exec "$@"'"'"', "bash", String(Quickshell.processId)].concat(argv);' \
   '        return argv;' || dictation_edits=false
@@ -269,6 +357,10 @@ if [[ $dictation_edits == true ]]; then
   dictation_forget
   expect "control: a restart with no daemon elsewhere is allowed" ok dictate acme.dictation restart
   expect_poll "control: the copy's daemon reads ready" "ready idle -" dictation_state acme.dictation
+  cp -- "$sandbox/dictation-terminal-setup" "$tui_terminal"
+  dictation_setup_start
+  expect "control: suppressing the setup callback leaves the daemon unchanged" started dictation_noted
+  terminal_stand_in
   expect "control: a text recording starts with no deadline" ok dictate acme.dictation start text
   expect_poll "control: a text recording no deadline cancels reaches the stand-in's cap" "started start cap" dictation_noted
   expect_poll "control: the capped text recording is typed" "-d 10 -- second turn" dictation_wtype

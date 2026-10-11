@@ -52,7 +52,7 @@ A string that reaches a shell becomes code, and a plugin's or a catalog's text w
 
 ### System steps
 
-- Never add a root action outside the table in `bin/vgshell-system`; a manifest's `systemSteps` names table rows only. `scripts/test-vgshell-system.sh` and `scripts/test-plugin-logic.js` pin it.
+- Never add a root action outside the table in `bin/vgshell-system`; a manifest's `systemSteps` names table rows only, and dictation setup offers the table's `voxtype-engine` step for its engine switch. `scripts/test-vgshell-system.sh` and `scripts/test-plugin-logic.js` pin it.
 - Do write the record, root-owned under `/var/lib/vgshell/system/`, before the commands, so a partial failure is on record, and undo only the recorded change, for the caller's uid, in the boot that made it. `scripts/test-vgshell-system.sh` pins both.
 - Do probe real access, never a file's presence; a probe that cannot answer reads `unknown`, never `ready`. `scripts/test-vgshell-system.sh` pins the `unknown` state.
 - Never overwrite a destination VGS did not write; refuse a symlink destination and a foreign file as `foreign`. `scripts/test-vgshell-system.sh` pins it.

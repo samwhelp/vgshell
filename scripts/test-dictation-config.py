@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 import pathlib
 import shutil
+import tempfile
 import sys
 import tomllib
 
 repo = pathlib.Path(__file__).resolve().parent.parent
-config = repo / "shell" / "plugins" / "vgs.voice" / "config.toml"
+config = repo / "config" / "voxtype" / "config.toml"
 required = {
     "DP 1": "DP-1", "DP 2": "DP-2", "D P 1": "DP-1", "D P 2": "DP-2",
     "DP one": "DP-1", "DP two": "DP-2", "D P one": "DP-1", "D P two": "DP-2",
@@ -31,10 +32,7 @@ def verify(path: pathlib.Path):
         assert key not in replacements, key
 
 verify(config)
-scratch = repo / "tmp" / f"voice-config-control-{pathlib.os.getpid()}"
-if scratch.exists():
-    shutil.rmtree(scratch)
-scratch.mkdir(parents=True)
+scratch = pathlib.Path(tempfile.mkdtemp(prefix="dictation-config-control-"))
 try:
     controls = [
         ("osd", lambda text: text.replace("[osd]\nenabled = false", "[osd]\nenabled = true", 1)),
@@ -56,4 +54,4 @@ try:
             raise AssertionError(f"control {label}: config check passed without the rule")
 finally:
     shutil.rmtree(scratch)
-print("test-voice-config: ok controls=4")
+print("test-dictation-config: ok controls=4")

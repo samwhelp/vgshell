@@ -429,10 +429,13 @@ Singleton {
         case "tui": return tuis.runFor(id, request.name);
         case "install": return Notices.chosen(id, request.commands);
         case "system": return root.managerCoreTui("system", request.args, () => systemSteps.probe());
+        case "core": return root.managerCoreTui(request.name, [], end => {
+            if (end.code === 0) dictation.restart();
+        });
         case "summon": return Plugins.route("summon", request.surface, id, "{}", null);
         case "pane": return root.paneRoute(id, "summon", "{}", null);
         }
-        throw new Error("manager: step kind " + JSON.stringify(request.kind) + " is not one of tui, install, system, summon, pane");
+        throw new Error("manager: step kind " + JSON.stringify(request.kind) + " is not one of tui, install, system, core, summon, pane");
     }
 
     // The manager's store or clear (VERB) of plugin ID's ACCOUNT, listed in

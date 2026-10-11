@@ -45,6 +45,8 @@
 #                        session, and `systemctl set-default graphical.target` while
 #                        another target is the default, since only graphical.target
 #                        starts a display manager
+#   voxtype-engine       `voxtype setup onnx --enable`; undo disables ONNX
+#                        only while the step has a root-owned record
 #   reboot-notice        link /etc/pacman.d/hooks/cachyos-reboot-required.hook to
 #                        /dev/null, pacman's own override of the CachyOS hook of
 #                        that name in /usr/share/libalpm/hooks, which turns its
@@ -213,7 +215,7 @@ dev="$prefix/dev"
 boot_id_file="$prefix/proc/sys/kernel/random/boot_id"
 
 # The closed table, in the order status prints it.
-steps=(apple-displays i2c-dev service-bluetooth service-tailscaled service-cups tailscale-operator greeter bandwhich-capture reboot-notice)
+steps=(apple-displays i2c-dev service-bluetooth service-tailscaled service-cups tailscale-operator greeter bandwhich-capture reboot-notice voxtype-engine)
 capture_caps=cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin
 
 # Character classes spelled out: a range follows the collation of the
@@ -753,6 +755,17 @@ probe_reboot_notice() {
   esac
 }
 
+probe_voxtype_engine() {
+  local engine compiled
+  command -v voxtype >/dev/null || { set_probe absent command-missing; return; }
+  source "$lib_dir/voxtype.sh"
+  engine="$(vgs_voxtype_value engine)" || { set_probe unknown config-unreadable; return; }
+  compiled="$(vgs_voxtype_compiled "$engine")" || { set_probe unknown engines-unreadable; return; }
+  if [[ $compiled == yes ]]; then set_probe ready compiled
+  else set_probe needed engine-not-compiled
+  fi
+}
+
 probe() { # STEP
   case "$1" in
     apple-displays) probe_apple_displays ;;
@@ -763,6 +776,7 @@ probe() { # STEP
     greeter) probe_greeter ;;
     bandwhich-capture) probe_bandwhich_capture ;;
     reboot-notice) probe_reboot_notice ;;
+    voxtype-engine) probe_voxtype_engine ;;
     *) refuse 1 "internal=probe step=$1" "the step table has no probe for it" ;;
   esac
 }
@@ -797,6 +811,7 @@ nixos_snippet() { # STEP
       awk '!/^[[:space:]]*(#|$)/ { print "  " $0 }' "$rule_source"
       printf "'';\n"
       ;;
+    voxtype-engine) printf 'environment.systemPackages = [ pkgs.voxtype ];\n' ;;
     i2c-dev) printf 'boot.kernelModules = [ "i2c-dev" ];\n' ;;
     service-bluetooth) printf 'hardware.bluetooth.enable = true;\n' ;;
     service-tailscaled) printf 'services.tailscale.enable = true;\n' ;;
@@ -840,6 +855,7 @@ read_record() { # STEP
     greeter) allowed=' uid config pam dropin enabled target deferred dropin-dir greeter-dir theme-dir copy-dir state-dir ' ;;
     bandwhich-capture) allowed=' uid binary hash ' ;;
     reboot-notice) allowed=' uid link hooks-dir ' ;;
+    voxtype-engine) allowed=' uid enabled ' ;;
     *) refuse 1 "internal=record step=$1" ;;
   esac
   while IFS= read -r line || [[ -n $line ]]; do
@@ -979,6 +995,21 @@ apply_tailscale_operator() {
   program tailscale tailscale
   record_put tailscale-operator "uid=$uid"$'\n'"operator=$user"$'\n'"previous="
   cmd "$tailscale" set "--operator=$user"
+}
+
+apply_voxtype_engine() {
+  local voxtype
+  program voxtype voxtype
+  read_record voxtype-engine || true
+  record_put voxtype-engine "uid=$uid"$'\n'"enabled=1"
+  cmd "$voxtype" setup onnx --enable
+}
+
+undo_voxtype_engine() {
+  local voxtype
+  program voxtype voxtype
+  [[ ${record[enabled]-} != 1 ]] || cmd "$voxtype" setup onnx --disable
+  record_drop voxtype-engine
 }
 
 apply_bandwhich_capture() {
@@ -1212,6 +1243,7 @@ plan() { # VERB STEP
     greeter) "$1_greeter" ;;
     bandwhich-capture) "$1_bandwhich_capture" ;;
     reboot-notice) "$1_reboot_notice" ;;
+    voxtype-engine) "$1_voxtype_engine" ;;
     *) refuse 1 "internal=plan step=$2" ;;
   esac
 }

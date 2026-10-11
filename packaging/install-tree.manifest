@@ -32,9 +32,11 @@ f share/vgshell/bin/lib/theme-render.js
 f share/vgshell/bin/lib/theme-select.js
 f share/vgshell/bin/lib/tmpfiles.d/vgs-sudo-grant.conf
 f share/vgshell/bin/lib/tui.sh
+f share/vgshell/bin/lib/voxtype.sh
 f share/vgshell/bin/lib/xkb-keys.py
 f share/vgshell/bin/vgshell
 f share/vgshell/bin/vgshell-browser-policy
+f share/vgshell/bin/vgshell-dictation
 f share/vgshell/bin/vgshell-display-guard
 f share/vgshell/bin/vgshell-hypr-judge
 f share/vgshell/bin/vgshell-lock
@@ -51,6 +53,11 @@ f share/vgshell/config/shell.json
 f share/vgshell/config/system/greeter/hyprland.lua
 f share/vgshell/config/system/greeter/vgs-greeter.pam
 f share/vgshell/config/system/udev/60-vgs-apple-displays.rules
+f share/vgshell/config/voxtype/config.toml
+f share/vgshell/config/voxtype/sounds/bloop/LICENSE
+f share/vgshell/config/voxtype/sounds/bloop/error.wav
+f share/vgshell/config/voxtype/sounds/bloop/start.wav
+f share/vgshell/config/voxtype/sounds/bloop/stop.wav
 f share/vgshell/shell/Commons/AccountDirectories.js
 f share/vgshell/shell/Commons/AnchorTracker.qml
 f share/vgshell/shell/Commons/ClearingInset.qml

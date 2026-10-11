@@ -217,6 +217,7 @@ case "$*" in
     if [[ -e ${voice_installed:-} ]]; then installed=true; else installed=false; fi
     printf '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":%s,"downloadable":true,"download_arg":"parakeet-tdt-0.6b-v3"}],"default":"parakeet-tdt-0.6b-v3"}},"verified":true}\n' "$installed"
     ;;
+  'setup --download --model parakeet-tdt-0.6b-v3 --no-post-install') printf '%s\n' "$*" >>"$control/voxtype-setup.log" ;;
   'info engines --json') printf '%s\n' '[{"name":"whisper","compiled":true,"active":false},{"name":"parakeet","compiled":true,"active":true}]' ;;
   *) ;;
 esac

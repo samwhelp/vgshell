@@ -355,6 +355,7 @@ function suite(ctx, check) {
     // the requirement notice's install and the plugin manager's rows for one plugin, each
     // command a file of the core's bin/ its owner may run.
     const shipped = {
+        "dictation-setup": { argv: ["vgshell", "dictation", "setup"], title: "Set up dictation", size: "default", presentation: "full", entry: null },
         "pkg-install": { argv: ["vgshell", "pkg", "install"], title: "Install packages", size: "default", presentation: "full", entry: { label: "Install packages", icon: "package-plus", group: "Packages" } },
         "pkg-remove": { argv: ["vgshell", "pkg", "remove"], title: "Remove packages", size: "default", presentation: "full", entry: { label: "Remove packages", icon: "package-minus", group: "Packages" } },
         "sudo-grant": { argv: ["vgshell", "sudo", "grant"], title: "Passwordless sudo", size: "default", presentation: "full", entry: { label: "Passwordless sudo", icon: "shield-alert", group: "System" } },

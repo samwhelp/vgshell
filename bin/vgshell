@@ -398,6 +398,7 @@ Commands:
   pkg        Install, remove and upgrade system packages
   sudo       Turn on passwordless sudo for a set time
   system     Apply or undo one-time system setup steps
+  dictation  Set up the speech engine and model
   hypr       Connect the VGS Hyprland settings to hyprland.lua
   tui        Run a command in a VGS floating terminal
 
@@ -536,6 +537,13 @@ Subcommands:
   revoke             End the active grant now
   install            Install the root half of the grant
   uninstall          Remove every grant and the root half
+EOF_HELP
+      ;;
+    dictation) cat <<'EOF_HELP'
+Usage: vgshell dictation setup
+
+Copy dictation defaults when no voxtype config exists, enable the speech
+engine through the system setup step, and download the configured model.
 EOF_HELP
       ;;
     system) cat <<'EOF_HELP'
@@ -2747,6 +2755,12 @@ case "$cmd" in
     case "${1:-}" in
       status|grant|revoke|install|uninstall) exec "$root/bin/vgshell-sudo-grant" "$@" ;;
       *) printf 'vgshell: refused: sudo-subcommand=%s\n' "${1:-missing}" >&2; try_help; exit 2 ;;
+    esac
+    ;;
+  dictation)
+    case "${1:-}" in
+      setup) exec "$root/bin/vgshell-dictation" "$@" ;;
+      *) printf 'vgshell: refused: dictation-subcommand=%s\n' "${1:-missing}" >&2; try_help; exit 2 ;;
     esac
     ;;
   system)

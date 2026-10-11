@@ -195,14 +195,15 @@ var LAUNCHER_ROW_KEYS = ["id", "label", "icon", "description", "aliases", "menu"
 // `install`, a list of the manifest's own requirements the core
 // offers through the requirement notice; `system`, a step of the
 // manifest's own `systemSteps` the core applies in its `core/system` TUI
-// (D081); or `undo`, such a step the core undoes there. An entry of a
+// (D081); `undo`, such a step the core undoes there; or `dictation`,
+// `setup` for a holder of that capability. An entry of a
 // type in STATUS_ACTION_TYPES takes one. A `state`
 // entry whose step differs by what its writer found declares `actions`
 // instead: two or more such steps by name, a STATUS_KEY_PATTERN
 // identifier, of which a value names at most one. An action that removes
 // what the user set up, such as a sign-out, carries `tone`, one of
 // STATUS_ACTION_TONES, and a page draws it in the danger style.
-var STATUS_ACTION_ROUTES = ["tui", "install", "system", "undo"];
+var STATUS_ACTION_ROUTES = ["tui", "install", "system", "undo", "dictation"];
 var STATUS_ACTION_KEYS = ["label", "tone"].concat(STATUS_ACTION_ROUTES);
 var STATUS_ACTION_TONES = ["danger"];
 var STATUS_ACTION_TYPES = ["presence", "state"];
@@ -214,7 +215,7 @@ var STATUS_ACTION_REASONS = ["undeclared", "disabled", "not-offered"];
 // prints them, and the states a probe reads each one in. The script is the
 // table's owner; scripts/test-vgshell-system.sh reads its status back against
 // this list.
-var SYSTEM_STEPS = ["apple-displays", "i2c-dev", "service-bluetooth", "service-tailscaled", "service-cups", "tailscale-operator", "greeter", "bandwhich-capture", "reboot-notice"];
+var SYSTEM_STEPS = ["apple-displays", "i2c-dev", "service-bluetooth", "service-tailscaled", "service-cups", "tailscale-operator", "greeter", "bandwhich-capture", "reboot-notice", "voxtype-engine"];
 var SYSTEM_STATES = ["ready", "needed", "denied", "absent", "unknown", "nixos"];
 // A probe's reason: a short key of lower case letters and dashes.
 var SYSTEM_REASON_PATTERN = /^[a-z][a-z-]{0,39}$/;
@@ -701,7 +702,7 @@ function statusError(status, capabilities, tui, requirements, system) {
         for (var a = 0; a < declared.length; a++) {
             if (declared[a].name !== null && !STATUS_KEY_PATTERN.test(declared[a].name))
                 return at + ".actions key " + JSON.stringify(declared[a].name) + " must match " + STATUS_KEY_PATTERN.source;
-            var badAction = statusActionError(entry.type, declared[a].action, at + declared[a].at, tui, requirements, system);
+            var badAction = statusActionError(entry.type, declared[a].action, at + declared[a].at, tui, requirements, system, capabilities);
             if (badAction !== "")
                 return badAction;
         }
@@ -737,7 +738,7 @@ function statusEntryActions(entry) {
 // manifest's TUI key declares; `install`, a non-empty list of requirements the
 // manifest's REQUIREMENTS declare, each once; `system` or `undo`, a step
 // the manifest's SYSTEM, its `systemSteps`, declares.
-function statusActionError(type, action, at, tui, requirements, system) {
+function statusActionError(type, action, at, tui, requirements, system, capabilities) {
     if (STATUS_ACTION_TYPES.indexOf(type) === -1)
         return at + " needs a type whose value says when it applies, one of " + STATUS_ACTION_TYPES.join(", ");
     if (!isPlainObject(action))
@@ -753,6 +754,13 @@ function statusActionError(type, action, at, tui, requirements, system) {
         return at + ".tone must be one of " + STATUS_ACTION_TONES.join(", ") + ", got " + JSON.stringify(action.tone);
     if (STATUS_ACTION_ROUTES.filter(function (route) { return action[route] !== undefined; }).length !== 1)
         return at + " must name exactly one of " + STATUS_ACTION_ROUTES.join(", ");
+    if (action.dictation !== undefined) {
+        if (action.dictation !== "setup")
+            return at + ".dictation must be setup";
+        if (capabilities.indexOf("dictation") === -1)
+            return at + ".dictation needs capability dictation";
+        return "";
+    }
     var stepRoute = action.system !== undefined ? "system" : action.undo !== undefined ? "undo" : null;
     if (stepRoute !== null) {
         if (typeof action[stepRoute] !== "string" || !Array.isArray(system) || system.indexOf(action[stepRoute]) === -1)
@@ -1478,6 +1486,8 @@ function statusActionRequest(manifest, id, enabled, values, key) {
     var action = hasOwn(values, key) ? statusActionOffered(manifest.status[key], values[key]) : null;
     if (action === null)
         return { ok: false, answer: statusActionRefusal(key, "not-offered") };
+    if (action.dictation !== undefined)
+        return { ok: true, kind: "core", name: "dictation-setup" };
     if (action.tui !== undefined)
         return { ok: true, kind: "tui", name: action.tui };
     if (action.system !== undefined)
@@ -2548,18 +2558,26 @@ var TUI_RUN_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 // rest as a normalized manifest `tui` entry has them. coreTuiTable judges
 // the table when this file loads. The package pickers run in the default
 // size.
-// `edit`, `requirements-install`, `requirements-update`, `system`,
+// `edit`, `requirements-install`, `requirements-update`, `dictation-setup`, `system`,
 // `plugin-update`, `plugin-remove` and `sudo-revoke` are not listed. The
 // first opens a cited file from a surface, the requirement notice opens the
 // install and update rows with
 // the arguments PluginLogic.noticeView names, the `manager` capability's
 // act opens `system` with `apply <step>` for a status action that names a
-// system step (D081), the plugin manager opens update and remove with one
+// system step (D081) or `dictation-setup` for a holder of `dictation`,
+// the plugin manager opens update and remove with one
 // plugin id (MANAGER_TUIS), and the `sudo` capability opens `sudo-grant`
 // with a duration and `sudo-revoke`, which asks nothing while a grant is
 // active, so its terminal closes by itself. A plugin update shows its
 // incoming diff, so it opens wide.
 var CORE_TUIS = coreTuiTable({
+    "dictation-setup": {
+        argv: ["vgshell", "dictation", "setup"],
+        title: "Set up dictation",
+        size: "default",
+        presentation: "full",
+        entry: null
+    },
     "pkg-install": {
         argv: ["vgshell", "pkg", "install"],
         title: "Install packages",

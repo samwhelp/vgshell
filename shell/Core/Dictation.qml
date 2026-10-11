@@ -149,9 +149,13 @@ Scope {
             start: mode => ctx.active ? root.apply(Model.start(root.model, ctx.id, mode)).answer : refused,
             stop: done => ctx.active ? root.stop(ctx, done) : refused,
             cancel: () => ctx.active ? root.apply(Model.cancel(root.model, ctx.id)).answer : refused,
-            restart: () => ctx.active ? root.apply(Model.restart(root.model)).answer : refused,
+            restart: () => ctx.active ? root.restart() : refused,
             get state() { return Object.freeze(Model.state(root.model)); }
         };
+    }
+
+    function restart() {
+        return apply(Model.restart(model)).answer;
     }
 
     function stop(ctx, done) {
