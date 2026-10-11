@@ -567,10 +567,37 @@ if ! SHOT_SOCKET="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")"; the
 fi
 ok "grim captures only $SHOT_SOCKET"
 # Each shot records whether the host showed the nested window while it was
-# taken: the one read this runner makes of the host compositor.
+# taken, read from the host compositor by read-only requests. The
+# fence's pid namespace hides the nested compositor's host pid, so its
+# window is an aquamarine stableId the host lists now and did not list
+# before the harness started the compositor (host_windows_since). Other
+# sandboxes that started since add windows too. Hyprland gives each new
+# window the next value of one counter that starts at 0x18000000 and
+# prints it as hex (src/desktop/view/window/WindowMetadata.cpp), so every
+# id has eight digits, string order is creation order, and the lowest new
+# id is the first window made after that read: this run's, unless another
+# compositor made its window between that read and this one's. With no
+# new window each shot records unreadable.
 source "$checkout/scripts/smoke/host-window.sh"
 source "$checkout/scripts/smoke/webapps-browsers.sh"
-nested_window_state() { host_window_state "$compositor_pid"; }
+nested_window_id() {
+  local new entry id=""
+  local -a entries
+  new="$(host_windows_since)" || return 1
+  [[ $new != none ]] || return 1
+  IFS=';' read -ra entries <<<"$new"
+  for entry in "${entries[@]}"; do
+    entry="${entry%% *}"
+    if [[ -z $id || $entry < $id ]]; then id="$entry"; fi
+  done
+  printf '%s\n' "$id"
+}
+nested_window_state() {
+  [[ -n $nested_window ]] || { echo unreadable; return 1; }
+  host_window_state "$nested_window"
+}
+nested_window="$(nested_window_id)" || nested_window=""
+printf 'shots: nested-window=%s\n' "${nested_window:-unknown}"
 SHOT_WINDOW_READER=nested_window_state
 SHOT_WINDOW_REQUIRE="$require_window"
 # Hyprland's own notice that it was not started through start-hyprland

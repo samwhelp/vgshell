@@ -13,11 +13,12 @@
 # HYPRLAND_INSTANCE_SIGNATURE names. Nothing here dispatches, sets a
 # property or changes focus on the host.
 
-# host_window_state PID: one word for the host window PID owns.
+# host_window_state STABLE_ID: one word for the host window whose stableId
+# is STABLE_ID, as host_nested_windows lists it.
 #   shown       visible on a workspace a host monitor shows, special or not
 #   hidden      on a workspace no host monitor shows, or not visible there,
 #               as a background group tab is (`visible: false`)
-#   absent      the host lists no window of PID
+#   absent      the host lists no window with STABLE_ID
 #   unreadable  no host instance in the environment, a read failed or a
 #               reply is not the JSON the reads expect; returns 1
 host_window_state() {
@@ -27,10 +28,10 @@ host_window_state() {
   monitors="$(timeout 2 hyprctl -j monitors 2>/dev/null)" || { echo unreadable; return 1; }
   python3 -c '
 import json, sys
-pid, clients, monitors = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+stable_id, clients, monitors = sys.argv[1], sys.argv[2], sys.argv[3]
 try:
     clients, monitors = json.loads(clients), json.loads(monitors)
-    owned = [c for c in clients if c["pid"] == pid]
+    owned = [c for c in clients if c["stableId"] == stable_id]
     shown = {m["activeWorkspace"]["id"] for m in monitors} | {m["specialWorkspace"]["id"] for m in monitors}
     drawn = any(c["visible"] and c["workspace"]["id"] in shown for c in owned)
 except (ValueError, KeyError, TypeError):

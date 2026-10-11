@@ -339,25 +339,25 @@ window_helper="$repo/scripts/smoke/host-window.sh"
 # shellcheck disable=SC2016
 window_cases=(
   "a window on a monitor's active workspace is shown"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state 41) == shown ]]' 0 ""
+  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state stable-41) == shown ]]' 0 ""
   "a window on a workspace no monitor shows is hidden"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state 42) == hidden ]]' 0 ""
+  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state stable-42) == hidden ]]' 0 ""
   "a window on a shown special workspace is shown"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state 43) == shown ]]' 0 ""
+  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state stable-43) == shown ]]' 0 ""
   "a window on a hidden special workspace is hidden"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state 44) == hidden ]]' 0 ""
+  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state stable-44) == hidden ]]' 0 ""
   "a background group tab is hidden"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state 45) == hidden ]]' 0 ""
+  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state stable-45) == hidden ]]' 0 ""
   "a window listed without the keys the reader needs is unreadable"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; out="$(host_window_state 46)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
-  "a pid that owns no window is absent"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state 99) == absent ]]' 0 ""
+  'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; out="$(host_window_state stable-46)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
+  "a stableId the host does not list is absent"
+  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state stable-99) == absent ]]' 0 ""
   "no host instance is unreadable"
-  's=0; out="$(host_window_state 41)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
+  's=0; out="$(host_window_state stable-41)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
   "a failed clients read is unreadable"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; mkdir -p "$D/bin"; cp -- "$T/bin/hyprctl" "$T/bin/host-clients.json" "$T/bin/host-monitors.json" "$D/bin/"; : >"$D/bin/fail-clients"; out="$(PATH="$D/bin:$PATH" host_window_state 41)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
+  'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; mkdir -p "$D/bin"; cp -- "$T/bin/hyprctl" "$T/bin/host-clients.json" "$T/bin/host-monitors.json" "$D/bin/"; : >"$D/bin/fail-clients"; out="$(PATH="$D/bin:$PATH" host_window_state stable-41)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
   "a failed monitors read is unreadable"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; mkdir -p "$D/bin"; cp -- "$T/bin/hyprctl" "$T/bin/host-clients.json" "$T/bin/host-monitors.json" "$D/bin/"; : >"$D/bin/fail-monitors"; out="$(PATH="$D/bin:$PATH" host_window_state 41)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
+  'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; mkdir -p "$D/bin"; cp -- "$T/bin/hyprctl" "$T/bin/host-clients.json" "$T/bin/host-monitors.json" "$D/bin/"; : >"$D/bin/fail-monitors"; out="$(PATH="$D/bin:$PATH" host_window_state stable-41)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
   "nested host windows list only aquamarine clients"
   'HYPRLAND_INSTANCE_SIGNATURE=x; printf -v want "%s\n%s\n%s\n%s\n%s\n%s" "stable-41 pid=41 size=841x641 workspace=1 mapped=true" "stable-42 pid=42 size=842x642 workspace=3 mapped=true" "stable-43 pid=43 size=843x643 workspace=-98 mapped=true" "stable-44 pid=44 size=844x644 workspace=-99 mapped=true" "stable-45 pid=45 size=845x645 workspace=1 mapped=true" "stable-46 pid=46 size=846x646 workspace=1 mapped=true"; [[ $(host_nested_windows) == "$want" ]]' 0 ""
   "nested host windows exclude non-aquamarine clients"
@@ -374,8 +374,8 @@ window_cases=(
 run_cases "$window_helper" window_cases
 # shellcheck disable=SC2016
 window_controls=(
-  "the pid is not matched"
-  'c["pid"] == pid' 'True' "a pid that owns no window is absent"
+  "the stableId is not matched"
+  'c["stableId"] == stable_id' 'True' "a stableId the host does not list is absent"
   "an active workspace does not count as shown"
   '{m["activeWorkspace"]["id"] for m in monitors} | ' '' "a window on a monitor's active workspace is shown"
   "a shown special workspace does not count as shown"
@@ -402,6 +402,40 @@ window_controls=(
   $'        rows.append("%s pid=%s size=%sx%s workspace=%s mapped=%s" % (' $'        print("%s pid=%s size=%sx%s workspace=%s mapped=%s" % (' "nested host windows with a later window missing stableId print nothing else"
 )
 run_controls "$window_helper" window_cases window_controls
+
+# The shot runner's reader of its own nested window: scripts/sandbox-shots.sh's
+# nested_window_id and nested_window_state over the harness's
+# host_windows_since and the real host-window.sh, against the stub host
+# world. compositor_pid=2 is an in-fence pid the host lists for no window.
+shots_window_helper="$tmp/shots-window-helper.sh"
+{
+  sed -n '/^host_windows_since() {/,/^}/p' "$repo/scripts/smoke/harness.sh"
+  sed -n '/^nested_window_id() {/,/^}/p; /^nested_window_state() {/,/^}/p' "$repo/scripts/sandbox-shots.sh"
+  cat -- "$window_helper"
+} >"$shots_window_helper"
+shots_window_setup='HYPRLAND_INSTANCE_SIGNATURE=x; compositor_pid=2; before() { host_nested_windows | grep -v -e "^$1 " -e "^${2:-none} "; }; '
+# shellcheck disable=SC2016
+shots_window_cases=(
+  "the runner reads its new hidden host window by stableId"
+  "$shots_window_setup"'host_windows_before="$(before stable-42)"; nested_window="$(nested_window_id)"; [[ $nested_window == stable-42 && $(nested_window_state) == hidden ]]' 0 ""
+  "the runner reads its new shown host window by stableId"
+  "$shots_window_setup"'host_windows_before="$(before stable-41)"; nested_window="$(nested_window_id)"; [[ $nested_window == stable-41 && $(nested_window_state) == shown ]]' 0 ""
+  "the runner takes the first-made of several new host windows"
+  "$shots_window_setup"'host_windows_before="$(before stable-41 stable-42)"; eval "listed_$(declare -f host_nested_windows)"; host_nested_windows() { listed_host_nested_windows | tac; }; nested_window="$(nested_window_id)"; [[ $nested_window == stable-41 && $(nested_window_state) == shown ]]' 0 ""
+  "no new host window leaves the runner's window unreadable"
+  "$shots_window_setup"'host_windows_before="$(host_nested_windows)"; s=0; nested_window="$(nested_window_id)" || s=$?; [[ $s -eq 1 ]] || exit 9; nested_window=""; s=0; out="$(nested_window_state)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
+)
+run_cases "$shots_window_helper" shots_window_cases
+# shellcheck disable=SC2016
+shots_window_controls=(
+  "the runner keys its window on the in-fence pid"
+  'host_window_state "$nested_window"' 'host_window_state "$compositor_pid"' "the runner reads its new hidden host window by stableId"
+  "the runner takes the last-made of several new windows"
+  '[[ -z $id || $entry < $id ]]' '[[ -z $id || $entry > $id ]]' "the runner takes the first-made of several new host windows"
+  "the runner reads a window when none is new"
+  '[[ $new != none ]] || return 1' 'true' "no new host window leaves the runner's window unreadable"
+)
+run_controls "$shots_window_helper" shots_window_cases shots_window_controls
 
 # The harness names a nested backend start where aquamarine has announced
 # neither the host pointer nor a host window for the nested compositor.
