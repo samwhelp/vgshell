@@ -8,7 +8,7 @@ import "../../shell/plugins/vgs.settings"
 Item {
     id: root
     width: 480
-    height: 640
+    height: 720
 
     property var applied: []
     // The private opener: the addresses the fields' description links
@@ -95,6 +95,29 @@ Item {
         }
     }
 
+    // A status-fed choice that takes a custom value: Custom… follows the
+    // published choices, and a configured value no choice holds shows
+    // under it. Without allowCustom the same value reads as the
+    // unavailable row settingChoices adds, and no custom editor shows.
+    SettingField {
+        id: customFed
+        y: 560
+        width: 420
+        key: "device"
+        spec: ({ type: "string", label: "Device", optionsFrom: "devices", allowCustom: true })
+        value: ""
+        onApply: value => root.applied.push(value)
+    }
+    SettingField {
+        id: plainFed
+        y: 620
+        width: 420
+        key: "device"
+        spec: ({ type: "string", label: "Device", optionsFrom: "devices" })
+        choices: [{ label: "Alpha", value: "" }, { label: "Beta", value: "b" }, { label: "gone (unavailable)", value: "gone" }]
+        value: "gone"
+    }
+
     TestCase {
         name: "settingfield"
         when: windowShown
@@ -105,6 +128,9 @@ Item {
             root.opened = [];
             field.value = "HH:mm";
             picked.value = "";
+            customFed.choices = [{ label: "Alpha", value: "" }, { label: "Beta", value: "b" }];
+            customFed.value = "";
+            customFed.customChosen = false;
             Time.now = new Date(2026, 8, 30, 20, 34, 0);
         }
 
@@ -235,6 +261,59 @@ Item {
             keyClick(Qt.Key_Return);
             tryCompare(select, "listOpen", false);
             compare(root.applied, ["yyyy-MM-dd HH:mm"]);
+        }
+
+        // The text of the custom editor `owner` shows, or null.
+        function shownCustomText(owner) {
+            const input = descendants(owner).find(child => child instanceof TextInput && child.visible);
+            return input === undefined ? null : input.text;
+        }
+
+        function test_a_custom_status_choice_lists_its_choices_then_custom() {
+            const select = selectOf(customFed);
+            compare(select.count, customFed.choices.length + 1, "one row follows the published choices");
+            compare(JSON.stringify(select.model.slice(0, customFed.choices.length)), JSON.stringify(customFed.choices), "the published choices lead in order");
+            compare(select.model[customFed.choices.length].custom, true, "the last row is Custom…");
+            compare(select.currentIndex, 0, "the unset value reads as the first offer");
+            verify(!customFed.customVisible, "an offered value opens no custom editor");
+            compare(shownCustomText(customFed), null);
+        }
+
+        function test_choosing_custom_opens_the_editor_and_writes_nothing() {
+            const select = selectOf(customFed);
+            customFed.value = "b";
+            select.choose(customFed.choices.length);
+            verify(customFed.customVisible, "Custom… opens the custom editor");
+            compare(shownCustomText(customFed), "b", "the editor holds the configured value");
+            compare(root.applied, [], "choosing Custom… writes nothing");
+            compare(select.currentIndex, 1, "an offered value keeps its own row");
+            customFed.value = "";
+            verify(!customFed.customVisible, "a write of an offered value closes the custom editor");
+            select.choose(customFed.choices.length);
+            select.choose(1);
+            verify(!customFed.customVisible, "choosing an offer closes the custom editor");
+            compare(root.applied, ["b"], "choosing an offer writes its value");
+        }
+
+        function test_a_value_no_choice_holds_shows_under_custom() {
+            const select = selectOf(customFed);
+            customFed.value = "gone";
+            tryCompare(select, "currentIndex", customFed.choices.length, 1000, "the select reads Custom…");
+            verify(customFed.customVisible, "the custom editor shows");
+            compare(shownCustomText(customFed), "gone", "the editor holds the configured value");
+            customFed.value = "";
+            customFed.choices = [];
+            verify(!customFed.customVisible, "the unset value is never a custom one");
+            compare(select.currentIndex, -1, "an unset value with no offers reads no row");
+        }
+
+        function test_a_status_choice_without_custom_reads_unavailable() {
+            const select = selectOf(plainFed);
+            compare(select.count, plainFed.choices.length, "no row follows the choices");
+            compare(select.currentIndex, 2, "the configured value reads its unavailable row");
+            compare(select.currentText, plainFed.choices[2].label);
+            verify(!plainFed.customVisible, "no custom editor shows");
+            compare(shownCustomText(plainFed), null);
         }
     }
 }

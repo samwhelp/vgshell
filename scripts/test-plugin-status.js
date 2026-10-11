@@ -517,6 +517,29 @@ function suite(ctx, check) {
     ])
         check("settingChoices with hideEmpty: " + name,
             shape(ctx.settingChoices(hidingJudged.manifest, publishedChoices, { device: "", plain: "text", level: configured }).level, publishedChoices.devices || []), want);
+    // An entry that declares `allowCustom`, a list item field too, lists no
+    // unavailable row: its field shows a configured value no offer holds
+    // under Custom…. The plain `device` beside it still lists one.
+    const customJudged = ctx.validateManifest(Object.assign({}, raw, {
+        settings: { device: "", plain: "text", free: "", outputs: [] },
+        schema: Object.assign({
+            free: { type: "string", label: "Free", optionsFrom: "devices", allowCustom: true },
+            outputs: { type: "list", label: "Outputs", items: { device: { type: "string", label: "Device", optionsFrom: "devices", allowCustom: true } }, defaults: { device: "" } }
+        }, raw.schema)
+    }), "/p");
+    if (!customJudged.ok) throw new Error("the allowCustom fixture manifest is refused: " + customJudged.error);
+    for (const [name, publishedChoices, configured, want, wantPlain] of [
+        ["a removed configured value", { devices: offered }, "gone", [alphaUnset, beta], [alphaUnset, beta, unavailable]],
+        ["an empty list and a configured value", { devices: [] }, "gone", [], [unavailable]],
+        ["unreported and a configured value", {}, "gone", [], [unavailable]],
+        ["an offered configured value", { devices: offered }, "b", [alphaUnset, beta], [alphaUnset, beta]],
+        ["nothing configured", { devices: offered }, "", [alphaUnset, beta], [alphaUnset, beta]]
+    ]) {
+        const models = ctx.settingChoices(customJudged.manifest, publishedChoices, { device: configured, plain: "text", free: configured, outputs: [{ name: "1", device: configured }] });
+        const published = publishedChoices.devices || [];
+        check("settingChoices with allowCustom: " + name,
+            [shape(models.free, published), models.outputs.map(item => shape(item.device, published)), shape(models.device, published)], [want, [want], wantPlain]);
+    }
     const choiceModels = ctx.settingChoices(m, choiceValues, { device: "" });
     choiceSource[0].label = "changed";
     check("choices and editor models isolate their writer", [choiceValues.devices[0].label, choiceModels.device[0].label], ["Original", "Original"]);
@@ -688,6 +711,7 @@ const CONTROLS = [
     ["launcher menus are explicit", "if (item.menu === true) launcherMenus.push(item.id);", "launcherMenus.push(item.id);"],
     ["launcher row has only its keys", "if (LAUNCHER_ROW_KEYS.indexOf(keys[i]) === -1) return false;", "if (false) return false;"],
     ["launcher row icon is shipped", "&& typeof item.icon === \"string\" && hasOwn(Lucide.ICONS, item.icon)", "&& typeof item.icon === \"string\""],
+    ["a custom choice lists no unavailable id", "if (entry.allowCustom !== true && configured !== \"\" && ", "if (configured !== \"\" && "],
     ["choices preserves an unavailable id", "model.push({ label: configured + \" (unavailable)\", value: configured });", "model.push({ label: configured + \" (unavailable)\", value: \"\" });"],
     ["the first offer stands for the unset value", "var unset = entry.placeholder === undefined && index === 0 && configured !== choice.value;", "var unset = false;"],
     ["a pinned first offer keeps its id", "index === 0 && configured !== choice.value;", "index === 0;"],

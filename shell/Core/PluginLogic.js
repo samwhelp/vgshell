@@ -44,12 +44,14 @@ var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];
 
 // The types a settings schema entry may declare, and the keys an entry may
 // carry. `presets`, `allowCustom`, `format` and `unit` choose the Settings
-// editor; `min`, `max` and `step` bound a number's control; `group` names
-// the section heading the entry is drawn under; `placeholder` is what an
-// `optionsFrom` select reads while its value is "", which then means
-// nothing is chosen; `hideEmpty` leaves an `optionsFrom` field off the page
-// while nothing is offered for it; `link` makes part of the description open
-// an https address. Pads.js judges a `list`.
+// editor, `allowCustom` a Custom… row after a presets or `optionsFrom`
+// select's choices; `min`, `max` and `step` bound a number's control;
+// `group` names the section heading the entry is drawn under;
+// `placeholder` is what an `optionsFrom` select reads while its value is
+// "", which then means nothing is chosen; `hideEmpty` leaves an
+// `optionsFrom` field off the page while nothing is offered for it; `link`
+// makes part of the description open an https address. Pads.js judges a
+// `list`.
 var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];
 var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "hintFrom", "info", "link", "options", "optionsFrom", "presets", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults", "placeholder", "hideEmpty"];
 var NUMBER_BOUND_KEYS = ["min", "max", "step"];
@@ -445,8 +447,8 @@ function settingError(entry, value) {
 // default of its type, inside its bounds, in `settings`, so a form always
 // has a value to show. A string declares `presets` or `optionsFrom`.
 // optionsFrom connects a string to a declared choices status, never to
-// another plugin. Presets declare the picker values, and `allowCustom` lets
-// another fitting value write.
+// another plugin. Presets declare the picker values; `allowCustom`, beside
+// presets or optionsFrom, lets another fitting value write.
 function schemaError(schema, settings, status) {
     if (!isPlainObject(schema))
         return "schema must be an object";
@@ -523,8 +525,8 @@ function schemaError(schema, settings, status) {
         }
         if (entry.presets !== undefined && entry.optionsFrom !== undefined)
             return at + " must not declare both presets and optionsFrom";
-        if (entry.allowCustom !== undefined && entry.presets === undefined)
-            return at + ".allowCustom needs presets";
+        if (entry.allowCustom !== undefined && entry.presets === undefined && entry.optionsFrom === undefined)
+            return at + ".allowCustom needs presets or optionsFrom";
         if (entry.format !== undefined && entry.presets === undefined)
             return at + ".format needs presets";
         if (entry.type === "string" && entry.presets === undefined && entry.optionsFrom === undefined)
@@ -1231,7 +1233,9 @@ function statusDisplayable(entry) {
 // Select models keyed by string setting name. Only accepted status enters
 // here. Neither a new list nor an absent configured id writes settings.
 // Each offer is listed once. The first offer stands for the unset value:
-// its entry carries "" unless its own id is configured. An entry that
+// its entry carries "" unless its own id is configured. A configured id no
+// offer holds is listed as unavailable, unless the entry declares
+// `allowCustom`, whose field shows it under Custom… instead. An entry that
 // declares `placeholder` has no unset offer: "" means nothing is chosen.
 // An entry that declares `hideEmpty` has an empty model while nothing is
 // offered, whatever is configured, and the page then draws no field.
@@ -1245,7 +1249,7 @@ function settingChoices(manifest, values, settings) {
             return { label: choice.label, value: unset ? "" : choice.value };
         });
         if (entry.hideEmpty === true && offered.length === 0) return model;
-        if (configured !== "" && !offered.some(function (choice) { return choice.value === configured; }))
+        if (entry.allowCustom !== true && configured !== "" && !offered.some(function (choice) { return choice.value === configured; }))
             model.push({ label: configured + " (unavailable)", value: configured });
         return model;
     };

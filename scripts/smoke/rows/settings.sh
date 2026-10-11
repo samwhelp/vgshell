@@ -695,42 +695,74 @@ rescan "the fixture restores its optional requirement"
 
 
 # The editor reads the service's choices, writes stable values rather than
-# labels, and never writes on a status refresh. A missing configured value
-# remains visible and stored. Node judge controls pin the shape, distinct
-# ids, list and text bounds, empty-string reservation and retained values.
+# labels, and never writes on a status refresh. The fixture's Device takes
+# a custom value: Custom… follows the offers, a configured value no offer
+# holds stays stored and shows under Custom… with its text in the custom
+# editor, and a typed value saves on Enter. Node judge controls pin the
+# shape, distinct ids, list and text bounds, empty-string reservation and
+# retained values.
 expect_poll "the status fixture's page shows Settings for its editor" 0 settings_tab
 device_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"acme.status","key":"device"}'; }
 device_state() { device_field | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["index"],d["text"],d["value"],d["enabled"]]))'; }
 device_model() { device_field | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["model"]))'; }
 choose_device() { ipc smoke invokeInstance window vgs.settings chooseField "{\"id\":\"acme.status\",\"key\":\"device\",\"index\":$1}"; }
+device_custom() { ipc smoke invokeInstance window vgs.settings fieldCustom '{"id":"acme.status","key":"device"}' | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["visible"], d["text"]]))'; }
+edit_device_custom() { ipc smoke invokeInstance window vgs.settings editFieldCustom "$(python3 -c 'import json,sys; print(json.dumps({"id":"acme.status","key":"device","text":sys.argv[1]}))' "$1")"; }
+device_custom_state() { echo "[$(device_state), $(device_custom)]"; }
+device_listed() { device_field | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["list"]["open"], d["list"]["entries"], [c["label"] for c in d["model"]]]))'; }
+# Space on the select, focused as Tab focuses it, opens its list.
+device_open() {
+  [[ $(ipc smoke invokeInstance window vgs.settings focusField '{"id":"acme.status","key":"device"}') == focused ]] || { echo unfocused; return; }
+  type_keys -k space && echo ok
+}
 user_device() { python3 -c 'import json,sys; print(json.dumps(next(r["device"] for r in json.load(open(sys.argv[1]))["plugins"] if r["id"]=="acme.status")))' "$home/.config/vgshell/shell.json"; }
 expect_poll "unreported choices draw an empty Select" '[-1, "", "", true]' device_state
+expect "unreported choices offer Custom… alone" '[{"label": "Custom\u2026", "custom": true}]' device_model
+expect "the unset value opens no custom editor" '[false, ""]' device_custom
 expect "the fixture offers labeled device ids" ok ipc acme.status invoke set 'devices=[{"label":"Alpha","value":"a"},{"label":"Beta","value":"b"}]'
 expect_poll "the Select reads the unset value as the first offer and keeps it empty" '[0, "Alpha", "", true]' device_state
-expect "the Select lists each offer once, the first standing for the unset value" '[{"label": "Alpha", "value": ""}, {"label": "Beta", "value": "b"}]' device_model
+expect "the Select lists each offer once, the first standing for the unset value, then Custom…" '[{"label": "Alpha", "value": ""}, {"label": "Beta", "value": "b"}, {"label": "Custom\u2026", "custom": true}]' device_model
 expect "choosing the second offered device is allowed" chosen choose_device 1
 expect_poll "the file stores the stable id, not its label" '"b"' user_device
 expect_poll "the service receives the chosen id" '"b"' ipc smoke readInstance service acme.status configuredDevice
 choices_changes="$(config_changes)" || fail "configuration counter unreadable before choices refresh"
 expect "the fixture removes the chosen id" ok ipc acme.status invoke set 'devices=[{"label":"Alpha","value":"a"}]'
-expect_poll "the removed id remains selected and marked unavailable" '[1, "b (unavailable)", "b", true]' device_state
+expect_poll "the removed id reads as Custom…" '[1, "Custom\u2026", "b", true]' device_state
+expect "the removed id is no offer" '[{"label": "Alpha", "value": ""}, {"label": "Custom\u2026", "custom": true}]' device_model
+expect "the custom editor holds the removed id" '[true, "b"]' device_custom
 expect "the removed id stays in the user file" '"b"' user_device
 expect "removing a choice writes no configuration" "$choices_changes" config_changes
 expect "the fixture offers the configured id again, with a new label and order" ok ipc acme.status invoke set 'devices=[{"label":"Beta renamed","value":"b"},{"label":"Alpha","value":"a"}]'
 expect_poll "the existing value follows its id rather than its old index" '[0, "Beta renamed", "b", true]' device_state
-expect "a pinned first offer keeps its id" '[{"label": "Beta renamed", "value": "b"}, {"label": "Alpha", "value": "a"}]' device_model
+expect "a pinned first offer keeps its id" '[{"label": "Beta renamed", "value": "b"}, {"label": "Alpha", "value": "a"}, {"label": "Custom\u2026", "custom": true}]' device_model
+expect "an offered id closes the custom editor" '[false, ""]' device_custom
 expect "a label and order refresh writes no configuration" "$choices_changes" config_changes
 expect "the fixture publishes an empty choices list" ok ipc acme.status invoke set 'devices=[]'
-expect_poll "an empty list keeps the configured id alone" '[0, "b (unavailable)", "b", true]' device_state
+expect_poll "an empty list reads the configured id as Custom…" '[0, "Custom\u2026", "b", true]' device_state
+expect "the custom editor holds the configured id" '[true, "b"]' device_custom
 expect "an empty list writes no configuration" "$choices_changes" config_changes
 expect "the fixture offers devices again, the pinned one second" ok ipc acme.status invoke set 'devices=[{"label":"Alpha","value":"a"},{"label":"Beta renamed","value":"b"}]'
 expect_poll "the pinned device stays chosen" '[1, "Beta renamed", "b", true]' device_state
-expect "the first offer stands for the unset value again" '[{"label": "Alpha", "value": ""}, {"label": "Beta renamed", "value": "b"}]' device_model
+expect "the first offer stands for the unset value again" '[{"label": "Alpha", "value": ""}, {"label": "Beta renamed", "value": "b"}, {"label": "Custom\u2026", "custom": true}]' device_model
 expect "the user can return to automatic selection" chosen choose_device 0
 expect_poll "automatic selection stores empty string, not the first id" '""' user_device
 expect "the fixture offers a new first device" ok ipc acme.status invoke set 'devices=[{"label":"Beta renamed","value":"b"},{"label":"Alpha","value":"a"}]'
 expect_poll "automatic selection displays the new first offer without storing it" '[0, "Beta renamed", "", true]' device_state
 expect "the empty string stays in the file" '""' user_device
+expect "Space opens the Device list" ok device_open
+expect_poll "the Device list opens with its published choices and then Custom…" '[true, 3, ["Beta renamed", "Alpha", "Custom\u2026"]]' device_listed
+device_changes="$(config_changes)" || fail "configuration counter unreadable before Device Custom"
+expect "choosing the Device's Custom… is allowed" chosen choose_device 2
+expect_poll "choosing Custom… closes the Device list" '[false, 3, ["Beta renamed", "Alpha", "Custom\u2026"]]' device_listed
+expect "choosing the Device's Custom… writes no configuration" "$device_changes" config_changes
+expect_poll "the Device's custom editor opens on the unset value" '[true, ""]' device_custom
+expect "a custom device is typed into the editor" edited edit_device_custom "hw:2"
+expect "a typed custom device is not written before Enter" "$device_changes" config_changes
+type_keys -k Return || fail "sending Return to the custom device failed"
+expect_poll "the typed custom device saves" '"hw:2"' user_device
+expect_poll "the saved custom device reads as Custom… with its text in the editor" '[[2, "Custom\u2026", "hw:2", true], [true, "hw:2"]]' device_custom_state
+expect "the user can return to automatic selection from a custom device" chosen choose_device 0
+expect_poll "automatic selection stores the empty string again" '""' user_device
 
 # Preset fields: the Bar clock format is a datetime preset Select with a
 # trailing Custom… entry. Presets write their stable format string. Custom…
@@ -782,9 +814,9 @@ root = pathlib.Path(sys.argv[1])
 source = (root / "SettingField.qml").read_text()
 controls = [
     ("ChoicesGood", None, None),
-    ("ChoicesNoModel", "model: dynamic ? root.choices : root.spec.options", "model: dynamic ? [] : root.spec.options"),
-    ("ChoicesWriteLabel", "root.choices[index].value", "root.choices[index].label"),
-    ("ChoicesNoBinding", "currentIndex = Qt.binding(() => configuredIndex);", "if (false) currentIndex = Qt.binding(() => configuredIndex);"),
+    ("ChoicesNoModel", "model: rows", "model: dynamic ? [] : rows"),
+    ("ChoicesWriteLabel", "const chosen = dynamic ? row.value : row;", "const chosen = dynamic ? row.label : row;"),
+    ("ChoicesNoBinding", "currentIndex = Qt.binding(() => shownIndex);", "if (false) currentIndex = Qt.binding(() => shownIndex);"),
 ]
 for name, needle, replacement in controls:
     text = source

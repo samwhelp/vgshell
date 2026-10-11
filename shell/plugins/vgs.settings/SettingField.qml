@@ -7,9 +7,12 @@ import "Steps.js" as Steps
 // Draw the least-effort editor for one schema entry. Booleans use Switch.
 // Enums of at most three options use SegmentedControl because each choice
 // fits in one row. Larger enums and status-fed strings use Select. String
-// and number presets use Select, with Custom… last when custom values are
-// allowed. A custom datetime string validates before it writes. A bounded
-// number uses Slider, and a unit makes its value read as a quantity.
+// and number presets use Select. When custom values are allowed, Custom…
+// follows the presets or the published choices, and a configured value no
+// row holds shows under it; for a status-fed string "" is the unset value,
+// never a custom one. A custom datetime string validates before it writes.
+// A bounded number uses Slider, and a unit makes its value read as a
+// quantity.
 //
 // Every editor but a text one writes at once. A text editor keeps what is
 // typed until it is saved: Enter in it writes it, a loss of focus writes
@@ -40,9 +43,10 @@ Column {
     readonly property int segmentedLimit: 3 // More choices read better in a vertical Select list.
     readonly property bool bounded: spec.type === "number" && spec.min !== undefined && spec.max !== undefined
     readonly property bool hasPresets: spec.presets !== undefined && Array.isArray(spec.presets)
-    readonly property bool allowCustom: hasPresets && spec.allowCustom === true
-    readonly property int selectedPresetIndex: presetIndex(value)
-    readonly property bool customVisible: allowCustom && (customChosen || selectedPresetIndex < 0)
+    readonly property bool statusFed: spec.optionsFrom !== undefined
+    readonly property bool allowCustom: (hasPresets || statusFed) && spec.allowCustom === true
+    readonly property int selectedOfferIndex: offerIndex(value)
+    readonly property bool customVisible: allowCustom && (customChosen || (selectedOfferIndex < 0 && !(statusFed && value === "")))
     readonly property string labelText: spec.label !== undefined ? String(spec.label) : key
     readonly property string hintText: Steps.settingHint(spec, status)
     readonly property string infoText: spec.info !== undefined ? String(spec.info) : ""
@@ -69,7 +73,7 @@ Column {
     onSpecChanged: rebuildPresetModel()
     onChoicesChanged: rebuildPresetModel()
     onValueChanged: {
-        if (presetIndex(value) >= 0) customChosen = false;
+        if (offerIndex(value) >= 0) customChosen = false;
         if (loader.item === null || loader.item.listOpen !== true) rebuildPresetModel();
     }
 
@@ -95,7 +99,9 @@ Column {
     }
 
     function sameValue(a, b) { return a === b; }
-    function presetIndex(v) {
+    // The row of the presets or the published choices that holds `v`, or -1.
+    function offerIndex(v) {
+        if (statusFed) return choices.findIndex(option => sameValue(option.value, v));
         if (!hasPresets) return -1;
         for (let i = 0; i < spec.presets.length; i++)
             if (sameValue(spec.presets[i].value, v)) return i;
@@ -250,18 +256,30 @@ Column {
         id: choice
         Select {
             width: parent.width
-            readonly property bool dynamic: root.spec.optionsFrom !== undefined
-            readonly property int configuredIndex: dynamic ? root.choices.findIndex(option => option.value === root.value) : root.spec.options.indexOf(root.value)
-            model: dynamic ? root.choices : root.spec.options
+            readonly property bool dynamic: root.statusFed
+            // It reads no value, so the Custom… row adds no rebuild on a
+            // write.
+            readonly property var rows: !dynamic ? root.spec.options
+                : root.allowCustom ? root.choices.concat([{ label: "Custom…", custom: true }])
+                : root.choices
+            readonly property int configuredIndex: dynamic ? root.selectedOfferIndex : root.spec.options.indexOf(root.value)
+            readonly property int shownIndex: configuredIndex >= 0 ? configuredIndex : root.customVisible ? root.choices.length : -1
+            model: rows
             textRole: dynamic ? "label" : ""
             emptyText: dynamic ? "None found yet" : ""
             placeholderText: dynamic && root.spec.placeholder !== undefined ? root.spec.placeholder : ""
-            currentIndex: configuredIndex
+            currentIndex: shownIndex
             enabled: root.editable
             onOpened: if (dynamic) root.choicesWanted()
             onActivated: index => {
-                const chosen = dynamic ? root.choices[index].value : root.spec.options[index];
-                currentIndex = Qt.binding(() => configuredIndex);
+                const row = rows[index];
+                currentIndex = Qt.binding(() => shownIndex);
+                if (dynamic && row.custom === true) {
+                    root.customChosen = true;
+                    return;
+                }
+                root.customChosen = false;
+                const chosen = dynamic ? row.value : row;
                 if (chosen === root.value) return;
                 root.apply(chosen);
             }
@@ -294,11 +312,11 @@ Column {
             width: parent.width
             model: root.presetModel
             textRole: "label"
-            currentIndex: root.selectedPresetIndex >= 0 ? root.selectedPresetIndex : root.allowCustom ? root.presetModel.length - 1 : -1
+            currentIndex: root.selectedOfferIndex >= 0 ? root.selectedOfferIndex : root.allowCustom ? root.presetModel.length - 1 : -1
             enabled: root.editable
             onActivated: index => {
                 const chosen = root.presetModel[index];
-                currentIndex = Qt.binding(() => root.selectedPresetIndex >= 0 ? root.selectedPresetIndex : root.allowCustom ? root.presetModel.length - 1 : -1);
+                currentIndex = Qt.binding(() => root.selectedOfferIndex >= 0 ? root.selectedOfferIndex : root.allowCustom ? root.presetModel.length - 1 : -1);
                 if (chosen.custom === true) {
                     root.customChosen = true;
                     return;
