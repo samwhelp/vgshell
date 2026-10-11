@@ -4134,6 +4134,8 @@ print(json.dumps(None if p is None else [p.get("mute"), p.get("softMute")]))' "$
   app_chime "Chat before a SIGKILL" smoke-chat-killed
   expect_poll "the chime before the SIGKILL is held" '["smoke-chat-killed"]' app_held
   expect_poll "the chime before the SIGKILL is not heard" silent app_level vgs-smoke-speakers
+  # Read before the kill, as stop_shell reads a shell before its TERM.
+  shell_memory_note
   app_killed="$shell_qs_pid"
   kill -KILL "$app_killed" || fail "the SIGKILL to the shell pid $app_killed failed"
   expect "the killed shell left the chime's soft mute on" '[false, true]' app_props smoke-chat-killed
