@@ -3393,6 +3393,9 @@ for action in rows[8]["actions"]: print(json.dumps(action))' <<<"$fade_inventory
     label="$(py_reply 'import json,sys;print(json.load(sys.stdin)["label"])' <<<"$action")" || return
     hint="$(py_reply 'import json,sys
 a=json.load(sys.stdin);print(a["label"]+(" (Delete)" if a["id"]=="dismiss" else " (Left/Right, then Enter)"))' <<<"$action")" || return
+    # The card the selection left keeps its reservation until its tray
+    # fades out, then rewraps and moves the cards under it.
+    fade_capture_layout "$sandbox/fade-shortcut-$1-$action_index-items.json" || return
     rect="$(ipc smoke scopedWindowGeometry panel vgs.notifications NotificationCard "$fade_middle" PillButton "$label")" || return
     [[ $rect == \[* ]] || { echo 'notification-shortcut: action-pill-absent' >&2; return 1; }
     read -r x y < <(at_centre vgs:panel "$rect") || return
