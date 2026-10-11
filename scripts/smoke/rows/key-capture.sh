@@ -8,7 +8,9 @@
 # it, the submap is left once it commits, and the field names the
 # Launcher shortcut and the user bind holding SUPER+SPACE. A captured
 # SUPER+SHIFT+T names the Themes plugin, whose shortcut asks for the same key,
-# and the field's Unbind button, clicked, stores null. The control starts a tree whose key capture owner
+# and the field's Unbind button, clicked, stores null; Themes ends the row
+# enabled or disabled as the row found it, since the themes row leaves
+# Black current and an enabled Themes draws it. The control starts a tree whose key capture owner
 # sends no enter: Hyprland stays in its default map, the user bind takes
 # SUPER+SPACE, its marker appears and the stored key stays. Every key goes
 # to the nested instance alone, through wtype on its seat, and the row
@@ -116,6 +118,7 @@ expect_poll "control reload: the field sees the capture end" false settings_key_
 expect "control reload: the stored key stays F5" '"F5"' settings_key
 expect "control reload: the field takes the focus again" focused settings_key_invoke focusKeyField
 
+kc_themes_before="$(plugin_enabled vgs.themes)" || kc_themes_before=unread
 expect "enabling Themes, whose shortcut asks for SUPER+SHIFT+T, is allowed" ok ipc shell setPluginEnabled vgs.themes true
 kc_loaded "enabling Themes" vgs.themes:themes "65 t"
 kc_capture "SUPER+SHIFT+T" SUPER+SHIFT+T "$sandbox/key-capture-none" -M logo -M shift -k t -m shift -m logo
@@ -144,5 +147,13 @@ if copy_tree key-capture-no-enter && edit_tree key-capture-no-enter shell/Core/K
   stop_shell
   start_shell "$repo" "$sandbox/key-capture-restart.log" || fail "the shell starts again after the key capture control"
 fi
+case "$kc_themes_before" in
+  True) ;;
+  False)
+    expect "disabling Themes again as the row found it is allowed" ok ipc shell setPluginEnabled vgs.themes false
+    expect_poll "every vgs.themes instance is gone" False record_exists vgs.themes
+    ;;
+  *) fail "Themes' enabled state before the row: got $kc_themes_before" ;;
+esac
 hypr_lua_restore key-capture || fail "key capture puts the harness hyprland.lua back"
 expect "the nested instance reloads the harness hyprland.lua" ok hypr reload config-only
