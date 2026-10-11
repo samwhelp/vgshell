@@ -561,7 +561,7 @@ Item {
         homeMessage = message;
         const rows = message.homes.map(choice => Object.assign({ id: choice.id, label: choice.label,
             icon: choice.value === message.current ? "folder-check" : "folder" },
-            choice.value === message.current ? { description: "Current home" } : {}));
+            choice.value === message.current ? { description: "Current" } : {}));
         for (const [key, value] of [["homes", homeOffers(message.homes.map(choice => ({ label: choice.label, value: choice.value })))], ["homeRows", rows]]) {
             const reply = shell.status.set(key, value);
             if (reply !== "ok") throw new Error("jarvis: " + reply);

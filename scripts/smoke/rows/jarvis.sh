@@ -5,7 +5,7 @@
 # It polls once per nested IPC round trip.
 # The real child runs inside J09, with synthetic audio commands and no
 # account, real audio or desktop endpoint.
-# inputs: shell/Core/Sounds.qml shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
+# inputs: shell/Core/Sounds.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
 set -euo pipefail
 expected_errors+=('WARN qml: jarvis: stderr=.*Killed.*')
 expected_errors+=('WARN qml: jarvis: stderr=jarvis: node=21[.]0[.]0 need=22')
@@ -585,7 +585,7 @@ for row in rows:
     expected_id="h"+hashlib.sha256((sys.argv[1]+"/"+label[2:]).encode()).hexdigest()[:12]
     valid=valid and row["id"]=="homes."+expected_id and row["item"]==expected_id and row["shortcut"]=="vgs.jarvis:home"
     valid=valid and row["icon"]==("folder-check" if current else "folder")
-    valid=valid and row["description"]==("Current home" if current else "")
+    valid=valid and row["description"]==("Current" if current else "")
 print("listed" if valid else "pending")' "$jarvis_launcher_home" "$1"
 }
 jarvis_home_activate() { ipc smoke invokeInstance service vgs.jarvis fixtureHomeActivate "$1"; }
@@ -613,6 +613,49 @@ expect "the other launcher home activates" ok jarvis_home_activate "$jarvis_home
 expect "the launcher writes the Home folder setting" "~/Launcher One" jarvis_home_saved
 expect_poll "the next status accepts the selected launcher home" "~/Launcher One" jarvis_home_current
 expect "reordering keeps both launcher row ids and the current mark" listed jarvis_home_rows "~/Launcher One"
+# Read the right-edge Text children, including the other home's empty text.
+jarvis_home_detail() {
+  ipc smoke itemValues overlay vgs.launcher QQuickText parent.label,parent.kind,text,x,width,parent.width | py_reply 'import json,sys
+rows=[r for r in json.load(sys.stdin) if r.get("parent.kind")=="plugin"]
+valid=all(r["text"]=="" or r["x"]>r["parent.width"]/2 for r in rows)
+print(json.dumps(sorted([[r["parent.label"],r["text"]] for r in rows])) if valid else "misplaced")'
+}
+jarvis_notice_close
+expect "the launcher enables for Jarvis homes" ok ipc shell setPluginEnabled vgs.launcher true
+expect "the launcher opens Jarvis homes" ok ipc shell summon overlay vgs.launcher '{"menu":"homes"}'
+expect_poll "only the current home has right-edge text" '[["~/Launcher One", "Current"], ["~/Launcher Two", ""]]' jarvis_home_detail
+expect "the launcher searches the current home" ok ipc shell summon overlay vgs.launcher '{"menu":"homes","query":"Launcher One"}'
+expect_poll "search shows no right-edge copy" '[["~/Launcher One", ""]]' jarvis_home_detail
+expect "search keeps its detail line" true ipc smoke readMatchingDescendant overlay vgs.launcher LauncherRow label "~/Launcher One" showsDetail
+expect "the home search hides" ok ipc shell hide overlay vgs.launcher
+jarvis_home_row="$repo/shell/plugins/vgs.launcher/LauncherRow.qml"
+cp -- "$jarvis_home_row" "$sandbox/jarvis-home-row-kept"
+python3 - "$jarvis_home_row" <<'PYROW'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); source=p.read_text()
+start=source.index('    // Qt Text elides only')
+end=source.index('    ChevronGlyph {', start)
+old='rightDetail.text.length > 0 ? rightDetail.left : chevron.left'
+assert source.count(old)==1
+changed=(source[:start]+source[end:]).replace(old, 'chevron.left')
+assert changed != source
+p.write_text(changed)
+PYROW
+rescan "the launcher row before the right-edge change builds"
+expect "the previous row opens Jarvis homes" ok ipc shell summon overlay vgs.launcher '{"menu":"homes"}'
+jarvis_home_list_count() { ipc smoke launcherRows overlay vgs.launcher | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+expect_poll "the previous row lists both homes" 2 jarvis_home_list_count
+jarvis_home_detail_control() {
+  (failures=0 behaviour_failures=0
+   expect "the current home has right-edge text" '[["~/Launcher One", "Current"], ["~/Launcher Two", ""]]' jarvis_home_detail >"$sandbox/jarvis-home-detail-control.log"
+   echo "$failures")
+}
+expect "the previous row fails the right-edge assertion" 1 jarvis_home_detail_control
+expect "the previous row hides" ok ipc shell hide overlay vgs.launcher
+cp -- "$sandbox/jarvis-home-row-kept" "$jarvis_home_row"
+rescan "the right-edge home detail returns"
+expect "the launcher disables after Jarvis homes" ok ipc shell setPluginEnabled vgs.launcher false
 jarvis_disable
 # Each control keeps its handler and removes only its effect.
 for jarvis_home_control in publish write; do

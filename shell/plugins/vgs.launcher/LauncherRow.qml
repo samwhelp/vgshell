@@ -104,7 +104,7 @@ Item {
     Column {
         anchors.left: row.hasIcon ? tile.right : parent.left
         anchors.leftMargin: row.hasIcon ? row.look.row.textGap : row.look.row.textInset
-        anchors.right: chevron.left
+        anchors.right: rightDetail.text.length > 0 ? rightDetail.left : chevron.left
         anchors.rightMargin: row.look.row.textRight
         anchors.verticalCenter: parent.verticalCenter
         spacing: row.look.row.lineGap
@@ -157,6 +157,22 @@ Item {
                 }
             }
         }
+    }
+
+    // Qt Text elides only with an explicit width (Qt 6 Text reference).
+    Text {
+        id: rightDetail
+        textFormat: Text.PlainText
+        text: row.live && row.kind === "plugin" && row.launcher.filterText.length === 0 ? row.detail : ""
+        width: Math.min(implicitWidth, row.width / 2)
+        anchors.right: parent.right
+        anchors.rightMargin: row.look.chevron.inset
+        anchors.verticalCenter: parent.verticalCenter
+        color: row.look.text.foreground
+        opacity: row.look.text.detail.opacity
+        font.family: row.look.font.family.sans
+        font.pixelSize: row.look.text.detail.size
+        elide: Text.ElideRight
     }
 
     ChevronGlyph {
