@@ -295,7 +295,8 @@ import json
 import sys
 
 exports = set(open(sys.argv[1]).read().split())
-items = json.load(sys.stdin)
+with open(sys.argv[2]) as listing:
+    items = json.load(listing)
 for item in items:
     if item.get("Path") in exports:
         item["Size"] = -1
@@ -318,8 +319,12 @@ if [[ -f "$cs_stub/block" && ! -e "$cs_stub/blocked" && \$3 == copy ]]; then
   read -r _ <"$cs_stub/release"
 fi
 if [[ -f "$cs_stub/exports" && \$3 == lsjson && \$* == *vgsdrive:* ]]; then
-  "$host_rclone" "\$@" | python3 "$cs_stub/export-size.py" "$cs_stub/exports"
-  exit
+  listing="$cs_stub/listing.\$\$"
+  "$host_rclone" "\$@" >"\$listing" || { status=\$?; rm -f -- "\$listing"; exit "\$status"; }
+  python3 "$cs_stub/export-size.py" "$cs_stub/exports" "\$listing"
+  status=\$?
+  rm -f -- "\$listing"
+  exit "\$status"
 fi
 exec "$host_rclone" "\$@"
 SH
