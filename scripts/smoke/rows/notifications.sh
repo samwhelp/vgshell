@@ -2741,12 +2741,15 @@ expect_log "the cleared earlier boot is logged with its count" 1 'notifications:
 
 # The previous version: a version 2 file of this boot, which names no
 # Sound, loads with its history and Silence, and is written once as this
-# version with Sound on. The refusals and what the migration leaves alone
+# version with Sound on, and the shell logs no error from the start over
+# that file to the end of this part: the harness's log judge reads the lines
+# the log gained since. The refusals and what the migration leaves alone
 # are the logic suite's.
 expect "disabling the notifications before the version 2 file is allowed" ok ipc shell setPluginEnabled vgs.notifications false
 expect_poll "the service is gone before the version 2 file" False record_exists vgs.notifications
 plant_state 'd["version"] = 2; del d["sound"]; d["dnd"] = True; d["live"] = []; d["history"] = [entry("Second version newest", 907, now - 1000), entry("Second version middle", 906, now - 2000), entry("Second version oldest", 905, now - 3000)]'
 expect "control: the planted file is version 2, of this boot, and names no Sound" "[2, \"$host_boot\", \"missing\"]" python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps([d["version"], d["boot"], d.get("sound", "missing")]))' "$note_state"
+second_version_log_from="$(wc -l <"$instance_log")"
 expect "re-enabling over the version 2 file is allowed" ok ipc shell setPluginEnabled vgs.notifications true
 expect_poll "the service over the version 2 file is built" True record_exists vgs.notifications
 expect_poll "the store loads the version 2 file" '"loaded"' note_status store.state
@@ -2763,6 +2766,8 @@ expect "the history panel over the migrated file closes" ok notes close
 expect_poll "the history panel over the migrated file closed" '""' read_notes panelMode
 expect_log "the migration is logged once with its version" 1 'notifications: state migrated: file=.*state\.json version=3'
 expect "the migration is logged no second time" 1 log_lines 'notifications: state migrated: '
+tail -n +"$((second_version_log_from + 1))" -- "$instance_log" >"$sandbox/notifications-second-version.log"
+check_unexpected_log "the shell's log over the version 2 file" "$sandbox/notifications-second-version.log"
 
 # A state file the judge refuses is reported and left as it is; clearing
 # the history starts it over.
