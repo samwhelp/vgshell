@@ -1,4 +1,4 @@
-# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* config/shell.json shell/Core/PluginLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.sudo/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json shell/Core/Capabilities.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Commons/Tokens.js shell/plugins/vgs.settings/* shell/plugins/vgs.agent-warden/* shell/plugins/vgs.ai-usage/* shell/plugins/vgs.capture/* shell/plugins/vgs.jarvis/* shell/plugins/vgs.power/* shell/plugins/vgs.traffic/* shell/plugins/vgs.updates/* shell/plugins/vgs.voice/* shell/plugins/vgs.sysmon/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/SummonPopup.qml shell/Commons/DesktopLaunch.js shell/Commons/AnchorTracker.qml
+# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* scripts/smoke/fixtures/devices/hid-world.json config/shell.json shell/Core/PluginLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.sudo/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json shell/Core/Capabilities.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Commons/Tokens.js shell/plugins/vgs.settings/* shell/plugins/vgs.agent-warden/* shell/plugins/vgs.ai-usage/* shell/plugins/vgs.capture/* shell/plugins/vgs.jarvis/* shell/plugins/vgs.power/* shell/plugins/vgs.traffic/* shell/plugins/vgs.updates/* shell/plugins/vgs.voice/* shell/plugins/vgs.sysmon/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/SummonPopup.qml shell/Commons/DesktopLaunch.js shell/Commons/AnchorTracker.qml
 set -euo pipefail
 expect "instance guard accepts the runner's shell" true ipc shell guarded
 
@@ -569,6 +569,43 @@ fresh_restore() {
   mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
   expect_poll "the full settled automatic placement profile returns" placed fresh_bar_placement
 }
+# The HID fake holds each report a set wrote, which its call log does not
+# carry. The fresh profile's displays service writes the XDR, by a set or
+# by its idle dim after 120 s without input, and later rows read the
+# reports the world planted. fresh_hid save FILE writes each report the
+# world plants, as the fake answers it now, to FILE and prints `saved`;
+# fresh_hid restore FILE sets each back and prints `restored`. The
+# brightness helper writes report 1 alone, which every world device plants.
+fresh_hid() { # save|restore FILE
+  python3 - "$devices_hid_socket" "$devices_fixtures/hid-world.json" "$1" "$2" <<'PY'
+import json, socket, sys
+path, world, verb, file = sys.argv[1:]
+def ioctl(nr, size): return (3 << 30) | (size << 16) | (ord("H") << 8) | nr
+with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+    s.connect(path)
+    stream = s.makefile("rw")
+    def call(device, request, data):
+        stream.write(json.dumps({"device": device, "request": request, "data": data}) + "\n")
+        stream.flush()
+        reply = json.loads(stream.readline())
+        if reply.get("result") != len(data) // 2:
+            sys.exit("fresh_hid: %s device=%s reply=%s" % (verb, device, json.dumps(reply)))
+        return reply["data"]
+    if verb == "save":
+        saved = []
+        for device in json.load(open(world))["devices"]:
+            for report, planted in device["reports"].items():
+                size = len(planted) // 2
+                saved.append([device["name"], call(device["name"], ioctl(0x07, size), "%02x" % int(report) + "00" * (size - 1))])
+        json.dump(saved, open(file, "w"))
+        print("saved")
+    else:
+        for device, data in json.load(open(file)):
+            call(device, ioctl(0x06, len(data) // 2), data)
+        print("restored")
+PY
+}
+fresh_xdr() { hid_fake_call hidraw0 0xC0074807 01000000000000 | py_reply 'import json,sys; print(json.load(sys.stdin)["data"])'; }
 expect "the shipped lists match the complete requested declaration" True fresh_bar_declared "$repo/config/shell.json"
 fresh_declared_control="$sandbox/bar-declared-control.json"
 python3 - "$repo/config/shell.json" "$fresh_declared_control" <<'PY'
@@ -593,6 +630,8 @@ if devices_ready bar; then
     if [[ -e ${fresh_paths[fresh_i]} ]]; then cp -a -- "${fresh_paths[fresh_i]}" "$fresh_history/state-$fresh_i"; fi
   done
   if [[ -f $devices_hid_log ]]; then cp -- "$devices_hid_log" "$fresh_history/hid.calls"; fi
+  expect "the HID fake's reports are saved before the fresh profile" saved fresh_hid save "$fresh_history/hid.reports"
+  fresh_xdr_before="$(fresh_xdr)" || fail "the XDR's report is unreadable before the fresh profile"
   default_set_prepare '[]'
   expect "the fresh profile has no user bar" False python3 -c 'import json,sys; print("bar" in json.load(open(sys.argv[1])))' "$home/.config/vgshell/shell.json"
   spawn "$sandbox/bar-fresh-tray.log" env -i PATH="$PATH" HOME="$home" DBUS_SESSION_BUS_ADDRESS="unix:path=$rt_dir/bus" python3 "$source_repo/scripts/smoke/fixtures/tray/mock-sni.py" "$sandbox/bar-fresh-tray.calls"
@@ -1108,9 +1147,15 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
     geometry expect_poll "control: the drop left of the last third leaves the right section" True zone_layout_elsewhere vgs.launcher
   fi
   release_mode "the nested compositor gives the monitor its own mode back" "$zone_monitor" "$zone_mode" "$zone_scale"
+  # The write a slow run's idle dim makes, made in every run.
+  expect_poll "the fresh profile's displays service sets the XDR to 30 %" ok ipc vgs.displays invoke set '{"id":"hidraw:class/hidraw/hidraw0/device","percent":30}'
+  # 400 + 30 % of the XDR's 400..50000, 15280, little-endian after report id 1.
+  expect_poll "the fresh profile's set reaches the HID fake" 01b03b00000000 fresh_xdr
   stop_shell
   kill -TERM "$fresh_tray_pid" 2>/dev/null || true
   wait "$fresh_tray_pid" 2>/dev/null || true
+  expect "the HID fake's reports return to what the fresh profile found" restored fresh_hid restore "$fresh_history/hid.reports"
+  expect "the XDR answers the report it held before the fresh profile" "$fresh_xdr_before" fresh_xdr
   rm -rf -- "${devices_dir:?}/calls" "${shim:?}"
   cp -a -- "$fresh_history/calls" "$devices_dir/calls"
   cp -a -- "$fresh_history/shim" "$shim"
