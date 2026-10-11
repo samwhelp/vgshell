@@ -272,9 +272,10 @@ Item {
         changed();
     }
 
-    function dropHistory(key) {
-        const next = history.filter(e => e.key !== key);
-        if (next.length === history.length) return;
+    // A panel card dismissed in `mode` (NotificationLogic.dismissedHistory).
+    function dismissHistory(key, mode) {
+        const next = Logic.dismissedHistory(history, key, mode);
+        if (next === history) return;
         history = next;
         changed();
     }

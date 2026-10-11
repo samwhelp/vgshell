@@ -42,7 +42,7 @@ function stored(timestamp, id, extra) {
 }
 const BOOT = "4b1c0e2a-6d55-4d2e-9a0f-3f1b2c4d5e6f";
 function stateText(value) {
-    return JSON.stringify(Object.assign({ version: 3, boot: BOOT, sound: true, dnd: false, readBefore: 0, live: [], history: [] }, value));
+    return JSON.stringify(Object.assign({ version: 4, boot: BOOT, sound: true, dnd: false, readBefore: 0, live: [], history: [] }, value));
 }
 
 // Bodies: [label, body, app, what the card renders].
@@ -69,15 +69,14 @@ const BODIES = [
     ["an unnamed sender's first line without a blank line", "app.slack.com\nfleet: Done", "", "app.slack.com<br/>fleet: Done"]
 ];
 
-// The owner's version 2 state file of 2026-10-11, with every text a person
-// wrote, every path and every application but Slack replaced.
-const STATE_V2 = fs.readFileSync(path.join(__dirname, "fixtures", "notifications", "state-v2.json"), "utf8");
+// The owner's state file of 2026-10-11 as version 3 stored it, with every
+// text a person wrote, every path and every application but Slack replaced.
+const STATE_V3 = fs.readFileSync(path.join(__dirname, "fixtures", "notifications", "state-v3.json"), "utf8");
 // State files the migration leaves as they are, each for the judge to
 // refuse: [label, text, the error].
 const STATE_UNMIGRATED = [
-    ["the first version", stateText({ version: 1, sound: undefined }), "version want=3"],
-    ["a later version", stateText({ version: 4 }), "version want=3"],
-    ["a version 2 file that names Sound", stateText({ version: 2, sound: false }), "version want=3"],
+    ["the second version", stateText({ version: 2, sound: undefined }), "version want=4"],
+    ["a later version", stateText({ version: 5 }), "version want=4"],
     ["not JSON", "{ nope", "not-json"],
     ["a list", "[]", "not-object"]
 ];
@@ -88,8 +87,9 @@ const STATE_REFUSED = [
     ["not JSON", "{ nope", "not-json"],
     ["a list", "[]", "not-object"],
     ["an unknown key", stateText({ extra: 1 }), "extra unknown"],
-    ["the first version, which named no boot", stateText({ version: 1, boot: undefined }), "version want=3"],
-    ["the second version, which named no Sound", stateText({ version: 2, sound: undefined }), "version want=3"],
+    ["the first version, which named no boot", stateText({ version: 1, boot: undefined }), "version want=4"],
+    ["the third version, which marked no entry read", stateText({ version: 3 }), "version want=4"],
+    ["a read mark that is not true", stateText({ history: [stored(5, 1, { read: false })] }), "history.0.read want=true"],
     ["no Sound", stateText({ sound: undefined }), "sound want=boolean"],
     ["a Sound that is no boolean", stateText({ sound: "on" }), "sound want=boolean"],
     ["no boot", stateText({ boot: undefined }), "boot want=string"],
@@ -422,7 +422,7 @@ function verify(logic) {
     // The state file's judge.
     for (const [label, text, want] of STATE_REFUSED)
         same(logic.parseState(text), { ok: false, error: want }, "state: " + label);
-    const good = { version: 3, boot: BOOT, sound: false, dnd: true, readBefore: 50, live: [stored(9, 2, { deadline: 99 })], history: [stored(5, 1)] };
+    const good = { version: 4, boot: BOOT, sound: false, dnd: true, readBefore: 50, live: [stored(9, 2, { deadline: 99 })], history: [stored(5, 1)] };
     same(logic.parseState(JSON.stringify(good)), { ok: true, state: { boot: BOOT, sound: false, dnd: true, readBefore: 50, live: good.live, history: good.history } });
     // An entry stored before senders could add hints has no hint roles,
     // and reads back with each one empty.
@@ -433,19 +433,19 @@ function verify(logic) {
 
     // The previous version's file as the store reads it: migrated, judged
     // by the one judge, and written back as this version.
-    const second = JSON.parse(STATE_V2);
-    same([second.version, "sound" in second, second.dnd, second.history.length], [2, false, true, 100], "the fixture is the version 2 file");
-    const moved = logic.migrateState(STATE_V2);
-    same(moved.migrated, true, "a version 2 file is migrated");
-    same(logic.parseState(moved.text), { ok: true, state: { boot: second.boot, sound: true, dnd: true, readBefore: second.readBefore, live: [], history: second.history } }, "a migrated file reads with its history, Silence and Sound on");
-    same(JSON.parse(logic.serializeState(logic.fromBoot(logic.parseState(moved.text).state, second.boot).state)), Object.assign({}, second, { version: 3, sound: true }), "a migrated file is written as version 3 with every other value kept");
+    const third = JSON.parse(STATE_V3);
+    same([third.version, third.sound, third.dnd, third.history.length], [3, true, true, 100], "the fixture is the version 3 file");
+    const moved = logic.migrateState(STATE_V3);
+    same(moved.migrated, true, "a version 3 file is migrated");
+    same(logic.parseState(moved.text), { ok: true, state: { boot: third.boot, sound: true, dnd: true, readBefore: third.readBefore, live: [], history: third.history } }, "a migrated file reads with its history, Silence and Sound");
+    same(JSON.parse(logic.serializeState(logic.fromBoot(logic.parseState(moved.text).state, third.boot).state)), Object.assign({}, third, { version: 4 }), "a migrated file is written as version 4 with every other value kept");
     for (const [label, text, want] of STATE_UNMIGRATED) {
         same(logic.migrateState(text), { text: text, migrated: false }, "unmigrated: " + label);
         same(logic.parseState(logic.migrateState(text).text), { ok: false, error: want }, "unmigrated and refused: " + label);
     }
     same(logic.migrateState(stateText({})), { text: stateText({}), migrated: false }, "this version's file is read as it is");
-    const broken = logic.migrateState(stateText({ version: 2, sound: undefined, history: {} }));
-    same([broken.migrated, logic.parseState(broken.text)], [true, { ok: false, error: "history want=list" }], "a version 2 file with a defect is refused by the same judge");
+    const broken = logic.migrateState(stateText({ version: 3, history: {} }));
+    same([broken.migrated, logic.parseState(broken.text)], [true, { ok: false, error: "history want=list" }], "a version 3 file with a defect is refused by the same judge");
 
     // A start after a reboot: the same boot keeps everything; another boot
     // clears the toasts and the history and keeps Sound, Silence and Mark
@@ -503,6 +503,21 @@ function verify(logic) {
     same(logic.panelRows([], "inbox", 0, 1000), []);
     same(logic.panelRows(kept, "history", 0, 590 + AGE).map(e => e.timestamp), [600, 599, 598, 597, 596, 595, 594, 593, 592, 591], "the history panel leaves out an entry 24 hours old");
     same(logic.panelRows(kept, "inbox", 595, 590 + AGE).map(e => e.timestamp), [600, 599, 598, 597, 596], "the inbox leaves out an entry 24 hours old");
+
+    // A panel card dismissed: from the Inbox its entry stays in the History,
+    // read, and leaves the Inbox alone; from the History it is gone.
+    const three = [stored(600, 3), stored(599, 2), stored(598, 1)];
+    const readOne = logic.dismissedHistory(three, "599-2", "inbox");
+    same(readOne, [stored(600, 3), stored(599, 2, { read: true }), stored(598, 1)], "an Inbox dismissal keeps the entry, read");
+    assert.equal(three[1].read, undefined, "the dismissal leaves the list it was given");
+    same(logic.panelRows(readOne, "inbox", 0, 1000).map(e => e.key), ["600-3", "598-1"], "a read entry is no Inbox row");
+    same(logic.panelRows(readOne, "history", 0, 1000).map(e => e.key), ["600-3", "599-2", "598-1"], "a read entry is a History row");
+    same([logic.unread(stored(600, 3), 599), logic.unread(stored(600, 3), 600), logic.unread(stored(600, 3, { read: true }), 599)], [true, false, false], "unread is after the last Mark read and not marked read");
+    same(logic.dismissedHistory(readOne, "599-2", "history"), [stored(600, 3), stored(598, 1)], "a History dismissal deletes the entry");
+    same(logic.dismissedHistory(readOne, "599-2", ""), [stored(600, 3), stored(598, 1)], "a dismissal with no panel open deletes the entry");
+    assert.equal(logic.dismissedHistory(readOne, "599-2", "inbox"), readOne, "a second Inbox dismissal changes nothing");
+    assert.equal(logic.dismissedHistory(three, "1-1", "history"), three, "a dismissal of no entry changes nothing");
+    same(logic.parseState(logic.serializeState({ boot: BOOT, sound: true, dnd: false, readBefore: 0, live: [], history: readOne })).state.history, [stored(600, 3), stored(599, 2, { read: true }), stored(598, 1)], "a read entry reads back as written");
     for (const [mode, count, state, want] of [["inbox", 0, "loaded", "No unread notifications"], ["history", 0, "absent", "No saved notifications"], ["inbox", 1, "loaded", "1 notification"], ["history", 3, "loaded", "3 notifications"], ["inbox", 2, "corrupt", "Saved history is damaged"], ["history", 2, "unreadable", "Saved history cannot be read"], ["inbox", 2, "pending", "Loading saved history"], ["history", 2, "future-private-reason", "Saved history is unavailable"]])
         assert.equal(logic.panelSubtitle(mode, count, state), want, `subtitle ${mode} ${count} ${state}`);
 
@@ -1017,11 +1032,17 @@ const CONTROLS = [
     ["the state file keeps its Sound", "        sound: state.sound,\n", ""],
     ["a read state keeps its Sound", "state: { boot: parsed.boot, sound: parsed.sound,", "state: { boot: parsed.boot, sound: true,"],
     ["a new state starts with Sound on", "return { boot: boot, sound: true, dnd: false,", "return { boot: boot, sound: false, dnd: false,"],
-    ["a version 2 file is migrated", "parsed.version !== 2 || ", "true || "],
-    ["only version 2 is migrated", "parsed.version !== 2 || ", ""],
-    ["a version 2 file names no Sound", ' || "sound" in parsed) return same;', ") return same;"],
+    ["a version 3 file is migrated", " || parsed.version !== 3) return same;", " || true) return same;"],
+    ["only version 3 is migrated", " || parsed.version !== 3) return same;", ") return same;"],
     ["a migrated file takes this version", "    parsed.version = STATE_VERSION;\n", ""],
-    ["a migrated file has Sound on", "parsed.sound = true;", "parsed.sound = false;"],
+    ["an Inbox dismissal keeps the entry", 'var kept = mode === "inbox" ? [Object', "var kept = false ? [Object"],
+    ["a History dismissal deletes the entry", 'var kept = mode === "inbox" ? [Object', "var kept = true ? [Object"],
+    ["a dismissal with no panel open deletes the entry", 'var kept = mode === "inbox" ? [Object', 'var kept = mode !== "history" ? [Object'],
+    ["a read entry leaves the Inbox", " && entry.read !== true;", ";"],
+    ["the Inbox ends at the last Mark read", "return entry.timestamp > readBefore && ", "return "],
+    ["a second Inbox dismissal writes nothing", ' || (mode === "inbox" && history[at].read === true)) return history;', ") return history;"],
+    ["a read mark is true", 'if (value.read !== undefined && value.read !== true) return where + ".read want=true";', ""],
+    ["an entry may name read", ' && keys[k] !== "read") return', ") return"],
     ["a state names its boot", 'if (typeof parsed.boot !== "string" || parsed.boot === "") return', "if (false) return"],
     ["a state's boot is not empty", 'if (typeof parsed.boot !== "string" || parsed.boot === "") return', 'if (typeof parsed.boot !== "string") return'],
     ["the state file keeps its boot", "        boot: state.boot,\n", ""],
@@ -1045,7 +1066,7 @@ const CONTROLS = [
     ["a push prunes by age", "var young = pruneHistory(merged, now);", "var young = merged;"],
     ["the next prune follows the oldest entry", "oldest = Math.min(oldest, history[i].timestamp);", ""],
     ["an empty history is due no prune", "if (history.length === 0) return null;", ""],
-    ["inbox cutoff", '(mode !== "inbox" || e.timestamp > readBefore)', "true"],
+    ["inbox cutoff", '(mode !== "inbox" || unread(e, readBefore))', "true"],
     ["a panel leaves out an aged entry", 'return youngAt(e, now) && (mode', 'return (mode'],
     ["evict non-critical first", "if (rows[i].urgency !== URGENCY.critical) return rows[i].key;", ""],
     ["Show without actions", 'if (list.length === 0 && canRaise) list.push({ id: "open", label: "Show" });', ""],

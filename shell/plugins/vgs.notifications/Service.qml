@@ -885,8 +885,9 @@ Item {
     }
 
     // A chosen toast on screen leaves into the history as leave() says. A
-    // panel row dismissed is the user clearing that one entry, so it leaves
-    // the history; one opened or acted on stays, as does a toast already
+    // panel row dismissed leaves the history from the History view and
+    // stays, read, from the Inbox (NotificationLogic.dismissedHistory);
+    // one opened or acted on stays, as does a toast already
     // leaving, whose entry leave() put in the history. Either way the
     // notification held for it closes on the server.
     function leaveChosen(key, reason) {
@@ -895,7 +896,7 @@ Item {
             leave(key, reason);
             return;
         }
-        if (at === -1 && reason === "dismiss") store.dropHistory(key);
+        if (at === -1 && reason === "dismiss") store.dismissHistory(key, panelMode);
         if (Logic.hasOwn(held, key)) unlink(key, Logic.heldAfterLeave(reason, false));
         bumpPanel();
     }
@@ -1013,7 +1014,7 @@ Item {
         for (let i = 0; i < rowModel.count; i++) {
             const row = rowModel.get(i);
             if (row.leaving !== "") continue;
-            if (panelMode === "history" || row.timestamp > store.readBefore) {
+            if (panelMode === "history" || Logic.unread(row, store.readBefore)) {
                 entries.push(row);
                 present[row.key] = true;
             }
@@ -1073,10 +1074,12 @@ Item {
             const request = JSON.parse(String(arg || "{}"));
             if (typeof request.key !== "string" || typeof request.choice !== "string") return "refused: choose=shape";
             const mode = panelMode === "history" ? "history" : "inbox";
+            const shown = panelMode;
             const chosen = choose(request.key, request.choice);
-            // A dismiss on a panel card clears that entry, a toast's on
-            // screen too, whose leave put it in the history.
-            if (chosen && request.choice === "dismiss") store.dropHistory(request.key);
+            // A dismiss on a panel card clears that entry or marks it
+            // read, a toast's on screen too, whose leave put it in the
+            // history.
+            if (chosen && request.choice === "dismiss") store.dismissHistory(request.key, shown);
             // `left` when the row left the panel's list, `kept` when the
             // choice ran and its entry stays listed, `held` when it did not
             // run.

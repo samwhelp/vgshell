@@ -291,6 +291,9 @@ left_into_history() { # LABEL SUMMARY
   expect "$1" True in_history "$2"
 }
 # history_key SUMMARY: the key of the stored history entry SUMMARY, or none.
+# entry_read SUMMARY: whether the stored history entry SUMMARY is marked
+# read, or none with no such entry.
+entry_read() { note_state_py 'import json,sys; print(next((json.dumps(e.get("read", False)) for e in json.load(open(sys.argv[1]))["history"] if e["summary"] == sys.argv[2]), "none"))' "$1"; }
 history_key() { note_state_py 'import json,sys; print(next((e["key"] for e in json.load(open(sys.argv[1]))["history"] if e["summary"] == sys.argv[2]), "none"))' "$1"; }
 # clear_entry LABEL SUMMARY: once no inbox stands (inbox_closed) and the
 # row SUMMARY's exit has played, its history entry cleared as a dismiss on
@@ -2291,7 +2294,7 @@ expect_poll "End selects the oldest notification" "Keyboard first" panel_selecte
 type_keys -k Home || fail "sending Home to the notification inbox failed"
 expect_poll "Home selects the newest notification" "Keyboard fourth" panel_selected_summary
 # An opened row stays listed and selected, its toast gone; Delete removes
-# the selected row from the list and from the history.
+# the selected row from the Inbox and keeps its entry in the history, read.
 type_keys -k Return || fail "sending Return to the selected notification failed"
 expect_poll "Return opens the selected notification's default action" 1 delivered "$keyboard_fourth_id" default
 # The panel's choice ran in one call with the delivery, so the selection
@@ -2306,7 +2309,8 @@ type_keys -k Delete || fail "sending Delete to the notification inbox failed"
 expect_poll "Delete dismisses the selected notification" none key_of "Keyboard third"
 expect_poll "Delete closes the selected notification on the server" 1 closed_on_server "$keyboard_third_id"
 expect_poll "control: Delete removes the dismissed row from the inbox" False has_row panel "Keyboard third"
-expect "control: Delete removes the dismissed row from the history" False in_history "Keyboard third"
+expect_poll "Delete marks the dismissed row's entry read" true entry_read "Keyboard third"
+expect "Delete keeps the dismissed row in the history" True in_history "Keyboard third"
 expect_poll "the selection moves to the next row after Delete" "Keyboard second" panel_selected_summary
 expect_poll "the inbox list has focus after Delete removes a row" True panel_focus_on_list
 type_keys -k Right -k Return || fail "sending Right and Return to the inbox action pill failed"
@@ -2363,6 +2367,15 @@ type_keys -k Return || fail "sending Enter to Mark all read failed"
 expect_poll "Enter on Mark all read closes the inbox" '""' read_notes panelMode
 expect_poll "Enter on Mark all read moves the read cutoff" True read_before_moved "$keyboard_read_before"
 expect_poll "the keyboard path leaves no live rows" 0 note_status onScreen
+# The History lists the entry an Inbox dismissal marked read, and a dismiss
+# on its History card deletes it.
+expect "the History opens over the read entry" ok notes history
+expect_poll "the entry dismissed in the Inbox is a History row" True has_row panel "Keyboard third"
+expect "a dismiss on its History card is allowed" left notes choose "{\"key\": \"$(history_key "Keyboard third")\", \"choice\": \"dismiss\"}"
+expect_poll "control: a History dismissal deletes the entry" False in_history "Keyboard third"
+expect "the History row of the deleted entry is gone" False has_row panel "Keyboard third"
+expect "the History over the read entry closes" ok notes close
+expect_poll "the History over the read entry closed" '""' read_notes panelMode
 
 # The notification sound, with a sound chosen for the event.
 note_sound_config="$home/.config/vgshell/shell.json"
@@ -2748,35 +2761,36 @@ expect "Sound turns on after the reboot" on notes sound on
 expect "control: Mark read stays after a reboot" "$earlier_read_before" state_at readBefore
 expect_log "the cleared earlier boot is logged with its count" 1 'notifications: history from an earlier boot cleared: entries=2'
 
-# The previous version: a version 2 file of this boot, which names no
-# Sound, loads with its history and Silence, and is written once as this
-# version with Sound on, and the shell logs no error from the start over
+# The previous version: a version 3 file of this boot loads with its
+# history, Sound and Silence, and is written once as this version, and
+# the shell logs no error from the start over
 # that file to the end of this part: the harness's log judge reads the lines
 # the log gained since. The refusals and what the migration leaves alone
 # are the logic suite's.
-expect "disabling the notifications before the version 2 file is allowed" ok ipc shell setPluginEnabled vgs.notifications false
-expect_poll "the service is gone before the version 2 file" False record_exists vgs.notifications
-plant_state 'd["version"] = 2; del d["sound"]; d["dnd"] = True; d["live"] = []; d["history"] = [entry("Second version newest", 907, now - 1000), entry("Second version middle", 906, now - 2000), entry("Second version oldest", 905, now - 3000)]'
-expect "control: the planted file is version 2, of this boot, and names no Sound" "[2, \"$host_boot\", \"missing\"]" python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps([d["version"], d["boot"], d.get("sound", "missing")]))' "$note_state"
-second_version_log_from="$(wc -l <"$instance_log")"
-expect "re-enabling over the version 2 file is allowed" ok ipc shell setPluginEnabled vgs.notifications true
-expect_poll "the service over the version 2 file is built" True record_exists vgs.notifications
-expect_poll "the store loads the version 2 file" '"loaded"' note_status store.state
-expect_poll "the version 2 file is written as version 3" 3 state_at version
-expect "the migrated file has Sound on" true state_at sound
+expect "disabling the notifications before the version 3 file is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+expect_poll "the service is gone before the version 3 file" False record_exists vgs.notifications
+plant_state 'd["version"] = 3; d["sound"] = False; d["dnd"] = True; d["live"] = []; d["history"] = [entry("Third version newest", 907, now - 1000), entry("Third version middle", 906, now - 2000), entry("Third version oldest", 905, now - 3000)]'
+expect "control: the planted file is version 3 and of this boot" "[3, \"$host_boot\"]" python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps([d["version"], d["boot"]]))' "$note_state"
+third_version_log_from="$(wc -l <"$instance_log")"
+expect "re-enabling over the version 3 file is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+expect_poll "the service over the version 3 file is built" True record_exists vgs.notifications
+expect_poll "the store loads the version 3 file" '"loaded"' note_status store.state
+expect_poll "the version 3 file is written as version 4" 4 state_at version
+expect "the migrated file keeps Sound off" false state_at sound
 expect "the migrated file keeps Silence" true state_at dnd
-expect "the migrated file keeps its history" '["Second version newest", "Second version middle", "Second version oldest"]' history_summaries
-expect "Sound reads on over the migrated file" true note_status sound
+expect "the migrated file keeps its history" '["Third version newest", "Third version middle", "Third version oldest"]' history_summaries
+expect "Sound reads off over the migrated file" false note_status sound
 expect "Silence reads on over the migrated file" true note_status silence
 expect "the history panel opens over the migrated file" ok notes history
-expect_poll "the version 2 file's newest entry is a History row" True has_row panel "Second version newest"
-expect "the version 2 file's oldest entry is a History row" True has_row panel "Second version oldest"
+expect_poll "the version 3 file's newest entry is a History row" True has_row panel "Third version newest"
+expect "the version 3 file's oldest entry is a History row" True has_row panel "Third version oldest"
 expect "the history panel over the migrated file closes" ok notes close
 expect_poll "the history panel over the migrated file closed" '""' read_notes panelMode
-expect_log "the migration is logged once with its version" 1 'notifications: state migrated: file=.*state\.json version=3'
+expect_log "the migration is logged once with its version" 1 'notifications: state migrated: file=.*state\.json version=4'
 expect "the migration is logged no second time" 1 log_lines 'notifications: state migrated: '
-tail -n +"$((second_version_log_from + 1))" -- "$instance_log" >"$sandbox/notifications-second-version.log"
-check_unexpected_log "the shell's log over the version 2 file" "$sandbox/notifications-second-version.log"
+tail -n +"$((third_version_log_from + 1))" -- "$instance_log" >"$sandbox/notifications-third-version.log"
+check_unexpected_log "the shell's log over the version 3 file" "$sandbox/notifications-third-version.log"
+expect "Sound turns on after the version 3 file" on notes sound on
 
 # A state file the judge refuses is reported and left as it is; clearing
 # the history starts it over.

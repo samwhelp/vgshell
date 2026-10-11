@@ -34,7 +34,7 @@ var BODY_MAX = 4096;
 var LOW_LIFETIME = 5000;
 var MAX_LIFETIME = 30000;
 // The state file's format.
-var STATE_VERSION = 3;
+var STATE_VERSION = 4;
 // The entry roles an image can sit in, each owned as a copy by a stored
 // entry, named <key>-<role> in the images directory.
 var IMAGE_ROLES = ["appIcon", "image"];
@@ -1197,7 +1197,7 @@ function entryError(value, where) {
     if (!isPlainObject(value)) return where + " want=object";
     var keys = Object.keys(value);
     for (var k = 0; k < keys.length; k++)
-        if (ENTRY_ROLES.indexOf(keys[k]) === -1 && CLOCK_FIELDS.indexOf(keys[k]) === -1) return where + "." + keys[k] + " unknown";
+        if (ENTRY_ROLES.indexOf(keys[k]) === -1 && CLOCK_FIELDS.indexOf(keys[k]) === -1 && keys[k] !== "read") return where + "." + keys[k] + " unknown";
     var strings = ["key", "app", "appIcon", "summary", "body", "image", "desktopEntry"];
     for (var s = 0; s < strings.length; s++)
         if (typeof value[strings[s]] !== "string") return where + "." + strings[s] + " want=string";
@@ -1216,6 +1216,7 @@ function entryError(value, where) {
     for (var c = 0; c < CLOCK_FIELDS.length; c++)
         if (value[CLOCK_FIELDS[c]] !== undefined && (typeof value[CLOCK_FIELDS[c]] !== "number" || !isFinite(value[CLOCK_FIELDS[c]]))) return where + "." + CLOCK_FIELDS[c] + " want=number";
     if (value.deadline !== undefined && value.remaining !== undefined) return where + " deadline and remaining both set";
+    if (value.read !== undefined && value.read !== true) return where + ".read want=true";
     return "";
 }
 
@@ -1257,9 +1258,9 @@ function parseState(text) {
 }
 
 // The state file's text as this version stores it: { text, migrated }. The
-// previous version, 2, named no Sound, which was on; its document gains that
-// and this version's number and keeps every other value, for parseState to
-// judge. Any other text comes back as it is.
+// previous version, 3, had no entry marked read (dismissedHistory) and is
+// otherwise this one; its document takes this version's number and keeps
+// every value, for parseState to judge. Any other text comes back as it is.
 function migrateState(text) {
     var same = { text: text, migrated: false };
     var parsed;
@@ -1268,9 +1269,8 @@ function migrateState(text) {
     } catch (e) {
         return same;
     }
-    if (!isPlainObject(parsed) || parsed.version !== 2 || "sound" in parsed) return same;
+    if (!isPlainObject(parsed) || parsed.version !== 3) return same;
     parsed.version = STATE_VERSION;
-    parsed.sound = true;
     return { text: JSON.stringify(parsed), migrated: true };
 }
 
@@ -1378,12 +1378,29 @@ function pushHistory(history, entries, now) {
     return { history: young.slice(0, HISTORY_MAX), dropped: young.slice(HISTORY_MAX).concat(aged) };
 }
 
-// The stored rows a panel lists, newest first: the Inbox what arrived after
-// the last Mark read, the History everything kept, either without an entry
+// Whether the Inbox lists an entry: it arrived after the last Mark read and
+// no Inbox dismissal marked it read.
+function unread(entry, readBefore) {
+    return entry.timestamp > readBefore && entry.read !== true;
+}
+
+// The history after a panel card's dismissal in `mode`, the service's
+// panelMode: from the Inbox the entry `key` stays, marked read, so it leaves
+// the Inbox alone; from the History, or with no panel open, it is gone. The
+// same list when nothing changes.
+function dismissedHistory(history, key, mode) {
+    var at = history.findIndex(function (e) { return e.key === key; });
+    if (at === -1 || (mode === "inbox" && history[at].read === true)) return history;
+    var kept = mode === "inbox" ? [Object.assign({}, history[at], { read: true })] : [];
+    return history.slice(0, at).concat(kept, history.slice(at + 1));
+}
+
+// The stored rows a panel lists, newest first: the Inbox what is unread,
+// the History everything kept, either without an entry
 // HISTORY_AGE old at `now`, which the store's prune can reach late since a
 // timer does not count while the machine sleeps.
 function panelRows(history, mode, readBefore, now) {
-    return history.filter(function (e) { return youngAt(e, now) && (mode !== "inbox" || e.timestamp > readBefore); });
+    return history.filter(function (e) { return youngAt(e, now) && (mode !== "inbox" || unread(e, readBefore)); });
 }
 
 // The panel's subtitle under its title.

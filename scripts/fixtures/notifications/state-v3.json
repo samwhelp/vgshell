@@ -1,6 +1,7 @@
 {
- "version": 2,
+ "version": 3,
  "boot": "00000000-0000-4000-8000-000000000002",
+ "sound": true,
  "dnd": true,
  "readBefore": 0,
  "live": [],

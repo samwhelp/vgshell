@@ -12,7 +12,7 @@ Screenshots come from `scripts/readme-shots.sh` in the nested sandbox, with the 
 
 - Super+N opens and closes the panel. Escape closes it too.
 - Super+Shift+N does what a click on the newest notification does, also after it leaves the screen. A notification with no action shows No action. Change or clear both keys under Keys on the plugin's Settings page.
-- The panel shows the notifications received since the last Mark all read. The History icon shows the saved ones, and shows the unread ones again.
+- The panel shows the notifications received since the last Mark all read that you have not dismissed there. The History icon shows the saved ones, and shows the unread ones again.
 - History keeps every notification that leaves the screen for 24 hours, at most the newest 100, and shows every one. Clear history or a restart of the computer removes them sooner.
 - Mark all read marks the current notifications as read and closes the panel. Clear history removes the saved ones.
 - The Do Not Disturb icon keeps new notifications in History without showing them on screen. They play no VGS sound.
@@ -20,7 +20,7 @@ Screenshots come from `scripts/readme-shots.sh` in the nested sandbox, with the 
 - With Sound off or Do Not Disturb on, the sound an app plays for its own notification, such as the Slack chime, is muted too. The app's calls and media keep playing.
 - A normal notification stays on screen for at least the Notification duration. A critical one stays until closed. Pointing at a notification pauses its timer.
 - Pointing at a notification shows its actions. A click runs its main action, such as View in Slack, and brings the application's window into view. An action removes the notification from the screen. Dismiss, or a right click, removes it from the screen.
-- Enter opens the selected notification in the panel, which keeps it. Delete, or Dismiss on its card, removes it from the panel and from History.
+- Enter opens the selected notification in the panel, which keeps it. Delete, or Dismiss on its card, removes it from the Inbox and keeps it in History. In History, the same removes it for good.
 - A file notification opens the file in your editor, or in the default app for the file.
 - Slack notifications show sender initials and workspace icons without setup. Custom emoji appear when Slack has saved their images. See [Slack notifications](slack.md).
 - The panel says so when the saved history cannot be read. Clear history starts a new one.
