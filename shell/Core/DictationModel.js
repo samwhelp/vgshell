@@ -7,7 +7,8 @@
 // { model, effects }, a new model and the effects for the owner to run in
 // order; start, stop, cancel and restart also return `answer`, `ok` or the
 // refusal:
-//   { kind: "run", tag, argv }  queue one command; its end comes back as ran
+//   { kind: "run", tag, argv }  queue one command behind those queued; its
+//                               end comes back as ran
 //   { kind: "abort" }           drop the queued commands and end the running
 //                               one, with no ran for any of them
 //   { kind: "daemon" }          start the daemon child
@@ -19,11 +20,20 @@
 //   { kind: "done", result }    hand RESULT to the stop's callback
 //   { kind: "forget" }          drop the stop's callback uncalled
 //   { kind: "log", line }       one warning line
+// One rule ties a command's end and a daemon word to a recording. `status`
+// holds only the daemon's own word, from the follower or from one
+// `status` read. A start is taken only while no recording is held, no
+// record command pends and that word is idle. The read is queued when the
+// last record command of an ended recording ends, so a command's end
+// always belongs to the one recording that could have issued it.
 // The voxtype 1.1.0 facts each rule rests on are cited at the rule, by file
 // of github.com/peteonrails/voxtype at tag v1.1.0, and measured in the
 // report on VGS-1200 (2026-10-10, host cachy).
 
-// How long the daemon has to end after SIGTERM before SIGKILL.
+// How long the daemon has to end after SIGTERM before SIGKILL, and how
+// long it has to take a cancel before SIGTERM: it reads the cancel file
+// each 100 ms while it records or transcribes (src/daemon.rs:3845-3848,
+// 4349-4351).
 var GRACE_MS = 2000;
 // `record stop --wait` gives up after this many seconds (exit 4).
 var STOP_TIMEOUT_S = 60;
@@ -39,6 +49,9 @@ var MODES = ["type", "text"];
 // a daemon answers already, then the config values the model needs.
 // `config get KEY` prints the resolved value bare (src/app/config_get.rs).
 var PROBE = "probe";
+// The tag of the one-shot read after a recording's last command.
+var STATE = "state";
+var STATUS_ARGV = ["voxtype", "status", "--format", "json"];
 var DIRECTORY = "directory";
 var CONFIG_KEYS = ["audio.max_duration_secs", "audio.device", "engine"];
 
@@ -46,33 +59,39 @@ var CONFIG_KEYS = ["audio.max_duration_secs", "audio.device", "engine"];
 function initial(dir) {
     return {
         dir: dir, holders: [], daemon: "absent", step: "", child: "none", timer: "none",
-        recording: null, files: 0, status: "idle", config: {}, maxSecs: 0, engine: "", model: "", device: ""
+        recording: null, files: 0, pending: 0, status: "idle", config: {}, maxSecs: 0, engine: "", model: "", device: ""
     };
 }
 
 function clone(s) { return JSON.parse(JSON.stringify(s)); }
 
+// What a holder may know of the daemon's state: its own word, or `unread`
+// from the end of a recording until its last command ended and the daemon
+// was read again.
+function phase(s) { return s.pending > 0 && s.recording === null ? "unread" : s.status; }
+
 // The capability's bindable `state`.
 function state(s) {
     return {
         daemon: s.daemon,
-        phase: s.daemon === "ready" ? s.status : "idle",
+        phase: s.daemon === "ready" ? phase(s) : "idle",
         holder: s.recording === null ? "" : s.recording.holder,
         engine: s.engine, model: s.model, device: s.device
     };
 }
 
-// The lending record: no transcript and no path.
+// The lending record: no transcript and no path. A child that still takes
+// its last cancel is one being stopped.
 function record(s) {
     return {
-        daemon: s.daemon, child: s.child, holders: s.holders.slice(),
+        daemon: s.daemon, child: s.child === "draining" ? "stopping" : s.child, holders: s.holders.slice(),
         holder: s.recording === null ? "" : s.recording.holder,
         mode: s.recording === null ? "" : s.recording.mode
     };
 }
 
 function steps(s) {
-    var out = [{ tag: PROBE, argv: ["voxtype", "status", "--format", "json"] }];
+    var out = [{ tag: PROBE, argv: STATUS_ARGV }];
     for (var i = 0; i < CONFIG_KEYS.length; i++)
         out.push({ tag: CONFIG_KEYS[i], argv: ["voxtype", "config", "get", CONFIG_KEYS[i]] });
     out.push({ tag: DIRECTORY, argv: ["install", "-d", "-m", "700", "--", s.dir] });
@@ -80,6 +99,18 @@ function steps(s) {
 }
 
 function run(effects, tag, argv) { effects.push({ kind: "run", tag: tag, argv: argv }); }
+
+// Queues a record command or the state read: `pending` counts those whose
+// end has not come back.
+function command(s, effects, tag, argv) {
+    s.pending += 1;
+    run(effects, tag, argv);
+}
+
+function abort(s, effects) {
+    s.pending = 0;
+    effects.push({ kind: "abort" });
+}
 
 function setTimer(s, effects, name, ms) {
     s.timer = name;
@@ -101,7 +132,6 @@ function step(s, effects, tag) {
 // that is still ending.
 function begin(s, effects) {
     s.daemon = "starting";
-    s.status = "idle";
     s.config = {};
     if (s.child !== "none") s.step = "exit";
     else step(s, effects, PROBE);
@@ -110,8 +140,8 @@ function begin(s, effects) {
 // Ends the child and everything that reads it. The commands queued for it
 // go first, so a `record stop --wait` does not wait out a dead daemon.
 function endChild(s, effects) {
-    effects.push({ kind: "abort" });
-    if (s.child !== "running") return;
+    abort(s, effects);
+    if (s.child !== "running" && s.child !== "draining") return;
     s.child = "stopping";
     effects.push({ kind: "unfollow" }, { kind: "term" });
     setTimer(s, effects, "grace", GRACE_MS);
@@ -132,15 +162,37 @@ function drop(s, effects, reason) {
 // `record cancel` discards the audio and the file override with it
 // (src/daemon.rs:3848-3881), so no later recording writes this one's file.
 function cancelRecording(s, effects, reason) {
-    run(effects, "cancel", ["voxtype", "record", "cancel"]);
+    command(s, effects, "cancel", ["voxtype", "record", "cancel"]);
     drop(s, effects, reason);
+}
+
+// The daemon is no longer wanted. SIGTERM leaves the file override of a
+// live `text` recording in voxtype's runtime directory (the shutdown at
+// src/daemon.rs:4602 removes the profile override alone), and the next
+// daemon's `type` recording would write to that file. So such a recording
+// is cancelled first, ahead of every queued command, and the child ends
+// once the daemon reads idle or the grace is over.
+function end(s, effects, reason) {
+    var r = s.recording;
+    if (s.child === "running" && r !== null && r.mode === "text") {
+        abort(s, effects);
+        cancelRecording(s, effects, reason);
+        s.child = "draining";
+        setTimer(s, effects, "drain", GRACE_MS);
+        return;
+    }
+    endChild(s, effects);
+    drop(s, effects, reason);
+}
+
+function drained(s, effects) {
+    if (s.child === "draining" && s.pending === 0 && s.status === "idle") endChild(s, effects);
 }
 
 function fail(s, effects, reason) {
     effects.push({ kind: "log", line: "dictation: daemon=failed reason=" + reason });
-    endChild(s, effects);
-    drop(s, effects, "daemon-" + reason);
-    s.daemon = "failed";
+    end(s, effects, "daemon-" + reason);
+    s.daemon = s.holders.length === 0 ? "absent" : "failed";
     s.step = "";
 }
 
@@ -157,8 +209,7 @@ function release(s, id) {
     var t = clone(s), effects = [];
     t.holders = t.holders.filter(function(h) { return h !== id; });
     if (t.holders.length === 0) {
-        endChild(t, effects);
-        drop(t, effects, "");
+        end(t, effects, "");
         t.daemon = "absent";
         t.step = "";
     } else if (t.recording !== null && t.recording.holder === id) {
@@ -181,8 +232,10 @@ function start(s, id, mode) {
     if (MODES.indexOf(mode) === -1) answer = "refused: dictation=mode value=" + JSON.stringify(mode);
     else if (t.recording !== null) answer = "refused: dictation=busy holder=" + t.recording.holder;
     else if (t.daemon !== "ready") answer = "refused: dictation=daemon-" + t.daemon;
-    // A start the daemon gets while it transcribes starts nothing.
-    else if (t.status !== "idle") answer = "refused: dictation=engine-busy state=" + t.status;
+    // A start the daemon gets while it transcribes starts nothing, and
+    // one queued behind an earlier recording's commands would run among
+    // them.
+    else if (phase(t) !== "idle") answer = "refused: dictation=engine-busy state=" + phase(t);
     if (answer !== "") return { model: t, effects: effects, answer: answer };
     var argv = ["voxtype", "record", "start"];
     t.recording = { holder: id, mode: mode, phase: "starting", path: "" };
@@ -192,7 +245,7 @@ function start(s, id, mode) {
         argv.push("--file=" + t.recording.path, "--no-auto-submit", "--no-smart-auto-submit", "--no-osd");
         setTimer(t, effects, "cap", (t.maxSecs - CAP_MARGIN_S) * 1000);
     }
-    run(effects, "start", argv);
+    command(t, effects, "start", argv);
     return { model: t, effects: effects, answer: "ok" };
 }
 
@@ -201,7 +254,7 @@ function stop(s, id) {
     if (answer !== "") return { model: t, effects: effects, answer: answer };
     t.recording.phase = "stopping";
     if (t.timer === "cap") setTimer(t, effects, "none", 0);
-    run(effects, "stop", t.recording.mode === "text"
+    command(t, effects, "stop", t.recording.mode === "text"
         ? ["voxtype", "record", "stop", "--wait", "--json", "--timeout", String(STOP_TIMEOUT_S)]
         : ["voxtype", "record", "stop"]);
     return { model: t, effects: effects, answer: "ok" };
@@ -215,13 +268,14 @@ function cancel(s, id) {
 }
 
 // Reads the daemon again from nothing: the probe, the config and a new
-// child, after the end of the one that runs.
+// child, after the end of the one that runs. A child that still takes its
+// last cancel ends on its own.
 function restart(s) {
     var t = clone(s), effects = [], answer = "";
     if (t.recording !== null) answer = "refused: dictation=busy holder=" + t.recording.holder;
     else if (t.holders.length === 0) answer = "refused: dictation=no-holder";
     if (answer !== "") return { model: t, effects: effects, answer: answer };
-    endChild(t, effects);
+    if (t.child !== "draining") endChild(t, effects);
     begin(t, effects);
     return { model: t, effects: effects, answer: "ok" };
 }
@@ -285,34 +339,59 @@ function stepped(s, effects, tag, code, out) {
     else fail(s, effects, "config max_duration_secs=" + JSON.stringify(s.config["audio.max_duration_secs"]));
 }
 
+// The last record command of an ended recording ended: the daemon is read
+// once. `voxtype status --follow` prints a state only when it differs from
+// the last one it printed (src/app/status.rs:107-119), so a daemon that
+// never left idle, or one whose lines are still on their way, is not
+// known from the follower alone.
+function settle(s, effects) {
+    if (s.pending === 0 && s.recording === null) command(s, effects, STATE, STATUS_ARGV);
+}
+
 // The command TAG ended: CODE is its exit code, null for one that did not
 // start or ended on a signal, and OUT its stdout.
 function ran(s, tag, code, out) {
     var t = clone(s), effects = [], r = t.recording;
+    if ([STATE, "start", "stop", "cancel"].indexOf(tag) !== -1) {
+        if (t.pending === 0) throw new Error("dictation: command " + JSON.stringify(tag) + " ended with none pending");
+        t.pending -= 1;
+    }
     switch (tag) {
     case "start":
-        if (r === null) break;
-        if (code !== 0) {
-            drop(t, effects, "start code=" + (code === null ? "none" : code));
-            break;
-        }
-        if (r.phase === "starting") r.phase = "recording";
         // `record start` exits 0 once it signalled a live daemon
-        // (src/app/record.rs:22-26, 188), so the daemon records from
-        // here whether or not the follower printed it yet: no start is
-        // taken until the follower prints this recording's `idle`.
-        t.status = "recording";
+        // (src/app/record.rs:22-26, 188), whether or not a recording
+        // then runs.
+        if (r !== null && code !== 0) drop(t, effects, "start code=" + (code === null ? "none" : code));
+        else if (r !== null && r.phase === "starting") r.phase = "recording";
+        settle(t, effects);
         break;
     case "stop":
-        if (r === null || r.phase !== "stopping") break;
-        var result = r.mode === "text" ? transcript(code, out) : code === 0 ? { kind: "typed" } : { kind: "failed", reason: "stop code=" + (code === null ? "none" : code) };
-        t.recording = null;
-        effects.push({ kind: "done", result: result });
-        if (r.mode === "text") run(effects, "remove", ["rm", "-f", "--", r.path, r.path + ".done"]);
+        if (r !== null && r.phase === "stopping") {
+            var result = r.mode === "text" ? transcript(code, out) : code === 0 ? { kind: "typed" } : { kind: "failed", reason: "stop code=" + (code === null ? "none" : code) };
+            t.recording = null;
+            effects.push({ kind: "done", result: result });
+            // A stop that gave up leaves the daemon transcribing with
+            // the override in place, to write the file after its
+            // removal; a cancel ends that task and the override
+            // (src/daemon.rs:4349-4367).
+            if (r.mode === "text" && result.kind === "failed") command(t, effects, "cancel", ["voxtype", "record", "cancel"]);
+            if (r.mode === "text") run(effects, "remove", ["rm", "-f", "--", r.path, r.path + ".done"]);
+        }
+        settle(t, effects);
         break;
     case "cancel":
+        if (code !== 0) effects.push({ kind: "log", line: "dictation: cancel=failed code=" + (code === null ? "none" : code) });
+        settle(t, effects);
+        break;
     case "remove":
-        if (code !== 0) effects.push({ kind: "log", line: "dictation: " + tag + "=failed code=" + (code === null ? "none" : code) });
+        if (code !== 0) effects.push({ kind: "log", line: "dictation: remove=failed code=" + (code === null ? "none" : code) });
+        break;
+    case STATE:
+        var read = code === 0 ? phaseOf(statusOf(out.trim())) : null;
+        if (read === null) fail(t, effects, "state " + (code === 0 ? "status=unread" : "code=" + (code === null ? "none" : code)));
+        // `stopped`: the child's exit reports a daemon that ended.
+        else if (read !== "stopped") t.status = read;
+        drained(t, effects);
         break;
     default:
         if (t.daemon !== "starting" || t.step !== tag) throw new Error("dictation: command " + JSON.stringify(tag) + " ended at step " + JSON.stringify(t.step));
@@ -335,41 +414,55 @@ function statusOf(line) {
     return { word: data.alt, model: typeof data.model === "string" ? data.model : "" };
 }
 
+// What a read of the daemon says of it: `idle`, `recording` (voxtype's
+// `streaming` is one), `transcribing` or `stopped`, or null for a read
+// that is none of them.
+function phaseOf(read) {
+    if (read === null || (LIVE.indexOf(read.word) === -1 && read.word !== "stopped")) return null;
+    return read.word === "streaming" ? "recording" : read.word;
+}
+
 // One line the follower printed.
 function status(s, line) {
-    var t = clone(s), effects = [], read = statusOf(line);
-    if (t.child !== "running") return { model: t, effects: effects };
-    if (read === null || (LIVE.indexOf(read.word) === -1 && read.word !== "stopped")) {
+    var t = clone(s), effects = [], read = statusOf(line), word = phaseOf(read);
+    if (t.child !== "running" && t.child !== "draining") return { model: t, effects: effects };
+    if (word === null) {
         effects.push({ kind: "log", line: "dictation: status=unread line=" + JSON.stringify(line.slice(0, 80)) });
         return { model: t, effects: effects };
     }
     // The follower prints `stopped` until the daemon holds its lock, and
     // the child's exit reports a daemon that ended.
-    if (read.word === "stopped") return { model: t, effects: effects };
-    t.status = read.word === "streaming" ? "recording" : read.word;
+    if (word === "stopped") return { model: t, effects: effects };
+    t.status = word;
     t.model = read.model;
     if (t.daemon === "starting" && t.step === "child") {
         t.daemon = "ready";
         t.step = "";
     }
-    // The daemon went idle under a recording no stop of this owner ended:
-    // its own cap, or a caller outside the shell.
-    if (t.status === "idle" && t.recording !== null && t.recording.phase !== "stopping") drop(t, effects, "");
+    // The daemon went idle under a recording it was signalled for and no
+    // stop of this owner ended: its own cap, or a caller outside the
+    // shell. A line that comes before the recording's `record start`
+    // ended is of an earlier recording, and a stop that waits takes the
+    // transcript the daemon wrote before it went idle.
+    if (t.status === "idle" && t.recording !== null && t.recording.phase === "recording") drop(t, effects, "");
+    drained(t, effects);
     return { model: t, effects: effects };
 }
 
 // The daemon child ended; CODE is null for one that did not start.
 function exited(s, code) {
     if (s.child === "none") throw new Error("dictation: exit with no child");
-    var t = clone(s), effects = [], asked = t.child === "stopping";
+    var t = clone(s), effects = [], was = t.child;
     t.child = "none";
-    if (t.timer === "grace") setTimer(t, effects, "none", 0);
-    if (!asked) {
-        effects.push({ kind: "unfollow" });
+    t.status = "idle";
+    if (t.timer === "grace" || t.timer === "drain") setTimer(t, effects, "none", 0);
+    if (was !== "stopping") effects.push({ kind: "unfollow" });
+    if (was === "running") {
         fail(t, effects, "ended code=" + (code === null ? "none" : code));
-    } else if (t.daemon === "starting" && t.step === "exit") {
-        step(t, effects, PROBE);
+        return { model: t, effects: effects };
     }
+    if (was === "draining") abort(t, effects);
+    if (t.daemon === "starting" && t.step === "exit") step(t, effects, PROBE);
     return { model: t, effects: effects };
 }
 
@@ -389,6 +482,9 @@ function deadline(s) {
         cancelRecording(t, effects, "");
     } else if (timer === "grace" && t.child === "stopping") {
         effects.push({ kind: "kill" });
+    } else if (timer === "drain" && t.child === "draining") {
+        effects.push({ kind: "log", line: "dictation: cancel=unread state=" + t.status });
+        endChild(t, effects);
     } else {
         throw new Error("dictation: timer " + timer + " fired with nothing to end");
     }

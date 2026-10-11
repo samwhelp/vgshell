@@ -8,7 +8,11 @@
 # SIGUSR2 after the `output_mode_override` file, `record cancel` as a
 # `cancel` file (src/app/record.rs), a transcript's `.done` sidecar that
 # `record stop --wait --json` reads and removes, and the cap, which drops
-# the file override and types the words (src/daemon.rs:3995-4027).
+# the file override and types the words (src/daemon.rs:3995-4027). The
+# override outlives the daemon: only an output, a cancel and the cap
+# remove it, and a daemon start removes the cancel file alone
+# (src/daemon.rs:3044-3046). A recording's start consumes a cancel left
+# from before it (src/daemon.rs:1140-1148).
 #
 # Its daemon hears the words of $control/voxtype-words, never a
 # microphone, and types through the `wtype` stand-in beside this file,
@@ -17,7 +21,10 @@
 # voxtype-words and voxtype-max-secs, the cap `config get` answers, and
 # appends each thing its daemon did, one word a line, to
 # voxtype-daemon.log: started, start, stop, cancel, cap, stopped, and
-# refused for a second daemon.
+# refused for a second daemon. While voxtype-no-capture exists the daemon
+# takes the start signal and records nothing, as one that cannot open its
+# capture device (start_recording_capture, src/daemon.rs:1136), and notes
+# no-capture.
 #
 # rows/voice.sh starts no daemon. Its copy is a stub that sets the row's
 # own files as the voice_* variables and sources this file: the status
@@ -64,6 +71,11 @@ deliver() {
 recording_since=0
 on_start() {
   [[ $(cat -- "$run/state") == idle ]] || return 0
+  rm -f -- "${run:?}/cancel"
+  if [[ -e $control/voxtype-no-capture ]]; then
+    note no-capture
+    return 0
+  fi
   recording_since="$(date +%s%3N)"
   set_state recording
   note start
@@ -83,7 +95,7 @@ run_daemon() {
     note refused
     exit 1
   fi
-  rm -f -- "${run:?}/state" "${run:?}/cancel" "${override:?}"
+  rm -f -- "${run:?}/state" "${run:?}/cancel"
   printf '%s\n' "$$" >"$lock"
   set_state idle
   note started
