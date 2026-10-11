@@ -4039,8 +4039,16 @@ act_row() { ipc smoke readInstance window vgs.settings plugins | py_reply 'impor
 act_apply() { ipc smoke invokeInstance window vgs.settings applyKey "{\"id\":\"vgs.notifications\",\"shortcut\":\"act\"${1:+,\"key\":$1}}"; }
 press_act() { hypr dispatch 'hl.dsp.global("vgs.notifications:act")'; }
 act_stored() { printf '[%s, %s]\n' "$(live_summaries)" "$(history_summaries)"; }
-# The captions of the caption-only toasts on screen; [] with no layer.
-refusal_toasts() { ipc smoke layerItems vgs.notifications NotificationCard summary,caption,captionOnly | py_reply 'import json,sys; print(json.dumps([v["caption"] for s, r, v in json.load(sys.stdin) if v["captionOnly"]]))'; }
+# The captions of the caption-only toasts, the same on every screen; [] with
+# no layer. Screens that differ print each screen's list, a screen whose
+# layer holds no caption card among them.
+refusal_toasts() { ipc smoke layerItems vgs.notifications NotificationCard summary,caption,captionOnly | py_reply 'import json,sys
+c={}
+for s, r, v in json.load(sys.stdin):
+    c.setdefault(s, [])
+    if v["captionOnly"]: c[s].append(v["caption"])
+l=list(c.values())
+print(json.dumps(l[0] if l and all(x == l[0] for x in l) else (c if l else [])))'; }
 expect "the notifications' Settings page opens for its keys" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
 expect_poll "the page reads the act shortcut with its default key" '["Act on the last notification", "SUPER+SHIFT+N"]' act_row
 expect_poll "the Keys row draws the act shortcut's default key" '"SUPER+SHIFT+N"' key_field vgs.notifications act key
@@ -4128,7 +4136,7 @@ expect "the history refusal adds no toast to the count" "$act_refusal_shown" not
 expect "the history refusal starts no player" "$act_refusal_sounds" note_sound_calls
 expect_poll "the caption-only toast ends after its hold" '[]' refusal_toasts
 
-expect "the act rows' toasts are dismissed" ok notes dismiss-all
+expect_poll "no act toast is left before the empty act" 0 on_screen
 expect "the history is cleared for the empty act" ok notes clear-history
 expect_poll "nothing is stored before the empty act" '[[], []]' act_stored
 act_empty_before="$(log_lines 'notifications: act refused=no-notification')" || fail "the instance log is unreadable before the empty act"

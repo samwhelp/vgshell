@@ -112,7 +112,8 @@ Item {
     // The caption of the caption-only toast the act shortcut shows when it
     // is refused and no toast of its notification is on screen, "" while
     // none shows (actOnLast). It is no row, so nothing stores, counts or
-    // sounds it; noActionClock ends it.
+    // sounds it; noActionClock ends it, and a press that acts, a new toast
+    // or the panel opening clears it, since it then answers nothing.
     property string refusalCaption: ""
     readonly property string panelSubtitle: Logic.panelSubtitle(panelMode, shownCount, store.status)
     property int shownCount: 0
@@ -371,6 +372,7 @@ Item {
             noActionClock.restart();
             return;
         }
+        refusalCaption = "";
         choose(key, "open");
     }
 
@@ -445,6 +447,7 @@ Item {
         store.copy(stored.copies, null);
         store.putLive(stored.entry);
         rowModel.insert(0, rowOf(entry, "live"));
+        refusalCaption = "";
         bumpPanel();
         // The one sound call: Sound off quiets it, and Silence quiets it
         // also for a critical notification that passes it and shows.
@@ -966,6 +969,7 @@ Item {
 
     function panelOpened(mode) {
         const next = mode === "history" ? "history" : "inbox";
+        refusalCaption = "";
         if (panelMode === next) return;
         panelMode = next;
         settle();
