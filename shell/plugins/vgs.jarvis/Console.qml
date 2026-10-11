@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
 import "Session.js" as Session
@@ -18,6 +19,15 @@ FocusScope {
     readonly property var values: shell === null ? ({}) : shell.status.values
     readonly property var detail: values.detail === undefined ? null : values.detail
     readonly property var state: detail === null || detail.state === undefined ? null : detail.state
+    property int tab: 0
+    property int selectedTask: 0
+    readonly property var taskRows: Array.isArray(values.taskList) ? values.taskList.slice().sort((a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id)) : []
+    readonly property var auditRows: Array.isArray(values.auditFailures) ? values.auditFailures.slice().reverse() : []
+    readonly property var task: taskRows[selectedTask] === undefined ? null : taskRows[selectedTask]
+    readonly property bool canStopTask: task !== null && ["starting", "working", "waiting"].includes(task.state)
+    // Tasks.derive clears endedAt while the process is alive. A starting
+    // process has no terminal to open yet; a failed turn can still be alive.
+    readonly property bool canOpenTask: task !== null && task.endedAt === null && task.state !== "starting"
     property string draft: ""
     readonly property var refusal: Session.sayRefusal(state)
     readonly property bool ready: shell !== null && state !== null && refusal === null
@@ -31,11 +41,57 @@ FocusScope {
     function open(payloadJson) {
         payload = payloadJson ? JSON.parse(payloadJson) : {};
         problem = "";
+        tab = 0;
         Qt.callLater(() => entryField.forceActiveFocus());
         Qt.callLater(followEnd);
     }
 
     function close() {}
+
+    function focusTab() {
+        layout.scrollArea.contentY = 0;
+        const control = tab === 0 ? entryField : tab === 1 ? tasksBody : auditBody;
+        control.forceActiveFocus(Qt.TabFocusReason);
+        if (tab === 0) Qt.callLater(followEnd);
+    }
+
+    function taskState(row) {
+        const words = { starting: "Starting", working: "Working", waiting: "Waiting for you",
+            "reported-ok": "Done as reported", failed: "Failed", "reported-failed": "Failed",
+            stopped: "Stopped", lost: "Lost", exited: "Done", noisy: "Task record unreadable" };
+        return words[row.state];
+    }
+
+    function taskDetail(row) {
+        const failure = row.failure === null ? "" : typeof row.failure === "number" ? "Exited with code " + row.failure : String(row.failure);
+        return row.agent + " · " + taskState(row) + (failure === "" ? "" : " · " + failure);
+    }
+
+    function taskAction(action) {
+        if (shell === null || task === null || (action === "stop" ? !canStopTask : !canOpenTask)) return;
+        const reply = shell.ipc.call(action === "stop" ? "stop-task" : "open-task", task.id);
+        problem = reply === "ok" ? "" : reply === "refused: jarvis=not-ready" ? "Jarvis is not ready"
+            : action === "stop" ? "The coding task could not be stopped" : "The coding task could not be opened";
+    }
+
+    function auditDetail(row) {
+        const result = row.decision === "refuse" ? "Refused" : row.decision === "withhold" ? "Withheld"
+            : row.outcome === "failed" ? "Failed" : "Result unknown";
+        return result + (row.refusal === null ? "" : " · " + String(row.refusal).replaceAll("-", " "));
+    }
+
+    onTaskRowsChanged: {
+        taskCursor.disarm();
+        taskCursor.snap();
+        selectedTask = Math.max(0, Math.min(selectedTask, taskRows.length - 1));
+    }
+    Keys.onPressed: event => {
+        if (event.key === Qt.Key_Tab && (event.modifiers & Qt.ControlModifier)) {
+            tab = (tab + (event.modifiers & Qt.ShiftModifier ? 2 : 1)) % 3;
+            event.accepted = true;
+        }
+    }
+    onTabChanged: { problem = ""; Qt.callLater(focusTab); }
 
     // The bar's state line, with the action of a state that needs one.
     function stateText() {
@@ -139,7 +195,7 @@ FocusScope {
         view.contentY = Math.max(0, view.contentHeight - view.height);
     }
 
-    onTranscriptRowsChanged: Qt.callLater(followEnd)
+    onTranscriptRowsChanged: if (tab === 0) Qt.callLater(followEnd)
     // A view at its end stays there while rows and memory cards lay out, so
     // the newest card shows whole; a view the user scrolled up stays put.
     property bool atEnd: true
@@ -149,7 +205,7 @@ FocusScope {
             const view = layout.scrollArea;
             root.atEnd = view.contentY >= view.contentHeight - view.height - 1;
         }
-        function onContentHeightChanged() { if (root.atEnd) Qt.callLater(root.followEnd); }
+        function onContentHeightChanged() { if (root.tab === 0 && root.atEnd) Qt.callLater(root.followEnd); }
     }
     implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
     implicitHeight: Math.floor(Math.min(Theme.size.panel.maxHeight, OverlayState.room(screen).height))
@@ -181,7 +237,18 @@ FocusScope {
             }
         ]
 
+        header: [
+            Tabs {
+                id: consoleTabs
+                width: layout.contentWidth
+                model: ["Conversation", "Tasks", "Audit"]
+                currentIndex: root.tab
+                onCurrentIndexChanged: root.tab = currentIndex
+            }
+        ]
+
         Column {
+            visible: root.tab === 0
             width: layout.contentWidth
             spacing: Theme.stack.row
 
@@ -290,9 +357,94 @@ FocusScope {
             }
         }
 
+        T.Control {
+            id: tasksBody
+            visible: root.tab === 1
+            width: layout.contentWidth
+            implicitHeight: taskColumn.implicitHeight
+            focusPolicy: Qt.StrongFocus
+            Keys.onPressed: event => { event.accepted = taskNav.handle(event); }
+            FocusRing { target: tasksBody; outside: true }
+            ListCursor { id: taskCursor }
+            KeyNav {
+                id: taskNav
+                focusTarget: tasksBody
+                count: root.taskRows.length
+                currentIndex: root.selectedTask
+                cursor: taskCursor
+                wrap: false
+                flickable: layout.scrollArea
+                itemAt: index => taskList.itemAt(index)
+                onMoved: index => root.selectedTask = index
+                onActivated: root.taskAction("open")
+            }
+            contentItem: Column {
+                id: taskColumn
+                width: tasksBody.width
+                Repeater {
+                    id: taskList
+                    model: root.taskRows
+                    ListItem {
+                        required property var modelData
+                        required property int index
+                        width: tasksBody.width
+                        text: modelData.goal
+                        secondary: root.taskDetail(modelData)
+                        secondaryTone: ["failed", "reported-failed", "lost"].includes(modelData.state) ? "danger" : ""
+                        cursor: taskCursor
+                        highlighted: root.selectedTask === index
+                        focusPolicy: Qt.NoFocus
+                        onPointed: root.selectedTask = index
+                        onClicked: { root.selectedTask = index; tasksBody.forceActiveFocus(Qt.MouseFocusReason); }
+                    }
+                }
+                EmptyState { width: tasksBody.width; visible: root.taskRows.length === 0; iconName: "terminal"; text: "No coding tasks" }
+            }
+        }
+
+        T.Control {
+            id: auditBody
+            visible: root.tab === 2
+            width: layout.contentWidth
+            implicitHeight: auditColumn.implicitHeight
+            focusPolicy: Qt.StrongFocus
+            Keys.onPressed: event => { if (layout.scrollArea.handleScrollKey(event)) event.accepted = true; }
+            FocusRing { target: auditBody; outside: true }
+            // Audit rows are read-only, like the transcript, and take no cursor.
+            contentItem: Column {
+                id: auditColumn
+                width: auditBody.width
+                spacing: Theme.stack.row
+                Repeater {
+                    model: root.auditRows
+                    Column {
+                        required property var modelData
+                        width: auditBody.width
+                        spacing: Theme.row.lineGap
+                        Label { width: parent.width; role: "hint"; text: new Date(modelData.time).toLocaleTimeString(); textFormat: Text.PlainText; color: Theme.color.textMuted }
+                        Label { width: parent.width; role: "bodyStrong"; text: modelData.tool; textFormat: Text.PlainText; wrapMode: Text.Wrap }
+                        Label { width: parent.width; role: "body"; text: root.auditDetail(modelData); textFormat: Text.PlainText; color: Theme.color.danger; wrapMode: Text.Wrap }
+                    }
+                }
+                EmptyState { width: auditBody.width; visible: root.auditRows.length === 0; iconName: "shield-alert"; text: "No recent failures" }
+            }
+        }
+
         footer: [
             Column {
+                visible: root.tab === 1
+                width: layout.contentWidth
+                spacing: Theme.stack.inline
+                Label { width: parent.width; role: "hint"; visible: root.problem !== ""; text: root.problem; color: Theme.color.danger; wrapMode: Text.Wrap }
+                Row {
+                    spacing: Theme.control.gap
+                    Button { text: "Open"; iconName: "external-link"; enabled: root.canOpenTask; onClicked: root.taskAction("open") }
+                    Button { text: "Stop"; iconName: "square"; enabled: root.canStopTask; onClicked: root.taskAction("stop") }
+                }
+            },
+            Column {
                 id: composer
+                visible: root.tab === 0
                 width: layout.contentWidth
                 spacing: Theme.stack.inline
 

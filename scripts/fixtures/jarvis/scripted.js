@@ -292,9 +292,37 @@ function heldApprovals(file) {
     ]]);
 }
 
-module.exports = { ports, instrument, readyPlan, plan, driver, chainedEngine, heldApprovals };
+// Console data travels through the daemon's existing protocol and service.
+// These process-free rows let keyboard checks record intents without opening
+// or stopping a real task. Stop changes the selected fixture's process state.
+let consoleRows = [
+    { id: "console-first", goal: "Add the search field", agent: "Claude Code", state: "working", failure: null, createdAt: 30, endedAt: null },
+    { id: "console-second", goal: "Check keyboard navigation", agent: "Codex", state: "working", failure: null, createdAt: 20, endedAt: null },
+    { id: "console-third", goal: "Build the settings page", agent: "Pi", state: "failed", failure: 2, createdAt: 10, endedAt: 15 }
+];
+const consoleFailures = [
+    { time: "2026-10-11T09:30:00.000Z", tool: "files.delete", effect: "destructive", decision: "refuse", outcome: "cancelled", refusal: "source" },
+    { time: "2026-10-11T09:35:00.000Z", tool: "shell.run", effect: "exec", decision: "allow", outcome: "failed", refusal: null }
+];
+function consoleTasks() { return consoleRows; }
+function consoleAudit() { return consoleFailures; }
+function consoleIntent(message) {
+    record("console-intent", { intent: message.intent, task: message.task });
+    if (message.intent === "task-stop") consoleRows = consoleRows.map(row => row.id === message.task ? { ...row, state: "stopped", endedAt: 40 } : row);
+    return consoleRows;
+}
+function consoleData(file) {
+    edit(file, [
+        ['revision: context.revision, rows });\n                    };', 'revision: context.revision, rows: require("./scripted-fixture.js").consoleAudit() });\n                    };'],
+        ['write({ v: 1, type: "task-list", gen: runner.state.gen, revision: context.revision, rows });', 'write({ v: 1, type: "task-list", gen: runner.state.gen, revision: context.revision, rows: require("./scripted-fixture.js").consoleTasks() });'],
+        ['const message = Protocol.accept(line, "shell");', 'const message = Protocol.accept(line, "shell");\n                if (message.type === "intent" && ["task-stop", "task-open"].includes(message.intent)) {\n                    const rows = require("./scripted-fixture.js").consoleIntent(message);\n                    write({ v: 1, type: "task-list", gen: runner.state.gen, revision: context.revision, rows });\n                    continue;\n                }']
+    ]);
+}
+
+module.exports = { ports, instrument, readyPlan, plan, driver, chainedEngine, heldApprovals, consoleTasks, consoleAudit, consoleIntent, consoleData };
 if (require.main === module) {
-    if (process.argv.length === 4 && process.argv[2] === "--chained-engine") chainedEngine(process.argv[3]);
+    if (process.argv.length === 4 && process.argv[2] === "--console-data") consoleData(process.argv[3]);
+    else if (process.argv.length === 4 && process.argv[2] === "--chained-engine") chainedEngine(process.argv[3]);
     else if (process.argv.length === 4 && process.argv[2] === "--held-approvals") heldApprovals(process.argv[3]);
     else if (process.argv.length === 4 || (process.argv.length === 5 && process.argv[4] === "--mapped-indicator"))
         instrument(process.argv[2], process.argv[3], "chained", process.argv[4] === "--mapped-indicator");

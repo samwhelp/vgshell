@@ -82,6 +82,53 @@ jarvis_console_focus_control() {
    expect_poll "the console text field has focus" true jarvis_console_text_field_focused >"$sandbox/jarvis-console-focus-control.log"
    echo "$failures")
 }
+jarvis_console_tabs() {
+  ipc smoke itemValues window vgs.jarvis Tabs count,currentIndex | py_reply 'import json,sys; rows=json.load(sys.stdin); print(json.dumps([[r.get("count"),r.get("currentIndex")] for r in rows]))'
+}
+jarvis_console_selected() {
+  ipc smoke itemValues window vgs.jarvis ListItem modelData,highlighted | py_reply 'import json,sys; rows=json.load(sys.stdin); print(next((r["modelData"]["id"] for r in rows if r.get("highlighted")), "none"))'
+}
+jarvis_console_fixture_task() { # INDEX
+  ipc smoke jarvisProcess | py_reply 'import json,sys; rows=json.load(sys.stdin)["status"].get("taskList", []); i=int(sys.argv[1]); print(rows[i]["id"] if len(rows)>i else "missing")' "$1"
+}
+jarvis_console_intent() { # INTENT
+  python3 - "$jarvis_console_gates/effects.jsonl" "$1" <<'PY_INTENT'
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1])
+rows=[json.loads(line) for line in p.read_text().splitlines()] if p.exists() else []
+print(next((row['task'] for row in reversed(rows) if row.get('kind')=='console-intent' and row.get('intent')==sys.argv[2]), 'none'))
+PY_INTENT
+}
+jarvis_console_audit() {
+  ipc smoke itemValues window vgs.jarvis Label text,visible | py_reply 'import json,sys; rows=json.load(sys.stdin); print("shown" if any(r.get("visible") and r.get("text")=="files.delete" for r in rows) else "missing")'
+}
+jarvis_console_tasks_tab_check() { expect_poll "the tab bar reaches Tasks" '[[3, 1]]' jarvis_console_tabs; }
+jarvis_console_stop_check() { expect_poll "Stop sends the selected fixture id" "$1" jarvis_console_intent task-stop; }
+jarvis_console_audit_check() { expect_poll "Audit draws the fixture failure" shown jarvis_console_audit; }
+jarvis_console_tasks_path() {
+  type_keys -M ctrl -k Tab -m ctrl || fail "switching to Tasks failed"
+  jarvis_console_tasks_tab_check
+  expect_poll "Tasks takes keyboard focus" true ipc smoke activeFocusWithin window vgs.jarvis Control
+}
+jarvis_console_stop_path() {
+  type_keys -k Down -k Tab -k Tab -k Return || fail "stopping the second task by keyboard failed"
+}
+jarvis_console_tab_control() {
+  (failures=0 behaviour_failures=0
+   jarvis_console_tasks_tab_check >"$sandbox/jarvis-console-tabs-control.log"
+   echo "$failures")
+}
+jarvis_console_stop_control() {
+  (failures=0 behaviour_failures=0
+   jarvis_console_stop_check "$1" >"$sandbox/jarvis-console-stop-control.log"
+   echo "$failures")
+}
+jarvis_console_audit_control() {
+  (failures=0 behaviour_failures=0
+   jarvis_console_audit_check >"$sandbox/jarvis-console-audit-control.log"
+   echo "$failures")
+}
 jarvis_console_requirement_shims() {
   python3 - "$shim" "${jarvis_requirement_standins[@]}" <<'PY'
 import json, pathlib, sys
@@ -100,6 +147,7 @@ hold_delayed_keyboard=""
 hold_start_keyboard jarvis-console "$sandbox/keyboard" us ""
 jarvis_setup_requirements
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jarvis_console_backend" "$jarvis_console_gates" --mapped-indicator
+"$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" --console-data "$jarvis_console_backend"
 jarvis_rescan
 jarvis_enable
 jarvis_shortcut_assertion
@@ -135,6 +183,30 @@ jarvis_key_mute
 expect_poll "the console controls start unmuted" off jarvis_key_state mute
 type_keys -k Escape || fail "typing Escape into the console failed"
 expect_poll "Escape closes the console" 0 jarvis_console_client_count
+jarvis_console_open
+hold_barrier
+jarvis_console_tasks_path
+second_task="$(jarvis_console_fixture_task 1)"
+first_task="$(jarvis_console_fixture_task 0)"
+jarvis_console_stop_path
+jarvis_console_stop_check "$second_task"
+# Return to the list from Stop, then open the still-alive first task.
+type_keys -M shift -k Tab -k Tab -m shift -k Up -k Return || fail "opening the first task by keyboard failed"
+expect_poll "Enter opens the selected alive fixture" "$first_task" jarvis_console_intent task-open
+type_keys -k Escape || fail "Escape from Tasks failed"
+expect_poll "Escape closes Tasks" 0 jarvis_console_client_count
+jarvis_console_open
+hold_barrier
+jarvis_console_tasks_path
+# The first control receives focus on switch; Backtab returns to the
+# reachable tab bar, whose Right key switches to Audit.
+type_keys -M shift -k Tab -m shift || fail "reaching the tab bar failed"
+expect_poll "the tab bar takes keyboard focus" true ipc smoke activeFocusWithin window vgs.jarvis Tabs
+type_keys -k Right || fail "switching the tab bar to Audit failed"
+expect_poll "Right selects Audit" '[[3, 2]]' jarvis_console_tabs
+jarvis_console_audit_check
+type_keys -k Page_Down -k Page_Up -k Escape || fail "Audit scrolling or Escape failed"
+expect_poll "Escape closes Audit" 0 jarvis_console_client_count
 jarvis_console_open
 hold_barrier
 expect_poll "the console window is open before disable" 1 jarvis_console_client_count
@@ -194,6 +266,41 @@ jarvis_console_open
 hold_barrier
 expect "control: moving focus off the field breaks the keyboard-path assertion" 1 jarvis_console_focus_control
 jarvis_disable
+cp -- "$sandbox/jarvis-console-qml-before" "$jarvis_console_qml"
+for jarvis_console_mutant in tabs stop audit; do
+  python3 - "$jarvis_console_qml" "$jarvis_console_mutant" <<'PY_CONTROL'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); s=p.read_text()
+changes={
+    "tabs": ('model: ["Conversation", "Tasks", "Audit"]', 'model: ["Conversation", "Audit"]'),
+    "stop": ('"open-task", task.id);', '"open-task", taskRows[0].id);'),
+    "audit": ('model: root.auditRows', 'model: []'),
+}
+needle,replacement=changes[sys.argv[2]]
+assert s.count(needle)==1, needle
+p.write_text(s.replace(needle,replacement))
+PY_CONTROL
+  jarvis_rescan
+  jarvis_enable
+  jarvis_console_open
+  hold_barrier
+  type_keys -M ctrl -k Tab -m ctrl || fail "switching the mutant Tasks tab failed"
+  case "$jarvis_console_mutant" in
+    tabs) expect "control: dropping Tasks breaks the tab assertion" 1 jarvis_console_tab_control ;;
+    stop)
+      second_task="$(jarvis_console_fixture_task 1)"
+      jarvis_console_stop_path
+      expect "control: sending the first id breaks the selected-task assertion" 1 jarvis_console_stop_control "$second_task"
+      ;;
+    audit)
+      type_keys -M ctrl -k Tab -m ctrl || fail "switching the mutant Audit tab failed"
+      expect "control: empty audit data breaks the failure assertion" 1 jarvis_console_audit_control
+      ;;
+  esac
+  jarvis_disable
+  cp -- "$sandbox/jarvis-console-qml-before" "$jarvis_console_qml"
+done
 cp -- "$sandbox/jarvis-console-backend-before" "$jarvis_console_backend"
 cp -- "$sandbox/jarvis-console-engine-before" "$jarvis_console_engine"
 cp -- "$sandbox/jarvis-console-service-before" "$jarvis_console_service"

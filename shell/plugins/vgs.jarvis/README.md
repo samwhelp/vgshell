@@ -10,7 +10,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 - A bar icon that shows what Jarvis is doing.
 - Keys to talk, mute, stop, confirm a request and open the Console.
-- A Console window to type to Jarvis instead of speaking.
+- A Console window with Conversation, Tasks and Audit tabs.
 - A mute that stays on across restarts.
 - A listening bubble that lets clicks reach the window below.
 - Always talk mode: say Hey Jarvis to start a request.
@@ -59,7 +59,7 @@ The icon's tooltip says what to do next and names the answering AI model when on
 | Confirm | Super with Alt and Y | Confirms the Jarvis request shown on screen. |
 | Console | Super with Alt and C | Opens the Console window. |
 
-- The Console window lets you type a message to Jarvis, review the conversation, and stop the current turn without using the microphone.
+- Conversation lets you type to Jarvis and review its replies. Tasks shows coding tasks and lets you open or stop the selected task. Audit shows recent refused or failed actions.
 - The listening bubble's orb and text let clicks reach the application below. While Jarvis waits for Hey Jarvis, its bubble shows a still orb.
 - In Always talk mode the local voice on this computer hears Hey Jarvis. Nothing reaches the AI model until you speak after it.
 - Audio is half duplex: Jarvis closes its microphone while speech plays, and Talk interrupts speech.
