@@ -1,7 +1,8 @@
 import QtQuick
 import qs.Ui
 
-// A round ghost button: a hover plate, a press squish and a pointer cursor.
+// A round ghost button: a press squish and a pointer cursor. Hover leaves
+// the background clear; the caller brightens its glyph.
 Item {
     id: button
 
@@ -18,9 +19,9 @@ Item {
     Rectangle {
         anchors.fill: parent
         radius: button.look.radius.full
-        color: mouse.pressed ? button.look.button.pressed : (button.hovered ? button.look.button.hover : (button.checked ? button.look.button.checked : button.look.button.rest))
+        color: mouse.pressed ? button.look.button.pressed : button.checked ? button.look.button.checked : button.look.button.rest
         border.width: button.look.button.borderWidth
-        border.color: button.hovered || button.checked ? button.look.button.border : button.look.button.borderRest
+        border.color: button.checked ? button.look.button.border : button.look.button.borderRest
         Behavior on color {
             ColorAnim { duration: button.look.motion.duration.short4; curve: button.look.motion.curve.standard }
         }

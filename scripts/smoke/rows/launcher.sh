@@ -107,6 +107,23 @@ expect "the bare field shows no list" 0 read_launcher visibleRowsHeight
 shader_ok() { ipc smoke launcherShader overlay vgs.launcher | py_reply 'import json,re,sys; d=json.loads(sys.stdin.read()); print(bool(re.search(r"/vgshell-sources-[0-9]+/[0-9a-f]+/shaders/edgelight\.frag\.qsb$", d["url"])) and d["compiled"])'; }
 render expect_poll "the edge light's shader compiled from the published revision" True shader_ok
 
+# The private Categories icon follows the shared icon button's hover rule.
+launcher_icon_hover_value() { # REST: reject the old hover fill
+  py_reply 'import json,sys
+rows = json.load(sys.stdin)
+button = next((v for v in rows if v.get("label") == "Categories"), None)
+want = json.loads(sys.argv[1])
+print("absent" if button is None else "ok" if button.get("hovered") is True and button.get("children.0.color") == want else "filled-or-unhovered")' "$1"
+}
+launcher_icon_hover() {
+  ipc smoke itemValues overlay vgs.launcher IconButton label,hovered,children.0.color | launcher_icon_hover_value "$(look_at button.rest)"
+}
+point_item overlay vgs.launcher IconButton Categories >/dev/null || fail "the Categories icon hover failed"
+expect_poll "the Categories icon draws no hover fill" ok launcher_icon_hover
+expect_poll "the Categories glyph brightens on hover" "$(look_at menuGlyph.active)" ipc smoke readDescendant overlay vgs.launcher MenuGlyph emphasis
+expect "control: the old Categories hover fill is refused" filled-or-unhovered launcher_icon_hover_value "$(look_at button.rest)" < <(python3 -c 'import json,sys; print(json.dumps([{ "label": "Categories", "hovered": True, "children.0.color": json.loads(sys.argv[1]) }]))' "$(look_at button.hover)")
+hover 10 "$((mon_h - 10))" || fail "moving off Categories failed"
+
 # Typing searches every row and application; Enter launches the first.
 type_keys "smoke launch" || fail "typing into the launcher failed"
 expect_poll "typing reaches the search" '"smoke launch"' read_launcher filterText

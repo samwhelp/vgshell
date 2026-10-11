@@ -2011,7 +2011,7 @@ text = path.read_text()
 needle = '        objectName: "notificationSettingsGear"\n'
 assert text.count(needle) == 1, "the settings gear occurs once"
 text = text.replace(needle, needle + '        visible: false\n')
-# The Sound state control: the Sound icon loses its state name and its
+# The Sound state control: the Sound icon loses its
 # checked state. The second control restores the old filled checked box.
 for line in ('                checked: !header.sound\n',):
     assert text.count(line) == 1, "the Sound icon's line occurs once: " + line
@@ -2030,7 +2030,7 @@ expect "control: removing the gear turns the Settings assertion red" 1 drawer_se
 expect "Sound turns off in the control drawer" off notes sound off
 sound_state_control() { (failures=0; behaviour_failures=0; expect "the Sound icon shows Sound off, checked, and names it" '["volume-off", true, "Notification sound, off"]' header_icon_state "Notification sound" >"$sandbox/sound-state-control.log"; echo "$failures"); }
 expect_poll "the control Sound icon reads unchecked" '["volume-off", false, "Notification sound, off"]' header_icon_state "Notification sound"
-expect "control: a Sound icon with a fixed name and no checked box turns the Sound state assertion red" 1 sound_state_control
+expect "control: a Sound icon with no checked state turns the Sound state assertion red" 1 sound_state_control
 expect "Do Not Disturb turns on for the old checked-box control" on notes silence on
 header_box_control() { (failures=0; behaviour_failures=0; expect "Do Not Disturb on draws a warning glyph without a filled circle" "$(header_tone_want "$note_warning")" header_tone "Do Not Disturb" >"$sandbox/header-box-control.log"; echo "$failures"); }
 expect "control: the old filled checked box fails the glyph-only check" 1 header_box_control

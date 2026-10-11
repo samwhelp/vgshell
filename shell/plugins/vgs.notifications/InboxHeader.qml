@@ -43,7 +43,9 @@ Item {
     component IconBox: Item {
         id: box
 
+        required property var look
         required property Item button
+        property real radius: look.radius.full
         FocusRing { target: box.button }
     }
 
@@ -102,7 +104,7 @@ Item {
         x: Math.round(titles.x + title.width + header.look.header.titleGap - glyphStart)
         y: Math.round(titles.y + title.y + (title.height - height) / 2)
         size: "sm"
-        background: IconBox { button: gear }
+        background: IconBox { look: header.look; button: gear }
         iconName: "settings"
         label: "Settings"
         onClicked: header.settingsHost.openSettingsPage()
@@ -123,7 +125,7 @@ Item {
             IconButton {
                 id: soundIcon
                 size: "sm"
-                background: IconBox { button: soundIcon }
+                background: IconBox { look: header.look; button: soundIcon }
                 iconName: header.sound ? "volume-2" : "volume-off"
                 label: header.sound ? "Mute sound" : "Unmute sound"
                 Accessible.name: "Notification sound" + (header.sound ? ", on" : ", off")
@@ -134,7 +136,7 @@ Item {
             IconButton {
                 id: dndIcon
                 size: "sm"
-                background: IconBox { button: dndIcon }
+                background: IconBox { look: header.look; button: dndIcon }
                 iconName: header.dnd ? "bell-off" : "bell"
                 label: header.dnd ? "Allow notifications" : "Do not disturb"
                 Accessible.name: "Do Not Disturb" + (header.dnd ? ", on" : ", off")
@@ -145,7 +147,7 @@ Item {
             IconButton {
                 id: historyIcon
                 size: "sm"
-                background: IconBox { button: historyIcon }
+                background: IconBox { look: header.look; button: historyIcon }
                 iconName: "rotate-ccw-clock"
                 label: header.history ? "Show unread" : "Show history"
                 Accessible.name: "History" + (header.history ? ", open" : ", closed")
