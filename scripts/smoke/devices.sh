@@ -47,10 +47,12 @@
 #   (bluetooth/bluez.cpp, network/nm/backend.cpp,
 #   services/pipewire/connection.cpp), so a row calls it before it enables
 #   a plugin that reads one.
-# - devices_voice_feed FILE plays a recorded voice into the private
-#   PipeWire's loopback, whose source side a capture names as its
-#   microphone, and devices_voice_feed_state reads whether a capture reads
-#   it, for the Jarvis self-test (scripts/jarvis-selftest.sh).
+# - devices_voice_feed_default sets the private PipeWire's default source
+#   to the loopback source side, devices_voice_feed_default_source reads
+#   that default, devices_voice_feed FILE plays a recorded voice into the
+#   loopback, whose source side a capture names as its microphone, and
+#   devices_voice_feed_state reads whether a capture reads it, for the
+#   Jarvis self-test (scripts/jarvis-selftest.sh).
 # - devices_speaker_record OUT records the private speakers' monitor as
 #   timestamped peak blocks, devices_speaker_stop stops that recorder, and
 #   devices_speaker_sounds CAPTURE reads sound spans for the Jarvis self-test.
@@ -355,6 +357,13 @@ names = set(ids.values())
 readers = {ids.get((o.get("info") or {}).get("output-node-id")) for o in objects if o.get("type") == "PipeWire:Interface:Link"}
 print("absent=sink" if sink not in names else "absent=source" if source not in names else "absent=recorder" if source not in readers else "ready")
 ' "$devices_voice_feed_sink" "$devices_voice_feed_source"
+}
+devices_voice_feed_default_source() {
+  devices_audio | python3 -c 'import json,sys; print((json.load(sys.stdin).get("defaults") or {}).get("source") or "absent")'
+}
+devices_voice_feed_default() {
+  "${shell_env[@]}" pw-metadata -n default 0 default.configured.audio.source \
+    "{ \"name\": \"$devices_voice_feed_source\" }" Spa:String:JSON >/dev/null
 }
 devices_voice_feed() { # FILE
   "${shell_env[@]}" pw-cat --playback --target "$devices_voice_feed_sink" \

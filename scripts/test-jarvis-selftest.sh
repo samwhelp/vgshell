@@ -72,8 +72,26 @@ PY
 # HOME; every case's PATH leads with the directory of the binary itself.
 node_bin="$(node -e 'process.stdout.write(process.execPath)')"
 mkdir -p "$tmp/bin" "$tmp/empty"
-printf '#!/bin/sh\ncat -- "%s"\n' "$tmp/graph.json" >"$tmp/bin/pw-dump"
-chmod +x "$tmp/bin/pw-dump"
+cat >"$tmp/bin/pw-dump" <<SH
+#!/usr/bin/env bash
+python3 - "$tmp/graph.json" "$tmp/default-source" <<'PY'
+import json, os, sys
+graph, default_source = sys.argv[1:]
+objects = json.load(open(graph))
+if os.path.exists(default_source):
+    objects.append({"id": 200, "type": "PipeWire:Interface:Metadata",
+                    "props": {"metadata.name": "default"},
+                    "metadata": [{"key": "default.audio.source",
+                                  "value": {"name": open(default_source).read().strip()}}]})
+json.dump(objects, sys.stdout)
+PY
+SH
+cat >"$tmp/bin/pw-metadata" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>"$tmp/pw-metadata.calls"
+printf '%s\n' vgs-smoke-voice >"$tmp/default-source"
+SH
+chmod +x "$tmp/bin/pw-dump" "$tmp/bin/pw-metadata"
 path="$tmp/bin:$(dirname -- "$node_bin"):$PATH"
 
 # The accounts: a sign-in folder, and the saved key references a case names
@@ -113,7 +131,10 @@ prepared() { # HOME
 prepared "$tmp/voice"
 prepared "$tmp/other-voice"
 voice_root="$tmp/voice/.local/share/vgshell/jarvis/local"
-voice_inputs=(JARVIS_LOCAL_MODELS="$voice_root/models" JARVIS_LOCAL_PYTHON="$voice_root/venv/bin/python")
+voxtype_models="$tmp/voxtype-models"
+mkdir -p "$voxtype_models/parakeet-tdt-0.6b-v3"
+echo model >"$voxtype_models/parakeet-tdt-0.6b-v3/model.bin"
+voice_inputs=(JARVIS_LOCAL_MODELS="$voice_root/models" JARVIS_LOCAL_PYTHON="$voice_root/venv/bin/python" VOXTYPE_MODELS="$voxtype_models")
 
 # The scratch tree: the runner's copy, the checkout's shell, bin and agent
 # skills, a fence
@@ -131,6 +152,7 @@ tree="$tmp/tree"
 mkdir -p "$tree/scripts/smoke"
 ln -s -- "$repo/shell" "$tree/shell"
 ln -s -- "$repo/bin" "$tree/bin"
+ln -s -- "$repo/config" "$tree/config"
 ln -s -- "$repo/.agents" "$tree/.agents"
 cat >"$tree/scripts/smoke/gpu-fence.sh" <<SH
 #!/usr/bin/env bash
@@ -152,8 +174,10 @@ echo instrumented >"\$repo/shell/plugins/vgs.jarvis/Service.qml"
 echo '{"version": 1, "plugins": [{"id": "vgs.settings"}], "disabledPlugins": ["vgs.jarvis"]}' >"\$home/.config/vgshell/shell.json"
 failures=0 instance_log="" devices_state=down auth_log="\$sandbox/auth.calls" shell_env=()
 rt_dir="$tmp/rt" shim="\$sandbox/shim" sentinels_saved="\$sandbox/sentinels" sentinels_stood="\$sandbox/sentinels.stood" pgids=()
+shell_start_path="\$shim:$path"
 rm -rf -- "\${rt_dir:?}"
 mkdir -p "\$rt_dir" "\$shim" "\$sentinels_saved"
+ln -s -- "$repo/config" "\$repo/config"
 trap 'for pid in "\${pgids[@]}"; do kill -TERM -- "-\$pid" 2>/dev/null || true; done' EXIT
 printf '#!/usr/bin/env bash\ncase "\${1:-}" in search) exit 0 ;; lookup) exit 1 ;; esac\nprintf "%%s\\n" "secret-tool \$*" >>%q\nexit 1\n' "\$auth_log" >"\$shim/secret-tool"
 chmod 755 "\$shim/secret-tool"
@@ -172,9 +196,10 @@ devices_guard() {
   printf '%s\\n' "\$answer"
 }
 ipc() { echo "ipc \$*" >>"$tmp/harness.log"; }
+shell_resolves() { PATH="\$shell_start_path" command -v -- "\$1" || echo none; }
 SH
 { sed -n '/^spawn() {/,/^}/p; /^sentinel_saved() {/p; /^sentinel_stand_over() {/,/^}/p' "$repo/scripts/smoke/harness.sh"
-  sed -n '/^devices_voice_feed_sink=/p; /^devices_voice_feed_source=/p; /^devices_voice_feed_state() {/,/^}/p' "$repo/scripts/smoke/devices.sh"; } >>"$tree/scripts/smoke/harness.sh"
+  sed -n '/^devices_audio() {/,/^}/p; /^devices_voice_feed_sink=/p; /^devices_voice_feed_source=/p; /^devices_voice_feed_state() {/,/^}/p; /^devices_voice_feed_default_source() {/,/^}/p; /^devices_voice_feed_default() {/,/^}/p' "$repo/scripts/smoke/devices.sh"; } >>"$tree/scripts/smoke/harness.sh"
 
 # graph READER NODE...: the planted graph, the named nodes with ids from 30
 # and, for READER `read`, a link that leaves the last of them.
@@ -194,7 +219,7 @@ PY
 inputs=("${voice_inputs[@]}")
 session_bus=()
 run() {
-  : >"$tmp/fence.log"; : >"$tmp/harness.log"
+  : >"$tmp/fence.log"; : >"$tmp/harness.log"; rm -f -- "$tmp/default-source" "$tmp/pw-metadata.calls"
   status=0
   (cd -- "$tmp" && env -i PATH="$path" HOME="$world" "${inputs[@]}" "${session_bus[@]}" "$BASH" "$tree/scripts/jarvis-selftest.sh" "$@") >"$tmp/out" 2>"$tmp/err" || status=$?
 }
@@ -207,7 +232,7 @@ functions="$tmp/functions.sh"
 cut_functions() { # RUNNER
   { sed -n '/^py_reply() {/,/^}/p; /^now_ms() {/p' "$repo/scripts/smoke/harness.sh"
     for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_service_phase selftest_voice_state selftest_gate_context selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
-      selftest_woke selftest_end selftest_audio selftest_audio_record selftest_wav_tail selftest_speech_tail selftest_open selftest_case_check selftest_compare selftest_case_child_args selftest_tts_voice selftest_suite_summary selftest_suite_stopped selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$1"; done
+      selftest_woke selftest_end selftest_audio selftest_audio_record selftest_wav_tail selftest_speech_tail selftest_open selftest_dictation_sample selftest_dictation_record selftest_case_check selftest_compare selftest_case_child_args selftest_tts_voice selftest_suite_summary selftest_suite_stopped selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$1"; done
     sed -n '/^devices_speaker_sounds() {/,/^}/p' "$repo/scripts/smoke/devices.sh"; } >"$functions"
 }
 call() { selftest_node="$node_bin" bash -c 'set -euo pipefail; source "$1"; shift; "$@"' _ "$functions" "$@"; }
@@ -264,6 +289,20 @@ local_case() { # ROW
   return "$held"
 }
 for row in "${local_rows[@]}"; do holds "${row%%|*} ends as selftest=local-inputs-unavailable, exit 77" local_case "$row"; done
+voxtype_rows=(
+  "no VOXTYPE_MODELS|JARVIS_LOCAL_MODELS=$voice_root/models JARVIS_LOCAL_PYTHON=$voice_root/venv/bin/python"
+  "a VOXTYPE_MODELS folder that is absent|JARVIS_LOCAL_MODELS=$voice_root/models JARVIS_LOCAL_PYTHON=$voice_root/venv/bin/python VOXTYPE_MODELS=$tmp/absent-voxtype-models"
+  "a VOXTYPE_MODELS folder without the configured model|JARVIS_LOCAL_MODELS=$voice_root/models JARVIS_LOCAL_PYTHON=$voice_root/venv/bin/python VOXTYPE_MODELS=$tmp/empty-voxtype-models"
+)
+mkdir -p "$tmp/empty-voxtype-models"
+voxtype_case() { # ROW
+  read -r -a inputs <<<"${1#*|}"
+  local held=0
+  ends 77 "selftest=input-missing name=VOXTYPE_MODELS" --type hello --brain "$sign_in" || held=1
+  inputs=("${voice_inputs[@]}")
+  return "$held"
+}
+for row in "${voxtype_rows[@]}"; do holds "${row%%|*} ends as selftest=input-missing name=VOXTYPE_MODELS, exit 77" voxtype_case "$row"; done
 refused() { # WANT_FIRST_STDERR_LINE ARGS...
   local want="$1"
   shift
@@ -312,6 +351,9 @@ control plant "a runner that goes on to a key read with no session bus" '  [[ -n
 control plant "a runner that goes on without a prepared local voice" 'selftest_local_inputs)" || unavailable local-inputs-unavailable' 'selftest_local_inputs)" || local_inputs=/nowhere$'"'"'\n'"'"'/nowhere' local_case "${local_rows[0]}"
 control plant "a runner that takes an interpreter of another setup" '  [[ $models -ef $root/models && $python -ef $root/venv/bin/python ]] || return 1' '' local_case "${local_rows[2]}"
 control plant "a runner that takes a setup with no ready marker" '  [[ -f $marker ]] || return 1' '' local_case "${local_rows[3]}"
+control plant "a runner that starts with the configured voxtype model absent" 'if not os.path.isdir(path):
+    raise SystemExit(3)' 'if False and not os.path.isdir(path):
+    raise SystemExit(3)' voxtype_case "${voxtype_rows[2]}"
 
 echo "--- what the run makes before its shell starts"
 echo 0 >"$tmp/fence-answer"
@@ -327,15 +369,35 @@ settings_named() {
   starts && [[ "$(row_of)" == "[{\"brain\": \"$sign_in\", \"id\": \"vgs.jarvis\", \"microphone\": \"vgs-smoke-voice\", \"mode\": \"toggle\", \"speaker\": \"vgs-smoke-speakers\", \"voiceProvider\": \"local\"}, [\"vgs.jarvis\"]]" ]]
 }
 voice_linked() { starts && [[ $sandbox/home/.local/share/vgshell/jarvis/local -ef $voice_root ]] && cmp -s -- "$tmp/voice/.local/state/vgshell/jarvis/local-ready.json" "$sandbox/home/.local/state/vgshell/jarvis/local-ready.json"; }
+voxtype_configured() {
+  starts || return 1
+  python3 - "$sandbox/home/.config/voxtype/config.toml" "$voxtype_models/parakeet-tdt-0.6b-v3" <<'PY'
+import os, sys, tomllib
+config, model = sys.argv[1:]
+data = tomllib.load(open(config, "rb"))
+text = open(config).read()
+theme = data["audio"]["feedback"]["theme"]
+if data["parakeet"]["model"] != model or "__VGS_DICTATION_BLOOP_THEME__" in text or not os.path.isdir(theme):
+    raise SystemExit(1)
+PY
+}
+voxtype_cpu_shim() { starts && [[ "$(PATH="$sandbox/shim:$path" command -v voxtype)" == "$sandbox/shim/voxtype" ]] && grep -q '^exec /usr/lib/voxtype/voxtype-onnx-' "$sandbox/shim/voxtype"; }
+feed_defaulted() { starts && [[ "$(<"$tmp/default-source")" == vgs-smoke-voice ]] && grep -qxF -- '-n default 0 default.configured.audio.source { "name": "vgs-smoke-voice" } Spa:String:JSON' "$tmp/pw-metadata.calls"; }
 holds "the sandbox's Jarvis plugin is the checkout's, byte for byte" plugin_restored
 holds "the shell starts with two extra words: the account's directory variable and the run's own trace path" account_alone
 holds "Jarvis's settings name the brain, the feed's source and the null speakers, with Jarvis still disabled" settings_named
 holds "the prepared setup is linked as the sandbox's local voice, with its marker" voice_linked
+holds "the sandbox HOME holds voxtype config with the prepared model path and feedback sounds" voxtype_configured
+holds "the sandbox shell resolves voxtype to the CPU wrapper" voxtype_cpu_shim
+holds "the voice feed is the sandbox PipeWire default source before Jarvis starts" feed_defaulted
 control plant "a runner that keeps the harness's instrumented plugin" \
   'rm -rf -- "${repo:?}/shell/plugins/vgs.jarvis"'$'\n''cp -R -- "$plugin" "$repo/shell/plugins/vgs.jarvis"' ':' plugin_restored
 control plant "a runner that hands the shell another word of the caller's" 'bar "${account_word[@]}"' 'bar "${account_word[@]}" "HOME=$HOME"' account_alone
 control plant "a runner that names the daemon no trace path" ' "VGS_JARVIS_TRACE=$sandbox/selftest-brain.jsonl" || stopped shell-not-started' ' || stopped shell-not-started' account_alone
 control plant "a runner that leaves the microphone to the default" '"microphone": microphone,' '' settings_named
+control plant "a runner that leaves the voxtype config's model relative" 'model_path = os.path.join(models, model_name)' 'model_path = model_name' voxtype_configured
+control plant "a runner that lets the host voxtype win PATH resolution" '  mv -T -- "$shim/voxtype.next" "$shim/voxtype"' '  :' voxtype_cpu_shim
+control plant "a runner that does not make the feed the default source" '  devices_voice_feed_default || stopped no-voice-feed default-failed' '  :' feed_defaulted
 
 # The device guard: the run goes on only where the guard reads the shell
 # inside. One table: the guard's answer, the run's last line, and whether
@@ -1047,6 +1109,7 @@ want = {"input": {"kind": "wav", "value": "/voice.wav"}, "brain": "cli:b", "home
         "raw": ["It is **noon**. `date` says so.", "Anything else?"],
         "tools": [{"tool": "shell.argv", "decision": "confirm", "confirmed": "none", "outcome": "pending"},
                   {"tool": "shell.argv", "decision": "confirm", "confirmed": "physical", "outcome": "completed"}],
+        "dictation": {"daemon": [], "recordings": []},
         "mailbox": [],
         "widget": [{"ms": -100, "state": "ready"}, {"ms": 40, "state": "listening"}, {"ms": 250, "state": "working"}, {"ms": 2100, "state": "ready"}],
         "phases": [{"ms": -100, "phase": "idle"}, {"ms": 250, "phase": "thinking"}, {"ms": 900, "phase": "speaking"}, {"ms": 2100, "phase": "idle"}],
@@ -1082,8 +1145,29 @@ holds "the record holds no argument of a tool call" names_only
 holds "the record holds each row the mailbox read printed, whole" mailbox_rows
 holds "a run with no home folder records no mailbox" mailbox_none
 holds "the realtime voice's record holds each caption segment whole, timed at its first words" realtime_sentences
+dictation_samples() {
+  local state="$tmp/lent.json" daemon="$tmp/dictation-daemon.jsonl" recordings="$tmp/dictation-recordings.jsonl"
+  rm -f -- "$daemon" "$recordings"
+  bash -c 'set -euo pipefail; source "$1"; state="$2"; daemon="$3"; recordings="$4"
+    ipc() { [[ $1 == shell && $2 == lent ]] || return 1; cat -- "$state"; }
+    printf "%s\n" "{\"dictation\":{\"daemon\":\"absent\",\"child\":\"none\",\"holders\":[],\"holder\":\"\",\"mode\":\"\"}}" >"$state"
+    selftest_dictation_sample 0 "$daemon" "$recordings"
+    printf "%s\n" "{\"dictation\":{\"daemon\":\"ready\",\"child\":\"running\",\"holders\":[\"p\"],\"holder\":\"\",\"mode\":\"\"}}" >"$state"
+    selftest_dictation_sample 40 "$daemon" "$recordings"
+    printf "%s\n" "{\"dictation\":{\"daemon\":\"ready\",\"child\":\"running\",\"holders\":[\"p\"],\"holder\":\"p\",\"mode\":\"text\"}}" >"$state"
+    selftest_dictation_sample 80 "$daemon" "$recordings"
+    printf "%s\n" "{\"dictation\":{\"daemon\":\"ready\",\"child\":\"running\",\"holders\":[\"p\"],\"holder\":\"\",\"mode\":\"\"}}" >"$state"
+    selftest_dictation_sample 120 "$daemon" "$recordings"
+    ipc() { return 1; }
+    selftest_dictation_sample 160 "$daemon" "$recordings"
+    selftest_dictation_record "$daemon" "$recordings"
+  ' _ "$functions" "$state" "$daemon" "$recordings" >"$tmp/out"
+  [[ "$(<"$tmp/out")" == '{"daemon":[{"ms":0,"daemon":"absent","child":"none"},{"ms":40,"daemon":"ready","child":"running"}],"recordings":[{"ms":80,"phase":"recording"},{"ms":120,"phase":"released"}]}' ]]
+}
+holds "the dictation record logs daemon changes and recording phases without inventing a failed lent read" dictation_samples
 for row in "${failed_rows[@]}"; do holds "a record for [$row] is not marked passed" not_passed "$row"; done
 control cut_functions "a record that keeps the audit record whole" 'tools.append({key: row[key] for key in ("tool", "decision", "confirmed", "outcome")})' 'tools.append(row)' names_only
+control cut_functions "a record that drops dictation" '"dictation": dictation,' '' record_holds
 control cut_functions "a record that drops the brain's own text" '"raw": raw,' '"raw": [],' record_holds
 control cut_functions "a record that drops the Session phases" 'for e in events if e["kind"] == "phase" and e["value"]],' 'for e in events if False],' record_holds
 control cut_functions "a record that reads two turns' brain text as one" '    if (row["gen"], row["op"]) != turn:' '    if turn is None:' record_holds
@@ -1107,27 +1191,31 @@ finish_rows=(
   "a turn that never woke|no-wake|nothing|1|no-wake|False"
   "a turn that never ended|waiting|nothing|1|timeout|False"
   "a home folder that changed during the run|ended=idle|home|1|completed|False"
+  "a voxtype models folder that changed during the run|ended=idle|models|1|completed|False"
   "an authentication stand-in the run reached|ended=idle|auth|1|completed|False"
   "a sandbox check the harness counted as failed|ended=idle|checks|1|completed|False"
 )
 finish_copy="$tmp/finish copy"
 finish_case() { # ROW
-  local turn broke want_status end passed sum checks=0 status=0
+  local turn broke want_status end passed sum model_sum checks=0 status=0
   IFS='|' read -r _ turn broke want_status end passed <<<"$1"
   planted_trace final
   make_folder
   sum="$(call selftest_tree_sum "$folder")" || return 1
+  model_sum="$(call selftest_tree_sum "$voxtype_models")" || return 1
   rm -rf -- "${finish_copy:?}"
   cp -a -- "$folder" "$finish_copy"
   : >"$tmp/auth.calls"
   rm -f -- "${tmp:?}/record.json"
   case "$broke" in
     home) echo memory >"$folder/state/turn.json" ;;
+    models) echo changed >"$voxtype_models/parakeet-tdt-0.6b-v3/changed" ;;
     auth) echo "secret-tool store --label=planted service vgs-jarvis" >"$tmp/auth.calls" ;;
     checks) checks=1 ;;
   esac
   call selftest_finish "$turn" "$sum" "$tmp/auth.calls" "$checks" "$tmp/trace.json" "$tmp/audit" "$tmp/record.json" \
-    idle "" wav /voice.wav cli:b "$folder" local toggle key "$repo" "$finish_copy" "$tmp/brain.jsonl" '{"speechEndMs":1200,"firstMs":350,"longestGapMs":120,"sounds":[[1550,1900]]}' >"$tmp/out" 2>"$tmp/err" || status=$?
+    idle "" wav /voice.wav cli:b "$folder" local toggle key "$repo" "$finish_copy" "$tmp/brain.jsonl" '{"speechEndMs":1200,"firstMs":350,"longestGapMs":120,"sounds":[[1550,1900]]}' '{"daemon":[],"recordings":[]}' "$model_sum" "$voxtype_models" >"$tmp/out" 2>"$tmp/err" || status=$?
+  [[ $broke != models ]] || rm -f -- "$voxtype_models/parakeet-tdt-0.6b-v3/changed"
   [[ $status -eq $want_status && "$(tail -n 1 -- "$tmp/out")" == "selftest=$end record=$tmp/record.json" ]] || return 1
   [[ "$(python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print(r["end"]["kind"], r["passed"])' "$tmp/record.json")" == "$end $passed" ]]
 }
@@ -1140,10 +1228,11 @@ control cut_functions "a verdict that takes a stopped gate as a completed turn" 
 control cut_functions "a verdict that takes no-wake as a completed turn" '    no-wake) echo no-wake ;;' '    no-wake) echo completed ;;' finish_case "${finish_rows[4]}"
 control cut_functions "a verdict that takes a turn that never ended as completed" '    *) echo timeout ;;' '    *) echo completed ;;' finish_case "${finish_rows[5]}"
 control cut_functions "a verdict that reads no home checksum" '[[ $sum == "$home_sum" ]] || {' 'true || {' finish_case "${finish_rows[6]}"
-control cut_functions "a verdict that passes a run that reached an authentication stand-in" 'if [[ -s $auth_log ]]; then kept=false;' 'if [[ -s $auth_log ]]; then' finish_case "${finish_rows[7]}"
-control cut_functions "a verdict that passes a run with a failed sandbox check" '[[ $failures -eq 0 ]] || { kept=false;' '[[ $failures -eq 0 ]] || {' finish_case "${finish_rows[8]}"
+control cut_functions "a verdict that reads no voxtype models checksum" '[[ $sum == "$voxtype_models_sum" ]] || {' 'true || {' finish_case "${finish_rows[7]}"
+control cut_functions "a verdict that passes a run that reached an authentication stand-in" 'if [[ -s $auth_log ]]; then kept=false;' 'if [[ -s $auth_log ]]; then' finish_case "${finish_rows[8]}"
+control cut_functions "a verdict that passes a run with a failed sandbox check" '[[ $failures -eq 0 ]] || { kept=false;' '[[ $failures -eq 0 ]] || {' finish_case "${finish_rows[9]}"
 control cut_functions "a run whose exit status is not its record's mark" '  [[ $verdict == passed ]] || exit 1' '  :' finish_case "${finish_rows[6]}"
-control cut_functions "a record written before the run's rules are read" '"$end" "$kept" "$brain_text" "$audio_json")' '"$end" true "$brain_text" "$audio_json")'$'\n''  [[ $kept == true ]] || verdict=failed' finish_case "${finish_rows[7]}"
+control cut_functions "a record written before the run's rules are read" '"$end" "$kept" "$brain_text" "$audio_json" "$dictation_json")' '"$end" true "$brain_text" "$audio_json" "$dictation_json")'$'\n''  [[ $kept == true ]] || verdict=failed' finish_case "${finish_rows[8]}"
 
 echo "--- the mailbox"
 # The record the run writes in the home copy: with it lane-mail's send

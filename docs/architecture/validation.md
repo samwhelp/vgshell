@@ -97,6 +97,8 @@ A broken environment that reads as a pass hides the regression the check exists 
 - Never point a test of the self-test at the caller's keyring; it reads a stand-in secrets service on a scratch bus. Review holds it.
 - Do copy the home folder the run names and hand Jarvis the copy; never write the folder itself. `scripts/test-jarvis-selftest.sh` holds the copy and its checksum.
 - Do feed a recorded voice only through the voice feed of the sandbox's PipeWire, after the device guard passes and the widget reads the microphone open; a run without the feed ends as `selftest=no-voice-feed`. `scripts/smoke/rows/device-fakes.sh` holds the guard and the feed, and `scripts/test-jarvis-selftest.sh` the refusal.
+- Do give the sandbox its own voxtype config for a local voice turn. It points at `VOXTYPE_MODELS` in place, uses the CPU voxtype build, and makes the sandbox voice feed the default source before Jarvis starts. `scripts/test-jarvis-selftest.sh` holds it.
+- Never write the caller's voxtype models folder or talk to the caller's voxtype daemon. `scripts/test-jarvis-selftest.sh` holds the models checksum, and review holds the daemon boundary.
 - Never mark a record passed unless the turn completed and Jarvis committed a user turn. `scripts/test-jarvis-selftest.sh` holds it.
 
 ## The canonical example

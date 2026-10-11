@@ -729,7 +729,10 @@ entry_words() {
 # leads with the directory of the binary itself.
 node_bin="$(node -e 'process.stdout.write(process.execPath)')" || { echo "test-gpu-fence: missing=node" >&2; exit 1; }
 voice_root="$TMP_ROOT/voice/.local/share/vgshell/jarvis/local"
+voxtype_models="$TMP_ROOT/voxtype-models"
 mkdir -p "$voice_root/models" "$voice_root/venv/bin" "$TMP_ROOT/voice/.local/state/vgshell/jarvis"
+mkdir -p "$voxtype_models/parakeet-tdt-0.6b-v3"
+echo model >"$voxtype_models/parakeet-tdt-0.6b-v3/model.bin"
 printf '#!/bin/sh\nexit 0\n' >"$voice_root/venv/bin/python"
 chmod +x "$voice_root/venv/bin/python"
 echo '{}' >"$TMP_ROOT/voice/.local/state/vgshell/jarvis/local-ready.json"
@@ -746,6 +749,7 @@ entry() {
   cp -- "$file" "$tree/scripts/$name"
   cp -- "$TMP_ROOT/fence-stand-in" "$tree/scripts/smoke/gpu-fence.sh"
   cp -- "$repo/scripts/smoke/rows.list" "$tree/scripts/smoke/rows.list"
+  ln -s -- "$repo/config" "$tree/config"
   printf 'echo harness-reached\nexit 0\n' >"$tree/scripts/smoke/harness.sh"
   echo 'exports.use = () => {};' >"$tree/shell/plugins/vgs.jarvis/backend/Core.js"
   echo 'exports.Accounts = class { resolve() { return { source: { kind: "local" } }; } };' >"$tree/shell/plugins/vgs.jarvis/backend/Accounts.js"
@@ -753,7 +757,7 @@ entry() {
   echo "$3" >"$TMP_ROOT/fence-answer"
   status=0
   (cd -- "$TMP_ROOT/cwd" && env -i PATH="$(dirname -- "$node_bin"):$PATH" HOME="$TMP_ROOT" TMPDIR="$TMP_ROOT/entry-tmp" QML_UNIT_RUNNER="$TMP_ROOT/runner" \
-    JARVIS_LOCAL_MODELS="$voice_root/models" JARVIS_LOCAL_PYTHON="$voice_root/venv/bin/python" \
+    JARVIS_LOCAL_MODELS="$voice_root/models" JARVIS_LOCAL_PYTHON="$voice_root/venv/bin/python" VOXTYPE_MODELS="$voxtype_models" \
     "$BASH" "$tree/scripts/$name" "${words[@]}") >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
 }
 # enters FILE NAME: where the check fails, the fence gets the script's own

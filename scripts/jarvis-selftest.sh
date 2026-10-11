@@ -37,7 +37,8 @@
 # environment that enters the sandbox.
 # --voice realtime listens and speaks through OpenAI's Realtime session with
 # the caller's one saved OpenAI key, the key the plugin's Accounts page
-# chooses by itself; local, the default, is the prepared local voice below.
+# chooses by itself; local, the default, is the prepared local voice below
+# plus the sandbox's own voxtype config.
 # A saved key, the brain's or the realtime voice's, is read under the
 # owner's exception in docs/architecture/validation.md § Jarvis self-test.
 # Its reference, which holds no secret, is saved in the sandbox by the
@@ -76,7 +77,13 @@
 # plugin's own setup-local made under a scratch HOME,
 # <HOME>/.local/share/vgshell/jarvis/local/models and
 # .../local/venv/bin/python, and the run reads that setup's ready marker,
-# <HOME>/.local/state/vgshell/jarvis/local-ready.json.
+# <HOME>/.local/state/vgshell/jarvis/local-ready.json. With --voice local,
+# VOXTYPE_MODELS names the caller's voxtype model directory. The run writes
+# the sandbox HOME's voxtype config from config/voxtype/config.toml, points
+# its configured engine model at VOXTYPE_MODELS, and reads that model in
+# place. voxtype 1.1.0 has no config key that selects the CPU ONNX build, so
+# the run puts a voxtype wrapper in the sandbox command shim, ahead of the
+# shell's PATH, and that wrapper execs the canonical CPU build directly.
 #
 # With --cold N, the record is one JSON object: `kind: "cold-starts"`,
 # `starts` and `cpuPressure`. Each start disables and enables Jarvis and
@@ -91,14 +98,16 @@
 # (each brain turn's text as the brain wrote it, before Jarvis chose what to
 # speak, from the trace the daemon writes for a test run alone), `tools`
 # (each audit record of a tool call as {tool, decision, confirmed, outcome},
-# names only), `mailbox` (with --home, each row the Jarvis session's read of
+# names only), `dictation` (daemon changes as {ms, daemon, child} and
+# recording changes as {ms, phase}, read from the shell lending record),
+# `mailbox` (with --home, each row the Jarvis session's read of
 # its mailbox hands over after the turn, as lane-mail prints it; null
 # without), `widget` (each bar widget state as {ms, state}), `phases` (each
 # Session phase as {ms, phase}), `audio`
 # {speechEndMs, firstMs, longestGapMs, sounds}, `end` {kind, phase, fault}
 # and `passed`. A suite comparison adds `case.source`: `case` for the tracked
 # input or `local` for --voices. Every ms counts from the input's start on the shell's own
-# clock except firstMs and longestGapMs, which are relative to speech end.
+# clock, using input_started_ms and now_ms; firstMs and longestGapMs are relative to speech end.
 # `end.kind` is completed, fault, gate-down, no-wake or timeout; `passed`
 # is true only for a completed turn with a heard text, in
 # a run whose --home folder, when named, reads as before, that reached no
@@ -119,6 +128,7 @@
 #   selftest=keyring-unavailable       no session bus, no keyring on it, or a
 #                                      program the read needs, `missing=`
 #   selftest=local-inputs-unavailable  no prepared local voice
+#   selftest=input-missing             a prepared input is absent, `name=`
 #   selftest=account-judge-unavailable no node to run the plugin's judge
 #   selftest=devices-unavailable       the device fakes' prerequisites
 # or the harness's own `qml-smoke: status=not-measured` line.
@@ -214,6 +224,102 @@ selftest_local_inputs() {
   marker="$root/../../../../state/vgshell/jarvis/local-ready.json"
   [[ -f $marker ]] || return 1
   printf '%s\n%s\n' "$root" "$(readlink -f -- "$marker")"
+}
+
+# selftest_voxtype_cpu: the canonical CPU voxtype build the sandbox shell
+# must run. voxtype 1.1.0 chooses the ONNX build through the installed
+# executable, not through config, and ORT needs the canonical binary path.
+selftest_voxtype_cpu() {
+  if grep -qw avx512f /proc/cpuinfo && [[ -x /usr/lib/voxtype/voxtype-onnx-avx512 ]]; then
+    printf '%s\n' /usr/lib/voxtype/voxtype-onnx-avx512
+    return 0
+  fi
+  if [[ -x /usr/lib/voxtype/voxtype-onnx-avx2 ]]; then
+    printf '%s\n' /usr/lib/voxtype/voxtype-onnx-avx2
+    return 0
+  fi
+  return 1
+}
+
+# selftest_voxtype_model_path SOURCE MODELS: the configured engine model as
+# an absolute path under MODELS, if that model is present.
+selftest_voxtype_model_path() { # SOURCE MODELS
+  python3 - "$@" <<'PY'
+import os, sys, tomllib
+source, models = sys.argv[1:]
+config = tomllib.load(open(source, "rb"))
+engine = config.get("engine")
+model = (config.get(engine) or {}).get("model") if isinstance(engine, str) else None
+if not isinstance(model, str) or not model:
+    raise SystemExit(4)
+path = os.path.join(models, model)
+if not os.path.isdir(path):
+    raise SystemExit(3)
+print(path)
+PY
+}
+
+# selftest_voxtype_config SOURCE MODELS BLOOP DEST: DEST is SOURCE with the
+# configured engine's model path under MODELS and the feedback token pointed
+# at BLOOP. The source's engine and model name are read from the config.
+selftest_voxtype_config() { # SOURCE MODELS BLOOP DEST
+  python3 - "$@" <<'PY'
+import os, re, sys, tomllib
+source, models, bloop, dest = sys.argv[1:]
+text = open(source, "rb").read()
+config = tomllib.loads(text.decode())
+engine = config.get("engine")
+if not isinstance(engine, str) or not engine:
+    raise SystemExit(4)
+model_name = (config.get(engine) or {}).get("model")
+if not isinstance(model_name, str) or not model_name:
+    raise SystemExit(4)
+model_path = os.path.join(models, model_name)
+lines = text.decode().splitlines(keepends=True)
+section = None
+changed = False
+for index, line in enumerate(lines):
+    match = re.match(r"\s*\[([^\]]+)\]\s*(?:#.*)?$", line)
+    if match:
+        section = match.group(1).strip()
+        continue
+    if section == engine and re.match(r"\s*model\s*=", line):
+        newline = "\n" if line.endswith("\n") else ""
+        lines[index] = 'model = "' + model_path.replace("\\", "\\\\").replace('"', '\\"') + '"' + newline
+        changed = True
+        break
+if not changed:
+    raise SystemExit(4)
+rendered = "".join(lines).replace("__VGS_DICTATION_BLOOP_THEME__", bloop)
+os.makedirs(os.path.dirname(dest), exist_ok=True)
+with open(dest + ".next", "w") as out:
+    out.write(rendered)
+os.replace(dest + ".next", dest)
+print(model_path)
+PY
+}
+
+# selftest_voxtype_prepare SOURCE_REPO MODELS: the sandbox HOME's voxtype
+# config and the sandbox shell's voxtype command, which execs the real CPU
+# build. The models folder is read in place and guarded by the caller.
+selftest_voxtype_prepare() { # SOURCE_REPO MODELS
+  local source_repo="$1" models="$2" cpu config_model resolved
+  cpu="$(selftest_voxtype_cpu)" || unavailable input-missing name=voxtype-cpu
+  [[ -n $models && -d $models ]] || unavailable input-missing name=VOXTYPE_MODELS
+  config_model="$(selftest_voxtype_config "$source_repo/config/voxtype/config.toml" "$models" \
+    "$source_repo/config/voxtype/sounds/bloop" "$home/.config/voxtype/config.toml")" || {
+      case $? in
+        3) unavailable input-missing name=VOXTYPE_MODELS ;;
+        *) stopped voxtype-config-unread ;;
+      esac
+    }
+  # The wrapper keeps the daemon pid as the real voxtype process and reaches
+  # the CPU ONNX binary by its canonical path, which ORT expects.
+  printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$cpu" >"$shim/voxtype.next"
+  chmod 755 "$shim/voxtype.next"
+  mv -T -- "$shim/voxtype.next" "$shim/voxtype"
+  resolved="$(shell_resolves voxtype)"
+  [[ $resolved == "$shim/voxtype" ]] || stopped voxtype-shim "$resolved"
 }
 
 # selftest_tts_voice PLUGIN MARKER: the id of the text-to-speech artifact
@@ -593,8 +699,56 @@ selftest_open() { # KIND MODE VALUE WAV TAIL_MS
   speech_end_ms=$((feed_done - tail))
 }
 
+# selftest_dictation_sample MS DAEMON_LOG RECORDING_LOG: append changes from
+# the shell lending record's dictation field. A failed lent read records no
+# state, because the run must not invent one.
+selftest_dictation_sample() { # MS DAEMON_LOG RECORDING_LOG
+  local reply
+  reply="$(ipc shell lent)" || return 0
+  SELFTEST_LENT="$reply" python3 - "$1" "$2" "$3" <<'PY'
+import json, os, sys
+ms, daemon_log, recording_log = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+root = json.loads(os.environ["SELFTEST_LENT"])
+row = root.get("dictation")
+if not isinstance(row, dict):
+    sys.exit(0)
+def read_last(path):
+    if not os.path.exists(path):
+        return None
+    last = None
+    for line in open(path):
+        if line.strip():
+            last = json.loads(line)
+    return last
+daemon = {"daemon": row.get("daemon", ""), "child": row.get("child", "")}
+last = read_last(daemon_log)
+if last is None or last.get("daemon") != daemon["daemon"] or last.get("child") != daemon["child"]:
+    with open(daemon_log, "a") as out:
+        out.write(json.dumps({"ms": ms, **daemon}, separators=(",", ":")) + "\n")
+holder = row.get("holder") or ""
+last = read_last(recording_log)
+if holder and (last is None or last.get("phase") != "recording"):
+    with open(recording_log, "a") as out:
+        out.write(json.dumps({"ms": ms, "phase": "recording"}, separators=(",", ":")) + "\n")
+elif not holder and last is not None and last.get("phase") == "recording":
+    with open(recording_log, "a") as out:
+        out.write(json.dumps({"ms": ms, "phase": "released"}, separators=(",", ":")) + "\n")
+PY
+}
+
+selftest_dictation_record() { # DAEMON_LOG RECORDING_LOG
+  python3 - "$1" "$2" <<'PY'
+import json, os, sys
+def rows(path):
+    if not os.path.exists(path):
+        return []
+    return [json.loads(line) for line in open(path) if line.strip()]
+print(json.dumps({"daemon": rows(sys.argv[1]), "recordings": rows(sys.argv[2])}, separators=(",", ":")))
+PY
+}
+
 # selftest_record TRACE AUDIT OUT PHASE FAULT KIND VALUE BRAIN HOME VOICE
-# MODE CONFIRM MAILBOX END KEPT BRAIN_TEXT AUDIO_JSON: the record the header describes,
+# MODE CONFIRM MAILBOX END KEPT BRAIN_TEXT AUDIO_JSON DICTATION_JSON: the record the header describes,
 # written to OUT by rename, from the probe's trace in the file TRACE, the
 # audit records under AUDIT, which may be absent, and the daemon's own trace
 # of brain text in the file BRAIN_TEXT. HOME is "" for none, MAILBOX is
@@ -605,6 +759,7 @@ selftest_record() {
 import json, os, sys
 trace, audit, out, phase, fault, kind, value, brain, home, voice, mode, confirm, mailbox, end, kept, brain_text, *rest = sys.argv[1:]
 audio = json.loads(rest[0]) if rest else {"speechEndMs": None, "firstMs": None, "longestGapMs": None, "sounds": []}
+dictation = json.loads(rest[1]) if len(rest) > 1 else {"daemon": [], "recordings": []}
 events = json.load(open(trace))
 # ChainedEngine.js writes one line for each text event of a brain turn.
 raw, turn = [], None
@@ -654,6 +809,7 @@ for name in sorted(os.listdir(audit)) if os.path.isdir(audit) else []:
 passed = end == "completed" and heard is not None and kept == "true"
 record = {"input": {"kind": kind, "value": value}, "brain": brain, "home": home or None, "voice": voice,
           "mode": mode, "confirm": confirm, "heard": heard, "sentences": sentences, "raw": raw, "tools": tools,
+          "dictation": dictation,
           "mailbox": [json.loads(line) for line in mailbox.splitlines()] if home else None,
           "widget": [{"ms": e["at"] - start, "state": e["value"]} for e in events if e["kind"] == "widget" and e["value"]],
           "phases": [{"ms": e["at"] - start, "phase": e["value"]} for e in events if e["kind"] == "phase" and e["value"]],
@@ -981,7 +1137,8 @@ selftest: setup=null daemon=null gate={"kind":"none"}'
   stopped "$@" "$gate"
 }
 # selftest_finish TURN HOME_SUM AUTH_LOG FAILURES TRACE AUDIT OUT PHASE FAULT
-# KIND VALUE BRAIN HOME VOICE MODE CONFIRM TREE HOME_COPY BRAIN_TEXT AUDIO_JSON: the run's
+# KIND VALUE BRAIN HOME VOICE MODE CONFIRM TREE HOME_COPY BRAIN_TEXT AUDIO_JSON
+# DICTATION_JSON VOXTYPE_MODELS_SUM VOXTYPE_MODELS: the run's
 # one verdict.
 # It reads the rows the turn added to the mailbox of HOME_COPY, Jarvis's copy
 # of HOME, with TREE's lane-mail, and what the run broke outside its turn:
@@ -994,18 +1151,23 @@ selftest: setup=null daemon=null gate={"kind":"none"}'
 # broken, then the run's last line, and exits 0 for a passed record and 1
 # for any other.
 selftest_finish() {
-  local turn="$1" home_sum="$2" auth_log="$3" failures="$4" out="$7" home_source="${13}" tree="${17}" home_copy="${18}" brain_text="${19}" audio_json="${20:-}" end sum kept=true verdict mailbox=""
+  local turn="$1" home_sum="$2" auth_log="$3" failures="$4" out="$7" home_source="${13}" tree="${17}" home_copy="${18}" brain_text="${19}" audio_json="${20:-}" dictation_json="${21:-}" voxtype_models_sum="${22:-}" voxtype_models="${23:-}" end sum kept=true verdict mailbox=""
   [[ -n $audio_json ]] || audio_json='{"speechEndMs":null,"firstMs":null,"longestGapMs":null,"sounds":[]}'
+  [[ -n $dictation_json ]] || dictation_json='{"daemon":[],"recordings":[]}'
   end="$(selftest_end "$turn")"
   if [[ -n $home_source ]]; then
     mailbox="$(selftest_mailbox "$tree" "$home_copy")" || stopped mailbox-unread
     sum="$(selftest_tree_sum "$home_source")" || stopped home-unread
     [[ $sum == "$home_sum" ]] || { kept=false; printf 'selftest: the home folder changed during the run: %s\n' "$home_source"; }
   fi
+  if [[ -n $voxtype_models ]]; then
+    sum="$(selftest_tree_sum "$voxtype_models")" || stopped voxtype-models-unread
+    [[ $sum == "$voxtype_models_sum" ]] || { kept=false; printf 'selftest: the voxtype models folder changed during the run: %s\n' "$voxtype_models"; }
+  fi
   if [[ -s $auth_log ]]; then kept=false; printf 'selftest: an authentication stand-in was reached: %s\n' "$auth_log"; sed 's/^/        /' -- "$auth_log"; fi
   [[ $failures -eq 0 ]] || { kept=false; printf 'selftest: %s sandbox check(s) failed above\n' "$failures"; }
   mkdir -p -- "$(dirname -- "$out")"
-  verdict="$(selftest_record "${@:5:12}" "$mailbox" "$end" "$kept" "$brain_text" "$audio_json")" || stopped record-not-written
+  verdict="$(selftest_record "${@:5:12}" "$mailbox" "$end" "$kept" "$brain_text" "$audio_json" "$dictation_json")" || stopped record-not-written
   printf 'selftest=%s record=%s\n' "$end" "$out"
   [[ $verdict == passed ]] || exit 1
   exit 0
@@ -1162,6 +1324,19 @@ if [[ $voice == local || $input_kind == tts ]]; then
   local_inputs="$(selftest_local_inputs)" || unavailable local-inputs-unavailable
   { read -r local_root; read -r local_marker; } <<<"$local_inputs"
 fi
+voxtype_models=""
+voxtype_models_sum=""
+if [[ $voice == local ]]; then
+  [[ -n ${VOXTYPE_MODELS:-} && -d ${VOXTYPE_MODELS:-} ]] || unavailable input-missing name=VOXTYPE_MODELS
+  voxtype_models="$(cd -- "$VOXTYPE_MODELS" && pwd -P)" || unavailable input-missing name=VOXTYPE_MODELS
+  selftest_voxtype_model_path "$repo/config/voxtype/config.toml" "$voxtype_models" >/dev/null || {
+    case $? in
+      3) unavailable input-missing name=VOXTYPE_MODELS ;;
+      *) stopped voxtype-config-unread ;;
+    esac
+  }
+  voxtype_models_sum="$(selftest_tree_sum "$voxtype_models")" || unavailable input-missing name=VOXTYPE_MODELS
+fi
 
 # No process this run starts may open an amdgpu node, so the run goes on
 # only where none is visible: scripts/smoke/gpu-fence.sh.
@@ -1202,6 +1377,7 @@ if [[ $voice == local ]]; then
   # setup where setup-local made it.
   ln -s -- "$local_root" "$home/.local/share/vgshell/jarvis/local"
   cp -- "$local_marker" "$home/.local/state/vgshell/jarvis/local-ready.json"
+  selftest_voxtype_prepare "$source_repo" "$voxtype_models"
 fi
 if [[ ${#key_references[@]} -gt 0 ]]; then
   # The filter runs with no environment and ends with the harness's other
@@ -1270,6 +1446,10 @@ devices_up || status=$?
 [[ $status -eq 0 ]] || stopped devices-failed "$devices_state"
 # The feed's two sides are there before Jarvis starts, with no reader yet.
 selftest_wait 10 absent=recorder devices_voice_feed_state || stopped no-voice-feed "$reading"
+if [[ $voice == local ]]; then
+  devices_voice_feed_default || stopped no-voice-feed default-failed
+  selftest_wait 10 "$devices_voice_feed_source" devices_voice_feed_default_source || stopped no-voice-feed "default=$reading"
+fi
 start_shell "$repo" "$sandbox/selftest-shell.log" bar "${account_word[@]}" "VGS_JARVIS_TRACE=$sandbox/selftest-brain.jsonl" || stopped shell-not-started
 # The owner's microphone, speakers and buses stay out of reach: the guard
 # reads the shell every Jarvis process descends from.
@@ -1299,6 +1479,10 @@ selftest_wait 10 ready speaker_state || stopped speaker-capture-not-started
 
 input_started_ms=""
 speech_end_ms=""
+selftest_dictation_daemon="$sandbox/selftest-dictation-daemon.jsonl"
+selftest_dictation_recordings="$sandbox/selftest-dictation-recordings.jsonl"
+: >"$selftest_dictation_daemon"
+: >"$selftest_dictation_recordings"
 selftest_open "$input_kind" "$mode" "$input_value" "${wav:-}" "$input_tail"
 
 turn=waiting
@@ -1306,6 +1490,7 @@ turn_until=$((SECONDS + 300))
 feed_end_seconds=$SECONDS
 while ((SECONDS < turn_until)); do
   turn="$(ipc smoke jarvisTrace | selftest_turn)" || turn=unread
+  selftest_dictation_sample "$(( $(now_ms) - input_started_ms ))" "$selftest_dictation_daemon" "$selftest_dictation_recordings"
   [[ $turn != ended=* ]] || break
   if [[ $mode == always && $((SECONDS - feed_end_seconds)) -ge 30 ]]; then
     woke="$(ipc smoke jarvisTrace | selftest_woke)" || woke=woke
@@ -1322,11 +1507,13 @@ fault="$(ipc smoke jarvisProcess | py_reply 'import json,sys; d=json.load(sys.st
 # Stop ends the conversation, so the trace ends with the widget at rest.
 ipc vgs.jarvis invoke stop "" >/dev/null || true
 window_end_ms="$(now_ms)"
+selftest_dictation_sample "$(( window_end_ms - input_started_ms ))" "$selftest_dictation_daemon" "$selftest_dictation_recordings"
 selftest_wait 10 idle traced phase || true
 devices_speaker_stop || stopped speaker-capture-not-stopped
 speaker_sounds="$(devices_speaker_sounds "$speaker_capture")" || speaker_sounds='[]'
 audio_json="$(selftest_audio_record "$speaker_sounds" "$speech_end_ms" "$window_end_ms")" || stopped audio-unread
+dictation_json="$(selftest_dictation_record "$selftest_dictation_daemon" "$selftest_dictation_recordings")" || stopped dictation-unread
 ipc smoke jarvisTrace >"$sandbox/selftest-trace.json" || stopped trace-unread
 
 selftest_finish "$turn" "$home_sum" "$auth_log" "$failures" "$sandbox/selftest-trace.json" "$home/.local/state/vgshell/jarvis/audit" "$out" \
-  "$phase" "$fault" "$input_kind" "$input_value" "$brain" "$home_source" "$voice" "$mode" "$confirm" "$source_repo" "$home_copy" "$sandbox/selftest-brain.jsonl" "$audio_json"
+  "$phase" "$fault" "$input_kind" "$input_value" "$brain" "$home_source" "$voice" "$mode" "$confirm" "$source_repo" "$home_copy" "$sandbox/selftest-brain.jsonl" "$audio_json" "$dictation_json" "$voxtype_models_sum" "$voxtype_models"
