@@ -105,9 +105,11 @@ Item {
     // While the actions show, the text gives way to them: the column ends
     // tray.gap before the first pill, so no line runs under a pill. The
     // card grows with the lines that adds, up to maxHeight, as at rest.
-    // Without actions the text keeps the whole column.
+    // The text keeps giving way until the tray's fade out ends, since the
+    // pills draw for the whole fade; only then does it take the whole
+    // column back.
     readonly property bool trayShown: caption !== "" || (showActions && actions.length > 0)
-    readonly property real trayReserve: trayShown ? Math.max(0, tray.width + look.tray.gap + pad - textColumn) : 0
+    readonly property real trayReserve: trayShown || tray.visible ? Math.max(0, tray.width + look.tray.gap + pad - textColumn) : 0
     // The summary as drawn: the rule's title once the workspace's icon
     // stands in for the workspace.
     readonly property string title: showsBadge ? enrichment.title : summary
