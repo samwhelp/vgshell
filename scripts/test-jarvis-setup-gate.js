@@ -747,7 +747,8 @@ function verify(gate) {
     }
     for (const [check, tone, action] of [[{ kind: "ready" }, "info", "check"],
         [{ kind: "waiting" }, "info", undefined], [{ kind: "recording" }, "info", undefined],
-        [{ kind: "finishing" }, "info", undefined], [{ kind: "done", result: "ready" }, "ok", "check"],
+        [{ kind: "finishing" }, "info", undefined], [{ kind: "failed", reason: "check-timeout" }, "danger", "check"],
+        [{ kind: "failed", reason: "speech=local-wake-failed" }, "danger", "check"], [{ kind: "done", result: "ready" }, "ok", "check"],
         [{ kind: "done", result: "silent" }, "warning", "check"], [{ kind: "done", result: "not-heard" }, "warning", "check"]]) {
         const value = gate.voiceCheck(gate.DONE, check);
         assert.deepEqual([value.tone, value.action], [tone, action]);
@@ -848,6 +849,7 @@ console.log("test-jarvis-setup-gate: consumer=Settings,Details hint=Choose an AI
 // Each control removes one rule from a copy and keeps the text around it:
 // [label, needle, replacement].
 const CONTROLS = [
+    ["check failure hidden", 'if (check.kind === "failed") return', 'if (false) return'],
     ["microphone check hides a setup cause", 'value.tone !== "ok" || ', "", "voice setup cause survives microphone check"],
     ["silent check is ready", 'if (check.result === "silent") return { tone: "warning"', 'if (check.result === "silent") return { tone: "ok"'],
     ["the AI model hint names the Settings field", '"brain=unselected": "Choose an AI model in Settings > AI model."', '"brain=unselected": "Choose an AI model in Settings."', "Settings AI model hint"],

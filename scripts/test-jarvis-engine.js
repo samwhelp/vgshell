@@ -2279,6 +2279,35 @@ function tracePaths(Engine) {
     assert.equal(fs.statSync(path.join(folder, "made")).mode & 0o777, 0o600, "the trace is the owner's alone");
 }
 
+// The real engine with only its sidecar boundary replaced. No child,
+// device or brain starts; final detector completion follows sink close.
+async function checkFailures(file) {
+    const actual = require("node:module").createRequire(path.join(tree, "shell/plugins/vgs.jarvis/backend/ChainedEngine.js"));
+    for (const closeFirst of [false, true]) {
+        let finish;
+        const outcome = new Promise(resolve => { finish = resolve; });
+        const owner = { status: () => ({ kind: "ready" }), closed: new Promise(() => {}),
+            spot: () => ({ outcome }), close() {} };
+        const local = { row: { select: () => ({ kind: "ready", lifetime: "daemon", wake: true,
+            recipients: [], open: () => owner }) } };
+        const exported = { exports: {} };
+        vm.runInNewContext(fs.readFileSync(file, "utf8"), { module: exported, Buffer, setTimeout, clearTimeout,
+            require: name => name === "./LocalSpeech.js" ? local : actual(name) });
+        const events = [];
+        const engine = exported.exports.create({ captionLimit: 1, dispatch: e => events.push(e) });
+        engine.configure({ brain: "" });
+        const identity = { mode: "check", gen: 1, op: 2 };
+        const sink = engine.captureSink(identity);
+        try {
+            if (closeFirst) sink.destroy();
+            finish({ kind: "failed", error: Object.assign(new Error("jarvis: speech=local-wake-failed"), { code: "wake-failed" }) });
+            await outcome;
+            assert.deepEqual(JSON.parse(JSON.stringify(events)), [{ type: "voice-check-failed", gen: 1, op: 2,
+                reason: "speech=local-wake-failed" }], "check failure reaches Session after capture close");
+        } finally { sink.destroy(); engine.close(); }
+    }
+}
+
 world(async () => {
     const root = process.env.JARVIS_TEST_ROOT;
     // Without local setup's marker the stock table's local row is the cause.
@@ -2292,6 +2321,20 @@ world(async () => {
     await server.ready;
     let controls = 0;
     try {
+        const file = path.join(tree, "shell/plugins/vgs.jarvis/backend/ChainedEngine.js");
+        await checkFailures(file);
+        const original = fs.readFileSync(file, "utf8");
+        const needle = 'result.kind === "failed" && e.mode === "check"';
+        assert.equal(original.split(needle).length, 2, "one check failure dispatch rule");
+        const mutantRoot = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "jarvis-check-failure-"));
+        try {
+            const mutant = path.join(mutantRoot, "closed-check-failure.js");
+            fs.writeFileSync(mutant, original.replace(needle, needle + " && !sink.destroyed"));
+            await assert.rejects(() => checkFailures(mutant), assert.AssertionError,
+                "dropping a closed capture failure turns the check red");
+        } finally { fs.rmSync(mutantRoot, { recursive: true, force: true }); }
+        console.log("control=closed-check-failure detected");
+        controls++;
         // A wait that never observes fails typed; one that settles on another
         // state fails its own assertion, so a control names which it met.
         await assert.rejects(wait(() => false, "unobserved", 20), { operator: "until" });

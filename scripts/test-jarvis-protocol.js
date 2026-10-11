@@ -303,6 +303,11 @@ for (const causes of [[], ["speech=local-not-set-up"], ["brain=unselected"], ["s
     ["home=link", "speech=local-not-set-up", "brain=unselected"], ["guidance=home-too-large", "brain=unselected"]])
     assert.equal(JSON.stringify(Protocol.accept(changed(status, { causes }), "daemon").causes), JSON.stringify(causes));
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(state), "daemon")), JSON.stringify(state));
+for (const reason of ["check-timeout", "speech=local-wake-failed"]) {
+    const failed = { ...state, state: { ...state.state, check: { kind: "failed", reason } } };
+    assert.deepEqual(JSON.parse(JSON.stringify(Protocol.accept(JSON.stringify(failed), "daemon"))), failed,
+        "a microphone check failure carries its cause over the wire");
+}
 // A duplex reply whose words wait at the voice for their first audio.
 const dueState = (() => {
     const Session = Protocol.Session;

@@ -24,7 +24,7 @@ var EVENTS = [
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
     "final", "say", "collect-failed", "brain-done", "brain-failed", "brain-ended", "cancelled", "play", "played",
     "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "deadline", "lease-ended",
-    "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "wake", "voice-check", "voice-checked"
+    "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "wake", "voice-check", "voice-checked", "voice-check-failed"
 ];
 
 function initial() {
@@ -149,7 +149,7 @@ function canEngage(s) {
 }
 
 function canCheck(s) {
-    return s !== null && ["ready", "done"].indexOf(s.check.kind) !== -1 && s.fault.kind === "none" && s.mute.kind === "off"
+    return s !== null && ["ready", "done", "failed"].indexOf(s.check.kind) !== -1 && s.fault.kind === "none" && s.mute.kind === "off"
         && (s.gate.kind === "up" || s.gate.reason === "unconfigured")
         && s.turn.kind === "none" && s.playback.kind === "idle" && s.action.kind !== "running" && s.approval.kind !== "held";
 }
@@ -392,7 +392,10 @@ function expire(s, effects, at) {
             s.input = { kind: "released" };
             closeCapture(s, effects);
             s.check = { kind: "finishing", gen: s.check.gen, op: s.check.op, deadline: at + COLLECTION_TIMEOUT_MS };
-        } else end(s, effects, at, "check-timeout", false);
+        } else {
+            end(s, effects, at, "check-timeout", false);
+            s.check = { kind: "failed", reason: "check-timeout" };
+        }
     }
     // A woken request that heard nothing was a false wake: Always mode goes
     // back to waiting for the word, with no fault to clear first.
@@ -444,7 +447,7 @@ function reduce(state, e) {
         if (e.engine !== "chained" && e.engine !== "duplex") throw new Error("jarvis: session=engine");
         var settingsChanged = changedSettings(s.settings, e.settings) || s.engine.kind !== e.engine;
         var devicesChanged = s.settings.microphone !== e.settings.microphone || s.settings.speaker !== e.settings.speaker;
-        if (devicesChanged && s.check.kind === "done") s.check = { kind: "ready" };
+        if (devicesChanged && ["done", "failed"].indexOf(s.check.kind) !== -1) s.check = { kind: "ready" };
         if (devicesChanged && s.fault.kind === "error" && s.fault.reason === "device-lost")
             s.fault = { kind: "none" };
         if (settingsChanged || devicesChanged && ["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) {
@@ -481,6 +484,11 @@ function reduce(state, e) {
         if (!live(s, e, "check", ["finishing"])) { stale(s); break; }
         if (["ready", "silent", "not-heard"].indexOf(e.result) === -1) throw new Error("jarvis: session=check-result");
         s.check = { kind: "done", result: e.result };
+        break;
+    case "voice-check-failed":
+        if (!live(s, e, "check", ["waiting", "recording", "finishing"])) { stale(s); break; }
+        end(s, effects, e.at, "check-failed", false);
+        s.check = { kind: "failed", reason: e.reason };
         break;
     case "talk-down":
         if (s.approval.kind === "held") {
@@ -832,7 +840,7 @@ var REGIONS = {
     input: { released: "", held: "", conversation: "", "follow-up": "", armed: "", woken: "", check: "" },
     indicator: { gone: "", shown: "" }, duplex: { half: "" },
     engine: { chained: "", duplex: "" }, speech: { closed: "", open: "gen op reply" },
-    check: { unavailable: "", ready: "", waiting: "gen op deadline", recording: "gen op deadline", finishing: "gen op deadline", done: "result" }
+    check: { unavailable: "", ready: "", waiting: "gen op deadline", recording: "gen op deadline", finishing: "gen op deadline", done: "result", failed: "reason" }
 };
 
 function exact(value, names) {

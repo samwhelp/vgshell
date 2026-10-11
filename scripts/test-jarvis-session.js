@@ -13,7 +13,7 @@ const copy = value => JSON.parse(JSON.stringify(value));
 const events = ["snapshot", "indicator", "talk-down", "talk-up", "toggle", "mute", "unmute", "mute-toggle", "stop",
     "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial", "final", "say", "collect-failed", "brain-done",
     "brain-failed", "brain-ended", "cancelled", "play", "played", "flushed", "tool", "tool-done", "approval",
-    "shown", "confirm", "approval-cancel", "deadline", "lease-ended", "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "wake", "voice-check", "voice-checked"];
+    "shown", "confirm", "approval-cancel", "deadline", "lease-ended", "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "wake", "voice-check", "voice-checked", "voice-check-failed"];
 assert.deepEqual(copy(Session.EVENTS), events, "every supported event enters the pair matrix");
 const snapshot = extra => ({ type: "snapshot", at: 0, locked: false, engine: "chained", configured: true,
     settings: {}, ...extra });
@@ -137,6 +137,42 @@ const table = [
             assert.equal(stopped.input.kind, "released", trigger.type);
             assert.equal(["waiting", "recording", "finishing"].includes(stopped.check.kind), false, trigger.type);
             assert.notEqual(step(logic, stopped, callback("voice-checked", s.check, 31, { result: "ready" })).state.check.kind, "done");
+        }
+    }],
+    ["voice-check-failures", logic => {
+        let waiting = step(logic, logic.initial(), snapshot({ configured: false, checkReady: true })).state;
+        waiting = step(logic, waiting, event("voice-check", 1)).state;
+        let recording = step(logic, waiting, event("indicator", 2, { shown: true })).state;
+        recording = step(logic, recording, callback("capture-opened", recording.capture, 3)).state;
+        const finishing = step(logic, recording, callback("deadline", recording.check, recording.check.deadline)).state;
+        for (const [owner, type, reason] of [
+            [waiting, "deadline", "check-timeout"], [finishing, "deadline", "check-timeout"],
+            [recording, "voice-check-failed", "speech=local-wake-failed"],
+            [finishing, "voice-check-failed", "speech=local-wake-failed"]]) {
+            const at = type === "deadline" ? owner.check.deadline : owner.check.deadline - 1;
+            const failed = step(logic, owner, callback(type, owner.check, at, { reason })).state;
+            assert.deepEqual(failed.check, { kind: "failed", reason }, "check failure keeps its cause");
+            assert.equal(logic.validate(failed), true);
+            assert.equal(failed.input.kind, "released");
+            assert.equal(logic.canCapture(failed), false);
+            assert.equal(failed.fault.kind, "none", "check failure does not break normal conversation");
+            assert.equal(logic.canCheck(failed), true, "check can be repeated");
+            const again = step(logic, failed, callback("capture-closed", failed.capture, at + 1)).state;
+            const repeated = step(logic, again, event("voice-check", at + 2)).state;
+            assert.equal(repeated.check.kind, "waiting");
+            assert.notEqual(repeated.check.op, owner.check.op);
+            const stale = step(logic, repeated, callback("voice-check-failed", owner.check, at + 3, { reason })).state;
+            assert.equal(stale.check.kind, "waiting", "old failure cannot replace a repeated check");
+            const changed = step(logic, failed, snapshot({ at: at + 1, configured: false, checkReady: true,
+                settings: { ...failed.settings, microphone: "other" } })).state;
+            assert.equal(changed.check.kind, "ready", "failure belongs to the checked microphone");
+        }
+        for (const owner of [waiting, recording, finishing]) for (const type of ["stop", "mute", "lease-ended"]) {
+            const stopped = step(logic, owner, event(type, owner.check.deadline - 2)).state;
+            const stale = step(logic, stopped, callback("voice-check-failed", owner.check, owner.check.deadline - 1,
+                { reason: "speech=local-wake-failed" })).state;
+            assert.notEqual(stale.check.kind, "failed", "cancelled check ignores detector failure");
+            assert.equal(logic.canCapture(stale), false);
         }
     }],
     ["always-arms", logic => {
@@ -1779,6 +1815,9 @@ let controls = 0;
 try {
     // Each independent lifetime rule has its own planted defect.
     const mutants = [
+        ["check timeout cause", 's.check = { kind: "failed", reason: "check-timeout" };', 's.check = { kind: "ready" };', "voice-check-failures"],
+        ["check detector cause", 's.check = { kind: "failed", reason: e.reason };', 's.check = { kind: "ready" };', "voice-check-failures"],
+        ["check failure identity", 'if (!live(s, e, "check", ["waiting", "recording", "finishing"]))', 'if (false)', "voice-check-failures"],
         ["check deadline", 'deadline: e.at + VOICE_CHECK_MS', 'deadline: e.at + COLLECTION_TIMEOUT_MS', "voice-check-lifetime"],
         ["check indicator", 'if (!e.shown && s.input.kind === "check" && s.capture.kind !== "closed")', 'if (false)', "voice-check-lifetime"],
         ["check result identity", 'if (!live(s, e, "check", ["finishing"]))', 'if (false)', "voice-check-lifetime"],

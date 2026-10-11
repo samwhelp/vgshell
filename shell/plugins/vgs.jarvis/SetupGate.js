@@ -90,6 +90,8 @@ function voiceCheck(value, check) {
     if (check.kind === "waiting" || check.kind === "recording")
         return { tone: "info", text: "Say Hey Jarvis", hint: "The microphone is open for three seconds." };
     if (check.kind === "finishing") return { tone: "info", text: "Checking" };
+    if (check.kind === "failed") return { tone: "danger", text: "Check failed",
+        hint: "Jarvis could not check the microphone: press Check microphone to try again.", action: "check" };
     if (check.kind === "done") {
         if (check.result === "ready") return { tone: "ok", text: "Ready", action: "check" };
         if (check.result === "silent") return { tone: "warning", text: "Muted or silent", hint: "The microphone is muted or sends silence. Check Settings > Jarvis > Audio > Microphone.", action: "check" };

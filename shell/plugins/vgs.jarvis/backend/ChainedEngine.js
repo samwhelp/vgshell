@@ -549,6 +549,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         void daemonSpeech.spot(frames, { check: e.mode === "check" }).outcome.then(result => {
             if (result.kind === "checked") dispatch({ type: "voice-checked", gen: e.gen, op: e.op, result: result.result });
             else if (result.kind === "woke") dispatch({ type: "wake", gen: e.gen, op: e.op });
+            // Final detector work completes after Audio closes the sink.
+            else if (result.kind === "failed" && e.mode === "check")
+                dispatch({ type: "voice-check-failed", gen: e.gen, op: e.op, reason: keyed(result.error) });
             else if (result.kind === "failed" && !sink.destroyed) sink.destroy(result.error);
         });
         return sink;
