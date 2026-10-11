@@ -110,9 +110,10 @@ function world(options) {
         run: path.join(root, "run"),
         stub: path.join(root, "stub"),
         bin: path.join(root, "bin"),
-        drive: path.join(root, "drive")
+        drive: path.join(root, "drive"),
+        second: path.join(root, "second-folder")
     };
-    for (const dir of [w.home, w.stub, w.bin, w.drive, path.join(w.stub, "secrets")]) fs.mkdirSync(dir, { recursive: true });
+    for (const dir of [w.home, w.stub, w.bin, w.drive, w.second, path.join(w.stub, "secrets")]) fs.mkdirSync(dir, { recursive: true });
     fs.mkdirSync(w.run, { recursive: true, mode: 0o700 });
     w.state = path.join(w.home, ".local", "state", "vgshell", "cloud-sync");
     w.mirror = path.join(w.home, "mirror", "docs");
@@ -223,6 +224,19 @@ case "$mode" in
   offline) printf '%s\\n' ${JSON.stringify(OFFLINE_LINE)} >&2; exit 1 ;;
   auth) printf '%s\\n' ${JSON.stringify(AUTH_LINE)} >&2; exit 1 ;;
 esac
+if [[ \${RCLONE_CONFIG_VGSDRIVE_SCOPE:-} != drive && $3 == copy ]]; then
+  remote=""
+  local_source=""
+  for word in "$@"; do
+    [[ $word == vgsdrive:Shared ]] && remote=Shared
+    [[ -d $word && $word == "$HOME"/* ]] && local_source="$word"
+  done
+  if [[ -n $remote && -n $local_source ]]; then
+    mkdir -p ${JSON.stringify(w.second)}/"$remote"
+    cp -a -- "$local_source/." ${JSON.stringify(w.second)}/"$remote"/
+    exit 0
+  fi
+fi
 export RCLONE_CONFIG_VGSDRIVE_TYPE=local
 unset RCLONE_CONFIG_VGSDRIVE_CLIENT_ID RCLONE_CONFIG_VGSDRIVE_CLIENT_SECRET RCLONE_CONFIG_VGSDRIVE_TOKEN RCLONE_CONFIG_VGSDRIVE_SCOPE
 cd ${JSON.stringify(w.drive)} || exit 9
@@ -1111,6 +1125,21 @@ function caseNoLeak() {
     }
 }
 
+function caseFullDriveSharedFolder(runner) {
+    const w = world();
+    const local = path.join(w.home, "mirror", "shared");
+    const added = cli(w, ["pair-add", "--definition", JSON.stringify({ id: "shared", label: "Shared", remote: "Shared", local: local })], runner);
+    assert.equal(added.status, 0, added.stderr);
+    write(path.join(w.drive, "Shared", "original.txt"), "drive\n");
+    write(path.join(local, "local.txt"), "local\n");
+    const ran = cli(w, ["run"], runner);
+    assert.equal(ran.stdout, "pair=shared result=idle\n", ran.stderr);
+    assert.equal(fs.existsSync(path.join(w.drive, "Shared", "local.txt")), true);
+    assert.equal(read(path.join(w.drive, "Shared", "local.txt")), "local\n");
+    assert.equal(fs.existsSync(path.join(w.second, "Shared", "local.txt")), false);
+    assert.equal(fs.readdirSync(w.drive).filter(name => name === "Shared").length, 1);
+}
+
 // ----------------------------------------------------------- the controls
 
 // A copy of the runner with FROM replaced by TO, COUNT times.
@@ -1147,6 +1176,7 @@ async function controls() {
     await mustFail("failure table", mutant("failure table", "const row = FAILURES.find(r => r.pattern.test(stderr));", "const row = undefined;"), caseFailures);
     await mustFail("authorize store", mutant("authorize store", "{ input: value, encoding", "{ input: value + \"\\n\", encoding"), caseAuthorize);
     await mustFail("authorize scope", mutant("authorize scope", "RCLONE_DRIVE_SCOPE: DRIVE_SCOPE", "RCLONE_DRIVE_SCOPE: \"drive.file\""), caseAuthorize);
+    await mustFail("full drive shared folder", mutant("full drive shared folder", "const DRIVE_SCOPE = \"drive\";", "const DRIVE_SCOPE = \"drive.file\";"), caseFullDriveSharedFolder);
     await mustFail("token off curl's argv", mutant("token off curl's argv", "\"--header\", \"@-\", ABOUT_URL]", "\"--header\", \"Authorization: Bearer \" + access, ABOUT_URL]"), caseAuthorize);
     await mustFail("user attribute", mutant("user attribute", ", read.kind === \"read\" ? [\"user\", read.address] : []);", ", []);"), caseAuthorize);
     await mustFail("one token item", mutant("one token item", "clearAccount(tool, account);\n    const stored", "const stored"), caseAuthorize);
@@ -1202,6 +1232,7 @@ async function main() {
     caseAttention();
     caseRunKey();
     caseNoLeak();
+    caseFullDriveSharedFolder();
     await controls();
     console.log("test-cloud-sync-runner: ok");
 }
