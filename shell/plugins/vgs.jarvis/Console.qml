@@ -395,6 +395,7 @@ FocusScope {
                 Repeater {
                     id: taskList
                     model: root.taskRows
+                    // keyboard-path: Tasks owns the cursor through KeyNav; its footer acts on the selection
                     ListItem {
                         required property var modelData
                         required property int index
@@ -405,7 +406,6 @@ FocusScope {
                         secondaryTone: ["failed", "reported-failed", "lost"].includes(modelData.state) ? "danger" : ""
                         cursor: taskCursor
                         highlighted: root.selectedTask === index
-                        // keyboard-path: Tasks owns the cursor through KeyNav; its footer acts on the selection
                         focusPolicy: Qt.NoFocus
                         onPointed: root.selectedTask = index
                         onClicked: { root.selectedTask = index; tasksBody.forceActiveFocus(Qt.MouseFocusReason); }
