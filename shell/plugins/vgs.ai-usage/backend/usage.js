@@ -39,8 +39,8 @@ const SECRET_TOOL_MS = 5000;
 const MAX_BYTES = 64 * 1024;
 // The largest Claude Code profile (.claude.json) read for the account's
 // email. Claude Code keeps per-project history in it, so it grows with use:
-// 147,884 bytes on the owner's ~/.nclaude/.claude.json (stat, 2026-10-06). A
-// larger one leaves the email unread.
+// 147,884 bytes on one of the owner's Claude Code profiles (stat,
+// 2026-10-06). A larger one leaves the email unread.
 const PROFILE_MAX_BYTES = 4 * 1024 * 1024;
 // The accounts read in one run; past it the run is partial.
 const MAX_ACCOUNTS = 32;

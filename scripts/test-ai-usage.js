@@ -348,21 +348,21 @@ async function main() {
     claudeAccount(path.join(emailHome, ".claude"), HOUR, Date.now());
     profile(emailHome, "home@example.invalid");
     profile(path.join(emailHome, ".claude"), "inside-default@example.invalid");
-    claudeAccount(path.join(emailHome, ".nclaude"), HOUR, Date.now());
-    profile(path.join(emailHome, ".nclaude"), "n@example.invalid");
+    claudeAccount(path.join(emailHome, ".zclaude"), HOUR, Date.now());
+    profile(path.join(emailHome, ".zclaude"), "z@example.invalid");
     claudeAccount(path.join(emailHome, ".2claude"), HOUR, Date.now());
     claudeAccount(path.join(emailHome, ".3claude"), HOUR, Date.now());
-    fs.symlinkSync(path.join(emailHome, ".nclaude/.claude.json"), path.join(emailHome, ".3claude/.claude.json"));
+    fs.symlinkSync(path.join(emailHome, ".zclaude/.claude.json"), path.join(emailHome, ".3claude/.claude.json"));
     const emails = async folder => {
         mode("ok");
         const result = await usageIn(folder).read(tree, { PATH, HOME: emailHome, LANG: "C.UTF-8" }, { origin });
         assert.deepEqual(result.accounts.map(row => [row.label, row.state, row.email]).sort(), [
-            ["2", "ok", ""], ["3", "ok", ""], ["default", "ok", "home@example.invalid"], ["n", "ok", "n@example.invalid"]]);
+            ["2", "ok", ""], ["3", "ok", ""], ["default", "ok", "home@example.invalid"], ["z", "ok", "z@example.invalid"]]);
         for (const row of result.accounts) assert.equal("plan" in row, false, row.label + " carries no plan");
         mode("error");
         const failing = await usageIn(folder).read(tree, { PATH, HOME: emailHome, LANG: "C.UTF-8" }, { origin });
         assert.deepEqual(failing.accounts.map(row => [row.label, row.state, row.email]).sort(), [
-            ["2", "failed", ""], ["3", "failed", ""], ["default", "failed", "home@example.invalid"], ["n", "failed", "n@example.invalid"]],
+            ["2", "failed", ""], ["3", "failed", ""], ["default", "failed", "home@example.invalid"], ["z", "failed", "z@example.invalid"]],
         "a failed read keeps the email");
     };
     await emails(plugin);
