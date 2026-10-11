@@ -43,7 +43,8 @@ Item {
     readonly property string fallbackGlyph: kind === "folder" ? "folder" : kind === "file" ? "file" : "app-window"
     readonly property bool isMenu: kind === "menu" || kind === "link"
     readonly property bool showsDetail: live && (launcher.filterText.length > 0 || kind === "option" || kind === "notice" || kind === "unavailable") && detail.length > 0
-    readonly property bool openWithHintShown: live && hasCursor && (kind === "file" || kind === "folder")
+    // The row's own flyout opens over the hint, so the hint steps aside.
+    readonly property bool openWithHintShown: live && hasCursor && (kind === "file" || kind === "folder") && launcher.flyoutPath !== path
 
     height: live ? launcher.rowHeightFor(detail) : 0
 

@@ -373,6 +373,8 @@ Item {
     // While set, the list shows the applications that open this file.
     property var openWithTarget: null
     property var openWithApps: []
+    // The file whose right-click flyout is open, or "" while it is closed.
+    readonly property string flyoutPath: fileFlyout.opened ? fileFlyout.targetPath : ""
     // One line the launcher owes the user now, such as an action it cannot
     // take; the next edit of the search clears it.
     property string notice: ""

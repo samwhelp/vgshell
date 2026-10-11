@@ -116,6 +116,8 @@ expect_poll "the search ranks the planted application first" '["app", "Smoke Lau
 # row shows the application glyph on a tile, so its title never keeps an empty tile's
 # indentation. The control is at the end of the file search block.
 glyph_tiles() { ipc smoke itemValues overlay vgs.launcher IconTile iconName,visible | py_reply 'import json,sys; print("app-window" in [v["iconName"] for v in json.load(sys.stdin) if v["visible"]])'; }
+# Whether the row under the cursor draws its Shift+Enter open with hint.
+cursor_hint() { ipc smoke readMatchingDescendant overlay vgs.launcher LauncherRow hasCursor true openWithHintShown; }
 expect_poll "an application whose icon no theme has shows the glyph tile" True glyph_tiles
 type_keys -k Return || fail "sending Return failed"
 expect_poll "Enter launched the application" True bash -c '[[ -f $1 ]] && echo True' _ "$home/launched-app"
@@ -594,14 +596,17 @@ expect "the launcher summons for files" ok ipc shell summon overlay vgs.launcher
 expect_poll "f: lists both files of one name, newest first" '[["smoke-report.txt", "~/launcher-files"], ["smoke-report.txt", "~/launcher-files/older"]]' rows_of file
 expect "the file index lives in the launcher's cache" True bash -c '[[ -s $1 ]] && echo True' _ "$home/.cache/vgshell/launcher/f.idx"
 selected_before_flyout="$(read_launcher selectedIndex)"
+expect_poll "the selected file draws its open with hint" true cursor_hint
 type_keys -k Menu || fail "opening the file flyout with the Menu key failed"
 expect_poll "Menu opens the selected file's flyout" true ipc smoke readShownDescendant overlay vgs.launcher ContextMenu opened
+expect_poll "the file's open flyout hides its open with hint" false cursor_hint
 expect_poll "the file flyout has a keyboard selection" 0 ipc smoke readShownDescendant overlay vgs.launcher ContextMenu hovered
 type_keys -k Down || fail "sending Down in the file flyout failed"
 expect "Down in the file flyout leaves the launcher list selection alone" "$selected_before_flyout" read_launcher selectedIndex
 expect_poll "Down in the file flyout moves its own selection" 1 ipc smoke readShownDescendant overlay vgs.launcher ContextMenu hovered
 type_keys -k Escape || fail "closing the file flyout with Escape failed"
 expect_poll "Escape closes the file flyout and keeps the launcher open" false ipc smoke readShownDescendant overlay vgs.launcher ContextMenu opened
+expect_poll "the closed flyout gives the file its open with hint back" true cursor_hint
 type_keys -M shift -k F10 -m shift || fail "opening the file flyout with Shift+F10 failed"
 expect_poll "Shift+F10 opens the selected file's flyout" true ipc smoke readShownDescendant overlay vgs.launcher ContextMenu opened
 type_keys -k Escape || fail "closing the Shift+F10 flyout failed"
@@ -621,7 +626,8 @@ expect_poll "the failed file search closed" 0 layer_count vgs:overlay
 rm -f -- "${home:?}/.cache/vgshell/launcher"
 expect_poll "no file search helper outlives the launcher" 0 file_search_children
 # Control: a copy of the row that shows its image slot whatever the image
-# loaded draws no glyph tile for the same application.
+# loaded draws no glyph tile for the same application, and one that keeps
+# its open with hint whatever flyout is open draws it under the file's.
 row_qml="$repo/shell/plugins/vgs.launcher/LauncherRow.qml"
 cp -- "$row_qml" "$sandbox/LauncherRow.qml.kept"
 python3 - "$row_qml" <<'PY'
@@ -630,7 +636,10 @@ path = sys.argv[1]
 text = open(path).read()
 needle = 'readonly property bool imageShown: imageIcon && image.source.toString().length > 0 && image.status !== Image.Error && !(image.status === Image.Ready && image.implicitWidth === 0)'
 assert text.count(needle) == 1, "the image rule to plant occurs once"
-open(path, "w").write(text.replace(needle, "readonly property bool imageShown: imageIcon"))
+text = text.replace(needle, "readonly property bool imageShown: imageIcon")
+hint = ' && launcher.flyoutPath !== path'
+assert text.count(hint) == 1, "the hint rule to plant occurs once"
+open(path, "w").write(text.replace(hint, ""))
 PY
 rescan "a rescan builds the row copy that always shows its image slot"
 expect "the launcher summons the row copy for the application" ok ipc shell summon overlay vgs.launcher '{"query":"smoke launch"}'
@@ -639,6 +648,14 @@ expect_poll "control: the row copy draws no glyph tile for the application" Fals
 focused
 type_keys -k Escape -k Escape || fail "sending Escape failed"
 expect_poll "the row copy's search closed" 0 layer_count vgs:overlay
+expect "the launcher summons the row copy for files" ok ipc shell summon overlay vgs.launcher '{"query":"f:smoke-report"}'
+expect_poll "the row copy lists the files" '[["smoke-report.txt", "~/launcher-files"], ["smoke-report.txt", "~/launcher-files/older"]]' rows_of file
+focused
+type_keys -k Menu || fail "opening the row copy's file flyout failed"
+expect_poll "Menu opens the row copy's file flyout" true ipc smoke readShownDescendant overlay vgs.launcher ContextMenu opened
+expect_poll "control: the row copy keeps its open with hint under the flyout" true cursor_hint
+type_keys -k Escape -k Escape -k Escape || fail "sending Escape failed"
+expect_poll "the row copy's file search closed" 0 layer_count vgs:overlay
 cp -- "$sandbox/LauncherRow.qml.kept" "$row_qml"
 rescan "a rescan restores the row"
 
