@@ -1840,6 +1840,9 @@ wallpaper_output="VGS-SHOT"
 overlays_on() { hypr -j layers | python3 -c 'import json,sys; m=json.load(sys.stdin).get(sys.argv[1]); print(0 if m is None else sum(1 for lv in m["levels"].values() for l in lv if l["namespace"]=="vgs:overlay" and l["pid"]!=-1))' "$1"; }
 # wallpaper_look NAME LOOK: the published scheme is LOOK, NAME's own.
 wallpaper_look() { expect_poll "the wallpaper browser shows the $2 look of $1" "\"$2\"" ipc smoke themeValue scheme.mode; }
+# wallpaper_images_of NAME: the image files the themes service's retained
+# list holds for package NAME, sorted, as JSON.
+wallpaper_images_of() { ipc smoke readInstance service vgs.themes images | py_reply 'import json,sys; i=json.load(sys.stdin)["images"] or []; print(json.dumps(sorted(x["background"] for x in i if x["theme"] == sys.argv[1])))' "$1"; }
 scene_wallpaper-browser() { # MODE
   local name=nord look
   [[ $1 != light ]] || name=flexoki-light
@@ -1857,6 +1860,10 @@ scene_wallpaper-browser() { # MODE
   expect "the nested compositor adds a monitor for the wallpaper browser shot" ok hypr output create headless "$wallpaper_output"
   expect "vgs.themes enables for the wallpaper browser shot" ok ipc shell setPluginEnabled vgs.themes true
   expect_poll "vgs.themes is built for the wallpaper browser shot" True record_exists vgs.themes
+  # In light set_mode published flexoki-light already, so the name proves
+  # no apply; the service's images, which the browser opens on, must hold
+  # the two the apply chose from.
+  expect_poll "the themes service lists $name's two images for the wallpaper browser shot" '["a.jpg", "b.jpg"]' wallpaper_images_of "$name"
   expect "the wallpaper browser opens" ok ipc shell summon overlay vgs.themes '{"view":"wallpapers"}'
   expect_poll "the wallpaper browser maps" 1 layer_count vgs:overlay
   expect_poll "the wallpaper browser holds the keyboard" true ipc smoke activeFocusIn overlay vgs.themes
@@ -3208,9 +3215,9 @@ scene_themes_panel() { # MODE
   mkdir -p -- "$themes_mismatch"
   printf '%s\n' '{ "schemaVersion": 1, "name": "other", "tokens": {} }' >"$themes_mismatch/theme.json"
   rm -rf -- "${themes_installed_dir:?}"
-  mkdir -p -- "$themes_installed_dir"
-  cp -- "$repo/themes/catalog/$themes_installed/theme.json" "$themes_installed_dir/theme.json" || fail "the $themes_installed package could not be installed for the themes panel"
-  [[ ! -f $repo/themes/catalog/$themes_installed/terminal.json ]] || cp -- "$repo/themes/catalog/$themes_installed/terminal.json" "$themes_installed_dir/terminal.json" || fail "the $themes_installed terminal file could not be installed for the themes panel"
+  # The runner's install writes the catalog marker the catalog reads the
+  # package installed by.
+  sandbox_vgshell theme install "$themes_installed" >/dev/null || fail "$themes_installed installs for the themes panel"
   if [[ $base == dark ]]; then
     { cp -- "$repo/themes/vgs/theme.json" "$theme_file.tmp" && mv -T -- "$theme_file.tmp" "$theme_file"; } || fail "the shipped vgs theme file could not be written for the themes panel"
   fi
