@@ -41,7 +41,7 @@ var STATE_VIEW = {
     running: { text: "Syncing", tone: "info", icon: "cloud-sync" },
     paused: { text: "Paused", tone: "info", icon: "cloud-off" },
     offline: { text: "Offline", tone: "warning", icon: "cloud-off" },
-    "authorization-required": { text: "Sign-in needed", tone: "danger", icon: "cloud-alert" },
+    "authorization-required": { text: "Connect needed", tone: "danger", icon: "cloud-alert" },
     error: { text: "Sync failed", tone: "danger", icon: "cloud-alert" },
     "not-set-up": { text: "Not set up", tone: "warning", icon: "cloud" }
 };
