@@ -214,7 +214,11 @@ var TOKENS = {
         sm: length(0),
         md: length(0),
         lg: length(0),
-        full: length(4096)
+        full: length(4096),
+        // The corner VGlass rounds a square menu, dialog, popover or OSD to
+        // (ThemeLogic.withAppearance), and a glass surface that has no
+        // role token of its own.
+        glass: length(16)
     },
 
     border: {

@@ -1156,7 +1156,7 @@ assert.deepEqual(serviceMismatches(manifestText, name => name === "slack-photos.
 const TEXT_FLOOR = 4.5;
 const WALLPAPERS = ["#000000", "#ffffff"];
 function lookIn(tokens, light, mode) {
-    const judged = themeLogic.acceptAppearance(tokens, light, { scheme: { mode: mode }, palette: { accent: "#ff5a36" }, motion: { scale: 1 }, font: { family: { sans: "Inter" } } });
+    const judged = themeLogic.acceptAppearance(tokens, light, { scheme: { mode: mode }, palette: { accent: "#ff5a36" }, motion: { scale: 1 }, font: { family: { sans: "Inter" } }, color: { surfaceRaised: mode === "light" ? "#f2f2f2ff" : "#101010ff" } });
     assert.equal(judged.ok, true, "the look resolves in " + mode + " mode: " + JSON.stringify(judged));
     return judged.values;
 }
@@ -1254,23 +1254,21 @@ for (const [label, launcherTable, notesTable, glassTable] of [
 ])
     assert.throws(() => same(drawn(launcherTable, notesTable, glassTable, "dark"), DRAWN_BEFORE.dark), { code: "ERR_ASSERTION" }, "control: " + label + " moved fails today's glass");
 
-// ContextMenu.qml's flyout lies over the card's rows, so with glass on it
-// draws the glass solid, Glass.js glass.solidFill (GlassSurface.qml), and
-// hands no fill of its own: a key hint at the full foreground under it
-// shows through by no visible step, over black and white wallpapers. The
-// control lays card.fill there instead.
-const contextMenuSource = fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.launcher", "ContextMenu.qml"), "utf8");
-assert.ok(!/^\s*fill:/m.test(contextMenuSource), "the flyout hands no fill of its own");
+// ContextMenu.qml's flyout lies over the card's rows and hands the card's
+// fill, so with glass on GlassSurface.qml draws that fill solid: opaque and
+// lifted by Glass.js glass.solidLift (ThemeLogic.liftedOpaque). A key hint
+// at the full foreground under it shows through by no visible step, over
+// black and white wallpapers. The control lays card.fill there as it is.
 function hintShowsThrough(table, mode, fillOf) {
-    const look = lookIn(table.TOKENS, table.LIGHT, mode), fill = themeLogic.parseColor(fillOf(look, lookIn(glassAppearance.TOKENS, glassAppearance.LIGHT, mode)));
+    const look = lookIn(table.TOKENS, table.LIGHT, mode), fill = fillOf(themeLogic.parseColor(look.card.fill), lookIn(glassAppearance.TOKENS, glassAppearance.LIGHT, mode));
     return WALLPAPERS.filter(wallpaper => {
         const card = over(themeLogic.parseColor(look.card.fill), themeLogic.parseColor(wallpaper));
         return themeLogic.contrastRatio(over(fill, over(themeLogic.parseColor(look.text.foreground), card)), over(fill, card)) >= 1.01;
     });
 }
 for (const mode of ["dark", "light"]) {
-    same(hintShowsThrough(launcherAppearance, mode, (look, glass) => glass.glass.solidFill), [], mode + ": no key hint shows through the flyout");
-    same(hintShowsThrough(launcherAppearance, mode, look => look.card.fill), WALLPAPERS, "control: " + mode + " card.fill on the flyout shows the hint");
+    same(hintShowsThrough(launcherAppearance, mode, (fill, glass) => themeLogic.liftedOpaque(fill, glass.glass.solidLift)), [], mode + ": no key hint shows through the flyout");
+    same(hintShowsThrough(launcherAppearance, mode, fill => fill), WALLPAPERS, "control: " + mode + " card.fill on the flyout shows the hint");
 }
 
 console.log(`test-notifications-logic: ok bodies=${BODIES.length} states=${STATE_REFUSED.length} hints=${HINT_ROWS.length} enriched=${ENRICHED.length} controls=${CONTROLS.length}`);

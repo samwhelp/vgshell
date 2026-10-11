@@ -248,7 +248,7 @@ def main():
     # The glass table is judged in both modes: a light value of the wrong
     # type is refused in light mode alone, and a table that does not load
     # is refused.
-    glass_light = '        fill: "alpha(#f2f2f2, 0.85)",\n'
+    glass_light = '        fill: "alpha({color.surfaceRaised}, 0.85)",\n'
     assert glass.count(glass_light) == 1, "the Glass.js light fill to replace must occur once"
     for name, text, mode in (("a glass light value of the wrong type is refused", glass.replace(glass_light, "        fill: 18,\n"), "mode=light "),
                              ("a glass table that does not load is refused", ".pragma library\nvar TOKENS = {\n", "unloadable: ")):

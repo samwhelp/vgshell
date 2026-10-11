@@ -6,30 +6,31 @@ import qs.Unit
 
 // GlassSurface: with glass on it draws the shadow, the handed fill and
 // radius, the sheen and the hairline, from Theme.glass and the elevation it
-// is handed; with glass on over its window's own content, the glass
-// material's own opaque fill and corner under the hairline, whatever fill
-// and radius it hands; with glass off it draws the standard
-// look it is handed, the raised surface's by default, and none of the
-// glass. The surface's own choice decides until the user's `glass`
-// Appearance value turns glass on or off everywhere, for the qs.Ui surfaces
-// built on it too: a panel's Surface, a LevelOsd and a Dialog. Glass is
-// drawn only over nothing its own window draws: a window whose colour is
-// transparent, as every VGS layer and popup is, no GlassSurface around it,
-// and none or a Scrim over content painted under it; the test window is
-// made transparent before each test. The groups below y 300 stand for the
-// shell's callers: an inline dialog over its page (clipboard, themes), a
-// modal dialog in its own layer, a launcher card with a flyout over it,
-// cards side by side, a scrim shown only while a dialog asks, and the
-// launcher's menu beside the Settings window's dialog. `follow` lays it
-// under another item. Expected
-// values are worked by hand from Glass.js and Tokens.js, never read from
-// Theme: the solid fill #1c1c1c, #f5f5f5 in light mode, at a corner of 16;
-// the hairline is #e8e8e8 at alpha 0.09,
-// round(22.95) = 23 = 0x17; the tight shadow black at 0.45, round(114.75) =
-// 115 = 0x73; the wide one at 0.55, round(140.25) = 140 = 0x8c; the default
-// fill #101010 at 0.8, 204 = 0xcc; the raised surface neutral(0.075),
-// #101010, under a #3a3a3b border; in light mode the hairline #2a2a2a at
-// 0.1, round(25.5) = 26 = 0x1a.
+// is handed; with glass on over its window's own content, the same fill
+// made opaque and lifted, at the same corner under the hairline; with glass
+// off it draws the standard look it is handed, the raised surface's by
+// default, and none of the glass. The surface's own choice decides until
+// the user's `glass` Appearance value turns glass on or off everywhere, for
+// the qs.Ui surfaces built on it too: a panel's Surface, a LevelOsd and a
+// Dialog. Glass is drawn only over nothing its own window draws: a window
+// whose colour is transparent, as every VGS layer and popup is, no
+// GlassSurface around it, and none or a Scrim over content painted under
+// it; the test window is made transparent before each test. The groups
+// below y 300 stand for the shell's callers: an inline dialog over its page
+// (clipboard, themes), a modal dialog in its own layer, a launcher card
+// with a flyout over it, cards side by side, a scrim shown only while a
+// dialog asks, the launcher's menu beside the Settings window's dialog, and
+// a menu alone beside a menu over a glass card. `follow` lays it under
+// another item. Expected values are worked by hand from Glass.js and
+// Tokens.js, never read from Theme: the glass corner 16; the hairline
+// #e8e8e8 at alpha 0.09, round(22.95) = 23 = 0x17; the tight shadow black
+// at 0.45, round(114.75) = 115 = 0x73; the wide one at 0.55, round(140.25)
+// = 140 = 0x8c; the raised surface neutral(0.075), #101010, under a #3a3a3b
+// border; the default fill that surface at 0.8, 204 = 0xcc, and at 0.85 in
+// light mode, round(216.75) = 217 = 0xd9; in light mode the hairline
+// #2a2a2a at 0.1, round(25.5) = 26 = 0x1a. A solid fill is each channel c
+// of the fill as round(c + (255 - c) * lift), opaque, the lift 0.05 and
+// 0.1 in light mode: #101010 gives 27.95, #1c1c1c; `solids` holds the rest.
 Item {
     id: root
     width: 400
@@ -47,7 +48,7 @@ Item {
         id: chosen
         x: 10; y: 10; width: 200; height: 100
         optIn: true
-        fill: "#33445566"
+        fill: "#33405060"
         radius: 20
         elevation: "tight"
         Item { id: content; anchors.fill: parent }
@@ -56,7 +57,7 @@ Item {
     GlassSurface {
         id: plain
         x: 10; y: 150; width: 200; height: 100
-        fill: "#33445566"
+        fill: "#33405060"
         radius: 20
     }
 
@@ -130,20 +131,17 @@ Item {
         Dialog { id: askingDialog; anchors.centerIn: parent; width: 200; title: "Asking" }
     }
 
-    // The launcher's menu over its glass card, handing its own fill and
-    // radius, and the Settings window's dialog: its page, a scrim and the
-    // dialog, which hands a standard look at radius 0, as Theme.dialog, and
-    // no fill. Their standard looks differ from each other in colour and
-    // corner.
+    // The launcher's menu over its glass card, handing a fill of its own
+    // and neither a radius nor a standard look, and the Settings window's
+    // dialog: its page, a scrim and the dialog, which hands Theme.dialog and
+    // no fill.
     Item {
         x: 0; y: 1650; width: 400; height: 200
         GlassSurface { id: menuCard; x: 0; y: 0; width: 180; height: 200; optIn: true }
         GlassSurface {
             id: menuOver
             x: 20; y: 20; width: 120; height: 80
-            fill: "#99d0c8b8"
-            radius: 14
-            standard: ({ background: "#edeadf", border: "#c0b8a8", radius: 6 })
+            fill: "#c7202430"
         }
         Item {
             x: 200; y: 0; width: 200; height: 200
@@ -152,9 +150,18 @@ Item {
             GlassSurface {
                 id: dialogOver
                 x: 20; y: 20; width: 120; height: 80
-                standard: ({ background: "#ebebe8", border: "#a0a0a0", radius: 0 })
+                standard: Theme.dialog
             }
         }
+    }
+
+    // A menu's surface as Menu.qml hands it, over nothing its window draws,
+    // and the same over a glass card.
+    Item {
+        x: 0; y: 1900; width: 400; height: 200
+        GlassSurface { id: menuDrawn; x: 0; y: 0; width: 120; height: 80; standard: Theme.menu; elevation: "tight" }
+        GlassSurface { id: menuUnder; x: 200; y: 0; width: 180; height: 200; optIn: true }
+        GlassSurface { id: menuSolid; x: 220; y: 20; width: 120; height: 80; standard: Theme.menu; elevation: "tight" }
     }
 
     TestCase {
@@ -170,6 +177,11 @@ Item {
             askingScrim.opacity = 1;
         }
 
+        // The solid form of each fixture's own fill: `chosen`, #405060,
+        // 73.55, 88.75, 103.95; `menuOver`, #202430, 43.15, 46.95, 58.35
+        // and in light mode 54.3, 57.9, 68.7.
+        readonly property var solids: ({ chosen: "#4a5968", menu: { dark: "#2b2f3a", light: "#363a45" } })
+
         function shadowOf(glass) { return glass.children[0]; }
         function bodyOf(glass) { return glass.children[1]; }
         function sheenOf(glass) { return bodyOf(glass).children[0]; }
@@ -182,7 +194,7 @@ Item {
             compare([shadow.blur, shadow.spread, shadow.offset.y, String(shadow.color)], [30, -4, 10, "#73000000"]);
             compare(shadow.radius, 20);
             const body = bodyOf(chosen);
-            compare(String(body.color), "#33445566");
+            compare(String(body.color), "#33405060");
             compare(body.radius, 20);
             verify(body.clip);
             verify(sheenOf(chosen).visible);
@@ -235,9 +247,9 @@ Item {
         }
 
         // Under glass on everywhere, a surface over its window's own
-        // content draws the solid fill with no shadow: one inside another
+        // content draws its fill solid with no shadow: one inside another
         // GlassSurface, and every one in a window whose colour is not
-        // transparent, whatever fill it hands. Its `on` still answers the
+        // transparent, at the radius it hands. Its `on` still answers the
         // user's and its own choice.
         function test_glass_is_drawn_only_over_a_transparent_window() {
             Theme.appearanceInput = JSON.stringify({ glass: "on" });
@@ -248,10 +260,10 @@ Item {
             root.Window.window.color = "#ffffff";
             compare([chosen.on, chosen.drawn], [true, false]);
             verify(!shadowOf(chosen).visible);
-            compare(String(bodyOf(chosen).color), "#1c1c1c");
+            compare([String(bodyOf(chosen).color), bodyOf(chosen).radius, edgeOf(chosen).radius], [solids.chosen, 20, 20]);
             root.Window.window.color = "transparent";
             verify(chosen.drawn);
-            compare(String(bodyOf(chosen).color), "#33445566");
+            compare([String(bodyOf(chosen).color), bodyOf(chosen).radius], ["#33405060", 20]);
         }
 
         // A sibling painted under a surface, or under one of its ancestors,
@@ -288,41 +300,95 @@ Item {
             verify(asking.drawn, "transparent");
         }
 
-        // Under glass on everywhere, the launcher's menu and the Settings
-        // dialog draw one material, in a transparent window and in one
-        // whose colour is the glass fill, as AppWindow.qml's is while
-        // window glass is on, in either mode: the solid fill at a corner of 16 under the
-        // hairline, neither the fill and radius the menu hands nor the
-        // dialog's radius 0. With glass off the same two draw their own
-        // standard looks, which differ from it and from each other, so the
-        // comparison tells the glass from either look. Each row: [window
-        // colour, mode, fill, hairline].
-        function test_glass_over_content_draws_one_material_whatever_standard() {
-            function look(surface) {
-                const edge = edgeOf(surface);
-                return [String(bodyOf(surface).color), bodyOf(surface).radius, edge.border.width, String(edge.border.color), edge.radius];
-            }
+        // What a surface draws: [fill, corner, hairline or border width,
+        // its colour, its corner, shadow shown, sheen shown].
+        function look(surface) {
+            const edge = edgeOf(surface);
+            return [String(bodyOf(surface).color), bodyOf(surface).radius, edge.border.width, String(edge.border.color), edge.radius, shadowOf(surface).visible, sheenOf(surface).visible];
+        }
+
+        // A menu over nothing its window draws and a menu over a glass card
+        // draw one corner and one hue: the drawn one the theme's raised
+        // surface, translucent under shadow and sheen, the solid one that
+        // fill opaque and lifted, both at the menu's corner under the
+        // hairline. Each row: [name, theme tokens, drawn fill, solid fill,
+        // hairline]. A light theme's raised surface here is #e8e4d8, solid
+        // 234.3, 230.7, 219.9; a dark one's #283038, solid 50.75, 58.35,
+        // 65.95.
+        function test_a_menu_draws_one_corner_and_one_hue_drawn_and_solid() {
             Theme.appearanceInput = JSON.stringify({ glass: "on" });
             const rows = [
-                ["transparent", "dark", "#1c1c1c", "#17e8e8e8"],
-                ["#cc101010", "dark", "#1c1c1c", "#17e8e8e8"],
-                ["transparent", "light", "#f5f5f5", "#1a2a2a2a"]
+                ["the shipped theme", {}, "#cc101010", "#1c1c1c", "#17e8e8e8"],
+                ["a dark theme's raised surface", { color: { surfaceRaised: "#283038" } }, "#cc283038", "#333a42", "#17e8e8e8"],
+                ["a light theme's raised surface", { scheme: { mode: "light" }, color: { surfaceRaised: "#e8e4d8" } }, "#d9e8e4d8", "#eae7dc", "#1a2a2a2a"]
             ];
-            for (const [colour, mode, fill, hairline] of rows) {
-                root.Window.window.color = colour;
-                compare(UnitTheme.override({ scheme: { mode: mode } }), "ok");
-                for (const [name, surface] of [["menu", menuOver], ["dialog", dialogOver]]) {
-                    const row = name + " window=" + colour + " mode=" + mode;
-                    compare([surface.on, surface.drawn], [true, false], row);
-                    verify(!shadowOf(surface).visible, row + " shadow");
-                    verify(!sheenOf(surface).visible, row + " sheen");
-                    compare(look(surface), [fill, 16, 1, hairline, 16], row);
-                }
+            for (const [name, tokens, drawnFill, solidFill, hairline] of rows) {
+                compare(UnitTheme.override(tokens), "ok", name);
+                compare([menuDrawn.drawn, menuSolid.drawn, menuSolid.solid], [true, false, true], name);
+                compare(look(menuDrawn), [drawnFill, 16, 1, hairline, 16, true, true], name + ": drawn");
+                compare(look(menuSolid), [solidFill, 16, 1, hairline, 16, false, false], name + ": solid");
             }
             UnitTheme.reset();
             Theme.appearanceInput = JSON.stringify({ glass: "off" });
-            compare(look(menuOver), ["#edeadf", 6, 1, "#c0b8a8", 6], "menu without glass");
-            compare(look(dialogOver), ["#ebebe8", 0, 1, "#a0a0a0", 0], "dialog without glass");
+            for (const menu of [menuDrawn, menuSolid])
+                compare(look(menu), ["#101010", 0, 1, "#3a3a3b", 0, false, false], "a menu without glass");
+        }
+
+        // Glass rounds a square role and overrides no rounding: with glass
+        // on, a menu, an OSD and a dialog whose corner the theme leaves at
+        // 0 take 16, a panel keeps the square edge, and a corner the theme
+        // (radius.md 8) or the user's Corner radius (24, of which a flyout
+        // takes 0.75, 18) sets stands as it does with glass off. Each row:
+        // [name, theme tokens, the user's values, menu, OSD, dialog, panel].
+        function test_glass_rounds_a_square_role_and_no_other() {
+            const rows = [
+                ["a square theme, glass on", {}, { glass: "on" }, 16, 16, 16, 0],
+                ["a square theme, glass off", {}, { glass: "off" }, 0, 0, 0, 0],
+                ["a square theme, glass unset", {}, {}, 0, 0, 0, 0],
+                ["a rounded theme, glass on", { radius: { md: 8 } }, { glass: "on" }, 8, 8, 8, 8],
+                ["a user's corner radius, glass on", {}, { glass: "on", windowRadius: 24 }, 18, 18, 18, 18],
+                ["a user's corner radius, glass off", {}, { glass: "off", windowRadius: 24 }, 18, 18, 18, 18]
+            ];
+            for (const [name, tokens, user, menu, level, card, flyout] of rows) {
+                compare(UnitTheme.override(tokens), "ok", name);
+                Theme.appearanceInput = JSON.stringify(user);
+                compare([bodyOf(menuDrawn).radius, bodyOf(menuSolid).radius], [menu, menu], name + ": menu, drawn and solid");
+                compare([bodyOf(osd).radius, bodyOf(dialog.children[0]).radius, bodyOf(inlineDialog.children[0]).radius], [level, card, card], name + ": OSD, dialog, inline dialog");
+                compare([bodyOf(panel).radius, bodyOf(inlinePage).radius], [flyout, flyout], name + ": panel");
+            }
+        }
+
+        // Under glass on everywhere, the launcher's menu and the Settings
+        // dialog each draw their own fill solid at the glass corner, in a
+        // transparent window and in one whose colour is the glass fill, as
+        // AppWindow.qml's is while window glass is on: the menu the fill it
+        // hands, the dialog the theme's raised surface, neither the other's.
+        // The menu hands no radius and no standard look, so its corner is
+        // the glass corner whatever the theme's. With glass off both draw
+        // the standard look. Each row: [window colour, theme tokens, menu
+        // fill, dialog fill, hairline].
+        function test_glass_over_content_draws_each_surface_its_own_fill() {
+            Theme.appearanceInput = JSON.stringify({ glass: "on" });
+            const light = { scheme: { mode: "light" }, color: { surfaceRaised: "#e8e4d8" } };
+            const rows = [
+                ["transparent", {}, solids.menu.dark, "#1c1c1c", "#17e8e8e8"],
+                ["#cc101010", {}, solids.menu.dark, "#1c1c1c", "#17e8e8e8"],
+                ["transparent", light, solids.menu.light, "#eae7dc", "#1a2a2a2a"],
+                ["transparent", { radius: { md: 8 } }, solids.menu.dark, "#1c1c1c", "#17e8e8e8"]
+            ];
+            for (const [colour, tokens, menuFill, dialogFill, hairline] of rows) {
+                root.Window.window.color = colour;
+                compare(UnitTheme.override(tokens), "ok");
+                const row = "window=" + colour + " theme=" + JSON.stringify(tokens);
+                const dialogCorner = tokens.radius ? 8 : 16;
+                compare([menuOver.drawn, dialogOver.drawn], [false, false], row);
+                compare(look(menuOver), [menuFill, 16, 1, hairline, 16, false, false], "menu " + row);
+                compare(look(dialogOver), [dialogFill, dialogCorner, 1, hairline, dialogCorner, false, false], "dialog " + row);
+            }
+            UnitTheme.reset();
+            Theme.appearanceInput = JSON.stringify({ glass: "off" });
+            for (const surface of [menuOver, dialogOver])
+                compare(look(surface), ["#101010", 0, 1, "#3a3a3b", 0, false, false], "without glass");
         }
 
         function test_the_default_fill_and_elevation() {
@@ -340,7 +406,7 @@ Item {
             Theme.appearanceInput = JSON.stringify({ glass: "on" });
             verify(plain.on);
             verify(shadowOf(plain).visible);
-            compare(String(bodyOf(plain).color), "#33445566");
+            compare(String(bodyOf(plain).color), "#33405060");
             compare(bodyOf(plain).radius, 20);
         }
 

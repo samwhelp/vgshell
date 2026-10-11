@@ -55,6 +55,7 @@ const DEFAULTS = [
     ["space.sm", 6],
     ["space.xxxl", 32],
     ["radius.md", 0],
+    ["radius.glass", 16],
     ["motion.duration.normal", 150],
     ["motion.easing.standard", "outCubic"],
     // The list motion: fast for travel and resize, normal for the fade, and
@@ -515,6 +516,12 @@ const FONT_LOOK = Object.assign({}, LOOK, {
     font: { family: { sans: { type: "family", value: "Inter Variable" } } },
     card: Object.assign({}, LOOK.card, { title: { type: "family", value: "{font.family.sans}" } })
 });
+// A look that draws on the theme's raised surface: it holds the input and a
+// fill that reads it.
+const RAISED_LOOK = Object.assign({}, LOOK, {
+    color: { surfaceRaised: { type: "color", value: "#000000" } },
+    card: Object.assign({}, LOOK.card, { fill: { type: "color", value: "alpha({color.surfaceRaised}, 0.5)" } })
+});
 // The must-fail controls of the interface font check: a look that keeps a
 // fixed family of its own, beside or in place of the input.
 const FIXED_FAMILY_LOOKS = [
@@ -528,7 +535,8 @@ const shellTheme = tokens => {
 };
 const DARK_THEME = shellTheme({ palette: { accent: "#7aa2f7" } });
 const LIGHT_THEME = shellTheme({ scheme: { mode: "light" }, palette: { accent: "#a8330a" } });
-// Every shell token but the four inputs moves; the plugin's values stay.
+// Every shell token moves but the inputs LOOK holds; the plugin's values
+// stay.
 const UNRELATED_THEME = shellTheme({ palette: { accent: "#7aa2f7", foreground: "#ff00ff", background: "#00ff00" }, font: { size: 22, family: { mono: "Courier" } }, space: { unit: 7 }, radius: { md: 9 } });
 
 // Accepted appearance rows: [label, table, light, theme, want].
@@ -538,7 +546,9 @@ const APPEARANCE_ACCEPTED = [
     ["unrelated shell tokens reach no plugin value", LOOK, LOOK_LIGHT, UNRELATED_THEME, [["card.fill", "#151515c7"], ["card.text", "#e8e8e8ff"], ["card.edge", "#7aa2f780"], ["card.radius", 18], ["motion.open", 200]]],
     ["the theme's motion scale reaches the plugin's durations", LOOK, LOOK_LIGHT, shellTheme({ motion: { scale: 0 } }), [["motion.open", 0], ["motion.scale", 0]]],
     ["the scale doubles the plugin's durations", LOOK, LOOK_LIGHT, shellTheme({ motion: { scale: 2 } }), [["motion.open", 400]]],
-    ["the theme's interface family reaches the plugin's text", FONT_LOOK, {}, shellTheme({ font: { family: { sans: "Serif" } } }), [["font.family.sans", "Serif"], ["card.title", "Serif"]]]
+    ["the theme's interface family reaches the plugin's text", FONT_LOOK, {}, shellTheme({ font: { family: { sans: "Serif" } } }), [["font.family.sans", "Serif"], ["card.title", "Serif"]]],
+    // alpha(#336699, 0.5): round(127.5) = 128 = 0x80.
+    ["the theme's raised surface reaches a look that holds it", RAISED_LOOK, {}, shellTheme({ color: { surfaceRaised: "#336699" } }), [["color.surfaceRaised", "#336699ff"], ["card.fill", "#33669980"]]]
 ];
 
 // Refused appearance rows: [label, table, light, theme, reason, token].
@@ -552,12 +562,14 @@ const APPEARANCE_REFUSED = [
     ["light overrides setting the accent", LOOK, { palette: { accent: "#fff" } }, DARK_THEME, "appearance-input", "palette.accent"],
     ["light overrides setting the scale", LOOK, { motion: { scale: 0 } }, DARK_THEME, "appearance-input", "motion.scale"],
     ["light overrides setting the interface family", FONT_LOOK, { font: { family: { sans: "Serif" } } }, DARK_THEME, "appearance-input", "font.family.sans"],
+    ["light overrides setting the raised surface", RAISED_LOOK, { color: { surfaceRaised: "#ffffff" } }, DARK_THEME, "appearance-input", "color.surfaceRaised"],
     ["an interface family that is no family", Object.assign({}, LOOK, { font: { family: { sans: { type: "color", value: "#ffffff" } } } }), {}, DARK_THEME, "appearance-font", "font.family.sans"],
     ["an interface family that is a group", Object.assign({}, LOOK, { font: { family: { sans: { text: { type: "family", value: "Serif" } } } } }), {}, DARK_THEME, "appearance-font", "font.family.sans"],
     ["a theme without a mode", LOOK, LOOK_LIGHT, {}, "appearance-theme", "scheme.mode"],
     ["a theme without an accent", LOOK, LOOK_LIGHT, { scheme: { mode: "dark" }, motion: { scale: 1 } }, "appearance-theme", "palette.accent"],
     ["a theme without a scale", LOOK, LOOK_LIGHT, { scheme: { mode: "dark" }, palette: { accent: "#000000ff" } }, "appearance-theme", "motion.scale"],
     ["a theme without an interface family", LOOK, LOOK_LIGHT, { scheme: { mode: "dark" }, palette: { accent: "#000000ff" }, motion: { scale: 1 } }, "appearance-theme", "font.family.sans"],
+    ["a theme without a raised surface", LOOK, LOOK_LIGHT, { scheme: { mode: "dark" }, palette: { accent: "#000000ff" }, motion: { scale: 1 }, font: { family: { sans: "Inter" } } }, "appearance-theme", "color.surfaceRaised"],
     // A light value is judged only where it applies, but its path is
     // judged in both modes.
     ["a light value of the wrong type in light mode", LOOK, { card: { radius: "#fff" } }, LIGHT_THEME, "type", "card.radius"]
@@ -943,7 +955,13 @@ function verify(judge) {
 // takes, whose shadow is the tight shadow's colour, alpha 0.45 in dark,
 // round(0.45 * 255) = 115 = 0x73, and 0.16 in light, round(40.8) = 41 =
 // 0x29. The surface values are pinned in scripts/test-notifications-logic.js
-// beside the looks that hand them.
+// beside the looks that hand them, but the fill, which takes the theme's
+// raised surface. Each fill row: [mode, raised surface, fill, its solid
+// form]. Dark, the shipped #101010 at 0.8, 204 = 0xcc, lifted by 0.05: 16 +
+// 239 * 0.05 = 27.95, #1c1c1c; another dark surface, #283038, gives 50.75,
+// 58.35 and 65.95, #333a42. Light, #f2f2f2 at 0.85, round(216.75) = 217 =
+// 0xd9, lifted by 0.1: 242 + 13 * 0.1 = 243.3, #f3f3f3; a cream #e8e4d8
+// gives 234.3, 230.7 and 219.9, #eae7dc.
 const GLASS = load(path.join(repo, "shell", "Commons", "Glass.js"));
 const LAUNCHER = load(path.join(repo, "shell", "plugins", "vgs.launcher", "Appearance.js"));
 const NOTIFICATIONS = load(path.join(repo, "shell", "plugins", "vgs.notifications", "Appearance.js"));
@@ -953,6 +971,12 @@ function verifyGlass(judge, glass = GLASS) {
         const result = judge.acceptAppearance(glass.TOKENS, glass.LIGHT, Object.assign({}, shipped, { scheme: { mode } }));
         assert.equal(result.ok, true, result.ok ? "" : judge.refusalLine(result));
         assert.deepEqual(plain(result.values.window), { opacity: 0.92, inactiveOpacity: 0.86, blurSize: 8, blurPasses: 2, shadowRange: 30, shadowPower: 3, shadowColor: shadow }, "the window glass in " + mode + " mode");
+    }
+    for (const [mode, raised, fill, solid] of [["dark", null, "#101010cc", "#1c1c1cff"], ["dark", "#283038ff", "#283038cc", "#333a42ff"], ["light", "#f2f2f2ff", "#f2f2f2d9", "#f3f3f3ff"], ["light", "#e8e4d8ff", "#e8e4d8d9", "#eae7dcff"]]) {
+        const theme = Object.assign({}, shipped, { scheme: { mode } }, raised === null ? {} : { color: Object.assign({}, shipped.color, { surfaceRaised: raised }) });
+        const drawn = judge.acceptAppearance(glass.TOKENS, glass.LIGHT, theme).values.glass;
+        assert.equal(drawn.fill, fill, "the glass fill in " + mode + " mode over " + raised);
+        assert.equal(judge.formatColor(judge.liftedOpaque(judge.parseColor(drawn.fill), drawn.solidLift)), solid, "its solid form");
     }
     // A blur size Hyprland would not take is refused.
     const wide = JSON.parse(JSON.stringify(glass.TOKENS));
@@ -1093,6 +1117,30 @@ function verifyAppearance(judge) {
         assert.deepEqual([result.sources.glass, result.sources.windowGlass], [glass === undefined ? "surface" : "user", windowGlass === undefined ? "hyprland" : "user"], "glass sources under glass=" + glass + " windowGlass=" + windowGlass);
     }
     assert.deepEqual(plain(over(shipped, { glass: "off", windowGlass: true }).values), plain(shipped.values), "VGlass draws no token of the shell's table");
+    // The glass corner: while the user's glass is on, a menu, a dialog, a
+    // popover and an OSD whose corner would be 0 take radius.glass, 16, a
+    // menu entry following its menu; a corner above 0 stands, the theme's
+    // or the user's 24 * 0.75 = 18, as with glass off; a panel and a
+    // tooltip are never set. Each row: [label, theme, user, the four
+    // corners and the menu entry's, the panel's, the tooltip's].
+    const squareCorners = [0, 0, 0, 0, 0], glassCorners = [16, 16, 16, 16, 16];
+    for (const [label, theme, user, corners, panel, tooltip] of [
+        ["a square theme, glass on", shipped, { glass: "on" }, glassCorners, 0, 0],
+        ["a square theme, glass off", shipped, { glass: "off" }, squareCorners, 0, 0],
+        ["a square theme, glass unset", shipped, {}, squareCorners, 0, 0],
+        ["a square theme, the windows' own glass", shipped, { windowGlass: true }, squareCorners, 0, 0],
+        ["a user's corner radius of 24, glass on", shipped, { glass: "on", windowRadius: 24 }, [18, 18, 18, 18, 18], 18, 0],
+        ["a user's corner radius of 24, glass off", shipped, { glass: "off", windowRadius: 24 }, [18, 18, 18, 18, 18], 18, 0],
+        ["a user's corner radius of 0, glass on", shipped, { glass: "on", windowRadius: 0 }, glassCorners, 0, 0],
+        ["the user's own Hyprland radius, glass on", shipped, { glass: "on", windowRadius: "hyprland" }, glassCorners, 0, 0],
+        ["a rounded theme, glass on", accepted({ radius: { sm: 4, md: 8 } }), { glass: "on" }, [8, 8, 8, 8, 8], 8, 4],
+        ["a theme that rounds its menu alone, glass on", accepted({ menu: { radius: 6 } }), { glass: "on" }, [6, 16, 16, 16, 6], 0, 0],
+        ["a theme's own glass corner", accepted({ radius: { glass: 10 } }), { glass: "on" }, [10, 10, 10, 10, 10], 0, 0]
+    ]) {
+        const values = over(theme, user).values;
+        assert.deepEqual(["menu.radius", "dialog.radius", "popover.radius", "osd.radius", "menu.item.radius"].map(token => at(values, token)), corners, label);
+        assert.deepEqual([at(values, "surface.radius"), at(values, "tooltip.radius")], [panel, tooltip], label + ": the panel and the tooltip");
+    }
     // Window glow: the windows' own choice, written only while window glass
     // is. Each row: [glass, windowGlass, windowGlow, the layer writes glow].
     for (const [glass, windowGlass, windowGlow, want] of [[undefined, undefined, undefined, false], [undefined, true, undefined, false], [undefined, true, true, true], [undefined, undefined, true, false],
@@ -1276,7 +1324,12 @@ const glassSource = fs.readFileSync(path.join(repo, "shell/Commons/Glass.js"), "
 const GLASS_CONTROLS = [
     ["window shadow is the tight shadow", 'shadowColor: color("{shadow.tight.color}")', 'shadowColor: color("{shadow.wide.color}")'],
     ["light shadow", 'tight: { color: "alpha(#000000, 0.16)" }', 'tight: { color: "alpha(#000000, 0.2)" }'],
-    ["blur size bound", "blurSize: whole(8, 1, 64)", "blurSize: whole(8, 1, 4096)"]
+    ["blur size bound", "blurSize: whole(8, 1, 64)", "blurSize: whole(8, 1, 4096)"],
+    ["the fill takes the theme's raised surface", 'fill: color("alpha({color.surfaceRaised}, 0.8)")', 'fill: color("alpha(#101010, 0.8)")'],
+    ["the light fill takes the theme's raised surface", 'fill: "alpha({color.surfaceRaised}, 0.85)"', 'fill: "alpha(#f2f2f2, 0.85)"'],
+    ["the dark fill's alpha", 'fill: color("alpha({color.surfaceRaised}, 0.8)")', 'fill: color("alpha({color.surfaceRaised}, 0.85)")'],
+    ["the dark lift", "solidLift: share(0.05)", "solidLift: share(0.25)"],
+    ["the light lift", "solidLift: 0.1", "solidLift: 0.05"]
 ];
 const glassControlDir = fs.mkdtempSync(path.join(repo, "tmp", "glass-control-"));
 try {
@@ -1384,7 +1437,8 @@ const CONTROLS = [
     ["appearance light tree", "if (!isPlainObject(light))", "if (false)"],
     ["appearance light judged", "if (!stated.ok)\n        return stated;\n    for", "if (false)\n        return stated;\n    for"],
     ["appearance font type", 'if (family !== undefined && family.type !== "family")', "if (false)"],
-    ["appearance interface family input", "var APPEARANCE_INPUTS = [\"palette.accent\", MOTION_SCALE, INTERFACE_FAMILY];", "var APPEARANCE_INPUTS = [\"palette.accent\", MOTION_SCALE];"],
+    ["appearance interface family input", "var APPEARANCE_INPUTS = [\"palette.accent\", MOTION_SCALE, INTERFACE_FAMILY, RAISED_SURFACE];", "var APPEARANCE_INPUTS = [\"palette.accent\", MOTION_SCALE, RAISED_SURFACE];"],
+    ["appearance raised surface input", "MOTION_SCALE, INTERFACE_FAMILY, RAISED_SURFACE];", "MOTION_SCALE, INTERFACE_FAMILY];"],
     ["appearance input", "if (hasOwn(stated.overrides, APPEARANCE_INPUTS[i]))", "if (false)"],
     ["appearance mode", 'var overrides = mode === "light" ? stated.overrides : {};', "var overrides = stated.overrides;"],
     ["appearance theme mode", 'if (typeof mode !== "string")', "if (false)"],
@@ -1446,6 +1500,17 @@ const CONTROLS = [
     ["glass on overrides a surface's choice", "return values.glass === \"on\" || (", "return ("],
     ["the shell's surfaces take the blur only while every surface draws glass", "hyprland.surfaceBlur = glassOn(values, false);", "hyprland.surfaceBlur = hyprland.glass;"],
     ["glass takes a surface's choice only when true", "values.glass !== \"off\" && optIn === true", "values.glass !== \"off\" && !!optIn"],
+    ["glass rounds a square corner", "if (glassOn(values, false))\n        GLASS_CORNERS.forEach", "if (false)\n        GLASS_CORNERS.forEach"],
+    ["glass rounds only while the user's glass is on", "if (glassOn(values, false))\n        GLASS_CORNERS.forEach", "if (glassOn(values, values.windowGlass === true))\n        GLASS_CORNERS.forEach"],
+    ["glass keeps a corner above 0", "if ((hasOwn(stated, path) ? stated[path] : valueAt(theme.values, path)) === 0)", "if (true)"],
+    ["glass reads the user's corner before the theme's", "if ((hasOwn(stated, path) ? stated[path] : valueAt(theme.values, path)) === 0)", "if (valueAt(theme.values, path) === 0)"],
+    ["glass reads the theme's corner where the user sets none", "if ((hasOwn(stated, path) ? stated[path] : valueAt(theme.values, path)) === 0)", "if (hasOwn(stated, path) && stated[path] === 0)"],
+    ["glass rounds to the theme's glass corner", "stated[path] = valueAt(theme.values, GLASS_RADIUS);", "stated[path] = 16;"],
+    ["glass rounds an OSD", "\"popover.radius\", \"osd.radius\"];", "\"popover.radius\"];"],
+    ["glass leaves a panel square", "var GLASS_CORNERS = [\"menu.radius\",", "var GLASS_CORNERS = [\"surface.radius\", \"menu.radius\","],
+    ["glass leaves a tooltip's corner", "var GLASS_CORNERS = [\"menu.radius\",", "var GLASS_CORNERS = [\"tooltip.radius\", \"menu.radius\","],
+    ["a solid fill is opaque", "b: channel(color.b), a: 1 };", "b: channel(color.b), a: color.a };"],
+    ["a solid fill is lifted toward white", "return value + (1 - value) * lift;", "return value;"],
     ["window glass follows glassOn", "hyprland.glass = glassOn(values, values.windowGlass === true);", ""],
     ["window glow follows window glass", "hyprland.glow = hyprland.glass && values.windowGlow === true;", "hyprland.glow = values.windowGlow === true;"],
     ["glow needs windowGlow", "hyprland.glow = hyprland.glass && values.windowGlow === true;", "hyprland.glow = hyprland.glass && true;"],

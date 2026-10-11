@@ -203,6 +203,14 @@ function contrastRatio(a, b) {
     return (light + 0.05) / (dark + 0.05);
 }
 
+// COLOR made opaque and mixed toward white by LIFT, a share of one: what a
+// glass surface whose fill is COLOR draws over content no blur reaches
+// (Theme.glassSolid).
+function liftedOpaque(color, lift) {
+    var channel = function (value) { return value + (1 - value) * lift; };
+    return { r: channel(color.r), g: channel(color.g), b: channel(color.b), a: 1 };
+}
+
 // White or black, whichever contrasts more with an opaque colour. Either
 // meets any opaque colour at 4.58:1 or more, the ratio both reach on the
 // colour of luminance 0.179.
@@ -653,11 +661,14 @@ function accept(tokens, text) {
 
 // The tokens a plugin-owned appearance takes from the active theme, by the
 // path both tables hold them at, and nothing else of the theme. The accent
-// is the one colour; the scale is the motion control, so reduced motion
-// reaches the plugin's durations as it reaches the shell's; the family is
-// the interface font, so the user's Fonts choice reaches the plugin's text.
+// is the one palette colour; the scale is the motion control, so reduced
+// motion reaches the plugin's durations as it reaches the shell's; the
+// family is the interface font, so the user's Fonts choice reaches the
+// plugin's text; the raised surface is the fill the theme's own controls
+// stand on, so a look that draws them, as VGlass does, shares their hue.
 var INTERFACE_FAMILY = "font.family.sans";
-var APPEARANCE_INPUTS = ["palette.accent", MOTION_SCALE, INTERFACE_FAMILY];
+var RAISED_SURFACE = "color.surfaceRaised";
+var APPEARANCE_INPUTS = ["palette.accent", MOTION_SCALE, INTERFACE_FAMILY, RAISED_SURFACE];
 
 // The token whose value picks the plugin's light overrides.
 var SCHEME_MODE = "scheme.mode";
@@ -670,7 +681,8 @@ var SCHEME_MODE = "scheme.mode";
 // accepted. The table's `palette` group holds `accent` alone, a
 // `font.family.sans` the table holds is a `family`, and `light` sets no
 // input, so no other theme value reaches the plugin and the plugin cannot
-// shadow what the theme gives it. Answers { ok: true, values } or
+// shadow what the theme gives it. An input reaches only a table that holds
+// its path. Answers { ok: true, values } or
 // one refusal whose reason starts `appearance-` or is the resolver's own.
 function acceptAppearance(table, light, theme) {
     var defect = tableError(table);
@@ -1104,6 +1116,12 @@ var APPEARANCE = {
     windowGlow: { type: "flag", only: true, hyprland: "glow", unset: "hyprland" }
 };
 
+// The roles VGlass rounds while every surface draws glass, and the token
+// that holds their corner then. A panel keeps `surface.radius`, the square
+// edge of the bar it is attached to, and a tooltip its own small corner.
+var GLASS_CORNERS = ["menu.radius", "dialog.radius", "popover.radius", "osd.radius"];
+var GLASS_RADIUS = "radius.glass";
+
 // Whether a surface whose own VGlass choice is OPTIN draws glass under
 // VALUES, the accepted Appearance values: `glass` "on" or "off" decides for
 // every surface, and unset leaves it to OPTIN. The shared GlassSurface and
@@ -1155,10 +1173,14 @@ function appearanceRefusal(key, value) {
 // { key, line }, so it shows as Set by theme. The user's values join the
 // theme's overrides, the user's winning, and resolve once, so every token
 // that references a changed token follows it; with no user token the
-// theme's own values answer unchanged. `appearance` is { values, the
-// accepted members; theme, what each member shows while the user sets
-// none; sources, `theme`, `user`, `hyprland` or `surface` per member;
-// hyprland, whether the layer writes each group a member decides }.
+// theme's own values answer unchanged. While the user's `glass` is on,
+// each corner of GLASS_CORNERS that would be 0, by the user's corner radius
+// or else by the theme, takes the theme's GLASS_RADIUS, and one above 0
+// stands. A user's 0 is rounded too: nothing tells it from a square
+// theme's. `appearance` is { values, the accepted members; theme, what each
+// member shows while the user sets none; sources, `theme`, `user`,
+// `hyprland` or `surface` per member; hyprland, whether the layer writes
+// each group a member decides }.
 function withAppearance(tokens, theme, user) {
     var given = isPlainObject(user) ? user : {};
     var values = {};
@@ -1189,6 +1211,11 @@ function withAppearance(tokens, theme, user) {
         if (member.targets !== undefined && sources[key] === "user")
             member.targets.forEach(function (target) { stated[target[0]] = member.type === "family" ? values[key] : values[key] * APPEARANCE_RATIOS[target[1]]; });
     });
+    if (glassOn(values, false))
+        GLASS_CORNERS.forEach(function (path) {
+            if ((hasOwn(stated, path) ? stated[path] : valueAt(theme.values, path)) === 0)
+                stated[path] = valueAt(theme.values, GLASS_RADIUS);
+        });
     // Window glass is Hyprland's windows taking glass as a surface does,
     // their own choice being `windowGlass`.
     hyprland.glass = glassOn(values, values.windowGlass === true);

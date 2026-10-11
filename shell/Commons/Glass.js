@@ -7,9 +7,10 @@
 // fill, rounding and elevation. The values are the Spotlight launcher's and
 // notification stack's (px13 dotfiles, spotlight/Theme.qml, GlassSurface.qml
 // and hooks/theme-set.d/spotlight-menu-tokens.sh), which the two drew alike;
-// the default fill is the notification toast's. `window` holds what
-// Hyprland draws its own windows with while window glass is on. The active
-// theme reaches this table through two inputs alone, `palette.accent` and
+// the default fill is the theme's raised surface at the notification
+// toast's alpha. `window` holds what Hyprland draws its own windows with
+// while window glass is on. The active theme reaches this table through
+// three inputs alone, `palette.accent`, `color.surfaceRaised` and
 // `motion.scale`, plus its `scheme.mode`, which applies LIGHT; no other
 // theme value can.
 
@@ -30,6 +31,13 @@ var TOKENS = {
         accent: color("#ff5a36")
     },
 
+    // The theme's raised surface, the fill its controls stand on: the glass
+    // takes its hue from it, so a glass card and the buttons on it share
+    // one. The default is the `vgs` theme's.
+    color: {
+        surfaceRaised: color("#101010")
+    },
+
     motion: {
         scale: number(1, 0, 4)
     },
@@ -41,13 +49,12 @@ var TOKENS = {
 
     glass: {
         // The fill a surface takes when it hands none of its own.
-        fill: color("alpha(#101010, 0.8)"),
+        fill: color("alpha({color.surfaceRaised}, 0.8)"),
         // The glass drawn solid, over content its own window draws, which
-        // no compositor blur reaches: every such surface draws this opaque
-        // fill at this corner, whatever fill and radius it hands, so it
-        // hides that content and one material shows. The launcher flyout's.
-        solidFill: color("#1c1c1c"),
-        solidRadius: length(16),
+        // no compositor blur reaches: the surface's own fill made opaque,
+        // so it hides that content, and mixed toward white by this share,
+        // so it reads a step above the glass it lies on.
+        solidLift: share(0.05),
         sheen: ink(0.045),
         sheenEnd: ink(0),
         sheenHeight: length(48),
@@ -82,8 +89,8 @@ var LIGHT = {
         foreground: "#2a2a2a"
     },
     glass: {
-        fill: "alpha(#f2f2f2, 0.85)",
-        solidFill: "#f5f5f5",
+        fill: "alpha({color.surfaceRaised}, 0.85)",
+        solidLift: 0.1,
         sheen: "alpha({text.foreground}, 0.35)",
         hairline: "alpha({text.foreground}, 0.1)"
     },

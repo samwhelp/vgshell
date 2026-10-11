@@ -104,6 +104,9 @@ Item {
     GlassSurface {
         id: panel
         optIn: menu.glass
+        // The card's fill: solid over the card, the flyout draws it
+        // opaque, so it keeps the card's hue.
+        fill: menu.look.card.fill
         width: menu.look.flyout.width
         height: implicitHeight
         implicitHeight: column.implicitHeight + 2 * menu.look.flyout.padding

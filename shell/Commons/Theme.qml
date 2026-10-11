@@ -42,9 +42,16 @@ Singleton {
     // already hold the resolved values.
     readonly property var appearanceState: source.appearance
     // VGlass, the one shared glass look (Glass.js), resolved as a plugin's
-    // own look is: it follows the theme's four look inputs alone.
+    // own look is: it follows the theme's five look inputs alone.
     // GlassSurface of qs.Ui draws it.
     readonly property var glass: appearance(Glass.TOKENS, Glass.LIGHT)
+
+    // What a glass surface whose fill is the colour `fill` draws while
+    // solid: that fill made opaque and lifted toward white by
+    // `glass.solidLift` (ThemeLogic.liftedOpaque).
+    function glassSolid(fill) {
+        return toColor(ThemeLogic.formatColor(ThemeLogic.liftedOpaque(fill, glass.glass.solidLift)));
+    }
 
     // Whether a surface whose own VGlass choice is OPTIN draws glass under
     // the user's Appearance values (ThemeLogic.glassOn).
@@ -312,10 +319,11 @@ Singleton {
 
     // A plugin's own look, for a plugin whose manifest declares
     // `appearance`: its table resolved against the active theme's
-    // `scheme.mode`, `palette.accent`, `motion.scale` and
-    // `font.family.sans`, the user's interface font, and nothing else of it,
-    // converted as the shell's groups are. A binding on it follows the
-    // theme and answers the same values for any theme with those four.
+    // `scheme.mode`, `palette.accent`, `motion.scale`, `font.family.sans`,
+    // the user's interface font, and `color.surfaceRaised`, and nothing
+    // else of it, converted as the shell's groups are. A binding on it
+    // follows the theme and answers the same values for any theme with
+    // those five.
     // A refusal is logged and answers null, so the caller fails loudly
     // instead of drawing a look the judge did not accept. A family is drawn
     // as the judge resolved it and is never substituted.
