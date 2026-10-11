@@ -1324,8 +1324,6 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             start(e, done, failed) {
                 const c = conversation;
                 const turn = c?.last;
-                const playing = state().playback;
-                const lineRun = playing.kind === "feedback" && playing.cue === "line" && playing.op === e.op ? turn?.lineStream ?? null : null;
                 return port.start(e, (...result) => {
                     // A prompt heard to its end holds the conversation's
                     // next words; a flushed one is asked again later.
@@ -1334,15 +1332,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                         if (turn.relay.ask !== null) c.relay = turn.relay.ask;
                     }
                     if (conversation === c) c?.live?.played(e.source);
-                    const next = lineRun !== null && turn.lineStream === lineRun;
-                    if (next) turn.lineStream = null;
                     done(...result);
-                    // Session is idle again, or plays the reply it held, so
-                    // the waiting line can ask for its own playback.
-                    if (!next || conversation !== c || turn.waitingLine === null) return;
-                    const waiting = turn.waitingLine;
-                    turn.waitingLine = null;
-                    if (session.live(state(), turn, "turn", ["thinking"])) line(c, turn, waiting.text, waiting.labels);
                 }, failed);
             },
             flush(e, done) {
@@ -1416,6 +1406,17 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             } else if (conversation?.feedback !== null && conversation?.feedback !== undefined) {
                 conversation.feedback.readable.destroy();
                 conversation.feedback = null;
+            }
+            // A line has played once Session's playback is idle again or
+            // plays the reply it held; the waiting line then asks for its own.
+            // A flush is the flush port's to settle.
+            const lined = conversation?.turn;
+            if (lined && lined.lineStream && s.playback.kind !== "flushing"
+                    && !(s.playback.kind === "feedback" && s.playback.cue === "line" && s.playback.source === lined.op)) {
+                lined.lineStream = null;
+                const waiting = lined.waitingLine;
+                lined.waitingLine = null;
+                if (waiting !== null && session.live(s, lined, "turn", ["thinking"])) line(conversation, lined, waiting.text, waiting.labels);
             }
             const turn = conversation?.turn;
             if (turn && (s.settings.sounds !== true || !session.live(s, turn, "turn", ["thinking"])
