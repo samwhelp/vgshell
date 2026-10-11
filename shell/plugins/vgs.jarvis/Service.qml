@@ -550,7 +550,7 @@ Item {
         return [{ label: "System default", value: systemDefault }].concat(devices);
     }
     function homeOffers(homes) {
-        const offers = [{ label: "None", value: "" }].concat(homes);
+        const offers = [{ label: "None", value: "none" }].concat(homes);
         if (!offers.some(choice => choice.value === "~/Jarvis"))
             offers.push({ label: "~/Jarvis", value: "~/Jarvis" });
         return offers;

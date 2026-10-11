@@ -327,6 +327,104 @@ async function inside() {
         'if (false) return;', homesRecord);
     await control("homes-record-state-dir", "        const directory = context.directories.state;\n",
         "        const directory = homeFolder.state.path;\n", homesRecord);
+    // Homes are a Settings offer cache. A long offerable home must not crash
+    // the wire, malformed cache records fall back to an empty list, bad
+    // entries are dropped, and a write failure leaves the daemon running with
+    // its in-memory offers.
+    async function homesCacheRecovery(file) {
+        const base = fs.realpathSync(process.env.HOME);
+        const valid = path.join(base, "homes/valid/Jarvis");
+        const outside = path.join(path.dirname(base), "outside-home/Jarvis");
+        const long = path.join(base, "homes", "long-" + "a".repeat(60), "Jarvis");
+        const longValue = "~/" + path.relative(base, long).split(path.sep).join("/");
+        const longLabel = "…" + longValue.slice(-59);
+        assert.equal(longValue.length > 60 && longValue.length <= 200, true, "long home fixture fits the value wire");
+        fs.rmSync(path.join(base, "homes"), { recursive: true, force: true });
+        fs.rmSync(path.dirname(outside), { recursive: true, force: true });
+        const named = (setting, state) => ({ ...hello, settings: { ...hello.settings, home: setting },
+            directories: { ...hello.directories, state } });
+        const start = state => {
+            const child = cp.spawn("node", [file, "--tree", tree], { env: {
+                PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
+                XDG_DATA_HOME: process.env.XDG_DATA_HOME
+            }, stdio: ["pipe", "pipe", "pipe"] });
+            let out = "", err = "";
+            child.stdout.on("data", data => { out += data; });
+            child.stderr.on("data", data => { err += data; });
+            const messages = () => out.split("\n").slice(0, -1).filter(Boolean).map(line => JSON.parse(line));
+            const wait = async predicate => {
+                for (let attempts = 0; attempts < 500; attempts++) {
+                    if (predicate(messages())) return;
+                    assert.equal(child.exitCode, null, "daemon exited: " + err);
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                }
+                assert.fail("homes cache timeout: " + out + err);
+            };
+            const close = async wantErr => {
+                child.stdin.end();
+                assert.deepEqual(await once(child, "close"), [0, null], err);
+                assert.equal(err, wantErr);
+            };
+            return { child, messages, wait, close };
+        };
+
+        const longState = path.join(hello.directories.state, "homes-long");
+        fs.mkdirSync(longState, { recursive: true });
+        const longRun = start(longState);
+        try {
+            longRun.child.stdin.write(JSON.stringify(named(longValue, longState)) + "\n");
+            await longRun.wait(messages => messages.some(frame => frame.type === "homes"
+                && frame.homes.some(row => row.label === longLabel && row.value === longValue)));
+            assert.deepEqual(JSON.parse(fs.readFileSync(path.join(longState, "homes.json"), "utf8")), { homes: [long] });
+            assert.equal(longRun.child.exitCode, null, "the long home keeps the daemon running");
+            await longRun.close("");
+        } finally { if (longRun.child.exitCode === null) longRun.child.kill("SIGKILL"); }
+
+        const outsideState = path.join(hello.directories.state, "homes-outside");
+        fs.mkdirSync(outsideState, { recursive: true });
+        fs.writeFileSync(path.join(outsideState, "homes.json"), JSON.stringify({ homes: [outside, valid] }) + "\n", { mode: 0o600 });
+        const outsideRun = start(outsideState);
+        try {
+            outsideRun.child.stdin.write(JSON.stringify(named("", outsideState)) + "\n");
+            await outsideRun.wait(messages => messages.some(frame => frame.type === "homes"
+                && JSON.stringify(frame.homes.map(row => row.value)) === JSON.stringify(["~/homes/valid/Jarvis"])));
+            await outsideRun.close("jarvis: homes=record-entry\n");
+        } finally { if (outsideRun.child.exitCode === null) outsideRun.child.kill("SIGKILL"); }
+
+        const corruptState = path.join(hello.directories.state, "homes-corrupt");
+        fs.mkdirSync(corruptState, { recursive: true });
+        fs.writeFileSync(path.join(corruptState, "homes.json"), "", { mode: 0o600 });
+        const corruptRun = start(corruptState);
+        try {
+            corruptRun.child.stdin.write(JSON.stringify(named("", corruptState)) + "\n");
+            await corruptRun.wait(messages => messages.some(frame => frame.type === "homes" && frame.homes.length === 0));
+            await corruptRun.close("jarvis: homes=record-json\n");
+        } finally { if (corruptRun.child.exitCode === null) corruptRun.child.kill("SIGKILL"); }
+
+        const writeState = path.join(hello.directories.state, "homes-write");
+        fs.mkdirSync(writeState, { recursive: true, mode: 0o700 });
+        const writeRun = start(writeState);
+        try {
+            writeRun.child.stdin.write(JSON.stringify(named("", writeState)) + "\n");
+            await writeRun.wait(messages => messages.some(frame => frame.type === "homes"));
+            fs.writeFileSync(path.join(writeState, ".homes.json-" + writeRun.child.pid), "held\n");
+            writeRun.child.stdin.write(JSON.stringify(named(longValue, writeState)) + "\n");
+            await writeRun.wait(messages => messages.some(frame => frame.type === "homes"
+                && frame.homes.some(row => row.value === longValue)));
+            assert.equal(writeRun.child.exitCode, null, "a homes write failure keeps the daemon running");
+            await writeRun.close("jarvis: homes=write-failed\n");
+        } finally {
+            if (writeRun.child.exitCode === null) writeRun.child.kill("SIGKILL");
+        }
+        cases++;
+    }
+    await homesCacheRecovery(daemon);
+    await control("homes-cache-entry-drops", "                const homes = Home.remembered(value.homes, process.env.HOME);\n",
+        "                const homes = value.homes;\n", homesCacheRecovery);
+    await control("homes-cache-read-catches", "                process.stderr.write(error.message + \"\\n\");\n                return [];\n",
+        "                throw error;\n", homesCacheRecovery);
+    await control("homes-cache-write-keeps-running", "            if (reason !== null) process.stderr.write(error.message + \"\\n\");\n            else throw error;\n",
+        "            throw error;\n", homesCacheRecovery);
     await control("reply-wire", "requests.reply(message);", "void message;", unknownReply);
     await control("hyprctl-environment", 'const environment = { PATH: process.env.PATH || "/usr/bin:/bin", LANG: "C.UTF-8" };',
         'const environment = { ...process.env, LANG: "C.UTF-8" };', probe);

@@ -520,6 +520,7 @@ function accept(line, direction) {
         var seen = {};
         for (var choice of values) {
             keys(choice, ["label", "value"], "home-choice");
+            // Mirrors PluginLogic status choice caps: STATUS_LABEL_MAX and STATUS_TEXT_MAX.
             if (typeof choice.label !== "string" || !/^[^\x00-\x1f\x7f]{1,60}$/.test(choice.label)
                     || typeof choice.value !== "string" || !/^~\/[^\x00-\x1f\x7f]{1,200}$/.test(choice.value))
                 fail("home-choice");

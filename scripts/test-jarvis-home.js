@@ -212,15 +212,24 @@ world(() => {
         },
         rememberOffers(Home) {
             const names = Array.from({ length: 12 }, (_, index) => path.join(home, "homes", "h" + index));
+            const longLabel = path.join(home, "homes", "l".repeat(53));
+            const longValue = "~/" + path.relative(home, longLabel).split(path.sep).join("/");
+            const tooLong = path.join(home, "x".repeat(199));
             assert.deepEqual(Home.remember([], names[0]), [names[0]], "a new absolute path is first");
             assert.deepEqual(Home.remember([names[0], names[1]], names[1]), [names[1], names[0]], "an existing path moves to the front once");
             assert.deepEqual(Home.remember(names.slice(0, 12), names[11]), [names[11]].concat(names.slice(0, 9)),
                 "the newest path is first, with at most ten paths");
             assert.deepEqual(Home.remember([names[0], "relative", names[1]], names[2]), [names[2], names[0], names[1]],
                 "only absolute remembered paths stay");
+            assert.deepEqual(Home.remember([names[0]], tooLong), [names[0]], "a home whose offer value does not fit is not kept");
+            assert.equal(longValue.length > 60 && longValue.length <= 200, true, "the long label fixture fits the value wire");
             assert.deepEqual(Home.offers([path.join(home, "Jarvis"), path.join(home, "work/One")], home),
                 [{ label: "~/Jarvis", value: "~/Jarvis" }, { label: "~/work/One", value: "~/work/One" }]);
-            keyed(() => Home.offers([path.dirname(home)], home), "path", "an offer must stay inside the user's home");
+            assert.deepEqual(Home.offers([longLabel], home),
+                [{ label: "…" + longValue.slice(-59), value: longValue }], "a long value keeps its full value and shortens its label");
+            assert.deepEqual(Home.offers([names[0], names[0]], home),
+                [{ label: "~/homes/h0", value: "~/homes/h0" }], "an offer is listed once");
+            assert.deepEqual(Home.offers([path.dirname(home)], home), [], "an offer must stay inside the user's home");
         },
         // A file's text whole within its bound, or too-large; never a cut
         // text, a link's target or bytes that are no UTF-8.
@@ -628,11 +637,14 @@ world(() => {
         ["path-bound", " || Buffer.byteLength(file) > PATH_BYTES", "", "resolves"],
         ["control-characters", ' || /[\\x00-\\x1f\\x7f]/.test(named)', "", "resolves"],
         ["open-entry", 'const OPEN = "state";', 'const OPEN = "skills";', "resolves"],
-        ["remember-first", "return [folder].concat(found.filter(item => item !== folder)).slice(0, HOMES);",
+        ["remember-first", "return [folder].concat(found.filter(item => homeOffer(item, userHome).value !== choice.value)).slice(0, HOMES);",
             "return found.concat([folder]).slice(0, HOMES);", "rememberOffers"],
-        ["remember-once", "found.filter(item => item !== folder)", "found", "rememberOffers"],
+        ["remember-once", "homeOffer(item, userHome).value !== choice.value", "true", "rememberOffers"],
         ["remember-bound", "const HOMES = 10;", "const HOMES = 11;", "rememberOffers"],
-        ["remember-absolute", 'typeof item === "string" && path.isAbsolute(item)', 'typeof item === "string"', "rememberOffers"],
+        ["remember-offer-bound", "if (value.length > OFFER_VALUE_MAX) return null;", "", "rememberOffers"],
+        ["remember-offer-label", 'return { label: value.length <= OFFER_LABEL_MAX ? value : "…" + value.slice(1 - OFFER_LABEL_MAX), value };',
+            "return { label: value, value };", "rememberOffers"],
+        ["remember-offer-duplicate", "if (choice === null || seen.has(choice.value)) continue;", "if (choice === null) continue;", "rememberOffers"],
         ["offers-relative", 'return "~/" + relative.split(path.sep).join("/");',
             'return file;', "rememberOffers"],
         ["read-bound", 'if (limit !== null && content.length > limit) return { kind: "too-large" };', "", "reads"],

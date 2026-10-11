@@ -59,6 +59,8 @@ const LINE_CHARS = 160;
 const PATH_BYTES = 4096;
 // The home list is a short Settings offer list, not a history.
 const HOMES = 10;
+const OFFER_VALUE_MAX = 200;
+const OFFER_LABEL_MAX = 60;
 // The one program Jarvis starts from the home: lane-mail, which kendex
 // installs here with its orch skill, writes the Jarvis session's mailbox
 // (D105). It runs the orch skill's own scripts and the home's kendex
@@ -111,22 +113,40 @@ function relativeHome(folder, userHome) {
     return "~/" + relative.split(path.sep).join("/");
 }
 
-/** Put FOLDER first, once, among at most ten absolute paths. */
-function remember(list, folder) {
-    const found = Array.isArray(list) ? list.filter(item => typeof item === "string" && path.isAbsolute(item)) : [];
-    if (typeof folder !== "string" || !path.isAbsolute(folder)) return found.slice(0, HOMES);
-    return [folder].concat(found.filter(item => item !== folder)).slice(0, HOMES);
+function homeOffer(folder, userHome) {
+    let value;
+    try { value = relativeHome(folder, userHome); } catch { return null; }
+    if (value.length > OFFER_VALUE_MAX) return null;
+    return { label: value.length <= OFFER_LABEL_MAX ? value : "…" + value.slice(1 - OFFER_LABEL_MAX), value };
+}
+
+/** Remembered homes that can cross the Settings choices wire. */
+function remembered(list, userHome) {
+    if (!Array.isArray(list)) return [];
+    const found = [];
+    const seen = new Set();
+    for (const item of list) {
+        if (typeof item !== "string" || !path.isAbsolute(item)) continue;
+        const choice = homeOffer(item, userHome);
+        if (choice === null || seen.has(choice.value)) continue;
+        found.push(item);
+        seen.add(choice.value);
+        if (found.length === HOMES) break;
+    }
+    return found;
+}
+
+/** Put FOLDER first, once, among at most ten offerable absolute paths. */
+function remember(list, folder, userHome = process.env.HOME) {
+    const found = remembered(list, userHome);
+    const choice = typeof folder === "string" && path.isAbsolute(folder) ? homeOffer(folder, userHome) : null;
+    if (choice === null) return found;
+    return [folder].concat(found.filter(item => homeOffer(item, userHome).value !== choice.value)).slice(0, HOMES);
 }
 
 /** Settings choices for remembered homes, relative to the user's home. */
 function offers(list, userHome) {
-    if (!Array.isArray(list)) return [];
-    const found = [];
-    for (const folder of list) {
-        const value = relativeHome(folder, userHome);
-        found.push({ label: value, value });
-    }
-    return found;
+    return remembered(list, userHome).map(folder => homeOffer(folder, userHome));
 }
 
 // Hold the home folder itself open. The folders above it are the user's own
@@ -611,4 +631,4 @@ function mailbox(home) {
     return held(home, MAILBOX, O_RDONLY | O_DIRECTORY, () => true) === true;
 }
 
-module.exports = { PACKAGE, resolve, remember, offers, layout, guard, baseSet, read, skills, skill, note, notes, mailTool, mailbox, directory };
+module.exports = { PACKAGE, resolve, remembered, remember, offers, layout, guard, baseSet, read, skills, skill, note, notes, mailTool, mailbox, directory };

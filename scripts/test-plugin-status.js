@@ -63,6 +63,8 @@ function suite(ctx, check) {
     // are probed; no executable, installer or authentication prompt runs.
     const jarvisRaw = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "manifest.json"), "utf8"));
     const jarvis = ctx.validateManifest(jarvisRaw, "/jarvis").manifest;
+    const jarvisService = fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "Service.qml"), "utf8");
+    const jarvisNone = /const offers = \[\{ label: "None", value: "([^"]*)" \}\]\.concat\(homes\);/.exec(jarvisService)?.[1] ?? null;
     const voiceValues = { localRuntime: { tone: "warning", text: "Setup needed", action: true } };
     const scratchRoot = path.join(__dirname, "..", "tmp");
     fs.mkdirSync(scratchRoot, { recursive: true });
@@ -102,6 +104,9 @@ function suite(ctx, check) {
         [jarvisNotice.answer, jarvisNotice.commands, jarvisNotice.required], ["ok", jarvisRequired, jarvisRequired]);
     check("the explicit-choice request refuses Jarvis's full required list",
         ctx.noticeRequest(jarvis, jarvisRequired, {}, "chosen", jarvisRequired).answer, "refused: requirements=malformed");
+    check("Jarvis's None home status value is a non-home sentinel", [typeof jarvisNone, jarvisNone !== "" && !jarvisNone.startsWith("/") && !jarvisNone.startsWith("~")], ["string", true]);
+    check("Jarvis's Service home offers fit status choices",
+        ctx.statusWrite(jarvis, {}, "homes", [{ label: "None", value: jarvisNone }, { label: "~/Jarvis", value: "~/Jarvis" }]).ok, true);
 
     const runner = { launcher: "present", busy: [], run: "test" };
     const optional = Object.assign({}, m, { requirements: [{ name: "acme-sync", bus: null, packages: {}, optional: true, purpose: "Sync" }] });

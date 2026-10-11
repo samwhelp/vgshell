@@ -2,7 +2,7 @@
 // jarvisd --tree ABSOLUTE_VGS_TREE
 // Stdin is the service's lease. EOF exits 0; a partial line or a refused
 // message exits 65. Task-store or confirmation-audit failure exits 74. Node below 22 or a
-// mute or homes record failure exits 78. Stdout carries status/state
+// mute record failure exits 78. Stdout carries status/state
 // messages and shell requests judged by JarvisProtocol; stderr carries keyed jarvis: failures.
 // A reply for a request that awaits none exits 65 like any refused message.
 // Startup validates coding-task records and publishes their durable producer,
@@ -124,7 +124,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
 
     function rememberHome() {
         if (homeFolder.state.kind !== "ready" || homes[0] === homeFolder.state.path) return;
-        homes = Home.remember(homes, homeFolder.state.path);
+        homes = Home.remember(homes, homeFolder.state.path, process.env.HOME);
         storeHomes(homes);
         publishHomes();
     }
@@ -171,7 +171,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         void audio.close("protocol");
         refuse(error.message.startsWith("jarvis: tasks=") || error.message.startsWith("jarvis: task=")
             || error.message.startsWith("jarvis: audit=") ? 74
-            : error.message.startsWith("jarvis: mute=") || error.message.startsWith("jarvis: homes=") ? 78 : 65, error.message);
+            : error.message.startsWith("jarvis: mute=") ? 78 : 65, error.message);
     }
 
     // Adapt the shared request result to the task display's text contract.
@@ -301,25 +301,33 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     function storeMute(muted) { storeRecord("mute", "mute.json", { muted }); }
 
     function readHomes() {
-        return readRecord("homes", "homes.json", 40960, value => {
-            if (value === null || typeof value !== "object" || Array.isArray(value)
-                    || Object.keys(value).join(",") !== "homes" || !Array.isArray(value.homes)
-                    || value.homes.length > 10)
-                throw new Error("jarvis: homes=record-shape");
-            const seen = new Set();
-            for (const folder of value.homes) {
-                if (typeof folder !== "string" || !path.isAbsolute(folder) || /[\x00-\x1f\x7f]/.test(folder)
-                        || Buffer.byteLength(folder) > 4096 || seen.has(folder))
+        try {
+            return readRecord("homes", "homes.json", 40960, value => {
+                if (value === null || typeof value !== "object" || Array.isArray(value)
+                        || Object.keys(value).join(",") !== "homes" || !Array.isArray(value.homes))
                     throw new Error("jarvis: homes=record-shape");
-                seen.add(folder);
+                const homes = Home.remembered(value.homes, process.env.HOME);
+                if (homes.length !== value.homes.length) process.stderr.write("jarvis: homes=record-entry\n");
+                return homes;
+            }, []);
+        } catch (error) {
+            const reason = /^jarvis: homes=([a-z-]+)$/.exec(error.message);
+            if (reason !== null) {
+                process.stderr.write(error.message + "\n");
+                return [];
             }
-            try { Home.offers(value.homes, process.env.HOME); }
-            catch { throw new Error("jarvis: homes=record-shape"); }
-            return value.homes;
-        }, []);
+            throw error;
+        }
     }
 
-    function storeHomes(value) { storeRecord("homes", "homes.json", { homes: value }); }
+    function storeHomes(value) {
+        try { storeRecord("homes", "homes.json", { homes: value }); }
+        catch (error) {
+            const reason = /^jarvis: homes=([a-z-]+)$/.exec(error.message);
+            if (reason !== null) process.stderr.write(error.message + "\n");
+            else throw error;
+        }
+    }
 
     function publishHomes() {
         write({ v: 1, type: "homes", gen: runner.state.gen, revision: context.revision,
