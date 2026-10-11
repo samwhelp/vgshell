@@ -10,7 +10,7 @@
 # opens the plugin's window or panel through the manager. A mouse drag leaves a page where it was, while a wheel notch and
 # Tab scroll it, and a two-finger swipe moves it as far as GTK moves a list. The
 # Setup section draws the screen an offered step opens as that step, first
-# and primary, and a screen that lacks a command it needs disabled with a
+# and secondary, and a screen that lacks a command it needs disabled with a
 # reason naming it. Dispatches asked for back to back run in order behind one
 # process, the queue has a bound, and a process that cannot start does not
 # stop the queue.
@@ -679,9 +679,9 @@ rmdir -- "$repo/shell/Core/TuiInstallControls" || fail "removing the TUI install
 setup_buttons() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; print(json.dumps([[b[0], b[1], b[2], sys.argv[1] in b[3]] for b in json.load(sys.stdin)["buttons"]]))' "$1"; }
 settings_tab_click Settings || fail "the click back to the status fixture's Settings failed"
 expect_poll "the status fixture's page shows Settings for its Setup button" 0 settings_tab
-expect_poll "the offered step draws Token setup's screen as Install requirements, the page's primary action, active" '[["Install requirements", "primary", true, false]]' setup_buttons vgs-smoke-absent
+expect_poll "the offered step draws Token setup's screen as Install requirements, secondary and active" '[["Install requirements", "accent", true, false]]' setup_buttons vgs-smoke-absent
 forget_record
-settings_press "Install requirements" || fail "the click on the Setup section's Install requirements failed"
+settings_press --type RowAction "Install requirements" || fail "the click on the Setup section's Install requirements failed"
 expect_poll "the Setup step of a plugin missing required commands opens the requirement notice" "$large_notice" notice_shown
 expect "the Setup step starts no setup terminal" absent recorded
 expect_poll "the Setup step's notice holds the keyboard" true ipc smoke noticeFocused
