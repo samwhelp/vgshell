@@ -17,10 +17,12 @@
 # gets Fable 5.1 at high for the Claude Code account. A list that is not
 # read leaves the saved model, marked, and with nothing saved the model the
 # daemon gets. The shell's log holds no unexpected line from these steps.
+# Two backup models added through the list's Add action sit the group
+# list's gap apart, with the hairline centred in it.
 # No latency budget.
 # Poll once per nested IPC round trip. Only J09's process double and the
 # allow-listed TUI fixtures run here.
-# inputs: shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js shell/plugins/vgs.settings/* shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh shell/Commons/AnchorTracker.qml
+# inputs: shell/plugins/vgs.jarvis/* shell/Ui/layout/GroupList.qml bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js shell/plugins/vgs.settings/* shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh shell/Commons/AnchorTracker.qml
 set -euo pipefail
 page_tuis="$repo/shell/plugins/vgs.jarvis/tui"
 page_manifest="$repo/shell/plugins/vgs.jarvis/manifest.json"
@@ -434,6 +436,63 @@ cp -- "$sandbox/page-manifest-original" "$page_manifest"
 jarvis_rescan
 expect_poll "the restored page draws the key list under Setup again" "$page_keys_want" page_keys_drawn
 expect "the restored key's line stands in the Setup section" true page_keys_in_setup
+
+# Two backup models, added through the list's Add action, sit
+# `groupList.gap` apart, from the bottom of the first entry's last row to
+# the top of the second entry's first row, with the one hairline centred
+# in that gap, within a pixel. Text inside a row, such as a hint's leading
+# or a label centred in its row, is not gap. The controls plant the same
+# reading with a trailing 8 px in the first entry, which moves the second
+# entry and the hairline, and with the hairline 4 px low. `[]` is the pass.
+page_backups() { ipc smoke invokeInstance window vgs.settings listItems '{"id":"vgs.jarvis","key":"fallbacks"}' | py_reply 'import json,sys; t=sys.stdin.read(); print(json.dumps([i["name"] for i in json.loads(t)]) if t.startswith("[") else t)'; }
+page_backup_gap() { # [trailing|hairline]
+  local rows gap
+  ipc smoke descendantGeometry window vgs.settings >"$sandbox/jarvis-page-geometry.json" || return
+  gap="$(ipc smoke themeValue groupList.gap)" || return
+  python3 - "$sandbox/jarvis-page-geometry.json" "$gap" "${1:-}" <<'PY'
+import json, sys
+text = open(sys.argv[1]).read()
+if not text.startswith("[") or not sys.argv[2][:1].isdigit():
+    print(json.dumps(["unread=%s gap=%s" % (text[:40], sys.argv[2])])); sys.exit()
+rows, gap = json.loads(text), json.loads(sys.argv[2])
+plant = sys.argv[3]
+def shown(i):
+    while i != -1:
+        if not rows[i]["visible"]: return False
+        i = rows[i]["parent"]
+    return True
+def kids(i, sized=True): return [j for j, r in enumerate(rows) if r["parent"] == i and shown(j) and (not sized or r["box"][2] > 0 and r["box"][3] > 0)]
+fields = [i for i, r in enumerate(rows) if r["type"] == "ListField" and shown(i)]
+if len(fields) != 1: print(json.dumps(["list-fields=%d" % len(fields)])); sys.exit()
+lists = [j for j in kids(fields[0]) if rows[j]["type"] == "GroupList"]
+# The probe names a plain Column by its C++ type.
+columns = [j for j in kids(lists[0]) if rows[j]["type"] == "QQuickColumn"] if len(lists) == 1 else []
+if len(columns) != 1: print(json.dumps(["group-lists=%d columns=%d" % (len(lists), len(columns))])); sys.exit()
+entries = sorted(kids(columns[0]), key=lambda j: rows[j]["box"][1])
+lines = sorted((rows[j]["box"][1], rows[j]["box"][3]) for j in kids(lists[0], False) if rows[j]["type"] == "Divider")
+if len(entries) != 2 or len(lines) != 1: print(json.dumps(["entries=%d hairlines=%d" % (len(entries), len(lines))])); sys.exit()
+bottom = max(rows[j]["box"][1] + rows[j]["box"][3] for j in kids(entries[0]))
+top = min(rows[j]["box"][1] for j in kids(entries[1]))
+line_top, line_height = lines[0]
+if plant == "trailing": top, line_top = top + 8, line_top + 8
+if plant == "hairline": line_top += 4
+out = []
+if abs(top - bottom - gap) > 1: out.append("gap=%.2f want=%d" % (top - bottom, gap))
+if abs(line_top + line_height / 2 - (bottom + top) / 2) > 1: out.append("hairline=%.2f between %.2f and %.2f" % (line_top + line_height / 2, bottom, top))
+print(json.dumps(out))
+PY
+}
+expect "the first backup model is added" clicked ipc smoke invokeInstance window vgs.settings listAdd '{"id":"vgs.jarvis","key":"fallbacks"}'
+expect "the second backup model is added" clicked ipc smoke invokeInstance window vgs.settings listAdd '{"id":"vgs.jarvis","key":"fallbacks"}'
+expect_poll "the page draws two backup models" '["1", "2"]' page_backups
+geometry expect_poll "two backup models sit groupList.gap apart with the hairline centred" '[]' page_backup_gap
+page_backup_planted() { page_backup_gap "$1" | py_reply 'import json,sys; print(any(e.startswith(sys.argv[1]) for e in json.load(sys.stdin)))' "$2"; }
+expect "control: a trailing 8 px in the first entry is refused" True page_backup_planted trailing gap=
+expect "control: a hairline 4 px low is refused" True page_backup_planted hairline hairline=
+expect "the first backup model is removed" clicked ipc smoke invokeInstance window vgs.settings listRemove '{"id":"vgs.jarvis","key":"fallbacks","name":"1"}'
+expect_poll "the page draws one backup model" '["2"]' page_backups
+expect "the second backup model is removed" clicked ipc smoke invokeInstance window vgs.settings listRemove '{"id":"vgs.jarvis","key":"fallbacks","name":"2"}'
+expect_poll "the page draws no backup model" '[]' page_backups
 settings_page_close vgs.jarvis
 jarvis_disable
 jarvis_notice_close
