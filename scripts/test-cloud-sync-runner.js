@@ -192,6 +192,7 @@ process.stdout.write(JSON.stringify({ user: { emailAddress: mode === "bad" ? "tw
 `, 0o755);
     write(path.join(w.bin, "systemctl"), `#!${HOST.bash}
 printf '%s\\n' "$*" >>${JSON.stringify(path.join(w.stub, "systemctl.calls"))}
+[[ ! -f ${JSON.stringify(path.join(w.stub, "systemctl-fail"))} ]]
 `, 0o755);
     // Each rclone call also records the status record's attention as the
     // run's own render left it.
@@ -202,11 +203,21 @@ const status = ${JSON.stringify(path.join(w.state, "status.json"))};
 const attention = fs.existsSync(status) ? JSON.parse(fs.readFileSync(status, "utf8")).attention : null;
 fs.appendFileSync(${JSON.stringify(path.join(w.stub, "rclone.calls"))}, JSON.stringify({ argv: process.argv.slice(2), env, attention }) + "\\n");
 `);
-    write(path.join(w.stub, "ids.js"), `const fs = require("fs");
+    // The listing filter: object ids from inode numbers when \`ids\` exists,
+    // and Size -1, as rclone's drive backend lists a Google-native
+    // document, for each path the \`exports\` file names.
+    write(path.join(w.stub, "listing.js"), `const fs = require("fs");
 const path = require("path");
-const root = process.argv.slice(3).find(a => a.startsWith("vgsdrive:")).slice("vgsdrive:".length);
+const stub = process.argv[2];
+const drive = process.argv[3];
+const root = process.argv.slice(4).find(a => a.startsWith("vgsdrive:")).slice("vgsdrive:".length);
 const items = JSON.parse(fs.readFileSync(0, "utf8"));
-for (const item of items) item.ID = String(fs.statSync(path.join(process.argv[2], root, item.Path)).ino);
+const exportsFile = path.join(stub, "exports");
+const exported = fs.existsSync(exportsFile) ? fs.readFileSync(exportsFile, "utf8").split("\\n").filter(Boolean) : [];
+for (const item of items) {
+    if (fs.existsSync(path.join(stub, "ids"))) item.ID = String(fs.statSync(path.join(drive, root, item.Path)).ino);
+    if (exported.includes(item.Path)) item.Size = -1;
+}
 process.stdout.write(JSON.stringify(items));
 `);
     // The rclone stand-in: `mode` prints a real failure line instead of
@@ -246,18 +257,32 @@ if [[ -f $stub/block && ! -e $stub/blocked && $3 == copy ]]; then
   : >"$stub/blocked"
   read -r _ <"$stub/release"
 fi
-if [[ -f $stub/ids && $3 == lsjson ]]; then
+# The legs by their words: the download copies from vgsdrive: into a
+# folder, the upload from a folder to vgsdrive:.
+leg=""
+if [[ $3 == copy && $4 == --update && $5 == vgsdrive:* ]]; then leg=download; folder=$6; fi
+if [[ $3 == copy && $4 == --update && $6 == vgsdrive:* ]]; then leg=upload; folder=$5; fi
+if [[ $leg == upload && -f $stub/fail-upload && ! -e $stub/failed-upload ]]; then
+  : >"$stub/failed-upload"
+  printf 'Failed to copy: stand-in upload error\n' >&2
+  exit 1
+fi
+if [[ $3 == lsjson && ( -f $stub/ids || -f $stub/exports ) ]]; then
   set -o pipefail
-  ${JSON.stringify(HOST.rclone)} "$@" | ${JSON.stringify(process.execPath)} "$stub/ids.js" ${JSON.stringify(w.drive)} "$@"
+  ${JSON.stringify(HOST.rclone)} "$@" | ${JSON.stringify(process.execPath)} "$stub/listing.js" "$stub" ${JSON.stringify(w.drive)} "$@"
   exit
 fi
 ${JSON.stringify(HOST.rclone)} "$@"
 status=$?
-# A user's save landing as the copy ends: once, the file the trigger names.
-if [[ -f $stub/edit-after-copy && ! -e $stub/edited && $3 == copy ]]; then
-  printf 'edited during the copy\n' >"$5/$(<"$stub/edit-after-copy")"
-  : >"$stub/edited"
-fi
+# A user's save landing as a leg ends: once, the file the trigger names,
+# after the download leg (edit-after-copy) or the upload leg
+# (edit-after-upload).
+for trigger in edit-after-copy:download edit-after-upload:upload; do
+  if [[ -f $stub/\${trigger%%:*} && ! -e $stub/edited && $leg == "\${trigger#*:}" ]]; then
+    printf 'edited during the copy\n' >"$folder/$(<"$stub/\${trigger%%:*}")"
+    : >"$stub/edited"
+  fi
+done
 : >"$stub/exited"
 exit $status
 `, 0o755);
@@ -444,16 +469,28 @@ function caseBothChangedKept(runner) {
 // A local edit saved as a run's copy ends matches nothing Drive listed, so
 // it does not become the baseline: the next run, which replaces it with
 // Drive's version, keeps it as `both-changed`.
+// A user's save landing as a leg ends is newer than Drive's copy, so it
+// reaches Drive, in the same run after the download leg or in the next run
+// after the upload leg, and reads as no conflict either way: the baseline
+// is the state Drive listed last.
 function caseEditDuringCopy(runner) {
-    const w = world();
-    addPair(w, runner);
-    drive(w, "a.txt", "drive v1\n", 1700000000);
-    runOk(w, runner);
-    write(path.join(w.stub, "edit-after-copy"), "a.txt");
-    runOk(w, runner);
-    assert.equal(read(path.join(w.mirror, "a.txt")), "drive v1\n");
-    const s = status(w, runner);
-    assert.deepEqual(s.conflicts, []);
+    for (const trigger of ["edit-after-copy", "edit-after-upload"]) {
+        const w = world();
+        addPair(w, runner);
+        drive(w, "a.txt", "drive v1\n", 1700000000);
+        runOk(w, runner);
+        // An edit this run uploads, then the save as a leg ends.
+        write(path.join(w.mirror, "a.txt"), "edit one\n");
+        fs.utimesSync(path.join(w.mirror, "a.txt"), 1700003600, 1700003600);
+        write(path.join(w.stub, trigger), "a.txt");
+        runOk(w, runner);
+        assert.equal(fs.existsSync(path.join(w.stub, "edited")), true, trigger + " fired");
+        assert.equal(read(path.join(w.mirror, "a.txt")), "edited during the copy\n", trigger);
+        runOk(w, runner);
+        assert.equal(read(path.join(w.drive, "Docs", "a.txt")), "edited during the copy\n", trigger);
+        assert.equal(read(path.join(w.mirror, "a.txt")), "edited during the copy\n", trigger);
+        assert.deepEqual(status(w, runner).conflicts, [], trigger);
+    }
 }
 
 // A Drive deletion keeps the local file and reads `removed-on-drive`; a
@@ -1189,11 +1226,166 @@ function caseBothChangedLocalNewer(runner) {
     assert.equal(Object.prototype.hasOwnProperty.call(found, "storedPath"), false);
 }
 
+// An export of a Google-native document (the stand-in lists it at Size
+// -1) comes down and never goes up, edited here or not, and a name with
+// rclone filter characters is excluded as itself.
 function caseExportNoUpload(runner) {
-    const source = read(runner || RUNNER);
-    assert.ok(source.includes("item.Size === -1"));
-    assert.ok(source.includes('uploadArgs.push("--exclude-from", excludes)'));
-    assert.ok(source.includes("rcloneFilterLiteral"));
+    const w = world();
+    addPair(w, runner);
+    const name = "Plan [draft] *v2*.docx";
+    write(path.join(w.stub, "exports"), name + "\n");
+    drive(w, name, "exported\n", 1700000000);
+    runOk(w, runner);
+    assert.equal(read(path.join(w.mirror, name)), "exported\n");
+    write(path.join(w.mirror, name), "edited here\n");
+    runOk(w, runner);
+    assert.equal(read(path.join(w.drive, "Docs", name)), "exported\n");
+    const upload = rcloneCalls(w).filter(c => c.argv[2] === "copy" && c.argv[5].startsWith(REMOTE_PREFIX));
+    assert.ok(upload.length >= 2 && upload.every(c => c.argv.includes("--exclude-from")));
+}
+
+// After a Google Doc is renamed (or moved, or deleted) on Drive, the old
+// export stays here, a removal to review, and never uploads in any later
+// run.
+function caseExportRenamedOnDrive(runner) {
+    const w = world();
+    addPair(w, runner);
+    write(path.join(w.stub, "exports"), "Report.docx\n");
+    drive(w, "Report.docx", "exported\n", 1700000000);
+    runOk(w, runner);
+    fs.renameSync(path.join(w.drive, "Docs", "Report.docx"), path.join(w.drive, "Docs", "Final.docx"));
+    write(path.join(w.stub, "exports"), "Final.docx\n");
+    runOk(w, runner);
+    runOk(w, runner);
+    assert.equal(fs.existsSync(path.join(w.drive, "Docs", "Report.docx")), false);
+    assert.equal(read(path.join(w.mirror, "Report.docx")), "exported\n");
+    assert.deepEqual(status(w, runner).conflicts.map(c => [c.kind, c.path]), [["removed-on-drive", "Report.docx"]]);
+}
+
+// A failed upload leg after a complete download keeps the baseline the
+// download reached, so a later local edit is a local change, not a
+// conflict with a Drive change the mirror already holds.
+function caseFailedUploadKeepsBaseline(runner) {
+    const w = world();
+    addPair(w, runner);
+    drive(w, "a.txt", "one\n", 1700000000);
+    runOk(w, runner);
+    drive(w, "a.txt", "two, from Drive\n", 1700003600);
+    write(path.join(w.stub, "fail-upload"), "");
+    runOk(w, runner, "error");
+    assert.equal(read(path.join(w.mirror, "a.txt")), "two, from Drive\n");
+    write(path.join(w.mirror, "a.txt"), "three, edited here\n");
+    fs.utimesSync(path.join(w.mirror, "a.txt"), 1700007200, 1700007200);
+    runOk(w, runner);
+    assert.equal(read(path.join(w.drive, "Docs", "a.txt")), "three, edited here\n");
+    assert.deepEqual(status(w, runner).conflicts, []);
+}
+
+// Two Drive-newer conflicts on one path keep two copies and two records.
+function caseRepeatedConflict(runner) {
+    const w = world();
+    addPair(w, runner);
+    drive(w, "n.md", "base\n", 1700000000);
+    runOk(w, runner);
+    for (const [round, at] of [[1, 1700001000], [2, 1700003000]]) {
+        write(path.join(w.mirror, "n.md"), "edit " + round + " here\n");
+        fs.utimesSync(path.join(w.mirror, "n.md"), at - 500, at - 500);
+        drive(w, "n.md", "drive " + round + "\n", at);
+        runOk(w, runner);
+    }
+    const kept = status(w, runner).conflicts.filter(c => c.path === "n.md").map(c => read(c.storedPath)).sort();
+    assert.deepEqual(kept, ["edit 1 here\n", "edit 2 here\n"]);
+}
+
+// A path both sides hold with no baseline: a newer, different local file
+// replaces Drive's and is recorded; an equal one is no conflict.
+function caseSamePathNoBaseline(runner) {
+    const w = world();
+    addPair(w, runner);
+    drive(w, "same.txt", "same\n", 1700000000);
+    write(path.join(w.mirror, "same.txt"), "same\n");
+    fs.utimesSync(path.join(w.mirror, "same.txt"), 1700000500, 1700000500);
+    drive(w, "differs.txt", "drive's\n", 1700000000);
+    write(path.join(w.mirror, "differs.txt"), "this computer's\n");
+    fs.utimesSync(path.join(w.mirror, "differs.txt"), 1700000500, 1700000500);
+    runOk(w, runner);
+    assert.equal(read(path.join(w.drive, "Docs", "differs.txt")), "this computer's\n");
+    assert.deepEqual(status(w, runner).conflicts.map(c => [c.kind, c.path, c.storedPath]), [["both-changed", "differs.txt", undefined]]);
+}
+
+// An old pair list the new judge refuses, such as an upload pair over a
+// folder that holds a Git repository, is still migrated: every verb runs,
+// the status reads the list as invalid, and Start again recovers.
+function casePairListMigrationRefused(runner) {
+    const w = world();
+    const pairsFile = path.join(w.env.XDG_CONFIG_HOME, "vgshell", "cloud-sync", "pairs.json");
+    const local = path.join(w.home, "outbox");
+    fs.mkdirSync(path.join(local, "project", ".git"), { recursive: true });
+    write(pairsFile, JSON.stringify({ pairs: [{ id: "uploads", label: "Uploads", direction: "upload", remote: "Up", local: local }] }));
+    const s = status(w, runner);
+    assert.deepEqual([s.state, s.lastError.kind], ["error", "pairs-invalid"]);
+    assert.match(s.lastError.detail, /rule=repository-inside/);
+    assert.equal(JSON.parse(read(pairsFile)).pairs[0].direction, undefined);
+    const reset = cli(w, ["pairs-reset"], runner);
+    assert.equal(reset.status, 0, reset.stderr);
+    assert.deepEqual(JSON.parse(read(pairsFile)), { pairs: [] });
+}
+
+// Kept local edits the previous runner recorded get 30 days from the
+// upgrade, not deletion by the first prune.
+function caseStateMigrationKeepsCopies(runner) {
+    const w = world();
+    addPair(w, runner);
+    const pairDir = path.join(w.state, "pairs", "docs");
+    write(path.join(pairDir, "conflicts", "20200101T000000Z-1", "a.txt"), "kept edit\n");
+    write(path.join(pairDir, "state.json"), JSON.stringify({
+        state: "idle", startedAt: null, lastAttempt: null, lastSuccess: null, lastError: null, changes: null,
+        localEdits: [{ path: "a.txt", stored: "20200101T000000Z-1/a.txt", at: "2020-01-01T00:00:00.000Z" }]
+    }));
+    drive(w, "a.txt", "drive\n", 1700000000);
+    runOk(w, runner);
+    const kept = status(w, runner).conflicts;
+    assert.deepEqual(kept.map(c => [c.kind, c.path]), [["both-changed", "a.txt"]]);
+    assert.equal(read(kept[0].storedPath), "kept edit\n");
+    assert.ok(Date.now() - Date.parse(kept[0].since) < 3600 * 1000);
+}
+
+// Old client keys split across the two old clients: both keys come from
+// the one client that holds both; with no complete client nothing is
+// copied and the old accounts stay, so no key is lost.
+function caseCredentialMigrationMixed(runner) {
+    const w = world({ secrets: [] });
+    for (const account of ["pull-client-id", "upload-client-id", "upload-client-secret", "upload-token"])
+        write(path.join(w.stub, "secrets", account), OLD_SECRETS[account]);
+    assert.equal(cli(w, ["probe"], runner).status, 0);
+    assert.equal(read(path.join(w.stub, "secrets", "client-id")), "old-upload-client");
+    assert.equal(read(path.join(w.stub, "secrets", "client-secret")), "old-upload-secret");
+    const held = world({ secrets: [] });
+    write(path.join(held.stub, "secrets", "pull-client-id"), OLD_SECRETS["pull-client-id"]);
+    const out = cli(held, ["probe"], runner);
+    assert.equal(out.status, 0, out.stderr);
+    assert.match(out.stderr, /^cloud-sync: migration=held reason=credential-incomplete$/m);
+    assert.equal(read(path.join(held.stub, "secrets", "pull-client-id")), "old-pull-client");
+}
+
+// Units an earlier runner installed are rewritten to name this runner on
+// its next invocation; a refresh the user manager refuses leaves them
+// stale and the verb still answers.
+function caseStaleUnitsRefresh(runner) {
+    const w = world();
+    assert.equal(cli(w, ["install"], runner).status, 0);
+    const unitFile = path.join(w.home, ".config", "systemd", "user", "vgs-cloud-sync.service");
+    const engineRoot = path.join(w.home, ".local", "share", "vgshell", "cloud-sync", "engine");
+    const hash = fs.readdirSync(engineRoot)[0];
+    const installed = read(unitFile);
+    write(unitFile, installed.split(hash).join("0000000000000000"));
+    write(path.join(w.stub, "systemctl-fail"), "");
+    const failed = status(w, runner);
+    assert.equal(failed.units, "stale");
+    assert.ok(failed.attention.reasons.includes("units-stale"));
+    fs.rmSync(path.join(w.stub, "systemctl-fail"));
+    assert.equal(status(w, runner).units, "installed");
+    assert.equal(read(unitFile), installed);
 }
 
 function casePruneConflictStorage(runner) {
@@ -1369,7 +1561,7 @@ async function controls() {
     await mustFail("upload copy", mutant("upload copy", "[\"copy\", \"--update\", pair.local, remotePath(pair)]", "[\"copy\", \"--dry-run\", pair.local, remotePath(pair)]"), caseLocalAdd);
     await mustFail("removed-locally", mutant("removed-locally", "addRecord(records, { kind: \"removed-locally\", path: rel });", ""), caseRemovedLocally);
     await mustFail("removed-on-drive", mutant("removed-on-drive", "addRecord(records, { kind: to === null ? \"removed-on-drive\" : \"renamed\", path: rel, to: to });", ""), caseRemovedOnDriveReturns);
-    await mustFail("local-newer both-changed", mutant("local-newer both-changed", "if (local.mtimeMs >= driveTime) addRecord(records, { kind: \"both-changed\", path: rel });", ""), caseBothChangedLocalNewer);
+    await mustFail("local-newer both-changed", mutant("local-newer both-changed", "if (local.mtimeMs > driveTime) addRecord(records, { kind: \"both-changed\", path: rel });", ""), caseBothChangedLocalNewer);
     await mustFail("export no upload", mutant("export no upload", "if (excludes !== null) uploadArgs.push(\"--exclude-from\", excludes);", ""), caseExportNoUpload);
     await mustFail("prune conflict storage", mutant("prune conflict storage", "const cutoff = Date.now() - KEEP_MS;", "const cutoff = 0;"), casePruneConflictStorage);
     await mustFail("credential migration", mutant("credential migration", "migrateCredentialsIfNeeded();\n    const read = readPairs();", "const read = readPairs();"), caseCredentialMigration);
@@ -1377,6 +1569,19 @@ async function controls() {
     await mustFail("pair list migration", mutant("pair list migration", "if (read.kind !== \"ok\" || !oldPairList(read.value)) return;", "return;"), caseCredentialMigration);
     await mustFail("missing remote keeps the error", mutant("missing remote keeps the error", "(listed.kind !== \"source-missing\" || hasBaseline)", "listed.kind !== \"source-missing\""), caseMissingRemoteWithBaseline);
     await mustFail("missing remote creates", mutant("missing remote creates", "const emptyRemote = !listed.ok && listed.kind === \"source-missing\";", "const emptyRemote = false;"), caseMissingRemoteFirstSync);
+    await mustFail("edit during the legs", mutant("edit during the legs", "const baseline = { size: item.Size, mtimeMs: modTime, hash: md5, id: item.ID || null, export: exportItem || undefined };", "const baseline = item.Size === st.size && modTime === Math.floor(st.mtimeMs) || exportItem ? { size: item.Size, mtimeMs: modTime, hash: md5, id: item.ID || null, export: exportItem || undefined } : old;\n        if (baseline === undefined) continue;"), caseEditDuringCopy);
+    await mustFail("export exclusion", mutant("export exclusion", "if (excludes !== null) uploadArgs.push(\"--exclude-from\", excludes);", ""), caseExportNoUpload);
+    await mustFail("export filter escape", mutant("export filter escape", "return \"/\" + rel.replace(/[\\\\*?\\[\\]{}]/g, \"\\\\$&\");", "return \"/\" + rel;"), caseExportNoUpload);
+    await mustFail("export kept after rename", mutant("export kept after rename", "        entries[rel] = before[rel];\n", ""), caseExportRenamedOnDrive);
+    await mustFail("baseline after download", mutant("baseline after download", "writeJson(path.join(pairDir(pair.id), \"inventory.json\"), { entries: nextInventory(pair, listing, inventory).entries });", ""), caseFailedUploadKeepsBaseline);
+    await mustFail("record per stored copy", mutant("record per stored copy", "return record.kind + \"\\n\" + record.path + \"\\n\" + (record.stored || \"\");", "return record.kind + \"\\n\" + record.path;"), caseRepeatedConflict);
+    await mustFail("same path no baseline", mutant("same path no baseline", "if (differs) addRecord(records, { kind: \"both-changed\", path: item.Path });", ""), caseSamePathNoBaseline);
+    await mustFail("pair list migration never refuses", mutant("pair list migration never refuses", "        writeJson(pairsFile, { pairs: pairs });\n        log(\"migration=pairs", "        if (pairsError(pairs) !== null) refuse(pairsError(pairs));\n        writeJson(pairsFile, { pairs: pairs });\n        log(\"migration=pairs"), casePairListMigrationRefused);
+    await mustFail("migrated copies kept", mutant("migrated copies kept", "const renamed = slash === -1 ? edit.stored : migratedStamp + edit.stored.slice(slash);", "const renamed = edit.stored;"), caseStateMigrationKeepsCopies);
+    await mustFail("one old client", mutant("one old client", "const source = pull.every(row => row[1].kind === \"found\") ? pull : upload.every(row => row[1].kind === \"found\") ? upload : null;", "const source = pull.every(row => row[1].kind === \"found\") ? pull : upload;"), caseCredentialMigrationMixed);
+    await mustFail("clear only when complete", mutant("clear only when complete", "log(\"migration=held reason=credential-incomplete\");\n        return;", "log(\"migration=held reason=credential-incomplete\");"), caseCredentialMigrationMixed);
+    await mustFail("stale units refresh", mutant("stale units refresh", "if (verb !== \"install\") refreshStaleInstallIfNeeded();", ""), caseStaleUnitsRefresh);
+    await mustFail("stale refresh never refuses", mutant("stale refresh never refuses", "if (done.failure !== null) log(\"units=stale refresh=failed \" + done.failure);", "if (done.failure !== null) refuse(done.failure);"), caseStaleUnitsRefresh);
     await mustFail("forbidden argv", mutant("forbidden argv", "const uploadArgs = [\"copy\", \"--update\", pair.local, remotePath(pair)].concat(filterArgs());", "const uploadArgs = [\"copy\", \"--update\", pair.local, remotePath(pair), \"--delete-after\"].concat(filterArgs());"), caseForbiddenRcloneArgv);
     await mustFail("attention key", mutant("attention key", "conflicts.map(c => [c.kind, c.pair, c.path, c.since]), cause])", "conflicts.map(c => [c.kind, c.pair, c.path, c.since]), lastError])"), caseFailures);
     await mustFail("orphaned copy lock", mutant("orphaned copy lock", "stdio: [\"ignore\", \"pipe\", \"pipe\", lock] });", "stdio: [\"ignore\", \"pipe\", \"pipe\"] });"), caseInterrupted);
@@ -1454,6 +1659,14 @@ async function main() {
     caseFullDriveSharedFolder();
     caseCredentialMigration();
     caseCredentialMigrationProbe();
+    caseCredentialMigrationMixed();
+    caseExportRenamedOnDrive();
+    caseFailedUploadKeepsBaseline();
+    caseRepeatedConflict();
+    caseSamePathNoBaseline();
+    casePairListMigrationRefused();
+    caseStateMigrationKeepsCopies();
+    caseStaleUnitsRefresh();
     caseMissingRemoteFirstSync();
     caseMissingRemoteWithBaseline();
     assertNoDeletingArgvAnywhere();

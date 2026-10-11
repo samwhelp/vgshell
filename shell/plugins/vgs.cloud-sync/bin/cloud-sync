@@ -790,13 +790,19 @@ function classifyBeforeCopy(pair, listing, inventory, records) {
         byPath[item.Path] = item;
         if (item.ID) pathOfId[item.ID] = item.Path;
     }
+    // A path both sides hold with no baseline, such as a pair added over two
+    // full folders: a newer, different local file replaces Drive's, whose
+    // older version Drive keeps, so the user hears of it. A newer Drive file
+    // is displaced into conflict storage and recorded there. An export never
+    // uploads, so it is no conflict.
     for (const item of listing) {
-        if (hasOwn(inventory, item.Path)) continue;
-        const local = localEntry(path.join(pair.local, item.Path));
-        if (local === null) continue;
-        const driveTime = Date.parse(item.ModTime);
-        const differs = item.Size !== local.size || (item.Size === local.size && md5File(path.join(pair.local, item.Path)) !== (plain(item.Hashes) ? item.Hashes.md5 : null));
-        if (differs && local.mtimeMs >= driveTime) addRecord(records, { kind: "both-changed", path: item.Path });
+        if (hasOwn(inventory, item.Path) || item.Size === -1) continue;
+        const file = path.join(pair.local, item.Path);
+        const local = localEntry(file);
+        if (local === null || local.mtimeMs <= Date.parse(item.ModTime)) continue;
+        const md5 = plain(item.Hashes) && typeof item.Hashes.md5 === "string" ? item.Hashes.md5 : null;
+        const differs = item.Size !== local.size || md5 !== null && md5File(file) !== md5;
+        if (differs) addRecord(records, { kind: "both-changed", path: item.Path });
     }
     for (const rel of Object.keys(inventory).sort()) {
         const base = inventory[rel];
@@ -820,7 +826,7 @@ function classifyBeforeCopy(pair, listing, inventory, records) {
             // upload wins and Drive keeps the older version in its 30-day
             // version history, so no local stored copy is recorded.
             const driveTime = Date.parse(item.ModTime);
-            if (local.mtimeMs >= driveTime) addRecord(records, { kind: "both-changed", path: rel });
+            if (local.mtimeMs > driveTime) addRecord(records, { kind: "both-changed", path: rel });
         }
     }
     return records.filter(record => {
@@ -899,7 +905,6 @@ function nextInventory(pair, listing, before) {
         // whenever a local file exists. A later local save then reads as a
         // local change against this Drive state, not as both sides changed.
         const baseline = { size: item.Size, mtimeMs: modTime, hash: md5, id: item.ID || null, export: exportItem || undefined };
-        if (baseline === undefined) continue;
         if (old === undefined) added += 1;
         else if (old.size !== baseline.size || old.mtimeMs !== baseline.mtimeMs || old.export !== baseline.export) updated += 1;
         entries[item.Path] = baseline;
@@ -1099,9 +1104,17 @@ function unitsState() {
     return service === serviceText(engineHash()) && timer === timerText() ? "installed" : "stale";
 }
 
+// null, or the refusal of a failed `systemctl --user ARGS`.
+function systemctlFailure(args) {
+    const bin = which("systemctl");
+    if (bin === null) return "systemctl=missing";
+    const out = run(bin, ["--user"].concat(args));
+    return out.status === 0 ? null : "systemctl=failed args=" + args.join(",") + " exit=" + out.status;
+}
+
 function systemctl(args) {
-    const out = run(requireCommand("systemctl"), ["--user"].concat(args));
-    if (out.status !== 0) refuse("systemctl=failed args=" + args.join(",") + " exit=" + out.status);
+    const failure = systemctlFailure(args);
+    if (failure !== null) refuse(failure);
 }
 
 // The runner copy the units start, written under a temporary name and
@@ -1120,6 +1133,13 @@ function ensureEngine(hash) {
     }
 }
 
+// Writes the engine copy and the units, reloads the user manager when a
+// unit changed and enables the timer: { changed, failure }, failure null
+// or the refusal of the systemctl call that failed. EXISTING_ONLY rewrites
+// only unit files that exist, for the refresh of an earlier install, and
+// puts their earlier text back when the user manager refuses the reload,
+// since a manager that did not reload keeps running the earlier units and
+// the next invocation must see them stale and try again.
 function writeInstall(existingOnly) {
     const hash = engineHash();
     ensureEngine(hash);
@@ -1127,19 +1147,31 @@ function writeInstall(existingOnly) {
     wanted[SERVICE] = serviceText(hash);
     wanted[TIMER] = timerText();
     const names = Object.keys(wanted).filter(name => !existingOnly || readText(path.join(unitDir, name)) !== null);
-    const changed = names.filter(name => readText(path.join(unitDir, name)) !== wanted[name]);
+    const earlier = {};
+    for (const name of names) earlier[name] = readText(path.join(unitDir, name));
+    const changed = names.filter(name => earlier[name] !== wanted[name]);
     for (const name of changed) writeAtomic(path.join(unitDir, name), wanted[name], 0o644);
-    if (changed.length > 0) systemctl(["daemon-reload"]);
-    if (!existingOnly || names.indexOf(TIMER) !== -1) systemctl(["enable", "--now", TIMER]);
+    let failure = changed.length > 0 ? systemctlFailure(["daemon-reload"]) : null;
+    if (failure === null && (!existingOnly || names.indexOf(TIMER) !== -1)) failure = systemctlFailure(["enable", "--now", TIMER]);
+    if (failure !== null) {
+        if (existingOnly) for (const name of changed) writeAtomic(path.join(unitDir, name), earlier[name], 0o644);
+        return { changed: changed.length, failure: failure };
+    }
     for (const name of fs.existsSync(engineRoot) ? fs.readdirSync(engineRoot) : [])
         if (name !== hash) fs.rmSync(path.join(engineRoot, name), { recursive: true, force: true });
-    return changed.length;
+    return { changed: changed.length, failure: null };
 }
 
+// Units an earlier runner installed name its own engine copy, which would
+// keep running hourly and read the migrated files as damaged, so any later
+// runner rewrites them to name itself. It never installs units the user
+// did not set up. A failed refresh leaves the units stale, which the status
+// reports as `units-stale`, and the verb goes on.
 function refreshStaleInstallIfNeeded() {
     if (unitsState() !== "stale") return;
-    if (readText(path.join(unitDir, SERVICE)) === null && readText(path.join(unitDir, TIMER)) === null) return;
-    writeInstall(true);
+    if (lockDir === "") return;
+    const done = writeInstall(true);
+    if (done.failure !== null) log("units=stale refresh=failed " + done.failure);
 }
 
 function installVerb(words) {
@@ -1147,9 +1179,10 @@ function installVerb(words) {
     // The service shares its locks with the plugin and the command line
     // through this directory, so a unit without it is never written.
     if (lockDir === "") refuse("runtime-dir=unset");
-    const changed = writeInstall(false);
+    const done = writeInstall(false);
+    if (done.failure !== null) refuse(done.failure);
     withStateLock(writeStatus);
-    process.stdout.write("installed=" + TIMER + " changed=" + changed + "\n");
+    process.stdout.write("installed=" + TIMER + " changed=" + done.changed + "\n");
 }
 
 // ----------------------------------------------------------------- status
