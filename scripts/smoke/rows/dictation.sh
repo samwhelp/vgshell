@@ -134,6 +134,24 @@ printf '#!/bin/sh\nprintf "%%s\\n" forbidden >>%q\nexit 64\n' "$sandbox/dictatio
 for name in sudo systemctl; do
   cp -- "$dictation_setup_tree/bin/vgshell-system" "$dictation_setup_tree/commands/$name"
 done
+cat >"$dictation_setup_tree/commands/gum" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+verb="${1:-}"
+(($# == 0)) || shift
+case "$verb" in
+  style)
+    while [[ $# -gt 0 && $1 != -- ]]; do
+      case "$1" in --border|--padding|--width) [[ $# -ge 2 ]] || exit 64; shift 2 ;; *) exit 64 ;; esac
+    done
+    [[ $# -gt 0 && $1 == -- ]] || exit 64
+    shift
+    printf '%s\n' "$@"
+    ;;
+  confirm) [[ $# -eq 2 && $1 == -- ]] || exit 64 ;;
+  *) printf 'dictation gum: refused verb=%s\n' "$verb" >&2; exit 64 ;;
+esac
+SCRIPT
 chmod +x "$dictation_setup_tree/bin/vgshell-system" "$dictation_setup_tree/commands/"*
 terminal_stand_in
 terminal_ready "dictation setup"
