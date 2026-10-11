@@ -278,9 +278,13 @@ const table = [
         let failed = alwaysThinking(logic);
         failed = step(logic, failed, callback("play", failed.turn, 40, { interruptible: true })).state;
         const brainFailed = step(logic, failed, callback("brain-failed", failed.turn, 41, { reason: "fixture" })).state;
-        assert.equal(brainFailed.followUp.kind, "none");
+        assert.equal(brainFailed.playback.kind, "flushing");
         const playedAfterFailure = step(logic, brainFailed, callback("played", failed.playback, 42));
         assert.equal(playedAfterFailure.effects.some(e => e.kind === "capture-open"), false, "a failed turn opens no window");
+        const flushedAfterFailure = step(logic, brainFailed, callback("flushed", brainFailed.playback, 42));
+        assert.deepEqual([flushedAfterFailure.state.followUp.kind, flushedAfterFailure.state.input.kind,
+            flushedAfterFailure.effects.some(e => e.kind === "capture-open")], ["none", "released", false],
+            "a failed turn drops the pending window once its reply is flushed");
         let typed = step(logic, alwaysArmed(logic), event("say", 20, { text: "typed" })).state;
         typed = step(logic, typed, callback("capture-closed", typed.capture, 21)).state;
         typed = step(logic, typed, callback("play", typed.turn, 22, { interruptible: true })).state;
@@ -292,8 +296,25 @@ const table = [
         relay.settings = { mode: "always" };
         relay.input = { kind: "released" };
         relay = step(logic, relay, event("relay", 50, { text: "line", ask: null })).state;
-        relay = step(logic, relay, callback("brain-done", relay.turn, 51)).state;
-        assert.equal(relay.followUp.kind, "none", "relay lines do not arm follow-up memory");
+        relay = step(logic, relay, callback("play", relay.turn, 51, { interruptible: true })).state;
+        relay = step(logic, relay, callback("brain-done", relay.turn, 52)).state;
+        const relayPlayed = step(logic, relay, callback("played", relay.playback, 53));
+        assert.equal(relayPlayed.effects.some(e => e.kind === "capture-open" && e.mode === "follow-up"), false,
+            "a spoken relay line opens no window");
+    }],
+    ["always-follow-up-overrun", logic => {
+        let s = alwaysThinking(logic);
+        s = step(logic, s, callback("tool", s.turn, 40, { tool: "fixture", id: "t1", timeoutMs: 1000, cancellable: false })).state;
+        assert.equal(s.action.kind, "running");
+        s = step(logic, s, callback("deadline", s.action, 1041)).state;
+        s = step(logic, s, callback("play", s.turn, 1042, { interruptible: true })).state;
+        s = step(logic, s, callback("played", s.playback, 1043)).state;
+        s = step(logic, s, callback("brain-done", s.turn, 1044)).state;
+        assert.deepEqual([s.action.kind, s.followUp.kind], ["running", "none"], "a reply that ends while a tool holds Jarvis drops the window");
+        const later = step(logic, s, callback("tool-done", s.action, 300000, { outcome: "completed" }));
+        assert.equal(later.effects.some(e => e.kind === "capture-open" && e.mode === "follow-up"), false,
+            "the window does not open when the tool ends minutes later");
+        assert.notEqual(later.state.input.kind, "follow-up");
     }],
     ["always-follow-up-closes", logic => {
         let s = alwaysFollowUp(logic);
@@ -303,6 +324,18 @@ const table = [
             assert.equal(kinds(closed).includes("capture-close"), true, name + " closes the follow-up capture");
             assert.equal(closed.state.followUp.kind, "none");
             assert.notEqual(closed.state.input.kind, "follow-up");
+        }
+        for (const [name, trigger] of [["mute", event("mute", 43)], ["stop", event("stop", 43)]]) {
+            let spoken = alwaysThinking(logic);
+            spoken = step(logic, spoken, callback("play", spoken.turn, 40, { interruptible: true })).state;
+            spoken = step(logic, spoken, callback("played", spoken.playback, 42)).state;
+            assert.equal(spoken.followUp.kind, "spoken");
+            const ended = step(logic, spoken, trigger).state;
+            assert.equal(ended.turn.kind, "cancelling");
+            const after = step(logic, ended, callback("cancelled", ended.turn, 44)).state;
+            assert.equal(after.turn.kind, "none", name + " ends the turn");
+            assert.notEqual(after.input.kind, "follow-up", name + " before brain-done opens no window afterwards");
+            assert.equal(after.followUp.kind, "none", name + " drops the pending window");
         }
         const press = step(logic, s, event("talk-down", 500));
         assert.deepEqual([press.state.conversation.kind, press.state.input.kind, press.state.turn.kind],
@@ -2044,16 +2077,20 @@ try {
             'false && voiceRequest === true && s.settings.mode === "always" && s.engine.kind === "chained"', "always-follow-up-orders"],
         ["follow-up-spoken", 'if (s.playback.kind === "playing" && s.followUp.kind === "asked" && s.followUp.gen === s.gen)\n            s.followUp = { kind: "spoken", gen: s.gen };',
             'if (false)\n            s.followUp = { kind: "spoken", gen: s.gen };', "always-follow-up-orders"],
-        ["follow-up-open", 's.input = { kind: "follow-up" };\n        s.followUp = { kind: "none" };',
-            's.followUp = { kind: "none" };', "always-follow-up-orders"],
-        ["follow-up-no-reply", 's.followUp.kind === "asked" && s.followUp.gen === s.gen\n            && s.turn.kind === "none" && s.playback.kind === "idle"',
-            'false && s.followUp.kind === "asked" && s.followUp.gen === s.gen\n            && s.turn.kind === "none" && s.playback.kind === "idle"', "always-follow-up-refusals"],
+        ["follow-up-open", '&& s.engine.kind === "chained")\n            s.input = { kind: "follow-up" };',
+            '&& s.engine.kind === "chained")\n            void s;', "always-follow-up-orders"],
+        ["follow-up-no-reply", 's.input = { kind: "follow-up" };\n        s.followUp = { kind: "none" };',
+            's.input = { kind: "follow-up" };\n        if (s.followUp.kind === "spoken") s.followUp = { kind: "none" };', "always-follow-up-refusals"],
+        ["follow-up-overrun", 's.input = { kind: "follow-up" };\n        s.followUp = { kind: "none" };',
+            's.input = { kind: "follow-up" };\n        if (s.input.kind === "follow-up") s.followUp = { kind: "none" };', "always-follow-up-overrun"],
+        ["follow-up-stop-drops", 's.input = { kind: "follow-up" };\n        s.followUp = { kind: "none" };',
+            's.input = { kind: "follow-up" };\n        if (s.input.kind === "follow-up") s.followUp = { kind: "none" };', "always-follow-up-closes"],
         ["follow-up-bound", 's.input.kind === "woken" || s.input.kind === "follow-up" ? e.at + WAKE_SILENCE_MS : null',
             's.input.kind === "woken" ? e.at + WAKE_SILENCE_MS : null', "always-follow-up-orders"],
         ["follow-up-partial", 'if (s.input.kind === "woken" || s.input.kind === "follow-up") {',
             'if (s.input.kind === "woken") {', "always-follow-up-final"],
-        ["follow-up-silence", 'else if (s.input.kind === "follow-up") {\n            s.input = { kind: "released" };\n            s.followUp = { kind: "none" };\n            closeCapture(s, effects);\n            s.turn = { kind: "none" };\n        }',
-            'else if (false) {\n            s.input = { kind: "released" };\n            s.followUp = { kind: "none" };\n            closeCapture(s, effects);\n            s.turn = { kind: "none" };\n        }', "always-follow-up-silence"],
+        ["follow-up-silence", 'else if (s.input.kind === "follow-up") {\n            s.input = { kind: "released" };\n            closeCapture(s, effects);\n            s.turn = { kind: "none" };\n        }',
+            'else if (false) {\n            s.input = { kind: "released" };\n            closeCapture(s, effects);\n            s.turn = { kind: "none" };\n        }', "always-follow-up-silence"],
         ["follow-up-talk-closes", 's.input.kind === "conversation" || s.input.kind === "woken" || s.input.kind === "follow-up"',
             's.input.kind === "conversation" || s.input.kind === "woken"', "always-follow-up-closes"],
         ["follow-up-console", 'commitUserText(s, effects, e.text, e.at, 1, false);',

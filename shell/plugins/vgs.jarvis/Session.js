@@ -139,7 +139,6 @@ function end(s, effects, at, reason, stopTool) {
         s.conversation = { kind: "ended" };
     }
     s.input = { kind: "released" };
-    s.followUp = { kind: "none" };
     closeCapture(s, effects);
     cancelTurn(s, effects, at);
     if (s.turn.kind === "none") closeBrain(s, effects);
@@ -258,14 +257,14 @@ function canSpeak(s) {
 }
 
 function reconcile(s, effects, at) {
-    if (s.followUp.kind === "spoken" && s.followUp.gen === s.gen && s.input.kind === "released"
-            && s.turn.kind === "none" && s.playback.kind === "idle" && s.action.kind === "none"
-            && s.approval.kind === "none" && canEngage(s) && s.conversation.kind === "active"
-            && s.settings.mode === "always" && s.engine.kind === "chained") {
-        s.input = { kind: "follow-up" };
-        s.followUp = { kind: "none" };
-    } else if (s.followUp.kind === "asked" && s.followUp.gen === s.gen
-            && s.turn.kind === "none" && s.playback.kind === "idle") {
+    // The window opens only as the reply ends. A turn that ends while
+    // something else holds Jarvis, such as a tool past its limit, drops it,
+    // so it never opens later with no reply just spoken.
+    if (s.followUp.kind !== "none" && s.turn.kind === "none" && s.playback.kind === "idle") {
+        if (s.followUp.kind === "spoken" && s.followUp.gen === s.gen && s.input.kind === "released"
+                && s.action.kind === "none" && s.approval.kind === "none" && canEngage(s)
+                && s.conversation.kind === "active" && s.settings.mode === "always" && s.engine.kind === "chained")
+            s.input = { kind: "follow-up" };
         s.followUp = { kind: "none" };
     }
     if (s.input.kind === "armed" && !armedWanted(s)) s.input = { kind: "released" };
@@ -353,7 +352,6 @@ function toolDuration(e) {
 function interrupt(s, effects, at) {
     if (s.conversation.kind === "ended") return;
     s.conversation = { kind: "interrupted" };
-    s.followUp = { kind: "none" };
     cancelTurn(s, effects, at);
     flushPlayback(s, effects);
     // A duplex engine drops its waiting words and the rest of the interrupted
@@ -421,7 +419,6 @@ function expire(s, effects, at) {
         if (s.input.kind === "woken") end(s, effects, at, "wake-silence", false);
         else if (s.input.kind === "follow-up") {
             s.input = { kind: "released" };
-            s.followUp = { kind: "none" };
             closeCapture(s, effects);
             s.turn = { kind: "none" };
         }
@@ -600,7 +597,6 @@ function reduce(state, e) {
         closeCapture(s, effects);
         if (s.input.kind === "check") end(s, effects, e.at, "capture-failed", false);
         if (s.turn.kind === "collecting") s.turn = { kind: "none" };
-        s.followUp = { kind: "none" };
         break;
     }
     // The wake word opens a conversation as a Talk press does, with its
