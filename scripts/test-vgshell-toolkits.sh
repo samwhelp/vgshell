@@ -71,8 +71,17 @@ printf '[General]\nName=Curated\n' >"$tree/themes/curated/targets/kcolorscheme.c
 printf 'teal\n' >"$tree/themes/curated/targets/accent-color.name"
 # flexoki-light, a light package with a blue accent: the tree copy's
 # catalog package, copied beside the shipped packages so every tree copy
-# below can apply it.
+# below can apply it. Its wallpaper names go: a shipped package must hold
+# each named image, and the catalog fetches them.
 cp -R -- "$tree/themes/catalog/flexoki-light" "$tree/themes/flexoki-light"
+python3 - "$tree/themes/flexoki-light/theme.json" <<'PY'
+import json, sys
+with open(sys.argv[1]) as f:
+    doc = json.load(f)
+del doc["backgrounds"]
+with open(sys.argv[1], "w") as f:
+    json.dump(doc, f)
+PY
 
 cfg="$tmp/cfg-toolkits"; mkdir -p "$cfg/vgshell"
 states() { # the apply's `name=state` per target, from $tmp/out's JSON line

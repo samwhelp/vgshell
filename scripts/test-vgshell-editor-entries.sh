@@ -40,8 +40,18 @@ mkdir -p "$tree/themes/curated/targets"
 printf '"ui.background" = { bg = "#123456" }\n' >"$tree/themes/curated/targets/helix.toml"
 printf '{ "name": "mine", "author": "me", "themes": [] }\n' >"$tree/themes/curated/targets/zed.json"
 # flexoki-light, a light package: the tree copy's catalog package, copied
-# beside the shipped packages so every tree copy below can apply it.
+# beside the shipped packages so every tree copy below can apply it. Its
+# wallpaper names go: a shipped package must hold each named image, and
+# the catalog fetches them.
 cp -R -- "$tree/themes/catalog/flexoki-light" "$tree/themes/flexoki-light"
+python3 - "$tree/themes/flexoki-light/theme.json" <<'PY'
+import json, sys
+with open(sys.argv[1]) as f:
+    doc = json.load(f)
+del doc["backgrounds"]
+with open(sys.argv[1], "w") as f:
+    json.dump(doc, f)
+PY
 
 cfg="$tmp/cfg-editors"; mkdir -p "$cfg/vgshell"
 helix_link="$cfg/helix/themes/vgs.toml"; zed_link="$cfg/zed/themes/vgs.json"
