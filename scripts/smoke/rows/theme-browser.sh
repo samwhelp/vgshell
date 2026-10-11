@@ -768,6 +768,14 @@ def rgba(text):
 text = rgba(sys.argv[1])
 print(json.dumps([rgba(sys.argv[2]) == text, rgba(sys.argv[3]) == text]))' "$text" "$all" "$this"
 }
+# scope_weights: the font weights All monitors and This monitor draw at, as
+# [all, this]; the chosen word draws at bodyStrong's, the other at itemHint's.
+scope_weights() {
+  local all this
+  all="$(ipc smoke readMatchingDescendant overlay vgs.themes Label text "All monitors" font)" || return
+  this="$(ipc smoke readMatchingDescendant overlay vgs.themes Label text "This monitor" font)" || return
+  python3 -c 'import json,sys; print(json.dumps([json.loads(a)["weight"] for a in sys.argv[1:]]))' "$all" "$this"
+}
 fixture_image="$repo/scripts/smoke/fixtures/theme-image.jpg"
 fixture_tall="$sandbox/theme-image-tall.jpg"
 "$imagemagick" "$fixture_image" -resize 160x120\! "$fixture_tall"
@@ -1137,15 +1145,19 @@ expect_poll "the scope control moves the other screen's image too" "$nord_b read
 plugin_restore WallpaperView.qml scope
 expect "set --every-screen puts nord's first image back on every screen" "ok background=a.jpg theme=nord path=$nord_a screen=*" vgshell_theme background set "$nord_a" --every-screen
 
-# A click on a scope word chooses that scope, draws it brighter and leaves the keyboard with the view: Right then steps the rail and
-# leaves the scope. Control: a copy whose words draw one colour.
+# A click on a scope word chooses that scope, draws it brighter and bolder
+# and leaves the keyboard with the view: Right then steps the rail and
+# leaves the scope. Controls: copies whose words draw one colour, and one
+# weight.
 press_wallpapers || fail "typing SUPER+SHIFT+W for the scope word click failed"
 expect_poll "SUPER+SHIFT+W opens the browser for the scope word click" 1 layer_count vgs:overlay
 expect_poll "the scope word view selects a.jpg" "$nord_a" wall_selected
 expect "the chosen All monitors draws brighter than This monitor" '[true, false]' scope_tones
+expect "the chosen All monitors draws bolder than This monitor" '[600, 400]' scope_weights
 click_in vgs:overlay overlay vgs.themes Label "This monitor" || fail "the click on This monitor failed"
 expect_poll "a click on This monitor chooses it" '"this"' wall_value scope
 expect_poll "the clicked This monitor draws brighter than All monitors" '[false, true]' scope_tones
+expect_poll "the clicked This monitor draws bolder than All monitors" '[400, 600]' scope_weights
 browser_focused "a click on a scope word leaves the keyboard with the view"
 type_keys -k Right || fail "sending Right after the scope word click failed"
 expect_poll "Right after the click steps the rail" "$nord_b" wall_selected
@@ -1160,6 +1172,14 @@ expect "control: words that draw one colour show no chosen word" '[false, false]
 expect "the scope tone control browser hides" ok ipc shell hide overlay vgs.themes
 expect_poll "the scope tone control browser closes" 0 layer_count vgs:overlay
 plugin_restore WallpaperView.qml "scope tone"
+plugin_control WallpaperView.qml "scope weight" 'readonly property int weight: chosen ? Theme.text.bodyStrong.weight : typography.weight' 'readonly property int weight: typography.weight'
+press_wallpapers || fail "typing SUPER+SHIFT+W for the scope weight control failed"
+expect_poll "SUPER+SHIFT+W opens the scope weight control's browser" 1 layer_count vgs:overlay
+expect_poll "the scope weight control's view read its lists" true wall_value loaded
+expect "control: words that draw one weight show no bolder word" '[400, 400]' scope_weights
+expect "the scope weight control browser hides" ok ipc shell hide overlay vgs.themes
+expect_poll "the scope weight control browser closes" 0 layer_count vgs:overlay
+plugin_restore WallpaperView.qml "scope weight"
 # Controls for the slices: a copy of the theme card whose stack is one
 # column, one whose stack reverses its colours, and one whose stack sits
 # under the wash.

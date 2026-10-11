@@ -376,11 +376,17 @@ FocusScope {
                             onClicked: root.chooseScope(index)
                             PointerCursor {}
 
+                            // The chosen word also draws at bodyStrong's weight:
+                            // in light, hintActive and hint are both near black.
                             Label {
                                 id: scopeText
+                                readonly property bool chosen: scopeWord.index === root.scopeIndex
+                                readonly property int weight: chosen ? Theme.text.bodyStrong.weight : typography.weight
                                 role: "itemHint"
                                 text: scopeWord.modelData.label
-                                color: scopeWord.index === root.scopeIndex ? Theme.carousel.hintActive : Theme.carousel.hint
+                                color: chosen ? Theme.carousel.hintActive : Theme.carousel.hint
+                                font.weight: weight
+                                font.variableAxes: ({ wght: weight })
                             }
                         }
                     }
