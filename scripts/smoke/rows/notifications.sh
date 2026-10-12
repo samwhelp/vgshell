@@ -3292,7 +3292,7 @@ expect_poll "the nineteen Place toasts show" "$place_count" note_status onScreen
 expect_poll "every screen's stack runs past its screen" "$monitors" overflowing_screens
 hover 1 1 || fail "resting the pointer on the bar failed"
 expect "the notifications' Settings page opens for Position" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
-expect_poll "the page draws Position as a list of the six edges" '["top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right"]' position_read model
+expect_poll "the page draws Position as a list of the six edges, each in words" '[{"value": "top-left", "label": "Top left"}, {"value": "top-center", "label": "Top center"}, {"value": "top-right", "label": "Top right"}, {"value": "bottom-left", "label": "Bottom left"}, {"value": "bottom-center", "label": "Bottom center"}, {"value": "bottom-right", "label": "Bottom right"}]' position_read model
 expect "Position starts at the top center" '"top-center"' position_read value
 # The page keeps the whole Slack section in view under the Settings group
 # that holds Position, at the harness's screen size: slack_group_verdict

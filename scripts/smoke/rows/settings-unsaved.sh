@@ -410,7 +410,7 @@ uo_id=acme.outside
 uo_drawn() {
   local compact mode label
   compact="$(ipc smoke invokeInstance window vgs.settings fieldBoolean "{\"id\":\"$uo_id\",\"key\":\"compact\"}")" || return 1
-  mode="$(ipc smoke readMatchingDescendant window vgs.settings SegmentedControl model calm,busy,off currentIndex)" || return 1
+  mode="$(ipc smoke readMatchingDescendant window vgs.settings SegmentedControl model Calm,Busy,Off currentIndex)" || return 1
   label="$(ipc smoke invokeInstance window vgs.settings fieldCustom "{\"id\":\"$uo_id\",\"key\":\"label\"}")" || return 1
   python3 -c 'import json,sys
 try: print(json.dumps([json.loads(sys.argv[1])["checked"], json.loads(sys.argv[2]), json.loads(sys.argv[3])["text"]]))
