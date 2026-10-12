@@ -17,7 +17,7 @@ import time
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
-WRITER = Path(os.environ.get("VGS_SMOKE_USER_CONFIG_WRITER", REPO / "scripts/smoke/user-config.sh"))
+WRITER = REPO / "scripts/smoke/user-config.sh"
 BASH = shutil.which("bash")
 ENV = {"PATH": os.defpath, "LANG": "C"}
 BEFORE = b'{"version":2,"plugins":[]}\n'
@@ -54,6 +54,16 @@ def failed_write(writer, home):
 def scratch_dir():
     SCRATCH_PARENT.mkdir(parents=True, exist_ok=True)
     return tempfile.TemporaryDirectory(dir=SCRATCH_PARENT)
+
+
+def mutant_writer(scratch, old, new):
+    text = WRITER.read_text()
+    assert text.count(old) == 1
+    changed = text.replace(old, new)
+    assert changed != text
+    mutant = scratch / "mutant-user-config.sh"
+    mutant.write_text(changed)
+    return mutant
 
 
 def concurrent_read(writer, scratch, start):
@@ -107,6 +117,19 @@ def concurrent_read(writer, scratch, start):
         child.communicate(timeout=5)
 
 
+def check_failed_write_keeps_document(writer, scratch):
+    home = scratch / "home"
+    config = home / ".config/vgshell"
+    config.mkdir(parents=True)
+    destination = config / "shell.json"
+    destination.write_bytes(BEFORE)
+    child = failed_write(writer, home)
+    child.communicate(timeout=5)
+    assert child.returncode != 0
+    assert destination.read_bytes() == BEFORE
+    assert list(config.glob(".shell.json.*")) == []
+
+
 class RestoreTests(unittest.TestCase):
     def test_restore_keeps_complete_document(self):
         with scratch_dir() as scratch:
@@ -119,28 +142,57 @@ class RestoreTests(unittest.TestCase):
     def test_direct_copy_control_fails_same_contract(self):
         with scratch_dir() as scratch:
             scratch = Path(scratch)
-            text = WRITER.read_text()
-            old = '"$@" >"$staged" || return'
-            self.assertEqual(text.count(old), 1)
-            changed = text.replace(old, '"$@" >"$destination" || return')
-            self.assertNotEqual(changed, text)
-            mutant = scratch / "direct-copy.sh"
-            mutant.write_text(changed)
+            mutant = mutant_writer(
+                scratch,
+                '"$@" >"$staged" || return',
+                '"$@" >"$destination" || return',
+            )
             with self.assertRaises(json.JSONDecodeError):
                 concurrent_read(mutant, scratch, restore)
 
     def test_failed_command_keeps_document_and_removes_staging(self):
         with scratch_dir() as scratch:
-            home = Path(scratch) / "home"
-            config = home / ".config/vgshell"
-            config.mkdir(parents=True)
-            destination = config / "shell.json"
-            destination.write_bytes(BEFORE)
-            child = failed_write(WRITER, home)
-            child.communicate(timeout=5)
-            self.assertNotEqual(child.returncode, 0)
-            self.assertEqual(destination.read_bytes(), BEFORE)
-            self.assertEqual(list(config.glob(".shell.json.*")), [])
+            check_failed_write_keeps_document(WRITER, Path(scratch))
+
+    def test_failed_command_control_fails_without_return_guard(self):
+        with scratch_dir() as scratch:
+            scratch = Path(scratch)
+            mutant = mutant_writer(scratch, '"$@" >"$staged" || return', '"$@" >"$staged"')
+            with self.assertRaises(AssertionError):
+                check_failed_write_keeps_document(mutant, scratch)
+
+    def test_publish_control_fails_without_rename(self):
+        with scratch_dir() as scratch:
+            scratch = Path(scratch)
+            mutant = mutant_writer(
+                scratch,
+                'mv -T -- "$staged" "$destination"',
+                'cat -- "$staged" >"$destination"',
+            )
+            with self.assertRaises(AssertionError):
+                concurrent_read(mutant, scratch, restore)
+
+    def test_stdin_control_fails_when_command_loses_stdin(self):
+        with scratch_dir() as scratch:
+            scratch = Path(scratch)
+            mutant = mutant_writer(
+                scratch,
+                '"$@" >"$staged" || return',
+                'exec </dev/null; "$@" >"$staged" || return',
+            )
+            with self.assertRaises(AssertionError):
+                concurrent_read(mutant, scratch, stdin_write)
+
+    def test_mode_control_fails_without_chmod_reference(self):
+        with scratch_dir() as scratch:
+            scratch = Path(scratch)
+            mutant = mutant_writer(
+                scratch,
+                'chmod --reference="$destination" -- "$staged" || return',
+                ':',
+            )
+            with self.assertRaises(AssertionError):
+                concurrent_read(mutant, scratch, restore)
 
     def test_repaired_rows_use_restore_owner(self):
         # This establishes wiring, separately from the executed writer test.
