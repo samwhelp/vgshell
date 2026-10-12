@@ -118,6 +118,38 @@ async function selection(folder) {
     cases++;
 }
 
+// The cloned voice: the setting hands the sidecar the recording, and the
+// row's identity follows the setting and setup-local's clone marker, so the
+// engine restarts the sidecar after either changes (test-jarvis-engine.js).
+async function cloned(folder) {
+    const w = runtime({});
+    const select = clonedVoice => row(folder).select({ settings: { clonedVoice }, accounts: null, directories: w.directories });
+    const started = async (clonedVoice, count) => {
+        const speech = select(clonedVoice).open({ net: null });
+        try {
+            await until(() => w.log().filter(entry => entry.start).length === count, "the sidecar started", OBSERVE_MS);
+            return w.log().filter(entry => entry.start)[count - 1].start.argv;
+        } finally { speech.close(); }
+    };
+    const base = ["-I", path.join(folder, "backend/local-speech.py"), "--state", w.directories.state,
+        "--data", w.local, "--parent", String(process.pid)];
+    assert.deepEqual(await started(false, 1), base, "off: no recording reaches the sidecar");
+    assert.deepEqual(await started(true, 2), [...base, "--reference", path.join(w.directories.state, "voice-reference.wav")]);
+    const off = select(false).identity, on = select(true).identity;
+    assert.notEqual(off, on, "the setting changes the identity");
+    assert.equal(select(true).identity, on, "an unchanged setting keeps it");
+    // setup-local publishes the clone marker by rename; removal deletes it.
+    const marker = path.join(w.directories.state, "clone-ready.json");
+    fs.writeFileSync(marker + ".new", "{}");
+    fs.renameSync(marker + ".new", marker);
+    const published = select(true).identity;
+    assert.notEqual(published, on, "a clone setup's publication changes it");
+    assert.equal(select(false).identity, off, "with the setting off the marker is not read");
+    fs.rmSync(marker);
+    assert.notEqual(select(true).identity, published, "a removal changes it");
+    cases++;
+}
+
 // One utterance: the boundary the sidecar starts in, and Audio's 24 kHz
 // capture reaching it as 16 kHz samples of the same tone. Its words are the
 // core's recording's: the sidecar's end says only whether it heard speech.
@@ -501,7 +533,7 @@ async function microphoneCheck(folder) {
     } finally { speech.close(); }
     cases++;
 }
-const CASES = { selection, utterance, antiAlias, streaming, partialViolations, failures, abort, backlog, close, speaking, speechWaits, longReply, wake, microphoneCheck };
+const CASES = { selection, cloned, utterance, antiAlias, streaming, partialViolations, failures, abort, backlog, close, speaking, speechWaits, longReply, wake, microphoneCheck };
 // Controls: name, edits to LocalSpeech.js, the case that must turn red.
 const CONTROLS = [
     ["partial delivery", [['if (utterance !== undefined) utterance.partial(header);', 'if (false) utterance.partial(header);']], "streaming"],
@@ -538,7 +570,10 @@ const CONTROLS = [
     ["native frames counted", [["const pcm = toPcm(result.rate === PCM_RATE ? native :", "const pcm = toPcm(true ? native :"]], "speaking"],
     ["speaker dropped", [['write({ type: "speak", id, speaker }, text);', 'write({ type: "speak", id, speaker: "ljspeech" }, text);']], "speaking"],
     ["speaker unjudged", [['if (typeof speaker !== "string" || speaker === "") throw failure("speaker");', ""]], "speaking"],
-    ["voices of another tier", [["tiers[marker.tier].artifacts.includes(artifact.id)", 'tiers.small.artifacts.includes(artifact.id)']], "selection"]
+    ["voices of another tier", [["tiers[marker.tier].artifacts.includes(artifact.id)", 'tiers.small.artifacts.includes(artifact.id)']], "selection"],
+    ["recording not handed", [['const extra = settings.clonedVoice === true ? ["--reference", path.join(state, REFERENCE)] : [];', "const extra = [];"]], "cloned"],
+    ["clone publication unread", [["extra.length === 0 ? null : clonePublication(state)", "null"]], "cloned"],
+    ["recording not passed to the sidecar", [['"--parent", String(process.pid), ...extra]', '"--parent", String(process.pid)]']], "cloned"]
 ];
 
 world(async () => {

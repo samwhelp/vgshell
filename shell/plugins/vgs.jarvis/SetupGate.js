@@ -338,6 +338,31 @@ function voiceProvider(settings, offered) {
     return stored ? "realtime" : "local";
 }
 
+// The Cloned voice setup row (the manifest's clonedVoiceSetup) for VALUE,
+// `setup-local clone status`'s answer, or the reader's own failure value
+// with `action: true`. PROVIDER is the voice the daemon runs
+// (voiceProvider). The cloned voice speaks only through the local voice,
+// beside its graphics card tier (VGS-1384): while either is missing, Set up
+// is withheld with the reason. Remove recording stays offered whatever the
+// voice. `recording` and `tierReady` are setup-local's, for this row only;
+// a failed read has neither, and its setup judges the tier itself.
+var CLONE_WITHHELD = {
+    provider: { text: "Needs the Local voice", hint: "Choose Local as the Voice provider to use a cloned voice." },
+    tier: { text: "Needs the Large model", hint: "Set up the Large local voice model, which needs an NVIDIA graphics card." }
+};
+function clonedVoiceStep(value, provider) {
+    var action = value.action === true ? "setup" : value.action;
+    var reason = provider !== "local" ? CLONE_WITHHELD.provider : value.tierReady === false ? CLONE_WITHHELD.tier : null;
+    // A row of named actions offers none by leaving `action` out.
+    if (reason !== null && action !== "remove") return { tone: "info", text: reason.text, hint: reason.hint };
+    var row = { tone: value.tone, text: value.text };
+    if (typeof action === "string") row.action = action;
+    if (reason !== null) row.hint = reason.hint;
+    else if (value.hint !== undefined) row.hint = value.hint;
+    if (value.lines !== undefined) row.lines = value.lines;
+    return row;
+}
+
 // The Voice group's key row for OFFERED, the stored OpenAI keys, or null
 // while the account reader could not read them: Add key is offered until
 // one is stored. The entry's hint says what the key unlocks (D075).

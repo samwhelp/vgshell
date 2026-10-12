@@ -92,7 +92,10 @@ class LocalContract(unittest.TestCase):
             ("path", lambda s: s["artifacts"][0].update(directory="../elsewhere"),
              'if path.is_absolute() or ".." in path.parts:', "path=outside-root"),
             ("url", lambda s: s["artifacts"][0].update(url="http://fixture.invalid/model"),
-             'if urlparse(artifact["url"]).scheme != "https":', "url=not-https"),
+             'if urlparse(artifact["url"] if "url" in artifact else artifact["baseUrl"]).scheme != "https":', "url=not-https"),
+            ("base url", lambda s: (s["artifacts"][0].pop("url"), s["artifacts"][0].pop("sha256"),
+                                    s["artifacts"][0].update(baseUrl="http://fixture.invalid/export/")),
+             'if urlparse(artifact["url"] if "url" in artifact else artifact["baseUrl"]).scheme != "https":', "url=not-https"),
             ("revision", lambda s: s["artifacts"][0].update(revision=""),
              'if not artifact["revision"] or not artifact["languages"] or not artifact["modelLicense"]:', "metadata=missing"),
             ("languages", lambda s: s["artifacts"][0].update(languages=[]),
@@ -106,7 +109,7 @@ class LocalContract(unittest.TestCase):
             ("file digest", lambda s: s["artifacts"][0].update(files={"model": "not-a-digest"}),
              'if not re.fullmatch(r"[0-9a-f]{64}", digest):', "sha256=invalid"),
             ("archive digest", lambda s: s["artifacts"][0].update(sha256="not-a-digest"),
-             'if not re.fullmatch(r"[0-9a-f]{64}", artifact["sha256"]):', "archive-sha256=invalid"),
+             'if "url" in artifact and not re.fullmatch(r"[0-9a-f]{64}", artifact["sha256"]):', "archive-sha256=invalid"),
             ("tier", lambda s: s["tiers"]["probe"].update(artifacts=["unknown"]),
              'if not tier["artifacts"] or any(a not in ids for a in tier["artifacts"]):', "tier=unknown-or-empty"),
         ]
@@ -198,6 +201,8 @@ class LocalContract(unittest.TestCase):
              'if result["sample_rate"] != artifact["outputSampleRate"] or result["audio_seconds"] < 1:', "audio-mismatch"),
             ("piper", {"sample_rate": 22050, "audio_seconds": 0.01},
              'if result["sample_rate"] != artifact["outputSampleRate"] or result["audio_seconds"] < 1:', "audio-mismatch"),
+            ("chatterbox", {"sample_rate": 24000, "audio_seconds": 0.01},
+             'if result["sample_rate"] != artifact["outputSampleRate"] or result["audio_seconds"] < 1:', "audio-mismatch"),
             ("silero", {"segments": [{"samples": 1}]},
              'if sum(segment["samples"] for segment in result["segments"]) < fixture["minimumSpeechSamples"]:', "speech-mismatch"),
             ("smart-turn", {"probability": 0.1},
@@ -284,12 +289,109 @@ class LocalContract(unittest.TestCase):
         module = self.load_module()
         artifact = {"engine": "piper"}
         self.assertEqual(module.speed([artifact], [{"audio_seconds": 10}], 2, 0.5), (0.05, "generated-audio"))
+        self.assertEqual(module.speed([{"engine": "chatterbox"}], [{"audio_seconds": 10}], 2, 0.5), (0.05, "generated-audio"))
         self.assertEqual(module.speed([artifact, {"engine": "nemotron"}], [], 2, 0.5), (0.25, "tier-input-audio"))
         text = SOURCE.read_text()
         needle = 'elapsed / warm[0]["audio_seconds"]'
         self.assertEqual(text.count(needle), 1)
         self.program.write_text(text.replace(needle, "elapsed / input_seconds"))
         self.assertNotEqual(self.load_module().speed([artifact], [{"audio_seconds": 10}], 2, 0.5), (0.05, "generated-audio"))
+
+    def test_per_file_row_and_control(self):
+        # A row with no archive: each file is its own download below the
+        # base URL, and the files alone are the verified inputs.
+        data = b"per-file fixture"
+        digest = hashlib.sha256(data).hexdigest()
+        (self.models / "onnx").mkdir()
+        for name in ("onnx/graph.onnx", "tokenizer.json"):
+            (self.models / name).write_bytes(data)
+        row = self.spec["artifacts"][0]
+        for key in ("url", "sha256"):
+            row.pop(key)
+        row.update(directory=".", baseUrl="https://fixture.invalid/export/",
+                   files={"onnx/graph.onnx": digest, "tokenizer.json": digest})
+        self.assertEqual(self.load_module().downloads(row), [
+            ("https://fixture.invalid/export/onnx/graph.onnx", Path("onnx/graph.onnx"), digest),
+            ("https://fixture.invalid/export/tokenizer.json", Path("tokenizer.json"), digest)])
+        self.assertEqual(self.command(mode="--verify").stdout.strip(), "measure-local: inputs=ok")
+        (self.models / "onnx/graph.onnx").write_bytes(b"corrupt local bytes")
+        result = self.command(mode="--verify")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("input=hash-mismatch path=" + str(self.models / "onnx/graph.onnx"), result.stderr)
+        (self.models / "onnx/graph.onnx").unlink()
+        self.assertEqual(self.command(mode="--verify").returncode, 77)
+        # A copy that reads a per-file row's archive cannot verify it.
+        text = SOURCE.read_text()
+        needle = '    if "url" in artifact:\n        return [(artifact["url"]'
+        self.assertEqual(text.count(needle), 1)
+        self.program.write_text(text.replace(needle, '    if True:\n        return [(artifact["url"]'))
+        result = self.command(mode="--verify")
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("measure-local: inputs=", result.stdout)
+
+    def test_runtimes_follow_the_environment_and_control(self):
+        # VGS-1384 point 3: the clone environment holds onnxruntime-gpu and
+        # no sherpa-onnx, a tier's environment the reverse.
+        import builtins
+        from types import SimpleNamespace
+        shipped = json.loads((SOURCE.parent / "artifacts.json").read_text())
+        clone = [a for a in shipped["artifacts"] if a["engine"] == "chatterbox"]
+        tier = [a for a in shipped["artifacts"] if a["id"] in shipped["tiers"]["large"]["artifacts"]]
+        self.assertEqual(len(clone), 1)
+
+        def instrument(installed):
+            original = builtins.__import__
+            def import_dependency(name, *args, **kwargs):
+                if name == "numpy":
+                    raise ImportError("control-reached-runtime-import")
+                return original(name, *args, **kwargs)
+            module = self.load_module(dict(vars(builtins), __import__=import_dependency))
+            missing = module.importlib.metadata.PackageNotFoundError
+            def version(name):
+                if name not in installed:
+                    raise missing(name)
+                return shipped["runtimes"][name]["versions"][0]
+            module.socket = SimpleNamespace(if_nameindex=lambda: [(1, "lo")])
+            module.importlib = SimpleNamespace(metadata=SimpleNamespace(version=version, PackageNotFoundError=missing))
+            return module
+        shared = {"numpy", "transformers", "tokenizers"}
+        # Each environment passes its runtime check; the clone's run stops
+        # at its missing reference, the tier's at its first import.
+        with self.assertRaisesRegex(ValueError, "reference=required"):
+            instrument(shared | {"onnxruntime-gpu"}).measure(shipped, clone, self.models, "cuda", None, "chatterbox")
+        with self.assertRaisesRegex(ImportError, "control-reached-runtime-import"):
+            instrument(shared | {"sherpa-onnx", "onnxruntime"}).measure(shipped, tier, self.models, "cuda", None, "large")
+        with self.assertRaisesRegex(Exception, "runtime=missing name=onnxruntime-gpu"):
+            instrument(shared).measure(shipped, clone, self.models, "cuda", None, "chatterbox")
+        text = SOURCE.read_text()
+        needle = 'if name not in named or any(artifact["runtime"] == name for artifact in artifacts)]'
+        self.assertEqual(text.count(needle), 1)
+        self.program.write_text(text.replace(needle, "if True]"))
+        with self.assertRaisesRegex(Exception, "runtime=missing name=sherpa-onnx"):
+            instrument(shared | {"onnxruntime-gpu"}).measure(shipped, clone, self.models, "cuda", None, "chatterbox")
+
+    def test_reference_format_control(self):
+        # The refusals come before any sample is read; no numpy is needed.
+        module = self.load_module()
+        cases = [("rate", 1, 2, 16000, b"\0\1", "reference=format-invalid"),
+                 ("channels", 2, 2, 24000, b"\0\1\0\1", "reference=format-invalid"),
+                 ("empty", 1, 2, 24000, b"", "reference=empty")]
+        for name, channels, width, rate, frames, diagnostic in cases:
+            with self.subTest(case=name):
+                path = self.root / (name + ".wav")
+                with wave.open(str(path), "wb") as out:
+                    out.setnchannels(channels)
+                    out.setsampwidth(width)
+                    out.setframerate(rate)
+                    out.writeframes(frames)
+                with self.assertRaisesRegex(ValueError, diagnostic):
+                    module.reference(path, None)
+        text = SOURCE.read_text()
+        needle = "if (source.getnchannels(), source.getsampwidth(), source.getframerate()) != (1, 2, Chatterbox.RATE):"
+        self.assertEqual(text.count(needle), 1)
+        self.program.write_text(text.replace(needle, "if False:"))
+        with self.assertRaises(AttributeError):
+            self.load_module().reference(self.root / "rate.wav", None)
 
     def test_auxiliary_archive_controls(self):
         self.spec["artifacts"][0].update(
@@ -496,7 +598,7 @@ m.run({},[],Path(sys.argv[2]),"cpu",None,"probe")
         module = instrument()
         with self.assertRaisesRegex(module.Unavailable, "runtime=version-mismatch"):
             module.run(self.spec, [], self.models, "cpu", None, "probe")
-        self.mutant('if versions[name] not in runtime["versions"]:')
+        self.mutant('if versions[name] not in value["runtimes"][name]["versions"]:')
         module = instrument()
         with self.assertRaisesRegex(ImportError, "control-reached-runtime-import"):
             module.run(self.spec, [], self.models, "cpu", None, "probe")

@@ -8,7 +8,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const { freshSuite } = require("./fixtures/jarvis/prepare.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.jarvis/JarvisProtocol.js");
 const Protocol = load(file);
-const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", dictation: "",
+const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "",
     cloudVision: "ask", privateWindows: "bitwarden, incognito" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
@@ -336,6 +336,7 @@ const cases = [
     ["private-windows-control", changed(hello, { settings: { ...hello.settings, privateWindows: "bitwarden\nvault" } }), "shell", "private-windows"],
     ["private-windows-size", changed(hello, { settings: { ...hello.settings, privateWindows: "a".repeat(1025) } }), "shell", "private-windows"],
     ["missing-task-terminal", changed(hello, { settings: { ...hello.settings, taskTerminal: undefined } }), "shell", "shape-settings"],
+    ["cloned-voice-type", changed(hello, { settings: { ...hello.settings, clonedVoice: "on" } }), "shell", "cloned-voice"],
     ["task-stop-shape", changed(taskStop, { task: undefined }), "shell", "shape-task-stop"],
     ["task-stop-id", changed(taskStop, { task: "../home" }), "shell", "task-id"],
     ["tui-state-direction", JSON.stringify(tuiState), "daemon", "direction-tui-state"],
@@ -671,8 +672,8 @@ try {
         ["hello-direction", 'if (direction !== "shell") fail("direction-hello");', 'if (false) fail("direction-hello");', "hello-direction"],
         ["status-direction", 'if (direction !== "daemon") fail("direction-status");', 'if (false) fail("direction-status");', "status-direction"],
         ["shape", 'fail("shape-" + name);', ';', "hello-shape"],
-        ["settings-name", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home", "dictation"], "settings");',
-            'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home", "dictation"], "settings");', "extra-setting"],
+        ["settings-name", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation"], "settings");',
+            'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation"], "settings");', "extra-setting"],
         ["brain-type", 'typeof message.settings.brain !== "string"', 'false', "brain-setting"],
         ["model-type", 'typeof message.settings.model !== "string" || ', '', "model-type"],
         ["effort-type", ' || typeof message.settings.effort !== "string"', '', "effort-type"],
@@ -720,6 +721,8 @@ try {
             'if (false) fail("task-terminal");', "task-terminal"],
         ["cloud-vision", 'if (CLOUD_VISION.indexOf(message.settings.cloudVision) === -1) fail("cloud-vision");',
             'if (false) fail("cloud-vision");', "cloud-vision"],
+        ["cloned-voice", 'if (typeof message.settings.clonedVoice !== "boolean") fail("cloned-voice");',
+            'if (false) fail("cloned-voice");', "cloned-voice-type"],
         ["voice-provider", '!["local", "realtime"].includes(message.settings.voiceProvider)', "false", "voice-provider"],
         ["live-account-type", 'typeof message.settings.voiceAccount !== "string"', "false", "live-account-type"],
         ["live-account-control", "/^[^\\x00-\\x1f\\x7f]{0,200}$/", "/^[^]{0,200}$/", "live-account-control", 2],
@@ -749,8 +752,8 @@ try {
         assert.equal(logic.memoryInboxEntries(Array(9).fill({ ...memoryEntry, text: "x".repeat(16 * 1024) })).length, 7));
     control("memory-inbox-filter-invalid", "if (!memoryEntryAccepted(entry)) continue;", "", logic =>
         assert.equal(logic.memoryInboxEntries([{ ...memoryEntry, problem: "other" }, memoryEntry]).length, 1));
-    control("unsupported-echo", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home", "dictation"], "settings");',
-        'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home", "dictation"], "settings");',
+    control("unsupported-echo", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation"], "settings");',
+        'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation"], "settings");',
         logic => {
             for (const row of cases.filter(row => row[0].startsWith("echo-setting-"))) rejected(logic, row);
         });

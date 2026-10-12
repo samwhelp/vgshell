@@ -23,8 +23,12 @@
 # binding breaks; a change opens local setup with the wanted tier,
 # Automatic with none; the run's end writes back the tier it left ready,
 # which opens nothing, and nor does a wanted tier that is ready. Its
-# control is a LocalTier copy that opens no run.
-# inputs: scripts/fixtures/jarvis/audio-tool.py shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-local-speech/standin.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js scripts/smoke/rows/capabilities.sh scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js
+# control is a LocalTier copy that opens no run. The Cloned voice: the
+# Settings tab's Local voice section draws its setting and Details' Local
+# voice section its setup row, whose reader answers as setup-local does
+# beside a ready large tier; the row opens the clone setup while the voice
+# resolves Local and offers nothing with Realtime chosen.
+# inputs: scripts/fixtures/jarvis/audio-tool.py shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-local-speech/standin.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js scripts/smoke/rows/capabilities.sh scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js scripts/fixtures/jarvis/prepare.js
 set -euo pipefail
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's
 # probe does not start at each enable.
@@ -535,6 +539,60 @@ rm -f -- "$setup_marker" "$setup_state/accounts.json"
 rm -rf -- "${setup_codex:?}"
 setup_brain ""
 expect_poll "without the AI model and the marker the Setup section reads both steps to do again" "$setup_fresh" setup_rows
+
+# The Cloned voice (VGS-1385). The reader's answer is setup-local clone
+# status's beside a ready large tier (scripts/fixtures/jarvis-setup/status.py
+# --clone); the voice the daemon runs comes from the Voice provider setting.
+setup_clone_status="$sandbox/jarvis-world/clone-status.json"
+cp -- "$setup_clone_status" "$sandbox/clone-status-original"
+python3 - "$setup_clone_status" <<'PY'
+import json,os,sys
+open(sys.argv[1]+".next","w").write(json.dumps({"tone":"info","text":"Not set up","action":"setup","recording":False,"tierReady":True}))
+os.replace(sys.argv[1]+".next",sys.argv[1])
+PY
+# VALUE as the Voice provider setting, delivered by a reload.
+setup_provider() { # VALUE
+  python3 - "$setup_config" "$1" <<'PY'
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1]); value=json.loads(p.read_text())
+row=next((r for r in value.setdefault("plugins",[]) if r["id"]=="vgs.jarvis"),None)
+if row is None:
+    row={"id":"vgs.jarvis"}; value["plugins"].append(row)
+row["voiceProvider"]=sys.argv[2]
+p.write_text(json.dumps(value))
+PY
+  expect "deliver the Voice provider $1" ok ipc shell reloadConfig
+}
+# The setup row as [group, offered, the screen its press opens].
+setup_clone_row() {
+  status_row vgs.jarvis clonedVoiceSetup | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([r["group"], r["action"]["offered"], r["action"]["tui"]]))'
+}
+# Whether the shown tab's Local voice section draws LABEL.
+setup_local_section() { # LABEL
+  ipc smoke itemTexts window vgs.settings Section | py_reply 'import json,sys
+r=[s for s in json.load(sys.stdin) if s and s[0]=="Local voice"]
+print(json.dumps(any(sys.argv[1] in s for s in r)) if r else "absent")' "$1"
+}
+setup_clone_labels="$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m["schema"]["clonedVoice"]["label"]); print(m["status"]["clonedVoiceSetup"]["label"])' "$repo/shell/plugins/vgs.jarvis/manifest.json")" ||
+  fail "the manifest names no Cloned voice setting or setup row"
+setup_clone_setting="${setup_clone_labels%%$'\n'*}" setup_clone_step="${setup_clone_labels##*$'\n'}"
+rescan "a rescan reads the clone status beside a large tier"
+expect_poll "the setup row opens the clone setup while the voice resolves Local" '["Local voice", true, "clone-voice"]' setup_clone_row
+expect_poll "the Settings tab's Local voice section draws the Cloned voice setting" true setup_local_section "$setup_clone_setting"
+settings_details
+expect_poll "Details' Local voice section draws the Cloned voice setup row" true setup_local_section "$setup_clone_step"
+settings_tab_click Settings || fail "the click on the Settings tab failed"
+expect_poll "the plugin page shows Settings again" 0 settings_tab
+forget_record
+expect "Settings opens the clone setup" ok settings_act vgs.jarvis clonedVoiceSetup
+expect_poll "the clone setup runs in the core floating terminal" '["vgs.jarvis/clone-voice", "tui/clone-voice.sh"]' recorded_tail
+expect_run_end "the clone setup terminal ends" vgs.jarvis/clone-voice
+setup_provider realtime
+expect_poll "with Realtime chosen the setup row offers nothing" '["Local voice", false, ""]' setup_clone_row
+setup_provider local
+expect_poll "Local again offers the clone setup" '["Local voice", true, "clone-voice"]' setup_clone_row
+cp -- "$sandbox/clone-status-original" "$setup_clone_status"
 
 # A Pi below its floor. The stand-in answers `--version` and nothing else,
 # so no Pi program runs a turn; its folder is added by hand, as the Codex

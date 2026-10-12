@@ -354,11 +354,12 @@ function accept(line, direction) {
     case "hello":
         if (direction !== "shell") fail("direction-hello");
         keys(message, ["v", "type", "gen", "settings", "directories", "revision", "locked", "keys"], "hello");
-        keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home", "dictation"], "settings");
+        keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation"], "settings");
         if (!["local", "realtime"].includes(message.settings.voiceProvider) || typeof message.settings.voiceAccount !== "string"
                 || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings.voiceAccount)) fail("voice-settings");
         if (!printable(message.settings.voice, 0, 200)) fail("voice-setting");
         if (typeof message.settings.sounds !== "boolean") fail("sounds");
+        if (typeof message.settings.clonedVoice !== "boolean") fail("cloned-voice");
         // The service's cause while the core's dictation recording cannot
         // start (SetupGate.dictationCause), "" while it can.
         if (typeof message.settings.dictation !== "string"

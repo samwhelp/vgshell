@@ -29,6 +29,18 @@
       "versions": ["2.5.3"],
       "softwareLicense": "BSD-3-Clause",
       "source": "https://numpy.org/"
+    },
+    "tokenizers": {
+      "versions": ["0.23.2"],
+      "softwareLicense": "Apache-2.0",
+      "source": "https://github.com/huggingface/tokenizers"
+    },
+    "onnxruntime-gpu": {
+      "versions": ["1.30.0"],
+      "softwareLicense": "MIT",
+      "source": "https://github.com/microsoft/onnxruntime",
+      "cuda": "13",
+      "cudnn": "9"
     }
   },
   "fixture": {
@@ -208,6 +220,34 @@
         "decoder.int8.onnx": "19f9c98fc6d0a2c33a65a43b36fdb2e914c26c0aa9764be3aebc502a1e982fb0",
         "joiner.int8.onnx": "4101c7c679a0bc30483794b27a059e34e79232aa2068d78d51231a22c8b0d7ce",
         "tokens.txt": "729cc103155bafa785f9cd45746cd41cabe97eab7182fc04d594129587958f8a"
+      }
+    },
+    {
+      "id": "chatterbox",
+      "engine": "chatterbox",
+      "outputSampleRate": 24000,
+      "directory": ".",
+      "baseUrl": "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/",
+      "revision": "d21799bd0354adb85e348b8a0442a8405110a2cf",
+      "runtime": "onnxruntime-gpu",
+      "providers": ["cpu", "cuda"],
+      "downloadBytes": 1664662528,
+      "input": "UTF-8 text; reference: mono s16 WAV at 24000 Hz; fp16 graphs; greedy, repetition penalty 1.2, at most 1024 speech tokens",
+      "output": "mono float32 PCM at 24000 Hz",
+      "languages": ["en"],
+      "modelLicense": "MIT",
+      "voiceLicense": "LicenseRef-User-Recording",
+      "licenseSource": "https://huggingface.co/ResembleAI/chatterbox-turbo/blob/749d1c1a46eb10492095d68fbcf55691ccf137cd/README.md",
+      "files": {
+        "onnx/speech_encoder_fp16.onnx": "5544f87c3e1615a31f5dc3ccdf9ba52a9f5fb8f6018e72796235fc1cfd5ebc9f",
+        "onnx/speech_encoder_fp16.onnx_data": "d24b817ff61489373ab13033cbdc28a5ba8347341248a00f9a63f10888e81d73",
+        "onnx/embed_tokens_fp16.onnx": "f7a7a83e91337e10add2fad054544421f9080e27b72af1aef27f339a1a66776c",
+        "onnx/embed_tokens_fp16.onnx_data": "cdda886a9e58ad39059fe8f6cf5a3a628994a1a2dfc1a8b58502c252fec70327",
+        "onnx/language_model_fp16.onnx": "396b35570dd1dbc5f537ffc932c3e69130ab8a09bf1390469d92338c8eae7da4",
+        "onnx/language_model_fp16.onnx_data": "d730d6437126d3e232747b26e2a7adece68844f22133277ca5012298ffe36f93",
+        "onnx/conditional_decoder_fp16.onnx": "cbdc0281548eb90a02fa2430647237df63fa0cb695e42b91c10b860b9b6d2230",
+        "onnx/conditional_decoder_fp16.onnx_data": "c6c3e79e6ff86bc41f77381a3d67b8edaa16b13e43a2700ca8159d0894bd594a",
+        "tokenizer.json": "3f04e34bea22f9144d1a19151154095bc9ce0430bf421304f5797e716288a906"
       }
     }
   ]

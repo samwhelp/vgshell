@@ -129,6 +129,37 @@ const FLEET = [
     ["a home without the mail tool", "/h/Jarvis", null, true],
     ["a home with the mail tool", "/h/Jarvis", "/h/Jarvis/.agents/skills/orch/scripts/lane-mail", false]
 ];
+// The Cloned voice setup row (VGS-1385): [label, setup-local's clone status
+// answer, the voice the daemon runs, the published row's tone and action,
+// whether it carries a hint of why, the TUI its press opens or null]. Set
+// up is withheld for the Realtime voice and beside a tier off the graphics
+// card; Remove recording stays offered whatever the voice.
+const CLONE_ANSWER = { tone: "info", text: "Not set up", action: "setup", recording: false, tierReady: true };
+const CLONE_READY = { tone: "ok", text: "Ready", action: "remove", recording: true, tierReady: true };
+const CLONED = [
+    ["a resolved Local voice on the Large model offers setup", CLONE_ANSWER, "local", "info", "setup", false, "clone-voice"],
+    ["the Realtime voice withholds setup", CLONE_ANSWER, "realtime", "info", undefined, true, null],
+    ["a tier off the graphics card withholds setup", { ...CLONE_ANSWER, tierReady: false }, "local", "info", undefined, true, null],
+    ["a ready cloned voice offers Remove", CLONE_READY, "local", "ok", "remove", false, "clone-voice-remove"],
+    ["a recording keeps Remove under the Realtime voice", CLONE_READY, "realtime", "ok", "remove", true, "clone-voice-remove"],
+    ["a recording keeps Remove beside another tier", { ...CLONE_READY, tone: "warning", tierReady: false }, "local", "warning", "remove", true, "clone-voice-remove"],
+    ["a failed read offers setup", { tone: "warning", text: "Setup check failed", action: true }, "local", "warning", "setup", false, "clone-voice"],
+    ["a setup in progress offers nothing", { ...CLONE_ANSWER, text: "Setting up", action: false }, "local", "info", undefined, false, null],
+];
+function verifyClonedVoice(gate, judged) {
+    for (const [label, answer, provider, tone, action, reasoned, tui] of CLONED) {
+        const value = plain(gate.clonedVoiceStep(answer, provider));
+        assert.equal(judge.statusWrite(judged, {}, "clonedVoiceSetup", value).ok, true, label + ": the manifest judge accepts the row");
+        assert.deepEqual([value.tone, value.action, value.hint !== undefined], [tone, action, reasoned], label);
+        const row = judge.statusRows(judged, { clonedVoiceSetup: value }, []).find(entry => entry.key === "clonedVoiceSetup");
+        assert.deepEqual([row.group, row.action.offered, row.action.tui || null], ["Local voice", tui !== null, tui], label + ": its press");
+        if (tui !== null)
+            assert.deepEqual(plain(judge.statusActionRequest(judged, "vgs.jarvis", true, { clonedVoiceSetup: value }, "clonedVoiceSetup")),
+                { ok: true, kind: "tui", name: tui }, label + ": the press opens its TUI");
+    }
+    assert.equal(judged.tui["clone-voice"].requires.includes("pw-record"), true, "the setup TUI needs its recorder");
+}
+
 // A command with a floor: [label, missing, outdated, expected value]. Its
 // row names the action that applies, and none once it is found at its floor.
 const FLOORED = [
@@ -996,6 +1027,7 @@ function verify(gate) {
         }
     }
     verifySetupButtons(gate, judged);
+    verifyClonedVoice(gate, judged);
     // Its control: the manifest with a launcher entry for the fleet TUI,
     // which the manager then lists in every state.
     const listed = plain(judged);
@@ -1081,6 +1113,10 @@ const CONTROLS = [
     ["no key offers no Add key", 'text: "No key stored", action: true }', 'text: "No key stored", action: false }'],
     ["a stored key still offers Add key", 'text: "Key stored", action: false }', 'text: "Key stored", action: true }'],
     ["a failed key read offers no Add key", 'text: "Could not check", action: true }', 'text: "Could not check", action: false }'],
+    ["the Realtime voice offers clone setup", 'var reason = provider !== "local" ? CLONE_WITHHELD.provider : ', "var reason = ", "the Realtime voice withholds setup"],
+    ["a tier off the graphics card offers clone setup", 'value.tierReady === false ? CLONE_WITHHELD.tier : null', "null", "a tier off the graphics card withholds setup"],
+    ["a recording loses Remove under another voice", 'if (reason !== null && action !== "remove")', "if (reason !== null)", "a recording keeps Remove under the Realtime voice"],
+    ["a failed clone read offers a boolean", 'var action = value.action === true ? "setup" : value.action;', "var action = value.action;", "a failed read offers setup"],
     ["the fleet row shows with no home", "if (home === null || tool !== null)", "if (tool !== null)", "no home chosen: the row shows"],
     ["the fleet row shows once the tool is found", "if (home === null || tool !== null)", "if (home === null)", "a home with the mail tool: the row shows"],
     ["the fleet row offers no setup", 'return { tone: "info", text: "Optional", action: true };', 'return { tone: "info", text: "Optional", action: false };'],

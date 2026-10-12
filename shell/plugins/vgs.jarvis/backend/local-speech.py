@@ -3,8 +3,12 @@
 
 LocalSpeech.js starts it as the selected runtime's interpreter, inside a
 private network namespace, as `python -I local-speech.py --state DIR --data DIR
---parent PID`. It holds setup's lock shared, so setup cannot replace the runtime
-under it, and loads only after setup's readiness judge answers ready.
+--parent PID [--reference WAV]`. It holds setup's lock shared, so setup cannot
+replace the runtime under it, and loads only after setup's readiness judge
+answers ready. With a reference, while the ready tier runs on the graphics
+card and setup's clone judge answers ready, the voice is the cloned one: a
+child, clone-speech.py, in its own environment, speaking each sentence in
+the reference's voice and ignoring the speaker. Its end ends the sidecar.
 
 Wire, both directions: frames of a u32be header length, a u32be payload length,
 a UTF-8 JSON object header and the payload bytes. Audio is float32 little-endian
@@ -38,7 +42,9 @@ import math
 import os
 from pathlib import Path
 import struct
+import subprocess
 import sys
+from types import SimpleNamespace
 
 HERE = Path(__file__).resolve().parent
 # The plugin directory is never written, not even bytecode for setup-local.
@@ -70,6 +76,10 @@ class Failed(Exception):
     """One request failed; its keyed cause reaches the daemon."""
 
 
+class CloneEnded(Exception):
+    """The cloned voice's child ended or broke its wire; the sidecar ends."""
+
+
 class Speech:
     """The loaded models of one tier the sidecar runs."""
 
@@ -83,6 +93,11 @@ class Speech:
         self.turn = turn
         self.spotter = spotter
         self.keywords = keywords
+
+    def close(self):
+        """End the cloned voice's child, the one process the sidecar owns."""
+        if isinstance(self.tts, Cloned):
+            self.tts.close()
 
     def speak(self, text, speaker):
         """One sentence's samples in the voice SPEAKER names, at the voice's declared rate."""
@@ -98,6 +113,54 @@ class Speech:
         if not samples or not all(math.isfinite(v) for v in samples) or not any(samples):
             raise Failed("synthesis-empty")
         return self.rate, samples
+
+
+class Cloned:
+    """The cloned voice's child, answering one sentence a request on this
+    sidecar's wire. Its `generate` takes Speech's voice call and ignores the
+    speaker; a request it fails is a RuntimeError, as a voice's is."""
+
+    def __init__(self, child):
+        self.child = child
+        self.answers = frames(child.stdout)
+        self.last = 0
+
+    def answer(self):
+        try:
+            return next(self.answers)
+        except StopIteration:
+            raise CloneEnded("clone-ended") from None
+        except Protocol:
+            raise CloneEnded("clone-protocol") from None
+
+    def generate(self, text, sid, speed):
+        self.last += 1
+        try:
+            send(self.child.stdin, {"type": "speak", "id": self.last}, text.encode("utf-8"))
+        except OSError:
+            raise CloneEnded("clone-ended") from None
+        samples = array("f")
+        while True:
+            header, payload = self.answer()
+            keys, ident = set(header), header.get("id")
+            if ident != self.last:
+                raise CloneEnded("clone-protocol")
+            if header.get("type") == "audio" and keys == {"type", "id"} and payload and not len(payload) % 4:
+                received = array("f")
+                received.frombytes(payload)
+                samples.extend(little(received))
+            elif header.get("type") == "spoken" and keys == {"type", "id", "rate"} and not payload:
+                return SimpleNamespace(sample_rate=header["rate"], samples=samples)
+            elif header.get("type") == "failed" and keys == {"type", "id", "cause"} and not payload:
+                raise RuntimeError(header["cause"])
+            else:
+                raise CloneEnded("clone-protocol")
+
+    def close(self):
+        self.child.kill()
+        self.child.wait()
+        self.child.stdin.close()
+        self.child.stdout.close()
 
 
 class Utterance:
@@ -376,11 +439,34 @@ def roles(artifacts, tier):
     return found
 
 
-def load(setup, state, data):
+def clone(setup, data, reference):
+    """Start the cloned voice's child in its own environment, under this
+    process's parent-death signal and network namespace, and wait for its
+    ready: it has loaded the model and encoded REFERENCE."""
+    root = data / setup.CLONE
+    environment = {key: os.environ[key] for key in ("PATH", "HOME", "LC_ALL") if key in os.environ}
+    child = subprocess.Popen(
+        ["setpriv", "--pdeathsig", "KILL", "--", str(root / "venv/bin/python"), "-I", str(HERE / "clone-speech.py"),
+         "--models", str(root / "models"), "--reference", str(reference), "--parent", str(os.getpid())],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=environment)
+    voice = Cloned(child)
+    try:
+        header, payload = voice.answer()
+    except CloneEnded:
+        header, payload = None, b""
+    if header != {"type": "ready"} or payload:
+        voice.close()
+        raise NotReady("clone-not-ready")
+    return voice
+
+
+def load(setup, state, data, reference=None):
     """Load the ready tier through setup's readiness judge and pinned loaders.
 
     setup is the setup-local module: its status is the one readiness judge,
-    and its artifact judge owns the upstream loader for each export.
+    its clone status the cloned voice's, and its artifact judge owns the
+    upstream loader for each export. With REFERENCE and the cloned voice
+    ready, the clone's child is the voice and the tier's voice stays unloaded.
     """
     judge = setup.measurement()
     if setup.status(judge, state, data)["tone"] != "ok":
@@ -390,20 +476,30 @@ def load(setup, state, data):
     value = judge.manifest(setup.HERE / "artifacts.json")
     artifacts, provider = setup.selected(value, tier)
     chosen = roles(artifacts, tier)
-    with judge.loading(data / "models"):
+    # The clone lock keeps the recording and its marker for the load; a
+    # removal after it changes the daemon's row, which restarts this sidecar.
+    with judge.loading(data / "models"), setup.shared(state / setup.CLONE_LOCK) as held:
+        cloned = reference is not None and held and setup.clone_status(judge, state, data)["tone"] == "ok"
+        need = ready["memory"]
+        if cloned:
+            extra = json.loads((state / setup.CLONE_MARKER).read_text())["memory"]
+            need = {resource: need[resource] + extra[resource] for resource in ("ram", "gpu")}
         try:
-            judge.admit(ready["memory"], provider)
+            judge.admit(need, provider)
         except judge.Unavailable as error:
             raise NotReady(str(error)) from None
         import numpy as np
         import sherpa_onnx as sherpa
         models = {role: judge.load(artifact, data / "models", provider, np, sherpa)
-                  for role, artifact in chosen.items()}
+                  for role, artifact in chosen.items() if not (cloned and role == "tts")}
+        if cloned:
+            models["tts"] = clone(setup, data, reference)
+    rate = setup.clone_row(value)["outputSampleRate"] if cloned else chosen["tts"]["outputSampleRate"]
     def turn(samples):
         return judge.infer(chosen["turn"], models["turn"], np.frombuffer(samples, dtype=np.float32), "", value, np)["probability"]
     # The keyword is the one setup's probe decoded with this model.
     return Speech(models["vad"], models["tts"],
-                  chosen["tts"]["outputSampleRate"], [speaker["name"] for speaker in chosen["tts"]["speakers"]],
+                  rate, [speaker["name"] for speaker in chosen["tts"]["speakers"]],
                   lambda samples: np.frombuffer(samples, dtype=np.float32),
                   models["captions"], turn, models["wake"], value["fixture"]["wakeTokens"])
 
@@ -413,6 +509,7 @@ def main():
     parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--data", type=Path, required=True)
     parser.add_argument("--parent", type=int, required=True)
+    parser.add_argument("--reference", type=Path, help="the recording the cloned voice speaks in")
     args = parser.parse_args()
     # setpriv armed parent death before this check; a parent that already
     # ended would leave this process unowned.
@@ -423,13 +520,19 @@ def main():
     writer = sys.stdout.buffer
     try:
         lock = hold(args.state)
-        speech = load(module("jarvis_setup", HERE.parent / "setup-local"), args.state, args.data)
+        speech = load(module("jarvis_setup", HERE.parent / "setup-local"), args.state, args.data, args.reference)
     except NotReady as error:
         send(writer, {"type": "failed", "cause": str(error)})
         return 77
     with lock:
-        send(writer, {"type": "ready"})
-        serve(sys.stdin.buffer, writer, speech)
+        try:
+            send(writer, {"type": "ready"})
+            serve(sys.stdin.buffer, writer, speech)
+        except CloneEnded as error:
+            send(writer, {"type": "failed", "cause": str(error)})
+            return 1
+        finally:
+            speech.close()
     return 0
 
 

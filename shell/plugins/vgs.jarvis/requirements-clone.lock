@@ -1,0 +1,6 @@
+# The cloned voice's runtime: setup-local projects requirements-local.lock
+# with its onnxruntime line replaced by this one. The CPU wheel has no CUDA
+# provider, and this wheel cannot share a process with the large tier's
+# sherpa-onnx CUDA wheel (VGS-1384). Wheel hash: the wheel VGS-1384 installed
+# and ran, 2026-10-11.
+onnxruntime-gpu==1.30.0 --hash=sha256:6acc0f4b3d5ac5f2984432faa59dd8fcce6775f8b43a7140afa0f322c7a703b1

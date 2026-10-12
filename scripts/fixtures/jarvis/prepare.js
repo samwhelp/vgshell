@@ -352,6 +352,24 @@ function service(sourceTree, tree, root) {
                 { value: "medium", label: "Medium: English, many voices, 968 MB" }] }) + "\n");
         fs.writeFileSync(tier, tierSource.replace(tierNeedle, tierCommand));
     }
+    // The Cloned voice reader answers from a file the rows write, so no
+    // model, recording or tier is judged. A --rev tree older than the
+    // cloned voice has no reader.
+    const clone = path.join(tree, "shell/plugins/vgs.jarvis/CloneRuntime.qml");
+    if (fs.existsSync(clone)) {
+        const cloneSource = fs.readFileSync(clone, "utf8");
+        const cloneNeedle = 'command: ["python3", "-I", program, "clone", "status"]';
+        assert.equal(cloneSource.split(cloneNeedle).length - 1, 1, "clone status instrumentation match");
+        const cloneCommand = 'command: ["bash", ' + JSON.stringify(launcher) + ', ' +
+            JSON.stringify(path.join(root, "standins")) + ', "--", "python3", ' +
+            JSON.stringify(path.join(sourceTree, "scripts/fixtures/jarvis-setup/status.py")) + ', "--clone", ' +
+            JSON.stringify(path.join(root, "clone-status.json")) + ']';
+        // Nothing set up, beside no graphics card tier.
+        if (!fs.existsSync(path.join(root, "clone-status.json")))
+            fs.writeFileSync(path.join(root, "clone-status.json"), JSON.stringify({ tone: "info", text: "Not set up",
+                action: "setup", recording: false, tierReady: false }) + "\n");
+        fs.writeFileSync(clone, cloneSource.replace(cloneNeedle, cloneCommand));
+    }
     const browser = path.join(tree, "shell/plugins/vgs.jarvis/BrowserRuntime.qml");
     const browserSource = fs.readFileSync(browser, "utf8");
     const browserNeedle = 'command: ["node", program, "status"]';

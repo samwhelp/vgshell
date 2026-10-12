@@ -35,6 +35,8 @@ import wave
 
 HERE = Path(__file__).resolve().parent
 PROVIDERS = ("cpu", "cuda")
+# The engines that speak; their speed is judged on the audio they generate.
+VOICES = ("piper", "kokoro", "chatterbox")
 
 
 class Unavailable(Exception):
@@ -65,7 +67,9 @@ def manifest(path):
         raise ValueError("artifacts=empty-or-duplicate")
     for artifact in value["artifacts"]:
         relative(artifact["directory"])
-        if urlparse(artifact["url"]).scheme != "https":
+        # An archive row names its one download and its digest; a per-file
+        # row names the base URL each of its files is fetched below.
+        if urlparse(artifact["url"] if "url" in artifact else artifact["baseUrl"]).scheme != "https":
             raise ValueError(f"url=not-https id={artifact['id']}")
         if not artifact["revision"] or not artifact["languages"] or not artifact["modelLicense"]:
             raise ValueError(f"metadata=missing id={artifact['id']}")
@@ -77,7 +81,7 @@ def manifest(path):
             relative(name)
             if not re.fullmatch(r"[0-9a-f]{64}", digest):
                 raise ValueError(f"sha256=invalid id={artifact['id']} file={name}")
-        if not re.fullmatch(r"[0-9a-f]{64}", artifact["sha256"]):
+        if "url" in artifact and not re.fullmatch(r"[0-9a-f]{64}", artifact["sha256"]):
             raise ValueError(f"archive-sha256=invalid id={artifact['id']}")
     for tier in value["tiers"].values():
         if type(tier["provider"]) is not str or tier["provider"] not in PROVIDERS:
@@ -87,13 +91,23 @@ def manifest(path):
     return value
 
 
+def downloads(artifact):
+    """Each (url, path below the model root, sha256) setup-local fetches for
+    ARTIFACT: its archive, or each of its files below its base URL."""
+    if "url" in artifact:
+        return [(artifact["url"], relative(Path(urlparse(artifact["url"]).path).name), artifact["sha256"])]
+    directory = relative(artifact["directory"])
+    return [(artifact["baseUrl"] + name, directory / relative(name), digest)
+            for name, digest in artifact["files"].items()]
+
+
 def verify(value, root, artifacts):
     """Verify the actual archives and direct inference inputs before loading."""
     for artifact in artifacts:
         directory = root / relative(artifact["directory"])
-        archive = root / Path(urlparse(artifact["url"]).path).name
-        inputs = [(archive, artifact["sha256"])]
-        inputs += [(directory / relative(name), digest) for name, digest in artifact["files"].items()]
+        inputs = [(root / path, digest) for _, path, digest in downloads(artifact)]
+        if "url" in artifact:
+            inputs += [(directory / relative(name), digest) for name, digest in artifact["files"].items()]
         for path, digest in inputs:
             if not path.is_file():
                 raise Unavailable(f"input=missing path={path}")
@@ -106,7 +120,7 @@ def verify(value, root, artifacts):
             # the local auxiliary bytes to that archive, not merely its URL.
             prefix = f"{artifact['directory']}/{name}/"
             count = 0
-            with tarfile.open(archive) as bundle:
+            with tarfile.open(root / Path(urlparse(artifact["url"]).path).name) as bundle:
                 for member in bundle:
                     if member.isfile() and member.name.startswith(prefix):
                         path = root / relative(member.name)
@@ -160,14 +174,14 @@ def loading(root):
         yield
 
 
-def memory_need(record, value, tier):
-    """Take memory evidence only from the selected installed runtime's probe."""
-    row = value["tiers"][tier]
-    if (record.get("scope") != tier or record.get("provider_requested") != row["provider"]
-            or record.get("artifact_ids") != row["artifacts"]):
+def memory_need(record, scope, provider, ids):
+    """Take memory evidence only from the probe of SCOPE, the installed
+    runtime that loads the artifacts IDS on PROVIDER."""
+    if (record.get("scope") != scope or record.get("provider_requested") != provider
+            or record.get("artifact_ids") != ids):
         raise ValueError("memory-measurement=mismatched")
     need = {"ram": record.get("peak_rss_bytes"), "gpu": record.get("gpu_peak_bytes")}
-    validate_memory(need, row["provider"])
+    validate_memory(need, provider)
     return need
 
 
@@ -278,6 +292,100 @@ class GpuSamples:
             raise Unavailable(f"gpu-sampler=failed cause={self.error}")
 
 
+def reference(path, np):
+    """The cloned voice's reference recording as float32 samples: mono s16
+    at 24000 Hz, the speech encoder's rate (the export's
+    preprocessor_config.json, sampling_rate), so nothing is resampled."""
+    with wave.open(str(path)) as source:
+        if (source.getnchannels(), source.getsampwidth(), source.getframerate()) != (1, 2, Chatterbox.RATE):
+            raise ValueError("reference=format-invalid")
+        data = source.readframes(source.getnframes())
+    if len(data) == 0:
+        raise ValueError("reference=empty")
+    return np.frombuffer(data, dtype="<i2").astype(np.float32) / 32768
+
+
+class Chatterbox:
+    """Chatterbox Turbo's four fp16 graphs, run by the publisher's loop.
+
+    The loop, its token ids and its cache shape follow the export's
+    README.md at d21799bd (ResembleAI/chatterbox-turbo-ONNX): greedy choice,
+    a repetition penalty of 1.2 and at most 1024 speech tokens. The speech
+    encoder conditions on the reference once; each sentence reuses it. A
+    CUDA request binds every graph to CUDA or refuses: VGS-1384 read a
+    real-time factor of 3.08 on the CPU at 32 threads, and q8 graphs fail on
+    CUDA, so the row pins fp16.
+    """
+    GRAPHS = ("speech_encoder", "embed_tokens", "language_model", "conditional_decoder")
+    START, STOP, SILENCE = 6561, 6562, 4299
+    KV_HEADS, HEAD_DIM = 16, 64
+    MAX_TOKENS = 1024
+    PENALTY = 1.2
+    # The decoder's output rate, the reference's too.
+    RATE = 24000
+
+    def __init__(self, directory, provider, np):
+        import onnxruntime as ort
+        from tokenizers import Tokenizer
+        self.np = np
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = 2
+        options.inter_op_num_threads = 1
+        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if provider == "cuda" else ["CPUExecutionProvider"]
+        self.sessions = {}
+        for name in self.GRAPHS:
+            session = ort.InferenceSession(str(directory / "onnx" / f"{name}_fp16.onnx"),
+                sess_options=options, providers=providers)
+            if provider == "cuda" and session.get_providers()[0] != "CUDAExecutionProvider":
+                raise Unavailable(f"cuda=not-bound graph={name}")
+            self.sessions[name] = session
+        # The reading found these ids equal to the transformers tokenizer's.
+        self.tokenizer = Tokenizer.from_file(str(directory / "tokenizer.json"))
+        self.cache = {item.name: np.float16 if item.type == "tensor(float16)" else np.float32
+                      for item in self.sessions["language_model"].get_inputs() if "past_key_values" in item.name}
+        self.conditioning = None
+
+    def condition(self, samples):
+        """Encode the reference SAMPLES once for every later sentence."""
+        self.conditioning = self.sessions["speech_encoder"].run(None, {"audio_values": samples[self.np.newaxis, :]})
+
+    def generate(self, text):
+        """One sentence's float32 samples at RATE in the reference's voice."""
+        np = self.np
+        if self.conditioning is None:
+            raise ValueError("reference=unconditioned")
+        cond, prompt, speaker, features = self.conditioning
+        ids = np.array([self.tokenizer.encode(text).ids], dtype=np.int64)
+        tokens = np.array([[self.START]], dtype=np.int64)
+        model, embed = self.sessions["language_model"], self.sessions["embed_tokens"]
+        for step in range(self.MAX_TOKENS):
+            embeds = embed.run(None, {"input_ids": ids})[0]
+            if step == 0:
+                embeds = np.concatenate((cond, embeds), axis=1)
+                batch, length, _ = embeds.shape
+                past = {name: np.zeros([batch, self.KV_HEADS, 0, self.HEAD_DIM], dtype=kind)
+                        for name, kind in self.cache.items()}
+                mask = np.ones((batch, length), dtype=np.int64)
+                positions = np.arange(length, dtype=np.int64).reshape(1, -1)
+            logits, *present = model.run(None, dict(inputs_embeds=embeds, attention_mask=mask,
+                                                    position_ids=positions, **past))
+            logits = logits[:, -1, :].astype(np.float32)
+            score = np.take_along_axis(logits, tokens, axis=1)
+            np.put_along_axis(logits, tokens, np.where(score < 0, score * self.PENALTY, score / self.PENALTY), axis=1)
+            ids = np.argmax(logits, axis=-1, keepdims=True).astype(np.int64)
+            tokens = np.concatenate((tokens, ids), axis=-1)
+            if (ids.flatten() == self.STOP).all():
+                break
+            mask = np.concatenate([mask, np.ones((batch, 1), dtype=np.int64)], axis=1)
+            positions = positions[:, -1:] + 1
+            for index, name in enumerate(past):
+                past[name] = present[index]
+        speech = np.concatenate([prompt, tokens[:, 1:-1], np.full((tokens.shape[0], 3), self.SILENCE, dtype=np.int64)], axis=1)
+        wav = self.sessions["conditional_decoder"].run(None, dict(
+            speech_tokens=speech, speaker_embeddings=speaker, speaker_features=features))[0]
+        return np.asarray(wav, dtype=np.float32).reshape(-1)
+
+
 def load(artifact, root, provider, np, sherpa):
     """Use the upstream public interface for each pinned export."""
     d = root / artifact["directory"]
@@ -315,6 +423,8 @@ def load(artifact, root, provider, np, sherpa):
             encoder=str(d / ("encoder" + suffix)), decoder=str(d / ("decoder" + suffix)),
             joiner=str(d / ("joiner" + suffix)), tokens=str(d / "tokens.txt"),
             keywords_file=os.devnull, max_active_paths=16, **options)
+    if engine == "chatterbox":
+        return Chatterbox(d, provider, np)
     if engine == "smart-turn":
         import onnxruntime as ort
         from transformers import WhisperFeatureExtractor
@@ -330,13 +440,15 @@ def load(artifact, root, provider, np, sherpa):
 def infer(artifact, model, samples, text, value, np):
     """Exercise real inference; return only JSON values, never model objects."""
     engine = artifact["engine"]
-    if engine in ("piper", "kokoro"):
-        audio = model.generate(text, sid=0, speed=1)
-        data = np.asarray(audio.samples)
+    if engine in VOICES:
+        if engine == "chatterbox":
+            data, rate = model.generate(text), model.RATE
+        else:
+            audio = model.generate(text, sid=0, speed=1)
+            data, rate = np.asarray(audio.samples), audio.sample_rate
         if not len(data) or not np.isfinite(data).all() or not np.any(data):
             raise ValueError(f"inference=invalid-audio id={artifact['id']}")
-        return {"samples": len(data), "sample_rate": audio.sample_rate,
-                "audio_seconds": len(data) / audio.sample_rate}
+        return {"samples": len(data), "sample_rate": rate, "audio_seconds": len(data) / rate}
     if engine == "smart-turn":
         session, extractor = model
         data = samples[-128000:]
@@ -404,7 +516,7 @@ def outcome(artifact, result, value):
         words = re.findall(r"\w+", result["final_text"].lower())
         if not all(word in words for word in fixture["transcriptWords"]):
             raise ValueError(f"fixture=transcript-mismatch id={artifact['id']}")
-    elif engine in ("piper", "kokoro"):
+    elif engine in VOICES:
         if result["sample_rate"] != artifact["outputSampleRate"] or result["audio_seconds"] < 1:
             raise ValueError(f"fixture=audio-mismatch id={artifact['id']}")
     elif engine == "silero":
@@ -422,33 +534,50 @@ def outcome(artifact, result, value):
 
 def speed(artifacts, warm, input_seconds, elapsed):
     """Use generated duration for standalone synthesis, input for tier compute."""
-    if len(artifacts) == 1 and artifacts[0]["engine"] in ("piper", "kokoro"):
+    if len(artifacts) == 1 and artifacts[0]["engine"] in VOICES:
         return elapsed / warm[0]["audio_seconds"], "generated-audio"
     return elapsed / input_seconds, "input-audio" if len(artifacts) == 1 else "tier-input-audio"
 
 
-def run(value, artifacts, root, provider, seconds, scope):
+def runtimes(value, artifacts):
+    """The runtimes the environment that loads ARTIFACTS holds: each one's
+    own, and every runtime no artifact names, which each environment's lock
+    shares. A tier's environment holds sherpa-onnx and no onnxruntime-gpu,
+    the cloned voice's the reverse: one environment holds one onnxruntime."""
+    named = {artifact["runtime"] for artifact in value["artifacts"]}
+    return [name for name in value["runtimes"]
+            if name not in named or any(artifact["runtime"] == name for artifact in artifacts)]
+
+
+def run(value, artifacts, root, provider, seconds, scope, recording=None):
     """Measure under the same load lock that the installed sidecar holds."""
     with loading(root):
-        measure(value, artifacts, root, provider, seconds, scope)
+        measure(value, artifacts, root, provider, seconds, scope, recording)
 
 
-def measure(value, artifacts, root, provider, seconds, scope):
-    """Measure one artifact or a concurrently resident tier as one lifetime."""
+def measure(value, artifacts, root, provider, seconds, scope, recording=None):
+    """Measure one artifact or a concurrently resident tier as one lifetime.
+
+    RECORDING is the reference WAV a cloned voice speaks in."""
     if {name for _, name in socket.if_nameindex()} - {"lo"}:
         raise ValueError("isolation=network-namespace-required")
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     versions = {}
-    for name, runtime in value["runtimes"].items():
+    for name in runtimes(value, artifacts):
         try:
             versions[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError as error:
             raise Unavailable(f"runtime=missing name={name}") from error
-        if versions[name] not in runtime["versions"]:
+        if versions[name] not in value["runtimes"][name]["versions"]:
             raise Unavailable(f"runtime=version-mismatch name={name} have={versions[name]}")
+    cloned = any(artifact["engine"] == "chatterbox" for artifact in artifacts)
+    if cloned and recording is None:
+        raise ValueError("reference=required")
     import numpy as np
-    import sherpa_onnx as sherpa
+    sherpa = None
+    if "sherpa-onnx" in versions:
+        import sherpa_onnx as sherpa
     raw, text = clip(value)
     samples = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768
     if seconds:
@@ -461,6 +590,11 @@ def measure(value, artifacts, root, provider, seconds, scope):
     with GpuSamples(provider == "cuda") as gpu:
         start = time.perf_counter()
         models = [load(a, root, provider, np, sherpa) for a in artifacts]
+        if cloned:
+            voice = reference(recording, np)
+            for artifact, model in zip(artifacts, models):
+                if artifact["engine"] == "chatterbox":
+                    model.condition(voice)
         loaded = time.perf_counter()
         results = [infer(a, m, samples, text, value, np) for a, m in zip(artifacts, models)]
         for artifact, result in zip(artifacts, results):
@@ -503,6 +637,7 @@ def main():
     group.add_argument("--tier")
     parser.add_argument("--provider", choices=PROVIDERS, default="cpu")
     parser.add_argument("--seconds", type=int, choices=(30, 60))
+    parser.add_argument("--reference", type=Path, help="the recording a cloned voice speaks in")
     args = parser.parse_args()
     value = manifest(args.manifest)
     if args.check:
@@ -525,7 +660,7 @@ def main():
         provider, scope = args.provider, args.artifact
         if provider not in artifacts[0]["providers"]:
             raise ValueError(f"provider=unsupported id={scope} value={provider}")
-    run(value, artifacts, args.models, provider, args.seconds, scope)
+    run(value, artifacts, args.models, provider, args.seconds, scope, args.reference)
 
 
 if __name__ == "__main__":

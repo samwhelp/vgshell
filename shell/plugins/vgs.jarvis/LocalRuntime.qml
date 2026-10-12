@@ -7,7 +7,8 @@ import "SetupGate.js" as Gate
 // triggers a fresh check. While the last scan misses a command of `requires`,
 // the published value withholds the setup step (SetupGate.setupValue). A
 // reader with a `stepKey` also publishes its optional Setup step from that
-// value (SetupGate.optionalStep). Each published check emits `refreshed`.
+// value (SetupGate.optionalStep). A reader's `shape` turns the probe's
+// value into the one it publishes. Each published check emits `refreshed`.
 Item {
     id: root
     property var shell: null
@@ -18,6 +19,7 @@ Item {
     property var requires: []
     // The Setup group's step this reader's value sets, "" for none.
     property string stepKey: ""
+    property var shape: value => value
     property bool pending: false
     property bool timedOut: false
     property int code: -1
@@ -55,9 +57,9 @@ Item {
             value = { tone: "warning", text: "Setup check returned invalid status", action: true };
         }
         const missing = shell.requirements.missing;
-        let published = Gate.setupValue(value, requires, missing);
+        let published = Gate.setupValue(shape(value), requires, missing);
         if (shell.status.set(statusKey, published) !== "ok") {
-            published = Gate.setupValue({ tone: "warning", text: "Setup check returned invalid status", action: true }, requires, missing);
+            published = Gate.setupValue(shape({ tone: "warning", text: "Setup check returned invalid status", action: true }), requires, missing);
             if (shell.status.set(statusKey, published) !== "ok") throw new Error("jarvis-setup: status=refused");
         }
         if (stepKey !== "" && shell.status.set(stepKey, Gate.optionalStep(stepKey, published)) !== "ok")

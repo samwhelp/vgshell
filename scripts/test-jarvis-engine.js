@@ -86,7 +86,7 @@ function rig(kit, server, options = {}) {
     const router = Router.create({ session: Session, state: () => runner.state, dispatch: e => runner.dispatch(e), audit,
         context: () => ({ profile: "standard", locked: false, denied: options.actionApproval ? Denied.create({
             home: process.env.HOME, config: process.env.XDG_CONFIG_HOME, data: process.env.XDG_DATA_HOME,
-            state: process.env.XDG_STATE_HOME, runtime: process.env.XDG_RUNTIME_DIR, install: kit.folder, accountRoots: [], jarvisHome: null
+            state: options.deniedState ?? process.env.XDG_STATE_HOME, runtime: process.env.XDG_RUNTIME_DIR, install: kit.folder, accountRoots: [], jarvisHome: null
         }) : null }),
         result: value => runner.ports.brain.outcome(value), routed: turn => engine?.brain.routed(turn) });
     Object.assign(ports, router.ports);
@@ -452,6 +452,19 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
         await requested(w, before + 1, "request after sidecar fault");
         assert.equal(starts().length, 2);
         assert.notEqual(starts()[1].pid, pid);
+        // The cloned voice setting ends the conversation and replaces the
+        // sidecar with one handed the recording; an unchanged one keeps it.
+        const gen = w.s().gen;
+        w.configure({ ...w.s().settings, clonedVoice: true });
+        assert.deepEqual([w.s().conversation.kind, w.s().gen > gen], ["ended", true], "the setting ends the conversation");
+        await until(() => starts().length === 3, "the setting restarts the sidecar");
+        assert.deepEqual(starts()[2].argv.slice(-2), ["--reference", path.join(state, "voice-reference.wav")]);
+        await until(() => !alive(starts()[1].pid), "the replaced sidecar ends");
+        w.configure(w.s().settings);
+        assert.equal(starts().length, 3, "an unchanged setting keeps the sidecar");
+        w.configure({ ...w.s().settings, clonedVoice: false });
+        await until(() => starts().length === 4, "turning it off restarts the sidecar");
+        assert.equal(starts()[3].argv.includes("--reference"), false);
         w.runner.dispatch({ type: "stop" });
         // A tier whose marker is gone offers no voices, and the setting stays.
         fs.rmSync(path.join(state, "local-ready.json"));
@@ -459,8 +472,13 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
         assert.deepEqual([w.engine.voices(), w.s().settings.voice], [[], "ljspeech"]);
     } finally {
         await w.close();
-        await until(() => starts().every(row => !alive(row.pid)), "daemon teardown releases speech child");
-        server.closeAll();
+        // A control can leave a replaced sidecar running; its handle would
+        // keep this world alive past its bound.
+        try { await until(() => starts().every(row => !alive(row.pid)), "daemon teardown releases speech child"); }
+        finally {
+            for (const row of starts()) if (alive(row.pid)) process.kill(row.pid, "SIGKILL");
+            server.closeAll();
+        }
     }
 }
 
@@ -511,7 +529,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     child.stdin.on("error", e => { if (e.code !== "EPIPE") throw e; });
     const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
     const hello = (locked = false) => send({ type: "hello", locked,
-        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: ending === "brain" || ending.startsWith("check-") ? "" : "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", dictation: "", cloudVision: "ask", privateWindows: "bitwarden" },
+        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: ending === "brain" || ending.startsWith("check-") ? "" : "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "bitwarden" },
         keys: { talk: null, mute: null, stop: null, confirm: null, console: null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     const intent = name => send({ type: "intent", intent: name });
     const before = server.requests.length;
@@ -690,7 +708,7 @@ async function alwaysTalk(server, ending = "ready", edits = []) {
     const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
     const hello = () => send({ type: "hello", locked: false,
         settings: { home: "", sounds: false, mode: "always", microphone: "", speaker: "", brain: "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto",
-            voiceProvider: ending === "refused" ? "realtime" : "local", voiceAccount: "", voice: "", dictation: "", cloudVision: "ask", privateWindows: "bitwarden" },
+            voiceProvider: ending === "refused" ? "realtime" : "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "bitwarden" },
         keys: { talk: null, mute: null, stop: null, confirm: null, console: null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     hello();
     const before = server.requests.length;
@@ -1824,6 +1842,28 @@ async function cases(kit, server, only = null) {
         assert.ok(w.rows().some(row => row.kind === "release" && row.decision === "ask"), "the ask decision is audited");
     }, { fixture: { recipients: [{ kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9" }] } });
 
+    // The cloned voice's recording sits in Jarvis's private state, which the
+    // file judge protects: a brain turn that names it is refused before any
+    // executor, and no byte of it enters an item Policy.release sends. The
+    // state root is the default one inside the home (setup-local roots), so
+    // only that protection, not the home bound, withholds it.
+    const defaultState = path.join(process.env.HOME, ".local/state");
+    await run("cloned-voice-reference-withheld", async w => {
+        const reference = path.join(defaultState, "vgshell/jarvis/voice-reference.wav");
+        fs.mkdirSync(path.dirname(reference), { recursive: true });
+        fs.writeFileSync(reference, "RIFF fixture recording", { mode: 0o600 });
+        try {
+            const first = await say(w, utterance("Read my voice recording."));
+            server.replies.push(calls({ id: "call_reference", name: "files_read", arguments: { path: reference } }), text(""));
+            const body = await requested(w, first + 2, "the tool-results request");
+            assert.equal(JSON.stringify(server.requests).includes("fixture recording"), false, "no byte of the recording leaves");
+            assert.deepEqual(w.executions, [], "no executor reads it");
+            assert.equal(body.messages.some(message => message.role === "tool"), true, "the brain reads the refusal");
+            assert.ok(w.rows().some(row => row.kind === "action" && row.tool === "files.read" && row.decision === "refuse"),
+                "the refusal is audited");
+        } finally { fs.rmSync(reference); }
+    }, { actionApproval: true, filesExecutor: true, deniedState: defaultState });
+
     // A progress line is the brain's text: it carries the turn's labels to
     // the voice, as a reply sentence does, whether the threshold timer or a
     // later step speaks it.
@@ -2945,7 +2985,9 @@ world(async () => {
             controls++;
         }
         for (const [name, edits] of [
-            ["ready before model load", [['speechState.kind === "new" || published) startSpeech(plan.speech);', 'false) startSpeech(plan.speech);']]],
+            ["ready before model load", [['if (speechState.kind === "new" || published || reargued) {', 'if (false) {']]],
+            ["new arguments keep the sidecar", [['const reargued = speechState.kind !== "new" && speechIdentity !== plan.speech.identity;', 'const reargued = false;']]],
+            ["replaced sidecar kept", [['                    daemonSpeech?.close();\n', '']]],
             ["conversation unloads local speech", [['if (c.plan.speech.lifetime !== "daemon") c.speech.close();', 'c.speech.close();']]],
             ["faulted child kept", [["daemonSpeech = null;\n            // A startup", "// A startup"]]],
             ["admission refusal admitted", [['{ kind: "refused", error, publication: row.publication }', '{ kind: "unloaded" }']]],
@@ -3100,6 +3142,19 @@ world(async () => {
             console.log("control=" + name + " detected operator=" + failure.operator + ": " + failure.message.split("\n")[0]);
             controls++;
         }
+        // The state root's protection is what withholds the recording.
+        const deniedKit = Fixture.copy(root);
+        const deniedFile = path.join(deniedKit.folder, "backend/Denied.js");
+        const deniedSource = fs.readFileSync(deniedFile, "utf8");
+        const stateNeedle = 'path.join(data, "vgshell"), path.join(state, "vgshell"),';
+        assert.equal(deniedSource.split(stateNeedle).length, 2, "one state root protection match");
+        fs.writeFileSync(deniedFile, deniedSource.replace(stateNeedle, 'path.join(data, "vgshell"),'));
+        let deniedFailure = null;
+        try { await cases(deniedKit, server, "cloned-voice-reference-withheld"); }
+        catch (error) { deniedFailure = error; }
+        assert.ok(deniedFailure instanceof assert.AssertionError, "state root control must turn an assertion red: " + deniedFailure);
+        console.log("control=state root unprotected detected: " + deniedFailure.message.split("\n")[0]);
+        controls++;
         controls += await taskControls(root, server);
         const toggleKit = Fixture.copy(root);
         const sessionFile = path.join(toggleKit.folder, "Session.js");

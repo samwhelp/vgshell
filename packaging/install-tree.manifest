@@ -371,6 +371,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/AccountStatus.js
 f share/vgshell/shell/plugins/vgs.jarvis/Accounts.qml
 f share/vgshell/shell/plugins/vgs.jarvis/BrowserRuntime.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Bubble.qml
+f share/vgshell/shell/plugins/vgs.jarvis/CloneRuntime.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Console.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Conversation.js
 f share/vgshell/shell/plugins/vgs.jarvis/FleetRuntime.qml
@@ -442,6 +443,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/backend/accounts.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/audio-child.py
 f share/vgshell/shell/plugins/vgs.jarvis/backend/browser-setup.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/claude-hook
+f share/vgshell/shell/plugins/vgs.jarvis/backend/clone-speech.py
 f share/vgshell/shell/plugins/vgs.jarvis/backend/fleet-setup.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/input-check.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/jarvisd.js
@@ -471,12 +473,15 @@ f share/vgshell/shell/plugins/vgs.jarvis/fixtures/probe.txt
 f share/vgshell/shell/plugins/vgs.jarvis/fixtures/probe.wav
 f share/vgshell/shell/plugins/vgs.jarvis/manifest.json
 f share/vgshell/shell/plugins/vgs.jarvis/measure-local
+f share/vgshell/shell/plugins/vgs.jarvis/requirements-clone.lock
 f share/vgshell/shell/plugins/vgs.jarvis/requirements-local-cpu.lock
 f share/vgshell/shell/plugins/vgs.jarvis/requirements-local.lock
 f share/vgshell/shell/plugins/vgs.jarvis/setup-local
 f share/vgshell/shell/plugins/vgs.jarvis/tui/accounts.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/add-key.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/check-microphone.sh
+f share/vgshell/shell/plugins/vgs.jarvis/tui/clone-voice-remove.sh
+f share/vgshell/shell/plugins/vgs.jarvis/tui/clone-voice.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/edit-personality.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/preview-voice.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-browser.sh

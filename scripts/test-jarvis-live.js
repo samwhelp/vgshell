@@ -1323,7 +1323,7 @@ world(async () => {
         const heldReply = new Promise(resolve => { releaseReply = resolve; });
         try {
             send({ type: "hello", settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain, model: "", effort: "", fallbacks: [], taskTerminal: "auto",
-                cloudVision: "ask", privateWindows: "", voiceProvider: "realtime", voiceAccount: live, voice: only === "preview" ? "cedar" : "", dictation: "" }, directories, locked: false,
+                cloudVision: "ask", privateWindows: "", voiceProvider: "realtime", voiceAccount: live, voice: only === "preview" ? "cedar" : "", clonedVoice: false, dictation: "" }, directories, locked: false,
                 keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } });
             await wait(() => last()?.gate.kind === "up", "the configured Realtime voice raises the daemon gate");
             assert.equal(last().engine.kind, "duplex");

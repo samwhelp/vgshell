@@ -16,12 +16,14 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tarfile
 import tempfile
 import time
 import unittest
+import wave
 
 REPO = Path(__file__).resolve().parents[1]
 PLUGIN = REPO / "shell/plugins/vgs.jarvis"
@@ -56,7 +58,7 @@ class Setup(unittest.TestCase):
         self.commands.mkdir()
         # Bootstrap names are private doubles created after entering J09. No
         # host nvidia-smi runs: the double answers from gpu_memory and gpu_exit.
-        for name in ("uv", "curl", "unshare", "gum", "nvidia-smi"):
+        for name in ("uv", "curl", "unshare", "gum", "nvidia-smi", "pw-record"):
             shutil.copyfile(DOUBLE, self.commands / name)
             (self.commands / name).chmod(0o700)
         self.env = {"PATH": str(self.commands) + ":" + os.environ["PATH"],
@@ -71,6 +73,14 @@ class Setup(unittest.TestCase):
         # hash. Keep all engines, archive/direct and auxiliary shapes.
         for artifact in self.spec["artifacts"]:
             files = {}
+            if "baseUrl" in artifact:
+                for name in artifact["files"]:
+                    payload = ("synthetic " + name).encode()
+                    (self.downloads / "clone" / name).parent.mkdir(parents=True, exist_ok=True)
+                    (self.downloads / "clone" / name).write_bytes(payload)
+                    files[name] = hashlib.sha256(payload).hexdigest()
+                artifact.update(baseUrl="https://fixture.invalid/clone/", files=files)
+                continue
             if artifact["directory"] == ".":
                 payload = b"synthetic direct model"
                 name = next(iter(artifact["files"]))
@@ -432,9 +442,9 @@ class Setup(unittest.TestCase):
         self.assertFalse((self.data / "venv").exists())
         path = self.plugin / "measure-local"
         source = path.read_text()
-        needle = 'if (record.get("scope") != tier or record.get("provider_requested") != row["provider"]'
+        needle = 'if (record.get("scope") != scope or record.get("provider_requested") != provider'
         self.assertEqual(source.count(needle), 1)
-        path.write_text(source.replace(needle, 'if False and (record.get("scope") != tier or record.get("provider_requested") != row["provider"]'))
+        path.write_text(source.replace(needle, 'if False and (record.get("scope") != scope or record.get("provider_requested") != provider'))
         self.install()
         self.ready()
 
@@ -1011,9 +1021,237 @@ class Setup(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("test-install-tree: ok", result.stdout)
 
+    # The cloned voice. A large tier is ready first: the clone runs beside it.
+    def large(self):
+        self.config["tier"] = "large"
+        self.write_config()
+        self.install()
+        self.ready()
+        self.reset_calls()
+
+    def clone(self, *args, stdin=None):
+        return subprocess.run([sys.executable, "-I", str(self.plugin / "setup-local"), "clone", *args],
+                              env=self.env, input=stdin, capture_output=True, check=False, timeout=30)
+
+    def clone_status(self):
+        result = self.clone("status")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def tone(self, seconds, amplitude=0.5):
+        return b"".join(int(amplitude * 32767 * ((i // 50) % 2 * 2 - 1)).to_bytes(2, "little", signed=True)
+                        for i in range(int(seconds * 24000)))
+
+    def tree(self):
+        """Every file below the scratch world's state and data roots, with its bytes."""
+        return {str(path): path.read_bytes() for root in (self.root / "state", self.root / "data")
+                for path in root.rglob("*") if path.is_file()}
+
+    def clone_tui(self, script, answers, source=None):
+        """Run a clone TUI with a presentation double: each confirmation
+        takes the next of ANSWERS, yes once they run out."""
+        library, answered = self.root / "clone-lib.sh", self.root / "answers"
+        library.write_text('vgs_tui_header() { :; }\nvgs_tui_step() { :; }\nvgs_tui_success() { :; }\n'
+                           'vgs_tui_error() { :; }\nvgs_tui_confirm() { local answers; mapfile -t answers <"$ANSWERS"; '
+                           'printf "%s\\n" "${answers[@]:1}" >"$ANSWERS"; [[ ${answers[0]:-yes} == yes ]]; }\n')
+        answered.write_text("".join(answer + "\n" for answer in answers))
+        path = self.plugin / "tui" / script
+        if source is not None:
+            path.write_text(source)
+        env = dict(self.env, VGS_TUI_LIB=str(library), VGS_PLUGIN_DIR=str(self.plugin), ANSWERS=str(answered),
+                   UV_CACHE_DIR=str(self.data / "cache"))
+        return subprocess.run(["bash", str(path)], env=env, capture_output=True, text=True, check=False, timeout=60)
+
+    # One row per consent question: a No there, a planted Yes on the other.
+    CONSENT = [
+        ("read the use text", ["no", "yes"], 'vgs_tui_confirm "Have you read Resemble AI\'s text above?" || declined'),
+        ("own voice or permission", ["yes", "no"],
+         'vgs_tui_confirm "Is the voice you will record your own, or do you have the speaker\'s permission?" || declined'),
+    ]
+
+    def test_clone_consent_rows_and_controls(self):
+        self.large()
+        source = (PLUGIN / "tui/clone-voice.sh").read_text()
+        for name, answers, gate in self.CONSENT:
+            with self.subTest(question=name):
+                before = self.tree()
+                result = self.clone_tui("clone-voice.sh", answers, source)
+                self.assertEqual(result.returncode, 130, result.stdout + result.stderr)
+                self.assertEqual(self.calls(), [], "a No downloads and runs nothing")
+                self.assertEqual(self.tree(), before, "a No writes no file")
+                # The control drops this question's gate and keeps its text.
+                self.assertEqual(source.count(gate), 1)
+                control = source.replace(gate, gate.replace("|| declined", "|| true"))
+                result = self.clone_tui("clone-voice.sh", answers, control)
+                self.assertNotEqual(self.tree(), before, "must-fail control stayed green: " + name)
+                self.assertTrue(any(call[0] == "curl" for call in self.calls()))
+                self.clone("remove")
+                shutil.rmtree(self.data / "clone")
+                (self.state / "clone-setup.log").unlink(missing_ok=True)
+                (self.state / "clone-setup.lock").unlink(missing_ok=True)
+                self.reset_calls()
+        (self.plugin / "tui/clone-voice.sh").write_text(source)
+
+    def test_clone_setup_recording_and_remove(self):
+        self.large()
+        self.assertEqual(self.clone_status(), {"tone": "info", "text": "Not set up", "action": "setup",
+                                               "recording": False, "tierReady": True})
+        result = self.clone_tui("clone-voice.sh", ["yes", "yes"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        row = next(a for a in self.spec["artifacts"] if a["id"] == "chatterbox")
+        self.assertEqual([call[-1] for call in self.calls() if call[0] == "curl"],
+                         [row["baseUrl"] + name for name in row["files"]])
+        reference = self.state / "voice-reference.wav"
+        info = reference.lstat()
+        self.assertEqual((stat.S_ISREG(info.st_mode), stat.S_IMODE(info.st_mode)), (True, 0o600))
+        self.assertFalse(reference.resolve().is_relative_to(self.plugin.resolve()))
+        self.assertEqual((self.data / "clone-probed").read_bytes(), reference.read_bytes(), "the probe read the recording")
+        with wave.open(str(reference)) as wav:
+            self.assertEqual((wav.getnchannels(), wav.getsampwidth(), wav.getframerate(), wav.getnframes()),
+                             (1, 2, 24000, 10 * 24000))
+        # One environment holds one onnxruntime: the projection swaps that pin alone.
+        local = (PLUGIN / "requirements-local.lock").read_text().splitlines()
+        projected = (self.data / "clone/requirements-clone.lock").read_text().splitlines()
+        self.assertEqual([line for line in projected if line not in local],
+                         [line for line in (PLUGIN / "requirements-clone.lock").read_text().splitlines()
+                          if line.startswith("onnxruntime-gpu==")])
+        self.assertEqual([line for line in local if line not in projected],
+                         [line for line in local if line.startswith("onnxruntime==")])
+        self.assertEqual(self.clone_status(), {"tone": "ok", "text": "Ready", "action": "remove",
+                                               "recording": True, "tierReady": True})
+        # Remove deletes the recording and the marker; the model stays.
+        result = self.clone_tui("clone-voice-remove.sh", ["yes"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(reference.exists())
+        self.assertFalse((self.state / "clone-ready.json").exists())
+        self.assertTrue((self.data / "clone/models/tokenizer.json").is_file())
+        self.assertEqual(self.clone_status()["action"], "setup")
+        # A No keeps it.
+        self.clone_tui("clone-voice.sh", ["yes", "yes"])
+        self.assertEqual(self.clone_tui("clone-voice-remove.sh", ["no"]).returncode, 130)
+        self.assertTrue(reference.exists())
+        needle = '        (state / REFERENCE).unlink(missing_ok=True)\n    print("jarvis-setup: clone=removed"'
+        self.mutant(needle, '    print("jarvis-setup: clone=removed"')
+        self.clone_tui("clone-voice-remove.sh", ["yes"])
+        self.assertTrue(reference.exists(), "must-fail control: the recording survives a Remove")
+
+    def test_clone_status_needs_row_and_recording_and_controls(self):
+        self.large()
+        self.assertEqual(self.clone_tui("clone-voice.sh", ["yes", "yes"]).returncode, 0)
+        self.assertEqual(self.clone_status()["tone"], "ok")
+        reference = self.state / "voice-reference.wav"
+        model = self.data / "clone/models/onnx/language_model_fp16.onnx_data"
+        original = model.read_bytes()
+        # The row must verify: a corrupt model file reads not ready.
+        model.write_bytes(b"corrupt")
+        self.assertEqual(self.clone_status()["tone"], "warning")
+        model.write_bytes(original)
+        self.assertEqual(self.clone_status()["tone"], "ok")
+        # The recording must exist as this user's 0600 file.
+        recording = reference.read_bytes()
+        reference.unlink()
+        self.assertEqual(self.clone_status(), {"tone": "info", "text": "Not set up", "action": "setup",
+                                               "recording": False, "tierReady": True})
+        reference.write_bytes(recording)
+        reference.chmod(0o644)
+        self.assertNotEqual(self.clone_status()["tone"], "ok")
+        reference.chmod(0o600)
+        self.assertEqual(self.clone_status()["tone"], "ok")
+        # A tier off the graphics card leaves it not ready.
+        self.config["tier"] = "small"
+        self.write_config()
+        self.install()
+        self.assertEqual(self.clone_status()["tierReady"], False)
+        self.assertNotEqual(self.clone_status()["tone"], "ok")
+        self.config["tier"] = "large"
+        self.write_config()
+        self.install()
+        self.assertEqual(self.clone_status()["tone"], "ok")
+        # Controls: each drops one rule; its defect then reads ready.
+        for name, needle, replacement, plant, restore in [
+                ("row verifies", '            judge.verify(value, data / CLONE / "models", [clone_row(value)])\n        except',
+                 "        except", lambda: model.write_bytes(b"corrupt"), lambda: model.write_bytes(original)),
+                ("recording mode", "stat.S_IMODE(info.st_mode) == 0o600 and ", "",
+                 lambda: reference.chmod(0o644), lambda: reference.chmod(0o600))]:
+            with self.subTest(control=name):
+                plant()
+                self.assertNotEqual(self.clone_status()["tone"], "ok")
+                self.mutant(needle, replacement)
+                self.assertEqual(self.clone_status()["tone"], "ok", "must-fail control stayed green: " + name)
+                (self.plugin / "setup-local").write_text((PLUGIN / "setup-local").read_text())
+                restore()
+
+    def test_clone_install_needs_large_tier_and_control(self):
+        self.install()
+        self.ready()
+        self.reset_calls()
+        result = self.clone("install")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr.decode().splitlines()[0], "jarvis-setup: failed=clone=needs-large-tier")
+        self.assertEqual([call[0] for call in self.calls()], [], "nothing is built or downloaded")
+        self.assertFalse((self.data / "clone").exists())
+        self.mutant("if not clone_tier(judge, value, state, data):", "if False:")
+        self.assertEqual(self.clone("install").returncode, 0)
+        self.assertTrue(any(call[0] == "curl" for call in self.calls()))
+
+    def test_clone_install_failure_removes_what_it_made(self):
+        self.large()
+        bad = next(iter(next(a for a in self.spec["artifacts"] if a["id"] == "chatterbox")["files"]))
+        (self.downloads / "clone" / bad).write_bytes(b"bad hash")
+        result = self.clone("install")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(b"download=hash-mismatch", result.stderr)
+        self.assertEqual(sorted(path.name for path in (self.data / "clone").iterdir()), [])
+        self.mutant("            remove_runtime(root, CLONE_RUNTIME)\n", "")
+        self.clone("install")
+        self.assertTrue((self.data / "clone/venv").exists(), "must-fail control kept the runtime")
+
+    # Recordings record refuses: (label, PCM, keyed refusal, needle of its rule).
+    RECORDINGS = [
+        ("too short", 2, 0.5, "recording=length", "if len(pcm) % 2 or not REFERENCE_SECONDS[0] <= seconds <= REFERENCE_SECONDS[1]:"),
+        ("too long", 16, 0.5, "recording=length", "if len(pcm) % 2 or not REFERENCE_SECONDS[0] <= seconds <= REFERENCE_SECONDS[1]:"),
+        ("no sound", 10, 0, "recording=silent", "if max(map(abs, samples)) < REFERENCE_PEAK:"),
+    ]
+
+    def test_clone_record_refusals_and_controls(self):
+        self.large()
+        self.assertEqual(self.clone("install").returncode, 0)
+        for label, seconds, amplitude, key, needle in self.RECORDINGS:
+            with self.subTest(recording=label):
+                result = self.clone("record", stdin=self.tone(seconds, amplitude))
+                self.assertEqual(result.returncode, 1)
+                self.assertRegex(result.stderr.decode().splitlines()[0], "^jarvis-setup: failed=" + key + "( seconds=[0-9.]+)?$")
+                self.assertFalse((self.state / "voice-reference.wav").exists())
+                self.mutant(needle, "if False:")
+                self.assertEqual(self.clone("record", stdin=self.tone(seconds, amplitude)).returncode, 0,
+                                 "must-fail control stayed green: " + label)
+                self.assertTrue((self.state / "voice-reference.wav").exists())
+                (self.plugin / "setup-local").write_text((PLUGIN / "setup-local").read_text())
+                self.clone("remove")
+        # A failed probe keeps no recording and publishes nothing.
+        self.config["clone_probe_exit"] = 1
+        self.write_config()
+        result = self.clone("record", stdin=self.tone(10))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(b"jarvis-setup: failed=clone-probe", result.stderr)
+        self.assertFalse((self.state / "voice-reference.wav").exists())
+        self.assertFalse((self.state / "clone-ready.json").exists())
+
+    def test_clone_lock_projection_control(self):
+        self.large()
+        lock = self.plugin / "requirements-clone.lock"
+        original = lock.read_text()
+        lock.write_text(original + original.splitlines()[-1] + "\n")
+        result = self.clone("install")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(b"clone-lock=unprojectable pins=2 replaced=1", result.stderr)
+        self.mutant("if len(pins) != 1 or len(replaced) != 1:", "if False:")
+        self.assertEqual(self.clone("install").returncode, 0)
+
     def test_shipped_lock_runtime_pins(self):
         lines = (PLUGIN / "requirements-local.lock").read_text().splitlines()
         lines += (PLUGIN / "requirements-local-cpu.lock").read_text().splitlines()
+        lines += (PLUGIN / "requirements-clone.lock").read_text().splitlines()
         pins = {}
         for line in lines:
             if not line or line.startswith(("#", "-r ")):

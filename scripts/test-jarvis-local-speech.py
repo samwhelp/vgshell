@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import wave
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -433,18 +434,36 @@ def violation_cases(m):
             raise AssertionError(f"{name}: accepted")
 
 
+def setup_local():
+    """The shipped setup-local module, for its names, its locks and its row."""
+    loader = importlib.machinery.SourceFileLoader("setup_local_names", str(PLUGIN / "setup-local"))
+    value = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(value)
+    return value
+
+
+SETUP = setup_local()
+
+
 class Setup:
-    """setup-local's surface the sidecar uses, answering a fixed status."""
+    """setup-local's surface the sidecar uses, answering a fixed status; its
+    clone judge reads ready only while the recording exists, as the shipped
+    judge does among its other rules."""
 
     def __init__(self, tone):
         self.tone = tone
         self.HERE = PLUGIN
+        for name in ("CLONE", "CLONE_LOCK", "CLONE_MARKER", "REFERENCE", "shared", "clone_row"):
+            setattr(self, name, getattr(SETUP, name))
 
     def measurement(self):
         return None
 
     def status(self, judge, state, data):
         return {"tone": self.tone}
+
+    def clone_status(self, judge, state, data):
+        return {"tone": "ok" if (state / self.REFERENCE).is_file() else "info"}
 
 
 def readiness_cases(m):
@@ -518,6 +537,165 @@ def admission_case(m):
             # The returned Speech has released the load lock for the next
             # load. Setup's separate shared lock covers its whole lifetime.
             pass
+
+
+CLONE_STANDIN = REPO / "scripts/fixtures/jarvis-local-speech/clone-standin.py"
+
+
+def clone_cases(m):
+    """The cloned voice speaks a sentence only with a reference and its judge
+    ready; otherwise the tier's voice does. A stand-in child speaks the
+    recording's own samples, so the case reads which voice spoke."""
+    voice = Voice(24000, [0.5] * 2400)
+    with tempfile.TemporaryDirectory() as name:
+        state = Path(name)
+        (state / "models").mkdir()
+        (state / "local-ready.json").write_text(json.dumps({"tier": "large", "memory": {"ram": 2048, "gpu": 1024}}))
+        (state / "clone-ready.json").write_text(json.dumps({"memory": {"ram": 4096, "gpu": 8192}}))
+        clone = state / "clone"
+        (clone / "venv/bin").mkdir(parents=True)
+        (clone / "venv/bin/python").write_bytes(CLONE_STANDIN.read_bytes())
+        (clone / "venv/bin/python").chmod(0o700)
+        reference = state / "voice-reference.wav"
+        recorded = [0.25, -0.25] * 1200
+        judge = m.module("clone_measure", PLUGIN / "measure-local")
+        admitted, loaded = [], []
+        judge.available = lambda resource: 2 ** 40
+        judge.admit = lambda need, provider: admitted.append(need)
+        def model(artifact, *args):
+            loaded.append(artifact["id"])
+            return voice if artifact["engine"] == "kokoro" else object()
+        judge.load = model
+        setup = Setup("ok")
+        setup.measurement = lambda: judge
+        setup.selected = lambda value, tier: ([a for a in value["artifacts"]
+            if a["id"] in value["tiers"][tier]["artifacts"]], value["tiers"][tier]["provider"])
+
+        def speak(with_reference, scenario=None):
+            (clone / "scenario.json").write_text(json.dumps(scenario or {}))
+            del admitted[:], loaded[:]
+            speech = m.load(setup, state, state, reference if with_reference else None)
+            try:
+                return speech.speak("Hello.", "af_alloy"), speech
+            finally:
+                speech.close()
+
+        with patch.dict(sys.modules, {"numpy": SimpleNamespace(), "sherpa_onnx": SimpleNamespace()}):
+            # No recording: the judge reads not ready, so the tier speaks.
+            (rate, samples), _ = speak(True)
+            if (rate, list(samples)) != (24000, [0.5] * 2400) or "kokoro" not in loaded:
+                raise AssertionError(f"without a recording the tier's voice speaks: {rate} {list(samples)[:3]}")
+            with wave.open(str(reference), "wb") as out:
+                out.setnchannels(1)
+                out.setsampwidth(2)
+                out.setframerate(24000)
+                out.writeframes(struct.pack("<%dh" % len(recorded), *(round(v * 32768) for v in recorded)))
+            # The setting off: no reference reaches the sidecar.
+            (rate, samples), _ = speak(False)
+            if list(samples) != [0.5] * 2400 or admitted != [{"ram": 2048, "gpu": 1024}]:
+                raise AssertionError(f"with the setting off the tier's voice speaks: {admitted}")
+            # The setting on and the judge ready: the clone speaks the
+            # recording, the tier's voice stays unloaded, and both needs are admitted.
+            (rate, samples), speech = speak(True)
+            if (rate, list(samples)) != (24000, recorded):
+                raise AssertionError(f"the cloned voice speaks from the recording: {rate} {list(samples)[:3]}")
+            if "kokoro" in loaded or admitted != [{"ram": 2048 + 4096, "gpu": 1024 + 8192}]:
+                raise AssertionError(f"cloned load: {loaded} {admitted}")
+            child = speech.tts.child
+            if child.returncode is None:
+                raise AssertionError("closing the sidecar's voice reaps its child")
+            started = [json.loads(line) for line in (clone / "log.jsonl").read_text().splitlines()][-1]
+            if started["argv"][started["argv"].index("--reference") + 1] != str(reference) or started["ppid"] != os.getpid():
+                raise AssertionError(f"clone argv: {started}")
+            # A child that ends, or answers another request, ends the sidecar.
+            for scenario, cause in (({"speak": "end"}, "clone-ended"), ({"speak": "foreign"}, "clone-protocol")):
+                try:
+                    speak(True, scenario)
+                except m.CloneEnded as error:
+                    if str(error) != cause:
+                        raise
+                else:
+                    raise AssertionError(f"{scenario}: the sidecar kept serving")
+            try:
+                speak(True, {"start": "failed"})
+            except m.NotReady as error:
+                if str(error) != "clone-not-ready":
+                    raise
+            else:
+                raise AssertionError("a clone child that failed its load was served")
+
+
+CLONE_CHILD = PLUGIN / "backend/clone-speech.py"
+
+
+def clone_child(text=None):
+    """The cloned voice's child module, or a disposable copy holding text."""
+    path = CLONE_CHILD
+    if text is not None:
+        folder = Path(tempfile.mkdtemp(prefix="clone-speech-mutant-"))
+        (folder / "backend").mkdir()
+        for name in ("local-speech.py", "clone-speech.py"):
+            (folder / "backend" / name).write_bytes((PLUGIN / "backend" / name).read_bytes())
+        (folder / "measure-local").write_bytes((PLUGIN / "measure-local").read_bytes())
+        path = folder / "backend/clone-speech.py"
+        path.write_text(text)
+    loader = importlib.machinery.SourceFileLoader("clone_speech_" + str(abs(hash(str(path)))), str(path))
+    value = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(value)
+    return value
+
+
+class Samples(list):
+    """The float32 sentence a voice returns, as the child reads it."""
+
+    def astype(self, kind):
+        if kind != "<f4":
+            raise AssertionError("the wire carries little-endian float32")
+        return SimpleNamespace(tobytes=lambda: struct.pack("<%df" % len(self), *self))
+
+
+ARRAYS = SimpleNamespace(isfinite=lambda s: SimpleNamespace(all=lambda: all(v == v and abs(v) != float("inf") for v in s)),
+                         any=lambda s: any(s))
+
+
+class ClonedVoice:
+    RATE = 24000
+
+    def __init__(self, sentences):
+        self.sentences = list(sentences)
+        self.texts = []
+
+    def generate(self, text):
+        self.texts.append(text)
+        result = self.sentences.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return Samples(result)
+
+
+def clone_child_cases(c):
+    """The child speaks each sentence, fails one sentence alone, and ends on
+    a message outside its wire."""
+    voice = ClonedVoice([[0.25] * 20000, RuntimeError("onnxruntime"), [0.0] * 10, [0.5] * 4])
+    output = io.BytesIO()
+    c.serve(io.BytesIO(b"".join(frame({"type": "speak", "id": ident}, b"Hello.") for ident in (1, 2, 3, 4))),
+            output, voice, ARRAYS)
+    out = answers(output.getvalue())
+    audio = b"".join(p for h, p in out if h == {"type": "audio", "id": 1})
+    if array("f", audio).tolist() != [0.25] * 20000 or any(len(p) > 64 * 1024 for _, p in out):
+        raise AssertionError("one sentence's samples, in bounded frames")
+    if [h for h, _ in out if h["type"] != "audio"] != [
+            {"type": "spoken", "id": 1, "rate": 24000}, {"type": "failed", "id": 2, "cause": "synthesis-failed"},
+            {"type": "failed", "id": 3, "cause": "synthesis-failed"}, {"type": "spoken", "id": 4, "rate": 24000}]:
+        raise AssertionError(f"clone answers: {[h for h, _ in out if h['type'] != 'audio']}")
+    if voice.texts != ["Hello."] * 4:
+        raise AssertionError(f"sentences: {voice.texts}")
+    for header in ({"type": "listen", "id": 5}, {"type": "speak", "id": 5, "speaker": "one"}, {"type": "speak", "id": True}):
+        try:
+            c.serve(io.BytesIO(frame(header, b"Hi.")), io.BytesIO(), ClonedVoice([[0.5]]), ARRAYS)
+        except c.wire.Protocol:
+            continue
+        raise AssertionError(f"accepted {header}")
 
 
 def roles_case(m):
@@ -635,8 +813,15 @@ CONTROLS = [
     ("wake alone", '            if not fresh or utterances:\n                raise Protocol("wake=invalid")',
      '            if not fresh:\n                raise Protocol("wake=invalid")', violation_cases),
     ("wake has no end", 'raise Protocol("end=wake")', "continue", violation_cases),
-    ("memory admission", 'judge.admit(ready["memory"], provider)', 'False and judge.admit(ready["memory"], provider)', admission_case),
-    ("load serialization", 'with judge.loading(data / "models"):', 'if True:', admission_case),
+    ("memory admission", 'judge.admit(need, provider)', 'False and judge.admit(need, provider)', admission_case),
+    ("load serialization", 'with judge.loading(data / "models"), setup', 'with setup', admission_case),
+    ("clone readiness", ' and setup.clone_status(judge, state, data)["tone"] == "ok"', '', clone_cases),
+    ("clone admission", 'need = {resource: need[resource] + extra[resource] for resource in ("ram", "gpu")}', 'pass', clone_cases),
+    ("clone setting", 'cloned = reference is not None and held', 'cloned = held', clone_cases),
+    ("clone end ends the sidecar", 'except StopIteration:\n            raise CloneEnded("clone-ended") from None',
+     'except StopIteration:\n            return {"type": "ready"}, b""', clone_cases),
+    ("clone answer of another id", 'if ident != self.last:', 'if False:', clone_cases),
+    ("clone child reaped", "        self.child.kill()\n        self.child.wait()\n", "", clone_cases),
 ]
 
 
@@ -697,6 +882,29 @@ class LocalSpeech(unittest.TestCase):
 
     def test_admission(self):
         admission_case(load())
+
+    def test_clone(self):
+        clone_cases(load())
+
+    def test_clone_child(self):
+        clone_child_cases(clone_child())
+        source = CLONE_CHILD.read_text()
+        for name, needle, replacement in (
+                ("silent sentence spoken", 'raise ValueError("synthesis=empty")', "pass"),
+                ("message unjudged", 'if set(header) != {"type", "id"} or header["type"] != "speak" or type(header["id"]) is not int:',
+                 "if False:"),
+                ("a failed sentence ends the child", "            continue\n        data =", "            raise\n        data =")):
+            with self.subTest(control=name):
+                self.assertEqual(source.count(needle), 1, needle)
+                with self.assertRaises(Exception, msg="must-fail control stayed green: " + name):
+                    clone_child_cases(clone_child(source.replace(needle, replacement)))
+        # The real entry point refuses an ended parent before it loads.
+        result = subprocess.run([sys.executable, "-I", str(CLONE_CHILD), "--models", "/nonexistent", "--reference",
+                                 "/nonexistent", "--parent", str(os.getpid() + 1)],
+                                env={"PATH": os.environ["PATH"], "LC_ALL": "C"}, capture_output=True, check=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(b"parent=ended", result.stderr)
+        self.assertEqual(result.stdout, b"")
 
     def test_entry_point(self):
         main_cases(SOURCE.read_text())

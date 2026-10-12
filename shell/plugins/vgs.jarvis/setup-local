@@ -10,8 +10,16 @@ installs the pick. The service calls `status`, which emits one status value
 for localRuntime. `probe` runs only inside a network namespace. Exit 77 means
 unavailable, never ready. No audio device or host setting is opened. The
 state lock covers invalidation, installation and publication.
+
+`clone` holds the cloned voice's verbs, under a lock of their own:
+`install` builds its environment and fetches its model beside a ready
+graphics card tier, `record` stores the reference read on stdin and
+publishes after a probe, `probe` runs only inside a network namespace,
+`remove` deletes the recording and `status` emits clonedVoiceSetup's value.
 """
 import argparse
+from array import array
+from contextlib import contextmanager
 import fcntl
 from functools import cache
 import hashlib
@@ -22,12 +30,14 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tarfile
 import tempfile
 import time
 from urllib.parse import urlparse
+import wave
 
 HERE = Path(__file__).resolve().parent
 sys.dont_write_bytecode = True
@@ -59,6 +69,25 @@ MEDIUM_THREADS = 32
 LOCK_WAIT = 30
 # One tier's environment and models. uv's cache and managed Python stay.
 RUNTIME = ("venv", "models", "requirements-cuda.lock")
+# The cloned voice's artifact, the folder below the data root that holds its
+# environment, models and projected lock, and the provider it runs on: on
+# the CPU VGS-1384 read a real-time factor of 3.08 at 32 threads.
+CLONE_ID = "chatterbox"
+CLONE = "clone"
+CLONE_RUNTIME = ("venv", "models", "requirements-clone.lock")
+CLONE_PROVIDER = "cuda"
+# The recording, its marker and the lock of the clone verbs, in the state root.
+REFERENCE = "voice-reference.wav"
+CLONE_MARKER = "clone-ready.json"
+CLONE_LOCK = "clone-setup.lock"
+# The reference: mono s16 at the speech encoder's 24000 Hz. VGS-1384's
+# reference was 8.54 s; the TUI records 10 s. Shorter than 5 s leaves the
+# encoder little of the voice, longer than 15 s is not what the TUI records.
+# A peak below a hundredth of full scale, -40 dBFS, is a muted or absent
+# microphone, not a voice. Both bounds are chosen, not measured.
+REFERENCE_RATE = 24000
+REFERENCE_SECONDS = (5, 15)
+REFERENCE_PEAK = 32768 // 100
 
 
 @cache
@@ -244,25 +273,30 @@ def identity(judge, tier, data):
     fixture and the installed runtime identity.
     """
     value = judge.manifest(HERE / "artifacts.json")
-    runtime = data / "venv"
-    files = sorted(path for path in runtime.rglob("*")
-                   if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc")
-    if not files or not (runtime / "bin/python").is_file():
-        raise judge.Unavailable("runtime=missing")
-    digest = hashlib.sha256()
-    digest.update(json.dumps(identity_inputs(value, tier), sort_keys=True).encode() + b"\0")
     hashed_files = [
         ("requirements-local.lock", HERE / "requirements-local.lock"),
         ("requirements-local-cpu.lock", HERE / "requirements-local-cpu.lock"),
         (value["fixture"]["audio"], HERE / value["fixture"]["audio"]),
         (value["fixture"]["transcript"], HERE / value["fixture"]["transcript"]),
     ]
+    return {"schemaVersion": 1, "tier": tier, "data": str(data.resolve()),
+            "inputs": installed(judge, identity_inputs(value, tier), hashed_files, data / "venv")}
+
+
+def installed(judge, inputs, hashed_files, runtime):
+    """The digest of INPUTS, each (name, path) of HASHED_FILES, every
+    installed file of the environment RUNTIME and its resolved interpreter."""
+    files = sorted(path for path in runtime.rglob("*")
+                   if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc")
+    if not files or not (runtime / "bin/python").is_file():
+        raise judge.Unavailable("runtime=missing")
+    digest = hashlib.sha256()
+    digest.update(json.dumps(inputs, sort_keys=True).encode() + b"\0")
     for name, path in hashed_files + [
             ("venv/" + str(path.relative_to(runtime)), path) for path in files]:
         digest.update(name.encode() + b"\0" + judge.sha256(path).encode() + b"\0")
     digest.update(str((runtime / "bin/python").resolve()).encode())
-    return {"schemaVersion": 1, "tier": tier, "data": str(data.resolve()),
-            "inputs": digest.hexdigest()}
+    return digest.hexdigest()
 
 
 def reuse(judge, value, models, artifacts):
@@ -298,14 +332,10 @@ def probe(judge, value, tier, data):
     judge.run(value, artifacts, data / "models", provider, None, tier)
 
 
-def install(judge, state, data, tier, reading):
-    """Refuse before any effect, invalidate, and publish only after real inference.
-
-    A refused attempt keeps an earlier ready installation. A failed one removes
-    this tier's environment and models and states what it kept for reuse.
-    """
-    state.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with (state / "local-setup.lock").open("a") as lock:
+@contextmanager
+def exclusive(path):
+    """Hold the lock at PATH alone, waiting LOCK_WAIT for its readers."""
+    with path.open("a") as lock:
         deadline = time.monotonic() + LOCK_WAIT
         while True:
             try:
@@ -315,6 +345,38 @@ def install(judge, state, data, tier, reading):
                 if time.monotonic() >= deadline:
                     raise ValueError("setup=busy") from None
                 time.sleep(0.1)
+        yield
+
+
+@contextmanager
+def shared(path):
+    """Hold the lock at PATH beside other readers; yield False while a setup holds it."""
+    with path.open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        yield True
+
+
+def room(data, need, advice):
+    """Refuse a setup that needs NEED bytes more than DATA's file system has
+    free; ADVICE is the plain sentence after the keyed line."""
+    free = shutil.disk_usage(data).free
+    if free < need:
+        raise ValueError(f"disk=insufficient need={need} free={free} path={data}\n"
+                         f"This setup needs {size(need)} free in {data}, which has {size(free)}. " + advice)
+
+
+def install(judge, state, data, tier, reading):
+    """Refuse before any effect, invalidate, and publish only after real inference.
+
+    A refused attempt keeps an earlier ready installation. A failed one removes
+    this tier's environment and models and states what it kept for reuse.
+    """
+    state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with exclusive(state / "local-setup.lock"):
         value = judge.manifest(HERE / "artifacts.json")
         artifacts, provider = selected(value, tier)
         if not runnable(provider, reading):
@@ -326,12 +388,8 @@ def install(judge, state, data, tier, reading):
         # their extracted models and uv's cache beside the environment. A
         # 2.26 GB download measured 4.2 GB on disk after setup. The runtime
         # and models this attempt replaces free their bytes first.
-        need = 2 * value["tiers"][tier]["downloadBytes"] - stored(*(data / name for name in RUNTIME))
-        free = shutil.disk_usage(data).free
-        if free < need:
-            raise ValueError(f"disk=insufficient need={need} free={free} path={data}\n"
-                             f"This tier needs {size(need)} free in {data}, which has {size(free)}. "
-                             "Free some space, or choose a smaller model under Local voice on the Jarvis page.")
+        room(data, 2 * value["tiers"][tier]["downloadBytes"] - stored(*(data / name for name in RUNTIME)),
+             "Free some space, or choose a smaller model under Local voice on the Jarvis page.")
         marker = state / "local-ready.json"
         marker.unlink(missing_ok=True)
         judge.clip(value)
@@ -381,7 +439,7 @@ def install(judge, state, data, tier, reading):
                           file=sys.stderr)
                     raise
                 reading.seek(0)
-                need = judge.memory_need(json.load(reading), value, tier)
+                need = judge.memory_need(json.load(reading), tier, provider, value["tiers"][tier]["artifacts"])
             judge.verify(value, models, artifacts)
             if ready != identity(judge, tier, data):
                 raise ValueError("runtime=changed-during-probe")
@@ -411,10 +469,8 @@ def status(judge, state, data):
     marker = state / "local-ready.json"
     if not state.is_dir():
         return report
-    with (state / "local-setup.lock").open("a") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
-        except BlockingIOError:
+    with shared(state / "local-setup.lock") as held:
+        if not held:
             return {"tone": "info", "text": "Setting up", "action": False}
         if not marker.is_file():
             return report
@@ -440,15 +496,247 @@ def ready_tier(judge, state, data):
     return json.loads((state / "local-ready.json").read_text())["tier"]
 
 
+def clone_row(value):
+    """The cloned voice's artifact, which no tier holds."""
+    return next(artifact for artifact in value["artifacts"] if artifact["id"] == CLONE_ID)
+
+
+def clone_tier(judge, value, state, data):
+    """Whether the tier status verifies ready runs on CLONE_PROVIDER, the
+    graphics card the cloned voice shares."""
+    tier = ready_tier(judge, state, data)
+    return tier is not None and value["tiers"][tier]["provider"] == CLONE_PROVIDER
+
+
+def clone_requirements(root):
+    """Project requirements-local.lock beside the clone environment with its
+    one onnxruntime pin replaced by requirements-clone.lock's: every other
+    pin stays, and one environment holds one onnxruntime."""
+    pins = [line for line in (HERE / "requirements-clone.lock").read_text().splitlines()
+            if line and not line.startswith("#")]
+    lines = (HERE / "requirements-local.lock").read_text().splitlines()
+    replaced = [line for line in lines if line.startswith("onnxruntime==")]
+    if len(pins) != 1 or len(replaced) != 1:
+        raise ValueError(f"clone-lock=unprojectable pins={len(pins)} replaced={len(replaced)}")
+    path = root / "requirements-clone.lock"
+    path.write_text("\n".join(pins[0] if line in replaced else line for line in lines) + "\n")
+    return path
+
+
+def clone_identity(judge, value, data, recording):
+    """Bind the clone marker to the cloned voice's selected files, its two
+    locks, its installed environment and the RECORDING its probe spoke in."""
+    row = clone_row(value)
+    inputs = {key: row[key] for key in ("id", "baseUrl", "directory", "files")}
+    locks = [
+        ("requirements-local.lock", HERE / "requirements-local.lock"),
+        ("requirements-clone.lock", HERE / "requirements-clone.lock"),
+    ]
+    return {"schemaVersion": 1, "data": str(data.resolve()), "reference": judge.sha256(recording),
+            "inputs": installed(judge, inputs, locks, data / CLONE / "venv")}
+
+
+def recorded(state):
+    """Whether the reference is this user's regular file of mode 0600; a
+    link or another owner's file is not the recording clone record wrote."""
+    try:
+        info = (state / REFERENCE).lstat()
+    except FileNotFoundError:
+        return False
+    return stat.S_ISREG(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o600 and info.st_uid == os.getuid()
+
+
+def clone_install(judge, state, data):
+    """Build the clone environment and fetch its model, beside a ready
+    graphics card tier. A failure removes what this attempt made."""
+    state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with exclusive(state / CLONE_LOCK):
+        value = judge.manifest(HERE / "artifacts.json")
+        if not clone_tier(judge, value, state, data):
+            raise ValueError("clone=needs-large-tier\n"
+                             "The cloned voice runs beside the Large local voice model on an NVIDIA graphics card. "
+                             "Set up Large under Local voice on the Jarvis page first.")
+        row = clone_row(value)
+        root = data / CLONE
+        root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # The model has no archive to hold twice; the environment and
+        # uv's cache take about as much again.
+        room(root, 2 * row["downloadBytes"] - stored(*(root / name for name in CLONE_RUNTIME)),
+             "Free some space, then set up the cloned voice again.")
+        (state / CLONE_MARKER).unlink(missing_ok=True)
+        try:
+            remove_runtime(root, ("venv", "requirements-clone.lock"))
+            models = root / "models"
+            models.mkdir(mode=0o700, exist_ok=True)
+            print("jarvis-setup: step=runtime", flush=True)
+            command(["uv", "--no-config", "venv", "--managed-python", "--python",
+                     value["runtimes"]["sherpa-onnx"]["cudaWheel"]["python"], str(root / "venv")], data)
+            command(["uv", "--no-config", "pip", "sync", "--python", str(root / "venv/bin/python"),
+                     "--require-hashes", "--only-binary", ":all:", str(clone_requirements(root))], data)
+            for url, path, digest in judge.downloads(row):
+                target = models / path
+                if target.is_file() and judge.sha256(target) == digest:
+                    print(f"jarvis-setup: step=model file={path} reused", flush=True)
+                    continue
+                print(f"jarvis-setup: step=model file={path}", flush=True)
+                target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                download(url, target, digest, judge, data)
+            judge.verify(value, models, [row])
+        except BaseException:
+            remove_runtime(root, CLONE_RUNTIME)
+            print("jarvis-setup: removed=clone\n"
+                  "Removed the cloned voice's downloads and runtime.", file=sys.stderr)
+            raise
+    print("jarvis-setup: clone=installed", flush=True)
+
+
+def clone_record(judge, state, data, source):
+    """Store the raw reference SOURCE gives as a 0600 WAV, then publish the
+    clone marker after its probe. A failure keeps no recording."""
+    # One sample past the longest recording tells a longer one apart.
+    pcm = source.read((REFERENCE_SECONDS[1] * REFERENCE_RATE + 1) * 2)
+    seconds = len(pcm) / (2 * REFERENCE_RATE)
+    if len(pcm) % 2 or not REFERENCE_SECONDS[0] <= seconds <= REFERENCE_SECONDS[1]:
+        raise ValueError(f"recording=length seconds={seconds:.2f}\n"
+                         f"The recording must last {REFERENCE_SECONDS[0]} to {REFERENCE_SECONDS[1]} seconds. "
+                         "Set up the cloned voice again.")
+    samples = array("h", pcm)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    if max(map(abs, samples)) < REFERENCE_PEAK:
+        raise ValueError("recording=silent\n"
+                         "The recording holds no sound. Check the microphone, then set up the cloned voice again.")
+    state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with exclusive(state / CLONE_LOCK):
+        value = judge.manifest(HERE / "artifacts.json")
+        marker, reference = state / CLONE_MARKER, state / REFERENCE
+        (state / CLONE_MARKER).unlink(missing_ok=True)
+        try:
+            # mkstemp creates the file exclusively with mode 0600.
+            with tempfile.NamedTemporaryFile(dir=state, prefix=".voice-reference-", delete=False) as output:
+                temporary = Path(output.name)
+                try:
+                    with wave.open(output, "wb") as wav:
+                        wav.setnchannels(1)
+                        wav.setsampwidth(2)
+                        wav.setframerate(REFERENCE_RATE)
+                        wav.writeframes(pcm)
+                    output.flush()
+                    os.fsync(output.fileno())
+                    temporary.replace(reference)
+                finally:
+                    temporary.unlink(missing_ok=True)
+            ready = clone_identity(judge, value, data, reference)
+            print("jarvis-setup: step=probe", flush=True)
+            log = state / "clone-setup.log"
+            python = data / CLONE / "venv/bin/python"
+            with log.open("w") as errors, tempfile.TemporaryFile(mode="w+") as reading:
+                try:
+                    command(["unshare", "-rn", "--", str(python), "-I", str(HERE / "setup-local"), "clone", "probe"],
+                            data, offline=True, stderr=errors, stdout=reading)
+                except ChildFailed:
+                    print(f"jarvis-setup: failed=clone-probe log={log}\n"
+                          f"The cloned voice did not pass its test on this computer. The details are in {log}.",
+                          file=sys.stderr)
+                    raise
+                reading.seek(0)
+                need = judge.memory_need(json.load(reading), CLONE_ID, CLONE_PROVIDER, [CLONE_ID])
+            judge.verify(value, data / CLONE / "models", [clone_row(value)])
+            if ready != clone_identity(judge, value, data, reference):
+                raise ValueError("runtime=changed-during-probe")
+            ready["memory"] = need
+            with tempfile.NamedTemporaryFile(mode="w", dir=state, prefix=".clone-ready-", delete=False) as output:
+                temporary = Path(output.name)
+                try:
+                    json.dump(ready, output)
+                    output.flush()
+                    os.fsync(output.fileno())
+                    temporary.replace(marker)
+                finally:
+                    temporary.unlink(missing_ok=True)
+        except BaseException:
+            reference.unlink(missing_ok=True)
+            raise
+    print("jarvis-setup: clone=ready", flush=True)
+
+
+def clone_probe(judge, value, state, data):
+    """Speak the bundled sentence in the recording, on the graphics card, as
+    one model load of this data root; the record carries its memory need."""
+    with judge.loading(data / "models"):
+        judge.measure(value, [clone_row(value)], data / CLONE / "models", CLONE_PROVIDER, None, CLONE_ID,
+                      state / REFERENCE)
+
+
+def clone_remove(state):
+    """Delete the recording and the marker. The model and its environment
+    hold nothing of the user and stay for the next setup."""
+    state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with exclusive(state / CLONE_LOCK):
+        (state / CLONE_MARKER).unlink(missing_ok=True)
+        (state / REFERENCE).unlink(missing_ok=True)
+    print("jarvis-setup: clone=removed", flush=True)
+
+
+def clone_status(judge, state, data):
+    """The cloned voice's one readiness judge. Ready only while the marker
+    matches the installed identity and the recording, the model verifies, the
+    recording is this user's 0600 file and the ready tier runs on the
+    graphics card. `recording` and `tierReady` are for SetupGate, which
+    shapes the published row: Remove while a recording exists, else Set up."""
+    value = judge.manifest(HERE / "artifacts.json")
+    tier = clone_tier(judge, value, state, data)
+    have = recorded(state)
+
+    def report(tone, text, offered=True):
+        return {"tone": tone, "text": text, "action": ("remove" if have else "setup") if offered else False,
+                "recording": have, "tierReady": tier}
+
+    marker = state / CLONE_MARKER
+    if not state.is_dir():
+        return report("info", "Not set up")
+    with shared(state / CLONE_LOCK) as held:
+        if not held:
+            return report("info", "Setting up", False)
+        if not marker.is_file() or not have:
+            return report("info", "Not set up")
+        try:
+            saved = json.loads(marker.read_text())
+            judge.validate_memory(saved["memory"], CLONE_PROVIDER)
+            if {key: item for key, item in saved.items() if key != "memory"} != clone_identity(
+                    judge, value, data, state / REFERENCE):
+                raise ValueError("marker=stale")
+            judge.verify(value, data / CLONE / "models", [clone_row(value)])
+        except (ValueError, KeyError, TypeError, OSError, judge.Unavailable):
+            return report("warning", "Setup needs verification")
+        if not tier:
+            return report("warning", "Needs the Large model")
+        return report("ok", "Ready")
+
+
 def main():
     """Keep chosen tiers within the producer's current declaration."""
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("verb", choices=("choices", "install", "status", "probe"))
-    parser.add_argument("tier", nargs="?")
+    parser.add_argument("verb", choices=("choices", "install", "status", "probe", "clone"))
+    parser.add_argument("tier", nargs="?", help="the tier; after clone, its verb")
     args = parser.parse_args()
     judge = measurement()
     state, data = roots()
+    if args.verb == "clone":
+        if args.tier == "install":
+            clone_install(judge, state, data)
+        elif args.tier == "record":
+            clone_record(judge, state, data, sys.stdin.buffer)
+        elif args.tier == "probe":
+            clone_probe(judge, judge.manifest(HERE / "artifacts.json"), state, data)
+        elif args.tier == "remove":
+            clone_remove(state)
+        elif args.tier == "status":
+            print(json.dumps(clone_status(judge, state, data)))
+        else:
+            parser.error("clone takes install, record, probe, remove or status")
+        return
     if args.verb in ("choices", "status") and args.tier is not None:
         parser.error(f"{args.verb} takes no tier")
     if args.verb == "choices":

@@ -1390,7 +1390,7 @@ const table = [
         assert.equal(logic.phaseOf(s), "down");
     }]
 ];
-for (const key of ["voiceProvider", "voice", "language", "brain", "model", "effort", "fallbacks", "customBaseUrl", "home", "policy", "cloudVision", "account", "voiceAccount"])
+for (const key of ["voiceProvider", "voice", "clonedVoice", "language", "brain", "model", "effort", "fallbacks", "customBaseUrl", "home", "policy", "cloudVision", "account", "voiceAccount"])
     table.push(["settings-" + key, logic => {
         const s = held(logic);
         const r = step(logic, s, snapshot({ at: 50, settings: { [key]: "changed" } }));
@@ -2270,7 +2270,8 @@ try {
         ["end-gen", 's.gen++;\n        s.conversation = { kind: "ended" };', 's.gen += 0;\n        s.conversation = { kind: "ended" };', "end-generation"],
         ["settings", 'a[key] !== b[key]', '(false && a[key] !== b[key])', "settings-model"],
         ["settings-voice-account", '"account", "voiceAccount"]', '"account"]', "settings-voiceAccount"],
-        ["settings-voice", '"voiceProvider", "voice", "language"', '"voiceProvider", "language"', "settings-voice"],
+        ["settings-voice", '"voiceProvider", "voice", "clonedVoice"', '"voiceProvider", "clonedVoice"', "settings-voice"],
+        ["settings-cloned-voice", '"voice", "clonedVoice", "language"', '"voice", "language"', "settings-clonedVoice"],
         ["settings-home", '"customBaseUrl", "home", "policy"', '"customBaseUrl", "policy"', "settings-home"],
         ["settings-effort", '"model", "effort", "fallbacks", "customBaseUrl"', '"model", "fallbacks", "customBaseUrl"', "settings-effort"],
         ["settings-fallbacks", '"effort", "fallbacks", "customBaseUrl"', '"effort", "customBaseUrl"', "settings-fallbacks"],

@@ -10,6 +10,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 - Talk with a key, or say Hey Jarvis.
 - Local voice, the default: Jarvis hears you and speaks on your computer.
+- Cloned voice, off at first: the local voice speaks in a voice recorded on your computer, on an NVIDIA graphics card.
 - Realtime voice from OpenAI with a saved OpenAI key, a slower cloud option.
 - The AI model you choose: an app you are signed in to (Claude Code, Codex, GitHub Copilot, or Pi with its own providers) or an API key.
 - Backup models that Jarvis tries when the answering model fails.
@@ -94,6 +95,7 @@ The buttons are also rows in the launcher's Jarvis group. Each opens a floating 
 - Add key stores an API key from an AI provider in your desktop keyring. You type the key in a hidden field. Choose the provider from a list that names the page where it makes keys, then give the key a name. The Jarvis page shows whether a key is present, absent, locked or unavailable, and never shows the key.
 - Sign in opens the app's own sign-in: Claude Code, Codex, GitHub Copilot or Pi. Give a new account a name, or select an existing account folder. Jarvis shows the folder before sign-in and makes it if needed. After sign-in, select the account under AI model. The app keeps its own login.
 - Set up local voice downloads the local voice model that runs best on your computer. It checks free space, downloads the models and a private runtime, and says Ready only after it checks the download and a test clip passes. To use another model, choose it under Local voice model.
+- Set up cloned voice, under Local voice, shows Resemble AI's use text and asks two questions: whether you read it, and whether the voice is yours or you have the speaker's permission. Any answer but two yeses downloads and stores nothing. It then downloads the model and a private runtime, records 10 seconds while you read a sentence aloud, and says Ready after a test sentence in that voice is made on your computer, with nothing played. It needs the Large local voice model ready. Remove recording deletes the recording; the model stays for a later setup.
 - Set up dictation makes voxtype ready for the local voice and downloads its speech model. The voxtype row shows Install while voxtype is missing.
 - Set up browser checks a browser that is installed, on a blank page, or offers a private download. The Browser driver row shows Install while agent-browser is missing.
 - Accounts adds an account folder, chooses a keyring item by its label, or shows login hints. It finds the account folders of your other tools in your home, config and data folders. It can use a key that another tool stored, without a copy of the key. A login hint does not prove that the AI answers.
@@ -119,6 +121,7 @@ The settings are in Settings → Plugins → Jarvis. A change to Voice provider,
 | Realtime key | The OpenAI key the Realtime voice uses. Add key stores a key in your desktop keyring. Get a key at [OpenAI API keys](https://platform.openai.com/api-keys). With one key, Jarvis selects it. With more keys, choose one. |
 | Voice | How Jarvis sounds, from the voices of the selected voice provider. Preview, under Voice on Details, says one sentence in that voice. |
 | Local voice model | Auto is the model that runs best on your computer, from its graphics card memory, its memory and its processor. The list shows each other model your computer can run, with its download size. When you choose one, it downloads in a floating terminal, which asks first if it replaces a model that is ready. The choice changes the voice Jarvis speaks with. Dictation uses voxtype's model: change it with Choose model in Voice. |
+| Cloned voice | Off at first. On, Jarvis speaks in the voice Set up cloned voice recorded, with Chatterbox Turbo by Resemble AI under the MIT licence. The recording and the model stay on your computer. It needs the Large local voice model on an NVIDIA graphics card; until its setup says Ready, Jarvis speaks in the local voice model's voice. Changing it ends the conversation. |
 | Account | Under AI model: the AI that answers you. It is an API key you added, or an app you are signed in to. The list shows only the choices Jarvis can use. An app with more than one account shows each account by its sign-in email. |
 | Model | The model the chosen app or API key runs, from its own list. Jarvis reads the list while the page is open. Jarvis selects Fable 5.1 where the app offers it, else Opus 5.5, else the app's own model. Pi names each model with its provider, and Jarvis selects Pi's own model. Before the page reads a list, Claude Code runs Fable 5.1 at high effort, an Anthropic API key runs Opus 5.5 at high effort, and any other app runs its own model. A model you saved that leaves the list stays saved and shows as unavailable. The field shows for Claude Code, Codex, GitHub Copilot, Pi and an Anthropic API key. Each read of GitHub Copilot's list adds one empty session to your Copilot history, one each time you open this page. When the app does not give its list, the field shows the model Jarvis runs, with "list not read". When the app cannot use the model, Jarvis says so with the model's name and tries the next backup model. |
 | Backup models | The models Jarvis tries, in order, when the answering app refuses a request, needs a sign-in, reaches a usage limit or stops during an outage. Jarvis tells you that the new model did not hear the earlier conversation. It sends the request again only when no tool ran and no reply was spoken. Otherwise it asks you to say the request again. |
@@ -189,6 +192,17 @@ The AI models never run inside this folder. A setting, hook or server that you k
 A request for your agent fleet goes to the mailbox of your Jarvis session, which does the work. Jarvis shows you the text and asks you to confirm it. Then it gives the request to the mailbox in the home folder with the kendex mail tool there, and tells you the request's number when the mailbox has it. Your Jarvis session does the request when it next reads its mail. Jarvis does not check that a session runs: Start Jarvis at boot starts yours at each boot. Jarvis sends at most one fleet request each time you ask it something.
 
 The mail tool and the Jarvis package's session program are the only two programs in the home folder that VGS starts. Install kendex, on the Agent fleet row under Setup, installs the mail tool. Jarvis offers fleet requests after your Jarvis session has read this folder's mail.
+
+### Cloned voice
+
+The recording is a 24 kHz WAV file only you can read, in Jarvis's private state folder, outside the plugin folder. The model runs in a process and a runtime of its own on the graphics card, beside the Large model, and reaches no network. Jarvis never sends the recording or its path to an AI model.
+
+<details>
+<summary>Show command details</summary>
+
+Set up cloned voice runs `setup-local clone install`, then `pw-record --raw --rate 24000 --channels 1 --format s16 -` for 10 seconds into `setup-local clone record`. Remove recording runs `setup-local clone remove`. The recording is `~/.local/state/vgshell/jarvis/voice-reference.wav`.
+
+</details>
 
 ### Memory add-ons
 

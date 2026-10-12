@@ -1061,6 +1061,11 @@ Item {
     Jarvis.Keys { shell: root.shell; onRefreshed: root.hello() }
     Jarvis.LocalRuntime { id: localRuntime; shell: root.shell; onRefreshed: { root.publishShellSetup(); root.hello(); } }
     Jarvis.LocalTier { shell: root.shell }
+    Jarvis.CloneRuntime {
+        shell: root.shell
+        provider: root.shell === null ? "" : Gate.voiceProvider(root.shell.settings, accountReader.voiceKeys)
+        onRefreshed: root.hello()
+    }
     Jarvis.BrowserRuntime { shell: root.shell; stepKey: "setupBrowser" }
     Jarvis.FleetRuntime { shell: root.shell }
     Jarvis.SessionStart { id: sessionStart; shell: root.shell }

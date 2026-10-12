@@ -332,6 +332,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     let idleAt = null;
     let daemonSpeech = null;
     let speechState = { kind: "new" };
+    // The identity of the row the daemon's sidecar last started from.
+    let speechIdentity = null;
     const homePath = () => { const judged = home(); return judged.kind === "ready" ? judged.path : null; };
     // Whether the home folder's own cause holds the plan.
     let homeHeld = false;
@@ -355,6 +357,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
 
     function startSpeech(row) {
         speechState = { kind: "starting" };
+        speechIdentity = row.identity;
         const owner = row.open({ clock, changed: () => {
             if (!closed && owner.status().kind === "ready") {
                 speechState = { kind: "ready" };
@@ -1530,7 +1533,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 // A completed setup publication can repair an initial
                 // refusal. Ordinary hellos leave that runtime unloaded.
                 const published = speechState.kind === "refused" && speechState.publication !== plan.speech.publication;
-                if (speechState.kind === "new" || published) startSpeech(plan.speech);
+                // A row with other arguments, such as the cloned voice
+                // turned on, replaces the sidecar; the setting's change
+                // ends the conversation that held the old one.
+                const reargued = speechState.kind !== "new" && speechIdentity !== plan.speech.identity;
+                if (speechState.kind === "new" || published || reargued) {
+                    daemonSpeech?.close();
+                    startSpeech(plan.speech);
+                }
             }
             return configuration();
         },

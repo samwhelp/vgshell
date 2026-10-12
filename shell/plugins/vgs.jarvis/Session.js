@@ -7,7 +7,7 @@
 // speech session per conversation; its callbacks carry the session's gen/op.
 // A dictation engine is the chained engine whose final words come from the
 // core's dictation recording (D064), whose tones are the recording's cue.
-var SESSION_SETTINGS = ["mode", "voiceProvider", "voice", "language", "brain", "model", "effort", "fallbacks", "customBaseUrl", "home", "policy", "cloudVision", "account", "voiceAccount"];
+var SESSION_SETTINGS = ["mode", "voiceProvider", "voice", "clonedVoice", "language", "brain", "model", "effort", "fallbacks", "customBaseUrl", "home", "policy", "cloudVision", "account", "voiceAccount"];
 var RESPONSE_TIMEOUT_MS = 60000;
 var COLLECTION_TIMEOUT_MS = 60000;
 var VOICE_CHECK_MS = 3000;

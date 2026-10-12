@@ -11,6 +11,9 @@ const { PCM_RATE, SENTENCE_FRAMES } = require("./Audio.js");
 
 const SIDECAR = path.join(__dirname, "local-speech.py");
 const ARTIFACTS = path.join(__dirname, "../artifacts.json");
+// The cloned voice's recording and setup-local's marker for it, in the state root.
+const REFERENCE = "voice-reference.wav";
+const CLONE_MARKER = "clone-ready.json";
 const MODEL_RATE = 16000;
 // The sidecar's frame bounds, both directions.
 const HEADER_BYTES = 4096;
@@ -159,12 +162,12 @@ function reader(receive) {
  * and ends with {kind: "ended", speech}. Every failure is a keyed
  * speech=local-* error.
  */
-function open(state, data, clock = CLOCK, changed = () => {}) {
+function open(state, data, clock = CLOCK, changed = () => {}, extra = []) {
     const environment = { LC_ALL: "C.UTF-8" };
     for (const key of ["PATH", "HOME"]) if (process.env[key] !== undefined) environment[key] = process.env[key];
     const child = cp.spawn("unshare", ["--map-current-user", "--net", "--", "setpriv", "--pdeathsig", "KILL", "--",
         path.join(data, "venv/bin/python"), "-I", SIDECAR, "--state", state, "--data", data,
-        "--parent", String(process.pid)], { env: environment, stdio: ["pipe", "pipe", "pipe"] });
+        "--parent", String(process.pid), ...extra], { env: environment, stdio: ["pipe", "pipe", "pipe"] });
     // starting: before the sidecar's ready; ended: every request fails with error.
     let life = { kind: "starting" };
     let resolveClosed;
@@ -452,15 +455,26 @@ function open(state, data, clock = CLOCK, changed = () => {}) {
     };
 }
 
+// A file's publication: setup replaces a marker by rename only after its
+// probe passed, so a new inode or time is a new publication.
+function published(file) {
+    const stat = fs.fstatSync(file, { bigint: true });
+    return [stat.dev, stat.ino, stat.mtimeNs, stat.ctimeNs].join(":");
+}
+
 /**
  * Ready when local setup published a marker naming a declared tier for this
  * data root. The sidecar asks setup's readiness judge before it loads, so a
  * stale marker refuses readiness with speech=local-not-ready. `voices` are
  * the speakers of the tier's text-to-speech artifact, in sid order, as
  * {label, value} offers whose value is the speaker's name. Its final words
- * come from the core's dictation recording (D064).
+ * come from the core's dictation recording (D064). While settings.clonedVoice
+ * is on, the sidecar gets the recording, which it speaks in once setup's
+ * clone judge reads ready. `identity` is the sidecar's arguments and that
+ * judge's marker publication: the engine restarts a sidecar whose identity
+ * differs, after the setting changes or a clone setup or removal ends.
  */
-function select({ directories }) {
+function select({ settings, directories }) {
     const state = directories.state;
     const data = path.join(directories.data, "local");
     let marker, root, publication;
@@ -468,10 +482,8 @@ function select({ directories }) {
         const file = fs.openSync(path.join(state, "local-ready.json"), "r");
         try {
             marker = JSON.parse(fs.readFileSync(file, "utf8"));
-            // setup-local atomically replaces this file only after its probe
-            // succeeds. Read identity from the same file as the marker.
-            const stat = fs.fstatSync(file, { bigint: true });
-            publication = [stat.dev, stat.ino, stat.mtimeNs, stat.ctimeNs].join(":");
+            // Read identity from the same file as the marker.
+            publication = published(file);
         } finally { fs.closeSync(file); }
     }
     catch (error) {
@@ -489,8 +501,18 @@ function select({ directories }) {
     const voice = artifacts.artifacts.find(artifact => tiers[marker.tier].artifacts.includes(artifact.id)
         && artifact.speakers !== undefined);
     const voices = voice.speakers.map(speaker => ({ label: speaker.label, value: speaker.name }));
-    return { kind: "ready", lifetime: "daemon", wake: true, dictation: true, publication, recipients: RECIPIENTS, voices,
-        open: ({ clock = CLOCK, changed } = {}) => open(state, data, clock, changed) };
+    const extra = settings.clonedVoice === true ? ["--reference", path.join(state, REFERENCE)] : [];
+    const identity = JSON.stringify([extra, extra.length === 0 ? null : clonePublication(state)]);
+    return { kind: "ready", lifetime: "daemon", wake: true, dictation: true, publication, identity, recipients: RECIPIENTS, voices,
+        open: ({ clock = CLOCK, changed } = {}) => open(state, data, clock, changed, extra) };
+}
+
+// The clone marker's publication, or the error code of a marker no read finds.
+function clonePublication(state) {
+    let file;
+    try { file = fs.openSync(path.join(state, CLONE_MARKER), "r"); }
+    catch (error) { return error.code; }
+    try { return published(file); } finally { fs.closeSync(file); }
 }
 
 module.exports = { row: Object.freeze({ select }) };

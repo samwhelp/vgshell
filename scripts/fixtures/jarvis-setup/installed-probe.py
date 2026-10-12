@@ -21,7 +21,7 @@ loader.exec_module(setup)
 judge = setup.measurement()
 
 
-def inference(value, artifacts, models, provider, seconds, scope):
+def inference(value, artifacts, models, provider, seconds, scope, recording):
     """Stand in for vendor execution, not for the setup entry or input judge."""
     judge.clip(value)
     judge.verify(value, models, artifacts)
@@ -29,7 +29,7 @@ def inference(value, artifacts, models, provider, seconds, scope):
     assert str(models) == expected["models"]
     assert str(state) == expected["state"]
     assert str(data) == expected["data"]
-    assert provider == expected["provider"] and seconds is None and scope == tier
+    assert provider == expected["provider"] and seconds is None and scope == tier and recording is None
     assert [a["id"] for a in artifacts] == expected["artifacts"]
     assert not {"API_KEY", "DBUS_SESSION_BUS_ADDRESS", "PULSE_SERVER"} & os.environ.keys()
     (data / "probed").write_text(tier)
