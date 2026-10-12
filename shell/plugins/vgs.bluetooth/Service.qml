@@ -93,6 +93,8 @@ Item {
         if (shell === null) return;
         const reply = shell.status.set("power", { tone: view.tone, text: view.text });
         if (reply !== "ok") console.error("bluetooth: status power " + reply);
+        // `step` and `adapters` are inputs of `view` too, so onViewChanged
+        // publishes again whenever this value can change.
         const service = shell.status.set("service", Logic.serviceRow(step, adapters.length));
         if (service !== "ok") console.error("bluetooth: status service " + service);
         const data = shell.status.set("bluetooth", { power: view });
