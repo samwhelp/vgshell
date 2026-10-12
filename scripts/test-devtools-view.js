@@ -211,7 +211,16 @@ function verify(logic) {
     same(values.catalog.requirements, ok([{ owner: "core", name: "gum", purpose: "Draws the dialogs", optional: false, package: { manager: "pacman", name: "gum" } }]), "the catalog holds the missing requirements alone");
     same(logic.statusValues({ catalog: ok(list({}, [], { present: false, version: null })) }).mise, { tone: "warning", text: "Not installed" }, "a missing mise offers no step: Install all missing installs it");
     const failed = logic.statusValues({ catalog: { value: null, error: "mise=absent" }, updates: { value: null, error: "timeout=120" }, requirements: { value: null, error: "exit=1" } });
-    same(failed.mise, { tone: "danger", text: "A required tool is missing. Use Install to add it." });
+    same(failed.mise, { tone: "danger", text: "Check failed", hint: "A required tool is missing. Use Install to add it." });
+    // A chip elides at its column's width and a hint wraps, so the chip
+    // holds a state word and the hint the whole sentence with what to do.
+    for (const diagnostic of ["start=failed", "unparseable", "timeout=120", "mise=absent", "runtime=podman exit=1", "release=unreachable", "pkg=failed", "unexpected: key=value"]) {
+        const state = logic.statusValues({ catalog: { value: null, error: diagnostic } }).mise;
+        assert.doesNotMatch(state.text, /[.…]/, diagnostic + ": the chip holds no sentence");
+        assert.ok(state.text.length <= 16, diagnostic + ": the chip is a state word");
+        assert.match(state.hint, /(to retry|to add it)\.$/, diagnostic + ": the hint ends with its whole instruction");
+        assert.ok(PluginLogic.statusValueFits("state", JSON.parse(JSON.stringify(state))), diagnostic + ": the status provider admits the value");
+    }
     same(["installed", "outdated", "missingRequirements"].filter(k => k in failed), [], "a failed query publishes no count");
     same(failed.checks, { tone: "warning", text: "Checks failed" },
         "a failed query keeps the warning while withholding its count");
@@ -412,6 +421,8 @@ const CONTROLS = [
     ["a missing launcher needs installation repair", 'if (/reason=launcher-missing/.test(reply))', 'if (false)'],
     ["a failed tool action has a message", 'function actionErrorText(reason) {', 'function actionErrorText(reason) { if (/step=failed/.test(String(reason))) return "";'],
     ["diagnostics stay out of display text", 'function errorText(reason, query) {', 'function errorText(reason, query) { return String(reason);'],
+    ["a failed list's chip holds no sentence", 'text: "Check failed", hint: errorText(tools.error) }', 'text: errorText(tools.error) }'],
+    ["a failed list's hint keeps its instruction", 'hint: errorText(tools.error) }', 'hint: errorText(tools.error).slice(0, 30) + "…" }'],
     ["a missing mise offers no action", 'text: "Not installed" }', 'text: "Not installed", action: true }'],
     ["open skips a fresh remote", 'if (trigger !== "open" || !QUERIES[name].network) return true;', "return true;"],
     ["the list follows the launchers", 'return name === "launchers" ? "catalog" : "";', 'return "";'],

@@ -305,14 +305,15 @@ function checksValue(answers) {
 // `installed` and `outdated` from the list and the mise updates;
 // `missingRequirements` from the doctor report. A value no answer supports
 // yet is left out, so Settings reads it as not reported rather than as a
-// guess.
+// guess. A failed list draws a short chip and its sentence as the state's
+// hint: a chip elides at its column's width, and a hint wraps.
 function statusValues(answers) {
     var out = { catalog: catalogValue(answers) };
     if (CHECK_QUERIES.some(function (name) { return hasOwn(answers, name); })) out.checks = checksValue(answers);
     var tools = answers.catalog;
     if (tools !== undefined) {
         if (tools.value === null) {
-            out.mise = { tone: "danger", text: errorText(tools.error) };
+            out.mise = { tone: "danger", text: "Check failed", hint: errorText(tools.error) };
         } else {
             out.mise = tools.value.mise.present ? { tone: "ok", text: clip(tools.value.mise.version) } : { tone: "warning", text: "Not installed" };
             out.installed = listedRows(tools.value).filter(function (row) { return row.installed === true; }).length;
