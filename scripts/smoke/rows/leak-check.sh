@@ -36,6 +36,9 @@
 # smoke_row puts the pointer at rest before every row it runs outside
 # another row: a planted row run so, with the pointer moved away first,
 # reads the pointer at rest when it starts.
+# A planted row whose shell is killed and which takes up no other, ending
+# once the runner's next shell answers and maps its bars, fails once, on
+# the shell class, and the failure carries the runner's exit line.
 # The layers class is read once the per-screen layers are at rest. With
 # each screen's background held in a FIFO until the end reading has read
 # the layers or found them unsettled, a planted row whose shell the
@@ -405,6 +408,23 @@ SH
   expect_poll "the background layers are as they were" "$lc_bg_before" layer_count vgs:background
   rm -f -- "${lc_plants:?}/background.png" "${lc_plants:?}/hold"/*.png
   rmdir -- "${lc_plants:?}/hold" || fail "the held images' directory was not removed"
+
+  # The ended-shell control: the planted row's shell ends and the row takes
+  # up no other, as a row does whose shell exits under it. The runner
+  # starts a shell again, and the row waits for its bars so the layers
+  # read as they were; the shell class alone is left.
+  cat >"$lc_plants/leak-plant-ended.sh" <<'SH'
+printf '%s\n' "$shell_qs_pid" >"$lc_plants/ended.killed"
+lc_ended_bars="$(bar_count)" || fail "the bar count is unreadable before the planted end"
+kill -KILL -- "$shell_qs_pid" || fail "the planted end's kill failed"
+expect "the runner starts a shell again after the planted end" back relaunched_within "$shell_qs_pid" 20000
+expect_poll "the runner's shell answers" ok ipc shell ping
+expect_poll "the runner's shell maps its bars again" "$lc_ended_bars" bar_count
+SH
+  expect "control: a row whose shell ended under it fails once" 1 lc_planted leak-plant-ended
+  expect "control: the failure names the shell class and the runner's exit line" 1 lc_failed leak-plant-ended "leaves shell: \\+environ=unreadable runner=\\[vgshell: shell=exited status=137 [^]]*\\] -.*"
+  sed -n 's/^  FAIL  /    planted fail: /p' -- "$sandbox/leak-plant-ended.log"
+  if lc_ended="$(cat -- "$lc_plants/ended.killed")"; then adopt_shell "$lc_ended" || :; else fail "the ended shell's pid is unrecorded"; fi
   # The runner counts the kills above as one relaunch streak in its log,
   # so the rows after get a runner and a log of their own, as
   # rows/key-passthrough.sh ends.

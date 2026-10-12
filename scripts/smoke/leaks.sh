@@ -19,7 +19,9 @@
 #   its live value from `hyprctl -j getoption`;
 # - variables: leak_start_variables, each by `declare -p`;
 # - shell: devices_guard's reading of the running shell, shell_qs_pid,
-#   `no-shell` with no pid and `environ=unreadable` for a dead shell;
+#   `no-shell` with no pid and `environ=unreadable` for a dead shell, with
+#   `runner=[LINE]`, the last exit line the runner wrote to shell_log, or
+#   `runner=[no-exit-line]`, so the failure names how the shell ended;
 # - shim: the executable files of the shell's stand-in directory, $shim,
 #   by name and content hash; the record files a stand-in writes there are
 #   no command a shell runs.
@@ -160,8 +162,16 @@ leak_shell() {
   elif reading="$(devices_guard "$shell_qs_pid" 2>/dev/null)"; then
     printf '%s\n' "$reading"
   else
-    echo environ=unreadable
+    echo "environ=unreadable runner=[$(leak_runner_exit)]"
   fi
+}
+# leak_runner_exit: the last `vgshell: shell=exited` or `shell=gave-up`
+# line of shell_log, which bin/vgshell's runner writes at each exit of its
+# shell with the exit status; `no-exit-line` when the log holds none.
+leak_runner_exit() {
+  local line
+  line="$(grep -E '^vgshell: shell=(exited|gave-up) ' -- "${shell_log:-/dev/null}" 2>/dev/null | tail -n 1)" || line=""
+  printf '%s\n' "${line:-no-exit-line}"
 }
 
 leak_row_start() {

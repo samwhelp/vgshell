@@ -8,8 +8,10 @@
 # trial, Keep and reload with no configuration error, and the judge refuses
 # an HDR trial, since the nested panel has no EDID. The row uses WAYLAND-1, whose nested
 # backend takes any mode and integer scale. The nested headless output
-# takes no mirror rule, so the unit rows alone hold Mirror. Each poll reads
-# every 0.2 s for up to 5 s.
+# takes no mirror rule, so the unit rows alone hold Mirror. Around each
+# rule that turns the main output off the row waits for the shell's bar on
+# it to go and to come back, so no rule turns off an output the shell has
+# not bound. Each poll reads every 0.2 s for up to 5 s.
 # Control run on 2026-10-10, host cachy, through this row after the setup
 # rows: a guard copy that exits before restore leaves the trial's token
 # held and writes no log, and the control reports the defect; with the
@@ -191,6 +193,18 @@ release_mode "display modes control restores $output" "$output" "$base" 1
 # again. When the main output is off and no other is left, Hyprland lists
 # FALLBACK, and Quickshell warns when FALLBACK goes because it never
 # tracked it.
+# An output that goes off before the shell has bound it ends the shell.
+# Hyprland 0.56.2 over libwayland 1.26.0 answers the late wl_registry bind
+# with `global wl_output (N) is unavailable`, a protocol error, and Qt
+# 6.11.2 exits the process on one: the runner logs `The Wayland connection
+# experienced a fatal error: Protocol error` and `shell=exited status=255`,
+# and Quickshell writes no crash report (this row's off control in a loop
+# with no wait, after the hyprland, clipboard and monitor-outputs rows,
+# ended the shell at its repeat 17 on 2026-10-11, host cachy; with the
+# waits it ran 40). The shell builds a bar only on an output it has
+# bound, so the row waits for that bar to go after each rule that turns
+# $output off and for it to come back before the next one.
+shell_bar_on() { local screens; screens="$(bar_screens)" || return; [[ " $screens " == *" $1 "* ]] && echo yes || echo no; }
 display_modes_output_regex_safe() { [[ $output =~ ^[A-Za-z0-9_-]+$ ]] && echo yes || echo no; }
 expect "the output name is regex-safe for the warning excuse" yes display_modes_output_regex_safe
 expected_errors+=("WARN quickshell\\.hyprland\\.ipc: Got removal for monitor \"(FALLBACK|$output)\" which was not previously tracked\\.")
@@ -206,6 +220,7 @@ expect "control: the same warning for another monitor still fails the log check"
 off_rules="$(off_rule_json "$output" "$base")"
 expect "the off trial starts" ok invoke_displays trialRules "$off_rules"
 expect_poll "the off trial turns $output off" true disabled_of "$output"
+expect_poll "the shell drops its bar on $output once it is off" no shell_bar_on "$output"
 token="$(token_of)"
 expect "Keep saves the off rule" ok invoke_displays keepTrial "{\"token\":\"$token\",\"rules\":$off_rules}"
 expect_poll "the layer turns $output off inside its check" yes layer_turns_off "$output"
@@ -213,6 +228,7 @@ expect "reload with the headless output on" ok hypr reload config-only
 expect_poll "the kept off rule holds while the headless output is on" true disabled_of "$output"
 expect "the nested compositor removes the headless output" ok hypr output remove "$extra_output"
 expect_poll "the layer turns $output back on when no other output is left" false disabled_of "$output"
+expect_poll "the shell holds a bar on $output again before the next off rule" yes shell_bar_on "$output"
 expect "reload with $output alone" ok hypr reload config-only
 expect_poll "$output stays on after a reload with no other output" false disabled_of "$output"
 
@@ -220,8 +236,10 @@ expect_poll "$output stays on after a reload with no other output" false disable
 # output, leaves the session dark; a reload of the layer turns it back on.
 expect "control: the unchecked off rule is sent" ok hypr eval "hl.monitor({ output = \"$output\", disabled = true })"
 expect_poll "control: an unchecked off rule leaves the only output off" true disabled_of "$output"
+expect_poll "the shell drops its bar on $output after the control" no shell_bar_on "$output"
 expect "reload after the control" ok hypr reload config-only
 expect_poll "the layer turns $output back on after the control" false disabled_of "$output"
+expect_poll "the shell holds a bar on $output again after the control" yes shell_bar_on "$output"
 expect "clearing the off rule is allowed" ok invoke_displays clearRules ""
 expect_poll "the layer drops the off rule" no layer_has_rule
 expect "reload drops the off rule" ok hypr reload config-only
