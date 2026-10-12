@@ -11,7 +11,8 @@
 #                                   [--voice local|realtime]
 #                                   [--mode toggle|always]
 #                                   [--follow-up-tts TEXT|--follow-up-wav FILE]
-#                                   [--confirm key|none] [--out FILE]
+#                                   [--confirm key|none] [--cloned-voice]
+#                                   [--out FILE]
 #
 # The sandbox is the smoke's own (scripts/smoke/harness.sh), with the
 # checkout's Jarvis plugin put back over the harness's instrumented copy, so
@@ -67,6 +68,13 @@
 # --confirm key confirms each request Jarvis shows as its Confirm key does,
 # with one press a request, made once Session's draw guard has passed;
 # none, the default, answers none, so a request ends on Jarvis's own bound.
+# --cloned-voice turns on the local voice's Cloned voice setting. The
+# prepared setup then also holds a cloned voice setup-local made beside its
+# graphics card tier: the clone folder below its data root, and its
+# clone-ready.json and voice-reference.wav beside its ready marker, which
+# the run copies into the sandbox's state as this user's 0600 files. It
+# needs the local voice and a single turn; a case asks for it with
+# "clonedVoice": true.
 # --suite NAME runs one case from scripts/jarvis-selftest-cases/. --suite all
 # runs every case, sorted by name. --voices DIR lets a suite use DIR/<case>.wav
 # for a case input, without changing tracked cases. A suite writes records
@@ -104,6 +112,8 @@
 # names only), `dictation` (daemon changes as {ms, daemon, child},
 # recording changes as {ms, phase}, and unread, the count of failed lending
 # record reads during the voice window),
+# `sidecar` ({reference}: whether the running local speech sidecar was
+# handed the cloned voice's recording, read from its argv, null for none),
 # `mailbox` (with --home, each row the Jarvis session's read of
 # its mailbox hands over after the turn, as lane-mail prints it; null
 # without), `widget` (each bar widget state as {ms, state}), `phases` (each
@@ -217,6 +227,27 @@ selftest_keys_save() { # TREE STATE REFERENCE...
     const secrets = new Secrets(state, process.env);
     for (const reference of references) console.log(secrets.attributes(secrets.remember(JSON.parse(reference))).join("\x1f"));
 JS
+}
+
+# selftest_sidecar STATE: the running local speech sidecar of the state
+# root STATE, read from its argv, as {"reference": whether LocalSpeech.js
+# handed it the cloned voice's recording}, null for no such sidecar.
+selftest_sidecar() { # STATE
+  python3 - "$1" <<'PY'
+import json, os, sys
+state = os.path.realpath(sys.argv[1])
+found = None
+for pid in filter(str.isdigit, os.listdir("/proc")):
+    try:
+        argv = open(f"/proc/{pid}/cmdline", "rb").read().decode(errors="replace").split("\0")
+    except OSError:
+        continue
+    at = argv.index("--state") if "--state" in argv else -1
+    if any(word.endswith("/local-speech.py") for word in argv) and 0 <= at < len(argv) - 1 \
+            and os.path.realpath(argv[at + 1]) == state:
+        found = "--reference" in argv
+print(json.dumps({"reference": found}))
+PY
 }
 
 # selftest_local_inputs: the prepared local voice the header names, as its
@@ -773,6 +804,7 @@ import json, os, sys
 trace, audit, out, phase, fault, kind, value, brain, home, voice, mode, confirm, mailbox, end, kept, brain_text, *rest = sys.argv[1:]
 audio = json.loads(rest[0]) if rest else {"speechEndMs": None, "firstMs": None, "longestGapMs": None, "sounds": []}
 dictation = json.loads(rest[1]) if len(rest) > 1 else {"daemon": [], "recordings": [], "unread": 0}
+sidecar = json.loads(rest[2]) if len(rest) > 2 else {"reference": None}
 events = json.load(open(trace))
 # ChainedEngine.js writes one line for each text event of a brain turn.
 raw, turn = [], None
@@ -822,7 +854,7 @@ for name in sorted(os.listdir(audit)) if os.path.isdir(audit) else []:
 passed = end == "completed" and heard is not None and kept == "true"
 record = {"input": {"kind": kind, "value": value}, "brain": brain, "home": home or None, "voice": voice,
           "mode": mode, "confirm": confirm, "heard": heard, "sentences": sentences, "raw": raw, "tools": tools,
-          "dictation": dictation,
+          "dictation": dictation, "sidecar": sidecar,
           "mailbox": [json.loads(line) for line in mailbox.splitlines()] if home else None,
           "widget": [{"ms": e["at"] - start, "state": e["value"]} for e in events if e["kind"] == "widget" and e["value"]],
           "phases": [{"ms": e["at"] - start, "phase": e["value"]} for e in events if e["kind"] == "phase" and e["value"]],
@@ -929,7 +961,7 @@ except Exception as error:
     print(f"case=malformed path={path} reason=json", file=sys.stderr)
     sys.exit(1)
 required = {"input", "mode", "confirm", "heard", "tool", "said"}
-if not required.issubset(data) or set(data) - (required | {"followUp"}):
+if not required.issubset(data) or set(data) - (required | {"followUp", "clonedVoice"}):
     print(f"case=malformed path={path} reason=keys", file=sys.stderr)
     sys.exit(1)
 def check_input(key, required=True):
@@ -948,6 +980,9 @@ def check_input(key, required=True):
         sys.exit(1)
 check_input("input")
 check_input("followUp", False)
+if data.get("clonedVoice", True) is not True:
+    print(f"case=malformed path={path} reason=clonedVoice", file=sys.stderr)
+    sys.exit(1)
 if "followUp" in data and data["mode"] != "always":
     print(f"case=malformed path={path} reason=followUp-mode", file=sys.stderr)
     sys.exit(1)
@@ -996,6 +1031,8 @@ if not has_words(spoken, case["said"]):
     fields.append("said")
 if (record.get("audio") or {}).get("firstMs") is None:
     fields.append("audio")
+if case.get("clonedVoice") and (record.get("sidecar") or {}).get("reference") is not True:
+    fields.append("clonedVoice")
 record["case"] = {"name": os.path.splitext(os.path.basename(case_file))[0], "source": source, "expect": {key: case[key] for key in ("heard", "tool", "said")}, "differs": fields}
 with open(record_file + ".next", "w") as out:
     json.dump(record, out, indent=2, ensure_ascii=False)
@@ -1027,6 +1064,8 @@ else:
 print("source=" + source)
 for word in ("--" + kind, value, "--mode", case["mode"], "--confirm", case["confirm"]):
     print(word)
+if case.get("clonedVoice"):
+    print("--cloned-voice")
 if "followUp" in case:
     follow_kind, follow_value = next(iter(case["followUp"].items()))
     if follow_kind == "wav":
@@ -1093,6 +1132,11 @@ PY
       not_run=$((not_run + 1))
       continue
     fi
+    if [[ $voice == realtime && " ${case_args[*]} " == *" --cloned-voice "* ]]; then
+      printf 'case=%s source=%s skipped=cloned-voice-local-voice\n' "$name" "$source"
+      not_run=$((not_run + 1))
+      continue
+    fi
     child_args=("${case_args[@]}" --brain "$brain" --voice "$voice")
     [[ -z $home_source ]] || child_args+=(--home "$home_source")
     child_args+=(--out "$record")
@@ -1141,6 +1185,7 @@ mode=toggle
 mode_seen=false
 confirm=none
 confirm_seen=false
+cloned=false
 out=""
 refuse() { printf 'jarvis-selftest: refused: %s\n' "$*" >&2; exit 2; }
 # unavailable KEY...: the run could not run, which is never a pass.
@@ -1184,7 +1229,7 @@ selftest: setup=null daemon=null gate={"kind":"none"}'
 }
 # selftest_finish TURN HOME_SUM AUTH_LOG FAILURES TRACE AUDIT OUT PHASE FAULT
 # KIND VALUE BRAIN HOME VOICE MODE CONFIRM TREE HOME_COPY BRAIN_TEXT AUDIO_JSON
-# DICTATION_JSON VOXTYPE_MODELS_SUM VOXTYPE_MODELS: the run's
+# DICTATION_JSON VOXTYPE_MODELS_SUM VOXTYPE_MODELS SIDECAR_JSON: the run's
 # one verdict.
 # It reads the rows the turn added to the mailbox of HOME_COPY, Jarvis's copy
 # of HOME, with TREE's lane-mail, and what the run broke outside its turn:
@@ -1197,9 +1242,10 @@ selftest: setup=null daemon=null gate={"kind":"none"}'
 # broken, then the run's last line, and exits 0 for a passed record and 1
 # for any other.
 selftest_finish() {
-  local turn="$1" home_sum="$2" auth_log="$3" failures="$4" out="$7" home_source="${13}" tree="${17}" home_copy="${18}" brain_text="${19}" audio_json="${20:-}" dictation_json="${21:-}" voxtype_models_sum="${22:-}" voxtype_models="${23:-}" end sum kept=true verdict mailbox=""
+  local turn="$1" home_sum="$2" auth_log="$3" failures="$4" out="$7" home_source="${13}" tree="${17}" home_copy="${18}" brain_text="${19}" audio_json="${20:-}" dictation_json="${21:-}" voxtype_models_sum="${22:-}" voxtype_models="${23:-}" sidecar_json="${24:-}" end sum kept=true verdict mailbox=""
   [[ -n $audio_json ]] || audio_json='{"speechEndMs":null,"firstMs":null,"longestGapMs":null,"sounds":[]}'
   [[ -n $dictation_json ]] || dictation_json='{"daemon":[],"recordings":[],"unread":0}'
+  [[ -n $sidecar_json ]] || sidecar_json='{"reference":null}'
   end="$(selftest_end "$turn")"
   if [[ -n $home_source ]]; then
     mailbox="$(selftest_mailbox "$tree" "$home_copy")" || stopped mailbox-unread
@@ -1210,7 +1256,7 @@ selftest_finish() {
   if [[ -s $auth_log ]]; then kept=false; printf 'selftest: an authentication stand-in was reached: %s\n' "$auth_log"; sed 's/^/        /' -- "$auth_log"; fi
   [[ $failures -eq 0 ]] || { kept=false; printf 'selftest: %s sandbox check(s) failed above\n' "$failures"; }
   mkdir -p -- "$(dirname -- "$out")"
-  verdict="$(selftest_record "${@:5:12}" "$mailbox" "$end" "$kept" "$brain_text" "$audio_json" "$dictation_json")" || stopped record-not-written
+  verdict="$(selftest_record "${@:5:12}" "$mailbox" "$end" "$kept" "$brain_text" "$audio_json" "$dictation_json" "$sidecar_json")" || stopped record-not-written
   printf 'selftest=%s record=%s\n' "$end" "$out"
   [[ $verdict == passed ]] || exit 1
   exit 0
@@ -1244,6 +1290,7 @@ while [[ $# -gt 0 ]]; do
     --confirm)
       [[ $# -ge 2 && $2 =~ ^(key|none)$ ]] || refuse "argument=--confirm value=${2-}"
       confirm="$2"; confirm_seen=true; shift 2 ;;
+    --cloned-voice) cloned=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *) refuse "argument=$1" ;;
   esac
@@ -1257,6 +1304,7 @@ if [[ -n $suite_name ]]; then
   [[ -n $brain ]] || refuse "argument=--brain reason=missing"
   [[ -z $voices_dir || -d $voices_dir ]] || refuse "argument=--voices value=$voices_dir reason=not-a-directory"
   [[ $suite_name == all || -f $selftest_cases_dir/$suite_name.json ]] || refuse "argument=--suite value=$suite_name reason=unknown-case"
+  [[ $cloned == false ]] || refuse "argument=--cloned-voice reason=case-key"
 elif ((cold_count > 0)); then
   [[ -z $voices_dir ]] || refuse "argument=--voices reason=requires-suite"
   [[ -z $input_kind ]] || refuse "argument=--cold reason=exclusive-with-input"
@@ -1266,6 +1314,7 @@ elif ((cold_count > 0)); then
   [[ $voice == local ]] || refuse "argument=--cold reason=exclusive-with-voice"
   [[ $mode_seen == false ]] || refuse "argument=--mode reason=exclusive-with-cold"
   [[ $confirm == none ]] || refuse "argument=--cold reason=exclusive-with-confirm"
+  [[ $cloned == false ]] || refuse "argument=--cloned-voice reason=exclusive-with-cold"
 else
   [[ -z $voices_dir ]] || refuse "argument=--voices reason=requires-suite"
   [[ -n $input_kind ]] || refuse "argument=input reason=missing want=--wav|--tts|--type"
@@ -1274,6 +1323,7 @@ else
   [[ -z $follow_kind || $input_kind != type ]] || refuse "argument=--follow-up value=$follow_kind reason=voice-input-required"
   [[ $mode != always || $input_kind != type ]] || refuse "argument=--mode value=always reason=always-needs-voice"
   [[ $mode != always || $voice != realtime ]] || refuse "argument=--mode value=always reason=always-needs-local-voice"
+  [[ $cloned == false || $voice == local ]] || refuse "argument=--cloned-voice reason=needs-local-voice"
 fi
 if [[ $input_kind == wav ]]; then
   [[ -f $input_value && -r $input_value ]] || refuse "argument=--wav value=$input_value reason=unreadable"
@@ -1399,6 +1449,16 @@ if [[ $voice == local || $input_kind == tts || $follow_kind == tts ]]; then
   local_inputs="$(selftest_local_inputs)" || unavailable local-inputs-unavailable
   { read -r local_root; read -r local_marker; } <<<"$local_inputs"
 fi
+# The prepared cloned voice: its marker and recording beside the tier's
+# marker, and its environment below the data root.
+clone_state=""
+if [[ $cloned == true ]]; then
+  clone_state="$(dirname -- "$local_marker")"
+  for name in clone-ready.json voice-reference.wav; do
+    [[ -f $clone_state/$name ]] || unavailable input-missing "name=$name"
+  done
+  [[ -x $local_root/clone/venv/bin/python ]] || unavailable input-missing name=clone-runtime
+fi
 voxtype_models=""
 voxtype_models_sum=""
 voxtype_cpu=""
@@ -1467,6 +1527,9 @@ if [[ $voice == local ]]; then
   # setup where setup-local made it.
   ln -s -- "$local_root" "$home/.local/share/vgshell/jarvis/local"
   cp -- "$local_marker" "$home/.local/state/vgshell/jarvis/local-ready.json"
+  # setup-local's clone judge reads the recording only as this user's 0600 file.
+  [[ $cloned == false ]] || install -m 600 -- "$clone_state/clone-ready.json" "$clone_state/voice-reference.wav" \
+    "$home/.local/state/vgshell/jarvis/"
   selftest_voxtype_prepare "$source_repo" "$voxtype_models" "$voxtype_cpu"
 fi
 if [[ ${#key_references[@]} -gt 0 ]]; then
@@ -1515,11 +1578,13 @@ fi
 # The settings Jarvis starts with, written while it is still disabled.
 # Speech plays to a null sink and never into the feed, and the microphone is
 # the feed's source by name, whatever WirePlumber's defaults are.
-settings="$(python3 - "$home/.config/vgshell/shell.json" "$brain" "$devices_voice_feed_source" "$home_copy" "$voice" "$mode" "${voice_account:-}" <<'PY'
+settings="$(python3 - "$home/.config/vgshell/shell.json" "$brain" "$devices_voice_feed_source" "$home_copy" "$voice" "$mode" "${voice_account:-}" "$cloned" <<'PY'
 import json, sys
-path, brain, microphone, home, voice, mode, voice_account = sys.argv[1:]
+path, brain, microphone, home, voice, mode, voice_account, cloned = sys.argv[1:]
 config = json.load(open(path))
 row = {"mode": mode, "brain": brain, "voiceProvider": voice, "microphone": microphone, "speaker": "vgs-smoke-speakers"}
+if cloned == "true":
+    row["clonedVoice"] = True
 if voice_account:
     row["voiceAccount"] = voice_account
 if home:
@@ -1626,6 +1691,7 @@ speaker_sounds="$(devices_speaker_sounds "$speaker_capture")" || speaker_sounds=
 audio_json="$(selftest_audio_record "$speaker_sounds" "$speech_end_ms" "$window_end_ms")" || stopped audio-unread
 dictation_json="$(selftest_dictation_record "$selftest_dictation_daemon" "$selftest_dictation_recordings" "$selftest_dictation_unread")" || stopped dictation-unread
 ipc smoke jarvisTrace >"$sandbox/selftest-trace.json" || stopped trace-unread
+sidecar_json="$(selftest_sidecar "$home/.local/state/vgshell/jarvis")" || stopped sidecar-unread
 
 selftest_finish "$turn" "$home_sum" "$auth_log" "$failures" "$sandbox/selftest-trace.json" "$home/.local/state/vgshell/jarvis/audit" "$out" \
-  "$phase" "$fault" "$record_kind" "$record_value" "$brain" "$home_source" "$voice" "$mode" "$confirm" "$source_repo" "$home_copy" "$sandbox/selftest-brain.jsonl" "$audio_json" "$dictation_json" "$voxtype_models_sum" "$voxtype_models"
+  "$phase" "$fault" "$record_kind" "$record_value" "$brain" "$home_source" "$voice" "$mode" "$confirm" "$source_repo" "$home_copy" "$sandbox/selftest-brain.jsonl" "$audio_json" "$dictation_json" "$voxtype_models_sum" "$voxtype_models" "$sidecar_json"
