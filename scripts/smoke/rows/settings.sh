@@ -683,11 +683,11 @@ for control in TuiInstallGood TuiInstallChosen; do
   rm -- "$repo/shell/Core/TuiInstallControls/$control.qml" || fail "removing the $control source copy failed"
 done
 rmdir -- "$repo/shell/Core/TuiInstallControls" || fail "removing the TUI install control directory failed"
-# The Setup section draws the token's offered step on its screen's action:
-# with the token absent and the required list missing, Token setup draws
-# as Install requirements, first and active, and its press, the
-# manager's openTui, opens the notice and no terminal. With no step
-# offered, the same screen draws disabled with a reason naming the missing
+# A screen a status entry declares draws only on that entry's row: the
+# token's row offers Token setup as Install requirements above, and the
+# Setup section draws no button for it, offered or not. With the token's
+# action taken out of the manifest, the screen belongs to no entry and
+# draws in the Setup section disabled, with a reason naming the missing
 # command, since its press could only open that notice; the two readings
 # are each other's control. The same button of a plugin missing nothing
 # starts its terminal in rows/tui.sh.
@@ -695,16 +695,20 @@ rmdir -- "$repo/shell/Core/TuiInstallControls" || fail "removing the TUI install
 # enabled, whether its tooltip names NAME].
 setup_buttons() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; print(json.dumps([[b[0], b[1], b[2], sys.argv[1] in b[3]] for b in json.load(sys.stdin)["buttons"]]))' "$1"; }
 settings_setup
-expect_poll "the offered step draws Token setup's screen as Install requirements, secondary and active" '[["Install requirements", "accent", true, false]]' setup_buttons vgs-smoke-absent
-forget_record
-settings_press --type RowAction "Install requirements" || fail "the click on the Setup section's Install requirements failed"
-expect_poll "the Setup step of a plugin missing required commands opens the requirement notice" "$large_notice" notice_shown
-expect "the Setup step starts no setup terminal" absent recorded
-expect_poll "the Setup step's notice holds the keyboard" true ipc smoke noticeFocused
-type_keys -k Escape || fail "closing the Setup step's notice failed"
-expect_poll "the Setup step's notice closes" null notice_shown
+expect_poll "the Setup section draws no button for the token's offered screen" '[]' setup_buttons vgs-smoke-absent
 expect "the fixture republishes a present token, which offers no step" ok ipc acme.status invoke set 'token="present"'
-expect_poll "with no step offered, Token setup draws disabled with a reason naming the missing command" '[["Token setup", "accent", false, true]]' setup_buttons vgs-smoke-absent
+expect_poll "the Setup section draws no button for the token's screen with no step offered" '[]' setup_buttons vgs-smoke-absent
+python3 - "$status_manifest" <<'PYTHON'
+from pathlib import Path
+import json, sys
+path=Path(sys.argv[1])
+assert not path.is_symlink()
+manifest=json.loads(path.read_text())
+assert manifest["status"]["token"].pop("action")["tui"] == "setup"
+path.write_text(json.dumps(manifest))
+PYTHON
+rescan "the fixture's token declares no screen"
+expect_poll "a screen no entry declares draws disabled with a reason naming the missing command" '[["Token setup", "accent", false, true]]' setup_buttons vgs-smoke-absent
 expect "the fixture republishes the absent token" ok ipc acme.status invoke set 'token="absent"'
 cp -- "$sandbox/status-action-manifest" "$status_manifest"
 rescan "the fixture restores its optional requirement"

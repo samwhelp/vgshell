@@ -443,18 +443,19 @@ jarvis_rescan
 expect_poll "the restored world publishes its fixture key" matched jarvis_key_value present
 
 # The key list with the fixture's key stored. The Setup tab draws it in
-# its Setup section, beside Add key: the list's label and hint, then the
-# key's line with its chip. Details draws no key list.
+# its Setup section: the list's label and hint, then the key's line with
+# its chip. Add key draws on the rows that declare it, while their value
+# offers it, not beside the list. Details draws no key list.
 page_keys_want="$(python3 -c 'import json,sys; e=json.load(open(sys.argv[1]))["status"]["keys"]; print(json.dumps([e["label"], e["hint"], "fixture / test", "Present"]))' "$page_manifest")"
 # The key list's row as the shown tab draws it, `rows=0` where it draws none.
 page_keys_drawn() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; label=json.load(open(sys.argv[1]))["status"]["keys"]["label"]; r=[r for r in json.load(sys.stdin) if r and r[0] == label]; print(json.dumps(r[0]) if len(r) == 1 else "rows=%d" % len(r))' "$page_manifest"; }
-# Whether the shown Setup section holds the key's line, its chip and Add key.
-page_keys_in_setup() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); s=json.loads(t) if t.startswith("{") else {"lines": [], "chips": [], "buttons": []}; print(str("fixture / test" in s["lines"] and ["Present", "success"] in s["chips"] and "Add key" in [b[0] for b in s["buttons"]]).lower())'; }
+# Whether the shown Setup section holds the key's line and its chip.
+page_keys_in_setup() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); s=json.loads(t) if t.startswith("{") else {"lines": [], "chips": []}; print(str("fixture / test" in s["lines"] and ["Present", "success"] in s["chips"]).lower())'; }
 settings_page_open vgs.jarvis
 expect_poll "the page opens on its Settings tab for the key list" 0 settings_tab
 settings_setup
 expect_poll "the Setup tab draws the key list with the stored key's chip" "$page_keys_want" page_keys_drawn
-expect "the key's line and chip stand in the Setup section, with Add key" true page_keys_in_setup
+expect "the key's line and chip stand in the Setup section" true page_keys_in_setup
 settings_details
 expect "Details draws no key list" rows=0 page_keys_drawn
 # The control: a manifest copy that groups the key list under AI model, so

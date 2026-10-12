@@ -89,7 +89,9 @@ setup_marker="$setup_state/local-ready.json"
 setup_config="$home/.config/vgshell/shell.json"
 setup_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
 # Setup rows use manifest ids. The renderer puts its summary first, then
-# the open steps, then the rest, each in manifest order, and
+# the open steps, then the steps not done that offer their action, the
+# optional Browser and Input among them, then the done ones, each in
+# manifest order, and
 # labels each step from its manifest entry. Optional rows read their chip
 # category because their readers depend on the world.
 setup_rows() {
@@ -120,8 +122,8 @@ print(json.dumps(out))
 ' "$repo/shell/plugins/vgs.jarvis/manifest.json"
 }
 setup_fresh='[["setup", ["warning"], [], 1], ["setupModel", ["warning"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupBrowser", true], ["setupInput", true], ["clonedVoiceSetup", true]]'
-setup_voice_left='[["setup", ["warning"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupModel", ["success"], [], 1], ["setupBrowser", true], ["setupInput", true], ["clonedVoiceSetup", true]]'
-setup_ready='[["setup", ["success"], [], 1], ["setupModel", ["success"], [], 1], ["setupVoice", ["info"], ["check-microphone"], 1], ["setupBrowser", true], ["setupInput", true], ["clonedVoiceSetup", true]]'
+setup_voice_left='[["setup", ["warning"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupBrowser", true], ["setupInput", true], ["setupModel", ["success"], [], 1], ["clonedVoiceSetup", true]]'
+setup_ready='[["setup", ["success"], [], 1], ["setupVoice", ["info"], ["check-microphone"], 1], ["setupBrowser", true], ["setupInput", true], ["setupModel", ["success"], [], 1], ["clonedVoiceSetup", true]]'
 # BRAIN as the Jarvis AI model setting, "" for none, delivered by a reload.
 setup_brain() { # BRAIN
   python3 - "$setup_config" "$1" <<'PY'
