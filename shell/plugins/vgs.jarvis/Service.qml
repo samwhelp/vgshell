@@ -951,6 +951,11 @@ Item {
         retry.start();
     }
 
+    // The user turned Jarvis off: the one teardown that also stops the
+    // user's Jarvis session. The destruction below follows it, as it
+    // follows a reload, which stops no session.
+    function turnedOff() { sessionStart.turnedOff(); }
+
     Component.onDestruction: {
         cancelDictation();
         lifetime = { kind: "stopped", pendingMute: "none" };
@@ -1065,6 +1070,6 @@ Item {
     Jarvis.LocalTier { shell: root.shell }
     Jarvis.BrowserRuntime { shell: root.shell; stepKey: "setupBrowser" }
     Jarvis.FleetRuntime { shell: root.shell }
-    Jarvis.SessionStart { shell: root.shell }
+    Jarvis.SessionStart { id: sessionStart; shell: root.shell }
     Jarvis.Accounts { id: accountReader; shell: root.shell; onRefreshed: root.hello() }
 }

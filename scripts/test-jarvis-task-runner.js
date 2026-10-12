@@ -222,7 +222,6 @@ with open(os.environ["VGS_TEST_TASK_VIEW_LOG"], "w") as output:
         const seen = { kills: [], counts: [], failures: [], writes: [], opens: [], atStopped: [], display: [], launchers: [], prompts: [] };
         const launch = { mode: "children", marker: null };
         const row = account => ({ program: "fixture-agent", account, interrupt: { signal: "SIGINT" }, interruptMs: 300,
-            session: { fresh: ["fixture-agent"], resume: ["fixture-agent"] },
             argv: task => ["fixture-agent", launch.mode, launch.marker, task.brief] });
         const profiles = Profiles.table({ fixture: row({ variable: "FIXTURE_ACCOUNT" }), plain: row(null) });
         let runner = null;
@@ -866,11 +865,9 @@ const answer = spawnFixture("python3", ["-I", "-c", "import os; os._exit(23)"],
         ["account", "ok", { account: { variable: "PATH" } }],
         ["signal", "ok", { interrupt: { signal: "SIGKILL" } }],
         ["interrupt", "ok", { interruptMs: 50 }],
-        ["session", "ok", { session: { fresh: ["agent"], resume: ["other", "--continue"] } }],
         ["shape", "ok", { extra: true }]
     ];
-    const good = { program: "agent", argv: () => ["agent"], session: { fresh: ["agent"], resume: ["agent", "--continue"] },
-        account: null, interrupt: { signal: "SIGINT" }, interruptMs: 300 };
+    const good = { program: "agent", argv: () => ["agent"], account: null, interrupt: { signal: "SIGINT" }, interruptMs: 300 };
     for (const [name, id, change] of profileRows)
         assert.throws(() => current.Profiles.table({ [id]: { ...good, ...change } }), /jarvis: profiles=(row|id)/, name);
     const table = current.Profiles.table({ agent: { ...good, argv: () => ["other"] } });

@@ -1,63 +1,69 @@
-# The Start Jarvis at boot setting against the real core, the shipped
-# helper and tmux on the sandbox's own server: the harness sets TMUX_TMPDIR
-# to the sandbox's runtime directory, so no start reaches the caller's
-# server. With the setting off a shell start starts no session. Turned on
-# in a running shell, the Jarvis session row reads that the next boot
-# starts it, the session choices are offered and still no session runs. A
-# shell start then starts one session, `jarvis`, in the home folder, which
-# runs the account's program with its resume form, and a second shell start
-# starts no second session and runs no second program. With Start a new
-# session chosen, a shell start runs the program with no resume form.
-# Control: a tree whose launcher skips its session check reads the second
-# start as not started. The program is a fixture `claude` in the shell's
-# stand-in directory: it records its argv and account folder and holds its
-# session open. No vendor program and no account runs.
-# No latency ceiling. Reads poll once per nested IPC round trip, and a
-# session read runs one tmux client.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/* shell/Commons/AccountDirectories.js bin/lib/account-folders.js bin/lib/anchored.js bin/lib/judge-files.js bin/lib/qml-library.js shell/Core/PluginStatus.qml scripts/smoke/rows/jarvis.sh
+# The Jarvis session row against the real core and the shipped helper,
+# with a stand-in for the Jarvis package's `jarvis-session` in the home
+# folder (scripts/fixtures/jarvis/session-package.py): it records each call
+# and answers what the row wrote beside it, and starts nothing, so no
+# session and no tmux server exists at any point. In a home without the
+# command the row reads that no session can start and names the package.
+# With Start Jarvis at boot off a shell start reads the session and asks
+# for no start. Turned on in a running shell, the row reads that the next
+# boot starts it, the session choices are offered and still no start is
+# asked. Each shell start then asks the package for one boot start, in the
+# home, for the account's app, and a second shell start asks again and VGS
+# starts nothing itself. The Start step asks for a manual start. Disabling
+# Jarvis asks for one stop with the app's Off, and a shell restart asks for
+# none. Control: a tree whose helper asks twice reads two starts for one
+# shell start.
+# No latency ceiling. Reads poll once per nested IPC round trip.
+# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/* scripts/fixtures/jarvis/session-package.py shell/Core/Plugins.qml shell/Commons/AccountDirectories.js bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Core/PluginStatus.qml scripts/smoke/rows/jarvis.sh
 set -euo pipefail
 session_config="$home/.config/vgshell/shell.json"
 session_home="$home/SmokeJarvis"
 session_account="$home/.claude"
+session_package="$session_home/.agents/skills/jarvis"
 mkdir -p -- "$session_home"
 session_account_made=false
 [[ -d $session_account ]] || { mkdir -- "$session_account"; session_account_made=true; }
 # The account's id as the Jarvis page saves it.
 session_brain="$(python3 -c 'import hashlib,json,sys; print("cli:" + hashlib.sha256(json.dumps(["claude", sys.argv[1]], separators=(",", ":")).encode()).hexdigest()[:32])' "$session_account")"
-# Only a start in the session's folder is the session: the daemon's sign-in
-# check of the chosen account runs this program elsewhere and gets no answer.
-cat >"$shim/claude" <<PROGRAM
-#!/usr/bin/env python3
-import json, os, sys, time
-if os.getcwd() != "$session_home":
-    sys.exit(1)
-fd = os.open("starts.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-os.write(fd, (json.dumps({"argv": sys.argv[1:], "account": os.environ.get("CLAUDE_CONFIG_DIR")}) + "\n").encode())
-os.close(fd)
-while not os.path.exists("release"):
-    time.sleep(0.02)
-PROGRAM
-chmod 755 "$shim/claude"
 
-session_tmux() { env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$rt_dir" tmux "$@"; }
-# The sandbox server's session names as a JSON list; none without a server.
-session_names() {
-  local listed
-  listed="$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null)" || listed=""
-  python3 -c 'import json,sys; print(json.dumps(sys.argv[1].split()))' "$listed"
+# The stand-in's answers by verb, as "STATE REASON" words; its calls start over.
+session_answers() { # STATUS START STOP
+  python3 - "$session_package/scripts" "$session_home" "$session_account" "$@" <<'PY'
+import json, os, sys
+folder, home, account = sys.argv[1:4]
+answers = {}
+for verb, words in zip(["status", "start", "stop"], sys.argv[4:]):
+    state, reason = words.split()
+    answers[verb] = {"exit": 0, "object": {"state": state, "reason": reason, "home": home, "harness": "claude", "account": account}}
+json.dump(answers, open(os.path.join(folder, "answers.json"), "w"))
+if os.path.exists(os.path.join(folder, "calls.log")):
+    os.unlink(os.path.join(folder, "calls.log"))
+PY
 }
-# Each recorded start as [argv, account folder].
-session_starts() {
-  python3 - "$session_home/starts.log" <<'PY'
+# The argv of each call of VERB the stand-in took, as a JSON list.
+session_calls() { # VERB
+  python3 - "$session_package/scripts/calls.log" "$1" <<'PY'
 import json, os, sys
 lines = open(sys.argv[1]).read().splitlines() if os.path.exists(sys.argv[1]) else []
 try:
-    print(json.dumps([[row["argv"], row["account"]] for row in map(json.loads, lines)]))
+    print(json.dumps([row["argv"] for row in map(json.loads, lines) if row["argv"][0] == sys.argv[2]]))
 except ValueError:
     print("partial")
 PY
 }
+session_start_words() { # MODE ORIGIN...
+  python3 -c 'import json,sys; print(json.dumps([["start", "--harness", "claude", "--account", sys.argv[1], "--mode", sys.argv[3], "--origin", origin, "--home", sys.argv[2]] for origin in sys.argv[4:]]))' \
+    "$session_account" "$session_home" "$@"
+}
+# The row as [text, hint], or pending before the service's first answer.
 session_row() {
+  ipc smoke jarvisProcess | py_reply '
+import json,sys
+value=json.load(sys.stdin)["status"].get("sessionStart")
+print(json.dumps([value["text"], value.get("hint", "")]) if isinstance(value, dict) and "text" in value else "pending")
+'
+}
+session_text() {
   ipc smoke jarvisProcess | py_reply '
 import json,sys
 value=json.load(sys.stdin)["status"].get("sessionStart")
@@ -69,6 +75,11 @@ session_modes() {
 import json,sys
 print(json.dumps([choice["value"] for choice in json.load(sys.stdin)["status"].get("sessionModes") or []]))
 '
+}
+session_tmux() {
+  local listed
+  listed="$(env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$rt_dir" tmux list-sessions -F '#{session_name}' 2>/dev/null)" || listed=""
+  python3 -c 'import json,sys; print(json.dumps(sys.argv[1].split()))' "$listed"
 }
 # VALUES, a JSON object, written over Jarvis's settings; null removes a key.
 session_set() { # VALUES
@@ -90,52 +101,68 @@ session_shell_start() { # TREE NAME
   start_shell "$1" "$sandbox/jarvis-session-$2.log"
   jarvis_enable
 }
-session_end() {
-  : >"$session_home/release"
-  expect_poll "the released program ends its session" '[]' session_names
-  rm -f -- "$session_home/release" "$session_home/starts.log"
-}
 
 jarvis_setup_requirements
+session_set "$(python3 -c 'import json,sys; print(json.dumps({"brain": sys.argv[1], "home": "~/SmokeJarvis"}))' "$session_brain")"
+session_shell_start "$repo" no-package
+expect_poll "a home without the package's command reads that no session can start" \
+  '["Cannot start", "Install or update the Jarvis package in this home folder."]' session_row
+
+mkdir -p -- "$session_package/scripts"
+printf '# Jarvis\n' >"$session_package/SKILL.md"
+printf 'Smoke persona.\n' >"$session_package/persona.md"
+cp -- "$source_repo/scripts/fixtures/jarvis/session-package.py" "$session_package/scripts/jarvis-session"
+chmod 755 "$session_package/scripts/jarvis-session"
+session_answers "stopped never-started" "running existing" "stopping stop-requested"
 session_shell_start "$repo" off
-expect_poll "with the setting off the row reads not started at boot" "Not started at boot" session_row
+expect_poll "with the setting off the row reads not started" "Not started" session_text
 expect "with the setting off the page is offered no session choice" '[]' session_modes
-expect "with the setting off a shell start starts no session" '[]' session_names
+expect "with the setting off a shell start asks for no start" '[]' session_calls start
 
-session_set "$(python3 -c 'import json,sys; print(json.dumps({"startAtBoot": True, "brain": sys.argv[1], "home": "~/SmokeJarvis"}))' "$session_brain")"
+session_set '{"startAtBoot": true}'
 expect "the configuration reloads with the setting on" ok ipc shell reloadConfig
-expect_poll "turned on in a running shell, the row reads the next boot" "Starts at the next boot" session_row
+expect_poll "turned on in a running shell, the row reads the next boot" "Starts at the next boot" session_text
 expect "the page is offered both session choices" '["resume", "new"]' session_modes
-expect "turning the setting on starts no session" '[]' session_names
+expect "turning the setting on asks for no start" '[]' session_calls start
 
+session_answers "running existing" "running existing" "stopping stop-requested"
 session_shell_start "$repo" first
-expect_poll "a shell start with the setting on starts the session" '["jarvis"]' session_names
-expect_poll "the session runs the account's program with its resume form" "$(python3 -c 'import json,sys; print(json.dumps([[["--continue"], sys.argv[1]]]))' "$session_account")" session_starts
-expect_poll "the row reads running" Running session_row
-
+expect_poll "a shell start with the setting on asks the package for one boot start" "$(session_start_words resume boot)" session_calls start
+expect_poll "the row reads the session the package answers" Running session_text
 session_shell_start "$repo" second
-expect_poll "a second shell start finds the session" Running session_row
-expect "a second shell start starts no second session" '["jarvis"]' session_names
-expect "a second shell start runs no second program" 1 python3 -c 'import sys; print(len(open(sys.argv[1]).read().splitlines()))' "$session_home/starts.log"
+expect_poll "a second shell start asks the package again" "$(session_start_words resume boot boot)" session_calls start
+expect_poll "the row reads running after the second start" Running session_text
+expect "VGS itself starts no session" '[]' session_tmux
 
-copy_tree jarvis-session-duplicate
-if edit_tree jarvis-session-duplicate shell/plugins/vgs.jarvis/backend/TaskRunner.js \
-    '    if (found.signal === null && found.code === 0) return "running";' ''; then
-  session_shell_start "$sandbox/tree-jarvis-session-duplicate" duplicate
-  expect_poll "control: a launcher without its session check reads the second start as not started" "Not started" session_row
+copy_tree jarvis-session-twice
+if edit_tree jarvis-session-twice shell/plugins/vgs.jarvis/backend/session-control.js \
+    '        if (started === null) return failed;' \
+    '        await run(at, ["start", "--harness", who.harness, "--account", who.directory, "--mode", mode, "--origin", origin]);
+        if (started === null) return failed;'; then
+  session_answers "running existing" "running existing" "stopping stop-requested"
+  session_shell_start "$sandbox/tree-jarvis-session-twice" twice
+  expect_poll "control: a helper that asks twice reads two starts for one shell start" "$(session_start_words resume boot boot)" session_calls start
 fi
 
-session_end
-session_set '{"bootSession": "new"}'
-session_shell_start "$repo" new
-expect_poll "a shell start with Start a new session starts the session" '["jarvis"]' session_names
-expect_poll "the new session runs the program with no resume form" "$(python3 -c 'import json,sys; print(json.dumps([[[], sys.argv[1]]]))' "$session_account")" session_starts
+session_answers "stopped ended" "running new-requested" "stopping stop-requested"
+session_set '{"bootSession": "new", "startAtBoot": false}'
+session_shell_start "$repo" manual
+expect_poll "with the setting off again the shell start only reads" "Not started" session_text
+expect "the Start step is taken" ok ipc vgs.jarvis invoke start-session ''
+expect_poll "the Start step asks the package for a manual start in the chosen mode" "$(session_start_words new manual)" session_calls start
 
-session_end
+session_answers "running existing" "running existing" "stopping stop-requested"
+session_shell_start "$repo" restart
+expect_poll "the restarted shell reads the running session" Running session_text
+expect "a shell restart asks for no stop" '[]' session_calls stop
+expect "disabling Jarvis is accepted" ok ipc shell setPluginEnabled vgs.jarvis false
+expect_poll "disabling Jarvis asks for one stop that records the app's Off" \
+  "$(python3 -c 'import json,sys; print(json.dumps([["stop", "--origin", "app-off", "--home", sys.argv[1]]]))' "$session_home")" session_calls stop
+
 session_set '{"startAtBoot": null, "bootSession": null, "brain": null, "home": null}'
 expect "the configuration reloads with the manifest's settings" ok ipc shell reloadConfig
-expect_poll "with the setting off again the row reads not started at boot" "Not started at boot" session_row
-jarvis_disable
-rm -f -- "$shim/claude"
+rm -f -- "${session_package:?}/scripts/jarvis-session" "${session_package:?}/scripts/answers.json" "${session_package:?}/scripts/calls.log" \
+  "${session_package:?}/SKILL.md" "${session_package:?}/persona.md"
+rmdir -- "$session_package/scripts" "$session_package" "$session_home/.agents/skills" "$session_home/.agents"
 [[ $session_account_made == false ]] || rmdir -- "$session_account"
 jarvis_restore_requirements

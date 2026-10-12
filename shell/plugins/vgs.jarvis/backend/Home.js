@@ -5,8 +5,9 @@
 // one VGS ships, and reads its text; it never follows a link at the home or below
 // it, since a link there could hand another file to every brain. Home text
 // gives knowledge, never permission: the gate stays the only source of that.
-// It also finds the one program of the home Jarvis starts, the kendex
-// mail tool that writes the Jarvis session's mailbox there.
+// It also finds the two programs of the home VGS starts: the kendex mail
+// tool that writes the Jarvis session's mailbox there, and the Jarvis
+// package's session command.
 // Contract: docs/decisions/D105-jarvis-home-folder.md.
 "use strict";
 const fs = require("node:fs");
@@ -62,7 +63,7 @@ const PATH_BYTES = 4096;
 const HOMES = 10;
 const OFFER_VALUE_MAX = 200;
 const OFFER_LABEL_MAX = 60;
-// The one program of the home Jarvis starts: lane-mail, which kendex
+// The program of the home a brain's action starts: lane-mail, which kendex
 // installs here with its orch skill, writes the Jarvis session's mailbox
 // (D105). It runs the orch skill's own scripts and the home's kendex
 // settings in turn; Jarvis starts no other path of the home.
@@ -76,6 +77,10 @@ const OWN_REPOSITORY = ".git";
 // root. The Jarvis session makes it when it first reads its mail; Jarvis
 // never does.
 const MAILBOX = "tmp/lane-mail/overseer";
+// The Jarvis package's session command, which kendex installs with the
+// package: the one owner of the user's Jarvis session, its record, its
+// resume and its hand-over.
+const SESSION_COMMAND = ".agents/skills/jarvis/scripts/jarvis-session";
 // A YAML block scalar's header: > or |, then an optional chomping mark and
 // indent digit in either order. Its text is on the lines below it.
 const BLOCK_SCALAR = /^[>|][-+1-9]{0,2}$/;
@@ -628,9 +633,24 @@ function mailTool(home) {
     });
 }
 
+/**
+ * The absolute path of the home's Jarvis session command, SESSION_COMMAND
+ * reached through no link and a regular file with its owner's execute bit;
+ * else null, as while the home cannot be read. The shell runs it by this
+ * path, never a brain: it starts and stops the user's own Jarvis session
+ * (D105).
+ */
+function sessionCommand(home) {
+    return held(home, SESSION_COMMAND, O_RDONLY | O_NONBLOCK, fd => {
+        const found = fs.fstatSync(fd);
+        const runs = found.isFile() && (found.mode & fs.constants.S_IXUSR) !== 0;
+        return runs ? path.join(home, SESSION_COMMAND) : null;
+    });
+}
+
 /** Whether the home holds the Jarvis session's mailbox folder, no link on the way. */
 function mailbox(home) {
     return held(home, MAILBOX, O_RDONLY | O_DIRECTORY, () => true) === true;
 }
 
-module.exports = { PACKAGE, resolve, relativeHome, remembered, remember, offers, layout, guard, baseSet, read, skills, skill, note, notes, mailTool, mailbox, directory };
+module.exports = { PACKAGE, resolve, relativeHome, remembered, remember, offers, layout, guard, baseSet, read, skills, skill, note, notes, mailTool, mailbox, sessionCommand, directory };

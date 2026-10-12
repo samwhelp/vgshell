@@ -340,33 +340,76 @@ function fleetStep(home, tool) {
     return { tone: "info", text: "Optional", action: true };
 }
 
-// The Start Jarvis at boot setting. Its hint says what the setting does,
-// or why no session can start and where the user changes that.
-var SESSION_HINT = "A tmux session in your selected home folder starts Jarvis at every boot.";
+// The Jarvis session row (the manifest's sessionStart): what the Jarvis
+// package's session command answers, in the page's words. Each sentence is
+// the owner's (VGS-1439, 2026-10-12).
+var SESSION_BOOT = "When VGS starts after you sign in, a tmux session starts Jarvis in your selected home folder.";
 var SESSION_BLOCKS = {
     "no-account": "No session can start without an account: under AI model, choose an app as the Account.",
     "not-app": "No session can start with an API key or a local model: under AI model, choose an app as the Account.",
     "no-home": "No session can start without a home folder: choose a Home folder.",
-    "program-missing": "No session can start, because the app of the selected account is not installed.",
-    "tmux-missing": "No session can start without tmux."
+    "package": "Install or update the Jarvis package in this home folder."
+};
+var SESSION_FAILED = "Jarvis did not start.";
+// The package's state and reason, as "state reason", to the row. `detail`
+// takes the package's own line, `names` the recorded session's home and
+// account, `wanted` the row of the boot setting, and `action` names the
+// manifest action the row offers.
+var SESSION_ROWS = {
+    "off app-off": { tone: "info", text: "Off", hint: "Jarvis is off." },
+    "blocked app-off": { tone: "info", text: "Off", hint: "Jarvis is off." },
+    "stopped never-started": { wanted: true },
+    "stopped stopped": { wanted: true },
+    "stopped ended": { wanted: true },
+    "starting launching": { tone: "info", text: "Starting", hint: "Jarvis is starting in your selected home folder." },
+    "running new-no-record": { tone: "ok", text: "Running", hint: "No previous Jarvis session was saved. Started a new session." },
+    "running new-history-gone": { tone: "ok", text: "Running", hint: "The saved conversation is unavailable. A new session continued your saved work." },
+    "running new-selection-changed": { tone: "ok", text: "Running", hint: "A new session continued your saved work on the selected account." },
+    "running resumed": { tone: "ok", text: "Running", names: true },
+    "running new-requested": { tone: "ok", text: "Running", names: true },
+    "running existing": { tone: "ok", text: "Running", names: true },
+    "handing-over succession": { tone: "info", text: "Handing over", hint: "Jarvis is moving its saved work to a new session." },
+    "stopping stop-requested": { tone: "info", text: "Stopping", hint: "Jarvis is saving its state and stopping." },
+    "blocked name-conflict": { tone: "warning", text: "Cannot start", hint: "A different session uses the Jarvis terminal. Close it or select the home it belongs to." },
+    "blocked record-unreadable": { tone: "warning", text: "Cannot start", hint: "Jarvis cannot read its saved session record." },
+    "blocked sign-in-required": { tone: "warning", text: "Cannot start", detail: true },
+    "blocked selection-conflict": { tone: "warning", text: "Cannot start", hint: "Changing the home or account restarts Jarvis after the new selection is checked." },
+    "blocked tmux-missing": { tone: "warning", text: "Cannot start", hint: "No session can start without tmux.", action: "tmux" },
+    "blocked app-missing": { tone: "warning", text: "Cannot start", hint: "No session can start, because the app of the selected account is not installed." },
+    "failed launch-failed": { tone: "danger", text: "Not started", detail: true, action: "retry" },
+    "failed handover-failed": { tone: "danger", text: "Not started", detail: true, action: "retry" }
 };
 // The setting's two session choices; the first is what the unset value means.
 var SESSION_MODES = [{ label: "Resume the last session", value: "resume" }, { label: "Start a new session", value: "new" }];
 
-// The Jarvis session row (the manifest's sessionStart), whose hint is the
-// setting's. WANTED is the setting. KIND is backend/session-start.js's
-// answer, "failed" where it gave none, and is not read while the setting is
-// off.
-function sessionStart(wanted, kind) {
-    if (!wanted) return { tone: "info", text: "Not started at boot", hint: SESSION_HINT };
-    switch (kind) {
-    case "started": case "running": return { tone: "ok", text: "Running", hint: SESSION_HINT };
-    case "ready": return { tone: "info", text: "Starts at the next boot", hint: SESSION_HINT };
-    case "tmux-failed": case "failed": return { tone: "danger", text: "Not started", hint: "The session did not start in tmux." };
-    default:
-        if (!Object.prototype.hasOwnProperty.call(SESSION_BLOCKS, kind)) throw new Error("jarvis-setup: session=" + kind);
-        return { tone: "warning", text: "Cannot start", hint: SESSION_BLOCKS[kind], action: kind === "tmux-missing" };
+// The row for RESULT, backend/session-control.js's answer, null before the
+// first one and { kind: "failed" } where the helper gave none. WANTED is
+// the Start Jarvis at boot setting, which words only a session that does
+// not run: a live session reads as it is, whatever the setting.
+function sessionStart(wanted, result) {
+    if (result === null) return { hidden: true };
+    if (result.kind === "blocked") {
+        if (!Object.prototype.hasOwnProperty.call(SESSION_BLOCKS, result.block)) throw new Error("jarvis-setup: session=" + result.block);
+        return { tone: "warning", text: "Cannot start", hint: SESSION_BLOCKS[result.block] };
     }
+    var failure = { tone: "danger", text: "Not started", hint: SESSION_FAILED, action: "retry" };
+    if (result.kind !== "answer") return failure;
+    var row = SESSION_ROWS[result.state + " " + result.reason];
+    if (row === undefined) return failure;
+    var value;
+    if (row.wanted) value = wanted ? { tone: "info", text: "Starts at the next boot", hint: SESSION_BOOT, action: "start" }
+        : { tone: "info", text: "Not started", hint: "Start Jarvis to continue your work. Automatic start is off.", action: "start" };
+    else {
+        var hint = row.detail ? (result.detail !== "" ? result.detail : SESSION_FAILED)
+            : row.names ? (result.names === null ? "" : "Jarvis runs in " + result.names.home + " with " + result.names.account + ".") : row.hint;
+        // The status judge takes no empty hint: a recorded session with
+        // no names reads by its row text alone.
+        value = hint === "" ? { tone: row.tone, text: row.text } : { tone: row.tone, text: row.text, hint: hint };
+        if (row.action !== undefined) value.action = row.action;
+    }
+    // The selection that failed its check, beside the session that stays.
+    if (result.unapplied !== undefined) value.lines = [SESSION_BLOCKS[result.unapplied]];
+    return value;
 }
 
 // The session choices the page offers: none while the setting is off, so

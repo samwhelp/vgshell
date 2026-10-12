@@ -4,8 +4,6 @@
 // stops a group. Every record goes through the task's recorded producer
 // (D072); this module never calls a Tasks.Store writer. Display is not
 // control: tmux or the TUI only show the terminal task-run.py runs in.
-// session() starts the user's own Jarvis session, which is no task: it has
-// no record, and nothing here observes or stops it.
 "use strict";
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
@@ -419,27 +417,4 @@ function create({ directories, engine, backend, profiles = Profiles.TABLE, setti
     return Object.freeze({ executor, stop, open, observe, tuiState, held, answer, close });
 }
 
-// The one name of the user's Jarvis session. A coding task's session is
-// `jarvis-<id>` on the daemon's private socket, so the two never meet.
-const SESSION = "jarvis";
-
-/**
- * Start the user's own Jarvis session: argv in cwd, in a detached session
- * named SESSION on the tmux server a bare `tmux` reaches, the user's own, so
- * the user's tmux tools list it and attach to it. Answers "started",
- * "running" when a session of that name exists, which starts nothing, or
- * "tmux-failed". environment is the user's session environment: a server
- * this start creates keeps it for every later session of the user's.
- */
-async function session({ argv, cwd, environment, tmux = "tmux", spawn = spawnProcess }) {
-    // tmux(1): = makes the target an exact session name, and has-session
-    // exits 1 for no such session and for no server.
-    // https://man.openbsd.org/tmux#COMMANDS
-    const found = await spawn(tmux, ["has-session", "-t", "=" + SESSION], { env: environment, input: "" });
-    if (found.signal === null && found.code === 0) return "running";
-    if (found.signal !== null || found.code !== 1) return "tmux-failed";
-    const result = await spawn(tmux, ["new-session", "-d", "-s", SESSION, "-c", cwd, "--", ...argv], { env: environment, input: "" });
-    return result.signal === null && result.code === 0 ? "started" : "tmux-failed";
-}
-
-module.exports = { create, session, PROCESSES };
+module.exports = { create, PROCESSES };

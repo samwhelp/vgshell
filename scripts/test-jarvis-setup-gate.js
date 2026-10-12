@@ -858,27 +858,64 @@ function verifyTiers(gate) {
     assert.equal(manifest.settings.localTier, "auto", "the Local voice setting defaults to the pick");
 }
 
-// The Start Jarvis at boot setting: each answer of backend/session-start.js
-// is a row the manifest judge accepts, only a missing tmux offers its
-// install, and the page draws the session field only while the setting is
-// on.
-const SESSION_KINDS = [["started", "ok"], ["running", "ok"], ["ready", "info"], ["tmux-failed", "danger"], ["failed", "danger"],
-    ["no-account", "warning"], ["not-app", "warning"], ["no-home", "warning"], ["program-missing", "warning"], ["tmux-missing", "warning"]];
+// The Jarvis session row: every state and reason pair of the package's
+// contract, copied here from the contract and not from SetupGate.js, is a
+// row the manifest
+// judge accepts, a session that lives reads the same whatever the boot
+// setting, only a session that does not run offers Start, only a failure
+// offers Retry, and an answer outside the contract is a failure.
+const SESSION_CONTRACT = {
+    running: ["resumed", "new-no-record", "new-history-gone", "new-selection-changed", "new-requested", "existing"],
+    starting: ["launching"], "handing-over": ["succession"], stopping: ["stop-requested"],
+    stopped: ["never-started", "stopped", "ended"], off: ["app-off"],
+    blocked: ["app-off", "name-conflict", "record-unreadable", "sign-in-required", "selection-conflict", "tmux-missing", "app-missing"],
+    failed: ["launch-failed", "handover-failed"]
+};
+const SESSION_TONES = { running: "ok", starting: "info", "handing-over": "info", stopping: "info", stopped: "info", off: "info", failed: "danger" };
 function verifySession(gate) {
-    const off = plain(gate.sessionStart(false, ""));
-    assert.equal(judge.statusWrite(manifest, {}, "sessionStart", off).ok, true, "the manifest judge accepts the off row");
-    assert.equal(manifest.schema.startAtBoot.hintFrom, "sessionStart", "the setting shows the row's hint");
-    assert.equal(manifest.settings.startAtBoot, false, "the setting is off at first");
-    for (const [kind, tone] of SESSION_KINDS) {
-        const value = plain(gate.sessionStart(true, kind));
-        assert.equal(judge.statusWrite(manifest, {}, "sessionStart", value).ok, true, kind + ": the manifest judge accepts the row");
-        assert.equal(value.tone, tone, kind + ": the tone");
-        assert.equal(typeof value.hint === "string" && value.hint !== "", true, kind + ": the setting has a hint");
+    const names = { home: "~/Jarvis", account: "Claude Code, ~/.claude" };
+    const offered = value => {
+        assert.equal(judge.statusWrite(manifest, {}, "sessionStart", value).ok, true, "the manifest judge accepts the row: " + JSON.stringify(value));
         const request = plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { sessionStart: value }, "sessionStart"));
-        assert.equal(request.ok, kind === "tmux-missing", kind + ": only a missing tmux offers its install");
-        if (request.ok) assert.deepEqual(request, { ok: true, kind: "install", commands: ["tmux"] });
+        return request.ok ? (request.kind === "tui" ? value.action + ":" + request.name : "install:" + request.commands.join(",")) : "none";
+    };
+    assert.deepEqual(plain(gate.sessionStart(true, null)), { hidden: true }, "no row before the first answer");
+    for (const [state, reasons] of Object.entries(SESSION_CONTRACT))
+        for (const reason of reasons)
+            for (const wanted of [true, false]) {
+                const label = state + " " + reason + " boot " + wanted;
+                const value = plain(gate.sessionStart(wanted, { kind: "answer", state, reason, detail: "The package's line.", names }));
+                const action = offered(value);
+                assert.equal(typeof value.text === "string" && value.text !== "" && typeof value.hint === "string" && value.hint !== "", true, label + ": the row has its words");
+                if (state === "blocked") assert.equal(value.tone, reason === "app-off" ? "info" : "warning", label + ": the tone");
+                else assert.equal(value.tone, SESSION_TONES[state], label + ": the tone");
+                assert.equal(action, state === "stopped" ? "start:start-session" : state === "failed" ? "retry:start-session"
+                    : state === "blocked" && reason === "tmux-missing" ? "install:tmux" : "none", label + ": the action the row offers");
+                if (state !== "stopped")
+                    assert.deepEqual(value, plain(gate.sessionStart(!wanted, { kind: "answer", state, reason, detail: "The package's line.", names })),
+                        label + ": the boot setting changes no row of a session that is not stopped");
+                if (["failed"].includes(state) || reason === "sign-in-required")
+                    assert.equal(value.hint, "The package's line.", label + ": the package's own line is shown");
+                if (["resumed", "existing", "new-requested"].includes(reason))
+                    assert.equal(value.hint.includes(names.home) && value.hint.includes(names.account), true, label + ": the recorded home and account are named");
+            }
+    assert.equal(offered(plain(gate.sessionStart(true, { kind: "answer", state: "running", reason: "existing", detail: "", names: null }))), "none",
+        "a running session with no recorded names is a row the judge accepts");
+    const stopped = wanted => plain(gate.sessionStart(wanted, { kind: "answer", state: "stopped", reason: "ended", detail: "", names: null }));
+    assert.notEqual(stopped(true).text, stopped(false).text, "a stopped session reads by the boot setting");
+    for (const block of ["no-account", "not-app", "no-home", "package"]) {
+        const value = plain(gate.sessionStart(true, { kind: "blocked", block }));
+        assert.deepEqual([value.tone, offered(value)], ["warning", "none"], block + ": a block offers no start");
     }
-    assert.throws(() => gate.sessionStart(true, "unknown"), { message: "jarvis-setup: session=unknown" });
+    assert.throws(() => gate.sessionStart(true, { kind: "blocked", block: "unknown" }), { message: "jarvis-setup: session=unknown" });
+    for (const result of [{ kind: "failed" }, { kind: "answer", state: "running", reason: "launching", detail: "", names: null }, { kind: "other" }]) {
+        const value = plain(gate.sessionStart(true, result));
+        assert.deepEqual([value.tone, offered(value)], ["danger", "retry:start-session"], "an answer outside the contract is a failure with Retry");
+    }
+    const kept = plain(gate.sessionStart(true, { kind: "answer", state: "running", reason: "resumed", detail: "", names, unapplied: "not-app" }));
+    assert.deepEqual([kept.text === plain(gate.sessionStart(true, { kind: "answer", state: "running", reason: "resumed", detail: "", names })).text,
+        Array.isArray(kept.lines) && kept.lines.length === 1 && offered(kept)], [true, "none"], "a selection that failed its check shows beside the session that stays");
+    assert.equal(manifest.settings.startAtBoot, false, "the setting is off at first");
     for (const [wanted, values] of [[false, []], [true, ["", "new"]]]) {
         const offers = plain(gate.sessionModes(wanted));
         assert.equal(judge.statusWrite(manifest, {}, "sessionModes", offers).ok, true, "the manifest judge accepts the session offers");
@@ -1095,10 +1132,14 @@ const CONTROLS = [
     ["the setting ignores what a run left ready", "if (wantedTier(wanted, pick) === ready) return null;\n    return ready ===", "return null;\n    return ready ==="],
     ["the setting follows a ready wanted tier", "if (wantedTier(wanted, pick) === ready) return null;\n    return ready ===", "return ready ==="],
     ["the ready pick is written by name", 'return ready === pick ? "auto" : ready;', "return ready;"],
-    ["no start offers the tmux install", 'action: kind === "tmux-missing" };', "action: false };", "only a missing tmux offers its install"],
-    ["every blocked start offers the tmux install", 'action: kind === "tmux-missing" };', "action: true };", "only a missing tmux offers its install"],
-    ["the session field draws while the setting is off", "return wanted ? SESSION_MODES : [];", "return SESSION_MODES;", "the session field while the setting is false"],
-    ["an unknown answer reads as a block", 'if (!Object.prototype.hasOwnProperty.call(SESSION_BLOCKS, kind)) throw new Error("jarvis-setup: session=" + kind);', ""]
+    ["a stopped session offers no Start", '{ tone: "info", text: "Starts at the next boot", hint: SESSION_BOOT, action: "start" }', '{ tone: "info", text: "Starts at the next boot", hint: SESSION_BOOT }', "the action the row offers"],
+    ["a failure offers no Retry", '"failed launch-failed": { tone: "danger", text: "Not started", detail: true, action: "retry" }', '"failed launch-failed": { tone: "danger", text: "Not started", detail: true }', "the action the row offers"],
+    ["a missing tmux offers no install", 'hint: "No session can start without tmux.", action: "tmux" }', 'hint: "No session can start without tmux." }', "the action the row offers"],
+    ["the boot setting hides a running session", '    if (row.wanted) value = wanted ?', '    if (row.wanted || !wanted) value = wanted ?', "the boot setting changes no row"],
+    ["an answer outside the contract reads as a state", "    if (row === undefined) return failure;", '    if (row === undefined) return { tone: "ok", text: "Running", hint: "Planted." };', "outside the contract"],
+    ["the package's failure line is dropped", 'var hint = row.detail ? (result.detail !== "" ? result.detail : SESSION_FAILED)', "var hint = row.detail ? SESSION_FAILED", "the package's own line is shown"],
+    ["the unapplied selection is not shown", "    if (result.unapplied !== undefined) value.lines = [SESSION_BLOCKS[result.unapplied]];", "", "a selection that failed its check"],
+    ["the session field draws while the setting is off", "return wanted ? SESSION_MODES : [];", "return SESSION_MODES;", "the session field while the setting is false"]
 ];
 
 const source = fs.readFileSync(file, "utf8");

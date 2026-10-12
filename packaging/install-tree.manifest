@@ -449,8 +449,8 @@ f share/vgshell/shell/plugins/vgs.jarvis/backend/keys.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/local-speech.py
 f share/vgshell/shell/plugins/vgs.jarvis/backend/mcp-shim
 f share/vgshell/shell/plugins/vgs.jarvis/backend/net.js
+f share/vgshell/shell/plugins/vgs.jarvis/backend/session-control.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/session-runner.js
-f share/vgshell/shell/plugins/vgs.jarvis/backend/session-start.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/skills/browser/LICENSE
 f share/vgshell/shell/plugins/vgs.jarvis/backend/skills/browser/SKILL.md
 f share/vgshell/shell/plugins/vgs.jarvis/backend/skills/computer/input.md
@@ -484,6 +484,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-fleet.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-input.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-local.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/sign-in.sh
+f share/vgshell/shell/plugins/vgs.jarvis/tui/start-session.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/task-view.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/task.sh
 f share/vgshell/shell/plugins/vgs.keyboard/KeyboardControls.qml

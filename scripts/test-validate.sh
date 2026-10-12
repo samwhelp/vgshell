@@ -802,9 +802,9 @@ if area in ["cli", "offline", "all"] and home not in lines and home_input:
             break
     else:
         raise AssertionError("no later Home consumer in expected plan: " + file)
-# The session start suite's row follows the Home row, and its inputs are among
+# The session control suite's row follows the Home row, and its inputs are among
 # the Home suite's.
-session = "node scripts/test-jarvis-session-start.js"
+session = "node scripts/test-jarvis-session-control.js"
 session_input = (file.startswith("shell/plugins/vgs.jarvis/backend/")
                  or file in {"shell/plugins/vgs.jarvis/AccountProviders.js", "shell/Commons/AccountDirectories.js",
                              "bin/lib/qml-library.js", "bin/lib/judge-files.js", "bin/lib/anchored.js",

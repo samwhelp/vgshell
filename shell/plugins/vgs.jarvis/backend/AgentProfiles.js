@@ -1,8 +1,7 @@
-// Harness program rows: the program, its coding-task argv, its own session's
-// argv, the account variable and the interrupt one agent takes. Each row owns
-// its invocation-local hooks. The goal brief and the scrubbed environment
-// every agent receives are built here once. TaskRunner.js and
-// session-start.js consume this module; nothing here starts a process.
+// Coding-agent profile rows: the program, its argv, the account variable and
+// the interrupt one agent takes. Each row owns its invocation-local hooks.
+// The goal brief and the scrubbed environment every agent receives are built
+// here once. TaskRunner.js consumes this module; nothing here starts a process.
 "use strict";
 const path = require("node:path");
 const Relay = require("./TaskRelay.js");
@@ -28,30 +27,19 @@ function absolute(value) {
     return typeof value === "string" && path.isAbsolute(value) && !/[\x00-\x1f\x7f]/.test(value);
 }
 
-// One argv of PROGRAM: it starts with the program and holds no empty word.
-function words(argv, program) {
-    return Array.isArray(argv) && argv.length >= 1 && argv.length <= MAX_ARGS && argv[0] === program
-        && argv.every(arg => typeof arg === "string" && arg.length > 0 && !arg.includes("\0"));
-}
-
 /**
- * A row is { program, argv(task) -> string[] | null, session: { fresh,
- * resume }, account: { variable } | null, interrupt: { signal },
- * interruptMs }. program is the bare command each argv starts with; argv
- * receives { id, brief, cwd, account, engine, state, prompts, node }:
- * account is the resolved value of the account variable or "", engine the
- * task's recorded producer, prompts the relay directory and node the
- * absolute Node a hook runs under. A null argv is a program with no
- * coding-task form. session is the program as the user runs it: fresh starts
- * a new conversation and resume continues the working folder's last one.
+ * A row is { program, argv(task) -> string[], account: { variable } | null,
+ * interrupt: { signal }, interruptMs }. program is the bare command the
+ * agent's argv starts with; argv receives { id, brief, cwd, account, engine,
+ * state, prompts, node }: account is the resolved value of the account
+ * variable or "", engine the task's recorded producer, prompts the relay
+ * directory and node the absolute Node a hook runs under.
  */
 function row(id, value) {
     if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) fail("id value=" + id);
-    if (!shape(value, ["program", "argv", "session", "account", "interrupt", "interruptMs"])
+    if (!shape(value, ["program", "argv", "account", "interrupt", "interruptMs"])
             || typeof value.program !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/.test(value.program)
-            || (value.argv !== null && typeof value.argv !== "function")
-            || !shape(value.session, ["fresh", "resume"])
-            || !Object.values(value.session).every(argv => words(argv, value.program))
+            || typeof value.argv !== "function"
             || (value.account !== null && (!shape(value.account, ["variable"])
                 || typeof value.account.variable !== "string" || !/^[A-Z_][A-Z0-9_]{0,63}$/.test(value.account.variable)
                 || RESERVED_ENV.includes(value.account.variable)))
@@ -59,7 +47,6 @@ function row(id, value) {
             || !Number.isSafeInteger(value.interruptMs) || value.interruptMs < 100 || value.interruptMs > 60000)
         fail("row id=" + id);
     return Object.freeze({ ...value, account: value.account === null ? null : Object.freeze({ ...value.account }),
-        session: Object.freeze({ fresh: Object.freeze(value.session.fresh.slice()), resume: Object.freeze(value.session.resume.slice()) }),
         interrupt: Object.freeze({ ...value.interrupt }) });
 }
 
@@ -91,16 +78,9 @@ function claudeSettings(task) {
     return JSON.stringify({ hooks });
 }
 
-// Each session's resume form is from its program's own --help, read on
-// 2026-10-11: `claude --continue` "Continue the most recent conversation in
-// the current directory", `codex resume --last` "Continue the most recent
-// session without showing the picker", `copilot --continue` "Resume the most
-// recent session" and `pi --continue` "Continue previous session". Each
-// account variable is the one shell/Commons/AccountDirectories.js names.
 const TABLE = table({
     codex: {
         program: "codex",
-        session: { fresh: ["codex"], resume: ["codex", "resume", "--last"] },
         account: { variable: "CODEX_HOME" },
         interrupt: { signal: "SIGINT" },
         interruptMs: 3000,
@@ -119,33 +99,15 @@ const TABLE = table({
     claude: {
         program: "claude",
         argv: task => ["claude", "--settings", claudeSettings(task), "--", task.brief],
-        session: { fresh: ["claude"], resume: ["claude", "--continue"] },
         account: { variable: "CLAUDE_CONFIG_DIR" },
-        interrupt: { signal: "SIGINT" },
-        interruptMs: 3000
-    },
-    copilot: {
-        program: "copilot",
-        argv: null,
-        session: { fresh: ["copilot"], resume: ["copilot", "--continue"] },
-        account: { variable: "COPILOT_HOME" },
-        interrupt: { signal: "SIGINT" },
-        interruptMs: 3000
-    },
-    pi: {
-        program: "pi",
-        argv: null,
-        session: { fresh: ["pi"], resume: ["pi", "--continue"] },
-        account: { variable: "PI_CODING_AGENT_DIR" },
         interrupt: { signal: "SIGINT" },
         interruptMs: 3000
     }
 });
 
-/** Coding-task rows whose program lookup(program) finds, in table order, as { id, row }. */
+/** Rows whose program lookup(program) finds, in table order, as { id, row }. */
 function available(lookup, profiles = TABLE) {
-    return Object.entries(profiles).filter(([, value]) => value.argv !== null && lookup(value.program))
-        .map(([id, value]) => ({ id, row: value }));
+    return Object.entries(profiles).filter(([, value]) => lookup(value.program)).map(([id, value]) => ({ id, row: value }));
 }
 
 // POSIX single quotes: the only character to escape is the quote itself.
@@ -171,7 +133,9 @@ function brief({ goal, engine, state, id }) {
 /** The agent's argv for one task, starting with the row's program. */
 function command(value, task) {
     const argv = value.argv(task);
-    if (!words(argv, value.program)) fail("argv program=" + value.program);
+    if (!Array.isArray(argv) || argv.length < 1 || argv.length > MAX_ARGS || argv[0] !== value.program
+            || !argv.every(arg => typeof arg === "string" && arg.length > 0 && !arg.includes("\0")))
+        fail("argv program=" + value.program);
     return argv.slice();
 }
 

@@ -16,7 +16,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Always talk mode: say Hey Jarvis to start a request.
 - A home folder with your instructions, skills and memory, shared by every AI model.
 - Requests to your agent fleet, sent after you confirm them.
-- Start Jarvis at boot: your Jarvis session starts in tmux in the home folder at every boot.
+- Start Jarvis at boot: your Jarvis session starts in tmux in the home folder when VGS starts after you sign in.
 - An AI model from an API key or a signed-in app: Claude Code, Codex, GitHub Copilot, or Pi with its own providers.
 - Backup models that Jarvis tries when the answering model fails.
 - Local voice: speech to text and spoken replies on your computer.
@@ -102,13 +102,13 @@ With a GitHub Copilot account, Setup shows Copilot Memory. GitHub keeps that mem
 | Backup models | The ordered models Jarvis tries when the answering app refuses a turn, needs sign-in, hits a usage wall or stops during an outage. Jarvis tells you that the new model has not heard the earlier conversation. It sends the refused request again only when no tool ran and no reply was spoken; otherwise it asks you to say the request again and says the new model has not heard the earlier conversation. Changing it ends the conversation. |
 | Effort | How much the model thinks before it answers. Jarvis saves High for Fable 5.1 and Opus 5.5, and the model's own level for any other model. For Pi, Jarvis saves the model's own level for every model. The field shows only for a model that takes an effort level. GitHub Copilot sets its own effort, so it shows none. Changing it ends the conversation. |
 | Home folder | The folder for what Jarvis knows. The list holds the homes Jarvis used. None leaves Jarvis with what VGS ships. Changing it ends the conversation. |
-| Start Jarvis at boot | Off at first. When it is on, a tmux session in your selected home folder starts Jarvis at every boot: it runs the app of the account under AI model. A restart of the shell starts no second session. With an API key or a local model as the account, no session can start; choose an app as the account. |
-| Session at boot | Shows while Start Jarvis at boot is on. Resume the last session keeps the work your Jarvis session had before the restart. Start a new session starts without it. |
+| Start Jarvis at boot | Off at first. When VGS starts after you sign in, a tmux session starts Jarvis in your selected home folder, with the app of the account under AI model. The Jarvis package in the home folder owns that session: Settings shows what it reports under Jarvis session on Details, with Start while no session runs and Retry after a failed start. A restart of the shell starts no second session. With an API key or a local model as the account, no session can start; choose an app as the account. Changing the home or account restarts Jarvis after the new selection is checked. |
+| Session at boot | Shows while Start Jarvis at boot is on. Resume the last session resumes your saved Jarvis conversation and checks its unfinished work; if that conversation is unavailable, a new session continues the saved work. Start a new session starts a fresh conversation and continues the work saved in your Jarvis home. It applies at the next boot, and a session already running is not replaced. |
 | Task terminal | Where a coding task opens. Auto uses tmux when it is installed, so several tasks run at once, and the floating terminal otherwise. |
 | Screen to cloud | Whether a screenshot or its text goes to an AI outside this computer. Ask withholds it unless granted for the conversation, Allow sends it, Never withholds it. When the AI and the voice both run on this computer, they always receive it. |
 | Private windows | Comma-separated words. A window whose class or title contains one is painted black before a screenshot leaves Jarvis. A title cannot always show private browsing. |
 
-The keys are under Keys on the same page. Enabled is the one switch that turns Jarvis on or off. Mute closes only the microphone, and Show in bar puts the bar icon back after Hide.
+The keys are under Keys on the same page. Enabled is the one switch that turns Jarvis on or off: turning it off stops its session and prevents automatic starts. Mute closes only the microphone, and Show in bar puts the bar icon back after Hide.
 
 ## Tools
 
@@ -143,12 +143,12 @@ The AI models never run inside this folder. A setting, hook or server that you k
 
 ### Agent fleet requests
 
-A request for your agent fleet goes to the mailbox of your Jarvis session, the session that runs it. Jarvis shows you the text and asks you to confirm it, then hands it to that mailbox in the home folder with the kendex mail tool there, and tells you the row's id once the mailbox reads it back. The Jarvis session acts on the request when it next reads its mail; Jarvis does not check that a session is running; Start Jarvis at boot under Settings starts yours at every boot. A turn hands over one request. The mail tool is the one program in the home folder Jarvis starts. Agent fleet under Setup installs it, and Jarvis offers the request once your Jarvis session has read this folder's mail.
+A request for your agent fleet goes to the mailbox of your Jarvis session, the session that runs it. Jarvis shows you the text and asks you to confirm it, then hands it to that mailbox in the home folder with the kendex mail tool there, and tells you the row's id once the mailbox reads it back. The Jarvis session acts on the request when it next reads its mail; Jarvis does not check that a session is running; Start Jarvis at boot under Settings starts yours at every boot. A turn hands over one request. The mail tool and the Jarvis package's session command are the two programs in the home folder that VGS starts. Agent fleet under Setup installs it, and Jarvis offers the request once your Jarvis session has read this folder's mail.
 
 <details>
 <summary>Show command details</summary>
 
-Start Jarvis at boot starts the tmux session `jarvis` on your own tmux server, in the home folder. It runs `claude --continue`, `codex resume --last`, `copilot --continue` or `pi --continue` to resume, and the app with no argument for a new session. `tmux attach -t jarvis` opens it.
+VGS starts and stops the session with `.agents/skills/jarvis/scripts/jarvis-session` of the Jarvis package in the home folder, which kendex installs. The session is the tmux session `jarvis` on your own tmux server, and `tmux attach -t jarvis` opens it.
 
 </details>
 

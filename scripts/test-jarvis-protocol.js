@@ -34,7 +34,7 @@ const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manif
 // the Local voice choice is a download request the service keeps
 // (LocalTier.qml), and the daemon loads the tier setup left ready. The
 // service also keeps the two Start Jarvis at boot settings
-// (SessionStart.qml): the daemon starts no session.
+// (SessionStart.qml): the daemon reads no session.
 const kept = ["localTier", "startAtBoot", "bootSession"];
 assert.deepEqual(Object.keys(manifest.settings).filter(key => !kept.includes(key)).concat(["sounds", "dictation"]).sort(), Object.keys(hello.settings).sort());
 assert.deepEqual([Object.keys(manifest.sounds), manifest.sounds.feedback.own !== undefined], [["feedback"], true]);
