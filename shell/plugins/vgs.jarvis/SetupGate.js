@@ -88,10 +88,10 @@ var REQUIRED = { home: "setupHome", guidance: "setupHome", speech: "setupVoice",
 // the step gives, since its action already says to set it up.
 var TODO = {
     "brain=unselected": "Choose an AI model in Settings > AI model.",
-    "brain=account-unavailable": "The chosen AI model cannot be used. Add a key or sign in, then choose it below.",
-    "brain=model-required": "The chosen AI model cannot be used. Choose another AI model on the Settings tab.",
-    "brain=signed-out": "The chosen AI model is not signed in. Sign in, then choose it below.",
-    "brain=pi-update": "Jarvis needs Pi 1.1.0 or later. Update Pi, or choose another AI model on the Settings tab.",
+    "brain=account-unavailable": "The chosen AI model cannot be used. Add a key or sign in, then choose it in Settings > AI model.",
+    "brain=model-required": "The chosen AI model cannot be used. Choose another AI model in Settings > AI model.",
+    "brain=signed-out": "The chosen AI model is not signed in. Sign in, then choose it in Settings > AI model.",
+    "brain=pi-update": "Jarvis needs Pi 1.1.0 or later. Update Pi, or choose another AI model in Settings > AI model.",
     "brain=accounts-unreadable": "Jarvis could not read your accounts. Open Accounts to check them.",
     "speech=live-account-unselected": "Add an OpenAI key under Setup at the top of this page.",
     "speech=live-account-unreadable": "Jarvis could not read your OpenAI key. Use Accounts in Setup to check it.",
@@ -125,7 +125,7 @@ var DICTATION = {
 function setupActs(cause) {
     return cause.indexOf("speech=live-") !== 0 && cause !== "speech=always-local-voice";
 }
-var STEP_TODO = { brain: "The chosen AI model cannot be used. Add a key or sign in, then choose it below." };
+var STEP_TODO = { brain: "The chosen AI model cannot be used. Add a key or sign in, then choose it in Settings > AI model." };
 // The home folder step shows only while the daemon refuses the folder the
 // user chose, with what to change, by its cause; any other cause of the
 // folder or its text takes HOME_STEP_TODO. Its entry declares no action:
@@ -231,7 +231,7 @@ function noAction(value) {
     delete out.action;
     return out;
 }
-var SIGNED_OUT_HINT = "Your Claude Code or Codex account is not signed in. Sign in, then choose it below.";
+var SIGNED_OUT_HINT = "Your Claude Code or Codex account is not signed in. Sign in, then choose it in Settings > AI model.";
 
 // Account discovery supplies typed states even before it offers a model:
 // present while an app is signed in, signed-out while an app Sign in serves
