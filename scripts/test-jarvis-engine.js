@@ -154,7 +154,7 @@ function rig(kit, server, options = {}) {
     const configuration = configure({ mode: options.mode ?? "hold", sounds: options.sounds === true,
         microphone: "", speaker: "", brain: "fixture-account", fallbacks: options.fallbacks ?? [], dictation: options.dictation ?? "",
         ...options.settings });
-    assert.equal(configuration.kind, options.directories ? "loading" : "ready");
+    if (options.later !== true) assert.equal(configuration.kind, options.directories ? "loading" : "ready");
     runner.dispatch({ type: "indicator", shown: true });
     const rows = () => {
         const file = path.join(state, "audit/2026-10-01.jsonl");
@@ -3217,8 +3217,8 @@ async function groupPlants(root, server) {
             "else if (false) utterance.collection.failed(keyed(error));", "transcribe-failure"],
         ["speech-gates-brain", 'if (event.reason === "tool-calls") next(c, turn);\n                    else {\n                        clearProgress(turn);\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        concluded(c, turn);',
             'if (event.reason === "tool-calls") next(c, turn);\n                    else {\n                        clearProgress(turn);\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        await new Promise(resolve => turn.speech.readable.once("close", resolve));\n                        concluded(c, turn);', "long-speech"],
-        ["net-not-closed", "        c.spoken?.close();\n        c.net.close();\n        retired = { gen: c.gen, closed: quiet };",
-            "        c.spoken?.close();\n        retired = { gen: c.gen, closed: quiet };", "conversation-end"],
+        ["net-not-closed", "        c.retired.clear();\n        c.net.close();\n        retired = { gen: c.gen, closed: quiet };",
+            "        c.retired.clear();\n        retired = { gen: c.gen, closed: quiet };", "conversation-end"],
         ["observe-teardown", "if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === \"ended\")) end();", "void s;", "settings-change"],
         ["follow-up-abort", '            if (conversation?.collection !== null && conversation?.collection !== undefined\n                    && !collecting(conversation, conversation.collection)) {\n                conversation.collection.utterance?.abort();\n                conversation.collection = null;\n            }\n',
             "", "follow-up-close-aborts"],
@@ -3395,7 +3395,7 @@ function elevenKit(root, engine = [], backend = []) {
 function elevenStandIn() {
     const records = [];
     const speech = new Map();
-    const state = { pages: [{ voices: [{ voice_id: "VoiceA", name: "Rachel", category: "premade" }], has_more: false }], served: 0 };
+    const state = { pages: [{ voices: [{ voice_id: "VoiceA", name: "Rachel", category: "premade" }], has_more: false }], served: 0, gate: null };
     const server = http.createServer(async (request, response) => {
         const record = { method: request.method, url: request.url, headers: request.headers, body: "", closed: false };
         request.socket.once("close", () => { record.closed = true; });
@@ -3417,8 +3417,10 @@ function elevenStandIn() {
         record.text = JSON.parse(record.body).text;
         const plan = speech.get(record.text) ?? { frames: ELEVEN_FRAMES };
         if (plan.hold) return;
+        // A case's gate holds every sentence until it opens.
+        if (state.gate !== null) await state.gate;
         response.writeHead(200, { "content-type": "application/octet-stream" });
-        response.end(Buffer.alloc(plan.frames * 2, 0x22));
+        response.end(Buffer.alloc(plan.frames * 2, 0x22), () => { record.answered = true; });
     });
     const ready = new Promise((resolve, reject) => {
         server.once("error", reject);
@@ -3430,6 +3432,7 @@ function elevenStandIn() {
             speech.clear();
             state.pages = [{ voices: [{ voice_id: "VoiceA", name: "Rachel", category: "premade" }], has_more: false }];
             state.served = 0;
+            state.gate = null;
         },
         close: () => { server.closeAllConnections(); return new Promise(resolve => server.close(resolve)); } };
 }
@@ -3446,45 +3449,91 @@ const elevenAccounts = Object.freeze({
 });
 
 // Selection with the ElevenLabs voice: it needs a stored ElevenLabs key, the
-// ready row that hears the user, and a voice. Always mode stays allowed: the
+// ready row that hears the user, and a voice the account's list names. While
+// the list is read the step loads; a failed read holds it until a Talk reads
+// the list again (voicesHeld), and a voice no read listed, as another
+// provider's, never becomes a request path. Always mode stays allowed: the
 // wake word and the capture stay on this computer, and ElevenLabs gets only
 // released reply text (D102). Its recipients are that row's and ElevenLabs's.
-function spokenSelection(Engine) {
-    const keyring = provider => ({ kind: "keyring", reference: { provider, account: "voice", origin: "https://api.elevenlabs.io",
+async function spokenSelection(Engine, eleven) {
+    const keyring = provider => ({ kind: "keyring", reference: { provider, account: "voice", origin: ELEVEN_ORIGIN,
         attributes: { service: "vgs-jarvis" } } });
-    const accountsWith = resolve => () => ({ secrets: { lookup: () => { throw new Error("jarvis-keys: secret-tool=locked"); } },
-        choose: elevenAccounts.choose, resolve });
-    const eleven = id => id === "eleven-key" ? { id, provider: "elevenlabs", label: "voice", source: keyring("elevenlabs"), model: "" }
+    const elevenOnly = id => id === "eleven-key" ? { id, provider: "elevenlabs", label: "voice", source: keyring("elevenlabs"), model: "" }
         : id === "openai-key" ? { id, provider: "openai", label: "voice", source: keyring("openai"), model: "" } : null;
-    const configure = (settings, { ready = true, wake = true, resolve = eleven } = {}) => {
+    // Each engine's answers: configure's own, then each one a list's answer
+    // judges again.
+    const engines = [];
+    const fatals = [];
+    const configure = (settings, { ready = true, wake = true, resolve = elevenOnly, pages = null } = {}) => {
         Fixture.reset({ ready, wake });
-        const engine = Engine.create({ accounts: accountsWith(resolve), captionLimit: 1, state: () => ({ gen: 0 }),
-            policy: () => ({ profile: "standard", cloudVision: "ask" }), audit: { before: (event, start) => ({ kind: "started", value: start() }) } });
-        const answer = engine.configure({ brain: "a", mode: "toggle", ...ELEVEN_SETTINGS, ...settings });
-        return { answer, engine };
+        eleven.reset();
+        if (pages !== null) eleven.state.pages = pages;
+        const answers = [];
+        const engine = Engine.create({ accounts: () => ({ secrets: elevenAccounts.secrets, choose: elevenAccounts.choose, resolve }),
+            captionLimit: 1, state: () => ({ gen: 0 }), clock: { set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer) },
+            policy: () => ({ profile: "standard", cloudVision: "ask" }), audit: { before: (event, start) => ({ kind: "started", value: start() }) },
+            configured: answer => answers.push(answer), fatal: error => fatals.push(error) });
+        engines.push(engine);
+        answers.push(engine.configure({ brain: "a", mode: "toggle", ...ELEVEN_SETTINGS, ...settings }));
+        return { answers, engine };
     };
     const cause = value => [value.kind, value.cause];
-    for (const [label, settings, options, want] of [
-        ["no key chosen", { voiceAccount: "" }, {}, ["unconfigured", "speech=live-account-unselected"]],
-        ["a key of another provider", { voiceAccount: "openai-key" }, {}, ["unconfigured", "speech=live-key-required"]],
-        ["a key no longer stored", { voiceAccount: "gone" }, {}, ["unconfigured", "speech=live-key-required"]],
-        ["the key reader's keyed failure", {}, { resolve: () => { throw new Error("jarvis-keys: references=json"); } }, ["unconfigured", "speech=live-account-unreadable"]],
-        ["the hearing row not set up", {}, { ready: false }, ["unconfigured", "speech=fixture-off"]],
-        ["no voice before the list answers", { voice: "" }, {}, ["unconfigured", "speech=elevenlabs-voice"]],
-        ["a voice no id names", { voice: "af_heart" }, {}, ["unconfigured", "speech=elevenlabs-voice"]],
-        ["a chosen voice", {}, {}, ["ready", undefined]],
-        ["Always mode, which listens on this computer", { mode: "always" }, {}, ["ready", undefined]],
-        ["Always mode over a row that cannot spot the word", { mode: "always" }, { wake: false }, ["unconfigured", "speech=always-local-voice"]]])
-        assert.deepEqual(cause(configure(settings, options).answer), want, label);
-    const { engine } = configure({});
-    assert.deepEqual([engine.plan().speech.id, engine.plan().speech.speaker, engine.plan().speech.recipients],
-        ["elevenlabs", "VoiceA", [{ kind: "local", provider: "scripted-speech", account: "" },
-            { kind: "network", provider: "elevenlabs", account: "eleven-key", origin: "https://api.elevenlabs.io" }]],
-        "the hearing row's recipients and ElevenLabs's");
-    assert.equal(engine.engine(), "chained", "the scripted row records no dictation: ElevenLabs keeps the hearing row's engine");
-    // Local stays local whatever key is stored.
-    const local = configure({ voiceProvider: "local" }).engine.plan().speech;
-    assert.deepEqual([local.id, local.recipients.length], ["scripted", 1], "Local never speaks through ElevenLabs");
+    const listedOnce = async answers => {
+        await until(() => answers.length === 2, "the list's answer judges the plan again");
+        return answers[1];
+    };
+    try {
+        for (const [label, settings, options, want] of [
+            ["no key chosen", { voiceAccount: "" }, {}, ["unconfigured", "speech=live-account-unselected"]],
+            ["a key of another provider", { voiceAccount: "openai-key" }, {}, ["unconfigured", "speech=live-key-required"]],
+            ["a key no longer stored", { voiceAccount: "gone" }, {}, ["unconfigured", "speech=live-key-required"]],
+            ["the key reader's keyed failure", {}, { resolve: () => { throw new Error("jarvis-keys: references=json"); } }, ["unconfigured", "speech=live-account-unreadable"]]])
+            assert.deepEqual(cause(configure(settings, options).answers[0]), want, label);
+        // [label, settings, options, the first answer, the answer once the
+        // list answered, the speaker then].
+        for (const [label, settings, options, first, listed, speaker] of [
+            ["the hearing row not set up", {}, { ready: false }, ["unconfigured", "speech=fixture-off"], ["unconfigured", "speech=fixture-off"], null],
+            ["no voice chosen", { voice: "" }, {}, ["unconfigured", "speech=elevenlabs-voices-reading"], ["ready", undefined], "VoiceA"],
+            ["a listed voice", {}, {}, ["unconfigured", "speech=elevenlabs-voices-reading"], ["ready", undefined], "VoiceA"],
+            ["another provider's voice name", { voice: "Kore" }, {}, ["unconfigured", "speech=elevenlabs-voices-reading"], ["ready", undefined], "VoiceA"],
+            ["a failed read with no voice listed before", {}, { pages: [{ status: 500 }] }, ["unconfigured", "speech=elevenlabs-voices-reading"],
+                ["unconfigured", "speech=elevenlabs-voice"], null],
+            ["Always mode, which listens on this computer", { mode: "always" }, {}, ["unconfigured", "speech=elevenlabs-voices-reading"], ["ready", undefined], "VoiceA"],
+            ["Always mode over a row that cannot spot the word", { mode: "always" }, { wake: false }, ["unconfigured", "speech=elevenlabs-voices-reading"],
+                ["unconfigured", "speech=always-local-voice"], null]]) {
+            const { answers, engine } = configure(settings, options);
+            assert.deepEqual(cause(answers[0]), first, label + ": before the list answers");
+            assert.deepEqual(cause(await listedOnce(answers)), listed, label + ": once the list answered");
+            assert.equal(engine.plan().speech.speaker ?? null, speaker, label + ": the speaker");
+            assert.equal(engine.voicesHeld(), listed[1] === "speech=elevenlabs-voice", label + ": held for a Talk to read again");
+        }
+        const { answers, engine } = configure({});
+        await listedOnce(answers);
+        assert.deepEqual([engine.plan().speech.id, engine.plan().speech.recipients],
+            ["elevenlabs", [{ kind: "local", provider: "scripted-speech", account: "" },
+                { kind: "network", provider: "elevenlabs", account: "eleven-key", origin: ELEVEN_ORIGIN }]],
+            "the hearing row's recipients and ElevenLabs's");
+        assert.equal(engine.engine(), "chained", "the scripted row records no dictation: ElevenLabs keeps the hearing row's engine");
+        // A later failed read keeps the voice an earlier read listed.
+        eleven.state.pages = [{ status: 500 }];
+        eleven.state.served = 0;
+        engine.configure({ brain: "a", mode: "toggle", ...ELEVEN_SETTINGS });
+        await until(() => answers.length === 3, "the failed read judges the plan again");
+        assert.deepEqual([cause(answers[2]), engine.voices(), engine.plan().speech.speaker], [["ready", undefined], [], "VoiceA"],
+            "a failed read offers no voices and keeps the voice");
+        // A judgement the list's answer makes that throws goes to the
+        // daemon's fatal port, as configure's own throw does.
+        let reads = 0;
+        configure({}, { resolve: id => {
+            if (++reads > 1) throw new TypeError("fixture defect");
+            return elevenOnly(id);
+        } });
+        await until(() => fatals.length === 1, "the list's judgement hands its throw over");
+        assert.equal(fatals[0].message, "fixture defect");
+        // Local stays local whatever key is stored.
+        const local = configure({ voiceProvider: "local" }).engine.plan().speech;
+        assert.deepEqual([local.id, local.recipients.length], ["scripted", 1], "Local never speaks through ElevenLabs");
+    } finally { for (const engine of engines) engine.close(); }
 }
 const SPOKEN_CONTROLS = [
     ["elevenlabs-selected", 'if (settings.voiceProvider === "elevenlabs") return selectSpoken(', 'if (false) return selectSpoken('],
@@ -3492,8 +3541,11 @@ const SPOKEN_CONTROLS = [
     ["elevenlabs-hearing", "const hearing = selectHearing(settings, accounts, directories);\n    if (hearing.kind !== \"ready\")",
         "const hearing = { kind: \"ready\", recipients: [], voices: [] };\n    if (hearing.kind !== \"ready\")"],
     ["elevenlabs-recipient", "recipients: [...hearing.recipients, key.recipient],", "recipients: hearing.recipients,"],
-    ["elevenlabs-voice-unset", '    if (speaker === null) return { ...unconfigured("speech=elevenlabs-voice"), list };\n', ""],
-    ["elevenlabs-voice-shape", ": ElevenLabs.VOICE.test(settings.voice) ? settings.voice : null;", ": settings.voice || null;"],
+    ["elevenlabs-reading-as-failed", 'read.voices === null || read.reading ? "speech=elevenlabs-voices-reading" : "speech=elevenlabs-voice"', '"speech=elevenlabs-voice"'],
+    ["elevenlabs-unlisted-voice", ": read.known?.has(settings.voice) ? settings.voice : null;", ": settings.voice || null;"],
+    ["elevenlabs-failed-read-drops-voice", "known: voices.length !== 0 ? new Set(voices.map(voice => voice.value)) : read.known", "known: voices.length !== 0 ? new Set(voices.map(voice => voice.value)) : null"],
+    ["elevenlabs-never-held", 'voicesHeld: () => plan.speech?.kind === "unconfigured" && plan.speech.cause === "speech=elevenlabs-voice",', "voicesHeld: () => false,"],
+    ["elevenlabs-list-throw-dropped", "} catch (error) { fatal(error); }", "} catch (error) { void error; }"],
     ["always-elevenlabs-refused", 'settings.mode === "always" && (Object.hasOwn(DUPLEX, settings.voiceProvider) ||',
         'settings.mode === "always" && (Object.hasOwn(DUPLEX, settings.voiceProvider) || settings.voiceProvider === "elevenlabs" ||']
 ];
@@ -3506,7 +3558,9 @@ async function elevenCases(kit, server, eleven, only = null) {
         eleven.reset();
         options.before?.();
         const logs = [];
-        const w = rig(kit, server, { settings: ELEVEN_SETTINGS, accounts: elevenAccounts, log: line => logs.push(line), ...options });
+        // The plan waits for the account's voices, so the rig's first
+        // configure answers before it is ready.
+        const w = rig(kit, server, { settings: ELEVEN_SETTINGS, accounts: elevenAccounts, log: line => logs.push(line), later: true, ...options });
         w.logs = logs;
         try { await check(w); } finally {
             await w.close();
@@ -3514,6 +3568,7 @@ async function elevenCases(kit, server, eleven, only = null) {
         }
     };
     const spoken = () => eleven.posts().map(record => record.text);
+    const voiced = w => until(() => w.s().gate.kind === "up", "the plan is ready once the voices answered");
 
     // The account's voices reach the Voice setting through the engine's
     // offers, the user's own first, from keyed GETs that follow the next
@@ -3522,6 +3577,7 @@ async function elevenCases(kit, server, eleven, only = null) {
     // request.
     await run("elevenlabs-voices", async w => {
         await until(() => w.engine.voices().length === 2, "the account's voices are offered");
+        await voiced(w);
         assert.deepEqual(w.engine.voices(), [{ label: "My voice (cloned)", value: "Clone1" }, { label: "Rachel", value: "VoiceA" }]);
         const lists = eleven.records.filter(record => record.method === "GET");
         assert.deepEqual(lists.map(record => [record.url, record.headers["xi-api-key"], record.body]), [
@@ -3540,23 +3596,55 @@ async function elevenCases(kit, server, eleven, only = null) {
             { voices: [{ voice_id: "Clone1", name: "My voice", category: "cloned" }], has_more: false, next_page_token: null }];
     } });
 
-    // A list that fails offers no voices and leaves the chosen voice: the
-    // reply still speaks in it.
+    // A list that fails later offers no voices and keeps the voice an
+    // earlier read listed: the reply still speaks in it.
     await run("elevenlabs-voices-failed", async w => {
+        await voiced(w);
+        w.configure({ ...w.s().settings });
         await until(() => w.logs.includes("jarvis: speech=elevenlabs-voices-http status=500"), "the failed read is logged keyed");
         assert.deepEqual(w.engine.voices(), [], "a failed list offers none");
+        await voiced(w);
         const first = await say(w, utterance("Say hello."));
         await requested(w, first + 1, "the request");
         server.replies.push(text("Hello there."));
         await until(() => spoken().includes("Hello there."), "the reply speaks");
         await playOut(w);
         assert.equal(eleven.posts().find(record => record.text === "Hello there.").url, "/v1/text-to-speech/VoiceA/stream?output_format=pcm_24000");
-    }, { before: () => { eleven.state.pages = [{ status: 500 }]; } });
+    }, { before: () => {
+        eleven.state.pages = [{ voices: [{ voice_id: "VoiceA", name: "Rachel", category: "premade" }], has_more: false }, { status: 500 }];
+    } });
+
+    // A first read that fails holds a user with no chosen voice; no hello
+    // follows the network's return, so a Talk, through the shipped daemon's
+    // talk-down rule, reads the list again, and the plan speaks the first
+    // listed voice.
+    await run("elevenlabs-voices-retried", async w => {
+        await until(() => w.logs.includes("jarvis: speech=elevenlabs-voices-http status=500"), "the first read fails");
+        await until(() => w.engine.voicesHeld(), "the failed read holds the plan");
+        assert.equal(w.s().gate.kind, "down", "Jarvis is not ready meanwhile");
+        const daemon = fs.readFileSync(path.join(kit.folder, "backend/jarvisd.js"), "utf8");
+        const rule = [...daemon.matchAll(/^ *(if \(\(message\.intent === "talk-down" \|\| message\.intent === "say"\) && [^\n]*judgeSetup\(\);)$/gm)];
+        assert.equal(rule.length, 1, "one shipped talk-down judgement");
+        vm.runInNewContext(rule[0][1], { message: { intent: "talk-down" }, engine: w.engine, judgeSetup: () => w.configure({ ...w.s().settings }) });
+        await voiced(w);
+        assert.deepEqual(w.engine.voices(), [{ label: "My voice (cloned)", value: "Clone1" }, { label: "Rachel", value: "VoiceA" }]);
+        const first = await say(w, utterance("Say hello."));
+        await requested(w, first + 1, "the request");
+        server.replies.push(text("Hello there."));
+        await until(() => spoken().includes("Hello there."), "the reply speaks");
+        await playOut(w);
+        assert.equal(eleven.posts().find(record => record.text === "Hello there.").url, "/v1/text-to-speech/Clone1/stream?output_format=pcm_24000",
+            "the first listed voice");
+    }, { settings: { ...ELEVEN_SETTINGS, voice: "" }, before: () => {
+        eleven.state.pages = [{ status: 500 }, { voices: [{ voice_id: "Clone1", name: "My voice", category: "cloned" },
+            { voice_id: "VoiceA", name: "Rachel", category: "premade" }], has_more: false }];
+    } });
 
     // Barge-in: the brain is told exactly the sentences ElevenLabs played
     // whole, as for the local voices, and the sentence still requested ends
     // at once.
     await run("elevenlabs-barge-in", async w => {
+        await voiced(w);
         const first = await say(w, utterance("What time is it?"));
         await requested(w, first + 1, "first request");
         await until(() => spoken().length !== 0, "the acknowledgement speaks through ElevenLabs");
@@ -3582,6 +3670,7 @@ async function elevenCases(kit, server, eleven, only = null) {
 
     // The conversation's end ends the request in flight.
     await run("elevenlabs-end", async w => {
+        await voiced(w);
         const first = await say(w, utterance("Say something."));
         await requested(w, first + 1, "first request");
         await until(() => spoken().length !== 0, "the acknowledgement speaks through ElevenLabs");
@@ -3593,20 +3682,49 @@ async function elevenCases(kit, server, eleven, only = null) {
         const held = eleven.posts().find(record => record.text === "Wait for me.");
         await until(() => held.closed, "the end closes the request in flight");
     });
+
+    // A failover while ElevenLabs still streams a sentence: the sentence
+    // released under the old set keeps its transport to its last chunk, the
+    // conversation stays, and the failover line and the backup's answer
+    // speak after it.
+    await run("elevenlabs-failover", async w => {
+        await voiced(w);
+        const primary = statusBrain(8080, { kind: "status", status: 429 });
+        await primary.ready;
+        try {
+            const gate = { open: null };
+            eleven.state.gate = new Promise(resolve => { gate.open = resolve; });
+            const before = await say(w, utterance("Try the backup."));
+            await until(() => spoken().length !== 0, "the acknowledgement is requested");
+            const acknowledgement = eleven.posts()[0];
+            server.replies.push(text("Backup answered."));
+            await requested(w, before + 1, "the backup receives the request while the acknowledgement streams");
+            gate.open();
+            await until(() => acknowledgement.answered, "the held sentence completes");
+            await until(() => w.s().turn.kind === "none", "the backup's answer finishes");
+            await playOut(w);
+            await until(() => spoken().includes("Backup answered."), "the backup's answer speaks");
+            assert.equal(spoken().some(sentence => sentence.includes("is not answering")), true, "the failover line speaks");
+            assert.deepEqual([w.s().fault.kind, w.s().conversation.kind], ["none", "active"], "the conversation stays");
+        } finally { await primary.close(); }
+    }, { accounts: { ...elevenAccounts, choose: id => id === "fixture-account"
+        ? { kind: "accepted", account: { id, provider: "llama-server", label: "primary", source: { kind: "local", origin: "http://127.0.0.1:8080" }, model: "primary-model" } }
+        : { kind: "accepted", account: { id, provider: "ollama", label: "backup", source: { kind: "local", origin: "http://127.0.0.1:" + PORT }, model: "backup-model" } } },
+    fallbacks: [{ name: "backup", brain: "backup", model: "backup-model" }] });
 }
 
 const FLUSH_RETURNS = ["void output?.return?.(); });", "});"];
 async function groupElevenLabs(root, server) {
     let controls = 0;
-    spokenSelection(Fixture.copy(root, [PLAN]).Engine);
-    for (const [name, needle, replacement] of SPOKEN_CONTROLS) {
-        assert.throws(() => spokenSelection(Fixture.copy(root, [PLAN, [needle, replacement]]).Engine), assert.AssertionError, name + " must turn red");
-        console.log("control=" + name + " detected");
-        controls++;
-    }
     const eleven = elevenStandIn();
     await eleven.ready;
     try {
+        await spokenSelection(elevenKit(root, [PLAN]).Engine, eleven);
+        for (const [name, needle, replacement] of SPOKEN_CONTROLS) {
+            await assert.rejects(() => spokenSelection(elevenKit(root, [PLAN, [needle, replacement]]).Engine, eleven), assert.AssertionError, name + " must turn red");
+            console.log("control=" + name + " detected");
+            controls++;
+        }
         await elevenCases(elevenKit(root), server, eleven);
         // A stop flushes the playback too: the end closes the request in
         // flight on its own, which the end control below takes away.
@@ -3616,14 +3734,21 @@ async function groupElevenLabs(root, server) {
             ["elevenlabs-preview-voice", "elevenlabs-voices", [[".speak(sentenceInput, c.plan.speech.speaker)", '.speak(sentenceInput, "VoiceB")']], []],
             ["elevenlabs-list-unaudited", "elevenlabs-voices", [['const result = audit.before(releaseEvent({ recipients }, identityOf, item.labels, "send", "pending"), start);',
                 'const result = { kind: "started", value: start() };']], []],
-            ["elevenlabs-failed-list-drops-voice", "elevenlabs-voices-failed", [[": ElevenLabs.VOICE.test(settings.voice) ? settings.voice : null;", ": null;"]], []],
+            ["elevenlabs-failed-list-drops-voice", "elevenlabs-voices-failed", [["known: voices.length !== 0 ? new Set(voices.map(voice => voice.value)) : read.known",
+                "known: voices.length !== 0 ? new Set(voices.map(voice => voice.value)) : null"]], []],
+            ["elevenlabs-talk-rereads-not", "elevenlabs-voices-retried", [['voicesHeld: () => plan.speech?.kind === "unconfigured" && plan.speech.cause === "speech=elevenlabs-voice",',
+                "voicesHeld: () => false,"]], []],
+            ["elevenlabs-daemon-talk-rereads-not", "elevenlabs-voices-retried", [], [["jarvisd.js", "(engine.homeHeld() || engine.voicesHeld())", "engine.homeHeld()"]]],
             ["elevenlabs-heard-uncredited", "elevenlabs-barge-in", [], [["ElevenLabs.js",
                 "yield { pcm: held, sentence: { text: item.content, frames: held.length / 2 } };", "yield { pcm: held };"]]],
             ["elevenlabs-flush-keeps-request", "elevenlabs-barge-in", [FLUSH_RETURNS], []],
-            ["elevenlabs-end-keeps-request", "elevenlabs-end", [FLUSH_RETURNS, ["        c.spoken?.close();\n        c.net.close();\n", ""]], []]]) {
-            await assert.rejects(() => elevenCases(elevenKit(root, engine, backend), server, eleven, scenario), assert.AssertionError,
-                name + " must turn " + scenario + " red");
-            console.log("control=" + name + " detected");
+            ["elevenlabs-end-keeps-request", "elevenlabs-end", [FLUSH_RETURNS, ["        c.spoken?.close();\n        for (const door of c.retired) door.close();\n        c.retired.clear();\n        c.net.close();\n", ""]], []],
+            ["elevenlabs-failover-closes-voice", "elevenlabs-failover", [["        retire(c, c.net);\n", "        c.net.close();\n"]], []]]) {
+            await assert.rejects(() => elevenCases(elevenKit(root, engine, backend), server, eleven, scenario), error => {
+                assert.ok(error instanceof assert.AssertionError, name + " must turn " + scenario + " red: " + error);
+                console.log("control=" + name + " detected by=" + JSON.stringify(error.message.split("\n")[0]));
+                return true;
+            });
             controls++;
         }
     } finally { await eleven.close(); }

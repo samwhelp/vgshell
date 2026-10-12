@@ -40,8 +40,9 @@ const within = (promise, label) => Promise.race([promise, new Promise((_, reject
 world(async () => {
     const records = [];
     // Each sentence's answer by its text: {pcm} served in two writes split
-    // inside a sample, {status} with a held private body, or {hold} with no
-    // answer. Voice pages answer in order; the last repeats.
+    // inside a sample, {status} with a held private body, {hold} with no
+    // answer, or {partial} written after the headers, then held. Voice pages
+    // answer in order; the last repeats.
     const speech = new Map();
     let pages = [];
     let served = 0;
@@ -70,6 +71,11 @@ world(async () => {
         }
         const plan = speech.get(JSON.parse(record.body).text);
         if (plan === undefined || plan.hold) return;
+        if (plan.partial !== undefined) {
+            response.writeHead(200, { "content-type": "application/octet-stream" });
+            response.write(plan.partial);
+            return;
+        }
         if (plan.status !== undefined) {
             response.writeHead(plan.status, { "content-type": "application/json" });
             response.write(JSON.stringify({ detail: { message: PRIVATE + " " + KEY } }));
@@ -268,9 +274,11 @@ world(async () => {
         assert.AssertionError, "close-aborts must turn red");
     controls += 2;
 
-    // A wait on ElevenLabs is bounded: its deadline fails the sentence keyed.
-    async function timed(kit) {
-        speech.set("Never answered.", { hold: true });
+    // A wait on ElevenLabs is bounded, for the response and for each next
+    // bytes: its deadline fails the sentence keyed. PHASE is the wait that
+    // holds: "response", or "read" after the headers and one chunk.
+    async function timed(kit, phase) {
+        speech.set("Never answered.", phase === "read" ? { partial: pcm(2, 5) } : { hold: true });
         const timers = [];
         const manual = { set: (fn, ms) => { const timer = { fn, ms }; timers.push(timer); return timer; },
             clear: timer => { timer.cleared = true; } };
@@ -281,20 +289,27 @@ world(async () => {
         const voice = kit.ElevenLabs.create({ provider: kit.Providers.select("elevenlabs"), net: () => net, key: key(), grants: () => [], clock: manual });
         const before = records.length;
         const result = drain(voice.speak(sentences(kit, ["Never answered."]), "VoiceA"));
-        await within((async () => { while (records.length === before) await new Promise(resolve => setTimeout(resolve, 5)); })(), "the request arrives");
-        const armed = timers.filter(timer => !timer.cleared);
-        assert.deepEqual(armed.map(timer => timer.ms), [60000], "one bound on the wait");
-        armed[0].fn();
+        // The request's own bound, then one for each read: the first takes
+        // the chunk, the second waits.
+        const waits = phase === "read" ? 3 : 1;
+        const armed = () => timers.filter(timer => !timer.cleared);
+        await within((async () => {
+            while (records.length === before || timers.length < waits || armed().length !== 1) await new Promise(resolve => setTimeout(resolve, 5));
+        })(), phase + ": the wait is armed");
+        assert.deepEqual(armed().map(timer => timer.ms), [60000], "one bound on the wait");
+        armed()[0].fn();
         const { error } = await within(result, "the bounded wait");
         assert.equal(error?.message, "jarvis: speech=elevenlabs-timeout");
         voice.close();
         net.close();
         cases++;
     }
-    await timed(kitFor(origin));
-    await assert.rejects(() => timed(kitFor(origin, [["ElevenLabs.js", "if (wait.expired) fail(\"timeout\");\n                    throw error;", "throw error;"]])),
+    for (const phase of ["response", "read"]) await timed(kitFor(origin), phase);
+    await assert.rejects(() => timed(kitFor(origin, [["ElevenLabs.js", "if (wait.expired) fail(\"timeout\");\n                    throw error;", "throw error;"]]), "response"),
         assert.AssertionError, "timeout-cause must turn red");
-    controls++;
+    await assert.rejects(() => timed(kitFor(origin, [["ElevenLabs.js", 'catch { fail(wait.expired ? "timeout" : "stream-failed"); }', 'catch { fail("stream-failed"); }']]), "read"),
+        assert.AssertionError, "read-timeout-cause must turn red");
+    controls += 2;
 
     // A voice id travels in the path, so one that is not a plain id is refused.
     {
@@ -326,13 +341,14 @@ world(async () => {
     async function paged(kit) {
         pages = [{ voices: [listed("Prem1", "Rachel", "premade"), listed("Clone1", "My voice", "cloned")], has_more: true,
             total_count: 4, next_page_token: "token 2" },
-        { voices: [listed("Design1", "Narrator", "generated"), listed("Prem2", "Adam\u2028", "premade"), listed("Clone1", "My voice", "cloned")],
+        { voices: [listed("Design1", "Narrator", "generated"), listed("Prem2", "<img src=x>Adam\u202e\u2066\u2028", "premade"), listed("Clone1", "My voice", "cloned")],
             has_more: false, total_count: 4, next_page_token: null }];
         served = 0;
         const before = records.length, transferred = [];
         const voices = await list(kit, { transferred });
         assert.deepEqual(voices, [{ label: "My voice (cloned)", value: "Clone1" }, { label: "Narrator (designed)", value: "Design1" },
-            { label: "Rachel", value: "Prem1" }, { label: "Adam", value: "Prem2" }], "the user's own voices first, each once");
+            { label: "Rachel", value: "Prem1" }, { label: "img src=x Adam", value: "Prem2" }],
+        "the user's own voices first, each once, with no markup bracket, override or line break in a name");
         const sent = records.slice(before);
         assert.deepEqual(sent.map(record => [record.method, record.url, record.body, record.headers["xi-api-key"]]), [
             ["GET", "/v2/voices?page_size=100", "", KEY], ["GET", "/v2/voices?page_size=100&next_page_token=token%202", "", KEY]]);
@@ -343,6 +359,7 @@ world(async () => {
     await paged(kitFor(origin));
     for (const [name, needle, replacement] of [
         ["own-first", "return [...own, ...premade].slice(0, LIST_MAX);", "return [...premade, ...own].slice(0, LIST_MAX);"],
+        ["name-markup", "\\u2028\\u2029<>\\u202a-\\u202e\\u2066-\\u2069]", "\\u2028\\u2029]"],
         ["paging", "token = read.next_page_token;", "break;"],
         ["list-key-zeroed", "    } finally { secret.fill(0); }\n", "    } finally { void secret; }\n"]]) {
         await assert.rejects(() => paged(kitFor(origin, [["ElevenLabs.js", needle, replacement]])), assert.AssertionError, name + " must turn red");

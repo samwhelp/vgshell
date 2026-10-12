@@ -77,8 +77,10 @@ function deadline(clock, stop) {
  * {set, clear}.
  * speak(sentences, voice) follows the chained engine's adapter contract:
  * it yields {pcm} chunks, and each sentence's last chunk carries {sentence}.
- * Its return() aborts the request in flight at once. close() ends every
- * request and zeroes the key.
+ * Each sentence takes the net owner current when it starts, and keeps it
+ * to its last chunk. Its return() aborts the request in flight at once.
+ * idle(door) resolves once no request of net owner DOOR is in flight.
+ * close() ends every request and zeroes the key.
  */
 function create({ provider, net, key, grants, clock }) {
     Providers.assertRow(provider);
@@ -89,6 +91,14 @@ function create({ provider, net, key, grants, clock }) {
     let secret = null;
     let closed = false;
     const active = new Set();
+    // The requests in flight by net owner, and who waits for each to end.
+    const inflight = new Map();
+    function settle(door) {
+        const entry = inflight.get(door);
+        if (--entry.count !== 0) return;
+        inflight.delete(door);
+        for (const resolve of entry.waiters) resolve();
+    }
 
     async function* sentencesOf(sentences, voice, stop) {
         const url = provider.base + "/v1/text-to-speech/" + voice + "/stream?output_format=" + FORMAT;
@@ -98,11 +108,15 @@ function create({ provider, net, key, grants, clock }) {
             const body = Policy.item(JSON.stringify({ text: item.content, model_id: provider.model }), item.labels);
             if (secret === null) secret = key.secrets.lookup(key.reference);
             const wait = deadline(clock, stop);
+            const door = net();
+            const entry = inflight.get(door) ?? { count: 0, waiters: [] };
+            entry.count++;
+            inflight.set(door, entry);
             let answer = null;
             try {
                 wait.arm();
                 try {
-                    answer = await net().request(body, { url, headers: { "content-type": "application/json" },
+                    answer = await door.request(body, { url, headers: { "content-type": "application/json" },
                         key: keyFor(key, secret), signal: wait.signal }, grants());
                 } catch (error) {
                     if (wait.expired) fail("timeout");
@@ -146,6 +160,7 @@ function create({ provider, net, key, grants, clock }) {
             } finally {
                 wait.release();
                 answer?.close?.();
+                settle(door);
             }
         }
     }
@@ -181,6 +196,10 @@ function create({ provider, net, key, grants, clock }) {
                     return done;
                 }
             };
+        },
+        idle(door) {
+            const entry = inflight.get(door);
+            return entry === undefined ? Promise.resolve() : new Promise(resolve => entry.waiters.push(resolve));
         },
         close() {
             closed = true;
@@ -255,7 +274,10 @@ async function voices({ provider, net, key, transfer, clock, stop = new AbortCon
                 for (const voice of read.voices) {
                     if (!plain(voice) || typeof voice.voice_id !== "string" || !VOICE.test(voice.voice_id)
                             || typeof voice.name !== "string" || typeof voice.category !== "string") fail("voices-shape");
-                    const name = voice.name.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ").trim();
+                    // A name is another account's text the Settings Select
+                    // draws: no control, line break, markup bracket or
+                    // bidirectional override survives.
+                    const name = voice.name.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029<>\u202a-\u202e\u2066-\u2069]/g, " ").trim();
                     if (name === "" || seen.has(voice.voice_id)) continue;
                     seen.add(voice.voice_id);
                     const made = Object.hasOwn(MADE, voice.category) ? MADE[voice.category] : null;
@@ -273,4 +295,4 @@ async function voices({ provider, net, key, transfer, clock, stop = new AbortCon
     return [...own, ...premade].slice(0, LIST_MAX);
 }
 
-module.exports = { create, voices, VOICE };
+module.exports = { create, voices };

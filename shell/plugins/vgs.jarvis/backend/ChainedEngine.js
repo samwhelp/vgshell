@@ -188,7 +188,7 @@ function signal() {
  * holds the plan with the service's dictation cause, settings.dictation,
  * while the core's recording cannot start; its sidecar still loads.
  */
-function select(settings, accounts, directories, listed = () => null) {
+function select(settings, accounts, directories, listed = () => ({ voices: null, known: null, reading: false })) {
     const { list = null, ...speech } = selectSpeech(settings, accounts, directories, listed);
     const dictation = speech.kind === "ready" && speech.dictation === true && settings.dictation !== ""
         ? unconfigured(settings.dictation) : { kind: "ready" };
@@ -273,11 +273,16 @@ function selectVoice(settings, accounts, directories, listed) {
 /**
  * The ElevenLabs voice: the ready speech row hears the user, wake word and
  * turn detection included, and ElevenLabs speaks with the stored key. Its
- * recipients are that row's and ElevenLabs's. The speaker is one of the
- * account's voices as LISTED(reference) last read them, null before a read
- * answered and [] after a failed one; with none, the Voice setting while it
- * names a voice id. `list` asks the engine to read the voices for this key,
- * whatever the rest of the step answers.
+ * recipients are that row's and ElevenLabs's. LISTED(reference) answers the
+ * key's voice list as {voices, known, reading}: voices the offers of the
+ * last read, null before one answered and [] after a failed one; known the
+ * ids a read of this key listed in this daemon's life, null before any; and
+ * whether a read is in flight. The speaker is one of the offers, else the
+ * Voice setting while a read listed it, so another provider's voice name
+ * never becomes a request path. With neither, the step waits for a read
+ * still to answer, or holds with the failed read's cause, which a Talk
+ * reads again (voicesHeld). `list` asks the engine to read the voices for
+ * this key, whatever the rest of the step answers.
  */
 function selectSpoken(settings, accounts, directories, listed) {
     const provider = Providers.select("elevenlabs");
@@ -286,10 +291,12 @@ function selectSpoken(settings, accounts, directories, listed) {
     const list = { provider, key: key.key, recipient: key.recipient };
     const hearing = selectHearing(settings, accounts, directories);
     if (hearing.kind !== "ready") return { ...hearing, list };
-    const voices = listed(key.key.reference) ?? [];
+    const read = listed(key.key.reference);
+    const voices = read.voices ?? [];
     const speaker = voices.length !== 0 ? voices[voiceIndex(voices, settings.voice)].value
-        : ElevenLabs.VOICE.test(settings.voice) ? settings.voice : null;
-    if (speaker === null) return { ...unconfigured("speech=elevenlabs-voice"), list };
+        : read.known?.has(settings.voice) ? settings.voice : null;
+    if (speaker === null)
+        return { ...unconfigured(read.voices === null || read.reading ? "speech=elevenlabs-voices-reading" : "speech=elevenlabs-voice"), list };
     return { ...hearing, id: "elevenlabs", voices, speaker, recipients: [...hearing.recipients, key.recipient],
         spoken: { provider, key: key.key }, list };
 }
@@ -374,7 +381,7 @@ function selectBrain(settings, accounts) {
  * daemon's shell request port, ShellRequests' send, which a dictation row's
  * utterances record through.
  */
-function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, tasks = null, directories, dispatch, clock, configured = () => {}, log = () => {}, home = () => ({ kind: "none" }), rejudge, trace = {}, request = null }) {
+function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, tasks = null, directories, dispatch, clock, configured = () => {}, fatal = error => { throw error; }, log = () => {}, home = () => ({ kind: "none" }), rejudge, trace = {}, request = null }) {
     if (!Number.isSafeInteger(captionLimit) || captionLimit < 1) fail("caption-limit");
     const brainText = tracer(trace);
     let plan = unconfigured("engine=starting");
@@ -393,11 +400,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     // judges again.
     let lastSettings = null;
     // The ElevenLabs voices of one key: identity is its reference's JSON,
-    // voices null before a read answered and [] after a failed one, and
-    // net the read in flight's owner, or null.
-    let voiceList = { identity: null, voices: null, net: null };
+    // voices null before a read answered and [] after a failed one, known
+    // the ids of its last read that listed any, and net the read in
+    // flight's owner, or null.
+    let voiceList = { identity: null, voices: null, known: null, net: null };
     let listReads = 0;
-    const listed = reference => voiceList.identity === JSON.stringify(reference) ? voiceList.voices : null;
+    const listed = reference => voiceList.identity === JSON.stringify(reference)
+        ? { voices: voiceList.voices, known: voiceList.known, reading: voiceList.net !== null }
+        : { voices: null, known: null, reading: false };
 
     function configuration() {
         const local = plan.speech?.kind === "ready" && plan.speech.lifetime === "daemon";
@@ -476,7 +486,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // late holds at most one call: the router runs one action at a time.
         // relay is the held prompt the user's next words answer, or null;
         // retried is that prompt once it was asked again after unjudged words.
-        const c = { gen, plan: activePlan, entry: 0, recipients, net, speech: null, spoken: null, liveOpen: null, brain: null, guidance: null, owner: null, grants: [], heard: null, relay: null, retried: null, unmatched: null,
+        const c = { gen, plan: activePlan, entry: 0, recipients, net, retired: new Set(), speech: null, spoken: null, liveOpen: null, brain: null, guidance: null, owner: null, grants: [], heard: null, relay: null, retried: null, unmatched: null,
             decisions: new Set(), releasePending: null, late: new Map(), results: [], turn: null, last: null,
             feedback: null, collection: null, unbound: null, rev: 0, quiet: Promise.resolve(), live: null };
         try {
@@ -534,6 +544,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         brain?.close();
         if (c.plan.speech.lifetime !== "daemon") c.speech.close();
         c.spoken?.close();
+        for (const door of c.retired) door.close();
+        c.retired.clear();
         c.net.close();
         retired = { gen: c.gen, closed: quiet };
         // After the teardown this observation runs, not inside it.
@@ -953,6 +965,24 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         }
     }
 
+    // A failover's old net owner takes no new request: the voice asks c.net
+    // at each sentence. A sentence ElevenLabs is still streaming was
+    // released under the old set and keeps its transport to its last chunk;
+    // the owner closes once it ends, or at end(). A sentence queued before
+    // the switch but not yet requested is judged against the new set, where
+    // the old grants fail: one with a label only a grant released is not
+    // spoken, and the user hears the failover line next.
+    function retire(c, door) {
+        if (c.spoken === null) {
+            door.close();
+            return;
+        }
+        c.retired.add(door);
+        void c.spoken.idle(door).then(() => {
+            if (c.retired.delete(door)) door.close();
+        });
+    }
+
     async function switchBrain(c) {
         const old = c.plan.brain;
         c.entry += 1;
@@ -971,7 +1001,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         cancelRelease(c);
         if (conversation !== c) return null;
         if (c.live !== null && c.liveOpen !== null) c.live.port.release();
-        c.net.close();
+        retire(c, c.net);
         c.grants.length = 0;
         c.decisions.clear();
         const facts = policy();
@@ -1633,7 +1663,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         voiceList.net?.close();
         const recipients = Policy.recipients({ conversation: "voices-" + (++listReads), profile: policy().profile,
             cloudVision: "never", brain: list.recipient, speech: [{ kind: "local", provider: "voice-list", account: list.recipient.account }] });
-        const read = { identity, voices: voiceList.identity === identity ? voiceList.voices : null, net: Net.create(recipients) };
+        const same = voiceList.identity === identity;
+        const read = { identity, voices: same ? voiceList.voices : null, known: same ? voiceList.known : null, net: Net.create(recipients) };
         voiceList = read;
         const identityOf = { gen: state().gen, op: listReads };
         const transfer = (item, start) => {
@@ -1652,8 +1683,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             .then(voices => {
                 read.net.close();
                 if (closed || voiceList !== read) return;
-                voiceList = { identity, voices, net: null };
-                if (lastSettings !== null) configured(judge(lastSettings));
+                // A failed read keeps the ids an earlier read listed, so the
+                // chosen voice still speaks.
+                voiceList = { identity, voices, known: voices.length !== 0 ? new Set(voices.map(voice => voice.value)) : read.known, net: null };
+                // configure's own caller ends the daemon on a judge's
+                // throw; this answer comes later, so it hands its own over.
+                try {
+                    if (lastSettings !== null) configured(judge(lastSettings));
+                } catch (error) { fatal(error); }
             });
     }
 
@@ -1671,6 +1708,13 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
          * it again at the user's next request.
          */
         homeHeld: () => homeHeld,
+        /**
+         * Whether the ElevenLabs voice holds the plan with a failed read of
+         * the account's voices. No hello follows the network's return, so
+         * the daemon configures again at the user's next request, which
+         * reads the list again.
+         */
+        voicesHeld: () => plan.speech?.kind === "unconfigured" && plan.speech.cause === "speech=elevenlabs-voice",
         checkReady: () => plan.speech?.wake === true && daemonSpeech?.status().kind === "ready",
         observe(s) {
             if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === "ended")) end();

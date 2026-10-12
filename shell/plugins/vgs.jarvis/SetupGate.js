@@ -103,7 +103,7 @@ var TODO = {
     "speech=live-account-unselected": "Add a key for the cloud voice under Setup at the top of this page: an OpenAI key for Realtime, a Gemini key for Gemini Live, an ElevenLabs key for ElevenLabs.",
     "speech=live-account-unreadable": "Jarvis could not read your voice key. Use Accounts in Setup to check it.",
     "speech=live-key-required": "Choose a key for the cloud voice under Voice key, or add one under Setup at the top of this page: an OpenAI key for Realtime, a Gemini key for Gemini Live, an ElevenLabs key for ElevenLabs.",
-    "speech=elevenlabs-voice": "Jarvis could not read the voices of your ElevenLabs key. Check that the key may read voices, then open this page again.",
+    "speech=elevenlabs-voice": "Jarvis could not read the voices of your ElevenLabs key. Check that the key may read voices. Jarvis reads them again when you press Talk.",
     "speech=local-not-ready": "Local voice did not start. Set it up again.",
     "speech=local-ready-timeout": "Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis.",
     "speech=always-local-voice": "Always talk mode listens for Hey Jarvis on this computer. Choose Local in Settings > Voice, or Hold or Toggle in Settings > Listening."
@@ -298,7 +298,9 @@ function readiness(answer) {
                     hint: Object.prototype.hasOwnProperty.call(HOME_TODO, cause) ? HOME_TODO[cause] : HOME_STEP_TODO };
                 return;
             }
-            if (cause === "speech=local-loading" || cause === "speech=dictation-starting") {
+            // ElevenLabs's voices are being read: the voice is chosen once
+            // they answer.
+            if (cause === "speech=local-loading" || cause === "speech=dictation-starting" || cause === "speech=elevenlabs-voices-reading") {
                 out.setupVoice = LOADING;
                 if (blocking.length === 1) out.setup = LOADING_SUMMARY;
                 return;

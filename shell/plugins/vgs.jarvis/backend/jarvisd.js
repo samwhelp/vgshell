@@ -505,10 +505,12 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         runner.dispatch({ type: message.intent === "cancel" ? "approval-cancel" : "confirm",
                             gen: message.gen, id: message.id, digest: message.digest, source: message.source });
                     } else {
-                        // No hello follows an edit inside the home folder. A
-                        // request made while the folder holds the engine judges
-                        // it again first, so a repaired folder takes the request.
-                        if ((message.intent === "talk-down" || message.intent === "say") && engine.homeHeld()) judgeSetup();
+                        // No hello follows an edit inside the home folder, nor
+                        // the network's return after a failed read of the
+                        // ElevenLabs voices. A request made while either holds
+                        // the engine judges it again first: a repaired folder
+                        // takes the request, and the voices are read again.
+                        if ((message.intent === "talk-down" || message.intent === "say") && (engine.homeHeld() || engine.voicesHeld())) judgeSetup();
                         const dispatch = () => {
                             runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }
                                 : message.intent === "say" ? { type: "say", text: message.text }
@@ -655,7 +657,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     engine = ChainedEngine.create({ session: Session, state: () => runner.state, audit, router,
                         accounts: () => new Accounts(state, process.env), request: requests.send,
                         policy: () => ({ profile: profile(), cloudVision: context.settings.cloudVision }), fault,
-                        captionLimit: Protocol.TRANSCRIPT_CHARS, dispatch: event => runner.dispatch(event), clock, configured,
+                        captionLimit: Protocol.TRANSCRIPT_CHARS, dispatch: event => runner.dispatch(event), clock, configured, fatal,
                         log: line => process.stderr.write(line + "\n"),
                         harness: { bridge, gate, env: process.env, runtime: () => context.directories.runtime },
                         tasks: { held: () => tasks.held(),

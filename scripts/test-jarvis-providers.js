@@ -135,8 +135,8 @@ let controls = 0;
 // names Net.create's result is assigned to; a door passed on under another
 // name is not found.
 // The Gemini Live and ElevenLabs rows document no such field, so their
-// requests carry none.
-const NO_STORE_SITES = ["Accounts.js:request", "ElevenLabs.js:request", "GeminiLive.js:websocket", "Realtime.js:websocket", "WireBrain.js:request"];
+// requests, ElevenLabs's sentences and voice list both, carry none.
+const NO_STORE_SITES = ["Accounts.js:request", "ElevenLabs.js:request", "ElevenLabs.js:request", "GeminiLive.js:websocket", "Realtime.js:websocket", "WireBrain.js:request"];
 function doorSites(sources) {
     const holders = new Set(sources.flatMap(([, text]) => [...text.matchAll(/\b(\w+) = Net\.create\(/g)].map(match => match[1])));
     assert.ok(holders.has("door") && holders.has("net"), "door holders are discovered");

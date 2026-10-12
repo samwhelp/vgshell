@@ -933,6 +933,11 @@ function verifyReadiness(gate) {
     assert.equal(gate.readiness({ kind: "checking" }).setupVoice, gate.CHECKING);
     assert.equal(gate.readiness({ kind: "answered", causes: ["speech=local-loading"] }).setupVoice, gate.LOADING);
     assert.equal(gate.readiness({ kind: "answered", causes: ["speech=local-loading"] }).setup, gate.LOADING_SUMMARY);
+    // ElevenLabs's voices being read load; a read that failed is to do.
+    assert.equal(gate.readiness({ kind: "answered", causes: ["speech=elevenlabs-voices-reading"] }).setupVoice, gate.LOADING,
+        "ElevenLabs voices being read: loading");
+    assert.notEqual(gate.readiness({ kind: "answered", causes: ["speech=elevenlabs-voice"] }).setupVoice.hint,
+        gate.readiness({ kind: "answered", causes: ["speech=elevenlabs-voices-reading"] }).setupVoice.hint, "a failed read says so");
     assert.notEqual(gate.LOADING, gate.CHECKING, "loading and initial checking have distinct values");
     for (const causes of [["speech=local-loading"], ["speech=local-loading", "brain=unselected"]]) {
         const loading = plain(gate.readiness({ kind: "answered", causes }));
@@ -1266,8 +1271,9 @@ const CONTROLS = [
     ["Local voice is required under a cloud voice", 'return hearsLocally(provider) ? Object.assign', "return true ? Object.assign", "partial under Realtime: "],
     ["memory refusal offers reinstall", 'if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {', 'if (false) {'],
     ["loading is initial checking", "out.setupVoice = LOADING;", "out.setupVoice = CHECKING;"],
-    ["loading offers setup", 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting") {', 'if (cause === "speech=dictation-starting") {'],
-    ["a starting recording offers setup", 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting") {', 'if (cause === "speech=local-loading") {', "daemon starting"],
+    ["loading offers setup", 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting" || cause === "speech=elevenlabs-voices-reading") {', 'if (cause === "speech=dictation-starting" || cause === "speech=elevenlabs-voices-reading") {'],
+    ["a starting recording offers setup", 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting" || cause === "speech=elevenlabs-voices-reading") {', 'if (cause === "speech=local-loading" || cause === "speech=elevenlabs-voices-reading") {', "daemon starting"],
+    ["a voice list being read reads as a failed one", 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting" || cause === "speech=elevenlabs-voices-reading") {', 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting") {', "ElevenLabs voices being read"],
     ["missing voxtype is not named", 'var ACTION_REQUIRES = { dictation: ["voxtype"] };', "var ACTION_REQUIRES = {};", "voxtype missing"],
     ["missing voxtype withholds Set up dictation", 'if (value.action === "dictation") withheld.action = "dictation";', 'if (false) withheld.action = "dictation";', "voxtype missing"],
     ["another voxtype offers setup", '"speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under Setup in Settings > Voice." },',
@@ -1821,7 +1827,7 @@ function verifyDictationStart(serviceSource) {
 function verifyOneReadiness(gate) {
     const shellCause = /setupCause: timedOut \? "([^"]+)"/.exec(fs.readFileSync(localRuntimeFile, "utf8"))[1];
     const daemonCauses = [...Object.keys(gate.TODO), ...Object.keys(gate.HOME_TODO), ...Object.keys(gate.MEMORY),
-        ...Object.keys(gate.DICTATION), "speech=local-loading", "speech=dictation-starting"];
+        ...Object.keys(gate.DICTATION), "speech=local-loading", "speech=dictation-starting", "speech=elevenlabs-voices-reading"];
     assert.equal(daemonCauses.includes(shellCause), false, "the shell's cause is no daemon cause");
     const sets = [[], [shellCause], ...daemonCauses.map(cause => [cause]), ...daemonCauses.map(cause => [shellCause, cause])];
     const keys = { talk: "Super+Right Alt", mute: "Super+Shift+Right Alt", stop: "Super+Alt+Period", confirm: "Super+Alt+Y" };
