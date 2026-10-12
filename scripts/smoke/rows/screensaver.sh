@@ -275,11 +275,13 @@ set_screensaver "$(art_patch "$fixture")"
 expect "reload config for a failing image conversion" ok ipc shell reloadConfig
 expect_poll "a failed image conversion shows the art problem" "Cannot read the art image" art_status
 rm -f -- "${shim:?}/magick"
-rescan "rescan after ImageMagick returns answers ok"
-expect_poll "ImageMagick arriving clears the art problem" absent art_status
-expect_poll "ImageMagick arriving converts the pending image" "$converted" art_in_use
+rescan "rescan after a failed conversion answers ok"
+expect_poll "a failed conversion retries after a rescan" absent art_status
+expect_poll "the retried conversion is the art in use" "$converted" art_in_use
+slow_fixture="$sandbox/screensaver-slow.png"
+cp -- "$fixture" "$slow_fixture"
 write_slow_magick
-set_screensaver "$(art_patch "$fixture")"
+set_screensaver "$(art_patch "$slow_fixture")"
 expect "reload config for slow image conversion" ok ipc shell reloadConfig
 expect_poll "the slow image conversion starts magick" yes slow_magick_alive
 set_screensaver "$(art_patch "$text_art")"
@@ -287,7 +289,7 @@ expect "reload config to replace a slow conversion with text" ok ipc shell reloa
 expect_poll "a new Art value ends the running magick" no slow_magick_alive
 expect_poll "the replacement text art has no problem" absent art_status
 expect_poll "the replacement text art is in use" "$text_art" art_in_use
-set_screensaver "$(art_patch "$fixture")"
+set_screensaver "$(art_patch "$slow_fixture")"
 expect "reload config for disable during conversion" ok ipc shell reloadConfig
 expect_poll "the slow conversion starts before disable" yes slow_magick_alive
 expect "disabling screensaver during conversion is allowed" ok ipc shell setPluginEnabled vgs.screensaver false

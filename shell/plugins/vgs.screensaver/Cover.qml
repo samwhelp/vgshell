@@ -21,7 +21,7 @@ Item {
     property real firstY: 0
 
     readonly property bool shown: shell !== null && shell.status.values.state !== undefined && shell.status.values.state.text === "Running" && !(shell.session.locked)
-    readonly property bool canRun: shell !== null && shell.requirements.missing.indexOf("ttfx") === -1
+    readonly property bool canRun: shell !== null && Logic.ttfxReady(shell.requirements.missing)
     readonly property int frameRate: shell === null || shell.settings.frameRate === undefined ? 30 : shell.settings.frameRate
     readonly property string selectedEffect: shell === null ? "random" : shell.settings.effect
     readonly property int cellWidth: Math.max(1, Math.ceil(cellSize.width))

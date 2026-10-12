@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import Quickshell.Io
 import qs.Commons
 import "ScreensaverLogic.js" as Logic
@@ -50,7 +51,7 @@ Item {
     onIdleSecondsChanged: { watchIdle(); publishLockOrder(); }
     onRequirementsRevisionChanged: {
         refreshEffects();
-        if (Logic.isArtImage(art) && artProblem !== "" && !artConvert.running) Qt.callLater(root.updateArt);
+        if (Logic.retryArtAfterScan(art, artProblem) && !artConvert.running) Qt.callLater(root.updateArt);
     }
     onLockedChanged: if (locked) stop()
     onRunningChanged: { publishState(); watchActivity(); }
@@ -111,7 +112,8 @@ Item {
         artProblem = "";
         convertCancelled = false;
         publishArt();
-        artConvert.command = ["setpriv", "--pdeathsig", "KILL", "--", Logic.fileUrlPath(Qt.resolvedUrl("bin/transcode-ascii")), art, convertedArt];
+        // The PPID check closes the gap before setpriv arms pdeathsig.
+        artConvert.command = ["setpriv", "--pdeathsig", "KILL", "--", "bash", "-c", '[[ $PPID == "$1" ]] || exit 1; shift; exec "$@"', "held", String(Quickshell.processId), Logic.fileUrlPath(Qt.resolvedUrl("bin/transcode-ascii")), art, convertedArt];
         artConvert.running = true;
     }
 
@@ -227,7 +229,7 @@ Item {
     }
 
     function refreshEffects() {
-        if (shell === null || effectsHelp.running || !Logic.canRefreshEffects(missing)) return;
+        if (shell === null || effectsHelp.running || !Logic.ttfxReady(missing)) return;
         effectsHelp.running = true;
     }
 

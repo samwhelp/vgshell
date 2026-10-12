@@ -250,7 +250,11 @@ function conversionProblem(code, timedOut) {
     return code === 0 ? "" : "image";
 }
 
-function canRefreshEffects(missing) {
+function retryArtAfterScan(art, problem) {
+    return isArtImage(art) && problem !== "" && problem !== "slow";
+}
+
+function ttfxReady(missing) {
     return (missing || []).indexOf("ttfx") === -1;
 }
 

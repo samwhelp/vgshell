@@ -59,7 +59,13 @@ function suite(ctx, check) {
     ctx.imageRequirementProblem(["awk"]),
     ctx.imageRequirementProblem([])
   ], ["magick", "awk", ""]);
-  check("ttfx effects wait for the requirement", [ctx.canRefreshEffects(["ttfx"]), ctx.canRefreshEffects([])], [false, true]);
+  check("art conversion retry skips timed-out images", [
+    ctx.retryArtAfterScan("/a/b.png", "image"),
+    ctx.retryArtAfterScan("/a/b.png", "slow"),
+    ctx.retryArtAfterScan("/a/b.txt", "image"),
+    ctx.retryArtAfterScan("/a/b.png", "")
+  ], [true, false, false, false]);
+  check("ttfx readiness waits for the requirement", [ctx.ttfxReady(["ttfx"]), ctx.ttfxReady([])], [false, true]);
   check("random command uses random flag", ctx.command("/art", "random", 30, 80, 24, "#000000").slice(-1), ["--random-effect"]);
   check("named command passes the effect", ctx.command("/art", "beams", 30, 80, 24, "#000000").slice(-1), ["beams"]);
   const exits = ctx.createExitState();
@@ -97,6 +103,7 @@ const controls = [
   ["binary text art is refused", "return String(text).indexOf(\"\\u0000\") === -1 ? \"\" : \"type\";", "return \"\";"],
   ["conversion timeout is slow", "if (timedOut) return \"slow\";", "if (false) return \"slow\";"],
   ["missing magick is reported", "if (values.indexOf(\"magick\") !== -1) return \"magick\";", "if (false) return \"magick\";"],
+  ["timed-out image conversion is not retried on rescan", "return isArtImage(art) && problem !== \"\" && problem !== \"slow\";", "return isArtImage(art) && problem !== \"\";"],
   ["missing ttfx prevents the help process", "return (missing || []).indexOf(\"ttfx\") === -1;", "return true;"],
   ["quick exits stop respawn", "if (state.quickExits >= QUICK_EXIT_LIMIT) {", "if (false) {"],
 ];
