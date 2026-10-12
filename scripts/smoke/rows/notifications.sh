@@ -3578,6 +3578,16 @@ fade_wait_panel_frame_after() { # COUNT
   echo 'notification-capture: panel-frame=pending' >&2
   return 1
 }
+fade_wait_panel_frame_before() { # COUNT DEADLINE_MS
+  local frames
+  fade_panel_frame_count=""
+  while (( $(now_ms) < $2 )); do
+    frames="$(fade_panel_frames_read)" || return
+    if (( frames > $1 )); then fade_panel_frame_count="$frames"; return 0; fi
+    sleep 0.2
+  done
+  return 1
+}
 fade_read_geometry() { # ITEMS_FILE
   if ! ipc smoke descendantGeometry panel vgs.notifications >"$1"; then
     echo 'notification-capture: read=descendantGeometry failed' >&2
@@ -3818,16 +3828,20 @@ fade_active_read_context() { # SUMMARY EDGE ITEMS VIEW_FILE SURFACE_FILE INK_FIL
 fade_active_settled_capture() { # PREFIX SUMMARY EDGE ITEMS VIEW_FILE SURFACE_FILE INK_FILE
   local prefix="$1" summary="$2" edge="$3" items="$4" view_file="$5" surface_file="$6" ink_file="$7"
   local next_items="$prefix-next-items.json" next_view="$prefix-next-view.json" next_surface="$prefix-next-surface.json" next_ink="$prefix-next-ink.json" next_png="$prefix-next.png"
-  local frames same paint last_unsettled=paint
+  local deadline_ms frames same paint last_unsettled=layout
   fade_active_read_context "$summary" "$edge" "$items" "$view_file" "$surface_file" "$ink_file" || return
   fade_output "$prefix.png" || return
   frames="$(fade_panel_frames_read)" || return
-  smoke_poll_tries 200
-  for _ in $(seq 1 "$smoke_poll_n"); do
-    fade_wait_panel_frame_after "$frames" || return
+  smoke_poll_tries 1
+  deadline_ms=$(( $(now_ms) + smoke_poll_n ))
+  while (( $(now_ms) < deadline_ms )); do
+    fade_wait_panel_frame_before "$frames" "$deadline_ms" || break
     frames="$fade_panel_frame_count"
+    (( $(now_ms) < deadline_ms )) || break
     fade_active_read_context "$summary" "$edge" "$next_items" "$next_view" "$next_surface" "$next_ink" || return
+    (( $(now_ms) < deadline_ms )) || break
     fade_output "$next_png" || return
+    (( $(now_ms) < deadline_ms )) || break
     same="$(fade_capture_geometry_same "$items" "$next_items")" || return
     if [[ $same == True ]]; then
       paint="$(fade_active_value "$next_png" "$prefix.png" "$next_items" "$(<"$next_view")" "$(<"$next_surface")" "$(<"$next_ink")" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
@@ -3850,6 +3864,7 @@ fade_active_settled_capture() { # PREFIX SUMMARY EDGE ITEMS VIEW_FILE SURFACE_FI
   return 1
 }
 fade_active_pair() { # PREFIX SUMMARY EDGE
+  # The pair runs row waits through $(); controls fail on planted output paths.
   local smoke_poll_scope=$((BASH_SUBSHELL))
   local prefix="$1" summary="$2" edge="$3" items="$1-items.json" restore_items="$1-restored-items.json"
   local view_file="$1-view.json" surface_file="$1-surface.json" ink_file="$1-ink.json"
@@ -3967,6 +3982,7 @@ fade_failed_capture() {
   rmdir -- "$prefix-reference.png" || return
   printf '%s\n' "$status"
 }
+# This proves the settle judge rejects paint that differs: faded against unmasked.
 fade_reference_reads_unsettled() { # PREFIX SUMMARY EDGE
   local prefix="$1" summary="$2" edge="$3" view surface ink value
   view="$(<"$prefix-view.json")" || return
