@@ -121,13 +121,7 @@
     "voxtype": {
       "type": "presence",
       "label": "voxtype",
-      "hint": "Voice needs voxtype to capture speech.",
-      "action": {
-        "label": "Install\u2026",
-        "install": [
-          "voxtype"
-        ]
-      }
+      "hint": "Voice needs voxtype to capture speech."
     },
     "setup": {
       "type": "state",

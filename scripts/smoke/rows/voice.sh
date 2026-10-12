@@ -1184,9 +1184,9 @@ expect_poll "Voice builds after the Setup section control" True record_exists vg
 settings_page_open vgs.voice
 settings_setup
 expect_poll "the Setup section reads Set up needed again" "$voice_setup_missing" voice_setup_section
-# Without voxtype, the voxtype entry and the setup entry each offer its
-# install, and the Setup tab draws the Requirements row.
-expect_poll "the Voice page offers each entry's install without voxtype" '[["voxtype", "Install\u2026", true], ["setup", "Install requirements", true]]' offered_actions vgs.voice
+# Without voxtype, the setup entry alone offers an install, and the Setup
+# tab draws the Requirements row.
+expect_poll "the Voice page offers the setup entry's install alone without voxtype" '[["setup", "Install requirements", true]]' offered_actions vgs.voice
 expect_poll "the Voice Requirements row says voxtype is missing" "$(words voxtype "Missing, optional" "Captures speech and inserts dictated text")" voice_requirement_drawn
 
 # The setup entry's step without voxtype: the notice installs voxtype and
