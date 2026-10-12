@@ -261,13 +261,9 @@ Item {
         listed = next;
     }
 
-    function restoreRecordIdle() {
-        return runs.busy === null && runs.restore !== true && runs.sets.length === 0;
-    }
-
     function syncRestoreRecord() {
         const owed = Logic.owedLevels(dim, flashed);
-        const decision = Logic.restoreRecordDecision(recorded, owed, restoreRecordIdle());
+        const decision = Logic.restoreRecordDecision(recorded, owed, Logic.runsIdle(runs));
         if (!decision.write) return;
         recorded = decision.entries;
         restoreFile.setText(Logic.restoreText(recorded));
@@ -396,7 +392,7 @@ Item {
     }
 
     Component.onDestruction: {
-        if (recorded.length > 0) {
+        if (Logic.restoreOwedAtEnd(recorded, runs)) {
             // Quickshell kills a destroyed service's Process runs with SIGKILL,
             // so the restore must outlive this service instance.
             Quickshell.execDetached(["python3", root.helperPath, "restore", root.restorePath]);

@@ -33,12 +33,15 @@
 # section with the settings' values; after 3 s without input every display
 # brighter than the dim level, 20 %, dims to it and a darker one takes no
 # write, a level set while dimmed stays, and a key brings each other
-# display back to its level; disabling the service during a dim restores
-# the levels and removes the restore record, disabling it during Identify
-# restores the flashed display, a rebuild during a dim and a shell restart
-# both restore before their first list, and a mutant service with the
-# on-destruction restore removed leaves the dim level until the original
-# start restore consumes the record; a stub kernel backlight, which the
+# display back to its level; disabling the service during a dim and during
+# Identify restores the levels and consumes the restore record, a rebuild
+# during a dim brings a new instance whose next dim keeps the restored
+# levels, after a restart with a 600 s watch the first list reads the
+# restored levels, and a mutant service with the on-destruction restore
+# removed leaves the panels dim and its record until the original start
+# restore consumes it. No smoke reading can tell a blocking restore-record
+# write from a worker-thread write; the restart check establishes that the
+# record is on disk at TERM. A stub kernel backlight, which the
 # brightnessctl stand-in lists and sets, reads as a laptop panel, and a
 # mouse drag on its slider in System → Displays sets it while the drag
 # moves and leaves it at the drag's end, 1 %; after another program sets
@@ -56,9 +59,9 @@
 # as needed draws the ready Apple entry, and the copy that never hides the
 # section keeps its heading over no line. With the dim off, 4 s without
 # input write no display, so the dim's writes are the watch's. A mutant
-# service that drops its on-destruction restore leaves Studio A at 20 %,
-# and the original service restores it from the record on start. The helper
-# runs and their
+# service that drops its on-destruction restore fails the same restored
+# level check as the shipped service, then the original service consumes
+# its record on start. The helper runs and their
 # levels are read from the HID fake's log, every feature report it
 # served, and from the brightnessctl stand-in's calls. Every
 # reading is expect_poll's: 25 reads 0.2 s apart. The row puts back the
@@ -94,7 +97,7 @@ items = json.load(sys.stdin)["displays"]["items"]
 print(json.dumps([[re.search(r"hidraw\d+", d["id"]).group(0), d["state"], d["percent"], d["outputs"], d["assigned"]] for d in items]))'; }
 disp_item() { disp_items | py_reply 'import json,sys; found=[d for d in json.load(sys.stdin) if d[0] == sys.argv[1]]; print(json.dumps(found[0]) if found else "absent")' "$1"; }
 disp_value() { disp_read values | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[sys.argv[1]], sort_keys=True))' "$1"; }
-disp_idle() { disp_read runs | py_reply 'import json,sys; r=json.load(sys.stdin); print(r["busy"] is None and not r.get("restore", False) and r["sets"] == [] and not r["list"])'; }
+disp_idle() { disp_read runs | py_reply 'import json,sys; r=json.load(sys.stdin); print(r["busy"] is None and r["restore"] is False and r["sets"] == [] and not r["list"])'; }
 disp_identifier() { disp_read outputs | py_reply 'import json,sys; print([o["identifier"] for o in json.load(sys.stdin) if o["name"] == sys.argv[1]][0])' "$1"; }
 disp_widget() { ipc smoke readInstance "bar:$1" vgs.displays "$2"; }
 # The HID fake's set-feature calls for a node: how many, and the last
@@ -109,6 +112,20 @@ PY
 disp_report() { hid_fake_call "$1" 0xC0074807 01000000000000 | py_reply 'import json,sys; print(json.load(sys.stdin)["data"])'; }
 disp_reports_ab() { echo "$(disp_report hidraw1) $(disp_report hidraw2)"; }
 disp_restore_exists() { if [[ -e $disp_restore_file ]]; then echo True; else echo False; fi; }
+disp_restore_owed() { python3 - "$disp_restore_file" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+if not os.path.exists(path):
+    print("[]")
+    sys.exit()
+try:
+    with open(path) as source:
+        document = json.load(source)
+    print(json.dumps(document["restore"], separators=(",", ":")))
+except (OSError, KeyError, TypeError, ValueError):
+    print("unreadable")
+PY
+}
 # The screens each passive layer of the plugin maps on, in registration
 # order: the on-screen display, Identify, then the display-trial banner.
 disp_layers() { ipc smoke layerWindows vgs.displays | py_reply '
@@ -188,6 +205,7 @@ disp_dim() { disp_read dim | py_reply '
 import json, re, sys
 dim = json.load(sys.stdin)
 print(json.dumps([dim["state"]] + ([[re.search(r"hidraw\d+", k["id"]).group(0), k["percent"]] for k in dim["kept"]] if dim["state"] == "dimmed" else [])))'; }
+disp_items_dim() { echo "$(disp_items) $(disp_dim)"; }
 # True when System → Displays shows a Select at each of the two values
 # given: the Dimming section's, since every other Select names a screen.
 disp_dim_drawn() { ipc smoke itemTexts window vgs.displays Select | py_reply 'import json,sys; t=json.load(sys.stdin); print(all(any(v in texts for texts in t) for v in sys.argv[1:]))' "$1" "$2"; }
@@ -673,11 +691,14 @@ disp_initial_log="$instance_log"
 disp_service="$repo/shell/plugins/vgs.displays/Service.qml"
 disp_service_saved="$sandbox/displays-service.qml.saved"
 cp -- "$disp_service" "$disp_service_saved"
-expect "the restore record is absent before restore checks" False disp_restore_exists
+expect "the restore record owes no levels before restore checks" '[]' disp_restore_owed
 
 disp_setting dimAfterSeconds 3
 expect_poll "the service watches for 3 s for the disable restore" '[3]' disp_watches
 expect_poll "3 s without input dim the displays before disable" '["dimmed", ["hidraw1", 60], ["hidraw2", 40]]' disp_dim
+expect_poll "the helper is idle after the dim before disable" True disp_idle
+expect_poll "the fake holds Studio A and Studio B at 20 % before disable" '01203000000000 01203000000000' disp_reports_ab
+expect "the restore record exists before disable during a dim" True disp_restore_exists
 expect "disabling vgs.displays during a dim is allowed" ok ipc shell setPluginEnabled vgs.displays false
 expect_poll "disable during a dim restores Studio A and Studio B" '01408d00000000 01b05e00000000' disp_reports_ab
 expect_poll "the restore record is consumed after disable during a dim" False disp_restore_exists
@@ -689,6 +710,7 @@ expect_poll "the restored service lists Studio A at 60 % and Studio B at 40 %" \
 
 expect "Identify starts before disable" ok ipc vgs.displays invoke identify "$disp_a"
 expect_poll "Identify flashes Studio A down to 10 % before disable" 01d81800000000 disp_report hidraw1
+expect "the restore record exists before disable during Identify" True disp_restore_exists
 expect "disabling vgs.displays during Identify is allowed" ok ipc shell setPluginEnabled vgs.displays false
 expect_poll "disable during Identify restores Studio A" 01408d00000000 disp_report hidraw1
 expect "re-enabling vgs.displays after Identify is allowed" ok ipc shell setPluginEnabled vgs.displays true
@@ -698,9 +720,15 @@ expect_poll "the helper is idle after the Identify restore" True disp_idle
 disp_setting dimAfterSeconds 3
 expect_poll "the service watches for 3 s before the rebuild restore" '[3]' disp_watches
 expect_poll "3 s without input dim the displays before rebuild" '["dimmed", ["hidraw1", 60], ["hidraw2", 40]]' disp_dim
+expect_poll "the helper is idle after the dim before rebuild" True disp_idle
+expect_poll "the fake holds Studio A and Studio B at 20 % before rebuild" '01203000000000 01203000000000' disp_reports_ab
+expect "the restore record exists before rebuild during a dim" True disp_restore_exists
 printf '\n// smoke restore rebuild %s\n' "$(date +%s)" >>"$disp_service"
+disp_scans="$(log_lines 'plugins: scan complete changed=true')" || fail "the instance log is unreadable before the displays rebuild"
 rescan "the displays service rebuilds during a dim"
-expect_poll "the rebuilt service's next dim kept the restored levels" '["dimmed", ["hidraw1", 60], ["hidraw2", 40]]' disp_dim
+expect_log "the displays service rebuild publishes a changed scan" "$((disp_scans + 1))" 'plugins: scan complete changed=true'
+expect_poll "the rebuilt displays service starts awake" '["awake"]' disp_dim
+expect_poll "a restore ran before the rebuilt service's next dim" '["dimmed", ["hidraw1", 60], ["hidraw2", 40]]' disp_dim
 type_keys -k Shift_L || fail "typing a key after the rebuild restore failed"
 expect_poll "the rebuild restore dim ends" '["awake"]' disp_dim
 cp -- "$disp_service_saved" "$disp_service"
@@ -710,13 +738,16 @@ expect_poll "the helper is idle after the rebuild restore" True disp_idle
 disp_setting dimAfterSeconds 3
 expect_poll "the service watches for 3 s before the restart restore" '[3]' disp_watches
 expect_poll "3 s without input dim the displays before restart" '["dimmed", ["hidraw1", 60], ["hidraw2", 40]]' disp_dim
+expect_poll "the helper is idle after the dim before restart" True disp_idle
+expect_poll "the fake holds Studio A and Studio B at 20 % before restart" '01203000000000 01203000000000' disp_reports_ab
+expect "the restore record exists before restart during a dim" True disp_restore_exists
 disp_restart_log="$sandbox/displays-restart.log"
 stop_shell
+disp_setting dimAfterSeconds 600
 start_shell "$repo" "$disp_restart_log" || fail "the shell starts again for the displays restore record"
 expect_poll "the displays service is built after the restart" True record_exists vgs.displays
-expect_poll "the restarted service's next dim kept the restored levels" '["dimmed", ["hidraw1", 60], ["hidraw2", 40]]' disp_dim
-type_keys -k Shift_L || fail "typing a key after the restart restore failed"
-expect_poll "the restart restore dim ends" '["awake"]' disp_dim
+expect_poll "the restarted service first list reads restored levels while awake" \
+  "[[\"hidraw0\", \"ready\", 10, [\"$disp_main\"], true], [\"hidraw1\", \"ready\", 60, [\"$disp_output\"], true], [\"hidraw2\", \"ready\", 40, [], false]] [\"awake\"]" disp_items_dim
 expect_poll "the helper is idle after the restart restore" True disp_idle
 
 disp_setting dimAfterSeconds 3
@@ -733,19 +764,35 @@ changed = text.replace(old, "")
 assert changed != text
 path.write_text(changed)
 PY
+disp_scans="$(log_lines 'plugins: scan complete changed=true')" || fail "the instance log is unreadable before the missing-restore control"
 rescan "the displays service missing-restore control is scanned"
+expect_log "the missing-restore control publishes a changed scan" "$((disp_scans + 1))" 'plugins: scan complete changed=true'
+expect_poll "the missing-restore control service starts awake" '["awake"]' disp_dim
 expect_poll "3 s without input dim the displays before the missing-restore control" '["dimmed", ["hidraw1", 60], ["hidraw2", 40]]' disp_dim
+expect_poll "the helper is idle after the dim before the missing-restore control" True disp_idle
+expect_poll "the fake holds Studio A and Studio B at 20 % before the missing-restore control" '01203000000000 01203000000000' disp_reports_ab
+expect "the restore record exists before the missing-restore control" True disp_restore_exists
 expect "disabling the missing-restore control is allowed" ok ipc shell setPluginEnabled vgs.displays false
-expect_poll "control: a service that drops the restore leaves Studio A at 20 %" 01203000000000 disp_report hidraw1
-cp -- "$disp_service_saved" "$disp_service"
-rescan "the original displays service is scanned after the missing-restore control"
-expect "re-enabling the original displays service after the control is allowed" ok ipc shell setPluginEnabled vgs.displays true
-expect_poll "the original service start restore brings Studio A back to 60 %" 01408d00000000 disp_report hidraw1
-expect_poll "the helper is idle after the missing-restore control" True disp_idle
+expect_poll "the missing-restore control service is gone" False record_exists vgs.displays
+disp_missing_restore_failures="$(
+  failures=0 behaviour_failures=0
+  expect_poll "disable during a dim restores Studio A and Studio B" '01408d00000000 01b05e00000000' disp_reports_ab >"$sandbox/displays-missing-restore-control.log"
+  echo "$failures"
+)"
+expect "control: a service that drops the restore fails the same brightness restore check" 1 printf '%s\n' "$disp_missing_restore_failures"
+expect "the missing-restore control leaves the restore record" True disp_restore_exists
 disp_setting dimAfterSeconds 0
+cp -- "$disp_service_saved" "$disp_service"
+disp_scans="$(log_lines 'plugins: scan complete changed=true')" || fail "the instance log is unreadable before restoring the displays service"
+rescan "the original displays service is scanned after the missing-restore control"
+expect_log "the original displays service publishes a changed scan after the control" "$((disp_scans + 1))" 'plugins: scan complete changed=true'
+expect "re-enabling the original displays service after the control is allowed" ok ipc shell setPluginEnabled vgs.displays true
+expect_poll "the original service start restore brings Studio A and Studio B back" '01408d00000000 01b05e00000000' disp_reports_ab
+expect_poll "the helper is idle after the missing-restore control" True disp_idle
+expect_poll "the original service start restore consumes the control record" False disp_restore_exists
 expect_poll "the dim is off after restore checks" '[]' disp_watches
-expect "the initial shell log has no old service-ended restore warning" 0 log_lines 'ended with the service' "$disp_initial_log"
-expect "the restart shell log has no old service-ended restore warning" 0 log_lines 'ended with the service' "$disp_restart_log"
+expect "the initial shell log has no display restore warnings" 0 log_lines 'displays: restore(=| | record)' "$disp_initial_log"
+expect "the restart shell log has no display restore warnings" 0 log_lines 'displays: restore(=| | record)' "$disp_restart_log"
 rm -f -- "${disp_restore_file:?}"
 
 # A laptop panel: a stub kernel backlight in the fakes' sysfs, which the

@@ -39,6 +39,7 @@ for (const edit of [m => { [m.schema.vrr.presets[1], m.schema.vrr.presets[2]] = 
 const XDR = "hidraw:devices/usb1/1-2";
 const STUDIO_A = "hidraw:class/hidraw/hidraw1/device";
 const STUDIO_B = "hidraw:class/hidraw/hidraw2/device";
+const STUDIO_C = "hidraw:class/hidraw/hidraw3/device";
 
 // A `list` answer as helper/brightness.py prints it: a tiled XDR it mapped,
 // two Studio Displays with one serial it could not place, a DDC display
@@ -115,20 +116,27 @@ function verify(logic) {
   same(logic.owedLevels(dimmed, { id: STUDIO_A, percent: 10 }), [{ id: STUDIO_A, percent: 60 }, { id: STUDIO_B, percent: 40 }], "a kept dim level wins over a flash");
   same(logic.owedLevels({ state: "awake" }, null), [], "awake with no flash owes nothing");
   const restoreEntries = [{ id: STUDIO_A, percent: 60 }, { id: STUDIO_B, percent: 40 }];
-  assert.equal(logic.restoreText(restoreEntries), JSON.stringify({ restore: restoreEntries }, null, 2) + "\n");
-  same(logic.parseRestoreRecord(logic.restoreText(restoreEntries)), { ok: true, restore: restoreEntries });
-  const restoreRefusals = [
-    ["not JSON", "{", "refused: restore=unparsed"],
-    ["a list", "[]", "refused: restore=shape want={\"restore\":[...]}"] ,
-    ["bad percent", JSON.stringify({ restore: [{ id: STUDIO_A, percent: 101 }] }), "refused: restore=0 percent=101"],
-    ["repeated id", JSON.stringify({ restore: [{ id: STUDIO_A, percent: 60 }, { id: STUDIO_A, percent: 40 }] }), "refused: restore=1 id=\"" + STUDIO_A + "\" reason=repeated"]
-  ];
-  for (const [name, text, want] of restoreRefusals) same(logic.parseRestoreRecord(text), { ok: false, error: want }, "parseRestoreRecord: " + name);
+  same(JSON.parse(logic.restoreText(restoreEntries)), { restore: restoreEntries }, "restoreText writes the helper record shape");
   same(logic.restoreRecordDecision([], [{ id: STUDIO_A, percent: 60 }], false), { write: true, entries: [{ id: STUDIO_A, percent: 60 }] }, "a gained record writes while busy");
-  same(logic.restoreRecordDecision([{ id: STUDIO_A, percent: 50 }], [{ id: STUDIO_A, percent: 60 }], false), { write: true, entries: [{ id: STUDIO_A, percent: 60 }] }, "a changed level writes while busy");
-  same(logic.restoreRecordDecision([{ id: STUDIO_A, percent: 60 }, { id: STUDIO_B, percent: 40 }], [{ id: STUDIO_A, percent: 60 }], false), { write: false, entries: [{ id: STUDIO_A, percent: 60 }] }, "a shrink waits while busy");
+  same(logic.restoreRecordDecision([{ id: STUDIO_A, percent: 50 }, { id: STUDIO_B, percent: 40 }], [{ id: STUDIO_A, percent: 60 }], false),
+    { write: true, entries: [{ id: STUDIO_A, percent: 60 }, { id: STUDIO_B, percent: 40 }] }, "a changed level writes while busy and keeps another restoring level");
+  same(logic.restoreRecordDecision([{ id: STUDIO_A, percent: 60 }], [{ id: STUDIO_B, percent: 70 }], false),
+    { write: true, entries: [{ id: STUDIO_B, percent: 70 }, { id: STUDIO_A, percent: 60 }] }, "Identify B during A's flash keeps A owed");
+  same(logic.restoreRecordDecision([{ id: STUDIO_A, percent: 60 }, { id: STUDIO_B, percent: 40 }], [{ id: STUDIO_C, percent: 50 }], false),
+    { write: true, entries: [{ id: STUDIO_C, percent: 50 }, { id: STUDIO_A, percent: 60 }, { id: STUDIO_B, percent: 40 }] }, "Identify C while wake sets run keeps both restoring levels");
+  same(logic.restoreRecordDecision([{ id: STUDIO_A, percent: 60 }], [{ id: STUDIO_B, percent: 70 }], true),
+    { write: true, entries: [{ id: STUDIO_B, percent: 70 }] }, "an idle helper writes exactly owed entries");
+  same(logic.restoreRecordDecision([{ id: STUDIO_A, percent: 60 }, { id: STUDIO_B, percent: 40 }], [{ id: STUDIO_A, percent: 60 }], false), { write: false, entries: [{ id: STUDIO_A, percent: 60 }, { id: STUDIO_B, percent: 40 }] }, "a shrink waits while busy");
   same(logic.restoreRecordDecision([{ id: STUDIO_A, percent: 60 }, { id: STUDIO_B, percent: 40 }], [{ id: STUDIO_A, percent: 60 }], true), { write: true, entries: [{ id: STUDIO_A, percent: 60 }] }, "a shrink writes when idle");
   same(logic.restoreRecordDecision([{ id: STUDIO_A, percent: 60 }], [{ id: STUDIO_A, percent: 60 }], true), { write: false, entries: [{ id: STUDIO_A, percent: 60 }] }, "an equal record does not write");
+  same(logic.runsIdle(logic.emptyRuns()), true, "runsIdle: empty queue");
+  same(logic.runsIdle(logic.takeRun(logic.queueSet(logic.emptyRuns(), STUDIO_A, 60)).runs), false, "runsIdle: busy set");
+  same(logic.runsIdle(logic.queueRestore(logic.emptyRuns())), false, "runsIdle: restore waits");
+  same(logic.runsIdle(logic.queueSet(logic.emptyRuns(), STUDIO_A, 60)), false, "runsIdle: set waits");
+  same(logic.restoreOwedAtEnd([{ id: STUDIO_A, percent: 60 }], logic.emptyRuns()), true, "restoreOwedAtEnd: recorded entry");
+  same(logic.restoreOwedAtEnd([], logic.queueRestore(logic.emptyRuns())), true, "restoreOwedAtEnd: restore waits");
+  same(logic.restoreOwedAtEnd([], logic.takeRun(logic.queueRestore(logic.emptyRuns())).runs), true, "restoreOwedAtEnd: restore runs");
+  same(logic.restoreOwedAtEnd([], logic.emptyRuns()), false, "restoreOwedAtEnd: nothing owed");
   const restoreAnswer = { restored: [{ id: STUDIO_A, percent: 60 }], failed: [{ id: STUDIO_B, error: "state", state: "no-access" }] };
   same(logic.parseRestoreAnswer(JSON.stringify(restoreAnswer)), { ok: true, restored: [{ id: STUDIO_A, percent: 60 }], failed: [{ id: STUDIO_B, details: "error=\"state\" state=\"no-access\"" }] });
   const keptRecord = { path: "/state/plugins/vgs.displays/restore.json", detail: "permission denied" };
@@ -594,9 +602,15 @@ const CONTROLS = [
   ["restore record ignores a flashed level", "owed.push({ id: flashed.id, percent: flashed.percent });", ""],
   ["restore record lets a flash replace a kept level", " && kept[flashed.id] !== true", ""],
   ["restore text uses the assignments key", "return JSON.stringify({ restore: entries }, null, 2)", "return JSON.stringify({ assignments: entries }, null, 2)"],
-  ["restore record takes a repeated id", "if (hasOwn(seen, judged.entry.id)) return { ok: false", "if (false) return { ok: false"],
-  ["restore shrink writes while busy", "return { write: !sameLevels(recorded, owed) && helperIdle, entries: owed };", "return { write: !sameLevels(recorded, owed), entries: owed };"],
-  ["restore grow waits for idle", "return { write: true, entries: owed };", "return { write: helperIdle, entries: owed };"],
+  ["restore record drops restoring entries while busy", "            if (wanted[entry.id] !== true) entries.push({ id: entry.id, percent: entry.percent });", ""],
+  ["restore record keeps recorded over owed", "        if (!hasOwn(current, owed[i].id) || current[owed[i].id] !== owed[i].percent)", "        if (!hasOwn(current, owed[i].id))"],
+  ["restore shrink writes while busy", "return { write: !sameLevels(recorded, entries) && helperIdle, entries: entries };", "return { write: !sameLevels(recorded, owed), entries: owed };"],
+  ["restore grow waits for idle", "return { write: true, entries: entries };", "return { write: helperIdle, entries: entries };"],
+  ["busy restore is idle", "return runs.busy === null && runs.restore !== true && runs.sets.length === 0;", "return runs.restore !== true && runs.sets.length === 0;"],
+  ["waiting restore is idle", "return runs.busy === null && runs.restore !== true && runs.sets.length === 0;", "return runs.busy === null && runs.sets.length === 0;"],
+  ["waiting sets are idle", "return runs.busy === null && runs.restore !== true && runs.sets.length === 0;", "return runs.busy === null && runs.restore !== true;"],
+  ["destruction ignores a waiting restore", "return recorded.length > 0 || runs.restore === true || (runs.busy !== null && runs.busy.verb === \"restore\");", "return recorded.length > 0 || (runs.busy !== null && runs.busy.verb === \"restore\");"],
+  ["destruction ignores a running restore", "return recorded.length > 0 || runs.restore === true || (runs.busy !== null && runs.busy.verb === \"restore\");", "return recorded.length > 0 || runs.restore === true;"],
   ["restore answer drops failed displays", "failed.push({ id: item.id, details: fields });", ""],
   ["restore refused answer ignores kept records", "if (kept.kept !== undefined) failure.kept = kept.kept;", ""],
   ["restore answer ignores kept records", "if (kept.kept !== undefined) result.kept = kept.kept;", ""],

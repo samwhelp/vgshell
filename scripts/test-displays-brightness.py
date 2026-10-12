@@ -776,6 +776,19 @@ class Restore(Case):
         path.write_text(json.dumps({"restore": entries}))
         return path
 
+    def test_restore_reads_service_text_format(self):
+        world = self.world()
+        world.hidraw("hidraw0", STUDIO, "S1", raw=12320, usb="1-2")
+        world.start()
+        id_ = world.listing()["displays"][0]["id"]
+        record = world.root / "restore.json"
+        record.write_text(json.dumps({"restore": [{"id": id_, "percent": 60}]}, indent=2) + "\n")
+        status, answer, _ = world.helper("restore", str(record))
+        self.assertEqual(status, 0)
+        self.assertEqual(answer, {"restored": [{"id": id_, "percent": 60}], "failed": []})
+        self.assertFalse(record.exists())
+        self.assertEqual(world.stored("hidraw0"), "01408d00000000")
+
     def test_restore_sets_each_entry_and_removes_file(self):
         world = self.world()
         world.hidraw("hidraw0", STUDIO, "S1", raw=12320, usb="1-2")
@@ -802,6 +815,28 @@ class Restore(Case):
         self.assertEqual(answer["failed"], [{"error": "unknown-id", "id": "hidraw:missing"}])
         self.assertFalse(record.exists())
         self.assertEqual(world.stored("hidraw0"), "01408d00000000")
+
+    def test_restore_reports_os_error_without_stopping_others(self):
+        world = self.world()
+        world.hidraw("hidraw0", STUDIO, "S1", raw=12320, usb="1-2")
+        world.hidraw("hidraw1", STUDIO, "S2", raw=12320, usb="1-3")
+        world.start()
+        ids = [d["id"] for d in world.listing()["displays"]]
+        record = self.restore_file(world, [{"id": ids[0], "percent": 60}, {"id": ids[1], "percent": 40}])
+
+        def restore_or_fail(roots, reports, env, id_, percent, now):
+            if id_ == ids[0]:
+                raise OSError(errno.EIO, "I/O error", id_)
+            return {"id": id_, "percent": percent}
+
+        with mock.patch.object(helper, "set_brightness", side_effect=restore_or_fail):
+            answer = helper.restore_record(helper.Roots(str(world.sys), str(world.dev), None), None, {}, str(record), 0)
+        self.assertEqual(answer["restored"], [{"id": ids[1], "percent": 40}])
+        self.assertEqual(len(answer["failed"]), 1)
+        self.assertEqual(answer["failed"][0]["id"], ids[0])
+        self.assertEqual(answer["failed"][0]["error"], "os")
+        self.assertIn("I/O error", answer["failed"][0]["detail"])
+        self.assertFalse(record.exists())
 
     def test_restore_keeps_changed_file(self):
         root = Path(self.world().root)
@@ -967,6 +1002,8 @@ class Controls(unittest.TestCase):
         ("kernel backlight ignored", "if kernel is not None:", "if False:", "Backlights.test_kernel_backlight_preferred_over_hidraw"),
         ("restore removes changed records", "if read_bytes(path) != before:", "if False and read_bytes(path) != before:", "Restore.test_restore_keeps_changed_file"),
         ("restore stops after first failure", "failed.append(fields)", "failed.append(fields); raise", "Restore.test_restore_reports_failed_display_without_stopping_others"),
+        ("restore os error keeps going", '        except OSError as error:\n            failed.append({"id": item["id"], "error": "os", "path": error.filename, "detail": error.strerror})\n',
+         "", "Restore.test_restore_reports_os_error_without_stopping_others"),
         ("restore removes refused records",
          "kept = remove_unchanged_report(path, original)\n        if kept is not None:\n            failure.fields[\"kept\"] = kept\n        raise failure",
          "raise failure", "Restore.test_restore_refused_shape_is_reported_and_removed"),

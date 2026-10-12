@@ -584,26 +584,6 @@ function owedLevels(dim, flashed) {
     return owed;
 }
 
-// The restore record, judged: { ok: true, restore }, with restore
-// [{ id, percent }], or { ok: false, error }.
-function parseRestoreRecord(text) {
-    var parsed = parseJson(text, "restore");
-    if (!parsed.ok) return parsed;
-    var doc = parsed.value;
-    if (!isPlainObject(doc) || Object.keys(doc).length !== 1 || !Array.isArray(doc.restore))
-        return { ok: false, error: "refused: restore=shape want={\"restore\":[...]}" };
-    var entries = [];
-    var seen = {};
-    for (var i = 0; i < doc.restore.length; i++) {
-        var judged = restoreEntry(doc.restore[i], i, "restore");
-        if (!judged.ok) return judged;
-        if (hasOwn(seen, judged.entry.id)) return { ok: false, error: "refused: restore=" + i + " id=" + shown(judged.entry.id) + " reason=repeated" };
-        seen[judged.entry.id] = true;
-        entries.push(judged.entry);
-    }
-    return { ok: true, restore: entries };
-}
-
 function restoreText(entries) {
     return JSON.stringify({ restore: entries }, null, 2) + "\n";
 }
@@ -614,16 +594,36 @@ function sameLevels(a, b) {
     return true;
 }
 
-// Whether the restore record should be replaced now. A gained or changed
-// owed level is written even while the helper is busy; a shrink waits until
-// no restore or set can still be writing brightness.
+// Whether the helper has no restore or set that can still write brightness.
+function runsIdle(runs) {
+    return runs.busy === null && runs.restore !== true && runs.sets.length === 0;
+}
+
+// Whether a dying service owes a restore that must outlive the instance.
+function restoreOwedAtEnd(recorded, runs) {
+    return recorded.length > 0 || runs.restore === true || (runs.busy !== null && runs.busy.verb === "restore");
+}
+
+// Whether the restore record should be replaced now. Owed levels win over
+// recorded levels with the same id. While the helper is not idle, levels
+// recorded only because their restoring sets have not ended stay owed.
 function restoreRecordDecision(recorded, owed, helperIdle) {
+    var wanted = {};
+    var entries = owed.map(function (entry) {
+        wanted[entry.id] = true;
+        return { id: entry.id, percent: entry.percent };
+    });
+    if (!helperIdle) {
+        recorded.forEach(function (entry) {
+            if (wanted[entry.id] !== true) entries.push({ id: entry.id, percent: entry.percent });
+        });
+    }
     var current = {};
     recorded.forEach(function (entry) { current[entry.id] = entry.percent; });
     for (var i = 0; i < owed.length; i++)
         if (!hasOwn(current, owed[i].id) || current[owed[i].id] !== owed[i].percent)
-            return { write: true, entries: owed };
-    return { write: !sameLevels(recorded, owed) && helperIdle, entries: owed };
+            return { write: true, entries: entries };
+    return { write: !sameLevels(recorded, entries) && helperIdle, entries: entries };
 }
 
 function restoreKept(value) {
