@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // The Settings page's setup-step rule, shell/plugins/vgs.settings/Steps.js,
 // under node: a status row, a presence list's item and a requirement each
-// show their step button only while it applies, and an entry that lists a
-// plugin's stored keys draws in the Setup section alone. The rows are the core's
+// show their step button only while it applies, an entry that lists a
+// plugin's stored keys draws in the Setup section alone, and one judge says
+// what a plugin still asks of its user and whether its page has a Setup
+// tab. The rows are the core's
 // own, PluginLogic.statusRows and requirementRows over a manifest written
 // here, so the rule is read against what the Settings page is handed; every
 // expected value is written out by hand.
@@ -148,7 +150,7 @@ const ROWS = [
         [["setup", "Set up"], ["configure", "Configure"]]],
     ["a step whose screen is listed with no entry draws it as the manager's act", STEPPED, STEPPED_TUIS.filter(tui => tui.name !== "browser"),
         { summary: { tone: "warning", text: "Not ready" }, model: NO_STEP, browser: TODO },
-        [["Setup", false, null], ["AI model", true, null], ["Browser", true, ["", "Set up browser"]]],
+        [["Setup", false, null], ["Browser", true, ["", "Set up browser"]], ["AI model", true, null]],
         [["keys", "Add key"], ["accounts", "Accounts"]]],
     ["a danger step's repair hides the listed screen it declares from the Flow", DECLARED_FLOW, DECLARED_FLOW_TUIS,
         { summary: { tone: "warning", text: "Not ready" }, gate: { tone: "danger", text: "Broken", action: "repair" } },
@@ -160,21 +162,22 @@ const ROWS = [
         []]
 ];
 
-// An optional step, one whose state reads info, before a required one:
-// [label, published values, the Setup section's step rows as [key, the
-// button as [label, primary] or null]].
+// An optional step, one whose state reads info, declared before a required
+// one: [label, published values, the Setup section's step rows in drawn
+// order, the open ones first, as [key, the button as [label, primary] or
+// null]].
 const OPTIONAL = { tone: "info", text: "Optional", action: "key" };
 // SetupGate.voiceCheck publishes an ok state with a repeat action. The
 // manager's real statusRows below normalizes that state tone to success.
 const REPEAT = { tone: "ok", text: "Ready", action: "key" };
 const BROWSER_REPEAT = { tone: "ok", text: "Ready", action: true };
 const PRIMARY = [
-    ["an optional step before an open required one leaves it the primary", { summary: { tone: "warning", text: "Not ready" }, model: OPTIONAL, browser: TODO },
-        [["model", ["Add key", false]], ["browser", ["Set up browser", true]]]],
+    ["an open required step draws before the optional one declared first and takes the primary", { summary: { tone: "warning", text: "Not ready" }, model: OPTIONAL, browser: TODO },
+        [["browser", ["Set up browser", true]], ["model", ["Add key", false]]]],
     ["an optional row action is primary while no required step is open", { summary: { tone: "ok", text: "Ready" }, model: OPTIONAL, browser: DONE },
         [["model", ["Add key", true]], ["browser", null]]],
-    ["a completed repeat before an unfinished required step stays secondary", { model: REPEAT, browser: TODO },
-        [["model", ["Add key", false]], ["browser", ["Set up browser", true]]]],
+    ["an unfinished required step draws before the completed repeat declared first, which stays secondary", { model: REPEAT, browser: TODO },
+        [["browser", ["Set up browser", true]], ["model", ["Add key", false]]]],
     ["only completed repeats leave the page without a primary", { model: REPEAT, browser: BROWSER_REPEAT },
         [["model", ["Add key", false]], ["browser", ["Set up browser", false]]]],
     ["a completed repeat before an optional step stays secondary", { model: REPEAT, browser: { tone: "info", text: "Optional", action: true } },
@@ -323,9 +326,49 @@ const ITEMS = [
     ["an absent item that is no secret keeps its chip", { label: "A", value: "absent" }, { tone: "warning", text: "Absent" }]
 ];
 
-// The Flow of the Setup section settingsSections draws for TUIS and STATUS.
+// A plugin with nothing to set up: a state and a count on Details, and the
+// tools it needs, as the judge hands them on. FLOORED's each carry a floor.
+const TOOLS = [
+    { command: "acme-tool", optional: true, purpose: "A tool" },
+    { command: "acme-other", optional: false, purpose: "Another tool" },
+    { command: "acme-extra", optional: true, purpose: "An extra tool" }
+];
+const PLAIN = {
+    requirements: producer.normalRequirements(TOOLS),
+    tui: {},
+    status: { health: { type: "state", label: "Health" }, pending: { type: "count", label: "Pending" } }
+};
+const WARN = { tone: "warning", text: "To do" };
+const BROKEN = { tone: "danger", text: "Broken" };
+const READY = { tone: "ok", text: "Ready" };
+const OPTIONAL_STEP = { tone: "info", text: "Optional" };
+// What a plugin asks of its user and whether its page has a Setup tab:
+// [label, manifest, listed screens, published values, the missing
+// requirement names, the command versions read, enabled, { open, optional },
+// the Setup tab].
+const FLOORED = Object.assign({}, PLAIN, { requirements: producer.normalRequirements(TOOLS.map(entry => Object.assign({ floor: "2.0.0" }, entry))) });
+const NEEDS = [
+    ["a plugin with no setup material has no Setup tab and asks nothing", PLAIN, [], { health: WARN, pending: 2 }, [], {}, true, { open: false, optional: 0 }, false],
+    ["a missing optional tool marks the row, raises no Setup needed and gives the page its Setup tab", PLAIN, [], {}, ["acme-tool"], {}, true, { open: false, optional: 1 }, true],
+    ["each missing optional tool is counted", PLAIN, [], {}, ["acme-tool", "acme-extra"], {}, true, { open: false, optional: 2 }, true],
+    ["a missing required tool opens the setup", PLAIN, [], {}, ["acme-other"], {}, true, { open: true, optional: 0 }, true],
+    ["an outdated required tool opens the setup", FLOORED, [], {}, [], { "acme-other": "acme-other 1.4.0" }, true, { open: true, optional: 0 }, true],
+    ["an outdated optional tool is not counted as missing and keeps the Setup tab for its update", FLOORED, [], {}, [], { "acme-tool": "acme-tool 1.4.0" }, true, { open: false, optional: 0 }, true],
+    ["a plugin that is off asks nothing and keeps its Setup tab", PLAIN, [], {}, ["acme-tool", "acme-other"], {}, false, { open: false, optional: 0 }, true],
+    ["a headline in the warning tone opens the setup", STEPPED, STEPPED_TUIS, { summary: WARN, model: NO_STEP, browser: DONE }, [], {}, true, { open: true, optional: 0 }, true],
+    ["a step in the danger tone opens the setup", STEPPED, STEPPED_TUIS, { summary: READY, model: BROKEN, browser: DONE }, [], {}, true, { open: true, optional: 0 }, true],
+    ["every step done leaves the Setup tab with nothing open", STEPPED, STEPPED_TUIS, { summary: READY, model: NO_STEP, browser: DONE, keyStore: WARN }, [], {}, true, { open: false, optional: 0 }, true],
+    ["an optional step opens nothing", STEPPED, STEPPED_TUIS, { summary: READY, model: OPTIONAL_STEP, browser: DONE }, [], {}, true, { open: false, optional: 0 }, true],
+    ["steps that have not reported open nothing", STEPPED, STEPPED_TUIS, {}, [], {}, true, { open: false, optional: 0 }, true],
+    ["a keyed group's state in the warning tone opens the setup", GROUPED, GROUPED_TUIS, { sync: READY, pairs: READY, down: WARN }, [], {}, true, { open: true, optional: 0 }, true],
+    ["a stored key that is absent opens nothing", GROUPED, GROUPED_TUIS, { sync: READY, pairs: READY, down: READY, downKeys: [{ label: "A", value: "absent", secret: "acme:a" }], other: [{ label: "B", value: "signed-out" }] }, [], {}, true, { open: false, optional: 0 }, true],
+    ["a plugin whose only setup material is a stored key has a Setup tab", KEYED, [], {}, [], {}, true, { open: false, optional: 0 }, true],
+    ["a plugin whose only setup material is a listed screen has a Setup tab", PLAIN, TUIS, {}, [], {}, true, { open: false, optional: 0 }, true]
+];
+
+// The Flow of the Setup section setupSections draws for TUIS and STATUS.
 function flowOf(logic, tuis, status) {
-    const setup = logic.settingsSections(tuis, status).find(section => section.title === "Setup");
+    const setup = logic.setupSections(tuis, status).find(section => section.title === "Setup");
     return setup === undefined ? [] : setup.buttons;
 }
 
@@ -333,7 +376,7 @@ function verify(logic) {
     const ready = { setup: { tone: "warning", text: "Not ready" }, setupModel: { tone: "warning", text: "To do" },
         setupVoice: { tone: "ok", text: "Ready", action: "check" }, localRuntime: { tone: "info", text: "Optional", action: true } };
     const jarvisTuis = [{ name: "setup-local", label: "Set up local voice", withheld: "" }, { name: "check-microphone", label: "Check microphone", withheld: "" }];
-    const jarvisSections = logic.settingsSections(jarvisTuis, producer.statusRows(VOICE_SETUP, ready, []));
+    const jarvisSections = logic.setupSections(jarvisTuis, producer.statusRows(VOICE_SETUP, ready, []));
     same(jarvisSections.flatMap(section => section.items.filter(item => item.button !== null).map(item => item.button).concat(section.buttons))
         .filter(button => button.primary).length, 0, "Jarvis actionless required model reserves no filled button");
     const jarvisSetup = jarvisSections.find(section => section.title === "Setup");
@@ -353,23 +396,37 @@ function verify(logic) {
     same(logic.settingHint(hintSpec, []), "", "a disabled or removed state gives no live hint");
     same(logic.settingHint({ description: "Fixed guidance" }, []), "Fixed guidance", "existing fixed descriptions still draw");
     same(logic.settingHint({}, []), "", "a field without guidance draws none");
+    // setupNeeds and setupTab, over the core's own rows.
+    for (const [label, manifest, tuis, values, missing, versions, enabled, needs, tab] of NEEDS) {
+        const status = producer.statusRows(manifest, values, missing);
+        const requirements = producer.requirementRows(manifest, missing, versions);
+        same(logic.setupNeeds(status, requirements, enabled), needs, "setupNeeds: " + label);
+        same(logic.setupTab(logic.setupSections(tuis, status), requirements), tab, "setupTab: " + label);
+    }
+    // stepHoldsPrimary: the Requirements action is the page's primary only
+    // while no step holds it.
+    for (const [label, values, want] of [
+        ["an open step with an action holds the primary", { summary: WARN, model: KEY, browser: DONE }, true],
+        ["done steps hold none", { summary: READY, model: NO_STEP, browser: DONE }, false],
+        ["completed repeats, whose actions stay secondary, hold none", { summary: READY, model: REPEAT, browser: BROWSER_REPEAT }, false]])
+        same(logic.stepHoldsPrimary(logic.setupSections(STEPPED_TUIS, producer.statusRows(STEPPED, values, []))), want, "stepHoldsPrimary: " + label);
     for (const [label, key, values, want] of ENTRIES) {
         const row = producer.statusRows(MANIFEST, values, []).find(entry => entry.key === key);
         same(logic.statusStep(row), want, label);
     }
     // The Status section takes the Setup group's first entry alone.
-    same(logic.settingsSections(TUIS, producer.statusRows(MANIFEST, {}, [])).map(section => [section.title, section.items.map(item => item.key)]),
+    same(logic.setupSections(TUIS, producer.statusRows(MANIFEST, {}, [])).map(section => [section.title, section.items.map(item => item.key)]),
         [["Status", ["warden"]], ["Setup", []]], "the Status section takes the Setup group's entry");
-    same(logic.settingsSections([], producer.statusRows(KEYED, {}, []).filter(entry => entry.key === "check")), [], "a plugin with no Setup entry, key or screen draws no status section");
+    same(logic.setupSections([], producer.statusRows(KEYED, {}, []).filter(entry => entry.key === "check")), [], "a plugin with no Setup entry, key or screen draws no status section");
     // keyEntries and detailEntries: the entry that lists the stored keys
     // draws with the setup, and every other entry on Details.
     const keyed = producer.statusRows(KEYED, {}, []);
     same([logic.keyEntries(keyed).map(entry => entry.key), logic.detailEntries(keyed).map(entry => entry.key)], [["keys"], ["check"]], "the stored keys' entry leaves Details for the Setup section");
     const own = producer.statusRows(OWN, {}, []);
-    same([logic.keyEntries(own).map(entry => entry.key), logic.detailEntries(own).map(entry => entry.key), logic.settingsSections([], own).map(section => [section.title, section.items.map(item => [item.key, item.keys])])],
-        [["keys"], ["summary", "accounts"], [["Status", [["summary", false]]], ["Setup", [["keys", true]]]]], "a presence list grouped under Setup draws as stored keys, off Details and off the step rows");
+    same([logic.keyEntries(own).map(entry => entry.key), logic.detailEntries(own).map(entry => entry.key), logic.setupSections([], own).map(section => [section.title, section.items.map(item => [item.key, item.keys])])],
+        [["keys"], ["accounts"], [["Status", [["summary", false]]], ["Setup", [["keys", true]]]]], "a presence list grouped under Setup draws as stored keys, off Details and off the step rows, and the Setup headline off Details");
     const plain = producer.statusRows(MANIFEST, {}, []);
-    same([logic.keyEntries(plain).map(entry => entry.key), logic.detailEntries(plain).map(entry => entry.key)], [[], ["token", "warden", "bare", "pending", "accounts"]], "a plugin that stores no key keeps every entry on Details");
+    same([logic.keyEntries(plain).map(entry => entry.key), logic.detailEntries(plain).map(entry => entry.key)], [[], ["token", "bare", "pending", "accounts"]], "a plugin that stores no key keeps every entry outside the Setup group on Details");
     for (const [label, item, want] of ITEMS) {
         const drawn = producer.statusRows(KEYED, { keys: [item] }, []).find(entry => entry.key === "keys").value[0];
         same(logic.itemView(drawn), want, "itemView: " + label);
@@ -396,7 +453,7 @@ function verify(logic) {
     // leaves out.
     for (const [label, manifest, tuis, values, rows, flow] of ROWS) {
         const status = producer.statusRows(manifest, values, []);
-        same(logic.settingsSections(tuis, status).filter(section => section.title === "Status" || section.title === "Setup")
+        same(logic.setupSections(tuis, status).filter(section => section.title === "Status" || section.title === "Setup")
             .reduce((all, section) => all.concat(section.items.filter(item => !item.keys)), [])
             .map(row => [row.label, row.step, row.button === null ? null : [row.button.name, row.button.label]]), rows, "rows: " + label);
         same(flowOf(logic, tuis, status).map(b => [b.name, b.label]), flow, "Flow beside steps: " + label);
@@ -410,14 +467,14 @@ function verify(logic) {
     // that is no danger.
     for (const [label, values, want] of SECTIONS) {
         const status = producer.statusRows(GROUPED, values, []);
-        const drawn = logic.settingsSections(GROUPED_TUIS, status).map(section => [section.title,
+        const drawn = logic.setupSections(GROUPED_TUIS, status).map(section => [section.title,
             section.items.map(item => [item.key, item.keys ? "keys" : item.button === null ? null : [item.button.name, item.button.label, item.button.tone, item.button.primary]]),
             section.buttons.map(b => [b.name, b.label, b.tone, b.primary])]);
-        same(drawn, want, "settingsSections: " + label);
-        same(logic.detailEntries(status).map(entry => entry.key), ["sync", "pairs", "downCount", "last"], "a keyed group's keys and states leave Details: " + label);
+        same(drawn, want, "setupSections: " + label);
+        same(logic.detailEntries(status).map(entry => entry.key), ["downCount", "last"], "the Setup group and a keyed group's keys and states leave Details: " + label);
     }
     for (const [label, values, want] of PRIMARY)
-        same(logic.settingsSections(STEPPED_TUIS, producer.statusRows(STEPPED, values, [])).find(section => section.title === "Setup").items
+        same(logic.setupSections(STEPPED_TUIS, producer.statusRows(STEPPED, values, [])).find(section => section.title === "Setup").items
             .map(item => [item.key, item.button === null ? null : [item.button.label, item.button.primary]]), want, "primary: " + label);
     for (const [label, manifest, tuis, values, want] of FLOWS)
         same(flowOf(logic, tuis, producer.statusRows(manifest, values, [])).map(b => [b.name, b.label, b.tone, b.primary]), want, "primary: " + label);
@@ -482,8 +539,9 @@ const CONTROLS = [
     ["a danger step's declared screen draws in the Flow too", " && !blockedByDangerRow(tui.name)", ""],
     ["the Status row reads Status", "label: entry.label, step: step,", 'label: step ? entry.label : "Status", step: step,'],
     ["the first Setup entry draws as a step", "items: [row(setup[0], false)]", "items: [row(setup[0], true)]"],
-    ["the first Setup entry draws among the steps too", "var setupItems = setup.slice(1).map(", "var setupItems = setup.map("],
+    ["the first Setup entry draws among the steps too", "var steps = setup.slice(1);", "var steps = setup;"],
     ["a keyed group's entries stay on Details", "        if (inKeyedGroup(entry, keyed)) return false;\n", ""],
+    ["a Setup step draws on Details too", "        if (entry.group === SETUP_GROUP) return false;\n", ""],
     ["the keys of no group draw as their own section", 'if (entry.group !== "" && entry.group !== SETUP_GROUP && out.indexOf', "if (out.indexOf"],
     ["a keyed group draws twice", " && out.indexOf(entry.group) === -1) out.push(entry.group);", ") out.push(entry.group);"],
     ["every entry of a keyed group draws in its section", '(listsKeys(entry) || entry.type === "state")', "true"],
@@ -500,7 +558,26 @@ const CONTROLS = [
     ["an optional row loses primary while no required step is open", "if (first === null) sections.some", "if (false) sections.some"],
     ["an optional danger row blocks the next optional row", ' && item.button.tone !== "danger"', ""],
     ["the optional local voice Flow claims the primary on Ready", 'button.key = button.name + " " + button.label', 'if (button.offered) button.primary = true; button.key = button.name + " " + button.label', "Jarvis actionless required model reserves no filled button"],
-    ["no action is primary", "first.button.primary = true;", "{}"]
+    ["no action is primary", "first.button.primary = true;", "{}"],
+    ["a done step draws before an open one", "var setupItems = steps.filter(stepOpen).concat(", "var setupItems = steps.filter(function () { return false; }).concat("],
+    ["an open step draws twice", "steps.filter(function (entry) { return !stepOpen(entry); })", "steps"],
+    ["an optional step is open", 'return entry.tone === "warning" || entry.tone === "danger";', 'return entry.tone === "warning" || entry.tone === "danger" || entry.tone === "info";'],
+    ["a danger step is not open", ' || entry.tone === "danger";', ";"],
+    ["a warning step is not open", 'return entry.tone === "warning" || ', "return "],
+    ["a plugin that is off asks for its setup", "if (!enabled) return { open: false, optional: 0 };", ""],
+    ["a missing optional tool raises Setup needed", "return !requirement.optional && requirementApplies(requirement);", "return requirementApplies(requirement);"],
+    ["a missing required tool raises no Setup needed", "return !requirement.optional && requirementApplies(requirement); })\n            || ", "return false; })\n            || "],
+    ["an open step raises no Setup needed", "status.some(function (entry) { return stepOpen(entry) && !listsKeys(entry)", "status.some(function (entry) { return false && !listsKeys(entry)"],
+    ["a state on Details raises Setup needed", " && (entry.group === SETUP_GROUP || inKeyedGroup(entry, keyed)); }),", "; }),"],
+    ["a keyed group's state raises no Setup needed", "(entry.group === SETUP_GROUP || inKeyedGroup(entry, keyed)); }),", "(entry.group === SETUP_GROUP); }),"],
+    ["a required tool is counted as optional", 'return requirement.optional && requirement.state === "missing";', 'return requirement.state === "missing";'],
+    ["an outdated optional tool is counted as missing", 'return requirement.optional && requirement.state === "missing";', "return requirement.optional && requirementApplies(requirement);"],
+    ["no missing optional tool is counted", 'return requirement.optional && requirement.state === "missing"; }).length', 'return requirement.optional && requirement.state === "missing"; }).length * 0'],
+    ["every page has a Setup tab", "return sections.length > 0 || requirements.some(requirementApplies);", "return true;"],
+    ["a tool to install gives no Setup tab", "return sections.length > 0 || requirements.some(requirementApplies);", "return sections.length > 0;"],
+    ["setup material gives no Setup tab", "return sections.length > 0 || requirements.some(requirementApplies);", "return requirements.some(requirementApplies);"],
+    ["no step holds the primary", "return item.button !== null && item.button.primary; });", "return false; });"],
+    ["every step action holds the primary", "return item.button !== null && item.button.primary; });", "return item.button !== null; });"]
 ];
 
 const source = fs.readFileSync(file, "utf8");
@@ -524,4 +601,4 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-settings-steps: ok entries=${ENTRIES.length} rows=${ROWS.length} sections=${SECTIONS.length} primary=${PRIMARY.length} controls=${CONTROLS.length}`);
+console.log(`test-settings-steps: ok entries=${ENTRIES.length} rows=${ROWS.length} sections=${SECTIONS.length} primary=${PRIMARY.length} needs=${NEEDS.length} controls=${CONTROLS.length}`);

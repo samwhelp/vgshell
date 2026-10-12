@@ -7,8 +7,10 @@
 // failing state its writer gives no action shows none. The core decides when
 // a step applies (PluginLogic.statusActionOffered, SECRET_ACCESS,
 // requirementRows); this file decides what the page then draws, and where:
-// a stored key on the Settings tab, in the Setup section or its group's
-// own section, and a state on Details.
+// a setup step, a stored key and a setup screen on the Setup tab, a state
+// outside them on Details, and the requirements on Setup when the page has
+// that tab, else on Details. It also judges what a plugin still asks of
+// its user (setupNeeds), which the plugin list marks its row with.
 
 // What the line of ENTRY, one row of PluginLogic.statusRows, draws of its
 // step: { offered }, whether the action's button shows.
@@ -122,10 +124,12 @@ function listsKeys(entry) {
 }
 
 // The entries of STATUS, a manager row's status rows, that list the
-// plugin's stored keys and tokens: a page draws each on its Settings tab,
+// plugin's stored keys and tokens: a page draws each on its Setup tab,
 // where a key is added, replaced and removed, and every other entry
-// read-only on Details (detailEntries), but for the states of a keyed
-// group (keyedGroups), which the Settings tab draws beside its keys.
+// read-only on Details (detailEntries), but for the entries of
+// SETUP_GROUP, the Setup tab's headline and steps, and the states of a
+// keyed group (keyedGroups), which the Setup tab draws beside its keys. No
+// entry draws on both tabs.
 function keyEntries(status) {
     return status.filter(listsKeys);
 }
@@ -133,13 +137,14 @@ function detailEntries(status) {
     var keyed = keyedGroups(status);
     return status.filter(function (entry) {
         if (inKeyedGroup(entry, keyed)) return false;
+        if (entry.group === SETUP_GROUP) return false;
         return !listsKeys(entry);
     });
 }
 
 // The groups of STATUS, other than "" and SETUP_GROUP, that hold a key
 // list, in the order of their first entry: each is a section of the
-// Settings tab, titled with the group, so a key and the step that uses it
+// Setup tab, titled with the group, so a key and the step that uses it
 // read under one heading.
 function keyedGroups(status) {
     var out = [];
@@ -155,12 +160,13 @@ function inKeyedGroup(entry, keyed) {
     return keyed.indexOf(entry.group) !== -1 && (listsKeys(entry) || entry.type === "state");
 }
 
-// The status sections of the Settings tab for TUIS, a manager row's listed
+// The status sections of the Setup tab for TUIS, a manager row's listed
 // TUIs (PluginLogic.listedTuiRows), and STATUS, its status rows, in drawn
 // order, each { title, items, buttons }:
 // - STATUS_TITLE: SETUP_GROUP's first entry, under its own label, with no
 //   step;
-// - SETUP_GROUP: each further entry of that group as a step row, then the
+// - SETUP_GROUP: each further entry of that group as a step row, the open
+//   ones (stepOpen) first and each kind in manifest order, then the
 //   key lists of group "" or SETUP_GROUP, then `buttons`, the headline's
 //   offered action and the screens no step row draws and no danger step
 //   owns now (flowButtons);
@@ -173,7 +179,7 @@ function inKeyedGroup(entry, keyed) {
 // belongs to the first open required step in that order, while its action
 // is offered and not danger; an optional row action takes it only while
 // no required step is open (markPrimary). Flow screens stay secondary.
-function settingsSections(tuis, status) {
+function setupSections(tuis, status) {
     var keyed = keyedGroups(status);
     var setup = status.filter(function (entry) { return entry.group === SETUP_GROUP && !listsKeys(entry); });
     function row(entry, step) {
@@ -182,7 +188,8 @@ function settingsSections(tuis, status) {
     function keys(entry) {
         return { key: entry.key, keys: true, entry: entry, label: entry.label, step: false, button: null };
     }
-    var setupItems = setup.slice(1).map(function (entry) { return row(entry, true); })
+    var steps = setup.slice(1);
+    var setupItems = steps.filter(stepOpen).concat(steps.filter(function (entry) { return !stepOpen(entry); })).map(function (entry) { return row(entry, true); })
         .concat(keyEntries(status).filter(function (entry) { return keyed.indexOf(entry.group) === -1; }).map(keys));
     var groups = keyed.map(function (group) {
         return { title: group, buttons: [], items: status.filter(function (entry) { return entry.group === group && inKeyedGroup(entry, keyed); })
@@ -199,6 +206,50 @@ function settingsSections(tuis, status) {
     out = out.concat(groups);
     markPrimary(out);
     return out;
+}
+
+// Whether ENTRY, a status row the Setup tab draws as its headline or as a
+// step, is open: reported in the warning or the danger tone, which a plugin
+// gives a step its user has still to do. An optional step reads info, a
+// done one success, and a disabled plugin reports none.
+function stepOpen(entry) {
+    return entry.tone === "warning" || entry.tone === "danger";
+}
+
+// What a plugin still asks of its user, for STATUS and REQUIREMENTS, its
+// manager row's status and requirement rows, and ENABLED, whether it is
+// on: { open, optional }. `open` holds while a required tool is missing or
+// outdated (requirementApplies) or a headline or step of the Setup tab is
+// open (stepOpen); the plugin list then draws Setup needed on the row and
+// a click on the row opens Setup. `optional` counts the optional tools
+// that are missing, which the list marks with its warning icon. A plugin
+// that is off asks nothing: both read as none until it is turned on.
+function setupNeeds(status, requirements, enabled) {
+    if (!enabled) return { open: false, optional: 0 };
+    var keyed = keyedGroups(status);
+    return {
+        open: requirements.some(function (requirement) { return !requirement.optional && requirementApplies(requirement); })
+            || status.some(function (entry) { return stepOpen(entry) && !listsKeys(entry) && (entry.group === SETUP_GROUP || inKeyedGroup(entry, keyed)); }),
+        optional: requirements.filter(function (requirement) { return requirement.optional && requirement.state === "missing"; }).length
+    };
+}
+
+// Whether a plugin's page has a Setup tab, for SECTIONS, its setupSections,
+// and REQUIREMENTS, its requirement rows: while it has a step, a stored key
+// or a setup screen to draw, or a tool to install or update. The
+// Requirements section draws on that tab, so its install action never
+// draws on Details, which holds what a user reads.
+function setupTab(sections, requirements) {
+    return sections.length > 0 || requirements.some(requirementApplies);
+}
+
+// Whether a step of SECTIONS, a page's setupSections, holds the page's one
+// primary action (markPrimary); the Requirements section's action is then
+// secondary on the Setup tab.
+function stepHoldsPrimary(sections) {
+    return sections.some(function (section) {
+        return section.items.some(function (item) { return item.button !== null && item.button.primary; });
+    });
 }
 
 // The action beside step ENTRY, or null while its value offers none:

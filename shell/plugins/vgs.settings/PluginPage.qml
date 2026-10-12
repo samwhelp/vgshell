@@ -8,64 +8,75 @@ import "Steps.js" as Steps
 // back button, which returns to the list, and the plugin's name as a title
 // whose menu lists every plugin, the current one checked, and opens the
 // chosen one's page. Open summons the plugin's window or panel. The body
-// holds every error and the last refusal, then two pages under one tab
-// strip (TabPages), Settings first.
+// holds every error and the last refusal, then the pages under one tab
+// strip (TabPages): Settings, Setup for a plugin with something to set up
+// (Steps.setupTab), and Details. No item draws on two tabs.
 //
-// Settings holds what a user changes: the enabled switch, the Show in bar
+// Settings holds what a user chooses: the enabled switch, the Show in bar
 // switch of a plugin with a bar widget and another kind besides bar and
 // bar-widget, which stays enabled once unplaced, the switch turning only
 // while the plugin is enabled (for a widget-only plugin Enabled is the
-// placement), then the status sections (Steps.settingsSections): a Status
-// section with the `Setup` group's first entry under its own label; a
-// Setup section with each further entry of that group as a step row under
-// its own label, whose value is a Badge chip in its tone, beside it a
-// step's offered screen or action, with its lines and hint under it, then
-// the plugin's stored keys and tokens of no group or of `Setup`, each entry
-// a StatusRow with one line per key, whose steps add, replace and remove a
-// key the core stores, then, on an unlabelled row from the value column,
-// the first entry's offered action when it opens no listed screen, then
-// one action per other setup screen the manifest lists, which opens it
-// through the manager: a screen an offered status action opens first, with
-// the action's label, then the others; then one section per other status
-// group that holds a key list, its keys and states in manifest order. The
-// first offered step that is no danger draws as the page's one primary
-// Button, every other action as a RowAction, a danger one in the danger
-// tone. Then one settings section
+// placement), then one settings section
 // per schema group (entries without a group have no heading), one
 // section per `list` entry, titled with its label, and the Keys section,
 // then, for a plugin of kind `pane` while a panes holder is enabled, a
 // button named for the holder that opens the plugin's page there. A
 // plugin with none of those below its switches says so in one line. A
 // disabled plugin's fields are read-only, its Enabled switch says to turn
-// it on while it has something to change, and its setup actions and
-// holder button take no press.
+// it on while it has something to change, and its holder button takes no
+// press.
+//
+// Setup holds what a user does, the status sections (Steps.setupSections):
+// a Status section with the `Setup` group's first entry under its own
+// label; a Setup section with each further entry of that group as a step
+// row under its own label, the open steps first, whose value is a Badge
+// chip in its tone, beside it a step's offered screen or action, with its
+// lines and hint under it, then the plugin's stored keys and tokens of no
+// group or of `Setup`, each entry a StatusRow with one line per key, whose
+// steps add, replace and remove a key the core stores, then, on an
+// unlabelled row from the value column, the first entry's offered action
+// when it opens no listed screen, then one action per other setup screen
+// the manifest lists, which opens it through the manager: a screen an
+// offered status action opens first, with the action's label, then the
+// others; then one section per other status group that holds a key list,
+// its keys and states in manifest order; then the Requirements section
+// with an Install all missing button while one is missing, and Update all
+// outdated once the rest are only outdated. A step keeps its row once it
+// is done, with its state and the action its plugin offers to run it
+// again. The first offered step that is no danger draws as the page's one
+// primary Button, every other action as a RowAction, a danger one in the
+// danger tone; the Requirements button is the primary only while no step
+// holds it. A disabled plugin's setup actions take no press.
 //
 // Details holds what a user reads: the description, in the hint role in
 // the muted colour, the capabilities, the listing metadata, the README
 // link of a plugin included with VGS, the Update and Remove actions of an
 // installed plugin, one status section per status
 // group (entries without a group first, under `Status`), but for the
-// entries the Settings tab draws (Steps.detailEntries), whose values are
-// read-only and whose setup steps run through the manager (D061), and the
-// Requirements section with an Install all missing button while one is
-// missing, and Update all outdated once the rest are only outdated. A disabled plugin's status rows say it has not reported.
+// entries the Setup tab draws (Steps.detailEntries), whose values are
+// read-only, and, for a plugin with no Setup tab, the Requirements
+// section, every tool of which then reads present. A disabled plugin's
+// status rows say it has not reported.
 //
-// `open` shows Settings, so every opened page starts there; a change of
-// the manager's rows moves neither the page nor an edit. A page change
-// returns the body to its top, where the strip is. The header and body
+// `open` shows the tab it is asked for, Settings unless the caller names
+// another; a change of the manager's rows moves neither the page nor an
+// edit, but for a Setup tab that leaves while it shows, when the page goes
+// on to Details. A page change returns the body to its top, where the
+// strip is. The header and body
 // share one content edge, the scroll bar sits in the window's right inset,
 // and each inline value draws at line height 1, centred on its label. The
 // switches, and the listing metadata with Manage, are each one key/value
 // group `stack.row` apart, with one key/value row height. No row of the
-// Settings tab draws a divider: a section heading parts its groups.
+// Setup tab's status sections draws a divider: a section heading parts its
+// groups.
 //
 // A text field and a key typed as text wait for a save (EditSet): while one
 // holds an unsaved edit the footer shows the save bar, whose Save, and
 // Ctrl+S anywhere on the page, write every such edit, and whose Discard
 // puts the configuration's values back. The bar reads Saved once the last
 // edit is written, and a refused one keeps its field edited and the bar
-// shown. A change to Details with an unsaved edit returns to Settings and
-// asks the panel first.
+// shown. A change to another tab with an unsaved edit returns to Settings
+// and asks the panel first.
 FocusScope {
     id: page
 
@@ -83,7 +94,8 @@ FocusScope {
     // The page's height unscrolled, with the tab it shows now; the window
     // follows it on each tab change, `tab`.
     readonly property real fitHeight: layout.uncappedHeight
-    readonly property int tab: tabs.currentIndex
+    // The tab shown, by its text on the strip.
+    readonly property string tab: tabs.model[tabs.currentIndex] || "Settings"
     readonly property alias titleMenu: menu
     readonly property alias title: titleHeader.titleButton
     readonly property alias initialFocus: back
@@ -91,7 +103,7 @@ FocusScope {
     // or null.
     readonly property var paneHolder: row === null || row.paneHolder === "" ? null : panel.plugins.find(p => p.id === row.paneHolder) || null
     // Whether the Settings page holds nothing below its switches.
-    readonly property bool bare: row !== null && row.builtins.length === 0 && row.tuis.length === 0 && settingsSections.length === 0 && sections.length === 0 && lists.length === 0 && row.binds.length === 0 && paneHolder === null
+    readonly property bool bare: row !== null && row.builtins.length === 0 && sections.length === 0 && lists.length === 0 && row.binds.length === 0 && paneHolder === null
     // Whether a field of the page holds an unsaved edit.
     readonly property bool dirty: unsaved.edited
 
@@ -133,9 +145,26 @@ FocusScope {
         return Object.keys(row.schema).filter(key => row.schema[key].type === "list"
             && (row.schema[key].group === undefined || groups.indexOf(row.schema[key].group) === -1));
     }
-    // The Settings tab's status sections in drawn order, with their rows,
+    // The Setup tab's status sections in drawn order, with their rows,
     // keys and setup actions.
-    readonly property var settingsSections: row === null ? [] : Steps.settingsSections(row.tuis, row.status)
+    readonly property var setupSections: row === null ? [] : Steps.setupSections(row.tuis, row.status)
+    // Whether the page has a Setup tab, which then holds the Requirements
+    // section too.
+    readonly property bool hasSetup: row !== null && Steps.setupTab(setupSections, row.requirements)
+    // Give the strip the tabs the row has now and keep the shown tab by its
+    // text. The strip builds a new button per text, which moves its index,
+    // so the index is set again before the page answers a tab change. A
+    // Setup tab that leaves while it shows, as a requirement-only one does
+    // once its tools are installed, hands on to Details, where the
+    // Requirements section then draws.
+    onHasSetupChanged: {
+        const names = hasSetup ? ["Settings", "Setup", "Details"] : ["Settings", "Details"];
+        const shown = names.indexOf(tab) !== -1 ? tab : "Details";
+        tabs.returning = true;
+        tabs.model = names;
+        tabs.currentIndex = names.indexOf(shown);
+        tabs.returning = false;
+    }
 
     // The keys of the status entries Details draws, by section, as
     // `sections` holds the schema's: [{ group, keys }], ungrouped first,
@@ -160,9 +189,59 @@ FocusScope {
         return row === null ? null : row.status.find(entry => entry.key === key) || null;
     }
 
-    // Show the page as it opens: on Settings, the back button focused.
-    function open(reason) {
-        tabs.currentIndex = 0;
+    // The tools a plugin needs, each with its state, and STEP, the one
+    // action that installs or updates them (Steps.requirementStep), or null.
+    // The page draws it on one tab: Setup when it has that tab, else
+    // Details. PRIMARY holds while its action is the page's main one.
+    component Requirements: Section {
+        id: tools
+
+        property var requirements: []
+        property var step: null
+        property bool primary: true
+        signal install()
+
+        visible: requirements.length > 0
+        title: "Requirements"
+        description: "Tools this plugin needs"
+
+        // Each command is one group, and the Install row after them.
+        GroupList {
+            id: requirementRows
+            width: parent.width
+
+            Repeater {
+                model: ScriptModel {
+                    values: tools.requirements
+                    objectProp: "command"
+                }
+                RequirementRow {
+                    required property var modelData
+                    width: requirementRows.width
+                    requirement: modelData
+                }
+            }
+
+            Field {
+                width: requirementRows.width
+                label: tools.step === null ? "" : tools.step.label
+                inline: true
+                visible: tools.step !== null
+                hint: tools.step === null ? "" : tools.step.hint
+                Button {
+                    text: tools.step === null ? "" : tools.step.button
+                    iconName: tools.step === null ? "" : tools.step.icon
+                    variant: tools.primary ? "primary" : "secondary"
+                    onClicked: tools.install()
+                }
+            }
+        }
+    }
+
+    // Show the page as it opens: on TAB, a tab's text, or on Settings when
+    // the page has no such tab, the back button focused.
+    function open(reason, tab) {
+        tabs.currentIndex = Math.max(0, tabs.model.indexOf(tab));
         back.forceActiveFocus(reason);
     }
 
@@ -278,7 +357,8 @@ FocusScope {
                 id: tabs
                 width: parent.width
                 model: ["Settings", "Details"]
-                // True while the handler puts Settings back.
+                // True while the handler puts Settings back, and while
+                // the page sets the strip's tabs.
                 property bool returning: false
                 onCurrentIndexChanged: {
                     if (returning) return;
@@ -344,6 +424,166 @@ FocusScope {
                         wrapMode: Text.Wrap
                     }
 
+                    // Keyed models keep each section, field and key row
+                    // while the manager's rows are replaced, so an edit in
+                    // progress survives an unrelated change.
+                    Repeater {
+                        model: ScriptModel {
+                            values: page.sections
+                            objectProp: "group"
+                        }
+                        Section {
+                            id: section
+                            required property var modelData
+                            width: body.width
+                            title: section.modelData.group
+
+                            Repeater {
+                                model: ScriptModel {
+                                    values: section.modelData.builtin === null ? [] : [section.modelData.builtin]
+                                    objectProp: "id"
+                                }
+                                SettingField {
+                                    required property var modelData
+                                    pluginId: modelData.id
+                                    spec: ({ type: "boolean", label: "Show on the bar" })
+                                    value: modelData.placed
+                                    editable: page.editable
+                                    onApply: v => { if (page !== null && page.row !== null) page.panel.writePlacement(pluginId, v, page.row.id); }
+                                }
+                            }
+
+                            Repeater {
+                                model: ScriptModel {
+                                    values: section.modelData.keys
+                                }
+                                SettingField {
+                                    required property string modelData
+                                    width: section.width
+                                    pluginId: page.row.id
+                                    key: modelData
+                                    spec: page.row.schema[modelData]
+                                    value: page.row.settings[modelData]
+                                    choices: page.row.settingChoices[modelData] || []
+                                    status: page.row.status
+                                    editable: page.editable
+                                    edits: unsaved
+                                    onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
+                                    onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
+                                    onChoicesWanted: if (page !== null && page.row !== null) page.panel.refreshChoices(pluginId, spec.optionsFrom)
+                                }
+                            }
+
+                            Repeater {
+                                model: ScriptModel {
+                                    values: section.modelData.lists || []
+                                }
+                                Section {
+                                    id: groupedListSection
+                                    required property string modelData
+                                    width: section.width
+                                    title: page.row.schema[modelData].label
+                                    description: page.row.schema[modelData].description === undefined ? "" : page.row.schema[modelData].description
+                                    info: page.row.schema[modelData].info === undefined ? "" : page.row.schema[modelData].info
+
+                                    ListField {
+                                        width: groupedListSection.width
+                                        pluginId: page.row.id
+                                        key: groupedListSection.modelData
+                                        spec: page.row.schema[groupedListSection.modelData]
+                                        value: page.row.settings[groupedListSection.modelData]
+                                        choices: page.row.settingChoices[groupedListSection.modelData] || []
+                                        status: page.row.status
+                                        editable: page.editable
+                                        edits: unsaved
+                                        onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
+                                        onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Repeater {
+                        model: ScriptModel {
+                            values: page.lists
+                        }
+                        Section {
+                            id: listSection
+                            required property string modelData
+                            width: body.width
+                            title: page.row.schema[modelData].label
+                            description: page.row.schema[modelData].description === undefined ? "" : page.row.schema[modelData].description
+                            info: page.row.schema[modelData].info === undefined ? "" : page.row.schema[modelData].info
+
+                            ListField {
+                                width: listSection.width
+                                pluginId: page.row.id
+                                key: listSection.modelData
+                                spec: page.row.schema[listSection.modelData]
+                                value: page.row.settings[listSection.modelData]
+                                choices: page.row.settingChoices[listSection.modelData] || []
+                                status: page.row.status
+                                editable: page.editable
+                                edits: unsaved
+                                onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
+                                onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
+                            }
+                        }
+                    }
+
+                    Section {
+                        width: parent.width
+                        visible: page.row !== null && page.row.binds.length > 0
+                        title: "Keys"
+                        description: "Select a shortcut and press its new keys."
+
+                        Repeater {
+                            model: ScriptModel {
+                                values: page.row === null ? [] : page.row.binds
+                                objectProp: "shortcut"
+                            }
+                            KeyField {
+                                id: keyField
+                                required property var modelData
+                                width: body.width
+                                pluginId: page.row.id
+                                bind: modelData
+                                editable: page.editable
+                                capture: page.panel.capture
+                                edits: unsaved
+                                onRemovalAsked: row => page.panel.confirmRemoval(keyField, row)
+                                onLineAsked: row => page.panel.openUserLine(row)
+                                onApplyKey: key => {
+                                    if (page === null || page.row === null) return;
+                                    settle(key, Reply.isOk(page.panel.writeKey(pluginId, modelData.shortcut, key)));
+                                }
+                            }
+                        }
+                    }
+
+                    Button {
+                        text: page.paneHolder === null ? "" : "More settings in " + page.paneHolder.name
+                        iconName: page.paneHolder === null ? "" : page.paneHolder.icon
+                        variant: "secondary"
+                        visible: page.paneHolder !== null
+                        enabled: page.editable
+                        onClicked: page.panel.openPane(page.row.id)
+                    }
+                }
+
+                // The strip's second page. Setup stands between Settings and
+                // Details when the plugin has it, so the second page is
+                // Setup for such a plugin and Details for any other, which
+                // then draws here, under sections that are none: an Item's
+                // `parent` is writable, and a Column lays out the children
+                // it has that are shown and sized
+                // (https://doc.qt.io/qt-6/qml-qtquick-item.html#parent-prop,
+                // https://doc.qt.io/qt-6/qml-qtquick-column.html).
+                Column {
+                    id: setupPage
+                    spacing: Theme.stack.page
+
                     // The status sections. Keyed by title, by entry and
                     // by action as drawn, so a status write, which hands
                     // the page new rows, keeps each row in place and a
@@ -352,7 +592,7 @@ FocusScope {
                     // apart with no divider.
                     Repeater {
                         model: ScriptModel {
-                            values: page.settingsSections
+                            values: page.setupSections
                             objectProp: "title"
                         }
                         Section {
@@ -567,156 +807,21 @@ FocusScope {
                         }
                     }
 
-                    // Keyed models keep each section, field and key row
-                    // while the manager's rows are replaced, so an edit in
-                    // progress survives an unrelated change.
-                    Repeater {
-                        model: ScriptModel {
-                            values: page.sections
-                            objectProp: "group"
-                        }
-                        Section {
-                            id: section
-                            required property var modelData
-                            width: body.width
-                            title: section.modelData.group
-
-                            Repeater {
-                                model: ScriptModel {
-                                    values: section.modelData.builtin === null ? [] : [section.modelData.builtin]
-                                    objectProp: "id"
-                                }
-                                SettingField {
-                                    required property var modelData
-                                    pluginId: modelData.id
-                                    spec: ({ type: "boolean", label: "Show on the bar" })
-                                    value: modelData.placed
-                                    editable: page.editable
-                                    onApply: v => { if (page !== null && page.row !== null) page.panel.writePlacement(pluginId, v, page.row.id); }
-                                }
-                            }
-
-                            Repeater {
-                                model: ScriptModel {
-                                    values: section.modelData.keys
-                                }
-                                SettingField {
-                                    required property string modelData
-                                    width: section.width
-                                    pluginId: page.row.id
-                                    key: modelData
-                                    spec: page.row.schema[modelData]
-                                    value: page.row.settings[modelData]
-                                    choices: page.row.settingChoices[modelData] || []
-                                    status: page.row.status
-                                    editable: page.editable
-                                    edits: unsaved
-                                    onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
-                                    onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
-                                    onChoicesWanted: if (page !== null && page.row !== null) page.panel.refreshChoices(pluginId, spec.optionsFrom)
-                                }
-                            }
-
-                            Repeater {
-                                model: ScriptModel {
-                                    values: section.modelData.lists || []
-                                }
-                                Section {
-                                    id: groupedListSection
-                                    required property string modelData
-                                    width: section.width
-                                    title: page.row.schema[modelData].label
-                                    description: page.row.schema[modelData].description === undefined ? "" : page.row.schema[modelData].description
-                                    info: page.row.schema[modelData].info === undefined ? "" : page.row.schema[modelData].info
-
-                                    ListField {
-                                        width: groupedListSection.width
-                                        pluginId: page.row.id
-                                        key: groupedListSection.modelData
-                                        spec: page.row.schema[groupedListSection.modelData]
-                                        value: page.row.settings[groupedListSection.modelData]
-                                        choices: page.row.settingChoices[groupedListSection.modelData] || []
-                                        status: page.row.status
-                                        editable: page.editable
-                                        edits: unsaved
-                                        onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
-                                        onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Repeater {
-                        model: ScriptModel {
-                            values: page.lists
-                        }
-                        Section {
-                            id: listSection
-                            required property string modelData
-                            width: body.width
-                            title: page.row.schema[modelData].label
-                            description: page.row.schema[modelData].description === undefined ? "" : page.row.schema[modelData].description
-                            info: page.row.schema[modelData].info === undefined ? "" : page.row.schema[modelData].info
-
-                            ListField {
-                                width: listSection.width
-                                pluginId: page.row.id
-                                key: listSection.modelData
-                                spec: page.row.schema[listSection.modelData]
-                                value: page.row.settings[listSection.modelData]
-                                choices: page.row.settingChoices[listSection.modelData] || []
-                                status: page.row.status
-                                editable: page.editable
-                                edits: unsaved
-                                onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
-                                onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
-                            }
-                        }
-                    }
-
-                    Section {
-                        width: parent.width
-                        visible: page.row !== null && page.row.binds.length > 0
-                        title: "Keys"
-                        description: "Select a shortcut and press its new keys."
-
-                        Repeater {
-                            model: ScriptModel {
-                                values: page.row === null ? [] : page.row.binds
-                                objectProp: "shortcut"
-                            }
-                            KeyField {
-                                id: keyField
-                                required property var modelData
-                                width: body.width
-                                pluginId: page.row.id
-                                bind: modelData
-                                editable: page.editable
-                                capture: page.panel.capture
-                                edits: unsaved
-                                onRemovalAsked: row => page.panel.confirmRemoval(keyField, row)
-                                onLineAsked: row => page.panel.openUserLine(row)
-                                onApplyKey: key => {
-                                    if (page === null || page.row === null) return;
-                                    settle(key, Reply.isOk(page.panel.writeKey(pluginId, modelData.shortcut, key)));
-                                }
-                            }
-                        }
-                    }
-
-                    Button {
-                        text: page.paneHolder === null ? "" : "More settings in " + page.paneHolder.name
-                        iconName: page.paneHolder === null ? "" : page.paneHolder.icon
-                        variant: "secondary"
-                        visible: page.paneHolder !== null
-                        enabled: page.editable
-                        onClicked: page.panel.openPane(page.row.id)
+                    Requirements {
+                        requirements: page.row !== null && page.hasSetup ? page.row.requirements : []
+                        step: page.requirementStep
+                        primary: !Steps.stepHoldsPrimary(page.setupSections)
+                        onInstall: page.panel.installRequirements(page.row.id)
                     }
                 }
 
                 Column {
                     id: detailsPage
+                    // The strip's last page beside a Setup tab, as declared.
+                    parent: page.hasSetup ? settingsPage.parent : setupPage
+                    // The strip shows and hides its own pages alone, and hid
+                    // this one as its third.
+                    onParentChanged: if (parent === setupPage) visible = true
                     spacing: Theme.stack.page
 
                     Label {
@@ -820,43 +925,9 @@ FocusScope {
                         }
                     }
 
-                    Section {
-                        width: parent.width
-                        visible: page.row !== null && page.row.requirements.length > 0
-                        title: "Requirements"
-                        description: "Tools this plugin needs"
-
-                        // Each command is one group, and the Install row after them.
-                        GroupList {
-                            id: requirementRows
-                            width: parent.width
-
-                            Repeater {
-                                model: ScriptModel {
-                                    values: page.row === null ? [] : page.row.requirements
-                                    objectProp: "command"
-                                }
-                                RequirementRow {
-                                    required property var modelData
-                                    width: requirementRows.width
-                                    requirement: modelData
-                                }
-                            }
-
-                            Field {
-                                width: requirementRows.width
-                                label: page.requirementStep === null ? "" : page.requirementStep.label
-                                inline: true
-                                visible: page.requirementStep !== null
-                                hint: page.requirementStep === null ? "" : page.requirementStep.hint
-                                Button {
-                                    text: page.requirementStep === null ? "" : page.requirementStep.button
-                                    iconName: page.requirementStep === null ? "" : page.requirementStep.icon
-                                    variant: "primary"
-                                    onClicked: page.panel.installRequirements(page.row.id)
-                                }
-                            }
-                        }
+                    // No tool of a page with no Setup tab asks for a step.
+                    Requirements {
+                        requirements: page.row !== null && !page.hasSetup ? page.row.requirements : []
                     }
                 }
             }

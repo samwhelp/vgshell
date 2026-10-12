@@ -470,10 +470,8 @@ function verifyListRead(providers, accountsSource) {
     }
 }
 
-// Execute the shipped Details row accessor and the shipped Settings row
-// projection against the same published status. This checks their source
-// selection; the nested smoke and pictures check the rendered consumers.
-const pageFile = path.join(path.dirname(file), "..", "vgs.settings", "PluginPage.qml");
+// The shipped Setup row projection reads the published status; the nested
+// smoke and pictures check the rendered page.
 const serviceFile = path.join(path.dirname(file), "Service.qml");
 const accountsFile = path.join(path.dirname(file), "Accounts.qml");
 const localRuntimeFile = path.join(path.dirname(file), "LocalRuntime.qml");
@@ -547,8 +545,6 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
     const publishAccounts = accountsSource.match(/^    function publish\(\) \{\n[\s\S]*?^    \}/m);
     const publishSetup = serviceSource.match(/^    function publishSetup\(answer\) \{\n[\s\S]*?^    \}/m);
     assert.ok(publishAccounts && publishSetup);
-    const accessor = fs.readFileSync(pageFile, "utf8").match(/function statusEntry\(key\) \{[\s\S]*?\n    \}/);
-    assert.ok(accessor, "the Details accessor is present");
     const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
     for (const row of MODEL) {
         const values = row.keys === undefined ? {} : { keys: row.keys.map(key => ({ label: "Fixture key", ...key })) };
@@ -570,20 +566,17 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
             assert.deepEqual([values.setupModel.tone, values.setupModel.action], row.want, row.name);
             const entry = judge.statusRows(manifest, values, []).find(item => item.key === "setupModel");
             assert.equal(entry.action.offered, row.want[1] !== undefined, row.name + ": the actual row action");
-            const setupRow = settingsRows(settings.settingsSections([{ name: "add-key" }, { name: "sign-in" }], judge.statusRows(manifest, values, [])))
+            const setupRow = settingsRows(settings.setupSections([{ name: "add-key" }, { name: "sign-in" }], judge.statusRows(manifest, values, [])))
                 .find(item => item.entry.key === "setupModel");
             assert.equal(setupRow.button === null ? undefined : setupRow.button.name, MODEL_TUI[row.want[1]], row.name + ": Settings link");
             // A signed-out app replaces the cause's hint with its own.
             if (row.answer === UNSELECTED) {
-                const detailsEntry = vm.runInNewContext("(" + accessor[0] + ")", { row: { status: judge.statusRows(manifest, values, []) } })("setupModel");
                 const unselected = gate.readiness(UNSELECTED).setupModel.hint;
-                for (const [consumer, actual] of [["Settings", setupRow.entry], ["Details", detailsEntry]]) {
-                    const hint = settings.statusView(actual, String).hint;
-                    if (row.want[1] !== "signIn")
-                        assert.equal(hint, "Choose an AI model in Settings > AI model.", row.name + ": " + consumer + " AI model hint");
-                    else assert.deepEqual([typeof hint, hint === unselected], ["string", false],
-                        row.name + ": " + consumer + " signed-out hint replaces the unselected one");
-                }
+                const hint = settings.statusView(setupRow.entry, String).hint;
+                if (row.want[1] !== "signIn")
+                    assert.equal(hint, "Choose an AI model in Settings > AI model.", row.name + ": Setup AI model hint");
+                else assert.deepEqual([typeof hint, hint === unselected], ["string", false],
+                    row.name + ": Setup signed-out hint replaces the unselected one");
             }
         } catch (error) {
             error.check = "setup-model-action";
@@ -661,9 +654,7 @@ function verifyVoice(gate, serviceSource, accountsSource) {
         throw error;
     }
 }
-function verifyVoiceConsumers(gate, pageSource) {
-    const accessor = pageSource.match(/function statusEntry\(key\) \{[\s\S]*?\n    \}/);
-    assert.ok(accessor, "the Details accessor is present");
+function verifyVoiceConsumers(gate) {
     const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
     for (const [provider, causes, expected] of [
         ["realtime", ["brain=unselected"], ["success", false]],
@@ -673,12 +664,10 @@ function verifyVoiceConsumers(gate, pageSource) {
             localRuntime: { tone: "warning", text: "Not set up", action: true } };
         values.setupVoice = gate.voiceCheck(values.setupVoice, null);
         const row = { status: judge.statusRows(manifest, values, []) };
-        const detailsEntry = vm.runInNewContext("(" + accessor[0] + ")", { row })("setupVoice");
-        const settingsEntry = settingsRows(settings.settingsSections([], row.status)).find(item => item.entry.key === "setupVoice").entry;
+        const setupEntry = settingsRows(settings.setupSections([], row.status)).find(item => item.entry.key === "setupVoice").entry;
         try {
-            assert.equal(detailsEntry, settingsEntry);
-            assert.deepEqual(plain([detailsEntry.tone, detailsEntry.action.offered]), expected);
-            assert.deepEqual(plain(settings.statusView(detailsEntry, String)), plain(settings.statusView(settingsEntry, String)));
+            assert.deepEqual(plain([setupEntry.tone, setupEntry.action.offered]), expected);
+            assert.equal(settings.detailEntries(row.status).some(entry => entry.key === "setupVoice"), false, "the Voice step draws on Setup alone");
         } catch (error) {
             error.check = "setup-voice-consumer-source";
             error.provider = provider;
@@ -1042,9 +1031,8 @@ function verify(gate) {
 }
 
 verify(load(file));
-const pageSource = fs.readFileSync(pageFile, "utf8");
-verifyVoiceConsumers(load(file), pageSource);
-console.log("test-jarvis-setup-gate: consumer=Settings,Details hint=Choose an AI model in Settings > AI model.");
+verifyVoiceConsumers(load(file));
+console.log("test-jarvis-setup-gate: consumer=Setup hint=Choose an AI model in Settings > AI model.");
 
 // Each control removes one rule from a copy and keeps the text around it:
 // [label, needle, replacement].
@@ -1056,7 +1044,7 @@ const CONTROLS = [
     ["check failure hidden", 'if (check.kind === "failed") return', 'if (false) return'],
     ["microphone check hides a setup cause", 'value.tone !== "ok" || ', "", "voice setup cause survives microphone check"],
     ["silent check is ready", 'if (check.result === "silent") return { tone: "warning"', 'if (check.result === "silent") return { tone: "ok"'],
-    ["the AI model hint names the Settings field", '"brain=unselected": "Choose an AI model in Settings > AI model."', '"brain=unselected": "Choose an AI model in Settings."', "Settings AI model hint"],
+    ["the AI model hint names the Settings field", '"brain=unselected": "Choose an AI model in Settings > AI model."', '"brain=unselected": "Choose an AI model in Settings."', "Setup AI model hint"],
     ["present keys still offer Add key", 'var absent = keys !== undefined && keys.every(function (key) { return key.value === "absent"; });', 'var absent = keys !== undefined;'],
     ["a signed-in app still offers Add key", 'access.kind === "absent"', 'access.kind !== "checking"'],
     ["a signed-out cause offers Add key", 'cause === "brain=signed-out" ? "signIn" : ', "", "a signed-out AI model: setupModel"],
@@ -1367,19 +1355,6 @@ try {
         assert.equal(failure.check, "model-choice");
         console.log("test-jarvis-setup-gate: control=" + target + " check=model-choice rejected=true");
     }
-    const needle = "row.status.find(entry => entry.key === key)";
-    assert.equal(pageSource.split(needle).length, 2);
-    const secondSource = pageSource.replace(needle, 'row.status.find(entry => entry.key === (key === "setupVoice" ? "localRuntime" : key))');
-    assert.notEqual(secondSource, pageSource);
-    const pageCopy = path.join(temp, "PluginPage.qml");
-    fs.writeFileSync(pageCopy, secondSource);
-    let failure = null;
-    try { verifyVoiceConsumers(load(file), fs.readFileSync(pageCopy, "utf8")); }
-    catch (error) { failure = error; }
-    assert.ok(failure instanceof assert.AssertionError);
-    assert.equal(failure.check, "setup-voice-consumer-source");
-    assert.equal(failure.provider, "realtime");
-    console.log("test-jarvis-setup-gate: control=second-voice-source check=setup-voice-consumer-source provider=realtime rejected=true");
     // The Agent fleet row's reader, backend/fleet-setup.js, run as the
     // service and the setup terminal run it, over a scratch HOME: no home,
     // a home without the mail tool, then the same home with it. Its control
@@ -1459,7 +1434,7 @@ function verifySetupButtons(gate, manifest) {
             const tuis = judge.listedTuiRows(manifest, missing);
             assert.equal(tuis.some(tui => tui.name === "setup-fleet"), false, label + ": the launcher lists no fleet setup");
             const value = plain(gate.fleetStep(home, tool));
-            const sections = settings.settingsSections(tuis, judge.statusRows(manifest, { setupFleet: value }, missing));
+            const sections = settings.setupSections(tuis, judge.statusRows(manifest, { setupFleet: value }, missing));
             const fleet = sections.flatMap(section => section.buttons).filter(button => button.name === "setup-fleet");
             const row = settingsRows(sections).find(item => item.key === "setupFleet");
             assert.deepEqual([fleet.length, row !== undefined && row.button !== null], [0, shown], label + ": only the shown fleet row draws its setup, missing " + missing);

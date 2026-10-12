@@ -213,7 +213,10 @@ Item {
         // the page before restoring the shared model, so cleanup creates
         // no new shortcut fields on a page that is leaving.
         // https://doc.qt.io/qt-6/qtqml-javascript-dynamicobjectcreation.html
+        // The page returns to Settings first: rows destroyed while their
+        // tab shows log a context warning from Qt.
         function releasePage(page, restoredRow) {
+            page.open(Qt.OtherFocusReason, "Settings");
             page.row = null;
             compare(keyFields(page).length, 0);
             root.pageRow = restoredRow;
@@ -351,6 +354,8 @@ Item {
             const page = createTemporaryObject(pluginPageComponent, root);
             try {
                 verify(page !== null);
+                page.open(Qt.OtherFocusReason, "Setup");
+                compare(page.tab, "Setup", "a page with setup steps has a Setup tab");
                 const chip = () => descendants(page).find(child => child instanceof Badge && child.text === long && child.visible);
                 tryVerify(() => chip() !== undefined && chip().width > 0);
                 const right = () => chip().mapToItem(page, chip().width, 0).x;
@@ -389,6 +394,8 @@ Item {
             const page = createTemporaryObject(pluginPageComponent, root);
             try {
                 verify(page !== null);
+                page.open(Qt.OtherFocusReason, "Setup");
+                compare(page.tab, "Setup", "a page with setup steps has a Setup tab");
                 const shown = type => descendants(page).filter(child => child instanceof type && child.visible);
                 tryVerify(() => shown(StatusRow).length === 1, 1000, "the key list is drawn");
                 compare(shown(SectionHeader).map(header => header.text).filter(text => ["Status", "Setup", "Download"].indexOf(text) !== -1), ["Status", "Setup", "Download"]);
@@ -396,6 +403,8 @@ Item {
                 compare(shown(Button).filter(button => button.variant === "primary").map(button => button.text), ["Add a pair"], "one primary action");
                 compare(shown(RowAction).map(action => action.text + " " + action.tone).sort(), ["Remove danger", "Replace accent", "Sign out danger"]);
                 compare(shown(GroupList).filter(list => list.hairlines.length > 0).length, 0, "no row of the tab draws a divider");
+                page.open(Qt.OtherFocusReason, "Settings");
+                compare(shown(SectionHeader).map(header => header.text).filter(text => ["Status", "Setup", "Download"].indexOf(text) !== -1), [], "Settings draws none of the setup");
             } finally {
                 releasePage(page, original);
             }
@@ -419,6 +428,8 @@ Item {
             const page = createTemporaryObject(pluginPageComponent, root);
             try {
                 verify(page !== null);
+                page.open(Qt.OtherFocusReason, "Setup");
+                compare(page.tab, "Setup", "a page with setup steps has a Setup tab");
                 const row = label => descendants(page).find(child => child instanceof Field && child.visible && child.label === label);
                 tryVerify(() => row("Voice") !== undefined && row("Browser") !== undefined && row("Input") !== undefined);
                 compare(descendants(row("Voice")).filter(child => child instanceof Button && child.visible && child.variant === "primary").length, 1, "the first step draws the primary Button");

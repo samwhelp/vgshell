@@ -1,6 +1,6 @@
 # No latency budget. Poll once per nested IPC round trip.
 # Process, local-speech and allow-listed TUI stand-ins run here.
-# The Setup section reads the real daemon's engine answer by row: label,
+# The Setup tab's Setup section reads the real daemon's engine answer by row: label,
 # chip tone, the screen beside a step and its line count; the summary
 # draws its hint alone, no cause line. A fresh profile
 # reads the AI model and local voice to do; an AI model whose account is
@@ -56,6 +56,7 @@ jarvis_rescan
 forget_record
 jarvis_enable
 settings_page_open vgs.jarvis
+settings_setup
 
 local_value() {
   status_row vgs.jarvis localRuntime | py_reply '
@@ -81,7 +82,8 @@ setup_codex="$home/setup-codex"
 setup_marker="$setup_state/local-ready.json"
 setup_config="$home/.config/vgshell/shell.json"
 setup_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
-# Setup rows use manifest ids. The renderer puts its summary first and
+# Setup rows use manifest ids. The renderer puts its summary first, then
+# the open steps, then the rest, each in manifest order, and
 # labels each step from its manifest entry. Optional rows read their chip
 # category because their readers depend on the world.
 setup_rows() {
@@ -112,7 +114,7 @@ print(json.dumps(out))
 ' "$repo/shell/plugins/vgs.jarvis/manifest.json"
 }
 setup_fresh='[["setup", ["warning"], [], 1], ["setupModel", ["warning"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupBrowser", true], ["setupInput", true]]'
-setup_voice_left='[["setup", ["warning"], [], 1], ["setupModel", ["success"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupBrowser", true], ["setupInput", true]]'
+setup_voice_left='[["setup", ["warning"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupModel", ["success"], [], 1], ["setupBrowser", true], ["setupInput", true]]'
 setup_ready='[["setup", ["success"], [], 1], ["setupModel", ["success"], [], 1], ["setupVoice", ["info"], ["check-microphone"], 1], ["setupBrowser", true], ["setupInput", true]]'
 # BRAIN as the Jarvis AI model setting, "" for none, delivered by a reload.
 setup_brain() { # BRAIN

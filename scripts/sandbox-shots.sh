@@ -20,7 +20,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, cloudsync, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-setup, jarvis-fleet, outdated, jarvis-causes, plugin-messages, traffic, ai-usage, sysmon, tui-edges, appearance, sounds or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-setup, jarvis-fleet, outdated, jarvis-causes, plugin-messages, traffic, ai-usage, sysmon, tui-edges, appearance, sounds, setup-tab or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -85,12 +85,16 @@
 # Settings tab's Setup section, then the Details tab at its Browser driver
 # line and at its AI model section, then the Settings tab at its AI model
 # fields with two backup models planted where the tree ships them, each
-# anchor 12 px under the page's top, taken only when named; outdated is the
+# anchor 12 px under the page's top, taken only when named; setup-tab is the plugin list with a row that shows Setup
+# needed beside the warning icon, one that shows the icon alone and one that shows neither, that
+# icon's tooltip, a page with no Setup tab, a Setup tab that holds only
+# Requirements, and Jarvis's Settings tab and its Setup tab with steps
+# open and with steps done, taken only when named; outdated is the
 # Jarvis page over a stand-in
 # agent-browser and a stand-in Pi that each answer a version below the
 # floor Jarvis holds them to, Pi chosen as the AI model: the Details tab
-# at its Browser driver line and at the driver's line of its Requirements
-# section, the Settings tab's Setup section, and the
+# at its Browser driver line, the driver's line of its Requirements
+# section, the Setup section, each on the tab the tree draws it on, and the
 # screen after the driver line's step is pressed, the core's requirement
 # notice where the tree offers that step, over a stand-in bin/vgshell-pkg
 # that answers pacman, paru and mise whatever the host runs, and that
@@ -281,7 +285,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-setup|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
+    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-setup|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -361,7 +365,18 @@ has_setup_keys=false
 tree_has shell/plugins/vgs.settings/Steps.js "function keyEntries(" && has_setup_keys=true
 keys_action=Connect
 ! "$has_setup_keys" || keys_action="Add key"
-page_keys() { "$has_setup_keys" || page_details; }
+# A tree whose plugin page has a Setup tab draws a plugin's setup steps,
+# stored keys, setup screens and, beside them, its Requirements there; an
+# older tree draws the first three on Settings. page_setup moves the open
+# page to the tab that draws them.
+has_setup_tab=false
+tree_has shell/plugins/vgs.settings/Steps.js "function setupTab(" && has_setup_tab=true
+page_setup() {
+  if "$has_setup_tab"; then settings_setup; return; fi
+  settings_tab_click Settings || fail "the click on the Settings tab failed"
+  expect_poll "the plugin page shows Settings" 0 settings_tab
+}
+page_keys() { if "$has_setup_tab"; then settings_setup; else "$has_setup_keys" || page_details; fi; }
 # A tree whose plugin page holds a save bar keeps a typed value until it is
 # saved and asks before a page with one is left.
 has_save_bar=false
@@ -390,6 +405,7 @@ scene_ships() {
     tui-edges) ships_plugin vgs.sysmon ;;
     settings|manager) [[ $1 == "$manager_scene" ]] ;;
     plugin-pages) [[ $manager_scene == settings ]] ;;
+    setup-tab) [[ $manager_scene == settings && $has_setup_tab == true ]] && ships_plugin vgs.jarvis ;;
     wide-settings) ships_plugin vgs.system vgs.displays vgs.mouse vgs.sound ;;
     gallery) ships_plugin vgs.gallery ;;
     focus) ships_plugin vgs.gallery vgs.settings ;;
@@ -1551,12 +1567,14 @@ plugin_pages_list() {
   ipc smoke readInstance "$settings_kind" vgs.settings plugins | python3 -c 'import json,sys; print("\n".join(p["id"] for p in json.load(sys.stdin)))'
 }
 
-# plugin_page_shots MODE ID [NAME]: every screen of plugin ID's page,
-# NAME, NAME-2 and on, NAME plugin-pages-MODE-ID by default.
+# plugin_page_shots MODE ID [NAME [setup]]: every screen of plugin ID's page,
+# NAME, NAME-2 and on, NAME plugin-pages-MODE-ID by default; with `setup`,
+# of the tab that draws its setup (page_setup).
 plugin_page_shots() {
   local id="$2" name="${3:-plugin-pages-$1-$2}" suffix=1 at cy ch h y=0
   expect "the window opens the $id page for screenshots" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin "$id"
   expect_poll "the $id page is shown for screenshots" "\"$id\"" settings_page
+  [[ ${4:-} != setup ]] || page_setup
   at="$(ipc smoke scrollTo "$settings_kind" vgs.settings 0)" || at=""
   if [[ $at != "["* ]]; then
     fail "the $id page did not scroll to its top: ${at:-no reply}"
@@ -1655,6 +1673,120 @@ hover_card() {
   done
   fail "$1: no card reported the pointer"
   return 1
+}
+
+# The plugin page's Setup tab and the list's setup marks. The list: Acme
+# Sync, the needs fixture, misses a required tool and optional ones and
+# shows Setup needed beside the warning icon, Bare misses an optional one
+# and shows the icon alone, and Probe shows neither; then Bare's icon's
+# tooltip. Then Probe's page, which has no Setup tab, Bare's Setup tab with
+# its Requirements, and Jarvis: its Settings tab, its Setup tab on a fresh
+# profile, and its Setup tab with an AI model chosen and the local voice
+# ready, as rows/jarvis-setup.sh plants them.
+setup_tab_ready=false
+setup_tab_prepare() {
+  local fixture
+  "$setup_tab_ready" && return 0
+  setup_tab_ready=true
+  for fixture in acme.probe acme.bare acme.needs; do
+    mkdir -p "$home/.config/vgshell/plugins/$fixture"
+    cp -R -- "$fixtures/$fixture/." "$home/.config/vgshell/plugins/$fixture/"
+  done
+  tree_rescan "the setup tab fixtures are scanned"
+  for fixture in acme.probe acme.bare acme.needs; do
+    expect "enabling $fixture for the setup tab shots is allowed" ok ipc shell setPluginEnabled "$fixture" true
+  done
+  for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
+  close_notices
+}
+setup_tab_mark() { ipc smoke scopedWindowGeometry "$settings_kind" vgs.settings ListItem "$1" "$2" "$3" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
+setup_tab_marks() { printf '%s %s\n' "$(setup_tab_mark "$1" Badge "Setup needed")" "$(setup_tab_mark "$1" IconButton "Open setup")"; }
+setup_tab_tip() { ipc smoke itemValues "$settings_kind" vgs.settings Tooltip opened | py_reply 'import json,sys; print(any(v["opened"] is True for v in json.load(sys.stdin)))'; }
+setup_tab_page() { # ID
+  expect "the window opens the $1 page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin "$1"
+  expect_poll "the $1 page is shown" "\"$1\"" settings_page
+}
+setup_tab_headline() { ipc smoke setupRows "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); r=json.loads(t) if t.startswith("[") else []; print(r[0]["chips"][0][1] if r and r[0]["chips"] else "none")'; }
+setup_tab_jarvis_on() { # LABEL
+  expect "enabling vgs.jarvis $1 is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect_poll "the Jarvis daemon answers hello $1" ready jarvis_started
+  for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
+  close_notices
+}
+setup_tab_jarvis_off() {
+  expect "disabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "vgs.jarvis is gone" absent ipc smoke jarvisProcess
+}
+scene_setup-tab() { # MODE
+  local rect x y brain
+  local state="$home/.local/state/vgshell/jarvis" data="$home/.local/share/vgshell/jarvis" codex="$home/setup-codex" config="$home/.config/vgshell/shell.json"
+  setup_tab_prepare
+  expect "the Settings window opens for the setup tab shots" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings window maps for the setup tab shots" 1 settings_count
+  expect_poll "the Acme Sync row draws Setup needed and the warning icon" "drawn drawn" setup_tab_marks "Acme Sync"
+  expect_poll "the Bare row draws the warning icon and no Setup needed" "absent drawn" setup_tab_marks Bare
+  expect "the Probe row draws neither mark" "absent absent" setup_tab_marks Probe
+  expect "the Settings window's root takes the focus for the list image" focused ipc smoke invokeInstance "$settings_kind" vgs.settings focusInstance ""
+  take "setup-tab-$1-list"
+  rect="$(ipc smoke scopedWindowGeometry "$settings_kind" vgs.settings ListItem Bare IconButton "Open setup")" || rect=""
+  if [[ $rect == \[* ]] && read -r x y < <(at_centre "$settings_surface" "$rect") && hover "$((x - 6))" "$y" && hover "$x" "$y"; then
+    expect_poll "the warning icon's tooltip opens" True setup_tab_tip
+    take_posed "setup-tab-$1-list-tooltip"
+  else
+    fail "the Bare row's warning icon has no box: $rect"
+  fi
+  park_pointer
+  setup_tab_page acme.probe
+  take "setup-tab-$1-no-setup"
+  setup_tab_page acme.bare
+  settings_setup
+  take "setup-tab-$1-requirements"
+  # Jarvis on a fresh profile: steps open.
+  setup_tab_jarvis_on "for its fresh Setup tab"
+  setup_tab_page vgs.jarvis
+  take "setup-tab-$1-jarvis-settings"
+  settings_setup
+  expect_poll "the fresh Jarvis Setup tab reads not ready" warning setup_tab_headline
+  park_pointer
+  take "setup-tab-$1-jarvis-partial"
+  setup_tab_jarvis_off
+  # Jarvis with its required tools stood in, a Codex folder chosen as the
+  # AI model and the local voice ready: steps done.
+  jarvis_setup_requirements || fail "the Jarvis requirement stand-ins are not written"
+  tree_rescan "the Jarvis requirement stand-ins are scanned"
+  mkdir -p -- "$codex" "$state" "$data/local/venv/bin"
+  python3 -c 'import json,sys; open(sys.argv[1],"w").write(json.dumps([{"provider": "codex", "directory": sys.argv[2], "label": "setup"}]))' "$state/accounts.json" "$codex"
+  mkdir -p -- "$sandbox/setup-no-path"
+  brain="$(env -i PATH="$sandbox/setup-no-path" HOME="$home" XDG_STATE_HOME="$home/.local/state" XDG_CONFIG_HOME="$home/.config" XDG_DATA_HOME="$home/.local/share" \
+    "$node_bin" "$repo/shell/plugins/vgs.jarvis/backend/accounts.js" --tree "$repo" list |
+    py_reply 'import json,sys; print(next(a["id"] for a in json.load(sys.stdin) if a["source"].get("directory")==sys.argv[1]))' "$codex")" || fail "the account helper lists no id for the Codex folder"
+  cp -- "$checkout/scripts/fixtures/jarvis-local-speech/standin.py" "$data/local/venv/bin/python"
+  chmod 700 -- "$data/local/venv/bin/python"
+  python3 -c 'import json,os,sys
+tier=next(iter(json.load(open(sys.argv[1]))["tiers"]))
+open(sys.argv[3],"w").write(json.dumps({"tier": tier, "data": os.path.realpath(sys.argv[2])}))' "$repo/shell/plugins/vgs.jarvis/artifacts.json" "$data/local" "$state/local-ready.json"
+  printf 'ready\n' >"$sandbox/jarvis-world/local-mode"
+  cp -- "$config" "$sandbox/setup-tab-config"
+  python3 -c 'import json,sys
+value=json.load(open(sys.argv[1]))
+row=next((r for r in value.setdefault("plugins",[]) if r["id"]=="vgs.jarvis"),None)
+if row is None:
+    row={"id":"vgs.jarvis"}; value["plugins"].append(row)
+row["brain"]=sys.argv[2]
+open(sys.argv[1],"w").write(json.dumps(value))' "$config" "$brain"
+  expect "the Jarvis AI model is delivered" ok ipc shell reloadConfig
+  setup_tab_jarvis_on "for its done Setup tab"
+  setup_tab_page vgs.jarvis
+  settings_setup
+  expect_poll "the Jarvis Setup tab reads ready" success setup_tab_headline
+  park_pointer
+  take "setup-tab-$1-jarvis-done"
+  settings_close
+  setup_tab_jarvis_off
+  cp -- "$sandbox/setup-tab-config" "$config"
+  expect "the Jarvis AI model setting is put back" ok ipc shell reloadConfig
+  rm -f -- "${state:?}/accounts.json" "${state:?}/local-ready.json" "${sandbox:?}/jarvis-world/local-mode"
+  jarvis_restore_requirements
 }
 
 scene_focus() { # MODE
@@ -2719,10 +2851,11 @@ scene_jarvis-setup() { # MODE
   expect_poll "the Jarvis page shows its daemon ready" True jarvis_page_ready
   jarvis_anchor_shot "jarvis-details-$1-status" Label "Browser driver"
   jarvis_anchor_shot "jarvis-details-$1-model" SectionHeader "AI model"
-  settings_tab_click Settings || fail "the click on the Settings tab failed"
-  expect_poll "the Jarvis page shows Settings" 0 settings_tab
+  page_setup
   expect_poll "the Jarvis Setup section draws its rows" True jarvis_setup_drawn
   jarvis_anchor_shot "jarvis-setup-$1" SectionHeader Setup
+  settings_tab_click Settings || fail "the click on the Settings tab failed"
+  expect_poll "the Jarvis page shows Settings" 0 settings_tab
   if jarvis_ships_backups; then
     expect_poll "the Jarvis AI model choice list shows two rows" True jarvis_brain_choices_ready
     jarvis_backups plant
@@ -2771,8 +2904,7 @@ scene_jarvis-fleet() { # MODE
   expect_poll "the Jarvis page is shown" '"vgs.jarvis"' settings_page
   page_details
   expect_poll "the Jarvis page shows its daemon ready" True jarvis_page_ready
-  settings_tab_click Settings || fail "the click on the Settings tab failed"
-  expect_poll "the Jarvis page shows Settings" 0 settings_tab
+  page_setup
   expect_poll "the Jarvis Setup section draws its rows" True jarvis_setup_drawn
   jarvis_anchor_shot "jarvis-fleet-$1" SectionHeader Setup
   settings_close
@@ -2837,9 +2969,9 @@ EOF_PKG
   page_details
   expect_poll "the Jarvis page shows its daemon ready over the outdated stand-ins" True jarvis_page_ready
   jarvis_anchor_shot "outdated-$1-driver" Label "Browser driver"
-  jarvis_anchor_shot "outdated-$1-requirement" Label agent-browser
-  settings_tab_click Settings || fail "the click on the Settings tab failed"
-  expect_poll "the Jarvis page shows Settings for the outdated scene" 0 settings_tab
+  "$has_setup_tab" || jarvis_anchor_shot "outdated-$1-requirement" Label agent-browser
+  page_setup
+  ! "$has_setup_tab" || jarvis_anchor_shot "outdated-$1-requirement" Label agent-browser
   expect_poll "the Jarvis Setup section draws its rows for the outdated scene" True jarvis_setup_drawn
   jarvis_anchor_shot "outdated-$1-setup" SectionHeader Setup
   expected_errors+=('settings: vgs.jarvis/browserDriver refused: action=browserDriver reason=not-offered')
@@ -2965,7 +3097,7 @@ scene_jarvis-causes() { # MODE
   expect_poll "the Settings window maps for Jarvis cause sheets" 1 settings_count
   expect "the window opens the Jarvis page for cause sheets" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
   expect_poll "the Jarvis page is shown for cause sheets" '"vgs.jarvis"' settings_page
-  settings_tab_click Settings || fail "the click on the Settings tab failed for cause sheets"
+  page_setup
   for row in \
     "hello-timeout|jarvis: hello=timeout|Hello timeout" \
     "node-too-old|jarvis: node=20.19.5 need=22|Node too old" \
@@ -3322,6 +3454,7 @@ voice_setup_page() { # LABEL SHOT CHIP
   expect_poll "$1: the Settings window maps" 1 settings_count
   expect_poll "$1: Voice's page is shown" '"vgs.voice"' settings_page
   expect_poll "$1: Voice's status is reported" True page_reported vgs.voice
+  page_setup
   if grep -qF '"group": "Setup"' "$tree/shell/plugins/vgs.voice/manifest.json"; then
     expect_poll "$1: the Setup section's chip reads $3" "$3" voice_setup_chip
   fi
@@ -4852,7 +4985,7 @@ cs_shots() {
   expect_poll "the Cloud Sync window is gone ($s)" 0 window_count "Cloud Sync"
   expect "the Settings window opens ($s)" ok ipc shell summon "$settings_kind" vgs.settings '{}'
   expect_poll "the Settings window maps ($s)" 1 settings_count
-  plugin_page_shots "$m" vgs.cloud-sync "cloudsync-$m-$s-page"
+  plugin_page_shots "$m" vgs.cloud-sync "cloudsync-$m-$s-page" setup
   box="$(one_window Plugins)"
   for f in "$SHOT_DIR/cloudsync-$m-$s-page"*.png; do
     name="${f##*/}"
@@ -5064,7 +5197,7 @@ done
 shots_vsys_line='vsys found one warning on this computer.'
 for scene in "${setups[@]}"; do
   case $scene in
-    gallery|manager|polkit|greeter|theme-browser|wallpaper-browser) ;;
+    gallery|manager|polkit|greeter|theme-browser|wallpaper-browser|setup-tab) ;;
     capture)
       expect "enabling Capture for its image is allowed" ok ipc shell setPluginEnabled vgs.capture true
       expect "Capture is hidden from the baseline image" ok ipc shell setPluginPlaced vgs.capture false

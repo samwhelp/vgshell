@@ -871,9 +871,10 @@ expect_poll "the add's terminal closes" 0 tui_windows
 # its purpose, and Install all missing, while one is missing, shows the core's
 # requirement notice for the plugin with every missing command, the
 # optional one included, over the window, which stays open; Escape closes
-# the notice.
+# the notice. The fixture misses its optional tool, so its page draws them
+# on its Setup tab.
 settings_show acme.bare
-settings_details
+settings_setup
 # The Requirements section's rows are groups (GroupList): two shown groups
 # of a list sit `groupList.gap` apart with one Divider centred in the gap,
 # within a pixel. One control plants a copy of the same reading with the

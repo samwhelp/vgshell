@@ -2908,7 +2908,7 @@ expect_poll "the last toast's exit has played" 0 layer_count vgs:layer
 # The Slack token rows: the service publishes whether the stub libsecret
 # holds each listed workspace's token, never a
 # token, and the Settings page draws a line per account in the Setup
-# section of its Settings tab, and none on Details. The probe runs
+# section of its Setup tab, and none on Details. The probe runs
 # when the service starts, so each set of states is read after a disable
 # and an enable. No state here makes the photo helper call Slack.
 token_hint="Connect each workspace to show sender photos."
@@ -2946,6 +2946,7 @@ restart_notes() {
 change_offered() { [[ $(ipc smoke scopedWindowGeometry window vgs.settings StatusLine "$1" RowAction "Replace") == \[* ]] && echo true || echo false; }
 expect "the notifications' Settings page opens" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
 expect_poll "the page opens on its Settings tab" 0 settings_tab
+settings_setup
 first_items="slack:T0ACME,present;slack:T0GLOBEX,present"
 expect_poll "the page reads each workspace's token" "$(want_rows rows "$first_items")" token_row
 expect_poll "Setup draws a line per account with its step, and no Show command" "$(want_rows drawn "$first_items")" drawn_token_row
@@ -3010,6 +3011,7 @@ expect_poll "the page reads the other plugin's write" '"unrelated"' fixture_note
 expect "the field outlives the write with what was typed and the keyboard" "[[${#typed_token}, true]]" row_fields
 expect "the Settings window hides for the field's control" ok ipc shell hide window vgs.settings
 expect "the Settings window is summoned again on the notifications' page" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
+settings_setup
 expect_poll "control: a page built anew holds no field" '[]' row_fields
 expect "disabling the status fixture beside the token rows is allowed" ok ipc shell setPluginEnabled acme.status false
 settings_press --type RowAction "Add key" StatusLine "Acme Corp (acme)" || fail "the second click on Acme's Add key failed"
@@ -3089,7 +3091,7 @@ rescan "a rescan picks the placement control copy"
 control_items="slack:T0ACME,present;slack:T0GLOBEX,absent"
 expect "the control copy's Settings page opens" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
 expect_poll "the control copy reads each workspace's token" "$(want_rows rows "$control_items")" token_row
-expect_poll "control: a page that draws its keys on Details draws no token line under Setup" '[[]]' drawn_token_row
+expect_poll "control: a page that draws its keys on Details draws no token line on the tab it opens on" '[[]]' drawn_token_row
 settings_details
 expect_poll "control: that page draws the token lines on Details" "$(want_rows drawn "$control_items")" drawn_token_row
 settings_press --type RowAction "Replace" StatusLine "Acme Corp (acme)" || fail "control: the click on the copy's Replace failed"
@@ -3104,6 +3106,7 @@ expect_poll "the Settings window is gone after the placement control" 0 window_c
 rm -rf -- "${keys_copy:?}"
 rescan "a rescan drops the placement control copy"
 expect "the Settings window opens on the shipped page again" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
+settings_setup
 expect_poll "the shipped page draws the token lines under Setup again" "$(want_rows drawn "$control_items")" drawn_token_row
 expect "the Settings window closes after the token rows' control" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone after the token rows" 0 window_count Plugins
@@ -3146,6 +3149,7 @@ expect_poll "the helper's run swept the photos" '[]' photo_teams
 expect "photos off reads no token and calls no Slack API" "" off_token_calls
 expect_poll "photos off still publishes the workspace token rows" True lent_has_tokens
 expect "the notifications' Settings page opens with photos off" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
+settings_setup
 settings_photo_setup() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin) if p["id"] == "vgs.notifications"][0]; print("slackTokens" in [s["key"] for s in p["status"]] and {"curl", "secret-tool"}.issubset(r["name"] for r in p["requirements"]) and p["schema"].get("slackPhotos", {}).get("type") == "boolean")'; }
 expect_poll "photos off keeps Add key, its requirements and the switch in Settings" True settings_photo_setup
 expect_poll "photos off draws Add key for each workspace" "$(want_rows drawn "slack:T0ACME,absent;slack:T0GLOBEX,absent")" drawn_token_row

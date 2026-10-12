@@ -87,7 +87,7 @@ You can change the keys under Keys on the Jarvis page.
 
 ## Setup
 
-The Setup section at the top of the Jarvis page shows Ready or Not ready, and the reason. Its steps are Sign in, AI model, Voice, Browser and Input. The AI model and Voice steps show Done or To do. Sign in is optional. Browser and Input show Optional until they are done. A step that has an action shows its button.
+The Setup tab of the Jarvis page shows Ready or Not ready, and the reason. Its steps are Sign in, AI model, Voice, Browser and Input. The AI model and Voice steps show Done or To do. Sign in is optional. Browser and Input show Optional until they are done. A step that has an action shows its button.
 
 The buttons are also rows in the launcher's Jarvis group. Each opens a floating terminal.
 

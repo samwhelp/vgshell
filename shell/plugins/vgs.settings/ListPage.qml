@@ -2,11 +2,18 @@ import QtQuick
 import Quickshell
 import qs.Commons
 import qs.Ui
+import "Steps.js" as Steps
 
 // The root page: every plugin the manager lists, filtered by the search
 // field, under a heading with the Add plugin and Reset VGS buttons. A row shows the plugin's icon, name, version and source, a danger
 // badge counting its errors, its enabled switch and a chevron; a click
-// opens its page. With the search field focused, Up and Down move the
+// opens its page. A plugin that is on shows what it still asks of its user
+// (Steps.setupNeeds), left of the switch: a Setup needed chip while a setup
+// step is open, and left of that a warning icon while an optional tool is
+// missing, whose tooltip counts them and whose click opens the page on
+// Setup, where the tool and its install action draw. A click on a row with
+// the chip opens its page on Setup, any other on Settings. With the search
+// field focused, Up and Down move the
 // highlighted row and Enter opens it; a hover moves it once the pointer
 // moves, and one ListCursor draws it and travels between rows. The heading,
 // the search field and the rows share the list's content edges. Each row
@@ -69,7 +76,7 @@ FocusScope {
     }
 
     function openCurrent(reason) {
-        if (current >= 0 && current < shown.length) panel.openPlugin(shown[current].id, reason);
+        if (current >= 0 && current < shown.length) panel.openRow(shown[current].id, reason);
     }
 
     // The rows' cursor, in the body's scrolling content with the rows.
@@ -176,6 +183,9 @@ FocusScope {
                 id: entry
                 required property var modelData
                 required property int index
+                // Judged once per row the manager publishes; the search
+                // filter and the cursor leave a kept row's data as it was.
+                readonly property var needs: Steps.setupNeeds(modelData.status, modelData.requirements, modelData.enabled)
                 width: layout.contentWidth
                 text: modelData.name
                 secondary: modelData.version + "  " + (modelData.source === "bundled" ? "Included" : "Installed")
@@ -183,13 +193,35 @@ FocusScope {
                 highlighted: index === page.current
                 cursor: plate
                 onPointed: page.current = index
-                onClicked: page.panel.openPlugin(modelData.id, Qt.MouseFocusReason)
+                onClicked: page.panel.openRow(modelData.id, Qt.MouseFocusReason)
                 trailing: [
                     Badge {
                         tone: "danger"
                         iconName: "circle-alert"
                         text: String(entry.modelData.errors.length)
                         visible: entry.modelData.errors.length > 0
+                        anchors.verticalCenter: parent.verticalCenter
+                    },
+                    // Built only for a row that misses an optional tool.
+                    Loader {
+                        active: entry.needs.optional > 0
+                        visible: active
+                        anchors.verticalCenter: parent.verticalCenter
+                        // keyboard-path: open the row and choose its Setup tab, which lists the missing tools
+                        sourceComponent: IconButton {
+                            iconName: "triangle-alert"
+                            size: "sm"
+                            tone: "warning"
+                            label: "Open setup"
+                            tooltip: entry.needs.optional === 1 ? "1 optional dependency not installed" : entry.needs.optional + " optional dependencies not installed"
+                            focusPolicy: Qt.NoFocus
+                            onClicked: page.panel.openPlugin(entry.modelData.id, Qt.MouseFocusReason, "Setup")
+                        }
+                    },
+                    Badge {
+                        tone: "warning"
+                        text: "Setup needed"
+                        visible: entry.needs.open
                         anchors.verticalCenter: parent.verticalCenter
                     },
                     // keyboard-path: open the row and use the plugin page's Enabled switch

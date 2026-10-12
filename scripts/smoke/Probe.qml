@@ -2402,10 +2402,10 @@ Scope {
         }
         // A plugin page's shown Status and Setup sections by row, as
         // [{ label, chips, buttons, lines }]: each shown step row of the
-        // sections, a Field drawn for one row of Steps.settingsSections,
+        // sections, a Field drawn for one row of Steps.setupSections,
         // its label, its Badges as [text, tone], its actions as { tui,
         // tone, enabled }, tui the screen the row's step opens (its
-        // Steps.settingsSections button) and tone "primary" for the page's
+        // Steps.setupSections button) and tone "primary" for the page's
         // primary Button, and the shown lines of text the Field draws under
         // its value, each in tree order; "absent" while neither section
         // shows.

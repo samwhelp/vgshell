@@ -22,7 +22,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 ## Setup
 
-Open the Cloud Sync page in Settings. The Setup section and the Google Drive group hold every step.
+Open the Cloud Sync page in Settings and select Setup. The Setup section and the Google Drive group hold every step.
 
 1. Under Hourly sync, select Set up hourly sync. A setup window starts the hourly sync. Cloud Sync runs every hour while you are logged in.
 2. Get the Google Drive keys from [Google Cloud credentials](https://console.cloud.google.com/apis/credentials). Create one OAuth client ID of type Desktop app.

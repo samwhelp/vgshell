@@ -6,10 +6,15 @@
 # focus, its text and its cursor. The plug leaves the bar again at the
 # end, as the harness started it. A plugin's page opens on Settings, and its tab strip shows
 # Details and returns by the pointer and by the keyboard; a copy that opens
-# on Details is the control. A summonable plugin's page draws Open, which
+# on Details is the control. A plugin with something to set up has a Setup
+# tab between them, which holds its setup screens and its Requirements; a
+# plugin with none draws its Requirements on Details. The list marks a
+# plugin that asks for a setup step with Setup needed and one that misses
+# an optional tool with a warning icon; a row with the chip opens on Setup,
+# and a page the manager opens by its id opens on Settings. A summonable plugin's page draws Open, which
 # opens the plugin's window or panel through the manager. A mouse drag leaves a page where it was, while a wheel notch and
 # Tab scroll it, and a two-finger swipe moves it as far as GTK moves a list. The
-# Setup section draws the screen an offered step opens as that step, first
+# Setup tab's Setup section draws the screen an offered step opens as that step, first
 # and secondary, and a screen that lacks a command it needs disabled with a
 # reason naming it. Dispatches asked for back to back run in order behind one
 # process, the queue has a bound, and a process that cannot start does not
@@ -502,7 +507,16 @@ expect_poll "the status fixture's ungrouped setting has no section heading" '[]'
 settings_details
 expect_poll "the manager row lists each drawn entry in manifest order, with its value and tone" "$(python3 -c 'import json,sys; print(json.dumps([["Token", "reported", "present", "success"], ["Check", "reported", {"tone": "warning", "text": "Two sources failed"}, "warning"], ["Pending", "reported", 3, ""], ["Last check", "reported", int(sys.argv[1]), ""], ["Note", "unreported", None, ""]]))' "$fixture_time")" status_of acme.status
 expect_poll "the page draws the ungrouped entries, then each group's, read-only, and no command for the present token" '[["Check", "Two sources failed"], ["Last check", "time"], ["Note", "Not reported"], ["Token", "Present", "Needed for the fixture'"'"'s sync"], ["Pending", "3"]]' drawn_status_timeless
-expect_poll "Details head the status sections, then Requirements" '["Status", "Sync", "Requirements"]' section_names
+expect_poll "Details head the status sections and no Requirements beside a Setup tab" '["Status", "Sync"]' section_names
+# The fixture misses its optional tool, so its page has a Setup tab, which
+# holds the Requirements; the probe fixture, which misses none, has no
+# such tab and draws nothing to set up.
+# page_tabs: the texts of the shown page's tab strip, in order.
+page_tabs() { ipc smoke readDescendant window vgs.settings TabPages model | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
+expect "a plugin that misses a tool has a Setup tab between Settings and Details" '["Settings", "Setup", "Details"]' page_tabs
+settings_setup
+expect_poll "Setup heads the Requirements" '["Requirements"]' section_names
+settings_details
 expect "no Status row takes an edit" '[[],[],[],[],[]]' ipc smoke statusRowInputs window vgs.settings
 expect "the page draws the choices setting only" '[1, 0]' page_fields_of acme.status
 
@@ -680,8 +694,7 @@ rmdir -- "$repo/shell/Core/TuiInstallControls" || fail "removing the TUI install
 # setup_buttons NAME: the Setup section's actions as [text, tone,
 # enabled, whether its tooltip names NAME].
 setup_buttons() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; print(json.dumps([[b[0], b[1], b[2], sys.argv[1] in b[3]] for b in json.load(sys.stdin)["buttons"]]))' "$1"; }
-settings_tab_click Settings || fail "the click back to the status fixture's Settings failed"
-expect_poll "the status fixture's page shows Settings for its Setup button" 0 settings_tab
+settings_setup
 expect_poll "the offered step draws Token setup's screen as Install requirements, secondary and active" '[["Install requirements", "accent", true, false]]' setup_buttons vgs-smoke-absent
 forget_record
 settings_press --type RowAction "Install requirements" || fail "the click on the Setup section's Install requirements failed"
@@ -704,6 +717,7 @@ rescan "the fixture restores its optional requirement"
 # editor, and a typed value saves on Enter. Node judge controls pin the
 # shape, distinct ids, list and text bounds, empty-string reservation and
 # retained values.
+settings_tab_click Settings || fail "the click back to the status fixture's Settings failed"
 expect_poll "the status fixture's page shows Settings for its editor" 0 settings_tab
 device_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"acme.status","key":"device"}'; }
 device_state() { device_field | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["index"],d["text"],d["value"],d["enabled"]]))'; }
@@ -862,6 +876,76 @@ for control in ChoicesGood ChoicesNoModel ChoicesWriteLabel ChoicesNoBinding; do
   rm -- "$choice_controls/$control.qml" || fail "removing the $control source copy failed"
 done
 expect "dropping the controls restores the Settings source revision" "$choice_revision_before" choice_source_revision
+# The Setup tab and the list's setup marks. A page has a Setup tab only
+# while its plugin has something to set up: Jarvis, Cloud Sync and Voice
+# declare setup steps, and the bare fixture has the tab only while it
+# misses a tool, with its Requirements there. The fixture's row of the list
+# draws the warning icon while its optional tool is missing, Setup needed
+# once the copy of its manifest requires that tool, and neither once a
+# stand-in supplies it. A click on the row opens Setup only under the
+# chip, a click on the icon opens Setup, a Setup tab that leaves while it
+# shows hands on to Details, and the deep link a widget's Settings entry
+# sends opens Settings. Each state is the control of the others.
+for setup_id in vgs.jarvis vgs.cloud-sync vgs.voice; do
+  expect "the window opens $setup_id's page for its tabs" ok ipc smoke invokeInstance window vgs.settings openPlugin "$setup_id"
+  expect_poll "$setup_id's page has a Setup tab between Settings and Details" '["Settings", "Setup", "Details"]' page_tabs
+done
+bare_mark() { ipc smoke scopedWindowGeometry window vgs.settings ListItem Bare "$1" "$2" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
+# bare_marks: whether the Bare row draws Setup needed, then its warning icon.
+bare_marks() { printf '%s %s\n' "$(bare_mark Badge "Setup needed")" "$(bare_mark IconButton "Open setup")"; }
+bare_requirement() { settings_rows | py_reply 'import json,sys; r=[q["state"] for p in json.load(sys.stdin) if p["id"] == "acme.bare" for q in p["requirements"] if q["name"] == "vgs-smoke-absent"]; print(r[0] if r else "unlisted")'; }
+bare_list() {
+  expect "the window shows its list for the fixture's row" '' ipc smoke invokeInstance window vgs.settings showList ''
+  expect_poll "the list is shown for the fixture's row" '""' settings_page
+}
+bare_manifest="$home/.config/vgshell/plugins/acme.bare/manifest.json"
+[[ -f $bare_manifest ]] || fail "the bare fixture's manifest is not at $bare_manifest"
+bare_list
+expect_poll "a row that misses an optional tool draws the warning icon and no Setup needed" "absent drawn" bare_marks
+settings_click ListItem Bare || fail "the click on the fixture's row failed"
+expect_poll "the row's click opens the fixture's page" '"acme.bare"' settings_page
+expect_poll "a row without Setup needed opens on Settings" Settings settings_tab_text
+expect "a page whose plugin misses a tool has a Setup tab" '["Settings", "Setup", "Details"]' page_tabs
+bare_list
+click_item scoped:Plugins window vgs.settings ListItem Bare IconButton "Open setup" || fail "the click on the fixture's warning icon failed"
+expect_poll "the warning icon's click opens the fixture's page" '"acme.bare"' settings_page
+expect_poll "the warning icon opens the page on Setup" Setup settings_tab_text
+expect_poll "Setup heads the fixture's Requirements" '["Requirements"]' section_names
+printf '#!/bin/sh\nexit 0\n' >"$shim/vgs-smoke-absent"
+chmod 755 "$shim/vgs-smoke-absent"
+rescan "a rescan with the bare fixture's tool stood in starts"
+expect_poll "the scan finds the bare fixture's tool present" present bare_requirement
+expect_poll "a plugin whose tools are all installed has no Setup tab" '["Settings", "Details"]' page_tabs
+expect_poll "a Setup tab that leaves while it shows hands on to Details" Details settings_tab_text
+expect_poll "Details then head the fixture's Requirements" '["Requirements"]' section_names
+bare_list
+expect_poll "a row that misses nothing draws neither mark" "absent absent" bare_marks
+rm -f -- "${shim:?}/vgs-smoke-absent"
+cp -- "$bare_manifest" "$sandbox/bare-setup-manifest"
+python3 - "$bare_manifest" <<'PYTHON'
+from pathlib import Path
+import json, sys
+path=Path(sys.argv[1])
+assert not path.is_symlink()
+manifest=json.loads(path.read_text())
+requirement=next(row for row in manifest["requirements"] if row["command"]=="vgs-smoke-absent")
+assert requirement["optional"] is True
+requirement["optional"]=False
+path.write_text(json.dumps(manifest))
+PYTHON
+rescan "the bare fixture now requires its missing tool"
+expect_poll "the scan finds the bare fixture's required tool missing" missing bare_requirement
+expect_poll "a row that misses a required tool draws Setup needed and no warning icon" "drawn absent" bare_marks
+settings_click ListItem Bare || fail "the click on the fixture's row under Setup needed failed"
+expect_poll "the row's click under Setup needed opens the fixture's page" '"acme.bare"' settings_page
+expect_poll "a row with Setup needed opens on Setup" Setup settings_tab_text
+expect "the deep link a widget's Settings entry sends is accepted" ok ipc shell summon window vgs.settings '{"plugin":"acme.bare"}'
+expect_poll "the deep link opens the page on Settings" Settings settings_tab_text
+cp -- "$sandbox/bare-setup-manifest" "$bare_manifest"
+rescan "the bare fixture restores its optional tool"
+expect_poll "the scan finds the restored fixture's optional tool missing" missing bare_requirement
+bare_list
+expect_poll "the restored row draws the warning icon alone again" "absent drawn" bare_marks
 expect "the window opens the status fixture's page again" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.status
 expect "disabling the status fixture from its page is allowed" ok ipc smoke invokeInstance window vgs.settings toggle acme.status
 expect_poll "a disabled plugin's dynamic Select is read-only and has no offered choices" '[-1, "", "", false]' device_state
@@ -869,6 +953,7 @@ settings_details
 expect_poll "a disabled plugin's rows all read not reported" '[["Check", "Not reported"], ["Last check", "Not reported"], ["Note", "Not reported"], ["Token", "Not reported", "Needed for the fixture'"'"'s sync"], ["Pending", "Not reported"]]' drawn_status
 expect "the window opens the notifications' page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.notifications
 expect_poll "the notifications' page opens on its Settings tab" 0 settings_tab
+settings_setup
 slack_tokens_hint="Connect each workspace to show sender photos."
 # The Slack token rows stay in the Setup section when photos are off.
 # A disabled plugin reports no account state and offers no token edit.
@@ -1051,7 +1136,7 @@ if python3 - "$page_copy/PluginPage.qml" <<'PYCOPY'
 import sys
 path = sys.argv[1]
 text = open(path).read()
-for old, new in (("        tabs.currentIndex = 0;\n", "        tabs.currentIndex = 1;\n"),
+for old, new in (("        tabs.currentIndex = Math.max(0, tabs.model.indexOf(tab));\n", "        tabs.currentIndex = 1;\n"),
                  ("                        layout.scrollArea.contentY = 0;\n", ""),
                  ("    Keys.forwardTo: [tabs]\n", "")):
     if text.count(old) != 1:

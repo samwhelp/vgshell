@@ -12,7 +12,8 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Turn a plugin on or off. Plugins itself stays on.
 - Show a plugin in the bar, or take it out while its other features stay on.
 - Change a plugin's settings. Under Keys, select a shortcut and press its new keys. A shortcut can have more than one key: the add button listens for another, and Delete removes the one you select. Use my binding keeps one of your own Hyprland binds on the same keys.
-- Add, change or remove a key or token a plugin stores under Setup. A masked field takes the key, and your keyring holds it.
-- Read a plugin's status under Details. Install all missing installs its missing tools.
+- See which plugins need something from you. A plugin that is on shows Setup needed in the list while a setup step is open, and a warning icon while an optional tool is missing.
+- Finish a plugin's setup under Setup: run its steps, and add, change or remove a key or token it stores. A masked field takes the key, and your keyring holds it. Install all missing installs its missing tools.
+- Read a plugin's status under Details.
 - Add a plugin from its git address, update it with its changes shown first, or remove it.
 - Escape returns to the list, then closes the window.

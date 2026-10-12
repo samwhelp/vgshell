@@ -7,7 +7,7 @@
 # key stays offered. With a Copilot account, and only then, Setup shows the
 # Copilot Memory step and its link to GitHub. A click on the Microphone
 # field's link opens the Sounds page. With the fixture's key stored,
-# the Setup section of the Settings tab draws the key list, a line per key
+# the Setup section of the Setup tab draws the key list, a line per key
 # with its chip, and Details draws none; a manifest copy that groups the
 # list outside Setup fails both Setup readings. With a Claude Code account
 # chosen, and only then, the page offers that account's models and effort
@@ -257,8 +257,11 @@ page_link_click() {
   echo "page_link_click: the pointer found no link words in line=$rect box=$box" >&2
   return 1
 }
+settings_setup
 page_link_click || fail "the click on the Copilot Memory link failed"
 expect_poll "a click on the Copilot Memory link opens GitHub's Copilot settings" '["open https://github.com/settings/copilot/features"]' page_link_opens
+settings_tab_click Settings || fail "the click back to the Settings tab after the link failed"
+expect_poll "the page shows its Settings tab again" 0 settings_tab
 printf 'none\n' >"$sandbox/jarvis-world/account-mode"
 page_open accountSearch accounts "Jarvis accounts"
 expect_poll "without the Copilot account the row leaves the page" '[]' page_copilot
@@ -438,7 +441,7 @@ printf 'present\n' >"$sandbox/jarvis-world/key-mode"
 jarvis_rescan
 expect_poll "the restored world publishes its fixture key" matched jarvis_key_value present
 
-# The key list with the fixture's key stored. The Settings tab draws it in
+# The key list with the fixture's key stored. The Setup tab draws it in
 # its Setup section, beside Add key: the list's label and hint, then the
 # key's line with its chip. Details draws no key list.
 page_keys_want="$(python3 -c 'import json,sys; e=json.load(open(sys.argv[1]))["status"]["keys"]; print(json.dumps([e["label"], e["hint"], "fixture / test", "Present"]))' "$page_manifest")"
@@ -448,7 +451,8 @@ page_keys_drawn() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply
 page_keys_in_setup() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); s=json.loads(t) if t.startswith("{") else {"lines": [], "chips": [], "buttons": []}; print(str("fixture / test" in s["lines"] and ["Present", "success"] in s["chips"] and "Add key" in [b[0] for b in s["buttons"]]).lower())'; }
 settings_page_open vgs.jarvis
 expect_poll "the page opens on its Settings tab for the key list" 0 settings_tab
-expect_poll "the Settings tab draws the key list with the stored key's chip" "$page_keys_want" page_keys_drawn
+settings_setup
+expect_poll "the Setup tab draws the key list with the stored key's chip" "$page_keys_want" page_keys_drawn
 expect "the key's line and chip stand in the Setup section, with Add key" true page_keys_in_setup
 settings_details
 expect "Details draws no key list" rows=0 page_keys_drawn
@@ -469,11 +473,10 @@ p.write_text(changed)
 PY
 jarvis_rescan
 expect_poll "control: a key list grouped outside Setup draws on Details" "$page_keys_want" page_keys_drawn
-settings_tab_click Settings || fail "control: the click back to the Settings tab failed"
-expect_poll "control: the copy's page shows its Settings tab" 0 settings_tab
+settings_setup
 page_keys_control() {
   (failures=0 behaviour_failures=0
-   expect "the Settings tab draws the key list" "$page_keys_want" page_keys_drawn >"$sandbox/jarvis-page-keys-control.log"
+   expect "the Setup tab draws the key list" "$page_keys_want" page_keys_drawn >"$sandbox/jarvis-page-keys-control.log"
    expect "the key's line stands in the Setup section" true page_keys_in_setup >>"$sandbox/jarvis-page-keys-control.log"
    echo "$failures")
 }
@@ -482,6 +485,8 @@ cp -- "$sandbox/page-manifest-original" "$page_manifest"
 jarvis_rescan
 expect_poll "the restored page draws the key list under Setup again" "$page_keys_want" page_keys_drawn
 expect "the restored key's line stands in the Setup section" true page_keys_in_setup
+settings_tab_click Settings || fail "the click back to the Settings tab failed"
+expect_poll "the page shows its Settings tab for the backup models" 0 settings_tab
 
 # Two backup models, added through the list's Add action, sit
 # `groupList.gap` apart, from the bottom of the first entry's last row to

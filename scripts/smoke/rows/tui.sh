@@ -14,7 +14,7 @@
 # answer that follows until a probe finds one again, the launchers the core
 # holds, a run's `done` and state from its exit records, a second run of a
 # live key refused busy with its window focused, a destroyed instance's
-# `done` dropped while its run ends, the Settings page's Setup buttons,
+# `done` dropped while its run ends, the plugin page's Setup buttons,
 # which open a listed script through the manager and take no press while
 # the plugin is disabled, a live run that fails harness.sh's
 # expect_run_end at its ceiling, a run that ends past the ceiling and fails
@@ -96,7 +96,7 @@ expect_poll "the capability's open reaches the terminal" \
   "$(hello_words)" recorded
 expect_run_end "the hello run ends before the next request" acme.tui/hello
 
-# The Settings page's Setup section: one button per listed script, none
+# The Setup tab's Setup section: one button per listed script, none
 # for a script with no entry, and a press opens the script through the
 # manager's openTui, the route a status step's TUI takes, so the terminal
 # is handed what the plugin's own run hands it. The control: the manager
@@ -114,7 +114,8 @@ setup_button() {
   printf '%s %s\n' "$any" "$on"
 }
 settings_page_open acme.tui
-expect_poll "the Settings page draws one Setup button per listed script" '["Setup", "Say hello", "Update"]' setup_drawn
+settings_setup
+expect_poll "the Setup tab draws one Setup button per listed script" '["Setup", "Say hello", "Update"]' setup_drawn
 expect "an enabled plugin's Setup button takes a press" "drawn enabled" setup_button "Say hello"
 forget_record
 settings_press --type RowAction "Say hello" || fail "the click on the Setup section's Say hello failed"
@@ -326,6 +327,7 @@ expect_poll "a disabled plugin holds no tui capability" False tui_held
 # Its Setup buttons stay drawn and take no press, the manager refuses the
 # open, and the refusal reads under the buttons.
 settings_page_open acme.tui
+settings_setup
 expect_poll "a disabled plugin's page draws its Setup buttons" '["Setup", "Say hello", "Update"]' setup_drawn
 expect "a disabled plugin's Setup button takes no press" "drawn absent" setup_button "Say hello"
 forget_record

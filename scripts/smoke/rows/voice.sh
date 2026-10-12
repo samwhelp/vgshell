@@ -1037,7 +1037,7 @@ cp -- "$sandbox/voice-vgshell-pkg.stub" "$repo/bin/vgshell-pkg.next" && mv -T --
 voice_resumes() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["notices"]["resumes"]))'; }
 # The notice's entries as [chip, the number of lines under it].
 voice_notice_groups() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.dumps([[g[0], len(g[1])] for g in json.load(sys.stdin)["groups"]]))'; }
-# The Voice page's Setup section on its Settings tab: its chips as [text,
+# The Voice page's Setup section on its Setup tab: its chips as [text,
 # tone] and its buttons as [text, variant, enabled, whether its tooltip
 # names voxtype], in drawn order.
 voice_setup_section() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps({"chips": d["chips"], "buttons": [[b[0], b[1], b[2], "voxtype" in b[3]] for b in d["buttons"]]}))'; }
@@ -1142,6 +1142,7 @@ expect "enabling Voice after the requires control is allowed" ok ipc shell setPl
 expect_poll "Voice builds after the requires control" True record_exists vgs.voice
 
 settings_page_open vgs.voice
+settings_setup
 # The Setup section reads Voice's own setup state: without voxtype it says
 # so, and the install step it offers comes first; Configure and Choose
 # model, which need voxtype, take no press and say so on hover.
@@ -1172,6 +1173,7 @@ rescan "the Voice Setup section control copy is scanned"
 expect "enabling Voice for the Setup section control is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "Voice builds for the Setup section control" True record_exists vgs.voice
 settings_page_open vgs.voice
+settings_setup
 expect_poll "control: a setup entry in no group and a Configure with no requires draw no chip, no step and Configure active" '{"chips": [], "buttons": [["Configure", "accent", true, false], ["Choose model", "accent", false, true]]}' voice_setup_section
 settings_page_close vgs.voice
 expect "disabling Voice after the Setup section control is allowed" ok ipc shell setPluginEnabled vgs.voice false
@@ -1180,10 +1182,10 @@ rescan "the shipped Voice manifest is scanned again after the Setup section cont
 expect "enabling Voice after the Setup section control is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "Voice builds after the Setup section control" True record_exists vgs.voice
 settings_page_open vgs.voice
+settings_setup
 expect_poll "the Setup section reads Set up needed again" "$voice_setup_missing" voice_setup_section
-settings_details
 # Without voxtype, the voxtype entry and the setup entry each offer its
-# install.
+# install, and the Setup tab draws the Requirements row.
 expect_poll "the Voice page offers each entry's install without voxtype" '[["voxtype", "Install\u2026", true], ["setup", "Install requirements", true]]' offered_actions vgs.voice
 expect_poll "the Voice Requirements row says voxtype is missing" "$(words voxtype "Missing, optional" "Captures speech and inserts dictated text")" voice_requirement_drawn
 
@@ -1243,9 +1245,10 @@ expect_poll "Set up is offered once voxtype is found and the model is missing" s
 # the stub takes the state the setup leaves, which
 # scripts/test-vgshell-dictation.sh reads, before the run ends; its end
 # with code 0 starts the daemon again, and Voice then reads the model. The
-# page opens again on its Settings tab.
+# page opens again on its Settings tab, and the row chooses Setup.
 settings_page_close vgs.voice
 settings_page_open vgs.voice
+settings_setup
 expect_poll "the Setup section offers Set up first, with every screen active" "$voice_setup_needed" voice_setup_section
 expect "the Setup section draws the service's one setup line for the missing model" '{"action": "setup", "lines": 1, "drawn": true}' voice_setup_lines
 voice_forget
@@ -1358,6 +1361,7 @@ voice_stop_other() { # LABEL
   expect "$1: the core tried no second daemon" none voice_noted
   expect_poll "$1: Setup offers Stop the other voxtype" stop voice_setup_offered
   settings_page_open vgs.voice
+  settings_setup
   expect_poll "$1: the Setup section draws Set up needed with Stop the other voxtype first" "$voice_setup_elsewhere" voice_setup_section
   expect "$1: the Setup section draws the service's one line for the other voxtype" '{"action": "stop", "lines": 1, "drawn": true}' voice_setup_lines
   voice_stop_other_before="$(voice_stop_other_end)" || voice_stop_other_before=unread

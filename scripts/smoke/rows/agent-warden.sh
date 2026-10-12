@@ -774,9 +774,10 @@ if [[ $vsys_first == missing ]]; then
   # reads Missing, the Warden row offers no Set up, since
   # setup needs vsys first, and the Requirements section's Install all
   # missing raises the core's notice for vsys. A scan that finds vsys closes the
-  # notice and rests nothing.
+  # notice and rests nothing. A missing tool gives the page its Setup tab,
+  # which draws the Requirements section.
   settings_page_open vgs.agent-warden
-  settings_details
+  settings_setup
   expect_poll "a warden not set up without vsys offers no Set up" '[["warden", "Set up", false]]' offered_actions vgs.agent-warden
   expect_poll "the vsys requirement draws Missing" "$(words vsys "Missing" "Shows your agents and provides Agent Warden")" vsys_drawn
   expect "the page without vsys draws no Show command" true no_show_command

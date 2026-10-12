@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "Steps.js" as Steps
 
 // The Plugins window: every plugin the manager lists, and one page per
 // plugin, drawn from its manager row alone. The window host builds it as a
@@ -14,7 +15,7 @@ import qs.Ui
 // screen its `screens` capability gives. The window host maps it at the
 // larger of that and the page's full height, up to the screen's room;
 // once it shows, each change of the shown page, the list, another
-// plugin's page or the other tab, resizes it by the same rule through its
+// plugin's page or another tab, resizes it by the same rule through its
 // `compositor` capability, keeping its width. A change inside a page, such
 // as a rescan's rows, keeps the size.
 // The pages fill whatever size the window has, and a page taller than it
@@ -36,15 +37,17 @@ import qs.Ui
 // a plugin's service re-reads its own state on.
 //
 // The payload is a JSON object: `{}` opens the list, `{"plugin":"<id>"}`
-// that plugin's page, and an id no plugin has opens the list with a notice
-// naming it. Any other key, or a payload that is no object, throws out of
+// that plugin's page on its Settings tab, and an id no plugin has opens the
+// list with a notice naming it. A row of the list opens its plugin's page
+// on Setup while the plugin asks for a setup step (Steps.setupNeeds), else
+// on Settings, and the row's warning icon opens it on Setup. Any other key, or a payload that is no object, throws out of
 // open(), which refuses the summon. A plugin that leaves the manager's rows
 // while its page is shown, as a removal's rescan does, returns the window
 // to the list with a notice naming it.
 //
 // A plugin page that holds an unsaved edit is left only after a prompt:
 // the back button, Escape, the title's menu, a deep link to another page,
-// the Details tab and a hide by the shell each ask once, Save, Discard or
+// another tab and a hide by the shell each ask once, Save, Discard or
 // Cancel, over a scrim. Save writes every edit and leaves when each was
 // accepted, Discard drops them and leaves, and Cancel, Escape and a press
 // on the scrim stay. A request that comes while the prompt shows replaces
@@ -347,24 +350,34 @@ FocusScope {
         list.focusSearch(reason);
     }
 
-    function show(id, reason) {
+    function show(id, reason, tab) {
         notice = "";
         drawn = id;
         page = id;
-        detail.open(reason === undefined ? Qt.TabFocusReason : reason);
+        detail.open(reason === undefined ? Qt.TabFocusReason : reason, tab === undefined ? "Settings" : tab);
     }
 
-    // Open the page of plugin `id`, on its Settings page; answers `ok`,
+    // Open the page of plugin `id` on `tab`, a tab's text, Settings when
+    // none is named or the page has no such tab; answers `ok`,
     // `unknown: <id>`, or `refused: unsaved=<page>` while the prompt asks
     // about the shown page's unsaved edit first.
-    function openPlugin(id, reason) {
+    function openPlugin(id, reason, tab) {
         if (rowOf(id) === null) return "unknown: " + id;
         if (id === page) {
-            show(id, reason);
+            show(id, reason, tab);
             return "ok";
         }
         const from = page;
-        return leave(() => show(id, reason)) ? "ok" : "refused: unsaved=" + from;
+        return leave(() => show(id, reason, tab)) ? "ok" : "refused: unsaved=" + from;
+    }
+
+    // Open the page of plugin `id` as its row of the list does: on Setup
+    // while the plugin asks for a setup step, else on Settings; answers as
+    // openPlugin does.
+    function openRow(id, reason) {
+        const row = rowOf(id);
+        if (row === null) return "unknown: " + id;
+        return openPlugin(id, reason, Steps.setupNeeds(row.status, row.requirements, row.enabled).open ? "Setup" : "Settings");
     }
 
     // Pop the plugin page to the list; answers `ok`, or `refused:

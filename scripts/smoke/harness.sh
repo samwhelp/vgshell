@@ -2458,15 +2458,18 @@ settings_page_close() {
   expect "the Settings window is hidden after $1's steps" ok ipc shell hide window vgs.settings
   expect_poll "the Settings window is gone after $1's steps" 0 window_count Plugins
 }
-# A plugin page's two pages (TabPages): every opened page shows Settings,
-# and its description, listing, Manage, Status and Requirements are on
-# Details. settings_tab: the index of the page shown, 0 for Settings and 1
-# for Details. settings_tab_click TEXT: a real click on the strip's tab
-# TEXT, brought into view first, once the tab reports the pointer, through
-# point_item; it fails at the press with the cause when the tab never
-# does. settings_details:
-# the mapped window's page moved to Details by that click, for every row
-# that reads or presses something drawn there.
+# A plugin page's pages (TabPages): a page opened by its id shows
+# Settings; its setup steps, stored keys and setup screens are on Setup,
+# a tab only a plugin with something to set up has; its description,
+# listing, Manage and Status are on Details, and its Requirements on Setup
+# when the page has that tab, else on Details. settings_tab: the index of
+# the page shown, 0 for Settings. settings_tab_text: the shown tab's text.
+# settings_tab_click TEXT: a real click on the strip's tab TEXT, brought
+# into view first, once the tab reports the pointer, through point_item; it
+# fails at the press with the cause when the tab never does.
+# settings_details: the mapped window's page moved to Details by that
+# click, for every row that reads or presses something drawn there.
+# settings_setup: the same for Setup.
 settings_tab() { ipc smoke readDescendant window vgs.settings TabPages currentIndex; }
 settings_tab_click() {
   local shown
@@ -2475,10 +2478,16 @@ settings_tab_click() {
   sleep 0.2
   click_item window:Plugins window vgs.settings QQuickTabButton "$1" || { echo "settings_tab_click: pointer-not-ready=$1" >&2; return 1; }
 }
+settings_tab_text() { ipc smoke itemValues window vgs.settings TabPages model,currentIndex | py_reply 'import json,sys; v=json.load(sys.stdin); print(v[0]["model"][v[0]["currentIndex"]] if len(v) == 1 and 0 <= v[0]["currentIndex"] < len(v[0]["model"]) else "tabs=%d" % len(v))'; }
 settings_details() {
   expect_poll "the Settings window is mapped for its Details page" 1 window_count Plugins
   settings_tab_click Details || fail "the click on the Details tab failed"
-  expect_poll "the plugin page shows Details" 1 settings_tab
+  expect_poll "the plugin page shows Details" Details settings_tab_text
+}
+settings_setup() {
+  expect_poll "the Settings window is mapped for its Setup page" 1 window_count Plugins
+  settings_tab_click Setup || fail "the click on the Setup tab failed"
+  expect_poll "the plugin page shows Setup" Setup settings_tab_text
 }
 # hypr_lua_save NAME: the nested hyprland.lua copied to
 # $sandbox/hyprland-NAME.lua before a row appends its own lines;

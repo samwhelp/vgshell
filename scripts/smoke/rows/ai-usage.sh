@@ -19,7 +19,7 @@
 # send no request; a refused token's expired warning and a failed
 # request's stale figures; that no read changed a credential file's
 # bytes or modification time; and the AI Gateway key's line in the Setup
-# section of the Settings tab, whose Add key, Replace and Remove
+# section of the Setup tab, whose Add key, Replace and Remove
 # write the row's libsecret stand-in through the core, the key on stdin
 # alone, with no key line on Details.
 # Controls: a widget copy shown with no account, a panel copy capped at its
@@ -736,6 +736,7 @@ usage_typed_key="vck-smoke-typed-$SRANDOM"
 usage_changed_key="$usage_typed_key-changed"
 expect "Settings opens on AI Usage's page for its key" ok ipc shell summon window vgs.settings '{"plugin":"vgs.ai-usage"}'
 expect_poll "the page opens on its Settings tab" 0 settings_tab
+settings_setup
 expect_poll "the service lists the key absent, with Add key" '[["AI Gateway", "absent", "ai-gateway", "connect"]]' usage_key_row
 expect_poll "with no key Setup draws the key's line with Add key" "$(usage_key_want absent)" usage_key_drawn
 expect "an absent key's line draws no Replace and takes no edit" 'false []' usage_key_line
@@ -793,7 +794,7 @@ settings_details
 expect_poll "control: a page that draws its keys on Details draws the key's line there" "$(usage_key_want absent)" usage_key_drawn
 settings_tab_click Settings || fail "control: the click back to the Settings tab failed"
 expect_poll "control: the copy shows its Settings tab" 0 settings_tab
-expect "control: that page draws no key line under Setup" rows=0 usage_key_drawn
+expect "control: that page draws no key line on its Settings tab" rows=0 usage_key_drawn
 expect "the Settings window closes after the key placement control" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone after the key placement control" 0 window_count Plugins
 rm -rf -- "${home:?}/.config/vgshell/plugins/vgs.settings"
