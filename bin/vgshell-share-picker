@@ -7,6 +7,7 @@ name Hyprland windows. Only the portal handle may appear in a window selection.
 """
 
 import argparse
+import errno
 import json
 import os
 from pathlib import Path
@@ -230,15 +231,19 @@ def open_folder(part, parent, configured):
     def refuse(reason):
         return PickerError("Your Hyprland config folder is not a folder VGS can write: "
                            + configured + " (" + reason + ")")
+    linked = False
     try:
-        if not stat.S_ISLNK(os.stat(part, dir_fd=parent, follow_symlinks=False).st_mode):
-            return os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+        linked = stat.S_ISLNK(os.stat(part, dir_fd=parent, follow_symlinks=False).st_mode)
         # Hyprland reads its config through a linked folder, as a dotfiles tree
         # links it. The owner check reads the opened folder, so no swap can pass.
-        child = os.open(part, os.O_RDONLY | os.O_DIRECTORY, dir_fd=parent)
-    except (NotADirectoryError, PermissionError) as error:
-        raise refuse(error.strerror) from error
-    if os.fstat(child).st_uid != os.geteuid():
+        child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | (0 if linked else os.O_NOFOLLOW), dir_fd=parent)
+    except OSError as error:
+        # A missing unlinked folder stays FileNotFoundError: probe reads it as needed.
+        if (isinstance(error, (NotADirectoryError, PermissionError)) or error.errno == errno.ELOOP
+                or linked and isinstance(error, FileNotFoundError)):
+            raise refuse(error.strerror) from error
+        raise
+    if linked and os.fstat(child).st_uid != os.geteuid():
         os.close(child)
         raise refuse("a link to a folder another user owns")
     return child

@@ -613,7 +613,9 @@ class PickerTests(unittest.TestCase):
         directory.parent.mkdir()
         plants = {"link to a folder another user owns": lambda: directory.symlink_to(foreign),
                   "file where the folder belongs": lambda: directory.write_text(""),
-                  "link to a file": lambda: directory.symlink_to(owned_file)}
+                  "link to a file": lambda: directory.symlink_to(owned_file),
+                  "broken link": lambda: directory.symlink_to("../missing"),
+                  "looping link": lambda: directory.symlink_to("hypr")}
         for name, plant in plants.items():
             with self.subTest(plant=name):
                 directory.unlink(missing_ok=True)
