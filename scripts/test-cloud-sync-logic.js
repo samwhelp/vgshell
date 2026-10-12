@@ -33,10 +33,13 @@ const ADDRESS = "a.person@example.com";
 // conflict of each kind.
 const DOCS = { id: "docs", label: "Documents", remote: "Docs", state: "idle", lastSuccess: iso(NOW - HOUR), staleAfter: iso(NOW + HOUR), lastError: null, changes: { added: 1, updated: 0 } };
 const INBOX = { id: "inbox", label: "Agent uploads", remote: "Inbox", state: "authorization-required", lastSuccess: iso(NOW - 2 * HOUR), staleAfter: iso(NOW), lastError: { kind: "authorization-refused", at: iso(NOW - 60000), exit: 1 }, changes: null };
+// A new name longer than a window row, with no space to break at.
+const RENAMED_TO = "Quarterly-planning-notes-for-the-agent-uploads-review-with-every-attachment-from-the-October-meeting.txt";
 const CONFLICTS = [
     { kind: "both-changed", pair: "docs", pairLabel: "Documents", path: "taxes/2025.xlsx", localPath: "/home/me/gdrive/taxes/2025.xlsx", storedPath: "/home/me/.local/state/vgshell/cloud-sync/pairs/docs/conflicts/20261010T110000Z-7/taxes/2025.xlsx", since: iso(NOW - HOUR) },
     { kind: "removed-on-drive", pair: "docs", pairLabel: "Documents", path: "old.txt", localPath: "/home/me/gdrive/old.txt", since: iso(NOW - HOUR) },
-    { kind: "renamed", pair: "inbox", pairLabel: "Agent uploads", path: "a.txt", to: "b.txt", localPath: "/home/me/outbox/a.txt", since: iso(NOW - HOUR) }
+    { kind: "renamed", pair: "inbox", pairLabel: "Agent uploads", path: "a.txt", to: RENAMED_TO, localPath: "/home/me/outbox/a.txt", since: iso(NOW - HOUR) },
+    { kind: "removed-locally", pair: "docs", pairLabel: "Documents", path: "taxes/receipts.pdf", localPath: "/home/me/gdrive/taxes/receipts.pdf", since: iso(NOW - HOUR) }
 ];
 function record(over) {
     return Object.assign({
@@ -284,9 +287,10 @@ function verify(L) {
     same(cloud.conflicts.map(c => c.dirs), [
         ["/home/me/gdrive/taxes", "/home/me/.local/state/vgshell/cloud-sync/pairs/docs/conflicts/20261010T110000Z-7/taxes"],
         ["/home/me/gdrive"],
-        ["/home/me/outbox"]
+        ["/home/me/outbox"],
+        ["/home/me/gdrive/taxes"]
     ]);
-    assert.equal(cloud.conflicts[2].to, "b.txt");
+    assert.equal(cloud.conflicts[2].to, RENAMED_TO);
     const many = record({ conflicts: Array.from({ length: 500 }, (_, i) => Object.assign({}, CONFLICTS[1], { path: "f" + i + ".txt", localPath: "/home/me/gdrive/" + "x".repeat(3000) + "/f" + i + ".txt" })) });
     const capped = L.cloudValue(many, "");
     assert.equal(capped.conflictCount, 500);
@@ -301,7 +305,7 @@ function verify(L) {
     // The tooltip: pairs and states, never a file name; the count of files
     // to review when the headline does not say it.
     const tip = L.widgetTooltip(cloud, NOW, Timestamp.text);
-    same(tip.details.split("\n"), ["Documents: Up to date", "Agent uploads: Connect needed", "3 files to review", "Last sync " + Timestamp.text(NOW - HOUR, NOW)]);
+    same(tip.details.split("\n"), ["Documents: Up to date", "Agent uploads: Connect needed", "4 files to review", "Last sync " + Timestamp.text(NOW - HOUR, NOW)]);
     same(L.widgetTooltip(L.cloudValue(well({ conflicts: CONFLICTS.slice(0, 2) }), ""), NOW, Timestamp.text).details.split("\n"), ["Documents: Up to date", "Last sync " + Timestamp.text(NOW - HOUR, NOW)], "the headline says the count once");
     same(L.widgetTooltip(undefined, NOW, Timestamp.text), { title: "Cloud Sync", details: "" });
     for (const text of [tip.title, tip.details].concat(values.sync.lines))
@@ -337,15 +341,26 @@ function verify(L) {
         ["units stale while paused", well({ units: "stale", state: "paused", paused: true, pairs: [PAUSED_DOCS] }), { primary: { text: "Set up hourly sync", icon: "cloud-cog", action: "setup", enabled: true }, pause: { text: "Resume", icon: "play", action: "resume" }, add: true }]
     ];
     for (const [label, rec, want] of footers) same(footer(rec), want, "footer: " + label);
-    same(L.conflictGroups(cloud.conflicts).map(g => [g.label, g.rows.map(r => [r.label, r.secondary])]), [
-        ["Documents", [["taxes/2025.xlsx", "Changed here and on Google Drive. The older copy is kept for 30 days."], ["old.txt", "Removed from Google Drive. The copy here stays."]]],
-        ["Agent uploads", [["a.txt", "Renamed on Google Drive. The old name was copied back to Google Drive. New name: b.txt."]]]
+    // Each review row whole, one of each kind: its full text, uncut, the
+    // folder line of the copy its text speaks of, and the folders Open
+    // folders opens.
+    const KEPT = "/home/me/.local/state/vgshell/cloud-sync/pairs/docs/conflicts/20261010T110000Z-7/taxes";
+    same(L.conflictGroups(cloud.conflicts), [
+        { label: "Documents", rows: [
+            { label: "taxes/2025.xlsx", detail: "Changed here and on Google Drive. The older copy is kept for 30 days.", folder: "The older copy is in this folder: " + KEPT, dirs: ["/home/me/gdrive/taxes", KEPT] },
+            { label: "old.txt", detail: "Removed from Google Drive. The copy here stays.", folder: "The copy here is in this folder: /home/me/gdrive", dirs: ["/home/me/gdrive"] },
+            { label: "taxes/receipts.pdf", detail: "Removed here. Cloud Sync copied it back from Google Drive.", folder: "", dirs: ["/home/me/gdrive/taxes"] }
+        ] },
+        { label: "Agent uploads", rows: [
+            { label: "a.txt", detail: "Renamed on Google Drive. The old name was copied back to Google Drive. New name: " + RENAMED_TO + ".", folder: "", dirs: ["/home/me/outbox"] }
+        ] }
     ]);
-    same(L.conflictGroups(cloud.conflicts)[1].rows[0].dirs, ["/home/me/outbox"]);
+    // A change on both sides with no kept copy names no folder.
+    same(L.conflictRow(L.cloudValue(well({ conflicts: [Object.assign({}, CONFLICTS[0], { storedPath: undefined })] }), "").conflicts[0]).folder, "");
 
     // The notification: one per reason in order of need.
     same(L.notification(good.record), { title: "Cloud Sync needs Connect", message: "Google Drive did not accept Connect. Select Connect again on the Cloud Sync page in Settings.", tone: "danger" });
-    same(L.notification(record({ attention: { reasons: ["conflicts"], key: "k", notified: false } })), { title: "Cloud Sync kept files for review", message: "3 files to review. Open Cloud Sync to see them.", tone: "warning" });
+    same(L.notification(record({ attention: { reasons: ["conflicts"], key: "k", notified: false } })), { title: "Cloud Sync kept files for review", message: "4 files to review. Open Cloud Sync to see them.", tone: "warning" });
     same(L.notification(record({ lastError: { kind: "offline" }, attention: { reasons: ["error"], key: "k", notified: false } })).tone, "danger");
     same(L.notification(record({ attention: { reasons: ["units-stale"], key: "k", notified: false } })), { title: "Cloud Sync needs setup", message: "Select Set up hourly sync on the Cloud Sync page in Settings.", tone: "warning" });
     assert.equal(L.notification(record({ attention: null })), null);
@@ -411,6 +426,7 @@ const controls = [
     ["Set up hourly sync while the units are not installed", "var primary = known && cloud.units !== \"installed\"", "var primary = false"],
     ["the window says a pause", "    if (cloud.paused)\n", "    if (false)\n"],
     ["a review group holds each pair's files", "if (group === undefined) {", "if (true) {"],
+    ["a change on both sides names the kept copy's folder", "conflict.kind === \"both-changed\" ? conflict.dirs[1] : ", ""],
     ["a connection notifies first", "if (reasons.indexOf(\"authorization-required\") !== -1)\n", "if (false)\n"],
     ["no file to review draws no count", "cloud.conflictCount > 0 ? String(cloud.conflictCount) : \"\"", "String(cloud.conflictCount)"],
     ["no folder pair hides the icon", "if (cloud === undefined || cloud === null || (cloud.pairs.length === 0 && pairListValid(cloud))) return", "if (cloud === undefined || cloud === null) return"],

@@ -4847,9 +4847,16 @@ cs_shots() {
 # Every state VGS-1314 sheets, over a local rclone remote that `block`
 # holds inside its copy and `fail` fails, and a keyring stand-in with one
 # file per account: no credential, keyring or Drive call. A token's file
-# holds a stand-in account address on its second line.
+# holds a stand-in account address on its second line. rclone's local
+# backend lists no object ID, and the runner tells a Drive rename from a
+# Drive deletion only by the ID its baseline holds (bin/cloud-sync
+# classifyBeforeCopy), so the stand-in's listing gives each file its inode
+# as its ID: a rename keeps it, as a rename on Drive keeps the object's ID.
 scene_cloudsync() { # MODE
-  local m="$1" cs="$sandbox/cloudsync-$1" host_rclone drive runner pairs_file
+  local m="$1" cs="$sandbox/cloudsync-$1" host_rclone host_node drive runner pairs_file
+  # The node binary itself: a version manager's shim on PATH may not run
+  # under the runner's environment, which the stand-in inherits.
+  host_node="$(node -e 'process.stdout.write(process.execPath)')" || { fail "cloudsync scene: node missing"; return; }
   if ! host_rclone="$(command -v rclone)"; then
     printf 'sandbox-shots: scene=cloudsync mode=%s status=not-measured missing=rclone\n' "$m"
     unmeasured=$((unmeasured + 1))
@@ -4866,7 +4873,20 @@ unset RCLONE_CONFIG_VGSDRIVE_CLIENT_ID RCLONE_CONFIG_VGSDRIVE_CLIENT_SECRET RCLO
 if [[ -f "$cs/block" ]]; then for _ in \$(seq 1 300); do [[ -f "$cs/release" ]] && break; sleep 0.2; done; fi
 if [[ -f "$cs/fail" ]]; then echo "Failed to copy: stand-in sync error" >&2; exit 1; fi
 cd "$drive" || exit 9
-exec "$host_rclone" "\$@"
+list= remote=
+for a in "\$@"; do
+  case "\$a" in
+    lsjson) list=1 ;;
+    vgsdrive:*) remote="\${a#vgsdrive:}" ;;
+  esac
+done
+[[ -n \$list ]] || exec "$host_rclone" "\$@"
+listing="\$("$host_rclone" "\$@")" || exit
+printf '%s' "\$listing" | "$host_node" -e '
+const fs = require("fs"), path = require("path"), dir = process.argv[1];
+const items = JSON.parse(fs.readFileSync(0, "utf8"));
+for (const item of items) item.ID = String(fs.statSync(path.join(dir, item.Path)).ino);
+process.stdout.write(JSON.stringify(items));' "$drive/\$remote"
 SH
   chmod 755 "$shim/rclone"
   sentinel_stand_over "$shim/secret-tool" <<SH
@@ -4956,11 +4976,14 @@ SH
   csr run || true
   cs_shots "$m" 7-error error
   rm -f -- "$cs/fail"
-  # Set up, with a change on both sides and a Drive deletion to review.
+  # Set up, with a change on both sides, a local deletion, a Drive
+  # deletion and a Drive rename to a long name to review.
   printf '# Notes, edited here\n' >"$home/cloudsync-$m/Drive/Documents/notes.md"
   touch -d '2000-01-01T00:00:00Z' -- "$home/cloudsync-$m/Drive/Documents/notes.md"
   rm -f -- "$drive/Documents/budget.xlsx"
   printf '# Notes, edited on Drive\n' >"$drive/Documents/notes.md"
+  rm -f -- "${home:?}/cloudsync-$m/Drive/Documents/Taxes/2025 return.pdf"
+  mv -- "$drive/VGS/Uploads/report.md" "$drive/VGS/Uploads/October-planning-meeting-report-with-every-agent-task-its-owner-and-its-due-date.md"
   csr run || fail "cloudsync scene: review run"
   cs_shots "$m" 8-review review
   # The folder pair list cut short, so it is not JSON.

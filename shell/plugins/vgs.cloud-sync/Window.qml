@@ -12,7 +12,8 @@ import "CloudSyncLogic.js" as Logic
 // offers the reset TUI, which keeps the damaged list and starts an empty
 // one. To review lists each file Cloud Sync kept or restored,
 // a change on both sides, a local deletion, a Drive deletion or a Drive rename, under its folder
-// pair's label, with Open folders, which opens the folders that hold its
+// pair's label, with what happened, the folder that holds the copy it
+// speaks of, and Open folders, which opens the folders that hold its
 // versions. The footer holds Sync now, enabled only when a sync can
 // start, Resume while the sync is paused, or Set up hourly sync while the
 // hourly sync is not set up, over Pause or Resume and Add a folder pair
@@ -173,8 +174,11 @@ FocusScope {
                 visible: root.known && root.cloud.conflictCount > 0
                 title: "To review"
                 description: "Cloud Sync kept older copies on this computer, restored removed files, and deleted nothing. Open folders shows the folders that hold each version."
-                // A pair's label on its own line over its files, since a
-                // ListItem's secondary line elides and would cut it.
+                // A pair's label on its own line over its files. Each file's
+                // row wraps its name, what happened and the folder line at
+                // the window's width, so no line is cut as a ListItem's
+                // elided lines would be. The icon and Open folders sit level
+                // with the name's first line.
                 Repeater {
                     model: root.known ? Logic.conflictGroups(root.cloud.conflicts) : []
                     Column {
@@ -190,20 +194,59 @@ FocusScope {
                         }
                         Repeater {
                             model: conflictGroup.modelData.rows
-                            ListItem {
+                            Item {
                                 id: conflictRow
                                 required property var modelData
                                 width: parent.width
-                                iconName: "file-exclamation-point"
-                                text: modelData.label
-                                secondary: modelData.secondary
-                                trailing: [
-                                    RowAction {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: "Open folders"
-                                        onClicked: root.review(conflictRow.modelData.dirs)
+                                implicitHeight: Math.max(Theme.listItem.twoLineHeight, conflictLines.implicitHeight + 2 * Theme.stack.row)
+
+                                Icon {
+                                    id: conflictIcon
+                                    x: Theme.listItem.paddingX
+                                    y: Math.round(conflictLines.y + conflictName.capCentre - height / 2)
+                                    name: "file-exclamation-point"
+                                    size: Theme.icon.size.md
+                                    color: Theme.color.textMuted
+                                }
+                                Column {
+                                    id: conflictLines
+                                    x: conflictIcon.x + conflictIcon.width + Theme.listItem.iconGap
+                                    y: Math.round((parent.height - implicitHeight) / 2)
+                                    width: Math.max(0, openFolders.x - Theme.listItem.gap - x)
+                                    spacing: Theme.row.lineGap
+                                    // Text.Wrap breaks a long name with no
+                                    // space inside a word (Qt Text.wrapMode).
+                                    Label {
+                                        id: conflictName
+                                        width: parent.width
+                                        role: "item"
+                                        textFormat: Text.PlainText
+                                        text: conflictRow.modelData.label
+                                        wrapMode: Text.Wrap
                                     }
-                                ]
+                                    Label {
+                                        width: parent.width
+                                        role: "itemHint"
+                                        textFormat: Text.PlainText
+                                        text: conflictRow.modelData.detail
+                                        wrapMode: Text.Wrap
+                                    }
+                                    Label {
+                                        width: parent.width
+                                        visible: text !== ""
+                                        role: "itemHint"
+                                        textFormat: Text.PlainText
+                                        text: conflictRow.modelData.folder
+                                        wrapMode: Text.Wrap
+                                    }
+                                }
+                                RowAction {
+                                    id: openFolders
+                                    x: parent.width - Theme.listItem.paddingX - width
+                                    y: Math.round(conflictLines.y + conflictName.capCentre - height / 2)
+                                    text: "Open folders"
+                                    onClicked: root.review(conflictRow.modelData.dirs)
+                                }
                             }
                         }
                     }

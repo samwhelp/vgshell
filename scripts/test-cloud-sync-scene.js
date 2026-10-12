@@ -43,10 +43,11 @@ function headlineCauses() {
 }
 
 // The words the code publishes: each state's text, each error and
-// conflict sentence, and the review line without its count.
+// conflict sentence, each review row's folder line before its path, and
+// the review line without its count.
 function publishedWords() {
     const views = Object.values(L.STATE_VIEW).concat([L.CURRENT, L.OUT_OF_DATE, L.NOT_SYNCED, L.NO_PAIRS]).map(v => v.text);
-    return views.concat(Object.values(L.ERROR_TEXT), Object.values(L.PAGE_ERROR_TEXT), Object.values(L.CONFLICT_TEXT),
+    return views.concat(Object.values(L.ERROR_TEXT), Object.values(L.PAGE_ERROR_TEXT), Object.values(L.CONFLICT_TEXT), Object.values(L.CONFLICT_FOLDER_TEXT),
         [L.ERROR_DEFAULT, L.reviewLine(2).replace(/^2 /, ""), L.reviewLine(1).replace(/^1 /, "")]);
 }
 

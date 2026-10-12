@@ -80,6 +80,12 @@ var CONFLICT_TEXT = {
     "removed-on-drive": "Removed from Google Drive. The copy here stays.",
     renamed: "Renamed on Google Drive. The old name was copied back to Google Drive."
 };
+// The line that names the folder of the copy CONFLICT_TEXT speaks of,
+// before that folder's path: the kept older copy, or the copy here.
+var CONFLICT_FOLDER_TEXT = {
+    "both-changed": "The older copy is in this folder: ",
+    "removed-on-drive": "The copy here is in this folder: "
+};
 
 var PAIR_RULE_TEXT = {
     shape: "Folder pair {id} is not a valid folder pair.",
@@ -515,11 +521,22 @@ function pairRow(pair, now) {
     return { id: pair.id, label: pair.label, secondary: pairDrive(pair), icon: "folder-sync", text: view.text, tone: badgeTone(view.tone) };
 }
 
-// One conflict's row in the window: its path, and what happened.
+// One conflict's row in the window: { label, detail, folder, dirs }, its
+// path, what happened, the line that names the folder of the copy the
+// detail speaks of ("" for none), and the folders Open folders opens. The
+// window wraps each line, so none is cut.
 function conflictRow(conflict) {
     var what = conflictText(conflict.kind);
     if (conflict.kind === "renamed") what += " New name: " + conflict.to + ".";
-    return { label: conflict.path, secondary: what, dirs: conflict.dirs };
+    return { label: conflict.path, detail: what, folder: conflictFolder(conflict), dirs: conflict.dirs };
+}
+
+// The folder line of CONFLICT: a change on both sides names the folder
+// that keeps the older copy, reviewDirs' second, when the runner kept
+// one; a Drive deletion names the local folder, reviewDirs' first.
+function conflictFolder(conflict) {
+    var dir = conflict.kind === "both-changed" ? conflict.dirs[1] : conflict.kind === "removed-on-drive" ? conflict.dirs[0] : undefined;
+    return dir === undefined ? "" : CONFLICT_FOLDER_TEXT[conflict.kind] + dir;
 }
 
 // The review list by folder pair, in the order the list first names each:
