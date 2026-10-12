@@ -108,11 +108,44 @@ function verify(logic) {
   for (const percent of [-1, 101])
     same(logic.parseSet(JSON.stringify({ id: XDR, percent: percent }), XDR), { ok: false, error: "refused: set=shape id=\"" + XDR + "\" percent=" + percent }, "parseSet: percent " + percent);
 
+  // --- Restore record and answer ------------------------------------------
+  const dimmed = { state: "dimmed", kept: [{ id: STUDIO_A, percent: 60 }, { id: STUDIO_B, percent: 40 }] };
+  same(logic.owedLevels(dimmed, null), [{ id: STUDIO_A, percent: 60 }, { id: STUDIO_B, percent: 40 }], "idle dim levels are owed");
+  same(logic.owedLevels({ state: "awake" }, { id: STUDIO_A, percent: 60 }), [{ id: STUDIO_A, percent: 60 }], "Identify's flashed level is owed");
+  same(logic.owedLevels(dimmed, { id: STUDIO_A, percent: 10 }), [{ id: STUDIO_A, percent: 60 }, { id: STUDIO_B, percent: 40 }], "a kept dim level wins over a flash");
+  same(logic.owedLevels({ state: "awake" }, null), [], "awake with no flash owes nothing");
+  const restoreEntries = [{ id: STUDIO_A, percent: 60 }, { id: STUDIO_B, percent: 40 }];
+  assert.equal(logic.restoreText(restoreEntries), JSON.stringify({ restore: restoreEntries }, null, 2) + "\n");
+  same(logic.parseRestoreRecord(logic.restoreText(restoreEntries)), { ok: true, restore: restoreEntries });
+  const restoreRefusals = [
+    ["not JSON", "{", "refused: restore=unparsed"],
+    ["a list", "[]", "refused: restore=shape want={\"restore\":[...]}"] ,
+    ["bad percent", JSON.stringify({ restore: [{ id: STUDIO_A, percent: 101 }] }), "refused: restore=0 percent=101"],
+    ["repeated id", JSON.stringify({ restore: [{ id: STUDIO_A, percent: 60 }, { id: STUDIO_A, percent: 40 }] }), "refused: restore=1 id=\"" + STUDIO_A + "\" reason=repeated"]
+  ];
+  for (const [name, text, want] of restoreRefusals) same(logic.parseRestoreRecord(text), { ok: false, error: want }, "parseRestoreRecord: " + name);
+  same(logic.restoreRecordDecision([], [{ id: STUDIO_A, percent: 60 }], false), { write: true, entries: [{ id: STUDIO_A, percent: 60 }] }, "a gained record writes while busy");
+  same(logic.restoreRecordDecision([{ id: STUDIO_A, percent: 50 }], [{ id: STUDIO_A, percent: 60 }], false), { write: true, entries: [{ id: STUDIO_A, percent: 60 }] }, "a changed level writes while busy");
+  same(logic.restoreRecordDecision([{ id: STUDIO_A, percent: 60 }, { id: STUDIO_B, percent: 40 }], [{ id: STUDIO_A, percent: 60 }], false), { write: false, entries: [{ id: STUDIO_A, percent: 60 }] }, "a shrink waits while busy");
+  same(logic.restoreRecordDecision([{ id: STUDIO_A, percent: 60 }, { id: STUDIO_B, percent: 40 }], [{ id: STUDIO_A, percent: 60 }], true), { write: true, entries: [{ id: STUDIO_A, percent: 60 }] }, "a shrink writes when idle");
+  same(logic.restoreRecordDecision([{ id: STUDIO_A, percent: 60 }], [{ id: STUDIO_A, percent: 60 }], true), { write: false, entries: [{ id: STUDIO_A, percent: 60 }] }, "an equal record does not write");
+  const restoreAnswer = { restored: [{ id: STUDIO_A, percent: 60 }], failed: [{ id: STUDIO_B, error: "state", state: "no-access" }] };
+  same(logic.parseRestoreAnswer(JSON.stringify(restoreAnswer)), { ok: true, restored: [{ id: STUDIO_A, percent: 60 }], failed: [{ id: STUDIO_B, details: "error=\"state\" state=\"no-access\"" }] });
+  same(logic.parseRestoreAnswer(JSON.stringify({ error: "restore-record", detail: "refused: restore=unparsed" })),
+    { ok: false, error: "refused: restore=helper error=\"restore-record\" detail=\"refused: restore=unparsed\"" });
+
   // --- Runs: latest wins per display, one run in flight --------------------
   let runs = logic.emptyRuns();
   let taken = logic.takeRun(runs);
   same(taken.run, null, "nothing waits");
-  runs = logic.queueSet(runs, XDR, 1);
+  runs = logic.queueList(logic.queueSet(logic.queueRestore(logic.emptyRuns()), XDR, 20));
+  for (const want of [{ verb: "restore" }, { verb: "set", id: XDR, percent: 20 }, { verb: "list" }]) {
+    taken = logic.takeRun(runs);
+    same(taken.run, want, "restore runs before sets and list");
+    runs = logic.endRun(taken.runs);
+  }
+  same(logic.takeRun(runs).run, null, "the restore queue drains");
+  runs = logic.queueSet(logic.emptyRuns(), XDR, 1);
   taken = logic.takeRun(runs);
   same(taken.run, { verb: "set", id: XDR, percent: 1 });
   runs = taken.runs;
@@ -516,7 +549,7 @@ const CONTROLS = [
   ["the global VRR field always shows", "return support !== null && Object.keys(support).some(function (name) { return support[name].vrr === true; });", "return true;"],
   ["the global VRR field never shows", "return support !== null && Object.keys(support).some(function (name) { return support[name].vrr === true; });", "return false;"],
   ["no coalescing: each change waits as its own run", "            next.sets[i].percent = percent;\n            return next;", "            break;"],
-  ["a waiting list goes before the changes", "    if (next.sets.length > 0) {", "    if (next.sets.length > 0 && !next.list) {"],
+  ["a waiting list goes before the changes", "    } else if (next.sets.length > 0) {", "    } else if (next.sets.length > 0 && !next.list) {"],
   ["a second run starts while one is in flight", "    if (runs.busy !== null) return { runs: runs, run: null };", ""],
   ["the key ignores the focused output", "        if (displays[i].state === \"ready\" && displays[i].outputs.indexOf(name) !== -1) return displays[i];", "        if (displays[i].state === \"ready\") return displays[i];"],
   ["no fine steps at the dark end", "    var size = fine ? 1 : step;", "    var size = step;"],
@@ -548,6 +581,14 @@ const CONTROLS = [
   ["the list judge takes a negative percent", "Number.isInteger(d.percent) && d.percent >= 0 && d.percent <= 100", "Number.isInteger(d.percent) && d.percent <= 100"],
   ["the set judge takes a percent past 100", "answer.percent < 0 || answer.percent > 100)", "answer.percent < 0)"],
   ["the set judge takes a negative percent", "!Number.isInteger(answer.percent) || answer.percent < 0 ||", "!Number.isInteger(answer.percent) ||"],
+  ["restore record ignores a flashed level", "owed.push({ id: flashed.id, percent: flashed.percent });", ""],
+  ["restore record lets a flash replace a kept level", "&& kept[flashed.id] !== true", ""],
+  ["restore text uses the assignments key", "return JSON.stringify({ restore: entries }, null, 2)", "return JSON.stringify({ assignments: entries }, null, 2)"],
+  ["restore record takes a repeated id", "if (hasOwn(seen, judged.entry.id)) return { ok: false", "if (false) return { ok: false"],
+  ["restore shrink writes while busy", "return { write: !sameLevels(recorded, owed) && helperIdle, entries: owed };", "return { write: !sameLevels(recorded, owed), entries: owed };"],
+  ["restore grow waits for idle", "return { write: true, entries: owed };", "return { write: helperIdle, entries: owed };"],
+  ["restore answer drops failed displays", "failed.push({ id: item.id, details: fields });", ""],
+  ["restore run waits behind sets", "if (next.restore) {", "if (false && next.restore) {"],
   ["assignment text has no length cap", "value.length <= ASSIGNMENT_TEXT_MAX && ", ""],
   ["a set request takes any osd", "(hasOwn(r, \"osd\") && typeof r.osd !== \"boolean\")", "false"],
   ["an assign request takes an empty device", "!isPlainObject(r) || !isText(r.device) ||", "!isPlainObject(r) ||"],

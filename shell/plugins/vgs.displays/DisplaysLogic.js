@@ -35,6 +35,7 @@ var DISPLAY_STATES = ["ready", "no-access", "no-answer", "error", "unsupported"]
 var BACKEND_STATES = ["ready", "missing", "module-not-loaded", "no-access", "error"];
 var KEY_TARGETS = ["focused", "all"];
 var ASSIGNMENT_KEYS = ["device", "label", "output"];
+var RESTORE_KEYS = ["id", "percent"];
 var STEP_STATES = ["ready", "needed", "denied", "absent", "unknown", "nixos"];
 var TRANSFORMS = [
     { value: 0, label: "Normal" },
@@ -555,14 +556,113 @@ function parseSet(text, id) {
     return { ok: true, percent: answer.percent };
 }
 
+function restoreEntry(value, at, what) {
+    if (!isPlainObject(value)) return { ok: false, error: "refused: " + what + "=" + at + " want=object" };
+    var keys = Object.keys(value).sort();
+    if (keys.join(",") !== RESTORE_KEYS.join(",")) return { ok: false, error: "refused: " + what + "=" + at + " keys=" + shown(keys) + " want=id,percent" };
+    if (typeof value.id !== "string" || value.id === "") return { ok: false, error: "refused: " + what + "=" + at + " id=" + shown(value.id) };
+    if (!Number.isInteger(value.percent) || value.percent < 0 || value.percent > 100)
+        return { ok: false, error: "refused: " + what + "=" + at + " percent=" + shown(value.percent) };
+    return { ok: true, entry: { id: value.id, percent: value.percent } };
+}
+
+// The levels the service still owes displays after it has dimmed or
+// flashed them. A kept idle-dim level wins over Identify because it is the
+// final target when a flash runs during a dim.
+function owedLevels(dim, flashed) {
+    var owed = [];
+    var kept = {};
+    if (dim !== null && dim.state === "dimmed" && Array.isArray(dim.kept)) {
+        dim.kept.forEach(function (entry) {
+            if (typeof entry.id === "string" && Number.isInteger(entry.percent)) {
+                kept[entry.id] = true;
+                owed.push({ id: entry.id, percent: entry.percent });
+            }
+        });
+    }
+    if (flashed !== null && typeof flashed.id === "string" && Number.isInteger(flashed.percent) && kept[flashed.id] !== true)
+        owed.push({ id: flashed.id, percent: flashed.percent });
+    return owed;
+}
+
+// The restore record, judged: { ok: true, restore }, with restore
+// [{ id, percent }], or { ok: false, error }.
+function parseRestoreRecord(text) {
+    var parsed = parseJson(text, "restore");
+    if (!parsed.ok) return parsed;
+    var doc = parsed.value;
+    if (!isPlainObject(doc) || Object.keys(doc).length !== 1 || !Array.isArray(doc.restore))
+        return { ok: false, error: "refused: restore=shape want={\"restore\":[...]}" };
+    var entries = [];
+    var seen = {};
+    for (var i = 0; i < doc.restore.length; i++) {
+        var judged = restoreEntry(doc.restore[i], i, "restore");
+        if (!judged.ok) return judged;
+        if (hasOwn(seen, judged.entry.id)) return { ok: false, error: "refused: restore=" + i + " id=" + shown(judged.entry.id) + " reason=repeated" };
+        seen[judged.entry.id] = true;
+        entries.push(judged.entry);
+    }
+    return { ok: true, restore: entries };
+}
+
+function restoreText(entries) {
+    return JSON.stringify({ restore: entries }, null, 2) + "\n";
+}
+
+function sameLevels(a, b) {
+    if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) if (a[i].id !== b[i].id || a[i].percent !== b[i].percent) return false;
+    return true;
+}
+
+// Whether the restore record should be replaced now. A gained or changed
+// owed level is written even while the helper is busy; a shrink waits until
+// no restore or set can still be writing brightness.
+function restoreRecordDecision(recorded, owed, helperIdle) {
+    var current = {};
+    recorded.forEach(function (entry) { current[entry.id] = entry.percent; });
+    for (var i = 0; i < owed.length; i++)
+        if (!hasOwn(current, owed[i].id) || current[owed[i].id] !== owed[i].percent)
+            return { write: true, entries: owed };
+    return { write: !sameLevels(recorded, owed) && helperIdle, entries: owed };
+}
+
+// The helper's `restore` answer, judged: { ok: true, restored, failed } or
+// { ok: false, error }. Each failed item carries a `details` suffix for
+// the service's keyed warning.
+function parseRestoreAnswer(text) {
+    var parsed = parseJson(text, "restore");
+    if (!parsed.ok) return parsed;
+    var answer = parsed.value;
+    if (!isPlainObject(answer)) return { ok: false, error: "refused: restore=shape want=object" };
+    if (hasOwn(answer, "error")) return { ok: false, error: "refused: restore=helper error=" + shown(answer.error) + (hasOwn(answer, "detail") ? " detail=" + shown(answer.detail) : "") };
+    if (!Array.isArray(answer.restored) || !Array.isArray(answer.failed)) return { ok: false, error: "refused: restore=shape want={restored,failed}" };
+    var restored = [];
+    for (var i = 0; i < answer.restored.length; i++) {
+        var judged = restoreEntry(answer.restored[i], i, "restored");
+        if (!judged.ok) return judged;
+        restored.push(judged.entry);
+    }
+    var failed = [];
+    for (var f = 0; f < answer.failed.length; f++) {
+        var item = answer.failed[f];
+        if (!isPlainObject(item) || typeof item.id !== "string" || item.id === "" || typeof item.error !== "string" || item.error === "")
+            return { ok: false, error: "refused: failed=" + f + " want={id,error,...}" };
+        var fields = Object.keys(item).filter(function (key) { return key !== "id"; }).sort().map(function (key) { return key + "=" + shown(item[key]); }).join(" ");
+        failed.push({ id: item.id, details: fields });
+    }
+    return { ok: true, restored: restored, failed: failed };
+}
+
 // --- Runs ----------------------------------------------------------------------
 
-// The helper's runs, one at a time: { busy, sets, list }. `busy` is the
-// run in flight or null; `sets` holds at most one { id, percent } per
-// display, the latest asked for, in the order each display was first
-// asked; `list` is whether a list waits. Sets go before a waiting list.
+// The helper's runs, one at a time: { busy, restore, sets, list }. `busy`
+// is the run in flight or null; `restore` is whether the startup restore
+// waits; `sets` holds at most one { id, percent } per display, the latest
+// asked for, in the order each display was first asked; `list` is whether
+// a list waits. Restore runs before sets, and sets go before a waiting list.
 function emptyRuns() {
-    return { busy: null, sets: [], list: false };
+    return { busy: null, restore: false, sets: [], list: false };
 }
 
 // RUNS with ID's next value PERCENT: a later value replaces the waiting
@@ -580,20 +680,29 @@ function queueSet(runs, id, percent) {
     return next;
 }
 
+function queueRestore(runs) {
+    var next = clone(runs);
+    next.restore = true;
+    return next;
+}
+
 function queueList(runs) {
     var next = clone(runs);
     next.list = true;
     return next;
 }
 
-// { runs, run }: the run to start now, { verb: "set", id, percent } or
-// { verb: "list" }, marked busy in RUNS, or null while one is in flight or
-// nothing waits.
+// { runs, run }: the run to start now, { verb: "restore" },
+// { verb: "set", id, percent } or { verb: "list" }, marked busy in RUNS,
+// or null while one is in flight or nothing waits.
 function takeRun(runs) {
     if (runs.busy !== null) return { runs: runs, run: null };
     var next = clone(runs);
     var run = null;
-    if (next.sets.length > 0) {
+    if (next.restore) {
+        next.restore = false;
+        run = { verb: "restore" };
+    } else if (next.sets.length > 0) {
         var set = next.sets.shift();
         run = { verb: "set", id: set.id, percent: set.percent };
     } else if (next.list) {

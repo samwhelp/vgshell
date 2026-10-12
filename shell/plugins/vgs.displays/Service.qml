@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
 import qs.Commons
@@ -28,12 +29,16 @@ import "DisplaysLogic.js" as Logic
 //
 // The idle dim: one idle watch of `dimAfterSeconds`, none at 0. When it
 // reports idle, the service lists, as a key does, so it keeps each
-// display's real level, and sets every ready display brighter than
-// `dimPercent` to it (DisplaysLogic.dimPlan). When input returns, each
-// display it dimmed goes back to its kept level; a display set while dimmed
-// keeps the level it was set to. Changing `dimAfterSeconds` replaces the
-// watch, and the old one would never report the input, so it brings the
-// displays back first.
+// display's real level, records those owed levels under the plugin state
+// directory, and sets every ready display brighter than `dimPercent` to it
+// (DisplaysLogic.dimPlan). When input returns, each display it dimmed goes
+// back to its kept level; a display set while dimmed keeps the level it was
+// set to. Identify records its owed level in the same file. The first
+// helper run on start restores that record before the first list; if a
+// destroyed service starts a detached restore at the same time, one
+// restorer consumes the unchanged file and the other sees restored levels
+// or no file. Changing `dimAfterSeconds` replaces the watch, and the old
+// one would never report the input, so it brings the displays back first.
 Item {
     id: root
 
@@ -68,6 +73,8 @@ Item {
     // [{ id, percent }], each dimmed display's level before.
     property var dim: ({ state: "awake" })
     property var idleDisposer: null
+    property var recorded: []
+
 
     readonly property var outputs: shell === null ? null : shell.monitors.outputs
     readonly property var trialState: shell === null ? ({ phase: "idle", token: "", deadline: 0, failure: "" }) : shell.monitors.trialState
@@ -85,6 +92,7 @@ Item {
     readonly property int step: shell === null ? 5 : shell.settings.brightnessStep
     readonly property int dimAfterSeconds: shell === null ? 0 : shell.settings.dimAfterSeconds
     readonly property string assignmentsPath: Paths.stateDir + "/plugins/vgs.displays/assignments.json"
+    readonly property string restorePath: Paths.stateDir + "/plugins/vgs.displays/restore.json"
     readonly property string helperPath: String(Qt.resolvedUrl("helper/brightness.py")).replace(/^file:\/\//, "")
 
     onShellChanged: start()
@@ -112,7 +120,10 @@ Item {
         shell.layers.show(identifyLayer);
         shell.layers.show(trialLayer);
         assignmentsFile.path = assignmentsPath;
+        restoreFile.path = restorePath;
+        runs = Logic.queueRestore(runs);
         publish();
+        pump();
         requestList();
     }
 
@@ -175,7 +186,11 @@ Item {
         const taken = Logic.takeRun(runs);
         if (taken.run === null) return;
         runs = taken.runs;
-        if (taken.run.verb === "list") {
+        if (taken.run.verb === "restore") {
+            helper.feed = "";
+            helper.stdinEnabled = false;
+            helper.command = ["python3", helperPath, "restore", restorePath];
+        } else if (taken.run.verb === "list") {
             helper.feed = JSON.stringify(outputs.map(o => ({ name: o.name, make: o.make, model: o.model, serial: o.serial })));
             helper.stdinEnabled = true;
             helper.command = ["python3", helperPath, "list", "--outputs", "-"];
@@ -195,7 +210,14 @@ Item {
         const run = runs.busy;
         const text = helper.timedOut ? "" : String(output.text || "");
         const ended = helper.timedOut ? "timeout" : helper.exitCode === null ? "start-failed" : "exit=" + helper.exitCode;
-        if (run.verb === "list") {
+        if (run.verb === "restore") {
+            const judged = Logic.parseRestoreAnswer(text);
+            if (judged.ok) {
+                for (const failed of judged.failed) console.warn("displays: restore=" + failed.id + " " + ended + " " + failed.details + root.stderrLine());
+            } else {
+                console.warn("displays: restore " + ended + " " + judged.error + root.stderrLine());
+            }
+        } else if (run.verb === "list") {
             const judged = Logic.parseList(text);
             if (judged.ok) {
                 listed = { backends: judged.backends, displays: judged.displays };
@@ -215,6 +237,7 @@ Item {
             }
         }
         runs = Logic.endRun(runs);
+        syncRestoreRecord();
         if (run.verb === "list" && keyPresses.length > 0) {
             const presses = keyPresses;
             keyPresses = [];
@@ -237,6 +260,18 @@ Item {
         listed = next;
     }
 
+    function restoreRecordIdle() {
+        return runs.busy === null && runs.restore !== true && runs.sets.length === 0;
+    }
+
+    function syncRestoreRecord() {
+        const owed = Logic.owedLevels(dim, flashed);
+        const decision = Logic.restoreRecordDecision(recorded, owed, restoreRecordIdle());
+        if (!decision.write) return;
+        recorded = decision.entries;
+        restoreFile.setText(Logic.restoreText(recorded));
+    }
+
     // Each change of CHANGES, the first one's level on the on-screen display
     // of the outputs its display lights when OSD holds. A change to the
     // display Identify flashes is the user's level, which Identify's end
@@ -244,6 +279,7 @@ Item {
     function apply(changes, osdShown) {
         if (flashed !== null && changes.some(c => c.id === flashed.id)) flashed = null;
         if (dim.state === "dimmed") dim = { state: "dimmed", kept: Logic.releaseKept(dim.kept, changes.map(c => c.id)) };
+        syncRestoreRecord();
         for (const change of changes) requestSet(change.id, change.percent);
         if (osdShown && changes.length > 0) {
             const display = Logic.displayById(current, changes[0].id);
@@ -307,6 +343,7 @@ Item {
         identifying = true;
         if (display !== null && display.state === "ready") {
             flashed = { id: id, percent: display.percent };
+            syncRestoreRecord();
             requestSet(id, display.percent >= 50 ? 10 : 100);
         }
         identifyTimer.restart();
@@ -319,6 +356,7 @@ Item {
         if (flashed !== null) {
             const back = flashed;
             flashed = null;
+            syncRestoreRecord();
             requestSet(back.id, back.percent);
         }
     }
@@ -343,6 +381,7 @@ Item {
     function dimNow() {
         const plan = Logic.dimPlan(current, shell.settings.dimPercent);
         dim = { state: "dimmed", kept: plan.kept };
+        syncRestoreRecord();
         for (const change of plan.sets) requestSet(change.id, change.percent);
     }
 
@@ -350,13 +389,17 @@ Item {
     function wake() {
         const was = dim;
         dim = { state: "awake" };
+        syncRestoreRecord();
         if (was.state !== "dimmed") return;
         for (const change of Logic.restoreChanges(current, was.kept)) requestSet(change.id, change.percent);
     }
 
     Component.onDestruction: {
-        if (flashed !== null) console.warn("displays: identify ended with the service; display=" + flashed.id + " keeps its flash level");
-        if (dim.state === "dimmed") console.warn("displays: the idle dim ended with the service; displays=" + JSON.stringify(dim.kept.map(k => k.id)) + " keep the dim level");
+        if (recorded.length > 0) {
+            // Quickshell kills a destroyed service's Process runs with SIGKILL,
+            // so the restore must outlive this service instance.
+            Quickshell.execDetached(["python3", root.helperPath, "restore", root.restorePath]);
+        }
     }
 
     Process {
@@ -435,6 +478,22 @@ Item {
         onSaveFailed: error => {
             root.fileError = "refused: assignments=unwritten error=" + error;
             console.error("displays: assignments not written: file=" + root.assignmentsPath + " error=" + error);
+        }
+    }
+
+
+    // Quickshell 0.3.1 FileView creates missing parent directories before
+    // it writes (src/io/fileview.cpp, v0.3.1); setText also follows
+    // atomicWrites and blockWrites as the FileView reference states.
+    FileView {
+        id: restoreFile
+        atomicWrites: true
+        // SIGTERM ends the shell with no handler run, so a write left to
+        // FileView's worker thread would not survive a restart.
+        blockWrites: true
+        printErrors: false
+        onSaveFailed: error => {
+            console.error("displays: restore record not written: file=" + root.restorePath + " error=" + error);
         }
     }
 

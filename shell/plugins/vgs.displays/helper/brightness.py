@@ -4,6 +4,7 @@
 Usage:
   brightness.py list --outputs FILE|-
   brightness.py set ID PERCENT
+  brightness.py restore FILE
 
 QML cannot ioctl a hidraw node and ddcutil is an external program, so the
 vgs.displays service runs this once per read or write. It never talks to
@@ -11,6 +12,14 @@ Hyprland: `list` reads the outputs the caller passes, a JSON array as
 `hyprctl -j monitors all` prints it, from FILE or from stdin for `-`. Each
 element needs a string `name`; `make`, `model` and `serial` are read when
 they are strings.
+
+`restore` reads {"restore": [{"id": ID, "percent": P}, ...]} from FILE,
+sets every entry it can, removes FILE only when its bytes are unchanged
+since the read, and answers {"restored": [{"id", "percent"}...],
+"failed": [{"id", ...failure fields}...]}. An absent FILE answers with
+empty lists. A refused record answers {"error": "restore-record",
+"detail": REASON} and is removed when unchanged, so the next start does
+not read the same bad record.
 
 `list` answers {"backends": {"ddc": STATE, "backlight": STATE},
 "displays": [DISPLAY...]}. A backend STATE is {"state": S}, S one of
@@ -710,6 +719,70 @@ def list_displays(roots, reports, env, outputs, now):
     return {"backends": {"ddc": ddc_backend, "backlight": light_state}, "displays": shown + ddc_shown}
 
 
+
+# --- restore ------------------------------------------------------------------
+
+def restore_refusal(detail):
+    return Failure("restore-record", detail=detail)
+
+def parse_restore(data):
+    try:
+        document = json.loads(data.decode())
+    except (UnicodeDecodeError, ValueError) as error:
+        raise restore_refusal("refused: restore=unparsed") from error
+    if not isinstance(document, dict) or set(document.keys()) != {"restore"} or not isinstance(document["restore"], list):
+        raise restore_refusal('refused: restore=shape want={"restore":[...]}')
+    entries, seen = [], set()
+    for index, item in enumerate(document["restore"]):
+        if not isinstance(item, dict) or set(item.keys()) != {"id", "percent"}:
+            raise restore_refusal(f"refused: restore={index} want={{id,percent}}")
+        id_, percent = item["id"], item["percent"]
+        if not isinstance(id_, str) or id_ == "":
+            raise restore_refusal(f"refused: restore={index} id={id_!r}")
+        if id_ in seen:
+            raise restore_refusal(f"refused: restore={index} id={id_!r} reason=repeated")
+        if not isinstance(percent, int) or percent < 0 or percent > 100:
+            raise restore_refusal(f"refused: restore={index} percent={percent!r}")
+        seen.add(id_)
+        entries.append({"id": id_, "percent": percent})
+    return entries
+
+def remove_unchanged(path, before):
+    try:
+        if read_bytes(path) != before:
+            return False
+    except FileNotFoundError:
+        return True
+    os.unlink(path)
+    return True
+
+def restore_record(roots, reports, env, path, now):
+    try:
+        original = read_bytes(path)
+    except FileNotFoundError:
+        return {"restored": [], "failed": []}
+    except OSError as error:
+        raise Failure("restore-read", path=path, detail=error.strerror) from error
+    try:
+        entries = parse_restore(original)
+    except Failure as failure:
+        with contextlib.suppress(OSError):
+            remove_unchanged(path, original)
+        raise failure
+    restored, failed = [], []
+    for item in entries:
+        try:
+            restored.append(set_brightness(roots, reports, env, item["id"], item["percent"], now))
+        except Failure as failure:
+            fields = dict(failure.fields)
+            fields.setdefault("id", item["id"])
+            failed.append(fields)
+        except OSError as error:
+            failed.append({"id": item["id"], "error": "os", "path": error.filename, "detail": error.strerror})
+    with contextlib.suppress(OSError):
+        remove_unchanged(path, original)
+    return {"restored": restored, "failed": failed}
+
 # --- set ----------------------------------------------------------------------
 
 def set_hidraw(roots, reports, target, parent, percent):
@@ -762,7 +835,7 @@ def set_brightness(roots, reports, env, target, percent, now):
 
 def usage(detail):
     return Failure("usage", exit_status=2, detail=detail,
-                   usage="brightness.py list --outputs FILE|- | brightness.py set ID PERCENT")
+                   usage="brightness.py list --outputs FILE|- | brightness.py set ID PERCENT | brightness.py restore FILE")
 
 
 def main(argv, env):
@@ -774,6 +847,8 @@ def main(argv, env):
             if not re.fullmatch(r"-?\d+", argv[2]):
                 raise usage("PERCENT must be an integer")
             return set_brightness(roots, reports, env, argv[1], int(argv[2]), time.time())
+        if len(argv) == 2 and argv[0] == "restore":
+            return restore_record(roots, reports, env, argv[1], time.time())
         raise usage("unknown command")
 
 

@@ -769,6 +769,65 @@ class Access(Case):
         self.assertEqual(self.only(world.listing(), "hidraw")["state"], "ready")
 
 
+class Restore(Case):
+    def restore_file(self, world, entries):
+        path = world.root / "restore.json"
+        path.write_text(json.dumps({"restore": entries}))
+        return path
+
+    def test_restore_sets_each_entry_and_removes_file(self):
+        world = self.world()
+        world.hidraw("hidraw0", STUDIO, "S1", raw=12320, usb="1-2")
+        world.hidraw("hidraw1", STUDIO, "S2", raw=12320, usb="1-3")
+        world.start()
+        ids = [d["id"] for d in world.listing()["displays"]]
+        record = self.restore_file(world, [{"id": ids[0], "percent": 60}, {"id": ids[1], "percent": 40}])
+        status, answer, _ = world.helper("restore", str(record))
+        self.assertEqual(status, 0)
+        self.assertEqual(answer, {"restored": [{"id": ids[0], "percent": 60}, {"id": ids[1], "percent": 40}], "failed": []})
+        self.assertFalse(record.exists())
+        self.assertEqual(world.stored("hidraw0"), "01408d00000000")
+        self.assertEqual(world.stored("hidraw1"), "01b05e00000000")
+
+    def test_restore_reports_failed_display_without_stopping_others(self):
+        world = self.world()
+        world.hidraw("hidraw0", STUDIO, "S1", raw=12320, usb="1-2")
+        world.start()
+        id_ = world.listing()["displays"][0]["id"]
+        record = self.restore_file(world, [{"id": "hidraw:missing", "percent": 40}, {"id": id_, "percent": 60}])
+        status, answer, _ = world.helper("restore", str(record))
+        self.assertEqual(status, 0)
+        self.assertEqual(answer["restored"], [{"id": id_, "percent": 60}])
+        self.assertEqual(answer["failed"], [{"error": "unknown-id", "id": "hidraw:missing"}])
+        self.assertFalse(record.exists())
+        self.assertEqual(world.stored("hidraw0"), "01408d00000000")
+
+    def test_restore_keeps_changed_file(self):
+        root = Path(self.world().root)
+        record = root / "restore.json"
+        before = b'{"restore": []}'
+        record.write_bytes(before)
+        record.write_bytes(b'{"restore": [{"id": "hidraw:new", "percent": 50}]}')
+        self.assertFalse(helper.remove_unchanged(str(record), before))
+        self.assertTrue(record.exists())
+
+    def test_restore_absent_file_answers_empty(self):
+        world = self.world()
+        world.start()
+        status, answer, _ = world.helper("restore", str(world.root / "absent.json"))
+        self.assertEqual((status, answer), (0, {"restored": [], "failed": []}))
+
+    def test_restore_refused_shape_is_reported_and_removed(self):
+        world = self.world()
+        world.start()
+        record = world.root / "restore.json"
+        record.write_text(json.dumps({"restore": [{"id": "hidraw:x", "percent": 50}, {"id": "hidraw:x", "percent": 60}]}))
+        status, answer, _ = world.helper("restore", str(record))
+        self.assertEqual((status, answer["error"]), (1, "restore-record"))
+        self.assertIn("reason=repeated", answer["detail"])
+        self.assertFalse(record.exists())
+
+
 class Seam(Case):
     def test_no_real_node_opens(self):
         world = self.world()
@@ -822,6 +881,7 @@ class Usage(Case):
             (["set", "hidraw:x", "50"], 1, "unknown-id"),
             (["set", "nothing", "50"], 1, "unknown-id"),
             (["set", "ddc:", "50"], 1, "unknown-id"),
+            (["restore"], 2, "usage"),
         )
         for argv, status, key in rows:
             with self.subTest(argv=argv):
@@ -879,6 +939,9 @@ class Controls(unittest.TestCase):
          "light.name", "Backlights.test_listing_parsing_mapping_and_set"),
         ("seam without roots", "if fake and not (", "if False and not (", "Seam.test_fake_needs_both_roots"),
         ("kernel backlight ignored", "if kernel is not None:", "if False:", "Backlights.test_kernel_backlight_preferred_over_hidraw"),
+        ("restore removes changed records", "if read_bytes(path) != before:", "if False and read_bytes(path) != before:", "Restore.test_restore_keeps_changed_file"),
+        ("restore stops after first failure", "failed.append(fields)", "failed.append(fields); raise", "Restore.test_restore_reports_failed_display_without_stopping_others"),
+        ("restore leaves refused records", "with contextlib.suppress(OSError):\n            remove_unchanged(path, original)\n        raise failure", "with contextlib.suppress(OSError):\n            False\n        raise failure", "Restore.test_restore_refused_shape_is_reported_and_removed"),
     )
 
     def mirror(self, scratch, helper_text):

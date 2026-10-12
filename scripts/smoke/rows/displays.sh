@@ -33,7 +33,12 @@
 # section with the settings' values; after 3 s without input every display
 # brighter than the dim level, 20 %, dims to it and a darker one takes no
 # write, a level set while dimmed stays, and a key brings each other
-# display back to its level; a stub kernel backlight, which the
+# display back to its level; disabling the service during a dim restores
+# the levels and removes the restore record, disabling it during Identify
+# restores the flashed display, a rebuild during a dim and a shell restart
+# both restore before their first list, and a mutant service with the
+# on-destruction restore removed leaves the dim level until the original
+# start restore consumes the record; a stub kernel backlight, which the
 # brightnessctl stand-in lists and sets, reads as a laptop panel, and a
 # mouse drag on its slider in System → Displays sets it while the drag
 # moves and leaves it at the drag's end, 1 %; after another program sets
@@ -50,7 +55,9 @@
 # copy as shipped draws no Access section, the copy that takes every entry
 # as needed draws the ready Apple entry, and the copy that never hides the
 # section keeps its heading over no line. With the dim off, 4 s without
-# input write no display, so the dim's writes are the watch's. The helper
+# input write no display, so the dim's writes are the watch's. A mutant
+# service that drops its on-destruction restore leaves Studio A at 20 %,
+# and the original service restores it from the record on start. The helper
 # runs and their
 # levels are read from the HID fake's log, every feature report it
 # served, and from the brightnessctl stand-in's calls. Every
@@ -58,7 +65,7 @@
 # user file, so vgs.system and vgs.displays are as it found them, and
 # removes the output, the assignments file and the stub backlight and
 # gives hidraw2 its mode back. The dim settings live in the user file.
-# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprctlReader.qml shell/Hosts/BarHost.qml shell/Hosts/PluginSlot.qml shell/Core/Plugins.qml shell/Core/Lifetime.js shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml shell/Hosts/OverlaySurface.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/foundation/Scrim.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml
+# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.displays/helper/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprctlReader.qml shell/Hosts/BarHost.qml shell/Hosts/PluginSlot.qml shell/Core/Plugins.qml shell/Core/Lifetime.js shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml shell/Hosts/OverlaySurface.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/foundation/Scrim.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml
 set -euo pipefail
 devices_ready displays || return 0
 # The core probes the system steps once vgs.displays holds `system`, and
@@ -66,6 +73,7 @@ devices_ready displays || return 0
 disp_tree="$(devices_system_tree)" || { fail "displays: the fakes' system tree: $disp_tree"; return 0; }
 disp_output=SMOKE-DISPLAYS
 disp_file="$home/.local/state/vgshell/plugins/vgs.displays/assignments.json"
+disp_restore_file="$home/.local/state/vgshell/plugins/vgs.displays/restore.json"
 disp_xdr=hidraw:class/hidraw/hidraw0/device
 disp_a=hidraw:class/hidraw/hidraw1/device
 disp_b=hidraw:class/hidraw/hidraw2/device
@@ -75,7 +83,7 @@ disp_hidraw2="$devices_dev_root/hidraw2"
 disp_user="$home/.config/vgshell/shell.json"
 disp_user_saved="$sandbox/shell-before-displays.json"
 cp -- "$disp_user" "$disp_user_saved"
-rm -f -- "${disp_file:?}"
+rm -f -- "${disp_file:?}" "${disp_restore_file:?}"
 
 disp_read() { ipc smoke readInstance service vgs.displays "$1"; }
 # The displays the service publishes, by HID node, as [node, state,
@@ -86,7 +94,7 @@ items = json.load(sys.stdin)["displays"]["items"]
 print(json.dumps([[re.search(r"hidraw\d+", d["id"]).group(0), d["state"], d["percent"], d["outputs"], d["assigned"]] for d in items]))'; }
 disp_item() { disp_items | py_reply 'import json,sys; found=[d for d in json.load(sys.stdin) if d[0] == sys.argv[1]]; print(json.dumps(found[0]) if found else "absent")' "$1"; }
 disp_value() { disp_read values | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[sys.argv[1]], sort_keys=True))' "$1"; }
-disp_idle() { disp_read runs | py_reply 'import json,sys; r=json.load(sys.stdin); print(r["busy"] is None and r["sets"] == [] and not r["list"])'; }
+disp_idle() { disp_read runs | py_reply 'import json,sys; r=json.load(sys.stdin); print(r["busy"] is None and not r.get("restore", False) and r["sets"] == [] and not r["list"])'; }
 disp_identifier() { disp_read outputs | py_reply 'import json,sys; print([o["identifier"] for o in json.load(sys.stdin) if o["name"] == sys.argv[1]][0])' "$1"; }
 disp_widget() { ipc smoke readInstance "bar:$1" vgs.displays "$2"; }
 # The HID fake's set-feature calls for a node: how many, and the last
@@ -99,6 +107,8 @@ print(sum(1 for r in rows if r["request"].get("device") == node and r["request"]
 PY
 }
 disp_report() { hid_fake_call "$1" 0xC0074807 01000000000000 | py_reply 'import json,sys; print(json.load(sys.stdin)["data"])'; }
+disp_reports_ab() { echo "$(disp_report hidraw1) $(disp_report hidraw2)"; }
+disp_restore_exists() { if [[ -e $disp_restore_file ]]; then echo True; else echo False; fi; }
 # The screens each passive layer of the plugin maps on, in registration
 # order: the on-screen display, Identify, then the display-trial banner.
 disp_layers() { ipc smoke layerWindows vgs.displays | py_reply '
@@ -657,6 +667,87 @@ sleep 4
 expect "control: with the dim off, 4 s without input write no display" "$disp_quiet_sets" disp_all_sets
 expect "control: with the dim off the service stays awake" '["awake"]' disp_dim
 
+# The restore record outlives the service. Disable, rebuild and restart
+# paths put the brightness back before the next list or next dim reads it.
+disp_initial_log="$instance_log"
+disp_service="$repo/shell/plugins/vgs.displays/Service.qml"
+disp_service_saved="$sandbox/displays-service.qml.saved"
+cp -- "$disp_service" "$disp_service_saved"
+expect "the restore record is absent before restore checks" False disp_restore_exists
+
+disp_setting dimAfterSeconds 3
+expect_poll "the service watches for 3 s for the disable restore" '[3]' disp_watches
+expect_poll "3 s without input dim the displays before disable" '["dimmed", ["hidraw1", 60], ["hidraw2", 40]]' disp_dim
+expect "disabling vgs.displays during a dim is allowed" ok ipc shell setPluginEnabled vgs.displays false
+expect_poll "disable during a dim restores Studio A and Studio B" '01408d00000000 01b05e00000000' disp_reports_ab
+expect_poll "the restore record is consumed after disable during a dim" False disp_restore_exists
+disp_setting dimAfterSeconds 0
+expect "re-enabling vgs.displays after the dim restore is allowed" ok ipc shell setPluginEnabled vgs.displays true
+expect_poll "the restored service is built after disable during a dim" True record_exists vgs.displays
+expect_poll "the restored service lists Studio A at 60 % and Studio B at 40 %" \
+  "[[\"hidraw0\", \"ready\", 10, [\"$disp_main\"], true], [\"hidraw1\", \"ready\", 60, [\"$disp_output\"], true], [\"hidraw2\", \"ready\", 40, [], false]]" disp_items
+
+expect "Identify starts before disable" ok ipc vgs.displays invoke identify "$disp_a"
+expect_poll "Identify flashes Studio A down to 10 % before disable" 01d81800000000 disp_report hidraw1
+expect "disabling vgs.displays during Identify is allowed" ok ipc shell setPluginEnabled vgs.displays false
+expect_poll "disable during Identify restores Studio A" 01408d00000000 disp_report hidraw1
+expect "re-enabling vgs.displays after Identify is allowed" ok ipc shell setPluginEnabled vgs.displays true
+expect_poll "the service is built after the Identify restore" True record_exists vgs.displays
+expect_poll "the helper is idle after the Identify restore" True disp_idle
+
+disp_setting dimAfterSeconds 3
+expect_poll "the service watches for 3 s before the rebuild restore" '[3]' disp_watches
+expect_poll "3 s without input dim the displays before rebuild" '["dimmed", ["hidraw1", 60], ["hidraw2", 40]]' disp_dim
+printf '\n// smoke restore rebuild %s\n' "$(date +%s)" >>"$disp_service"
+rescan "the displays service rebuilds during a dim"
+expect_poll "the rebuilt service's next dim kept the restored levels" '["dimmed", ["hidraw1", 60], ["hidraw2", 40]]' disp_dim
+type_keys -k Shift_L || fail "typing a key after the rebuild restore failed"
+expect_poll "the rebuild restore dim ends" '["awake"]' disp_dim
+cp -- "$disp_service_saved" "$disp_service"
+rescan "the displays service source is restored after the rebuild check"
+expect_poll "the helper is idle after the rebuild restore" True disp_idle
+
+disp_setting dimAfterSeconds 3
+expect_poll "the service watches for 3 s before the restart restore" '[3]' disp_watches
+expect_poll "3 s without input dim the displays before restart" '["dimmed", ["hidraw1", 60], ["hidraw2", 40]]' disp_dim
+disp_restart_log="$sandbox/displays-restart.log"
+stop_shell
+start_shell "$repo" "$disp_restart_log" || fail "the shell starts again for the displays restore record"
+expect_poll "the displays service is built after the restart" True record_exists vgs.displays
+expect_poll "the restarted service's next dim kept the restored levels" '["dimmed", ["hidraw1", 60], ["hidraw2", 40]]' disp_dim
+type_keys -k Shift_L || fail "typing a key after the restart restore failed"
+expect_poll "the restart restore dim ends" '["awake"]' disp_dim
+expect_poll "the helper is idle after the restart restore" True disp_idle
+
+disp_setting dimAfterSeconds 3
+expect_poll "the service watches for 3 s before the missing-restore control" '[3]' disp_watches
+python3 - "$disp_service" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+text = path.read_text()
+old = '''            Quickshell.execDetached(["python3", root.helperPath, "restore", root.restorePath]);
+'''
+assert text.count(old) == 1
+changed = text.replace(old, "")
+assert changed != text
+path.write_text(changed)
+PY
+rescan "the displays service missing-restore control is scanned"
+expect_poll "3 s without input dim the displays before the missing-restore control" '["dimmed", ["hidraw1", 60], ["hidraw2", 40]]' disp_dim
+expect "disabling the missing-restore control is allowed" ok ipc shell setPluginEnabled vgs.displays false
+expect_poll "control: a service that drops the restore leaves Studio A at 20 %" 01203000000000 disp_report hidraw1
+cp -- "$disp_service_saved" "$disp_service"
+rescan "the original displays service is scanned after the missing-restore control"
+expect "re-enabling the original displays service after the control is allowed" ok ipc shell setPluginEnabled vgs.displays true
+expect_poll "the original service start restore brings Studio A back to 60 %" 01408d00000000 disp_report hidraw1
+expect_poll "the helper is idle after the missing-restore control" True disp_idle
+disp_setting dimAfterSeconds 0
+expect_poll "the dim is off after restore checks" '[]' disp_watches
+expect "the initial shell log has no old service-ended restore warning" 0 log_lines 'ended with the service' "$disp_initial_log"
+expect "the restart shell log has no old service-ended restore warning" 0 log_lines 'ended with the service' "$disp_restart_log"
+rm -f -- "${disp_restore_file:?}"
+
 # A laptop panel: a stub kernel backlight in the fakes' sysfs, which the
 # brightnessctl stand-in lists at 50 % and sets to any level. A mouse drag
 # on its slider in System → Displays, from near the slider's end past its
@@ -774,7 +865,7 @@ device_reply_clear brightnessctl
 
 expect "disabling vgs.displays at the end is allowed" ok ipc shell setPluginEnabled vgs.displays false
 expect_poll "no displays layer is left" '[]' ipc smoke layerWindows vgs.displays
-rm -f -- "${disp_file:?}"
+rm -f -- "${disp_file:?}" "${disp_restore_file:?}"
 # Native deletion can run after the bar's layer is already gone. Observe
 # clients and focus for 5 s, every 0.2 s, so a later Qt remap cannot pass
 # the immediate surface-count check and leak into Power's start snapshot.
