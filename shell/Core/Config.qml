@@ -8,9 +8,10 @@ import "PluginLogic.js" as Logic
 // Shell configuration: the shipped defaults under config/ merged with the
 // user's file. Both files are watched; a change re-derives `effective`
 // once. Each file's state is one tagged value. A read or a write commits
-// the file's text, state and value before any reader is told, and readers
-// are told only through publish(), so a write made from a handler of that
-// change builds on it, and its own change is told after the one in flight.
+// the file's text, state and value before `effective` or `notReady`
+// changes, and those change only through publish(), so a write made from a
+// handler of either builds on it, and its own change is told after the one
+// in flight.
 // A file that does not parse or fails PluginLogic.configError keeps the
 // last good value and logs the error, so a typo never blanks the desktop;
 // a user file in that state

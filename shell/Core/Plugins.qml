@@ -231,6 +231,14 @@ Singleton {
             for (const key of Object.keys(context || {}))
                 instance[key] = context[key];
             record(hostKey, row);
+            // A configure write the instance makes while it takes `shell`
+            // or its context publishes before the row is recorded, so the
+            // reconcile it runs passes this row by; the refresh hands the
+            // row what it missed. Recording first instead would let that
+            // reconcile assign `shell` again from inside the instance's own
+            // `shell` change, whose bindings Qt then keeps stale
+            // (Config.publish states the fact).
+            refreshRow(row);
             if (kind === "bar") mountBar(hostKey, row);
         } catch (e) {
             const error = failed(kind + " not built: " + e.message);
