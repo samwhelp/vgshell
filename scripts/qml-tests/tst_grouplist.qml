@@ -9,7 +9,9 @@ import "../../shell/plugins/vgs.settings"
 // hairline in `groupList.divider` in each gap, centred within a pixel
 // between the drawn pixels of the two groups, read from the rendered
 // image: a hint's leading, a chip or a label centred in a taller row and a
-// button that fills its row move it no closer to either group. A hidden
+// button that fills its row move it no closer to either group, and the ink
+// it reads of a line, a link drawn as the value or a text value, is that
+// line's first drawn row. A hidden
 // group takes neither, a group list inside another divides its own groups
 // alike, and a theme moves both. The groups are the Settings page's own Status lines
 // and Requirements rows, so the page's rhythm is read where it is drawn:
@@ -24,7 +26,7 @@ import "../../shell/plugins/vgs.settings"
 // `hintLink` words as a link, which emits `hintLinkActivated`.
 Item {
     id: root
-    width: 480
+    width: 880
     height: 2500
 
     GroupList {
@@ -86,6 +88,24 @@ Item {
             Field { width: inkList.width; label: "Keys"; inline: true; hint: "One key per account." }
             StatusLine { width: inkList.width; label: "Accounts"; hint: "Signed in does not prove that the AI answers." }
             StatusLine { width: inkList.width; label: "Token"; tone: "warning"; text: "Absent"; hint: "Needed to sign in."; actionLabel: "Set up token"; actionOffered: true }
+        }
+    }
+
+    // Status lines on a solid surface whose value's ink starts below its
+    // box and above the label's: a hint drawn as the value with its link,
+    // on one line, and a text value centred on the row.
+    Rectangle {
+        id: valueInkFrame
+        x: 460
+        width: 400
+        height: valueInkList.height
+        color: Theme.color.surface
+        GroupList {
+            id: valueInkList
+            width: valueInkFrame.width
+            StatusLine { width: valueInkList.width; label: "Token"; tone: "warning"; text: "Absent" }
+            StatusLine { id: linkInk; width: valueInkList.width; label: "Keys"; hint: "Get a key from Acme."; hintLink: "Acme" }
+            StatusLine { id: textInk; width: valueInkList.width; label: "Mode"; text: "Local" }
         }
     }
 
@@ -203,6 +223,32 @@ Item {
                 if (Math.abs(blankAbove - blankBelow) > 2) out.push("hairline@" + y + " blank above=" + blankAbove + " below=" + blankBelow);
             }
             compare(out, [], "every hairline is centred between the drawn groups");
+        }
+
+        // The ink a hairline reads of the group under it, the line's own
+        // `inkAbove()`, is the line's first drawn row in the image, within
+        // a pixel, for a link drawn as the value and a text value whose
+        // ink starts below their boxes. A line that reports its value's
+        // box top in place of its ink is off by that ink offset.
+        function test_a_lines_ink_starts_at_its_first_drawn_row() {
+            checkDivided(valueInkList);
+            const link = findChild(linkInk, LinkText);
+            verify(link !== null && link.lineCount === 1, "the hint is drawn as the value, as one line of a link");
+            verify(link.linked, "the hint cites its link's words");
+            verify(link.inkAbove() > 1, "the link's ink starts below its box: " + link.inkAbove());
+            verify(waitForRendering(valueInkFrame));
+            const img = grabImage(valueInkFrame);
+            const scale = img.width / valueInkFrame.width;
+            const surface = Qt.color(Theme.color.surface);
+            const out = [];
+            for (const line of shownGroups(valueInkList)) {
+                const top = line.mapToItem(valueInkFrame, 0, 0).y;
+                let row = Math.round(top * scale);
+                while (row < img.height && !rowDrawn(img, row, surface)) row++;
+                const ink = top + Theme.inkAbove(line);
+                if (Math.abs(row / scale - ink) > 1) out.push(line.label + " ink=" + ink + " drawn=" + row / scale);
+            }
+            compare(out, [], "each line's ink starts at its first drawn row");
         }
 
         function test_a_theme_moves_the_gap_and_the_hairline() {
