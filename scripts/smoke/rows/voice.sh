@@ -1072,12 +1072,23 @@ voice_notice_escape() { # LABEL
   expect_poll "$1: Escape closes the notice" null notice_shown
 }
 voice_asked='["vgs.voice", ["voxtype", "voxtype-audio-bridge"], ["voxtype", "voxtype-audio-bridge"], false]'
-# How many texts the Voice page's shown tab draws that name voxtype, its
-# bridge aside, once the tab draws ANCHOR, else `unread`.
+# How many items of the Voice page's shown tab state voxtype, once the tab
+# draws ANCHOR, else `unread`: the Requirements row named voxtype, each
+# status row and each line of the Setup tab's Status and Setup sections
+# that names it, its bridge aside.
 voice_page_voxtype() { # ANCHOR
-  ipc smoke itemTexts window vgs.settings PluginPage | py_reply 'import json,re,sys
-texts = [t for page in json.load(sys.stdin) for t in page]
-print(sum(1 for t in texts if re.search(r"\bvoxtype\b(?!-)", t, re.I)) if sys.argv[1] in texts else "unread")' "$1"
+  local page requirements status setup
+  page="$(ipc smoke itemTexts window vgs.settings PluginPage)" || return 1
+  requirements="$(ipc smoke itemTexts window vgs.settings RequirementRow)" || return 1
+  status="$(ipc smoke itemTexts window vgs.settings StatusRow)" || return 1
+  setup="$(ipc smoke setupSection window vgs.settings)" || return 1
+  python3 -c 'import json,re,sys
+page, requirements, status = (json.loads(a) for a in sys.argv[1:4])
+lines = [] if sys.argv[4] == "absent" else json.loads(sys.argv[4])["lines"]
+names = lambda text: re.search(r"\bvoxtype\b(?!-)", text) is not None
+drawn = [t for texts in page for t in texts]
+count = sum(1 for row in requirements if row and row[0] == "voxtype") + sum(1 for row in status if any(map(names, row))) + sum(1 for line in lines if names(line))
+print(count if sys.argv[5] in drawn else "unread")' "$page" "$requirements" "$status" "$setup" "$1"
 }
 # The Voice row of the Plugins list: whether it draws Setup needed, then
 # the warning icon of a missing optional tool.
