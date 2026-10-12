@@ -111,11 +111,13 @@ printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>%q\ncase "$1" in -k|-n) exit 0 ;; esac
 expect "the tree's sudo is the row's stand-in" replaced sentinel_of "$system_bin/sudo"
 printf '#!/bin/sh\nif [ "$1" = trigger ] && [ -e %q ]; then chmod 0600 %q; fi\nexec %q "$@"\n' \
   "$system_rule" "$system_hidraw" "$(sentinel_saved "$shim/udevadm")" | sentinel_stand_over "$shim/udevadm"
+# The command's last line as the terminal shows it: the question's key help
+# line is erased after its answer with a cursor move and a line erase.
 system_apply() {
   local status=0
   "${sandbox_env[@]}" "${shell_start_words[@]}" SHELL="$BASH" script -qec "$(printf '%q ' "$repo/bin/vgshell" system apply apple-displays)" /dev/null \
     </dev/null >"$sandbox/system-apply.out" 2>&1 || status=$?
-  tr -d '\r' <"$sandbox/system-apply.out" | tail -n 1
+  sed -e $'s/\e\\[[0-9]*[ABCDJK]//g' "$sandbox/system-apply.out" | tr -d '\r' | tail -n 1
   return "$status"
 }
 expect "the step's command applies it" "ok system=apple-displays state=ready" system_apply
@@ -191,7 +193,7 @@ system_capture_command() {
   local status=0
   "${sandbox_env[@]}" "${shell_start_words[@]}" SHELL="$BASH" script -qec "$(printf '%q ' "$repo/bin/vgshell" system "$1" bandwhich-capture)" /dev/null \
     </dev/null >"$sandbox/capture-$1.out" 2>&1 || status=$?
-  tr -d '\r' <"$sandbox/capture-$1.out" | tail -n 1
+  sed -e $'s/\e\\[[0-9]*[ABCDJK]//g' "$sandbox/capture-$1.out" | tr -d '\r' | tail -n 1
   return "$status"
 }
 expect "capture apply grants the fixture binary" "ok system=bandwhich-capture state=ready" system_capture_command apply
