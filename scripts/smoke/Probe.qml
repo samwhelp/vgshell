@@ -186,8 +186,8 @@ Scope {
     property var popupCopies: ({})
     // name -> how many times the SummonLayer copy of that name was dismissed.
     property var layerDismissals: ({})
-    // [window, size] per window windowDrawn listens on: the size, `WxH`,
-    // of the last frame it presented.
+    // [window, size, frames] per window windowDrawn listens on: the size, `WxH`,
+    // of the last frame it presented, and the number of swapped frames.
     property var drawnWindows: []
     property var rememberedLayers: []
     // The vgs.polkit prompt over a stand-in authentication flow, for the
@@ -1847,20 +1847,36 @@ Scope {
         // a frame. A layer surface takes a press only where its presented
         // buffer reaches, so a row waits for this before it presses beside
         // a summon that has just mapped.
+        function windowDrawnEntry(win) {
+            let entry = root.drawnWindows.find(row => row[0] === win);
+            if (entry === undefined) {
+                entry = [win, "", 0];
+                root.drawnWindows = root.drawnWindows.concat([entry]);
+                win.frameSwapped.connect(() => { entry[1] = win.width + "x" + win.height; entry[2] += 1; });
+            }
+            return entry;
+        }
         function windowDrawn(hostKey: string, id: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
             const win = item.Window.window;
             if (win === null) return "no-window";
-            let entry = root.drawnWindows.find(row => row[0] === win);
-            if (entry === undefined) {
-                entry = [win, ""];
-                root.drawnWindows = root.drawnWindows.concat([entry]);
-                win.frameSwapped.connect(() => { entry[1] = win.width + "x" + win.height; });
-            }
+            let entry = windowDrawnEntry(win);
             if (entry[1] === win.width + "x" + win.height) return "drawn";
             win.update();
             return "pending";
+        }
+        // frameSwapped acknowledges a queued Qt frame, not compositor
+        // presentation. A row pairs it with output captures to prove paint:
+        // doc.qt.io/qt-6/qml-qtquick-window.html#frameSwapped-signal.
+        function windowFrames(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            const win = item.Window.window;
+            if (win === null) return "no-window";
+            let entry = windowDrawnEntry(win);
+            win.update();
+            return entry[2].toString();
         }
         // Every item under an instance, the instance first, breadth first:
         // its type name as typeName writes it, its objectName, its box in screen

@@ -28,6 +28,7 @@
 # already plays: "with Sound off the call is heard" failed, reading silent,
 # and "the chime that opens with the notification is held" failed, the
 # held list naming the call beside the chime until the hold ran out.
+# A scoped retry runs `scripts/qml-smoke.sh --rows bar,hyprland-consent,plugins,capabilities,session,status,notifications,device-fakes,start-order,auth-sentinel`; `--rows notifications` alone lacks the server and plugins earlier rows build.
 # inputs: scripts/fixtures/notifications/state-v3.json shell/Core/Sounds.qml shell/assets/sounds/* scripts/smoke/fixtures/plugins/acme.sounds/* scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
@@ -3552,6 +3553,34 @@ fade_paint_wait() { # METHOD HIDDEN
   printf 'notification-capture: method=%s state=frame-pending\n' "$1" >&2
   return 1
 }
+fade_panel_frames_read() {
+  local frames
+  if ! frames="$(ipc smoke windowFrames panel vgs.notifications)"; then
+    echo 'notification-capture: read=panel-frame failed' >&2
+    return 1
+  fi
+  [[ $frames =~ ^[0-9]+$ ]] || { printf 'notification-capture: panel-frame=%s\n' "$frames" >&2; return 1; }
+  printf '%s\n' "$frames"
+}
+fade_wait_panel_frame_after() { # COUNT
+  local frames
+  fade_panel_frame_count=""
+  smoke_poll_tries 200
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    frames="$(fade_panel_frames_read)" || return
+    if (( frames > $1 )); then fade_panel_frame_count="$frames"; return 0; fi
+    sleep 0.2
+  done
+  echo 'notification-capture: panel-frame=pending' >&2
+  return 1
+}
+fade_read_geometry() { # ITEMS_FILE
+  if ! ipc smoke descendantGeometry panel vgs.notifications >"$1"; then
+    echo 'notification-capture: read=descendantGeometry failed' >&2
+    return 1
+  fi
+  [[ $(<"$1") == \[* ]] || { echo 'notification-capture: read=descendantGeometry failed' >&2; return 1; }
+}
 fade_capture_geometry_same() { # BEFORE AFTER
   local same
   if [[ ! -r $1 ]] || ! same="$(py_reply 'import json,sys
@@ -3569,17 +3598,17 @@ except (OSError,ValueError): print("unreadable")
     *) echo 'notification-capture: geometry-reader=unreadable' >&2; return 1 ;;
   esac
 }
-# Home and hover change the action reservation before text wrapping and
-# card heights finish. Observe the whole layout after the view rests,
-# before either matched image, rather than accepting a moving first box.
+# The tray reservation can change card heights until its fade has drawn.
+# A layout is settled only when it is unchanged across a drawn panel frame.
 fade_capture_layout() { # ITEMS_FILE
-  local previous="$1-previous.json" view same
-  ipc smoke descendantGeometry panel vgs.notifications >"$previous" || return
+  local previous="$1-previous.json" frames same
+  fade_read_geometry "$previous" || return
+  frames="$(fade_panel_frames_read)" || return
   smoke_poll_tries 200
   for _ in $(seq 1 "$smoke_poll_n"); do
-    view="$(fade_current_view)" || return
-    [[ $view == \{* ]] || { printf 'notification-capture: layout-view=%s\n' "$view" >&2; return 1; }
-    ipc smoke descendantGeometry panel vgs.notifications >"$1" || return
+    fade_wait_panel_frame_after "$frames" || return
+    frames="$fade_panel_frame_count"
+    fade_read_geometry "$1" || return
     same="$(fade_capture_geometry_same "$previous" "$1")" || return
     [[ $same != True ]] || return 0
     cp -- "$1" "$previous" || return
@@ -3676,10 +3705,22 @@ fade_open_mid() {
 fade_state_hovered() { ipc smoke itemValues panel vgs.notifications NotificationCard hovered | py_reply 'import json,sys;print(any(v["hovered"] for v in json.load(sys.stdin)))'; }
 fade_state_pressed() { ipc smoke itemValues panel vgs.notifications QQuickMouseArea pressed | py_reply 'import json,sys;print(any(v["pressed"] for v in json.load(sys.stdin)))'; }
 fade_output() { # PNG
-  local socket output
-  socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || return
-  output="$(first_name)" || return
-  shot_grim "$socket" "$rt_dir" -o "$output" -t png "$1"
+  local socket output status
+  socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || {
+    status=$?
+    printf 'notification-capture: output=failed status=%s path=%s\n' "$status" "$1" >&2
+    return "$status"
+  }
+  output="$(first_name)" || {
+    status=$?
+    printf 'notification-capture: output=failed status=%s path=%s\n' "$status" "$1" >&2
+    return "$status"
+  }
+  shot_grim "$socket" "$rt_dir" -o "$output" -t png "$1" || {
+    status=$?
+    printf 'notification-capture: output=failed status=%s path=%s\n' "$status" "$1" >&2
+    return "$status"
+  }
 }
 # Captured card paint is compared with the same Panel without its mask.
 # The reference changes no geometry, inventory, selection or wallpaper.
@@ -3728,6 +3769,11 @@ paint_match=sum(max(abs(pixels[y][4*x+c]-ref[y][4*x+c]) for c in range(3))<=3 fo
 print(json.dumps({"summary":summary,"edge":edge,"cardBox":card["box"],"fadeIntersection":[top,bottom],"referenceInkPixels":len(cores),"matchedInkPixels":matched,"cardPixels":paint_count,"matchedCardPixels":paint_match,"contentY":view["contentY"],"travel":travel}))
 ' "$@"
 }
+fade_paint_same() { # SAMPLE_JSON
+  py_reply 'import json,sys
+s=json.load(sys.stdin)
+print(s["matchedInkPixels"]==s["referenceInkPixels"] and s["cardPixels"]>0 and s["matchedCardPixels"]>=s["cardPixels"]*0.98)' <<<"$1"
+}
 # Whether a captured card keeps its band's fade: its title ink and its
 # interior differ from the same card with the mask removed.
 fade_active_faded_value() {
@@ -3749,29 +3795,82 @@ top,bottom=(vy,vy+band) if edge=="top" else (vy+vh-band,vy+vh)
 print(0<view["contentY"]<view["contentHeight"]-view["height"] and min(cy+ch,bottom)>max(cy,top))
 PY_ACTIVE_INTERSECTION
 }
-fade_active_pair() { # PREFIX SUMMARY EDGE
-  local prefix="$1" summary="$2" edge="$3" items="$1-items.json" restore_items="$1-restored-items.json"
-  local view surface ink rc=0 sample restored same saved
-  fade_capture_layout "$items" || return
+fade_active_read_context() { # SUMMARY EDGE ITEMS VIEW_FILE SURFACE_FILE INK_FILE
+  local summary="$1" edge="$2" items="$3" view_file="$4" surface_file="$5" ink_file="$6" view surface ink
   fade_inventory || return
   [[ $summary == "$fade_middle" ]] || { echo 'notification-capture: selected-inventory-changed' >&2; return 1; }
-  view="$(fade_current_view)" && surface="$(surface_box vgs:panel)" && ink="$(look_at text.foreground)" || return
+  fade_read_geometry "$items" || return
+  view="$(fade_current_view)" || { echo 'notification-capture: read=view failed' >&2; return 1; }
+  [[ $view == \{* ]] || { echo 'notification-capture: read=view failed' >&2; return 1; }
+  surface="$(surface_box vgs:panel)" || { echo 'notification-capture: read=surface failed' >&2; return 1; }
+  [[ $surface == \[* ]] || { echo 'notification-capture: read=surface failed' >&2; return 1; }
+  ink="$(look_at text.foreground)" || { echo 'notification-capture: read=ink failed' >&2; return 1; }
+  [[ $ink == '"#'* ]] || { echo 'notification-capture: read=ink failed' >&2; return 1; }
   [[ $(fade_active_intersection "$items" "$view" "$summary" "$edge" "$(fade_band "$edge")") == True ]] || { echo 'notification-capture: insufficient-fade-intersection' >&2; return 1; }
+  printf '%s\n' "$view" >"$view_file" || return
+  printf '%s\n' "$surface" >"$surface_file" || return
+  printf '%s\n' "$ink" >"$ink_file" || return
+}
+fade_active_settled_capture() { # PREFIX SUMMARY EDGE ITEMS VIEW_FILE SURFACE_FILE INK_FILE
+  local prefix="$1" summary="$2" edge="$3" items="$4" view_file="$5" surface_file="$6" ink_file="$7"
+  local next_items="$prefix-next-items.json" next_view="$prefix-next-view.json" next_surface="$prefix-next-surface.json" next_ink="$prefix-next-ink.json" next_png="$prefix-next.png"
+  local frames same paint last_unsettled=paint
+  fade_active_read_context "$summary" "$edge" "$items" "$view_file" "$surface_file" "$ink_file" || return
   fade_output "$prefix.png" || return
+  frames="$(fade_panel_frames_read)" || return
+  smoke_poll_tries 200
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    fade_wait_panel_frame_after "$frames" || return
+    frames="$fade_panel_frame_count"
+    fade_active_read_context "$summary" "$edge" "$next_items" "$next_view" "$next_surface" "$next_ink" || return
+    fade_output "$next_png" || return
+    same="$(fade_capture_geometry_same "$items" "$next_items")" || return
+    if [[ $same == True ]]; then
+      paint="$(fade_active_value "$next_png" "$prefix.png" "$next_items" "$(<"$next_view")" "$(<"$next_surface")" "$(<"$next_ink")" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
+      [[ $paint == \{* ]] || { printf 'notification-capture: paint=%s\n' "$paint" >&2; return 1; }
+      if [[ $(fade_paint_same "$paint") == True ]]; then
+        return 0
+      fi
+      last_unsettled=paint
+    else
+      last_unsettled=layout
+    fi
+    mv -- "$next_items" "$items" || return
+    mv -- "$next_view" "$view_file" || return
+    mv -- "$next_surface" "$surface_file" || return
+    mv -- "$next_ink" "$ink_file" || return
+    mv -- "$next_png" "$prefix.png" || return
+    frames="$(fade_panel_frames_read)" || return
+  done
+  printf 'notification-capture: %s=unsettled\n' "$last_unsettled" >&2
+  return 1
+}
+fade_active_pair() { # PREFIX SUMMARY EDGE
+  local smoke_poll_scope=$((BASH_SUBSHELL))
+  local prefix="$1" summary="$2" edge="$3" items="$1-items.json" restore_items="$1-restored-items.json"
+  local view_file="$1-view.json" surface_file="$1-surface.json" ink_file="$1-ink.json"
+  local view surface ink rc=0 status sample restored same saved
+  fade_active_settled_capture "$prefix" "$summary" "$edge" "$items" "$view_file" "$surface_file" "$ink_file" || return
+  view="$(<"$view_file")" || return
+  surface="$(<"$surface_file")" || return
+  ink="$(<"$ink_file")" || return
   if fade_paint_wait notificationFadeReference true; then fade_output "$prefix-reference.png" || rc=$?; else rc=$?; fi
   fade_paint_wait notificationFadeReference false || rc=$?
-  ipc smoke notificationPaintCleanup panel vgs.notifications >/dev/null || rc=$?
+  ipc smoke notificationPaintCleanup panel vgs.notifications >/dev/null || {
+    status=$?
+    echo 'notification-capture: read=notificationPaintCleanup failed' >&2
+    rc=$status
+  }
   fade_output "$prefix-restored.png" || return
-  ipc smoke descendantGeometry panel vgs.notifications >"$restore_items" || return
+  fade_read_geometry "$restore_items" || return
   same="$(fade_capture_geometry_same "$items" "$restore_items")" || return
   [[ $same == True ]] || { echo 'notification-capture: card-geometry-changed' >&2; return 1; }
   saved="$(fade_active_value "$prefix-restored.png" "$prefix.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
   [[ $saved == \{* ]] || { printf 'notification-capture: saved-paint=%s\n' "$saved" >&2; return 1; }
   printf '%s\n' "$saved" >"$prefix-saved-restoration.json"
-  [[ $(py_reply 'import json,sys
-s=json.load(sys.stdin);print(s["matchedInkPixels"]==s["referenceInkPixels"] and s["cardPixels"]>0 and s["matchedCardPixels"]>=s["cardPixels"]*0.98)' <<<"$saved") == True ]] || { echo 'notification-capture: saved-paint-not-restored' >&2; return 1; }
+  [[ $(fade_paint_same "$saved") == True ]] || { echo 'notification-capture: saved-paint-not-restored' >&2; return 1; }
   printf 'notification-capture-restored: geometry=stable saved-paint=restored path=%s\n' "$prefix-saved-restoration.json" >&2
-  ((rc==0)) || return "$rc"
+  ((rc==0)) || { printf 'notification-capture: reference-step status=%s\n' "$rc" >&2; return "$rc"; }
   sample="$(fade_active_value "$prefix.png" "$prefix-reference.png" "$items" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
   restored="$(fade_active_value "$prefix-restored.png" "$prefix-reference.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
   [[ $sample == \{* && $restored == \{* ]] || { printf 'notification-capture: sample=%s restored=%s\n' "$sample" "$restored" >&2; return 1; }
@@ -3864,6 +3963,15 @@ fade_failed_capture() {
   rmdir -- "$prefix-reference.png" || return
   printf '%s\n' "$status"
 }
+fade_reference_reads_unsettled() { # PREFIX SUMMARY EDGE
+  local prefix="$1" summary="$2" edge="$3" view surface ink value
+  view="$(<"$prefix-view.json")" || return
+  surface="$(<"$prefix-surface.json")" || return
+  ink="$(<"$prefix-ink.json")" || return
+  value="$(fade_active_value "$prefix-reference.png" "$prefix.png" "$prefix-items.json" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
+  [[ $value == \{* ]] || { printf 'notification-capture: control-paint=%s\n' "$value" >&2; return 1; }
+  fade_paint_same "$value"
+}
 fade_active_states() { # MODE
   local state edge sample x y prefix prior_failures
   for state in hover keyboard-focus pressed; do
@@ -3900,6 +4008,7 @@ fade_active_states() { # MODE
       fi
       render expect "the $1 $state card keeps the $edge band's fade" True fade_active_faded_value "$sample"
       if [[ $1 == dark && $state == keyboard-focus && $edge == top ]]; then
+        expect "control: a faded capture and its unmasked reference read as unsettled paint" False fade_reference_reads_unsettled "$prefix" "$fade_middle" "$edge"
         expect "control: a failed card reference capture returns failure" 1 fade_failed_capture
         render expect "the same Panel restores its fade after a failed capture" True fade_active_faded_value "$(fade_active_pair "$prefix-after-failure" "$fade_middle" "$edge")"
       fi
