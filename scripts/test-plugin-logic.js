@@ -610,7 +610,7 @@ function suite(ctx, check) {
         ["a version 2 file is left as it is",
             v2({ right: [{ id: "a.b" }] }, { plugins: [{ id: "a.b", on: true }] }), v2({ right: [{ id: "a.b" }] }, { plugins: [{ id: "a.b", on: true }] }), false, ""],
         ["a version 2 file with a key in an entry is left for the judge",
-            v2({ right: [{ id: "a.b", on: true }] }), v2({ right: [{ id: "a.b", on: true }] }), false, "bar.layout.right.0 has key \"on\" beside its id"],
+            v2({ right: [{ id: "a.b", on: true }] }), v2({ right: [{ id: "a.b", on: true }] }), false, "bar.layout.right.0 has key \"on\" beside its id; a setting belongs in its plugins[] row"],
         ["a later version is left for the judge",
             { version: 3, bar: { layout: { right: [{ id: "a.b", on: true }] } } }, { version: 3, bar: { layout: { right: [{ id: "a.b", on: true }] } } }, false, "version must be 2, got 3"],
         ["a version 1 entry that is no object is left for the judge",

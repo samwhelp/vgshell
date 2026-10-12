@@ -71,6 +71,9 @@ os.replace(p + ".tmp", p)
 PY
 }
 probe_widgets() { ipc shell built | py_reply 'import json,sys; d=json.load(sys.stdin); print(sum(1 for r in d[sys.argv[1]] if r["id"]=="acme.probe"))' "$(bar_key)"; }
+# probe_widget_labels: the label each acme.probe widget under the first bar
+# holds, in the bar's item order.
+probe_widget_labels() { ipc smoke itemValues "$(bar_key)" vgs.bar Widget moduleName,label | py_reply 'import json,sys; print(json.dumps([w["label"] for w in json.load(sys.stdin) if w["moduleName"] == "acme.probe"]))'; }
 probe_row_label() { python3 -c 'import json,sys; print(json.dumps([e.get("label") for e in json.load(open(sys.argv[1])).get("plugins",[]) if e["id"]=="acme.probe"]))' "$home/.config/vgshell/shell.json"; }
 right_entries add
 expect_poll "the fixture widget is placed twice" 2 probe_widgets
@@ -78,6 +81,7 @@ expect "a widget's configure writes its plugins row" ok ipc smoke invokeInstance
 expect_poll "the plugins row holds the widget's setting" '["only-first"]' probe_row_label
 expect "the layout entries keep their ids alone" '[{"id": "acme.probe"}, {"id": "acme.probe"}]' right_entries show
 expect_poll "the service reads the setting the widget wrote" '"only-first"' read_service label
+expect_poll "both placements read the setting one of them wrote" '["only-first", "only-first"]' probe_widget_labels
 right_entries drop
 expect_poll "the second placement is gone" 1 probe_widgets
 

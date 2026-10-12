@@ -27,10 +27,11 @@
 # A settings row written outside the page: a second fixture, acme.outside,
 # a service and a bar widget whose settings live in its plugins row alone,
 # draws a switch, Compact, a segmented control, Mode, and a Custom text
-# field, Label. A row an editor saves over the user file while the page is
-# open redraws all three; one saved while the window is closed draws on
-# the next open; the widget reads the same row, and its layout entry holds
-# its id alone.
+# field, Label. Its row is written before it is enabled, so the enable
+# places its widget beside a row that holds settings, and its layout entry
+# holds its id alone. A row an editor saves over the user file while the
+# page is open redraws all three; one saved while the window is closed
+# draws on the next open; and the widget reads the same row.
 # Controls. A copy of the Settings plugin, installed over the shipped one,
 # whose text field writes when it loses focus, whose bar is bound to no
 # edit, whose Discard and Ctrl+S do nothing and whose window asks nothing
@@ -439,20 +440,24 @@ os.replace(path + ".tmp", path)
 PY
 }
 install_plugin_copy acme.outside "$uo_id" Outside
+# A row before the rescan, so the first presence places nothing and the
+# enable places the widget beside the row's settings.
+uo_write true busy outside-zero || fail "writing the row before the enable failed"
 rescan "a rescan finds the outside-write fixture"
 expect "enabling the outside-write fixture is allowed" ok ipc shell setPluginEnabled "$uo_id" true
 expect_poll "the outside-write fixture's widget is on the bar" 1 uo_widgets
+expect "the placed widget's layout entry holds its id alone" '[{"id": "acme.outside"}]' uo_entries
 settings_page_open "$uo_id"
-expect_poll "the page draws the manifest's defaults" '[false, 0, "probe"]' uo_drawn
-uo_write true busy outside-one || fail "writing the row outside the page failed"
-expect_poll "a row written outside redraws the open page" '[true, 1, "outside-one"]' uo_drawn
-expect_poll "the widget reads the row written outside" '[true, "busy", "outside-one"]' uo_widget
+expect_poll "the page draws the row written before the enable" '[true, 1, "outside-zero"]' uo_drawn
+uo_write false off outside-one || fail "writing the row outside the page failed"
+expect_poll "a row written outside redraws the open page" '[false, 2, "outside-one"]' uo_drawn
+expect_poll "the widget reads the row written outside" '[false, "off", "outside-one"]' uo_widget
 settings_page_close "$uo_id"
-uo_write false off outside-two || fail "writing the row with the window closed failed"
+uo_write true calm outside-two || fail "writing the row with the window closed failed"
 settings_page_open "$uo_id"
-expect_poll "a row written while the window was closed draws on the next open" '[false, 2, "outside-two"]' uo_drawn
-expect_poll "the widget reads the newer row" '[false, "off", "outside-two"]' uo_widget
-expect "the widget's layout entry holds its id alone" '[{"id": "acme.outside"}]' uo_entries
+expect_poll "a row written while the window was closed draws on the next open" '[true, 0, "outside-two"]' uo_drawn
+expect_poll "the widget reads the newer row" '[true, "calm", "outside-two"]' uo_widget
+expect "the widget's layout entry still holds its id alone" '[{"id": "acme.outside"}]' uo_entries
 settings_page_close "$uo_id"
 
 # Control of the page's rules: a copy of the Settings plugin, installed
@@ -522,13 +527,13 @@ if copy_tree unsaved-host \
   stop_shell
   start_shell "$sandbox/tree-unsaved-host" "$sandbox/unsaved-host.log" || fail "the control shell of the tree copy starts"
   settings_page_open "$uo_id"
-  expect_poll "control: the page draws the row the copy read at start" '[false, 2, "outside-two"]' uo_drawn
+  expect_poll "control: the page draws the row the copy read at start" '[true, 0, "outside-two"]' uo_drawn
   uo_loads="$(ipc smoke configUserLoads)" || fail "control: the user file's read count is unreadable"
-  uo_write true busy outside-three || fail "control: writing the row outside the page failed"
+  uo_write false busy outside-three || fail "control: writing the row outside the page failed"
   uo_read_since() { local loads; loads="$(ipc smoke configUserLoads)" || return 1; ((loads > uo_loads)) && echo read || echo waiting; }
   expect_poll "control: the copy reads the file the editor saved" read uo_read_since
-  expect "control: a configuration that keeps its first row leaves the page on the old row" '[false, 2, "outside-two"]' uo_drawn
-  expect "control: and leaves the widget on the old row" '[false, "off", "outside-two"]' uo_widget
+  expect "control: a configuration that keeps its first row leaves the page on the old row" '[true, 0, "outside-two"]' uo_drawn
+  expect "control: and leaves the widget on the old row" '[true, "calm", "outside-two"]' uo_widget
   settings_page_close "$uo_id"
   settings_page_open "$us_id"
   expect_poll "control: the page draws its Gap field" drawn us_line Gap

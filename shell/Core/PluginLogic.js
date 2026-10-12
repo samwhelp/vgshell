@@ -377,7 +377,7 @@ function configError(config) {
                 for (var e = 0; e < config.bar.layout[section].length; e++) {
                     var extra = Object.keys(config.bar.layout[section][e]).filter(function (k) { return k !== "id"; });
                     if (extra.length > 0)
-                        return "bar.layout." + section + "." + e + " has key " + JSON.stringify(extra[0]) + " beside its id";
+                        return "bar.layout." + section + "." + e + " has key " + JSON.stringify(extra[0]) + " beside its id; a setting belongs in its plugins[] row";
                 }
             }
         }

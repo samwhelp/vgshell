@@ -111,9 +111,9 @@ Singleton {
             root.userState = r.state;
             // Written once, so the next read finds this version's file.
             if (r.migrated) {
-                console.info("config: user file migrated: file=" + path + " version=" + Logic.CONFIG_VERSION);
                 const written = root.writeUser(r.value);
-                if (written !== "ok") console.error("config: migrated user file not written: " + written);
+                if (written === "ok") console.info("config: user file migrated: file=" + path + " version=" + Logic.CONFIG_VERSION);
+                else console.error("config: user file migrated in memory, not written: file=" + path + " version=" + Logic.CONFIG_VERSION + " refusal=" + written);
             }
         }
         onLoadFailed: error => {
