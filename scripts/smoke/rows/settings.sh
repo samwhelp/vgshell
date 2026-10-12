@@ -685,7 +685,7 @@ done
 rmdir -- "$repo/shell/Core/TuiInstallControls" || fail "removing the TUI install control directory failed"
 # A screen a status entry declares draws only on that entry's row: the
 # token's row offers Token setup as Install requirements above, and the
-# Setup section draws no button for it, offered or not. With the token's
+# Setup tab draws no Setup section for it, offered or not (`absent`). With the token's
 # action taken out of the manifest, the screen belongs to no entry and
 # draws in the Setup section disabled, with a reason naming the missing
 # command, since its press could only open that notice; the two readings
@@ -695,9 +695,9 @@ rmdir -- "$repo/shell/Core/TuiInstallControls" || fail "removing the TUI install
 # enabled, whether its tooltip names NAME].
 setup_buttons() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; print(json.dumps([[b[0], b[1], b[2], sys.argv[1] in b[3]] for b in json.load(sys.stdin)["buttons"]]))' "$1"; }
 settings_setup
-expect_poll "the Setup section draws no button for the token's offered screen" '[]' setup_buttons vgs-smoke-absent
+expect_poll "the Setup tab draws no Setup section for the token's offered screen" absent setup_buttons vgs-smoke-absent
 expect "the fixture republishes a present token, which offers no step" ok ipc acme.status invoke set 'token="present"'
-expect_poll "the Setup section draws no button for the token's screen with no step offered" '[]' setup_buttons vgs-smoke-absent
+expect_poll "the Setup tab draws no Setup section for the token's screen with no step offered" absent setup_buttons vgs-smoke-absent
 python3 - "$status_manifest" <<'PYTHON'
 from pathlib import Path
 import json, sys
