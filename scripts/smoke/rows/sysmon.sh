@@ -23,9 +23,6 @@ rows=data.setdefault("plugins",[])
 row=next((r for r in rows if r.get("id")=="vgs.sysmon"),None)
 if row is None: row={"id":"vgs.sysmon"}; rows.append(row)
 row[sys.argv[2]]=json.loads(sys.argv[3])
-for entries in data.get("bar",{}).get("layout",{}).values():
-    for entry in entries:
-        if entry.get("id")=="vgs.sysmon": entry[sys.argv[2]]=json.loads(sys.argv[3])
 p.write_text(json.dumps(data))
 PYSETTING
   ipc shell reloadConfig

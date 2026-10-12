@@ -334,9 +334,6 @@ path.write_text(text.replace(old,'            visible: true'))
 path=sys.argv[2];doc=json.load(open(path))
 for row in doc.get("plugins",[]):
     if row.get("id")=="vgs.keyboard":row["repeatRate"]=200
-for entries in doc.get("bar",{}).get("layout",{}).values():
-    for row in entries:
-        if row.get("id")=="vgs.keyboard":row["repeatRate"]=200
 json.dump(doc,open(path+".tmp","w"));os.replace(path+".tmp",path)
 PYSOURCE
 rescan "rescan discovers the Keyboard source control"
