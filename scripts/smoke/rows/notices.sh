@@ -6,8 +6,9 @@
 # paru, whatever the host runs. The notice is the core's, with the Plugins
 # window closed throughout. Rows: `vgshell plugin add` raises the notice
 # through pluginInstalled, which maps one surface on the focused monitor
-# holding the keyboard and drawing one chip per package with the purposes
-# under it, the command's name when no package is known; the surface fills the monitor less the bar's reserved space less
+# holding the keyboard and drawing one chip per package its step handles,
+# with its state beside it and the purposes under it, and counting the
+# rest in its message; the surface fills the monitor less the bar's reserved space less
 # `dialog.margin`, clears the bar by that margin and centres the dialog; a
 # click on the bar's acme.tick widget reaches it while the notice shows; a
 # click beside the dialog lands on the scrim, which fills the surface in
@@ -31,7 +32,8 @@
 # ended, and neither that enable nor turning the plugin off and on raises a
 # notice for it; a scan ends while the command's `--version` still hangs,
 # and its reading arrives once the command answers; its offer raises a
-# notice whose one step is Update,
+# notice whose one step is Update, or Install and update with a missing
+# package of the same manager beside it,
 # which hands the terminal `vgshell pkg run update` for the manager that
 # owns the command path; a run that ends with code 0 and leaves the command
 # below its floor brings the notice back with a line naming the command, the
@@ -135,11 +137,13 @@ install_words() {
   words --app-id=org.vgs.tui "--title=VGS · Install requirements" -- "$tui_self" present --presentation full \
     --record core/requirements-install --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id org.vgs.tui --window-title "VGS · Install requirements" -- "$core_vgshell" pkg run install "$@"
 }
-# The notice draws one entry per package: its name as a chip with each
-# purpose under it, or the command's name when no package is known (D061).
-# group_shape reads each entry as [chip, the number of lines under it].
+# The notice draws one entry per package its step handles: its name as a
+# chip with each purpose under it, or the command's name when no package is
+# known (D061). group_shape reads each entry as [chip, the number of lines
+# under it], and group_states the state drawn beside each chip.
 group_shape() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.dumps([[g[0], len(g[1])] for g in json.load(sys.stdin)["groups"]]))'; }
-needs_groups='[["vgs-smoke-needs-pkg", 1], ["vgs-smoke-extra-git", 1], ["vgs-smoke-unmapped", 1]]'
+group_states() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.dumps([g[2] for g in json.load(sys.stdin)["groups"]]))'; }
+needs_groups='[["vgs-smoke-needs-pkg", 1]]'
 rows_hold() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(str(any(sys.argv[1] in r for r in json.load(sys.stdin)["rows"])).lower())' "$1"; }
 row_drawn() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(str(sys.argv[1] in json.load(sys.stdin)["rows"]).lower())' "$1"; }
 all_needs='["vgs-smoke-needs", "vgs-smoke-extra", "vgs-smoke-unmapped"]'
@@ -203,9 +207,12 @@ expect "the layer under the notice is hidden" ok layered undraw
 expect "disabling the layers fixture under the notice is allowed" ok ipc shell setPluginEnabled acme.layers false
 expect_poll "the layers fixture under the notice is gone" False record_exists acme.layers
 expect_poll "the notice holds the keyboard after the clicks" true ipc smoke noticeFocused
-expect "the notice draws one chip per package, the command's when no package is known" "$needs_groups" group_shape
+expect "the notice draws one chip per package its step handles" "$needs_groups" group_shape
+expect "the chip's package reads missing" '[["Missing"]]' group_states
+expect "the title counts the package the step handles" '"Acme Sync needs one package"' drawn title
+expect "the message counts the two requirements left for later" '"Install opens a terminal. The package manager asks for your password there. 2 more remain after this step."' drawn message
 expect "no line names a command whose package is known" false row_drawn "vgs-smoke-needs"
-expect "control: the same reading finds the command no package provides" true row_drawn "vgs-smoke-unmapped"
+expect "control: the same reading finds the package's chip" true row_drawn "vgs-smoke-needs-pkg"
 expect "no line marks a requirement optional" false rows_hold "optional"
 expect "the notice draws no Show command control" false rows_hold "Show command"
 expect "no row of the notice's body draws a command line" false rows_hold "pkg run install"
@@ -484,15 +491,30 @@ release_runs
 expect_run_end "the held-manager update run ends" core/requirements-update
 expect_poll "the read after the held-manager update settles the notice" settled install_settled
 expect "the held-manager update notice closes" null notice_shown
-# A notice that holds an outdated command and a missing one offers Update
-# first, so the command the plugin needs updated never waits on the
-# install of an optional one (VGS-1464).
+# A notice that holds an outdated command and a missing one of the same
+# manager, the AUR helper here, runs both in one press: the update, then
+# the missing package after --install (VGS-1490). The stand-in run changes
+# nothing, so the notice comes back naming the manager's first requirement.
 old_version 1.9.0 || fail "the stand-in below the floor is written for the mixed notice"
 rescan "a rescan with the command below its floor starts for the mixed notice"
 expect_poll "the command reads outdated for the mixed notice" '["outdated"]' floor_state
 expect "an offer of the outdated command and a missing extra raises the notice" ok floor_plugin offer 'vgs-smoke-old|vgs-smoke-extra'
 expect_poll "the mixed notice lists both commands" '["acme.floor", ["vgs-smoke-old", "vgs-smoke-extra"], ["vgs-smoke-old", "vgs-smoke-extra"], false]' notice_shown
-expect_poll "the mixed notice offers Update before Install" '["Update", "Not now"]' drawn actions
+expect_poll "the mixed notice offers one step for both" '["Install and update", "Not now"]' drawn actions
+expect "the mixed notice draws both packages" '[["vgs-smoke-old-aur", 1], ["vgs-smoke-extra-git", 1]]' group_shape
+expect "the mixed notice marks one outdated and one missing" '[["Outdated"], ["Missing"]]' group_states
+expect "the mixed notice counts both packages" '"Acme Sync needs 2 packages"' drawn title
+expect_poll "the mixed notice holds the keyboard" true ipc smoke noticeFocused
+hold_runs
+forget_record
+type_keys -k Return || fail "sending Return for the mixed step failed"
+expect_poll "one press hands the terminal the update and the install" "$(update_words --manager aur vgs-smoke-old-aur --install vgs-smoke-extra-git)" recorded
+release_runs
+expect_run_end "the mixed run ends" core/requirements-update
+expect_poll "the read after the mixed run settles the notice" settled install_settled
+expect "a mixed run that changed nothing names the outdated command" '{"kind": "outdated", "name": "vgs-smoke-old", "version": "1.9.0", "floor": "2.0.0"}' notice_failure
+expect_poll "the kept mixed notice maps its surface again" 1 layer_count vgs:notice
+expect_poll "the kept mixed notice holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape to the mixed notice failed"
 expect_poll "Escape closes the mixed notice" null notice_shown
 expect "disabling acme.floor is allowed" ok ipc shell setPluginEnabled acme.floor false

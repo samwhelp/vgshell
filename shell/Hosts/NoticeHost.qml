@@ -9,11 +9,11 @@ import qs.Ui
 // existing only while a requirement notice, the restart notice, the reset
 // question, the "VGS was reset" notice or the core consent slot shows,
 // taking the keyboard on demand. It draws one Dialog at a time. A
-// requirement notice has priority: one entry per package that installs a
-// missing requirement or updates an outdated one, its name as a chip with
-// each purpose under it, then Install and Not now, Update in its place once
-// nothing is left to install, or Close alone when no manager here installs a
-// listed package. Install and Update run Notices.accept, every other
+// requirement notice has priority: one entry per package its step installs
+// for a missing requirement or updates for an outdated one, its name as a
+// chip with Missing or Outdated beside it and each purpose under it, then
+// Install, Update or Install and update, with Not now, or Close alone when
+// no manager here installs a listed package. The step runs Notices.accept, every other
 // answer Notices.dismiss. The consent slot draws its view's title, message,
 // lines, file link, quick commands and actions: the Hyprland question's
 // Connect and Not now, or the welcome's Connect, Not now or Close. The
@@ -49,10 +49,12 @@ Scope {
         return shown.name + " needs " + (shown.groups.length === 1 ? "one " + noun : shown.groups.length + " " + noun + "s");
     }
 
-    // The label of the step the notice runs, "" when no manager here runs
-    // one: Update while a listed package is outdated, then Install.
+    // The label of the step the notice runs, PluginLogic.noticeView's
+    // `run`, "" when no manager here runs one.
     function step(shown) {
-        return shown.update !== null ? "Update" : shown.install !== null ? "Install" : "";
+        if (shown.run === null) return "";
+        if (shown.run.updates.length === 0) return "Install";
+        return shown.run.installs.length === 0 ? "Update" : "Install and update";
     }
 
     // The line under SHOWN's entries for FAILURE, Notices.failure: why its
@@ -61,7 +63,7 @@ Scope {
     function failureLine(shown, failure) {
         switch (failure.kind) {
         case "failed":
-            return "The last " + (step(shown) === "Update" ? "update" : "install") + " did not finish: " + failure.reason;
+            return "The last " + step(shown).toLowerCase() + " did not finish: " + failure.reason;
         case "missing":
             return failure.name + " is still missing after the install.";
         case "outdated":
@@ -71,7 +73,7 @@ Scope {
     }
 
     function message(shown) {
-        if (step(shown) !== "") return step(shown) + " opens a terminal. The package manager asks for your password there.";
+        if (step(shown) !== "") return step(shown) + " opens a terminal. The package manager asks for your password there." + (shown.later === 0 ? "" : shown.later === 1 ? " One more remains after this step." : " " + shown.later + " more remain after this step.");
         if (shown.byHand.length > 0) return "Add these packages to the system configuration: " + shown.byHand.map(g => g.manager + " " + g.names.join(" ")).join(", ") + ".";
         if (Notices.detection === "failed") return "VGS could not detect this system's package manager. Install these requirements by hand.";
         return "No package manager here provides these requirements. Install them by hand.";
@@ -180,8 +182,10 @@ Scope {
                         }
                     }
                 }
-                // The packages to install, a block of the dialog's body
-                // `dialog.gap` under the message: each its name as a chip,
+                // The packages this step handles, a block of the dialog's body
+                // `dialog.gap` under the message: each its name as a chip
+                // and its state beside it, a chip that elides before the
+                // state leaves the dialog,
                 // with each purpose under it as a hint, as a Field draws a
                 // label's hint. Between two entries a divider sits in a band
                 // that holds `dialog.gap` above it and below it, so the break
@@ -208,13 +212,25 @@ Scope {
                             Column {
                                 width: parent.width
                                 spacing: Theme.field.gap
-                                // A package or command name is case-sensitive,
-                                // so the chip draws it as written.
-                                Badge {
-                                    text: modelData.chip
-                                    tone: "neutral"
-                                    size: "sm"
-                                    verbatim: true
+                                Row {
+                                    id: entryHead
+                                    width: parent.width
+                                    spacing: Theme.stack.inline
+                                    // A package or command name is case-sensitive,
+                                    // so the chip draws it as written.
+                                    Badge {
+                                        width: Math.min(implicitWidth, entryHead.width - entryHead.spacing - entryState.width)
+                                        text: modelData.chip
+                                        tone: "neutral"
+                                        size: "sm"
+                                        verbatim: true
+                                    }
+                                    Badge {
+                                        id: entryState
+                                        text: modelData.update ? "Outdated" : "Missing"
+                                        tone: "warning"
+                                        size: "sm"
+                                    }
                                 }
                                 Repeater {
                                     model: modelData.purposes

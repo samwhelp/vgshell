@@ -433,6 +433,25 @@ function plan(id, action, names, onPath, ignored) {
     return { ok: true, plan: { manager: id, binary: binary, action: action, elevate: row.elevate, steps: steps } };
 }
 
+// The steps that install MISSING and update OUTDATED for manager ID, each a
+// list of one name or more, as plan answers: the update steps once over
+// both lists where the row's install and update steps are the same, since
+// such a step installs a package it does not find and brings one it finds
+// to the current version; else the install steps over MISSING, then the
+// update steps over OUTDATED, since an update step of dnf, emerge, flatpak
+// or mise refuses or skips a package that is not installed.
+function planOwed(id, missing, outdated, onPath) {
+    var row = managerRow(id);
+    if (row !== null && row.update !== null && JSON.stringify(row.update) === JSON.stringify(row.install))
+        return plan(id, "update", outdated.concat(missing), onPath);
+    var install = plan(id, "install", missing, onPath);
+    if (!install.ok) return install;
+    var update = plan(id, "update", outdated, onPath);
+    if (!update.ok) return update;
+    update.plan.steps = install.plan.steps.concat(update.plan.steps);
+    return update;
+}
+
 // The elevation command a run puts before its steps: CONFIGURED, shell.json's
 // `packages.elevate` as configError accepted it, or undefined when unset.
 // `{ ok: true, command }` with CONFIGURED when ON_PATH finds it, or else the

@@ -122,7 +122,10 @@ function suite(ctx, check) {
         ["an update that reached the floor left nothing", [], { "vgs-old": "2.0.0", "vgs-far": "1.2.0" }, { action: "update", args: ["old"] }, null],
         ["an update whose notice now offers the next manager's left nothing", [], farBelow, { action: "update", args: ["old"] }, null],
         ["an overlay's update that left its version is named by its own requirement", [], farBelow, { action: "update", args: ["--manager", "aur", "far-git"] }, { kind: "outdated", name: "vgs-far", version: "1.1.9", floor: "1.2.0" }],
-        ["an install that left its command missing is named", ["vgs-one"], below, { action: "install", args: ["one"] }, { kind: "missing", name: "vgs-one" }],
+        ["an install that left its command missing is named", ["vgs-one"], { "vgs-old": "2.0.0", "vgs-far": "1.2.0" }, { action: "install", args: ["one"] }, { kind: "missing", name: "vgs-one" }],
+        ["a run of both steps that changed nothing is named by its manager's first requirement", ["vgs-one"], below, { action: "update", args: ["old", "--install", "one"] }, { kind: "outdated", name: "vgs-old", version: "1.9.0", floor: "2.0.0" }],
+        ["a run of both steps that left only its update owed left something changed", [], below, { action: "update", args: ["old", "--install", "one"] }, null],
+        ["an install is not judged against the press that also updates", ["vgs-one"], below, { action: "install", args: ["one"] }, null],
         ["an install that found its command left nothing, with an update still owed", [], below, { action: "install", args: ["one"] }, null],
         ["a step is not judged against the other step's arguments", ["vgs-one"], below, { action: "update", args: ["one"] }, null],
     ];
@@ -132,7 +135,39 @@ function suite(ctx, check) {
     check("noticeUnchanged throws on a step no rule covers", (() => { try { ctx.noticeUnchanged(floored, [], below, three, ARCH, { action: "remove", args: ["old"] }); return "answered"; } catch (e) { return e.message.split(":")[0]; } })(), "notices");
     const HELD_MISE = { primary: PACMAN, overlays: [PARU], sources: [{ id: "mise", binary: "mise" }], holders: { "vgs-old": { path: "/home/method/.local/bin/vgs-old", owners: { pacman: null, mise: "npm:vgs-old" } } } };
     const heldView = ctx.noticeView(floored, [], below, { id: "acme.floor", commands: ["vgs-old"], required: ["vgs-old"] }, HELD_MISE);
-    check("noticeView: an outdated command held by the second manager updates through that manager", [heldView.rows.map(r => r.name + " (" + r.package.manager + "/" + r.package.name + "): " + r.purpose), heldView.update], [["vgs-old (mise/npm:vgs-old): Old"], ["--manager", "mise", "npm:vgs-old"]]);
+    check("noticeView: an outdated command held by the second manager updates through that manager", [heldView.rows.map(r => r.name + " (" + r.package.manager + "/" + r.package.name + "): " + r.purpose), heldView.run.action, heldView.run.args], [["vgs-old (mise/npm:vgs-old): Old"], "update", ["--manager", "mise", "npm:vgs-old"]]);
+
+    // noticeView's press: [name, missing, versions, want as [action, args,
+    // installs, updates], the entries listed as chip and update, later].
+    // One press runs one manager's packages, the missing and the outdated.
+    const pressRows = [
+        ["a missing and an outdated package of one manager are one press that names both", ["vgs-one"], below,
+            ["update", ["old", "--install", "one"], ["one"], ["old"]], [["old", true], ["one", false]], 0],
+        ["a second manager's package waits for a later press", ["vgs-one"], { "vgs-old": "1.9.0", "vgs-far": "1.1.9" },
+            ["update", ["old", "--install", "one"], ["one"], ["old"]], [["old", true], ["one", false]], 1],
+        ["a manager with an update is pressed before the primary's install", ["vgs-one"], farBelow,
+            ["update", ["--manager", "aur", "far-git"], [], ["far-git"]], [["far-git", true]], 1],
+        ["missing packages alone are an install", ["vgs-one"], { "vgs-old": "2.0.0", "vgs-far": "1.2.0" },
+            ["install", ["one"], ["one"], []], [["one", false]], 0],
+        ["outdated packages alone are an update with no install", [], below,
+            ["update", ["old"], [], ["old"]], [["old", true]], 0],
+    ];
+    // One name under two managers is two packages: the AUR one, outdated,
+    // gives the primary's missing one no update.
+    const twins = ctx.validateManifest({
+        schemaVersion: 1, id: "acme.twins", name: "Twins", version: "1", author: "a", description: "d",
+        kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["requirements"],
+        requirements: [
+            { command: "vgs-here", packages: { pacman: "twin" }, purpose: "Here" },
+            { command: "vgs-there", packages: { aur: "twin" }, floor: "2.0.0", purpose: "There" },
+        ],
+    }, "/p").manifest;
+    const twinView = ctx.noticeView(twins, ["vgs-here"], { "vgs-there": "1.0.0" }, { commands: ["vgs-here", "vgs-there"], required: ["vgs-here"] }, ARCH);
+    check("noticeView press: a package is updated only through its own manager", [twinView.run.action, twinView.run.args, twinView.groups.map(g => [g.manager, g.chip, g.update]), twinView.later], ["update", ["--manager", "aur", "twin"], [["aur", "twin", true]], 1]);
+    for (const [name, missing, versions, run, groups, later] of pressRows) {
+        const v = ctx.noticeView(floored, missing, versions, three, ARCH);
+        check("noticeView press: " + name, [[v.run.action, v.run.args, v.run.installs, v.run.updates], v.groups.map(g => [g.chip, g.update]), v.later], [run, groups, later]);
+    }
 
     // The core's owner: the core's list, drawn under the name VGS, asked
     // for as a plugin's manifest is.
@@ -188,29 +223,32 @@ function suite(ctx, check) {
     check("a plugin's offers rest ten minutes after Not now", ctx.NOTICE_OFFER_REST_MS, 600000);
 
     // noticeView: [name, missing, notice, found, want as
-    // [satisfied, rows as command (manager/name) optional, install, byHand]].
+    // [satisfied, rows as command (manager/name) optional, the press as
+    // [action, args], byHand, later]].
     const all = n("acme.needs", ["vgs-one", "vgs-two", "vgs-bare", "vgs-nix"], ["vgs-one", "vgs-nix"]);
     const rowText = r => r.name + (r.package === null ? "" : " (" + r.package.manager + "/" + r.package.name + ")") + (r.optional ? " optional" : "") + ": " + r.purpose;
     const viewRows = [
         ["the primary's group installs first", allMissing, all, ARCH,
-            [false, ["vgs-one (pacman/one): First", "vgs-two (aur/two-git) optional: Second", "vgs-bare optional: No package", "vgs-nix: Nix"], ["one"], []]],
+            [false, ["vgs-one (pacman/one): First", "vgs-two (aur/two-git) optional: Second", "vgs-bare optional: No package", "vgs-nix: Nix"], ["install", ["one"]], [], 3]],
         ["the overlay's group installs once the primary's is done", ["vgs-two", "vgs-nix"], all, ARCH,
-            [false, ["vgs-two (aur/two-git) optional: Second", "vgs-nix: Nix"], ["--manager", "aur", "two-git"], []]],
+            [false, ["vgs-two (aur/two-git) optional: Second", "vgs-nix: Nix"], ["install", ["--manager", "aur", "two-git"]], [], 1]],
         ["nix's packages are named for its configuration, with no install", allMissing, all, { primary: NIX, overlays: [], sources: [] },
-            [false, ["vgs-one: First", "vgs-two optional: Second", "vgs-bare optional: No package", "vgs-nix (nix/nix-one): Nix"], null, [{ manager: "nix", names: ["nix-one"] }]]],
+            [false, ["vgs-one: First", "vgs-two optional: Second", "vgs-bare optional: No package", "vgs-nix (nix/nix-one): Nix"], null, [{ manager: "nix", names: ["nix-one"] }], 0]],
         ["no answer from detection lists commands without packages", allMissing, all, null,
-            [false, ["vgs-one: First", "vgs-two optional: Second", "vgs-bare optional: No package", "vgs-nix: Nix"], null, []]],
+            [false, ["vgs-one: First", "vgs-two optional: Second", "vgs-bare optional: No package", "vgs-nix: Nix"], null, [], 0]],
         ["the notice is satisfied once no required command is missing", ["vgs-two", "vgs-bare"], all, ARCH,
-            [true, ["vgs-two (aur/two-git) optional: Second", "vgs-bare optional: No package"], ["--manager", "aur", "two-git"], []]],
+            [true, ["vgs-two (aur/two-git) optional: Second", "vgs-bare optional: No package"], ["install", ["--manager", "aur", "two-git"]], [], 1]],
         ["a command the notice does not list is not drawn", ["vgs-one", "vgs-two"], n("acme.needs", ["vgs-two"], ["vgs-two"]), ARCH,
-            [false, ["vgs-two (aur/two-git) optional: Second"], ["--manager", "aur", "two-git"], []]],
+            [false, ["vgs-two (aur/two-git) optional: Second"], ["install", ["--manager", "aur", "two-git"]], [], 0]],
     ];
     for (const [name, missing, notice, found, want] of viewRows) {
         const v = ctx.noticeView(needs, missing, {}, notice, found);
-        check("noticeView: " + name, [v.satisfied, v.rows.map(rowText), v.install, v.byHand], want);
+        check("noticeView: " + name, [v.satisfied, v.rows.map(rowText), v.run === null ? null : [v.run.action, v.run.args], v.byHand, v.later], want);
+        check("noticeView lists every entry while no press runs, and counts none for later: " + name, v.run !== null || v.groups.length === v.rows.length, true);
     }
-    // noticeView's groups: [name, found, want as chip, packaged and
-    // purposes per group]. vgs-a and vgs-b come from one package, and the
+    // noticeGroups over noticeView's rows: [name, found, want as chip,
+    // packaged and purposes per group]. vgs-a and vgs-b come from one
+    // package, and the
     // command `shared`, with no package, carries that package's name.
     const sharing = ctx.validateManifest({
         schemaVersion: 1, id: "acme.sharing", name: "Sharing", version: "1", author: "a", description: "d",
@@ -232,10 +270,10 @@ function suite(ctx, check) {
     ];
     for (const [name, found, want] of groupRows) {
         const v = ctx.noticeView(sharing, sharingMissing, {}, n("acme.sharing", sharingMissing, ["vgs-a"]), found);
-        check("noticeView groups: " + name, v.groups.map(g => [g.chip, g.packaged, g.purposes]), want);
+        check("noticeGroups: " + name, ctx.noticeGroups(v.rows).map(g => [g.chip, g.packaged, g.purposes]), want);
     }
     const coreView = ctx.noticeView(core, ["gum"], {}, n("core", ["gum"], ["gum"]), ARCH);
-    check("noticeView: the core's notice installs its package", [coreView.satisfied, coreView.rows.map(rowText), coreView.install], [false, ["gum (pacman/gum) optional: Dialogs"], ["gum"]]);
+    check("noticeView: the core's notice installs its package", [coreView.satisfied, coreView.rows.map(rowText), coreView.run.action, coreView.run.args], [false, ["gum (pacman/gum) optional: Dialogs"], "install", ["gum"]]);
 
     // noticeSettle: [name, queue, missing per plugin, installing id, the
     // ids kept]. acme.gone has no manifest.
@@ -386,13 +424,16 @@ const CONTROLS = [
     ["a request requires its optional commands", "required = trigger === \"requested\" ? listed : ", "required = "],
     ["installed lists only missing commands", "var lacking = rows.filter(function (row) { return row.state !== \"present\"; });", "var lacking = rows;"],
     ["an install or enable trigger lists no outdated command", "listed = trigger === \"requested\" ? lacking : lacking.filter(function (row) { return row.state === \"missing\"; });", "listed = lacking;"],
-    ["a run that left its step owed is named", "if (JSON.stringify(shown[ran.action]) !== JSON.stringify(ran.args)) return null;", "return null;"],
-    ["a run whose step moved on left nothing", "if (JSON.stringify(shown[ran.action]) !== JSON.stringify(ran.args)) return null;", ""],
+    ["a run that left its step owed is named", "if (shown.run === null || shown.run.action !== ran.action || JSON.stringify(shown.run.args) !== JSON.stringify(ran.args)) return null;", "return null;"],
+    ["a run whose step moved on left nothing", "if (shown.run === null || shown.run.action !== ran.action || JSON.stringify(shown.run.args) !== JSON.stringify(ran.args)) return null;", ""],
     ["an unchanged run names a requirement of the manager that ran", " && r.package.manager === manager; })[0];", "; })[0];"],
-    ["an unchanged run names a requirement in the state its step serves", "return r.state === states[ran.action] && r.package !== null", "return r.package !== null"],
-    ["an unchanged install is named missing", "if (ran.action === \"install\") return { kind: \"missing\", name: row.name };", ""],
+    ["an unchanged run is named by its requirement's state", "if (row.state === \"missing\") return { kind: \"missing\", name: row.name };", ""],
     ["an unchanged update names the version its command printed", "VERSION_IN_LINE.exec(versions[row.name]).slice(1, 4).join(\".\")", "versions[row.name]"],
-    ["an unchanged run is an install or an update", "    if (!hasOwn(states, ran.action))\n", "    if (false)\n"],
+    ["an unchanged run is an install or an update", "    if (actions.indexOf(ran.action) === -1)\n", "    if (false)\n"],
+    ["one press installs a manager's missing packages beside its updates", ".concat(installs.length === 0 ? [] : [\"--install\"].concat(installs))", ""],
+    ["a manager with an update is pressed first", "runs.filter(function (g) { return updatesOf(g).length > 0; }).concat(runs)[0]", "runs[0]"],
+    ["a view lists only the packages its press handles", "entries.filter(function (e) { return e.manager === pressed.manager; })", "entries"],
+    ["a press updates only a package of its own manager", "e.manager === group.manager && e.chip === name && e.update", "e.chip === name && e.update"],
     ["an offer is a list", "if (!Array.isArray(commands) || commands.length === 0", "if (commands.length === 0"],
     ["an offer is not empty", " || commands.length === 0 || commands.length > NOTICE_OFFER_MAX", " || commands.length > NOTICE_OFFER_MAX"],
     ["an offer names at most sixteen commands", " || commands.length > NOTICE_OFFER_MAX || ", " || "],
@@ -412,9 +453,9 @@ const CONTROLS = [
     ["a view lists only missing commands", "requirementRows(manifest, missing, versions).filter(function (row) { return row.state !== \"present\"; });\n    var rows", "requirementRows(manifest, missing, versions);\n    var rows"],
     ["a view is satisfied only without a required command", "var satisfied = !notice.required.some(", "var satisfied = notice.required.some("],
     ["a view groups the requirements one package provides", "if (held === undefined) out.push(", "if (true) out.push("],
-    ["a group keeps a package apart from a requirement of its name", "g.packaged === packaged && g.chip === chip", "g.chip === chip"],
-    ["a view installs only through an installing manager", ".groups.filter(function (g) { return g.installs; });\n        return runs.length", ".groups;\n        return runs.length"],
-    ["a view ignores holders", "PackageManagers.installGroups(rows.filter(function (row) { return row.state === state; }), found).groups", "PackageManagers.installGroups(rows.filter(function (row) { return row.state === state; }), Object.assign({}, found, { holders: {} })).groups"],
+    ["a group keeps a package apart from a requirement of its name", "g.manager === manager && g.chip === chip", "g.chip === chip"],
+    ["a view installs only through an installing manager", "var runs = plan.groups.filter(function (g) { return g.installs; });", "var runs = plan.groups;"],
+    ["a view ignores holders", "PackageManagers.installGroups(rows, found);", "PackageManagers.installGroups(rows, Object.assign({}, found, { holders: {} }));"],
     ["a settle keeps the installing notice", "        if (n.id === installing)\n            return true;\n", ""],
     ["a settle drops a notice whose owner went", "        if (!hasOwn(owners, n.id))\n            return false;\n", ""],
     ["a settle drops a satisfied notice", "        return !noticeView(owners[n.id]", "        return true || !noticeView(owners[n.id]"],

@@ -26,7 +26,8 @@ import "PluginLogic.js" as Logic
 // `--holders` for commands that have a floor, run when the first notice
 // arrives and after each install. Install opens the core TUI
 // `core/requirements-install`, and Update, for commands below their floor,
-// `core/requirements-update`; once its run ends, one rescan follows, and
+// `core/requirements-update`, which also installs the same manager's missing
+// packages; once its run ends, one rescan follows, and
 // a notice whose required commands that scan and its version read find, at
 // their floor, is closed, while one the run left as it was says so. A notice a
 // plugin's setup TUI raised in place of itself (TuiRunner.runFor) opens
@@ -384,16 +385,15 @@ Singleton {
         return answer.startsWith("refused: ") ? answer : "";
     }
 
-    // Update, or Install once nothing is left to update: the shown
-    // notice's first group that updates, else its first that installs,
-    // through the core TUI, so an outdated command a plugin needs never
-    // waits on the installs of its optional ones. Answers the TUI's answer; a busy key focuses the
+    // The shown notice's step, PluginLogic.noticeView's `run`: one
+    // manager's packages, the missing and the outdated, through the core
+    // TUI. Answers the TUI's answer; a busy key focuses the
     // live run.
     function accept() {
         const shown = view;
-        if (shown === null || (shown.install === null && shown.update === null) || installing) return "refused: install=none";
+        if (shown === null || shown.run === null || installing) return "refused: install=none";
         const id = shown.id;
-        const ran = { action: shown.update !== null ? "update" : "install", args: shown.update !== null ? shown.update : shown.install };
+        const ran = { action: shown.run.action, args: shown.run.args };
         failure = null;
         const answer = Capabilities.tuis.openCore("requirements-" + ran.action, ran.args, result => root.installEnded(id, ran, result));
         if (answer === "ok") installingId = id;

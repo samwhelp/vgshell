@@ -43,11 +43,16 @@
 //       number once every query has ended.
 //   vgshell-pkg run install|update|remove|upgrade [--manager <id>] [names...]
 //   vgshell-pkg run upgrade [--manager <id>] --ignore <name>...
+//   vgshell-pkg run update [--manager <id>] <name>... --install <name>...
 //       run the plan for manager <id>, else the detected primary, in this
 //       terminal: install, update and remove take one name or more, upgrade
 //       none. An update brings packages the manager already installed to
 //       its current version, the step the requirement notice runs for a
-//       command below its floor.
+//       command below its floor. An update also installs each package
+//       after --install, through the table's planOwed: in the update's own
+//       step where the row installs and updates alike, else in the install
+//       steps before it, so one press of the notice serves a missing
+//       package and an outdated one of the same manager.
 //       An upgrade keeps each package after --ignore out, through the
 //       table row's `ignore` option; a row without one refuses.
 //       Each step of a row whose `elevate` is true runs behind the
@@ -161,7 +166,7 @@ const FRESH_MS = 10 * 60 * 1000;
 const QUERY_TIMEOUT = 30;
 
 function usage(first) {
-    process.stderr.write("vgshell: refused: " + first + "\nusage: vgshell pkg detect [--json] [--holders <command>...] | present <command>... | plan install|update|remove|upgrade <manager> [names...] | run install|update|remove|upgrade [--manager <id>] [names...] | run upgrade [--manager <id>] --ignore <name>... | install|remove [--manager <id>] [names...] | check [--json] [--source <manager>] | owner <path> | removable <package>\n");
+    process.stderr.write("vgshell: refused: " + first + "\nusage: vgshell pkg detect [--json] [--holders <command>...] | present <command>... | plan install|update|remove|upgrade <manager> [names...] | run install|update|remove|upgrade [--manager <id>] [names...] | run upgrade [--manager <id>] --ignore <name>... | run update [--manager <id>] <name>... --install <name>... | install|remove [--manager <id>] [names...] | check [--json] [--source <manager>] | owner <path> | removable <package>\n");
     process.exit(2);
 }
 
@@ -401,12 +406,13 @@ function planElevator(plan) {
 }
 
 // Run ACTION's plan for MANAGER over NAMES through bin/lib/pkg-run.sh, and
-// exit with its status. The steps travel as argv, each led by its length,
+// exit with its status; with INSTALLS, an update's `--install` names, the
+// table's planOwed over both lists. The steps travel as argv, each led by its length,
 // so no shell reads them, and run from $HOME, as a check's queries do, so
 // no project's configuration in the caller's directory (a mise.toml) makes
 // a step do other than what the check counted.
-function run(action, manager, names, ignored) {
-    const r = table.plan(manager, action, names, onPath, ignored);
+function run(action, manager, names, ignored, installs) {
+    const r = installs !== undefined && installs.length > 0 ? table.planOwed(manager, installs, names, onPath) : table.plan(manager, action, names, onPath, ignored);
     if (!r.ok) refuse(r.error);
     let command = "none";
     const chosen = planElevator(r.plan);
@@ -586,10 +592,16 @@ main(() => {
             names = [];
             if (ignored.length === 0) usage("option=--ignore value=missing");
         }
+        let installs = [];
+        if (action === "update" && names.includes("--install")) {
+            installs = names.slice(names.indexOf("--install") + 1);
+            names = names.slice(0, names.indexOf("--install"));
+            if (installs.length === 0) usage("option=--install value=missing");
+        }
         if (action === "upgrade" && names.length > 0) usage("argument=" + names[0]);
         if (action !== "upgrade" && names.length === 0) usage("names=missing");
         refuseOutsideTerminal(verb, SHELL_CALLER);
-        return run(action, manager === null ? primaryId() : manager, names, ignored);
+        return run(action, manager === null ? primaryId() : manager, names, ignored, installs);
     }
     case "install":
     case "remove": {

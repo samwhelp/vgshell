@@ -197,6 +197,21 @@ const IGNORE_ROWS = [
     ["apt keeps no package out", "apt", ["foo"], ["apt-get"], "manager=apt option=ignore reason=unsupported"]
 ];
 
+// planOwed rows: name, manager, the missing packages, the outdated ones,
+// the commands on PATH, and the plan's steps or the refusal. A row whose
+// install and update steps are the same takes both lists in one step; any
+// other installs first, then updates.
+const OWED_ROWS = [
+    ["pacman installs and updates in one step", "pacman", ["gum"], ["pi"], ["pacman"], [["pacman", "-S", "--needed", "--", "pi", "gum"]]],
+    ["paru installs and updates in one step", "aur", ["gum-git"], ["pi-bin"], ["paru"], [["paru", "-S", "--needed", "--", "pi-bin", "gum-git"]]],
+    ["dnf installs, then upgrades", "dnf", ["gum"], ["pi"], ["dnf"], [["dnf", "install", "gum"], ["dnf", "upgrade", "pi"]]],
+    ["mise installs, then names the latest version of the outdated tool", "mise", ["node"], ["pi"], ["mise"], [["mise", "use", "--global", "node"], ["env", "MISE_MINIMUM_RELEASE_AGE=0", "mise", "use", "--global", "pi@latest"]]],
+    ["nix plans neither", "nix", ["gum"], ["pi"], ["nix"], "manager=nix action=install reason=unsupported"],
+    ["an unknown manager", "zypper", ["gum"], ["pi"], ["zypper"], "manager=zypper reason=unknown"],
+    ["a missing name that starts with a dash", "pacman", ["-Sy"], ["pi"], ["pacman"], "name=\"-Sy\" reason=grammar"],
+    ["an outdated name that starts with a dash, after an install step", "dnf", ["gum"], ["-y"], ["dnf"], "name=\"-y\" reason=grammar"]
+];
+
 // pickerFor rows: name, manager, action, the commands on PATH, `{ list,
 // preview }` or the refusal.
 const PICKER_ROWS = [
@@ -435,6 +450,11 @@ function verifyTable(t) {
     }
     for (const row of t.MANAGERS) for (const action of t.ACTIONS)
         if (!covered.has(row.id + " " + action)) failures.push("plan: no row for " + row.id + " " + action);
+    for (const [name, manager, missing, outdated, commands, want] of OWED_ROWS) {
+        const got = t.planOwed(manager, missing, outdated, onPathOf(commands));
+        const steps = got.ok ? got.plan.steps : got.error;
+        if (!same(steps, want)) failures.push("owed: " + name + ": got " + JSON.stringify(got));
+    }
     const ignoring = new Set();
     for (const [name, manager, ignored, commands, want] of IGNORE_ROWS) {
         const got = t.plan(manager, "upgrade", [], onPathOf(commands), ignored);
@@ -532,6 +552,9 @@ const CONTROLS = [
     ["rule:elevation command", "a step elevates", TABLE, "[\"{bin}\", \"full-upgrade\"]", "[\"sudo\", \"{bin}\", \"full-upgrade\"]"],
     ["rule:brace", "a preview word holds an fzf placeholder", TABLE, "preview: [\"{bin}\", \"-Sii\", \"{name}\"]", "preview: [\"{bin}\", \"-Sii\", \"--x={q}\", \"{name}\"]"],
     ["rule:elevation command", "a picker's list elevates", TABLE, "list: [\"{bin}\", \"-Slq\"]", "list: [\"sudo\", \"{bin}\", \"-Slq\"]"],
+    ["table", "a manager whose steps differ updates a package it must install", TABLE, "row.update !== null && JSON.stringify(row.update) === JSON.stringify(row.install))", "row.update !== null)"],
+    ["table", "an owed plan drops its install steps", TABLE, "update.plan.steps = install.plan.steps.concat(update.plan.steps);", ""],
+    ["table", "an owed plan of one step drops the missing packages", TABLE, "return plan(id, \"update\", outdated.concat(missing), onPath);", "return plan(id, \"update\", outdated, onPath);"],
     ["table", "an upgrade drops the packages it keeps out", TABLE, "for (var k = 0; k < kept.length; k++) argv.push(row.ignore, kept[k]);", ""],
     ["table", "a manager without the option keeps a package out", TABLE, "if (kept.length > 0 && found.row.ignore === null) return", "if (false) return"],
     ["table", "a kept package's name is not judged", TABLE, "var all = names.concat(kept);", "var all = names;"],

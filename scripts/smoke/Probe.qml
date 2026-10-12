@@ -1301,12 +1301,16 @@ Scope {
                 const label = root.descendants(cap.parent).find(child => root.typeName(child) === "Label" && child.visible);
                 return { shortcut: cap.shortcut, text: label === undefined ? "" : label.text };
             });
-            // A requirement notice's entries: each chip's text, then the
-            // lines drawn under it in its block.
-            const groups = root.descendants(dialog).filter(child => root.typeName(child) === "Badge" && child.visible).map(badge => {
-                const inBadge = root.descendants(badge);
-                const lines = root.descendants(badge.parent).filter(child => root.typeName(child) === "Label" && child.visible && inBadge.indexOf(child) === -1);
-                return [badge.text, lines.map(line => line.text)];
+            // A requirement notice's entries: each name chip's text, the
+            // lines drawn under it in its block, then the state chip
+            // beside it. The name chip is the verbatim one, and it shares
+            // a row with its state inside the entry's block.
+            const groups = root.descendants(dialog).filter(child => root.typeName(child) === "Badge" && child.visible && child.verbatim).map(badge => {
+                const block = badge.parent.parent;
+                const chips = root.descendants(block).filter(child => root.typeName(child) === "Badge" && child.visible);
+                const inChip = item => chips.some(chip => root.descendants(chip).indexOf(item) !== -1);
+                const lines = root.descendants(block).filter(child => root.typeName(child) === "Label" && child.visible && !inChip(child));
+                return [badge.text, lines.map(line => line.text), chips.filter(chip => chip !== badge).map(chip => chip.text)];
             });
             return root.json({
                 title: dialog.title,

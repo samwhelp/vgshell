@@ -221,6 +221,20 @@ row_update() {
   pkg "$1" "$managers" -- run update --manager mise
   [[ $status == 2 ]] && out_has "vgshell: refused: names=missing" && log_is ""
 }
+# An update installs the packages after --install in the same run: in the
+# update's own step for pacman, whose steps are the same, and in an install
+# step before it for mise. An empty tail is a bad invocation.
+row_update_installs() {
+  pkg "$1" "$sudo_path" -- run update --manager pacman foo --install bar baz
+  [[ $status == 0 ]] && log_is "$(lines \
+    "sudo [-k]" "sudo [/usr/bin/true]" \
+    "sudo [pacman] [-S] [--needed] [--] [foo] [bar] [baz]" "pacman [-S] [--needed] [--] [foo] [bar] [baz]" \
+    "sudo [-k]")" || return 1
+  pkg "$1" "$managers" -- run update --manager mise pi --install node
+  [[ $status == 0 ]] && log_is "$(lines "mise [use] [--global] [node]" "mise [use] [--global] [pi@latest]")" || return 1
+  pkg "$1" "$managers" -- run update --manager mise pi --install
+  [[ $status == 2 ]] && out_has "vgshell: refused: option=--install value=missing" && log_is ""
+}
 row_aur_unelevated() {
   pkg "$1" "$managers:$tmp/elevate-sudo" -- run install --manager aur aurpkg
   [[ $status == 0 ]] && log_is "paru [-S] [--needed] [--] [aurpkg]"
@@ -273,7 +287,7 @@ row_picker_without_fzf() {
 }
 
 rows=(no_terminal shell_process pacman_install apt_upgrade pacman_ignore aur_ignore ignore_unsupported first_failure doas run0 configured configured_absent
-  configured_unknown no_elevator literal_name update aur_unelevated picker_install picker_remove picker_cancelled
+  configured_unknown no_elevator literal_name update update_installs aur_unelevated picker_install picker_remove picker_cancelled
   picker_nothing aur_picker picker_unsupported picker_without_fzf dnf_picker home_directory)
 for r in "${rows[@]}"; do
   rm -f -- "$tmp/why"
@@ -329,7 +343,9 @@ control unquoted-preview bin/lib/judge-files.js '    return "'"'"'" + word.repla
 control fixed-colour bin/vgshell-pkg 'return value !== undefined && HEX_COLOUR.test(value) ? value : fallback;' 'return fallback;' picker_install
 control dnf-notice shell/Core/PackageManagers.js 'list: ["{bin}", "-q", "repoquery", "--available",' 'list: ["{bin}", "repoquery", "--available",' dnf_picker
 control fzf-looked-up-late bin/vgshell-pkg '        if (!onPath("fzf")) refuse("picker=fzf reason=absent");' '' picker_without_fzf
-control drops-ignore bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored);' 'return run(action, manager === null ? primaryId() : manager, names);' pacman_ignore
+control drops-ignore bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored, installs);' 'return run(action, manager === null ? primaryId() : manager, names, [], installs);' pacman_ignore
+control drops-install bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored, installs);' 'return run(action, manager === null ? primaryId() : manager, names, ignored);' update_installs
+control empty-install-tail bin/vgshell-pkg '            if (installs.length === 0) usage("option=--install value=missing");' '' update_installs
 control cancel-runs-nothing bin/vgshell-pkg '    if (r.status === 130) return { cancelled: true };' '' picker_cancelled
 
 if [[ $failures -gt 0 ]]; then echo "test-vgshell-pkg-run: failed=$failures"; exit 1; fi

@@ -512,6 +512,7 @@ Subcommands:
   check [--json] [--source <manager>]     Count pending updates
   run install|update|remove|upgrade [--manager <id>] [names...]
   run upgrade [--manager <id>] --ignore <name>...
+  run update [--manager <id>] <name>... --install <name>...
   install|remove [--manager <id>] [names...]
 EOF_HELP
       ;;

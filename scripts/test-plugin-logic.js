@@ -488,10 +488,10 @@ function suite(ctx, check) {
         check("noticeRequest: " + name, [r.answer, r.commands, r.required], want);
     }
     const toolNotice = { commands: ["vgs-tool"], required: ["vgs-tool"] };
-    const shows = (missing, versions) => { const v = ctx.noticeView(floored, missing, versions, toolNotice, pacmanOnly); return [v.satisfied, v.rows.map(r => [r.name, r.state]), v.groups.map(g => [g.chip, g.update]), v.install, v.update]; };
-    check("noticeView: an outdated command is offered its update, and no install", shows([], { "vgs-tool": "1.9.12" }), [false, [["vgs-tool", "outdated"]], [["tool", true]], null, ["tool"]]);
-    check("noticeView: a missing command is offered its install, and no update", shows(["vgs-tool"], {}), [false, [["vgs-tool", "missing"]], [["tool", false]], ["tool"], null]);
-    check("noticeView: a command at its floor satisfies the notice", shows([], { "vgs-tool": "1.10.1" }), [true, [], [], null, null]);
+    const shows = (missing, versions) => { const v = ctx.noticeView(floored, missing, versions, toolNotice, pacmanOnly); return [v.satisfied, v.rows.map(r => [r.name, r.state]), v.groups.map(g => [g.chip, g.update]), v.run === null ? null : [v.run.action, v.run.args]]; };
+    check("noticeView: an outdated command is offered its update, and no install", shows([], { "vgs-tool": "1.9.12" }), [false, [["vgs-tool", "outdated"]], [["tool", true]], ["update", ["tool"]]]);
+    check("noticeView: a missing command is offered its install, and no update", shows(["vgs-tool"], {}), [false, [["vgs-tool", "missing"]], [["tool", false]], ["install", ["tool"]]]);
+    check("noticeView: a command at its floor satisfies the notice", shows([], { "vgs-tool": "1.10.1" }), [true, [], [], null]);
     check("noticeSettle: an outdated command keeps its notice, and its floor closes it",
         [{ "vgs-tool": "1.9.12" }, { "vgs-tool": "1.10.1" }].map(versions => ctx.noticeSettle([Object.assign({ id: "vgs.bar" }, toolNotice)], { "vgs.bar": floored }, {}, versions, "").length), [1, 0]);
     // versionCommands: the core's and the enabled plugins' floored commands
@@ -2039,7 +2039,7 @@ const CONTROLS = [
     ["a requirement without a floor is never outdated", "var read = entry.floor !== null && typeof", "var read = typeof"],
     ["a notice lists an outdated command", "var lacking = rows.filter(function (row) { return row.state !== \"present\"; });", "var lacking = rows.filter(function (row) { return row.state === \"missing\"; });"],
     ["a view lists an outdated command", "requirementRows(manifest, missing, versions).filter(function (row) { return row.state !== \"present\"; });\n    var rows", "requirementRows(manifest, missing, versions).filter(function (row) { return row.state === \"missing\"; });\n    var rows"],
-    ["an update is offered for the outdated rows alone", "update: first(\"outdated\"),", "update: first(\"missing\"),"],
+    ["an update is offered for the outdated rows alone", "e.chip === name && e.update; });", "e.chip === name; });"],
     ["an entry is an update while each of its rows is outdated", "var update = row.state === \"outdated\";", "var update = false;"],
     ["a floor is three dotted numbers", "!REQUIREMENT_FLOOR.test(requirement.floor)", "false"],
     ["a floor is a string", "typeof requirement.floor !== \"string\" || ", ""],
