@@ -85,7 +85,10 @@
 # Settings tab's Setup section, then the Details tab at its Browser driver
 # line and at its AI model section, then the Settings tab at its AI model
 # fields with two backup models planted where the tree ships them, each
-# anchor 12 px under the page's top, taken only when named; setup-tab is the plugin list with a row that shows Setup
+# anchor 12 px under the page's top; then, over a ready local voice, the
+# Setup section with voxtype missing, with the voxtype stand-in and after
+# a microphone check, and the Local voice field closed and open, listing
+# the tree's setup-local choices, taken only when named; setup-tab is the plugin list with a row that shows Setup
 # needed beside the warning icon, one that shows the icon alone and one that shows neither, that
 # icon's tooltip, a page with no Setup tab, a Setup tab that holds only
 # Requirements, and Jarvis's Settings tab and its Setup tab with steps
@@ -2877,6 +2880,108 @@ scene_jarvis-setup() { # MODE
   if jarvis_ships_backups; then
     jarvis_backup_choice_accounts restore "$accounts_before"
   fi
+  jarvis_voice_states "$1"
+}
+
+# The Voice step over a ready local voice, as rows/jarvis-setup.sh plants
+# it: the local speech stand-in, the marker of the tree's first declared
+# tier and the world's local-mode at ready, with Jarvis's required tools
+# stood in. First voxtype missing, then the smoke's voxtype stand-in on the
+# shell's PATH, then a microphone check the stand-in source wakes. The
+# Local voice field lists the tree's own setup-local choices for a machine
+# that runs every tier and picks small: its `choices` over that reading,
+# in place of the two rows scripts/fixtures/jarvis/prepare.js plants.
+jarvis_dictates() { tree_has shell/plugins/vgs.jarvis/SetupGate.js '"speech=dictation-absent"'; }
+jarvis_voice_step() { ipc smoke setupRows "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); r=json.loads(t) if t.startswith("[") else []; v=next((x for x in r if x["label"]=="Voice"),None); print("absent" if v is None else " / ".join(c[0] for c in v["chips"]))'; }
+jarvis_check_state() { ipc smoke jarvisProcess | py_reply 'import json,sys; d=json.load(sys.stdin)["status"].get("detail"); print(d["state"]["check"]["kind"] if d else "pending")'; }
+jarvis_tier_list_open() { ipc smoke readMatchingDescendant "$settings_kind" vgs.settings Select currentText "$1" listOpen; }
+jarvis_real_tiers() { # TIERS READY
+  python3 - "$repo/shell/plugins/vgs.jarvis" "$1" "$2" <<'PY'
+import importlib.machinery, importlib.util, json, os, sys
+from pathlib import Path
+plugin, path, ready = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+loader = importlib.machinery.SourceFileLoader("setup_local", str(plugin / "setup-local"))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+value = module.measurement().manifest(plugin / "artifacts.json")
+answer = module.choices(value, {"gpu": 8192, "ram": 32768, "threads": 16}, ready)
+open(path + ".next", "w").write(json.dumps(answer))
+os.replace(path + ".next", path)
+print(answer["choices"][0]["label"])
+PY
+}
+jarvis_voice_page() { # LABEL
+  expect "enabling vgs.jarvis $1 is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect_poll "the Jarvis daemon answers hello $1" ready jarvis_started
+  for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
+  close_notices
+  expect "the Settings window opens $1" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings window maps $1" 1 settings_count
+  expect "the window opens the Jarvis page $1" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
+  expect_poll "the Jarvis page is shown $1" '"vgs.jarvis"' settings_page
+  page_setup
+  expect_poll "the Jarvis Setup section draws its rows $1" True jarvis_setup_drawn
+}
+jarvis_voice_states() { # MODE
+  local state="$home/.local/state/vgshell/jarvis" data="$home/.local/share/vgshell/jarvis" world="$sandbox/jarvis-world"
+  local tier auto field x y missing="Needs voxtype"
+  jarvis_dictates || missing="Not checked"
+  jarvis_setup_requirements || fail "the Jarvis requirement stand-ins are not written"
+  tree_rescan "the Jarvis requirement stand-ins are scanned for the voice states"
+  mkdir -p -- "$state" "$data/local/venv/bin"
+  cp -- "$checkout/scripts/fixtures/jarvis-local-speech/standin.py" "$data/local/venv/bin/python"
+  chmod 700 -- "$data/local/venv/bin/python"
+  tier="$(python3 -c 'import json,os,sys
+tier=next(iter(json.load(open(sys.argv[1]))["tiers"]))
+open(sys.argv[3],"w").write(json.dumps({"tier": tier, "data": os.path.realpath(sys.argv[2])}))
+open(os.path.join(sys.argv[2],"scenario.json"),"w").write(json.dumps({"start": "ready", "checks": [{"afterFrames": 1}]}))
+print(tier)' "$repo/shell/plugins/vgs.jarvis/artifacts.json" "$data/local" "$state/local-ready.json")" || fail "the local voice marker is not written"
+  cp -- "$world/local-mode" "$sandbox/voice-states-local-mode" 2>/dev/null || printf 'absent\n' >"$sandbox/voice-states-local-mode"
+  cp -- "$world/local-tiers.json" "$sandbox/voice-states-local-tiers" || fail "the planted local tiers are not saved"
+  printf 'ready\n' >"$world/local-mode"
+  auto="$(jarvis_real_tiers "$world/local-tiers.json" "$tier")" || fail "setup-local's choices are not read"
+  # voxtype missing.
+  jarvis_voice_page "with voxtype missing"
+  expect_poll "the Voice step reads $missing with voxtype missing" "$missing" jarvis_voice_step
+  jarvis_anchor_shot "jarvis-setup-$1-voxtype-missing" SectionHeader Setup
+  settings_close
+  expect "disabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "vgs.jarvis is gone" absent ipc smoke jarvisProcess
+  # voxtype ready.
+  voice_stand_ins
+  rescan "the voxtype stand-in is scanned for the voice states"
+  jarvis_voice_page "with voxtype ready"
+  expect_poll "the Voice step reads Not checked with voxtype ready" "Not checked" jarvis_voice_step
+  jarvis_anchor_shot "jarvis-setup-$1-voxtype-ready" SectionHeader Setup
+  # The local voice ready: the check the stand-in source wakes.
+  expect_poll "the local voice can be checked" ready jarvis_check_state
+  expect "Check microphone asks the daemon to start" ok ipc vgs.jarvis invoke check-microphone ''
+  expect_poll "the Voice step reads Ready after the check" Ready jarvis_voice_step
+  jarvis_anchor_shot "jarvis-setup-$1-local-voice-ready" SectionHeader Setup
+  settings_tab_click Settings || fail "the click on the Settings tab failed"
+  expect_poll "the Jarvis page shows Settings" 0 settings_tab
+  expect_poll "the Local voice field reads setup-local's pick" false jarvis_tier_list_open "$auto"
+  jarvis_anchor_shot "jarvis-settings-$1-local-voice" SectionHeader "Local voice"
+  if field="$(ipc smoke invokeInstance "$settings_kind" vgs.settings fieldGeometry '{"id":"vgs.jarvis","key":"localTier"}')" && [[ $field == \[* ]] \
+    && read -r x y < <(at_centre "$settings_surface" "$(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); h=json.loads(sys.argv[2]); print(json.dumps([r[0] + r[2] - 40, r[1], 40, h]))' "$field" "$(ipc smoke themeValue row.height)")") \
+    && hover "$((x - 1))" "$y" && click "$x" "$y"; then
+    expect_poll "the Local voice field opens its list" true jarvis_tier_list_open "$auto"
+    take_posed "jarvis-settings-$1-local-voice-open"
+    type_keys -k Escape || fail "sending Escape to the Local voice field failed"
+    expect_poll "the Local voice field closes its list" false jarvis_tier_list_open "$auto"
+  else
+    fail "the Local voice field is unreadable: ${field:-}"
+  fi
+  park_pointer
+  settings_close
+  expect "disabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "vgs.jarvis is gone" absent ipc smoke jarvisProcess
+  voice_stand_ins_removed
+  rm -f -- "${state:?}/local-ready.json" "${data:?}/local/scenario.json"
+  cp -- "$sandbox/voice-states-local-mode" "$world/local-mode"
+  cp -- "$sandbox/voice-states-local-tiers" "$world/local-tiers.json" || fail "the planted local tiers are not put back"
+  jarvis_restore_requirements
 }
 
 # jarvis_home_setting CONFIG VALUE: the Jarvis home folder setting in the
