@@ -86,7 +86,8 @@ Item {
     // The core calls this on the service when the user disables the plugin,
     // before it destroys the service; a reload and a shell exit do not.
     function turnedOff() {
-        if (shell === null) return;
+        // No home folder holds no session to stop.
+        if (shell === null || shell.settings.home === "") return;
         const reply = shell.run.detached(["node", program, "--tree", Quickshell.shellDir + "/..", "stop", shell.settings.home, "app-off"]);
         if (reply !== "ok") console.warn("jarvis-session: stop " + reply);
     }
