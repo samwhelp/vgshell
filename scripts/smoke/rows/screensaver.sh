@@ -322,7 +322,8 @@ target.write_text(text)
 target.chmod(0o755)
 PYCONTROL
 run_transcode_kill() {
-  local script="$1" label="$2" out="$transcode_control_dir/$label.out" pid
+  local script="$1" label="$2" pid
+  local out="$transcode_control_dir/$label.out"
   PATH="$shim:$PATH" "$script" "$fixture" "$out" --width 2 --height 1 >/dev/null 2>&1 &
   pid=$!
   case "$pid" in (*[!0-9]*) fail "$label transcode pid is not numeric: $pid"; return ;; esac
