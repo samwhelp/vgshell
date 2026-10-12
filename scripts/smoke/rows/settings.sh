@@ -696,11 +696,11 @@ rmdir -- "$repo/shell/Core/TuiInstallControls" || fail "removing the TUI install
 # token's row offers Token setup while its value calls for it, withholds it
 # above while the required command is missing, and the Setup section,
 # which holds the Check step, draws no action for it, withheld or not.
-# With the token's
-# action taken out of the manifest, the screen belongs to no entry and
-# draws in the Setup section disabled, with a reason naming the missing
-# command, since its press could only open that notice; the two readings
-# are each other's control. The same button of a plugin missing nothing
+# With the token's and the check's actions taken out of the manifest, the
+# screen belongs to no entry and draws in the Setup section disabled, with
+# a reason naming the missing command, since its press could only open
+# that notice; the two readings are each other's control. The same button
+# of a plugin missing nothing
 # starts its terminal in rows/tui.sh.
 # setup_buttons NAME: the Setup section's actions as [text, tone,
 # enabled, whether its tooltip names NAME].
@@ -715,10 +715,11 @@ import json, sys
 path=Path(sys.argv[1])
 assert not path.is_symlink()
 manifest=json.loads(path.read_text())
-assert manifest["status"]["token"].pop("action")["tui"] == "setup"
+for key in ("token", "check"):
+    assert manifest["status"][key].pop("action")["tui"] == "setup"
 path.write_text(json.dumps(manifest))
 PYTHON
-rescan "the fixture's token declares no screen"
+rescan "the fixture's token and check declare no screen"
 expect_poll "a screen no entry declares draws disabled with a reason naming the missing command" '[["Token setup", "accent", false, true]]' setup_buttons vgs-smoke-absent
 expect "the fixture republishes the absent token" ok ipc acme.status invoke set 'token="absent"'
 expect_poll "a withheld or undeclared screen leaves Install all missing the page's one install" 1 settings_install_drawn
