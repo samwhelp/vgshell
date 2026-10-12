@@ -118,11 +118,6 @@
     }
   ],
   "status": {
-    "voxtype": {
-      "type": "presence",
-      "label": "voxtype",
-      "hint": "Voice needs voxtype to capture speech."
-    },
     "setup": {
       "type": "state",
       "label": "Setup",

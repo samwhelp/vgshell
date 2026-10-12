@@ -85,16 +85,17 @@ var DAEMON_LINES = {
 
 // Set up's state from READS, the service's probe stdout by stage, with
 // `present` false while voxtype is not found, and DAEMON, the capability's
-// `daemon` word: { tone, text, lines, action, engine, model }. Ready reads
-// the version and the model; otherwise each line names one thing that is
-// missing. `action` names the manifest's step that applies: `stop` while
-// another voxtype holds the daemon's place, whatever else is missing,
-// since the core's setup cannot free it, `setup` while another line
-// stands, "" once ready and without voxtype, which the page's
-// Requirements section installs.
+// `daemon` word: { tone, text, lines, action, engine, model }, or
+// { hidden, lines, action, engine, model } without voxtype, whose missing
+// state the page's Requirements section states once and installs. Ready
+// reads the version and the model; otherwise each line names one thing
+// that is missing. `action` names the manifest's step that applies: `stop`
+// while another voxtype holds the daemon's place, whatever else is
+// missing, since the core's setup cannot free it, `setup` while another
+// line stands, "" once ready and without voxtype.
 function setupState(reads, daemon) {
     if (reads.present === false)
-        return { tone: "warning", text: "Setup needed", lines: ["voxtype is not installed."], action: "", engine: DEFAULT_ENGINE, model: DEFAULT_MODEL };
+        return { hidden: true, lines: [], action: "", engine: DEFAULT_ENGINE, model: DEFAULT_MODEL };
     if (DAEMON_LINES[daemon] === undefined)
         throw new Error("voice: daemon " + JSON.stringify(daemon) + " is not one of " + Object.keys(DAEMON_LINES).join(", "));
     var engine = configValue(reads.engine || "", DEFAULT_ENGINE);
@@ -174,7 +175,7 @@ var FEEDBACK_STAGES = ["read", "kind", "write", "restart", "verify"];
 // the key is the log's.
 var FEEDBACK_PROBLEMS = {
     "": "",
-    "missing": "Voice needs voxtype. Install it on the Voice Settings page.",
+    "missing": "Voice records speech with voxtype. Install it on the Voice Settings page.",
     "unread": "VGS could not read the voxtype settings.",
     "no-config": "Voice is not set up. Use Set up on the Voice Settings page.",
     "link": "Your voxtype config is a link to another file, so VGS did not change it. Use Configure on the Voice Settings page.",

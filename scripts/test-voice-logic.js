@@ -47,8 +47,6 @@ function verify(logic) {
     ["ready names the configured model", readsReady, "ready", "ok", "", 1, "parakeet-tdt-0.6b-v3"],
     ["a daemon that is starting adds no line", readsReady, "starting", "ok", "", 1, "1.1.0"],
     ["every missing thing is a line", readsMissing, "failed", "warning", "setup", 3, null],
-    ["voxtype not found offers no step", { present: false }, "failed", "warning", "", 1, null],
-    ["voxtype not found before the capability is read offers no step", { present: false }, "", "warning", "", 1, null],
     ["no daemon is not ready", readsReady, "absent", "warning", "setup", 1, null],
     ["a daemon the shell did not start offers to stop it", readsReady, "elsewhere", "warning", "stop", 1, null],
     ["a daemon the shell did not start offers to stop it before the setup", readsMissing, "elsewhere", "warning", "stop", 3, null],
@@ -61,6 +59,10 @@ function verify(logic) {
     same([state.tone, state.action, state.lines.length], [tone, action, count], `setupState: ${name}`);
     if (fragment !== null) assert.ok(state.lines[0].includes(fragment), `setupState: ${name}: the first line holds ${fragment}`);
   }
+  // Without voxtype the entry is hidden, offers no step and names no line:
+  // the Requirements section states voxtype missing, once.
+  for (const daemon of ["failed", ""])
+    same(logic.setupState({ present: false }, daemon), { hidden: true, lines: [], action: "", engine: "parakeet", model: "parakeet-tdt-0.6b-v3" }, `setupState: voxtype not found, daemon ${JSON.stringify(daemon)}, hides the entry`);
   // Each daemon word that is not ready has a line of its own.
   const daemonLines = ["absent", "elsewhere", "failed"].map(daemon => logic.setupState(readsReady, daemon).lines[0]);
   assert.equal(new Set(daemonLines).size, 3, "absent, elsewhere and failed each read their own line");
@@ -191,7 +193,8 @@ const controls = [
   ["a daemon the shell did not start offers Set up", "action: daemon === \"elsewhere\" ? \"stop\" : \"setup\",", "action: \"setup\","],
   ["any line offers Stop the other voxtype", "action: daemon === \"elsewhere\" ? \"stop\" : \"setup\",", "action: \"stop\","],
   ["an unknown daemon word reads ready", "    if (DAEMON_LINES[daemon] === undefined)\n", "    if (false)\n"],
-  ["voxtype absent offers Set up", "lines: [\"voxtype is not installed.\"], action: \"\",", "lines: [\"voxtype is not installed.\"], action: \"setup\","],
+  ["voxtype absent offers Set up", "return { hidden: true, lines: [], action: \"\",", "return { hidden: true, lines: [], action: \"setup\","],
+  ["voxtype absent draws its own line", "return { hidden: true, lines: [], action: \"\",", "return { tone: \"warning\", text: \"Setup needed\", lines: [\"voxtype is not installed.\"], action: \"\","],
   ["the version is not read", "return found === null ? \"\" : found[1];", "return \"\";"],
   ["bridge frame shape ignored", "if (!amplitude(frame.peak) || !amplitude(frame.rms)) return { ok: false, reason: \"frame\" };", ""],
   ["bridge status lines read as frames", "if (frame.status === \"connected\" || frame.status === \"disconnected\") return { ok: true, kind: frame.status };", ""],
@@ -261,7 +264,7 @@ function verifyRequirements(raw) {
   // dictation setup while a line stands, and none once ready.
   const act = (reads, daemon) => {
     const state = logic.setupState(reads, daemon);
-    const values = { setup: Object.assign({ tone: state.tone, text: state.text, lines: state.lines }, state.action === "" ? {} : { action: state.action }) };
+    const values = { setup: state.hidden ? { hidden: true } : Object.assign({ tone: state.tone, text: state.text, lines: state.lines }, state.action === "" ? {} : { action: state.action }) };
     return pluginLogic.statusActionRequest(judged.manifest, "vgs.voice", true, values, "setup");
   };
   same(act({ present: false }, "failed"), { ok: false, answer: "refused: action=setup reason=not-offered" }, "without voxtype the setup entry offers no step");
@@ -270,6 +273,13 @@ function verifyRequirements(raw) {
   same(act(readsReady, "elsewhere"), { ok: true, kind: "tui", name: "stop-other" }, "another voxtype running opens Stop the other voxtype");
   same(pluginLogic.tuiMissingRequirements(judged.manifest, "stop-other", missing), ["voxtype"], "Stop the other voxtype without voxtype asks for it before its script");
   same(pluginLogic.tuiMissingRequirements(judged.manifest, "stop-other", ["systemctl"]), ["systemctl"], "Stop the other voxtype without systemctl asks for it before its script");
+  // voxtype's missing state reads once, in its Requirements row on Setup:
+  // the page draws no status row of it. The rows are the core's own over
+  // the values Voice publishes without voxtype.
+  const absent = logic.setupState({ present: false }, "failed");
+  const published = { setup: { hidden: true }, model: logic.modelData(lent("failed", "idle", ""), absent), dictation: { tone: "ok", text: "idle" } };
+  same(pluginLogic.requirementRows(judged.manifest, missing, {}).filter(row => row.name === "voxtype").map(row => row.state), ["missing"], "voxtype is one requirement, missing");
+  same(pluginLogic.statusRows(judged.manifest, published, missing).map(row => row.key), [], "without voxtype the page draws no status row of voxtype or of setup");
 }
 const shipped = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
 verifyRequirements(shipped);
@@ -283,6 +293,7 @@ const manifestControls = [
   ["a manifest copy whose Configure needs systemctl", raw => { raw.tui.configure.requires.push("systemctl"); }],
   ["a manifest copy whose elsewhere step is Set up", raw => { raw.status.setup.actions.stop = { label: "Stop the other voxtype", dictation: "setup" }; }],
   ["a manifest copy that keeps its own Set up screen", raw => { raw.tui.setup = JSON.parse(JSON.stringify(raw.tui.model)); raw.status.setup.actions.setup = { label: "Set up", tui: "setup" }; }],
+  ["a manifest copy whose Details states voxtype's presence", raw => { raw.status = Object.assign({ voxtype: { type: "state", label: "voxtype" } }, raw.status); }],
 ];
 for (const [label, edit] of manifestControls) {
   const copy = JSON.parse(JSON.stringify(shipped));

@@ -80,12 +80,10 @@ Item {
             if (held !== "ok") console.error("voice: sounds " + held);
             Qt.callLater(root.readFeedback);
         }
-        publishPresence();
     }
     // The core's daemon failed to start while voxtype was missing; once it
     // is found, the core starts one.
     onVoxtypePresentChanged: {
-        publishPresence();
         readFeedback();
         if (voxtypePresent && daemon === "failed") restartDaemon();
         refreshSetup();
@@ -95,10 +93,7 @@ Item {
     // daemon that starts again, as after the core's dictation setup, may
     // find a model that setup downloaded.
     onDaemonChanged: refreshSetup()
-    onMissingChanged: {
-        publishPresence();
-        refreshSetup();
-    }
+    onMissingChanged: refreshSetup()
     onRequirementsRevisionChanged: refreshSetup()
     // Configure and Choose model can each change voxtype's config, and
     // Stop the other voxtype frees the place the core's daemon takes.
@@ -142,11 +137,6 @@ Item {
         publishModel();
     }
 
-    function publishPresence() {
-        if (shell === null) return;
-        publish("voxtype", voxtypePresent ? "present" : "absent");
-    }
-
     // The core retires a disabled plugin's status record, then lets go of
     // its daemon: the capability's state moves once more under the
     // instance, whose write is then refused as retired.
@@ -170,9 +160,9 @@ Item {
     }
 
     // The published value names the manifest's action that applies, and
-    // none once set up.
+    // none once set up; a hidden one keeps the entry off the page.
     function publishSetup() {
-        const value = { tone: setupValue.tone, text: setupValue.text, lines: setupValue.lines };
+        const value = setupValue.hidden ? { hidden: true } : { tone: setupValue.tone, text: setupValue.text, lines: setupValue.lines };
         if (setupValue.action !== "") value.action = setupValue.action;
         publish("setup", value);
         publishModel();
