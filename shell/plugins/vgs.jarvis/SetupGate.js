@@ -400,17 +400,19 @@ function clonedVoiceStep(value, provider) {
     return row;
 }
 
-// What a key of each cloud voice's provider unlocks and where to get one
-// (D075), the Voice key row's hint.
+// What a key unlocks and where to get one (D075), by the Voice provider
+// setting: the chosen cloud voice's key, or under Local and Auto both. The
+// row's one link, Google AI Studio, draws where the hint names it.
 var VOICE_KEY_HINTS = {
-    openai: "An OpenAI key lets Jarvis use the Realtime voice: OpenAI hears you and speaks the reply. Get a key from OpenAI API keys.",
-    gemini: "A Gemini key lets Jarvis use the Gemini Live voice: Google hears you and speaks the reply. Get a key from Google AI Studio."
+    realtime: "An OpenAI key lets Jarvis use the Realtime voice: OpenAI hears you and speaks the reply. Get a key from OpenAI API keys.",
+    gemini: "A Gemini key lets Jarvis use the Gemini Live voice: Google hears you and speaks the reply. Get a key from Google AI Studio.",
+    other: "An OpenAI key lets Auto use the Realtime voice; a Gemini key serves Gemini Live once you choose it. Get a key from OpenAI API keys or Google AI Studio."
 };
 // The Voice group's key row for OFFERED, the stored keys of the cloud voice
 // SETTINGS select (voiceKeys), or null while the account reader could not
 // read them: Add key is offered until one is stored.
 function voiceKey(offered, settings) {
-    var hint = VOICE_KEY_HINTS[voiceKeyProvider(settings)];
+    var hint = VOICE_KEY_HINTS[settings.voiceProvider === "realtime" || settings.voiceProvider === "gemini" ? settings.voiceProvider : "other"];
     if (offered === null) return { tone: "warning", text: "Could not check", hint: hint, action: true };
     return offered.length === 0 ? { tone: "info", text: "No key stored", hint: hint, action: true }
         : { tone: "ok", text: "Key stored", hint: hint, action: false };

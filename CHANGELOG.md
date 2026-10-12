@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Jarvis has a second cloud voice, Gemini Live from Google. Choose Gemini under Settings > Jarvis > Voice provider and store a Gemini key with Add key: Google hears you and speaks the reply, and the AI model you chose still answers. Voice offers Gemini's 30 voices, with Preview. The Realtime key setting is now Voice key, and offers the keys of the chosen cloud voice. Always talk mode still needs the local voice.
+- Jarvis has a second cloud voice, Gemini Live from Google. Choose Gemini Live under Settings > Jarvis > Voice provider and store a Gemini key with Add key: Google hears you and speaks the reply, and the AI model you chose still answers. Voice offers Gemini's 30 voices, with Preview. The Realtime key setting is now Voice key, and offers the keys of the chosen cloud voice. Always talk mode still needs the local voice.
 - The Jarvis bar tooltip, its Mute not saved notice and its stopped notice after a failed start say what happened and what to do. Before, each also showed an internal code, such as jarvis: hello=timeout. The Jarvis memory row no longer starts with jarvis: memory=sqlite. The code stays in the log and on the Daemon row.
 - Settings > Jarvis > Voice provider shows one line of help. Its info button explains Realtime and Auto.
 - On the Jarvis page under Setup, the Voice step reads Timed out with what to do when local voice does not get ready in time, and the Setup row after a failed start shows what happened and what to do. Before, each also showed an internal code, such as SPEECH=LOCAL-READY-TIMEOUT or JARVIS: HELLO=TIMEOUT. The code stays in the log and on the Daemon row.

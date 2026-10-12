@@ -251,13 +251,13 @@ const VOICE = [
     ["Gemini saved beside a stored named key", { voiceProvider: "gemini", voiceAccount: "gemini-1" }, GEMINI_KEY, "gemini"],
     ["Auto saved beside a named Gemini key: Auto means Realtime", { voiceProvider: "auto", voiceAccount: "gemini-1" }, GEMINI_KEY, "local"]
 ];
-// The Voice group's key row: [label, the stored keys or null for a failed
-// read, its tone and whether it offers Add key].
-// [label, the stored cloud voice keys or null for a failed read, the
-// Voice provider, the key row's tone and whether it offers Add key].
+// The Voice group's key row: [label, the stored cloud voice keys or null
+// for a failed read, the Voice provider, the key row's tone and whether it
+// offers Add key].
 const VOICE_KEY = [["no key", [], "realtime", ["info", true]], ["a stored key", KEY, "realtime", ["ok", false]],
     ["keys unread", null, "realtime", ["warning", true]], ["a stored key of the other voice", KEY, "gemini", ["info", true]],
-    ["a stored Gemini key", [...KEY, ...GEMINI_KEY], "gemini", ["ok", false]], ["Gemini keys unread", null, "gemini", ["warning", true]]];
+    ["a stored Gemini key", [...KEY, ...GEMINI_KEY], "gemini", ["ok", false]], ["Gemini keys unread", null, "gemini", ["warning", true]],
+    ["Local beside a stored key", KEY, "local", ["ok", false]], ["Auto with no key", [], "auto", ["info", true]]];
 // The keyed start causes the service can publish before the first ready state.
 // The widget and the Setup page both read these words from SetupGate.
 const START_CAUSES = [
@@ -696,12 +696,23 @@ function verifyVoice(gate, serviceSource, accountsSource) {
             assert.equal(helloSettings(gate, serviceSource, require(providersFile), manifest, settings, { voiceKeys: offered, providers: {} }, label).voiceProvider, want, label);
         }
         assert.equal(plain(gate.readiness({ kind: "answered", causes: [] })).setup.tone, "ok", "no cause, as a fresh install with its local voice set up: ready");
+        // The Voice provider takes its four presets and nothing else, and a
+        // value a settings file already holds reads as it is.
+        const provider = value => judge.settingRefusal(manifest, "voiceProvider", value);
+        assert.deepEqual(["auto", "local", "realtime", "gemini", "openai", "Gemini Live"].map(provider),
+            ["", "", "", "", "refused: setting=voiceProvider want=one-of-presets", "refused: setting=voiceProvider want=one-of-presets"],
+            "the Voice provider takes one of its presets");
+        for (const saved of ["realtime", "gemini"])
+            assert.equal(judge.settingsFor({ version: 2, plugins: [{ id: "vgs.jarvis", voiceProvider: saved }] }, manifest).voiceProvider, saved,
+                saved + ": a saved Voice provider reads unchanged");
         // The Voice key choices follow the selected cloud voice: a switch
         // from Realtime to Gemini offers the Gemini keys of the same read.
         for (const [voiceProvider, want] of [["realtime", ["openai-1"]], ["gemini", ["gemini-1"]], ["auto", ["openai-1"]], ["local", ["openai-1"]]])
             assert.deepEqual(plain(gate.voiceKeys([...KEY, ...GEMINI_KEY], { voiceProvider })), want.map(value =>
                 ({ value, label: [...KEY, ...GEMINI_KEY].find(key => key.value === value).label })), voiceProvider + ": the Voice key choices");
-        const hints = { realtime: new Set(), gemini: new Set() };
+        const hints = { realtime: new Set(), gemini: new Set(), local: new Set(), auto: new Set() };
+        // The row's one link, as the Settings page draws it: where the hint holds its words.
+        const linked = {};
         for (const [label, offered, voiceProvider, want] of VOICE_KEY) {
             const values = {};
             const shell = { settings: { voiceAccount: "openai-1", voiceProvider }, configure: { set: () => "ok" }, status: { values, set: (key, value) => {
@@ -721,9 +732,22 @@ function verifyVoice(gate, serviceSource, accountsSource) {
                 ["Voice", { info: "info", ok: "success", warning: "warning" }[want[0]], want[1], want[1] ? "add-key" : ""], label + ": the Voice group's key row");
             assert.equal(typeof entry.hint === "string" && entry.hint !== "", true, label + ": the row says what the key unlocks");
             hints[voiceProvider].add(entry.hint);
+            linked[voiceProvider] = entry.link !== null && entry.hint.includes(entry.link.text) ? entry.link.url : null;
         }
-        assert.deepEqual([hints.realtime.size, hints.gemini.size, [...hints.realtime][0] === [...hints.gemini][0]], [1, 1, false],
-            "the key row says what the selected cloud voice's key unlocks");
+        assert.deepEqual(Object.values(hints).map(set => set.size), [1, 1, 1, 1], "one hint for each Voice provider");
+        const [realtimeHint, geminiHint, localHint, autoHint] = ["realtime", "gemini", "local", "auto"].map(name => [...hints[name]][0]);
+        assert.deepEqual([realtimeHint === geminiHint, localHint === realtimeHint, localHint === geminiHint, localHint === autoHint],
+            [false, false, false, true], "the key row says what the selected cloud voice's key unlocks, and under Local or Auto both");
+        assert.deepEqual(linked, { realtime: null, gemini: "https://aistudio.google.com/apikey", local: "https://aistudio.google.com/apikey",
+            auto: "https://aistudio.google.com/apikey" }, "the key row links Google AI Studio where its hint names it");
+        // The Voice key field names both cloud voices' keys, links OpenAI's
+        // key page and points at the key row, by the label that row has, for
+        // Google AI Studio.
+        const field = manifest.schema.voiceAccount;
+        const row = manifest.status.voiceKey;
+        assert.deepEqual([plain(field.link), ["OpenAI", "Gemini", row.label, row.link.text].map(words => field.description.includes(words))],
+            [{ text: "OpenAI API keys", url: "https://platform.openai.com/api-keys" }, [true, true, true, true]],
+            "the Voice key field names both keys, links OpenAI API keys and points at the key row's link");
         // The preview row of a cloud voice names whose key it uses.
         const preview = serviceSource.match(/^    function publishPreview\(\) \{\n[\s\S]*?^    \}/m);
         assert.ok(preview);
@@ -1166,7 +1190,9 @@ const CONTROLS = [
     ["a removed key keeps Realtime", 'offered.some(function (key) { return key.provider === "openai" && key.value === settings.voiceAccount; })', "true"],
     ["Auto runs a Gemini key as Realtime", 'return key.provider === "openai" && key.value === settings.voiceAccount;', "return key.value === settings.voiceAccount;"],
     ["the key row offers another voice's keys", "return keys.filter(function (key) { return key.provider === provider; })", "return keys.filter(function (key) { return key.provider === \"openai\"; })"],
-    ["the key row names one voice's key", "var hint = VOICE_KEY_HINTS[voiceKeyProvider(settings)];", "var hint = VOICE_KEY_HINTS.openai;"],
+    ["the key row names one voice's key", 'var hint = VOICE_KEY_HINTS[settings.voiceProvider === "realtime" || settings.voiceProvider === "gemini" ? settings.voiceProvider : "other"];',
+        "var hint = VOICE_KEY_HINTS.realtime;"],
+    ["Local and Auto read the Realtime key's hint", '? settings.voiceProvider : "other"];', '? settings.voiceProvider : "realtime"];'],
     ["the preview names one voice's key", 'return provider === "gemini"\n        ?', "return false\n        ?"],
     ["an unread key list runs Realtime", ' || offered === undefined) return "local";', ') return "local";\n    if (offered === undefined) return "realtime";'],
     ["Always talk mode runs Realtime", 'if (settings.mode === "always" || ', "if ("],
@@ -1361,7 +1387,11 @@ try {
         ["Service.qml", serviceSource, "? Gate.previewCost(Gate.voiceProvider(shell.settings, accountReader.voiceKeys))", '? Gate.previewCost("realtime")'],
         ["Accounts.qml", accountsSource, "providers = value.providers;", "providers = {};"],
         ["Accounts.qml", accountsSource, "providers = {};", "providers = providers;"],
-        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '"voiceProvider": "local", "voiceAccount"', '"voiceProvider": "auto", "voiceAccount"']
+        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '"voiceProvider": "local", "voiceAccount"', '"voiceProvider": "auto", "voiceAccount"'],
+        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '{ "value": "gemini", "label": "Gemini Live" }],', '{ "value": "gemini", "label": "Gemini Live" }], "allowCustom": true,'],
+        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), ',\n        { "value": "gemini", "label": "Gemini Live" }]', "]"],
+        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '"url": "https://platform.openai.com/api-keys" } },\n    "voice":', '"url": "https://aistudio.google.com/apikey" } },\n    "voice":'],
+        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), "Cloud voice key under Voice on Details", "the key row under Voice on Details"]
     ]) {
         assert.equal(original.split(needle).length, 2);
         let failure = null;
