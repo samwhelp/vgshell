@@ -6,6 +6,9 @@ Item {
     readonly property string shellKeys: shell === null ? "" : Object.keys(shell).sort().join(",")
     readonly property string shortcutKeys: shell === null ? "" : JSON.stringify(shell.shortcut.keys)
     property bool registered: false
+    // The file turnedOff() makes, "" for none.
+    property string offMark: ""
+    function turnedOff() { if (offMark !== "") shell.run.detached(["touch", offMark]); }
     property int presses: 0
     property string duplicateShortcut: ""
     property string duplicateIpc: ""
@@ -65,6 +68,7 @@ Item {
         shell.ipc.handle("set", arg => { const at = arg.indexOf("="); return root.shell.configure.set(arg.slice(0, at), JSON.parse(arg.slice(at + 1))); });
         shell.ipc.handle("unset", key => root.shell.configure.unset(key));
         shell.ipc.handle("touch", path => root.shell.run.detached(["touch", path]));
+        shell.ipc.handle("off-mark", path => { root.offMark = path; return "ok"; });
         // The environment a detached process starts with, written to PATH.
         shell.ipc.handle("environ", path => root.shell.run.detached(["sh", "-c", "env >\"$1\"", "sh", path]));
         shell.ipc.handle("lock", () => root.shell.lock.lock(lockContent));

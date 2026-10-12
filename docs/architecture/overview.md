@@ -39,6 +39,7 @@ The boundary is a static import check plus the scoped object, not a process sand
 ### Hosts and capabilities
 
 - Do hand a plugin only the capabilities its manifest names. `Capabilities.providersFor` builds one provider per named capability, and `scripts/smoke/rows/capabilities.sh` checks that a plugin that does not name one does not hold it.
+- Do tell a service that its user turned it off only through its optional `turnedOff()`, which `Plugins.setEnabled` calls on a disable; a reload, a rescan and a shell exit destroy it without that call. `scripts/smoke/rows/plugins.sh` pins it.
 - Do return a disposer from every registration a provider makes, so that disabling a plugin releases everything it held. `shell/Core/Lifetime.js` releases them with the instance; `scripts/test-lifetime.js` and `scripts/smoke/rows/capability-release.sh` pin it.
 - Never let a plugin own a session-wide object; the core owns it and lends it through a capability. `scripts/check-plugin-boundary.py` refuses a lent type in a plugin.
 - Never lend authority with a reading: a read-only capability exposes state without the power to change it ([D056](../decisions/D056-read-only-session-state.md), [D090](../decisions/D090-core-input-facts.md)). `scripts/smoke/rows/session.sh` and `scripts/test-input-facts.js` pin it.

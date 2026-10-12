@@ -855,9 +855,20 @@ Singleton {
         const refusal = Logic.enabledRefusal(m, enabled);
         if (refusal !== "") return refusal;
         const hidden = enabled ? [] : Logic.hiddenByDisabling(Registry.manifests, Config.effective, id, Registry.defaultBarId);
+        // Read before the write: the write drops the service's slot, which
+        // forgets the instance and destroys it once this call returns.
+        const services = enabled || !Logic.hasOwn(built, "service") ? []
+            : built["service"].filter(row => row.id === id).map(row => row.instance);
         const written = Config.writeUser(Logic.withEnabled(Config.user, m, enabled, Config.effective));
         if (written !== "ok") return written;
         if (enabled) Notices.enabled(id);
+        // The one place a plugin learns its user turned it off. A reload, a
+        // rescan and a shell exit destroy the service without this call.
+        for (const instance of services) {
+            if (typeof instance.turnedOff !== "function") continue;
+            try { instance.turnedOff(); }
+            catch (e) { console.error("plugins: " + id + " turnedOff failed: " + e.message); }
+        }
         return hidden.length > 0 ? "ok hidden=" + hidden.join(",") : "ok";
     }
 

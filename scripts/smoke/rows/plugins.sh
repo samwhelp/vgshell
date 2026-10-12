@@ -16,6 +16,10 @@
 # tree whose Registry names the revision before its scan, run as the
 # guarded shell, lets rescan read the last scan's state. That copy stops
 # the row's shell and the row starts the sandbox's tree again after it.
+# A disable calls the service's turnedOff() once; a rebuild after a source
+# change and a shell stop call it never. Its control is a copy of the tree
+# whose core calls it for every destroyed instance: the rebuild then leaves
+# the fixture's mark.
 # inputs: shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.bar/* shell/shell.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Hosts/ServiceHost.qml shell/Hosts/PluginSlot.qml bin/vgshell bin/vgshell-scan bin/vgshell-plugin-judge
 set -euo pipefail
 fixture="$sandbox/src/acme.probe"
@@ -333,3 +337,49 @@ plugins_rescan "a rescan after the controls' command goes"
 expect "the controls' command reads missing again" "$bare_absent" bare_requirements
 scan_hold
 unset -f plugins_rescan
+
+# The fixture's turnedOff() makes the mark once it holds the mark's path.
+off_mark="$sandbox/probe-turned-off"
+off_source="$home/.config/vgshell/plugins/acme.probe/Service.qml"
+off_marked() { if [[ -e $off_mark ]]; then echo present; else echo absent; fi; }
+off_arm() { expect_poll "$1: the fixture service takes its Off mark" ok ipc acme.probe invoke off-mark "$off_mark"; }
+off_rebuilt() { local now; now="$(builds)" || { echo unread; return; }; if [[ $now != "$1" ]]; then echo rebuilt; else echo same; fi; }
+# A changed source file and a rescan rebuild the fixture's service.
+off_rebuild() { # LABEL
+  local before
+  before="$(builds)" || { fail "$1: the build count is unread"; return 1; }
+  printf '// %s\n' "$1" >>"$off_source"
+  rescan "$1: the changed fixture rescans"
+  expect_poll "$1: the fixture's service is built again" rebuilt off_rebuilt "$before"
+}
+cp -- "$off_source" "$sandbox/probe-service-original"
+off_arm "before a rebuild"
+off_rebuild "a rebuild"
+expect "a rebuilt service is not told it was turned off" absent off_marked
+off_arm "before a shell stop"
+stop_shell
+expect "a shell stop tells no service it was turned off" absent off_marked
+if copy_tree turned-off-on-destroy \
+  && edit_tree turned-off-on-destroy shell/Core/Plugins.qml '        row.lifetime.drain();
+        forget(hostKey, instance);' '        if (typeof instance.turnedOff === "function") instance.turnedOff();
+        row.lifetime.drain();
+        forget(hostKey, instance);'; then
+  start_shell "$sandbox/tree-turned-off-on-destroy" "$sandbox/turned-off-on-destroy.log" || fail "the turned-off control shell starts"
+  off_arm "control"
+  off_rebuild "control rebuild"
+  expect_poll "control: a core that calls turnedOff for every destroyed instance marks a rebuild" present off_marked
+  stop_shell
+  rm -f -- "${off_mark:?}"
+fi
+start_shell "$repo" "$sandbox/turned-off-restored.log" || fail "the shell starts after the turned-off control"
+off_arm "before a disable"
+expect "the fixture disables" ok ipc shell setPluginEnabled acme.probe false
+expect_poll "a disabled plugin's service is told it was turned off" present off_marked
+rm -f -- "${off_mark:?}"
+expect "the fixture enables again" ok ipc shell setPluginEnabled acme.probe true
+cp -- "$sandbox/probe-service-original" "$off_source"
+rescan "the fixture's own source returns"
+expect_poll "the fixture is enabled and placed again" '[true, true]' probe_listed acme.probe
+off_arm "after the restore"
+expect "an enable tells no service it was turned off" absent off_marked
+unset -f off_marked off_arm off_rebuild off_rebuilt
