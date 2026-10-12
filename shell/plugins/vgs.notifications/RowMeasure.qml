@@ -16,6 +16,13 @@ ColumnLayout {
         id: imageState
         Image {
             property bool badge: false
+            // Qt Image.sourceSize bounds stored pixels, unlike item width:
+            // https://doc.qt.io/qt-6/qml-qtquick-image.html#sourceSize-prop
+            // Status probes need no more pixels than the painted owners.
+            readonly property real decodeSize: (badge ? root.rowCard.look.badge.size
+                : Math.max(root.rowCard.look.media.compact.size, root.rowCard.look.media.compact.icon,
+                    root.rowCard.look.media.regular.size, root.rowCard.look.media.regular.icon)) * Screen.devicePixelRatio
+            sourceSize: Qt.size(decodeSize, decodeSize)
             visible: false
             asynchronous: true
             cache: false

@@ -67,6 +67,13 @@ Item {
         Rectangle { color: "#ff00ff"; z: 100 }
     }
 
+    Component { id: shippedMeasure; Notifications.RowMeasure { measureOnly: true } }
+    Component { id: measuredCard; Notifications.NotificationCard {} }
+
+    // Synthetic screenshot-sized PNG. The hidden decoder, not a file-size
+    // or source-text check, must retain only the painted token's pixels.
+    readonly property string screenshotImage: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAACgAAAAWgAQAAAAC6eydyAAAB10lEQVR4nO3BMQEAAADCoPVPbQ0PoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIDODQ4JAAEjBuWbAAAAAElFTkSuQmCC"
+
     TestCase {
         id: testCase
         name: "notification_scroll"
@@ -172,6 +179,95 @@ Item {
             const ink = boundaryInk.createObject(slot, { x: 0, y: 0, width: slot.width, height: slot.height });
             verify(ink !== null);
             return ink;
+        }
+
+        function measureCard(look) {
+            return { look: look, pad: look.card.pad, summary: "", title: "", singleLine: true,
+                showsBadge: false, enrichment: null, workspace: "", workspaceIcon: "", bodySegments: [] };
+        }
+
+        function unboundedMeasure(look) {
+            const request = new XMLHttpRequest();
+            request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.notifications/RowMeasure.qml"), false);
+            request.send();
+            const source = request.responseText;
+            const bound = "sourceSize: Qt.size(decodeSize, decodeSize)";
+            compare(source.split(bound).length, 2, "the planted decoder mutation matches once");
+            const planted = source.replace(bound, "sourceSize: Qt.size(0, 0)");
+            verify(planted !== source);
+            const at = planted.indexOf("ColumnLayout {");
+            verify(at > 0);
+            const wrapper = planted.slice(0, at) + "Item { component UnboundedMeasure: " + planted.slice(at)
+                + "\n readonly property Component measure: Component { UnboundedMeasure {} } }";
+            const owner = Qt.createQmlObject(wrapper, scene, Qt.resolvedUrl("../../shell/plugins/vgs.notifications/ControlMeasure.qml"));
+            verify(owner !== null);
+            const measure = owner.measure.createObject(owner, { measureOnly: true, rowCard: measureCard(look) });
+            verify(measure !== null);
+            return { owner: owner, measure: measure };
+        }
+
+        function test_hidden_decoder_data() {
+            return [
+                { tag: "screenshot", badge: false },
+                { tag: "workspace badge", badge: true },
+                { tag: "unbounded screenshot control", badge: false, control: true },
+                { tag: "unbounded badge control", badge: true, control: true }
+            ];
+        }
+
+        function test_hidden_decoder(row) {
+            const look = frame.look;
+            const altered = row.control ? unboundedMeasure(look) : null;
+            const measure = altered !== null ? altered.measure
+                : shippedMeasure.createObject(scene, { rowCard: measureCard(look) });
+            verify(measure !== null);
+            try {
+                measure.imageStatus(scene.screenshotImage, row.badge);
+                const image = measure.imageStates[scene.screenshotImage];
+                verify(image !== undefined && !image.visible && !image.cache);
+                tryCompare(image, "status", Image.Ready);
+                verify(image.implicitWidth > 0 && image.implicitHeight > 0, "positive decoded pixels reach the judge");
+                const cap = (row.badge ? look.badge.size : Math.max(look.media.compact.size,
+                    look.media.regular.size, look.media.compact.icon, look.media.regular.icon)) * scene.Screen.devicePixelRatio;
+                if (row.control) {
+                    compare(image.implicitWidth, 2560, "the mutation decoded the actual original screenshot");
+                    compare(image.implicitHeight, 1440);
+                    expectFail("", "the same stored-pixel judge rejects the real unbounded decoder");
+                }
+                verify(image.implicitWidth <= Math.ceil(cap) && image.implicitHeight <= Math.ceil(cap),
+                    "decoded stored pixels stay within the painted owner: " + [image.implicitWidth, image.implicitHeight, cap]);
+                if (row.control) return;
+                const entry = { key: "decode", app: row.badge ? "Slack" : "VGS", summary: row.badge ? "[workspace] Screenshot" : "Screenshot",
+                    body: "A screenshot notification with body text that wraps to another line in the card", image: row.badge ? "" : scene.screenshotImage,
+                    workspace: row.badge ? "workspace" : "", workspaceIcon: row.badge ? scene.screenshotImage : "" };
+                const card = measuredCard.createObject(scene, { look: look, textColumn: frame.textColumn,
+                    app: entry.app, summary: entry.summary, body: entry.body, image: entry.image,
+                    workspace: entry.workspace, workspaceIcon: entry.workspaceIcon });
+                verify(card !== null);
+                try {
+                    if (row.badge) tryCompare(card, "showsBadge", true);
+                    else tryCompare(card, "showsSlot", true);
+                    card.settleHeight();
+                    fuzzyCompare(measure.measure(entry, look, card.textColumn), card.fullHeight, 0.5,
+                        "bounded resource readiness preserves actual card geometry");
+                    const resized = Object.assign({}, look, {
+                        badge: Object.assign({}, look.badge, { size: look.badge.size * 2 }),
+                        media: { compact: Object.assign({}, look.media.compact, { size: look.media.compact.size * 2, icon: look.media.compact.icon * 2 }),
+                            regular: Object.assign({}, look.media.regular, { size: look.media.regular.size * 2, icon: look.media.regular.icon * 2 }) }
+                    });
+                    card.look = resized;
+                    measure.measure(entry, resized, card.textColumn);
+                    tryCompare(image, "status", Image.Ready);
+                    tryCompare(image, "implicitWidth", Math.round(cap * 2));
+                    verify(image.implicitWidth <= Math.ceil(cap * 2) && image.implicitHeight <= Math.ceil(cap * 2));
+                    if (row.badge) tryCompare(card, "showsBadge", true);
+                    card.settleHeight();
+                    fuzzyCompare(measure.measure(entry, resized, card.textColumn), card.fullHeight, 0.5);
+                } finally { card.destroy(); }
+            } finally {
+                if (altered !== null) altered.owner.destroy();
+                else measure.destroy();
+            }
         }
 
         function test_shipped_panel_boundary_data() {
