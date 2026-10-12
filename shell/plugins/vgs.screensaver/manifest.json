@@ -13,8 +13,7 @@
   "requirements": [
     { "command": "ttfx", "packages": { "aur": "ttfx" }, "optional": false, "purpose": "Animates the screensaver text art" },
     { "command": "magick", "packages": { "pacman": "imagemagick", "dnf": "ImageMagick", "nix": "imagemagick" }, "optional": false, "purpose": "Converts an image into screensaver text art" },
-    { "command": "awk", "packages": { "pacman": "gawk", "apt": "gawk", "dnf": "gawk", "nix": "gawk" }, "optional": false, "purpose": "Builds text art from converted image pixels" },
-    { "command": "mv", "packages": { "pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "nix": "coreutils" }, "optional": false, "purpose": "Moves art made before the Art setting into that setting" }
+    { "command": "awk", "packages": { "pacman": "gawk", "apt": "gawk", "dnf": "gawk", "nix": "gawk" }, "optional": false, "purpose": "Builds text art from converted image pixels" }
   ],
   "settings": {
     "idleEnabled": true,
@@ -73,6 +72,7 @@
   "status": {
     "state": { "type": "state", "label": "Screensaver" },
     "art": { "type": "state", "label": "Art" },
+    "artFile": { "type": "data", "label": "Art in use" },
     "lockOrder": { "type": "state", "label": "Lock order" },
     "effects": { "type": "choices", "label": "Effects", "hidden": true }
   },

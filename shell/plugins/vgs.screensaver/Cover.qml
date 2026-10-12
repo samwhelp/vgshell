@@ -9,7 +9,7 @@ Item {
     property var shell: null
     property var screen: null
     readonly property string logoPath: Logic.fileUrlPath(Qt.resolvedUrl("logo.txt"))
-    readonly property string artFile: Logic.artFile(shell === null ? "" : shell.settings.art, Paths.stateDir + "/screensaver-art.txt")
+    readonly property string artFile: shell === null || shell.status.values.artFile === undefined ? "" : shell.status.values.artFile
     property string artPath: logoPath
     property string pendingFrame: ""
     property var frameState: Logic.createState()
@@ -122,8 +122,8 @@ Item {
         path: root.artFile
         watchChanges: true
         printErrors: false
-        onLoaded: root.artPath = path
-        onLoadFailed: error => root.artPath = root.logoPath
+        onLoaded: if (path === root.artFile) root.artPath = path
+        onLoadFailed: error => { if (path === root.artFile) root.artPath = root.logoPath; }
         onFileChanged: reload()
     }
 

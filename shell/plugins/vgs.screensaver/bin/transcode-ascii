@@ -27,10 +27,15 @@ done
 case "${input,,}" in *.png|*.svg) ;; *) echo "screensaver-art: refused: input=type" >&2; exit 2 ;; esac
 pixel_width=$((width * 2))
 pixel_height=$((height * 4))
-alpha_range="$(magick -background none "$input" -alpha extract -format '%[fx:minima] %[fx:maxima]' info: 2>/dev/null)" || { echo "screensaver-art: refused: image=unreadable" >&2; exit 1; }
+# Quickshell kills only this script when it removes the service. Each long
+# child gets a parent-death signal, and the quiet form redirects stderr
+# inside bash because a command substitution redirection changes the parent.
+held=(setpriv --pdeathsig KILL -- bash -c '[[ $PPID == "$1" ]] || exit 1; shift; exec "$@"' held "$$")
+held_quiet=(setpriv --pdeathsig KILL -- bash -c '[[ $PPID == "$1" ]] || exit 1; shift; exec "$@" 2>/dev/null' held "$$")
+alpha_range="$("${held_quiet[@]}" magick -background none "$input" -alpha extract -format '%[fx:minima] %[fx:maxima]' info:)" || { echo "screensaver-art: refused: image=unreadable" >&2; exit 1; }
 read -r alpha_min alpha_max <<<"$alpha_range"
 use_alpha=false
-if awk -v min="$alpha_min" -v max="$alpha_max" 'BEGIN { exit !(min < 0.999 && max > min) }'; then use_alpha=true; fi
+if "${held[@]}" awk -v min="$alpha_min" -v max="$alpha_max" 'BEGIN { exit !(min < 0.999 && max > min) }'; then use_alpha=true; fi
 magick_args=(-background none "$input" -auto-orient)
 if [[ $use_alpha == true ]]; then
   magick_args+=(-alpha extract -alpha off)
@@ -42,7 +47,7 @@ fi
 magick_args+=(-bordercolor black -border 1 -trim +repage -resize "${pixel_width}x${pixel_height}" -threshold "${threshold}%" -negate -compress none pbm:-)
 mkdir -p -- "$(dirname -- "$output")"
 partial="$output.next"
-magick "${magick_args[@]}" | awk -v cols="$width" -v rows="$height" '
+"${held[@]}" magick "${magick_args[@]}" | "${held[@]}" awk -v cols="$width" -v rows="$height" '
 function bit(x,y, idx) { idx = y * w + x + 1; return pix[idx] == "1" }
 BEGIN { base = 10240; dot[0,0] = 1; dot[0,1] = 2; dot[0,2] = 4; dot[1,0] = 8; dot[1,1] = 16; dot[1,2] = 32; dot[0,3] = 64; dot[1,3] = 128 }
 /^#/ { next }

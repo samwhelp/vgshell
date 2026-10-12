@@ -13,12 +13,16 @@ Item {
     property bool running: false
     property bool effectFailed: false
     property var published: ({})
-    property bool artFailed: false
+    property string artInUse: ""
+    property string artProblem: ""
     property bool convertAgain: false
+    property bool convertTimedOut: false
+    property bool convertCancelled: false
 
     readonly property bool locked: shell !== null && shell.session.locked
     readonly property bool idleEnabled: shell !== null && shell.settings.idleEnabled === true
     readonly property int idleSeconds: shell === null ? 150 : shell.settings.idleSeconds
+    readonly property var missing: shell === null ? [] : shell.requirements.missing
     readonly property int requirementsRevision: shell === null ? 0 : shell.requirements.revision
     readonly property string art: shell === null || shell.settings.art === undefined ? "" : shell.settings.art
     readonly property string convertedArt: Paths.stateDir + "/screensaver-art.txt"
@@ -39,17 +43,23 @@ Item {
         }
         publish("effects", [{ label: "Random", value: "random" }]);
         refreshEffects();
+        updateArt();
         watchIdle();
         publishAll();
     }
     onIdleEnabledChanged: { watchIdle(); publishLockOrder(); }
     onIdleSecondsChanged: { watchIdle(); publishLockOrder(); }
-    onRequirementsRevisionChanged: refreshEffects()
+    onRequirementsRevisionChanged: {
+        refreshEffects();
+        if (Logic.isArtImage(art) && artProblem !== "" && !artConvert.running) Qt.callLater(root.updateArt);
+    }
     onLockedChanged: if (locked) stop()
     onRunningChanged: { publishState(); watchActivity(); }
-    onArtChanged: convertArt()
-    onArtFailedChanged: publishArt()
+    onArtChanged: updateArt()
+    onArtProblemChanged: publishArt()
+    onArtInUseChanged: publishArtFile()
     onManagerKeyChanged: publishLockOrder()
+    Component.onDestruction: stopArtConversion(false)
 
     function start() {
         if (shell === null) return "refused: screensaver=not-ready";
@@ -64,6 +74,11 @@ Item {
         return "ok";
     }
 
+    function turnedOff() {
+        stop();
+        stopArtConversion(false);
+    }
+
     function failEffect() {
         effectFailed = true;
         running = false;
@@ -71,18 +86,63 @@ Item {
         return "ok";
     }
 
-    function convertArt() {
+    function updateArt() {
         if (shell === null) return;
-        if (!Logic.isArtImage(art)) {
-            artFailed = false;
-            return;
-        }
         if (artConvert.running) {
-            convertAgain = true;
+            stopArtConversion(true);
             return;
         }
-        artConvert.command = [Logic.fileUrlPath(Qt.resolvedUrl("bin/transcode-ascii")), art, convertedArt];
+        convertAgain = false;
+        convertTimedOut = false;
+        if (art === "") {
+            textArt.path = "";
+            settleArt("", "");
+            return;
+        }
+        if (!Logic.isArtImage(art)) {
+            textArt.path = art;
+            return;
+        }
+        textArt.path = "";
+        const requirementProblem = Logic.imageRequirementProblem(missing);
+        if (requirementProblem !== "") {
+            settleArt(convertedArt, requirementProblem);
+            return;
+        }
+        artProblem = "";
+        convertCancelled = false;
+        publishArt();
+        artConvert.command = ["setpriv", "--pdeathsig", "KILL", "--", Logic.fileUrlPath(Qt.resolvedUrl("bin/transcode-ascii")), art, convertedArt];
         artConvert.running = true;
+    }
+
+    function stopArtConversion(restart) {
+        if (artConvert.running) {
+            convertAgain = restart;
+            convertCancelled = !restart && !convertTimedOut;
+            // Setting `running` to false sends SIGTERM (Quickshell 0.3.1,
+            // Process.running; shell/Core/Sounds.qml). The command's
+            // pdeathsig ends its grandchildren if this service is removed.
+            artConvert.running = false;
+        } else if (restart) {
+            Qt.callLater(root.updateArt);
+        }
+    }
+
+    function settleArt(next, problem) {
+        const result = Logic.artResult(artInUse, next, problem);
+        artInUse = result.inUse;
+        artProblem = result.problem;
+    }
+
+    function textArtLoaded(path, content) {
+        if (path !== art || Logic.isArtImage(art) || art === "") return;
+        settleArt(path, Logic.textArtProblem(content));
+    }
+
+    function textArtFailed(path, error) {
+        if (path !== art || Logic.isArtImage(art) || art === "") return;
+        settleArt(path, "file");
     }
 
     function migratedArt() {
@@ -131,6 +191,7 @@ Item {
     function publishAll() {
         publishState();
         publishArt();
+        publishArtFile();
         publishLockOrder();
     }
 
@@ -139,7 +200,11 @@ Item {
     }
 
     function publishArt() {
-        publish("art", artFailed ? { tone: "warning", text: "Cannot read the art image" } : null);
+        publish("art", Logic.artStatus(artProblem));
+    }
+
+    function publishArtFile() {
+        publish("artFile", artInUse);
     }
 
     function publishLockOrder() {
@@ -163,8 +228,18 @@ Item {
     }
 
     function refreshEffects() {
-        if (shell === null || effectsHelp.running) return;
+        if (shell === null || effectsHelp.running || !Logic.canRefreshEffects(missing)) return;
         effectsHelp.running = true;
+    }
+
+    FileView {
+        id: textArt
+        path: ""
+        watchChanges: true
+        printErrors: false
+        onLoaded: content => root.textArtLoaded(path, content)
+        onLoadFailed: error => root.textArtFailed(path, error)
+        onFileChanged: reload()
     }
 
     Process {
@@ -173,10 +248,30 @@ Item {
         onExited: code => {
             if (root.convertAgain) {
                 root.convertAgain = false;
-                Qt.callLater(root.convertArt);
+                root.convertTimedOut = false;
+                root.convertCancelled = false;
+                Qt.callLater(root.updateArt);
                 return;
             }
-            root.artFailed = Logic.isArtImage(root.art) && code !== 0;
+            if (root.convertCancelled) {
+                root.convertCancelled = false;
+                return;
+            }
+            const problem = Logic.conversionProblem(code, root.convertTimedOut);
+            root.convertTimedOut = false;
+            root.settleArt(root.convertedArt, problem);
+        }
+    }
+
+    Timer {
+        // `transcode-ascii` converted a 6000x4000 plasma:fractal PNG
+        // (122 MB) in 2.5 s wall on host cachy (32 CPUs, load ~6) on
+        // 2026-10-12 with `time`; 20 s is 8x that reading.
+        interval: Logic.CONVERT_LIMIT_MS
+        running: artConvert.running
+        onTriggered: {
+            root.convertTimedOut = true;
+            root.stopArtConversion(false);
         }
     }
 
@@ -186,7 +281,20 @@ Item {
         id: artMigration
         command: ["mv", "-n", "--", root.legacyArt, root.movedArt]
         onExited: code => {
-            if (code === 0) root.migratedArt();
+            if (code === 0) migrationCheck.path = root.legacyArt;
+        }
+    }
+
+    FileView {
+        id: migrationCheck
+        path: ""
+        printErrors: false
+        onLoaded: migrationCheck.path = ""
+        onLoadFailed: error => {
+            // coreutils 9.5+ `mv -n` exits 0 when the target exists and it
+            // skips the move, while 9.2-9.4 exit 1, so the old path decides.
+            if (error === FileViewError.FileNotFound) root.migratedArt();
+            migrationCheck.path = "";
         }
     }
 

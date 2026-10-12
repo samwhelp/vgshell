@@ -45,9 +45,21 @@ function suite(ctx, check) {
   check("canvas size floors cells", ctx.canvasSize(2560, 1440, 15, 32), { columns: 170, rows: 45 });
   check("newest frame drops older rows", ctx.newestFrame(["old"], ["new"]), ["new"]);
   check("background drops alpha for ttfx", ctx.backgroundHex("#ff102030"), "#102030");
-  check("empty art is the logo", ctx.artFile("", "/state/art.txt"), "");
-  check("image art reads the converted text", [ctx.artFile("/a/b.PNG", "/state/art.txt"), ctx.artFile("/a/b.svg", "/state/art.txt")], ["/state/art.txt", "/state/art.txt"]);
-  check("text art is read as it is", ctx.artFile("/a/art.txt", "/state/art.txt"), "/a/art.txt");
+  check("art problems keep the art in use", ctx.artResult("/old/art.txt", "/new/art.txt", "image"), { inUse: "/old/art.txt", problem: "image" });
+  check("art success takes the next file", ctx.artResult("/old/art.txt", "/new/art.txt", ""), { inUse: "/new/art.txt", problem: "" });
+  check("binary text art is refused", ctx.textArtProblem("JPEG\0bytes"), "type");
+  check("plain text art is accepted", ctx.textArtProblem("VGS\n"), "");
+  check("conversion exits classify status keys", [
+    ctx.conversionProblem(0, false),
+    ctx.conversionProblem(1, false),
+    ctx.conversionProblem(0, true)
+  ], ["", "image", "slow"]);
+  check("missing image tools classify status keys", [
+    ctx.imageRequirementProblem(["magick"]),
+    ctx.imageRequirementProblem(["awk"]),
+    ctx.imageRequirementProblem([])
+  ], ["magick", "awk", ""]);
+  check("ttfx effects wait for the requirement", [ctx.canRefreshEffects(["ttfx"]), ctx.canRefreshEffects([])], [false, true]);
   check("random command uses random flag", ctx.command("/art", "random", 30, 80, 24, "#000000").slice(-1), ["--random-effect"]);
   check("named command passes the effect", ctx.command("/art", "beams", 30, 80, 24, "#000000").slice(-1), ["beams"]);
   const exits = ctx.createExitState();
@@ -81,7 +93,11 @@ const controls = [
   ["same raw row with changed carried colour reparses", "state.rawRows[i] === raw && state.colorsIn[i] === color", "state.rawRows[i] === raw"],
   ["same colour run is merged", "if (next !== KEEP_COLOR && next !== current) {", "if (next !== KEEP_COLOR) {"],
   ["colour cache is bounded", "if (state.cacheSize > COLOR_CACHE_MAX) {", "if (false) {"],
-  ["image art reads the converted text", "return isArtImage(value) ? converted : value;", "return value;"],
+  ["art problems keep the art in use", "return { inUse: problem === \"\" ? next : inUse, problem: problem };", "return { inUse: next, problem: problem };"],
+  ["binary text art is refused", "return String(text).indexOf(\"\\u0000\") === -1 ? \"\" : \"type\";", "return \"\";"],
+  ["conversion timeout is slow", "if (timedOut) return \"slow\";", "if (false) return \"slow\";"],
+  ["missing magick is reported", "if (values.indexOf(\"magick\") !== -1) return \"magick\";", "if (false) return \"magick\";"],
+  ["missing ttfx prevents the help process", "return (missing || []).indexOf(\"ttfx\") === -1;", "return true;"],
   ["quick exits stop respawn", "if (state.quickExits >= QUICK_EXIT_LIMIT) {", "if (false) {"],
 ];
 

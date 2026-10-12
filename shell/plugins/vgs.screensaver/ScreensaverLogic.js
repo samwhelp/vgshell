@@ -4,6 +4,16 @@ var COLOR_CACHE_MAX = 4096;
 var KEEP_COLOR = "__keep__";
 var QUICK_EXIT_MS = 1000;
 var QUICK_EXIT_LIMIT = 3;
+var CONVERT_LIMIT_MS = 20000;
+
+var ART_PROBLEMS = {
+    image: "Cannot read the art image",
+    file: "Cannot read the art file",
+    type: "Art must be a PNG or SVG image or a text file",
+    slow: "The art image took too long to convert",
+    magick: "Image art needs ImageMagick",
+    awk: "Image art needs awk"
+};
 
 function createState() {
     return { rawRows: [], rows: [], colorsIn: [], colorsOut: [], cache: ({}), cacheSize: 0, parsedRows: 0, reusedRows: 0 };
@@ -215,12 +225,33 @@ function isArtImage(art) {
     return /\.(png|svg)$/i.test(String(art || ""));
 }
 
-// The text file ttfx reads for the Art setting: "" for the VGS logo, the
-// service's converted text for an image, else the configured text file.
-function artFile(art, converted) {
-    const value = String(art || "");
-    if (value === "") return "";
-    return isArtImage(value) ? converted : value;
+function artResult(inUse, next, problem) {
+    return { inUse: problem === "" ? next : inUse, problem: problem };
+}
+
+function artStatus(problem) {
+    if (problem === "") return null;
+    return { tone: "warning", text: ART_PROBLEMS[problem] || ART_PROBLEMS.file };
+}
+
+function textArtProblem(text) {
+    return String(text).indexOf("\u0000") === -1 ? "" : "type";
+}
+
+function imageRequirementProblem(missing) {
+    const values = missing || [];
+    if (values.indexOf("magick") !== -1) return "magick";
+    if (values.indexOf("awk") !== -1) return "awk";
+    return "";
+}
+
+function conversionProblem(code, timedOut) {
+    if (timedOut) return "slow";
+    return code === 0 ? "" : "image";
+}
+
+function canRefreshEffects(missing) {
+    return (missing || []).indexOf("ttfx") === -1;
 }
 
 function command(artPath, effect, frameRate, columns, rows, background) {

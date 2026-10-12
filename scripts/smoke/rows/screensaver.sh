@@ -1,8 +1,9 @@
 # Screensaver plugin Phase B row. It uses a ttfx stand-in whose help carries
 # one planted effect and whose frames are deterministic. Latency polls use
 # expect_poll's 0.2 s cadence. Measured row runtime on host cachy on
-# 2026-10-05 under the nested sandbox: under 20 s.
-# inputs: shell/plugins/vgs.screensaver/* shell/Core/PluginLogic.js shell/Hosts/BackgroundHost.qml scripts/smoke/fixtures/screensaver-ttfx scripts/smoke/rows/capability-release.sh scripts/smoke/rows/lock.sh
+# 2026-10-05 under the nested sandbox: under 20 s. The conversion
+# deadline checks add an unmeasured wait.
+# inputs: shell/plugins/vgs.screensaver/* shell/plugins/vgs.screensaver/bin/transcode-ascii shell/Core/PluginLogic.js shell/Hosts/BackgroundHost.qml scripts/smoke/fixtures/screensaver-ttfx scripts/smoke/rows/capability-release.sh scripts/smoke/rows/lock.sh
 set -euo pipefail
 # lock is exclusive: acme.probe can hold it and block vgs.lock from building.
 # Free it for this row, then restore acme.probe and vgs.lock to their starting
@@ -210,42 +211,164 @@ rm -f -- "${home:?}/.local/state/vgshell/screensaver-art.txt"
 converted_ready() { [[ -s $converted ]] && echo yes || echo no; }
 argv_names() { grep -q -- "$1" "$ss_log" && echo yes || echo no; }
 art_patch() { python3 -c 'import json,sys; print(json.dumps({"art": sys.argv[1]}))' "$1"; }
+art_in_use() { ipc smoke statusValues vgs.screensaver | py_reply 'import json,sys; print(json.load(sys.stdin).get("artFile", ""))'; }
+slow_magick_alive() { pgrep -f -- "$shim/magick" >/dev/null && echo yes || echo no; }
+kill_slow_magick() {
+  local pid
+  while IFS= read -r pid; do
+    [[ -n $pid ]] || continue
+    case "$pid" in (*[!0-9]*) fail "slow magick pid is not numeric: $pid"; return ;; esac
+    kill "$pid" 2>/dev/null || true
+  done < <(pgrep -f -- "$shim/magick" || true)
+}
+write_slow_magick() {
+  cat >"$shim/magick" <<'PYMAGICK'
+#!/usr/bin/env python3
+import time
+time.sleep(600)
+PYMAGICK
+  chmod 755 "$shim/magick"
+}
 set_screensaver "$(art_patch "$fixture")"
 expect "reload config for image art" ok ipc shell reloadConfig
 expect_poll "the Art setting converts the image" yes converted_ready
 expect_poll "a readable art image shows no art problem" absent art_status
+expect_poll "the converted image is the art in use" "$converted" art_in_use
 : >"$ss_log"
 expect "starts after image art" ok ipc vgs.screensaver invoke start ''
 expect_poll "ttfx argv names the converted art" yes argv_names "$converted"
 expect "screensaver stops by IPC" ok ipc vgs.screensaver invoke stop ''
 expect_poll "cover is gone after IPC stop" 0 layer_count vgs:cover
-set_screensaver "$(art_patch "$sandbox/screensaver-missing.png")"
-expect "reload config for a missing art image" ok ipc shell reloadConfig
-expect_poll "a missing art image shows the art problem" "Cannot read the art image" art_status
 text_art="$sandbox/screensaver-art-text.txt"
 printf 'VGS\n' >"$text_art"
 set_screensaver "$(art_patch "$text_art")"
 expect "reload config for text art" ok ipc shell reloadConfig
 expect_poll "text art shows no art problem" absent art_status
+expect_poll "text art is the art in use" "$text_art" art_in_use
 : >"$ss_log"
 expect "starts after text art" ok ipc vgs.screensaver invoke start ''
 expect_poll "ttfx argv names the text art file" yes argv_names "$text_art"
 expect "screensaver stops by IPC after text art" ok ipc vgs.screensaver invoke stop ''
 expect_poll "cover is gone after text art stop" 0 layer_count vgs:cover
+set_screensaver "$(art_patch "$sandbox/screensaver-missing.png")"
+expect "reload config for a missing art image" ok ipc shell reloadConfig
+expect_poll "a missing art image shows the art problem" "Cannot read the art image" art_status
+expect "a failed image keeps the text art in use" "$text_art" art_in_use
+: >"$ss_log"
+expect "starts after failed image art" ok ipc vgs.screensaver invoke start ''
+expect_poll "ttfx argv still names the previous text art" yes argv_names "$text_art"
+expect "screensaver stops by IPC after failed image" ok ipc vgs.screensaver invoke stop ''
+expect_poll "cover is gone after failed image stop" 0 layer_count vgs:cover
+jpeg_art="$sandbox/screensaver-art.jpg"
+magick "$fixture" "$jpeg_art"
+set_screensaver "$(art_patch "$jpeg_art")"
+expect "reload config for JPEG art" ok ipc shell reloadConfig
+expect_poll "JPEG art is refused as the wrong type" "Art must be a PNG or SVG image or a text file" art_status
+expect "refused JPEG art keeps the previous art in use" "$text_art" art_in_use
+set_screensaver "$(art_patch "$sandbox/screensaver-missing.txt")"
+expect "reload config for missing text art" ok ipc shell reloadConfig
+expect_poll "missing text art shows the art problem" "Cannot read the art file" art_status
+expect "unreadable text art keeps the previous art in use" "$text_art" art_in_use
+printf '#!/usr/bin/env bash\nexit 1\n' >"$shim/magick"
+chmod 755 "$shim/magick"
+set_screensaver "$(art_patch "$fixture")"
+expect "reload config for a failing image conversion" ok ipc shell reloadConfig
+expect_poll "a failed image conversion shows the art problem" "Cannot read the art image" art_status
+rm -f -- "${shim:?}/magick"
+rescan "rescan after ImageMagick returns answers ok"
+expect_poll "ImageMagick arriving clears the art problem" absent art_status
+expect_poll "ImageMagick arriving converts the pending image" "$converted" art_in_use
+write_slow_magick
+set_screensaver "$(art_patch "$fixture")"
+expect "reload config for slow image conversion" ok ipc shell reloadConfig
+expect_poll "the slow image conversion starts magick" yes slow_magick_alive
+set_screensaver "$(art_patch "$text_art")"
+expect "reload config to replace a slow conversion with text" ok ipc shell reloadConfig
+expect_poll "a new Art value ends the running magick" no slow_magick_alive
+expect_poll "the replacement text art has no problem" absent art_status
+expect_poll "the replacement text art is in use" "$text_art" art_in_use
+set_screensaver "$(art_patch "$fixture")"
+expect "reload config for disable during conversion" ok ipc shell reloadConfig
+expect_poll "the slow conversion starts before disable" yes slow_magick_alive
+expect "disabling screensaver during conversion is allowed" ok ipc shell setPluginEnabled vgs.screensaver false
+expect_poll "disabling the plugin ends magick" no slow_magick_alive
+expect "enabling screensaver during conversion check is allowed" ok ipc shell setPluginEnabled vgs.screensaver true
+expect_poll "screensaver service is rebuilt after conversion disable" True record_exists vgs.screensaver
+expect_poll "the rebuilt service starts the pending conversion" yes slow_magick_alive
+expect_poll "a slow image conversion shows the timeout problem" "The art image took too long to convert" art_status
+expect_poll "the timeout ends magick" no slow_magick_alive
+expect "disabling screensaver for transcode process controls is allowed" ok ipc shell setPluginEnabled vgs.screensaver false
+transcode_control_dir="$sandbox/screensaver-transcode-control"
+rm -rf -- "$transcode_control_dir"
+mkdir -p -- "$transcode_control_dir"
+python3 - "$repo/shell/plugins/vgs.screensaver/bin/transcode-ascii" "$transcode_control_dir/transcode-no-held" <<'PYCONTROL'
+from pathlib import Path
+import sys
+source, target = map(Path, sys.argv[1:])
+text = source.read_text()
+replacements = [
+    ('"${held_quiet[@]}" magick', 'magick', 1),
+    ('"${held[@]}" magick', 'magick', 1),
+    ('"${held[@]}" awk', 'awk', 2),
+]
+for old, new, count in replacements:
+    actual = text.count(old)
+    if actual != count:
+        raise SystemExit(f'{old}: count={actual} want={count}')
+    text = text.replace(old, new)
+target.write_text(text)
+target.chmod(0o755)
+PYCONTROL
+run_transcode_kill() {
+  local script="$1" label="$2" out="$transcode_control_dir/$label.out" pid
+  PATH="$shim:$PATH" "$script" "$fixture" "$out" --width 2 --height 1 >/dev/null 2>&1 &
+  pid=$!
+  case "$pid" in (*[!0-9]*) fail "$label transcode pid is not numeric: $pid"; return ;; esac
+  expect_poll "$label starts the slow magick stand-in" yes slow_magick_alive
+  kill -KILL "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
+run_transcode_kill "$transcode_control_dir/transcode-no-held" control-no-held
+expect "control: a conversion without the parent-death signal leaves magick running" yes slow_magick_alive
+kill_slow_magick
+expect_poll "control cleanup ends the unheld magick" no slow_magick_alive
+run_transcode_kill "$repo/shell/plugins/vgs.screensaver/bin/transcode-ascii" control-held
+expect_poll "the real transcode script ends magick with the parent-death signal" no slow_magick_alive
+rm -rf -- "${transcode_control_dir:?}"
+rm -f -- "${shim:?}/magick"
+expect "enabling screensaver after transcode controls is allowed" ok ipc shell setPluginEnabled vgs.screensaver true
 stop_shell || fail "the shell stops before lock-order checks"
 # D107: art made before the Art setting sat in screensaver.txt; the service
 # moves it once into the file the setting names.
 set_screensaver '{"art": ""}'
 rm -f -- "${art_dir:?}/screensaver-art.txt"
 printf 'OLD\n' >"$art_dir/screensaver.txt"
+rm -f -- "${shim:?}/ttfx"
+expect "the shell PATH has no ttfx before restart" none shell_resolves ttfx
 start_shell "$repo" "$sandbox/screensaver-lock-order-qs.log" || fail "the shell starts again before lock-order checks"
 expect_poll "screensaver service is rebuilt before lock-order checks" True record_exists vgs.screensaver
+rescan "rescan with ttfx missing answers ok"
+cp -- "$repo/scripts/smoke/fixtures/screensaver-ttfx" "$shim/ttfx"
+chmod 755 "$shim/ttfx"
+rescan "rescan after ttfx arrives answers ok"
+expect_poll "effect choices publish after ttfx arrives" '[{"label": "Random", "value": "random"}, {"label": "planted", "value": "planted"}, {"label": "beams", "value": "beams"}]' choices
+if grep -F 'QList("ttfx"' "$shell_log"; then fail "ttfx missing wrote a process warning"; else ok "ttfx missing wrote no process warning"; fi
 expect_poll "earlier art moves into the Art setting" "$art_dir/screensaver-art.txt" art_setting
 legacy_art_moved() { [[ ! -e $art_dir/screensaver.txt ]] && [[ $(cat -- "$art_dir/screensaver-art.txt") == OLD ]] && echo yes || echo no; }
 expect "earlier art keeps its text at its new path" yes legacy_art_moved
 set_screensaver '{"art": ""}'
 expect "reload config after the art migration" ok ipc shell reloadConfig
 rm -f -- "${art_dir:?}/screensaver-art.txt"
+printf 'OLD2\n' >"$art_dir/screensaver.txt"
+printf 'EXISTING\n' >"$art_dir/screensaver-art.txt"
+expect "disabling screensaver for migration skip check is allowed" ok ipc shell setPluginEnabled vgs.screensaver false
+expect "enabling screensaver for migration skip check is allowed" ok ipc shell setPluginEnabled vgs.screensaver true
+expect_poll "screensaver service is rebuilt for migration skip check" True record_exists vgs.screensaver
+sleep 1 # The move finishes in milliseconds; a skipped move writes no service status.
+legacy_art_still_there() { [[ -e $art_dir/screensaver.txt ]] && [[ $(cat -- "$art_dir/screensaver.txt") == OLD2 ]] && echo yes || echo no; }
+expect "a skipped migration keeps the Art setting unchanged" "" art_setting
+expect "a skipped migration keeps the legacy file" yes legacy_art_still_there
+rm -f -- "${art_dir:?}/screensaver.txt" "${art_dir:?}/screensaver-art.txt"
 idle_start() { # LABEL
   type_keys -k Shift_L || fail "$1: typing the idle-start key failed"
   idle_started_ms="$(now_ms)"
