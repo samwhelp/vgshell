@@ -337,8 +337,10 @@ expect_cursor "the row's chevron shows the hand" pointer window:Plugins "$(probe
 
 # A page: a click on a row opens it, drawn from the manifest alone; its
 # schema's groups are its sections, in manifest order after the entries
-# without one, and a bounded number is a slider.
-settings_click ListItem Probe || fail "the click on the fixture's row failed"
+# without one, and a bounded number is a slider. The list can still move
+# under a slow run, so the click waits for the Probe row itself to report
+# the pointer at a box that holds still (click_item).
+click_item window:Plugins window vgs.settings ListItem Probe || fail "the click on the fixture's row failed"
 expect_poll "a click on a row opens that plugin's page" '"acme.probe"' settings_page
 expect_poll "Tab from the pushed page stays on it" '["PluginPage"]' focus_pages 12
 expect_poll "Shift+Tab from the pushed page stays on it" '["PluginPage"]' focus_pages -12
