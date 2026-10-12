@@ -40,6 +40,8 @@ theme[download_end]="#@{terminal.color13}"
 theme[upload_start]="#@{terminal.color6}"
 theme[upload_mid]="#@{terminal.color6}"
 theme[upload_end]="#@{terminal.color14}"
-theme[process_start]="#@{palette.success}"
-theme[process_mid]="#@{palette.warning}"
-theme[process_end]="#@{palette.danger}"
+# The process gradient colours each program name and its CPU and memory
+# figures, so it takes the status colours the readability judge holds as text.
+theme[process_start]="#@{color.success}"
+theme[process_mid]="#@{color.warning}"
+theme[process_end]="#@{color.danger}"

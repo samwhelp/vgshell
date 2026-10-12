@@ -179,7 +179,8 @@
 # four sides of the window and the second none, with a Free meter in vgs's
 # terminal.color2. It then applies the catalog's flexoki-light and shoots
 # tui-edges-<mode>-btop-flexoki-light, which fails unless btop draws that
-# package's palette.background and a Used meter in its terminal.color1. A
+# package's palette.background, a Used meter in its terminal.color1 and
+# each program name in a colour that reads at 4.5:1 or more on it. A
 # sheet of a themed TUI at its class size takes these shots. A host without
 # xdg-terminal-exec, ghostty or btop leaves it not measured.
 # theme-previews, taken only when named, applies each theme of
@@ -5423,7 +5424,8 @@ scene_sysmon() {
 # under the catalog's flexoki-light is the light panel. btop draws memory as
 # meters (mem_graphs), whose cells up to half the meter hold the gradient's
 # start, so the second window's Free meter and the light window's Used
-# meter are read as exact colours.
+# meter are read as exact colours, as are the light window's program
+# names, each in a colour of btop's process gradient.
 tui_edges_windows() { hypr -j clients | py_reply 'import json,sys; print(len([c for c in json.load(sys.stdin) if c["class"] == "org.vgs.tui.wide" and c["mapped"]]))'; }
 tui_edges_box() { hypr -j clients | py_reply 'import json,sys; c=[c for c in json.load(sys.stdin) if c["class"] == "org.vgs.tui.wide" and c["mapped"]]; print("%s %d %d %d %d" % (c[0]["address"], c[0]["at"][0], c[0]["at"][1], c[0]["size"][0], c[0]["size"][1]) if len(c) == 1 else "none")'; }
 # tui_edges_running COMM: `running` while a process in the fence's PID
@@ -5448,8 +5450,13 @@ tui_edges_file() { if [[ -f $1 ]] && { [[ $# -lt 2 ]] || grep -qxF -- "$2" "$1";
 # R, T or B lines hold a pixel other than BG, or `none`; `meter RRGGBB`
 # `held` once 16 pixels of the window's lower left, left of two fifths and
 # below half, where btop draws memory, disks and network and neither its
-# CPU nor its process box, are RRGGBB.
-tui_edges_read() { # drawn BG | band | sides BG L R T B | meter RRGGBB
+# CPU nor its process box, are RRGGBB; `names BG FAINT START MID END` the
+# colour of btop's process gradient, drawn on 4 or more pixels of the
+# window's lower right quarter, inside its process box, whose contrast on BG
+# is lowest, as `lowest=RRGGBB ratio=R.RR`, or `none`. The gradient is
+# btop's own: program names take START, MID and END by CPU, faded toward
+# FAINT (inactive_fg) in the rows below the first.
+tui_edges_read() { # drawn BG | band | sides BG L R T B | meter RRGGBB | names BG FAINT START MID END
   local box address x y w h
   box="$(tui_edges_box)" || { echo unreadable; return; }
   [[ $box != none ]] || { echo no-window; return; }
@@ -5488,6 +5495,31 @@ elif kind == "meter":
     want = bytes.fromhex(sys.argv[2])
     same = sum(1 for y in range(h // 2, h) for x in range(w * 2 // 5) if at(x, y) == want)
     print("held" if same >= 16 else "pixels=%d" % same)
+elif kind == "names":
+    bg, faint, start, mid, end = (bytes.fromhex(c) for c in sys.argv[2:7])
+    # btop_theme.cpp generateGradients, its integer division truncating.
+    def gradient(a, m, b):
+        stops, span = ([a, m, b], 50) if m else ([a, b], 100)
+        out = []
+        for i in range(101):
+            s = 0 if i <= span else 1
+            lo, hi, n = stops[s], stops[s + 1], i - span * s
+            out.append(bytes(lo[c] + int(n * (hi[c] - lo[c]) / span) for c in range(3)))
+        return out
+    colours = set(gradient(start, mid, end)) | set(gradient(faint, None, start))
+    count = {}
+    for y in range(h // 2, h):
+        for x in range(w // 2, w):
+            p = at(x, y)
+            if p in colours: count[p] = count.get(p, 0) + 1
+    def lum(p):
+        v = [c / 255 for c in p]
+        v = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in v]
+        return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]
+    ratio = lambda p: (max(lum(p), lum(bg)) + 0.05) / (min(lum(p), lum(bg)) + 0.05)
+    drawn = [p for p, n in count.items() if n >= 4]
+    low = min(drawn, key=ratio, default=None)
+    print("none" if low is None else "lowest=%s ratio=%.2f" % (low.hex(), int(ratio(low) * 100) / 100))
 else:
     want = bytes.fromhex(sys.argv[2])
     l, r, t, b = map(int, sys.argv[3:7])
@@ -5504,6 +5536,20 @@ tui_edges_band_other() {
 tui_edges_refused() { if [[ -s $sandbox/tui-edges.refused ]]; then tr '\n' ';' <"$sandbox/tui-edges.refused"; echo; else echo none; fi; }
 # tui_edges_slot NAME SLOT: package NAME's terminal colour SLOT, as rrggbb.
 tui_edges_slot() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["slots"][sys.argv[2]].lstrip("#").lower())' "$repo/themes/$1/terminal.json" "$2"; }
+# tui_edges_key FILE KEY: btop theme FILE's colour KEY, as rrggbb.
+tui_edges_key() { sed -n "s/^theme\[$2\]=\"#\([0-9a-fA-F]\{6\}\)\"$/\L\1/p" "$1"; }
+# tui_edges_names_readable BG FAINT START MID END: `readable` when the
+# names reading's lowest colour reads at 4.5:1 or more on BG, else the
+# reading.
+tui_edges_names_readable() {
+  local got
+  got="$(tui_edges_read names "$@")" || return
+  if [[ $got =~ ^lowest=[0-9a-f]{6}\ ratio=([0-9]+)\.([0-9]{2})$ ]] && ((10#${BASH_REMATCH[1]}${BASH_REMATCH[2]} >= 450)); then
+    echo readable
+  else
+    echo "$got"
+  fi
+}
 tui_edges_launcher() { ipc shell lent | py_reply 'import json,sys; t=json.load(sys.stdin)["tui"]; print(json.dumps([t["launcher"], t["probing"]]))'; }
 tui_edges_open() { # LABEL BG
   expect "$1: no TUI window is open" 0 tui_edges_windows
@@ -5530,7 +5576,7 @@ tui_edges_close() { # LABEL
   expect_poll "$1: the core saw the run end" idle key_idle vgs.sysmon/btop
 }
 scene_tui-edges() { # MODE
-  local mode="$1" tool real state="$home/.local/state/vgshell/theme" bg box band before_box status free used light
+  local mode="$1" tool real state="$home/.local/state/vgshell/theme" bg box band before_box status free used light key names
   local light_dir="$home/.config/vgshell/themes/flexoki-light"
   for tool in xdg-terminal-exec ghostty btop; do
     if ! command -v "$tool" >/dev/null 2>&1; then
@@ -5621,7 +5667,11 @@ EOF
   tui_edges_open "btop light" "$light" || return
   settle_hold || { fail "btop light: the held mode could not be taken again"; return; }
   expect_poll "btop light: the Used meter is flexoki-light's terminal.color1 #$used" held tui_edges_read meter "$used"
-  printf 'sandbox-shots: tui-edges mode=%s case=btop-flexoki-light theme=flexoki-light main_bg=%s used_meter=%s\n' "$mode" "$light" "$used"
+  names=("$light")
+  for key in inactive_fg process_start process_mid process_end; do names+=("$(tui_edges_key "$state/btop.theme" "$key")"); done
+  [[ ${names[*]} =~ ^[0-9a-f]{6}( [0-9a-f]{6}){4}$ ]] || { fail "tui-edges: the applied btop.theme lacks a process colour: ${names[*]}"; return; }
+  expect_poll "btop light: every program name colour reads at 4.5:1 or more on main_bg" readable tui_edges_names_readable "${names[@]}"
+  printf 'sandbox-shots: tui-edges mode=%s case=btop-flexoki-light theme=flexoki-light main_bg=%s used_meter=%s names=%s\n' "$mode" "$light" "$used" "$(tui_edges_read names "${names[@]}")"
   take "tui-edges-$mode-btop-flexoki-light"
   tui_edges_close "btop light" || return
   rm -rf -- "${light_dir:?}"
