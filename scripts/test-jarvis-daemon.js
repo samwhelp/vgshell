@@ -25,6 +25,13 @@ keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+P
 // written: a poll skips it rather than parse half a row.
 const lines = file => fs.existsSync(file)
     ? fs.readFileSync(file, "utf8").split("\n").slice(0, -1).filter(Boolean).map(line => JSON.parse(line)) : [];
+// The desktop driver polls call.json and parses what it finds, so a call
+// appears whole: written under another name, then renamed into place.
+const writeCall = (directory, call) => {
+    const pending = path.join(directory, ".call.json-" + process.pid);
+    fs.writeFileSync(pending, JSON.stringify(call));
+    fs.renameSync(pending, path.join(directory, "call.json"));
+};
 
 async function inside() {
     process.chdir(process.env.JARVIS_TEST_ROOT);
@@ -778,9 +785,7 @@ async function inside() {
     instrument(scripted, gates);
     async function desktopDriver(file, directory, mappedIndicator = false) {
         await conversation(file, async w => {
-            fs.writeFileSync(path.join(directory, "call.json"), JSON.stringify({
-                id: "fixture-help", tool: "help", arguments: { topic: "input" }
-            }));
+            writeCall(directory, { id: "fixture-help", tool: "help", arguments: { topic: "input" } });
             if (mappedIndicator) {
                 const waiting = await w.wait(message => message.state.input.kind === "held");
                 assert.equal(waiting.state.capture.kind, "closed", "the driver waits for the mapped indicator");
@@ -847,8 +852,8 @@ async function inside() {
         await conversation(file, async w => {
             for (const [id, target] of [["protected", path.join(process.env.HOME, ".ssh/id_fixture")],
                 ["workspace", path.join(process.env.HOME, "project/new")]]) {
-                fs.writeFileSync(path.join(deniedResults, "call.json"), JSON.stringify({ id, kind: "approval",
-                    tool: "harness.files", arguments: { write: [target], move: [], remove: [], diff: "+fixture\n" } }));
+                writeCall(deniedResults, { id, kind: "approval",
+                    tool: "harness.files", arguments: { write: [target], move: [], remove: [], diff: "+fixture\n" } });
                 await w.wait(() => routed(id) !== undefined);
             }
             assert.deepEqual(["protected", "workspace"].map(routed), expected);
@@ -1446,24 +1451,42 @@ exit "$failures"
     instrument(driverDaemon, gates);
     instrumentDesktop(driverDaemon, seamDriverRoot);
     const Protocol = require(path.join(tree, "bin/lib/qml-library.js")).load(path.join(tree, "shell/plugins/vgs.jarvis/JarvisProtocol.js"));
-    for (const [tool, arguments_, kind, content] of [
-        ["windows.focus", { window: "0xa1" }, "compositor.focusWindow", /Read back: window 0xa1 has the focus/]
-    ]) {
-        desk.reset();
-        fs.rmSync(path.join(seamDriverRoot, "results.jsonl"), { force: true });
-        await conversation(driverDaemon, async w => {
-            fs.writeFileSync(path.join(seamDriverRoot, "call.json"), JSON.stringify({ id: "driver-" + tool, tool, arguments: arguments_ }));
-            await desktopUntil(() => w.messages.some(message => message.type === "request"), "the driver sent no desktop request");
-            const request = w.messages.find(message => message.type === "request");
-            assert.equal(request.kind, kind);
-            w.reply(desk.serve(Protocol, request));
-            await desktopUntil(() => lines(path.join(seamDriverRoot, "results.jsonl")).some(result => result.outcome !== undefined),
-                "the driver received no desktop result");
-            const result = lines(path.join(seamDriverRoot, "results.jsonl")).find(value => value.outcome !== undefined);
-            assert.equal(result.outcome, "completed");
-            assert.match(result.content, content);
-        });
-    }
+    const seamDriver = async write => {
+        for (const [tool, arguments_, kind, content] of [
+            ["windows.focus", { window: "0xa1" }, "compositor.focusWindow", /Read back: window 0xa1 has the focus/]
+        ]) {
+            desk.reset();
+            fs.rmSync(path.join(seamDriverRoot, "results.jsonl"), { force: true });
+            await conversation(driverDaemon, async w => {
+                await write(seamDriverRoot, { id: "driver-" + tool, tool, arguments: arguments_ }, w);
+                await desktopUntil(() => w.messages.some(message => message.type === "request"), "the driver sent no desktop request");
+                const request = w.messages.find(message => message.type === "request");
+                assert.equal(request.kind, kind);
+                w.reply(desk.serve(Protocol, request));
+                await desktopUntil(() => lines(path.join(seamDriverRoot, "results.jsonl")).some(result => result.outcome !== undefined),
+                    "the driver received no desktop result");
+                const result = lines(path.join(seamDriverRoot, "results.jsonl")).find(value => value.outcome !== undefined);
+                assert.equal(result.outcome, "completed");
+                assert.match(result.content, content);
+            });
+        }
+    };
+    await seamDriver(writeCall);
+    // A call written in place, in two parts, is read half written: the
+    // driver's parse throws and the daemon ends before any request.
+    const writeInParts = async (directory, call, w) => {
+        const file = path.join(directory, "call.json");
+        const text = JSON.stringify(call);
+        fs.writeFileSync(file, text.slice(0, text.length >> 1));
+        for (let attempts = 0; attempts < 400 && alive(w.pid); attempts++) await new Promise(resolve => setTimeout(resolve, 5));
+        fs.appendFileSync(file, text.slice(text.length >> 1));
+    };
+    await assert.rejects(() => seamDriver(writeInParts),
+        error => error instanceof assert.AssertionError && error.message.includes("the driver sent no desktop request"),
+        "a call.json the driver can see half written must fail the desktop-driver case");
+    fs.rmSync(path.join(seamDriverRoot, "call.json"), { force: true });
+    controls++;
+    console.log("test-jarvis-daemon: control=desktop-driver-partial-call killed");
     async function blockedReader(file) {
         fs.writeFileSync(path.join(process.env.HOME, "audio-flood"), "");
         const child = cp.spawn("node", [file, "--tree", tree], {
