@@ -43,7 +43,7 @@ What leaves your computer: the text of your request goes to the AI model you cho
 
 Jarvis is on when you install VGS. The Enabled switch on the Jarvis page, in Settings → Plugins → Jarvis, turns it on or off. Turning it off stops your Jarvis session and prevents automatic starts.
 
-To talk to Jarvis, do the steps that Setup at the top of the Jarvis page shows:
+To talk to Jarvis, do the steps that the Setup tab of the Jarvis page shows:
 
 1. Under AI model, choose an Account. Sign in opens an app's own sign-in. Add key stores an API key.
 2. Press Set up local voice. It downloads the voice that runs best on your computer.
