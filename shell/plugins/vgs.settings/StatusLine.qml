@@ -107,6 +107,17 @@ Column {
             // The width a text value may take: the column, less a step
             // beside it.
             readonly property real room: width - (step.visible && !stepBelow ? step.width + Theme.stack.inline : 0)
+            // Where the value or the step beside it starts and ends to
+            // draw, so a GroupList centres its hairline on what the line
+            // shows.
+            function inkAbove() {
+                const top = value.y + Theme.inkAbove(value);
+                return step.visible ? Math.min(top, step.y + Theme.inkAbove(step)) : top;
+            }
+            function inkBelow() {
+                const bottom = value.y + value.height - Theme.inkBelow(value);
+                return height - (step.visible ? Math.max(bottom, step.y + step.height - Theme.inkBelow(step)) : bottom);
+            }
             width: parent.width
             implicitHeight: stepBelow ? value.height + Theme.field.gap + step.height : Math.max(value.y + value.height, step.visible ? step.y + step.height : 0)
             // The hint role's face, which a hint drawn as the value takes;

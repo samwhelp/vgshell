@@ -370,8 +370,10 @@ Item {
         // label in Status, a group that lists keys in its own section, the
         // first offered step that is no danger as the one primary Button, a
         // danger step and a stored key's Remove as danger RowActions, and
-        // no hairline on the tab.
-        function test_status_sections_draw_one_primary_and_no_divider() {
+        // a hairline between each two groups of a section, as on Details:
+        // the Download section's key list and its sign-in, and the key
+        // list's own two lines.
+        function test_status_sections_draw_one_primary_and_hairlines() {
             const original = root.pageRow;
             const screen = { requires: null };
             const manifest = {
@@ -402,7 +404,7 @@ Item {
                 verify(shown(Field).some(row => row.label === "Cloud Sync"), "the Status section draws its entry under its own label");
                 compare(shown(Button).filter(button => button.variant === "primary").map(button => button.text), ["Add a pair"], "one primary action");
                 compare(shown(RowAction).map(action => action.text + " " + action.tone).sort(), ["Remove danger", "Replace accent", "Sign out danger"]);
-                compare(shown(GroupList).filter(list => list.hairlines.length > 0).length, 0, "no row of the tab draws a divider");
+                compare(shown(GroupList).map(list => list.hairlines.length).sort(), [0, 0, 1, 1], "each two groups of a section are divided");
                 page.open(Qt.OtherFocusReason, "Settings");
                 compare(shown(SectionHeader).map(header => header.text).filter(text => ["Status", "Setup", "Download"].indexOf(text) !== -1), [], "Settings draws none of the setup");
             } finally {

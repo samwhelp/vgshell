@@ -876,11 +876,13 @@ expect_poll "the add's terminal closes" 0 tui_windows
 settings_show acme.bare
 settings_setup
 # The Requirements section's rows are groups (GroupList): two shown groups
-# of a list sit `groupList.gap` apart with one Divider centred in the gap,
-# within a pixel. One control plants a copy of the same reading with the
-# second group 8 px lower, and one with the first hairline gone, which the
-# check refuses on each rule. `[]` is the pass.
-group_geometry() { # [gap|line]
+# of a list sit `groupList.gap` apart, within a pixel, with one Divider in
+# the gap. Where in the gap it sits follows the groups' drawn pixels, which
+# tst_grouplist.qml reads from an image. One control plants a copy of the
+# same reading with the second group 8 px lower, one with the first
+# hairline gone and one with it 20 px low, inside the next group, which
+# the check refuses on each rule. `[]` is the pass.
+group_geometry() { # [gap|line|low]
   local rows gap
   rows="$(settings_geometry)" || return
   gap="$(ipc smoke themeValue groupList.gap)" || return
@@ -914,22 +916,24 @@ for n, i in enumerate(lists):
     if plant == "gap" and len(groups) > 1:
         groups[1]["box"] = [groups[1]["box"][0], groups[1]["box"][1] + 8] + groups[1]["box"][2:]
     if plant == "line": lines = lines[1:]
+    if plant == "low" and lines: lines[0] = dict(lines[0], box=[lines[0]["box"][0], lines[0]["box"][1] + 20] + lines[0]["box"][2:])
     if len(lines) != len(groups) - 1: out.append("list%d.hairlines=%d groups=%d" % (n, len(lines), len(groups))); continue
     for k in range(1, len(groups)):
         top = groups[k - 1]["box"][1] + groups[k - 1]["box"][3]
         start = groups[k]["box"][1]
         if abs(start - top - gap) > 1: out.append("list%d.gap%d=%.2f want=%d" % (n, k, start - top, gap))
-        mid = lines[k - 1]["box"][1] + lines[k - 1]["box"][3] / 2
-        if abs(mid - (top + start) / 2) > 1: out.append("list%d.hairline%d=%.2f between %.2f and %.2f" % (n, k, mid, top, start))
+        line_top, line_height = lines[k - 1]["box"][1], lines[k - 1]["box"][3]
+        if line_top < top or line_top + line_height > start: out.append("list%d.hairline%d=%.2f outside %.2f to %.2f" % (n, k, line_top, top, start))
         checked += 1
 if checked == 0 and not out: out.append("gaps=0")
 print(json.dumps(out))
 PY
 }
-geometry expect_poll "the Requirements rows are groups a gap and a hairline apart" '[]' group_geometry
+geometry expect_poll "the Requirements rows are groups a gap apart with a hairline in it" '[]' group_geometry
 group_planted() { group_geometry "$1" | py_reply 'import json,sys; o=json.load(sys.stdin); print(any(sys.argv[1] in e for e in o))' "$2"; }
 expect "control: a second group 8 px lower is refused" True group_planted gap .gap1=
 expect "control: a missing hairline is refused" True group_planted line .hairlines=
+expect "control: a hairline inside the next group is refused" True group_planted low .hairline1=
 click_install() {
   local area bx by
   for _ in $(seq 1 6); do

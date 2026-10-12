@@ -46,9 +46,9 @@ const HEADED = {
 const HEADED_TUIS = [{ name: "configure", label: "Configure", icon: "sliders-horizontal", withheld: "" }];
 // [label, published values, the Flow as [name, status, label, enabled]].
 const HEADED_FLOW = [
-    ["the headline's action that opens no screen draws first, as the entry's act", { setup: { tone: "warning", text: "To do", action: "install" } }, [["", "setup", "Install tool", true], ["configure", "", "Configure", true]]],
+    ["the headline's action that opens no screen draws as the entry's act, and the screen it declares draws only while offered", { setup: { tone: "warning", text: "To do", action: "install" } }, [["", "setup", "Install tool", true]]],
     ["the headline's action that opens a screen draws as that screen", { setup: { tone: "warning", text: "To do", action: "configure" } }, [["configure", "", "Finish", true]]],
-    ["a headline that offers none draws the screens alone", { setup: { tone: "ok", text: "Ready" } }, [["configure", "", "Configure", true]]]
+    ["a headline that offers none draws no screen it declares", { setup: { tone: "ok", text: "Ready" } }, []]
 ];
 
 // A status entry's step: [label, key, published values, { offered }].
@@ -74,10 +74,10 @@ const TUIS = [
 const WITHHELD = TUIS.map(tui => Object.assign({}, tui, { withheld: "Needs acme-other. Install requirements first." }));
 const BUTTONS = [
     ["a state that calls for its step draws it first, with its label", { warden: { tone: "warning", text: "Not set up", action: true } }, [], [["setup", "Set up"], ["configure", "Configure"]]],
-    ["a ready state draws every screen in manifest order", { warden: { tone: "ok", text: "Ready" } }, [], [["setup", "Set up again"], ["configure", "Configure"]]],
-    ["nothing published draws every screen", {}, [], [["setup", "Set up again"], ["configure", "Configure"]]],
+    ["a ready state draws only the screens no entry declares", { warden: { tone: "ok", text: "Ready" } }, [], [["configure", "Configure"]]],
+    ["nothing published draws only the screens no entry declares", {}, [], [["configure", "Configure"]]],
     ["a withheld step keeps its place with the withheld label", { warden: { tone: "warning", text: "Not set up", action: true } }, ["acme-other"], [["setup", "Install requirements"], ["configure", "Configure"]]],
-    ["two entries offering one screen draw it once, the first's", { token: "absent", warden: { tone: "warning", text: "Not set up", action: true } }, [], [["setup", "Set up token"], ["configure", "Configure"]]]
+    ["a screen another entry offers on its own row draws in the Flow as the headline's alone", { token: "absent", warden: { tone: "warning", text: "Not set up", action: true } }, [], [["setup", "Set up"], ["configure", "Configure"]]]
 ];
 
 // MANIFEST with its requirements as the judge hands them on, which a
@@ -131,19 +131,27 @@ const ROWS = [
     ["a step to do draws its screen beside it, once", STEPPED, STEPPED_TUIS,
         { summary: { tone: "warning", text: "Not ready" }, model: KEY, browser: DONE, keyStore: { tone: "info", text: "No key", action: true } },
         [["Setup", false, null], ["AI model", true, ["keys", "Add key"]], ["Browser", true, null]],
-        [["browser", "Set up browser"], ["accounts", "Accounts"]]],
-    ["every step done draws no button beside a step", STEPPED, STEPPED_TUIS,
+        [["accounts", "Accounts"]]],
+    ["every step done draws no button beside a step and no screen a step declares", STEPPED, STEPPED_TUIS,
         { summary: { tone: "ok", text: "Ready" }, model: NO_STEP, browser: DONE, keyStore: { tone: "ok", text: "1 key", action: true } },
         [["Setup", false, null], ["AI model", true, null], ["Browser", true, null]],
-        [["keys", "Add key"], ["browser", "Set up browser"], ["accounts", "Accounts"]]],
+        [["accounts", "Accounts"]]],
+    ["an optional step that offers its action draws above a done step declared first", STEPPED, STEPPED_TUIS,
+        { summary: { tone: "ok", text: "Ready" }, model: NO_STEP, browser: { tone: "info", text: "Optional", action: true } },
+        [["Setup", false, null], ["Browser", true, ["browser", "Set up browser"]], ["AI model", true, null]],
+        [["accounts", "Accounts"]]],
+    ["an optional step that offers no action keeps its manifest place among the done steps", STEPPED, STEPPED_TUIS,
+        { summary: { tone: "ok", text: "Ready" }, model: NO_STEP, browser: { tone: "info", text: "Optional" } },
+        [["Setup", false, null], ["AI model", true, null], ["Browser", true, null]],
+        [["accounts", "Accounts"]]],
     ["two steps to do each draw their own screen", STEPPED, STEPPED_TUIS,
         { summary: { tone: "warning", text: "Not ready" }, model: KEY, browser: TODO },
         [["Setup", false, null], ["AI model", true, ["keys", "Add key"]], ["Browser", true, ["browser", "Set up browser"]]],
         [["accounts", "Accounts"]]],
-    ["a step whose offered action opens no screen draws that action, and the Flow keeps every screen", STEPPED, STEPPED_TUIS,
+    ["a step whose offered action opens no screen draws that action, and the Flow keeps the screen of no entry", STEPPED, STEPPED_TUIS,
         { summary: { tone: "warning", text: "Not ready" }, model: { tone: "warning", text: "To do", action: "update" }, browser: DONE },
         [["Setup", false, null], ["AI model", true, ["", "Update tool"]], ["Browser", true, null]],
-        [["keys", "Add key"], ["browser", "Set up browser"], ["accounts", "Accounts"]]],
+        [["accounts", "Accounts"]]],
     ["a single Setup entry is the Status section, its screen in the Flow", MANIFEST, TUIS,
         { warden: { tone: "warning", text: "Not set up", action: true } },
         [["Warden", false, null]],
@@ -151,7 +159,7 @@ const ROWS = [
     ["a step whose screen is listed with no entry draws it as the manager's act", STEPPED, STEPPED_TUIS.filter(tui => tui.name !== "browser"),
         { summary: { tone: "warning", text: "Not ready" }, model: NO_STEP, browser: TODO },
         [["Setup", false, null], ["Browser", true, ["", "Set up browser"]], ["AI model", true, null]],
-        [["keys", "Add key"], ["accounts", "Accounts"]]],
+        [["accounts", "Accounts"]]],
     ["a danger step's repair hides the listed screen it declares from the Flow", DECLARED_FLOW, DECLARED_FLOW_TUIS,
         { summary: { tone: "warning", text: "Not ready" }, gate: { tone: "danger", text: "Broken", action: "repair" } },
         [["Setup", false, null], ["Gate", true, ["", "Repair"]]],
@@ -180,8 +188,8 @@ const PRIMARY = [
         [["browser", ["Set up browser", true]], ["model", ["Add key", false]]]],
     ["only completed repeats leave the page without a primary", { model: REPEAT, browser: BROWSER_REPEAT },
         [["model", ["Add key", false]], ["browser", ["Set up browser", false]]]],
-    ["a completed repeat before an optional step stays secondary", { model: REPEAT, browser: { tone: "info", text: "Optional", action: true } },
-        [["model", ["Add key", false]], ["browser", ["Set up browser", true]]]],
+    ["an optional step that offers its action draws above a completed repeat declared first, which stays secondary", { model: REPEAT, browser: { tone: "info", text: "Optional", action: true } },
+        [["browser", ["Set up browser", true]], ["model", ["Add key", false]]]],
     ["an optional row before a completed repeat remains primary", { model: OPTIONAL, browser: BROWSER_REPEAT },
         [["model", ["Add key", true]], ["browser", ["Set up browser", false]]]],
     ["an unfinished required step before a completed repeat remains primary", { model: KEY, browser: BROWSER_REPEAT },
@@ -242,7 +250,7 @@ const SECTIONS = [
     ["an optional danger row leaves primary to the next optional row when no required step is open",
         { sync: { tone: "ok", text: "Ready" }, pairs: { tone: "ok", text: "Done" }, down: { tone: "info", text: "Optional", action: "signOut" }, up: { tone: "info", text: "Optional", action: true } },
         [["Status", [["sync", null]], []],
-            ["Setup", [["pairs", null], ["other", "keys"]], [["pairs", "Folder pairs", "", false]]],
+            ["Setup", [["pairs", null], ["other", "keys"]], []],
             ["Download", [["down", ["", "Sign out", "danger", false]], ["downKeys", "keys"], ["downMore", "keys"]], []],
             ["Upload", [["upKeys", "keys"], ["up", ["connect", "Sign in", "", true]]], []]]],
     ["a first open required danger action leaves later required actions secondary",
@@ -263,10 +271,10 @@ const SECTIONS = [
             ["Setup", [["pairs", ["pairs", "Add a pair", "", true]], ["other", "keys"]], []],
             ["Download", [["down", ["", "Sign out", "danger", false]], ["downKeys", "keys"], ["downMore", "keys"]], []],
             ["Upload", [["upKeys", "keys"], ["up", ["connect", "Sign in", "", false]]], []]]],
-    ["with no step offered no action is primary and the screen of no step draws in the Flow",
+    ["with no step offered no action is primary and no screen a step declares draws in the Flow",
         { sync: { tone: "ok", text: "Up to date" }, pairs: { tone: "ok", text: "2 pairs" }, down: { tone: "ok", text: "Signed in" } },
         [["Status", [["sync", null]], []],
-            ["Setup", [["pairs", null], ["other", "keys"]], [["pairs", "Folder pairs", "", false], ["connect", "Connect", "", false]]],
+            ["Setup", [["pairs", null], ["other", "keys"]], []],
             ["Download", [["down", null], ["downKeys", "keys"], ["downMore", "keys"]], []],
             ["Upload", [["upKeys", "keys"], ["up", null]], []]]]
 ];
@@ -274,13 +282,13 @@ const SECTIONS = [
 // primary: [label, manifest, listed screens, values, the Flow as [name,
 // label, tone, primary]].
 const FLOWS = [
-    ["the offered screen of an entry on Details stays secondary", MANIFEST, TUIS, { warden: { tone: "ok", text: "Ready" }, token: "absent" },
-        [["setup", "Set up token", "", false], ["configure", "Configure", "", false]]],
-    ["a listed screen no step offers is never the primary", MANIFEST, TUIS, { warden: { tone: "ok", text: "Ready" } },
-        [["setup", "Set up again", "", false], ["configure", "Configure", "", false]]],
-    ["a danger screen in the Flow is drawn in its tone and never primary",
-        Object.assign({}, MANIFEST, { status: { warden: { type: "state", label: "Warden", group: "Setup" }, out: { type: "state", label: "Account", action: { label: "Sign out", tui: "setup", tone: "danger" } } } }), TUIS,
-        { warden: { tone: "ok", text: "Ready" }, out: { tone: "warning", text: "Needs attention", action: true } },
+    ["the offered screen of an entry on Details draws on its row, not in the Flow", MANIFEST, TUIS, { warden: { tone: "ok", text: "Ready" }, token: "absent" },
+        [["configure", "Configure", "", false]]],
+    ["a listed screen no entry declares is never the primary", MANIFEST, TUIS, { warden: { tone: "ok", text: "Ready" } },
+        [["configure", "Configure", "", false]]],
+    ["the headline's danger screen in the Flow is drawn in its tone and never primary",
+        Object.assign({}, MANIFEST, { status: { warden: { type: "state", label: "Warden", group: "Setup", action: { label: "Sign out", tui: "setup", tone: "danger" } } } }), TUIS,
+        { warden: { tone: "warning", text: "Needs attention", action: true } },
         [["setup", "Sign out", "danger", false], ["configure", "Configure", "", false]]],
     ["a danger row offering a repair hides the listed screen it declares", DECLARED_FLOW, DECLARED_FLOW_TUIS,
         { summary: { tone: "warning", text: "Not ready" }, gate: { tone: "danger", text: "Broken", action: "repair" } },
@@ -288,9 +296,9 @@ const FLOWS = [
     ["a row offering the listed action draws it beside the row", DECLARED_FLOW, DECLARED_FLOW_TUIS,
         { summary: { tone: "warning", text: "Not ready" }, gate: { tone: "warning", text: "To do", action: "listed" } },
         []],
-    ["a non-danger row offering another action keeps the listed screen in the Flow", DECLARED_FLOW, DECLARED_FLOW_TUIS,
+    ["a done row offering another action draws the listed screen it declares nowhere", DECLARED_FLOW, DECLARED_FLOW_TUIS,
         { summary: { tone: "ok", text: "Ready" }, gate: { tone: "ok", text: "Done", action: "repair" } },
-        [["listed", "Listed screen", "", false]]],
+        []],
     ["a completed repeat in the Flow stays secondary without an unfinished step", MANIFEST, TUIS,
         { warden: BROWSER_REPEAT }, [["setup", "Set up", "", false], ["configure", "Configure", "", false]]]
 ];
@@ -383,8 +391,9 @@ function verify(logic) {
     same(jarvisSetup.items.filter(item => item.key === "setupModel" || item.key === "setupVoice")
         .map(item => [item.key, item.entry.tone, item.button === null ? null : [item.button.name, item.button.primary]]),
         [["setupModel", "warning", null], ["setupVoice", "success", ["check-microphone", false]]], "Jarvis Ready voice after an actionless required AI model");
-    same(jarvisSetup.buttons.map(button => [button.name, button.offered, button.enabled, button.primary]),
-        [["setup-local", true, true, false]], "Jarvis optional local voice Flow stays enabled and secondary");
+    same(jarvisSetup.buttons, [], "Jarvis draws Set up local voice in no Flow while Voice is done: Voice and Local voice declare it");
+    same(logic.detailEntries(producer.statusRows(VOICE_SETUP, ready, [])).filter(entry => logic.statusStep(entry).offered).map(entry => [entry.key, entry.action.label]),
+        [["localRuntime", "Set up local voice"]], "Jarvis's optional local voice stays offered on its own Details row");
     const hintSpec = { hintFrom: "warden" };
     for (const [label, values, want] of [
         ["discovery pending", {}, ""],
@@ -442,11 +451,9 @@ function verify(logic) {
     // offered action names, which installs what it lacks.
     const withheld = flowOf(logic, WITHHELD, producer.statusRows(NORMAL, { warden: { tone: "warning", text: "Not set up", action: true } }, ["acme-other"]));
     same(withheld.map(b => [b.name, b.enabled, b.reason !== ""]), [["setup", true, false], ["configure", false, true]], "Flow: a withheld screen draws disabled with a reason, the step stays active");
-    same(flowOf(logic, TUIS, producer.statusRows(NORMAL, {}, [])).map(b => [b.enabled, b.reason]), [[true, ""], [true, ""]], "Flow: a screen that lacks nothing takes a press");
-    same(new Set(flowOf(logic, TUIS, producer.statusRows(MANIFEST, { warden: { tone: "warning", text: "Not set up", action: true } }, [])).concat(flowOf(logic, TUIS, producer.statusRows(MANIFEST, {}, [])))
-        .map(b => b.key)).size, 3, "Flow: a step and the same screen's plain button are drawn as different buttons");
-    same(new Set([{ token: "absent" }, { warden: { tone: "warning", text: "Not set up", action: true } }]
-        .map(values => flowOf(logic, TUIS, producer.statusRows(MANIFEST, values, []))[0].key)).size, 2, "Flow: two steps of one screen under different labels are drawn as different buttons");
+    same(flowOf(logic, TUIS, producer.statusRows(NORMAL, {}, [])).map(b => [b.enabled, b.reason]), [[true, ""]], "Flow: a screen that lacks nothing takes a press");
+    same(new Set([[], ["acme-other"]].map(missing => flowOf(logic, TUIS, producer.statusRows(NORMAL, { warden: { tone: "warning", text: "Not set up", action: true } }, missing))[0])
+        .map(b => b.name + " " + b.enabled + " " + b.key)).size, 2, "Flow: one screen of one state under two labels is drawn as two buttons");
     // The Status and Setup sections: the first Setup entry is the Status
     // section's row under its own label, each further one a step under its
     // own label with its offered screen beside it, which the Flow then
@@ -460,7 +467,7 @@ function verify(logic) {
     }
     for (const [label, values, want] of HEADED_FLOW)
         same(flowOf(logic, HEADED_TUIS, producer.statusRows(HEADED, values, [])).map(b => [b.name, b.status, b.label, b.enabled]), want, "headline Flow: " + label);
-    same(new Set([{ setup: { tone: "warning", text: "To do", action: "install" } }, { setup: { tone: "ok", text: "Ready" } }]
+    same(new Set([{ setup: { tone: "warning", text: "To do", action: "install" } }, { setup: { tone: "warning", text: "To do", action: "configure" } }]
         .flatMap(values => flowOf(logic, HEADED_TUIS, producer.statusRows(HEADED, values, [])).map(b => b.key))).size, 2, "headline Flow: the entry's act and a screen are drawn as different buttons");
     // Each keyed group is a section after Setup, its key lists and states
     // in manifest order, and the one primary is the first offered step
@@ -479,7 +486,7 @@ function verify(logic) {
     for (const [label, manifest, tuis, values, want] of FLOWS)
         same(flowOf(logic, tuis, producer.statusRows(manifest, values, [])).map(b => [b.name, b.label, b.tone, b.primary]), want, "primary: " + label);
     const completedFlow = flowOf(logic, TUIS, producer.statusRows(MANIFEST, { warden: BROWSER_REPEAT }, []))[0];
-    same([completedFlow.offered, completedFlow.enabled], [true, true], "a secondary completed repeat remains offered and enabled");
+    same([completedFlow.name, completedFlow.enabled], ["setup", true], "a secondary completed repeat remains offered and enabled");
     // statusView: what a line draws of a state, with its lines.
     same(logic.statusView(producer.statusRows(MANIFEST, { warden: { tone: "ok", text: "Ready", lines: ["v1"] } }, []).find(e => e.key === "warden"), String),
         { label: "Warden", hint: "", info: "", link: null, offered: false, tone: "success", text: "Ready", lines: ["v1"], muted: false, items: [] }, "a reported state draws its text, tone and lines");
@@ -520,23 +527,20 @@ const CONTROLS = [
     ["a presence list of any group draws among the stored keys", 'entry.type === "presenceList" && entry.group === SETUP_GROUP', 'entry.type === "presenceList"'],
     ["a secret nothing is stored for draws its chip", 'if (item.access === "connect" && item.value === "absent") return { tone: "", text: "" };', ""],
     ["a signed-out account loses its chip", 'item.access === "connect" && item.value === "absent"', 'item.access === "connect"'],
-    ["an offered step keeps its screen's label", "add(tui, entry.action.label, entry.action.tone, true);", "add(tui, tui.label, entry.action.tone, true);"],
-    ["an offered screen drops its tone", "add(tui, entry.action.label, entry.action.tone, true);", "add(tui, entry.action.label, \"\", true);"],
-    ["a screen draws twice", "if (tui !== undefined && !has(tui.name))", "if (tui !== undefined)"],
     ["a button's key ignores its label and state", 'button.key = button.name + " " + button.label + " " + button.enabled', 'button.key = button.name + " " + button.enabled'],
-    ["a withheld screen takes a press", "var enabled = offered || tui.withheld === \"\";", "var enabled = true;"],
-    ["the step is withheld too", "var enabled = offered || tui.withheld === \"\";", "var enabled = tui.withheld === \"\";"],
+    ["a withheld screen takes a press", "var enabled = tui.withheld === \"\";", "var enabled = true;"],
+    ["the headline's offered screen is withheld too", "tone: step.tone, primary: false, enabled: true,", "tone: step.tone, primary: false, enabled: tuis.every(function (t) { return t.withheld === \"\"; }),"],
     ["a withheld screen gives no reason", "reason: enabled ? \"\" : tui.withheld", "reason: \"\""],
     ["a state draws no lines", "if (entry.value.lines !== undefined) out.lines = entry.value.lines;", ""],
     ["a step drops its button", "button: step ? stepButton(tuis, entry) : null", "button: null"],
     ["a step's action that opens no listed screen draws no button", 'var name = tui === undefined ? "" : tui.name;', 'if (tui === undefined) return null;\n    var name = tui.name;'],
     ["a step drops its tone", "tone: entry.action.tone, primary: false };", "tone: \"\", primary: false };"],
     ["a step draws an action its value does not offer", "if (entry.action === null || !entry.action.offered) return null;", "if (entry.action === null) return null;"],
-    ["a step's screen draws in the Flow too", "beside.indexOf(name) !== -1 || ", ""],
-    ["the headline's action that opens no screen draws nothing", 'if (step !== null && step.name === "")', "if (false)"],
-    ["the headline's action that opens a screen draws as an act too", 'if (step !== null && step.name === "")', "if (step !== null)"],
-    ["the headline's act names no entry", "status: headline.key, label: step.label", 'status: "", label: step.label'],
-    ["a danger step's declared screen draws in the Flow too", " && !blockedByDangerRow(tui.name)", ""],
+    ["a screen an entry declares draws in the Flow too", "        if (declared.indexOf(tui.name) !== -1) return;\n", ""],
+    ["only the first entry's screens count as declared", "declared = declared.concat(entry.declaredTuis);", "if (declared.length === 0) declared = entry.declaredTuis;"],
+    ["the headline's offered action draws nothing", "if (step !== null)\n        out.push", "if (false)\n        out.push"],
+    ["the headline's action that opens a screen draws as an act", 'status: step.name === "" ? headline.key : ""', "status: headline.key"],
+    ["the headline's act names no entry", 'status: step.name === "" ? headline.key : ""', 'status: ""'],
     ["the Status row reads Status", "label: entry.label, step: step,", 'label: step ? entry.label : "Status", step: step,'],
     ["the first Setup entry draws as a step", "items: [row(setup[0], false)]", "items: [row(setup[0], true)]"],
     ["the first Setup entry draws among the steps too", "var steps = setup.slice(1);", "var steps = setup;"],
@@ -547,7 +551,6 @@ const CONTROLS = [
     ["every entry of a keyed group draws in its section", '(listsKeys(entry) || entry.type === "state")', "true"],
     ["a keyed group's keys draw in Setup too", "keyEntries(status).filter(function (entry) { return keyed.indexOf(entry.group) === -1; })", "keyEntries(status)"],
     ["a keyed group draws its keys first", "status.filter(function (entry) { return entry.group === group && inKeyedGroup(entry, keyed); })", "status.filter(function (entry) { return entry.group === group && inKeyedGroup(entry, keyed); }).sort(function (a, b) { return listsKeys(b) - listsKeys(a); })"],
-    ["a keyed group's step screen draws in the Flow too", "setupItems.concat.apply(setupItems, groups.map(function (section) { return section.items; }))", "setupItems"],
     ["an empty Setup section draws", "if (setupItems.length > 0 || buttons.length > 0) out.push", "if (true) out.push"],
     ["a danger action is primary", 'first.button.tone !== "danger"', "true"],
     ["the last required action is primary", "            return true;\n        });\n    });\n    if (first === null)", "            return false;\n        });\n    });\n    if (first === null)"],
@@ -557,10 +560,14 @@ const CONTROLS = [
     ["an optional step claims the primary", ' || item.entry.tone === "info"', ""],
     ["an optional row loses primary while no required step is open", "if (first === null) sections.some", "if (false) sections.some"],
     ["an optional danger row blocks the next optional row", ' && item.button.tone !== "danger"', ""],
-    ["the optional local voice Flow claims the primary on Ready", 'button.key = button.name + " " + button.label', 'if (button.offered) button.primary = true; button.key = button.name + " " + button.label', "Jarvis actionless required model reserves no filled button"],
+    ["a Flow button claims the primary", 'button.key = button.name + " " + button.label', 'button.primary = true; button.key = button.name + " " + button.label'],
     ["no action is primary", "first.button.primary = true;", "{}"],
-    ["a done step draws before an open one", "var setupItems = steps.filter(stepOpen).concat(", "var setupItems = steps.filter(function () { return false; }).concat("],
-    ["an open step draws twice", "steps.filter(function (entry) { return !stepOpen(entry); })", "steps"],
+    ["the done steps draw first", "var setupItems = [0, 1, 2].map(", "var setupItems = [2, 1, 0].map("],
+    ["the done steps draw nowhere", "var setupItems = [0, 1, 2].map(", "var setupItems = [0, 1].map("],
+    ["an open step ranks with the optional ones", "    if (stepOpen(entry)) return 0;\n", ""],
+    ["an optional step that offers its action ranks with the done ones", 'return entry.tone !== "success" && statusStep(entry).offered ? 1 : 2;', "return 2;"],
+    ["a done step that offers its action ranks with the optional ones", 'return entry.tone !== "success" && statusStep(entry).offered ? 1 : 2;', "return statusStep(entry).offered ? 1 : 2;"],
+    ["an optional step that offers no action ranks above the done ones", 'return entry.tone !== "success" && statusStep(entry).offered ? 1 : 2;', 'return entry.tone !== "success" ? 1 : 2;'],
     ["an optional step is open", 'return entry.tone === "warning" || entry.tone === "danger";', 'return entry.tone === "warning" || entry.tone === "danger" || entry.tone === "info";'],
     ["a danger step is not open", ' || entry.tone === "danger";', ";"],
     ["a warning step is not open", 'return entry.tone === "warning" || ', "return "],

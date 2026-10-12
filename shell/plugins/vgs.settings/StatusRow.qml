@@ -20,7 +20,7 @@ import "Steps.js" as Steps
 // presence, its hint, and, for an item that is a secret's presence, Add key
 // in the chip's place while nothing is stored, or Replace and Remove after
 // the chip (Steps.itemView). Each line is one group of the row's GroupList,
-// divided from the next as the rows of a section are while `divided`. No row takes an edit of a value: a step goes to the manager
+// divided from the next as the rows of a section are. No row takes an edit of a value: a step goes to the manager
 // through `panel` (D061).
 GroupList {
     id: row

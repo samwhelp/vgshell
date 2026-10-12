@@ -39,7 +39,8 @@ import qs.Ui
 // the parent. `inkBelow()` is how far above its bottom edge the row's
 // lowest drawn part ends, its label, its control as drawn, its message or
 // an action on a line of its own under that message, since the control
-// centres in a taller row box.
+// centres in a taller row box. `inkAbove()` is how far below its top edge
+// the highest drawn part starts, its label or its control as drawn.
 Item {
     id: root
 
@@ -74,6 +75,14 @@ Item {
         if (message.visible) bottom = Math.max(bottom, message.y + message.height - message.inkBelow());
         if (actionSlot.visible && root.actionBelow) bottom = Math.max(bottom, actionSlot.y + actionSlot.height);
         return height - bottom;
+    }
+
+    function inkAbove() {
+        let top = labelColumn && label !== "" ? labelText.y + labelText.inkAbove() : height;
+        for (const child of slot.children) {
+            if (child.visible) top = Math.min(top, slot.y + child.y + Theme.inkAbove(child));
+        }
+        return Math.min(top, height);
     }
 
     function toneColor(name) {

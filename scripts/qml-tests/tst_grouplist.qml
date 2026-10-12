@@ -6,10 +6,12 @@ import qs.Unit
 import "../../shell/plugins/vgs.settings"
 
 // GroupList: the groups it holds sit `groupList.gap` apart with one
-// hairline in `groupList.divider` centred in each gap, a hidden group takes
-// neither, a group list inside another divides its own groups alike, a
-// list that is not `divided` keeps the gap and draws no hairline, and a
-// theme moves both. The groups are the Settings page's own Status lines
+// hairline in `groupList.divider` in each gap, centred within a pixel
+// between the drawn pixels of the two groups, read from the rendered
+// image: a hint's leading, a chip or a label centred in a taller row and a
+// button that fills its row move it no closer to either group. A hidden
+// group takes neither, a group list inside another divides its own groups
+// alike, and a theme moves both. The groups are the Settings page's own Status lines
 // and Requirements rows, so the page's rhythm is read where it is drawn:
 // a line's own lines, its value and its hint sit `field.gap` apart, less
 // than the gap between groups. A state too long for the value column
@@ -23,7 +25,7 @@ import "../../shell/plugins/vgs.settings"
 Item {
     id: root
     width: 480
-    height: 1860
+    height: 2500
 
     GroupList {
         id: list
@@ -47,13 +49,44 @@ Item {
         }
     }
 
-    GroupList {
-        id: plainList
-        y: 1600
+    // The groups of a Setup tab on a solid surface, so the image shows
+    // where each group's pixels start and end: Requirements rows whose
+    // hints end with and without a descender, the Install row's filled
+    // button, a step with a text value, one whose action stands alone, a
+    // step whose chip centres in a row as tall as a key/value row, as the
+    // Setup tab's steps do, a label alone, and status lines whose value is
+    // a hint or a chip with its step.
+    Rectangle {
+        id: inkFrame
+        y: 1860
         width: 400
-        divided: false
-        StatusLine { id: plainFirst; width: plainList.width; label: "Client ID"; tone: "success"; text: "Present" }
-        StatusLine { id: plainSecond; width: plainList.width; label: "Client secret"; tone: "success"; text: "Present" }
+        height: inkList.height
+        color: Theme.color.surface
+        GroupList {
+            id: inkList
+            width: inkFrame.width
+            RequirementRow { width: inkList.width; requirement: ({ name: "sh", bus: null, state: "present", optional: false, purpose: "A command every sandbox has" }) }
+            RequirementRow { width: inkList.width; requirement: ({ name: "absent", bus: null, state: "missing", optional: true, purpose: "A command no sandbox has" }) }
+            Field {
+                width: inkList.width
+                label: "Missing"
+                inline: true
+                hint: "Review the missing tools before you install them."
+                Button { text: "Install all missing"; iconName: "download"; variant: "primary" }
+            }
+            Field { width: inkList.width; label: "Mode"; inline: true; hint: "The voice runs here."; Label { role: "value"; text: "Local" } }
+            Field { width: inkList.width; label: "Browser"; inline: true; RowAction { text: "Set up browser" } }
+            Field {
+                width: inkList.width
+                label: "Voice"
+                inline: true
+                hint: "Jarvis hears you."
+                Row { height: Theme.row.height; Badge { anchors.verticalCenter: parent.verticalCenter; text: "Done"; tone: "success" } }
+            }
+            Field { width: inkList.width; label: "Keys"; inline: true; hint: "One key per account." }
+            StatusLine { width: inkList.width; label: "Accounts"; hint: "Signed in does not prove that the AI answers." }
+            StatusLine { width: inkList.width; label: "Token"; tone: "warning"; text: "Absent"; hint: "Needed to sign in."; actionLabel: "Set up token"; actionOffered: true }
+        }
     }
 
     // Status lines with a step: a short chip keeps the step beside it, a
@@ -102,7 +135,7 @@ Item {
                 const line = lines[i - 1];
                 if (groups[i].y - top !== Theme.groupList.gap) out.push("gap" + i + "=" + (groups[i].y - top));
                 if (line.height !== Theme.divider.thickness || line.width !== owner.width) out.push("hairline" + i + ".size=" + line.width + "x" + line.height);
-                if (Math.abs(line.y + line.height / 2 - (top + groups[i].y) / 2) > 0.5) out.push("hairline" + i + ".y=" + line.y + " between " + top + " and " + groups[i].y);
+                if (line.y <= top || line.y + line.height > groups[i].y) out.push("hairline" + i + ".y=" + line.y + " outside " + top + " to " + groups[i].y);
                 if (String(line.color) !== String(Qt.color(Theme.groupList.divider))) out.push("hairline" + i + ".color=" + line.color);
             }
             return out;
@@ -134,13 +167,42 @@ Item {
             compare(hairlinesOf(inner).length, 1);
         }
 
-        // A list that is not divided keeps the gap between its groups and
-        // draws no hairline.
-        function test_an_undivided_list_keeps_the_gap_and_draws_no_hairline() {
-            compare(hairlinesOf(plainList).length, 0);
-            const groups = shownGroups(plainList);
-            compare(groups.length, 2);
-            tryVerify(() => groups[1].y - (groups[0].y + groups[0].height) === Theme.groupList.gap, 1000, "the groups keep the gap");
+        // Whether row Y of IMG, in device pixels, holds a pixel apart from
+        // the surface: ink, or the hairline itself.
+        function rowDrawn(img, y, surface) {
+            for (let x = 0; x < img.width; x++) {
+                if (Math.abs(img.red(x, y) - surface.r * 255) + Math.abs(img.green(x, y) - surface.g * 255) + Math.abs(img.blue(x, y) - surface.b * 255) > 30) return true;
+            }
+            return false;
+        }
+
+        // Each hairline of the list on the surface is drawn, and the blank
+        // rows above it, to the group above's last drawn row, and below it,
+        // to the group below's first, differ by at most two: the hairline
+        // sits within a pixel of the middle of what the eye sees as the
+        // gap. The rows are read from the image, not from the list.
+        function test_each_hairline_is_centred_between_the_drawn_groups() {
+            checkDivided(inkList);
+            verify(waitForRendering(inkFrame));
+            verify(inkFrame.y + inkFrame.height <= root.height, "the list fits the window, so its image is whole");
+            const img = grabImage(inkFrame);
+            const scale = img.width / inkFrame.width;
+            verify(Math.abs(img.height - inkFrame.height * scale) <= 1, "the image holds the whole list");
+            const surface = Qt.color(Theme.color.surface);
+            const lines = hairlinesOf(inkList).map(line => line.y).sort((a, b) => a - b);
+            compare(lines.length, 8, "nine groups, eight hairlines");
+            const out = [];
+            for (const y of lines) {
+                const row = Math.round(y * scale);
+                verify(rowDrawn(img, row, surface), "the hairline at " + y + " is drawn");
+                let above = row - 1;
+                while (above >= 0 && !rowDrawn(img, above, surface)) above--;
+                let below = row + Theme.divider.thickness * scale;
+                while (below < img.height && !rowDrawn(img, below, surface)) below++;
+                const blankAbove = (row - above - 1) / scale, blankBelow = (below - row - Theme.divider.thickness * scale) / scale;
+                if (Math.abs(blankAbove - blankBelow) > 2) out.push("hairline@" + y + " blank above=" + blankAbove + " below=" + blankBelow);
+            }
+            compare(out, [], "every hairline is centred between the drawn groups");
         }
 
         function test_a_theme_moves_the_gap_and_the_hairline() {

@@ -165,11 +165,11 @@ function inKeyedGroup(entry, keyed) {
 // order, each { title, items, buttons }:
 // - STATUS_TITLE: SETUP_GROUP's first entry, under its own label, with no
 //   step;
-// - SETUP_GROUP: each further entry of that group as a step row, the open
-//   ones (stepOpen) first and each kind in manifest order, then the
-//   key lists of group "" or SETUP_GROUP, then `buttons`, the headline's
-//   offered action and the screens no step row draws and no danger step
-//   owns now (flowButtons);
+// - SETUP_GROUP: each further entry of that group as a step row, by
+//   stepRank, open steps first, then the steps that wait on an offered
+//   action, then the done ones, each rank in manifest order; then the key
+//   lists of group "" or SETUP_GROUP, then `buttons`, the headline's
+//   offered action and the screens no entry declares (flowButtons);
 // - each keyed group (keyedGroups): its key lists and states in manifest
 //   order, each state a step row.
 // A section with no item and no button is left out. Each item is { key,
@@ -189,19 +189,16 @@ function setupSections(tuis, status) {
         return { key: entry.key, keys: true, entry: entry, label: entry.label, step: false, button: null };
     }
     var steps = setup.slice(1);
-    var setupItems = steps.filter(stepOpen).concat(steps.filter(function (entry) { return !stepOpen(entry); })).map(function (entry) { return row(entry, true); })
+    var setupItems = [0, 1, 2].map(function (rank) { return steps.filter(function (entry) { return stepRank(entry) === rank; }); })
+        .reduce(function (all, ranked) { return all.concat(ranked); }, []).map(function (entry) { return row(entry, true); })
         .concat(keyEntries(status).filter(function (entry) { return keyed.indexOf(entry.group) === -1; }).map(keys));
     var groups = keyed.map(function (group) {
         return { title: group, buttons: [], items: status.filter(function (entry) { return entry.group === group && inKeyedGroup(entry, keyed); })
             .map(function (entry) { return listsKeys(entry) ? keys(entry) : row(entry, true); }) };
     });
-    var beside = [];
-    setupItems.concat.apply(setupItems, groups.map(function (section) { return section.items; })).forEach(function (item) {
-        if (item.button !== null && item.button.name !== "") beside.push(item.button.name);
-    });
     var out = [];
     if (setup.length > 0) out.push({ title: STATUS_TITLE, items: [row(setup[0], false)], buttons: [] });
-    var buttons = flowButtons(tuis, status, beside, setup.length > 0 ? setup[0] : null);
+    var buttons = flowButtons(tuis, status, setup.length > 0 ? setup[0] : null);
     if (setupItems.length > 0 || buttons.length > 0) out.push({ title: SETUP_GROUP, items: setupItems, buttons: buttons });
     out = out.concat(groups);
     markPrimary(out);
@@ -214,6 +211,16 @@ function setupSections(tuis, status) {
 // done one success, and a disabled plugin reports none.
 function stepOpen(entry) {
     return entry.tone === "warning" || entry.tone === "danger";
+}
+
+// Where step ENTRY draws among the Setup section's steps: 0 while it is
+// open (stepOpen), 1 while it is not done and its value offers its action,
+// such as an optional step a user may still take, and 2 for the rest, a
+// done step in the success tone among them, so every step a user can
+// still act on reads above every done one.
+function stepRank(entry) {
+    if (stepOpen(entry)) return 0;
+    return entry.tone !== "success" && statusStep(entry).offered ? 1 : 2;
 }
 
 // What a plugin still asks of its user, for STATUS and REQUIREMENTS, its
@@ -265,44 +272,32 @@ function stepButton(tuis, entry) {
     return { key: entry.key + " " + entry.action.label, name: name, label: entry.action.label, tone: entry.action.tone, primary: false };
 }
 
-// The Setup section's actions for TUIS and STATUS, in drawn order, leaving
-// out each listed TUI a step row draws beside it, BESIDE, and each listed
-// TUI a danger row declares while it offers another TUI as the repair:
-// first the offered action of HEADLINE, the entry the Status section draws
-// with no step, or null, when it opens no listed screen (stepButton), a
-// press the manager's act on `status`, the entry's key; then each TUI an
-// offered action opens (a row's action names a TUI only
-// while it is offered), in status order, as that step, with the action's
-// label and tone; then every other TUI in manifest order, with its entry's
-// label.
-// Such another TUI that lacks a requirement takes no press and reads the
-// core's reason, the TUI's `withheld`: its press would only raise the
-// notice the step installs from; an offered step always takes its press.
-// Each { key, name, status, label, tone, offered, primary, enabled,
-// reason }, `status` "" for a screen, `key` naming the action as drawn, so
-// a change of label or state draws it anew (markPrimary sets it).
-function flowButtons(tuis, status, beside, headline) {
+// The Setup section's actions for TUIS and STATUS, in drawn order: first
+// the offered action of HEADLINE, the entry the Status section draws with
+// no step, or null, as a screen when it opens a listed one (stepButton), else
+// as a press the manager's act on `status`, the entry's key; then each
+// listed screen no entry of STATUS declares (`declaredTuis`), in manifest
+// order, with its entry's label. A screen an entry declares belongs to
+// that entry's row, which draws it beside the row while the entry's value
+// offers it, so a done step draws no setup action anywhere on the page.
+// A screen of no entry that lacks a requirement takes no press and reads
+// the core's reason, the TUI's `withheld`: its press would only raise the
+// notice the step installs from; the headline's offered action always
+// takes its press. Each { key, name, status, label, tone, primary,
+// enabled, reason }, `status` "" for a screen, `key` naming the action as
+// drawn, so a change of label or state draws it anew (markPrimary sets it).
+function flowButtons(tuis, status, headline) {
     var out = [];
     var step = headline === null ? null : stepButton(tuis, headline);
-    if (step !== null && step.name === "")
-        out.push({ key: "", name: "", status: headline.key, label: step.label, tone: step.tone, offered: true, primary: false, enabled: true, reason: "" });
-    function has(name) { return beside.indexOf(name) !== -1 || out.some(function (button) { return button.status === "" && button.name === name; }); }
-    function blockedByDangerRow(name) {
-        return status.some(function (entry) {
-            return entry.tone === "danger" && entry.action !== null && true === entry.action.offered && entry.action.tui !== "" && entry.action.tui !== name
-                && entry.declaredTuis !== undefined && entry.declaredTuis.indexOf(name) !== -1;
-        });
-    }
-    function add(tui, label, tone, offered) {
-        var enabled = offered || tui.withheld === "";
-        out.push({ key: "", name: tui.name, status: "", label: label, tone: tone, offered: offered, primary: false, enabled: enabled, reason: enabled ? "" : tui.withheld });
-    }
-    status.forEach(function (entry) {
-        if (entry.action === null || entry.action.tui === "") return;
-        var tui = tuis.filter(function (t) { return t.name === entry.action.tui; })[0];
-        if (tui !== undefined && !has(tui.name)) add(tui, entry.action.label, entry.action.tone, true);
+    if (step !== null)
+        out.push({ key: "", name: step.name, status: step.name === "" ? headline.key : "", label: step.label, tone: step.tone, primary: false, enabled: true, reason: "" });
+    var declared = [];
+    status.forEach(function (entry) { declared = declared.concat(entry.declaredTuis); });
+    tuis.forEach(function (tui) {
+        if (declared.indexOf(tui.name) !== -1) return;
+        var enabled = tui.withheld === "";
+        out.push({ key: "", name: tui.name, status: "", label: tui.label, tone: "", primary: false, enabled: enabled, reason: enabled ? "" : tui.withheld });
     });
-    tuis.forEach(function (tui) { if (!has(tui.name) && !blockedByDangerRow(tui.name)) add(tui, tui.label, "", false); });
     return out;
 }
 

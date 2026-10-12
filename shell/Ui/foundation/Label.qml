@@ -15,7 +15,10 @@ import qs.Commons
 // a box centre with the baseline on a whole device pixel of the label's own
 // screen, since a whole pixel spans two device pixels on a 2x screen.
 // `capTop()` is how far below the label top the first line's capitals
-// start, and `inkBelow(lastLine)` how far above its bottom edge the last
+// start, `inkAbove()` how far below it the first line's ink starts, its
+// glyphs' highest ink for a one-line label and the capital top for a
+// wrapped one, whose first line's text it does not know, and
+// `inkBelow(lastLine)` how far above its bottom edge the last
 // line's ink ends: its glyphs' lowest ink (FontMetrics.tightBoundingRect,
 // whose origin is the baseline) for a one-line label or a caller that
 // names the last line's text, else the baseline in capitals and the
@@ -52,6 +55,11 @@ Text {
 
     function capTop() {
         return baselineOffset - metrics.capitalHeight;
+    }
+
+    function inkAbove() {
+        if (lineCount > 1 || text === "") return capTop();
+        return baselineOffset + metrics.tightBoundingRect(typography.uppercase ? text.toUpperCase() : text).y;
     }
 
     function inkBelow(lastLine) {

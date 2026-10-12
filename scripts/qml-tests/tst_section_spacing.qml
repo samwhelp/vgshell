@@ -105,7 +105,6 @@ Item {
             Section {
                 title: "Status"
                 GroupList {
-                    divided: false
                     Loader {
                         width: parent.width
                         sourceComponent: Field { label: "Setup"; inline: true; hint: statusPage.hint; Label { role: "item"; text: "Ready" } }

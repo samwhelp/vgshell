@@ -66,9 +66,9 @@ import "Steps.js" as Steps
 // share one content edge, the scroll bar sits in the window's right inset,
 // and each inline value draws at line height 1, centred on its label. The
 // switches, and the listing metadata with Manage, are each one key/value
-// group `stack.row` apart, with one key/value row height. No row of the
-// Setup tab's status sections draws a divider: a section heading parts its
-// groups.
+// group `stack.row` apart, with one key/value row height. The Setup tab's
+// steps, its keys and its Requirements are each a GroupList, divided as
+// the status rows of Details are.
 //
 // A text field and a key typed as text wait for a save (EditSet): while one
 // holds an unsaved edit the footer shows the save bar, whose Save, and
@@ -589,7 +589,7 @@ FocusScope {
                     // the page new rows, keeps each row in place and a
                     // masked field open on a key line. Each row is one
                     // group of the section's GroupList, `groupList.gap`
-                    // apart with no divider.
+                    // apart with a hairline between.
                     Repeater {
                         model: ScriptModel {
                             values: page.setupSections
@@ -604,7 +604,6 @@ FocusScope {
                             GroupList {
                                 id: statusGroups
                                 width: statusPart.width
-                                divided: false
 
                                 Repeater {
                                     model: ScriptModel {
@@ -622,7 +621,6 @@ FocusScope {
                                         Component {
                                             id: keyList
                                             StatusRow {
-                                                divided: statusGroups.divided
                                                 entry: statusItem.modelData.entry
                                                 panel: page.panel
                                                 pluginId: page.row === null ? "" : page.row.id
@@ -726,18 +724,20 @@ FocusScope {
                                     }
                                 }
 
-                                // The setup screens no step row draws,
-                                // with the last refusal of each open
-                                // under them.
+                                // The headline's offered action and the
+                                // setup screens no entry declares, under
+                                // their own label, with the last refusal
+                                // of each open under them.
                                 Column {
                                     width: statusGroups.width
                                     spacing: Theme.field.gap
                                     visible: statusPart.modelData.buttons.length > 0
-                                    // An unlabelled row, so the setup screens
+                                    // A labelled row, so the setup screens
                                     // start on the value column with the step
-                                    // rows' chips.
+                                    // rows' chips and read as no step's.
                                     Field {
                                         width: parent.width
+                                        label: "More setup"
                                         inline: true
                                         Flow {
                                             width: parent.width

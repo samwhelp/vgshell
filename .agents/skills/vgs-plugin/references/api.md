@@ -239,7 +239,7 @@ Types refused as an instantiation anywhere in a plugin's QML or JS: `PanelWindow
 | `Disclosure` | `Column` | `text`, `secondary`, `iconName`, `trailing` as `ListItem` takes them, `expanded`, `expandable`; its content as children, shown under the row while expanded |
 | `SectionHeader` | `Column` | `text`, `description`; `leftPadding` and `rightPadding` inset both lines |
 | `Card` | `Rectangle` | one of several repeated groups, such as an account, as children in a column `card.gap` apart inside `card.padding`, on a raised fill with an outline; it takes its parent's width |
-| `GroupList` | `Item` | groups as children, each a row with its own lines: `groupList.gap` between groups with a hairline centred in each gap; a nested list divides its own groups alike; `divided` false keeps the gap and draws no hairline |
+| `GroupList` | `Item` | groups as children, each a row with its own lines: `groupList.gap` between groups with a hairline in each gap, centred between the groups' drawn pixels; a nested list divides its own groups alike |
 | `Select` | `T.AbstractButton` | `model`, `currentIndex`, `textRole`, `placeholderText`, read dimmed while entries are offered and none is chosen; `openList()`; `activated(index)` on a user choice only, including the current entry, never on a model or binding update; the list opens in its own surface and scrolls under the embedded bar |
 | `Popover` | `Item` | its content as children, `width`; `open()`, `close()`, `opened`; a surface under the item it is declared in |
 | `Tooltip` | `Item` | `text`, `shortcut`; opens on hover or keyboard focus of the item it is declared in |

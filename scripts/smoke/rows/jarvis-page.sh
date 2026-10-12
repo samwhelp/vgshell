@@ -19,7 +19,7 @@
 # read leaves the saved model, marked, and with nothing saved the model the
 # daemon gets. The shell's log holds no unexpected line from these steps.
 # Two backup models added through the list's Add action sit the group
-# list's gap apart, with the hairline centred in it. A fresh profile saves
+# list's gap apart, with the hairline in that gap. A fresh profile saves
 # no Voice provider and reads Local; a saved Auto survives a shell
 # restart, and with it taken out the page reads Local again.
 # No latency budget.
@@ -491,11 +491,13 @@ expect_poll "the page shows its Settings tab for the backup models" 0 settings_t
 
 # Two backup models, added through the list's Add action, sit
 # `groupList.gap` apart, from the bottom of the first entry's last row to
-# the top of the second entry's first row, with the one hairline centred
-# in that gap, within a pixel. Text inside a row, such as a hint's leading
-# or a label centred in its row, is not gap. The controls plant the same
-# reading with a trailing 8 px in the first entry, which moves the second
-# entry and the hairline, and with the hairline 4 px low. `[]` is the pass.
+# the top of the second entry's first row, with the one hairline in that
+# gap; where in the gap it sits follows the drawn pixels, which
+# tst_grouplist.qml reads from an image. Text inside a row, such as a
+# hint's leading or a label centred in its row, is not gap. The controls
+# plant the same reading with a trailing 8 px in the first entry, which
+# moves the second entry and the hairline, and with the hairline 20 px
+# low, inside the second entry. `[]` is the pass.
 page_backups() { ipc smoke invokeInstance window vgs.settings listItems '{"id":"vgs.jarvis","key":"fallbacks"}' | py_reply 'import json,sys; t=sys.stdin.read(); print(json.dumps([i["name"] for i in json.loads(t)]) if t.startswith("[") else t)'; }
 page_backup_gap() { # [trailing|hairline]
   local rows gap
@@ -527,20 +529,20 @@ bottom = max(rows[j]["box"][1] + rows[j]["box"][3] for j in kids(entries[0]))
 top = min(rows[j]["box"][1] for j in kids(entries[1]))
 line_top, line_height = lines[0]
 if plant == "trailing": top, line_top = top + 8, line_top + 8
-if plant == "hairline": line_top += 4
+if plant == "hairline": line_top += 20
 out = []
 if abs(top - bottom - gap) > 1: out.append("gap=%.2f want=%d" % (top - bottom, gap))
-if abs(line_top + line_height / 2 - (bottom + top) / 2) > 1: out.append("hairline=%.2f between %.2f and %.2f" % (line_top + line_height / 2, bottom, top))
+if line_top < bottom or line_top + line_height > top: out.append("hairline=%.2f outside %.2f to %.2f" % (line_top, bottom, top))
 print(json.dumps(out))
 PY
 }
 expect "the first backup model is added" clicked ipc smoke invokeInstance window vgs.settings listAdd '{"id":"vgs.jarvis","key":"fallbacks"}'
 expect "the second backup model is added" clicked ipc smoke invokeInstance window vgs.settings listAdd '{"id":"vgs.jarvis","key":"fallbacks"}'
 expect_poll "the page draws two backup models" '["1", "2"]' page_backups
-geometry expect_poll "two backup models sit groupList.gap apart with the hairline centred" '[]' page_backup_gap
+geometry expect_poll "two backup models sit groupList.gap apart with the hairline in the gap" '[]' page_backup_gap
 page_backup_planted() { page_backup_gap "$1" | py_reply 'import json,sys; print(any(e.startswith(sys.argv[1]) for e in json.load(sys.stdin)))' "$2"; }
 expect "control: a trailing 8 px in the first entry is refused" True page_backup_planted trailing gap=
-expect "control: a hairline 4 px low is refused" True page_backup_planted hairline hairline=
+expect "control: a hairline 20 px low is refused" True page_backup_planted hairline hairline=
 expect "the first backup model is removed" clicked ipc smoke invokeInstance window vgs.settings listRemove '{"id":"vgs.jarvis","key":"fallbacks","name":"1"}'
 expect_poll "the page draws one backup model" '["2"]' page_backups
 expect "the second backup model is removed" clicked ipc smoke invokeInstance window vgs.settings listRemove '{"id":"vgs.jarvis","key":"fallbacks","name":"2"}'

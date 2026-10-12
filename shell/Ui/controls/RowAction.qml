@@ -25,6 +25,8 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // The control's box is centred on the text's capital centre, so a row that
 // centres it beside a chip sets the text level with the chip's; the box
 // holds the thicker hover underline, so a hover moves nothing.
+// `inkAbove()` is where its text's ink, or the danger mark, starts below
+// that box's top.
 T.Button {
     id: root
 
@@ -40,6 +42,11 @@ T.Button {
         if (found !== undefined) return found;
         console.error("RowAction: no tone named " + JSON.stringify(name));
         return Theme.rowAction.tone.accent;
+    }
+
+    function inkAbove() {
+        const text = label.y + label.inkAbove();
+        return contentItem.y + (mark.visible ? Math.min(mark.y, text) : text);
     }
 
     implicitWidth: implicitContentWidth

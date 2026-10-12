@@ -202,6 +202,25 @@ Singleton {
         return 0;
     }
 
+    // How far below its top edge an item's drawn content starts, the
+    // counterpart of inkBelow, so a GroupList centres its hairline between
+    // what the eye sees of two groups. An item that declares `inkAbove()`,
+    // such as a `Label` or a `FormRow`, answers for itself; a Column starts
+    // where the first child it lays out does, below its top padding, a Row
+    // where its highest shown child does, and a Loader where its item
+    // does; any other item draws from its edge. A Row places its children
+    // along x alone, so a child's `y` is its own
+    // (https://doc.qt.io/qt-6/qml-qtquick-row.html).
+    function inkAbove(item) {
+        if (item === null || item === undefined) return 0;
+        if (typeof item.inkAbove === "function") return item.inkAbove();
+        if (item instanceof Loader) return item.item instanceof Item ? inkAbove(item.item) : 0;
+        const shown = item.children.filter(child => child.visible && child.width > 0 && child.height > 0);
+        if (item instanceof Row) return shown.length === 0 ? 0 : Math.min(...shown.map(child => child.y + inkAbove(child)));
+        if (!(item instanceof Column)) return 0;
+        return shown.length === 0 ? 0 : item.topPadding + inkAbove(shown[0]);
+    }
+
     function toColor(text) {
         return "#" + text.slice(7, 9) + text.slice(1, 7);
     }
