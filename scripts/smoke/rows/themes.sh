@@ -469,7 +469,7 @@ expect "the follow after the themes restart ends" idle theme_idle
 expect_poll "the service reads the shipped target's setup" '"Browser themes are not installed"' browser_text
 first_setup="$(browser_theming)" || first_setup=unreadable
 case $first_setup in
-  '["reported", "warning", true]')
+  '["reported", "info", true]')
     forget_record
     hold_runs
     settings_press "Install browser theming" || fail "the click on Install browser theming failed"
@@ -486,7 +486,7 @@ case $first_setup in
     expect "the refused install started no terminal" absent recorded
     unlink -- "${shim:?}/vgshell-browser-policy"
     rescan "a browser theming rescan after the writer goes away is accepted"
-    expect_poll "the requirements revision makes browser theming read missing again" '["reported", "warning", true]' browser_theming
+    expect_poll "the requirements revision makes browser theming read missing again" '["reported", "info", true]' browser_theming
     expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.themes')
     mutant="$home/.config/vgshell/plugins/vgs.themes"
     mkdir -p -- "$(dirname -- "$mutant")"
@@ -509,14 +509,14 @@ PY
     rescan "the mutant themes plugin rescan is accepted"
     expect_log "the mutant themes copy is published" "$((scans + 1))" 'plugins: scan complete changed=true'
     expect_poll "the mutant themes copy is the discovered source" "$mutant" themes_source_dir
-    expect_poll "the mutant themes service reads the missing writer at build" '["reported", "warning", true]' browser_theming
+    expect_poll "the mutant themes service reads the missing writer at build" '["reported", "info", true]' browser_theming
     printf '#!/bin/sh\nexit 0\n' >"$shim/vgshell-browser-policy"
     chmod 755 "$shim/vgshell-browser-policy"
     expect "the control writer resolves on the shell's PATH" "$shim/vgshell-browser-policy" shell_resolves vgshell-browser-policy
     scans="$(log_lines 'plugins: scan complete changed=false')" || fail "the instance log is unreadable before the control rescan"
     rescan "the control rescan is accepted"
     expect_log "the control rescan ends without a rebuild" "$((scans + 1))" 'plugins: scan complete changed=false'
-    expect "control: without requirements revision the browser row stays stale" '["reported", "warning", true]' browser_theming
+    expect "control: without requirements revision the browser row stays stale" '["reported", "info", true]' browser_theming
     rm -rf -- "$mutant"
     scans="$(log_lines 'plugins: scan complete changed=true')" || fail "the instance log is unreadable before the bundled themes restore"
     rescan "the real themes plugin rescan is accepted"
@@ -526,7 +526,7 @@ PY
     scans="$(log_lines 'plugins: scan complete changed=false')" || fail "the instance log is unreadable before the positive requirements rescan"
     rescan "the positive requirements revision rescan is accepted"
     expect_log "the positive requirements revision rescan ends without a rebuild" "$((scans + 1))" 'plugins: scan complete changed=false'
-    expect_poll "the bundled themes service reads the missing writer after a rescan" '["reported", "warning", true]' browser_theming
+    expect_poll "the bundled themes service reads the missing writer after a rescan" '["reported", "info", true]' browser_theming
     settings_source_dir() { ipc shell listPlugins | py_reply 'import json,sys; print(next((p["dir"] for p in json.load(sys.stdin)["plugins"] if p["id"] == "vgs.settings"), "absent"))'; }
     reopen_settings() { # LABEL
       expect "$1: the Settings window is hidden" ok ipc shell hide window vgs.settings
@@ -536,7 +536,7 @@ PY
     printf '#!/bin/sh\nexit 0\n' >"$shim/vgshell-browser-policy"
     chmod 755 "$shim/vgshell-browser-policy"
     expect "the writer for the reopen resolves on the shell's PATH" "$shim/vgshell-browser-policy" shell_resolves vgshell-browser-policy
-    expect "before the reopen the row still offers the install" '["reported", "warning", true]' browser_theming
+    expect "before the reopen the row still offers the install" '["reported", "info", true]' browser_theming
     scans="$(log_lines 'plugins: scan complete')" || fail "the instance log is unreadable before the Settings reopen"
     reopen_settings "the writer's arrival"
     expect_log "reopening Settings starts a scan" "$((scans + 1))" 'plugins: scan complete'
@@ -565,7 +565,7 @@ PY
     rescan "the control's missing-writer rescan is accepted"
     expect_log "the control's missing-writer rescan ends" "$((scans + 1))" 'plugins: scan complete changed=false'
     reopen_settings "the control's start"
-    expect_poll "the control starts with the install offered" '["reported", "warning", true]' browser_theming
+    expect_poll "the control starts with the install offered" '["reported", "info", true]' browser_theming
     printf '#!/bin/sh\nexit 0\n' >"$shim/vgshell-browser-policy"
     chmod 755 "$shim/vgshell-browser-policy"
     expect "the control writer for the reopen resolves on the shell's PATH" "$shim/vgshell-browser-policy" shell_resolves vgshell-browser-policy
@@ -579,7 +579,7 @@ PY
       sleep 0.2
     done
     expect "control: the copy's reopen starts no scan" "$scans" log_lines 'plugins: scan complete'
-    expect "control: without the open rescan the row still offers the install" '["reported", "warning", true]' browser_theming
+    expect "control: without the open rescan the row still offers the install" '["reported", "info", true]' browser_theming
     rm -rf -- "${settings_mutant:?}"
     scans="$(log_lines 'plugins: scan complete changed=true')" || fail "the instance log is unreadable before the bundled Settings restore"
     rescan "the bundled Settings rescan is accepted"
@@ -590,7 +590,7 @@ PY
     rescan "the last missing-writer rescan is accepted"
     expect_log "the last missing-writer rescan ends" "$((scans + 1))" 'plugins: scan complete changed=false'
     reopen_settings "the bundled Settings"
-    expect_poll "the bundled Settings reads the missing writer" '["reported", "warning", true]' browser_theming
+    expect_poll "the bundled Settings reads the missing writer" '["reported", "info", true]' browser_theming
     ;;
   *)
     fail "the browser theming row reads $first_setup, so Install browser theming was not pressed"

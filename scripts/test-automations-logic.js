@@ -330,7 +330,9 @@ function verify(logic) {
     const values = logic.statusValues({ scheduler: "cron", linger: "no", automations: listed });
     same(values, {
         scheduler: { tone: "warning", text: "Using the backup scheduler" },
-        linger: { tone: "warning", text: "Automations run only while you are logged in", action: true },
+        // The Setup tone rule (design-system.md, Steps.js stepOpen): the
+        // optional While logged out step reads info while it is open.
+        linger: { tone: "info", text: "Automations run only while you are logged in", action: true },
         active: 1,
         nextRun: "Mon 2 Feb 2026 09:00",
         lastRuns: { tone: "danger", text: "Failing: Back up" }
@@ -444,6 +446,7 @@ const compared = analyze === null ? 0 : comparePreview(load(file, modules), anal
 // ---------------------------------------------------------------- controls
 
 const CONTROLS = [
+    ["the optional While logged out step reads info", 'case "no": linger = { tone: "info"', 'case "no": linger = { tone: "warning"'],
     ["notifications round duration to seconds", "Math.round(rec.durationMs / 1000)", "Math.floor(rec.durationMs / 1000)"],
     ["an unavailable scheduler is not an invalid schedule", 'scheduler=none|systemctl=|systemd-run=|crontab=', 'systemctl=|systemd-run=|crontab='],
     ["diagnostics stay out of display text", 'function failureText(reason) {', 'function failureText(reason) { return String(reason);'],

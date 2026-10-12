@@ -436,7 +436,10 @@ function promptAnswer(responseRequired, echoResponse, pending) {
 }
 
 // The `greeter` status: the step's reading as the Settings row shows it,
-// with Set up offered while it reads needed or nixos.
+// with Set up offered while it reads needed or nixos, in the warning tone
+// of an open step. A reading that offers no action reads info: it names
+// why, or what the user can do instead, such as installing VGS from a
+// package.
 var STEP_STATES = ["ready", "needed", "nixos", "absent", "denied", "unknown"];
 var REASON_TEXTS = {
     "greetd-missing": "Needs greetd",
@@ -457,8 +460,8 @@ function stepState(step) {
     case "nixos": return { tone: "warning", text: "Needs your NixOS configuration", action: true };
     case "absent":
     case "denied":
-        return { tone: state === "denied" ? "danger" : "info", text: Object.prototype.hasOwnProperty.call(REASON_TEXTS, reason) ? REASON_TEXTS[reason] : "Not available on this computer", action: false };
-    case "unknown": return { tone: "warning", text: "Could not be checked", action: false };
+        return { tone: "info", text: Object.prototype.hasOwnProperty.call(REASON_TEXTS, reason) ? REASON_TEXTS[reason] : "Not available on this computer", action: false };
+    case "unknown": return { tone: "info", text: "Could not be checked", action: false };
     }
     throw new Error("greeter: step state " + JSON.stringify(state) + " is not one of " + STEP_STATES.join(", "));
 }

@@ -14,19 +14,24 @@ var STATUS_LIST_MAX = 32;
 var LABEL_MAX = 60;
 var HINT_MAX = 200;
 
+// The text of the `browserTheming` value for a report that failed or does
+// not parse, which the service reads to log the report's stderr.
+var UNKNOWN_TEXT = "Browser theme setup could not be checked. Open Plugins to check Themes.";
+
 // The `browserTheming` status value, a `state`, for TEXT, the setup
 // report's stdout, and CODE, its exit code, null for a report that did not
 // start: Installed once the writer is on
 // PATH; Not installed with the manifest's Install browser theming action
-// offered while a Chromium-family browser is and the writer is not; No
+// offered while a Chromium-family browser is and the writer is not, in the
+// info tone of an optional step; No
 // browser found while none is; not shipped for a tree whose targets hold
 // no chromium setup, as the smoke's sandbox tree ships none. A report that
-// failed or does not parse reads as unknown, in the danger tone, and
+// failed or does not parse reads as unknown, in the info tone, and
 // offers nothing.
 function browserTheming(text, code) {
     var unknown = function (why) {
         console.warn("themes: setup=" + why);
-        return { tone: "danger", text: "Browser theme setup could not be checked. Open Plugins to check Themes." };
+        return { tone: "info", text: UNKNOWN_TEXT };
     };
     if (code === null) return unknown("did not start");
     if (code !== 0) return unknown("exited " + code);
@@ -44,7 +49,7 @@ function browserTheming(text, code) {
     if (row === null) return { tone: "info", text: "This version of VGS does not support browser themes" };
     switch (row.state) {
     case "done": return { tone: "ok", text: "Browser theme support is installed" };
-    case "absent": return { tone: "warning", text: "Browser themes are not installed", action: true };
+    case "absent": return { tone: "info", text: "Browser themes are not installed", action: true };
     case "not-detected": return { tone: "info", text: "No Chromium-family browser found" };
     }
     return unknown("named the state " + JSON.stringify(row.state) + ", not one of " + STATES.join(", "));

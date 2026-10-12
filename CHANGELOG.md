@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- On the Setup tab, VPN, Login screen, Traffic, Themes and Automations colour each step as the other plugins do: the warning colour only for a step you still need to take, and the information colour for an optional step or for a state you cannot change there, which says why. Traffic capture, Browser theming and While logged out are optional, so they no longer mark their plugin Setup needed in the Plugins list. Before, these plugins drew some optional or unchangeable states in the warning or danger colour, and listed them first on Setup.
 - Jarvis has a second cloud voice, Gemini Live from Google. Choose Gemini Live under Settings > Jarvis > Voice provider and store a Gemini key with Add key: Google hears you and speaks the reply, and the AI model you chose still answers. Voice offers Gemini's 30 voices, with Preview. The Realtime key setting is now Voice key, and offers the keys of the chosen cloud voice. Always talk mode still needs the local voice.
 - The Jarvis bar tooltip, its Mute not saved notice and its stopped notice after a failed start say what happened and what to do. Before, each also showed an internal code, such as jarvis: hello=timeout. The Jarvis memory row no longer starts with jarvis: memory=sqlite. The code stays in the log and on the Daemon row.
 - Settings > Jarvis > Voice provider shows one line of help. Its info button explains Realtime and Auto.

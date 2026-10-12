@@ -186,17 +186,19 @@ function verify(logic) {
     const second = logic.promptAnswer(true, false, first.pending);
     same([first.respond, second], ["pw", { respond: null, ask: true, pending: null }], "the typed password answers only the first of two hidden prompts");
 
-    // The statuses.
+    // The statuses. The Setup tone rule (design-system.md, Steps.js
+    // stepOpen): the step reads warning while it offers Set up, and info
+    // in every state that offers no action.
     const STEPS = [
         ["ready", { state: "ready", reason: "granted" }, { tone: "ok", text: "Set up", action: false }],
         ["needed offers Set up", { state: "needed", reason: "not-set-up" }, { tone: "warning", text: "Not set up", action: true }],
         ["nixos offers the snippet", { state: "nixos", reason: "not-set-up" }, { tone: "warning", text: "Needs your NixOS configuration", action: true }],
-        ["another display manager", { state: "denied", reason: "other-display-manager" }, { tone: "danger", text: "Another login screen is turned on", action: false }],
-        ["an install its owner can write", { state: "denied", reason: "install-untrusted" }, { tone: "danger", text: "Needs VGS installed from a package", action: false }],
+        ["another display manager", { state: "denied", reason: "other-display-manager" }, { tone: "info", text: "Another login screen is turned on", action: false }],
+        ["an install its owner can write", { state: "denied", reason: "install-untrusted" }, { tone: "info", text: "Needs VGS installed from a package", action: false }],
         ["no greetd", { state: "absent", reason: "greetd-missing" }, { tone: "info", text: "Needs greetd", action: false }],
         ["an unnamed reason", { state: "absent", reason: "other" }, { tone: "info", text: "Not available on this computer", action: false }],
-        ["unknown", { state: "unknown", reason: "probe-failed" }, { tone: "warning", text: "Could not be checked", action: false }],
-        ["no reading yet", null, { tone: "warning", text: "Could not be checked", action: false }]
+        ["unknown", { state: "unknown", reason: "probe-failed" }, { tone: "info", text: "Could not be checked", action: false }],
+        ["no reading yet", null, { tone: "info", text: "Could not be checked", action: false }]
     ];
     for (const [label, step, want] of STEPS) same(logic.stepState(step), want, label);
     assert.throws(() => logic.stepState({ state: "odd", reason: "x" }), /step state "odd"/, "an unknown state throws");
@@ -252,6 +254,8 @@ const CONTROLS = [
     ["the theme is copied only once the step reads ready", "    if (!ready) return null;\n    return [configDir", "    return [configDir"],
     ["the copy's arguments are the theme, the link, then the directory", 'return [configDir + "/theme.json", stateDir + "/background", THEME_DIR];', 'return [stateDir + "/background", configDir + "/theme.json", THEME_DIR];'],
     ["the theme status carries no action", 'if (!ready) return { tone: "info", text: "Waits for the login screen" };', 'if (!ready) return { tone: "info", text: "Waits for the login screen", action: false };'],
+    ["a denied step offers no action and reads info", '        return { tone: "info", text: Object', '        return { tone: state === "denied" ? "danger" : "info", text: Object'],
+    ["an unchecked step offers no action and reads info", 'case "unknown": return { tone: "info"', 'case "unknown": return { tone: "warning"'],
     ["a needed step offers Set up", 'case "needed": return { tone: "warning", text: "Not set up", action: true };', 'case "needed": return { tone: "warning", text: "Not set up", action: false };']
 ];
 const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "test-greeter-logic-")));

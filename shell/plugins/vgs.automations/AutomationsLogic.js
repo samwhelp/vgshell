@@ -1112,7 +1112,8 @@ function formatWhen(ms) {
 // { scheduler, linger, automations }: which scheduler runs the timers,
 // whether they run while logged out, how many are scheduled, the next run
 // and the automations whose last run failed. Lingering off offers the
-// manifest's Enable while logged out action, the `linger` TUI.
+// manifest's Enable while logged out action, the `linger` TUI, in the info
+// tone of an optional step.
 function statusValues(listed) {
     var rows = listed.automations;
     var next = null;
@@ -1131,7 +1132,7 @@ function statusValues(listed) {
     var linger;
     switch (listed.linger) {
     case "yes": linger = { tone: "ok", text: "Automations run while you are logged out" }; break;
-    case "no": linger = { tone: "warning", text: "Automations run only while you are logged in", action: true }; break;
+    case "no": linger = { tone: "info", text: "Automations run only while you are logged in", action: true }; break;
     case "unknown": linger = { tone: "info", text: "Could not check whether automations run while logged out" }; break;
     default: throw new Error("automations: linger " + JSON.stringify(listed.linger) + " is not one of " + LINGER_STATES.join(", "));
     }

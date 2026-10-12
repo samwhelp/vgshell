@@ -75,7 +75,7 @@ failing='{"name": "Nightly", "command": "echo nope >&2; exit 3", "schedule": {"f
 expect "enabling the automations is allowed" ok ipc shell setPluginEnabled vgs.automations true
 expect_poll "the service holds its status record and IPC target" '[["active", "lastRuns", "linger", "nextRun", "problem", "scheduler"], true]' auto_lent
 expect_poll "the scheduler reads the stand-in's systemd user manager" ok auto_status_tone scheduler
-expect_poll "lingering reads off, offering its action" '["warning", true]' auto_status_tone_action linger
+expect_poll "lingering reads off, offering its action" '["info", true]' auto_status_tone_action linger
 expect "a start with no automation runs no systemctl verb" '[]' auto_verbs
 expect "no unit is written with no automation" '[]' auto_units
 expect "the shell's PATH resolves crontab to the harness's stand-in" "$shim/crontab" resolved crontab "$shell_path"

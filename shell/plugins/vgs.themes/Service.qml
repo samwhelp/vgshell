@@ -251,7 +251,7 @@ Item {
             const code = exitCode;
             const value = SetupLogic.browserTheming(setupOut.text, code);
             exitCode = null;
-            if (value.tone === "danger") {
+            if (value.text === SetupLogic.UNKNOWN_TEXT) {
                 const why = setupErr.text.split("\n")[0];
                 console.warn("themes: setup=unknown " + value.text + (why === "" ? "" : " stderr=" + JSON.stringify(why)));
             }

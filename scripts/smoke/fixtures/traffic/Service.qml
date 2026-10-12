@@ -1,4 +1,5 @@
 import QtQuick
+import "TrafficLogic.js" as Logic
 
 // Planted only in the screenshot sandbox; no network or capture reads.
 Item {
@@ -20,11 +21,9 @@ Item {
             interfaces: [{ name: "enp5s0", down: 1258291, up: 34816 }]
         });
         if (reply !== "ok") return reply;
-        return shell.status.set("capture", {
-            tone: needed ? "warning" : state === "no-bandwhich" ? "info" : "ok", text: needed ? "Access needed" : state === "no-bandwhich" ? "bandwhich is not installed" : "Ready",
-            hint: "See all shows every app and protocol. Allowing it lets every account on this computer see network traffic through bandwhich.",
-            action: needed
-        });
+        return shell.status.set("capture", Object.assign(Logic.capture({ state: needed ? "needed" : state === "no-bandwhich" ? "absent" : "ready" }), {
+            hint: "See all shows every app and protocol. Allowing it lets every account on this computer see network traffic through bandwhich."
+        }));
     }
     onShellChanged: {
         if (shell === null || registered) return;

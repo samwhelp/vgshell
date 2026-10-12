@@ -146,20 +146,27 @@ function suite(logic, service = serviceSource) {
     ]) assert.equal(logic.loginUrl(printed), want);
 
     // Setup: one step at a time, Allow while access is denied, and no
-    // Ready over an operator the core could not read.
+    // Ready over an operator the core could not read. The Setup tone rule
+    // (design-system.md, Steps.js stepOpen): a step Tailscale needs reads
+    // warning while its action is offered; the optional tool's absence and
+    // a state the user cannot change here read info.
     for (const [context, action, tone] of [
-        [{ missing: true, state: "checking", service: "absent", operator: "absent" }, "", "warning"],
+        [{ missing: true, state: "checking", service: "absent", operator: "absent" }, "", "info"],
         [{ missing: false, state: "service-off", service: "needed", operator: "unknown" }, "enable", "warning"],
         [{ missing: false, state: "service-off", service: "nixos", operator: "unknown" }, "enable", "warning"],
-        [{ missing: false, state: "service-off", service: "absent", operator: "unknown" }, "", "warning"],
+        [{ missing: false, state: "service-off", service: "absent", operator: "unknown" }, "", "info"],
+        [{ missing: false, state: "service-off", service: "denied", operator: "unknown" }, "", "info"],
+        [{ missing: false, state: "service-off", service: "unknown", operator: "unknown" }, "", "info"],
         [{ missing: false, state: "running", service: "ready", operator: "needed" }, "allow", "warning"],
         [{ missing: false, state: "stopped", service: "ready", operator: "nixos" }, "allow", "warning"],
-        [{ missing: false, state: "running", service: "ready", operator: "denied" }, "", "warning"],
-        [{ missing: false, state: "running", service: "ready", operator: "unknown" }, "", "warning"],
-        [{ missing: false, state: "stopped", service: "ready", operator: "unknown" }, "", "warning"],
+        [{ missing: false, state: "running", service: "ready", operator: "denied" }, "", "info"],
+        [{ missing: false, state: "running", service: "ready", operator: "unknown" }, "", "info"],
+        [{ missing: false, state: "stopped", service: "ready", operator: "unknown" }, "", "info"],
         [{ missing: false, state: "running", service: "ready", operator: "ready" }, "", "ok"],
         [{ missing: false, state: "running", service: "", operator: "" }, "", "ok"]
     ]) assert.deepEqual([logic.setup(context).action, logic.setup(context).tone], [action, tone], JSON.stringify(context));
+    const unoffered = ["absent", "denied", "unknown"].map(service => logic.setup({ missing: false, state: "service-off", service: service, operator: "unknown" }).text);
+    assert.equal(new Set(unoffered).size, unoffered.length, "each service state that offers no step names its own why");
 
     // The connection line and the bar icon.
     const states = ["missing", "checking", "service-off", "unavailable", "signed-out", "needs-approval", "starting", "stopped", "running"];
@@ -390,6 +397,11 @@ try {
         ["an open view polls fast", "return open ? OPEN_POLL_MS : idleSeconds * 1000;", "return idleSeconds * 1000;"],
         ["access denied is told apart", '{ kind: "access-denied", pattern: /access denied/i }', '{ kind: "access-denied", pattern: /prefs denied/i }'],
         ["a needed operator offers Allow", 'action: "allow" };', 'action: "" };'],
+        ["a missing optional tool reads info", 'if (context.missing) return { tone: "info"', 'if (context.missing) return { tone: "warning"'],
+        ["an offered service step reads warning", '{ tone: "warning", text: "The Tailscale service is off."', '{ tone: "info", text: "The Tailscale service is off."'],
+        ["a service the user cannot turn on reads info", ': { tone: "info", text: SERVICE_UNOFFERED_TEXTS', ': { tone: "warning", text: SERVICE_UNOFFERED_TEXTS'],
+        ["each unoffered service state names why", 'denied: "The Tailscale service is turned off by the system." };', '};'],
+        ["another account's operator reads info", '{ tone: "info", text: "Another account controls Tailscale."', '{ tone: "warning", text: "Another account controls Tailscale."'],
         ["an unread operator is not Ready", 'context.operator === "unknown" && REACHED', 'context.operator === "unread" && REACHED'],
         ["an exit node goes by its target", '"--exit-node=" + node.target]', '"--exit-node=" + node.id]'],
         ["the exit nodes are bounded", "var rows = all.slice(0, EXIT_MAX);", "var rows = all.slice(0);"],

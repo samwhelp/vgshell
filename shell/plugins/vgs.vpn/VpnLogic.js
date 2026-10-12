@@ -276,17 +276,20 @@ function stepOffered(step) { return step === "needed" || step === "nixos"; }
 // { missing, state, service, operator }: whether the `tailscale` command
 // is absent, the snapshot's state and the two system steps' states. A
 // missing command offers no step: the page's Requirements section
-// installs it.
+// installs it, and the requirement is optional, so the line reads info.
+// A step Tailscale needs reads warning while its action is offered; a
+// state the user cannot change here reads info and names why.
+var SERVICE_UNOFFERED_TEXTS = { absent: "This computer has no Tailscale service.", denied: "The Tailscale service is turned off by the system." };
 function setup(context) {
-    if (context.missing) return { tone: "warning", text: "Tailscale is not installed.", action: "" };
+    if (context.missing) return { tone: "info", text: "Tailscale is not installed.", action: "" };
     if (context.state === "service-off")
         return stepOffered(context.service) ? { tone: "warning", text: "The Tailscale service is off.", action: "enable" }
-            : { tone: "warning", text: "The Tailscale service is not available.", action: "" };
+            : { tone: "info", text: SERVICE_UNOFFERED_TEXTS[context.service] || "VGS could not check the Tailscale service.", action: "" };
     if (stepOffered(context.operator)) return { tone: "warning", text: "Your account cannot change Tailscale.", action: "allow" };
-    if (context.operator === "denied") return { tone: "warning", text: "Another account controls Tailscale.", action: "" };
+    if (context.operator === "denied") return { tone: "info", text: "Another account controls Tailscale.", action: "" };
     // The core's probe could not read the operator, so Ready would be a guess.
     if (context.operator === "unknown" && REACHED.indexOf(context.state) !== -1)
-        return { tone: "warning", text: "VGS could not read who controls Tailscale.", action: "" };
+        return { tone: "info", text: "VGS could not read who controls Tailscale.", action: "" };
     return { tone: "ok", text: "Ready", action: "" };
 }
 

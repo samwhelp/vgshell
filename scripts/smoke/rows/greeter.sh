@@ -61,7 +61,7 @@ if devices_ready greeter; then
   device_reply systemctl 0 masked show --property=LoadState --value greetd.service
   rescan "a rescan with greetd masked answers ok"
   expect_poll "a masked greetd reads denied in the lending record" '{"greeter": {"reason": "unit-masked", "state": "denied"}}' greeter_lent
-  expect_poll "the service publishes the masked reading" '["danger", "greetd is turned off by the system", false]' greeter_status
+  expect_poll "the service publishes the masked reading" '["info", "greetd is turned off by the system", false]' greeter_status
   expect "disabling the greeter plugin is allowed" ok ipc shell setPluginEnabled vgs.greeter false
   expect_poll "no plugin holds system once the greeter is disabled" '[]' greeter_holders
   expect_poll "disable dropped the greeter's status record" null greeter_record

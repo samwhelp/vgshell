@@ -189,7 +189,9 @@ function commandLines(api) {
 }
 test("connection-states-and-command-lines", api => { connectionStates(api); commandLines(api); });
 test("capture-state-actions", api => {
-    for (const [state, tone, action] of [["ready","ok",false], ["needed","warning",true], ["nixos","warning",true], ["absent","info",false], ["denied","warning",false], ["unknown","warning",false]]) {
+    // The Setup tone rule (design-system.md, Steps.js stepOpen): the
+    // optional capture step reads info in every state but done.
+    for (const [state, tone, action] of [["ready","ok",false], ["needed","info",true], ["nixos","info",true], ["absent","info",false], ["denied","info",false], ["unknown","info",false]]) {
         const result = api.capture({ state }); assert.equal(result.tone, tone); assert.equal(result.action, action);
     }
 });
@@ -225,6 +227,7 @@ const controls = [
     ["net-dev-transmit-field", 'const down = Number(fields[0]), up = Number(fields[8]);', 'const down = Number(fields[0]), up = Number(fields[9]);', api => assert.equal(api.parseNetDev(before).enp5s0.up, 2000)],
     ["ipv6-loopback-counted", 'host === "::1"', 'host === "::2"', api => assert.equal(Object.keys(api.parseSockets(socketBefore)).includes("14"), false)],
     ["unknown-as-zero", 'return "--";', 'return "0 B/s";', api => assert.equal(api.formatRate(null), "--")],
+    ["capture-optional-tone", 'tone: state === "ready" ? "ok" : "info",', 'tone: state === "ready" ? "ok" : state === "absent" ? "info" : "warning",', api => assert.equal(api.capture({ state: "needed" }).tone, "info")],
     ["capture-action", 'action: state === "needed" || state === "nixos"', 'action: false', api => assert.equal(api.capture({ state: "needed" }).action, true)]
 ];
 for (const [name, old, replacement, verify] of controls) {

@@ -22,19 +22,21 @@ const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(
 const report = state => JSON.stringify({ setups: [{ name: "chromium", app: "Chromium, Google Chrome, Microsoft Edge and Brave", setup: "vgshell-browser-policy", state }] }) + "\n";
 const wiringReport = rows => JSON.stringify({ home: "/home/alice", setups: [], wiring: rows }) + "\n";
 
-// [label, stdout, exit code, the value].
+// [label, stdout, exit code, the value]. The Setup tone rule
+// (design-system.md, Steps.js stepOpen): browser theming is optional, so
+// its open step reads info, and a report the user cannot mend reads info.
 const ROWS = [
     ["the writer installed", report("done"), 0, { tone: "ok", text: "Browser theme support is installed" }],
-    ["a browser without the writer", report("absent"), 0, { tone: "warning", text: "Browser themes are not installed", action: true }],
+    ["a browser without the writer", report("absent"), 0, { tone: "info", text: "Browser themes are not installed", action: true }],
     ["no browser", report("not-detected"), 0, { tone: "info", text: "No Chromium-family browser found" }],
-    ["a failed report", report("done"), 1, { tone: "danger", text: "Browser theme setup could not be checked. Open Plugins to check Themes." }],
-    ["a report that did not start", report("done"), null, { tone: "danger", text: "Browser theme setup could not be checked. Open Plugins to check Themes." }],
-    ["a report killed by a signal, whose code is no exit code", "", -1, { tone: "danger", text: "Browser theme setup could not be checked. Open Plugins to check Themes." }],
-    ["no JSON", "setup=chromium\n", 0, { tone: "danger", text: "Browser theme setup could not be checked. Open Plugins to check Themes." }],
-    ["no setups list", "{}\n", 0, { tone: "danger", text: "Browser theme setup could not be checked. Open Plugins to check Themes." }],
+    ["a failed report", report("done"), 1, { tone: "info", text: "Browser theme setup could not be checked. Open Plugins to check Themes." }],
+    ["a report that did not start", report("done"), null, { tone: "info", text: "Browser theme setup could not be checked. Open Plugins to check Themes." }],
+    ["a report killed by a signal, whose code is no exit code", "", -1, { tone: "info", text: "Browser theme setup could not be checked. Open Plugins to check Themes." }],
+    ["no JSON", "setup=chromium\n", 0, { tone: "info", text: "Browser theme setup could not be checked. Open Plugins to check Themes." }],
+    ["no setups list", "{}\n", 0, { tone: "info", text: "Browser theme setup could not be checked. Open Plugins to check Themes." }],
     ["no chromium row", JSON.stringify({ setups: [{ name: "other", app: "Other", setup: "other-writer", state: "done" }] }), 0, { tone: "info", text: "This version of VGS does not support browser themes" }],
     ["another target's row after chromium's", JSON.stringify({ setups: [{ name: "chromium", app: "C", setup: "vgshell-browser-policy", state: "done" }, { name: "other", app: "Other", setup: "other-writer", state: "absent" }] }), 0, { tone: "ok", text: "Browser theme support is installed" }],
-    ["an unknown state", report("maybe"), 0, { tone: "danger", text: "Browser theme setup could not be checked. Open Plugins to check Themes." }]
+    ["an unknown state", report("maybe"), 0, { tone: "info", text: "Browser theme setup could not be checked. Open Plugins to check Themes." }]
 ];
 
 function verify(logic) {
@@ -97,6 +99,8 @@ for (const [label, text, code, want] of WIRING_ROWS) {
 // [label, needle, replacement]: each removes one rule from a copy.
 const CONTROLS = [
     ["every state offers the install", 'text: "Browser themes are not installed", action: true }', 'text: "Browser themes are not installed" }'],
+    ["the optional install reads info", '"absent": return { tone: "info"', '"absent": return { tone: "warning"'],
+    ["an unread report reads info", 'return { tone: "info", text: UNKNOWN_TEXT };', 'return { tone: "danger", text: UNKNOWN_TEXT };'],
     ["a failed report is read", "if (code !== 0) return unknown(\"exited \" + code);", ""],
     ["any target's row is read", "rows[i].name === TARGET", "true"],
     ["an unknown state is installed", 'case "done": return', 'default: return'],
