@@ -3324,7 +3324,7 @@ PY
   {
     printf '#!/usr/bin/env bash\nset -euo pipefail\n'
     printf 'marker=%q confirms=%q gum=%q\n' "$sandbox/clone-voice-confirm" "$sandbox/clone-voice-confirms" "$2"
-    printf '[[ ${1:-} != confirm ]] || { : >"$marker"; printf "%%s\\n" "${*: -1}" >>"$confirms"; }\nexec "$gum" "$@"\n'
+    printf '[[ ${1:-} != confirm ]] || { : >"$marker"; read -r question <<<"${*: -1}"; printf "%%s\\n" "$question" >>"$confirms"; }\nexec "$gum" "$@"\n'
   } >"$shim/gum" && chmod 755 "$shim/gum" || { fail "clone-voice: the gum wrapper is not written"; return 1; }
   {
     printf '#!/usr/bin/env bash\nset -euo pipefail\n'

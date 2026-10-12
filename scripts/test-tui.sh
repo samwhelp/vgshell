@@ -111,37 +111,14 @@ for fn in confirm choose input filter; do
   check "$fn with no terminal runs no gum" test ! -e "$tmp/gum"
 done
 on_tty 'vgs_tui_confirm "Remove it?" --default=false'
-check "a confirm on a terminal asks gum" test "$(cat "$tmp/gum")" == "$(printf '%s\n' confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" --default=false -- "Remove it?")"
+check "a confirm on a terminal asks gum" test "$(cat "$tmp/gum")" == "$(printf '%s\n' confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" --default=false -- "$(confirm_prompt "Remove it?")")"
 check "a confirm answers gum's yes" test "$status" == 0
 check "a confirm on a terminal starts with one blank line" starts_one_blank "$tmp/out"
 echo 1 >"$tmp/gum-exit"
 on_tty 'vgs_tui_confirm "Remove it?"'
-check "a confirm without caller flags still aligns gum" test "$(cat "$tmp/gum")" == "$(printf '%s\n' confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" -- "Remove it?")"
+check "a confirm without caller flags still aligns gum" test "$(cat "$tmp/gum")" == "$(printf '%s\n' confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" -- "$(confirm_prompt "Remove it?")")"
 check "a confirm answers gum's no" test "$status" == 1
 rm -f -- "$tmp/gum-exit"
-# A Yes or No answer erases the key help line with gum's view; a Ctrl-C
-# leaves it above the question gum keeps. erase_rows QUIET: ok and FAIL
-# lines unless QUIET is `quiet`; returns the number of failing rows.
-erase_rows() {
-  local row code want got red=0
-  for row in "0|erased" "1|erased" "130|kept"; do
-    IFS='|' read -r code want <<<"$row"
-    echo "$code" >"$tmp/gum-exit"
-    on_tty 'vgs_tui_confirm "Remove it?" || :'
-    got=kept
-    [[ $(cat "$tmp/out") != *"${esc}[1A"$'\r'"${esc}[2K" ]] || got=erased
-    if [[ $got == "$want" ]]; then
-      [[ $1 == quiet ]] || ok "a confirm answered $code leaves the help line $want"
-    else
-      red=$((red + 1))
-      [[ $1 == quiet ]] || fail "a confirm answered $code leaves the help line $want: got $got"
-    fi
-  done
-  rm -f -- "${tmp:?}/gum-exit"
-  return "$red"
-}
-erase_rows loud || true
-
 # Every colour a yes-or-no question draws, against the colour under it,
 # meets 4.5 to 1, the WCAG ratio for text, on vgs dark and flexoki-light.
 # The host's gum draws the question through the library on an 80-column
@@ -164,6 +141,7 @@ import sys
 drawn = open(sys.argv[1], "rb").read().decode("utf-8", "replace")
 text, background = sys.argv[2], sys.argv[3]
 required = dict(zip(("prompt", "selected", "unselected", "help"), sys.argv[4:8]))
+selected_fill = sys.argv[8]
 FLOOR = 4.5
 CSI = re.compile(r"\x1b\[([0-?]*)([ -/]*)([@-~])")
 OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
@@ -228,9 +206,13 @@ def sgr(params):
 
 
 pairs = {}
+first_line = {}
+line = 0
 at = 0
 while at < len(drawn):
     char = drawn[at]
+    if char == "\n":
+        line += 1
     if char == "\x1b":
         match = CSI.match(drawn, at) or OSC.match(drawn, at)
         if match is None:
@@ -249,6 +231,10 @@ while at < len(drawn):
     if state["faint"]:
         fg = "faint"
     pairs.setdefault((fg, bg), []).append(char)
+    for element, colour in (("prompt", fg), ("help", fg), ("choices", bg)):
+        wanted = selected_fill if element == "choices" else required[element]
+        if colour == wanted:
+            first_line.setdefault(element, line)
 
 failed = 0
 for (fg, bg), chars in pairs.items():
@@ -265,6 +251,13 @@ for element, colour in required.items():
     if colour not in drawn_fgs:
         print(f"contrast=missing element={element} fg={colour}")
         failed += 1
+# The first frame's rows: the key help sits under the question and one
+# blank row above the Yes and No row it explains.
+rows = [first_line.get(name) for name in ("prompt", "help", "choices")]
+if None not in rows and rows[0] < rows[1] and rows[2] - rows[1] == 2:
+    print("layout=adjacent")
+else:
+    print("layout=apart prompt=%s help=%s choices=%s" % tuple(rows))
 sys.exit(1 if failed else 0)
 PY
 # contrast_row ROW: the question drawn under ROW's colours and judged; the
@@ -278,11 +271,19 @@ contrast_row() {
     GUM_CONFIRM_UNSELECTED_FOREGROUND="$unsel" GUM_CONFIRM_UNSELECTED_BACKGROUND="$bg" GUM_PAGER_HELP_FOREGROUND="$help" \
     timeout 20 script -qec "$(printf '%q ' "$BASH" -c "stty cols 80 rows 24; source $(printf '%q' "$LIB"); vgs_tui_confirm 'Remove it?' --timeout=1s")" /dev/null \
     </dev/null >"$tmp/drawn" 2>&1 || :
-  python3 "$tmp/contrast.py" "$tmp/drawn" "$fg" "$bg" "$prompt" "$sel_fg" "$unsel" "$help" >"$tmp/contrast"
+  python3 "$tmp/contrast.py" "$tmp/drawn" "$fg" "$bg" "$prompt" "$sel_fg" "$unsel" "$help" "$sel_bg" >"$tmp/contrast"
+}
+# layout_row ROW: the question drawn under ROW's colours; true when the key
+# help sits one blank row above the choices and under the question.
+layout_row() {
+  contrast_row "$1" || :
+  grep -qx 'layout=adjacent' "$tmp/contrast"
 }
 for row in "${contrast_themes[@]}"; do
   if contrast_row "$row"; then ok "every colour of a question meets 4.5 to 1 on ${row%%|*}"
   else fail "a colour of a question is under 4.5 to 1 on ${row%%|*}: $(paste -sd' ' "$tmp/contrast")"; fi
+  if grep -qx 'layout=adjacent' "$tmp/contrast"; then ok "the key help sits right above the choices on ${row%%|*}"
+  else fail "the key help is apart from the choices on ${row%%|*}: $(grep '^layout=' "$tmp/contrast")"; fi
 done
 on_tty 'printf "a\nb\n" | vgs_tui_choose --header Pick'
 check "a choose on a terminal hands gum its arguments" test "$(cat "$tmp/gum")" == "$(printf '%s\n' choose --header Pick)"
@@ -748,15 +749,19 @@ check "the header-always-fills mutant fails the fitting header row" test "$(head
 control no-prompt-blank "_vgs_tui_prompt_gap() { printf '\\n' >&2; }" "_vgs_tui_prompt_gap() { :; }"
 on_tty 'vgs_tui_confirm "Remove it?"'
 check "the no-prompt-blank mutant fails the prompt blank row" test "$(starts_one_blank "$tmp/out" && echo green || echo red)" == red
-control no-confirm-margins 'gum confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" "$@" -- "$question"' 'gum confirm "$@" -- "$question"'
+control no-confirm-margins 'gum confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" "$@" --' 'gum confirm "$@" --'
 on_tty 'vgs_tui_confirm "Remove it?"'
-check "the no-confirm-margins mutant fails the confirm argv row" test "$(cat "$tmp/gum")" != "$(printf '%s\n' confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" -- "Remove it?")"
+check "the no-confirm-margins mutant fails the confirm argv row" test "$(cat "$tmp/gum")" != "$(printf '%s\n' confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" -- "$(confirm_prompt "Remove it?")")"
 control gum-help-shown 'GUM_CONFIRM_SHOW_HELP=false gum confirm' 'gum confirm'
 check "the gum-help-shown mutant fails the vgs-dark contrast row" test "$(contrast_row "${contrast_themes[0]}" && echo green || echo red)" == red
 control help-low-colour '"$(vgs_tui_sgr "${GUM_PAGER_HELP_FOREGROUND:-}" 39)"' '"$(vgs_tui_sgr "#3a3a3a" 39)"'
 check "the help-low-colour mutant fails the vgs-dark contrast row" test "$(contrast_row "${contrast_themes[0]}" && echo green || echo red)" == red
-control help-kept "then printf '\\033[1A\\r\\033[2K' >/dev/tty; fi" 'then :; fi'
-check "the help-kept mutant fails an erase row" test "$(erase_rows quiet && echo green || echo red)" == red
+# The layout's control: the help printed on its own line above the
+# question, gum's prompt the question alone.
+copy_with help-above-question-1 "$lib" '"$@" -- "$question"$'"'"'\n\n'"'"'"$help"' '"$@" -- "$question"'
+copy_with help-above-question "$copy" '  _vgs_tui_prompt_gap' '  _vgs_tui_prompt_gap; printf '"'"'%s\n'"'"' "$help" >/dev/tty'
+LIB="$copy"
+check "the help-above-question mutant fails the layout row" test "$(layout_row "${contrast_themes[0]}" && echo green || echo red)" == red
 control accent-success '"$(vgs_tui_sgr "${VGS_TUI_SUCCESS:-}" 32)" "$*"' '"$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 32)" "$*"'
 run 'vgs_tui_success "Ready."' VGS_TUI_SUCCESS='#070809' VGS_TUI_ACCENT='#010203'
 check "the accent-success mutant fails the success colour row" test "$(cat "$tmp/out")" != $'\n'"${esc}[38;2;7;8;9mReady.${esc}[0m"

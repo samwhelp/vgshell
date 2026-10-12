@@ -46,6 +46,11 @@ base_path="$tmp:$(dirname -- "$node_bin"):$PATH"
 # appends the address of a private bus.
 base_env=(env -i PATH="$base_path" HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.config" GIT_CONFIG_NOSYSTEM=1 GIT_CEILING_DIRECTORIES="$tmp" VGS_TEST_RUN=1 TMPDIR="$tmp" XDG_RUNTIME_DIR="$rt_empty" TMUX_TMPDIR="$tmp/tmux" DBUS_SYSTEM_BUS_ADDRESS="unix:path=$tmp/no-system-bus")
 
+# confirm_prompt QUESTION [YES NO]: the prompt bin/lib/tui.sh's
+# vgs_tui_confirm hands gum confirm for QUESTION with no theme colour: the
+# question, a blank line and the key help line under it.
+confirm_prompt() { printf '%s\n\n\033[22m\033[39m←→ toggle • enter submit • y %s • n %s\033[0m' "$1" "${2:-Yes}" "${3:-No}"; }
+
 failures=0
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }

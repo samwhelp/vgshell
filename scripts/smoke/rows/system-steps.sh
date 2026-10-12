@@ -56,6 +56,9 @@ system_hidraw="$devices_dev_root/hidraw0"
 system_rule="$system_root/etc/udev/rules.d/60-vgs-apple-displays.rules"
 system_calls="$sandbox/system-sudo.calls"
 system_question="Run these commands as root?"
+# vgs_tui_confirm's prompt (bin/lib/tui.sh): the question, a blank line and
+# the key help line in the terminal's own text colour, with no theme.
+system_prompt="$system_question"$'\n\n\e[22m\e[39m←→ toggle • enter submit • y Yes • n No\e[0m'
 expect "the sandbox copy's system steps resolve in the fakes' tree" prefixed devices_system_tree
 system_hidraw_mode="$(stat -c %a -- "$system_hidraw")" || { fail "system steps: the HID fake planted no hidraw0"; return 0; }
 chmod 0000 "$system_hidraw"
@@ -66,7 +69,7 @@ for unit in bluetooth.service tailscaled.service greetd.service; do
   device_reply systemctl 3 "" is-active --quiet "$unit"
   device_reply systemctl 0 not-found show --property=LoadState --value "$unit"
 done
-device_reply gum 0 "" confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" -- "$system_question"
+device_reply gum 0 "" confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" -- "$system_prompt"
 device_reply udevadm 0 "" control --reload
 device_reply udevadm 0 "" trigger --subsystem-match=hidraw --action=change --settle
 sentinel_of() { if grep -q -F -- "$auth_log" "$1"; then echo sentinel; else echo replaced; fi; }
@@ -111,13 +114,11 @@ printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>%q\ncase "$1" in -k|-n) exit 0 ;; esac
 expect "the tree's sudo is the row's stand-in" replaced sentinel_of "$system_bin/sudo"
 printf '#!/bin/sh\nif [ "$1" = trigger ] && [ -e %q ]; then chmod 0600 %q; fi\nexec %q "$@"\n' \
   "$system_rule" "$system_hidraw" "$(sentinel_saved "$shim/udevadm")" | sentinel_stand_over "$shim/udevadm"
-# The command's last line as the terminal shows it: the question's key help
-# line is erased after its answer with a cursor move and a line erase.
 system_apply() {
   local status=0
   "${sandbox_env[@]}" "${shell_start_words[@]}" SHELL="$BASH" script -qec "$(printf '%q ' "$repo/bin/vgshell" system apply apple-displays)" /dev/null \
     </dev/null >"$sandbox/system-apply.out" 2>&1 || status=$?
-  sed -e $'s/\e\\[[0-9]*[ABCDJK]//g' "$sandbox/system-apply.out" | tr -d '\r' | tail -n 1
+  tr -d '\r' <"$sandbox/system-apply.out" | tail -n 1
   return "$status"
 }
 expect "the step's command applies it" "ok system=apple-displays state=ready" system_apply
@@ -125,7 +126,8 @@ expect "the stand-in ran the rule's install as root" 1 grep -c -F -- "-- $system
 sentinel_restore "$system_bin/sudo"
 sentinel_restore "$shim/udevadm"
 expect "the tree's sudo is the sentinel again" sentinel sentinel_of "$system_bin/sudo"
-expect "the step asked its one question through the gum stand-in" "[[\"confirm\", \"--prompt.margin\", \"0 0 0 0\", \"--selected.margin\", \"0 2 0 0\", \"--unselected.margin\", \"0 2 0 0\", \"--\", \"$system_question\"]]" system_calls_since gum "$system_gum_before"
+system_gum_argv="$(python3 -c 'import json,sys; print(json.dumps([sys.argv[1:]]))' confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" -- "$system_prompt")"
+expect "the step asked its one question through the gum stand-in" "$system_gum_argv" system_calls_since gum "$system_gum_before"
 expect "the udevadm stand-in reloaded the rules, then triggered hidraw" \
   '[["control", "--reload"], ["trigger", "--subsystem-match=hidraw", "--action=change", "--settle"]]' system_calls_since udevadm "$system_udevadm_before"
 expect "the core reads the step needed until the run ends" "needed hidraw-denied" system_core
@@ -193,7 +195,7 @@ system_capture_command() {
   local status=0
   "${sandbox_env[@]}" "${shell_start_words[@]}" SHELL="$BASH" script -qec "$(printf '%q ' "$repo/bin/vgshell" system "$1" bandwhich-capture)" /dev/null \
     </dev/null >"$sandbox/capture-$1.out" 2>&1 || status=$?
-  sed -e $'s/\e\\[[0-9]*[ABCDJK]//g' "$sandbox/capture-$1.out" | tr -d '\r' | tail -n 1
+  tr -d '\r' <"$sandbox/capture-$1.out" | tail -n 1
   return "$status"
 }
 expect "capture apply grants the fixture binary" "ok system=bandwhich-capture state=ready" system_capture_command apply

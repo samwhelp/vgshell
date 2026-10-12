@@ -156,6 +156,9 @@ esac'
 stub "$stubs" gum 'case "$1" in
   confirm)
     for q; do :; done
+    nl="
+"
+    q=${q%%"$nl"*}
     case "$q" in "Start the update?") f=start ;; Remove*) f=orphans ;; *Reboot*) f=reboot ;; Skip*) f=skip ;; Continue*) f=continue ;; *) f=other ;; esac
     st=0; [ ! -e "$FIX/answer-$f" ] || read -r st <"$FIX/answer-$f"; exit "$st" ;;
   style) while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done; [ "$#" -gt 0 ] && shift; for a; do printf "%s\n" "$a"; done ;;
@@ -363,7 +366,7 @@ pipeline() {
     XDG_STATE_HOME="$state" XDG_RUNTIME_DIR="$rt" CALLS="$calls" FIX="$fix" \
     script -qec "$(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null <"$tmp/terminal-input" {terminal_input}>&- >"$tmp/out" 2>&1 || status=$?
   local filtered=0
-  grep -v -e '^df ' -e '^uname ' -e '^pgrep ' -e '^gum style' -e '^flock ' "$calls" |
+  grep -v -e '^df ' -e '^uname ' -e '^pgrep ' -e '^gum style' -e '^flock ' -e '^$' -e $'^\e\\[22m' "$calls" |
     sed 's/ --prompt.margin 0 0 0 0 --selected.margin 0 2 0 0 --unselected.margin 0 2 0 0//' >"$tmp/seq" || filtered=$?
   # grep -v exits 1 when every call is filtered out, and above 1 when it failed.
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
@@ -783,7 +786,7 @@ log_tui() {
       script -qec "$(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null >"$tmp/out" 2>&1
   status=${PIPESTATUS[1]}
   set -e
-  grep -v -e '^df ' -e '^uname ' -e '^pgrep ' -e '^gum style' -e '^flock ' "$calls" |
+  grep -v -e '^df ' -e '^uname ' -e '^pgrep ' -e '^gum style' -e '^flock ' -e '^$' -e $'^\e\\[22m' "$calls" |
     sed 's/ --prompt.margin 0 0 0 0 --selected.margin 0 2 0 0 --unselected.margin 0 2 0 0//' >"$tmp/seq" || filtered=$?
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
 }

@@ -286,14 +286,13 @@ run() {
   verdict "$name" "$want_exit" "$want_err" "$status"
 }
 # run_tty NAME WANT_EXIT ARGS...: the same on a pseudo-terminal; stdout and
-# stderr together land in $tmp/out, carriage returns, cursor moves and line
-# erases dropped, as the erase of a question's key help line after its answer.
+# stderr together land in $tmp/out, carriage returns dropped.
 tty_env=()
 run_tty() {
   local name="$1" want_exit="$2" status=0
   shift 2
   "${row_env[@]}" SHELL="$BASH" "${tty_env[@]}" "$script_bin" -qec "$(printf '%q ' "$vgs/bin/vgshell" system "$@")" /dev/null </dev/null >"$tmp/raw" 2>&1 || status=$?
-  sed -e $'s/\e\\[[0-9]*[ABCDJK]//g' "$tmp/raw" | tr -d '\r' >"$tmp/out"
+  tr -d '\r' <"$tmp/raw" >"$tmp/out"
   if [[ $status == "$want_exit" ]]; then ok "$name"; else fail "$name: exit=$status want=$want_exit output=[$(cat "$tmp/out")]"; fi
 }
 tree_snapshot() { find "$root" "$tmp/units" -printf '%P %y %s %m %T@\n' | sort; }
@@ -431,7 +430,7 @@ fresh
 run_tty "apply apple-displays succeeds" 0 apply apple-displays
 hash="$(sha256sum <"$rule_src")"; hash="${hash%% *}"
 check "apply shows the rule's install before asking" out_has "  sudo $(p install) -m 0644 -o root -g root -T -- $rule_src $rule"
-check "apply asks one question" test "$(cat "$tmp/gum.log")" == "$(printf '%s\n' confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" -- "Run these commands as root?")"
+check "apply asks one question" test "$(cat "$tmp/gum.log")" == "$(printf '%s\n' confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" -- "$(confirm_prompt "Run these commands as root?")")"
 check "apple-displays runs its commands in one sudo session" test "$(sudo_calls)" == "$(session \
   "-- $(p install) -d -m 0755 -o root -g root -- $records" \
   "-- $(p tee) -- $records/.apple-displays" \
