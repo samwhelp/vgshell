@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
-"""Read the destination while the real smoke writer still stages its source.
+"""Read the destination while the real smoke writer stages its source.
 
-The FIFO holds the writer after its first byte. The same check must fail when
-the writer redirects into the watched file. Row checks establish source wiring
-only.
+The FIFO holds the writer after its first byte. The checks fail when the
+writer skips staging, skips rename publishing, drops stdin, loses the old mode
+or publishes output from a failed command.
 """
 import errno
 import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import tempfile
 import time
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
-WRITER = REPO / "scripts/smoke/user-config.sh"
+WRITER = Path(os.environ.get("VGS_SMOKE_USER_CONFIG_WRITER", REPO / "scripts/smoke/user-config.sh"))
 BASH = shutil.which("bash")
 ENV = {"PATH": os.defpath, "LANG": "C"}
 BEFORE = b'{"version":2,"plugins":[]}\n'
 AFTER = b'{"version":2,"plugins":[{"id":"acme.tick"}]}\n'
+SCRATCH_PARENT = REPO / "tmp/test-smoke-user-config"
 
 
 def restore(writer, home, backup):
@@ -31,15 +33,40 @@ def restore(writer, home, backup):
     )
 
 
-def concurrent_read(writer, scratch):
+def stdin_write(writer, home, source):
+    return subprocess.Popen(
+        [BASH, "-c", 'set -euo pipefail; source "$1"; home="$2"; user_config_write cat <"$3"',
+         "stdin-write", str(writer), str(home), str(source)],
+        env=ENV, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+
+
+def failed_write(writer, home):
+    return subprocess.Popen(
+        [BASH, "-c",
+         'set -uo pipefail; source "$1"; home="$2"; shift 2; user_config_write "$@" || exit $?',
+         "failed-write", str(writer), str(home), "python3", "-c",
+         'import sys; sys.stdout.write("{\\"half"); raise SystemExit(1)'],
+        env=ENV, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+
+
+def scratch_dir():
+    SCRATCH_PARENT.mkdir(parents=True, exist_ok=True)
+    return tempfile.TemporaryDirectory(dir=SCRATCH_PARENT)
+
+
+def concurrent_read(writer, scratch, start):
     home = scratch / "home"
     config = home / ".config/vgshell"
     config.mkdir(parents=True)
     destination = config / "shell.json"
     destination.write_bytes(BEFORE)
+    os.chmod(destination, 0o644)
+    before_inode = destination.stat().st_ino
     fifo = scratch / "backup.fifo"
     os.mkfifo(fifo)
-    child = restore(writer, home, fifo)
+    child = start(writer, home, fifo)
     fd = None
     try:
         deadline = time.monotonic() + 5
@@ -53,8 +80,8 @@ def concurrent_read(writer, scratch):
                 assert time.monotonic() < deadline, "restore never opened the backup"
                 time.sleep(0.01)
         os.write(fd, AFTER[:1])
-        # A non-empty staging file or a changed destination proves cp made
-        # progress. The source stays open until after the concurrent read.
+        # A non-empty staging file or a changed destination proves the writer
+        # made progress. The source stays open until after the concurrent read.
         while not (any(p.stat().st_size for p in config.glob(".shell.json.*"))
                    or destination.read_bytes() != BEFORE):
             assert child.poll() is None, "restore stopped before copying the prefix"
@@ -69,6 +96,8 @@ def concurrent_read(writer, scratch):
         out, errors = child.communicate(timeout=5)
         assert child.returncode == 0, (out, errors)
         assert destination.read_bytes() == AFTER, "completed restore lost backup bytes"
+        assert destination.stat().st_ino != before_inode, "completed restore did not publish by rename"
+        assert stat.S_IMODE(destination.stat().st_mode) == 0o644, "completed restore lost the old mode"
         assert not list(config.glob(".shell.json.*")), "completed restore left staging files"
     finally:
         if fd is not None:
@@ -79,12 +108,16 @@ def concurrent_read(writer, scratch):
 
 
 class RestoreTests(unittest.TestCase):
-    def test_concurrent_read_keeps_complete_document(self):
-        with tempfile.TemporaryDirectory() as scratch:
-            concurrent_read(WRITER, Path(scratch))
+    def test_restore_keeps_complete_document(self):
+        with scratch_dir() as scratch:
+            concurrent_read(WRITER, Path(scratch), restore)
+
+    def test_stdin_write_keeps_complete_document(self):
+        with scratch_dir() as scratch:
+            concurrent_read(WRITER, Path(scratch), stdin_write)
 
     def test_direct_copy_control_fails_same_contract(self):
-        with tempfile.TemporaryDirectory() as scratch:
+        with scratch_dir() as scratch:
             scratch = Path(scratch)
             text = WRITER.read_text()
             old = '"$@" >"$staged" || return'
@@ -94,16 +127,16 @@ class RestoreTests(unittest.TestCase):
             mutant = scratch / "direct-copy.sh"
             mutant.write_text(changed)
             with self.assertRaises(json.JSONDecodeError):
-                concurrent_read(mutant, scratch)
+                concurrent_read(mutant, scratch, restore)
 
-    def test_missing_backup_keeps_document_and_removes_staging(self):
-        with tempfile.TemporaryDirectory() as scratch:
+    def test_failed_command_keeps_document_and_removes_staging(self):
+        with scratch_dir() as scratch:
             home = Path(scratch) / "home"
             config = home / ".config/vgshell"
             config.mkdir(parents=True)
             destination = config / "shell.json"
             destination.write_bytes(BEFORE)
-            child = restore(WRITER, home, Path(scratch) / "missing-backup")
+            child = failed_write(WRITER, home)
             child.communicate(timeout=5)
             self.assertNotEqual(child.returncode, 0)
             self.assertEqual(destination.read_bytes(), BEFORE)
