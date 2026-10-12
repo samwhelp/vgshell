@@ -63,8 +63,9 @@
 # only when named; voice is Voice's
 # on-screen display while dictating, its plasma orb fed by stand-ins for
 # voxtype's status stream and audio bridge, so no audio device opens, taken
-# only when named; voice-setup is the requirement notice Voice's Set up
-# raises without voxtype and Voice's Settings page then, the screen after a
+# only when named; voice-setup is the requirement notice Voice's
+# Requirements install (Set up on an older tree) raises without voxtype
+# and Voice's Settings page then, the screen after a
 # Set up run over a voxtype stand-in ended with code 0, with Voice's
 # core toast or its notification card where the tree sends one, and
 # Voice's Settings page once the
@@ -1023,6 +1024,11 @@ print(0 if most <= 0 or travel <= 0 else round((max(0, min(want, most)) - a["con
 # Whether every status row of plugin ID's page is reported.
 page_reported() { # ID
   ipc smoke readInstance "$settings_kind" vgs.settings plugins | python3 -c 'import json,sys; r=[p for p in json.load(sys.stdin) if p["id"] == sys.argv[1]]; print(len(r) == 1 and len(r[0]["status"]) > 0 and all(s["report"] == "reported" for s in r[0]["status"]))' "$1"
+}
+# The number of status rows the Settings window holds for plugin ID, or
+# `absent`: a status entry whose value is unreported still holds its row.
+page_status_rows() { # ID
+  ipc smoke readInstance "$settings_kind" vgs.settings plugins | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin) if p["id"] == sys.argv[1]]; print(len(r[0]["status"]) if len(r) == 1 else "absent")' "$1"
 }
 # `ready` once the Jarvis service's first child has answered hello, as the
 # probe reads it (jarvisProcess in scripts/smoke/Probe.qml); a restart
@@ -2478,6 +2484,9 @@ scene_traffic() { # MODE
     box="$(ipc smoke instanceGeometry panel vgs.traffic)" || box=absent
     record_item "traffic-$1-panel-$state" "$box"
     expect "Traffic's panel hides" ok ipc shell hide panel vgs.traffic
+    # The hide answers before the popup is gone; a click on the widget
+    # then does not open it, so the next state's click waits.
+    expect_poll "Traffic's panel is gone" absent ipc smoke readInstance panel vgs.traffic visible
   done
   cp -- "$checkout/scripts/smoke/fixtures/traffic/allow.sh" "$shim/bandwhich"
   tree_rescan "Traffic's optional tool stand-in is scanned for Settings"
@@ -3968,16 +3977,22 @@ EOF
 # no Set up screen of its own: its setup entry's step raises the notice
 # without voxtype and opens the core's dictation setup with it, over the
 # smoke's voxtype stand-in, and its page reads Ready once that stand-in
-# reports the model. A
+# reports the model. A tree whose Voice hides its setup state without
+# voxtype offers no step then: the Requirements section's Install all
+# missing raises the notice, and the page draws no chip. A
 # tree whose Voice puts its setup state in the Setup group is shot once
 # the section draws its chip. Enablement, stand-ins and the package script
 # are put back, and the Settings window is hidden again.
 scene_voice-setup() { # MODE
-  local voice_found settings_found notes_found=True silence_found=false pkg_real="$sandbox/voice-setup-vgshell-pkg.real" systemctl_saved="$sandbox/voice-setup-systemctl.saved" stood=() command before notifies=false missing_chip="Requirements missing"
+  local voice_found settings_found notes_found=True silence_found=false pkg_real="$sandbox/voice-setup-vgshell-pkg.real" systemctl_saved="$sandbox/voice-setup-systemctl.saved" stood=() command before notifies=false missing_chip="Requirements missing" missing_press=voice_setup_press
   voice_setup_key=vgs.voice/setup
   if voice_dictates; then
     voice_setup_key=core/dictation-setup
     missing_chip="Setup needed"
+  fi
+  if tree_has shell/plugins/vgs.voice/VoiceLogic.js "hidden: true"; then
+    missing_chip=none
+    missing_press=voice_install_press
   fi
   voice_found="$(plugin_enabled vgs.voice)" || voice_found=unread
   settings_found="$(plugin_enabled vgs.settings)" || settings_found=unread
@@ -4033,8 +4048,8 @@ EOF_PKG
   expect_poll "vgs.voice is built without voxtype" True record_exists vgs.voice
   expect "no notice shows before Set up" null notice_shown
 
-  voice_setup_press "the Voice setup dialog"
-  expect_poll "Set up without voxtype raises Voice's notice" '"vgs.voice"' notice_plugin
+  "$missing_press" "the Voice setup dialog"
+  expect_poll "voxtype's install raises Voice's notice" '"vgs.voice"' notice_plugin
   expect_poll "Voice's notice maps its surface" 1 layer_count vgs:notice
   expect_poll "Voice's notice holds the keyboard" true ipc smoke noticeFocused
   park_pointer
@@ -4167,6 +4182,15 @@ voice_setup_press() { # LABEL
   fi
   settings_close
 }
+# voice_install_press LABEL: Install all missing pressed for Voice on the
+# Settings window, through the manager's installRequirements as the
+# Requirements section's button hands it on, then the window hidden.
+voice_install_press() { # LABEL
+  expect "$1: the Settings window opens" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "$1: the Settings window maps" 1 settings_count
+  expect "$1: Install all missing is answered" ok ipc smoke invokeInstance "$settings_kind" vgs.settings installRequirements vgs.voice
+  settings_close
+}
 # voice_setup_page LABEL SHOT CHIP: the Settings window opened on Voice's
 # page, scrolled so its whole Setup section, the button row included, is in
 # view once every status row is reported, shot as SHOT with the pointer
@@ -4177,7 +4201,13 @@ voice_setup_page() { # LABEL SHOT CHIP
   expect "$1: the Settings window opens on Voice's page" ok ipc shell summon "$settings_kind" vgs.settings '{"plugin":"vgs.voice"}'
   expect_poll "$1: the Settings window maps" 1 settings_count
   expect_poll "$1: Voice's page is shown" '"vgs.voice"' settings_page
-  expect_poll "$1: Voice's status is reported" True page_reported vgs.voice
+  if [[ $3 == none ]]; then
+    # The published hidden setup state is the one entry Voice's page
+    # draws, so the page draws no status row once it lands.
+    expect_poll "$1: Voice's hidden setup state is reported" 0 page_status_rows vgs.voice
+  else
+    expect_poll "$1: Voice's status is reported" True page_reported vgs.voice
+  fi
   page_setup
   if grep -qF '"group": "Setup"' "$tree/shell/plugins/vgs.voice/manifest.json"; then
     expect_poll "$1: the Setup section's chip reads $3" "$3" voice_setup_chip
