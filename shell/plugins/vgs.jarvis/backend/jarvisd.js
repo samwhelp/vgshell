@@ -636,7 +636,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                             interrupted: (gen, ask) => voice.interrupted(gen, ask), released: (gen, ask) => voice.released(gen, ask),
                             withheld: (gen, text, ask) => voice.withheld(gen, text, ask) },
                         trace: { marker: process.env.VGS_TEST_RUN, file: process.env.VGS_JARVIS_TRACE },
-                        directories: context.directories, home: () => homeFolder.state });
+                        directories: context.directories, home: () => homeFolder.state, rejudge: judgeSetup });
                     const actionApproval = runner.ports.approval;
                     runner.ports.approval = {
                         show: e => { if (e.purpose === "action") actionApproval.show(e); },

@@ -289,7 +289,7 @@ async function inside() {
     await homeStatus(daemon);
     await control("home-layout", "            Home.layout(folder);\n", "", homeStatus);
     await control("home-refusal", 'return { path: folder, state: { kind: "refused", cause } };', 'return { path: folder, state: { kind: "none" } };', homeStatus);
-    await control("home-engine", "directories: context.directories, home: () => homeFolder.state });", "directories: context.directories });", homeStatus);
+    await control("home-engine", "directories: context.directories, home: () => homeFolder.state, rejudge: judgeSetup });", "directories: context.directories, rejudge: judgeSetup });", homeStatus);
     await control("home-each-hello", "                judgeSetup();\n", "                if (first) judgeSetup(); else configured(engine.configure(context.settings));\n", homeStatus);
     await control("home-rejudged", " && engine.homeHeld()) judgeSetup();", " && engine.homeHeld()) void judgeSetup;", homeStatus);
     await control("home-rejudged-held", ' && engine.homeHeld()) judgeSetup();', ') judgeSetup();', homeStatus);
@@ -1165,6 +1165,54 @@ async function inside() {
         "a dropped producer must turn the bubble fixture's words red");
         controls++;
         console.log("test-jarvis-daemon: control=bubble-chained-caption killed");
+    }
+    // A home judged ready over kendex's render holds no skills/base. The user
+    // removes the render while the service runs, and no hello follows: the
+    // first request after it gets the scripted reply, the home is judged
+    // once, and skills/base holds the shipped package again.
+    const renderGates = path.join(root, "render-gates");
+    const renderHome = path.join(fs.realpathSync(process.env.HOME), "home-render");
+    const shipped = path.join(tree, ".agents/skills/jarvis");
+    const tracked = folder => fs.readdirSync(folder, { recursive: true }).sort()
+        .map(name => [name, fs.statSync(path.join(folder, name)).isFile() ? fs.readFileSync(path.join(folder, name), "utf8") : null]);
+    const renderRemoved = file => conversation(file, async w => {
+        fs.rmSync(renderHome, { recursive: true, force: true });
+        fs.cpSync(shipped, path.join(renderHome, ".agents/skills/jarvis"), { recursive: true });
+        w.raw({ ...hello, settings: { ...hello.settings, home: "~/home-render" } });
+        await w.wait(m => m.state.settings.home === "~/home-render" && m.state.gate.kind === "up");
+        assert.equal(fs.existsSync(path.join(renderHome, "skills/base")), false, "the hello reads the render, not VGS's copy");
+        const judged = w.messages.filter(m => m.type === "status").length;
+        fs.rmSync(path.join(renderHome, ".agents"), { recursive: true });
+        w.send("talk-down");
+        await w.wait(m => m.phase === "listening");
+        w.send("talk-up");
+        await w.wait(m => m.phase === "thinking" || m.state.fault.kind !== "none");
+        fs.writeFileSync(path.join(renderGates, "reply"), "");
+        const ended = await w.wait(m => m.state.fault.kind !== "none" || m.phase === "speaking" && m.state.turn.kind === "none");
+        assert.deepEqual(ended.state.fault, { kind: "none" }, "the first request after the removal gets an answer");
+        assert.ok(w.messages.some(m => m.type === "transcript" && m.role === "assistant" && m.stage === "final"
+            && m.text.endsWith(scriptedReply)), "the answer is the brain's reply");
+        assert.equal(w.messages.filter(m => m.type === "status").length, judged + 1, "the request judges the home once");
+        assert.deepEqual(tracked(path.join(renderHome, "skills/base")), [["jarvis", null], ...tracked(shipped).map(([name, text]) => ["jarvis/" + name, text])],
+            "skills/base holds the shipped package");
+        w.send("stop");
+        await w.wait(m => m.state.conversation.kind === "ended" && m.state.brain.kind === "closed");
+    });
+    for (const [name, needle, replacement] of [["render-removed", null, null],
+        ["render-removed-unjudged", "        rejudge();\n", ""]]) {
+        fs.rmSync(renderGates, { recursive: true, force: true });
+        const file = daemonCopy(name);
+        instrument(file, renderGates);
+        const engineFile = path.join(path.dirname(file), "ChainedEngine.js");
+        chainedEngine(engineFile);
+        if (needle === null) { await renderRemoved(file); continue; }
+        const engineSource = fs.readFileSync(engineFile, "utf8");
+        assert.equal(engineSource.split(needle).length - 1, 1, name + " mutation match");
+        fs.writeFileSync(engineFile, engineSource.replace(needle, replacement));
+        await assert.rejects(() => renderRemoved(file), error => error instanceof assert.AssertionError
+            && error.message.startsWith("the first request after the removal gets an answer"), name + " must turn red");
+        controls++;
+        console.log("test-jarvis-daemon: control=" + name + " killed");
     }
 
     // The shipped executor seam inside the real daemon. A disposable copy

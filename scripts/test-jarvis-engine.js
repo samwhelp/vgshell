@@ -2633,7 +2633,7 @@ world(async () => {
         }
         await cases(Fixture.copy(root), server);
         for (const [name, needle, replacement] of [
-            ["home-text-stale", "c.guidance = folder === null ? c.plan.brain.guidance : c.plan.brain.guidance.withHome(folder);", "c.guidance = c.plan.brain.guidance;"],
+            ["home-text-stale", "try { return c.plan.brain.guidance.withHome(folder); }", "try { return c.plan.brain.guidance; }"],
             ["home-text-cut", '            done("brain-failed", { reason: keyed(error) });\n            return false;\n', "            c.guidance = c.plan.brain.guidance;\n"]
         ]) {
             await assert.rejects(() => cases(Fixture.copy(root, [[needle, replacement]]), server, "home-text"), assert.AssertionError,

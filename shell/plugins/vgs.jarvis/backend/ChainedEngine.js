@@ -290,10 +290,11 @@ function selectBrain(settings, accounts) {
  * prompt, value) answers one, and interrupted(gen, ask), released(gen, ask)
  * and withheld(gen, text, ask) report back to TaskVoice. home answers the
  * daemon's judgement of the user's home folder: {kind: "none"}, {kind:
- * "ready", path} or {kind: "refused", cause}. trace is {marker, file}, the
- * daemon's test-run marker and trace path, which tracer judges.
+ * "ready", path} or {kind: "refused", cause}; rejudge has the daemon judge
+ * the folder and the setup again. trace is {marker, file}, the daemon's
+ * test-run marker and trace path, which tracer judges.
  */
-function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, tasks = null, directories, dispatch, clock, configured = () => {}, log = () => {}, home = () => ({ kind: "none" }), trace = {} }) {
+function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, tasks = null, directories, dispatch, clock, configured = () => {}, log = () => {}, home = () => ({ kind: "none" }), rejudge, trace = {} }) {
     if (!Number.isSafeInteger(captionLimit) || captionLimit < 1) fail("caption-limit");
     const brainText = tracer(trace);
     let plan = unconfigured("engine=starting");
@@ -839,9 +840,23 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         turn.done(reason === "brain=context-limit" ? "brain-ended" : "brain-failed", { reason });
     }
 
-    function openBrain(c, owner, done) {
+    // The brain's guidance with the home text as it reads now. No hello
+    // follows an edit inside the folder, so an entry the layout makes can be
+    // gone from a home judged ready, skills/base after kendex's render is
+    // removed among them: that miss judges the home once and reads it again.
+    function guidanceNow(c) {
         const folder = homePath();
-        try { c.guidance = folder === null ? c.plan.brain.guidance : c.plan.brain.guidance.withHome(folder); }
+        if (folder === null) return c.plan.brain.guidance;
+        try { return c.plan.brain.guidance.withHome(folder); }
+        catch (error) { if (error.message !== "jarvis: home=absent") throw error; }
+        rejudge();
+        const judged = home();
+        if (judged.kind !== "ready") throw new Error("jarvis: " + (judged.kind === "refused" ? judged.cause : "home=absent"));
+        return c.plan.brain.guidance.withHome(judged.path);
+    }
+
+    function openBrain(c, owner, done) {
+        try { c.guidance = guidanceNow(c); }
         catch (error) {
             if (homeCause(error) === null) throw error;
             done("brain-failed", { reason: keyed(error) });
