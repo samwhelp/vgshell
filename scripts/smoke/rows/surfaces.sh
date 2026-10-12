@@ -586,8 +586,12 @@ expect "a press inside the panel and one on its own menu leave the panel open" 1
 expect "the press on the panel's own menu leaves the menu open" 1 ipc smoke readInstance menu acme.surfaces opened
 # Control: a press on the far monitor, where the marker press landed while
 # the first monitor stood right of the far one, closes the menu, and the
-# press marker the check above reads is absent.
-far_click() { local x y w h; read -r x y w h < <(far_box) || return 1; layout_click "$((x + w / 2))" "$((y + h / 2))" && echo ok; }
+# press marker the check above reads is absent. It presses a quarter in,
+# not the centre far_press presses next: the grab's end moves the keyboard
+# to the panel and leaves the pointer focus where it was (Hyprland v0.56.2
+# CSeatManager::setGrab), and Hyprland finds the surface under the pointer
+# again only when it moves (CInputManager::mouseMoveUnified).
+far_click() { local x y w h; read -r x y w h < <(far_box) || return 1; layout_click "$((x + w / 4))" "$((y + h / 2))" && echo ok; }
 expect "control: the press on the far monitor beside the panel's own menu is sent" ok far_click
 expect_poll "control: a press on the far monitor leaves no press marker on the panel's own menu" absent menu_marks
 expect "a press on the far monitor closes the panel" closed far_press vgs:panel
