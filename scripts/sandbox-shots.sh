@@ -1072,9 +1072,10 @@ slack_section() {
 }
 # The setup steps of D061 on the open Settings window: Globex's Add key with
 # its masked field typed into, the status fixture's Set up token and Install
-# the tool, Automations' Enable while logged out, Agent Warden's Set up, Dev
-# Tools' Install mise, and Themes' Install browser theming once the chromium
-# target ships.
+# the tool, Automations' Enable while logged out, Agent Warden's Set up, and
+# Themes' Install browser theming once the chromium target ships. A tool a
+# plugin requires installs from Requirements, which setup-tab's and
+# traffic's requirements shots show.
 # step_offered ID KEY: whether plugin ID's Settings page offers the step of
 # its status entry KEY.
 step_offered() { status_row "$1" "$2" | py_reply 'import json,sys; r=json.load(sys.stdin); print(str(bool(r["action"] and r["action"]["offered"])).lower())'; }
@@ -1138,7 +1139,6 @@ scene_setup_steps() { # MODE
     rm -f -- "${shim:?}/vsys"
     tree_rescan "a rescan after the stand-in vsys goes starts"
   fi
-  step_shot "$1" vgs.devtools mise "Install mise" devtools-install-mise
   step_shot "$1" vgs.themes browserTheming "Install browser theming" browser-theming
 }
 # The Settings window: the list opened from the gear, the pointer on the
@@ -2766,9 +2766,10 @@ jarvis_anchor_shot() {
     fail "the Jarvis page's $3 is unreadable: $top"
   fi
 }
-# Whether the Setup section draws its rows: four chips and the Accounts
-# button.
-jarvis_setup_drawn() { ipc smoke setupSection "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); s=json.loads(t) if t.startswith("{") else None; print(s is not None and len(s["chips"]) >= 4 and any(b[0] == "Accounts" for b in s["buttons"]))'; }
+# Whether the Setup tab draws its steps: four rows with their chips, the
+# Input step among them, where the clone-voice shots anchor. The Accounts
+# action draws in the AI model section, which setupRows does not read.
+jarvis_setup_drawn() { ipc smoke setupRows "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); r=json.loads(t) if t.startswith("[") else []; print(sum(1 for x in r if x["chips"]) >= 4 and any(x["label"] == "Input" for x in r))'; }
 jarvis_ships_backups() { grep -q '"fallbacks"' "$repo/shell/plugins/vgs.jarvis/manifest.json"; }
 jarvis_backups_drawn() { ipc smoke invokeInstance "$settings_kind" vgs.settings listItems '{"id":"vgs.jarvis","key":"fallbacks"}' | py_reply 'import json,sys; t=sys.stdin.read(); print(t!="absent" and len(json.loads(t)) == 2)'; }
 jarvis_brain_choice_ids() {
@@ -2920,7 +2921,7 @@ os.replace(path + ".next", path)
 print(answer["choices"][0]["label"])
 PY
 }
-jarvis_voice_page() { # LABEL [DRAWN]
+jarvis_voice_page() { # LABEL
   expect "enabling vgs.jarvis $1 is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
   expect_poll "the Jarvis daemon answers hello $1" ready jarvis_started
   for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
@@ -2930,7 +2931,7 @@ jarvis_voice_page() { # LABEL [DRAWN]
   expect "the window opens the Jarvis page $1" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
   expect_poll "the Jarvis page is shown $1" '"vgs.jarvis"' settings_page
   page_setup
-  expect_poll "the Jarvis Setup section draws its rows $1" True "${2:-jarvis_setup_drawn}"
+  expect_poll "the Jarvis Setup section draws its rows $1" True jarvis_setup_drawn
 }
 jarvis_voice_states() { # MODE
   local state="$home/.local/state/vgshell/jarvis" data="$home/.local/share/vgshell/jarvis" world="$sandbox/jarvis-world"
@@ -3011,9 +3012,6 @@ print(tier)' "$repo/shell/plugins/vgs.jarvis/artifacts.json" "$data/local" "$sta
 # run over the harness's stand-in terminal, held live (hold_runs) while
 # the reader's next answer is written, so the run's end reads it.
 clone_ships() { tree_has shell/plugins/vgs.jarvis/manifest.json '"clonedVoiceSetup"'; }
-# Whether the Setup tab draws its Input step, where each Setup tab shot is
-# anchored.
-clone_setup_drawn() { ipc smoke setupRows "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); print(t.startswith("[") and any(r["label"] == "Input" for r in json.loads(t)))'; }
 # clone_answer TONE TEXT ACTION RECORDING: setup-local clone status's
 # answer, beside a ready Large tier.
 clone_answer() {
@@ -3259,7 +3257,7 @@ clone_page_show() { # LABEL
   expect "the window opens the Jarvis page $1" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
   expect_poll "the Jarvis page is shown $1" '"vgs.jarvis"' settings_page
   page_setup
-  expect_poll "the Jarvis Setup tab draws its Input step $1" True clone_setup_drawn
+  expect_poll "the Jarvis Setup tab draws its steps $1" True jarvis_setup_drawn
 }
 clone_settings_tab() { # LABEL
   settings_tab_click Settings || fail "the click on the Settings tab failed $1"
@@ -3476,7 +3474,7 @@ open(os.path.join(sys.argv[2],"scenario.json"),"w").write(json.dumps({"start": "
   tree_rescan "the clone voice stand-ins are scanned"
   ! clone_ships || voice_setup_launcher_ready
   ! clone_ships || clone_setting false
-  jarvis_voice_page "beside a ready Large local voice" clone_setup_drawn
+  jarvis_voice_page "beside a ready Large local voice"
   if ! clone_ships; then
     # A tree from before the Cloned voice: its Local voice section and
     # Setup tab at the same places.
@@ -3484,7 +3482,7 @@ open(os.path.join(sys.argv[2],"scenario.json"),"w").write(json.dumps({"start": "
     expect_poll "the Local voice field reads the Large pick" false jarvis_tier_list_open "$auto"
     clone_anchor_shot "clone-voice-$mode-before-settings" SectionHeader "Local voice"
     page_setup
-    expect_poll "the Jarvis Setup tab draws its Input step before the Cloned voice" True clone_setup_drawn
+    expect_poll "the Jarvis Setup tab draws its steps before the Cloned voice" True jarvis_setup_drawn
     clone_anchor_shot "clone-voice-$mode-before-setup" Field Input
   else
     { read -r step && read -r setup_label && read -r remove_label; } < <(python3 -c 'import json,sys
