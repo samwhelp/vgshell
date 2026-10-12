@@ -1018,6 +1018,22 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
   }
   # The view's middle, where the wheel turns.
   zone_middle() { read -r zone_wx zone_wy < <(zone_pick "'%d %d' % (d['right']['view'][0]+d['right']['view'][1]/2, $zone_bar_y)"); }
+  # zone_overflow LABEL: wait until the planted right section runs under
+  # the clock, the overflow every clipped-zone check at 1600 reads, for up
+  # to zone_overflow_bound_s. Main batch 20261012T161033Z, on a loaded host,
+  # read the section short of it past smoke_poll_bound_ms after the mount
+  # and after two control restarts, and the zone grew to clip later in
+  # the same run. A short section fails LABEL with each drawn widget's
+  # width and the planted widgets the section does not draw.
+  zone_overflow_bound_s=120
+  zone_overflow() { # LABEL
+    local got="" end=$((SECONDS + zone_overflow_bound_s))
+    while ((SECONDS < end)); do
+      got="$(zone_pick "'ready' if d['right']['spans'] and d['right']['spans'][0][0] < d['centre'][0] - 8 else 'short centre=%s start=%s drawn=%s undrawn=%s' % (d['centre'], d['right']['spans'][0][0] if d['right']['spans'] else None, ','.join('%s:%s' % (i, s[1]) for i, s in zip(d['right']['ids'], d['right']['spans'])), ','.join(i for i in $zone_planted if i not in d['right']['ids']))")" && [[ $got == ready ]] && { ok "$1"; return 0; }
+      sleep 0.5
+    done
+    fail "$1: got $got"
+  }
   zone_width 1600
   # The fit path: three right widgets fit, draw flush and show no button.
   zone_plant 3
@@ -1026,6 +1042,7 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
   geometry expect "zones that fit draw flush with their sections, as before" '[true, true]' zone_pick "json.dumps([d['left']['flush'], d['right']['flush']])"
   zone_plant
   expect_poll "the bar mounts the owner's right section" True zone_mounted
+  geometry zone_overflow "the owner's right section draws its widgets under the clock"
   geometry expect_poll "at rest the clipped right zone shows its end and its < button alone, over nothing" '[true, true, false, []]' zone_ends right
   geometry expect "the left zone fits and shows no button" '[false, false, false, []]' zone_ends left
   geometry expect "at rest the right zone's last widget meets its edge" True zone_pick "d['right']['ends'] == d['right']['ids'][-1:]"
@@ -1104,7 +1121,10 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
     geometry expect_poll "control $1: the right zone shows its < button" True zone_pick "d['right']['start']"
   }
   # The stand-ins draw their widgets a moment after the mount.
-  zone_under_clock() { geometry expect_poll "control $1: the right section runs under the clock" True zone_pick "d['right']['spans'][0][0] < d['centre'][0] - 8"; }
+  zone_under_clock() {
+    geometry zone_overflow "control $1: the owner's right section draws its widgets under the clock"
+    geometry expect_poll "control $1: the right section runs under the clock" True zone_pick "d['right']['spans'][0][0] < d['centre'][0] - 8"
+  }
   if zone_control clip shell/plugins/vgs.bar/Bar.qml '    clip: clipped' '    clip: false'; then
     zone_under_clock clip
     geometry expect_poll "control: a zone that does not clip draws over the centre" True zone_pick "bool(d['right']['over'])"
