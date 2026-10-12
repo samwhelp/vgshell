@@ -135,15 +135,18 @@ const INPUT_READY = { tone: "ok", text: "Keys ready; pointer ready", action: tru
 const LOCAL_ABSENT = { tone: "warning", text: "Not set up", action: true };
 const LOCAL_READY = { tone: "ok", text: "Ready: small", action: false };
 // The Jarvis Setup tab, partial and done, as the service publishes it: no
-// section offers one screen twice, so Set up local voice, Set up browser
-// and Check input each draw beside one row. Add key draws in the AI model
-// and Voice sections, one for each kind of key. [label, the voice the
-// daemon runs, the daemon's causes, the local voice, browser and input
-// readings].
+// section offers one screen twice, and Set up local voice, Set up browser
+// and Check input each draw beside one row of the tab while they apply.
+// Add key draws in the AI model and Voice sections, one for each kind of
+// key. [label, the voice the daemon runs, the daemon's causes, the local
+// voice, browser and input readings, the rows of the tab that offer those
+// three screens].
 const ONCE = [
-    ["partial under Local", "local", ["brain=unselected", "speech=local-not-set-up"], LOCAL_ABSENT, ABSENT, INPUT_ABSENT],
-    ["done under Local", "local", [], LOCAL_READY, READY, INPUT_READY],
-    ["partial under Realtime", "realtime", ["brain=unselected"], LOCAL_ABSENT, ABSENT, INPUT_ABSENT]
+    ["partial under Local", "local", ["brain=unselected", "speech=local-not-set-up"], LOCAL_ABSENT, ABSENT, INPUT_ABSENT,
+        { "setup-local": ["setupVoice"], "setup-browser": ["browser"], "setup-input": ["input"] }],
+    ["done under Local", "local", [], LOCAL_READY, READY, INPUT_READY, { "setup-local": [], "setup-browser": [], "setup-input": ["input"] }],
+    ["partial under Realtime", "realtime", ["brain=unselected"], LOCAL_ABSENT, ABSENT, INPUT_ABSENT,
+        { "setup-local": ["localRuntime"], "setup-browser": ["browser"], "setup-input": ["input"] }]
 ];
 // [label, probe value, requires, missing, null for the probe value itself or
 // the commands the withheld value names].
@@ -1235,7 +1238,7 @@ const CONTROLS = [
     ["memory guidance is a badge", "out.setupVoice = MEMORY[cause];", "out.setupVoice = Object.assign({}, MEMORY[cause], { lines: [MEMORY[cause].hint], hint: undefined });"],
     ["an optional reading keeps its open tone", 'value.tone === "ok" ? value : Object.assign({}, value, { tone: "info" })', "value", "the browser and input read optional"],
     ["Local voice offers setup beside the Voice step", 'Object.assign({}, value, { action: false }) : optionalStep(value)', "value : optionalStep(value)", "partial under Local: each screen once"],
-    ["Local voice is required under a cloud voice", 'return provider === "local" ? Object.assign', "return true ? Object.assign", "partial under Realtime: the browser and input read optional"],
+    ["Local voice is required under a cloud voice", 'return provider === "local" ? Object.assign', "return true ? Object.assign", "partial under Realtime: "],
     ["memory refusal offers reinstall", 'if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {', 'if (false) {'],
     ["loading is initial checking", "out.setupVoice = LOADING;", "out.setupVoice = CHECKING;"],
     ["loading offers setup", 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting") {', 'if (cause === "speech=dictation-starting") {'],
@@ -1323,7 +1326,7 @@ const CONTROLS = [
     ["causes leave the summary ready", 'setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" }', 'setup: true ? { tone: "ok", text: "Ready" }'],
     ["checking reads done", 'return { setup: CHECKING_SUMMARY, setupHome: HOME_READY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };', 'return { setup: CHECKING_SUMMARY, setupHome: HOME_READY, setupVoice: DONE, setupModel: noAction(DONE) };'],
     ["an optional step reads open when ok", 'return value.tone === "ok" ? value :', "return false ? value :", "done under Local: the browser and input read optional"],
-    ["an optional step drops its action", 'Object.assign({}, value, { tone: "info" })', 'Object.assign({}, value, { tone: "info", action: false })', "browser to set up"],
+    ["an optional step drops its action", 'Object.assign({}, value, { tone: "info" })', 'Object.assign({}, value, { tone: "info", action: false })', "partial under Local: the rows that offer"],
     ["the checking summary offers a step", "return { setup: CHECKING_SUMMARY,", "return { setup: CHECKING,"],
     ["a stopped daemon's steps read checking", 'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },\n            setupHome: HOME_READY, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };',
         'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },\n            setupHome: HOME_READY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };'],
@@ -1657,7 +1660,7 @@ function drawnTwice(sections) {
 }
 function verifyScreensOnce(gate) {
     const tuis = judge.listedTuiRows(manifest, []);
-    for (const [label, provider, causes, local, browser, input] of ONCE) {
+    for (const [label, provider, causes, local, browser, input, offering] of ONCE) {
         const values = plain(gate.readiness({ kind: "answered", causes }));
         values.setupVoice = gate.voiceCheck(values.setupVoice, null);
         values.setupModel = gate.modelStep(values.setupModel, [{ value: "absent" }], { kind: "absent" });
@@ -1665,6 +1668,9 @@ function verifyScreensOnce(gate) {
             keyStore: { tone: "ok", text: "1 key stored", action: true }, voiceKey: { tone: "info", text: "No key stored", action: true } }));
         const sections = Array.from(settings.setupSections(tuis, judge.statusRows(manifest, values, [])));
         assert.deepEqual(drawnTwice(sections), [], label + ": each screen once");
+        const rows = settingsRows(sections);
+        assert.deepEqual(Object.fromEntries(Object.keys(offering).map(name => [name, rows.filter(item => item.button !== null && item.button.name === name).map(item => String(item.key))])),
+            offering, label + ": the rows that offer the local voice, browser and input screens");
         const tones = Object.fromEntries(settingsRows(sections).filter(item => ["localRuntime", "browser", "input"].includes(item.key)).map(item => [item.key, item.entry.tone]));
         const open = causes.length > 0;
         assert.deepEqual(tones, { localRuntime: !open ? "success" : provider === "local" ? "warning" : "info", browser: open ? "info" : "success", input: open ? "info" : "success" },

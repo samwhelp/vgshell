@@ -340,12 +340,16 @@ setup_tier_start_control() {
 expect "a start setting read from the binding opens local setup" 1 local_control_count setup_tier_start_control
 cp -- "$sandbox/local-tier-original" "$setup_tier_reader"
 jarvis_rescan
-local_open() { # manager action or listed launcher entry
+# The Voice step offers its setup while the daemon reads local voice to do,
+# so a status open makes local voice ready, by PREPARE, only while its run
+# is held: a daemon answer that lands first cannot withdraw the action.
+local_open() { # status PREPARE | launcher
   local revision snapshot
   revision="$(jarvis_revision)" || return 1
   snapshot="$rt_dir/vgshell-sources-$shell_qs_pid/$revision"
   forget_record
   if [[ $1 == status ]]; then
+    hold_runs
     expect "Settings starts the Voice step's local setup action" ok settings_act vgs.jarvis setupVoice
   else
     expect "the launcher starts its listed local setup" ok ipc shell openTui vgs.jarvis/setup-local
@@ -354,8 +358,13 @@ local_open() { # manager action or listed launcher entry
     "$(words --app-id=org.vgs.tui "--title=VGS · Set up Jarvis local voice" -- "$tui_self" present --presentation full \
       --plugin vgs.jarvis --dir "$snapshot" --record vgs.jarvis/setup-local --run RUN --record-dir "$rt_dir/vgshell/tui" \
       --app-id org.vgs.tui --window-title "VGS · Set up Jarvis local voice" -- tui/setup-local.sh)" recorded
+  if [[ $1 == status ]]; then
+    "$2" || fail "local voice is not made ready during its held setup run"
+    release_runs
+  fi
   expect_run_end "the fixture local setup terminal ends" vgs.jarvis/setup-local
 }
+local_ready() { setup_write_marker && printf 'ready\n' >"$sandbox/jarvis-world/local-mode"; }
 expect_poll "Local voice reads not set up and leaves its setup to the Voice step" matched local_value absent
 ipc shell listTuis | py_reply '
 import json,sys
@@ -407,9 +416,8 @@ jarvis_rescan
 expect_poll "the restored service reads only local voice left" "$setup_voice_left" setup_rows
 expect_poll "the restored local voice reader is idle" idle jarvis_setup_reader_idle LocalRuntime
 
-setup_write_marker || fail "local setup's marker is not written"
-printf 'ready\n' >"$sandbox/jarvis-world/local-mode"
-local_open status
+setup_readers_idle "before the Voice step's local setup"
+local_open status local_ready
 expect_poll "the service rereads readiness after the Settings action ends" matched local_value ready
 expect_poll "the ended local setup reaches the daemon: the Setup section reads ready" "$setup_ready" setup_rows
 expect_poll "a ready Setup tab offers each setup screen once, the browser and input as optional steps" '[[], true, true]' setup_once
@@ -790,14 +798,15 @@ rescan "a rescan after the Pi stand-in goes starts"
 expect_poll "without Pi the Setup section reads both steps to do again" "$setup_fresh" setup_rows
 # The check uses the daemon's selected synthetic source and local wake
 # sidecar. No brain is selected and no utterance is sent.
-setup_write_marker || fail "the voice-check marker is not written"
-python3 - "$setup_data/local/scenario.json" <<'PYSCENARIO'
+setup_check_ready() {
+  local_ready && python3 - "$setup_data/local/scenario.json" <<'PYSCENARIO'
 import json,sys
 open(sys.argv[1],"w").write(json.dumps({"start":"ready", "checks":[{"afterFrames":1},{},{}]}))
 PYSCENARIO
+}
 setup_brain ""
-printf 'ready\n' >"$sandbox/jarvis-world/local-mode"
-local_open status
+setup_readers_idle "before the voice check's local setup"
+local_open status setup_check_ready
 jarvis_disable
 jarvis_enable
 setup_check_state() {
