@@ -226,6 +226,24 @@ def rewrite_config(text, executable):
     return result
 
 
+def open_folder(part, parent, configured):
+    def refuse(reason):
+        return PickerError("Your Hyprland config folder is not a folder VGS can write: "
+                           + configured + " (" + reason + ")")
+    try:
+        if not stat.S_ISLNK(os.stat(part, dir_fd=parent, follow_symlinks=False).st_mode):
+            return os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+        # Hyprland reads its config through a linked folder, as a dotfiles tree
+        # links it. The owner check reads the opened folder, so no swap can pass.
+        child = os.open(part, os.O_RDONLY | os.O_DIRECTORY, dir_fd=parent)
+    except (NotADirectoryError, PermissionError) as error:
+        raise refuse(error.strerror) from error
+    if os.fstat(child).st_uid != os.geteuid():
+        os.close(child)
+        raise refuse("a link to a folder another user owns")
+    return child
+
+
 def config_directory(create=True):
     home = os.environ.get("XDG_CONFIG_HOME")
     if not home:
@@ -245,7 +263,7 @@ def config_directory(create=True):
                     os.mkdir(part, mode=0o700, dir_fd=descriptor)
                 except FileExistsError:
                     pass
-            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
+            child = open_folder(part, descriptor, str(directory))
             os.close(descriptor)
             descriptor = child
         return descriptor

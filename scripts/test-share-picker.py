@@ -581,12 +581,50 @@ class PickerTests(unittest.TestCase):
         self.assertNotEqual(self.run_picker("--configure").returncode, 0)
         self.assertTrue(config.is_symlink())
         self.assertEqual(outside.read_text(), "# Outside\n")
-        config.unlink()
-        directory.rmdir()
-        directory.symlink_to(self.home)
-        self.assertNotEqual(self.run_picker("--configure").returncode, 0)
-        self.assertFalse((self.home / "xdph.conf").exists())
         self.assertEqual(self.restarts(), [])
+
+    def test_configure_follows_a_config_folder_linked_to_an_owned_folder(self):
+        target = self.home / ".dot/hypr/.config/hypr"
+        target.mkdir(parents=True)
+        config = target / "xdph.conf"
+        for config_home in (self.home / "config", self.home / ".config"):
+            with self.subTest(config_home=config_home.name):
+                if config_home.name == ".config":
+                    del self.environment["XDG_CONFIG_HOME"]
+                config.unlink(missing_ok=True)
+                link = config_home / "hypr"
+                config_home.mkdir()
+                link.symlink_to("../.dot/hypr/.config/hypr")
+                self.assertEqual(json.loads(self.run_picker("--probe").stdout), {"state": "needed"})
+                result = self.run_picker("--configure")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(config.read_text(), "screencopy {\n    custom_picker_binary = " + str(PICKER) + "\n}\n")
+                self.assertTrue(link.is_symlink())
+                self.assertEqual(json.loads(self.run_picker("--probe").stdout), {"state": "ready"})
+
+    def test_configure_refuses_a_config_folder_it_cannot_write(self):
+        if os.geteuid() == 0:
+            self.skipTest("root owns every folder")
+        foreign = Path("/usr")
+        self.assertNotEqual(foreign.stat().st_uid, os.geteuid())
+        owned_file = self.home / "owned-file"
+        owned_file.write_text("")
+        directory = self.home / "config/hypr"
+        directory.parent.mkdir()
+        plants = {"link to a folder another user owns": lambda: directory.symlink_to(foreign),
+                  "file where the folder belongs": lambda: directory.write_text(""),
+                  "link to a file": lambda: directory.symlink_to(owned_file)}
+        for name, plant in plants.items():
+            with self.subTest(plant=name):
+                directory.unlink(missing_ok=True)
+                plant()
+                result = self.run_picker("--configure")
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("Your Hyprland config folder is not a folder VGS can write", result.stderr)
+                self.assertIn("error", json.loads(self.run_picker("--probe").stdout))
+                self.assertFalse((foreign / "xdph.conf").exists())
+                self.assertEqual(owned_file.read_text(), "")
+                self.assertEqual(self.restarts(), [])
 
 
 if __name__ == "__main__":
