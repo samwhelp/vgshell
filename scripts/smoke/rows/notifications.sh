@@ -3835,7 +3835,7 @@ fade_active_settled_capture() { # PREFIX SUMMARY EDGE ITEMS VIEW_FILE SURFACE_FI
   smoke_poll_tries 1
   deadline_ms=$(( $(now_ms) + smoke_poll_n ))
   while (( $(now_ms) < deadline_ms )); do
-    fade_wait_panel_frame_before "$frames" "$deadline_ms" || break
+    fade_wait_panel_frame_before "$frames" "$deadline_ms" || { last_unsettled=panel-frame-pending; break; }
     frames="$fade_panel_frame_count"
     (( $(now_ms) < deadline_ms )) || break
     fade_active_read_context "$summary" "$edge" "$next_items" "$next_view" "$next_surface" "$next_ink" || return
@@ -3860,7 +3860,11 @@ fade_active_settled_capture() { # PREFIX SUMMARY EDGE ITEMS VIEW_FILE SURFACE_FI
     mv -- "$next_png" "$prefix.png" || return
     frames="$(fade_panel_frames_read)" || return
   done
-  printf 'notification-capture: %s=unsettled\n' "$last_unsettled" >&2
+  if [[ $last_unsettled == panel-frame-pending ]]; then
+    echo 'notification-capture: panel-frame=pending' >&2
+  else
+    printf 'notification-capture: %s=unsettled\n' "$last_unsettled" >&2
+  fi
   return 1
 }
 fade_active_pair() { # PREFIX SUMMARY EDGE
