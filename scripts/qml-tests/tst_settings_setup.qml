@@ -263,6 +263,15 @@ Item {
             compare(marks(window, data.id), data.marks);
         }
 
+        // A screen reader hears the warning icon's count, the text its
+        // tooltip shows, as the description it reads after the name.
+        function test_the_warning_icon_describes_its_count() {
+            const window = opened();
+            const icon = descendants(listRow(window, "acme.optional")).find(item => item instanceof IconButton);
+            compare(icon.Accessible.description, icon.tooltip, "the description is the tooltip's text");
+            verify(/\b1\b/.test(icon.Accessible.description), "the description carries the count: got " + JSON.stringify(icon.Accessible.description));
+        }
+
         function test_a_click_on_a_row_and_on_its_icon_open_the_page() {
             const window = opened();
             mouseClick(listRow(window, "acme.todo"));

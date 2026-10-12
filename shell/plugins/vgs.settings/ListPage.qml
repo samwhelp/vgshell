@@ -214,6 +214,7 @@ FocusScope {
                             tone: "warning"
                             label: "Open setup"
                             tooltip: entry.needs.optional === 1 ? "1 optional dependency not installed" : entry.needs.optional + " optional dependencies not installed"
+                            Accessible.description: tooltip
                             focusPolicy: Qt.NoFocus
                             onClicked: page.panel.openPlugin(entry.modelData.id, Qt.MouseFocusReason, "Setup")
                         }
