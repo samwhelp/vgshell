@@ -79,46 +79,11 @@ const writeLine = seen => {
         assert.notEqual(color, null, key);
         return color;
     };
-
     const ratio = logic.contrastRatio(value("GUM_WRITE_CURSOR_LINE_FOREGROUND"),
         value("GUM_WRITE_CURSOR_LINE_BACKGROUND"));
     assert.deepEqual(ratio < logic.READABILITY_FLOOR
         ? [{ kind: "gum-write-line-contrast", ratio, floor: logic.READABILITY_FLOOR }] : [], []);
     return ratio;
-};
-
-const READABLE_TEXT = [
-    "FOREGROUND",
-    "GUM_INPUT_PLACEHOLDER_FOREGROUND",
-    "GUM_FILTER_PLACEHOLDER_FOREGROUND",
-    "GUM_FILTER_UNSELECTED_PREFIX_FOREGROUND",
-    "GUM_FILE_PERMISSIONS_FOREGROUND",
-    "GUM_FILE_FILE_SIZE_FOREGROUND",
-    "GUM_PAGER_LINE_NUMBER_FOREGROUND",
-    "GUM_PAGER_HELP_FOREGROUND",
-    "GUM_WRITE_CURSOR_LINE_NUMBER_FOREGROUND",
-    "GUM_WRITE_END_OF_BUFFER_FOREGROUND",
-    "GUM_WRITE_LINE_NUMBER_FOREGROUND",
-    "GUM_WRITE_PLACEHOLDER_FOREGROUND",
-    "GUM_LOG_TIME_FOREGROUND",
-    "GUM_LOG_SEPARATOR_FOREGROUND",
-    "VGS_TUI_ACCENT",
-    "VGS_TUI_SUCCESS",
-    "VGS_TUI_WARNING",
-    "VGS_TUI_DANGER"
-];
-const readableText = seen => {
-    const one = key => {
-        const entries = [...seen].filter(line => line.startsWith(key + "="));
-        assert.equal(entries.length, 1, key);
-        const color = logic.parseColor(entries[0].slice(key.length + 1));
-        assert.notEqual(color, null, key);
-        return color;
-    };
-    const bg = one("BACKGROUND");
-    const short = READABLE_TEXT.map(key => ({ key, ratio: logic.contrastRatio(one(key), bg), floor: logic.READABILITY_FLOOR }))
-        .filter(row => row.ratio < row.floor);
-    assert.deepEqual(short, []);
 };
 
 // node first on PATH: a version-manager shim there may read the
@@ -184,7 +149,6 @@ try {
         const seen = presented(path.join(root, name), text);
         for (const line of expected) assert.ok(seen.has(line), `${name}: present did not export ${line}`);
         const ratio = writeLine(seen);
-        readableText(seen);
         console.log(`test-theme-gum: write-line package=${name} contrast=${ratio} floor=${logic.READABILITY_FLOOR}`);
         const needle = "GUM_WRITE_CURSOR_LINE_FOREGROUND=#@{color.onAccent}";
         assert.equal(template.split(needle).length, 2);

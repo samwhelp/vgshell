@@ -396,16 +396,23 @@ cancelled_wait_row() {
   mkfifo "$tmp/cancel-in"
   exec {cancel_fd}<>"$tmp/cancel-in"
   (
-    while ! grep -qF "Press any key to close..." "$tmp/cancel-out" 2>/dev/null; do :; done
+    found=0
+    for _ in {1..200}; do
+      if grep -qF "Press any key to close..." "$tmp/cancel-out" 2>/dev/null; then found=1; break; fi
+      sleep 0.05
+    done
+    [[ $found == 1 ]] || exit 1
     printf x >"$tmp/cancel-in"
   ) &
   local writer=$!
   status=0
-  "${lib_env[@]}" timeout 5 script -qec "$(printf '%q ' "$BASH" -c "set -euo pipefail; source $(printf '%q' "$LIB"); vgs_tui_cancelled 'Nothing changed.'")" /dev/null \
+  "${lib_env[@]}" timeout 12 script -qec "$(printf '%q ' "$BASH" -c "set -euo pipefail; source $(printf '%q' "$LIB"); vgs_tui_cancelled 'Nothing changed.'")" /dev/null \
     <"$tmp/cancel-in" {cancel_fd}>&- >"$tmp/cancel-out" 2>&1 || status=$?
-  wait "$writer" || :
+  local writer_status=0
+  if kill -0 "$writer" 2>/dev/null; then kill "$writer" 2>/dev/null || :; fi
+  wait "$writer" || writer_status=$?
   exec {cancel_fd}>&-
-  [[ $status == 0 ]] && grep -qF "Nothing changed." "$tmp/cancel-out" &&
+  [[ $status == 0 && $writer_status == 0 ]] && grep -qF "Nothing changed." "$tmp/cancel-out" &&
     grep -qF "● " "$tmp/cancel-out" && grep -qF "Press any key to close..." "$tmp/cancel-out"
 }
 check "a cancellation on a terminal waits until a key" cancelled_wait_row
