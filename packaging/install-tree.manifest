@@ -406,6 +406,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/backend/Desktop.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/DesktopSession.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Executors.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Files.js
+f share/vgshell/shell/plugins/vgs.jarvis/backend/GeminiLive.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Guidance.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/HarnessGate.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/HarnessProgram.js
