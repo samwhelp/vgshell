@@ -1521,12 +1521,12 @@ capture_config languages '["eng", "deu", "osd"]'
 forget_record
 expect "Install languages answers ok" ok ipc smoke invokeInstance panel vgs.capture installLanguages '{}'
 expect_poll "the terminal is handed the language TUI" "$(words vgs.capture/install-languages tui/install-languages.sh)" recorded_tail
-expect_poll "the ended TUI run reads the languages again" '["info", false]' capture_languages
+expect_poll "the ended TUI run reads the languages again" '["success", false]' capture_languages
 capture_setting ocrLanguages '"fra+eng"'
 expect_poll "another missing language offers Install languages again" '["warning", true]' capture_languages
 capture_mutate missing-check
 capture_setting ocrLanguages '"fra+deu+eng"'
-expect_poll "control: the missing-check copy reads the new languages" '["info", false]' capture_languages
+expect_poll "control: the missing-check copy reads the new languages" '["success", false]' capture_languages
 expect "control: dropping the missing check fails the offered readback" False capture_is capture_languages '["warning", true]'
 capture_mutate choices
 capture_setting ocrLanguages '"eng"'

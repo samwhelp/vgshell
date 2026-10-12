@@ -109,7 +109,7 @@ Item {
             ? { tone: "danger", text: report.invalid ? "The language list is not valid" : "Installed languages could not be read" }
             : report.missing.length > 0
             ? { tone: "warning", text: ("Missing: " + report.missing.join(", ")).slice(0, 200), action: true }
-            : { tone: "info", text: "Ready" });
+            : { tone: "ok", text: "Ready" });
     }
 
     // Widgets and panels use this state rather than probing tools or processes.
@@ -120,7 +120,7 @@ Item {
         shell.status.set("capture", { phase: phase, action: action, path: lastPath, remaining: remaining, available: available });
         const recording = phase === "recording" || phase === "stopping";
         const needed = requiredTools("record").filter(tool => missing.indexOf(tool) >= 0);
-        shell.status.set("recording", { tone: recording ? "warning" : "info", text: phase === "stopping" ? "Saving recording" : recording ? "Recording" : available.record ? "Ready" : "Unavailable: recording needs " + needed.join(", ") });
+        shell.status.set("recording", { tone: recording || !available.record ? "warning" : "ok", text: phase === "stopping" ? "Saving recording" : recording ? "Recording" : available.record ? "Ready" : "Unavailable: recording needs " + needed.join(", ") });
     }
 
     function requiredTools(name) {
