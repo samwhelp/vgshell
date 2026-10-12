@@ -102,7 +102,6 @@ const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(pat
         ["keyStore", "AI model", "Add key"],
         ["accountSearch", "AI model", "Accounts"],
         ["voicePreview", "Voice", "Preview"],
-        ["voxtype", "Voice", "Install voxtype"],
         ["voiceKey", "Voice", "Add key"],
         ["localRuntime", "Setup", "Set up local voice"],
         ["input", "Setup", "Check input"]
@@ -116,6 +115,15 @@ const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(pat
         assert.deepEqual(drawn.filter(item => item[0] === row[0]), [row], row[0] + ": one step on Setup, in its section, with its action");
     assert.deepEqual(Array.from(settings.detailEntries(status)).filter(entry => entry.action !== null).map(entry => entry.key), [], "Jarvis Details draws no entry that declares an action");
     assert.deepEqual(Array.from(settings.detailEntries(status)).filter(entry => drawn.some(item => item[0] === entry.key)).map(entry => entry.key), [], "no Jarvis entry draws on both tabs");
+    // The entries whose install the Requirements section owns (VGS-1464)
+    // declare no action, so no step, button or Details action comes from
+    // them, whatever their value says.
+    const INSTALLED = ["shell", "voxtype", "claude", "codex", "browserDriver"];
+    const lacking = Object.fromEntries(INSTALLED.map(key => [key, { tone: "warning", text: "Not installed", action: true }]));
+    const lackingStatus = judge.statusRows(manifest, lacking, []);
+    const lackingDrawn = Array.from(settings.setupSections(judge.listedTuiRows(manifest, []), lackingStatus)).flatMap(section => Array.from(section.items, item => [String(item.key), item.button === null ? null : String(item.button.label)]));
+    assert.deepEqual(lackingDrawn.filter(item => INSTALLED.includes(item[0]) && item[1] !== null), [], "no Setup step of Jarvis installs a requirement");
+    assert.deepEqual(Array.from(lackingStatus).filter(entry => INSTALLED.includes(entry.key) && entry.action !== null).map(entry => String(entry.key)), [], "no Jarvis entry whose tool Requirements installs declares an action");
     const local = Array.from(sections).flatMap(section => Array.from(section.items).filter(item => item.button !== null && item.button.name === "setup-local").map(item => String(item.key))
         .concat(Array.from(section.buttons).filter(button => button.name === "setup-local").map(() => "More setup")));
     assert.deepEqual(local, ["localRuntime"], "Set up local voice draws once, beside Local voice");
