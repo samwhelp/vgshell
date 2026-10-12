@@ -540,8 +540,8 @@ function verify(logic) {
     const mixedStatus = producer.statusRows(NORMAL, {}, []);
     same([flowOf(logic, MIXED, mixedStatus).map(b => b.name), logic.freeScreens(MIXED, mixedStatus, false).map(b => [b.name, b.label, b.enabled, b.reason])],
         [["configure"], [["tools", "Manage tools", true, ""]]], "a listed screen with no mark draws on Details alone, and one an entry declares on neither");
-    same(logic.freeScreens(MIXED.map(tui => Object.assign({}, tui, { withheld: "Needs acme-other. Install all missing first." })), mixedStatus, false).map(b => [b.name, b.enabled, b.reason !== ""]),
-        [["tools", false, true]], "Details: a withheld screen draws disabled with a reason");
+    same(logic.freeScreens(MIXED.map(tui => Object.assign({}, tui, { withheld: "Needs acme-other. Install all missing first." })), mixedStatus, false).map(b => [b.name, b.enabled, b.reason]),
+        [["tools", false, "Needs acme-other. Install all missing first."]], "Details: a withheld screen draws disabled with the core's reason");
     same(new Set([true, false].map(held => logic.freeScreens(MIXED.map(tui => Object.assign({}, tui, { withheld: held ? "Needs acme-other." : "" })), mixedStatus, false)[0].key)).size, 2,
         "Details: a screen that turns withheld is drawn anew");
     // Two acts of one headline under two labels, each opening no screen.
@@ -632,7 +632,7 @@ const CONTROLS = [
     ["a step draws an action its value does not offer", "if (entry.action === null || !entry.action.offered) return null;", "if (entry.action === null) return null;"],
     ["a screen an entry declares draws in the Flow too", " && declared.indexOf(tui.name) === -1; })", "; })"],
     ["a listed screen with no mark draws on Setup and opens the tab", "return out.concat(freeScreens(tuis, status, true));", "return out.concat(freeScreens(tuis, status, true), freeScreens(tuis, status, false));"],
-    ["a setup screen draws on Details too", "return tui.setup === setup && ", "return (setup || tui.setup) === setup && "],
+    ["a setup screen draws on Details too", "return tui.setup === setup && ", "return (!setup || tui.setup === setup) && ", "draws on Details alone"],
     ["a Details screen's key ignores its state", 'key: tui.name + " " + tui.label + " " + enabled,', 'key: tui.name + " " + tui.label,'],
     ["only the first entry's screens count as declared", "declared = declared.concat(entry.declaredTuis);", "if (declared.length === 0) declared = entry.declaredTuis;"],
     ["the headline's offered action draws nothing", "if (step !== null)\n        out.push", "if (false)\n        out.push"],

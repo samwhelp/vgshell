@@ -1441,6 +1441,7 @@ mutations=(
   "Details draws a setup screen too|../plugins/vgs.settings/PluginPage.qml|Steps.freeScreens(row.tuis, row.status, false)|Steps.freeScreens(row.tuis, row.status, false).concat(Steps.freeScreens(row.tuis, row.status, true))|tst_settings_setup.qml"
   "Details draws no listed screen|../plugins/vgs.settings/PluginPage.qml|visible: page.detailScreens.length > 0|visible: false|tst_settings_setup.qml"
   "a Details screen's press opens nothing|../plugins/vgs.settings/PluginPage.qml|onClicked: page.panel.openTui(page.row.id, modelData.name)|onClicked: {}|tst_settings_setup.qml"
+  "a withheld Details screen names no reason|../plugins/vgs.settings/PluginPage.qml|Tooltip { text: detailScreen.modelData.reason }|Tooltip { text: \"\" }|tst_settings_setup.qml"
   "the requirements action is primary beside a primary step|../plugins/vgs.settings/PluginPage.qml|primary: !Steps.stepHoldsPrimary(page.setupSections)|primary: true|tst_settings_setup.qml"
   "an entry with an action draws on Details|../plugins/vgs.settings/Steps.js|if (declaresStep(entry)) return false;|if (false) return false;|tst_settings_setup.qml"
   "a group that holds steps and no key is no section of Setup|../plugins/vgs.settings/Steps.js|declaresStep(entry); });|false; });|tst_settings_setup.qml"

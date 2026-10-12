@@ -13,7 +13,8 @@ import "../../shell/plugins/vgs.settings"
 // one of a group of its own under that group's title, and Details draws
 // neither it nor its action. A listed screen draws on Setup only when its
 // manifest marks it as a setup screen, else in the Actions row of Details,
-// where a press opens it. A page opens on the tab it is asked for, and
+// where a press opens it and a withheld one takes no press and names its
+// reason on hover. A page opens on the tab it is asked for, and
 // on Settings when it has no such tab. A row of the list shows Setup needed
 // while its plugin asks for a setup step and a warning icon while an
 // optional tool is missing; a click on the row opens Setup while the chip shows, else
@@ -94,9 +95,10 @@ Item {
 
     readonly property var plain: ({ requirements: tools, tui: ({}), status: ({ health: { type: "state", label: "Health" } }) })
     // One listed screen no entry declares, as the manager row lists it,
-    // marked as a setup screen or not.
-    function listed(setup) {
-        return { tuis: [{ name: "tools", label: "Manage tools", icon: "wrench", setup: setup, withheld: "" }] };
+    // marked as a setup screen or not, WITHHELD the core's reason while it
+    // lacks a tool, else "".
+    function listed(setup, withheld) {
+        return { tuis: [{ name: "tools", label: "Manage tools", icon: "wrench", setup: setup, withheld: withheld }] };
     }
     // [id, manifest, published values, missing tools, row fields].
     readonly property var fixtures: [
@@ -111,8 +113,9 @@ Item {
         ["acme.loose", plain, {}, [], { source: "installed" }],
         ["acme.moved", moved, movedOpen, [], {}],
         ["acme.idle", moved, movedIdle, [], {}],
-        ["acme.tasks", plain, {}, [], listed(false)],
-        ["acme.screen", plain, {}, [], listed(true)]
+        ["acme.tasks", plain, {}, [], listed(false, "")],
+        ["acme.held", plain, {}, [], listed(false, "Needs acme-tool. Install all missing first.")],
+        ["acme.screen", plain, {}, [], listed(true, "")]
     ]
     function rows(change) {
         return fixtures.map(f => change !== undefined && change[f[0]] !== undefined ? pluginRow(f[0], f[1], f[2], change[f[0]], f[4]) : pluginRow(f[0], f[1], f[2], f[3], f[4]));
@@ -280,6 +283,13 @@ Item {
             tryVerify(() => screens()[0].height > 0 && pageOf(window).parent.x === -window.width, 2000, "the page has slid in on Details");
             mouseClick(screens()[0]);
             compare(fakeManager.opens, [["acme.tasks", "tools"]]);
+            compare(descendants(screens()[0]).find(item => item instanceof Tooltip).text, "", "a screen that lacks nothing names no reason");
+            window.openPlugin("acme.held", Qt.OtherFocusReason);
+            tabsOf(window).currentIndex = 1;
+            tryCompare(pageOf(window), "tab", "Details");
+            compare(screens().map(rowOf), ["Actions"], "Details draws the withheld screen");
+            compare(screens()[0].enabled, false, "a withheld screen takes no press");
+            compare(descendants(screens()[0]).find(item => item instanceof Tooltip).text, "Needs acme-tool. Install all missing first.", "its hover names the core's reason");
         }
 
         // Details is the strip's third page beside a Setup tab and draws
