@@ -144,6 +144,8 @@ const CLONED = [
     ["a recording keeps Remove under the Realtime voice", CLONE_READY, "realtime", "ok", "remove", true, "clone-voice-remove"],
     ["a recording keeps Remove beside another tier", { ...CLONE_READY, tone: "warning", tierReady: false }, "local", "warning", "remove", true, "clone-voice-remove"],
     ["a failed read offers setup", { tone: "warning", text: "Setup check failed", action: true }, "local", "warning", "setup", false, "clone-voice"],
+    ["a timed-out read words its state", { tone: "warning", text: "Setup check timed out", hint: "Try again.", action: true, lines: ["setup=probe-timeout"] },
+        "local", "warning", "setup", true, "clone-voice"],
     ["a setup in progress offers nothing", { ...CLONE_ANSWER, text: "Setting up", action: false }, "local", "info", undefined, false, null],
 ];
 function verifyClonedVoice(gate, judged) {
@@ -151,6 +153,7 @@ function verifyClonedVoice(gate, judged) {
         const value = plain(gate.clonedVoiceStep(answer, provider));
         assert.equal(judge.statusWrite(judged, {}, "clonedVoiceSetup", value).ok, true, label + ": the manifest judge accepts the row");
         assert.deepEqual([value.tone, value.action, value.hint !== undefined], [tone, action, reasoned], label);
+        assert.deepEqual(keyedCauses(value, ["text", "hint", "lines"]), [], label + ": the row draws no keyed cause");
         const row = judge.statusRows(judged, { clonedVoiceSetup: value }, []).find(entry => entry.key === "clonedVoiceSetup");
         assert.deepEqual([row.group, row.action.offered, row.action.tui || null], ["Local voice", tui !== null, tui], label + ": its press");
         if (tui !== null)
@@ -1116,6 +1119,9 @@ const CONTROLS = [
     ["the Realtime voice offers clone setup", 'var reason = provider !== "local" ? CLONE_WITHHELD.provider : ', "var reason = ", "the Realtime voice withholds setup"],
     ["a tier off the graphics card offers clone setup", 'value.tierReady === false ? CLONE_WITHHELD.tier : null', "null", "a tier off the graphics card withholds setup"],
     ["a recording loses Remove under another voice", 'if (reason !== null && action !== "remove")', "if (reason !== null)", "a recording keeps Remove under the Realtime voice"],
+    ["a clone row keeps a failed read's keyed line", "    else if (value.hint !== undefined) row.hint = value.hint;\n    return row;",
+        "    else if (value.hint !== undefined) row.hint = value.hint;\n    if (value.lines !== undefined) row.lines = value.lines;\n    return row;",
+        "a timed-out read words its state: the row draws no keyed cause"],
     ["a failed clone read offers a boolean", 'var action = value.action === true ? "setup" : value.action;', "var action = value.action;", "a failed read offers setup"],
     ["the fleet row shows with no home", "if (home === null || tool !== null)", "if (tool !== null)", "no home chosen: the row shows"],
     ["the fleet row shows once the tool is found", "if (home === null || tool !== null)", "if (home === null)", "a home with the mail tool: the row shows"],

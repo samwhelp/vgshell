@@ -345,7 +345,8 @@ function voiceProvider(settings, offered) {
 // beside its graphics card tier (VGS-1384): while either is missing, Set up
 // is withheld with the reason. Remove recording stays offered whatever the
 // voice. `recording` and `tierReady` are setup-local's, for this row only;
-// a failed read has neither, and its setup judges the tier itself.
+// a failed read has neither, and its setup judges the tier itself. The row
+// words its state: a failed read's keyed line stays off it.
 var CLONE_WITHHELD = {
     provider: { text: "Needs the Local voice", hint: "Choose Local as the Voice provider to use a cloned voice." },
     tier: { text: "Needs the Large model", hint: "Set up the Large local voice model, which needs an NVIDIA graphics card." }
@@ -359,7 +360,6 @@ function clonedVoiceStep(value, provider) {
     if (typeof action === "string") row.action = action;
     if (reason !== null) row.hint = reason.hint;
     else if (value.hint !== undefined) row.hint = value.hint;
-    if (value.lines !== undefined) row.lines = value.lines;
     return row;
 }
 
