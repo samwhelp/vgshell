@@ -43,7 +43,6 @@ Item {
         }
         publish("effects", [{ label: "Random", value: "random" }]);
         refreshEffects();
-        updateArt();
         watchIdle();
         publishAll();
     }
@@ -237,7 +236,7 @@ Item {
         path: ""
         watchChanges: true
         printErrors: false
-        onLoaded: content => root.textArtLoaded(path, content)
+        onLoaded: root.textArtLoaded(path, text())
         onLoadFailed: error => root.textArtFailed(path, error)
         onFileChanged: reload()
     }
