@@ -102,10 +102,22 @@ restore_hypr_lua() { { printf '%s\n' "$wire_line"; cat -- "$sandbox/hyprland-har
 # The toplevel helper, for the floating TUIs' window rules. open_tui APP_ID
 # [maximized] starts it on the nested socket, leaves its pid in tui_pid and
 # returns once it prints that its first buffer is committed and, given
-# maximized, that the compositor has handled its maximize request.
+# maximized, that the compositor has handled its maximize request. Each
+# open starts on an empty log, so it never reads an earlier open's lines,
+# and a helper that prints neither in time is stopped and tui_pid cleared.
 # close_tui LABEL stops that pid alone and passes LABEL when the helper
 # exits 0 on the signal.
 tui_pid=""
+# stop_tui: TERM tui_pid, KILL it if it outlives the wait, and reap it,
+# returning its exit status.
+stop_tui() {
+  local status=0
+  kill -TERM -- "$tui_pid" 2>/dev/null || true
+  for _ in $(seq 1 25); do kill -0 -- "$tui_pid" 2>/dev/null || break; sleep 0.2; done
+  if kill -0 -- "$tui_pid" 2>/dev/null; then kill -KILL -- "$tui_pid" 2>/dev/null || true; fi
+  wait "$tui_pid" || status=$?
+  return "$status"
+}
 # logged LOG LINE...: whether LOG holds each LINE whole.
 logged() { local log="$1" line; shift; for line in "$@"; do grep -qxF -- "$line" "$log" || return 1; done; }
 open_tui() {
@@ -115,6 +127,7 @@ open_tui() {
     maximized) flags=(--maximized); want+=("maximize requested") ;;
     *) printf 'open_tui: request=%s unknown\n' "$2" >&2; return 1 ;;
   esac
+  : >"$log"
   spawn "$log" "${shell_env[@]}" "$sandbox/toplevel" "${flags[@]}" "$1"
   tui_pid="$spawn_pid"
   for _ in $(seq 1 25); do
@@ -123,14 +136,13 @@ open_tui() {
     sleep 0.2
   done
   cat -- "$log" >&2
+  if kill -0 -- "$tui_pid" 2>/dev/null; then stop_tui || true; fi
+  tui_pid=""
   return 1
 }
 close_tui() {
   local status=0
-  kill -TERM -- "$tui_pid" 2>/dev/null || true
-  for _ in $(seq 1 25); do kill -0 -- "$tui_pid" 2>/dev/null || break; sleep 0.2; done
-  if kill -0 -- "$tui_pid" 2>/dev/null; then kill -KILL -- "$tui_pid" 2>/dev/null || true; fi
-  wait "$tui_pid" || status=$?
+  stop_tui || status=$?
   if [[ $status -eq 0 ]]; then ok "$1"; else fail "$1: exit=$status"; fi
 }
 # The nested instance's client of pid PID as `<class> floating=<bool>`, or
@@ -147,19 +159,6 @@ import json, sys
 cs = [c for c in json.load(sys.stdin) if c["pid"] == int(sys.argv[1])]
 if len(cs) != 1: print("clients=%d" % len(cs))
 else: print("%s fullscreen=%d" % (cs[0]["class"], cs[0]["fullscreen"]))' "$1"; }
-# The same client's size as `<w>x<h>`, or clients=<n>.
-tui_size() { hypr -j clients | py_reply '
-import json, sys
-cs = [c for c in json.load(sys.stdin) if c["pid"] == int(sys.argv[1])]
-if len(cs) != 1: print("clients=%d" % len(cs))
-else: print("%dx%d" % tuple(cs[0]["size"]))' "$1"; }
-# sizes_agree SIZE...: `sizes=<n> distinct=<n>` over SIZEs of the form
-# `<w>x<h>`, or `unread=<values>` when one is another text.
-sizes_agree() { python3 -c '
-import re, sys
-sizes = sys.argv[1:]
-bad = [v for v in sizes if not re.fullmatch("[0-9]+x[0-9]+", v)]
-print("unread=" + ",".join(bad) if bad else "sizes=%d distinct=%d" % (len(sizes), len(set(sizes))))' "$@"; }
 # The written layer's vgs:tui rule renamed vgs-smoke:tui-control, matching
 # org.vgs.tui.control, with its suppressed maximize removed; it prints why
 # and exits 1 when the layer is unreadable, holds not one vgs:tui rule or
@@ -432,26 +431,25 @@ tui_fit_rows "at the sandbox's own mode"
 # A floating TUI that asks to be maximized once it maps, as kitty 0.49.2
 # answers the rule's configure when it remembers a maximized window, keeps
 # its rule's size: the rule suppresses the request, read right after the
-# compositor has handled it, and three opens in a row take one size.
-tui_sizes=()
+# compositor has handled it, on each of three opens in a row.
 for tui_open in 1 2 3; do
   if open_tui org.vgs.tui maximized; then
     expect "open $tui_open: an org.vgs.tui window that asks to be maximized is not" "org.vgs.tui fullscreen=0" tui_fullscreen "$tui_pid"
     geometry expect_poll "open $tui_open: an org.vgs.tui window that asks to be maximized fits the work area at its rule's size, centred" '[]' tui_fits "$tui_pid" org.vgs.tui
-    if tui_open_size="$(tui_size "$tui_pid")"; then tui_sizes+=("$tui_open_size"); else fail "open $tui_open: the org.vgs.tui window's size is unreadable: $tui_open_size"; fi
     close_tui "open $tui_open: the maximize-asking org.vgs.tui helper exits 0 on SIGTERM"
     expect_poll "open $tui_open: the maximize-asking org.vgs.tui window is gone" clients=0 tui_floating "$tui_pid"
   else
     fail "open $tui_open: the toplevel helper maps an org.vgs.tui window that asks to be maximized"
   fi
 done
-expect "three maximize-asking org.vgs.tui opens take one size" "sizes=3 distinct=1" sizes_agree "${tui_sizes[@]}"
 # Control: the same rule without its suppressed maximize, for its own
 # class, grants the request by the same read.
 if tui_control="$(tui_control_rule)"; then
   printf '%s\n' "$tui_control" >>"$hypr_lua"
   expect "the nested instance reloads with the control TUI rule without configuration errors" '[]' hypr_reload_errors
+  tui_control_opened=false
   if open_tui org.vgs.tui.control maximized; then
+    tui_control_opened=true
     expect "control: a window under the rule without its suppressed maximize is maximized" "org.vgs.tui.control fullscreen=1" tui_fullscreen "$tui_pid"
     close_tui "control: the maximized org.vgs.tui.control helper exits 0 on SIGTERM"
   else
@@ -459,7 +457,7 @@ if tui_control="$(tui_control_rule)"; then
   fi
   restore_hypr_lua || fail "hyprland.lua is put back after the maximize control"
   expect "the nested instance reloads the consent-wired hyprland.lua after the maximize control" ok hypr reload config-only
-  expect_poll "control: the org.vgs.tui.control window is gone" clients=0 tui_floating "$tui_pid"
+  [[ $tui_control_opened == false ]] || expect_poll "control: the org.vgs.tui.control window is gone" clients=0 tui_floating "$tui_pid"
 else
   fail "control: the layer's vgs:tui rule yields a rule without its suppressed maximize: $tui_control"
 fi
