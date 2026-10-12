@@ -29,7 +29,7 @@ async function world(main, timeout = 120000) {
     try {
         standins(path.join(root, "standins"));
         const result = cp.spawnSync("/bin/bash", [path.join(tree, "scripts/lib/jarvis-env.sh"),
-            path.join(root, "standins"), "--", "node", process.argv[1], "--inside"], {
+            path.join(root, "standins"), "--", "node", process.argv[1], "--inside", ...process.argv.slice(2)], {
             env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: parent },
             encoding: "utf8", timeout
         });
