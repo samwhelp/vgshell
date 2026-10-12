@@ -13,7 +13,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Update all updates unpinned tools only.
 - A Dev Tools launcher category lists catalog rows and installs a missing tool before it starts it.
 - A tool that something outside VGS provides shows Managed outside VGS and still starts from `PATH`.
-- mise manages the tools. The Info page offers Install mise while it is missing.
+- mise manages the tools. While it is missing, Install all missing on the Setup tab installs it.
 
 <details><summary>Show command</summary>
 

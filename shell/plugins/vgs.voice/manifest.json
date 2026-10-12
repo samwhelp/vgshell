@@ -129,13 +129,6 @@
       "group": "Setup",
       "hint": "Setup copies defaults and downloads the speech model.",
       "actions": {
-        "install": {
-          "label": "Install requirements",
-          "install": [
-            "voxtype",
-            "voxtype-audio-bridge"
-          ]
-        },
         "setup": {
           "label": "Set up",
           "dictation": "setup"

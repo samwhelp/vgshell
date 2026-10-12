@@ -88,7 +88,7 @@ function stateLabel(state, source) {
 function accountHint(account) {
     var mismatch = account.mismatch === true ? "The email does not match the folder name." : "";
     if (account.value === "signed-out") return mismatch;
-    if (account.update === true) return "Jarvis needs Pi 1.1.0 or later. Update Pi to use this setup.";
+    if (account.update === true) return "Jarvis needs Pi 1.1.0 or later. Update it under Requirements to use this setup.";
     var text = stateLabel(account.state, account.source);
     if (account.state === "signed-in")
         text += (account.plan !== "" ? ", " + account.plan + " plan" : "") + (account.email !== "" ? ", " + account.email : "");

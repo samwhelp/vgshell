@@ -209,7 +209,7 @@ function verify(logic) {
     const values = logic.statusValues({ catalog: ok(listed), updates: ok({ count: 3, packages: [] }), requirements: ok({ core: [requirement({})], plugins: { "acme.y": [requirement({ state: "present" })] } }), launchers: ok(["launcher=written command=claude path=/h/.local/bin/claude", "launcher=foreign command=codex path=/h/.local/bin/codex"]) });
     same([values.mise, values.installed, values.outdated, values.missingRequirements], [{ tone: "ok", text: "2026.9.9" }, 2, 3, 1]);
     same(values.catalog.requirements, ok([{ owner: "core", name: "gum", purpose: "Draws the dialogs", optional: false, package: { manager: "pacman", name: "gum" } }]), "the catalog holds the missing requirements alone");
-    same(logic.statusValues({ catalog: ok(list({}, [], { present: false, version: null })) }).mise, { tone: "warning", text: "Not installed", action: true }, "a missing mise offers Install mise");
+    same(logic.statusValues({ catalog: ok(list({}, [], { present: false, version: null })) }).mise, { tone: "warning", text: "Not installed" }, "a missing mise offers no step: Install all missing installs it");
     const failed = logic.statusValues({ catalog: { value: null, error: "mise=absent" }, updates: { value: null, error: "timeout=120" }, requirements: { value: null, error: "exit=1" } });
     same(failed.mise, { tone: "danger", text: "A required tool is missing. Use Install to add it." });
     same(["installed", "outdated", "missingRequirements"].filter(k => k in failed), [], "a failed query publishes no count");
@@ -412,7 +412,7 @@ const CONTROLS = [
     ["a missing launcher needs installation repair", 'if (/reason=launcher-missing/.test(reply))', 'if (false)'],
     ["a failed tool action has a message", 'function actionErrorText(reason) {', 'function actionErrorText(reason) { if (/step=failed/.test(String(reason))) return "";'],
     ["diagnostics stay out of display text", 'function errorText(reason, query) {', 'function errorText(reason, query) { return String(reason);'],
-    ["a missing mise offers no action", 'text: "Not installed", action: true }', 'text: "Not installed" }'],
+    ["a missing mise offers no action", 'text: "Not installed" }', 'text: "Not installed", action: true }'],
     ["open skips a fresh remote", 'if (trigger !== "open" || !QUERIES[name].network) return true;', "return true;"],
     ["the list follows the launchers", 'return name === "launchers" ? "catalog" : "";', 'return "";'],
     ["a refusal line wins", 'if (at !== -1) return clip(lines[i].slice(at + "refused: ".length));', ""],

@@ -36,6 +36,6 @@
     ]
   },
   "status": {
-    "streams": { "type": "state", "label": "Playing apps", "action": { "label": "Install pactl", "install": ["pactl"] } }
+    "streams": { "type": "state", "label": "Playing apps" }
   }
 }

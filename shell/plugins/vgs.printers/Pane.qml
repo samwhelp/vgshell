@@ -10,9 +10,9 @@ import "PrintersLogic.js" as Logic
 // change outlives the pane.
 //
 // From the top: a line while printing is not installed, is off, could not
-// be read or the list stopped following CUPS, with the `printing` entry's
-// action as the core's status rows offer it, Install printing or Turn on
-// printing, and Try again; the printers,
+// be read or the list stopped following CUPS, with Install printing, the
+// plugin's own offer of CUPS's commands, or the `printing` entry's Turn on
+// printing as the core's status rows offer it, and Try again; the printers,
 // each with its state, its queued jobs and a Default badge, whose action
 // and menu set the default, whose menu and Delete remove it; the last
 // change's problem; Add a printer: Find printers, the devices CUPS found,
@@ -46,10 +46,12 @@ FocusScope {
     readonly property bool busy: op.phase === "running"
     readonly property bool helperMissing: view !== null && view.helper === "missing"
     readonly property bool settingsMissing: shell !== null && shell.requirements.missing.indexOf("system-config-printer") !== -1
-    // The `printing` entry's action while the core offers it, { label },
-    // else null.
+    // The line's step, { label }, else null: Install printing while CUPS
+    // is missing, else the `printing` entry's action while the core offers
+    // it.
     readonly property var printingAction: {
         if (shell === null) return null;
+        if (cups === "missing") return { label: "Install printing" };
         const row = shell.status.rows.find(r => r.key === "printing");
         return row === undefined || row.action === null || !row.action.offered ? null : { label: row.action.label };
     }
@@ -149,8 +151,8 @@ FocusScope {
         return reply;
     }
     function runPrintingAction() {
-        const reply = shell.status.act("printing");
-        if (reply !== "ok") console.warn("printers: act printing " + reply);
+        const reply = cups === "missing" ? shell.requirements.offer(Logic.CUPS_COMMANDS) : shell.status.act("printing");
+        if (reply !== "ok") console.warn("printers: printing step " + reply);
         return reply;
     }
 

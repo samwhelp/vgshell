@@ -138,7 +138,7 @@ function verify(logic) {
     for (const [label, sinkName, nodes, links, want] of targets)
         assert.equal(logic.volumeTarget(sinkName, nodes, links), want, "volumeTarget: " + label);
 
-    same(logic.streamsState(false), { tone: "warning", text: "Apps that play now stay on their output when you choose another. Install pactl to move them.", action: true }, "streamsState: pactl missing");
+    same(logic.streamsState(false), { tone: "warning", text: "Apps that play now stay on their output when you choose another. Install pactl to move them." }, "streamsState: pactl missing");
     same(logic.streamsState(true), { tone: "ok", text: "Apps that play now move to the output you choose." }, "streamsState: pactl present");
 
     const levels = [

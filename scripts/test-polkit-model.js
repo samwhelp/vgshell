@@ -143,7 +143,7 @@ function verify(model) {
         ["two agents, one line each, one of them required", false, found(acme, shared), false, { tone: "warning", text: line("acme-polkit"), action: "stop", lines: [line("shared-polkit")] }],
         ["two removable agents", false, found(acme, { name: "other-polkit", removable: true }), false, { tone: "warning", text: line("acme-polkit"), action: "uninstall", lines: [line("other-polkit")] }],
         ["another agent while polkit is missing too", false, found(acme), true, { tone: "warning", text: line("acme-polkit"), action: "uninstall" }],
-        ["no other agent and no polkit", false, found(), true, { tone: "warning", text: "Polkit is not installed.", action: "install" }],
+        ["no other agent and no polkit", false, found(), true, { tone: "warning", text: "Polkit is not installed." }],
         ["no other agent with polkit", false, found(), false, { tone: "warning", text: "Password prompts are unavailable. No other app is showing them." }],
         ["a check that gave no answer", false, { ok: false }, true, { tone: "warning", text: "Password prompts are unavailable. VGS could not look for another app." }]
     ];
@@ -198,7 +198,7 @@ const CONTROLS = [
     ["each agent has its line", "if (lines.length > 1) value.lines = lines.slice(1);", ""],
     ["the lines keep the status ceiling", "check.agents.slice(0, LINES_MAX + 1)", "check.agents"],
     ["another agent comes before a missing polkit", "    if (check.agents.length > 0) {", "    if (check.agents.length > 0 && polkitMissing !== true) {"],
-    ["a missing polkit offers Install", 'if (polkitMissing === true) return { tone: "warning", text: "Polkit is not installed.", action: "install" };', ""],
+    ["a missing polkit says so", 'if (polkitMissing === true) return { tone: "warning", text: "Polkit is not installed." };', ""],
     ["a stop's end is a step's end", 'return ["uninstall", "stop"].map(', 'return ["uninstall"].map('],
     ["no state is never published", "    if (next === null) return false;\n", ""],
     ["an unregistered agent warns", 'if (registered === true) return { tone: "ok"', 'if (true) return { tone: "ok"']

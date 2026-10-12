@@ -16,4 +16,4 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 ## Setup
 
-The plugin ships with VGS and is on by default. Only one app at a time can show password prompts. The Settings page shows whether VGS can show them. When another app shows them, the page names it and offers Uninstall, or Stop when another installed app needs it. When polkit is not installed, the page offers Install. After each of these, VGS shows password prompts at once, with no new login.
+The plugin ships with VGS and is on by default. Only one app at a time can show password prompts. The Settings page shows whether VGS can show them. When another app shows them, the page names it and offers Uninstall, or Stop when another installed app needs it. When polkit is not installed, Install all missing on the Setup tab installs it. After each of these, VGS shows password prompts at once, with no new login.

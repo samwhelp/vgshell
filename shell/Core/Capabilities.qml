@@ -414,16 +414,14 @@ Singleton {
     }
 
     // Runs REQUEST, one a manager judge accepted for plugin ID: the
-    // plugin's own declared TUI through TuiRunner.runFor, its own
-    // requirement commands through the requirement notice after a scan, its
-    // own system step in the core TUI `core/system`, after whose end the
-    // steps are probed again (D081), or its summonable surface. Every step
+    // plugin's own declared TUI through TuiRunner.runFor, its own system
+    // step in the core TUI `core/system`, after whose end the steps are
+    // probed again (D081), or its summonable surface. Every step
     // of the manager's that opens a plugin's TUI or surface goes through
     // here.
     function managerStep(id, request) {
         switch (request.kind) {
         case "tui": return tuis.runFor(id, request.name);
-        case "install": return Notices.chosen(id, request.commands);
         case "system": return root.managerCoreTui("system", request.args, () => systemSteps.probe());
         case "core": return root.managerCoreTui(request.name, [], end => {
             if (end.code === 0) dictation.restart();
@@ -431,7 +429,7 @@ Singleton {
         case "summon": return Plugins.route("summon", request.surface, id, "{}", null);
         case "pane": return root.paneRoute(id, "summon", "{}", null);
         }
-        throw new Error("manager: step kind " + JSON.stringify(request.kind) + " is not one of tui, install, system, core, summon, pane");
+        throw new Error("manager: step kind " + JSON.stringify(request.kind) + " is not one of tui, system, core, summon, pane");
     }
 
     // The manager's store or clear (VERB) of plugin ID's ACCOUNT, listed in

@@ -42,12 +42,12 @@ const MANIFEST = {
 const HEADED = {
     requirements: [{ name: "acme-tool", bus: null, packages: {}, optional: true, purpose: "A tool", floor: "1.0.0" }],
     tui: { configure: { script: "tui/configure.sh", title: "Configure", size: "default", presentation: "full", entry: null, requires: null } },
-    status: { setup: { type: "state", label: "Setup", group: "Setup", actions: { install: { label: "Install tool", install: ["acme-tool"] }, configure: { label: "Finish", tui: "configure" } } } }
+    status: { setup: { type: "state", label: "Setup", group: "Setup", actions: { allow: { label: "Allow tool", system: "i2c-dev" }, configure: { label: "Finish", tui: "configure" } } } }
 };
 const HEADED_TUIS = [{ name: "configure", label: "Configure", icon: "sliders-horizontal", withheld: "" }];
 // [label, published values, the Flow as [name, status, label, enabled]].
 const HEADED_FLOW = [
-    ["the headline's action that opens no screen draws as the entry's act, and the screen it declares draws only while offered", { setup: { tone: "warning", text: "To do", action: "install" } }, [["", "setup", "Install tool", true]]],
+    ["the headline's action that opens no screen draws as the entry's act, and the screen it declares draws only while offered", { setup: { tone: "warning", text: "To do", action: "allow" } }, [["", "setup", "Allow tool", true]]],
     ["the headline's action that opens a screen draws as that screen", { setup: { tone: "warning", text: "To do", action: "configure" } }, [["configure", "", "Finish", true]]],
     ["a headline that offers none draws no screen it declares", { setup: { tone: "ok", text: "Ready" } }, []]
 ];
@@ -72,12 +72,12 @@ const TUIS = [
 ];
 // The same screens while the requirements both need are missing, as
 // PluginLogic.listedTuiRows marks them.
-const WITHHELD = TUIS.map(tui => Object.assign({}, tui, { withheld: "Needs acme-other. Install requirements first." }));
+const WITHHELD = TUIS.map(tui => Object.assign({}, tui, { withheld: "Needs acme-other. Install all missing first." }));
 const BUTTONS = [
     ["a state that calls for its step draws it first, with its label", { warden: { tone: "warning", text: "Not set up", action: true } }, [], [["setup", "Set up"], ["configure", "Configure"]]],
     ["a ready state draws only the screens no entry declares", { warden: { tone: "ok", text: "Ready" } }, [], [["configure", "Configure"]]],
     ["nothing published draws only the screens no entry declares", {}, [], [["configure", "Configure"]]],
-    ["a withheld step keeps its place with the withheld label", { warden: { tone: "warning", text: "Not set up", action: true } }, ["acme-other"], [["setup", "Install requirements"], ["configure", "Configure"]]],
+    ["a withheld step draws no button: Install all missing installs what it lacks", { warden: { tone: "warning", text: "Not set up", action: true } }, ["acme-other"], [["configure", "Configure"]]],
     ["a screen another entry offers on its own row draws in the Flow as the headline's alone", { token: "absent", warden: { tone: "warning", text: "Not set up", action: true } }, [], [["setup", "Set up"], ["configure", "Configure"]]]
 ];
 
@@ -96,7 +96,7 @@ const STEPPED = {
     },
     status: {
         summary: { type: "state", label: "Setup", group: "Setup" },
-        model: { type: "state", label: "AI model", group: "Setup", actions: { key: { label: "Add key", tui: "keys" }, update: { label: "Update tool", install: ["acme-tool"] } } },
+        model: { type: "state", label: "AI model", group: "Setup", actions: { key: { label: "Add key", tui: "keys" }, allow: { label: "Allow tool", system: "i2c-dev" } } },
         browser: { type: "state", label: "Browser", group: "Setup", action: { label: "Set up browser", tui: "browser" } },
         keyStore: { type: "state", label: "API keys", action: { label: "Add key", tui: "keys" } }
     }
@@ -150,8 +150,8 @@ const ROWS = [
         [["Setup", false, null], ["AI model", true, ["keys", "Add key"]], ["Browser", true, ["browser", "Set up browser"]], ["API keys", true, null]],
         [["accounts", "Accounts"]]],
     ["a step whose offered action opens no screen draws that action, and the Flow keeps the screen of no entry", STEPPED, STEPPED_TUIS,
-        { summary: { tone: "warning", text: "Not ready" }, model: { tone: "warning", text: "To do", action: "update" }, browser: DONE },
-        [["Setup", false, null], ["AI model", true, ["", "Update tool"]], ["Browser", true, null], ["API keys", true, null]],
+        { summary: { tone: "warning", text: "Not ready" }, model: { tone: "warning", text: "To do", action: "allow" }, browser: DONE },
+        [["Setup", false, null], ["AI model", true, ["", "Allow tool"]], ["Browser", true, null], ["API keys", true, null]],
         [["accounts", "Accounts"]]],
     ["a single Setup entry is the Status section, its screen in the Flow", MANIFEST, TUIS,
         { warden: { tone: "warning", text: "Not set up", action: true } },
@@ -480,6 +480,12 @@ function verify(logic) {
         ["done steps hold none", { summary: READY, model: NO_STEP, browser: DONE }, false],
         ["completed repeats, whose actions stay secondary, hold none", { summary: READY, model: REPEAT, browser: BROWSER_REPEAT }, false]])
         same(logic.stepHoldsPrimary(logic.setupSections(STEPPED_TUIS, producer.statusRows(STEPPED, values, []))), want, "stepHoldsPrimary: " + label);
+    // A step whose screen lacks a requirement is withheld: it draws no
+    // button, so Install all missing is the page's one main action.
+    const lackingKeys = Object.assign({}, STEPPED, { tui: Object.assign({}, STEPPED.tui, { keys: Object.assign({}, STEPPED.tui.keys, { requires: ["acme-tool"] }) }) });
+    const lackingSections = logic.setupSections(STEPPED_TUIS, producer.statusRows(lackingKeys, { summary: WARN, model: KEY, browser: DONE }, ["acme-tool"]));
+    same([lackingSections.find(section => section.title === "Setup").items.find(item => item.key === "model").button, logic.stepHoldsPrimary(lackingSections)], [null, false],
+        "stepHoldsPrimary: a withheld step draws no button and holds none");
     for (const [label, key, values, want] of ENTRIES) {
         const row = producer.statusRows(MANIFEST, values, []).find(entry => entry.key === key);
         same(logic.statusStep(row), want, label);
@@ -511,13 +517,18 @@ function verify(logic) {
         const buttons = flowOf(logic, TUIS, producer.statusRows(NORMAL, values, missing));
         same(buttons.map(b => [b.name, b.label]), want, "Flow: " + label);
     }
-    // A withheld screen draws disabled with its reason, but for the step an
-    // offered action names, which installs what it lacks.
+    // A withheld screen draws disabled with its reason, the screen of a
+    // withheld step too: the core offers no step whose screen lacks a
+    // requirement, and the Requirements section installs it.
     const withheld = flowOf(logic, WITHHELD, producer.statusRows(NORMAL, { warden: { tone: "warning", text: "Not set up", action: true } }, ["acme-other"]));
-    same(withheld.map(b => [b.name, b.enabled, b.reason !== ""]), [["setup", true, false], ["configure", false, true]], "Flow: a withheld screen draws disabled with a reason, the step stays active");
+    same(withheld.map(b => [b.name, b.enabled, b.reason !== ""]), [["configure", false, true]], "Flow: a withheld screen draws disabled with a reason, and a withheld step draws no button");
     same(flowOf(logic, TUIS, producer.statusRows(NORMAL, {}, [])).map(b => [b.enabled, b.reason]), [[true, ""]], "Flow: a screen that lacks nothing takes a press");
-    same(new Set([[], ["acme-other"]].map(missing => flowOf(logic, TUIS, producer.statusRows(NORMAL, { warden: { tone: "warning", text: "Not set up", action: true } }, missing))[0])
-        .map(b => b.name + " " + b.enabled + " " + b.key)).size, 2, "Flow: one screen of one state under two labels is drawn as two buttons");
+    same(flowOf(logic, HEADED_TUIS.map(tui => Object.assign({}, tui, { withheld: "Needs acme-tool. Install all missing first." })), producer.statusRows(HEADED, { setup: { tone: "warning", text: "To do", action: "allow" } }, []))
+        .map(b => [b.name, b.enabled]), [["", true]], "Flow: the headline's act takes its press while a screen is withheld");
+    // Two acts of one headline under two labels, each opening no screen.
+    const twoActs = Object.assign({}, HEADED, { status: { setup: Object.assign({}, HEADED.status.setup, { actions: Object.assign({ enable: { label: "Enable tool", system: "apple-displays" } }, HEADED.status.setup.actions) }) } });
+    same(new Set(["allow", "enable"].map(action => flowOf(logic, HEADED_TUIS, producer.statusRows(twoActs, { setup: { tone: "warning", text: "To do", action: action } }, []))[0])
+        .map(b => b.name + " " + b.enabled + " " + b.key)).size, 2, "Flow: one act of one state under two labels is drawn as two buttons");
     // The Status and Setup sections: the first Setup entry is the Status
     // section's row under its own label, each further one a step under its
     // own label with its offered screen beside it, which the Flow then
@@ -531,7 +542,7 @@ function verify(logic) {
     }
     for (const [label, values, want] of HEADED_FLOW)
         same(flowOf(logic, HEADED_TUIS, producer.statusRows(HEADED, values, [])).map(b => [b.name, b.status, b.label, b.enabled]), want, "headline Flow: " + label);
-    same(new Set([{ setup: { tone: "warning", text: "To do", action: "install" } }, { setup: { tone: "warning", text: "To do", action: "configure" } }]
+    same(new Set([{ setup: { tone: "warning", text: "To do", action: "allow" } }, { setup: { tone: "warning", text: "To do", action: "configure" } }]
         .flatMap(values => flowOf(logic, HEADED_TUIS, producer.statusRows(HEADED, values, [])).map(b => b.key))).size, 2, "headline Flow: the entry's act and a screen are drawn as different buttons");
     // Each keyed group is a section after Setup, its key lists and states
     // in manifest order, and the one primary is the first offered step

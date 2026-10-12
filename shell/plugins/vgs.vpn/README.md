@@ -21,11 +21,10 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 ## Setup
 
-The VPN section and the plugin's Settings page offer one step at a time. Enable and Allow run in a setup window that shows its commands and asks before it runs them.
+The VPN section and the plugin's Settings page offer one step at a time. Enable and Allow run in a setup window that shows its commands and asks before it runs them. While Tailscale is not installed, Install all missing on the Setup tab installs it.
 
 | Step | When | What it does |
 | --- | --- | --- |
-| Install | Tailscale is not installed | Opens the installation notice. |
 | Enable | The Tailscale service is off | Starts the service and keeps it on after a restart. |
 | Allow | Your account cannot change Tailscale | Makes your account the Tailscale operator, so changes need no administrator password. |
 

@@ -148,7 +148,7 @@ function suite(logic, service = serviceSource) {
     // Setup: one step at a time, Allow while access is denied, and no
     // Ready over an operator the core could not read.
     for (const [context, action, tone] of [
-        [{ missing: true, state: "checking", service: "absent", operator: "absent" }, "install", "warning"],
+        [{ missing: true, state: "checking", service: "absent", operator: "absent" }, "", "warning"],
         [{ missing: false, state: "service-off", service: "needed", operator: "unknown" }, "enable", "warning"],
         [{ missing: false, state: "service-off", service: "nixos", operator: "unknown" }, "enable", "warning"],
         [{ missing: false, state: "service-off", service: "absent", operator: "unknown" }, "", "warning"],
@@ -173,6 +173,8 @@ function suite(logic, service = serviceSource) {
     const shown = plain(logic.published(false, running, ready, live));
     assert.deepEqual([shown.state, shown.tone, shown.writable], ["running", "ok", true]);
     assert.equal(logic.published(false, running, denied, live).writable, false);
+    assert.equal(logic.published(true, running, logic.setup({ missing: true, state: "running", service: "ready", operator: "ready" }), live).writable, false,
+        "a missing command takes no change, though it offers no step");
     assert.equal(plain(logic.unread()).state, "checking");
     for (const [vpn, want] of [
         [null, { shown: false }], [plain(logic.published(true, running, ready, live)), { shown: false }],
@@ -373,6 +375,7 @@ try {
         ["ambiguous profile commands refuse", 'if (row.ambiguous)', 'if (false)'],
         ["active profiles survive list limits", 'const activeCount = rows.filter(row => row.active).length;', 'const activeCount = rows.slice(0, PROFILE_MAX).filter(row => row.active).length;'],
         ["inactive Tailscale does not hide an active VPN", 'if (profiles.activeCount > 0)', 'if (vpn.state === "missing" && profiles.activeCount > 0)'],
+        ["a missing command takes no change", 'writable: !missing && setupLine.action === "",', 'writable: setupLine.action === "",'],
         ["VPN profiles exclude other types", 'fields[1] !== "vpn" && fields[1] !== "wireguard"', 'false'],
         ["profile argv names id", '"down", "id", row.id]', '"down", row.id]'],
         ["profile lists are bounded", 'const retained = rows.slice(0, PROFILE_MAX);', 'const retained = rows.slice(0);'],

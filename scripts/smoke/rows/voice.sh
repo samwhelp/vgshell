@@ -35,11 +35,13 @@
 # its control is a disposable manifest copy whose Configure declares no
 # `requires`, which launches the script with no notice. The Voice page's
 # Setup section reads Voice's setup state: without voxtype Setup needed
-# with the install step first, and Configure and Choose model, whose
-# `requires` name voxtype, disabled with a reason that names it; once set
+# with no step, since the Requirements section's Install all missing
+# installs it, and Configure and Choose model, whose `requires` name
+# voxtype, disabled with a reason that names it; once set
 # up, Ready with voxtype's version and the model. Its control is a
 # disposable manifest copy whose setup entry is in no Setup group and
-# whose Configure declares no `requires`. Install hands the terminal
+# whose Configure declares no `requires`. Install all missing raises the
+# notice for voxtype and its bridge, and its Install hands the terminal
 # voxtype-bin through the AUR helper, the row puts the stubs back as the
 # package step would, and the scan after the run closes the notice; Voice
 # then has the core start its daemon, and the section offers Set up, which
@@ -106,8 +108,8 @@
 # stops the dictation. A right click opens the widget menu, which reads
 # Hide, Voxtype Settings, Readme, Settings, and Voxtype Settings hands the terminal
 # Configure.
-# Without voxtype, a click on the widget starts no recording and raises
-# the notice the setup entry's install step raises; Not now closes it, and
+# Without voxtype, a click on the widget starts no recording and offers
+# voxtype and its bridge in the requirement notice; Not now closes it, and
 # a click after it raises the notice again.
 # inputs: scripts/smoke/fixtures/voxtype/* scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/rows/capabilities.sh shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Sounds.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh shell/Core/IpcRegistry.qml shell/Ui/BarWidget.qml shell/Ui/controls/BarItem.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Capabilities.qml
 set -euo pipefail
@@ -1055,7 +1057,7 @@ print(json.dumps({"action": v["action"] or "none", "lines": len(want), "drawn": 
 }
 # Control: Voice's own Setup value with its last line changed.
 voice_setup_value_changed() { ipc smoke readInstance service vgs.voice setupValue | py_reply 'import json,sys; v=json.load(sys.stdin); v["lines"][-1] += " (changed)"; print(json.dumps(v))'; }
-voice_setup_missing='{"chips": [["Setup needed", "warning"]], "buttons": [["Install requirements", "accent", true, false], ["Configure", "accent", false, true], ["Choose model", "accent", false, true]]}'
+voice_setup_missing='{"chips": [["Setup needed", "warning"]], "buttons": [["Configure", "accent", false, true], ["Choose model", "accent", false, true]]}'
 voice_setup_needed='{"chips": [["Setup needed", "warning"]], "buttons": [["Set up", "accent", true, false], ["Configure", "accent", true, false], ["Choose model", "accent", true, false]]}'
 voice_setup_ready='{"chips": [["Ready", "success"]], "buttons": [["Configure", "accent", true, false], ["Choose model", "accent", true, false]]}'
 voice_engine_installed() {
@@ -1079,17 +1081,17 @@ expect "without voxtype a dictation sounds choice is refused" 'refused: feedback
 expect "a choice refused without voxtype writes nothing" "$voice_feedback_sets_before" voice_feedback_sets_read
 
 # The bar widget's click without voxtype: the service starts no recording,
-# and the click is the press on the setup entry's step, so it raises the
-# notice that press raises, every missing command of Voice. Not now closes
-# it; a press never rests, so a second click raises the notice again, as
-# the opens below do. The install step opens no screen after it.
+# and the click offers voxtype and its bridge, every missing command of
+# Voice, in the notice. Not now closes it; a press never rests, so a
+# second click raises the notice again, as the opens below do. The install
+# opens no screen after it.
 expect_poll "without voxtype the bar widget reads idle" '"idle"' voice_dictation
 expect_poll "without voxtype the core's daemon reads failed" "failed idle -" voice_state
 expect "no notice shows before the click without voxtype" null notice_shown
 voice_widget_pointer="$pointer_at"
 voice_widget_point
 hover "$((voice_widget_x - 1))" "$voice_widget_y" && click "$voice_widget_x" "$voice_widget_y" || fail "the click on the Voice widget without voxtype failed"
-expect_poll "a click on the Voice widget without voxtype raises the notice the setup step raises" "$voice_asked" notice_shown
+expect_poll "a click on the Voice widget without voxtype raises the notice for voxtype and its bridge" "$voice_asked" notice_shown
 expect "the click without voxtype starts no recording" "failed idle -" voice_state
 expect "the click's notice holds no screen to open after the install" '{}' voice_resumes
 voice_notice_escape "the click's notice"
@@ -1144,12 +1146,13 @@ expect_poll "Voice builds after the requires control" True record_exists vgs.voi
 settings_page_open vgs.voice
 settings_setup
 # The Setup section reads Voice's own setup state: without voxtype it says
-# so, and the install step it offers comes first; Configure and Choose
-# model, which need voxtype, take no press and say so on hover.
-expect_poll "the Setup section draws Setup needed, the install step first and the screens that need voxtype disabled" "$voice_setup_missing" voice_setup_section
-expect "the Setup section draws the service's one install line" '{"action": "install", "lines": 1, "drawn": true}' voice_setup_lines
+# so and offers no step, since the Requirements section's Install all
+# missing installs it; Configure and Choose model, which need voxtype, take
+# no press and say so on hover.
+expect_poll "the Setup section draws Setup needed, no step and the screens that need voxtype disabled" "$voice_setup_missing" voice_setup_section
+expect "the Setup section draws the service's one missing-voxtype line" '{"action": "none", "lines": 1, "drawn": true}' voice_setup_lines
 voice_setup_changed="$(voice_setup_value_changed)" || fail "control: the service's Setup value is unreadable"
-expect "control: a drawn line that differs from the service value reads undrawn" '{"action": "install", "lines": 1, "drawn": false}' voice_setup_lines "$voice_setup_changed"
+expect "control: a drawn line that differs from the service value reads undrawn" '{"action": "none", "lines": 1, "drawn": false}' voice_setup_lines "$voice_setup_changed"
 # Control: a disposable manifest copy whose setup entry is in no Setup
 # group and whose Configure declares no `requires` keeps the chip and the
 # install step first, since an entry of no group that declares an action is
@@ -1164,7 +1167,7 @@ from pathlib import Path
 p = Path(sys.argv[1]); assert not p.is_symlink()
 manifest = json.loads(p.read_text())
 entry = manifest["status"]["setup"]
-assert entry["group"] == "Setup" and entry["actions"]["install"]["install"] == ["voxtype", "voxtype-audio-bridge"]
+assert entry["group"] == "Setup" and sorted(entry["actions"]) == ["setup", "stop"]
 del entry["group"]
 assert "voxtype" in manifest["tui"]["configure"]["requires"]
 del manifest["tui"]["configure"]["requires"]
@@ -1185,20 +1188,21 @@ expect_poll "Voice builds after the Setup section control" True record_exists vg
 settings_page_open vgs.voice
 settings_setup
 expect_poll "the Setup section reads Setup needed again" "$voice_setup_missing" voice_setup_section
-# Without voxtype, the setup entry alone offers an install, and the Setup
-# tab draws the Requirements row.
-expect_poll "the Voice page offers the setup entry's install alone without voxtype" '[["setup", "Install requirements", true]]' offered_actions vgs.voice
+# Without voxtype, the setup entry offers no step, and the Setup tab draws
+# the Requirements row, whose Install all missing is the page's one
+# install.
+expect_poll "the Voice page offers no setup step without voxtype" '[["setup", "", false]]' offered_actions vgs.voice
 expect_poll "the Voice Requirements row says voxtype is missing" "$(words voxtype "Missing, optional" "Captures speech and inserts dictated text")" voice_requirement_drawn
 
-# The setup entry's step without voxtype: the notice installs voxtype and
-# its bridge, and the install opens no screen after it.
+# Install all missing without voxtype: the notice installs voxtype and its
+# bridge, and the install opens no screen after it.
 forget_record
-expect "the setup step without voxtype is answered" ok settings_act vgs.voice setup
-expect_poll "the setup step without voxtype raises the notice" "$voice_asked" notice_shown
+expect "Install all missing without voxtype is answered" ok ipc smoke invokeInstance window vgs.settings installRequirements vgs.voice
+expect_poll "Install all missing without voxtype raises the notice" "$voice_asked" notice_shown
 expect "the notice holds no screen to open after the install" '{}' voice_resumes
-expect_poll "the setup step's notice holds the keyboard for Install" true ipc smoke noticeFocused
+expect_poll "the Install all missing notice holds the keyboard for Install" true ipc smoke noticeFocused
 hold_runs
-type_keys -k Return || fail "sending Return to the setup step's notice failed"
+type_keys -k Return || fail "sending Return to the Install all missing notice failed"
 expect_poll "Install hands the terminal voxtype-bin through the AUR helper" "$(core_words core/requirements-install "Install requirements" org.vgs.tui pkg run install --manager aur voxtype-bin)" recorded
 expect_poll "the notice records its install running" '["vgs.voice", ["voxtype", "voxtype-audio-bridge"], ["voxtype", "voxtype-audio-bridge"], true]' notice_shown
 voice_forget

@@ -352,9 +352,8 @@ Singleton {
     }
 
     // A user's choice of OWNER's COMMANDS, the core's or an enabled
-    // plugin's: the `doctor` capability's, and the `manager` capability's
-    // act on a status action that installs (D061). The owner and the
-    // commands are judged at once; the notice is raised after a scan this
+    // plugin's: the `doctor` capability's. The owner and the commands are
+    // judged at once; the notice is raised after a scan this
     // choice starts and that scan's version read, since the value that
     // offered it read PATH later than the last scan did (a removal through
     // mise rescans nothing, and a plugin's own probe is its own), so a

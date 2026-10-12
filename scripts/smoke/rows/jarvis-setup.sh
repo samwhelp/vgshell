@@ -10,12 +10,10 @@
 # controls are two Service copies, one whose key and account readers send
 # no snapshot when their checks end and one whose local voice reader
 # sends none. Last, a `pi` stand-in below the floor the manifest gives Pi:
-# chosen as the AI model, the daemon refuses it, the AI model step offers
-# Update Pi, the Setup section draws it beside the step as the page's
-# primary action, ahead of the optional Sign in step, and a click on it
-# raises the core's notice for pi; after that notice closes, a control makes
-# the button never report the pointer and expects the press to fail there.
-# The same Pi at its floor offers no update, which is the control. The local
+# chosen as the AI model, the daemon refuses it, the AI model step reads to
+# do and offers no step, and the Setup section draws no button beside it,
+# since the Requirements section, which reads Pi outdated, updates it. The
+# same Pi at its floor reads present, which is the control. The local
 # voice records through the core's dictation, so the row puts the voxtype
 # stand-in on the shell's PATH (rows/capabilities.sh) for its ready reads
 # and takes it away at its end. The Local voice setting: a start opens no
@@ -728,8 +726,11 @@ setup_pi_id() {
 # The AI model step's published action, the label of its button and
 # whether the button is offered.
 setup_model_step() {
-  status_row vgs.jarvis setupModel | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([r["value"].get("action"), r["action"]["label"], r["action"]["offered"]]))'
+  status_row vgs.jarvis setupModel | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([r["value"].get("tone"), r["value"].get("action"), r["action"]["offered"]]))'
 }
+# Pi's state in the plugin's requirements, which the Setup tab's
+# Requirements section draws.
+setup_pi_requirement() { ipc shell listPlugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin)["plugins"] if p["id"]=="vgs.jarvis"][0]; print([r["state"] for r in p["requirements"] if r["name"]=="pi"][0])'; }
 # The actions the Setup section draws beside its AI model step, each as
 # the screen it opens, "" for one the manager acts on, and whether it takes
 # a press.
@@ -739,7 +740,6 @@ t=sys.stdin.read()
 r=[x for x in (json.loads(t) if t.startswith("[") else []) if x["label"]=="AI model"]
 print(json.dumps([[b["tui"], b["enabled"]] for b in r[0]["buttons"]]) if r else "absent")'
 }
-setup_model_updates() { setup_model_step | py_reply 'import json,sys; print("update" if json.load(sys.stdin)[0]=="update" else "no-update")'; }
 pi_floor="$(python3 -c 'import json,sys; print(next(r["floor"] for r in json.load(open(sys.argv[1]))["requirements"] if r.get("command")=="pi"))' "$repo/shell/plugins/vgs.jarvis/manifest.json")" || fail "the manifest gives Pi no floor"
 mkdir -p -- "$setup_pi" && printf '{}\n' >"$setup_pi/auth.json" || fail "the Pi folder is not written"
 [[ ! -e $setup_state/accounts.json ]] || cp -- "$setup_state/accounts.json" "$sandbox/setup-accounts-before-pi"
@@ -753,18 +753,9 @@ rescan "a rescan after the Pi stand-in appears starts"
 setup_pi_brain="$(setup_pi_id)" || fail "the account helper lists no id for the Pi folder"
 setup_brain "$setup_pi_brain"
 expect_poll "the daemon holds Pi as the chosen AI model" "\"$setup_pi_brain\"" setup_daemon_brain
-expect_poll "a Pi below its floor offers Update Pi on the AI model step" '["update", "Update Pi", true]' setup_model_step
-expect_poll "the Setup section draws the step beside the AI model" '[["", true]]' setup_model_drawn
-settings_press "Update Pi" || fail "the click on Update Pi failed"
-expect_poll "the core's notice lists the outdated Pi" '["vgs.jarvis", ["pi"], ["pi"], false]' notice_shown
-expect_poll "Pi's notice holds the keyboard" true ipc smoke noticeFocused
-type_keys -k Escape || fail "sending Escape failed"
-expect_poll "Escape closes Pi's notice" null notice_shown
-update_pi_unready() {
-  (control_hovered() { echo false; }
-   if settings_press "Update Pi" 2>&1 >/dev/null; then echo pressed; fi)
-}
-expect "a press Update Pi cannot take yet fails at the press with its cause" "settings_press: pointer-not-ready=Button Update Pi" update_pi_unready
+expect_poll "a Pi below its floor leaves the AI model step to do, with no step of its own" '["warning", null, false]' setup_model_step
+expect_poll "the Setup section draws no button beside the AI model" '[]' setup_model_drawn
+expect_poll "the Requirements section reads Pi outdated" outdated setup_pi_requirement
 # The control: the daemon judges the choice again when it is made again.
 pi_version "$pi_floor" || fail "the Pi stand-in at its floor is not written"
 rescan "a rescan with Pi at its floor starts"
@@ -772,7 +763,7 @@ setup_brain ""
 expect_poll "the daemon holds no AI model between the two choices" '""' setup_daemon_brain
 setup_brain "$setup_pi_brain"
 expect_poll "the daemon holds Pi at its floor as the chosen AI model" "\"$setup_pi_brain\"" setup_daemon_brain
-expect_poll "a Pi at its floor offers no update" no-update setup_model_updates
+expect_poll "a Pi at its floor reads present under Requirements" present setup_pi_requirement
 rm -f -- "${shim:?}/pi" "${setup_state:?}/accounts.json" "${setup_pi_version:?}" "${setup_pi_standin:?}"
 [[ ! -e $sandbox/setup-accounts-before-pi ]] || cp -- "$sandbox/setup-accounts-before-pi" "$setup_state/accounts.json"
 rm -rf -- "${home:?}/.pi"

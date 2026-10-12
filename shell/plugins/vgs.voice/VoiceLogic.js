@@ -87,13 +87,14 @@ var DAEMON_LINES = {
 // `present` false while voxtype is not found, and DAEMON, the capability's
 // `daemon` word: { tone, text, lines, action, engine, model }. Ready reads
 // the version and the model; otherwise each line names one thing that is
-// missing. `action` names the manifest's step that applies: `install`
-// without voxtype, `stop` while another voxtype holds the daemon's place,
-// whatever else is missing, since the core's setup cannot free it, `setup`
-// while another line stands, "" once ready.
+// missing. `action` names the manifest's step that applies: `stop` while
+// another voxtype holds the daemon's place, whatever else is missing,
+// since the core's setup cannot free it, `setup` while another line
+// stands, "" once ready and without voxtype, which the page's
+// Requirements section installs.
 function setupState(reads, daemon) {
     if (reads.present === false)
-        return { tone: "warning", text: "Setup needed", lines: ["voxtype is not installed."], action: "install", engine: DEFAULT_ENGINE, model: DEFAULT_MODEL };
+        return { tone: "warning", text: "Setup needed", lines: ["voxtype is not installed."], action: "", engine: DEFAULT_ENGINE, model: DEFAULT_MODEL };
     if (DAEMON_LINES[daemon] === undefined)
         throw new Error("voice: daemon " + JSON.stringify(daemon) + " is not one of " + Object.keys(DAEMON_LINES).join(", "));
     var engine = configValue(reads.engine || "", DEFAULT_ENGINE);

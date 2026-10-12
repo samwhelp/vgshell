@@ -20,14 +20,13 @@ BarWidget {
     // The service owns dictation: the click asks it for the toggle its keys
     // run, and never starts a recording itself. The service logs a start
     // or stop the core refuses. Without voxtype the service starts none,
-    // and the click is the Settings page's press on the setup entry's
-    // action, whose notice installs what is missing, and which no earlier
-    // Not now holds back.
+    // and the click offers voxtype and its bridge, whose notice installs
+    // what is missing, and which no earlier Not now holds back.
     function toggle() {
         const reply = shell.ipc.call("toggle", "");
         if (reply === "refused: voxtype=missing") {
-            const setup = shell.status.act("setup");
-            if (setup !== "ok") console.warn("voice: setup " + setup);
+            const offer = shell.requirements.offer(["voxtype", "voxtype-audio-bridge"]);
+            if (offer !== "ok") console.warn("voice: requirements " + offer);
         }
         return reply;
     }

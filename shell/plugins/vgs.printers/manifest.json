@@ -21,7 +21,7 @@
   ],
   "systemSteps": ["service-cups"],
   "status": {
-    "printing": { "type": "state", "label": "Printing", "actions": { "install": { "label": "Install printing", "install": ["lpstat", "ipptool"] }, "service": { "label": "Turn on printing", "system": "service-cups" } } },
+    "printing": { "type": "state", "label": "Printing", "action": { "label": "Turn on printing", "system": "service-cups" } },
     "printers": { "type": "data", "label": "Printers" }
   }
 }

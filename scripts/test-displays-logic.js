@@ -514,11 +514,13 @@ function verify(logic) {
   same(values.assignments, { entries: resolved.assignments, error: null });
   same(values.appleAccess, { tone: "warning", text: "Needs your permission", action: true });
   same(values.ddcAccess, { tone: "danger", text: "DDC access isn't supported on this system", action: false });
-  same(values.ddcTool, { tone: "warning", text: "Not installed", action: true });
-  same(values.backlightTool, { tone: "ok", text: "Installed", action: false });
+  same(values.ddcTool, { tone: "warning", text: "Not installed" });
+  same(values.backlightTool, { tone: "ok", text: "Installed" });
+  same([logic.toolCommand("ddcTool"), logic.toolCommand("backlightTool"), logic.toolCommand("appleAccess")], ["ddcutil", "brightnessctl", ""],
+    "the pane offers each tool entry's own command, and none for an access step");
   const noTool = { ddc: { state: "ready" }, backlight: { state: "missing" } };
   same(logic.statusValues(resolved, noTool, logic.emptyRuns(), steps, ["brightnessctl"], null, "ready").backlightTool,
-    { tone: "warning", text: "Not installed", action: true }, "Install is offered while a backlight needs brightnessctl");
+    { tone: "warning", text: "Not installed" }, "a backlight that needs brightnessctl shows the step, with no action");
   const texts = { absent: "absent text", denied: "denied text" };
   const stepStates = [
     ["ready", { tone: "ok", text: "Allowed", action: false }],
@@ -533,8 +535,8 @@ function verify(logic) {
   assert.throws(() => logic.stepState({ state: "maybe" }, texts), /step state "maybe"/);
   const unread = logic.statusValues(null, null, logic.emptyRuns(), null, ["brightnessctl"], "refused: assignments=unparsed", "failed");
   same([unread.displays, unread.assignments.error, unread.appleAccess.text, unread.backlightTool], [{ state: "failed", items: [] }, "refused: assignments=unparsed",
-    "Access could not be checked", { tone: "info", text: "Not needed", action: false }]);
-  same(logic.statusWrites({ displays: values.displays, ddcTool: { tone: "ok", text: "Installed", action: false } }, values).map(w => w.key),
+    "Access could not be checked", { tone: "info", text: "Not needed" }]);
+  same(logic.statusWrites({ displays: values.displays, ddcTool: { tone: "ok", text: "Installed" } }, values).map(w => w.key),
     ["assignments", "appleAccess", "ddcAccess", "ddcTool", "backlightTool"], "only changed values are written");
   const needed = [["ok", false], ["info", false], ["warning", true], ["danger", true]];
   for (const [tone, want] of needed) assert.equal(logic.accessNeeded({ tone: tone, text: "t", action: false }), want, "accessNeeded: " + tone);

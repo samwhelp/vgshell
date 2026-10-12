@@ -21,4 +21,4 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 | --- | --- |
 | Volume step | How much the volume keys and the mouse wheel change the volume: 2%, 5% or 10%. |
 
-Moving the apps that play needs `pactl`. The Playing apps row on the plugin's Settings page installs it when it is missing. Without it, new apps use the new output and the apps that play now stay where they are.
+Moving the apps that play needs `pactl`. When it is missing, the Playing apps row in the flyout and the section installs it, as does Install all missing on the Setup tab of the plugin's page. Without it, new apps use the new output and the apps that play now stay where they are.

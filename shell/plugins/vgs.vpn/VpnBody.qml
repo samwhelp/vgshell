@@ -6,8 +6,8 @@ import "VpnLogic.js" as Logic
 // The body the flyout and the System pane share. It draws the `vpn` value
 // the service publishes and asks the service for every change through the
 // plugin's own IPC; it starts no process. While it is open it holds a
-// lease, which makes the service's poll fast. The setup step, Install,
-// Enable or Allow, is the `setup` status entry's action as the core's
+// lease, which makes the service's poll fast. The setup step, Enable or
+// Allow, is the `setup` status entry's action as the core's
 // status rows offer it (`status.rows`), run through `status.act`.
 //
 // Tab moves from the connection switch to the exit nodes and, in the

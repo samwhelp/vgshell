@@ -140,7 +140,8 @@ var LINES_MAX = 32;
 // one line each, and offers the step that makes room: `uninstall` when the
 // package manager removes every one of them alone, else `stop`, so the row
 // never offers to remove a package another installed package requires;
-// with no other agent and no polkit, `install`.
+// with no other agent and no polkit, no step: the page's Requirements
+// section installs it.
 function agentStatus(registered, check, polkitMissing) {
     if (registered === true) return { tone: "ok", text: READY };
     if (check === null) return null;
@@ -151,7 +152,7 @@ function agentStatus(registered, check, polkitMissing) {
         if (lines.length > 1) value.lines = lines.slice(1);
         return value;
     }
-    if (polkitMissing === true) return { tone: "warning", text: "Polkit is not installed.", action: "install" };
+    if (polkitMissing === true) return { tone: "warning", text: "Polkit is not installed." };
     return { tone: "warning", text: "Password prompts are unavailable. No other app is showing them." };
 }
 

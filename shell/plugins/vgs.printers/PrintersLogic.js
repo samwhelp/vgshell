@@ -15,6 +15,8 @@
 // The CUPS D-Bus helper's bus name, object interface and the requirement
 // the manifest declares for it.
 var HELPER = "org.opensuse.CupsPkHelper.Mechanism";
+// The requirements CUPS brings: without either the list cannot be read.
+var CUPS_COMMANDS = ["lpstat", "ipptool"];
 // lpstat's options, in the order it prints their answers: the scheduler,
 // the printers, the queued jobs, the device URIs. The service runs it under
 // LC_ALL=C, so each line is the C locale's. Its `-d` is left out: it names
@@ -454,16 +456,16 @@ function addressDevice(text) {
 
 // The status `printing`, the Settings page's line, from READING,
 // lpstatReading's answer or { state: "unread" }, CUPSMISSING, whether the
-// scan found lpstat or ipptool missing, and STEP, the service-cups system
-// step's state or "": { tone, text }, with `action` naming the manifest's
-// action that applies, `install` or `service`, and no `action` while none
-// does.
+// scan found a command of CUPS_COMMANDS missing, and STEP, the service-cups
+// system step's state or "": { tone, text }, with `action` true while the
+// entry's Turn on printing applies. Printing that is not installed offers
+// no step: the page's Requirements section installs it.
 function printingView(reading, cupsMissing, step) {
-    if (cupsMissing) return { tone: "warning", text: "Printing is not installed.", action: "install" };
+    if (cupsMissing) return { tone: "warning", text: "Printing is not installed." };
     switch (reading.state) {
     case "unread": return { tone: "info", text: "Reading printers" };
     case "down":
-        if (step === "needed" || step === "nixos") return { tone: "warning", text: "Printing is off.", action: "service" };
+        if (step === "needed" || step === "nixos") return { tone: "warning", text: "Printing is off.", action: true };
         return { tone: "warning", text: "Printing is off." };
     case "failed": return { tone: "danger", text: "VGS could not read the printers." };
     case "read":

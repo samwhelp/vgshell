@@ -222,12 +222,12 @@ function suite(logic) {
         ["no printer", read(0), false, "ready", { tone: "ok", text: "No printers" }],
         ["one printer", read(1), false, "ready", { tone: "ok", text: "1 printer" }],
         ["two printers", read(2), false, "ready", { tone: "ok", text: "2 printers" }],
-        ["off, step needed", { state: "down" }, false, "needed", { tone: "warning", text: "Printing is off.", action: "service" }],
-        ["off, on NixOS", { state: "down" }, false, "nixos", { tone: "warning", text: "Printing is off.", action: "service" }],
+        ["off, step needed", { state: "down" }, false, "needed", { tone: "warning", text: "Printing is off.", action: true }],
+        ["off, on NixOS", { state: "down" }, false, "nixos", { tone: "warning", text: "Printing is off.", action: true }],
         ["off, step ready", { state: "down" }, false, "ready", { tone: "warning", text: "Printing is off." }],
         ["off, step denied", { state: "down" }, false, "denied", { tone: "warning", text: "Printing is off." }],
         ["failed", { state: "failed", reason: "line" }, false, "needed", { tone: "danger", text: "VGS could not read the printers." }],
-        ["not installed offers its install", { state: "unread" }, true, "needed", { tone: "warning", text: "Printing is not installed.", action: "install" }]
+        ["not installed offers no step", { state: "unread" }, true, "needed", { tone: "warning", text: "Printing is not installed." }]
     ]) assert.deepEqual(plain(logic.printingView(reading, missing, step)), want, name);
     assert.throws(() => logic.printingView({ state: "other" }, false, ""), /reading state "other"/);
 
@@ -262,7 +262,7 @@ try {
         ["the default marks no printer", "isDefault: p.name === name,", "isDefault: false,"],
         ["a refusal past PrinterAdd says nothing changed", 'next.problem = op.kind === "add" && op.index > 0 ? "added-stopped" : reply.problem;', "next.problem = reply.problem;"],
         ["a found device a printer uses is shown", "return devices.filter(function (d) { return !printers.some(function (p) { return p.uri === d.uri; }); });", "return devices;"],
-        ["printing that is not installed offers nothing", 'if (cupsMissing) return { tone: "warning", text: "Printing is not installed.", action: "install" };', 'if (cupsMissing) return { tone: "warning", text: "Printing is not installed." };'],
+        ["printing that is not installed reads as such", 'if (cupsMissing) return { tone: "warning", text: "Printing is not installed." };', ""],
         ["a refused prompt reads as a plain failure", '{ kind: "refused", pattern:', '{ kind: "failed", pattern:'],
         ["a string argument goes unquoted", "function quoted(s) { return \"'\" +", "function quoted(s) { return \"\" + String(s); return \"'\" +"],
         ["a new queue is left stopped", '        helperArgv("PrinterSetEnabled", [quoted(name), "true"]),\n', ""],

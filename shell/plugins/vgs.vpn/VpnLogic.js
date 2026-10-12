@@ -272,11 +272,13 @@ function command(request, data) {
 function stepOffered(step) { return step === "needed" || step === "nixos"; }
 
 // The setup line: { tone, text, action }, `action` the one step that
-// applies now, `install`, `enable` or `allow`, or "" for none. CONTEXT is
+// applies now, `enable` or `allow`, or "" for none. CONTEXT is
 // { missing, state, service, operator }: whether the `tailscale` command
-// is absent, the snapshot's state and the two system steps' states.
+// is absent, the snapshot's state and the two system steps' states. A
+// missing command offers no step: the page's Requirements section
+// installs it.
 function setup(context) {
-    if (context.missing) return { tone: "warning", text: "Tailscale is not installed.", action: "install" };
+    if (context.missing) return { tone: "warning", text: "Tailscale is not installed.", action: "" };
     if (context.state === "service-off")
         return stepOffered(context.service) ? { tone: "warning", text: "The Tailscale service is off.", action: "enable" }
             : { tone: "warning", text: "The Tailscale service is not available.", action: "" };
@@ -307,12 +309,12 @@ function connection(missing, snap) {
 }
 
 // The `vpn` value the service publishes and the views draw: the snapshot
-// under the connection line, with `writable`, false while the Allow step
-// or another setup step must run first, and LIVE { accounts, action,
+// under the connection line, with `writable`, false while the command is
+// MISSING or the Allow step or another setup step must run first, and LIVE { accounts, action,
 // login, problem }, what the service holds beside the snapshot.
 function published(missing, snap, setupLine, live) {
     var shown = connection(missing, snap);
-    return Object.assign({}, snap, { state: shown.state, tone: shown.tone, text: shown.text, writable: setupLine.action === "",
+    return Object.assign({}, snap, { state: shown.state, tone: shown.tone, text: shown.text, writable: !missing && setupLine.action === "",
         accounts: live.accounts, action: live.action, login: live.login, problem: live.problem });
 }
 

@@ -14,7 +14,7 @@
   "status": {
     "devices": { "type": "choices", "label": "Devices" },
     "token": { "type": "presence", "label": "Token", "group": "Sync", "hint": "Needed for the fixture's sync", "action": { "label": "Set up token", "tui": "setup" } },
-    "check": { "type": "state", "label": "Check", "action": { "label": "Install the tool", "install": ["vgs-smoke-absent"] } },
+    "check": { "type": "state", "label": "Check", "action": { "label": "Check again", "tui": "setup" } },
     "pending": { "type": "count", "label": "Pending", "group": "Sync" },
     "lastCheck": { "type": "time", "label": "Last check" },
     "note": { "type": "text", "label": "Note" },

@@ -555,7 +555,7 @@ Item {
     function shellStatus(availability) {
         const value = availability.kind === "available" ? { tone: "ok", text: "Ready" }
             : availability.kind === "checking" ? { tone: "info", text: "Checking confinement" }
-            : { tone: "warning", text: "Unavailable: " + availability.reason, action: availability.reason === "bwrap-missing" };
+            : { tone: "warning", text: "Unavailable: " + availability.reason };
         const result = shell.status.set("shell", value);
         if (result !== "ok") throw new Error("jarvis: " + result);
     }

@@ -46,13 +46,7 @@
     },
     "detailsTool": {
       "type": "state",
-      "label": "Connection details",
-      "action": {
-        "label": "Install details tool",
-        "install": [
-          "nmcli"
-        ]
-      }
+      "label": "Connection details"
     },
     "network": {
       "type": "data",

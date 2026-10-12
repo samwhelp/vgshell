@@ -60,9 +60,7 @@ Item {
     readonly property bool viewed: shell !== null && shell.status.viewed
 
     readonly property var missing: shell === null ? [] : shell.requirements.missing
-    // lpstat and ipptool come with CUPS; without either the list cannot be
-    // read, and the `printing` line offers their install.
-    readonly property bool cupsMissing: missing.indexOf("lpstat") !== -1 || missing.indexOf("ipptool") !== -1
+    readonly property bool cupsMissing: Logic.CUPS_COMMANDS.some(command => missing.indexOf(command) !== -1)
     readonly property bool watchMissing: missing.indexOf("dbus-monitor") !== -1
     readonly property bool helperMissing: missing.indexOf("gdbus") !== -1 || missing.indexOf(Logic.HELPER) !== -1
     readonly property int scans: shell === null ? 0 : shell.requirements.revision

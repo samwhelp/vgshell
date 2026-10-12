@@ -194,18 +194,18 @@ var LAUNCHER_ROW_KEYS = ["id", "label", "icon", "description", "aliases", "menu"
 // page draws as a button beside the entry. It carries a printable `label`
 // and exactly one route, STATUS_ACTION_ROUTES: `tui`, a name of the
 // manifest's own `tui` key the core opens in a floating terminal;
-// `install`, a list of the manifest's own requirements the core
-// offers through the requirement notice; `system`, a step of the
-// manifest's own `systemSteps` the core applies in its `core/system` TUI
-// (D081); `undo`, such a step the core undoes there; or `dictation`,
-// `setup` for a holder of that capability. An entry of a
+// `system`, a step of the manifest's own `systemSteps` the core applies in
+// its `core/system` TUI (D081); `undo`, such a step the core undoes there;
+// or `dictation`, `setup` for a holder of that capability. No route
+// installs a requirement: the page's Requirements section holds the one
+// install action. An entry of a
 // type in STATUS_ACTION_TYPES takes one. A `state`
 // entry whose step differs by what its writer found declares `actions`
 // instead: two or more such steps by name, a STATUS_KEY_PATTERN
 // identifier, of which a value names at most one. An action that removes
 // what the user set up, such as a sign-out, carries `tone`, one of
 // STATUS_ACTION_TONES, and a page draws it in the danger style.
-var STATUS_ACTION_ROUTES = ["tui", "install", "system", "undo", "dictation"];
+var STATUS_ACTION_ROUTES = ["tui", "system", "undo", "dictation"];
 var STATUS_ACTION_KEYS = ["label", "tone"].concat(STATUS_ACTION_ROUTES);
 var STATUS_ACTION_TONES = ["danger"];
 var STATUS_ACTION_TYPES = ["presence", "state"];
@@ -716,9 +716,8 @@ function linkError(entry, at, field) {
 // `hidden`, `action` or `actions`. A plugin publishes status
 // only through its `status` capability, so the key needs the capability,
 // and the capability needs at least one entry. TUI is the manifest's `tui`
-// key or undefined, REQUIREMENTS its judged `requirements` list, SYSTEM
-// its judged `systemSteps` or undefined.
-function statusError(status, capabilities, tui, requirements, system) {
+// key or undefined, SYSTEM its judged `systemSteps` or undefined.
+function statusError(status, capabilities, tui, system) {
     if (!isPlainObject(status))
         return "status must be an object";
     var keys = Object.keys(status);
@@ -767,7 +766,7 @@ function statusError(status, capabilities, tui, requirements, system) {
         for (var a = 0; a < declared.length; a++) {
             if (declared[a].name !== null && !STATUS_KEY_PATTERN.test(declared[a].name))
                 return at + ".actions key " + JSON.stringify(declared[a].name) + " must match " + STATUS_KEY_PATTERN.source;
-            var badAction = statusActionError(entry.type, declared[a].action, at + declared[a].at, tui, requirements, system, capabilities);
+            var badAction = statusActionError(entry.type, declared[a].action, at + declared[a].at, tui, system, capabilities);
             if (badAction !== "")
                 return badAction;
         }
@@ -800,10 +799,10 @@ function statusEntryActions(entry) {
 // type is in STATUS_ACTION_TYPES, a printable `label` of at most STATUS_LABEL_MAX
 // characters, an optional `tone` of STATUS_ACTION_TONES, and exactly one
 // of STATUS_ACTION_ROUTES: `tui`, a name the
-// manifest's TUI key declares; `install`, a non-empty list of requirements the
-// manifest's REQUIREMENTS declare, each once; `system` or `undo`, a step
-// the manifest's SYSTEM, its `systemSteps`, declares.
-function statusActionError(type, action, at, tui, requirements, system, capabilities) {
+// manifest's TUI key declares; `system` or `undo`, a step the manifest's
+// SYSTEM, its `systemSteps`, declares; or `dictation`. An unknown key names
+// the keys an action takes, so an `install` list reads as no route.
+function statusActionError(type, action, at, tui, system, capabilities) {
     if (STATUS_ACTION_TYPES.indexOf(type) === -1)
         return at + " needs a type whose value says when it applies, one of " + STATUS_ACTION_TYPES.join(", ");
     if (!isPlainObject(action))
@@ -811,7 +810,7 @@ function statusActionError(type, action, at, tui, requirements, system, capabili
     var keys = Object.keys(action);
     for (var i = 0; i < keys.length; i++) {
         if (STATUS_ACTION_KEYS.indexOf(keys[i]) === -1)
-            return at + " has unknown key " + JSON.stringify(keys[i]);
+            return at + " has unknown key " + JSON.stringify(keys[i]) + "; an action takes " + STATUS_ACTION_KEYS.join(", ");
     }
     if (!isPrintableLine(action.label, STATUS_LABEL_MAX))
         return at + ".label must be a printable line of 1 to " + STATUS_LABEL_MAX + " characters";
@@ -832,20 +831,8 @@ function statusActionError(type, action, at, tui, requirements, system, capabili
             return at + "." + stepRoute + " must name a step of the manifest's systemSteps, got " + JSON.stringify(action[stepRoute]);
         return "";
     }
-    if (action.tui !== undefined) {
-        if (typeof action.tui !== "string" || !isPlainObject(tui) || !hasOwn(tui, action.tui))
-            return at + ".tui must name a script of the manifest's tui key, got " + JSON.stringify(action.tui);
-        return "";
-    }
-    if (!Array.isArray(action.install) || action.install.length === 0)
-        return at + ".install must be a non-empty list of the manifest's requirements";
-    var declared = requirements.map(requirementName);
-    for (var n = 0; n < action.install.length; n++) {
-        if (declared.indexOf(action.install[n]) === -1)
-            return at + ".install." + n + " must name a requirement of the manifest's requirements, got " + JSON.stringify(action.install[n]);
-        if (action.install.indexOf(action.install[n]) !== n)
-            return at + ".install." + n + " repeats " + JSON.stringify(action.install[n]);
-    }
+    if (typeof action.tui !== "string" || !isPlainObject(tui) || !hasOwn(tui, action.tui))
+        return at + ".tui must name a script of the manifest's tui key, got " + JSON.stringify(action.tui);
     return "";
 }
 
@@ -1379,17 +1366,19 @@ function statusActionOffered(entry, value) {
 
 // What a Status row carries of ENTRY's step for its published VALUE, null
 // while unreported: null for an entry that declares none, else { label,
-// offered, tui, tone }, the label of the action that applies, STATUS_WITHHELD_LABEL
-// while that action's TUI lacks the requirements LACKING, or of the entry's one
-// `action` while it does not, "" for `actions` none of which applies, and
-// `tui` the plugin's own TUI the offered action opens, "" while none is
-// offered or it opens none, so a page can draw that TUI's button as the step,
-// and `tone` the labelled action's, "" or one of STATUS_ACTION_TONES, ""
-// while withheld, since the press then installs.
+// offered, tui, tone }, the label of the action that applies, or of the
+// entry's one `action` while none does, "" for `actions` none of which
+// applies, `offered` false while none applies or the applying action's TUI
+// lacks the requirements LACKING, since the page's Requirements section
+// holds the one install action, `tui` the plugin's own TUI the offered
+// action opens, "" while none is offered or it opens none, so a page can
+// draw that TUI's button as the step, and `tone` the labelled action's, ""
+// or one of STATUS_ACTION_TONES, "" while withheld.
 function statusRowAction(entry, value, lacking) {
     if (entry.action === undefined && entry.actions === undefined) return null;
     var offered = value === null ? null : statusActionOffered(entry, value);
-    if (offered !== null) return { label: lacking.length > 0 ? STATUS_WITHHELD_LABEL : offered.label, tone: lacking.length > 0 ? "" : statusActionTone(offered), offered: true, tui: offered.tui === undefined ? "" : offered.tui };
+    if (offered !== null && lacking.length > 0) return { label: offered.label, tone: "", offered: false, tui: "" };
+    if (offered !== null) return { label: offered.label, tone: statusActionTone(offered), offered: true, tui: offered.tui === undefined ? "" : offered.tui };
     return { label: entry.action === undefined ? "" : entry.action.label, tone: entry.action === undefined ? "" : statusActionTone(entry.action), offered: false, tui: "" };
 }
 
@@ -1413,10 +1402,6 @@ function statusActionTone(action) {
     return action.tone === undefined ? "" : action.tone;
 }
 
-// The label a Status row's button reads while the TUI its action opens
-// lacks a command it needs; the press opens the requirement notice.
-var STATUS_WITHHELD_LABEL = "Install requirements";
-
 // The requirements MANIFEST's TUI that status ENTRY offers for its published
 // VALUE needs and MISSING holds, [] while it offers no TUI.
 function statusActionLacking(manifest, entry, value, missing) {
@@ -1425,13 +1410,17 @@ function statusActionLacking(manifest, entry, value, missing) {
     return offered !== null && offered.tui !== undefined ? tuiMissingRequirements(manifest, offered.tui, missing) : [];
 }
 
+// The name of the Requirements section's action that installs every
+// missing requirement, which a withheld step points to.
+var REQUIREMENTS_INSTALL_LABEL = "Install all missing";
+
 // The hint of a Status row whose action is withheld for the requirements
-// LACKING: what is missing and that the offered button installs it, in
-// place of the entry's hint and its state's text, which name the withheld
-// action.
+// LACKING: what is missing and that the Requirements section's action
+// installs it, in place of the entry's hint and its state's text, which
+// name the withheld action.
 function statusWithheldHint(lacking) {
     var one = lacking.length === 1;
-    return requirementNames(lacking) + (one ? " is" : " are") + " missing. " + STATUS_WITHHELD_LABEL + " installs " + (one ? "it." : "them.");
+    return requirementNames(lacking) + (one ? " is" : " are") + " missing. " + REQUIREMENTS_INSTALL_LABEL + " installs " + (one ? "it." : "them.");
 }
 
 // The requirement names NAMES as a person reads a list: `a`, `a and b`,
@@ -1442,9 +1431,9 @@ function requirementNames(names) {
 
 // Why a listed TUI's button takes no press while it lacks the requirements
 // LACKING, which its press could only install: one line naming them and the
-// step that installs them.
+// Requirements section's action that installs them.
 function tuiWithheldReason(lacking) {
-    return "Needs " + requirementNames(lacking) + ". " + STATUS_WITHHELD_LABEL + " first.";
+    return "Needs " + requirementNames(lacking) + ". " + REQUIREMENTS_INSTALL_LABEL + " first.";
 }
 
 // The Status rows the plugin manager shows for a plugin: one per entry
@@ -1535,10 +1524,9 @@ function tuiRunFor(manifest, enabled, sourceDir, runner, name, missing) {
 // What the `manager` capability's `act(id, key)` does for status entry KEY
 // of plugin MANIFEST, null for an id no plugin has, ENABLED and VALUES its
 // published values: { ok: true, kind: "tui", name } to open the plugin's own
-// TUI NAME, { ok: true, kind: "install", commands } to offer its own
-// requirement COMMANDS through the requirement notice, { ok: true, kind:
-// "system", args } to open the core TUI `core/system` with ARGS, `apply`
-// or `undo` and its declared step, or { ok: false,
+// TUI NAME, { ok: true, kind: "system", args } to open the core TUI
+// `core/system` with ARGS, `apply` or `undo` and its declared step, or
+// { ok: false,
 // answer } with `unknown: <id>` or statusActionRefusal's line: `undeclared`
 // for an entry without an action, `disabled` for a disabled plugin and
 // `not-offered` while the published value does not call for it.
@@ -1554,13 +1542,11 @@ function statusActionRequest(manifest, id, enabled, values, key) {
         return { ok: false, answer: statusActionRefusal(key, "not-offered") };
     if (action.dictation !== undefined)
         return { ok: true, kind: "core", name: "dictation-setup" };
-    if (action.tui !== undefined)
-        return { ok: true, kind: "tui", name: action.tui };
     if (action.system !== undefined)
         return { ok: true, kind: "system", args: ["apply", action.system] };
     if (action.undo !== undefined)
         return { ok: true, kind: "system", args: ["undo", action.undo] };
-    return { ok: true, kind: "install", commands: action.install.slice() };
+    return { ok: true, kind: "tui", name: action.tui };
 }
 
 // The one keyed line a refused secret write answers:
@@ -2201,8 +2187,7 @@ var NOTICE_OFFER_MAX = 16;
 // `manager` capability's installRequirements, the Settings window's
 // Install; `chosen`, a user's press asking for the core's or an enabled
 // plugin's requirements: the `doctor` capability, a view of every owner's
-// requirements, and the `manager` capability's act on a status action that
-// installs (D061).
+// requirements.
 var NOTICE_TRIGGERS = ["installed", "enabled", "offered", "suggested", "requested", "chosen"];
 // The owner a notice is raised for when it is the core's own requirements,
 // config/requirements.json, rather than a plugin's. A plugin id is dotted,
@@ -3163,8 +3148,7 @@ function listedTuis(manifest) {
 // plugin's missing requirement names, holds none the screen needs
 // (tuiMissingRequirements), else tuiWithheldReason's line, since its press
 // would only raise the requirement notice. The page draws a withheld
-// screen's button disabled, but for the step an offered status action
-// names, which installs them.
+// screen's button disabled.
 function listedTuiRows(manifest, missing) {
     return listedTuis(manifest).map(function (tui) {
         var lacking = tuiMissingRequirements(manifest, tui.name, missing);
@@ -3818,8 +3802,7 @@ function validateManifest(raw, sourceDir) {
         return { ok: false, error: "settings must not carry a keys key: a plugins row's keys are its Hyprland keys" };
     if (hasOwn(settings, "placement") && PLACEMENTS.indexOf(settings.placement) === -1)
         return { ok: false, error: "settings.placement must be one of " + PLACEMENTS.join(", ") + ", got " + JSON.stringify(settings.placement) };
-    // The requirements first: a status action names the requirements it
-    // installs from them.
+    // The requirements first: a TUI's `requires` names them.
     var requirements = raw.requirements === undefined ? [] : raw.requirements;
     var badRequirements = requirementsError(requirements);
     if (badRequirements !== "")
@@ -3833,7 +3816,7 @@ function validateManifest(raw, sourceDir) {
         return { ok: false, error: "capability system needs a systemSteps declaration" };
     }
     if (raw.status !== undefined) {
-        var badStatus = statusError(raw.status, capabilities, raw.tui, requirements, raw.systemSteps);
+        var badStatus = statusError(raw.status, capabilities, raw.tui, raw.systemSteps);
         if (badStatus !== "")
             return { ok: false, error: badStatus };
     } else if (capabilities.indexOf("status") !== -1) {

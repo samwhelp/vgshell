@@ -106,11 +106,12 @@ usage_widget_state() {
   python3 -c 'import json,sys; v,w,p,t=(json.loads(a) for a in sys.argv[1:]); print(json.dumps([v, w > 0, p, t]))' "$visible" "$width" "$percent" "$tone"
 }
 # Each sign-in row's step as the Settings page draws it: [key, `sign-in`
-# while its button is the manifest's own Sign in, else `withheld`, offered].
+# while it offers the manifest's own Sign in, else `withheld`, offered]. A
+# withheld row keeps its label and offers no button.
 usage_steps() {
   offered_actions vgs.ai-usage | py_reply 'import json,sys
 labels = {k: v["action"]["label"] for k, v in json.load(open(sys.argv[1]))["status"].items() if "action" in v}
-print(json.dumps([[k, "sign-in" if label == labels[k] else "withheld", offered] for k, label, offered in json.load(sys.stdin)]))' "$usage_plugin/manifest.json"
+print(json.dumps([[k, "sign-in" if label == labels[k] and offered else "withheld", offered] for k, label, offered in json.load(sys.stdin)]))' "$usage_plugin/manifest.json"
 }
 # The bytes' digest and the modification time of each planted credential file.
 usage_credentials() {
@@ -311,7 +312,7 @@ expect_poll "AI Usage's service is built" True record_exists vgs.ai-usage
 expect_poll "with no account the service publishes none" '[]' usage_states
 expect_poll "with no account the widget is hidden and empty" '[false, false, null, "normal"]' usage_widget_state
 expect "the Settings window is summoned" ok ipc shell summon window vgs.settings '{}'
-expect_poll "a missing codex withholds Codex's Sign in and not Claude Code's" '[["claude", "sign-in", true], ["codex", "withheld", true]]' usage_steps
+expect_poll "a missing codex withholds Codex's Sign in and not Claude Code's" '[["claude", "sign-in", true], ["codex", "withheld", false]]' usage_steps
 ln -sfn -- "$source_repo/scripts/fixtures/ai-usage/codex" "$shim/codex"
 rescan "the stand-in codex is scanned"
 expect "the shell finds the stand-in codex" "$shim/codex" shell_resolves codex

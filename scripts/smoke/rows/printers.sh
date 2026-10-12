@@ -33,8 +33,8 @@
 # the change the world took while it was closed and subscribes again;
 # after disable with the section open the subscription is cancelled and
 # nothing of the watcher remains. A copy without lpstat reads printing not
-# installed, offers Install printing on its line and in the section and no
-# Print Settings, which needs CUPS, and
+# installed, offers no step on its line, Install printing in the section
+# and no Print Settings, which needs CUPS, and
 # the press raises the requirement notice for the missing command. The
 # controls: a copy of the plugin that starts its watcher at enable, keeps
 # it running after the section closes, whose changes call echo in place of
@@ -295,9 +295,10 @@ pr_main() {
 }
 
 # Printing not installed: a copy whose lpstat no PATH holds
-# (cups_uninstalled_copy). The `printing` line offers Install printing, the
-# section draws it, and its press raises the requirement notice for the
-# missing command alone; Escape answers Not now.
+# (cups_uninstalled_copy). The `printing` line offers no step, since the
+# page's Requirements section installs CUPS; the section offers Install
+# printing, and its press raises the requirement notice for the missing
+# command alone; Escape answers Not now.
 pr_uninstalled() {
   rm -rf -- "${pr_copy:?}"
   expect "the not-installed copy is written" copy=written cups_uninstalled_copy "$pr_copy"
@@ -306,8 +307,8 @@ pr_uninstalled() {
   expect "the not-installed copy's section summons" ok ipc shell summon window vgs.system '{"pane":"vgs.printers"}'
   expect_poll "the not-installed copy's section is mounted" '["vgs.printers"]' window_panes
   expect_poll "not installed: the service reads printing not installed" '"missing"' pr_view cups
-  expect_poll "not installed: the printing line names its install action" '"install"' pr_printing action
-  expect_poll "not installed: the section offers the line's action" offered pr_offered
+  expect_poll "not installed: the printing line offers no step" null pr_printing action
+  expect_poll "not installed: the section offers Install printing" offered pr_offered
   expect "not installed: the section offers no Print Settings" false pr_settings_shown
   expect "not installed: the section's action answers ok" ok pr_act runPrintingAction '[]'
   expect_poll "not installed: the notice offers the missing command alone" '["vgs.printers", ["vgs-smoke-lpstat"], ["vgs-smoke-lpstat"], false]' notice_shown

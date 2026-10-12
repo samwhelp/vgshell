@@ -51,28 +51,27 @@ function dictationRefusal(state) {
     return otherDevice(state) ? "refused: dictation=device" : "";
 }
 
-// The value of COMMAND's own status row, whose action is its install: offered
-// while the last scan did not find it.
+// The value of COMMAND's own status row: whether the last scan found it. The
+// row offers no action: the page's Requirements section installs it.
 function requirementValue(command, missing) {
-    if (missing.indexOf(command) === -1) return { tone: "ok", text: "Installed", action: false };
-    return { tone: "warning", text: "Not installed", action: true };
+    if (missing.indexOf(command) === -1) return { tone: "ok", text: "Installed" };
+    return { tone: "warning", text: "Not installed" };
 }
 
-// The voxtype row's value: its install for the local voice, whose words
+// The voxtype row's value: its state for the local voice, whose words
 // voxtype records (dictationCause), and no row for another voice.
 function voxtypeValue(provider, missing) {
     return provider === "local" ? requirementValue("voxtype", missing) : { hidden: true };
 }
 
-// The value of the status row of COMMAND, one the manifest gives a floor,
-// whose entry declares the named actions `install` and `update`: it names
-// the one that applies, and carries none once the last scan found the
-// command at its floor. OUTDATED is the requirements capability's list of
-// the plugin's commands the core's last scan read below their floor; either
-// action raises the core's requirement notice, which installs or updates.
+// The value of the status row of COMMAND, one the manifest gives a floor:
+// missing, below its floor or installed. OUTDATED is the requirements
+// capability's list of the plugin's commands the core's last scan read
+// below their floor. The row offers no action: the page's Requirements
+// section installs or updates it.
 function flooredValue(command, missing, outdated) {
-    if (missing.indexOf(command) !== -1) return { tone: "warning", text: "Not installed", action: "install" };
-    if (outdated.indexOf(command) !== -1) return { tone: "warning", text: "Needs an update", action: "update" };
+    if (missing.indexOf(command) !== -1) return { tone: "warning", text: "Not installed" };
+    if (outdated.indexOf(command) !== -1) return { tone: "warning", text: "Needs an update" };
     return { tone: "ok", text: "Installed" };
 }
 
@@ -91,7 +90,7 @@ var TODO = {
     "brain=account-unavailable": "The chosen AI model cannot be used. Add a key or sign in, then choose it in Settings > AI model.",
     "brain=model-required": "The chosen AI model cannot be used. Choose another AI model in Settings > AI model.",
     "brain=signed-out": "The chosen AI model is not signed in. Sign in, then choose it in Settings > AI model.",
-    "brain=pi-update": "Jarvis needs Pi 1.1.0 or later. Update Pi, or choose another AI model in Settings > AI model.",
+    "brain=pi-update": "Jarvis needs Pi 1.1.0 or later. Update it under Requirements, or choose another AI model in Settings > AI model.",
     "brain=accounts-unreadable": "Jarvis could not read your accounts. Open Accounts to check them.",
     "speech=live-account-unselected": "Add a key for the cloud voice under Setup at the top of this page: an OpenAI key for Realtime, a Gemini key for Gemini Live.",
     "speech=live-account-unreadable": "Jarvis could not read your voice key. Use Accounts in Setup to check it.",
@@ -223,9 +222,10 @@ var MEMORY = {
 };
 // A required step once the daemon stopped: no check runs, none is offered.
 var UNCHECKED = { tone: "warning", text: "Not checked", action: false };
-// The AI model step declares named actions, Add key ("key"), Sign in
-// ("signIn") and Update Pi ("update"), so its value names the one that
-// applies or carries no action: the manifest judge refuses a boolean on it.
+// The AI model step declares named actions, Add key ("key") and Sign in
+// ("signIn"), so its value names the one that applies or carries no
+// action: the manifest judge refuses a boolean on it. A Pi below its floor
+// offers neither: the page's Requirements section updates it.
 function noAction(value) {
     var out = Object.assign({}, value);
     delete out.action;
@@ -303,10 +303,11 @@ function readiness(answer) {
                 return;
             }
             var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];
-            var action = step === "brain" ? (cause === "brain=signed-out" ? "signIn" : cause === "brain=pi-update" ? "update" : "key") : setupActs(cause);
+            var action = step === "brain" ? (cause === "brain=signed-out" ? "signIn" : "key") : setupActs(cause);
             var text = cause === "speech=local-ready-timeout" ? TIMED_OUT : "To do";
             out[REQUIRED[step]] = hint === undefined ? { tone: "warning", text: text, action: action }
                 : { tone: "warning", text: text, hint: hint, action: action };
+            if (cause === "brain=pi-update") out[REQUIRED[step]] = noAction(out[REQUIRED[step]]);
         });
         return out;
     }
@@ -477,7 +478,7 @@ var SESSION_ROWS = {
     "blocked record-unreadable": { tone: "warning", text: "Cannot start", hint: "Jarvis cannot read its saved session record." },
     "blocked sign-in-required": { tone: "warning", text: "Cannot start", detail: true },
     "blocked selection-conflict": { tone: "warning", text: "Cannot start", hint: "Changing the home or account restarts Jarvis after the new selection is checked." },
-    "blocked tmux-missing": { tone: "warning", text: "Cannot start", hint: "No session can start without tmux.", action: "tmux" },
+    "blocked tmux-missing": { tone: "warning", text: "Cannot start", hint: "No session can start without tmux. Install all missing installs it." },
     "blocked app-missing": { tone: "warning", text: "Cannot start", hint: "No session can start, because the app of the selected account is not installed." },
     "failed launch-failed": { tone: "danger", text: "Not started", detail: true, action: "retry" },
     "failed handover-failed": { tone: "danger", text: "Not started", detail: true, action: "retry" }

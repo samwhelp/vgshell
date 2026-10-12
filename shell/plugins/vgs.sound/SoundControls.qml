@@ -26,6 +26,7 @@ Column {
     property bool streamsLine: true
     readonly property real step: shell === null ? 0 : Number(shell.settings.volumeStep) / 100
     readonly property var streams: shell === null || shell.status.values.streams === undefined ? null : shell.status.values.streams
+    readonly property bool pactlMissing: shell !== null && shell.requirements.missing.indexOf("pactl") !== -1
     readonly property Item firstFocus: audio !== null && audio.available ? outputSelect : null
     // The sink a drag changes: the volume target when it began.
     property var held: null
@@ -179,7 +180,7 @@ Column {
     FormRow {
         width: root.width
         label: "Playing apps"
-        visible: root.streams !== null && root.audio !== null && root.audio.available && (root.streamsLine || root.streams.action === true)
+        visible: root.streams !== null && root.audio !== null && root.audio.available && (root.streamsLine || root.pactlMissing)
         Column {
             width: parent.width
             spacing: Theme.stack.inline
@@ -190,7 +191,7 @@ Column {
                 text: root.streams === null ? "" : root.streams.text
             }
             RowAction {
-                visible: root.streams !== null && root.streams.action === true
+                visible: root.pactlMissing
                 text: "Install pactl"
                 onClicked: root.offerPactl()
             }

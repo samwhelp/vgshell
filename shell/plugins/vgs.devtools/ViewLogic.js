@@ -314,7 +314,7 @@ function statusValues(answers) {
         if (tools.value === null) {
             out.mise = { tone: "danger", text: errorText(tools.error) };
         } else {
-            out.mise = tools.value.mise.present ? { tone: "ok", text: clip(tools.value.mise.version) } : { tone: "warning", text: "Not installed", action: true };
+            out.mise = tools.value.mise.present ? { tone: "ok", text: clip(tools.value.mise.version) } : { tone: "warning", text: "Not installed" };
             out.installed = listedRows(tools.value).filter(function (row) { return row.installed === true; }).length;
         }
     }

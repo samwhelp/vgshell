@@ -3,8 +3,8 @@
 # terminal, every text that names one of them has it offered, with nothing
 # found and in a partial search whose row names Accounts, and the AI model
 # setting reads its empty text, closed, beside Add key; without a command
-# only Accounts needs, the search row offers Install requirements and Add
-# key stays offered. With a Copilot account, and only then, Setup shows the
+# only Accounts needs, the search row withholds Accounts and offers no step,
+# and Add key stays offered. With a Copilot account, and only then, Setup shows the
 # Copilot Memory step and its link to GitHub. A click on the Microphone
 # field's link opens the Sounds page. With the fixture's key stored,
 # the Setup section of the Setup tab draws the key list, a line per key
@@ -190,8 +190,9 @@ expect "Add key is offered beside it" '["Add key", true, "info"]' page_offered k
 # Each step is withheld only for a command its own terminal needs. Every
 # sandbox shell lacks tesseract, which neither step needs, so both are
 # offered above. Without ss, which Accounts needs and Add key does not,
-# the partial search, whose own text names Accounts, offers Install
-# requirements, and no text names a step the page lacks.
+# the partial search, whose own text names Accounts, withholds Accounts,
+# since Install all missing on the Setup tab installs ss, and no text
+# names a step the page lacks.
 expect "the sandbox shell lacks tesseract" none shell_resolves tesseract
 printf 'parent-unreadable\n' >"$sandbox/jarvis-world/account-mode"
 page_open accountSearch accounts "Jarvis accounts"
@@ -200,7 +201,7 @@ page_ss="$(shell_resolves ss)"
 [[ $page_ss == "$sandbox/host-path/ss" ]] || fail "ss resolves outside the sandbox's host links: $page_ss"
 mv -- "$page_ss" "$sandbox/page-ss"
 rescan "the page rescans without ss"
-expect_poll "without ss the search row offers Install requirements" '["Install requirements", true, "warning"]' page_offered accountSearch
+expect_poll "without ss the search row withholds Accounts" '["Accounts", false, "warning"]' page_offered accountSearch
 expect_poll "without ss Add key is still offered" '["Add key", true, "info"]' page_offered keyStore
 expect_poll "without ss every text that names Add key or Accounts has the button offered" '[["Add key"], []]' page_named_buttons
 mv -- "$sandbox/page-ss" "$page_ss"

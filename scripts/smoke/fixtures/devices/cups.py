@@ -9,8 +9,8 @@ Usage: cups.py helper STATE                 serve org.opensuse.CupsPkHelper.Mech
                                             as a computer without CUPS sees it
 
 `uninstalled` writes a copy whose `lpstat` is `vgs-smoke-lpstat`, a
-command no PATH holds, in its manifest's requirements and Install
-printing action and in its service, so a scan reads printing not
+command no PATH holds, in its manifest's requirements and in the CUPS
+commands its service and pane read, so a scan reads printing not
 installed while the sandbox's lpstat stand-in stays where it is; the
 host's lpstat is never reached. It prints `copy=written`.
 
@@ -344,8 +344,7 @@ def uninstalled(source, dest):
     shutil.copytree(source, dest)
     for name, old, new in [
         ("manifest.json", '{ "command": "lpstat",', '{ "command": "vgs-smoke-lpstat",'),
-        ("manifest.json", '"install": ["lpstat", "ipptool"]', '"install": ["vgs-smoke-lpstat", "ipptool"]'),
-        ("Service.qml", 'missing.indexOf("lpstat")', 'missing.indexOf("vgs-smoke-lpstat")'),
+        ("PrintersLogic.js", 'var CUPS_COMMANDS = ["lpstat", "ipptool"];', 'var CUPS_COMMANDS = ["vgs-smoke-lpstat", "ipptool"];'),
     ]:
         path = os.path.join(dest, name)
         text = open(path).read()

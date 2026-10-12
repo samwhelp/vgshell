@@ -1081,13 +1081,23 @@ function stepState(step, texts) {
     throw new Error("displays: step state " + JSON.stringify(state) + " is not one of " + STEP_STATES.join(", "));
 }
 
-// An optional command's entry: Install is offered while MISSING, the
+// The optional command each tool entry stands for, by status key.
+var TOOL_COMMANDS = { ddcTool: "ddcutil", backlightTool: "brightnessctl" };
+
+// The command tool entry KEY stands for, "" for another entry. The pane
+// offers its install while the entry reads it missing.
+function toolCommand(key) {
+    return hasOwn(TOOL_COMMANDS, key) ? TOOL_COMMANDS[key] : "";
+}
+
+// An optional command's entry: a step to take while MISSING, the
 // requirement capability's list, names COMMAND and NEEDED holds, that is
-// while a display could use it.
+// while a display could use it. The entry declares no action: the page's
+// Requirements section installs it.
 function toolState(missing, command, needed) {
-    if (missing.indexOf(command) === -1) return { tone: "ok", text: "Installed", action: false };
-    if (!needed) return { tone: "info", text: "Not needed", action: false };
-    return { tone: "warning", text: "Not installed", action: true };
+    if (missing.indexOf(command) === -1) return { tone: "ok", text: "Installed" };
+    if (!needed) return { tone: "info", text: "Not needed" };
+    return { tone: "warning", text: "Not installed" };
 }
 
 // Whether an access entry's published VALUE is a step the pane shows: one
@@ -1122,8 +1132,8 @@ function statusValues(resolved, backends, runs, steps, missing, assignmentsError
             absent: "No external display connected",
             denied: "DDC access isn't supported on this system"
         }),
-        ddcTool: toolState(missing, "ddcutil", true),
-        backlightTool: toolState(missing, "brightnessctl", backends !== null && backends.backlight.state === "missing")
+        ddcTool: toolState(missing, TOOL_COMMANDS.ddcTool, true),
+        backlightTool: toolState(missing, TOOL_COMMANDS.backlightTool, backends !== null && backends.backlight.state === "missing")
     };
 }
 

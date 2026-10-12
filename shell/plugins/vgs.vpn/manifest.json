@@ -119,12 +119,6 @@
       "type": "state",
       "label": "Setup",
       "actions": {
-        "install": {
-          "label": "Install",
-          "install": [
-            "tailscale"
-          ]
-        },
         "enable": {
           "label": "Enable",
           "system": "service-tailscaled"

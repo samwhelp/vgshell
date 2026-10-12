@@ -293,9 +293,8 @@ function stepHoldsPrimary(sections) {
 // The action beside step ENTRY, or null while its value offers none:
 // { key, name, label, tone, primary }, `name` the listed TUI of TUIS the
 // offered action opens, a press the manager's openTui, or "" for an action
-// that opens no listed screen, such as a screen with no `entry`, the
-// plugin's own requirement commands or a system step, whose press the page
-// hands the manager's act; `tone` "" or "danger"; `primary` markPrimary's.
+// that opens no listed screen, such as a screen with no `entry` or a system
+// step, whose press the page hands the manager's act; `tone` "" or "danger"; `primary` markPrimary's.
 function stepButton(tuis, entry) {
     if (entry.action === null || !entry.action.offered) return null;
     var tui = entry.action.tui === "" ? undefined : tuis.filter(function (t) { return t.name === entry.action.tui; })[0];
@@ -313,7 +312,7 @@ function stepButton(tuis, entry) {
 // offers it, so a done step draws no setup action anywhere on the page.
 // A screen of no entry that lacks a requirement takes no press and reads
 // the core's reason, the TUI's `withheld`: its press would only raise the
-// notice the step installs from; the headline's offered action always
+// requirement notice; the headline's offered action always
 // takes its press. Each { key, name, status, label, tone, primary,
 // enabled, reason }, `status` "" for a screen, `key` naming the action as
 // drawn, so a change of label or state draws it anew (markPrimary sets it).

@@ -37,8 +37,7 @@
       "hint": "Only one app at a time can show password prompts",
       "actions": {
         "uninstall": { "label": "Uninstall", "tui": "uninstall" },
-        "stop": { "label": "Stop", "tui": "stop" },
-        "install": { "label": "Install", "install": ["pkexec"] }
+        "stop": { "label": "Stop", "tui": "stop" }
       }
     }
   }

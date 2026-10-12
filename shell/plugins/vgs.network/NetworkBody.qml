@@ -26,6 +26,9 @@ FocusScope {
     property string openDetails: ""
     property var readyDetails: ({})
     readonly property var values: shell === null ? ({}) : shell.status.values
+    // Whether the details tool is installed; its install is the plugin's
+    // own offer, as a join's and a share's are.
+    readonly property bool detailsReady: shell !== null && !shell.requirements.missing.includes("nmcli")
     readonly property var network: values.network || ({ wifi: [], ethernet: [], state: "unavailable", action: { kind: "idle" }, prompt: null, detail: { state: "idle", rows: [] } })
     readonly property var rows: network.wifi || []
     readonly property var selected: rows.find(row => row.key === currentKey) || null
@@ -172,7 +175,7 @@ FocusScope {
         text: label
         secondary: stateLine
         iconName: glyph
-        expandable: !!root.values.detailsTool && root.values.detailsTool.action === false
+        expandable: root.detailsReady
         Component.onCompleted: expanded = shouldOpen
         onShouldOpenChanged: expanded = shouldOpen
         trailing: [
@@ -341,7 +344,7 @@ FocusScope {
                             onClicked: { root.currentKey = modelData.key; root.activate(modelData); }
                             menuEntries: [
                                 MenuItem { text: "Forget"; iconName: "trash"; enabled: wifiRow.modelData.known; onTriggered: root.action("forget", wifiRow.modelData) },
-                                MenuItem { text: "Details"; iconName: "info"; enabled: !!root.values.detailsTool && root.values.detailsTool.action === false; onTriggered: { root.openDeviceDetails(wifiRow.modelData.interface); } },
+                                MenuItem { text: "Details"; iconName: "info"; enabled: root.detailsReady; onTriggered: { root.openDeviceDetails(wifiRow.modelData.interface); } },
                                 MenuItem { text: "Share QR code"; iconName: "qr-code"; enabled: Logic.shareable(wifiRow.modelData); onTriggered: root.share(wifiRow.modelData) }
                             ]
                         }
@@ -423,9 +426,12 @@ FocusScope {
                 }
             }
             RowAction {
-                visible: root.expanded && !!root.values.detailsTool && root.values.detailsTool.action === true
+                visible: root.expanded && root.shell !== null && !root.detailsReady
                 text: "Install details tool"
-                onClicked: root.answered(root.shell.status.act("detailsTool"))
+                onClicked: {
+                    const reply = root.shell.requirements.offer(["nmcli"]);
+                    root.answered(reply === "satisfied" ? "ok" : reply);
+                }
             }
         }
         Section {

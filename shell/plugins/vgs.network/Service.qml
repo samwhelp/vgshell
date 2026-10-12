@@ -76,7 +76,7 @@ Item {
         const writes = [
             ["network", snapshot],
             ["connection", { tone: state === "connected" ? "ok" : Logic.writable(state) ? "info" : "warning", text: Logic.stateText(state) }],
-            ["detailsTool", { tone: nmcliPresent ? "ok" : "info", text: nmcliPresent ? "Available" : "Connection details need the details tool.", action: !nmcliPresent }]
+            ["detailsTool", { tone: nmcliPresent ? "ok" : "info", text: nmcliPresent ? "Available" : "Connection details need the details tool." }]
         ];
         for (let i = 0; i < writes.length; i++) {
             const reply = shell.status.set(writes[i][0], writes[i][1]);

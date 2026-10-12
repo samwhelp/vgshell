@@ -165,7 +165,7 @@ function downstream(sink, nodes, links) {
 // playing, which needs pactl; PACTL is whether the last scan found it.
 function streamsState(pactl) {
     if (pactl !== true)
-        return { tone: "warning", text: "Apps that play now stay on their output when you choose another. Install pactl to move them.", action: true };
+        return { tone: "warning", text: "Apps that play now stay on their output when you choose another. Install pactl to move them." };
     return { tone: "ok", text: "Apps that play now move to the output you choose." };
 }
 

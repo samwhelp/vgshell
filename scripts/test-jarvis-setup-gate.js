@@ -214,22 +214,24 @@ function verifyClonedVoice(gate, judged) {
 }
 
 // A command with a floor: [label, missing, outdated, expected value]. Its
-// row names the action that applies, and none once it is found at its floor.
+// row says whether it is missing, below its floor or found, and offers no
+// action: the page's Requirements section installs or updates it.
 const FLOORED = [
     ["found at its floor", ["bwrap"], ["pi"], { tone: "ok", text: "Installed" }],
-    ["missing", ["agent-browser"], [], { tone: "warning", text: "Not installed", action: "install" }],
-    ["below its floor", [], ["pi", "agent-browser"], { tone: "warning", text: "Needs an update", action: "update" }]
+    ["missing", ["agent-browser"], [], { tone: "warning", text: "Not installed" }],
+    ["below its floor", [], ["pi", "agent-browser"], { tone: "warning", text: "Needs an update" }]
 ];
 // [label, command, missing, expected value].
 const REQUIREMENT = [
-    ["found", "agent-browser", [], { tone: "ok", text: "Installed", action: false }],
-    ["another command missing", "agent-browser", ["bwrap"], { tone: "ok", text: "Installed", action: false }],
-    ["missing", "agent-browser", ["bwrap", "agent-browser"], { tone: "warning", text: "Not installed", action: true }]
+    ["found", "agent-browser", [], { tone: "ok", text: "Installed" }],
+    ["another command missing", "agent-browser", ["bwrap"], { tone: "ok", text: "Installed" }],
+    ["missing", "agent-browser", ["bwrap", "agent-browser"], { tone: "warning", text: "Not installed" }]
 ];
 
 // The Setup section from the daemon's answer: [label, answer, the summary's
 // tone, the steps still to do, the steps to do that keep their declared
-// hint, the AI model's named action while to do, "key" when left out]. A
+// hint, the AI model's named action while to do, "key" when left out, null
+// for none]. A
 // step to do is a warning with its action and, unless its action already
 // says what it asks, a hint of its own; a done step is ok with neither.
 // No value the Setup group draws holds a keyed cause (area=cause): the
@@ -247,7 +249,7 @@ const READINESS = [
     // A brain cause with no hint of its own takes the step's.
     ["a brain cause with no hint of its own", { kind: "answered", causes: ["brain=unnamed"] }, "warning", ["setupModel"], []],
     ["a signed-out AI model", { kind: "answered", causes: ["brain=signed-out"] }, "warning", ["setupModel"], [], "signIn"],
-    ["a Pi older than the Pi brain's floor", { kind: "answered", causes: ["brain=pi-update"] }, "warning", ["setupModel"], [], "update"]
+    ["a Pi older than the Pi brain's floor", { kind: "answered", causes: ["brain=pi-update"] }, "warning", ["setupModel"], [], null]
 ];
 // Each step's action once done: the voice step's boolean; the AI model's
 // manifest entry declares named actions, so its value carries none.
@@ -840,7 +842,7 @@ function verifyReadiness(gate) {
         for (const key of ["setupVoice", "setupModel"]) {
             const step = got[key];
             const open = todo.includes(key);
-            const action = key === "setupModel" ? model ?? "key" : true;
+            const action = key === "setupModel" ? (model === null ? undefined : model ?? "key") : true;
             assert.deepEqual([step.tone, step.action, step.lines], open ? ["warning", action, undefined] : ["ok", DONE_ACTION[key], undefined], label + ": " + key);
             assert.deepEqual(keyedCauses(step, ["text", "hint", "lines"]), [], label + ": " + key + " words its cause");
             if (!open || declared.includes(key)) assert.equal(step.hint, undefined, label + ": " + key + " keeps its declared hint");
@@ -1014,7 +1016,7 @@ function verifySession(gate) {
     const offered = value => {
         assert.equal(judge.statusWrite(manifest, {}, "sessionStart", value).ok, true, "the manifest judge accepts the row: " + JSON.stringify(value));
         const request = plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { sessionStart: value }, "sessionStart"));
-        return request.ok ? (request.kind === "tui" ? value.action + ":" + request.name : "install:" + request.commands.join(",")) : "none";
+        return request.ok ? value.action + ":" + request.name : "none";
     };
     assert.deepEqual(plain(gate.sessionStart(true, null)), { hidden: true }, "no row before the first answer");
     for (const [state, reasons] of Object.entries(SESSION_CONTRACT))
@@ -1027,7 +1029,7 @@ function verifySession(gate) {
                 if (state === "blocked") assert.equal(value.tone, reason === "app-off" ? "info" : "warning", label + ": the tone");
                 else assert.equal(value.tone, SESSION_TONES[state], label + ": the tone");
                 assert.equal(action, state === "stopped" ? "start:start-session" : state === "failed" ? "retry:start-session"
-                    : state === "blocked" && reason === "tmux-missing" ? "install:tmux" : "none", label + ": the action the row offers");
+                    : "none", label + ": the action the row offers");
                 if (state !== "stopped")
                     assert.deepEqual(value, plain(gate.sessionStart(!wanted, { kind: "answer", state, reason, detail: "The package's line.", names })),
                         label + ": the boot setting changes no row of a session that is not stopped");
@@ -1122,14 +1124,16 @@ function verify(gate) {
         "the browser driver and Pi declare a floor");
     for (const [, missing, outdated] of FLOORED)
         assert.equal(judge.statusWrite(judged, {}, "browserDriver", plain(gate.flooredValue("agent-browser", missing, outdated))).ok, true, "the manifest judge accepts the driver row");
+    // Neither row installs or updates its command: the page's Requirements
+    // section does.
     const update = judge.statusActionRequest(judged, "vgs.jarvis", true, { setupModel: plain(gate.readiness({ kind: "answered", causes: ["brain=pi-update"] })).setupModel }, "setupModel");
-    assert.deepEqual(plain(update), { ok: true, kind: "install", commands: ["pi"] }, "the AI model step's Update asks the core for Pi");
+    assert.deepEqual(plain(update), { ok: false, answer: "refused: action=setupModel reason=not-offered" }, "a Pi below its floor offers no step on the AI model row");
     assert.deepEqual(plain(judge.statusActionRequest(judged, "vgs.jarvis", true, { browserDriver: plain(gate.flooredValue("agent-browser", [], ["agent-browser"])) }, "browserDriver")),
-        { ok: true, kind: "install", commands: ["agent-browser"] }, "the driver row's Update asks the core for the driver");
+        { ok: false, answer: "refused: action=browserDriver reason=undeclared" }, "the driver row declares no step");
     // The Agent fleet row: hidden with no home or once the home's mail tool
-    // is found, else offering its setup terminal, whose press the core
-    // turns into the requirement notice while kendex or another command
-    // that terminal needs is missing.
+    // is found, else offering its setup terminal, and no step while kendex
+    // or another command that terminal needs is missing, which the page's
+    // Requirements section installs.
     for (const [label, home, tool, shown] of FLEET) {
         const value = plain(gate.fleetStep(home, tool));
         assert.equal(judge.statusWrite(judged, {}, "setupFleet", value).ok, true, label + ": the manifest judge accepts the row");
@@ -1137,8 +1141,9 @@ function verify(gate) {
             const row = judge.statusRows(judged, { setupFleet: value }, missing).find(entry => entry.key === "setupFleet");
             assert.equal(row !== undefined, shown, label + ": the row shows");
             if (!shown) continue;
-            assert.deepEqual([row.action.offered, row.action.tui], [true, "setup-fleet"], label + ": the row offers its setup");
-            assert.equal(row.action.label === judge.STATUS_WITHHELD_LABEL, missing.length > 0, label + ": the press installs kendex first while it is missing");
+            assert.deepEqual([row.action.offered, row.action.tui, row.action.label],
+                missing.length > 0 ? [false, "", judged.status.setupFleet.action.label] : [true, "setup-fleet", judged.status.setupFleet.action.label],
+                label + ": the row offers its setup, and none while kendex is missing");
         }
     }
     verifySetupButtons(gate, judged);
@@ -1273,9 +1278,9 @@ const CONTROLS = [
     ["the home folder step offers an action", 'out.setupHome = { tone: "warning", text: "To do",', 'out.setupHome = { tone: "warning", text: "To do", action: true,'],
     ["any account shows Copilot Memory", 'account.provider === "copilot" && ', ""],
     ["a signed-out Copilot shows Copilot Memory", ' && account.value === "present"; })', "; })"],
-    ["a command below its floor reads as installed", 'if (outdated.indexOf(command) !== -1) return { tone: "warning", text: "Needs an update", action: "update" };', ""],
-    ["a missing command with a floor offers its update", 'return { tone: "warning", text: "Not installed", action: "install" };', 'return { tone: "warning", text: "Not installed", action: "update" };'],
-    ["a Pi older than its floor offers Add key", 'cause === "brain=pi-update" ? "update" : "key"', '"key"'],
+    ["a command below its floor reads as installed", 'if (outdated.indexOf(command) !== -1) return { tone: "warning", text: "Needs an update" };', ""],
+    ["a missing command with a floor reads as installed", 'if (missing.indexOf(command) !== -1) return { tone: "warning", text: "Not installed" };', ""],
+    ["a Pi older than its floor offers Add key", '            if (cause === "brain=pi-update") out[REQUIRED[step]] = noAction(out[REQUIRED[step]]);\n', ""],
     ["a Pi older than its floor takes the step's hint", '    "brain=pi-update": ', '    "brain=pi-update-removed": '],
     ["the brain causes share one hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = STEP_TODO[step];"],
     ["an unknown cause has no hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = TODO[cause];"],
@@ -1309,7 +1314,7 @@ const CONTROLS = [
     ["the ready pick is written by name", 'return ready === pick ? "auto" : ready;', "return ready;"],
     ["a stopped session offers no Start", '{ tone: "info", text: "Starts at the next boot", hint: SESSION_BOOT, action: "start" }', '{ tone: "info", text: "Starts at the next boot", hint: SESSION_BOOT }', "the action the row offers"],
     ["a failure offers no Retry", '"failed launch-failed": { tone: "danger", text: "Not started", detail: true, action: "retry" }', '"failed launch-failed": { tone: "danger", text: "Not started", detail: true }', "the action the row offers"],
-    ["a missing tmux offers no install", 'hint: "No session can start without tmux.", action: "tmux" }', 'hint: "No session can start without tmux." }', "the action the row offers"],
+    ["a missing tmux offers a step", 'hint: "No session can start without tmux. Install all missing installs it." }', 'hint: "No session can start without tmux. Install all missing installs it.", action: "retry" }', "the action the row offers"],
     ["the boot setting hides a running session", '    if (row.wanted) value = wanted ?', '    if (row.wanted || !wanted) value = wanted ?', "the boot setting changes no row"],
     ["an answer outside the contract reads as a state", "    if (row === undefined) return failure;", '    if (row === undefined) return { tone: "ok", text: "Running", hint: "Planted." };', "outside the contract"],
     ["the package's failure line is dropped", 'var hint = row.detail ? (result.detail !== "" ? result.detail : SESSION_FAILED)', "var hint = row.detail ? SESSION_FAILED", "the package's own line is shown"],
@@ -1599,7 +1604,8 @@ console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.lengt
 // The fleet setup terminal opens from the Agent fleet row alone: in
 // MANIFEST, a judged manifest, the launcher lists no fleet TUI and the
 // Settings page draws none while the row is hidden, and the offered row
-// draws its button, whose press the core turns into that terminal.
+// draws its button, whose press the core turns into that terminal, but
+// while kendex is missing, which the Requirements section installs.
 function verifySetupButtons(gate, manifest) {
     for (const [label, home, tool, shown] of FLEET)
         for (const missing of [[], ["kendex"]]) {
@@ -1609,7 +1615,7 @@ function verifySetupButtons(gate, manifest) {
             const sections = settings.setupSections(tuis, judge.statusRows(manifest, { setupFleet: value }, missing));
             const fleet = sections.flatMap(section => section.buttons).filter(button => button.name === "setup-fleet");
             const row = settingsRows(sections).find(item => item.key === "setupFleet");
-            assert.deepEqual([fleet.length, row !== undefined && row.button !== null], [0, shown], label + ": only the shown fleet row draws its setup, missing " + missing);
+            assert.deepEqual([fleet.length, row !== undefined && row.button !== null], [0, shown && missing.length === 0], label + ": only the shown fleet row draws its setup, missing " + missing);
             if (shown)
                 assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { setupFleet: value }, "setupFleet")), { ok: true, kind: "tui", name: "setup-fleet" },
                     label + ": the row's press opens the fleet setup");
@@ -1648,12 +1654,13 @@ function verifyDictation(gate, serviceSource, accountsSource) {
         if (offered)
             assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, values, "setupVoice")),
                 { ok: true, kind: "core", name: "dictation-setup" }, label + ": the press opens the core's setup");
-        // The voxtype row, the account reader's, shows for the local voice.
+        // The voxtype row, the account reader's, shows for the local voice,
+        // with no step: the page's Requirements section installs it.
         vm.runInNewContext("(function() { with(root) { return (" + publishRequirements[0] + ").call(root); } })()",
             { root: { shell, missing, voiceProvider: voice }, Gate: gate });
         const voxtype = judge.statusRows(manifest, values, missing).find(item => item.key === "voxtype");
-        assert.deepEqual(voxtype === undefined ? "hidden" : voxtype.action.offered,
-            voice !== "local" ? "hidden" : missing.includes("voxtype"), label + ": the voxtype row's install");
+        assert.deepEqual(voxtype === undefined ? "hidden" : [voxtype.action, voxtype.tone],
+            voice !== "local" ? "hidden" : [null, missing.includes("voxtype") ? "warning" : "success"], label + ": the voxtype row");
         assert.equal(gate.dictationRefusal(state ?? { daemon: "absent", device: "" }), cause === "speech=dictation-device" ? "refused: dictation=device" : "",
             label + ": the start the service refuses itself");
     }

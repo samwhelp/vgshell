@@ -532,8 +532,9 @@ expect "the page draws the choices setting only" '[1, 0]' page_fields_of acme.st
 # Status actions, D061: an entry's action is offered while its published
 # value calls for it, a presence while absent and a state while it says so,
 # and its button, on the Setup tab, runs the step through the manager: the
-# fixture's own TUI in a floating terminal, or the requirement notice for
-# its own command.
+# fixture's own TUI in a floating terminal. No step installs a
+# requirement: the Requirements section's Install all missing is the
+# page's one install.
 # The control comes first: a value that does not call for the action draws
 # no button, and the manager refuses the act and starts nothing. The
 # presses after it succeed, which clears each refusal from its line. The
@@ -543,7 +544,7 @@ expected_errors+=('settings: acme\.status/(token|check) refused: action=(token|c
 terminal_stand_in
 terminal_ready "the status actions"
 settings_setup
-expect_poll "values that do not call for them offer no action" '[["token", "Set up token", false], ["check", "Install the tool", false]]' offered_actions acme.status
+expect_poll "values that do not call for them offer no action" '[["token", "Set up token", false], ["check", "Check again", false]]' offered_actions acme.status
 expect_poll "the Token row draws no button and no command" '["Token", "Present", "Needed for the fixture'"'"'s sync"]' token_drawn
 forget_record
 expect "the manager refuses an act the token does not call for" "refused: action=token reason=not-offered" settings_act acme.status token
@@ -552,38 +553,27 @@ expect "the refused acts started no terminal" absent recorded
 expect "the refused acts raised no notice" null notice_shown
 expect_poll "the refusal reads under the Token line" '["Token", "Present", "This setup step is not needed now."]' token_drawn
 expect "the fixture publishes its token absent" ok ipc acme.status invoke set 'token="absent"'
-expect_poll "an absent token offers Set up token and the check offers nothing" '[["token", "Set up token", true], ["check", "Install the tool", false]]' offered_actions acme.status
+expect_poll "an absent token offers Set up token and the check offers nothing" '[["token", "Set up token", true], ["check", "Check again", false]]' offered_actions acme.status
 expect_poll "the Token row draws its Set up token action" '["Token", "Absent", "Set up token", "This setup step is not needed now."]' token_drawn
 settings_press --type RowAction "Set up token" || fail "the click on Set up token failed"
 expect_poll "Set up token hands the terminal the fixture's setup TUI" "$(words acme.status/setup tui/setup.sh)" recorded_tail
 expect_poll "the step that ran clears the Token line's refusal" '["Token", "Absent", "Set up token", "Needed for the fixture'"'"'s sync"]' token_drawn
 expect_run_end "the setup TUI's run ends" acme.status/setup
 expect_poll "the setup TUI's terminal closes" 0 tui_windows
-expect "the check publishes that its tool is missing" ok ipc acme.status invoke set 'check={"tone":"warning","text":"Tool missing","action":true}'
-expect_poll "the check offers Install the tool" '[["token", "Set up token", true], ["check", "Install the tool", true]]' offered_actions acme.status
-# The press scans before it raises: the last scan found the command, from a
-# stand-in since removed with no rescan, so only a scan the press starts
-# finds it missing, as the plugin's value says. A notice raised from the
-# last scan would answer satisfied and show nothing.
-fixture_requirement() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; r=[q["state"] for p in json.load(sys.stdin) if p["id"] == "acme.status" for q in p["requirements"] if q["name"] == "vgs-smoke-absent"]; print(r[0] if r else "unlisted")'; }
-printf '#!/bin/sh\nexit 0\n' >"$shim/vgs-smoke-absent"
-chmod 755 "$shim/vgs-smoke-absent"
-rescan "a rescan with the fixture's command stood in starts"
-expect_poll "the scan finds the fixture's command present" present fixture_requirement
-rm -f -- "${shim:?}/vgs-smoke-absent"
-expect "with the stand-in gone and no rescan the last scan still reads it present" present fixture_requirement
-settings_press "Install the tool" || fail "the click on Install the tool failed"
-expect_poll "Install the tool shows the requirement notice for its own command" '["acme.status", ["vgs-smoke-absent"], ["vgs-smoke-absent"], false]' notice_shown
-expect "Install the tool leaves the Settings window open under the notice" 1 window_count Plugins
-expect_poll "the action's notice holds the keyboard" true ipc smoke noticeFocused
-type_keys -k Escape || fail "sending Escape to the action's notice failed"
-expect_poll "Escape closes the action's notice" null notice_shown
+expect "the check publishes that it can run again" ok ipc acme.status invoke set 'check={"tone":"warning","text":"Check failed","action":true}'
+expect_poll "the check offers Check again" '[["token", "Set up token", true], ["check", "Check again", true]]' offered_actions acme.status
+forget_record
+settings_press "Check again" || fail "the click on Check again failed"
+expect_poll "Check again hands the terminal the fixture's setup TUI" "$(words acme.status/setup tui/setup.sh)" recorded_tail
+expect_run_end "the check's TUI run ends" acme.status/setup
+expect_poll "the check's TUI terminal closes" 0 tui_windows
 
 
-# The same offered status step must use the requirement notice at the run
-# boundary when its declared command is required and absent. The copy also
-# lists the setup script, so the page draws its Setup button for the read
-# after the controls.
+# A status step whose screen lacks a required command is withheld: its row
+# offers no button, and Install all missing on the Setup tab, the page's
+# one install, raises the requirement notice for the command. The copy
+# also lists the setup script, so the page draws its Setup button for the
+# read after the controls.
 status_manifest="$status_dir/manifest.json"
 cp -- "$status_manifest" "$sandbox/status-action-manifest"
 python3 - "$status_manifest" <<'PYTHON'
@@ -602,15 +592,21 @@ path.write_text(json.dumps(manifest))
 PYTHON
 rescan "the fixture now declares its missing command required"
 expect "the fixture republishes an absent token" ok ipc acme.status invoke set 'token="absent"'
-expect_poll "Settings replaces the unavailable setup step with install" '[["token", "Install requirements", true], ["check", "Install the tool", false]]' offered_actions acme.status
+expect_poll "Settings withholds the steps whose screen lacks the required command" '[["token", "Set up token", false], ["check", "Check again", false]]' offered_actions acme.status
+expect_poll "the withheld Token line draws no button and names the missing command" '["Token", "Absent", "vgs-smoke-absent is missing. Install all missing installs it."]' token_drawn
+# settings_install_drawn: how many buttons of the page read Install all
+# missing.
+settings_install_drawn() { ipc smoke itemTexts window vgs.settings Button | py_reply 'import json,sys; print(sum(1 for b in json.load(sys.stdin) if b == ["Install all missing"]))'; }
+settings_setup
+expect_poll "the page draws Install all missing once, its one install" 1 settings_install_drawn
 forget_record
-settings_press --type RowAction "Install requirements" || fail "the click on Install requirements failed"
-expect_poll "the withheld TUI opens the existing requirement notice" '["acme.status", ["vgs-smoke-absent"], ["vgs-smoke-absent"], false]' notice_shown
+settings_press "Install all missing" || fail "the click on Install all missing failed"
+expect_poll "Install all missing opens the requirement notice" '["acme.status", ["vgs-smoke-absent"], ["vgs-smoke-absent"], false]' notice_shown
 expect "a missing requirement starts no setup terminal" absent recorded
 # No install button is pressed. Escape dismisses the requirement notice.
-expect_poll "the required action's notice holds the keyboard" true ipc smoke noticeFocused
-type_keys -k Escape || fail "sending Escape to the required action's notice failed"
-expect_poll "Escape closes the required action's notice" null notice_shown
+expect_poll "the Install all missing notice holds the keyboard" true ipc smoke noticeFocused
+type_keys -k Escape || fail "sending Escape to the Install all missing notice failed"
+expect_poll "Escape closes the Install all missing notice" null notice_shown
 
 # Jarvis's full required list exceeds the explicit-choice notice bound.
 # Prefix the fixture's commands so host programs cannot satisfy them.
@@ -636,10 +632,10 @@ JS
 large_commands="$(printf '%s\n' "$large_notice" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[1]))')" || fail "the full-required-list commands could not be read"
 rescan "the status fixture carries Jarvis's full required list as absent stand-ins"
 expect "the large-list fixture republishes an absent token" ok ipc acme.status invoke set 'token="absent"'
-expect_poll "the large-list fixture offers install instead of setup" '[["token", "Install requirements", true], ["check", "Install the tool", false]]' offered_actions acme.status
+expect_poll "the large-list fixture withholds the setup steps" '[["token", "Set up token", false], ["check", "Check again", false]]' offered_actions acme.status
 forget_record
-settings_press --type RowAction "Install requirements" || fail "the large-list install action could not be pressed"
-expect_poll "the setup action opens the notice for the full missing list" "$large_notice" notice_shown
+settings_press "Install all missing" || fail "the large-list Install all missing could not be pressed"
+expect_poll "Install all missing opens the notice for the full missing list" "$large_notice" notice_shown
 expect "the full missing list starts no setup terminal" absent recorded
 expect_poll "the full-list notice holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "closing the large-list notice failed"
@@ -697,9 +693,10 @@ for control in TuiInstallGood TuiInstallChosen; do
 done
 rmdir -- "$repo/shell/Core/TuiInstallControls" || fail "removing the TUI install control directory failed"
 # A screen a status entry declares draws only on that entry's row: the
-# token's row offers Token setup as Install requirements above, and the
-# Setup section, which holds the Check step, draws no action for it,
-# offered or not. With the token's
+# token's row offers Token setup while its value calls for it, withholds it
+# above while the required command is missing, and the Setup section,
+# which holds the Check step, draws no action for it, withheld or not.
+# With the token's
 # action taken out of the manifest, the screen belongs to no entry and
 # draws in the Setup section disabled, with a reason naming the missing
 # command, since its press could only open that notice; the two readings
@@ -709,7 +706,7 @@ rmdir -- "$repo/shell/Core/TuiInstallControls" || fail "removing the TUI install
 # enabled, whether its tooltip names NAME].
 setup_buttons() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; print(json.dumps([[b[0], b[1], b[2], sys.argv[1] in b[3]] for b in json.load(sys.stdin)["buttons"]]))' "$1"; }
 settings_setup
-expect_poll "the Setup section draws no action for the token's offered screen" '[]' setup_buttons vgs-smoke-absent
+expect_poll "the Setup section draws no action for the token's withheld screen" '[]' setup_buttons vgs-smoke-absent
 expect "the fixture republishes a present token, which offers no step" ok ipc acme.status invoke set 'token="present"'
 expect_poll "the Setup section draws no action for the token's screen with no step offered" '[]' setup_buttons vgs-smoke-absent
 python3 - "$status_manifest" <<'PYTHON'
@@ -724,6 +721,7 @@ PYTHON
 rescan "the fixture's token declares no screen"
 expect_poll "a screen no entry declares draws disabled with a reason naming the missing command" '[["Token setup", "accent", false, true]]' setup_buttons vgs-smoke-absent
 expect "the fixture republishes the absent token" ok ipc acme.status invoke set 'token="absent"'
+expect_poll "a withheld or undeclared screen leaves Install all missing the page's one install" 1 settings_install_drawn
 cp -- "$sandbox/status-action-manifest" "$status_manifest"
 rescan "the fixture restores its optional requirement"
 

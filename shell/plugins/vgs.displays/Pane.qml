@@ -12,10 +12,11 @@ import "DisplaysLogic.js" as Logic
 // flashes that display; Link displays; Dimming; the saved
 // choices whose display or screen is gone, each with Forget; and, while a
 // step is needed, the access entries that need one (`accessNeeded`), each
-// as one line with its action while offered. The holder draws the title,
-// the inset and the scrolling. It draws the status the service publishes
-// and asks the service, or the core through `status.act`, for every
-// change; it runs nothing itself. Each access entry's tone and offered
+// as one line with its action while offered, or Install for a missing
+// tool. The holder draws the title, the inset and the scrolling. It draws
+// the status the service publishes and asks the service, or the core
+// through `status.act` or `requirements.offer`, for every change; it runs
+// nothing itself. Each access entry's tone and offered
 // action come from the core's status rows (`status.rows`). Tab starts on
 // the arrangement canvas and then moves through the controls in reading
 // order; the arrows move the canvas selection, a slider and a closed
@@ -125,7 +126,19 @@ FocusScope {
     function assign(device, output) { return answered(shell.ipc.call("assign", JSON.stringify({ device: device, output: output }))); }
     function identify(id) { return answered(shell.ipc.call("identify", id)); }
     function identifyAll() { return answered(shell.ipc.call("identify", "")); }
-    function runAction(key) { return answered(shell.status.act(key)); }
+    // The step access ROW offers, { label }, else null: the entry's action
+    // while the core offers it, else Install while the row reads its tool
+    // missing, the plugin's own offer of that requirement.
+    function accessStep(row) {
+        if (row.action !== null && row.action.offered) return { label: row.action.label };
+        return Logic.toolCommand(row.key) !== "" && row.value.tone === "warning" ? { label: "Install" } : null;
+    }
+    function runAction(key) {
+        const command = Logic.toolCommand(key);
+        if (command === "") return answered(shell.status.act(key));
+        const reply = shell.requirements.offer([command]);
+        return answered(reply === "satisfied" ? "ok" : reply);
+    }
     // Write the plugin's setting KEY; answers the core's reply.
     function configure(key, value) {
         const reply = shell.configure.set(key, value);
@@ -792,8 +805,9 @@ FocusScope {
                     warningTone: Logic.formWarningTone(modelData.tone)
 
                     RowAction {
-                        visible: accessRow.modelData.action !== null && accessRow.modelData.action.offered
-                        text: accessRow.modelData.action === null ? "" : accessRow.modelData.action.label
+                        readonly property var step: root.accessStep(accessRow.modelData)
+                        visible: step !== null
+                        text: step === null ? "" : step.label
                         onClicked: root.runAction(accessRow.modelData.key)
                     }
                 }

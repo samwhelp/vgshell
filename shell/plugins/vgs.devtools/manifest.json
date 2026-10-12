@@ -49,8 +49,7 @@
     "mise": {
       "type": "state",
       "label": "Tool manager",
-      "hint": "mise manages the developer tools",
-      "action": { "label": "Install mise", "install": ["mise"] }
+      "hint": "mise manages the developer tools"
     },
     "checks": {
       "type": "state",

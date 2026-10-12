@@ -9,7 +9,7 @@ vgs_tui_header "Choose Voice model" "Select the speech model voxtype uses."
 # elsewhere without it stops here, before anything changes.
 if ! command -v voxtype >/dev/null; then
   printf 'vgs-voice: refused: voxtype=missing\n' >&2
-  vgs_tui_error "Voice needs voxtype. Press Install requirements in Voice settings."
+  vgs_tui_error "Voice needs voxtype. Press Install all missing on the Setup tab of the Voice page."
   exit 1
 fi
 if [[ -L $config_file ]]; then

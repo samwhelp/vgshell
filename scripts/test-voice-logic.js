@@ -47,8 +47,8 @@ function verify(logic) {
     ["ready names the configured model", readsReady, "ready", "ok", "", 1, "parakeet-tdt-0.6b-v3"],
     ["a daemon that is starting adds no line", readsReady, "starting", "ok", "", 1, "1.1.0"],
     ["every missing thing is a line", readsMissing, "failed", "warning", "setup", 3, null],
-    ["voxtype not found offers the install", { present: false }, "failed", "warning", "install", 1, null],
-    ["voxtype not found before the capability is read offers the install", { present: false }, "", "warning", "install", 1, null],
+    ["voxtype not found offers no step", { present: false }, "failed", "warning", "", 1, null],
+    ["voxtype not found before the capability is read offers no step", { present: false }, "", "warning", "", 1, null],
     ["no daemon is not ready", readsReady, "absent", "warning", "setup", 1, null],
     ["a daemon the shell did not start offers to stop it", readsReady, "elsewhere", "warning", "stop", 1, null],
     ["a daemon the shell did not start offers to stop it before the setup", readsMissing, "elsewhere", "warning", "stop", 3, null],
@@ -191,7 +191,7 @@ const controls = [
   ["a daemon the shell did not start offers Set up", "action: daemon === \"elsewhere\" ? \"stop\" : \"setup\",", "action: \"setup\","],
   ["any line offers Stop the other voxtype", "action: daemon === \"elsewhere\" ? \"stop\" : \"setup\",", "action: \"stop\","],
   ["an unknown daemon word reads ready", "    if (DAEMON_LINES[daemon] === undefined)\n", "    if (false)\n"],
-  ["voxtype absent offers Set up", "lines: [\"voxtype is not installed.\"], action: \"install\",", "lines: [\"voxtype is not installed.\"], action: \"setup\","],
+  ["voxtype absent offers Set up", "lines: [\"voxtype is not installed.\"], action: \"\",", "lines: [\"voxtype is not installed.\"], action: \"setup\","],
   ["the version is not read", "return found === null ? \"\" : found[1];", "return \"\";"],
   ["bridge frame shape ignored", "if (!amplitude(frame.peak) || !amplitude(frame.rms)) return { ok: false, reason: \"frame\" };", ""],
   ["bridge status lines read as frames", "if (frame.status === \"connected\" || frame.status === \"disconnected\") return { ok: true, kind: frame.status };", ""],
@@ -256,15 +256,15 @@ function verifyRequirements(raw) {
     same(pluginLogic.tuiMissingRequirements(judged.manifest, name, []), [], `${name} with voxtype present runs its script`);
     same(pluginLogic.tuiRunFor(judged.manifest, true, "/src", runner, name, missing).kind, "install", `the ${name} press raises the requirement notice`);
   }
-  // Set up's state names the manifest's action that applies: the install
-  // without voxtype, the core's dictation setup while a line stands, and
-  // none once ready.
+  // Set up's state names the manifest's action that applies: none without
+  // voxtype, which the page's Requirements section installs, the core's
+  // dictation setup while a line stands, and none once ready.
   const act = (reads, daemon) => {
     const state = logic.setupState(reads, daemon);
     const values = { setup: Object.assign({ tone: state.tone, text: state.text, lines: state.lines }, state.action === "" ? {} : { action: state.action }) };
     return pluginLogic.statusActionRequest(judged.manifest, "vgs.voice", true, values, "setup");
   };
-  same(act({ present: false }, "failed"), { ok: true, kind: "install", commands: ["voxtype", "voxtype-audio-bridge"] }, "without voxtype the setup entry's step installs it");
+  same(act({ present: false }, "failed"), { ok: false, answer: "refused: action=setup reason=not-offered" }, "without voxtype the setup entry offers no step");
   same(act(readsMissing, "ready"), { ok: true, kind: "core", name: "dictation-setup" }, "Set up opens the core's dictation setup");
   same(act(readsReady, "ready").ok, false, "a ready Voice offers no step");
   same(act(readsReady, "elsewhere"), { ok: true, kind: "tui", name: "stop-other" }, "another voxtype running opens Stop the other voxtype");
@@ -283,7 +283,6 @@ const manifestControls = [
   ["a manifest copy whose Configure needs systemctl", raw => { raw.tui.configure.requires.push("systemctl"); }],
   ["a manifest copy whose elsewhere step is Set up", raw => { raw.status.setup.actions.stop = { label: "Stop the other voxtype", dictation: "setup" }; }],
   ["a manifest copy that keeps its own Set up screen", raw => { raw.tui.setup = JSON.parse(JSON.stringify(raw.tui.model)); raw.status.setup.actions.setup = { label: "Set up", tui: "setup" }; }],
-  ["a manifest copy whose Set up installs voxtype", raw => { raw.status.setup.actions.setup = { label: "Set up", install: ["voxtype"] }; }],
 ];
 for (const [label, edit] of manifestControls) {
   const copy = JSON.parse(JSON.stringify(shipped));
