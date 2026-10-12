@@ -781,7 +781,9 @@ const STATUS_TARGETS = [
     { name: "oh-my-posh", file: "oh-my-posh.json", format: "json", surfaces: ["background"], fields: [
         ["danger", "danger"], ["success", "success"], ["warning", "warning"], ["info", "info"]
     ] },
-    { name: "btop", file: "btop.theme", format: "btop", surfaces: ["background"], fields: [["proc_misc", "info"]] },
+    { name: "btop", file: "btop.theme", format: "btop", surfaces: ["background"], fields: [
+        ["proc_misc", "info"], ["process_start", "success"], ["process_mid", "warning"], ["process_end", "danger"]
+    ] },
     { name: "hermes", file: "hermes.yaml", format: "yaml", surfaces: ["surfaceRaised"], fields: [["status_bar_critical", "danger"]] },
     ...["omp", "pi"].map(name => ({ name, file: `${name}.json`, format: "json", surfaces: ["surface"], fields: [["customMessageText", "warning"]] })),
     ...["vencord", "vesktop", "equibop"].map(name => ({ name, file: `${name}.css`, format: "css", surfaces: STATUS_RESTING_SURFACES,
