@@ -27,7 +27,22 @@ Item {
         name: "toggles"
         when: windowShown
 
-        function init() { UnitTheme.reset(); sw.checked = false; box.checked = false; one.checked = true; }
+        // Each test starts with no control hovered, or a wait for a rest
+        // colour reads a track animating to its hover colour. A drag sets
+        // `hovered` from the control's own move handler, outside the
+        // window's hover list (Qt 6.11 qquickcontrol.cpp handleMove), so a
+        // move off the control alone never clears it: the pointer first
+        // enters each hovered control through the window, then leaves.
+        function init() {
+            UnitTheme.reset();
+            for (const control of [sw, bare, small, mirrored, box, one, two])
+                if (control.hovered)
+                    mouseMove(control, 1, 1);
+            mouseMove(root, root.width - 1, root.height - 1);
+            sw.checked = false;
+            box.checked = false;
+            one.checked = true;
+        }
 
         function knob() { return sw.indicator.children[0]; }
 
