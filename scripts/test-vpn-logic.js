@@ -150,7 +150,7 @@ function suite(logic, service = serviceSource) {
     // (design-system.md, Steps.js stepOpen): a step Tailscale needs reads
     // warning while its action is offered; the optional tool's absence and
     // a state the user cannot change here read info.
-    for (const [context, action, tone] of [
+    const SETUP_ROWS = [
         [{ missing: true, state: "checking", service: "absent", operator: "absent" }, "", "info"],
         [{ missing: false, state: "service-off", service: "needed", operator: "unknown" }, "enable", "warning"],
         [{ missing: false, state: "service-off", service: "nixos", operator: "unknown" }, "enable", "warning"],
@@ -164,8 +164,19 @@ function suite(logic, service = serviceSource) {
         [{ missing: false, state: "stopped", service: "ready", operator: "unknown" }, "", "info"],
         [{ missing: false, state: "running", service: "ready", operator: "ready" }, "", "ok"],
         [{ missing: false, state: "running", service: "", operator: "" }, "", "ok"]
-    ]) assert.deepEqual([logic.setup(context).action, logic.setup(context).tone], [action, tone], JSON.stringify(context));
-    const unoffered = ["absent", "denied", "unknown"].map(service => logic.setup({ missing: false, state: "service-off", service: service, operator: "unknown" }).text);
+    ];
+    for (const [context, action, tone] of SETUP_ROWS) {
+        const shown = logic.setup(context);
+        assert.deepEqual([shown.action, shown.tone], [action, tone], JSON.stringify(context));
+        // The chip holds a short state, never a sentence; the sentence that
+        // names why goes in the hint under it, which every line but Ready
+        // carries and the published value keeps.
+        assert.ok(!/[.!?]/.test(shown.text) && shown.text.split(" ").length <= 2, "a short chip: " + JSON.stringify(shown.text));
+        assert.equal(shown.hint === "", tone === "ok", "a hint on every line but Ready: " + JSON.stringify(context));
+        const written = logic.statusWrites({ tone: "ok", text: "" }, shown, logic.unread(), logic.emptyProfiles())[1][1];
+        assert.equal(written.hint, shown.hint === "" ? undefined : shown.hint, "the published setup value keeps the hint");
+    }
+    const unoffered = ["absent", "denied", "unknown"].map(service => logic.setup({ missing: false, state: "service-off", service: service, operator: "unknown" }).hint);
     assert.equal(new Set(unoffered).size, unoffered.length, "each service state that offers no step names its own why");
 
     // The connection line and the bar icon.
@@ -396,12 +407,14 @@ try {
         ["the watchdog kills a poll in flight", 'effects: state.flight ? ["kill"] : [] };', "effects: [] };"],
         ["an open view polls fast", "return open ? OPEN_POLL_MS : idleSeconds * 1000;", "return idleSeconds * 1000;"],
         ["access denied is told apart", '{ kind: "access-denied", pattern: /access denied/i }', '{ kind: "access-denied", pattern: /prefs denied/i }'],
-        ["a needed operator offers Allow", 'action: "allow" };', 'action: "" };'],
-        ["a missing optional tool reads info", 'if (context.missing) return { tone: "info"', 'if (context.missing) return { tone: "warning"'],
-        ["an offered service step reads warning", '{ tone: "warning", text: "The Tailscale service is off."', '{ tone: "info", text: "The Tailscale service is off."'],
-        ["a service the user cannot turn on reads info", ': { tone: "info", text: SERVICE_UNOFFERED_TEXTS', ': { tone: "warning", text: SERVICE_UNOFFERED_TEXTS'],
-        ["each unoffered service state names why", 'denied: "The Tailscale service is turned off by the system." };', '};'],
-        ["another account's operator reads info", '{ tone: "info", text: "Another account controls Tailscale."', '{ tone: "warning", text: "Another account controls Tailscale."'],
+        ["a needed operator offers Allow", 'gives it access.", "allow");', 'gives it access.", "");'],
+        ["a missing optional tool reads info", 'if (context.missing) return setupState("info"', 'if (context.missing) return setupState("warning"'],
+        ["an offered service step reads warning", 'return setupState("warning", "Off"', 'return setupState("info", "Off"'],
+        ["a service the user cannot turn on reads info", 'return setupState("info", unoffered.text', 'return setupState("warning", unoffered.text'],
+        ["each unoffered service state names why", '    denied: { text: "Off", hint: "The system turned the Tailscale service off, and VGS leaves it off." }\n', ''],
+        ["another account's operator reads info", 'return setupState("info", "Another account"', 'return setupState("warning", "Another account"'],
+        ["the chip holds no sentence", '"Another account", "Another account controls', '"Another account controls Tailscale.", "Another account controls'],
+        ["the published setup value keeps its hint", 'if (setupLine.hint !== "") setupValue.hint = setupLine.hint;', ''],
         ["an unread operator is not Ready", 'context.operator === "unknown" && REACHED', 'context.operator === "unread" && REACHED'],
         ["an exit node goes by its target", '"--exit-node=" + node.target]', '"--exit-node=" + node.id]'],
         ["the exit nodes are bounded", "var rows = all.slice(0, EXIT_MAX);", "var rows = all.slice(0);"],

@@ -436,20 +436,22 @@ function promptAnswer(responseRequired, echoResponse, pending) {
 }
 
 // The `greeter` status: the step's reading as the Settings row shows it,
-// with Set up offered while it reads needed or nixos, in the warning tone
-// of an open step. A reading that offers no action reads info: it names
-// why, or what the user can do instead, such as installing VGS from a
-// package.
+// { tone, text, action, hint? }, `text` the chip's short state and `hint`
+// the sentence under it. Set up is offered while it reads needed or nixos,
+// in the warning tone of an open step. A reading that offers no action
+// reads info, and its hint names why and what the user can do instead,
+// such as installing VGS from a package, or says the reading is for
+// information only.
 var STEP_STATES = ["ready", "needed", "nixos", "absent", "denied", "unknown"];
-var REASON_TEXTS = {
-    "greetd-missing": "Needs greetd",
-    "hyprland-missing": "Needs Hyprland",
-    "greeter-user-missing": "Needs the greeter account greetd makes",
-    "other-display-manager": "Another login screen is turned on",
-    "install-untrusted": "Needs VGS installed from a package",
-    "install-path-unsupported": "VGS is installed in a folder the login screen cannot use",
-    "other-account": "Another account set up the login screen",
-    "unit-masked": "greetd is turned off by the system"
+var REASON_HINTS = {
+    "greetd-missing": "Needs greetd. Install it under Requirements to use the login screen.",
+    "hyprland-missing": "Needs Hyprland, which the login screen runs in. Install Hyprland to use it.",
+    "greeter-user-missing": "Needs the greeter account that greetd's package makes. This is for information only.",
+    "other-display-manager": "Another login screen is turned on. VGS does not turn it off, so it stays your login screen.",
+    "install-untrusted": "The login screen runs only a VGS that a package installed. Install VGS from a package to use it.",
+    "install-path-unsupported": "VGS is installed in a folder the login screen cannot use. Install VGS from a package to use it.",
+    "other-account": "Another account set up the login screen. Only that account can change it.",
+    "unit-masked": "The system turned greetd off, and VGS leaves it off. This is for information only."
 };
 function stepState(step) {
     var state = step === null || step === undefined ? "unknown" : step.state;
@@ -460,8 +462,9 @@ function stepState(step) {
     case "nixos": return { tone: "warning", text: "Needs your NixOS configuration", action: true };
     case "absent":
     case "denied":
-        return { tone: "info", text: Object.prototype.hasOwnProperty.call(REASON_TEXTS, reason) ? REASON_TEXTS[reason] : "Not available on this computer", action: false };
-    case "unknown": return { tone: "info", text: "Could not be checked", action: false };
+        return { tone: "info", text: "Unavailable", action: false,
+            hint: Object.prototype.hasOwnProperty.call(REASON_HINTS, reason) ? REASON_HINTS[reason] : "The login screen is not available on this computer. This is for information only." };
+    case "unknown": return { tone: "info", text: "Not checked", action: false, hint: "VGS could not check the login screen. This is for information only." };
     }
     throw new Error("greeter: step state " + JSON.stringify(state) + " is not one of " + STEP_STATES.join(", "));
 }

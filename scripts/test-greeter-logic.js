@@ -189,18 +189,32 @@ function verify(logic) {
     // The statuses. The Setup tone rule (design-system.md, Steps.js
     // stepOpen): the step reads warning while it offers Set up, and info
     // in every state that offers no action.
+    // [label, step, { tone, text, action }, whether a hint stands under
+    // the chip]. A chip holds a short state; every reading that offers no
+    // action carries a hint that names why or what to do instead.
     const STEPS = [
-        ["ready", { state: "ready", reason: "granted" }, { tone: "ok", text: "Set up", action: false }],
-        ["needed offers Set up", { state: "needed", reason: "not-set-up" }, { tone: "warning", text: "Not set up", action: true }],
-        ["nixos offers the snippet", { state: "nixos", reason: "not-set-up" }, { tone: "warning", text: "Needs your NixOS configuration", action: true }],
-        ["another display manager", { state: "denied", reason: "other-display-manager" }, { tone: "info", text: "Another login screen is turned on", action: false }],
-        ["an install its owner can write", { state: "denied", reason: "install-untrusted" }, { tone: "info", text: "Needs VGS installed from a package", action: false }],
-        ["no greetd", { state: "absent", reason: "greetd-missing" }, { tone: "info", text: "Needs greetd", action: false }],
-        ["an unnamed reason", { state: "absent", reason: "other" }, { tone: "info", text: "Not available on this computer", action: false }],
-        ["unknown", { state: "unknown", reason: "probe-failed" }, { tone: "info", text: "Could not be checked", action: false }],
-        ["no reading yet", null, { tone: "info", text: "Could not be checked", action: false }]
+        ["ready", { state: "ready", reason: "granted" }, { tone: "ok", text: "Set up", action: false }, false],
+        ["needed offers Set up", { state: "needed", reason: "not-set-up" }, { tone: "warning", text: "Not set up", action: true }, false],
+        ["nixos offers the snippet", { state: "nixos", reason: "not-set-up" }, { tone: "warning", text: "Needs your NixOS configuration", action: true }, false],
+        ["another display manager", { state: "denied", reason: "other-display-manager" }, { tone: "info", text: "Unavailable", action: false }, true],
+        ["an install its owner can write", { state: "denied", reason: "install-untrusted" }, { tone: "info", text: "Unavailable", action: false }, true],
+        ["an install path the login screen cannot use", { state: "denied", reason: "install-path-unsupported" }, { tone: "info", text: "Unavailable", action: false }, true],
+        ["another account's setup", { state: "denied", reason: "other-account" }, { tone: "info", text: "Unavailable", action: false }, true],
+        ["a masked greetd", { state: "denied", reason: "unit-masked" }, { tone: "info", text: "Unavailable", action: false }, true],
+        ["no greetd", { state: "absent", reason: "greetd-missing" }, { tone: "info", text: "Unavailable", action: false }, true],
+        ["no Hyprland", { state: "absent", reason: "hyprland-missing" }, { tone: "info", text: "Unavailable", action: false }, true],
+        ["no greeter account", { state: "absent", reason: "greeter-user-missing" }, { tone: "info", text: "Unavailable", action: false }, true],
+        ["an unnamed reason", { state: "absent", reason: "other" }, { tone: "info", text: "Unavailable", action: false }, true],
+        ["unknown", { state: "unknown", reason: "probe-failed" }, { tone: "info", text: "Not checked", action: false }, true],
+        ["no reading yet", null, { tone: "info", text: "Not checked", action: false }, true]
     ];
-    for (const [label, step, want] of STEPS) same(logic.stepState(step), want, label);
+    for (const [label, step, want, hinted] of STEPS) {
+        const shown = logic.stepState(step);
+        same({ tone: shown.tone, text: shown.text, action: shown.action }, want, label);
+        assert.equal(typeof shown.hint === "string" && shown.hint !== "", hinted, "a hint stands under the chip: " + label);
+    }
+    const hints = STEPS.filter(([label, step]) => step !== null && step.state !== "unknown" && step.reason !== "other").map(([label, step]) => logic.stepState(step).hint).filter(hint => hint !== undefined);
+    assert.equal(new Set(hints).size, hints.length, "each reason names its own why");
     assert.throws(() => logic.stepState({ state: "odd", reason: "x" }), /step state "odd"/, "an unknown state throws");
     // The service's copy: nothing until the step reads ready, then the
     // theme file, the background link and the step's directory, in that
@@ -254,8 +268,10 @@ const CONTROLS = [
     ["the theme is copied only once the step reads ready", "    if (!ready) return null;\n    return [configDir", "    return [configDir"],
     ["the copy's arguments are the theme, the link, then the directory", 'return [configDir + "/theme.json", stateDir + "/background", THEME_DIR];', 'return [stateDir + "/background", configDir + "/theme.json", THEME_DIR];'],
     ["the theme status carries no action", 'if (!ready) return { tone: "info", text: "Waits for the login screen" };', 'if (!ready) return { tone: "info", text: "Waits for the login screen", action: false };'],
-    ["a denied step offers no action and reads info", '        return { tone: "info", text: Object', '        return { tone: state === "denied" ? "danger" : "info", text: Object'],
+    ["a denied step offers no action and reads info", '        return { tone: "info", text: "Unavailable"', '        return { tone: state === "denied" ? "danger" : "info", text: "Unavailable"'],
     ["an unchecked step offers no action and reads info", 'case "unknown": return { tone: "info"', 'case "unknown": return { tone: "warning"'],
+    ["an unavailable step's hint names why", 'hint: Object.prototype.hasOwnProperty.call(REASON_HINTS, reason) ? REASON_HINTS[reason] : ', 'hint: '],
+    ["an unchecked step carries a hint", ', action: false, hint: "VGS could not check the login screen.', ', action: false, unused: "VGS could not check the login screen.'],
     ["a needed step offers Set up", 'case "needed": return { tone: "warning", text: "Not set up", action: true };', 'case "needed": return { tone: "warning", text: "Not set up", action: false };']
 ];
 const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "test-greeter-logic-")));

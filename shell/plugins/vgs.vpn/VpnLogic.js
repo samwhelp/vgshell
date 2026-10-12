@@ -271,26 +271,34 @@ function command(request, data) {
 
 function stepOffered(step) { return step === "needed" || step === "nixos"; }
 
-// The setup line: { tone, text, action }, `action` the one step that
-// applies now, `enable` or `allow`, or "" for none. CONTEXT is
-// { missing, state, service, operator }: whether the `tailscale` command
-// is absent, the snapshot's state and the two system steps' states. A
-// missing command offers no step: the page's Requirements section
-// installs it, and the requirement is optional, so the line reads info.
-// A step Tailscale needs reads warning while its action is offered; a
-// state the user cannot change here reads info and names why.
-var SERVICE_UNOFFERED_TEXTS = { absent: "This computer has no Tailscale service.", denied: "The Tailscale service is turned off by the system." };
+// The setup line: { tone, text, hint, action }, `text` the chip's short
+// state, `hint` the sentence under it that names why and what the user can
+// do, "" for none, and `action` the one step that applies now, `enable` or
+// `allow`, or "" for none. CONTEXT is { missing, state, service, operator }:
+// whether the `tailscale` command is absent, the snapshot's state and the
+// two system steps' states. A missing command offers no step: the page's
+// Requirements section installs it, and the requirement is optional, so
+// the line reads info. A step Tailscale needs reads warning while its
+// action is offered; a state the user cannot change here reads info.
+var SERVICE_UNOFFERED = {
+    absent: { text: "Unavailable", hint: "This computer has no Tailscale service." },
+    denied: { text: "Off", hint: "The system turned the Tailscale service off, and VGS leaves it off." }
+};
+function setupState(tone, text, hint, action) { return { tone: tone, text: text, hint: hint, action: action }; }
 function setup(context) {
-    if (context.missing) return { tone: "info", text: "Tailscale is not installed.", action: "" };
-    if (context.state === "service-off")
-        return stepOffered(context.service) ? { tone: "warning", text: "The Tailscale service is off.", action: "enable" }
-            : { tone: "info", text: SERVICE_UNOFFERED_TEXTS[context.service] || "VGS could not check the Tailscale service.", action: "" };
-    if (stepOffered(context.operator)) return { tone: "warning", text: "Your account cannot change Tailscale.", action: "allow" };
-    if (context.operator === "denied") return { tone: "info", text: "Another account controls Tailscale.", action: "" };
+    if (context.missing) return setupState("info", "Not installed", "Tailscale is optional. Install it under Requirements to use it.", "");
+    if (context.state === "service-off") {
+        if (stepOffered(context.service)) return setupState("warning", "Off", "The Tailscale service is off. Enable turns it on.", "enable");
+        var unoffered = Object.prototype.hasOwnProperty.call(SERVICE_UNOFFERED, context.service) ? SERVICE_UNOFFERED[context.service]
+            : { text: "Not checked", hint: "VGS could not check the Tailscale service." };
+        return setupState("info", unoffered.text, unoffered.hint, "");
+    }
+    if (stepOffered(context.operator)) return setupState("warning", "Access needed", "Your account cannot change Tailscale. Allow gives it access.", "allow");
+    if (context.operator === "denied") return setupState("info", "Another account", "Another account controls Tailscale. Only that account can change it.", "");
     // The core's probe could not read the operator, so Ready would be a guess.
     if (context.operator === "unknown" && REACHED.indexOf(context.state) !== -1)
-        return { tone: "info", text: "VGS could not read who controls Tailscale.", action: "" };
-    return { tone: "ok", text: "Ready", action: "" };
+        return setupState("info", "Not checked", "VGS could not read who controls Tailscale.", "");
+    return setupState("ok", "Ready", "", "");
 }
 
 // The connection line: { state, tone, text }. `missing` stands over the
@@ -346,6 +354,7 @@ var STATUS_DATA_BYTES = 32000;
 
 function statusWrites(connectionLine, setupLine, vpnValue, profileValue) {
     var setupValue = { tone: setupLine.tone, text: setupLine.text };
+    if (setupLine.hint !== "") setupValue.hint = setupLine.hint;
     if (setupLine.action !== "") setupValue.action = setupLine.action;
     var vpn = Object.assign({}, vpnValue, { exitNodes: vpnValue.exitNodes.slice(), peers: vpnValue.peers.slice(), accounts: vpnValue.accounts.slice() });
     var profiles = Object.assign({}, profileValue, { rows: profileValue.rows.slice() });

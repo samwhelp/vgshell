@@ -43,7 +43,7 @@
 # 25 reads 0.2 s apart.
 # inputs: shell/plugins/vgs.greeter/* shell/greeter.qml shell/Core/SystemSteps.qml bin/vgshell-system config/system/greeter/* scripts/smoke/fixtures/greeter/* scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
-greeter_status() { ipc smoke statusValues vgs.greeter | py_reply 'import json,sys; v=json.load(sys.stdin).get("greeter"); print(json.dumps(v if v is None else [v["tone"], v["text"], v.get("action")]))'; }
+greeter_status() { ipc smoke statusValues vgs.greeter | py_reply 'import json,sys; v=json.load(sys.stdin).get("greeter"); print(json.dumps(v if v is None else [v["tone"], v["text"], v.get("action"), v.get("hint")]))'; }
 greeter_lent() { ipc smoke readInstance service vgs.greeter steps | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin), sort_keys=True))'; }
 greeter_holders() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["holders"].get("system", [])))'; }
 greeter_record() { ipc shell lent | py_reply 'import json,sys; r=json.load(sys.stdin)["status"].get("vgs.greeter"); print(json.dumps(r if r is None else sorted(r["keys"])))'; }
@@ -55,13 +55,13 @@ if devices_ready greeter; then
   expect_poll "the greeter service is built" True record_exists vgs.greeter
   expect_poll "vgs.greeter holds the system capability" '["vgs.greeter"]' greeter_holders
   expect_poll "the capability lends the greeter step alone" '{"greeter": {"reason": "greetd-missing", "state": "absent"}}' greeter_lent
-  expect_poll "the service publishes the step's reading" '["info", "Needs greetd", false]' greeter_status
+  expect_poll "the service publishes the step's reading" '["info", "Unavailable", false, "Needs greetd. Install it under Requirements to use the login screen."]' greeter_status
   expect_poll "the lending record holds the plugin's status keys" '["greeter", "theme"]' greeter_record
   # Control: the status follows the step's reading.
   device_reply systemctl 0 masked show --property=LoadState --value greetd.service
   rescan "a rescan with greetd masked answers ok"
   expect_poll "a masked greetd reads denied in the lending record" '{"greeter": {"reason": "unit-masked", "state": "denied"}}' greeter_lent
-  expect_poll "the service publishes the masked reading" '["info", "greetd is turned off by the system", false]' greeter_status
+  expect_poll "the service publishes the masked reading" '["info", "Unavailable", false, "The system turned greetd off, and VGS leaves it off. This is for information only."]' greeter_status
   expect "disabling the greeter plugin is allowed" ok ipc shell setPluginEnabled vgs.greeter false
   expect_poll "no plugin holds system once the greeter is disabled" '[]' greeter_holders
   expect_poll "disable dropped the greeter's status record" null greeter_record
