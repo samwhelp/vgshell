@@ -28,7 +28,8 @@ import "Steps.js" as Steps
 //
 // Setup holds what a user does, the status sections (Steps.setupSections):
 // a Status section with the `Setup` group's first entry under its own
-// label; a Setup section with each further entry of that group as a step
+// label; a Setup section with each further entry of that group, and each
+// entry of no group that declares an action, as a step
 // row under its own label, the open steps first, whose value is a Badge
 // chip in its tone, beside it a step's offered screen or action, with its
 // lines and hint under it, then the plugin's stored keys and tokens of no
@@ -38,8 +39,10 @@ import "Steps.js" as Steps
 // when it opens no listed screen, then one action per other setup screen
 // the manifest lists, which opens it through the manager: a screen an
 // offered status action opens first, with the action's label, then the
-// others; then one section per other status group that holds a key list,
-// its keys and states in manifest order; then the Requirements section
+// others; then one section per other status group that holds a key list
+// or an entry that declares an action, titled with the group, its keys,
+// the states beside a key and the entries that declare an action in
+// manifest order; then the Requirements section
 // with an Install all missing button while one is missing, and Update all
 // outdated once the rest are only outdated. A step keeps its row once it
 // is done, with its state and the action its plugin offers to run it
@@ -53,8 +56,9 @@ import "Steps.js" as Steps
 // link of a plugin included with VGS, the Update and Remove actions of an
 // installed plugin, one status section per status
 // group (entries without a group first, under `Status`), but for the
-// entries the Setup tab draws (Steps.detailEntries), whose values are
-// read-only, and, for a plugin with no Setup tab, the Requirements
+// entries the Setup tab draws (Steps.detailEntries), every entry that
+// declares an action among them, whose values are read-only and which
+// draw no action, and, for a plugin with no Setup tab, the Requirements
 // section, every tool of which then reads present. A disabled plugin's
 // status rows say it has not reported.
 //
@@ -637,7 +641,9 @@ FocusScope {
                                         // and a step's offered action
                                         // beside it, the chip no wider than
                                         // the value column less that
-                                        // action, eliding a long state;
+                                        // action, eliding a long state,
+                                        // and its entry's info beside the
+                                        // label;
                                         // then its lines and its hint under
                                         // the value, as a field draws them,
                                         // the words of the hint its entry's
@@ -651,6 +657,7 @@ FocusScope {
                                                 readonly property var view: Steps.statusView(statusItem.modelData.entry, ms => Timestamp.text(ms, Time.now.getTime()))
                                                 readonly property var button: statusItem.modelData.button
                                                 label: statusItem.modelData.label
+                                                info: view.info
                                                 inline: true
                                                 lines: view.lines
                                                 hint: view.hint

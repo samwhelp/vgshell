@@ -6,9 +6,10 @@ import "Steps.js" as Steps
 
 // One Status row of a plugin's page, drawn from one entry of its manager
 // row's `status` (PluginLogic.statusRows) as StatusLines: the entry's label
-// beside its value, the entry's hint and, while its step applies
-// (Steps.js), its action; the words of the hint the entry's `link` names
-// open that address through `openLink`. A presence
+// beside its value and the entry's hint; the words of the hint the entry's
+// `link` names open that address through `openLink`. The row draws no
+// action of its entry: an entry that declares one is a step of the Setup
+// tab (Steps.declaresStep). A presence
 // or a state draws as a Badge in the tone the entry carries, a state's
 // further lines each as a Badge of that tone under it, and its hint, the
 // state's sentence where the state carries one, wrapped under them; a
@@ -20,16 +21,16 @@ import "Steps.js" as Steps
 // presence, its hint, and, for an item that is a secret's presence, Add key
 // in the chip's place while nothing is stored, or Replace and Remove after
 // the chip (Steps.itemView). Each line is one group of the row's GroupList,
-// divided from the next as the rows of a section are. No row takes an edit of a value: a step goes to the manager
-// through `panel` (D061).
+// divided from the next as the rows of a section are. No row takes an edit
+// of a value: a key's step goes to the manager through `panel` (D061).
 GroupList {
     id: row
 
     // One entry of a manager row's `status`, or null for a row whose entry
     // left the page's manager row before the row itself goes.
     required property var entry
-    // The Settings panel, whose manager calls run each step and whose
-    // `replyOf` and `writing` each line reads, and the plugin's id.
+    // The Settings panel, whose manager calls store and clear a key and
+    // whose `replyOf` and `writing` each line reads, and the plugin's id.
     required property Item panel
     required property string pluginId
     // The plugin's `secrets` label, which a line's masked field asks for.
@@ -62,11 +63,7 @@ GroupList {
         text: row.view.text
         lines: row.view.lines
         muted: row.view.muted
-        actionLabel: row.entry === null || row.entry.action === null ? "" : row.entry.action.label
-        actionOffered: row.view.offered
-        actionTone: row.entry === null || row.entry.action === null ? "" : row.entry.action.tone
         error: row.replyOf()
-        onAct: row.panel.act(row.pluginId, row.entry.key)
     }
 
     Repeater {

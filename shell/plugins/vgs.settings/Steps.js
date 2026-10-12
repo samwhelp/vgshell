@@ -7,10 +7,11 @@
 // failing state its writer gives no action shows none. The core decides when
 // a step applies (PluginLogic.statusActionOffered, SECRET_ACCESS,
 // requirementRows); this file decides what the page then draws, and where:
-// a setup step, a stored key and a setup screen on the Setup tab, a state
-// outside them on Details, and the requirements on Setup when the page has
-// that tab, else on Details. It also judges what a plugin still asks of
-// its user (setupNeeds), which the plugin list marks its row with.
+// a setup step, which is every entry that declares an action, a stored key
+// and a setup screen on the Setup tab, an entry outside them on Details,
+// and the requirements on Setup when the page has that tab, else on
+// Details. It also judges what a plugin still asks of its user
+// (setupNeeds), which the plugin list marks its row with.
 
 // What the line of ENTRY, one row of PluginLogic.statusRows, draws of its
 // step: { offered }, whether the action's button shows.
@@ -52,15 +53,15 @@ function settingHint(spec, status) {
 
 // What a page draws of ENTRY, one row of PluginLogic.statusRows, or null
 // for a row whose entry left the manager row: { label, hint, info, link,
-// offered, tone, text, lines, muted, items }, `link` the words of the hint
-// that open an address, { text, url } or null, `offered` its step's
-// (statusStep), `tone` "" for a value drawn as text, `lines` a state's
+// tone, text, lines, muted, items }, `link` the words of the hint that
+// open an address, { text, url } or null, `tone` "" for a value drawn as
+// text, `lines` a state's
 // further lines and `items` a presence list's items with the `key` each
 // keeps across writes (itemsKeyed). TIME_TEXT spells a `time` value for
 // people. An entry the plugin has not published reads "Not reported".
 function statusView(entry, timeText) {
-    if (entry === null) return { label: "", hint: "", info: "", link: null, offered: false, tone: "", text: "", lines: [], muted: true, items: [] };
-    var out = { label: entry.label, hint: entry.hint, info: entry.info, link: entry.link, offered: statusStep(entry).offered, tone: "", text: "Not reported", lines: [], muted: true, items: [] };
+    if (entry === null) return { label: "", hint: "", info: "", link: null, tone: "", text: "", lines: [], muted: true, items: [] };
+    var out = { label: entry.label, hint: entry.hint, info: entry.info, link: entry.link, tone: "", text: "Not reported", lines: [], muted: true, items: [] };
     if (entry.report !== "reported") return out;
     out.muted = false;
     out.tone = entry.tone;
@@ -123,13 +124,23 @@ function listsKeys(entry) {
     return entry.secrets || (entry.type === "presenceList" && entry.group === SETUP_GROUP);
 }
 
+// Whether ENTRY declares a setup step: its manifest gives it an `action`
+// or `actions`, for which PluginLogic.statusRowAction hands an object
+// whatever the entry's value, and null for an entry that declares none. So
+// an entry keeps its tab while its value changes.
+function declaresStep(entry) {
+    return entry.action !== null;
+}
+
 // The entries of STATUS, a manager row's status rows, that list the
 // plugin's stored keys and tokens: a page draws each on its Setup tab,
 // where a key is added, replaced and removed, and every other entry
 // read-only on Details (detailEntries), but for the entries of
-// SETUP_GROUP, the Setup tab's headline and steps, and the states of a
-// keyed group (keyedGroups), which the Setup tab draws beside its keys. No
-// entry draws on both tabs.
+// SETUP_GROUP, the Setup tab's headline and steps, the states of a
+// keyed group (keyedGroups), which the Setup tab draws beside its keys,
+// and each entry of another group that declares a step (declaresStep),
+// which the Setup tab draws as a step. No entry draws on both tabs, and
+// Details draws no action.
 function keyEntries(status) {
     return status.filter(listsKeys);
 }
@@ -138,24 +149,38 @@ function detailEntries(status) {
     return status.filter(function (entry) {
         if (inKeyedGroup(entry, keyed)) return false;
         if (entry.group === SETUP_GROUP) return false;
+        if (declaresStep(entry)) return false;
         return !listsKeys(entry);
     });
 }
 
-// The groups of STATUS, other than "" and SETUP_GROUP, that hold a key
-// list, in the order of their first entry: each is a section of the
-// Setup tab, titled with the group, so a key and the step that uses it
-// read under one heading.
-function keyedGroups(status) {
+// The groups of STATUS, other than "" and SETUP_GROUP, that hold an entry
+// HOLDS admits, in the order of their first such entry.
+function groupsHolding(status, holds) {
     var out = [];
-    keyEntries(status).forEach(function (entry) {
+    status.filter(holds).forEach(function (entry) {
         if (entry.group !== "" && entry.group !== SETUP_GROUP && out.indexOf(entry.group) === -1) out.push(entry.group);
     });
     return out;
 }
 
+// The groups of STATUS that hold a key list: the Setup tab draws the
+// states of each beside its keys, so a key and the step that uses it read
+// under one heading.
+function keyedGroups(status) {
+    return groupsHolding(status, listsKeys);
+}
+
+// The groups of STATUS that are each a section of the Setup tab, titled
+// with the group: those that hold a key list or an entry that declares a
+// step.
+function sectionGroups(status) {
+    return groupsHolding(status, function (entry) { return listsKeys(entry) || declaresStep(entry); });
+}
+
 // Whether ENTRY draws in the section of one of KEYED, keyedGroups' groups:
-// a key list or a state of such a group. Another type stays on Details.
+// a key list or a state of such a group. Another type stays on Details
+// unless it declares a step.
 function inKeyedGroup(entry, keyed) {
     return keyed.indexOf(entry.group) !== -1 && (listsKeys(entry) || entry.type === "state");
 }
@@ -165,13 +190,16 @@ function inKeyedGroup(entry, keyed) {
 // order, each { title, items, buttons }:
 // - STATUS_TITLE: SETUP_GROUP's first entry, under its own label, with no
 //   step;
-// - SETUP_GROUP: each further entry of that group as a step row, by
+// - SETUP_GROUP: each further entry of that group, then each entry of
+//   group "" that declares a step (declaresStep), as a step row, by
 //   stepRank, open steps first, then the steps that wait on an offered
 //   action, then the done ones, each rank in manifest order; then the key
 //   lists of group "" or SETUP_GROUP, then `buttons`, the headline's
 //   offered action and the screens no entry declares (flowButtons);
-// - each keyed group (keyedGroups): its key lists and states in manifest
-//   order, each state a step row.
+// - each further group that holds a key list or a declared step
+//   (sectionGroups): its key lists, the states of a keyed group and the
+//   entries that declare a step, in manifest order, each but a key list a
+//   step row.
 // A section with no item and no button is left out. Each item is { key,
 // keys, entry, label, step, button }: `key` the entry's, `keys` whether it
 // draws as a key list, `step` whether its offered action draws beside it,
@@ -188,12 +216,12 @@ function setupSections(tuis, status) {
     function keys(entry) {
         return { key: entry.key, keys: true, entry: entry, label: entry.label, step: false, button: null };
     }
-    var steps = setup.slice(1);
+    var steps = setup.slice(1).concat(status.filter(function (entry) { return entry.group === "" && declaresStep(entry); }));
     var setupItems = [0, 1, 2].map(function (rank) { return steps.filter(function (entry) { return stepRank(entry) === rank; }); })
         .reduce(function (all, ranked) { return all.concat(ranked); }, []).map(function (entry) { return row(entry, true); })
         .concat(keyEntries(status).filter(function (entry) { return keyed.indexOf(entry.group) === -1; }).map(keys));
-    var groups = keyed.map(function (group) {
-        return { title: group, buttons: [], items: status.filter(function (entry) { return entry.group === group && inKeyedGroup(entry, keyed); })
+    var groups = sectionGroups(status).map(function (group) {
+        return { title: group, buttons: [], items: status.filter(function (entry) { return entry.group === group && (inKeyedGroup(entry, keyed) || declaresStep(entry)); })
             .map(function (entry) { return listsKeys(entry) ? keys(entry) : row(entry, true); }) };
     });
     var out = [];
@@ -227,8 +255,11 @@ function stepRank(entry) {
 // manager row's status and requirement rows, and ENABLED, whether it is
 // on: { open, optional }. `open` holds while a required tool is missing or
 // outdated (requirementApplies) or a headline or step of the Setup tab is
-// open (stepOpen); the plugin list then draws Setup needed on the row and
-// a click on the row opens Setup. `optional` counts the optional tools
+// open (stepOpen), a step outside SETUP_GROUP and the keyed groups only
+// while its value offers its action too, since an entry there may read
+// warning for a fault no step of its own mends; the plugin list then draws
+// Setup needed on the row and a click on the row opens Setup. `optional`
+// counts the optional tools
 // that are missing, which the list marks with its warning icon. A plugin
 // that is off asks nothing: both read as none until it is turned on.
 function setupNeeds(status, requirements, enabled) {
@@ -236,7 +267,7 @@ function setupNeeds(status, requirements, enabled) {
     var keyed = keyedGroups(status);
     return {
         open: requirements.some(function (requirement) { return !requirement.optional && requirementApplies(requirement); })
-            || status.some(function (entry) { return stepOpen(entry) && !listsKeys(entry) && (entry.group === SETUP_GROUP || inKeyedGroup(entry, keyed)); }),
+            || status.some(function (entry) { return stepOpen(entry) && !listsKeys(entry) && (entry.group === SETUP_GROUP || inKeyedGroup(entry, keyed) || (declaresStep(entry) && statusStep(entry).offered)); }),
         optional: requirements.filter(function (requirement) { return requirement.optional && requirement.state === "missing"; }).length
     };
 }
