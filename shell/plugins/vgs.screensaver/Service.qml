@@ -23,7 +23,6 @@ Item {
     readonly property bool locked: shell !== null && shell.session.locked
     readonly property bool idleEnabled: shell !== null && shell.settings.idleEnabled === true
     readonly property int idleSeconds: shell === null ? 150 : shell.settings.idleSeconds
-    readonly property var missing: shell === null ? [] : shell.requirements.missing
     readonly property int requirementsRevision: shell === null ? 0 : shell.requirements.revision
     readonly property string art: shell === null || shell.settings.art === undefined ? "" : shell.settings.art
     readonly property string convertedArt: Paths.stateDir + "/screensaver-art.txt"
@@ -104,7 +103,8 @@ Item {
             return;
         }
         textArt.path = "";
-        const requirementProblem = Logic.imageRequirementProblem(missing);
+        // Handlers can run before a dependent binding updates, so read the current requirements in place.
+        const requirementProblem = Logic.imageRequirementProblem(shell.requirements.missing);
         if (requirementProblem !== "") {
             settleArt(convertedArt, requirementProblem);
             return;
@@ -229,7 +229,8 @@ Item {
     }
 
     function refreshEffects() {
-        if (shell === null || effectsHelp.running || !Logic.ttfxReady(missing)) return;
+        // Handlers can run before a dependent binding updates, so read the current requirements in place.
+        if (shell === null || effectsHelp.running || !Logic.ttfxReady(shell.requirements.missing)) return;
         effectsHelp.running = true;
     }
 
