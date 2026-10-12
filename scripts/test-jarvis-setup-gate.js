@@ -180,6 +180,9 @@ const CLONED = [
         "local", "info", "setup", true, "clone-voice", null],
     ["a setup in progress offers nothing", { ...CLONE_ANSWER, text: "Setting up", action: false }, "local", "info", undefined, false, null, null],
 ];
+function oneSentence(text) {
+    return (text.match(/\. /g) || []).length === 0 && text.endsWith(".");
+}
 function verifyClonedVoice(gate, judged) {
     for (const [label, answer, provider, tone, action, reasoned, tui, reason] of CLONED) {
         const value = plain(gate.clonedVoiceStep(answer, provider));
@@ -205,6 +208,8 @@ function verifyClonedVoice(gate, judged) {
                 { ok: true, kind: "tui", name: tui }, label + ": the press opens its TUI");
     }
     assert.notEqual(gate.CLONE_READY_HINT, judged.status.clonedVoiceSetup.hint, "the done hint is not the declared setup instruction");
+    assert.equal(oneSentence(gate.CLONE_READY_HINT), true, "the ready hint is one sentence");
+    assert.equal(oneSentence(judged.status.clonedVoiceSetup.hint), true, "the declared setup hint is one sentence");
     assert.equal(judged.tui["clone-voice"].requires.includes("pw-record"), true, "the setup TUI needs its recorder");
 }
 
@@ -1239,6 +1244,8 @@ const CONTROLS = [
         "    else if (row.tone === \"ok\") row.hint = CLONE_READY_HINT;\n    if (value.lines !== undefined) row.lines = value.lines;\n    return row;",
         "a timed-out read words its state: the row draws no keyed cause"],
     ["a ready clone row keeps the setup instruction", '    else if (row.tone === "ok") row.hint = CLONE_READY_HINT;\n', "", "a ready cloned voice offers Remove and says what the recording gives"],
+    ["a ready clone hint has more than one sentence", 'var CLONE_READY_HINT = "Jarvis speaks in this voice while Cloned voice is on in Settings > Local voice.";',
+        'var CLONE_READY_HINT = "The recording is ready. Jarvis speaks in this voice while Cloned voice is on in Settings > Local voice.";'],
     ["a failed clone read offers a boolean", 'var action = value.action === true ? "setup" : value.action;', "var action = value.action;", "a failed read offers setup"],
     ["the fleet row shows with no home", "if (home === null || tool !== null)", "if (tool !== null)", "no home chosen: the row shows"],
     ["the fleet row shows once the tool is found", "if (home === null || tool !== null)", "if (home === null)", "a home with the mail tool: the row shows"],

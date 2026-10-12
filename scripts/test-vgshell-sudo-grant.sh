@@ -449,7 +449,7 @@ installed
 start="$("$date_bin" +%s)"
 run_tty "a granted grant succeeds" 0 grant
 check "the duration question starts on the default among the four durations" test "$(cat "$tmp/gum-choose.log")" == "$(printf '%s\n' choose --header "Turn on passwordless sudo for how long?" --selected "15 minutes" "15 minutes" "1 hour" "1 day" Indefinitely)"
-check "the grant asks once, defaulting to no" test "$(cat "$tmp/gum.log")" == "$(printf '%s\n' confirm --default=false -- "Enable passwordless sudo for 15 minutes? This is a significant security risk!")"
+check "the grant asks once, defaulting to no" test "$(cat "$tmp/gum.log")" == "$(printf '%s\n' confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" --default=false -- "Enable passwordless sudo for 15 minutes? This is a significant security risk!")"
 check "the rule is the one grant for the account" grep -qxE -- "vgsuser ALL=\(ALL\) NOTAFTER=[0-9]{14}Z NOPASSWD: ALL" "$rule"
 check "the rule holds one line" test "$(wc -l <"$rule")" == 1
 check "visudo checked the rule that was published" cmp -s -- "$tmp/checked-rule" "$rule"

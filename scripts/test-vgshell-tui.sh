@@ -72,7 +72,7 @@ logo_drawn_count() {
 }
 logo_drawn() { test "$(logo_drawn_count "$@")" == "${#logo_lines[@]}"; }
 done_text="Done! Press any key to close..."
-failed_text() { printf 'Failed (exit code %s)! Press any key to close...' "$1"; }
+failed_text() { printf 'Failed! Press any key to close...'; }
 
 # present: the prompt by exit code, none on 130 or under plain, the logo
 # under full only, and the command's code as present's own.
@@ -91,8 +91,8 @@ for row in "${rows[@]}"; do
   check "$name runs the command" out_has "ran $code"
   case "$want_prompt" in
     done) check "$name prompts Done" out_has "$done_text" ;;
-    failed) check "$name prompts Failed with the code" out_has "$(failed_text "$code")" ;;
-    none) check "$name prompts nothing" test "$(grep -c -e 'Done!' -e 'Failed (' "$tmp/out")" == 0 ;;
+    failed) check "$name prompts Failed" out_has "$(failed_text)" ;;
+    none) check "$name prompts nothing" test "$(grep -c -e 'Done!' -e 'Failed!' "$tmp/out")" == 0 ;;
   esac
   if [[ $want_logo == yes ]]; then check "$name draws every line of the logo" logo_drawn
   else check "$name draws no logo" test "$(logo_drawn_count)" == 0; fi
@@ -110,8 +110,8 @@ prompt_on_tty() { # BIN
 }
 prompt_on_tty "$subject"
 check "a redirected present exits with the code" test "$tty_status" == 1
-check "a redirected present prompts on the terminal" out_has "$(failed_text 1)"
-check "a redirected present keeps the prompt out of stdout" test "$(grep -c 'Failed (' "$tmp/stdout")" == 0
+check "a redirected present prompts on the terminal" out_has "$(failed_text)"
+check "a redirected present keeps the prompt out of stdout" test "$(grep -c 'Failed!' "$tmp/stdout")" == 0
 check "a redirected present's stdout holds the command's output" grep -qxF 'ran 1' "$tmp/stdout"
 
 # argv reaches the command as a list, never through a shell.
@@ -236,7 +236,7 @@ for row in "${rows[@]}"; do
   on_tty "$subject" present --plugin acme.tui --dir "$snap" -- "$rel"
   check "script [$rel] exits 1" test "$tty_status" == 1
   check "script [$rel] is refused $reason" out_has "vgshell-tui: refused: script=$rel reason=$reason"
-  check "script [$rel] is reported under the Failed prompt" out_has "$(failed_text 1)"
+  check "script [$rel] is reported under the Failed prompt" out_has "$(failed_text)"
   check "script [$rel] leaves no copy" test -z "$(find "$rt" -mindepth 1 -maxdepth 1 -name 'vgs-tui.*')"
 done
 rm -rf -- "$snap"
@@ -274,12 +274,12 @@ child_gone() { local pid; pid="$(cat "$tmp/child" 2>/dev/null)"; [[ -n $pid ]] &
 on_tty_interrupt "$subject" present -- waitint 8
 check "a Ctrl-C'd command exits 130" test "$tty_status" == 130
 check "a Ctrl-C'd command is stopped" child_gone
-check "a Ctrl-C'd command prompts nothing" test "$(grep -c -e 'Done!' -e 'Failed (' "$tmp/out")" == 0
+check "a Ctrl-C'd command prompts nothing" test "$(grep -c -e 'Done!' -e 'Failed!' "$tmp/out")" == 0
 plugin_snapshot
 on_tty_interrupt "$subject" present --plugin acme.tui --dir "$snap" -- tui/wait.sh 8
 check "a Ctrl-C'd plugin script exits 130" test "$tty_status" == 130
 check "a Ctrl-C'd plugin script is stopped" child_gone
-check "a Ctrl-C'd plugin script prompts nothing" test "$(grep -c -e 'Done!' -e 'Failed (' "$tmp/out")" == 0
+check "a Ctrl-C'd plugin script prompts nothing" test "$(grep -c -e 'Done!' -e 'Failed!' "$tmp/out")" == 0
 check "a Ctrl-C'd plugin script leaves no copy" test -z "$(find "$rt" -mindepth 1 -maxdepth 1 -name 'vgs-tui.*')"
 
 # launch: setsid -f, which forks the terminal off so launch returns, then
@@ -764,7 +764,7 @@ failed_gone() {
 # most 5 s: the prompt drops a key queued before it as a terminal reply.
 failed_close() {
   local n
-  for ((n = 0; n < 100; n++)); do grep -qF "$(failed_text 1)" "$tmp/failed-out" 2>/dev/null && break; sleep 0.05; done
+  for ((n = 0; n < 100; n++)); do grep -qF "$(failed_text)" "$tmp/failed-out" 2>/dev/null && break; sleep 0.05; done
   : >"$tmp/failed-key"
   wait "$failed_pid" || :
   rm -f -- "${rdir:?}"/acme.*@*.json
@@ -783,7 +783,7 @@ check "a later run of the same plugin closes the failed window" test "$(failed_g
 failed_status=0
 wait "$failed_pid" || failed_status=$?
 check "the closed failed window keeps its run's code" test "$failed_status" == 1
-check "the closed failed window had shown its Failed prompt" grep -qF "$(failed_text 1)" "$tmp/failed-out"
+check "the closed failed window had shown its Failed prompt" grep -qF "$(failed_text)" "$tmp/failed-out"
 check "the closed failed window leaves no marker" test ! -e "$fail_marker"
 rm -f -- "${rdir:?}"/acme.*@*.json
 # A key still closes a failed window, which then removes its own marker; a
@@ -869,10 +869,10 @@ control_lib() { # NAME NEEDLE REPLACEMENT
   check "the $1 mutant differs" test "$(cmp -s "$repo/bin/lib/tui.sh" "$dir/bin/lib/tui.sh"; echo $?)" == 1
   control_bin="$dir/bin/vgshell-tui"
 }
-control_lib stdout-prompt '"$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" "$code" >/dev/tty' '"$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" "$code"'
+control_lib stdout-prompt '"$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" >/dev/tty' '"$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)"'
 prompt_on_tty "$control_bin"
-check "the stdout-prompt mutant keeps the prompt off the terminal" test "$(grep -c 'Failed (' "$tmp/out")" == 0
-check "the stdout-prompt mutant writes the prompt to stdout" grep -q 'Failed (exit code 1)' "$tmp/stdout"
+check "the stdout-prompt mutant keeps the prompt off the terminal" test "$(grep -c 'Failed!' "$tmp/out")" == 0
+check "the stdout-prompt mutant writes the prompt to stdout" grep -q 'Failed!' "$tmp/stdout"
 
 # The prompt's marker wait is the library's: a copy that waits for a key
 # alone leaves the failed window waiting after a later run of its plugin.

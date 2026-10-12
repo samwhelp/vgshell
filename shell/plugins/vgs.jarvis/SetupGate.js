@@ -386,7 +386,7 @@ var CLONE_WITHHELD = {
 };
 // The hint of a ready row: what the recording gives now. The declared hint
 // says how to set the step up, which a done step no longer asks.
-var CLONE_READY_HINT = "The recording is ready. Jarvis speaks in this voice while Cloned voice is on in Settings > Local voice. Remove recording deletes the recording.";
+var CLONE_READY_HINT = "Jarvis speaks in this voice while Cloned voice is on in Settings > Local voice.";
 function clonedVoiceStep(value, provider) {
     var action = value.action === true ? "setup" : value.action;
     var reason = provider !== "local" ? CLONE_WITHHELD.provider : value.tierReady === false ? CLONE_WITHHELD.tier : null;

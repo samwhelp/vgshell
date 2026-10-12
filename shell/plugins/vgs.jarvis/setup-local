@@ -12,6 +12,7 @@ unavailable, never ready. No audio device or host setting is opened. The
 state lock covers invalidation, installation and publication.
 
 `clone` holds the cloned voice's verbs, under a lock of their own:
+`check` refuses without output unless the Large tier can run the clone,
 `install` builds its environment and fetches its model beside a ready
 graphics card tier, `record` stores the reference read on stdin and
 publishes after a probe, `probe` runs only inside a network namespace,
@@ -545,6 +546,19 @@ def clone_tier(judge, value, state, data):
     return tier is not None and value["tiers"][tier]["provider"] == CLONE_PROVIDER
 
 
+def require_clone_tier(judge, value, state, data):
+    """Refuse clone setup until the verified Local voice tier can host it."""
+    if not clone_tier(judge, value, state, data):
+        raise ValueError("clone=needs-large-tier\n"
+                         "The cloned voice runs beside the Large local voice model on an NVIDIA graphics card. "
+                         "Set up Large under Local voice on the Jarvis page first.")
+
+
+def clone_check(judge, state, data):
+    """Refuse unless clone setup can start now; success prints nothing."""
+    require_clone_tier(judge, judge.manifest(HERE / "artifacts.json"), state, data)
+
+
 def marked_tier(value, state):
     """Whether the tier setup-local's marker names runs on CLONE_PROVIDER,
     read without verifying that tier: the Local voice row's status does."""
@@ -599,11 +613,9 @@ def clone_install(judge, state, data):
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     with exclusive(state / CLONE_LOCK):
         value = judge.manifest(HERE / "artifacts.json")
-        if not clone_tier(judge, value, state, data):
-            raise ValueError("clone=needs-large-tier\n"
-                             "The cloned voice runs beside the Large local voice model on an NVIDIA graphics card. "
-                             "Set up Large under Local voice on the Jarvis page first.")
+        require_clone_tier(judge, value, state, data)
         row = clone_row(value)
+        downloads = list(judge.downloads(row))
         root = data / CLONE
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
         # The model has no archive to hold twice; the environment and
@@ -616,16 +628,19 @@ def clone_install(judge, state, data):
             models = root / "models"
             models.mkdir(mode=0o700, exist_ok=True)
             print("jarvis-setup: step=runtime", flush=True)
+            print("Installing the runtime for the cloned voice.", flush=True)
             command(["uv", "--no-config", "venv", "--managed-python", "--python",
                      value["runtimes"]["sherpa-onnx"]["cudaWheel"]["python"], str(root / "venv")], data)
             command(["uv", "--no-config", "pip", "sync", "--python", str(root / "venv/bin/python"),
                      "--require-hashes", "--only-binary", ":all:", str(clone_requirements(root))], data)
-            for url, path, digest in judge.downloads(row):
+            for index, (url, path, digest) in enumerate(downloads, start=1):
                 target = models / path
                 if target.is_file() and judge.sha256(target) == digest:
-                    print(f"jarvis-setup: step=model file={path} reused", flush=True)
+                    print(f"jarvis-setup: step=model file={path} index={index} count={len(downloads)} reused", flush=True)
+                    print(f"Model file {index} of {len(downloads)} is already on this computer.", flush=True)
                     continue
-                print(f"jarvis-setup: step=model file={path}", flush=True)
+                print(f"jarvis-setup: step=model file={path} index={index} count={len(downloads)}", flush=True)
+                print(f"Downloading the model: file {index} of {len(downloads)}.", flush=True)
                 target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
                 download(url, target, digest, judge, data)
             judge.verify(value, models, [row])
@@ -635,6 +650,7 @@ def clone_install(judge, state, data):
                   "Removed the cloned voice's downloads and runtime.", file=sys.stderr)
             raise
     print("jarvis-setup: clone=installed", flush=True)
+    print("The model is on this computer.", flush=True)
 
 
 def clone_record(judge, state, data, source):
@@ -675,6 +691,7 @@ def clone_record(judge, state, data, source):
                     temporary.unlink(missing_ok=True)
             ready = clone_identity(judge, value, data, reference)
             print("jarvis-setup: step=probe", flush=True)
+            print("Testing the cloned voice on this computer.", flush=True)
             log = state / "clone-setup.log"
             python = data / CLONE / "venv/bin/python"
             with log.open("w") as errors, tempfile.TemporaryFile(mode="w+") as reading:
@@ -763,7 +780,9 @@ def main():
     judge = measurement()
     state, data = roots()
     if args.verb == "clone":
-        if args.tier == "install":
+        if args.tier == "check":
+            clone_check(judge, state, data)
+        elif args.tier == "install":
             clone_install(judge, state, data)
         elif args.tier == "record":
             clone_record(judge, state, data, sys.stdin.buffer)
@@ -776,7 +795,7 @@ def main():
             tier = marked_tier(judge.manifest(HERE / "artifacts.json"), state)
             print(json.dumps(clone_status(judge, state, data, tier)))
         else:
-            parser.error("clone takes install, record, probe, remove or status")
+            parser.error("clone takes check, install, record, probe, remove or status")
         return
     if args.verb in ("choices", "status") and args.tier is not None:
         parser.error(f"{args.verb} takes no tier")

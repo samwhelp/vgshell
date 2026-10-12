@@ -430,7 +430,7 @@ fresh
 run_tty "apply apple-displays succeeds" 0 apply apple-displays
 hash="$(sha256sum <"$rule_src")"; hash="${hash%% *}"
 check "apply shows the rule's install before asking" out_has "  sudo $(p install) -m 0644 -o root -g root -T -- $rule_src $rule"
-check "apply asks one question" test "$(cat "$tmp/gum.log")" == "$(printf '%s\n' confirm -- "Run these commands as root?")"
+check "apply asks one question" test "$(cat "$tmp/gum.log")" == "$(printf '%s\n' confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" -- "Run these commands as root?")"
 check "apple-displays runs its commands in one sudo session" test "$(sudo_calls)" == "$(session \
   "-- $(p install) -d -m 0755 -o root -g root -- $records" \
   "-- $(p tee) -- $records/.apple-displays" \

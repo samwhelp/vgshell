@@ -44,7 +44,8 @@ def namespace_entry():
 
 class Setup(unittest.TestCase):
     def setUp(self):
-        scratch = tempfile.TemporaryDirectory()
+        (REPO / "tmp").mkdir(exist_ok=True)
+        scratch = tempfile.TemporaryDirectory(dir=REPO / "tmp", prefix="jarvis-setup-")
         self.addCleanup(scratch.cleanup)
         self.root = Path(scratch.name).resolve()
         self.plugin = self.root / "plugin"
@@ -61,6 +62,24 @@ class Setup(unittest.TestCase):
         for name in ("uv", "curl", "unshare", "gum", "nvidia-smi", "pw-record"):
             shutil.copyfile(DOUBLE, self.commands / name)
             (self.commands / name).chmod(0o700)
+        (self.commands / "gum").write_text("""#!/bin/sh
+cmd="$1"
+shift
+case "$cmd" in
+  style)
+    while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
+    [ "$#" -gt 0 ] && shift
+    printf '%s\\n' "$@"
+    ;;
+  confirm)
+    exit "${GUM_CONFIRM_EXIT:-0}"
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+""")
+        (self.commands / "gum").chmod(0o700)
         self.env = {"PATH": str(self.commands) + ":" + os.environ["PATH"],
                     "HOME": str(self.home), "XDG_STATE_HOME": str(self.root / "state"),
                     "XDG_DATA_HOME": str(self.root / "data"), "LC_ALL": "C",
@@ -1149,12 +1168,16 @@ class Setup(unittest.TestCase):
         return {str(path): path.read_bytes() for root in (self.root / "state", self.root / "data")
                 for path in root.rglob("*") if path.is_file()}
 
+    def tree_without_clone_log(self):
+        return {path: data for path, data in self.tree().items() if not path.endswith("/clone-voice.log")}
+
     def clone_tui(self, script, answers, source=None):
         """Run a clone TUI with a presentation double: each confirmation
         takes the next of ANSWERS, yes once they run out."""
         library, answered = self.root / "clone-lib.sh", self.root / "answers"
         library.write_text('vgs_tui_header() { :; }\nvgs_tui_step() { :; }\nvgs_tui_success() { :; }\n'
-                           'vgs_tui_error() { :; }\nvgs_tui_confirm() { local answers; mapfile -t answers <"$ANSWERS"; '
+                           'vgs_tui_error() { :; }\nvgs_tui_split() { shift 2; "$@"; }\n'
+                           'vgs_tui_confirm() { local answers; mapfile -t answers <"$ANSWERS"; '
                            'printf "%s\\n" "${answers[@]:1}" >"$ANSWERS"; [[ ${answers[0]:-yes} == yes ]]; }\n')
         answered.write_text("".join(answer + "\n" for answer in answers))
         path = self.plugin / "tui" / script
@@ -1163,6 +1186,18 @@ class Setup(unittest.TestCase):
         env = dict(self.env, VGS_TUI_LIB=str(library), VGS_PLUGIN_DIR=str(self.plugin), ANSWERS=str(answered),
                    UV_CACHE_DIR=str(self.data / "cache"))
         return subprocess.run(["bash", str(path)], env=env, capture_output=True, text=True, check=False, timeout=60)
+
+    def clone_tui_real(self, source=None, extra=None):
+        """Run the setup TUI through the shipped presentation library."""
+        path = self.plugin / "tui/clone-voice.sh"
+        if source is not None:
+            path.write_text(source)
+        env = dict(self.env, VGS_TUI_LIB=str(REPO / "bin/lib/tui.sh"), VGS_PLUGIN_DIR=str(self.plugin),
+                   VGS_TUI_UNATTENDED="1", UV_CACHE_DIR=str(self.data / "cache"))
+        if extra:
+            env.update(extra)
+        return subprocess.run(["bash", "-c", "umask \"${UMASK:-077}\"; exec \"$1\"", "clone-tui", str(path)],
+                              env=env, capture_output=True, text=True, check=False, timeout=60)
 
     # One row per consent question: a No there, a planted Yes on the other.
     CONSENT = [
@@ -1176,11 +1211,12 @@ class Setup(unittest.TestCase):
         source = (PLUGIN / "tui/clone-voice.sh").read_text()
         for name, answers, gate in self.CONSENT:
             with self.subTest(question=name):
-                before = self.tree()
+                before = self.tree_without_clone_log()
                 result = self.clone_tui("clone-voice.sh", answers, source)
                 self.assertEqual(result.returncode, 130, result.stdout + result.stderr)
                 self.assertEqual(self.calls(), [], "a No downloads and runs nothing")
-                self.assertEqual(self.tree(), before, "a No writes no file")
+                self.assertEqual(self.tree_without_clone_log(), before, "a No writes no model or recording")
+                self.assertEqual((self.state / "clone-voice.log").read_text(), "")
                 # The control drops this question's gate and keeps its text.
                 self.assertEqual(source.count(gate), 1)
                 control = source.replace(gate, gate.replace("|| declined", "|| true"))
@@ -1193,6 +1229,92 @@ class Setup(unittest.TestCase):
                 (self.state / "clone-setup.lock").unlink(missing_ok=True)
                 self.reset_calls()
         (self.plugin / "tui/clone-voice.sh").write_text(source)
+
+    def test_clone_tui_terminal_text_and_controls(self):
+        source = (PLUGIN / "tui/clone-voice.sh").read_text()
+        self.large()
+        result = self.clone_tui_real(source)
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertFalse(any(line.startswith("jarvis-setup:") for line in output.splitlines()), output)
+        row = next(a for a in self.spec["artifacts"] if a["id"] == "chatterbox")
+        count = len(row["files"])
+        self.assertIn(f"Downloading the model: file 1 of {count}.", output)
+        self.assertIn(f"Downloading the model: file {count} of {count}.", output)
+        recording = "Recording now: read the text aloud. Recording stops after 10 seconds."
+        probe = "Testing the cloned voice on this computer."
+        self.assertIn(recording, output)
+        self.assertLess(output.index(recording), output.index(probe))
+        log = self.state / "clone-voice.log"
+        logged = log.read_text().splitlines()
+        self.assertTrue(any(line.startswith("jarvis-setup: step=runtime") for line in logged))
+        self.assertTrue(any(f"index=1 count={count}" in line for line in logged))
+        self.assertTrue(any(line.startswith("jarvis-setup: clone=installed") for line in logged))
+        self.assertTrue(any(line.startswith("jarvis-setup: step=probe") for line in logged))
+        self.assertTrue(any(line.startswith("jarvis-setup: clone=ready") for line in logged))
+
+        direct = source.replace(
+            'vgs_tui_split "$log" jarvis-setup python3 -I "$VGS_PLUGIN_DIR/setup-local" clone install',
+            'python3 -I "$VGS_PLUGIN_DIR/setup-local" clone install')
+        self.assertNotEqual(direct, source)
+        result = self.clone_tui_real(direct)
+        self.assertTrue(any(line.startswith("jarvis-setup:") for line in (result.stdout + result.stderr).splitlines()),
+                        "must-fail control: split did not hide keyed lines")
+
+        no_recording_line = source.replace(
+            'vgs_tui_step "Recording now: read the text aloud. Recording stops after $seconds seconds."',
+            ':')
+        self.assertNotEqual(no_recording_line, source)
+        result = self.clone_tui_real(no_recording_line)
+        self.assertNotIn(recording, result.stdout + result.stderr, "must-fail control: recording line stayed visible")
+
+        self.config["curl_exit"] = 1
+        self.write_config()
+        shutil.rmtree(self.data / "clone", ignore_errors=True)
+        result = self.clone_tui_real(source)
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(any(line.startswith("jarvis-setup:") for line in output.splitlines()), output)
+        self.assertNotIn("exit code", output)
+        self.assertIn("Removed the cloned voice's downloads and runtime.", output)
+        self.assertIn("The details are in", output)
+
+        self.config.pop("curl_exit")
+        self.config["tier"] = "small"
+        self.write_config()
+        self.install()
+        self.ready()
+        self.reset_calls()
+        result = self.clone_tui_real(source)
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("The cloned voice runs beside the Large local voice model", output)
+        self.assertNotIn("Have you read", output)
+        self.assertNotIn("Downloading the model", output)
+        late_check = source.replace('python3 -I "$VGS_PLUGIN_DIR/setup-local" clone check', "true")
+        self.assertNotEqual(late_check, source)
+        result = self.clone_tui_real(late_check)
+        late_output = result.stdout + result.stderr
+        self.assertIn("Have you read", late_output, "must-fail control: the question was not asked before refusal")
+        self.assertIn("Downloading the model", late_output, "must-fail control: the download heading was not shown before refusal")
+        (self.plugin / "tui/clone-voice.sh").write_text(source)
+
+    def test_clone_tui_keeps_state_private_and_control(self):
+        source = (PLUGIN / "tui/clone-voice.sh").read_text()
+        shutil.rmtree(self.state, ignore_errors=True)
+        env = {"UMASK": "022"}
+        result = self.clone_tui_real(source, env)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(stat.S_IMODE(self.state.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE((self.state / "clone-voice.log").stat().st_mode), 0o600)
+        control = source.replace("# The recording log and state directory hold a user's voice setup evidence.\numask 077\n", "")
+        self.assertNotEqual(control, source)
+        shutil.rmtree(self.state, ignore_errors=True)
+        shutil.rmtree(self.data / "clone", ignore_errors=True)
+        result = self.clone_tui_real(control, env)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotEqual(stat.S_IMODE(self.state.stat().st_mode), 0o700,
+                            "must-fail control: state root stayed private without the umask")
 
     def test_clone_setup_recording_and_remove(self):
         self.large()
@@ -1312,12 +1434,16 @@ class Setup(unittest.TestCase):
         self.install()
         self.ready()
         self.reset_calls()
+        result = self.clone("check")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr.decode().splitlines()[0], "jarvis-setup: failed=clone=needs-large-tier")
+        self.assertEqual(result.stdout, b"")
         result = self.clone("install")
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stderr.decode().splitlines()[0], "jarvis-setup: failed=clone=needs-large-tier")
         self.assertEqual([call[0] for call in self.calls()], [], "nothing is built or downloaded")
         self.assertFalse((self.data / "clone").exists())
-        self.mutant("if not clone_tier(judge, value, state, data):", "if False:")
+        self.mutant("        require_clone_tier(judge, value, state, data)\n", "")
         self.assertEqual(self.clone("install").returncode, 0)
         self.assertTrue(any(call[0] == "curl" for call in self.calls()))
 

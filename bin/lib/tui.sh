@@ -39,6 +39,10 @@
 #                                    run COMMAND with its stderr added to FILE, so its
 #                                    keyed causes reach the log and not the screen;
 #                                    COMMAND's status
+#   vgs_tui_split FILE KEY COMMAND [ARG...]
+#                                    run COMMAND with stdout and stderr merged; append
+#                                    lines that start with `KEY: ` to FILE, and show
+#                                    every other line on stdout; COMMAND's status
 #   vgs_tui_note FILE LINE           add LINE, a keyed cause, to the log FILE
 #   vgs_tui_failed FILE LINE...      an error line per LINE, then a line naming FILE,
 #                                    the log that holds the cause, with $HOME as ~
@@ -50,7 +54,7 @@
 #                                    reports none
 #   vgs_tui_reboot_check             print why a reboot is needed; 1 when none is
 #   vgs_tui_close_prompt CODE [MARKER]
-#                                    `● Done!` for 0, `● Failed (exit code CODE)!`
+#                                    `● Done!` for 0, `● Failed!`
 #                                    otherwise, and one key, or MARKER's removal
 #                                    when given, on /dev/tty; nothing for 130, a
 #                                    Ctrl-C, or with no terminal
@@ -105,13 +109,16 @@ _vgs_tui_header_gap() { printf '\n'; }
 # width: gum 2.0.2 counts the border and padding inside --width and wraps the
 # lines at word boundaries within it. A box that fits keeps its own width.
 vgs_tui_header() { # TITLE [LINE...]
-  local columns line width=()
+  local columns line title title_line width=()
   columns="$(vgs_tui_columns)"
-  for line; do
+  title_line="$1"
+  shift
+  for line in "$title_line" "$@"; do
     if (( ${#line} + 6 > columns )); then width=(--width "$columns"); break; fi
   done
+  title="$(gum style --bold -- "$title_line")"
   _vgs_tui_header_gap
-  gum style --border normal --padding "1 2" "${width[@]}" -- "$@"
+  gum style --border normal --padding "1 2" "${width[@]}" -- "$title" "$@"
 }
 
 vgs_tui_step() { # TEXT
@@ -142,7 +149,9 @@ vgs_tui_confirm() { # QUESTION [GUM_FLAG...]
   fi
   _vgs_tui_terminal confirm || return
   _vgs_tui_prompt_gap
-  gum confirm "$@" -- "$question"
+  # gum 2.0.2 accepts these margin keys though `gum confirm --help` omits
+  # them; checked in a private tmux run for VGS-1475 on 2026-10-12.
+  gum confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" "$@" -- "$question"
 }
 
 vgs_tui_choose() { _vgs_tui_terminal choose || return; _vgs_tui_prompt_gap; gum choose "$@"; }
@@ -299,6 +308,27 @@ vgs_tui_logged() { # FILE COMMAND [ARG...]
   "$@" 2>>"$file"
 }
 
+vgs_tui_split() { # FILE KEY COMMAND [ARG...]
+  local file="${1:-}" key="${2:-}" fd status had_errexit=""
+  [[ -n $file && -n $key && $# -ge 3 ]] || _vgs_tui_refuse 2 "split=missing" || return
+  shift 2
+  { mkdir -p -- "$(dirname -- "$file")" && : >>"$file"; } 2>/dev/null ||
+    _vgs_tui_refuse 1 "split=$file reason=open-failed" || return
+  exec {fd}>>"$file" || _vgs_tui_refuse 1 "split=$file reason=open-failed" || return
+  [[ $- == *e* ]] && had_errexit=1
+  set +e
+  ( exec {fd}>&-; "$@" ) 2>&1 | while IFS= read -r line || [[ -n $line ]]; do
+    case "$line" in
+      "$key":\ *) printf '%s\n' "$line" >&"$fd" ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done
+  status=${PIPESTATUS[0]}
+  [[ -z $had_errexit ]] || set -e
+  exec {fd}>&-
+  return "$status"
+}
+
 _vgs_tui_keyed() { printf '%s\n' "$1" >&2; }
 vgs_tui_note() { vgs_tui_logged "$1" _vgs_tui_keyed "$2"; } # FILE LINE
 
@@ -345,7 +375,7 @@ vgs_tui_close_prompt() { # CODE [MARKER]
   if [[ $code == 0 ]]; then
     printf '\n%s● \033[0mDone! Press any key to close...' "$(vgs_tui_sgr "${VGS_TUI_SUCCESS:-}" 32)" >/dev/tty
   else
-    printf '\n%s● \033[0mFailed (exit code %d)! Press any key to close...' "$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" "$code" >/dev/tty
+    printf '\n%s● \033[0mFailed! Press any key to close...' "$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" >/dev/tty
   fi
   if [[ -n $marker ]]; then
     while [[ -e $marker ]]; do

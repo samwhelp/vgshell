@@ -1,12 +1,24 @@
 #!/usr/bin/env bash
 # The core presents this script from a private copy of the whole plugin.
-# Consent comes first: the publisher's use text, then two questions, and
-# any answer but two yeses ends the script before a download or a file.
-# Then setup-local fetches the model, pw-record captures a bounded
-# reference and setup-local stores it, checks it and publishes it.
+# It refuses before the header unless the Large local voice tier can host
+# the clone, then asks consent, downloads the model, records ten seconds
+# and publishes the checked recording.
 set -euo pipefail
+# The recording log and state directory hold a user's voice setup evidence.
+umask 077
 source "$VGS_TUI_LIB"
 [[ $# == 0 ]] || { printf 'jarvis-clone: arguments=none\n' >&2; exit 2; }
+state="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/jarvis"
+log="$state/clone-voice.log"
+mkdir -p -- "$state"
+: >"$log"
+details() {
+  vgs_tui_error "The details are in ${log/#"$HOME"/\~}."
+}
+if ! vgs_tui_split "$log" jarvis-setup python3 -I "$VGS_PLUGIN_DIR/setup-local" clone check; then
+  details
+  exit 1
+fi
 # The recording's length, inside setup-local's bounds of 5 to 15 s.
 seconds=10
 declined() {
@@ -16,11 +28,14 @@ declined() {
 vgs_tui_header "Set up cloned voice" \
   "Jarvis will speak in a voice recorded on this computer, with Chatterbox Turbo by Resemble AI. The model and the recording stay on this computer." \
   "Resemble AI's model card says:" \
-  "Don't use this model to do bad things. Prompts are sourced from freely available data on the internet."
+  "\"Don't use this model to do bad things. Prompts are sourced from freely available data on the internet.\""
 vgs_tui_confirm "Have you read Resemble AI's text above?" || declined
 vgs_tui_confirm "Is the voice you will record your own, or do you have the speaker's permission?" || declined
 vgs_tui_step "Downloading the model"
-python3 -I "$VGS_PLUGIN_DIR/setup-local" clone install
+if ! vgs_tui_split "$log" jarvis-setup python3 -I "$VGS_PLUGIN_DIR/setup-local" clone install; then
+  details
+  exit 1
+fi
 vgs_tui_step "Recording"
 printf 'Recording runs for %s seconds. Read this aloud in your normal voice:\n\n' "$seconds"
 printf '  "The quick brown fox jumps over the lazy dog. I am recording my voice so that Jarvis can speak with it on this computer."\n'
@@ -31,5 +46,9 @@ capture() {
   # timeout answers 124 when the bound ends the recording, as it should.
   [[ $status == 0 || $status == 124 ]]
 }
-capture | python3 -I "$VGS_PLUGIN_DIR/setup-local" clone record
+vgs_tui_step "Recording now: read the text aloud. Recording stops after $seconds seconds."
+if ! capture | vgs_tui_split "$log" jarvis-setup python3 -I "$VGS_PLUGIN_DIR/setup-local" clone record; then
+  details
+  exit 1
+fi
 vgs_tui_success "The cloned voice is ready. Turn on Cloned voice under Local voice on the Jarvis page."

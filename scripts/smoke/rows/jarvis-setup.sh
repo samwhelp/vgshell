@@ -30,6 +30,8 @@
 # Beside no large tier the row offers nothing; once a local voice setup's
 # run ends beside a ready one, with no rescan, it opens the clone setup
 # while the voice resolves Local, and offers nothing with Realtime chosen.
+# A successful Remove recording run turns the Cloned voice setting off, so
+# the Setup tab and Settings tab agree.
 # inputs: scripts/fixtures/jarvis/audio-tool.py shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-local-speech/standin.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js scripts/smoke/rows/capabilities.sh scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js scripts/fixtures/jarvis/prepare.js
 set -euo pipefail
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's
@@ -551,13 +553,22 @@ expect_poll "without the AI model and the marker the Setup section reads both st
 # status's (scripts/fixtures/jarvis-setup/status.py --clone); the voice the
 # daemon runs comes from the Voice provider setting, left unset at the end.
 setup_clone_status="$sandbox/jarvis-world/clone-status.json"
+setup_clone_reader="$repo/shell/plugins/vgs.jarvis/CloneRuntime.qml"
 cp -- "$setup_clone_status" "$sandbox/clone-status-original"
+cp -- "$setup_clone_reader" "$sandbox/clone-runtime-original"
 # The clone status answer with nothing set up, TIER_READY whether a large
 # tier is ready.
 setup_clone_answer() { # TIER_READY
   python3 - "$setup_clone_status" "$1" <<'PY'
 import json,os,sys
 open(sys.argv[1]+".next","w").write(json.dumps({"tone":"info","text":"Not set up","action":"setup","recording":False,"tierReady":sys.argv[2]=="true"}))
+os.replace(sys.argv[1]+".next",sys.argv[1])
+PY
+}
+setup_clone_ready_answer() { # TIER_READY
+  python3 - "$setup_clone_status" "$1" <<'PY'
+import json,os,sys
+open(sys.argv[1]+".next","w").write(json.dumps({"tone":"ok","text":"Ready","action":"remove","recording":True,"tierReady":sys.argv[2]=="true"}))
 os.replace(sys.argv[1]+".next",sys.argv[1])
 PY
 }
@@ -575,6 +586,26 @@ else: row.pop("voiceProvider",None)
 print(json.dumps(value))
 PY
   expect "deliver the Voice provider ${1:-default}" ok ipc shell reloadConfig
+}
+setup_clone_setting() { # VALUE: true|false
+  python3 - "$setup_config" "$1" <<'PY'
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1]); value=json.loads(p.read_text())
+row=next((r for r in value.setdefault("plugins",[]) if r["id"]=="vgs.jarvis"),None)
+if row is None:
+    row={"id":"vgs.jarvis"}; value["plugins"].append(row)
+row["clonedVoice"] = sys.argv[2] == "true"
+p.write_text(json.dumps(value))
+PY
+  expect "deliver the Cloned voice setting $1" ok ipc shell reloadConfig
+}
+setup_clone_setting_value() {
+  python3 - "$setup_config" <<'PY'
+import json,sys
+row=next((r for r in json.load(open(sys.argv[1])).get("plugins",[]) if r.get("id")=="vgs.jarvis"),{})
+print("true" if row.get("clonedVoice", False) else "false")
+PY
 }
 # The setup row as [group, offered, the screen its press opens].
 setup_clone_row() {
@@ -599,9 +630,9 @@ t=sys.stdin.read()
 r=[x for x in (json.loads(t) if t.startswith("[") else []) if x["label"]==sys.argv[1]]
 print(json.dumps([[c[1] for c in r[0]["chips"]], [b["tui"] for b in r[0]["buttons"]]]) if len(r)==1 else "rows=%d" % len(r))' "$setup_clone_step"
 }
-{ read -r setup_clone_setting && read -r setup_clone_step && read -r setup_clone_press; } < <(python3 -c 'import json,sys
+{ read -r setup_clone_setting_label && read -r setup_clone_step && read -r setup_clone_press && read -r setup_clone_remove; } < <(python3 -c 'import json,sys
 m=json.load(open(sys.argv[1])); row=m["status"]["clonedVoiceSetup"]
-print(m["schema"]["clonedVoice"]["label"]); print(row["label"]); print(row["actions"]["setup"]["label"])' "$repo/shell/plugins/vgs.jarvis/manifest.json") ||
+print(m["schema"]["clonedVoice"]["label"]); print(row["label"]); print(row["actions"]["setup"]["label"]); print(row["actions"]["remove"]["label"])' "$repo/shell/plugins/vgs.jarvis/manifest.json") ||
   fail "the manifest names no Cloned voice setting, setup row or Set up action"
 setup_clone_answer false
 rescan "a rescan reads the clone status beside no large tier"
@@ -617,7 +648,7 @@ expect_poll "after a local voice setup the setup row opens the clone setup while
 expect_poll "the Setup tab draws the step's Set up button beside it, an info step still" '[["info"], [""]]' setup_clone_drawn
 settings_tab_click Settings || fail "the click on the Settings tab failed"
 expect_poll "the plugin page shows Settings" Settings settings_tab_text
-expect_poll "the Settings tab's Local voice section draws the Cloned voice setting" true setup_tab_section "Local voice" "$setup_clone_setting"
+expect_poll "the Settings tab's Local voice section draws the Cloned voice setting" true setup_tab_section "Local voice" "$setup_clone_setting_label"
 settings_details
 expect_poll "Details draws no Cloned voice step" false setup_tab_draws "$setup_clone_step"
 # Back on Setup, where the sections after this one read the page.
@@ -631,6 +662,48 @@ setup_provider realtime
 expect_poll "with Realtime chosen the setup row offers nothing" '["Setup", false, ""]' setup_clone_row
 setup_provider ""
 expect_poll "the default voice, Local, offers the clone setup again" '["Setup", true, "clone-voice"]' setup_clone_row
+
+setup_clone_ready_answer true
+rescan "a rescan reads the ready cloned voice"
+expect_poll "a ready recording offers Remove recording" '["Setup", true, "clone-voice-remove"]' setup_clone_row
+setup_clone_setting true
+expect_poll "Cloned voice is on before Remove recording" true setup_clone_setting_value
+hold_runs
+settings_press --type RowAction "$setup_clone_remove" || fail "the click on $setup_clone_remove failed"
+expect_poll "Remove recording opens its declared terminal" '["vgs.jarvis/clone-voice-remove", "tui/clone-voice-remove.sh"]' recorded_tail
+setup_clone_answer true
+release_runs
+expect_run_end "the clone remove terminal ends" vgs.jarvis/clone-voice-remove
+expect_poll "Remove recording turns Cloned voice off" false setup_clone_setting_value
+expect_poll "after Remove recording the setup row offers Set up" '["Setup", true, "clone-voice"]' setup_clone_row
+
+python3 - "$setup_clone_reader" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+s=p.read_text()
+needle='            const reply = shell.configure.unset("clonedVoice");\n            if (reply !== "ok") console.warn("jarvis-clone: setting=unwritten reply=" + reply);\n'
+assert s.count(needle)==1
+p.write_text(s.replace(needle, ""))
+PY
+jarvis_rescan
+setup_clone_ready_answer true
+rescan "the Remove control reads the ready cloned voice"
+setup_clone_setting true
+hold_runs
+settings_press --type RowAction "$setup_clone_remove" || fail "control: the click on $setup_clone_remove failed"
+setup_clone_answer true
+release_runs
+expect_run_end "control: the clone remove terminal ends" vgs.jarvis/clone-voice-remove
+clone_remove_control() {
+  (failures=0 behaviour_failures=0
+   expect_poll "Remove recording must turn Cloned voice off" false setup_clone_setting_value
+   echo "$failures")
+}
+expect "dropping the unset call leaves Cloned voice on after Remove recording" 1 local_control_count clone_remove_control
+cp -- "$sandbox/clone-runtime-original" "$setup_clone_reader"
+jarvis_rescan
+setup_clone_setting false
 cp -- "$sandbox/clone-status-original" "$setup_clone_status"
 
 # A Pi below its floor. The stand-in answers `--version` and nothing else,
