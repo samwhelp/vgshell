@@ -956,30 +956,34 @@ function holdMatches(hold, props) {
     return streamOfApps(props, hold.apps);
 }
 
-// How the rule held a stream: `role` or `app` for one it held, "" for one
-// it did not. WRITTEN is the hold as the shell last wrote it, { at, apps,
+// How the rule held a stream: `own` for one the shell's own sound player
+// started (OWN, shellPlayer's answer), such as the Sounds page's Test,
+// `role` or `app` for another it held, "" for one it did not. WRITTEN is the hold as the shell last wrote it, { at, apps,
 // roles }, at when its first write started, or null before any; the rule
 // holds only streams that appear while it counts, so one first seen
 // before AT was not held. A stream that appears between a write's start
 // and its arrival reads as held: freeing one the rule did not hold writes
 // the mute it has and changes nothing.
-function ruleHeld(written, props, since) {
+function ruleHeld(written, props, since, own) {
     if (written === null || since < written.at || !holdMatches(written, props)) return "";
+    if (own) return "own";
     var role = props["media.role"];
     return typeof role === "string" && written.roles.indexOf(role.toLowerCase()) !== -1 ? "role" : "app";
 }
 
 // The version the shell writes into the rule's WirePlumber fragment, from
 // the shipped script's TEXT, so an updated script carries a new one and
-// WirePlumber is restarted for it once: FNV-1a over its UTF-16 units, as
-// eight hex digits.
+// WirePlumber is restarted for it once: `v` and FNV-1a over its UTF-16
+// units as eight hex digits. The letter keeps it a string: pw-dump prints
+// a metadata value of digits alone as a JSON number (read in the nested
+// sandbox, PipeWire 1.6.9, VGS-1424).
 function soundRuleVersion(text) {
     var h = 0x811c9dc5;
     for (var i = 0; i < text.length; i++) {
         h ^= text.charCodeAt(i);
         h = Math.imul(h, 0x01000193) >>> 0;
     }
-    return ("0000000" + h.toString(16)).slice(-8);
+    return "v" + ("0000000" + h.toString(16)).slice(-8);
 }
 
 // The WirePlumber configuration fragment that loads the rule from SCRIPT,
@@ -992,7 +996,7 @@ function soundRuleVersion(text) {
 // WirePlumber's SPA JSON reads.
 function soundRuleFragment(script, version) {
     return [
-        "# VGS notifications: holds an app's own notification sound silent while",
+        SOUND_RULE_FRAGMENT_HEAD,
         "# Do Not Disturb is on or Sound is off. VGS writes this file.",
         "wireplumber.components = [",
         "  {",
@@ -1039,12 +1043,120 @@ function soundRuleRunning(text) {
 
 // What the installer does once it has read the running rule: RUNNING the
 // version it reports, "" for none, MARKER the version it last restarted
-// WirePlumber for, "" for none. `running`, `restart`, or `refused` when it
-// restarted for this version already, so a rule that does not come up
-// costs one restart and no loop.
+// WirePlumber for, "" for none. `running`, `restart`, or `absent` when it
+// restarted for this version already: WirePlumber has not loaded the
+// rule, which the installer goes on watching for, and a rule that never
+// comes up costs one restart and no loop.
 function soundRuleStep(version, running, marker) {
     if (running === version) return "running";
-    return marker === version ? "refused" : "restart";
+    return marker === version ? "absent" : "restart";
+}
+
+// The first line of the shipped script and of the fragment: a file at
+// either path is the plugin's own only when it starts with its line.
+var SOUND_RULE_SCRIPT_HEAD = "-- VGS notifications: an app's own notification sound held silent from its";
+var SOUND_RULE_FRAGMENT_HEAD = "# VGS notifications: holds an app's own notification sound silent while";
+
+// The argv that removes the rule's FRAGMENT, its script COPY and the
+// restart MARKER, in that order, each only when it is a regular file, not
+// a symbolic link, that the plugin wrote: the fragment and the copy start
+// with their head line, the marker holds a version alone
+// (soundRuleVersion). WirePlumber
+// runs on without the fragment's script, so the removal restarts nothing.
+function soundRuleRemoval(fragment, copy, marker) {
+    var script = [
+        "own() { [ -f \"$1\" ] && [ ! -L \"$1\" ] && IFS= read -r first < \"$1\" && [ \"$first\" = \"$2\" ]; }",
+        "if own \"$1\" \"$4\"; then rm -f -- \"$1\"; fi",
+        "if own \"$2\" \"$5\"; then rm -f -- \"$2\"; fi",
+        "if [ -f \"$3\" ] && [ ! -L \"$3\" ] && IFS= read -r first < \"$3\"; then case $first in v????????) case ${first#v} in *[!0-9a-f]*) ;; *) rm -f -- \"$3\" ;; esac ;; esac; fi"
+    ].join("\n");
+    return ["sh", "-c", script, "sh", fragment, copy, marker, SOUND_RULE_FRAGMENT_HEAD, SOUND_RULE_SCRIPT_HEAD];
+}
+
+// Whether the user configuration TEXT, as the core persists it, names
+// plugin ID among its disabledPlugins: the core writes that file before
+// it destroys a plugin it disables, and a disable is how a bundled plugin
+// is removed. Text that is no such file disables nothing.
+function disabledIn(text, id) {
+    var config;
+    try {
+        config = JSON.parse(text);
+    } catch (e) {
+        return false;
+    }
+    return isPlainObject(config) && Array.isArray(config.disabledPlugins) && config.disabledPlugins.indexOf(id) !== -1;
+}
+
+// Whether a stream with PROPS was started by the shell's own sound
+// player: the core's player plays only files of its sounds directory,
+// SOUNDS, and pw-play names the file it plays in media.filename. A pw-play
+// stream carries no application.process.id (read in the nested sandbox,
+// PipeWire 1.6.9, VGS-1424), so its process cannot be judged.
+function shellPlayer(props, sounds) {
+    if (!isPlainObject(props) || typeof sounds !== "string" || sounds === "") return false;
+    var file = props["media.filename"];
+    return typeof file === "string" && file.indexOf(sounds + "/") === 0 && file.indexOf("/", sounds.length + 1) === -1;
+}
+
+// Whether pw-cli has its session's objects, from one line of its output:
+// it can write a param only to an object its registry announced, and a
+// write it reads before is refused as an unknown global (measured,
+// pw-cli 1.6.9, VGS-1424). It prints `remote <n> <type> <id> changed` for
+// the first object it binds once the registry has announced them all.
+function cliReady(line) {
+    return /^(?:\S+>> )?remote \d+ [a-z-]+ \d+ changed$/.test(String(line));
+}
+
+// A long-lived child, such as the pw-cli writer, started so it cannot
+// outlive the shell: setpriv sets SIGKILL as its parent-death signal and
+// execs sh, which reads its parent's pid once the signal is set, so a
+// shell that died before is seen and nothing runs; sh then execs ARGV in
+// the same process, so the child's pid is the program's. The shape of the
+// core's Dictation.guarded, which a plugin cannot import.
+function guardedArgv(shellPid, argv) {
+    return ["setpriv", "--pdeathsig", "KILL", "--", "sh", "-c", "[ \"$PPID\" = \"$1\" ] || exit 1; shift; exec \"$@\"", "sh", String(shellPid)].concat(argv);
+}
+
+// The supervision of a long-lived child, as the runner supervises the
+// shell (bin/vgshell's supervision table): after an exit nobody asked for,
+// RESTART_DELAYS[n] ms before the n-th start of a streak of exits, and the
+// exit after the last gives up; a child that ran RESTART_HEALTHY ms or
+// more starts a new streak. STREAK is the exits so far, RAN how long the
+// child ran. Answers { streak, delay }, delay -1 to give up.
+var RESTART_DELAYS = [500, 1000, 2000, 4000, 8000];
+var RESTART_HEALTHY = 60000;
+function restartStep(streak, ran) {
+    var next = ran >= RESTART_HEALTHY ? 0 : streak;
+    return { streak: next + 1, delay: next < RESTART_DELAYS.length ? RESTART_DELAYS[next] : -1 };
+}
+
+// How long the hold may stay unconfirmed, or the rule unseen, before the
+// shell says it mutes by reaction alone: the restart's own wait, 20 reads
+// 500 ms apart (SoundRule.qml).
+var RULE_GRACE = 10000;
+
+// One line of `pw-metadata -m -n <name>`, as pw-metadata 1.6.9 prints it:
+// { kind: "found", id }, { kind: "update", subject, key, value },
+// { kind: "remove", subject, key } (key null for all keys), or null.
+function metadataLine(line) {
+    var m = /^Found "[^"]*" metadata (\d+)$/.exec(line);
+    if (m !== null) return { kind: "found", id: Number(m[1]) };
+    m = /^update: id:(\d+) key:'([^']*)' value:'(.*)' type:'[^']*'$/.exec(line);
+    if (m !== null) return { kind: "update", subject: Number(m[1]), key: m[2], value: m[3] };
+    m = /^remove: id:(\d+) (?:key:'([^']*)'|all keys)$/.exec(line);
+    if (m !== null) return { kind: "remove", subject: Number(m[1]), key: m[2] === undefined ? null : m[2] };
+    return null;
+}
+
+// One line of `pw-dump -m -N <pattern>`: LAST the id the last object
+// opened with, or 0. Answers { last, removed }, removed the id of an
+// object whose removal the line ends, else 0: pw-dump prints a removed
+// object as its id and `"info": null`.
+function dumpLine(last, line) {
+    var m = /^\s*"id": (\d+),$/.exec(line);
+    if (m !== null) return { last: Number(m[1]), removed: 0 };
+    if (/^\s*"info": null$/.test(line)) return { last: 0, removed: last };
+    return { last: last, removed: 0 };
 }
 
 // One output stream's next step under Silence. HOLD is its mute, null or

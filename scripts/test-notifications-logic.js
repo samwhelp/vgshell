@@ -20,6 +20,8 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
+const childProcess = require("node:child_process");
 const { load } = require("../bin/lib/qml-library.js");
 
 // Slack stamps its log in local time, and the recorded stamp below was
@@ -375,7 +377,129 @@ function verify(logic) {
         ["a stream not yet bound", written, {}, 600, ""],
         ["no properties at all", written, null, 600, ""]
     ])
-        assert.equal(logic.ruleHeld(hold, props, since), want, "rule held: " + label);
+        assert.equal(logic.ruleHeld(hold, props, since, false), want, "rule held: " + label);
+    // A stream of the shell's own sound player that the rule held is the
+    // shell's own; one the rule did not hold is not judged.
+    for (const [label, hold, props, since, want] of [
+        ["the shell's player held for its role", written, { "application.name": "pw-play", "media.role": "Notification" }, 600, "own"],
+        ["the shell's player seen before the hold", written, { "application.name": "pw-play", "media.role": "Notification" }, 499, ""],
+        ["the shell's player the hold does not name", written, { "application.name": "pw-play", "media.role": "Music" }, 600, ""]
+    ])
+        assert.equal(logic.ruleHeld(hold, props, since, true), want, "rule held: " + label);
+    // A stream the rule held for the shell's own player is freed at once,
+    // whatever its role.
+    same(logic.appSoundStep(null, null, { corked: false, since: 1075 }, 1080, "own"), { hold: null, change: "release" }, "app sound: the shell's own sound is freed");
+    same(logic.appSoundStep(null, null, { corked: true, since: 1075 }, 1080, "own"), { hold: null, change: "release" }, "app sound: the shell's own paused sound is freed");
+    // The shell's own sound: [label, properties, the answer], the core's
+    // sounds under /usr/share/vgshell/shell/assets/sounds.
+    const SOUNDS = "/usr/share/vgshell/shell/assets/sounds";
+    for (const [label, props, want] of [
+        ["the core's player playing a shipped sound", { "application.name": "pw-play", "media.role": "Notification", "media.filename": SOUNDS + "/chime.wav" }, true],
+        ["another program playing a file elsewhere", { "application.name": "pw-play", "media.filename": "/home/u/chime.wav" }, false],
+        ["a file in a directory below the sounds", { "media.filename": SOUNDS + "/x/chime.wav" }, false],
+        ["a directory whose name starts with the sounds'", { "media.filename": SOUNDS + "-x/chime.wav" }, false],
+        ["a stream that names no file", { "application.name": "Slack" }, false],
+        ["no properties at all", null, false]
+    ])
+        assert.equal(logic.shellPlayer(props, SOUNDS), want, "shell player: " + label);
+    assert.equal(logic.shellPlayer({ "media.filename": "/chime.wav" }, ""), false, "shell player: no sounds directory");
+    // pw-cli's output, as pw-cli 1.6.9 printed it on a pipe in the nested
+    // sandbox (VGS-1424 run 21): [line, ready].
+    for (const [line, want] of [
+        ["Welcome to PipeWire version 1.6.9. Type 'help' for usage.", false],
+        [">> remote 0 is named 'pipewire-0'", false],
+        ["remote 0 client 65 changed", true],
+        ["pipewire-0>> remote 0 node 66 changed", true],
+        ["remote 0 added global: \tid 67, type PipeWire:Interface:Link/3", false],
+        ["pipewire-0>> set-param 66 Props { softMute: true }", false]
+    ])
+        assert.equal(logic.cliReady(line), want, "pw-cli ready: " + line);
+    // The user configuration as the core writes it: [label, text, disabled].
+    for (const [label, text, want] of [
+        ["the plugin disabled", '{"version": 1, "disabledPlugins": ["vgs.clock", "vgs.notifications"]}', true],
+        ["another plugin disabled", '{"version": 1, "disabledPlugins": ["vgs.clock"]}', false],
+        ["no list", '{"version": 1}', false],
+        ["a list that is no list", '{"disabledPlugins": "vgs.notifications"}', false],
+        ["no file", "", false],
+        ["text that is no JSON", "{", false],
+        ["JSON that is no object", '["vgs.notifications"]', false]
+    ])
+        assert.equal(logic.disabledIn(text, "vgs.notifications"), want, "disabled in: " + label);
+    // The supervision's delays: [label, streak, ran ms, the step].
+    for (const [label, streak, ran, want] of [
+        ["a first exit", 0, 100, { streak: 1, delay: 500 }],
+        ["a third exit in a row", 2, 100, { streak: 3, delay: 2000 }],
+        ["the fifth exit in a row", 4, 100, { streak: 5, delay: 8000 }],
+        ["the sixth exit gives up", 5, 100, { streak: 6, delay: -1 }],
+        ["an exit after a healthy run starts a new streak", 5, 60000, { streak: 1, delay: 500 }],
+        ["an exit just short of healthy keeps the streak", 2, 59999, { streak: 3, delay: 2000 }]
+    ])
+        same(logic.restartStep(streak, ran), want, "restart step: " + label);
+    // pw-metadata -m lines, as pw-metadata 1.6.9 printed them in the nested
+    // sandbox (VGS-1424 run 15): [line, the reading].
+    for (const [line, want] of [
+        ['Found "vgs-notification-sounds" metadata 31', { kind: "found", id: 31 }],
+        ["update: id:0 key:'version' value:'6fca98e8' type:'Spa:String'", { kind: "update", subject: 0, key: "version", value: "6fca98e8" }],
+        ["update: id:0 key:'hold' value:'{\"pid\": 930, \"apps\": [\"x\"], \"roles\": []}' type:'Spa:String:JSON'", { kind: "update", subject: 0, key: "hold", value: '{"pid": 930, "apps": ["x"], "roles": []}' }],
+        ["remove: id:0 key:'version'", { kind: "remove", subject: 0, key: "version" }],
+        ["remove: id:0 all keys", { kind: "remove", subject: 0, key: null }],
+        ['Error: "unsupported type PipeWire:Interface:SecurityContext"', null]
+    ])
+        same(logic.metadataLine(line), want, "metadata line: " + line);
+    // pw-dump -m lines (run 16): the removal of object 31 ends at its
+    // "info": null; the object's other lines remove nothing.
+    let dump = { last: 0, removed: 0 };
+    const removals = [];
+    for (const line of ["[", "  {", '    "id": 31,', '    "type": "PipeWire:Interface:Metadata",', '      "metadata.name": "vgs-notification-sounds",', "  }", "]", "[", "  {", '    "id": 31,', '    "info": null', "  }", "]"]) {
+        dump = logic.dumpLine(dump.last, line);
+        if (dump.removed !== 0) removals.push(dump.removed);
+    }
+    same(removals, [31], "pw-dump lines: one removal, of object 31");
+    // The guard: the program runs only under the pid it names as its
+    // parent, as its own pid.
+    const guarded = (shellPid, argv) => {
+        const a = logic.guardedArgv(shellPid, argv);
+        return childProcess.spawnSync(a[0], a.slice(1), { encoding: "utf8", env: { PATH: process.env.PATH } });
+    };
+    const run = guarded(process.pid, ["sh", "-c", 'echo "$$ $PPID"']);
+    assert.equal(run.status, 0, "guarded: runs under its own parent");
+    const [childPid, childParent] = run.stdout.trim().split(" ").map(Number);
+    assert.equal(childPid, run.pid, "guarded: the program keeps the launched pid");
+    assert.equal(childParent, process.pid, "guarded: the program's parent is the shell");
+    assert.equal(guarded(process.pid + 1000000, ["true"]).status, 1, "guarded: refuses under another parent");
+    assert.equal(logic.guardedArgv(1, ["true"]).slice(0, 4).join(" "), "setpriv --pdeathsig KILL --", "guarded: SIGKILL when the parent dies");
+    // The removal on disable, run on a scratch tree: the plugin's own
+    // fragment, copy and marker go; a symbolic link, a file the plugin did
+    // not write and a marker that is no version stay.
+    const removal = (files) => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), "notifications-removal-"));
+        try {
+            const at = name => path.join(dir, name);
+            for (const [name, content] of Object.entries(files)) {
+                if (typeof content === "object") fs.symlinkSync(at(content.link), at(name));
+                else fs.writeFileSync(at(name), content);
+            }
+            const a = logic.soundRuleRemoval(at("fragment.conf"), at("copy.lua"), at("marker"));
+            const done = childProcess.spawnSync(a[0], a.slice(1), { env: { PATH: process.env.PATH } });
+            assert.equal(done.status, 0, "removal exits 0");
+            return ["fragment.conf", "copy.lua", "marker", "target"].filter(n => fs.existsSync(at(n)) || fs.lstatSync(at(n), { throwIfNoEntry: false }) !== undefined);
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    };
+    const fragmentText = logic.soundRuleFragment("/x/vgs-notification-sounds.lua", "0a1b2c3d");
+    const scriptText = fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.notifications", "wireplumber", "vgs-notification-sounds.lua"), "utf8");
+    assert.equal(scriptText.split("\n")[0], logic.SOUND_RULE_SCRIPT_HEAD, "the shipped script starts with its head line");
+    assert.equal(fragmentText.split("\n")[0], logic.SOUND_RULE_FRAGMENT_HEAD, "the fragment starts with its head line");
+    for (const [label, files, want] of [
+        ["the plugin's own files go", { "fragment.conf": fragmentText, "copy.lua": scriptText, "marker": "v0a1b2c3d\n" }, []],
+        ["a user's files stay", { "fragment.conf": "wireplumber.profiles = {}\n", "copy.lua": "-- mine\n", "marker": "not a version\n" }, ["fragment.conf", "copy.lua", "marker"]],
+        ["symbolic links stay, and what they name", { "target": fragmentText, "fragment.conf": { link: "target" }, "copy.lua": { link: "target" }, "marker": { link: "target" } }, ["fragment.conf", "copy.lua", "marker", "target"]],
+        ["a marker of another length stays", { "marker": "v0a1b2c3\n" }, ["marker"]],
+        ["a marker that is no version stays", { "marker": "v0a1b2c3x\n" }, ["marker"]],
+        ["nothing there, nothing done", {}, []]
+    ])
+        same(removal(files), want, "removal: " + label);
     same(JSON.parse(logic.holdEntry(4242, ["slack", "smoke chat"])), { pid: 4242, apps: ["slack", "smoke chat"], roles: ["notification", "event"] }, "the hold entry the rule parses");
     same(logic.holdApps([stored(1, 1, { desktopEntry: "slack", app: "Slack" }), stored(2, 2, { desktopEntry: "", app: "Smoke Chat" }), stored(3, 3, { desktopEntry: "slack", app: "Slack" })], ["org.example.chat", "slack"]),
         ["slack", "smoke chat", "org.example.chat"], "the hold names every kept and armed app once, in lower case");
@@ -388,7 +512,7 @@ function verify(logic) {
     ])
         assert.equal(logic.holdGrows(before, after), want, "hold grows: " + label);
     // FNV-1a's published 32-bit vectors.
-    for (const [text, want] of [["", "811c9dc5"], ["a", "e40c292c"], ["foobar", "bf9cf968"]])
+    for (const [text, want] of [["", "v811c9dc5"], ["a", "ve40c292c"], ["foobar", "vbf9cf968"]])
         assert.equal(logic.soundRuleVersion(text), want, "rule version of " + JSON.stringify(text));
     assert.equal(logic.soundRuleVersion("print(1)\n"), logic.soundRuleVersion("print(1)\n"), "one script, one version");
     assert.notEqual(logic.soundRuleVersion("print(1)\n"), logic.soundRuleVersion("print(2)\n"), "a changed script, a new version");
@@ -429,7 +553,7 @@ function verify(logic) {
         ["the rule runs at this version", "v2", "v1", "running"],
         ["no rule runs and none was restarted for", "", "", "restart"],
         ["an older rule runs", "v1", "v1", "restart"],
-        ["this version was restarted for once already", "", "v2", "refused"],
+        ["this version was restarted for once already", "", "v2", "absent"],
         ["the rule runs at this version after its restart", "v2", "v2", "running"]
     ])
         assert.equal(logic.soundRuleStep("v2", running, marker), want, "rule step: " + label);
@@ -1298,9 +1422,26 @@ const CONTROLS = [
     ["the hold matches a role", "if (typeof role === \"string\" && hold.roles.indexOf(role.toLowerCase()) !== -1) return true;", ""],
     ["the hold is written again when an app joins", "return next.some(function (name) { return written.indexOf(name) === -1; });", "return false;"],
     ["the version reads the script", "h ^= text.charCodeAt(i);", "h ^= 0;"],
-    ["one restart per version", "return marker === version ? \"refused\" : \"restart\";", "return \"restart\";"],
+    ["the version is no number", "return \"v\" + (\"0000000\" + h.toString(16)).slice(-8);", "return (\"0000000\" + h.toString(16)).slice(-8);"],
+    ["one restart per version", "return marker === version ? \"absent\" : \"restart\";", "return \"restart\";"],
     ["the rule's version is on subject 0", "if (isPlainObject(m) && m.subject === 0 && m.key === \"version\"", "if (isPlainObject(m) && m.key === \"version\""],
     ["the main profile requires the feature that wants the script", '"    custom.vgs-notification-sounds = required",', '"    custom.vgs-notification-sounds = optional",'],
+    ["the shell's own player is its own", "    if (own) return \"own\";\n", ""],
+    ["the shell's own sound is a file of its sounds directory", "return typeof file === \"string\" && file.indexOf(sounds + \"/\") === 0 && file.indexOf(\"/\", sounds.length + 1) === -1;", "return typeof file === \"string\";"],
+    ["the shell's own sound is not below its sounds directory", " && file.indexOf(\"/\", sounds.length + 1) === -1;", ";"],
+    ["pw-cli is ready once it reports an object", "return /^(?:\\S+>> )?remote \\d+ [a-z-]+ \\d+ changed$/.test(String(line));", "return /remote \\d+/.test(String(line));"],
+    ["only the plugin's disable removes", "config.disabledPlugins.indexOf(id) !== -1", "config.disabledPlugins.length > 0"],
+    ["a configuration that is no JSON disables nothing", "    } catch (e) {\n        return false;\n    }\n    return isPlainObject(config) && Array.isArray(config.disabledPlugins)", "    } catch (e) {\n        return true;\n    }\n    return isPlainObject(config) && Array.isArray(config.disabledPlugins)"],
+    ["the guard checks the parent", "[ \\\"$PPID\\\" = \\\"$1\\\" ] || exit 1; shift; exec", "shift; exec"],
+    ["a healthy run starts a new streak", "var next = ran >= RESTART_HEALTHY ? 0 : streak;", "var next = streak;"],
+    ["the supervision gives up", "delay: next < RESTART_DELAYS.length ? RESTART_DELAYS[next] : -1", "delay: RESTART_DELAYS[Math.min(next, RESTART_DELAYS.length - 1)]"],
+    ["pw-metadata's found line", "if (m !== null) return { kind: \"found\", id: Number(m[1]) };", ""],
+    ["pw-metadata's removal of every key", "(?:key:'([^']*)'|all keys)", "key:'([^']*)'"],
+    ["pw-dump's removal ends at info null", "if (/^\\s*\"info\": null$/.test(line)) return { last: 0, removed: last };", ""],
+    ["the removal skips a symbolic link", "own() { [ -f \\\"$1\\\" ] && [ ! -L \\\"$1\\\" ] &&", "own() { [ -f \\\"$1\\\" ] &&"],
+    ["the removal reads the head line", "&& [ \\\"$first\\\" = \\\"$2\\\" ]; }", "; }"],
+    ["the removal keeps a marker that is no version", "case ${first#v} in *[!0-9a-f]*) ;; *) rm", "case ${first#v} in *) rm"],
+    ["the removal keeps a marker of another length", "case $first in v????????) case", "case $first in v*) case"],
     ["the hold entry names the roles", "return JSON.stringify({ pid: pid, apps: apps, roles: HOLD_ROLES });", "return JSON.stringify({ pid: pid, apps: apps, roles: [] });"],
     ["the hold names the kept notifications' apps", "for (var i = 0; i < entries.length; i++) soundApps(entries[i].desktopEntry, entries[i].app).forEach(add);", ""]
 ];

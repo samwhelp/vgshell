@@ -1,6 +1,8 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Services.Pipewire
+import qs.Commons
 import "NotificationLogic.js" as Logic
 
 // The sound rule's install: the WirePlumber script wireplumber/
@@ -12,18 +14,36 @@ import "NotificationLogic.js" as Logic
 // only when absent or different: the plugin runs from a snapshot under
 // the session's runtime directory (Registry.qml, `sourceDir`), which a
 // later login's WirePlumber, started before the shell, would not find.
-// Then it reads whether WirePlumber runs the rule at this script's
-// version, and if not restarts WirePlumber once for that version, a marker
-// beside the service's state file saying which version it restarted for.
-// A failed step logs one keyed line and leaves the rule as it is:
-// AppSounds then mutes by reaction alone. Each line is an info line: the
-// user has nothing to do, and a sandbox without the session's systemd or
-// PipeWire reaches every one of them.
+//
+// Whether WirePlumber runs the rule is observed, not read once: `running`
+// is true while the rule's metadata reports this script's version, and
+// follows WirePlumber as it restarts or loads the rule late in a login.
+// Two watchers observe it (Supervised.qml): `pw-metadata -m` reports the
+// metadata's entries as they change, but stays bound to a metadata a
+// WirePlumber restart removed, and `pw-dump -m` reports that removal at
+// once but the next object only with a later event, so the removal starts
+// pw-metadata again, which waits for the new one (measured on PipeWire
+// 1.6.9 and WirePlumber 0.5.18 in the nested sandbox, VGS-1424).
+//
+// After the install it reads the rule once: not running at this version,
+// and no marker beside the service's state file naming the version, it
+// restarts WirePlumber once for it, the marker written first. A rule that
+// does not come up, or a version already restarted for, leaves the phase
+// `absent` while the watchers go on: the rule turns running whenever
+// WirePlumber loads it. Each step logs one keyed info line; AppSounds
+// warns when a mute waits on a rule that is not loaded.
+//
+// Disabling the plugin, the only removal a bundled plugin has, removes the
+// fragment, the copy and the marker (NotificationLogic.soundRuleRemoval):
+// the core writes the user configuration before it destroys a plugin it
+// disables, so the destruction reads it. A shell that exits or restarts
+// keeps them, so the next login's WirePlumber loads the rule.
 Item {
     id: rule
 
     visible: false
 
+    readonly property string pluginId: "vgs.notifications"
     readonly property string shippedPath: String(Qt.resolvedUrl("wireplumber/vgs-notification-sounds.lua")).replace(/^file:\/\//, "")
     readonly property string scriptDir: (Quickshell.env("XDG_DATA_HOME") || (Quickshell.env("HOME") + "/.local/share")) + "/wireplumber/scripts"
     readonly property string scriptPath: scriptDir + "/vgs-notification-sounds.lua"
@@ -32,11 +52,19 @@ Item {
     readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/vgshell/notifications"
     readonly property string markerPath: stateDir + "/sound-rule-restarted"
 
-    // installing, reading, restarting, running, refused (restarted for this
-    // version already) or failed.
-    property string phase: "installing"
-    readonly property bool running: phase === "running"
+    // The install's step: installing, reading, installed (the read found
+    // the rule running), restarting, absent (the
+    // rule is not loaded, after its one restart or a failed one) or failed
+    // (a file or a read failed). `phase` reads running whenever the rule
+    // runs.
+    property string step: "installing"
+    readonly property string phase: running ? "running" : step
     property string version: ""
+    // The version the rule's metadata reports, "" while none does, and the
+    // id of that metadata, 0 while none is known.
+    property string observed: ""
+    property int metadataId: 0
+    readonly property bool running: version !== "" && observed === version
     // The shipped script's text, null until read.
     property var shipped: null
     // The copy's text, "" while there is none; null until read.
@@ -45,27 +73,23 @@ Item {
     property var marker: null
     // The fragment's text, "" while there is none; null until read.
     property var installed: null
-    // How many reads a restart has waited through.
-    property int waited: 0
-    // Reads after a restart, one every pollInterval ms, at most pollLimit:
-    // systemctl returns once the unit has started, and WirePlumber loads
-    // its scripts after that.
-    readonly property int pollInterval: 500
-    readonly property int pollLimit: 20
+    // Whether this install wrote the copy and the fragment, for its line.
+    property bool copyWritten: false
+    property bool fragmentWritten: false
 
     function state() {
         return { phase: phase, version: version };
     }
 
     function stop(line) {
-        phase = "failed";
+        step = "failed";
         console.info("notifications: sound rule: " + line);
     }
 
     // Each step waits for what it reads: the script, its copy, the
     // fragment and the marker, then the directories.
     function install() {
-        if (phase !== "installing" || shipped === null || copied === null || installed === null || marker === null) return;
+        if (step !== "installing" || shipped === null || copied === null || installed === null || marker === null) return;
         dirs.running = true;
     }
 
@@ -77,9 +101,18 @@ Item {
         else confFile.setText(fragment);
     }
 
-    function written() {
-        phase = "reading";
+    // The first read waits for PipeWire, which a login may start after the
+    // shell; a read that fails is made again after the supervision's
+    // delays.
+    function readRule() {
+        if (!Pipewire.ready) return;
         reader.running = true;
+    }
+
+    function written() {
+        console.info("notifications: sound rule: installed version=" + version + " copy=" + (copyWritten ? "written" : "kept") + " fragment=" + (fragmentWritten ? "written" : "kept"));
+        step = "reading";
+        readRule();
     }
 
     function read(text) {
@@ -88,21 +121,23 @@ Item {
             stop("read=failed error=" + found.error);
             return;
         }
-        if (phase === "restarting") {
-            if (found.version === version) phase = "running";
-            else if (++waited < pollLimit) poll.restart();
-            else stop("running=absent version=" + version + " after=restart");
-            return;
-        }
-        const step = Logic.soundRuleStep(version, found.version, marker);
-        if (step === "running") {
-            phase = "running";
-        } else if (step === "refused") {
-            phase = "refused";
-            console.info("notifications: sound rule: restart=refused version=" + version + " running=" + JSON.stringify(found.version));
+        const next = Logic.soundRuleStep(version, found.version, marker);
+        if (next === "running") {
+            step = "installed";
+        } else if (next === "absent") {
+            step = "absent";
+            console.info("notifications: sound rule: not-loaded version=" + version + " restarted=before running=" + JSON.stringify(found.version));
         } else {
             markerFile.setText(version + "\n");
         }
+    }
+
+    function metadataLine(text) {
+        const line = Logic.metadataLine(text);
+        if (line === null) return;
+        if (line.kind === "found") metadataId = line.id;
+        else if (line.subject === 0 && line.key === "version") observed = line.kind === "update" ? line.value : "";
+        else if (line.kind === "remove" && line.subject === 0 && line.key === null) observed = "";
     }
 
     FileView {
@@ -136,7 +171,10 @@ Item {
             rule.copied = "";
             rule.install();
         }
-        onSaved: rule.writeFragment()
+        onSaved: {
+            rule.copyWritten = true;
+            rule.writeFragment();
+        }
         onSaveFailed: error => rule.stop("copy=failed path=" + rule.scriptPath + " error=" + FileViewError.toString(error))
     }
 
@@ -158,7 +196,10 @@ Item {
             rule.installed = "";
             rule.install();
         }
-        onSaved: rule.written()
+        onSaved: {
+            rule.fragmentWritten = true;
+            rule.written();
+        }
         onSaveFailed: error => rule.stop("fragment=failed path=" + rule.confPath + " error=" + FileViewError.toString(error))
     }
 
@@ -183,10 +224,20 @@ Item {
         // The marker is written before the restart, so a restart that ends
         // the shell or fails is never asked twice for one version.
         onSaved: {
-            rule.phase = "restarting";
+            rule.step = "restarting";
             restart.running = true;
         }
         onSaveFailed: error => rule.stop("marker=failed path=" + rule.markerPath + " error=" + FileViewError.toString(error))
+    }
+
+    // The user configuration as the core persists it, read when the
+    // service goes.
+    FileView {
+        id: userConfig
+        path: Paths.configDir + "/shell.json"
+        blockLoading: true
+        watchChanges: false
+        printErrors: false
     }
 
     // FileView writes into a directory that exists; the copy's, the
@@ -209,7 +260,7 @@ Item {
         }
     }
 
-    // pw-dump, systemctl and pw-cli need the program path and the session's
+    // pw-dump and systemctl need the program path and the session's
     // PipeWire or bus alone; under clearEnvironment a null value passes the
     // shell's own value through (Quickshell 0.3.1, Process.clearEnvironment).
     Process {
@@ -224,8 +275,18 @@ Item {
             if (running) return;
             const done = completion;
             completion = null;
-            if (done === null || done.code !== 0) rule.stop("read=failed exit=" + JSON.stringify(done));
-            else rule.read(dumped.text);
+            if (done !== null && done.code === 0) {
+                rule.read(dumped.text);
+                return;
+            }
+            const next = Logic.restartStep(readRetry.tries, 0);
+            readRetry.tries = next.streak;
+            if (next.delay < 0) {
+                rule.stop("read=failed exit=" + JSON.stringify(done));
+                return;
+            }
+            readRetry.interval = next.delay;
+            readRetry.restart();
         }
     }
 
@@ -242,17 +303,78 @@ Item {
             const done = completion;
             completion = null;
             if (done === null || done.code !== 0) {
-                rule.stop("restart=failed version=" + rule.version + " exit=" + JSON.stringify(done) + " " + restartErr.text.trim().split("\n")[0]);
+                rule.step = "absent";
+                console.info("notifications: sound rule: restart=failed version=" + rule.version + " exit=" + JSON.stringify(done) + " " + restartErr.text.trim().split("\n")[0]);
                 return;
             }
-            rule.waited = 0;
-            reader.running = true;
+            settle.restart();
         }
     }
 
     Timer {
-        id: poll
-        interval: rule.pollInterval
-        onTriggered: reader.running = true
+        id: readRetry
+        property int tries: 0
+        onTriggered: rule.readRule()
+    }
+
+    Connections {
+        target: Pipewire
+        function onReadyChanged() {
+            if (Pipewire.ready && rule.step === "reading" && !reader.running && !readRetry.running) rule.readRule();
+        }
+    }
+
+    // systemctl returns once the unit has started, and WirePlumber loads
+    // its scripts after that: a rule not seen within the grace is not
+    // loaded, and the watchers go on.
+    Timer {
+        id: settle
+        interval: Logic.RULE_GRACE
+        onTriggered: {
+            if (rule.running) return;
+            rule.step = "absent";
+            console.info("notifications: sound rule: not-loaded version=" + rule.version + " after=restart");
+        }
+    }
+
+    Supervised {
+        id: metadataWatch
+        label: "sound rule: metadata watch"
+        argv: ["pw-metadata", "-m", "-n", Logic.SOUND_RULE_METADATA]
+        onLine: text => rule.metadataLine(text)
+        onStarted: {
+            rule.observed = "";
+            rule.metadataId = 0;
+        }
+        onEnded: rule.observed = ""
+    }
+
+    // A removal of the metadata pw-metadata is bound to starts pw-metadata
+    // again, so it waits for the one the next WirePlumber creates.
+    Supervised {
+        id: removalWatch
+        property int last: 0
+        label: "sound rule: removal watch"
+        argv: ["pw-dump", "-m", "-N", Logic.SOUND_RULE_METADATA]
+        onLine: text => {
+            const read = Logic.dumpLine(last, text);
+            last = read.last;
+            if (read.removed === 0 || read.removed !== rule.metadataId) return;
+            rule.observed = "";
+            rule.metadataId = 0;
+            metadataWatch.relaunch();
+        }
+        onStarted: last = 0
+    }
+
+    Component.onDestruction: {
+        // The view holds the text it read when it was built; reload and
+        // waitForJob read the file as it is now (measured: without them
+        // the disable read the cached text, VGS-1424).
+        userConfig.reload();
+        userConfig.waitForJob();
+        if (!Logic.disabledIn(userConfig.text(), pluginId)) return;
+        console.info("notifications: sound rule: remove=disabled fragment=" + confPath);
+        Quickshell.execDetached(Logic.soundRuleRemoval(confPath, scriptPath, markerPath));
     }
 }

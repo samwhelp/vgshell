@@ -44,9 +44,10 @@ Item {
     visible: false
 
     // Whether WirePlumber runs the sound rule at the shipped version
-    // (SoundRule.running), and the notifications the service keeps, live
-    // and history, whose apps the hold names.
+    // (SoundRule.running) and the install's phase, and the notifications
+    // the service keeps, live and history, whose apps the hold names.
     property bool ruleRunning: false
+    property string rulePhase: ""
     property var kept: []
 
     // App name -> { at, until }: the apps a notification armed lately.
@@ -62,12 +63,22 @@ Item {
     // level is the volume the stream last reported, so only a change mutes
     // it again.
     property var holds: ({})
-    // The writes made while the writer does not run, each { node, on }, the
+    // The writes made while the writer is not ready, each { node, on }, the
     // last for each stream that is still there.
     property var pending: []
-    // The hold as last written to the rule, { at, apps, roles }, at when its
-    // first write started; null before that.
+    // Whether the running writer has its session's objects
+    // (NotificationLogic.cliReady): a write it reads before is refused.
+    property bool writerReady: false
+    // The hold as last sent to the rule, { at, apps, roles }, at when the
+    // first write for this rule and this writer started; null while none
+    // is sent. A stream that appears once a write started counts as held
+    // before the write lands: freeing a stream the rule did not hold
+    // writes the mute it has and changes nothing.
     property var ruleHold: null
+    // none, sending, confirmed (pw-metadata exited 0 for the current
+    // writer's pid) or failed (the retries ran out).
+    property string holdState: "none"
+    property int holdTries: 0
     // The start-up scan has lifted what an earlier shell left, so a stream
     // the rule holds under this instance's hold is never taken for one.
     property bool scanned: false
@@ -75,9 +86,20 @@ Item {
     // by, as bounded as what the service keeps.
     readonly property var holdNames: Logic.holdApps(kept, Object.keys(arms))
     onHoldNamesChanged: {
-        if (ruleHold !== null && Logic.holdGrows(ruleHold.apps, holdNames)) writeHold();
+        if (ruleHold !== null && Logic.holdGrows(ruleHold.apps, holdNames)) writeHold(false);
     }
-    onRuleRunningChanged: writeHold()
+    // The rule holds nothing of an earlier instance's or an earlier
+    // WirePlumber's: a rule that comes back gets the hold again, and one
+    // that goes takes the hold with it.
+    onRuleRunningChanged: {
+        if (ruleRunning) {
+            writeHold(true);
+            return;
+        }
+        ruleHold = null;
+        holdState = "none";
+        ruleGrace.restart();
+    }
 
     // The app of a notification that arrived: its streams that start to
     // play in the next APP_SOUND_ARM ms are muted.
@@ -92,7 +114,7 @@ Item {
     // What the service's status reports: the node names of the streams
     // under a mute.
     function state() {
-        return { held: Object.keys(holds).map(id => String(holds[id].node.name)).sort() };
+        return { held: Object.keys(holds).map(id => String(holds[id].node.name)).sort(), hold: holdState, writer: writer.processId };
     }
 
     function props(node) {
@@ -127,7 +149,7 @@ Item {
         let ruled = "";
         if (!entry.judged && Object.keys(props(node)).length > 0) {
             entry.judged = true;
-            ruled = Logic.ruleHeld(ruleHold, props(node), entry.since);
+            ruled = Logic.ruleHeld(ruleHold, props(node), entry.since, Logic.shellPlayer(props(node), shellSounds));
         }
         const id = String(node.id);
         const held = Logic.hasOwn(holds, id) && holds[id].node === node ? holds[id] : null;
@@ -219,10 +241,14 @@ Item {
         return node.audio !== null && node.audio.muted;
     }
 
+    // The core's sound player's directory (Sounds.qml): a stream playing a
+    // file of it is the shell's own sound (NotificationLogic.shellPlayer).
+    readonly property string shellSounds: Quickshell.shellDir + "/assets/sounds"
+
     // A node PipeWire removed meanwhile is skipped: its id may already name
     // another stream.
     function soften(node, on) {
-        if (!writer.running) {
+        if (!writer.running || !writerReady) {
             pending = pending.filter(i => i.node !== node).concat([{ node: node, on: on }]);
             return;
         }
@@ -233,13 +259,33 @@ Item {
     }
 
     // The hold names this instance's writer, once it runs, WirePlumber runs
-    // the rule and the scan is done; a hold written again keeps the time
-    // of its first write.
-    function writeHold() {
+    // the rule and the scan is done. FRESH starts a new hold, as for a new
+    // writer or a rule that came back; otherwise a hold written again keeps
+    // the time of its first write.
+    function writeHold(fresh) {
+        if (fresh) ruleHold = null;
         if (!ruleRunning || !writer.running || !scanned) return;
+        if (ruleHold === null) holdTries = 0;
         ruleHold = { at: ruleHold === null ? Date.now() : ruleHold.at, apps: holdNames, roles: Logic.HOLD_ROLES };
+        holdState = "sending";
+        holdRetry.stop();
         if (holdWriter.running) holdWriter.again = true;
         else holdWriter.send();
+    }
+
+    // A write that failed is sent again after the supervision's delays;
+    // once they run out the hold stays unconfirmed and the shell mutes by
+    // reaction alone.
+    function holdFailed(line) {
+        const step = Logic.restartStep(holdTries, 0);
+        holdTries = step.streak;
+        console.warn("notifications: app sounds: hold=failed " + line + " retry=" + (step.delay < 0 ? "gave-up" : step.delay + "ms"));
+        if (step.delay < 0) {
+            holdState = "failed";
+            return;
+        }
+        holdRetry.interval = step.delay;
+        holdRetry.restart();
     }
 
     // TEXT is pw-dump's answer. A soft mute on an output stream that this
@@ -307,42 +353,48 @@ Item {
 
     // The one pw-cli that takes every softMute write on its stdin, a line
     // each, and whose life is the hold's: the rule counts the hold only
-    // while a PipeWire client with this process's pid exists. setpriv
-    // gives it SIGKILL as its parent-death signal, so it dies with a shell
-    // stopped by a signal; pw-cli runs on after its input ends (measured,
-    // pw-cli 1.6.9, VGS-1424), and Quickshell kills a destroyed Process's
-    // child (vgs.capture's Service.qml). setpriv and sh each exec the next
-    // program, so the Process's pid is pw-cli's. pw-cli prints a line for
-    // every change it sees; its output goes nowhere.
-    // pw-cli, pw-metadata and pw-dump need the program path and the
-    // session's PipeWire alone; under clearEnvironment a null value passes
-    // the shell's own value through (Quickshell 0.3.1,
-    // Process.clearEnvironment).
-    Process {
+    // while a PipeWire client with this process's pid exists. It cannot
+    // outlive the shell and is started again after an exit nobody asked
+    // for, such as a PipeWire restart (Supervised.qml). Its output is read
+    // until it has its session's objects; then it gets the writes owed
+    // meanwhile, every stream this instance still holds is muted again,
+    // since the rule lifted what it held when the last writer went, and
+    // the hold is written under its pid.
+    Supervised {
         id: writer
-        command: ["setpriv", "--pdeathsig", "KILL", "--", "sh", "-c", "exec pw-cli >/dev/null"]
+        label: "app sounds: writer"
+        argv: ["pw-cli"]
         stdinEnabled: true
-        clearEnvironment: true
-        environment: ({ PATH: null, XDG_RUNTIME_DIR: null, PIPEWIRE_RUNTIME_DIR: null, PIPEWIRE_REMOTE: null, LANG: "C.UTF-8" })
-        stderr: SplitParser {
-            onRead: line => console.info("notifications: app sounds: pw-cli " + line)
-        }
-        onStarted: {
+        exitLevel: "warn"
+        onLine: text => {
+            if (root.writerReady || !Logic.cliReady(text)) return;
+            root.writerReady = true;
             const owed = root.pending;
             root.pending = [];
             for (const item of owed) root.soften(item.node, item.on);
-            root.writeHold();
+            for (const id of Object.keys(root.holds))
+                if (!owed.some(i => i.node === root.holds[id].node)) root.soften(root.holds[id].node, true);
         }
-        // Info: the destruction ends it too.
-        onExited: (code, status) => console.info("notifications: app sounds: writer exit=" + JSON.stringify({ code: code, status: status }))
+        onStarted: root.writeHold(true)
+        onEnded: {
+            root.writerReady = false;
+            root.ruleHold = null;
+            root.holdState = "none";
+        }
     }
 
+    // One hold write; a write asked while one runs is sent once it ends,
+    // with the hold as it then stands. It is guarded like the writer, so a
+    // write still under way when the shell dies is not left to land.
     Process {
         id: holdWriter
         property bool again: false
         property var completion: null
+        property var sentPid: null
         function send() {
-            command = ["pw-metadata", "-n", Logic.SOUND_RULE_METADATA, "0", "hold", Logic.holdEntry(writer.processId, root.ruleHold.apps), "Spa:String:JSON"];
+            if (root.ruleHold === null || !writer.running) return;
+            sentPid = writer.processId;
+            command = Logic.guardedArgv(Quickshell.processId, ["pw-metadata", "-n", Logic.SOUND_RULE_METADATA, "0", "hold", Logic.holdEntry(sentPid, root.ruleHold.apps), "Spa:String:JSON"]);
             running = true;
         }
         clearEnvironment: true
@@ -353,10 +405,34 @@ Item {
             if (running) return;
             const done = completion;
             completion = null;
-            if (done === null || done.code !== 0) console.warn("notifications: app sounds: hold write exit=" + JSON.stringify(done) + " " + holdErr.text.trim().split("\n")[0]);
-            if (!again) return;
-            again = false;
-            send();
+            if (again) {
+                again = false;
+                send();
+                return;
+            }
+            if (root.ruleHold === null || sentPid !== writer.processId) return;
+            if (done !== null && done.code === 0) {
+                root.holdState = "confirmed";
+                root.holdTries = 0;
+            } else {
+                root.holdFailed("exit=" + JSON.stringify(done) + " " + holdErr.text.trim().split("\n")[0]);
+            }
+        }
+    }
+
+    Timer {
+        id: holdRetry
+        onTriggered: root.writeHold(false)
+    }
+
+    // A mute that waits on the rule longer than the grace mutes by reaction
+    // alone, which can let a chime's first samples through: said once each
+    // time it happens, at warn, naming the rule as not loaded.
+    Timer {
+        id: ruleGrace
+        interval: Logic.RULE_GRACE
+        onTriggered: {
+            if (!root.ruleRunning) console.warn("notifications: app sounds: rule=not-loaded phase=" + root.rulePhase + " mutes=reaction");
         }
     }
 
@@ -375,14 +451,14 @@ Item {
             if (done === null || done.code !== 0) console.warn("notifications: app sounds: pw-dump exit=" + JSON.stringify(done));
             else root.lift(dumped.text);
             root.scanned = true;
-            root.writeHold();
+            root.writeHold(true);
         }
     }
 
     Component.onCompleted: {
         refresh();
         scan.running = true;
-        writer.running = true;
+        if (!ruleRunning) ruleGrace.start();
     }
 
     // The writer goes with this instance, SIGKILLed, and may not have

@@ -99,6 +99,9 @@ expect "the dismissed transient card went to History" True in_probe_history "Pro
 # Under Silence a critical plugin message draws its card and a normal one
 # goes to History unseen. The normal one goes first, so once the critical
 # card shows the normal one was judged too.
+# The sandbox's WirePlumber runs no sound rule, so a Silence that outlasts
+# vgs.notifications' grace says its mute waits on a rule not loaded.
+expected_errors+=('WARN qml: notifications: app sounds: rule=not-loaded ')
 expect "Silence turns on" on ipc vgs.notifications invoke silence on
 expect "a normal message is sent under Silence" ok notify_send '{"title": "Probe hushed"}'
 expect "a critical message is sent under Silence" ok notify_send '{"title": "Probe urgent", "urgency": "critical"}'

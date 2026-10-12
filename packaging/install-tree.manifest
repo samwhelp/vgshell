@@ -565,6 +565,7 @@ f share/vgshell/shell/plugins/vgs.notifications/SlackPhotos.qml
 f share/vgshell/shell/plugins/vgs.notifications/SoundRule.qml
 f share/vgshell/shell/plugins/vgs.notifications/Stack.qml
 f share/vgshell/shell/plugins/vgs.notifications/Store.qml
+f share/vgshell/shell/plugins/vgs.notifications/Supervised.qml
 f share/vgshell/shell/plugins/vgs.notifications/WorkspaceIcons.qml
 f share/vgshell/shell/plugins/vgs.notifications/images.sh
 f share/vgshell/shell/plugins/vgs.notifications/manifest.json

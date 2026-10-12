@@ -163,6 +163,7 @@ Item {
         sourceComponent: Component {
             AppSounds {
                 ruleRunning: soundRule.running
+                rulePhase: soundRule.phase
                 kept: store.live.concat(store.history)
             }
         }

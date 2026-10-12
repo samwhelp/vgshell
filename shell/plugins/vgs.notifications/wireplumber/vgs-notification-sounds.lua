@@ -12,8 +12,10 @@
 -- The hold counts only while a PipeWire client whose pipewire.sec.pid is
 -- N exists: the shell's persistent pw-cli writer, which dies with the
 -- shell's mute. When that client goes, the hold is cleared and every
--- stream this script still holds is lifted. With no counted hold this
--- script changes nothing.
+-- stream this script still holds is lifted. A hold that lands after its
+-- client went, from a write still under way, is refused until a client
+-- with that pid comes again. With no counted hold this script changes
+-- nothing.
 --
 -- A new output stream that the hold matches gets softMute before
 -- WirePlumber links it, so not one sample reaches a sink. softMute, not
@@ -39,6 +41,20 @@ local hold = nil
 -- node id -> { node, pid }: the streams this script holds, and the pid of
 -- the hold that held each.
 local held = {}
+-- The pids of clients that went, newest last, at most GONE_MAX: a hold
+-- naming one is refused. A hold write lands within milliseconds of its
+-- holder's end, while GONE_MAX clients would have to end in between.
+local gone = {}
+local GONE_MAX = 64
+
+local function gone_index(pid)
+  for i, p in ipairs(gone) do
+    if p == pid then
+      return i
+    end
+  end
+  return nil
+end
 
 local function set_of(list)
   local set = {}
@@ -145,6 +161,20 @@ clients_om:connect("object-removed", function(_, client)
   local pid = client.properties["pipewire.sec.pid"]
   if pid ~= nil then
     release(pid)
+    if gone_index(pid) == nil then
+      table.insert(gone, pid)
+      if #gone > GONE_MAX then
+        table.remove(gone, 1)
+      end
+    end
+  end
+end)
+
+clients_om:connect("object-added", function(_, client)
+  local pid = client.properties["pipewire.sec.pid"]
+  local i = pid ~= nil and gone_index(pid) or nil
+  if i ~= nil then
+    table.remove(gone, i)
   end
 end)
 
@@ -199,9 +229,13 @@ metadata:activate(Features.ALL, function(m, e)
       return
     end
     local parsed, reason = parse_hold(value)
+    if parsed ~= nil and gone_index(parsed.pid) ~= nil then
+      parsed, reason = nil, "holder-gone pid=" .. parsed.pid
+    end
     if parsed == nil then
       log:warning("hold refused: reason=" .. reason)
       hold = nil
+      m:set(0, "hold", nil, nil)
       return
     end
     hold = parsed
