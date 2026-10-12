@@ -40,6 +40,55 @@ function verifyMicrophoneAction(script, root) {
     }
 }
 
+// The Preview screen asks the service, and for a cloud voice asks the
+// user first; it speaks nothing itself. Each refusal key shows its own
+// message. A stub vgshell logs each invoke and answers from the scenario.
+function runScreen(script, root, scenario) {
+    const library = path.join(root, "tui-lib"), command = path.join(root, "vgshell"), log = path.join(root, "screen.log");
+    fs.rmSync(log, { force: true });
+    fs.writeFileSync(library, [
+        'vgs_tui_header() { :; }', 'vgs_tui_success() { printf "success\\n" >> "$SCREEN_LOG"; }',
+        'vgs_tui_error() { printf "%s\\n" "$*" >&2; }',
+        'vgs_tui_confirm() { printf "confirm\\n" >> "$SCREEN_LOG"; [[ $CONFIRM == yes ]]; }',
+        'vgs_tui_close_prompt() { printf "close %s\\n" "$1" >> "$SCREEN_LOG"; }', ""].join("\n"));
+    fs.writeFileSync(command, '#!/bin/bash\n[[ $# == 6 && $1 == ipc && $2 == call && $3 == vgs.jarvis && $4 == invoke ]] || exit 2\n'
+        + 'printf "%s %s\\n" "$5" "$6" >> "$SCREEN_LOG"\ncase $6 in kind) printf "%s\\n" "$KIND" ;; play) printf "%s\\n" "$PLAY" ;; *) printf "%s\\n" "$FILE" ;; esac\n', { mode: 0o700 });
+    fs.writeFileSync(path.join(root, "gio"), '#!/bin/bash\nprintf "gio %s %s\\n" "$1" "$2" >> "$SCREEN_LOG"\n[[ $GIO == ok ]]\n', { mode: 0o700 });
+    const result = cp.spawnSync("/bin/bash", [script], { encoding: "utf8",
+        env: { PATH: root + ":/usr/bin:/bin", VGS_TUI_LIB: library, SCREEN_LOG: log, KIND: "", PLAY: "", FILE: "", CONFIRM: "", GIO: "", ...scenario } });
+    return { status: result.status, stderr: result.stderr, log: fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : [] };
+}
+function verifyPreviewAction(script, root) {
+    const run = scenario => runScreen(script, root, scenario);
+    assert.deepEqual(run({ KIND: "local", PLAY: "ok" }), { status: 0, stderr: "", log: ["preview-voice kind", "preview-voice play", "success"] },
+        "a local preview plays without asking");
+    assert.deepEqual(run({ KIND: "cloud", PLAY: "ok", CONFIRM: "yes" }).log, ["preview-voice kind", "confirm", "preview-voice play", "success"],
+        "a cloud preview asks before it plays");
+    assert.deepEqual(run({ KIND: "cloud", PLAY: "ok", CONFIRM: "no" }), { status: 0, stderr: "", log: ["preview-voice kind", "confirm"] },
+        "a cloud preview the user declines plays nothing");
+    const causes = ["refused: preview=muted", "refused: preview=busy", "refused: preview=down", "refused: jarvis=not-ready"].map(key => {
+        const asked = run({ KIND: key });
+        assert.deepEqual([asked.status, asked.log], [1, ["preview-voice kind"]], key + ": nothing plays");
+        assert.notEqual(asked.stderr, "", key + ": the screen says why");
+        const played = run({ KIND: "local", PLAY: key });
+        assert.deepEqual([played.status, played.stderr], [1, asked.stderr], key + ": the same cause when the play is refused");
+        return asked.stderr;
+    });
+    assert.equal(new Set(causes).size, causes.length, "each refusal key has its own cause");
+}
+// The Edit screen opens the file the service answers with gio, and holds
+// its plain window on the close prompt when it cannot.
+function verifyEditAction(script, root) {
+    const run = scenario => runScreen(script, root, scenario);
+    assert.deepEqual(run({ FILE: "/home/user/Jarvis/AGENTS.md", GIO: "ok" }),
+        { status: 0, stderr: "", log: ["personality-file ", "gio open /home/user/Jarvis/AGENTS.md"] }, "Edit opens the home's AGENTS.md");
+    const failed = run({ FILE: "/home/user/Jarvis/AGENTS.md", GIO: "no" });
+    assert.deepEqual([failed.status, failed.log.at(-1)], [1, "close 1"], "a file gio cannot open holds the window");
+    const homeless = run({ FILE: "refused: home=none", GIO: "ok" });
+    assert.deepEqual([homeless.status, homeless.log], [1, ["personality-file ", "close 1"]], "with no home nothing opens");
+    assert.ok(failed.stderr !== "" && homeless.stderr !== "" && failed.stderr !== homeless.stderr, "each failure says its own cause");
+}
+
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "SetupGate.js");
 const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
 const ABSENT = { tone: "warning", text: "Browser needs setup", action: true };
@@ -988,6 +1037,33 @@ try {
     fs.writeFileSync(wrongAction, fs.readFileSync(microphoneAction, "utf8").replace("invoke check-microphone", "invoke talk-down"));
     assert.throws(() => verifyMicrophoneAction(wrongAction, temp), assert.AssertionError);
     console.log("test-jarvis-setup-gate: control=microphone-action-target rejected=true");
+    const previewAction = path.join(path.dirname(file), "tui/preview-voice.sh");
+    const editAction = path.join(path.dirname(file), "tui/edit-personality.sh");
+    verifyPreviewAction(previewAction, temp);
+    verifyEditAction(editAction, temp);
+    console.log("test-jarvis-setup-gate: case=preview-and-edit-screens passed=true");
+    for (const [name, script, verify, needle, replacement] of [
+        ["preview-cost-question", previewAction, verifyPreviewAction, '  cloud) vgs_tui_confirm "This preview uses your OpenAI key and may cost money. Play it?" || exit 0 ;;\n', "  cloud) ;;\n"],
+        ["preview-muted-cause", previewAction, verifyPreviewAction, '    "refused: preview=muted") vgs_tui_error "Jarvis is muted. Unmute Jarvis, then try again." ;;\n', ""],
+        ["edit-gio-status", editAction, verifyEditAction, 'gio open "$file" 2>/dev/null || {', 'gio open "$file" 2>/dev/null || true || {'],
+        ["edit-close-prompt", editAction, verifyEditAction, "trap 'status=$?; [[ $status == 0 ]] || vgs_tui_close_prompt \"$status\"' EXIT\n", ""]
+    ]) {
+        const source = fs.readFileSync(script, "utf8");
+        assert.equal(source.split(needle).length, 2, name + " mutation match");
+        const copy = path.join(temp, name + ".sh");
+        fs.writeFileSync(copy, source.replace(needle, replacement));
+        assert.throws(() => verify(copy, temp), assert.AssertionError, name + " must turn red");
+        console.log("test-jarvis-setup-gate: control=" + name + " rejected=true");
+    }
+    // The Voice field offers the voices Jarvis publishes, the first standing
+    // for the unset voice, keeps the configured voice while none are
+    // published, and draws nothing then.
+    const voiceOffers = [{ label: "Alloy, American English, female", value: "af_alloy" }, { label: "Heart, American English, female", value: "af_heart" }];
+    assert.deepEqual(JSON.parse(JSON.stringify(judge.settingChoices(manifest, { voices: voiceOffers }, { ...manifest.settings, voice: "af_heart" }).voice)),
+        [{ label: "Alloy, American English, female", value: "" }, { label: "Heart, American English, female", value: "af_heart" }]);
+    assert.deepEqual(JSON.parse(JSON.stringify(judge.settingChoices(manifest, { voices: [] }, { ...manifest.settings, voice: "af_heart" }).voice)), [],
+        "no published voices draw no Voice field, and the setting is not written");
+    console.log("test-jarvis-setup-gate: case=voice-field passed=true");
     const serviceSource = fs.readFileSync(serviceFile, "utf8");
     verifyHomeSwitch(serviceSource);
     console.log("test-jarvis-setup-gate: case=home-switch passed=true");

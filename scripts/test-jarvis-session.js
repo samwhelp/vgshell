@@ -515,6 +515,24 @@ const table = [
         checking = step(logic, step(logic, checking, event("indicator", 1, { shown: true })).state, event("voice-check", 20)).state;
         assert.equal(checking.check.kind, "waiting");
         unchanged("microphone check", checking, "busy");
+        // Each clause alone: a reply still playing after its turn, and a held
+        // request or a running action with no turn in flight.
+        const reply = speaking(logic);
+        const playing = step(logic, reply, callback("brain-done", reply.turn, 41)).state;
+        assert.deepEqual([playing.turn.kind, playing.playback.kind], ["none", "playing"]);
+        unchanged("playing after its turn", playing, "busy");
+        const idle = between(logic);
+        for (const [label, s] of [["held alone", { ...idle, approval: held(logic).approval }], ["acting alone", { ...idle, action: acting(logic).action }]])
+            assert.equal(logic.previewRefusal(s), "busy", label);
+    }],
+    // A preview after a failed turn clears the fault as Talk does, then speaks.
+    ["preview-recovers", logic => {
+        const s = thinking(logic);
+        const failed = step(logic, s, callback("brain-failed", s.turn, 40, { reason: "brain=fixture" })).state;
+        assert.equal(failed.fault.kind, "error");
+        assert.equal(logic.previewRefusal(failed), null);
+        const r = step(logic, failed, event("preview", 50));
+        assert.deepEqual([r.state.fault.kind, r.state.turn.kind, kinds(r).includes("brain-send")], ["none", "thinking", true]);
     }],
     // A duplex preview opens the voice's session alone, with no capture;
     // the voice's idle report after the sentence ends the conversation.
@@ -2339,6 +2357,10 @@ try {
     mutants.push(
         ["preview-judge", 'case "preview":\n        if (previewRefusal(s) !== null) break;', 'case "preview":', "preview-refusals"],
         ["preview-turn-busy", 'return "muted";\n    if (s.turn.kind !== "none" || ', 'return "muted";\n    if (', "preview-refusals"],
+        ["preview-playback-busy", 'return "muted";\n    if (s.turn.kind !== "none" || s.playback.kind !== "idle" || s.approval.kind !== "none" || s.action.kind !== "none"\n', 'return "muted";\n    if (s.turn.kind !== "none" || s.approval.kind !== "none" || s.action.kind !== "none"\n', "preview-refusals"],
+        ["preview-approval-busy", 'return "muted";\n    if (s.turn.kind !== "none" || s.playback.kind !== "idle" || s.approval.kind !== "none" || s.action.kind !== "none"\n', 'return "muted";\n    if (s.turn.kind !== "none" || s.playback.kind !== "idle" || s.action.kind !== "none"\n', "preview-refusals"],
+        ["preview-action-busy", 'return "muted";\n    if (s.turn.kind !== "none" || s.playback.kind !== "idle" || s.approval.kind !== "none" || s.action.kind !== "none"\n', 'return "muted";\n    if (s.turn.kind !== "none" || s.playback.kind !== "idle" || s.approval.kind !== "none"\n', "preview-refusals"],
+        ["preview-recover", 'recover(s, effects, e.at);\n        // A new conversation takes a new gen', '// A new conversation takes a new gen', "preview-recovers"],
         ["preview-check", '|| ["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1\n            || s.engine.kind === "duplex"', '|| s.engine.kind === "duplex"', "preview-refusals"],
         ["preview-duplex-busy", ' || s.engine.kind === "duplex" && s.conversation.kind !== "ended") return "busy";', ') return "busy";', "preview-refusals"],
         ["preview-gen", 'if (s.conversation.kind === "ended") s.gen += 1;', '', "preview-local"],

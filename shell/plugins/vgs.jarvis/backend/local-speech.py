@@ -15,7 +15,8 @@ mono. Ids are positive integers; each new request takes a larger id.
   out: {type:"ready"} once; {type:"partial", id, text, rev}; {type:"final", id, text};
        {type:"woke", id}; {type:"checked", id, result}; {type:"audio", id} + samples;
        {type:"spoken", id, rate}; {type:"failed", id?, cause}
-A speaker is the voice's index in its artifact's `speakers`, the model's sid.
+A speaker is the name of one of the voice artifact's `speakers`, whose index
+is the model's sid; a name the loaded voice lacks answers failed speaker-unknown.
 A wake request spots the keyword in its audio and answers woke once; it has no
 end, only abort. A check uses that same detector until end, then answers ready,
 silent (only zero or no samples), or not-heard. One input request is open at a time.
@@ -175,9 +176,11 @@ class Speech:
         return " ".join(texts)
 
     def speak(self, text, speaker):
-        """One sentence's samples in SPEAKER's voice at the voice's declared rate."""
+        """One sentence's samples in the voice SPEAKER names, at the voice's declared rate."""
+        if speaker not in self.speakers:
+            raise Failed("speaker-unknown")
         try:
-            audio = self.tts.generate(text, sid=speaker, speed=1.0)
+            audio = self.tts.generate(text, sid=self.speakers.index(speaker), speed=1.0)
         except (RuntimeError, ValueError) as error:
             raise Failed("synthesis-failed") from error
         if audio.sample_rate != self.rate:
@@ -360,9 +363,11 @@ def serve(reader, writer, speech):
                 text = payload.decode("utf-8")
             except UnicodeDecodeError:
                 raise Protocol("speak=invalid") from None
-            speaker = header["speaker"]
-            if not fresh or not text.strip() or type(speaker) is not int or not 0 <= speaker < speech.speakers:
+            if not fresh or not text.strip():
                 raise Protocol("speak=invalid")
+            speaker = header["speaker"]
+            if type(speaker) is not str:
+                raise Protocol("speak=speaker")
             try:
                 rate, samples = speech.speak(text, speaker)
             except Failed as failure:
@@ -481,7 +486,7 @@ def load(setup, state, data):
         return judge.infer(chosen["turn"], models["turn"], np.frombuffer(samples, dtype=np.float32), "", value, np)["probability"]
     # The keyword is the one setup's probe decoded with this model.
     return Speech(models["stt"], chosen["stt"].get("maxInputSamples"), models["vad"], models["tts"],
-                  chosen["tts"]["outputSampleRate"], len(chosen["tts"]["speakers"]),
+                  chosen["tts"]["outputSampleRate"], [speaker["name"] for speaker in chosen["tts"]["speakers"]],
                   lambda samples: np.frombuffer(samples, dtype=np.float32),
                   models["captions"], turn, models["wake"], value["fixture"]["wakeTokens"])
 

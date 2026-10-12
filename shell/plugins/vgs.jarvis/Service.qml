@@ -90,9 +90,10 @@ Item {
                 return "ok";
             });
             // The Preview and Edit actions' screens: `kind` answers whether
-            // the preview is local or cloud, `play` speaks it.
+            // the preview is local or cloud, `play` speaks it; the Edit
+            // screen opens the file this answers.
             shell.ipc.handle("preview-voice", step => previewVoice(step));
-            shell.ipc.handle("edit-personality", () => editPersonality());
+            shell.ipc.handle("personality-file", () => personalityFile());
             shell.ipc.handle("memory-confirm", text => memoryIntent("memory-confirm", text));
             shell.ipc.handle("memory-discard", text => memoryIntent("memory-discard", text));
             // The console's Stop button and `vgshell ipc call vgs.jarvis
@@ -413,10 +414,10 @@ Item {
         return "ok";
     }
 
-    // AGENTS.md of the home the daemon judged ready, in its default application.
-    function editPersonality() {
+    // The path of AGENTS.md in the home the daemon judged ready.
+    function personalityFile() {
         if (shell === null || homeMessage.current === "") return "refused: home=none";
-        return shell.run.detached(["gio", "open", Quickshell.env("HOME") + homeMessage.current.slice(1) + "/AGENTS.md"]);
+        return Quickshell.env("HOME") + homeMessage.current.slice(1) + "/AGENTS.md";
     }
 
     function publishPreview() {
@@ -437,7 +438,7 @@ Item {
             : shown.kind === "none" ? { tone: "info", text: "No home folder",
                 hint: "Choose a home folder first in Settings > Jarvis > Home folder." }
             : shown.kind === "missing" ? { tone: "info", text: "No Personality section", action: true,
-                hint: "Edit opens AGENTS.md. Add a Personality heading and say how Jarvis talks under it." }
+                hint: "Edit opens AGENTS.md. Add the heading ## Personality on its own line and say how Jarvis talks under it." }
             : shown.kind === "too-large" ? { tone: "warning", text: "AGENTS.md is too long", action: true,
                 hint: "Edit opens AGENTS.md. Make it shorter than 8 KB." }
             : { tone: "warning", text: "AGENTS.md cannot be read", hint: "Check the home folder in Settings > Jarvis > Home folder." };

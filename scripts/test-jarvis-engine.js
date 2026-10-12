@@ -400,6 +400,7 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
             return;
         }
         await until(() => w.configure(w.s().settings).kind === "ready", "model ready ends the loading cause");
+        assert.deepEqual(w.engine.voices().map(voice => voice.value), ["ljspeech"], "the ready small tier offers its Piper voice");
         const pid = starts()[0].pid;
         for (const ending of [firstEnding, "brain-failed", "stop"]) {
             const before = await say(w, utterance("Fixture request."));
@@ -425,6 +426,10 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
         assert.equal(starts().length, 2);
         assert.notEqual(starts()[1].pid, pid);
         w.runner.dispatch({ type: "stop" });
+        // A tier whose marker is gone offers no voices, and the setting stays.
+        fs.rmSync(path.join(state, "local-ready.json"));
+        w.configure({ ...w.s().settings, voice: "ljspeech" });
+        assert.deepEqual([w.engine.voices(), w.s().settings.voice], [[], "ljspeech"]);
     } finally {
         await w.close();
         await until(() => starts().every(row => !alive(row.pid)), "daemon teardown releases speech child");
@@ -1758,7 +1763,7 @@ async function cases(kit, server, only = null) {
         w.runner.dispatch({ type: "preview" });
         await until(() => control.spoken.length === 1, "the preview speaks");
         await playOut(w);
-        assert.deepEqual([control.speakers, w.server.requests.length], [[0], before], "the first voice, no brain request");
+        assert.deepEqual([control.speakers, w.server.requests.length], [["fixture"], before], "the first voice, no brain request");
         const first = await say(w, utterance("Remember blue."));
         server.replies.push(text(""));
         await requested(w, first + 1, "first request");
@@ -1774,7 +1779,7 @@ async function cases(kit, server, only = null) {
         w.runner.dispatch({ type: "preview" });
         await until(() => control.spoken.filter(line => line === control.spoken[0]).length === 2, "the preview speaks again");
         await playOut(w);
-        assert.deepEqual([control.speakers.at(-1), control.spoken.at(-1)], [1, control.spoken[0]], "the same sentence in the new voice");
+        assert.deepEqual([control.speakers.at(-1), control.spoken.at(-1)], ["other", control.spoken[0]], "the same sentence in the new voice");
     });
 
     // Release markers: a remote speech recipient makes the set non-offline,
@@ -2560,7 +2565,7 @@ async function checkFailures(file) {
         const owner = { status: () => ({ kind: "ready" }), closed: new Promise(() => {}),
             spot: () => ({ outcome }), close() {} };
         const local = { row: { select: () => ({ kind: "ready", lifetime: "daemon", wake: true,
-            recipients: [], voices: [], open: () => owner }) } };
+            recipients: [], voices: [{ label: "Fixture", value: "fixture" }], open: () => owner }) } };
         const exported = { exports: {} };
         vm.runInNewContext(fs.readFileSync(file, "utf8"), { module: exported, Buffer, setTimeout, clearTimeout,
             require: name => name === "./LocalSpeech.js" ? local : actual(name) });
@@ -2831,7 +2836,7 @@ world(async () => {
             ["line-refused-retry", "if (c.live === null && turn.lineStream !== null) {",
                 "if (c.live === null && (turn.lineStream !== null || turn.pendingLine !== null)) {", "progress-after-refused-line"],
             ["line-flush-heard", 'report === null || flushedLine ? "" : withoutLinePrefix', 'report === null ? "" : withoutLinePrefix', "line-held-reply-interrupt"],
-            ["preview-speaker", "c.speech.speak(sentenceInput, c.plan.speech.speaker)", "c.speech.speak(sentenceInput, 0)", "voice-preview"],
+            ["preview-speaker", "c.speech.speak(sentenceInput, c.plan.speech.speaker)", 'c.speech.speak(sentenceInput, "fixture")', "voice-preview"],
             ["preview-unspoken", "fixedLine(c, turn, PREVIEW_LINE);", 'turn.done("brain-done");', "voice-preview"],
         ];
         for (const [name, needle, replacement, scenario] of plants) {

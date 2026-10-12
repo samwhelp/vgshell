@@ -95,7 +95,7 @@ try:
         recognizer = Recorded(loaded["stt"])
         bound = chosen["stt"].get("maxInputSamples")
         speech = sidecar.Speech(recognizer, bound, loaded["vad"], loaded["tts"], chosen["tts"]["outputSampleRate"],
-                                len(chosen["tts"]["speakers"]), lambda samples: np.frombuffer(samples, dtype=np.float32), loaded["captions"],
+                                [speaker["name"] for speaker in chosen["tts"]["speakers"]], lambda samples: np.frombuffer(samples, dtype=np.float32), loaded["captions"],
                                 lambda samples: judge.infer(chosen["turn"], loaded["turn"], np.frombuffer(samples, dtype=np.float32),
                                                             "", value, np)["probability"],
                                 loaded["wake"], value["fixture"]["wakeTokens"])
@@ -122,7 +122,7 @@ try:
         stream += frame({"type": "wake", "id": 2}) + audio_frames(2, others) + frame({"type": "abort", "id": 2})
         stream += frame({"type": "listen", "id": 3, "detect": False}) + audio_frames(3, clip)
         # The last declared speaker: the table's sid order reaches the real voice.
-        stream += frame({"type": "end", "id": 3}) + frame({"type": "speak", "id": 4, "speaker": len(chosen["tts"]["speakers"]) - 1},
+        stream += frame({"type": "end", "id": 3}) + frame({"type": "speak", "id": 4, "speaker": chosen["tts"]["speakers"][-1]["name"]},
                                                           text.encode())
         output = io.BytesIO()
         sidecar.serve(io.BytesIO(stream), output, speech)

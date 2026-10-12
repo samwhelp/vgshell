@@ -252,6 +252,9 @@ async function inside() {
         // The Personality row each judgement of the folder sends.
         const shown = () => out.split("\n").slice(0, -1).map(line => JSON.parse(line)).filter(frame => frame.type === "personality").map(frame => frame.personality);
         const personality = () => shown().at(-1);
+        // The Voice offers, sent when they change: with no local setup the
+        // local provider offers none, however many hellos follow.
+        const offered = () => out.split("\n").slice(0, -1).map(line => JSON.parse(line)).filter(frame => frame.type === "voices").map(frame => frame.voices);
         const send = message => child.stdin.write(JSON.stringify(message) + "\n");
         const named = setting => ({ ...hello, settings: { ...hello.settings, home: setting } });
         const others = reply(false, 0).causes;
@@ -275,6 +278,7 @@ async function inside() {
         try {
             await step([hello], [others]);
             assert.deepEqual(personality(), { kind: "none" }, "no home, no Personality section");
+            assert.deepEqual(offered(), [[]], "a provider whose voices cannot be read offers none");
             await step([intent("talk-down"), named("~/home-made")], [others]);
             assert.deepEqual(personality(), { kind: "missing" }, "a new AGENTS.md has no Personality section");
             assert.deepEqual(["AGENTS.md", "CLAUDE.md", "skills/base", "skills/own", "memory/MEMORY.md", "memory/inbox", "state",
@@ -282,16 +286,17 @@ async function inside() {
             fs.writeFileSync(path.join(made, "AGENTS.md"), "x".repeat(8193));
             await step([named("~/home-made")], [["guidance=home-too-large", ...others]]);
             assert.deepEqual(personality(), { kind: "too-large" });
-            fs.writeFileSync(path.join(made, "AGENTS.md"), "# Short again\n\n## Personality\nCalm and brief.\n");
+            fs.writeFileSync(path.join(made, "AGENTS.md"), "# Short again\n\n## Personality\nCalm\u2028and brief.\n");
             await step([intent("talk-down"), named("~/home-linked")], [others, ["home=link", ...others]]);
             assert.deepEqual(shown().slice(-2), [{ kind: "section", lines: ["Calm and brief."], more: false }, { kind: "unreadable" }],
-                "each judgement reads the section again, and a refused folder shows none");
+                "each judgement reads the section again, a pasted line separator as a space, and a refused folder shows none");
             fs.rmSync(path.join(linked, "skills"));
             await step([{ ...intent("say"), text: "fixture request" }, named("/etc/vgs-jarvis-home")], [others, ["home=path", ...others]]);
             child.stdin.end();
             assert.deepEqual(await closed, [0, null], err);
         } finally { if (child.exitCode === null) child.kill("SIGKILL"); }
         assert.deepEqual(statuses(), seen, "one status a hello, and one for each request made over a folder that held the engine");
+        assert.deepEqual(offered(), [[]], "unchanged offers are not sent again");
         assert.equal(err, "jarvis: home=link\njarvis: home=path\n");
         assert.equal(fs.existsSync(path.join(linked, "skills/own")), true, "the repaired folder got its layout");
         assert.equal(fs.existsSync("/etc/vgs-jarvis-home"), false);
@@ -299,6 +304,8 @@ async function inside() {
     }
     await homeStatus(daemon);
     await control("home-layout", "            Home.layout(folder);\n", "", homeStatus);
+    await control("voices-write", 'write({ v: 1, type: "voices", gen: runner.state.gen, revision: context.revision, voices });', "void voices;", homeStatus);
+    await control("voices-change-only", "if (signature === publishedVoices) return;", "", homeStatus);
     await control("personality-section", 'personality = section.kind === "section" ? Protocol.personalitySection(section.text) : section;',
         "void section;", homeStatus);
     await control("home-refusal", 'return { path: folder, state: { kind: "refused", cause } };', 'return { path: folder, state: { kind: "none" } };', homeStatus);

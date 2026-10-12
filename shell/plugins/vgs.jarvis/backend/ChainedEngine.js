@@ -30,7 +30,7 @@ const Redact = require("./Redact.js");
 // Speech adapter rows in selection order. A row is {select({settings,
 // accounts, directories})} answering {kind:"ready", recipients, voices,
 // open({net, recipients})} or {kind:"unconfigured", cause, detail?}, voices
-// its {label, value} offers, whose index is the speaker its adapter's speak
+// its {label, value} offers, whose value is the speaker its adapter's speak
 // takes. The ElevenLabs row adds its own.
 const SPEECH = Object.freeze({ local: LocalSpeech.row });
 const DRIVERS = Object.freeze({ "openai-chat": OpenAIChat, "anthropic-messages": AnthropicMessages,
@@ -232,7 +232,7 @@ function selectVoice(settings, accounts, directories) {
     let speech = unconfigured("speech=no-adapter");
     for (const [id, row] of Object.entries(SPEECH)) {
         const answer = row.select({ settings, accounts, directories });
-        if (answer.kind === "ready") return { ...answer, id, speaker: voiceIndex(answer.voices, settings.voice) };
+        if (answer.kind === "ready") return { ...answer, id, speaker: answer.voices[voiceIndex(answer.voices, settings.voice)].value };
         if (answer.kind !== "unconfigured") fail("speech-row");
         if (speech.cause === "speech=no-adapter") speech = answer;
     }
@@ -1562,7 +1562,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         speech: {
             open(e, events) {
                 const c = current(e.gen);
-                c.liveOpen = { e, events };
+                // A failover reopens the session for the conversation, which
+                // speaks no preview a second time.
+                const { preview, ...reopen } = e;
+                c.liveOpen = { e: reopen, events };
                 c.live.port.open(e, events);
             },
             close(e) {

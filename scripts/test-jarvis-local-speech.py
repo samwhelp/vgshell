@@ -230,8 +230,8 @@ KEYWORDS = json.loads((PLUGIN / "artifacts.json").read_text())["fixture"]["wakeT
 
 
 def speech(m, segments, bound, recognizer=None, voice=None, rate=22050, captions=None, turn=lambda s: 1.0, spotter=None):
-    # Two speakers, so a sid past the first one is in range.
-    return m.Speech(recognizer or Recognizer(), bound, Vad(segments), voice or Voice(rate), rate, 2, lambda s: s,
+    # Two named speakers, so the second one's sid is 1.
+    return m.Speech(recognizer or Recognizer(), bound, Vad(segments), voice or Voice(rate), rate, ["one", "two"], lambda s: s,
                     captions or Captions(), turn, spotter or Spotter(), KEYWORDS)
 
 
@@ -351,21 +351,27 @@ def wire_cases(m):
                     ({"type": "end", "id": 3},)], speech(m, [], 80000))
     if [h for h, _ in out] != [{"type": "final", "id": 3, "text": ""}]:
         raise AssertionError(f"abort {out}")
-    out = serve(m, [({"type": "speak", "id": 4, "speaker": 0}, "Hello.".encode())], model)
+    out = serve(m, [({"type": "speak", "id": 4, "speaker": "one"}, "Hello.".encode())], model)
     audio = b"".join(p for h, p in out if h["type"] == "audio")
     if out[-1][0] != {"type": "spoken", "id": 4, "rate": 22050} or array("f", audio).tolist() != [0.25] * 2205:
         raise AssertionError(f"speak {[h for h, _ in out]}")
     # The request's speaker is the voice's sid.
-    serve(m, [({"type": "speak", "id": 5, "speaker": 1}, "Hello.".encode())], model)
+    serve(m, [({"type": "speak", "id": 5, "speaker": "two"}, "Hello.".encode())], model)
     if model.tts.sids != [0, 1]:
         raise AssertionError(f"speaker sids {model.tts.sids}")
-    out = serve(m, [({"type": "speak", "id": 5, "speaker": 0}, "Hello.".encode())],
+    # A name the loaded voice lacks, such as another tier's voice, fails the
+    # sentence and leaves the sidecar serving.
+    out = serve(m, [({"type": "speak", "id": 6, "speaker": "af_heart"}, "Hello.".encode()),
+                    ({"type": "speak", "id": 7, "speaker": "one"}, "Hello.".encode())], model)
+    if [h for h, _ in out][0] != {"type": "failed", "id": 6, "cause": "speaker-unknown"} or out[-1][0]["type"] != "spoken":
+        raise AssertionError(f"unknown speaker {[h for h, _ in out]}")
+    out = serve(m, [({"type": "speak", "id": 5, "speaker": "one"}, "Hello.".encode())],
                 speech(m, [], 80000, voice=Voice(error=RuntimeError("voice"))))
     if [h for h, _ in out] != [{"type": "failed", "id": 5, "cause": "synthesis-failed"}]:
         raise AssertionError(f"synthesis failure {out}")
     for name, voice, cause in [("rate", Voice(rate=16000), "synthesis-rate value=16000"),
                                ("silent", Voice(samples=[0.0] * 10), "synthesis-empty")]:
-        out = serve(m, [({"type": "speak", "id": 6, "speaker": 0}, "Hi.".encode())], speech(m, [], 80000, voice=voice))
+        out = serve(m, [({"type": "speak", "id": 6, "speaker": "one"}, "Hi.".encode())], speech(m, [], 80000, voice=voice))
         if [h for h, _ in out] != [{"type": "failed", "id": 6, "cause": cause}]:
             raise AssertionError(f"{name}: {out}")
 
@@ -491,13 +497,12 @@ VIOLATIONS = [
     ("audio without payload", [frame({"type": "audio", "id": 1})], "message=invalid type=audio"),
     ("boolean id", [frame({"type": "end", "id": True})], "id=invalid"),
     ("reused speak id", [frame({"type": "listen", "id": 3, "detect": False}), frame({"type": "end", "id": 3}),
-                         frame({"type": "speak", "id": 3, "speaker": 0}, b"a")], "speak=invalid"),
-    ("blank sentence", [frame({"type": "speak", "id": 1, "speaker": 0}, b" ")], "speak=invalid"),
-    ("sentence not UTF-8", [frame({"type": "speak", "id": 1, "speaker": 0}, b"\xff")], "speak=invalid"),
+                         frame({"type": "speak", "id": 3, "speaker": "one"}, b"a")], "speak=invalid"),
+    ("blank sentence", [frame({"type": "speak", "id": 1, "speaker": "one"}, b" ")], "speak=invalid"),
+    ("sentence not UTF-8", [frame({"type": "speak", "id": 1, "speaker": "one"}, b"\xff")], "speak=invalid"),
     ("speak without speaker", [frame({"type": "speak", "id": 1}, b"a")], "message=invalid type=speak"),
-    ("speaker past the voices", [frame({"type": "speak", "id": 1, "speaker": 2}, b"a")], "speak=invalid"),
-    ("negative speaker", [frame({"type": "speak", "id": 1, "speaker": -1}, b"a")], "speak=invalid"),
-    ("boolean speaker", [frame({"type": "speak", "id": 1, "speaker": True}, b"a")], "speak=invalid"),
+    ("number speaker", [frame({"type": "speak", "id": 1, "speaker": 1}, b"a")], "speak=speaker"),
+    ("null speaker", [frame({"type": "speak", "id": 1, "speaker": None}, b"a")], "speak=speaker"),
     ("partial sample", [frame({"type": "listen", "id": 1, "detect": False}),
                         frame({"type": "audio", "id": 1}, b"abc")], "audio=partial-sample"),
     ("oversized header", [struct.pack(">II", 4097, 0) + b"{" * 4097], "frame=too-large"),
@@ -608,7 +613,7 @@ def admission_case(m):
             value = m.load(setup, state, state)
             if not isinstance(value, m.Speech) or not {"moonshine", "piper", "silero"}.issubset(loaded):
                 raise AssertionError(f"admitted model roles missing: {loaded}")
-            if value.speakers != 1:
+            if value.speakers != ["ljspeech"]:
                 raise AssertionError(f"the small tier's Piper voice has one speaker, got {value.speakers}")
         with judge.loading(state / "models"):
             # The returned Speech has released the load lock for the next
@@ -703,9 +708,9 @@ CONTROLS = [
      "if False:", wire_cases),
     ("utterance bound", "if len(self.samples) + len(received) > UTTERANCE_SAMPLES:", "if False:", bound_case),
     ("message shape", "or set(header) != SHAPES[kind][0] ", "", violation_cases),
-    ("speaker bound", " or not 0 <= speaker < speech.speakers", "", violation_cases),
-    ("speaker type", " or type(speaker) is not int", "", violation_cases),
-    ("speaker sid", "audio = self.tts.generate(text, sid=speaker, speed=1.0)", "audio = self.tts.generate(text, sid=0, speed=1.0)",
+    ("speaker type", "if type(speaker) is not str:", "if False:", violation_cases),
+    ("speaker known", '        if speaker not in self.speakers:\n            raise Failed("speaker-unknown")\n', "", wire_cases),
+    ("speaker sid", "sid=self.speakers.index(speaker)", "sid=0",
      wire_cases),
     ("frame bound", "if not 0 < head <= HEADER_BYTES or size > PAYLOAD_BYTES:", "if not 0 < head:",
      violation_cases),

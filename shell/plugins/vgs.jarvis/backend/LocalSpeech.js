@@ -31,8 +31,6 @@ const SYNTHESIS_MS = 60000;
 const CLOCK = Object.freeze({ set: setTimeout, clear: clearTimeout });
 const RECIPIENTS = Object.freeze([Object.freeze({ kind: "local", provider: "local-speech", account: "" })]);
 const CAUSE = /^[a-z-]+(?: [a-z]+=[0-9A-Za-z._-]+)*$/;
-// The engines of a tier's one text-to-speech artifact, as local-speech.py names them.
-const TEXT_TO_SPEECH = Object.freeze(["piper", "kokoro"]);
 // The keys of each sidecar message and whether it carries a payload.
 const SHAPES = Object.freeze({
     ready: [["type"], false], partial: [["id", "rev", "text", "type"], false],
@@ -418,10 +416,11 @@ function open(state, data, clock = CLOCK, changed = () => {}) {
             })().catch(error => value.settle({ kind: "failed", error }));
             return { outcome, abort };
         },
-        // SPEAKER is the voice's index in its artifact's speakers, the sid
-        // the sidecar judges against the same table.
+        // SPEAKER names one of the voice artifact's speakers. The sidecar
+        // judges the name against the voice it loaded, so a voice of a tier
+        // published after this plan fails the sentence, never the sidecar.
         async *speak(sentences, speaker) {
-            if (!Number.isSafeInteger(speaker) || speaker < 0) throw failure("speaker");
+            if (typeof speaker !== "string" || speaker === "") throw failure("speaker");
             for await (const item of sentences) {
                 const text = Buffer.from(item.content, "utf8");
                 if (item.content.trim() === "") throw failure("sentence-empty");
@@ -483,8 +482,9 @@ function select({ directories }) {
     if (marker === null || typeof marker !== "object" || typeof marker.tier !== "string"
             || !Object.hasOwn(tiers, marker.tier) || marker.data !== root)
         return unconfigured("speech=local-not-ready", "marker-stale");
+    // The tier's voice is its one artifact that declares speakers.
     const voice = artifacts.artifacts.find(artifact => tiers[marker.tier].artifacts.includes(artifact.id)
-        && TEXT_TO_SPEECH.includes(artifact.engine));
+        && artifact.speakers !== undefined);
     const voices = voice.speakers.map(speaker => ({ label: speaker.label, value: speaker.name }));
     return { kind: "ready", lifetime: "daemon", wake: true, publication, recipients: RECIPIENTS, voices,
         open: ({ clock = CLOCK, changed } = {}) => open(state, data, clock, changed) };

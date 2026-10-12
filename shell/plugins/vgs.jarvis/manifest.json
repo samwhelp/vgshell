@@ -140,7 +140,7 @@
     "voicePreview": { "type": "state", "label": "Voice preview", "group": "Voice", "hint": "Jarvis says one sentence in the chosen voice.",
       "action": { "label": "Preview", "tui": "preview-voice" } },
     "personality": { "type": "state", "label": "Personality", "group": "Personality",
-      "hint": "How Jarvis talks: the Personality section of AGENTS.md in the home folder. Every AI model reads it.",
+      "hint": "How Jarvis talks: the text under the heading ## Personality in AGENTS.md of the home folder. Every AI model reads it.",
       "action": { "label": "Edit", "tui": "edit-personality" } },
     "voiceKey": { "type": "state", "label": "OpenAI key", "group": "Voice", "hint": "An OpenAI key lets Jarvis use the Realtime voice: OpenAI hears you and speaks the reply.", "action": { "label": "Add key", "tui": "add-key" } },
     "microphones": { "type": "choices", "label": "Microphones" },

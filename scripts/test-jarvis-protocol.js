@@ -188,6 +188,13 @@ const cases = [
     ["personality-kind", changed(personality, { personality: { kind: "granted" } }), "daemon", "personality-kind"],
     ["personality-lines", changed(personality, { personality: { kind: "section", lines: Array(25).fill("Calm."), more: true } }), "daemon", "personality-lines"],
     ["personality-control", changed(personality, { personality: { kind: "section", lines: ["Calm.\nBrief."], more: false } }), "daemon", "personality-lines"],
+    // The status judge refuses these too: a line separator and a C1 control.
+    ["personality-separator", changed(personality, { personality: { kind: "section", lines: ["Calm.\u2028Brief."], more: false } }), "daemon", "personality-lines"],
+    ["personality-c1", changed(personality, { personality: { kind: "section", lines: ["Calm.\u0085"], more: false } }), "daemon", "personality-lines"],
+    ["personality-empty-lines", changed(personality, { personality: { kind: "section", lines: [], more: false } }), "daemon", "personality-lines"],
+    ["personality-empty-line", changed(personality, { personality: { kind: "section", lines: [""], more: false } }), "daemon", "personality-lines"],
+    ["personality-more", changed(personality, { personality: { kind: "section", lines: ["Calm."], more: "yes" } }), "daemon", "personality-lines"],
+    ["voices-separator", changed(voices, { voices: [{ label: "Heart\u2029", value: "af_heart" }] }), "daemon", "voice"],
     ["homes-current-path", changed(homes, { current: "/user/One" }), "daemon", "home-current"],
     ["homes-id", changed(homes, { homes: [{ ...homes.homes[0], id: "../../outside" }] }), "daemon", "home-id"],
     ["homes-id-duplicate", changed(homes, { homes: [homes.homes[0], { ...homes.homes[0], value: "~/Other" }] }), "daemon", "home-id-duplicate"],
@@ -386,6 +393,12 @@ for (const shown of [personality, { ...personality, personality: { kind: "none" 
     assert.equal(section.lines.slice(1).join(" ").startsWith(long + " " + long), true, "no word is lost at a cut");
     assert.equal(Protocol.accept(changed(personality, { personality: section }), "daemon").personality.lines.length, 24);
     assert.equal(JSON.stringify(Protocol.personalitySection("Brief.")), JSON.stringify({ kind: "section", lines: ["Brief."], more: false }));
+    // What the status judge refuses becomes a space, so a pasted line
+    // separator never reaches Settings.
+    assert.equal(JSON.stringify(Protocol.personalitySection("Calm.\u2028Brief.\u0085")), JSON.stringify({ kind: "section", lines: ["Calm. Brief."], more: false }));
+    // The copy of the status judge's rule is the judge's own.
+    const SettingValues = load(path.join(__dirname, "../shell/Commons/SettingValues.js"));
+    assert.equal(Protocol.STATUS_UNPRINTABLE.source, SettingValues.CONTROL_OR_SEPARATOR.source, "the wire refuses what the status judge refuses");
 }
 for (const [message, direction] of [
     [taskOpen, "shell"], [{ ...taskOpen, task: "a".repeat(64) }, "shell"],
@@ -615,7 +628,12 @@ try {
         ["personality-direction", 'if (direction !== "daemon") fail("direction-personality");', ';', "personality-direction"],
         ["personality-kind", 'fail("personality-kind");', ';', "personality-kind"],
         ["personality-lines", 'shown.lines.length > PERSONALITY_LINES', 'false', "personality-lines"],
-        ["personality-control", '!shown.lines.every(line => printable(line, 1, PERSONALITY_CHARS))', 'false', "personality-control"],
+        ["personality-control", '!shown.lines.every(line => statusLine(line, PERSONALITY_CHARS))', 'false', "personality-control"],
+        ["status-separators", "\\u007f-\\u009f\\u2028\\u2029]/;", "\\u007f]/;", "personality-separator"],
+        ["status-c1", "\\u007f-\\u009f\\u2028\\u2029]/;", "\\u007f\\u2028\\u2029]/;", "personality-c1"],
+        ["personality-empty-lines", "shown.lines.length < 1 || ", "", "personality-empty-lines"],
+        ["personality-empty-line", "value.length >= 1 && value.length <= max && !STATUS_UNPRINTABLE", "value.length <= max && !STATUS_UNPRINTABLE", "personality-empty-line"],
+        ["personality-more", ' || typeof shown.more !== "boolean")', ")", "personality-more"],
         ["homes-current", 'fail("home-current");', ';', "homes-current"],
         ["homes-id", 'fail("home-id");', ';', "homes-id"],
         ["homes-id-duplicate", 'if (Object.prototype.hasOwnProperty.call(seen, choice.id)) fail("home-id-duplicate");',

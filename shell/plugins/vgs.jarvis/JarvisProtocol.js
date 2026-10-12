@@ -17,6 +17,11 @@ var TRANSCRIPT_CHARS = Session.TRANSCRIPT_CHARS;
 var VOICES_MAX = 64;
 var PERSONALITY_LINES = 24;
 var PERSONALITY_CHARS = 200;
+// What the status judge refuses in a line: SettingValues.CONTROL_OR_SEPARATOR,
+// which PluginLogic.isPrintableLine reads. A plugin's published snapshot
+// cannot import a core file, so this is a copy, and
+// scripts/test-jarvis-protocol.js holds it equal to the judge's.
+var STATUS_UNPRINTABLE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
 
 // Requests the daemon sends and the service answers, one reply each. `args`
 // lists each argument's type, or "argv" for a command; `data` names the
@@ -298,14 +303,19 @@ function setupCauses(value) {
     return true;
 }
 
+// Whether VALUE is a line a status value may carry, of 1 to MAX characters.
+function statusLine(value, max) {
+    return typeof value === "string" && value.length >= 1 && value.length <= max && !STATUS_UNPRINTABLE.test(value);
+}
+
 // The `personality` message's section for TEXT, Guidance.personality's: each
-// non-blank line with its control characters as spaces, cut at a space into
+// non-blank line with what the status judge refuses as spaces, cut at a space into
 // pieces of at most PERSONALITY_CHARS, the first PERSONALITY_LINES of them;
 // `more` says pieces were left out.
 function personalitySection(text) {
     var pieces = [];
     for (var line of String(text).split("\n")) {
-        var rest = line.replace(/[\x00-\x1f\x7f]/g, " ").trim();
+        var rest = line.replace(new RegExp(STATUS_UNPRINTABLE.source, "g"), " ").trim();
         while (rest !== "") {
             var piece = rest.slice(0, PERSONALITY_CHARS);
             if (piece.length < rest.length && piece.lastIndexOf(" ") > 0) piece = piece.slice(0, piece.lastIndexOf(" "));
@@ -600,7 +610,7 @@ function accept(line, direction) {
         var voiced = {};
         for (var voice of message.voices) {
             keys(voice, ["label", "value"], "voice");
-            if (!printable(voice.label, 1, 60) || !printable(voice.value, 1, 200)) fail("voice");
+            if (!statusLine(voice.label, 60) || !statusLine(voice.value, 200)) fail("voice");
             if (Object.prototype.hasOwnProperty.call(voiced, voice.value)) fail("voice-duplicate");
             Object.defineProperty(voiced, voice.value, { value: true });
         }
@@ -613,7 +623,7 @@ function accept(line, direction) {
         if (shown.kind === "section") {
             keys(shown, ["kind", "lines", "more"], "personality");
             if (!Array.isArray(shown.lines) || shown.lines.length < 1 || shown.lines.length > PERSONALITY_LINES
-                    || !shown.lines.every(line => printable(line, 1, PERSONALITY_CHARS)) || typeof shown.more !== "boolean")
+                    || !shown.lines.every(line => statusLine(line, PERSONALITY_CHARS)) || typeof shown.more !== "boolean")
                 fail("personality-lines");
         } else {
             keys(shown, ["kind"], "personality");

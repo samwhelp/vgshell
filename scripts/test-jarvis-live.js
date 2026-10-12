@@ -455,6 +455,13 @@ world(async () => {
         await until(() => w.state.conversation.kind === "ended", "the played preview ends the conversation");
         assert.deepEqual([w.delegations.length, w.tools, w.state.fault.kind], [0, 0, "none"], "a preview asks no brain and starts nothing");
         quiet(w, conn);
+        // A voice the provider does not offer is refused before any connection.
+        const other = rig(kit, { voice: "unlisted" });
+        const opened = main.conns.length;
+        other.dispatch("preview");
+        await until(() => other.state.fault.kind === "error", "an unlisted voice fails the session");
+        fault(other, "live=voice");
+        assert.equal(main.conns.length, opened, "it opens no connection");
     }
 
     // Idle is 60 s with no user speech or transcript, no words for the voice,
@@ -1316,10 +1323,27 @@ world(async () => {
         const heldReply = new Promise(resolve => { releaseReply = resolve; });
         try {
             send({ type: "hello", settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain, model: "", effort: "", fallbacks: [], taskTerminal: "auto",
-                cloudVision: "ask", privateWindows: "", voiceProvider: "realtime", voiceAccount: live, voice: "" }, directories, locked: false,
+                cloudVision: "ask", privateWindows: "", voiceProvider: "realtime", voiceAccount: live, voice: only === "preview" ? "cedar" : "" }, directories, locked: false,
                 keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } });
             await wait(() => last()?.gate.kind === "up", "the configured Realtime voice raises the daemon gate");
             assert.equal(last().engine.kind, "duplex");
+            // The shipped engine's preview: the chosen voice, its one
+            // sentence and no capture.
+            if (only === "preview") {
+                send({ type: "intent", intent: "preview" });
+                await wait(() => main.conns.some(conn => conn.rig === null && !conn.taken), "the preview opens the daemon's voice");
+                const conn = main.conns.find(conn => conn.rig === null && !conn.taken); conn.taken = true;
+                conn.play("created");
+                assert.equal((await conn.event("session.update")).session.audio.output.voice, "cedar", "the chosen voice speaks");
+                conn.play("updated");
+                const spoken = await conn.event(SPEAK);
+                assert.equal(spoken.response.instructions.endsWith("\n\n" + JSON.stringify("This is how I sound when I answer you.")), true,
+                    "the engine's preview sentence, exactly");
+                assert.deepEqual([last().capture.kind, server.requests.length], ["closed", 0], "no microphone and no brain request");
+                child.stdin.end();
+                assert.equal((await closed)[0], 0, stderr);
+                return;
+            }
             send({ type: "indicator", shown: true });
             send({ type: "intent", intent: "talk-down" });
             await wait(() => main.conns.some(conn => conn.rig === null && !conn.taken), "the actual daemon connects its voice");
@@ -1481,7 +1505,7 @@ world(async () => {
         startTimeout, responseTimeout, keys, opening, releaseLifetime, pacing, replyQueue, backlog, delegation, lineQueue, violations,
         daemonDelegation, daemonStale: kit => daemonDelegation(kit, "stale"), daemonRelease: kit => daemonDelegation(kit, "release"),
         daemonReplacement: kit => daemonDelegation(kit, "replacement"), daemonInterrupt: kit => daemonDelegation(kit, "interrupt"),
-        daemonHeard: kit => daemonDelegation(kit, "heard") };
+        daemonHeard: kit => daemonDelegation(kit, "heard"), daemonPreview: kit => daemonDelegation(kit, "preview") };
     const withheld = ["Policy.js", "const current = item(value.content, value.labels);",
         'const current = item(value.content, value.labels);\n    if (String(current.content).includes("input_audio_buffer.append")) return { kind: "withhold", content: "[withheld]", labels: current.labels };'];
     const withheldConnect = ["Policy.js", "const current = item(value.content, value.labels);",
@@ -1495,6 +1519,14 @@ world(async () => {
     try {
         for (const check of Object.values(cases)) await check(kitFrom(backend));
         await release(kitFrom(backend, [withheld]));
+        // The shipped engine hands the chosen voice and the preview to the session.
+        for (const [name, needle, replacement] of [["engine-voice", "voice: plan.speech.voice,", 'voice: "marin",'],
+            ["engine-preview", "preview: e.preview === true ? PREVIEW_LINE : null,", "preview: null,"]]) {
+            await assert.rejects(() => daemonDelegation(kitFrom(backend, [["ChainedEngine.js", needle, replacement]]), "preview"),
+                assert.AssertionError, name + " must turn the daemon preview red");
+            controls++;
+            console.log("control=" + name + " detected");
+        }
         await releaseConnect(kitFrom(backend, [withheldConnect]));
         const as = name => folder => cases[name](kitFrom(folder));
         const row = name => folder => failures(kitFrom(folder), name);
@@ -1504,6 +1536,7 @@ world(async () => {
             ["no-tools", "output_modalities: [\"audio\"], tools: [],", 'output_modalities: ["audio"], tools: [{ type: "function", name: "files_delete" }],', as("roundTrip")],
             ["no-own-answer", "create_response: false", "create_response: true", as("roundTrip")],
             ["no-voice", "output: { format: FORMAT, voice } }", "output: { format: FORMAT } }", as("preview")],
+            ["voice-unjudged", 'if (!VOICES.some(row => row.value === voice)) fail("voice");', "", as("preview")],
             ["no-preview", "commentary(PREVIEW, Policy.item(session.preview, [\"desktop\"]));", "", as("preview")],
             ["preview-unended", "session.timers.preview = clock.set(() => { session.timers.preview = null; session.events.idle(); }, 0);", "void session;", as("preview")],
             ["no-trace", "...provider.noStore } };", "} };", as("roundTrip")],

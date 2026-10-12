@@ -106,10 +106,12 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
 
     function configured(configuration) {
         if (ending) return;
+        // The offers go before the status that answers a hello, so the
+        // status's reader holds them.
+        publishVoices();
         write({ v: 1, type: "status", gen: runner.state.gen, revision: context.revision,
             daemon: context.locked ? "locked" : "ready",
             causes: configuration.kind === "ready" ? [] : configuration.causes });
-        publishVoices();
         // A selected healthy loading plan can accept bounded capture. The
         // loading cause remains until the same child reports model readiness.
         // Session still owns lock, mute, fault and indicator admission.

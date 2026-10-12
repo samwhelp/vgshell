@@ -308,7 +308,7 @@ async function speaking(folder) {
     try {
         const sentences = ["First sentence.", "Second sentence."].map(content => ({ content, labels: ["speech"] }));
         const chunks = [];
-        for await (const chunk of speech.speak((async function* () { yield* sentences; })(), 3)) chunks.push(chunk);
+        for await (const chunk of speech.speak((async function* () { yield* sentences; })(), "af_heart")) chunks.push(chunk);
         assert.deepEqual(chunks.map(chunk => [chunk.sentence?.text, chunk.sentence?.frames, chunk.pcm.length / 2]),
             [["First sentence.", 24000, 24000], ["Second sentence.", 30000, 24000], [undefined, undefined, 6000]]);
         const first = chunks[0].pcm;
@@ -317,14 +317,14 @@ async function speaking(folder) {
         assert.ok(Math.abs(crossings - 880) <= 4, "a 440 Hz voice keeps its pitch: " + crossings);
         assert.ok([chunks[1].pcm, chunks[2].pcm].every(pcm => pcm.equals(Buffer.alloc(pcm.length, Buffer.from([0x00, 0x20])))),
             "a 24 kHz voice passes unchanged");
-        await rejects(final(speech.speak((async function* () { yield { content: "Third.", labels: [] }; })(), 0)),
+        await rejects(final(speech.speak((async function* () { yield { content: "Third.", labels: [] }; })(), "ljspeech")),
             "jarvis: speech=local-synthesis-failed");
-        await rejects(final(speech.speak((async function* () { yield { content: " ", labels: [] }; })(), 0)),
+        await rejects(final(speech.speak((async function* () { yield { content: " ", labels: [] }; })(), "ljspeech")),
             "jarvis: speech=local-sentence-empty");
         await rejects(final(speech.speak((async function* () { yield { content: "Fourth.", labels: [] }; })())),
             "jarvis: speech=local-speaker");
         assert.deepEqual(w.log().filter(entry => entry.speak).map(entry => [entry.text, entry.speaker]),
-            [["First sentence.", 3], ["Second sentence.", 3], ["Third.", 0]], "each request carries its speaker");
+            [["First sentence.", "af_heart"], ["Second sentence.", "af_heart"], ["Third.", "ljspeech"]], "each request carries its speaker");
     } finally { speech.close(); }
     cases++;
 }
@@ -342,7 +342,7 @@ async function speechWaits(folder) {
         let release;
         const held = new Promise(resolve => { release = resolve; });
         const input = kind === "ready" ? (async function* () { await held; yield { content: Buffer.alloc(4800) }; })() : frames(Buffer.alloc(4800));
-        const result = final(kind === "synthesis" ? speech.speak((async function* () { yield { content: "Fixture.", labels: [] }; })(), 0)
+        const result = final(kind === "synthesis" ? speech.speak((async function* () { yield { content: "Fixture.", labels: [] }; })(), "ljspeech")
             : speech.transcribe(input));
         result.catch(() => {});
         try {
@@ -382,7 +382,7 @@ async function longReply(folder) {
     const playback = { received: 0, sentenceEnd: 0, text: "", words: [] };
     try {
         let bytes = 0, descriptions = 0;
-        for await (const packet of speech.speak((async function* () { yield { content: "Fixture sentence.", labels: [] }; })(), 0)) {
+        for await (const packet of speech.speak((async function* () { yield { content: "Fixture sentence.", labels: [] }; })(), "ljspeech")) {
             bytes += audio.playbackPacket(playback, packet).length;
             if (packet.sentence) descriptions++;
         }
@@ -529,8 +529,8 @@ const CONTROLS = [
     ["no backlog bound", [["if (child.stdin.writableLength > BACKLOG_BYTES) {", "if (false) {"]], "backlog"],
     ["close leaves the process", [['        child.kill("SIGKILL");\n', ""]], "close"],
     ["native frames counted", [["const pcm = toPcm(result.rate === PCM_RATE ? native :", "const pcm = toPcm(true ? native :"]], "speaking"],
-    ["speaker dropped", [['write({ type: "speak", id, speaker }, text);', 'write({ type: "speak", id, speaker: 0 }, text);']], "speaking"],
-    ["speaker unjudged", [['if (!Number.isSafeInteger(speaker) || speaker < 0) throw failure("speaker");', ""]], "speaking"],
+    ["speaker dropped", [['write({ type: "speak", id, speaker }, text);', 'write({ type: "speak", id, speaker: "ljspeech" }, text);']], "speaking"],
+    ["speaker unjudged", [['if (typeof speaker !== "string" || speaker === "") throw failure("speaker");', ""]], "speaking"],
     ["voices of another tier", [["tiers[marker.tier].artifacts.includes(artifact.id)", 'tiers.small.artifacts.includes(artifact.id)']], "selection"]
 ];
 
