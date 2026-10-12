@@ -2552,8 +2552,29 @@ async function checkFailures(file) {
     }
 }
 
+// Every call through a network door is a provider request, and each one
+// carries its provider row's noStore fields under its own test: the wire
+// brain in test-jarvis-brain-openai.js (no-store), the voice engine in
+// test-jarvis-live.js (no-trace) and the key check in
+// test-jarvis-account-verify.js (verify-no-store). Door holders are the
+// names Net.create's result is assigned to; a door passed on under another
+// name is not found.
+const NO_STORE_SITES = ["Accounts.js:request", "Realtime.js:websocket", "WireBrain.js:request"];
+function doorSites(sources) {
+    const holders = new Set(sources.flatMap(([, text]) => [...text.matchAll(/\b(\w+) = Net\.create\(/g)].map(match => match[1])));
+    assert.ok(holders.has("door") && holders.has("net"), "door holders are discovered");
+    return sources.flatMap(([name, text]) => [...text.matchAll(/\b(\w+)\.(request|websocket)\(/g)]
+        .filter(match => holders.has(match[1])).map(match => name + ":" + match[2])).sort();
+}
+
 world(async () => {
     const root = process.env.JARVIS_TEST_ROOT;
+    const backendDir = path.join(tree, "shell/plugins/vgs.jarvis/backend");
+    const sources = fs.readdirSync(backendDir).filter(name => name.endsWith(".js") && name !== "net.js")
+        .map(name => [name, fs.readFileSync(path.join(backendDir, name), "utf8")]);
+    assert.deepEqual(doorSites(sources), NO_STORE_SITES, "every provider request site is named with its no-store test");
+    assert.notDeepEqual(doorSites([...sources, ["Planted.js", "await net.request(item, options, grants);"]]), NO_STORE_SITES,
+        "an unnamed door call turns the inventory red");
     // Without local setup's marker the stock table's local row is the cause.
     const stock = require(path.join(tree, "shell/plugins/vgs.jarvis/backend/ChainedEngine.js"));
     const bare = fs.mkdtempSync(path.join(root, "stock-"));

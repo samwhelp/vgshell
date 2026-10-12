@@ -56,23 +56,35 @@ world(async () => {
         return calls.at(-1);
     }
     try {
-        for (const [provider, route, model, limit] of [
-            ["openai", "/v1/chat/completions", "", "max_completion_tokens"],
-            ["openrouter", "/api/v1/chat/completions", "", "max_tokens"],
-            ["groq", "/openai/v1/chat/completions", "", "max_tokens"],
-            ["cerebras", "/v1/chat/completions", "fixture-model", "max_completion_tokens"],
-            ["mistral", "/v1/chat/completions", "", "max_tokens"],
-            ["gemini", "/v1beta/openai/chat/completions", "", "max_tokens"]
-        ]) {
-            payload = chat;
-            const request = await verified(plugin, provider, "https://fixture.invalid", model);
-            assert.equal(request.url, "https://fixture.invalid" + route);
-            assert.deepEqual(request.body.messages, [{ role: "user", content: "Reply OK." }]);
-            assert.equal(request.body[limit], 1);
-            assert.equal(request.body.stream, false);
-            assert.equal(request.headers.get("authorization"), "Bearer " + privateKey);
-            cases++;
-        }
+        // noStore: the fields each provider documents for keeping the exchange
+        // unstored, beyond the chat body itself.
+        const chatRows = [
+            ["openai", "/v1/chat/completions", "", "max_completion_tokens", { store: false }],
+            ["openrouter", "/api/v1/chat/completions", "", "max_tokens", { provider: { data_collection: "deny" } }],
+            ["groq", "/openai/v1/chat/completions", "", "max_tokens", {}],
+            ["cerebras", "/v1/chat/completions", "fixture-model", "max_completion_tokens", {}],
+            ["mistral", "/v1/chat/completions", "", "max_tokens", {}],
+            ["gemini", "/v1beta/openai/chat/completions", "", "max_tokens", {}]
+        ];
+        const chatBodies = async (folder, rows) => {
+            for (const [provider, route, model, limit, noStore] of rows) {
+                payload = chat;
+                const request = await verified(folder, provider, "https://fixture.invalid", model);
+                assert.equal(request.url, "https://fixture.invalid" + route);
+                const { model: sent, messages: asked, stream, [limit]: tokens, ...extra } = request.body;
+                assert.equal(typeof sent, "string");
+                assert.deepEqual(asked, [{ role: "user", content: "Reply OK." }]);
+                assert.equal(tokens, 1);
+                assert.equal(stream, false);
+                assert.deepEqual(extra, noStore, provider + " no-store fields");
+                assert.equal(request.headers.get("authorization"), "Bearer " + privateKey);
+                cases++;
+            }
+        };
+        await chatBodies(plugin, chatRows);
+        await mutant("backend/Accounts.js", "verify-no-store", "Object.assign(body, Providers.select(row.id).noStore);",
+            "void Providers;", folder => chatBodies(folder, chatRows.slice(0, 2)));
+        controls++;
         payload = messages;
         const anthropic = await verified(plugin, "anthropic", "https://fixture.invalid");
         assert.equal(anthropic.url, "https://fixture.invalid/v1/messages");

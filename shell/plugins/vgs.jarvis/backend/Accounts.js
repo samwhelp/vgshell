@@ -709,6 +709,8 @@ class Accounts {
             break;
         default: fail("verify=driver-invariant");
         }
+        // The provider row's no-store fields, which every brain request carries too.
+        Object.assign(body, Providers.select(row.id).noStore);
         const ref = account.source.kind === "keyring" ? account.source.reference : null;
         const origin = ref === null ? account.source.origin : ref.origin;
         const target = Net.endpoint(origin + row.probe.path);
