@@ -1126,7 +1126,7 @@ scene_setup_steps() { # MODE
     vsys_stood=true
     tree_rescan "a rescan after the stand-in vsys arrives starts"
   fi
-  step_shot "$1" vgs.agent-warden warden "Set up" warden-set-up
+  step_shot "$1" vgs.agent-warden setup "Set up" warden-set-up
   if "$vsys_stood"; then
     rm -f -- "${shim:?}/vsys"
     tree_rescan "a rescan after the stand-in vsys goes starts"
