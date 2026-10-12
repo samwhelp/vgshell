@@ -782,7 +782,9 @@ const STATUS_TARGETS = [
         ["danger", "danger"], ["success", "success"], ["warning", "warning"], ["info", "info"]
     ] },
     { name: "btop", file: "btop.theme", format: "btop", surfaces: ["background"], fields: [
-        ["proc_misc", "info"], ["process_start", "success"], ["process_mid", "warning"], ["process_end", "danger"]
+        ["proc_misc", "info"],
+        ...["process", "cpu", "temp"].flatMap(gradient => [["start", "success"], ["mid", "warning"], ["end", "danger"]]
+            .map(([stop, role]) => [`${gradient}_${stop}`, role]))
     ] },
     { name: "hermes", file: "hermes.yaml", format: "yaml", surfaces: ["surfaceRaised"], fields: [["status_bar_critical", "danger"]] },
     ...["omp", "pi"].map(name => ({ name, file: `${name}.json`, format: "json", surfaces: ["surface"], fields: [["customMessageText", "warning"]] })),
@@ -840,7 +842,13 @@ function statusTemplatePairs(render, pkg, changeTemplate = text => text) {
 }
 // End status template contract.
 
+const STATUS_CONTROLS = [
+    ["obsidian", "obsidian.css", "--text-error: #@{color.danger};", "--text-error: #@{palette.danger};"],
+    ["btop", "btop.theme", 'theme[cpu_mid]="#@{color.warning}"', 'theme[cpu_mid]="#@{palette.warning}"'],
+    ["btop", "btop.theme", 'theme[temp_end]="#@{color.danger}"', 'theme[temp_end]="#@{palette.danger}"']
+];
 let statusPairs = 0;
+let statusControls = 0;
 for (const [mode, background, foreground, colors] of [
     ["dark", "#000000", "#ffffff", { danger: "#f08080", success: "#90ee90", warning: "#ffff00", info: "#87cefa" }],
     ["light", "#ffffff", "#000000", { danger: "#900000", success: "#004400", warning: "#665500", info: "#000099" }]
@@ -854,16 +862,18 @@ for (const [mode, background, foreground, colors] of [
     });
     assert.equal(pkg.ok, true);
     statusPairs += statusTemplatePairs(require(rendererFile), pkg).length;
-    // Restore the old source mapping in an in-memory template copy. Only
+    // Restore an old source mapping in an in-memory template copy. Only
     // the contrast assertion can fail here: rendering still succeeds.
-    assert.throws(() => statusTemplatePairs(require(rendererFile), pkg, (text, target, file) => {
-        if (target !== "obsidian" || file !== "obsidian.css") return text;
-        const needle = "--text-error: #@{color.danger};";
-        assert.equal(text.split(needle).length, 2);
-        return text.replace(needle, "--text-error: #@{palette.danger};");
-    }), error => error.code === "ERR_ASSERTION" && error.actual === false && error.expected === true);
+    for (const [target, file, needle, old] of STATUS_CONTROLS) {
+        assert.throws(() => statusTemplatePairs(require(rendererFile), pkg, (text, name, template) => {
+            if (name !== target || template !== file) return text;
+            assert.equal(text.split(needle).length, 2);
+            return text.replace(needle, old);
+        }), error => error.code === "ERR_ASSERTION" && error.actual === false && error.expected === true);
+        statusControls++;
+    }
 }
-console.log(`test-theme-render: status-pairs=${statusPairs} modes=dark,light controls=2`);
+console.log(`test-theme-render: status-pairs=${statusPairs} modes=dark,light controls=${statusControls}`);
 
 // KDE reads every foreground role in Colors:Selection on either selection
 // fill. Status and link text must remain readable when its row is selected.
