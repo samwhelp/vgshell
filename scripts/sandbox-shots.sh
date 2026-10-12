@@ -2786,26 +2786,29 @@ const service = fs.readFileSync(path.join(repo, "shell/plugins/vgs.jarvis/Servic
 const readyText = literal(service, /publish\("info", message\.daemon === "locked" \? "Locked; no capture" : "([^"]+)"\)/, "ready literal");
 const audioReady = literal(service, /shell\.status\.set\("audio", \{ tone: "ok", text: "([^"]+)" \}\)/, "audio literal");
 const rows = [["audio", { tone: "ok", text: audioReady }], ["setupHome", { hidden: true }]];
-const hasStartCause = typeof gate.startCause === "function";
-const unchecked = { tone: "warning", text: "Not checked", action: false };
-const uncheckedModel = { tone: "warning", text: "Not checked" };
 function detail(gate) {
   const state = JSON.parse(JSON.stringify(session.initial()));
   state.gate = gate;
   return { phase: session.phaseOf(state), seq: 1, state };
 }
-function addReady(answer, gateValue) {
-  rows.push(["daemon", { tone: "info", text: readyText }], ["detail", detail(gateValue || { kind: "up" })]);
+// The steps as Service.qml's publishSetup words them: the Voice step
+// declares named actions, so the judge refuses readiness's boolean on it.
+function addSetup(answer, check) {
   const values = gate.readiness(answer);
+  values.setupVoice = gate.voiceCheck(values.setupVoice, check);
   for (const key of ["setup", "setupVoice", "setupModel"]) rows.push([key, values[key]]);
+}
+function addReady(answer, gateValue) {
+  const planted = detail(gateValue || { kind: "up" });
+  rows.push(["daemon", { tone: "info", text: readyText }], ["detail", planted]);
+  addSetup(answer, planted.state.check);
 }
 if (phase === "before") {
   if (cause === "speech=local-ready-timeout" || cause === "setup=probe-timeout") addReady({ kind: "answered", causes: [] }, { kind: "up" });
   else {
     const danger = literal(service, /publish\("danger", "([^"]+)"\)/, "old danger literal");
     rows.push(["detail", null], ["daemon", { tone: "danger", text: danger }]);
-    const values = gate.readiness({ kind: "stopped" });
-    for (const key of ["setup", "setupVoice", "setupModel"]) rows.push([key, values[key]]);
+    addSetup({ kind: "stopped" }, null);
   }
 } else if (cause === "speech=local-ready-timeout" || cause === "setup=probe-timeout") {
   addReady({ kind: "answered", causes: [cause] }, cause === "speech=local-ready-timeout" ? { kind: "down", reason: "unconfigured" } : { kind: "up" });
@@ -2814,12 +2817,8 @@ if (phase === "before") {
     rows.push(["localRuntime", { tone: "warning", text: problem.title, hint: problem.action, action: true, lines: [problem.lines[0]] }]);
   }
 } else {
-  if (!hasStartCause) throw new Error("startCause missing");
-  const problem = gate.startCause(cause);
-  rows.push(["detail", null],
-    ["daemon", { tone: "danger", text: problem.title, lines: [problem.action].concat(problem.lines) }],
-    ["setup", gate.readiness({ kind: "problem", cause }).setup],
-    ["setupVoice", unchecked], ["setupModel", uncheckedModel]);
+  rows.push(["detail", null], ["daemon", gate.startStatus(cause, false)]);
+  addSetup({ kind: "problem", cause }, null);
 }
 for (const [key, value] of rows) console.log(key + "\t" + JSON.stringify(value));
 JS
