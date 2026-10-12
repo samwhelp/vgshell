@@ -20,10 +20,7 @@ import qs.Ui
 // below the view, one runs over the footer; both span the box from the
 // container's frame on one side to its frame on the other, meeting the
 // border and never covering it. Each is the only line on its edge: the
-// body's ScrollArea keeps its edge shade there but draws no hairline of
-// its own, which would span the inset viewport alone and show as a second,
-// shorter line. A pane without a header or footer leaves that edge's
-// hairline to the ScrollArea. Inside a summoned plugin whose host names
+// body's ScrollArea marks an edge by its content fade alone. Inside a summoned plugin whose host names
 // a Settings page (PluginSlot's `settingsPage`), the outermost pane draws
 // a gear at the header's end that opens that page, and the header takes
 // `headerWidth`, which leaves the gear its room. A panel whose Settings
@@ -318,8 +315,6 @@ Item {
         // gutter, so the bar never covers the content.
         rightInset: Math.max(root.contentInset - focusInset, Theme.scrollArea.gutter)
         barHeld: root.cardGrowing
-        cueLineAbove: root.headerHeight <= 0
-        cueLineBelow: root.footerHeight <= 0
         contentPadding: root.ringRoom
         height: root.ringRoom * 2 + Math.max(0, root.boxHeight - 2 * root.contentInset - root.headerHeight - root.headerGap - root.footerGap - root.footerHeight)
 

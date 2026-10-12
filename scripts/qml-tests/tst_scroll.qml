@@ -14,10 +14,10 @@ import qs.Unit
 // `scrollArea.idleOpacity` after `scrollArea.fadeDelay`. A select's long
 // list keeps the gutter clear at each entry's end, under the bar. An
 // overflowing area fades its content toward what lies behind it at each
-// edge with content beyond, shows it in full at an end it rests at, and
-// marks each clipped edge with a hairline and, at rest, a tint over the
-// band that reads over a fill the colour of the page; content that fits
-// shows no fade and no tint.
+// edge with content beyond and shows it in full at an end it rests at;
+// the band holds only that content faded toward the page, with no line or
+// tint of its own, over a dark page and a light one alike; content that
+// fits shows no fade.
 Item {
     id: root
     width: 400
@@ -183,73 +183,81 @@ Item {
             return Math.abs(actual.r - want.r) + Math.abs(actual.g - want.g) + Math.abs(actual.b - want.b) < 0.1;
         }
 
-        // Each edge row is read just inside the hairline that marks it.
+        // The first, middle and last pixel rows of the view.
         function edges(holder) {
-            const line = Theme.divider.thickness;
-            return { top: drawn(holder, line), middle: drawn(holder, holder.height / 2), bottom: drawn(holder, holder.height - 1 - line), topLine: drawn(holder, 0), bottomLine: drawn(holder, holder.height - 1) };
+            return { top: drawn(holder, 0), middle: drawn(holder, holder.height / 2), bottom: drawn(holder, holder.height - 1) };
         }
 
-        // The fade alone, under a clear tint; the tint has its own test.
         function test_the_content_fades_at_each_edge_with_content_beyond() {
-            compare(UnitTheme.override({ scrollArea: { edgeTint: "#00000000" } }), "ok");
             const holder = createTemporaryObject(fadeCase, root);
             const view = holder.area;
-            const row = "#ff00ff", back = holder.color, line = Theme.color.borderStrong;
+            const row = "#ff00ff", back = holder.color;
             tryVerify(() => view.overflowing, 1000, "ten rows overflow the view");
 
             let seen = edges(holder);
-            verify(near(seen.top, row) && near(seen.topLine, row), "at the top the top edge shows its row in full: " + seen.top + " " + seen.topLine);
+            verify(near(seen.top, row), "at the top the top edge shows its row in full: " + seen.top);
             verify(near(seen.middle, row), "mid-view shows the row: " + seen.middle);
             verify(near(seen.bottom, back), "at the top the bottom edge fades to the background: " + seen.bottom);
-            verify(near(seen.bottomLine, line), "a hairline marks the clipped bottom edge: " + seen.bottomLine);
             compare([view.fadeAbove, view.fadeBelow], [0, 1], "at the top only the bottom band fades");
 
             view.contentY = 50;
             seen = edges(holder);
             verify(near(seen.top, back) && near(seen.bottom, back), "midway both edges fade to the background: " + seen.top + " " + seen.bottom);
             verify(near(seen.middle, row), "mid-view shows the row: " + seen.middle);
-            verify(near(seen.topLine, line) && near(seen.bottomLine, line), "a hairline marks each clipped edge: " + seen.topLine + " " + seen.bottomLine);
             compare([view.fadeAbove, view.fadeBelow], [1, 1], "midway both bands fade in full");
 
             view.contentY = view.contentHeight - view.height;
             seen = edges(holder);
             verify(near(seen.top, back), "at the end the top edge fades to the background: " + seen.top);
-            verify(near(seen.topLine, line), "a hairline marks the clipped top edge: " + seen.topLine);
-            verify(near(seen.bottom, row) && near(seen.bottomLine, row), "at the end the bottom edge shows its row in full: " + seen.bottom + " " + seen.bottomLine);
+            verify(near(seen.bottom, row), "at the end the bottom edge shows its row in full: " + seen.bottom);
             compare([view.fadeAbove, view.fadeBelow], [1, 0], "at the end only the top band fades");
 
             holder.rows = 5;
             view.contentY = 0;
             tryVerify(() => !view.overflowing, 1000, "five rows fill the view exactly");
             seen = edges(holder);
-            for (const edge of ["topLine", "top", "middle", "bottom", "bottomLine"])
+            for (const edge of ["top", "middle", "bottom"])
                 verify(near(seen[edge], row), "content that fits shows its " + edge + " row in full: " + seen[edge]);
             compare([view.fadeAbove, view.fadeBelow], [0, 0], "content that fits has no band");
         }
 
-        // Rows the colour of the background stand for a field that crosses
-        // the edge: the fade alone draws nothing over them, the tint does.
-        function test_a_clipped_edge_draws_a_tint_at_rest_over_a_page_coloured_fill() {
-            const holder = createTemporaryObject(fadeCase, root, { rowColor: "#00ff00" });
-            const view = holder.area, back = holder.color;
+        // Rows a shade off the page, as a card is, and rows the page's own
+        // colour, as a field crossing the edge is, on a dark page and a
+        // light one. Scrolled midway, every pixel of each band lies between
+        // the row's colour and the page's: no line or tint draws a colour
+        // lighter than both on the dark page or darker than both on the
+        // light one.
+        function test_the_edge_band_holds_only_the_content_faded_toward_the_page_data() {
+            return [
+                { tag: "dark page, lighter rows", page: "#101010", row: "#202020" },
+                { tag: "dark page, page-coloured rows", page: "#101010", row: "#101010" },
+                { tag: "light page, darker rows", page: "#f8f8f8", row: "#e8e8e8" },
+                { tag: "light page, page-coloured rows", page: "#f8f8f8", row: "#f8f8f8" }
+            ];
+        }
+
+        function test_the_edge_band_holds_only_the_content_faded_toward_the_page(data) {
+            const holder = createTemporaryObject(fadeCase, root, { color: data.page, rowColor: data.row });
+            const view = holder.area;
             tryVerify(() => view.overflowing, 1000, "ten rows overflow the view");
-
-            // Each read follows a scroll, so a frame is due to render.
-            view.contentY = view.contentHeight - view.height;
-            let seen = edges(holder);
-            verify(!near(seen.top, back), "at the end a tint marks the top edge: " + seen.top);
-            verify(near(seen.bottom, back), "at the end the bottom edge has no tint: " + seen.bottom);
-
-            view.contentY = 0;
-            seen = edges(holder);
-            verify(!near(seen.bottom, back), "at the top a tint marks the bottom edge: " + seen.bottom);
-            verify(near(seen.top, back), "at the top the top edge has no tint: " + seen.top);
-
-            holder.rows = 5;
-            view.contentY = 0;
-            tryVerify(() => !view.overflowing, 1000, "five rows fill the view exactly");
-            seen = edges(holder);
-            verify(near(seen.top, back) && near(seen.bottom, back), "content that fits has no tint: " + seen.top + " " + seen.bottom);
+            view.contentY = 50;
+            compare([view.fadeAbove, view.fadeBelow], [1, 1], "midway both bands fade in full");
+            verify(waitForRendering(holder));
+            const image = grabImage(holder);
+            const page = Qt.color(data.page), row = Qt.color(data.row);
+            // One 8-bit step of rounding either way.
+            const step = 1 / 255;
+            const band = Math.ceil(view.fadeExtent);
+            for (let i = 0; i < band; ++i) {
+                for (const y of [i, holder.height - 1 - i]) {
+                    const seen = image.pixel(20, y);
+                    for (const channel of ["r", "g", "b"]) {
+                        const low = Math.min(page[channel], row[channel]) - step;
+                        const high = Math.max(page[channel], row[channel]) + step;
+                        verify(seen[channel] >= low && seen[channel] <= high, "pixel row " + y + " holds only the row faded toward the page: " + seen);
+                    }
+                }
+            }
         }
 
         // A row revealed below the view lands clear of the bottom band, so

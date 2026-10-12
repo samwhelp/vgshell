@@ -994,8 +994,6 @@ var TOKENS = {
     // `fade`. The content fades out across a `fadeHeight` band at each
     // edge where it is clipped, shallow enough that the first visible list
     // row's title, about 29 px below that edge, keeps the readability floor.
-    // Over that band a tint grows to `edgeTint` at the edge, so the cue
-    // reads at rest over a fill the colour of the page.
     scrollArea: {
         barWidth: length("{space.xs}"),
         barInset: length("{space.xxs}"),
@@ -1007,8 +1005,7 @@ var TOKENS = {
         idleOpacity: share(0),
         fadeDelay: number(800, 0, 5000),
         fade: duration("{motion.duration.slow}"),
-        fadeHeight: length("{space.xxxl}"),
-        edgeTint: color("alpha({color.borderStrong}, 0.5)")
+        fadeHeight: length("{space.xxxl}")
     },
 
     // A title that opens a menu of choices: its text over an underline

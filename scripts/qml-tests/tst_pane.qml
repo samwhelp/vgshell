@@ -767,11 +767,8 @@ Item {
 
         // Scrolled midway, a pane with a sticky header and footer shows one
         // line under the header and one over the footer, each its divider
-        // from frame to frame; the scroll area's own hairline, which spans
-        // only its inset viewport, never shows beside either. A pane with
-        // neither keeps the scroll area's cue line on each edge, since no
-        // divider marks those edges. The tint over each band is no line and
-        // is cleared here; tst_scroll.qml pins it.
+        // from frame to frame. A pane with neither shows no line on either
+        // edge: the scroll area marks them by its content fade alone.
         function test_one_line_marks_each_scrolled_edge_data() {
             return [
                 { tag: "header and footer", fixture: barredLines, barred: true },
@@ -780,13 +777,12 @@ Item {
         }
 
         function test_one_line_marks_each_scrolled_edge(data) {
-            compare(UnitTheme.override({ scrollArea: { edgeTint: "#00000000" } }), "ok");
             const made = createTemporaryObject(data.fixture, root);
             const of = made.pane;
             const view = scroll(of);
             tryVerify(() => view.contentHeight > view.height + 40, 1000, "the body overflows");
             view.contentY = 20;
-            verify(view.cueAbove && view.cueBelow, "both edges are clipped");
+            verify(view.fadeAbove > 0 && view.fadeBelow > 0, "both edges are clipped");
             waitForRendering(made);
             const image = grabImage(made);
             compare(image.width, made.width, "one pixel per unit");
@@ -797,15 +793,14 @@ Item {
             const above = drawnLines(image, made.color, data.barred ? headerSlot(of).y + headerSlot(of).height : 0, viewTop + Theme.space.lg, skip);
             const below = drawnLines(image, made.color, viewBottom - Theme.space.lg, data.barred ? footerSlot(of).y : of.height, skip);
             for (const [edge, lines, line] of [["top", above, divider(of)], ["bottom", below, footerDivider(of)]]) {
+                if (!data.barred) {
+                    compare(lines.length, 0, edge + " edge draws no line: " + JSON.stringify(lines));
+                    continue;
+                }
                 compare(lines.length, 1, edge + " edge draws one line: " + JSON.stringify(lines));
                 verify(lines[0].solid, edge + " line is unbroken");
-                if (data.barred) {
-                    compare(lines[0].y, line.y, edge + " line is the pane's divider");
-                    compare([lines[0].first, lines[0].last], [of.frameBorder, of.width - of.frameBorder - 1], edge + " line runs frame to frame");
-                } else {
-                    compare(lines[0].y, edge === "top" ? viewTop : viewBottom - 1, edge + " line is the viewport's edge");
-                    compare(lines[0].first, view.x + view.focusInset, edge + " line starts at the viewport");
-                }
+                compare(lines[0].y, line.y, edge + " line is the pane's divider");
+                compare([lines[0].first, lines[0].last], [of.frameBorder, of.width - of.frameBorder - 1], edge + " line runs frame to frame");
             }
         }
 
