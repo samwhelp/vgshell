@@ -412,7 +412,9 @@ SH
   # The ended-shell control: the planted row's shell ends and the row takes
   # up no other, as a row does whose shell exits under it. The runner
   # starts a shell again, and the row waits for its bars so the layers
-  # read as they were; the shell class alone is left.
+  # read as they were; the shell class alone is left. The shell it kills
+  # is noted first, as lc_restart notes its own, so rows/diagnostics.sh
+  # reads every shell the run started.
   cat >"$lc_plants/leak-plant-ended.sh" <<'SH'
 printf '%s\n' "$shell_qs_pid" >"$lc_plants/ended.killed"
 lc_ended_bars="$(bar_count)" || fail "the bar count is unreadable before the planted end"
@@ -421,6 +423,7 @@ expect "the runner starts a shell again after the planted end" back relaunched_w
 expect_poll "the runner's shell answers" ok ipc shell ping
 expect_poll "the runner's shell maps its bars again" "$lc_ended_bars" bar_count
 SH
+  shell_memory_note
   expect "control: a row whose shell ended under it fails once" 1 lc_planted leak-plant-ended
   expect "control: the failure names the shell class and the runner's exit line" 1 lc_failed leak-plant-ended "leaves shell: \\+environ=unreadable runner=\\[vgshell: shell=exited status=137 [^]]*\\] -.*"
   sed -n 's/^  FAIL  /    planted fail: /p' -- "$sandbox/leak-plant-ended.log"
