@@ -354,6 +354,9 @@ var CLONE_WITHHELD = {
     provider: { text: "Needs the Local voice", hint: "Choose Local as the Voice provider to use a cloned voice." },
     tier: { text: "Needs the Large model", hint: "Set up the Large local voice model, which needs an NVIDIA graphics card." }
 };
+// The hint of a ready row: what the recording gives now. The declared hint
+// says how to set the step up, which a done step no longer asks.
+var CLONE_READY_HINT = "The recording is ready. Jarvis speaks in this voice while Cloned voice is on in Settings > Local voice. Remove recording deletes the recording.";
 function clonedVoiceStep(value, provider) {
     var action = value.action === true ? "setup" : value.action;
     var reason = provider !== "local" ? CLONE_WITHHELD.provider : value.tierReady === false ? CLONE_WITHHELD.tier : null;
@@ -363,6 +366,7 @@ function clonedVoiceStep(value, provider) {
     if (typeof action === "string") row.action = action;
     if (reason !== null) row.hint = reason.hint;
     else if (value.hint !== undefined) row.hint = value.hint;
+    else if (row.tone === "ok") row.hint = CLONE_READY_HINT;
     return row;
 }
 

@@ -143,7 +143,7 @@ const CLONED = [
     ["a resolved Local voice on the Large model offers setup", CLONE_ANSWER, "local", "info", "setup", false, "clone-voice", null],
     ["the Realtime voice withholds setup", CLONE_ANSWER, "realtime", "info", undefined, true, null, "provider"],
     ["a tier off the graphics card withholds setup", { ...CLONE_ANSWER, tierReady: false }, "local", "info", undefined, true, null, "tier"],
-    ["a ready cloned voice offers Remove", CLONE_READY, "local", "ok", "remove", false, "clone-voice-remove", null],
+    ["a ready cloned voice offers Remove and says what the recording gives", CLONE_READY, "local", "ok", "remove", true, "clone-voice-remove", null],
     ["a recording keeps Remove under the Realtime voice", CLONE_READY, "realtime", "ok", "remove", true, "clone-voice-remove", "provider"],
     ["a recording keeps Remove beside another tier", { ...CLONE_READY, tone: "warning", tierReady: false }, "local", "info", "remove", true, "clone-voice-remove", "tier"],
     ["a failed read offers setup", { tone: "warning", text: "Setup check failed", action: true }, "local", "info", "setup", false, "clone-voice", null],
@@ -161,6 +161,7 @@ function verifyClonedVoice(gate, judged) {
         assert.equal(reason === null ? Object.values(gate.CLONE_WITHHELD).some(row => row.hint === value.hint) : value.hint === withheld.hint, reason !== null,
             label + ": the hint names " + (reason ?? "no withheld reason"));
         if (withheld !== null && action === undefined) assert.equal(value.text, withheld.text, label + ": the text names the reason");
+        assert.equal(value.hint === gate.CLONE_READY_HINT, tone === "ok" && reason === null, label + ": only a ready row with nothing withheld takes the done hint");
         const row = judge.statusRows(judged, { clonedVoiceSetup: value }, []).find(entry => entry.key === "clonedVoiceSetup");
         assert.deepEqual([row.group, row.action.offered, row.action.tui || null], ["Setup", tui !== null, tui], label + ": its press");
         const tuis = judge.listedTuiRows(judged, []);
@@ -174,6 +175,7 @@ function verifyClonedVoice(gate, judged) {
             assert.deepEqual(plain(judge.statusActionRequest(judged, "vgs.jarvis", true, { clonedVoiceSetup: value }, "clonedVoiceSetup")),
                 { ok: true, kind: "tui", name: tui }, label + ": the press opens its TUI");
     }
+    assert.notEqual(gate.CLONE_READY_HINT, judged.status.clonedVoiceSetup.hint, "the done hint is not the declared setup instruction");
     assert.equal(judged.tui["clone-voice"].requires.includes("pw-record"), true, "the setup TUI needs its recorder");
 }
 
@@ -1137,9 +1139,10 @@ const CONTROLS = [
     ["a not-ready clone row reads as an open step", 'var row = { tone: value.tone === "ok" ? "ok" : "info", text: value.text };', "var row = { tone: value.tone, text: value.text };",
         "a recording keeps Remove beside another tier"],
     ["a recording loses Remove under another voice", 'if (reason !== null && action !== "remove")', "if (reason !== null)", "a recording keeps Remove under the Realtime voice"],
-    ["a clone row keeps a failed read's keyed line", "    else if (value.hint !== undefined) row.hint = value.hint;\n    return row;",
-        "    else if (value.hint !== undefined) row.hint = value.hint;\n    if (value.lines !== undefined) row.lines = value.lines;\n    return row;",
+    ["a clone row keeps a failed read's keyed line", "    else if (row.tone === \"ok\") row.hint = CLONE_READY_HINT;\n    return row;",
+        "    else if (row.tone === \"ok\") row.hint = CLONE_READY_HINT;\n    if (value.lines !== undefined) row.lines = value.lines;\n    return row;",
         "a timed-out read words its state: the row draws no keyed cause"],
+    ["a ready clone row keeps the setup instruction", '    else if (row.tone === "ok") row.hint = CLONE_READY_HINT;\n', "", "a ready cloned voice offers Remove and says what the recording gives"],
     ["a failed clone read offers a boolean", 'var action = value.action === true ? "setup" : value.action;', "var action = value.action;", "a failed read offers setup"],
     ["the fleet row shows with no home", "if (home === null || tool !== null)", "if (tool !== null)", "no home chosen: the row shows"],
     ["the fleet row shows once the tool is found", "if (home === null || tool !== null)", "if (home === null)", "a home with the mail tool: the row shows"],
