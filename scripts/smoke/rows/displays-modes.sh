@@ -247,19 +247,28 @@ release_mode "display modes restores $output after the off rule" "$output" "$bas
 expect_poll "Quickshell's focused monitor is $output again after the off steps" "\"$output\"" ipc smoke readInstance service vgs.displays focusedOutput
 
 # Colour: the nested panel has no EDID, so sRGB is the one colour mode it
-# offers. An sRGB rule at scale 2 goes through trial, Keep and reload with
-# no error from Hyprland for its colour fields. The service holds no panel
-# reading, so a first HDR trial finds the panels unread and asks for them,
-# and the judge then refuses HDR before it reaches Hyprland.
-colour_rules="$(colour_rule_json "$output" "$trial_mode" "$trial_scale" srgb)"
+# offers. An sRGB rule goes through trial, Keep and reload with no error
+# from Hyprland for its colour fields. The rule takes the window's own
+# mode at the whole scale whole_scale_mode picks for it: a host configure
+# of the nested window, which another sandbox's window on the host can
+# cause at any time, leaves a rule at the window's size as it is, and
+# moves the doubled trial mode to the window's size at scale 1.5
+# (held_mode_state in mode-hold.sh) before the trial's 15 s are up. The
+# service holds no panel reading, so a first HDR trial finds the panels
+# unread and asks for them, and the judge then refuses HDR before it
+# reaches Hyprland.
+colour_mode_scale="$(whole_scale_mode "$base")"
+colour_mode="${colour_mode_scale% *}"
+colour_scale="${colour_mode_scale#* }"
+colour_rules="$(colour_rule_json "$output" "$colour_mode" "$colour_scale" srgb)"
 expect "the sRGB trial starts" ok invoke_displays trialRules "$colour_rules"
-expect_poll "the shell reads the sRGB trial's scale back after Hyprland answers it" "$trial_scale" service_scale_of "$output"
+expect_poll "the shell reads the sRGB trial's scale back after Hyprland answers it" "$colour_scale" service_scale_of "$output"
 expect "Hyprland answers the sRGB trial with no error" none trial_failure
 token="$(token_of)"
 expect "Keep saves the sRGB rule" ok invoke_displays keepTrial "{\"token\":\"$token\",\"rules\":$colour_rules}"
 expect_poll "the layer sets $output to sRGB" yes layer_sets_colour srgb
 expect "Hyprland reloads the sRGB rule with no configuration error" '[]' hypr_reload_errors
-expect_poll "the kept sRGB rule's scale survives the reload" "$trial_scale" scale_of "$output"
+expect_poll "the kept sRGB rule's scale survives the reload" "$colour_scale" scale_of "$output"
 expect "$output shows sRGB after the reload" srgb preset_of "$output"
 # Control: a colour value Hyprland rejects, put in the layer by hand, is
 # what the configuration errors read after a reload name.
