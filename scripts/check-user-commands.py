@@ -112,7 +112,7 @@ EXEMPT = (
     ("status", "*", "action", "tui"), ("status", "*", "action", "system"), ("status", "*", "action", "undo"), ("status", "*", "action", "tone"), ("status", "*", "action", "dictation"),
     ("status", "*", "actions", "*", "tui"), ("status", "*", "actions", "*", "system"), ("status", "*", "actions", "*", "undo"), ("status", "*", "actions", "*", "tone"), ("status", "*", "actions", "*", "dictation"),
     ("requirements", "*", "command"), ("requirements", "*", "dbus"), ("requirements", "*", "packages"), ("requirements", "*", "optional"), ("requirements", "*", "floor"),
-    ("tui", "*", "script"), ("tui", "*", "size"), ("tui", "*", "presentation"), ("tui", "*", "requires"), ("tui", "*", "entry", "icon"),
+    ("tui", "*", "script"), ("tui", "*", "size"), ("tui", "*", "presentation"), ("tui", "*", "requires"), ("tui", "*", "entry", "icon"), ("tui", "*", "entry", "setup"),
     ("menu", "*", "icon"), ("menu", "*", "aliases"), ("menu", "*", "shortcut"), ("menu", "*", "tui"), ("menu", "*", "tuiGroup"), ("menu", "*", "provider"), ("menu", "*", "toggle", "setting"), ("menu", "*", "toggle", "icon"),
     ("secrets", "service"),
     ("sounds", "*", "default"), ("sounds", "*", "held"),
