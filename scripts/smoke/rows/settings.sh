@@ -849,7 +849,7 @@ source = (root / "SettingField.qml").read_text()
 controls = [
     ("ChoicesGood", None, None),
     ("ChoicesNoModel", "model: rows", "model: dynamic ? [] : rows"),
-    ("ChoicesWriteLabel", "const chosen = dynamic ? row.value : row;", "const chosen = dynamic ? row.label : row;"),
+    ("ChoicesWriteLabel", "root.apply(row.value);", "root.apply(row.label);"),
     ("ChoicesNoBinding", "currentIndex = Qt.binding(() => shownIndex);", "if (false) currentIndex = Qt.binding(() => shownIndex);"),
 ]
 for name, needle, replacement in controls:
