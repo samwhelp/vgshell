@@ -6,6 +6,9 @@
 const Net = require("./net.js");
 
 const LOCAL = Object.freeze({ text: "A loopback server: nothing leaves the machine.", source: null });
+// The Gemini API's terms, which cover its chat endpoint and its Live API.
+const GEMINI_TERMS = Object.freeze({ text: "Paid tier: logged for a limited period to detect abuse, not used to improve products. Unpaid quota: used to improve products, and human reviewers may read it.",
+    source: "https://ai.google.dev/gemini-api/terms" });
 
 // key: "required" for a cloud account, "optional" where the server's operator
 // may switch authentication on, "none" for a harness program that owns its
@@ -48,9 +51,16 @@ const ROWS = Object.freeze({
         retention: { text: "Input and output are kept 30 rolling days to monitor abuse unless zero data retention is activated for the account.",
             source: "https://legal.mistral.ai/terms/privacy-policy/" } },
     gemini: { driver: "openai-chat", base: "https://generativelanguage.googleapis.com/v1beta/openai", key: "required", images: true,
-        noStore: null,
-        retention: { text: "Paid tier: logged for a limited period to detect abuse, not used to improve products. Unpaid quota: used to improve products, and human reviewers may read it.",
-            source: "https://ai.google.dev/gemini-api/terms" } },
+        noStore: null, retention: GEMINI_TERMS },
+    // The second duplex voice engine, Gemini Live. base is its WebSocket
+    // endpoint with no query: the key travels in its header, and a key
+    // stored for the gemini row's origin serves it, since both handshake at
+    // that origin. model is the one place the shell names its model, which
+    // the session's setup message carries: the models page's default Live
+    // API model, read 2026-10-12. Google documents no field that keeps a
+    // Live session from being stored.
+    "gemini-live": { driver: "gemini-live", base: "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
+        key: "required", images: false, model: "gemini-3.8-live", noStore: null, retention: GEMINI_TERMS },
     ollama: { driver: "openai-chat", base: "http://127.0.0.1:11434/v1", key: "optional", images: true,
         noStore: null, retention: LOCAL },
     "llama-server": { driver: "openai-chat", base: "http://127.0.0.1:8080/v1", key: "optional", images: true,

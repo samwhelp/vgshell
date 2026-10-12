@@ -228,10 +228,11 @@ const BRAIN_CAUSES = ["brain=unselected", "brain=account-unavailable", "brain=mo
 const MODEL_TUI = { key: "add-key", signIn: "sign-in" };
 const plain = value => JSON.parse(JSON.stringify(value));
 // The voice the daemon hears of: [label, the settings a user changed over the
-// manifest's own, the stored OpenAI keys the account reader holds or
+// manifest's own, the stored cloud voice keys the account reader holds or
 // undefined while it has no answer, the voice]. A fresh settings file holds
 // only the manifest's values, and a saved choice keeps its value.
-const KEY = [{ value: "openai-1", label: "OpenAI / fixture" }];
+const KEY = [{ value: "openai-1", label: "OpenAI / fixture", provider: "openai" }];
+const GEMINI_KEY = [{ value: "gemini-1", label: "Gemini / fixture", provider: "gemini" }];
 const VOICE = [
     ["a fresh settings file with no key", {}, [], "local"],
     ["a fresh settings file beside a stored named key", { voiceAccount: "openai-1" }, KEY, "local"],
@@ -244,11 +245,18 @@ const VOICE = [
     ["Realtime saved with no key", { voiceProvider: "realtime" }, [], "realtime"],
     ["Realtime saved beside a stored named key", { voiceProvider: "realtime", voiceAccount: "openai-1" }, KEY, "realtime"],
     ["Always talk mode with Auto saved beside a stored key", { mode: "always", voiceProvider: "auto", voiceAccount: "openai-1" }, KEY, "local"],
-    ["Always talk mode with Realtime chosen", { mode: "always", voiceProvider: "realtime", voiceAccount: "openai-1" }, KEY, "realtime"]
+    ["Always talk mode with Realtime chosen", { mode: "always", voiceProvider: "realtime", voiceAccount: "openai-1" }, KEY, "realtime"],
+    ["Gemini saved with no key", { voiceProvider: "gemini" }, [], "gemini"],
+    ["Gemini saved beside a stored named key", { voiceProvider: "gemini", voiceAccount: "gemini-1" }, GEMINI_KEY, "gemini"],
+    ["Auto saved beside a named Gemini key: Auto means Realtime", { voiceProvider: "auto", voiceAccount: "gemini-1" }, GEMINI_KEY, "local"]
 ];
 // The Voice group's key row: [label, the stored keys or null for a failed
 // read, its tone and whether it offers Add key].
-const VOICE_KEY = [["no key", [], ["info", true]], ["a stored key", KEY, ["ok", false]], ["keys unread", null, ["warning", true]]];
+// [label, the stored cloud voice keys or null for a failed read, the
+// Voice provider, the key row's tone and whether it offers Add key].
+const VOICE_KEY = [["no key", [], "realtime", ["info", true]], ["a stored key", KEY, "realtime", ["ok", false]],
+    ["keys unread", null, "realtime", ["warning", true]], ["a stored key of the other voice", KEY, "gemini", ["info", true]],
+    ["a stored Gemini key", [...KEY, ...GEMINI_KEY], "gemini", ["ok", false]], ["Gemini keys unread", null, "gemini", ["warning", true]]];
 // The keyed start causes the service can publish before the first ready state.
 // The widget and the Setup page both read these words from SetupGate.
 const START_CAUSES = [
@@ -680,9 +688,10 @@ function verifyVoice(gate, serviceSource, accountsSource) {
             assert.equal(helloSettings(gate, serviceSource, require(providersFile), manifest, settings, { voiceKeys: offered, providers: {} }, label).voiceProvider, want, label);
         }
         assert.equal(plain(gate.readiness({ kind: "answered", causes: [] })).setup.tone, "ok", "no cause, as a fresh install with its local voice set up: ready");
-        for (const [label, offered, want] of VOICE_KEY) {
+        const hints = { realtime: new Set(), gemini: new Set() };
+        for (const [label, offered, voiceProvider, want] of VOICE_KEY) {
             const values = {};
-            const shell = { settings: { voiceAccount: "openai-1" }, status: { values, set: (key, value) => {
+            const shell = { settings: { voiceAccount: "openai-1", voiceProvider }, configure: { set: () => "ok" }, status: { values, set: (key, value) => {
                 assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": accepted status " + key);
                 values[key] = value;
                 return "ok";
@@ -698,7 +707,23 @@ function verifyVoice(gate, serviceSource, accountsSource) {
             assert.deepEqual(plain([entry.group, entry.tone, entry.action.offered, entry.action.tui]),
                 ["Voice", { info: "info", ok: "success", warning: "warning" }[want[0]], want[1], want[1] ? "add-key" : ""], label + ": the Voice group's key row");
             assert.equal(typeof entry.hint === "string" && entry.hint !== "", true, label + ": the row says what the key unlocks");
+            hints[voiceProvider].add(entry.hint);
         }
+        assert.deepEqual([hints.realtime.size, hints.gemini.size, [...hints.realtime][0] === [...hints.gemini][0]], [1, 1, false],
+            "the key row says what the selected cloud voice's key unlocks");
+        // The preview row of a cloud voice names whose key it uses.
+        const preview = serviceSource.match(/^    function publishPreview\(\) \{\n[\s\S]*?^    \}/m);
+        assert.ok(preview);
+        const previewed = voiceProvider => {
+            let value = null;
+            const root = { accountReader: { voiceKeys: undefined }, sessionState: { engine: { kind: "duplex" } },
+                shell: { settings: { ...plain(manifest.settings), voiceProvider }, status: { set: (key, row) => { value = row; return "ok"; } } } };
+            vm.runInNewContext("(function() { with(root) { return (" + preview[0] + ").call(root); } })()",
+                { root, Gate: gate, Session: { previewRefusal: () => null } });
+            assert.equal(judge.statusWrite(manifest, {}, "voicePreview", value).ok, true, voiceProvider + ": accepted status voicePreview");
+            return value;
+        };
+        assert.notDeepEqual(previewed("gemini"), previewed("realtime"), "a cloud voice's preview names its own key");
     } catch (error) {
         error.check = "voice-default";
         throw error;
@@ -1126,12 +1151,16 @@ const CONTROLS = [
     ["a step's named action is dropped", ': typeof value.action === "string" ? value : noAction(value);', ': noAction(value);', "the Voice step"],
     ["a stored key replaces the voice the user chose", 'if (settings.voiceProvider !== "auto") return settings.voiceProvider;', 'if (false) return settings.voiceProvider;'],
     ["no named key runs Realtime", ' || settings.voiceAccount === "") return "local";', ') return "local";'],
-    ["a removed key keeps Realtime", "offered.some(function (key) { return key.value === settings.voiceAccount; })", "true"],
+    ["a removed key keeps Realtime", 'offered.some(function (key) { return key.provider === "openai" && key.value === settings.voiceAccount; })', "true"],
+    ["Auto runs a Gemini key as Realtime", 'return key.provider === "openai" && key.value === settings.voiceAccount;', "return key.value === settings.voiceAccount;"],
+    ["the key row offers another voice's keys", "return keys.filter(function (key) { return key.provider === provider; })", "return keys.filter(function (key) { return key.provider === \"openai\"; })"],
+    ["the key row names one voice's key", "var hint = VOICE_KEY_HINTS[voiceKeyProvider(settings)];", "var hint = VOICE_KEY_HINTS.openai;"],
+    ["the preview names one voice's key", 'return provider === "gemini"\n        ?', "return false\n        ?"],
     ["a start loads the local voice beside a named key", "var stored = offered === undefined || ", "var stored = offered !== undefined && "],
     ["Always talk mode runs Realtime", 'if (settings.mode === "always" || ', "if ("],
-    ["no key offers no Add key", 'text: "No key stored", action: true }', 'text: "No key stored", action: false }'],
-    ["a stored key still offers Add key", 'text: "Key stored", action: false }', 'text: "Key stored", action: true }'],
-    ["a failed key read offers no Add key", 'text: "Could not check", action: true }', 'text: "Could not check", action: false }'],
+    ["no key offers no Add key", 'text: "No key stored", hint: hint, action: true }', 'text: "No key stored", hint: hint, action: false }'],
+    ["a stored key still offers Add key", 'text: "Key stored", hint: hint, action: false }', 'text: "Key stored", hint: hint, action: true }'],
+    ["a failed key read offers no Add key", 'text: "Could not check", hint: hint, action: true }', 'text: "Could not check", hint: hint, action: false }'],
     ["the Realtime voice offers clone setup", 'var reason = provider !== "local" ? CLONE_WITHHELD.provider : ', "var reason = ", "the Realtime voice withholds setup"],
     ["a tier off the graphics card offers clone setup", 'value.tierReady === false ? CLONE_WITHHELD.tier : null', "null", "a tier off the graphics card withholds setup"],
     ["the two withheld reasons swapped", 'provider !== "local" ? CLONE_WITHHELD.provider : value.tierReady === false ? CLONE_WITHHELD.tier : null',
@@ -1231,7 +1260,7 @@ try {
     verifyEditAction(editAction, temp);
     console.log("test-jarvis-setup-gate: case=preview-and-edit-screens passed=true");
     for (const [name, script, verify, needle, replacement] of [
-        ["preview-cost-question", previewAction, verifyPreviewAction, '  cloud) vgs_tui_confirm "This preview uses your OpenAI key and may cost money. Play it?" || exit 0 ;;\n', "  cloud) ;;\n"],
+        ["preview-cost-question", previewAction, verifyPreviewAction, '  cloud) vgs_tui_confirm "This preview uses your cloud voice key and may cost money. Play it?" || exit 0 ;;\n', "  cloud) ;;\n"],
         ["preview-muted-cause", previewAction, verifyPreviewAction, '    "refused: preview=muted") vgs_tui_error "Jarvis is muted. Unmute Jarvis, then try again." ;;\n', ""],
         ["edit-gio-status", editAction, verifyEditAction, 'gio open "$file" 2>/dev/null || {', 'gio open "$file" 2>/dev/null || true || {'],
         ["edit-close-prompt", editAction, verifyEditAction, "trap 'status=$?; [[ $status == 0 ]] || vgs_tui_close_prompt \"$status\"' EXIT\n", ""]
@@ -1314,8 +1343,10 @@ try {
         ["Service.qml", serviceSource, "voiceProvider: Gate.voiceProvider(shell.settings, accountReader.voiceKeys), dictation", "voiceProvider: shell.settings.voiceProvider, dictation"],
         ["Accounts.qml", accountsSource, "voiceKeys = value.voiceAccounts;", "voiceKeys = [];"],
         ["Accounts.qml", accountsSource, "voiceKeys = undefined;", "voiceKeys = [];"],
-        ["Accounts.qml", accountsSource, "Gate.voiceKey(value.voiceAccounts)", "Gate.voiceKey([])"],
-        ["Accounts.qml", accountsSource, "Gate.voiceKey(null)", "Gate.voiceKey([])"],
+        ["Accounts.qml", accountsSource, "Gate.voiceKey(voiceChoices, shell.settings)", "Gate.voiceKey([], shell.settings)"],
+        ["Accounts.qml", accountsSource, "Gate.voiceKey(null, shell.settings)", "Gate.voiceKey([], shell.settings)"],
+        ["Accounts.qml", accountsSource, "const voiceChoices = Gate.voiceKeys(value.voiceAccounts, shell.settings);", 'const voiceChoices = value.voiceAccounts.filter(key => key.provider === "openai").map(key => ({ value: key.value, label: key.label }));'],
+        ["Service.qml", serviceSource, "? Gate.previewCost(Gate.voiceProvider(shell.settings, accountReader.voiceKeys))", '? Gate.previewCost("realtime")'],
         ["Accounts.qml", accountsSource, "providers = value.providers;", "providers = {};"],
         ["Accounts.qml", accountsSource, "providers = {};", "providers = providers;"],
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '"voiceProvider": "local", "voiceAccount"', '"voiceProvider": "auto", "voiceAccount"']

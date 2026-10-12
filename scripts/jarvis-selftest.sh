@@ -3,12 +3,12 @@
 #
 # Usage: scripts/jarvis-selftest.sh --cold N [--out FILE]
 #        scripts/jarvis-selftest.sh --suite NAME|all --brain ID
-#                                   [--voice local|realtime]
+#                                   [--voice local|realtime|gemini]
 #                                   [--voices DIR]
 #                                   [--home PATH] [--out DIR]
 #        scripts/jarvis-selftest.sh (--wav FILE | --tts TEXT | --type TEXT)
 #                                   --brain ID [--home PATH]
-#                                   [--voice local|realtime]
+#                                   [--voice local|realtime|gemini]
 #                                   [--mode toggle|always]
 #                                   [--follow-up-tts TEXT|--follow-up-wav FILE]
 #                                   [--confirm key|none] [--cloned-voice]
@@ -41,9 +41,10 @@
 # environment that enters the sandbox.
 # --voice realtime listens and speaks through OpenAI's Realtime session with
 # the caller's one saved OpenAI key, the key the plugin's Accounts page
-# chooses by itself; local, the default, is the prepared local voice below
-# plus the sandbox's own voxtype config.
-# A saved key, the brain's or the realtime voice's, is read under the
+# chooses by itself; --voice gemini does the same through Google's Gemini
+# Live session with the caller's one saved Gemini key. local, the default,
+# is the prepared local voice below plus the sandbox's own voxtype config.
+# A saved key, the brain's or the cloud voice's, is read under the
 # owner's exception in docs/architecture/validation.md § Jarvis self-test.
 # Its reference, which holds no secret, is saved in the sandbox by the
 # plugin's own writer. Jarvis's own `secret-tool lookup` of it goes to the
@@ -64,7 +65,7 @@
 # --mode toggle opens a voice turn through the Talk intent. --mode always
 # waits for the wake-word capture to read armed and feeds a wake phrase.
 # Always mode needs the local voice, because the local sidecar spots the
-# word. It is refused with --type, --voice realtime and --cold.
+# word. It is refused with --type, a cloud voice and --cold.
 # --confirm key confirms each request Jarvis shows as its Confirm key does,
 # with one press a request, made once Session's draw guard has passed;
 # none, the default, answers none, so a request ends on Jarvis's own bound.
@@ -103,8 +104,8 @@
 #
 # Otherwise the record is one JSON object: `input` {kind, value}, `brain`, `home`,
 # `voice`, `mode`, `confirm`, `heard` (the text Session committed as the user turn),
-# `sentences` (each sentence released to speech as {ms, text}; with --voice
-# realtime, whose transcript of its own speech arrives in fragments, each
+# `sentences` (each sentence released to speech as {ms, text}; with a cloud
+# voice, whose transcript of its own speech arrives in fragments, each
 # assistant caption segment whole as {ms of its first words, text}), `raw`
 # (each brain turn's text as the brain wrote it, before Jarvis chose what to
 # speak, from the trace the daemon writes for a test run alone), `tools`
@@ -135,8 +136,8 @@
 # means a case differed or failed, and exit 77 means at least one case could
 # not run and none differed:
 #   selftest=keyring-no-key            no key is stored: `key=unsaved` where
-#                                      no OpenAI key is saved for the realtime
-#                                      voice, `key=absent` where the keyring
+#                                      no key of the cloud voice's provider
+#                                      is saved, `key=absent` where the keyring
 #                                      holds no item for a saved one
 #   selftest=keyring-locked            the keyring holds the key locked
 #   selftest=keyring-unavailable       no session bus, no keyring on it, or a
@@ -163,7 +164,8 @@ selftest_cpuinfo=/proc/cpuinfo
 # reference as JSON, which holds no secret; `local` for a model server on
 # this computer; `unknown`. The second is the key of the voice VOICE: `local`
 # for the local voice, else `keyring<TAB>ID<TAB>REFERENCE` for the one saved
-# OpenAI key, `none` with no such key and `several` with more than one.
+# key of its provider, OpenAI for realtime and Gemini for gemini, `none` with
+# no such key and `several` with more than one.
 selftest_accounts() { # TREE BRAIN VOICE
   local name words=()
   for name in HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME CLAUDE_CONFIG_DIR CODEX_HOME COPILOT_HOME PI_CODING_AGENT_DIR; do
@@ -183,7 +185,7 @@ selftest_accounts() { # TREE BRAIN VOICE
     else if (found.source.kind === "cli") line("cli", Core.accounts().harness(found.provider).variable, found.source.directory);
     else if (found.source.kind === "keyring") line("keyring", JSON.stringify(found.source.reference));
     else line(found.source.kind);
-    const keys = voice === "local" ? [] : judge.keyringRows().filter(key => key.row.id === "openai");
+    const keys = voice === "local" ? [] : judge.keyringRows().filter(key => key.row.id === (voice === "gemini" ? "gemini" : "openai"));
     if (voice === "local") line("local");
     else if (keys.length !== 1) line(keys.length === 0 ? "none" : "several");
     else line("keyring", judge.account(keys[0].row, keys[0].label, { kind: "found" }, keys[0].source).id, JSON.stringify(keys[0].source.reference));
@@ -828,10 +830,10 @@ for event in events[first:]:
         shown, segment = "", None
         continue
     text = caption["text"]
-    if voice == "realtime":
-        # Realtime.js writes a segment once for each fragment of the voice's
-        # transcript, so a write is no sentence: the segment is one entry,
-        # timed at its first write and holding its last.
+    if voice != "local":
+        # A cloud voice's adapter writes a segment once for each fragment of
+        # the voice's transcript, so a write is no sentence: the segment is
+        # one entry, timed at its first write and holding its last.
         if segment is None and text.strip():
             segment = {"ms": event["at"] - start, "text": ""}
             sentences.append(segment)
@@ -1127,12 +1129,12 @@ PY
     while IFS= read -r word; do
       if [[ $word == source=* ]]; then source="${word#source=}"; else case_args+=("$word"); fi
     done < <(selftest_case_child_args "$case_file" "$voices_dir")
-    if [[ $mode == always && $voice == realtime ]]; then
+    if [[ $mode == always && $voice != local ]]; then
       printf 'case=%s source=%s skipped=always-local-voice\n' "$name" "$source"
       not_run=$((not_run + 1))
       continue
     fi
-    if [[ $voice == realtime && " ${case_args[*]} " == *" --cloned-voice "* ]]; then
+    if [[ $voice != local && " ${case_args[*]} " == *" --cloned-voice "* ]]; then
       printf 'case=%s source=%s skipped=cloned-voice-local-voice\n' "$name" "$source"
       not_run=$((not_run + 1))
       continue
@@ -1282,7 +1284,7 @@ while [[ $# -gt 0 ]]; do
       case "$1" in --brain) brain="$2" ;; --home) home_source="$2" ;; --out) out="$2" ;; --voices) voices_dir="$2" ;; esac
       shift 2 ;;
     --voice)
-      [[ $# -ge 2 && $2 =~ ^(local|realtime)$ ]] || refuse "argument=--voice value=${2-}"
+      [[ $# -ge 2 && $2 =~ ^(local|realtime|gemini)$ ]] || refuse "argument=--voice value=${2-}"
       voice="$2"; shift 2 ;;
     --mode)
       [[ $# -ge 2 && $2 =~ ^(toggle|always)$ ]] || refuse "argument=--mode value=${2-}"
@@ -1322,7 +1324,7 @@ else
   [[ -z $follow_kind || $mode == always ]] || refuse "argument=--follow-up value=$follow_kind reason=requires-always"
   [[ -z $follow_kind || $input_kind != type ]] || refuse "argument=--follow-up value=$follow_kind reason=voice-input-required"
   [[ $mode != always || $input_kind != type ]] || refuse "argument=--mode value=always reason=always-needs-voice"
-  [[ $mode != always || $voice != realtime ]] || refuse "argument=--mode value=always reason=always-needs-local-voice"
+  [[ $mode != always || $voice == local ]] || refuse "argument=--mode value=always reason=always-needs-local-voice"
   [[ $cloned == false || $voice == local ]] || refuse "argument=--cloned-voice reason=needs-local-voice"
 fi
 if [[ $input_kind == wav ]]; then
@@ -1431,7 +1433,7 @@ case "$brain_kind" in
 esac
 case "$voice_kind" in
   none) unavailable keyring-no-key key=unsaved ;;
-  several) refuse "argument=--voice value=realtime reason=several-openai-keys" ;;
+  several) refuse "argument=--voice value=$voice reason=several-keys" ;;
   # A brain that is this same key has named it already.
   keyring) [[ ${key_references[*]:-} == "$voice_reference" ]] || key_references+=("$voice_reference") ;;
 esac

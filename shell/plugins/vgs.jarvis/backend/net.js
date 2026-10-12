@@ -52,7 +52,7 @@ function headers(target, values, key) {
     if (key !== undefined) {
         if (!key) throw new Error("jarvis: net=key-origin");
         keyTarget(target, key.origin);
-        if (!["authorization", "x-api-key", "xi-api-key"].includes(key.header)
+        if (!["authorization", "x-api-key", "xi-api-key", "x-goog-api-key"].includes(key.header)
                 || typeof key.value !== "string" || key.value === "" || /[\r\n]/.test(key.value)
                 || typeof key.prefix !== "string" || /[\r\n]/.test(key.prefix))
             throw new Error("jarvis: net=key-shape");

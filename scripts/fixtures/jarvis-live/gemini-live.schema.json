@@ -1,0 +1,401 @@
+{
+ "source": {
+  "reference": "https://ai.google.dev/api/live",
+  "fetched": "2026-10-12",
+  "operation": "WS /ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
+  "guides": [
+   "https://ai.google.dev/gemini-api/docs/live-api/get-started-websocket",
+   "https://ai.google.dev/gemini-api/docs/live-api/capabilities",
+   "https://ai.google.dev/gemini-api/docs/live-api/tools",
+   "https://ai.google.dev/gemini-api/docs/speech-generation"
+  ]
+ },
+ "rule": [
+  "Each schema transcribes the message of the same name in the Live API reference to the checker's keyword set. A client or server message is an object holding one message kind; enum values stay as the reference spells them; optional members stay optional.",
+  "Setup keeps the members the voice sends and tools, which stays open so a planted tool list is judged by the engine's own test, not refused here. generationConfig keeps responseModalities and speechConfig.",
+  "Content and Part keep the members a spoken turn carries: text, inlineData and the thought flag. functionCall and the other part kinds are left out: a frame carrying one is built off-schema by the row that proves its refusal.",
+  "usageMetadata, the arguments of a function call and a go-away's time stay open. The checker closes every other object."
+ ],
+ "omitted": [
+  "Client messages the voice does not send: toolResponse, and realtimeInput's video, text, activityStart, activityEnd and audioStreamEnd members.",
+  "Setup members the voice leaves unset: contextWindowCompression, sessionResumption, proactivity and the automatic activity detection tuning.",
+  "serverContent's groundingMetadata and urlContextMetadata, which answer tools the voice never offers, and the media resolution and thinking settings."
+ ],
+ "schemas": {
+  "Blob": {
+   "type": "object",
+   "properties": {
+    "mimeType": {
+     "type": "string"
+    },
+    "data": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "mimeType",
+    "data"
+   ]
+  },
+  "Part": {
+   "type": "object",
+   "properties": {
+    "text": {
+     "type": "string"
+    },
+    "inlineData": {
+     "$ref": "#/schemas/Blob"
+    },
+    "thought": {
+     "type": "boolean"
+    }
+   }
+  },
+  "Content": {
+   "type": "object",
+   "properties": {
+    "role": {
+     "type": "string",
+     "enum": [
+      "user",
+      "model"
+     ]
+    },
+    "parts": {
+     "type": "array",
+     "items": {
+      "$ref": "#/schemas/Part"
+     }
+    }
+   }
+  },
+  "Transcription": {
+   "type": "object",
+   "properties": {
+    "text": {
+     "type": "string"
+    },
+    "finished": {
+     "type": "boolean"
+    }
+   }
+  },
+  "SpeechConfig": {
+   "type": "object",
+   "properties": {
+    "voiceConfig": {
+     "type": "object",
+     "properties": {
+      "prebuiltVoiceConfig": {
+       "type": "object",
+       "properties": {
+        "voiceName": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "voiceName"
+       ]
+      }
+     }
+    }
+   }
+  },
+  "GenerationConfig": {
+   "type": "object",
+   "properties": {
+    "responseModalities": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "TEXT",
+       "AUDIO"
+      ]
+     }
+    },
+    "speechConfig": {
+     "$ref": "#/schemas/SpeechConfig"
+    }
+   }
+  },
+  "AudioTranscriptionConfig": {
+   "type": "object",
+   "properties": {}
+  },
+  "RealtimeInputConfig": {
+   "type": "object",
+   "properties": {
+    "activityHandling": {
+     "type": "string",
+     "enum": [
+      "ACTIVITY_HANDLING_UNSPECIFIED",
+      "START_OF_ACTIVITY_INTERRUPTS",
+      "NO_INTERRUPTION"
+     ]
+    }
+   }
+  },
+  "Setup": {
+   "type": "object",
+   "properties": {
+    "model": {
+     "type": "string"
+    },
+    "generationConfig": {
+     "$ref": "#/schemas/GenerationConfig"
+    },
+    "systemInstruction": {
+     "$ref": "#/schemas/Content"
+    },
+    "tools": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "additionalProperties": true
+     }
+    },
+    "realtimeInputConfig": {
+     "$ref": "#/schemas/RealtimeInputConfig"
+    },
+    "inputAudioTranscription": {
+     "$ref": "#/schemas/AudioTranscriptionConfig"
+    },
+    "outputAudioTranscription": {
+     "$ref": "#/schemas/AudioTranscriptionConfig"
+    }
+   },
+   "required": [
+    "model"
+   ]
+  },
+  "SetupMessage": {
+   "type": "object",
+   "properties": {
+    "setup": {
+     "$ref": "#/schemas/Setup"
+    }
+   },
+   "required": [
+    "setup"
+   ]
+  },
+  "RealtimeInputMessage": {
+   "type": "object",
+   "properties": {
+    "realtimeInput": {
+     "type": "object",
+     "properties": {
+      "audio": {
+       "$ref": "#/schemas/Blob"
+      }
+     },
+     "required": [
+      "audio"
+     ]
+    }
+   },
+   "required": [
+    "realtimeInput"
+   ]
+  },
+  "ClientContentMessage": {
+   "type": "object",
+   "properties": {
+    "clientContent": {
+     "type": "object",
+     "properties": {
+      "turns": {
+       "type": "array",
+       "items": {
+        "$ref": "#/schemas/Content"
+       }
+      },
+      "turnComplete": {
+       "type": "boolean"
+      }
+     }
+    }
+   },
+   "required": [
+    "clientContent"
+   ]
+  },
+  "UsageMetadata": {
+   "type": "object",
+   "additionalProperties": true
+  },
+  "ServerContent": {
+   "type": "object",
+   "properties": {
+    "modelTurn": {
+     "$ref": "#/schemas/Content"
+    },
+    "turnComplete": {
+     "type": "boolean"
+    },
+    "interrupted": {
+     "type": "boolean"
+    },
+    "generationComplete": {
+     "type": "boolean"
+    },
+    "inputTranscription": {
+     "$ref": "#/schemas/Transcription"
+    },
+    "outputTranscription": {
+     "$ref": "#/schemas/Transcription"
+    },
+    "turnCompleteReason": {
+     "type": "string"
+    },
+    "waitingForInput": {
+     "type": "boolean"
+    }
+   }
+  },
+  "SetupCompleteMessage": {
+   "type": "object",
+   "properties": {
+    "setupComplete": {
+     "type": "object",
+     "properties": {}
+    },
+    "usageMetadata": {
+     "$ref": "#/schemas/UsageMetadata"
+    }
+   },
+   "required": [
+    "setupComplete"
+   ]
+  },
+  "ServerContentMessage": {
+   "type": "object",
+   "properties": {
+    "serverContent": {
+     "$ref": "#/schemas/ServerContent"
+    },
+    "usageMetadata": {
+     "$ref": "#/schemas/UsageMetadata"
+    }
+   },
+   "required": [
+    "serverContent"
+   ]
+  },
+  "UsageMetadataMessage": {
+   "type": "object",
+   "properties": {
+    "usageMetadata": {
+     "$ref": "#/schemas/UsageMetadata"
+    }
+   },
+   "required": [
+    "usageMetadata"
+   ]
+  },
+  "GoAwayMessage": {
+   "type": "object",
+   "properties": {
+    "goAway": {
+     "type": "object",
+     "properties": {
+      "timeLeft": {
+       "type": "string"
+      }
+     }
+    },
+    "usageMetadata": {
+     "$ref": "#/schemas/UsageMetadata"
+    }
+   },
+   "required": [
+    "goAway"
+   ]
+  },
+  "SessionResumptionUpdateMessage": {
+   "type": "object",
+   "properties": {
+    "sessionResumptionUpdate": {
+     "type": "object",
+     "properties": {
+      "newHandle": {
+       "type": "string"
+      },
+      "resumable": {
+       "type": "boolean"
+      }
+     }
+    },
+    "usageMetadata": {
+     "$ref": "#/schemas/UsageMetadata"
+    }
+   },
+   "required": [
+    "sessionResumptionUpdate"
+   ]
+  },
+  "FunctionCall": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "name": {
+     "type": "string"
+    },
+    "args": {
+     "type": "object",
+     "additionalProperties": true
+    }
+   },
+   "required": [
+    "name"
+   ]
+  },
+  "ToolCallMessage": {
+   "type": "object",
+   "properties": {
+    "toolCall": {
+     "type": "object",
+     "properties": {
+      "functionCalls": {
+       "type": "array",
+       "items": {
+        "$ref": "#/schemas/FunctionCall"
+       }
+      }
+     }
+    },
+    "usageMetadata": {
+     "$ref": "#/schemas/UsageMetadata"
+    }
+   },
+   "required": [
+    "toolCall"
+   ]
+  },
+  "ToolCallCancellationMessage": {
+   "type": "object",
+   "properties": {
+    "toolCallCancellation": {
+     "type": "object",
+     "properties": {
+      "ids": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    "usageMetadata": {
+     "$ref": "#/schemas/UsageMetadata"
+    }
+   },
+   "required": [
+    "toolCallCancellation"
+   ]
+  }
+ }
+}

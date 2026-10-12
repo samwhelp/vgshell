@@ -446,7 +446,7 @@ Item {
     function publishPreview() {
         const value = sessionState === null || Session.previewRefusal(sessionState) === "down" ? { hidden: true }
             : sessionState.engine.kind === "duplex"
-            ? { tone: "info", text: "Uses your OpenAI key", hint: "A preview of the Realtime voice may cost money.", action: true }
+            ? Gate.previewCost(Gate.voiceProvider(shell.settings, accountReader.voiceKeys))
             : { tone: "info", text: "Plays on this computer", action: true };
         const reply = shell.status.set("voicePreview", value);
         if (reply !== "ok") throw new Error("jarvis: " + reply);

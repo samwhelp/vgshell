@@ -3,6 +3,7 @@
 "use strict";
 const { assert, fs, path, backend, world, control } = require("./fixtures/jarvis-voice/assertions.js");
 const Providers = require(path.join(backend, "Providers.js"));
+const Net = require(path.join(backend, "net.js"));
 
 // Pinned independently of the table: base URL, key need, image input and
 // no-store fields per documented provider. Rows the table adds beyond these
@@ -40,6 +41,14 @@ function pinned(logic) {
         ["openai-realtime", "openai-realtime", "wss://api.openai.com/v1/realtime?model=gpt-realtime-2.1", "required", false, { tracing: null }]);
     assert.equal(live.retention.source, "https://developers.openai.com/api/docs/guides/your-data");
     assert.ok(Object.isFrozen(live) && Object.isFrozen(live.noStore));
+    // The Gemini Live address carries no query: the key travels in its
+    // header, and the setup message names the model this row pins.
+    const gemini = logic.select("gemini-live", "http://127.0.0.1:9000/v1");
+    assert.deepEqual([gemini.id, gemini.driver, gemini.base, gemini.key, gemini.images, gemini.noStore, gemini.model],
+        ["gemini-live", "gemini-live", "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
+            "required", false, null, "gemini-3.8-live"]);
+    assert.equal(gemini.retention.source, "https://ai.google.dev/gemini-api/terms");
+    assert.ok(Object.isFrozen(gemini) && Object.isFrozen(gemini.retention));
     // The harness rows: the program owns its login; base names the release recipient.
     const codex = logic.select("codex");
     assert.deepEqual([codex.id, codex.driver, codex.base, codex.key, codex.images, codex.noStore, codex.retention.source],
@@ -70,6 +79,10 @@ function joined(logic) {
     assert.ok(harnesses.some(row => row.id === "claude"), "the Claude Code declaration names its origin");
     for (const row of harnesses)
         assert.equal(new URL(logic.select(row.id).base).origin, row.origin, row.id + " shares its declared origin");
+    // A key added as Gemini serves the Gemini Live voice: the door lets it
+    // travel to the voice's handshake origin.
+    const google = declared.find(row => row.id === "gemini");
+    assert.doesNotThrow(() => Net.assertKeyTarget(logic.select("gemini-live").base, google.origin), "a Gemini key serves the Gemini Live voice");
 }
 joined(Providers);
 
@@ -110,7 +123,8 @@ let controls = 0;
 // test-jarvis-account-verify.js (verify-no-store). Door holders are the
 // names Net.create's result is assigned to; a door passed on under another
 // name is not found.
-const NO_STORE_SITES = ["Accounts.js:request", "Realtime.js:websocket", "WireBrain.js:request"];
+// The Gemini Live row documents no such field, so its socket carries none.
+const NO_STORE_SITES = ["Accounts.js:request", "GeminiLive.js:websocket", "Realtime.js:websocket", "WireBrain.js:request"];
 function doorSites(sources) {
     const holders = new Set(sources.flatMap(([, text]) => [...text.matchAll(/\b(\w+) = Net\.create\(/g)].map(match => match[1])));
     assert.ok(holders.has("door") && holders.has("net"), "door holders are discovered");
@@ -136,6 +150,9 @@ world("providers", root => {
         ["live-base", '"wss://api.openai.com/v1/realtime?model=', '"wss://api.openai.com/v1/live?model=', pinned],
         ["live-model", '/v1/realtime?model=', '/v1/realtime?version=', pinned],
         ["live-model-id", "?model=gpt-realtime-2.1", "?model=gpt-realtime-mini", pinned],
+        ["gemini-live-model", 'model: "gemini-3.8-live"', 'model: "gemini-3.8-flash-live"', pinned],
+        ["gemini-live-query", "GenerativeService.BidiGenerateContent\",", "GenerativeService.BidiGenerateContent?alt=ws\",", pinned],
+        ["gemini-live-origin", '"wss://generativelanguage.googleapis.com/ws/', '"wss://live.generativelanguage.googleapis.com/ws/', joined],
         ["codex-key", 'base: "https://chatgpt.com", key: "none"', 'base: "https://chatgpt.com", key: "optional"', pinned],
         ["claude-key", 'base: "https://api.anthropic.com", key: "none"', 'base: "https://api.anthropic.com", key: "optional"', pinned],
         ["claude-origin", 'base: "https://api.anthropic.com", key: "none"', 'base: "https://claude.ai", key: "none"', joined],

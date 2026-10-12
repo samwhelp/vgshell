@@ -93,9 +93,9 @@ var TODO = {
     "brain=signed-out": "The chosen AI model is not signed in. Sign in, then choose it in Settings > AI model.",
     "brain=pi-update": "Jarvis needs Pi 1.1.0 or later. Update Pi, or choose another AI model in Settings > AI model.",
     "brain=accounts-unreadable": "Jarvis could not read your accounts. Open Accounts to check them.",
-    "speech=live-account-unselected": "Add an OpenAI key under Setup at the top of this page.",
-    "speech=live-account-unreadable": "Jarvis could not read your OpenAI key. Use Accounts in Setup to check it.",
-    "speech=live-key-required": "Add an OpenAI key under Setup at the top of this page.",
+    "speech=live-account-unselected": "Add a key for the cloud voice under Setup at the top of this page: an OpenAI key for Realtime, a Gemini key for Gemini Live.",
+    "speech=live-account-unreadable": "Jarvis could not read your voice key. Use Accounts in Setup to check it.",
+    "speech=live-key-required": "Choose a key for the cloud voice under Voice key, or add one under Setup at the top of this page: an OpenAI key for Realtime, a Gemini key for Gemini Live.",
     "speech=local-not-ready": "Local voice did not start. Set it up again.",
     "speech=local-ready-timeout": "Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis.",
     "speech=always-local-voice": "Always talk mode listens for Hey Jarvis on this computer. Choose Local in Settings > Voice, or Hold or Toggle in Settings > Listening."
@@ -323,19 +323,45 @@ function copilotMemory(accounts) {
 }
 
 // The voice the daemon runs for SETTINGS, the plugin's: the provider the
-// user chose, or for "auto" Realtime while the Realtime key setting names
-// a stored OpenAI key, else Local. Always talk mode listens on this
+// user chose, or for "auto" Realtime while the Voice key setting names a
+// stored OpenAI key, else Local. Always talk mode listens on this
 // computer, so "auto" stays Local in it. OFFERED is the account reader's
-// stored OpenAI keys, undefined while it has no answer, before its first
-// read and after a failed one: the named key then counts as stored, so a
-// start loads no local voice the first answer would replace, and the
-// daemon judges a key it cannot read. Jarvis names a sole stored key
-// itself (Accounts.qml).
+// stored cloud voice keys, each {value, label, provider}, undefined while
+// it has no answer, before its first read and after a failed one: the
+// named key then counts as stored, so a start loads no local voice the
+// first answer would replace, and the daemon judges a key it cannot read.
+// Jarvis names a sole stored key itself (voiceChoice).
 function voiceProvider(settings, offered) {
     if (settings.voiceProvider !== "auto") return settings.voiceProvider;
     if (settings.mode === "always" || settings.voiceAccount === "") return "local";
-    var stored = offered === undefined || offered.some(function (key) { return key.value === settings.voiceAccount; });
+    var stored = offered === undefined || offered.some(function (key) { return key.provider === "openai" && key.value === settings.voiceAccount; });
     return stored ? "realtime" : "local";
+}
+
+// The account provider whose keys the Voice key setting offers for
+// SETTINGS: Gemini for Gemini Live, else OpenAI, which Realtime and Auto use.
+function voiceKeyProvider(settings) {
+    return settings.voiceProvider === "gemini" ? "gemini" : "openai";
+}
+
+// The Voice key choices for SETTINGS from KEYS, the account reader's stored
+// cloud voice keys: the keys of the selected cloud voice's provider.
+function voiceKeys(keys, settings) {
+    var provider = voiceKeyProvider(settings);
+    return keys.filter(function (key) { return key.provider === provider; })
+        .map(function (key) { return { value: key.value, label: key.label }; });
+}
+
+// The key Jarvis selects for the user from KEYS, or null: the sole stored
+// key of the selected cloud voice, while the Voice key setting names none
+// or a stored key of the other cloud voice, as after a change of Voice
+// provider. A named key that is not stored stays the user's choice.
+function voiceChoice(keys, settings) {
+    var offered = voiceKeys(keys, settings);
+    if (offered.length !== 1) return null;
+    var named = settings.voiceAccount;
+    var other = keys.some(function (key) { return key.value === named && key.provider !== voiceKeyProvider(settings); });
+    return named === "" || other ? offered[0].value : null;
 }
 
 // The Cloned voice setup row (the manifest's clonedVoiceSetup) for VALUE,
@@ -370,12 +396,28 @@ function clonedVoiceStep(value, provider) {
     return row;
 }
 
-// The Voice group's key row for OFFERED, the stored OpenAI keys, or null
-// while the account reader could not read them: Add key is offered until
-// one is stored. The entry's hint says what the key unlocks (D075).
-function voiceKey(offered) {
-    if (offered === null) return { tone: "warning", text: "Could not check", action: true };
-    return offered.length === 0 ? { tone: "info", text: "No key stored", action: true } : { tone: "ok", text: "Key stored", action: false };
+// What a key of each cloud voice's provider unlocks and where to get one
+// (D075), the Voice key row's hint.
+var VOICE_KEY_HINTS = {
+    openai: "An OpenAI key lets Jarvis use the Realtime voice: OpenAI hears you and speaks the reply. Get a key from OpenAI API keys.",
+    gemini: "A Gemini key lets Jarvis use the Gemini Live voice: Google hears you and speaks the reply. Get a key from Google AI Studio."
+};
+// The Voice group's key row for OFFERED, the stored keys of the cloud voice
+// SETTINGS select (voiceKeys), or null while the account reader could not
+// read them: Add key is offered until one is stored.
+function voiceKey(offered, settings) {
+    var hint = VOICE_KEY_HINTS[voiceKeyProvider(settings)];
+    if (offered === null) return { tone: "warning", text: "Could not check", hint: hint, action: true };
+    return offered.length === 0 ? { tone: "info", text: "No key stored", hint: hint, action: true }
+        : { tone: "ok", text: "Key stored", hint: hint, action: false };
+}
+
+// The Voice preview row's words for a cloud voice PROVIDER (voiceProvider):
+// whose key the preview uses, and that it may cost money.
+function previewCost(provider) {
+    return provider === "gemini"
+        ? { tone: "info", text: "Uses your Gemini key", hint: "A preview of the Gemini Live voice may cost money.", action: true }
+        : { tone: "info", text: "Uses your OpenAI key", hint: "A preview of the Realtime voice may cost money.", action: true };
 }
 
 // The Agent fleet row (the manifest's setupFleet) for HOME, the home folder

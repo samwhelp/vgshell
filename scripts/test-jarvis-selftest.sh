@@ -382,17 +382,21 @@ unsaved_voice() {
 several_voices() {
   local held=0
   saved_keys openai/selftest openai/second
-  refused "jarvis-selftest: refused: argument=--voice value=realtime reason=several-openai-keys" --type hello --brain "$sign_in" --voice realtime || held=1
+  refused "jarvis-selftest: refused: argument=--voice value=realtime reason=several-keys" --type hello --brain "$sign_in" --voice realtime || held=1
   saved_keys openai/selftest anthropic/other
   return "$held"
 }
 no_session_bus() { ends 77 "selftest=keyring-unavailable missing=session-bus" --type hello --brain "$saved_key"; }
+# The Gemini voice takes a Gemini key: the saved OpenAI key is not one.
+unsaved_gemini() { ends 77 "selftest=keyring-no-key key=unsaved" --type hello --brain "$sign_in" --voice gemini; }
 holds "the realtime voice with no OpenAI key saved ends as selftest=keyring-no-key key=unsaved, exit 77" unsaved_voice
 holds "the realtime voice with two OpenAI keys saved is refused" several_voices
 holds "a saved key with no session bus ends as selftest=keyring-unavailable, exit 77" no_session_bus
+holds "the gemini voice with only an OpenAI key saved ends as selftest=keyring-no-key key=unsaved, exit 77" unsaved_gemini
 
 control plant "a runner that starts the realtime voice with no key saved" '  none) unavailable keyring-no-key key=unsaved ;;' '  none) ;;' unsaved_voice
-control plant "a runner that starts the realtime voice with two keys saved" '  several) refuse "argument=--voice value=realtime reason=several-openai-keys" ;;' '  several) ;;' several_voices
+control plant "a runner that starts the realtime voice with two keys saved" '  several) refuse "argument=--voice value=$voice reason=several-keys" ;;' '  several) ;;' several_voices
+control plant "a runner that serves the gemini voice with an OpenAI key" 'key.row.id === (voice === "gemini" ? "gemini" : "openai")' 'key.row.id === "openai"' unsaved_gemini
 control plant "a runner that goes on to a key read with no session bus" '  [[ -n ${DBUS_SESSION_BUS_ADDRESS:-} ]] || unavailable keyring-unavailable missing=session-bus' '  :' no_session_bus
 control plant "a runner that goes on without a prepared local voice" 'selftest_local_inputs)" || unavailable local-inputs-unavailable' 'selftest_local_inputs)" || local_inputs=/nowhere$'"'"'\n'"'"'/nowhere' local_case "${local_rows[0]}"
 control plant "a runner that takes an interpreter of another setup" '  [[ $models -ef $root/models && $python -ef $root/venv/bin/python ]] || return 1' '' local_case "${local_rows[2]}"
@@ -598,6 +602,9 @@ graph none vgs-smoke-speakers vgs-smoke-voice-feed vgs-smoke-voice
 # More refusals added by the acceptance suite contract.
 holds "Always mode refuses typed input" refused "jarvis-selftest: refused: argument=--mode value=always reason=always-needs-voice" --type hello --mode always --brain "$sign_in"
 holds "Always mode refuses the realtime voice" refused "jarvis-selftest: refused: argument=--mode value=always reason=always-needs-local-voice" --tts hello --mode always --voice realtime --brain "$sign_in"
+holds "Always mode refuses the gemini voice" refused "jarvis-selftest: refused: argument=--mode value=always reason=always-needs-local-voice" --tts hello --mode always --voice gemini --brain "$sign_in"
+control plant "a runner that takes Always mode with the gemini voice" '  [[ $mode != always || $voice == local ]] || refuse' '  [[ $mode != always || $voice != realtime ]] || refuse' \
+  refused "jarvis-selftest: refused: argument=--mode value=always reason=always-needs-local-voice" --tts hello --mode always --voice gemini --brain "$sign_in"
 holds "a suite refuses a direct input" refused "jarvis-selftest: refused: argument=--suite reason=exclusive-with-input" --suite volume --tts hello --brain "$sign_in"
 holds "a suite refuses a direct mode" refused "jarvis-selftest: refused: argument=--suite reason=exclusive-with-mode" --suite volume --mode toggle --brain "$sign_in"
 holds "a suite refuses a direct confirmation mode" refused "jarvis-selftest: refused: argument=--suite reason=exclusive-with-confirm" --suite volume --confirm key --brain "$sign_in"
@@ -1251,8 +1258,8 @@ control cut_functions "a record that drops the Session phases" 'for e in events 
 control cut_functions "a record that reads two turns' brain text as one" '    if (row["gen"], row["op"]) != turn:' '    if turn is None:' record_holds
 control cut_functions "a record that drops the mailbox rows" '[json.loads(line) for line in mailbox.splitlines()] if home' '[] if home' mailbox_rows
 control cut_functions "a record that lists a mailbox for a run with no home folder" ' if home else None,' ',' mailbox_none
-control cut_functions "a record that reads the realtime voice's fragments as sentences" '    if voice == "realtime":' '    if False:' realtime_sentences
-control cut_functions "a record that reads the local voice's sentences as one segment" '    if voice == "realtime":' '    if True:' local_sentences
+control cut_functions "a record that reads the realtime voice's fragments as sentences" '    if voice != "local":' '    if False:' realtime_sentences
+control cut_functions "a record that reads the local voice's sentences as one segment" '    if voice != "local":' '    if True:' local_sentences
 control cut_functions "a mark that passes a turn that did not complete" 'end == "completed" and ' '' not_passed "${failed_rows[0]}"
 control cut_functions "a mark that passes a run that broke a rule" ' and kept == "true"' '' not_passed "${failed_rows[3]}"
 control cut_functions "a mark that passes a turn with no heard text" 'heard is not None and ' '' not_passed "${failed_rows[4]}"

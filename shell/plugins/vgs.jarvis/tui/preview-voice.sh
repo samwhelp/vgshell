@@ -18,7 +18,7 @@ refused() {
 kind="$(vgshell ipc call vgs.jarvis invoke preview-voice kind)" || exit 1
 case $kind in
   local) ;;
-  cloud) vgs_tui_confirm "This preview uses your OpenAI key and may cost money. Play it?" || exit 0 ;;
+  cloud) vgs_tui_confirm "This preview uses your cloud voice key and may cost money. Play it?" || exit 0 ;;
   *) refused "$kind" ;;
 esac
 answer="$(vgshell ipc call vgs.jarvis invoke preview-voice play)" || exit 1

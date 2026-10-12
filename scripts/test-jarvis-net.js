@@ -177,6 +177,25 @@ world(async () => {
             await assert.rejects(() => consume(door, speech, { url: remote, key: { ...key, origin: remote } }),
                 { message: "jarvis: net=key-plaintext" });
         };
+        // Google's key header, as the Gemini Live voice opens its socket:
+        // it reaches the handshake of the key's own origin with no query,
+        // and a socket to any other origin is refused before it opens.
+        const googleKey = async (net, policy) => {
+            const { door } = owner(net, policy);
+            const google = { ...key, header: "x-goog-api-key", prefix: "" };
+            const count = records.length;
+            assert.throws(() => door.websocket(speech, { url: second.replace("http:", "ws:") + "/echo", key: google }),
+                { message: "jarvis: net=key-origin" });
+            assert.equal(records.length, count, "a key bound elsewhere opens no socket");
+            let channel;
+            assert.doesNotThrow(() => { channel = door.websocket(speech, { url: first.replace("http:", "ws:") + "/echo", key: google }); },
+                "the door admits Google's key header");
+            await once(channel.events, "open");
+            assert.deepEqual([records.at(-1).url, records.at(-1).headers["x-goog-api-key"], records.at(-1).headers.authorization],
+                ["/echo", "synthetic-key", undefined], "the key travels in its header alone, never in the address");
+            channel.close();
+        };
+        await googleKey(Net, Policy);
         assert.equal(Net.assertKeyTarget(first + "/v1", key.origin), undefined, "a key may travel to its own origin");
         await refuseKey(Net, Policy);
         await refusePlaintext(Net, Policy);
@@ -186,7 +205,7 @@ world(async () => {
         assert.equal(records.at(-1).body, "");
         await assert.rejects(() => consume(door, speech, { url: first + "/echo", method: "GET" }),
             { message: "jarvis: net=body-method" });
-        for (const header of ["authorization", "x-api-key", "xi-api-key"]) {
+        for (const header of ["authorization", "x-api-key", "xi-api-key", "x-goog-api-key"]) {
             await consume(door, speech, { url: first + "/echo", key: { ...key, header, prefix: "" } });
             assert.equal(records.at(-1).headers[header], "synthetic-key");
         }
@@ -361,8 +380,10 @@ world(async () => {
                 for (const value of malformedCredentials) await safeHeaderError(net, policy, value);
             });
         await control("key-origin", 'typeof origin !== "string" || origin !== target.origin', "false", refuseKey);
+        await control("google-key-origin", 'typeof origin !== "string" || origin !== target.origin', "false", googleKey);
+        await control("google-key-header", '"xi-api-key", "x-goog-api-key"]', '"xi-api-key"]', googleKey);
         for (const [name, needle, bad] of [
-            ["key-header", '!["authorization", "x-api-key", "xi-api-key"].includes(key.header)', { ...key, header: "host" }],
+            ["key-header", '!["authorization", "x-api-key", "xi-api-key", "x-goog-api-key"].includes(key.header)', { ...key, header: "host" }],
             ["key-empty", 'key.value === ""', { ...key, value: "" }],
             // Native Headers trims leading line breaks. These cases reach
             // the explicit guard rather than the safe setter-error boundary.

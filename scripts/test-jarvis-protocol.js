@@ -366,6 +366,15 @@ for (const locked of [false, true]) {
 }
 for (const brain of ["", "cli:saved-unavailable-id"])
     assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, brain } }), "shell").settings.brain, brain);
+// The voices the daemon runs: the local one and the two cloud voices.
+function voiceProviders(logic) {
+    for (const voiceProvider of ["local", "realtime", "gemini"]) {
+        let accepted;
+        assert.doesNotThrow(() => { accepted = logic.accept(changed(hello, { settings: { ...hello.settings, voiceProvider } }), "shell"); }, voiceProvider);
+        assert.equal(accepted.settings.voiceProvider, voiceProvider);
+    }
+}
+voiceProviders(Protocol);
 for (const daemon of ["ready", "locked"])
     assert.equal(Protocol.accept(changed(status, { daemon }), "daemon").daemon, daemon);
 for (const causes of [[], ["speech=local-not-set-up"], ["brain=unselected"], ["speech=local-not-ready", "brain=account-unavailable"],
@@ -723,7 +732,7 @@ try {
             'if (false) fail("cloud-vision");', "cloud-vision"],
         ["cloned-voice", 'if (typeof message.settings.clonedVoice !== "boolean") fail("cloned-voice");',
             'if (false) fail("cloned-voice");', "cloned-voice-type"],
-        ["voice-provider", '!["local", "realtime"].includes(message.settings.voiceProvider)', "false", "voice-provider"],
+        ["voice-provider", '!["local", "realtime", "gemini"].includes(message.settings.voiceProvider)', "false", "voice-provider"],
         ["live-account-type", 'typeof message.settings.voiceAccount !== "string"', "false", "live-account-type"],
         ["live-account-control", "/^[^\\x00-\\x1f\\x7f]{0,200}$/", "/^[^]{0,200}$/", "live-account-control", 2],
         ["live-account-size", "/^[^\\x00-\\x1f\\x7f]{0,200}$/", "/^[^\\x00-\\x1f\\x7f]*$/", "live-account-size", 2],
@@ -748,6 +757,7 @@ try {
     ];
     for (const [name, needle, replacement, example, matches] of guards)
         control(name, needle, replacement, logic => rejected(logic, cases.find(row => row[0] === example)), matches);
+    control("voice-provider-gemini", '["local", "realtime", "gemini"]', '["local", "realtime"]', voiceProviders);
     control("memory-inbox-filter-bound", "size + next > MEMORY_INBOX_BYTES", "false", logic =>
         assert.equal(logic.memoryInboxEntries(Array(9).fill({ ...memoryEntry, text: "x".repeat(16 * 1024) })).length, 7));
     control("memory-inbox-filter-invalid", "if (!memoryEntryAccepted(entry)) continue;", "", logic =>

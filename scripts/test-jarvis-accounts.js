@@ -66,8 +66,13 @@ world(async () => {
     // Execute the shipped QML publication callback. Process timing and drawing
     // remain the nested smoke's contract; these cases judge its write decision.
     const publicationSource = fs.readFileSync(path.join(plugin, "Accounts.qml"), "utf8");
+    // choices are OpenAI keys and gemini Gemini keys; voice is the Voice
+    // provider setting. The selected cloud voice's keys are offered, and its
+    // sole key is chosen for the user unless they named one of their own.
     const publicationCases = [
         { name: "sole", choices: ["key-a"], writes: ["key-a"] },
+        { name: "gemini", choices: ["key-a"], gemini: ["key-g"], voice: "gemini", writes: ["key-g"] },
+        { name: "other-voice", choices: ["key-a"], gemini: ["key-g"], selected: "key-g", writes: ["key-a"] },
         { name: "zero", choices: [], writes: [] },
         { name: "multiple", choices: ["key-a", "key-b"], writes: [] },
         { name: "explicit", choices: ["key-a"], selected: "key-b", writes: [] },
@@ -78,7 +83,7 @@ world(async () => {
         ...["accounts", "brains", "voiceAccounts", "accountSearch"].map(key =>
             ({ name: "status-" + key, choices: ["key-a"], refuseStatus: key, writes: [] }))
     ];
-    function publication(source, row) {
+    function publication(source, row, gate = path.join(plugin, "SetupGate.js")) {
         const vm = require("node:vm");
         const matches = [...source.matchAll(/^    function publish\(\) \{\n[\s\S]*?^    \}/gm)];
         assert.equal(matches.length, 1);
@@ -88,9 +93,10 @@ world(async () => {
         const root = { pending: row.pending ?? false, completion: { kind: "exited", code: row.code ?? 0 },
             diagnostic: { kind: "collected", text: "" },
             output: row.invalid ? "broken" : JSON.stringify({ accounts: [], brains: [],
-                voiceAccounts: row.choices.map(value => ({ value, label: "Fixture " + value })),
+                voiceAccounts: [...row.choices.map(value => ({ value, label: "Fixture " + value, provider: "openai" })),
+                    ...(row.gemini ?? []).map(value => ({ value, label: "Fixture " + value, provider: "gemini" }))],
                 search: { found: row.choices.length, partial: "" } }),
-            refreshed: () => refreshed++, shell: { settings: { voiceAccount: initial },
+            refreshed: () => refreshed++, shell: { settings: { voiceAccount: initial, voiceProvider: row.voice ?? "realtime" },
                 status: { set: (key, value) => {
                     if (row.refuseStatus === key && !reports.has(key)) { reports.set(key, null); return "refused"; }
                     reports.set(key, value); return "ok";
@@ -101,31 +107,28 @@ world(async () => {
                     root.shell.settings.voiceAccount = value; return "ok";
                 } } } };
         const context = vm.createContext({ root, Providers: { probeFailure },
-            Gate: require("../bin/lib/qml-library.js").load(path.join(plugin, "SetupGate.js")),
+            Gate: require("../bin/lib/qml-library.js").load(gate),
             Words: require(path.join(plugin, "AccountStatus.js")), console: { warn: value => warnings.push(value) } });
         vm.runInContext("(function() { with(root) { return (" + matches[0][0] + ").call(root); } })()", context);
         assert.deepEqual(writes, row.writes);
-        assert.equal(root.shell.settings.voiceAccount, row.refuseWrite || row.writes.length === 0 ? initial : "key-a");
+        assert.equal(root.shell.settings.voiceAccount, row.refuseWrite || row.writes.length === 0 ? initial : row.writes.at(-1));
         assert.equal(refreshed, 1);
         const failed = row.code === 1 || row.invalid || row.refuseStatus;
         assert.equal(reports.get("accountSearch").tone, failed ? "danger" : row.choices.length ? "ok" : "info");
-        assert.deepEqual(Array.from(reports.get("voiceAccounts"), item => item.value), failed ? [] : row.choices);
+        assert.deepEqual(Array.from(reports.get("voiceAccounts"), item => item.value), failed ? [] : row.voice === "gemini" ? row.gemini : row.choices);
         assert.equal(warnings.length, failed || row.refuseWrite ? 1 : 0);
     }
     for (const row of publicationCases) { publication(publicationSource, row); cases++; }
     const selectionControls = [
-        ["sole", 'shell.configure.set("voiceAccount", value.voiceAccounts[0].value)', 'shell.configure.set("voiceAccount", "key-b")'],
-        ["zero", "value.voiceAccounts.length === 1", "value.voiceAccounts.length <= 1"],
-        ["multiple", "value.voiceAccounts.length === 1", "value.voiceAccounts.length > 0"],
-        ["explicit", 'shell.settings.voiceAccount === ""', "true"],
+        ["sole", 'shell.configure.set("voiceAccount", chosen)', 'shell.configure.set("voiceAccount", "key-b")'],
         ["failed", 'if (code !== 0) throw new Error("probe");', "void code;"],
         ["invalid", "JSON.parse(output)", 'JSON.parse(output === "broken" ? JSON.stringify({accounts: [], brains: [], voiceAccounts: [{value: "key-a", label: "Fixture"}], search: {found: 1, partial: ""}}) : output)'],
-        ["stale", "!pending && shell.settings.voiceAccount", "true && shell.settings.voiceAccount"],
+        ["stale", "const chosen = pending ? null : ", "const chosen = "],
         ["stale", 'const code = completion.kind === "exited" ? completion.code : -1;', 'if (pending) return; const code = completion.kind === "exited" ? completion.code : -1;'],
         ["refused", 'console.warn("jarvis-accounts: voice-selection=refused");', "void 0;"]
     ];
     for (const key of ["accounts", "brains", "voiceAccounts", "accountSearch"]) {
-        const argument = { accounts: "accounts", brains: "value.brains", voiceAccounts: "value.voiceAccounts", accountSearch: "search" }[key];
+        const argument = { accounts: "accounts", brains: "value.brains", voiceAccounts: "voiceChoices", accountSearch: "search" }[key];
         selectionControls.push(["status-" + key, 'shell.status.set("' + key + '", ' + argument + ') !== "ok"',
             '(shell.status.set("' + key + '", ' + argument + '), false)']);
     }
@@ -133,6 +136,21 @@ world(async () => {
         assert.equal(publicationSource.split(needle).length - 1, 1);
         assert.throws(() => publication(publicationSource.replace(needle, replacement),
             publicationCases.find(row => row.name === name)), assert.AssertionError, name);
+        controls++;
+    }
+    // The choice rule is SetupGate's: each control plants its defect in a copy.
+    const gateSource = fs.readFileSync(path.join(plugin, "SetupGate.js"), "utf8");
+    for (const [name, needle, replacement] of [
+        ["zero", "if (offered.length !== 1) return null;", "if (offered.length > 1) return null;"],
+        ["multiple", "if (offered.length !== 1) return null;", "if (offered.length === 0) return null;"],
+        ["explicit", 'return named === "" || other ?', "return true ?"],
+        ["other-voice", 'return named === "" || other ?', 'return named === "" ?'],
+        ["gemini", 'return settings.voiceProvider === "gemini" ? "gemini" : "openai";', 'return "openai";']
+    ]) {
+        assert.equal(gateSource.split(needle).length - 1, 1, name + " gate mutation match");
+        const copy = path.join(process.env.JARVIS_TEST_ROOT, "gate-" + name + ".js");
+        fs.writeFileSync(copy, gateSource.replace(needle, replacement));
+        assert.throws(() => publication(publicationSource, publicationCases.find(row => row.name === name), copy), assert.AssertionError, name);
         controls++;
     }
     const manifest = JSON.parse(fs.readFileSync(path.join(plugin, "manifest.json"), "utf8"));
@@ -294,20 +312,26 @@ world(async () => {
     const ownedAlias = ownReference("anthropic", "Claude Code", "https://api.anthropic.com");
     references.remember(ownedAlias);
     assert.equal(store.discover().find(item => item.source.reference?.account === "Claude Code").state.kind, "found");
+    // The cloud voices' keys: an OpenAI key serves Realtime and a Gemini
+    // key serves Gemini Live; each choice names its provider.
+    references.remember(ownReference("gemini", "voice", "https://generativelanguage.googleapis.com"));
     const voiceOffers = Judge => {
         const judge = new Judge(directory, { ...env, OPENAI_API_KEY: privateValue });
         const rows = judge.discover();
         const wanted = rows.find(item => item.source.reference?.account === "other");
+        const google = rows.find(item => item.source.reference?.account === "voice" && item.provider === "gemini");
         const environmentAccount = rows.find(item => item.provider === "openai" && item.source.kind === "variable");
         assert.ok(environmentAccount, "the fixture discovers an environment account");
         const choices = judge.status().voiceAccounts;
         assert.equal(choices.some(choice => choice.value === environmentAccount.id), false);
-        assert.deepEqual(choices.map(choice => choice.value), [wanted.id]);
+        assert.deepEqual(choices.map(choice => [choice.value, choice.provider]).sort(), [[wanted.id, "openai"], [google.id, "gemini"]].sort());
         safe(choices);
     };
     voiceOffers(Accounts);
     for (const [name, needle, replacement] of [
-        ["live-provider-offer", 'offered.filter(item => item.provider === "openai")', "offered"],
+        ["live-provider-offer", 'offered.filter(item => ["openai", "gemini"].includes(item.provider))', "offered"],
+        ["live-gemini-offer", '["openai", "gemini"].includes(item.provider)', 'item.provider === "openai"'],
+        ["live-offer-provider", "slice(0, 60), provider: item.provider }))", "slice(0, 60), provider: \"openai\" }))"],
         ["live-resolved-account-offer", 'if (resolved === null) return { kind: "refused", cause: "account-unavailable" };',
             'if (resolved === null) return { kind: "accepted", account: null };']
     ]) {

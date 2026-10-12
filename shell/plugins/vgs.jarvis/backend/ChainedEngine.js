@@ -1,4 +1,4 @@
-// One conversation owner: chained speech or Realtime duplex delegation.
+// One conversation owner: chained speech or duplex delegation to a cloud voice.
 // Session owns identity and deadlines, Audio owns pacing and heard accounting,
 // WireBrain owns history and ToolRouter owns actions. This owner connects them
 // per conversation and keeps the heard prefix that the next turn reports.
@@ -24,6 +24,7 @@ const ClaudeCode = require("./ClaudeCode.js");
 const LocalSpeech = require("./LocalSpeech.js");
 const { PCM_RATE } = require("./Audio.js");
 const Realtime = require("./Realtime.js");
+const GeminiLive = require("./GeminiLive.js");
 const TaskVoice = require("./TaskVoice.js");
 const Redact = require("./Redact.js");
 
@@ -43,6 +44,14 @@ const DRIVERS = Object.freeze({ "openai-chat": OpenAIChat, "anthropic-messages":
 // behind its own prefix, which ends before the name starts. Speakable keeps
 // a sentence of a brain's reply that holds one out of speech.
 const TOOL_NAMES = Object.freeze([...Object.keys(Tools.TABLE), ...Tools.wireNames(Object.keys(Tools.TABLE)).keys()]);
+// The duplex voices by their Voice provider setting: the provider row, the
+// account provider whose stored key serves that row's origin, and the
+// adapter. Both adapters keep Realtime.js's contract.
+const DUPLEX = Object.freeze({
+    realtime: Object.freeze({ id: "openai-realtime", account: "openai", adapter: Realtime }),
+    gemini: Object.freeze({ id: "gemini-live", account: "gemini", adapter: GeminiLive })
+});
+function duplexOf(id) { return Object.values(DUPLEX).find(row => row.id === id) ?? null; }
 // The hello carries no language setting; empty selects English.
 const LANGUAGE = "";
 // Object-mode chunks queued toward Audio, below its playback allowance.
@@ -220,14 +229,15 @@ function heldByHome(plan, home) {
 // that spots it locally; any other voice would stream the room to a provider.
 function selectSpeech(settings, accounts, directories) {
     const speech = selectVoice(settings, accounts, directories);
-    if (settings.mode === "always" && (settings.voiceProvider === "realtime" || speech.kind === "ready" && speech.wake !== true))
+    if (settings.mode === "always" && (Object.hasOwn(DUPLEX, settings.voiceProvider) || speech.kind === "ready" && speech.wake !== true))
         return unconfigured("speech=always-local-voice");
     return speech;
 }
 
 function selectVoice(settings, accounts, directories) {
-    if (settings.voiceProvider === "realtime") {
-        const provider = Providers.select("openai-realtime");
+    if (Object.hasOwn(DUPLEX, settings.voiceProvider)) {
+        const duplex = DUPLEX[settings.voiceProvider];
+        const provider = Providers.select(duplex.id);
         if (!settings.voiceAccount) return unconfigured("speech=live-account-unselected");
         let judge, account;
         try { judge = accounts(); account = judge.resolve(settings.voiceAccount); }
@@ -235,12 +245,13 @@ function selectVoice(settings, accounts, directories) {
             if (!/^jarvis-(?:accounts|keys): /.test(error?.message ?? "")) throw error;
             return unconfigured("speech=live-account-unreadable");
         }
-        if (account === null || account.provider !== "openai" || account.source.kind !== "keyring")
+        if (account === null || account.provider !== duplex.account || account.source.kind !== "keyring")
             return unconfigured("speech=live-key-required");
         const reference = account.source.reference;
         Net.assertKeyTarget(provider.base, reference.origin);
-        return { kind: "ready", id: "openai-realtime", provider, key: { secrets: judge.secrets, reference },
-            voices: Realtime.VOICES, voice: Realtime.VOICES[voiceIndex(Realtime.VOICES, settings.voice)].value,
+        const voices = duplex.adapter.VOICES;
+        return { kind: "ready", id: duplex.id, provider, key: { secrets: judge.secrets, reference },
+            voices, voice: voices[voiceIndex(voices, settings.voice)].value,
             recipients: [{ kind: "network", provider: account.provider, account: account.id, origin: Net.endpoint(provider.base).origin }] };
     }
     let speech = unconfigured("speech=no-adapter");
@@ -419,8 +430,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             decisions: new Set(), releasePending: null, late: new Map(), results: [], turn: null, last: null,
             feedback: null, collection: null, unbound: null, rev: 0, quiet: Promise.resolve(), live: null };
         try {
-            if (plan.speech.id === "openai-realtime") {
-                c.live = Realtime.create({ provider: plan.speech.provider, clock, captionLimit,
+            const duplex = duplexOf(plan.speech.id);
+            if (duplex !== null) {
+                c.live = duplex.adapter.create({ provider: plan.speech.provider, clock, captionLimit,
                     log, conversation: e => ({ net: c.net, key: plan.speech.key, language: LANGUAGE, voice: plan.speech.voice,
                         preview: e.preview === true ? PREVIEW_LINE : null,
                         grants: () => c.grants, transfer: (item, start) => transfer(c, e, item, start) }) });
@@ -825,7 +837,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             // A line is no reply the user waits for: one the gate would ask
             // about or withhold is not spoken, and the turn goes on.
             if (items.some(item => Policy.release(item, c.recipients, c.grants).kind !== "send")) return false;
-            // The Realtime voice captions the words it speaks, as for a reply.
+            // A duplex voice captions the words it speaks, as for a reply.
             if (c.live !== null) {
                 for (const item of items) c.live.commentary(turn.delegation, item, { line: true });
                 return true;
@@ -1320,7 +1332,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         if (turn.fast !== undefined) return;
         c.heard = { turn, labels: [...turn.labels], text };
     }
-    // A Realtime reply's heard account for an interruption, or null when the
+    // A duplex reply's heard account for an interruption, or null when the
     // interruption cuts nothing: the session answers another request, or the
     // turn ended and all its words played out.
     function cut(c, turn) {
@@ -1520,7 +1532,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                     turn.waitingLine = null;
                 }
                 const speaking = turn?.speaking === true;
-                // A Realtime reply's account is read here: the speech port's
+                // A duplex reply's account is read here: the speech port's
                 // flush follows this effect and drops it. Until Audio
                 // reports, the reply at the speaker counts as unheard.
                 const account = cut(c, turn);
@@ -1685,7 +1697,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // Session's engine word: a dictation row's recording sounds its own
         // tones, so Session plays no start sound for it.
         engine() {
-            if (plan.kind === "ready" && plan.speech.id === "openai-realtime") return "duplex";
+            if (plan.kind === "ready" && duplexOf(plan.speech.id) !== null) return "duplex";
             return plan.speech?.kind === "ready" && plan.speech.dictation === true ? "dictation" : "chained";
         },
         // The selected voice provider's offers for the Voice setting; none

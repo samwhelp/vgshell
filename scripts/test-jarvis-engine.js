@@ -2762,6 +2762,7 @@ function selection(Engine) {
     for (const [settings, wake, causes] of [
         [{ mode: "always" }, false, always],
         [{ mode: "always", voiceProvider: "realtime" }, true, always],
+        [{ mode: "always", voiceProvider: "gemini" }, true, always],
         [{ mode: "always", brain: "" }, false, [...always, "brain=unselected"]]])
         assert.deepEqual(configure(settings, accepted(resolved), true, wake), { kind: "unconfigured", cause: causes[0], causes }, JSON.stringify(settings));
     assert.deepEqual(configure({ mode: "always" }, accepted(resolved), false, true), { kind: "unconfigured", cause: "speech=fixture-off",
@@ -2925,7 +2926,8 @@ world(async () => {
             ["harness-driver", '"codex-app-server": CodexHarness, '],
             ["claude-driver", ', "claude-code": ClaudeCode });', " });"],
             ["always-any-voice", 'settings.mode === "always" && (', "false && ("],
-            ["always-live-voice", 'settings.voiceProvider === "realtime" || speech.kind', "speech.kind"],
+            ["always-live-voice", 'Object.hasOwn(DUPLEX, settings.voiceProvider) || speech.kind', "speech.kind"],
+            ["always-gemini-voice", '    gemini: Object.freeze({ id: "gemini-live", account: "gemini", adapter: GeminiLive })\n', ""],
             ["always-wake-row", ' && speech.wake !== true))', "))"]]) {
             const { Engine } = Fixture.copy(root, [[needle, replacement]]);
             assert.throws(() => selection(Engine), assert.AssertionError, name + " must turn red");

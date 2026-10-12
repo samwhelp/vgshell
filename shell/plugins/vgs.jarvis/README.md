@@ -12,6 +12,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Local voice, the default: Jarvis hears you and speaks on your computer.
 - Cloned voice, off at first: the local voice speaks in a voice recorded on your computer, on an NVIDIA graphics card.
 - Realtime voice from OpenAI with a saved OpenAI key, a slower cloud option.
+- Gemini Live voice from Google with a saved Gemini key, a second cloud option.
 - The AI model you choose: an app you are signed in to (Claude Code, Codex, GitHub Copilot, or Pi with its own providers) or an API key.
 - Backup models that Jarvis tries when the answering model fails.
 - Short commands, such as "turn the volume up" or "go to workspace three", act at once with no AI model call.
@@ -33,12 +34,12 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 ## How it works
 
 1. You press Talk, or say Hey Jarvis in Always talk mode.
-2. The voice turns your words into text. The local voice does this on your computer. The Realtime voice sends your voice to OpenAI.
+2. The voice turns your words into text. The local voice does this on your computer. The Realtime voice sends your voice to OpenAI, and the Gemini Live voice sends it to Google.
 3. Jarvis sends the text to the AI model you chose, with your instructions from the home folder.
 4. The AI model answers. When it asks for an action, such as moving a window or reading a file, Jarvis checks the action first. Jarvis asks you before it deletes a file, runs a command or sends something. It calls an action done only after it sees the result.
 5. Jarvis speaks the answer.
 
-What leaves your computer: the text of your request goes to the AI model you chose, over the network when that model runs outside your computer. With the Realtime voice, your voice goes to OpenAI. A screenshot goes out only as Screen to cloud allows. Jarvis keeps your keys in your desktop keyring.
+What leaves your computer: the text of your request goes to the AI model you chose, over the network when that model runs outside your computer. With the Realtime voice, your voice goes to OpenAI; with the Gemini Live voice, it goes to Google. A screenshot goes out only as Screen to cloud allows. Jarvis keeps your keys in your desktop keyring.
 
 ## Turn Jarvis on
 
@@ -84,7 +85,7 @@ You can change the keys under Keys on the Jarvis page.
 - In Always talk mode, the local voice on your computer listens for Hey Jarvis. Nothing goes to the AI model until you speak after it.
 - Jarvis closes its microphone while it speaks. Talk interrupts it.
 - The local voice works with no network after Set up local voice. voxtype, the dictation program that Voice also uses, records your words from the system default microphone. Its tones tell you when it records. You set them in Appearance → Sounds.
-- With the Realtime voice, OpenAI hears you and speaks the reply. The AI model you chose still answers each request, and Jarvis still checks each action and what it sends.
+- With a cloud voice, OpenAI for Realtime or Google for Gemini Live hears you and speaks the reply. The AI model you chose still answers each request, and Jarvis still checks each action and what it sends.
 
 ## Setup
 
@@ -115,10 +116,10 @@ The settings are in Settings → Plugins → Jarvis. A change to Voice provider,
 | Setting | What it changes |
 | --- | --- |
 | Talk mode | Hold: Jarvis takes what you said when you release Talk. Toggle: the conversation stays open until you press Talk again. Always: say Hey Jarvis, then your request; Talk listens at once. Always needs the local voice, because your computer listens for the words. The bubble stays on the screen while the microphone is open. |
-| Microphone | The microphone the Realtime voice uses. The local voice uses the system default microphone. |
+| Microphone | The microphone a cloud voice uses. The local voice uses the system default microphone. |
 | Speaker | The speaker Jarvis uses. |
-| Voice provider | Local is the default: speech stays on your computer, and Jarvis answers fastest. Realtime sends your voice and the results Jarvis lets out to OpenAI, and answers more slowly. Auto uses Realtime when an OpenAI key is stored, and Local when none is. In Always talk mode, Auto uses Local. Local and Realtime stay as you set them, whatever keys are stored. |
-| Realtime key | The OpenAI key the Realtime voice uses. Add key stores a key in your desktop keyring. Get a key at [OpenAI API keys](https://platform.openai.com/api-keys). With one key, Jarvis selects it. With more keys, choose one. |
+| Voice provider | Local is the default: speech stays on your computer, and Jarvis answers fastest. Realtime sends your voice and the results Jarvis lets out to OpenAI, and Gemini sends them to Google's Gemini Live; both answer more slowly. Auto uses Realtime when an OpenAI key is stored, and Local when none is. In Always talk mode, Auto uses Local. Local, Realtime and Gemini stay as you set them, whatever keys are stored. |
+| Voice key | The key the cloud voice uses: an OpenAI key for Realtime, a Gemini key for Gemini. Add key stores a key in your desktop keyring. Get an OpenAI key at [OpenAI API keys](https://platform.openai.com/api-keys), or a Gemini key at [Google AI Studio](https://aistudio.google.com/apikey). With one key of the chosen voice, Jarvis selects it. With more keys, choose one. |
 | Voice | How Jarvis sounds, from the voices of the selected voice provider. Preview, under Voice on Details, says one sentence in that voice. |
 | Local voice model | Auto is the model that runs best on your computer, from its graphics card memory, its memory and its processor. The list shows each other model your computer can run, with its download size. When you choose one, it downloads in a floating terminal, which asks first if it replaces a model that is ready. The choice changes the voice Jarvis speaks with. Dictation uses voxtype's model: change it with Choose model in Voice. |
 | Cloned voice | Off at first. On, Jarvis speaks in the voice that Set up cloned voice, on the Setup tab, recorded, with Chatterbox Turbo by Resemble AI under the MIT licence. The recording and the model stay on your computer. It needs the Large local voice model on an NVIDIA graphics card; until its setup says Ready, Jarvis speaks in the local voice model's voice. Changing it ends the conversation. |

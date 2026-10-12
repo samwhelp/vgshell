@@ -18,8 +18,9 @@ Item {
     property var diagnostic: ({ kind: "collected", text: "" })
     property string output: ""
     property var modelAccess: ({ kind: "checking" })
-    // The stored OpenAI keys of the last read, undefined while no read has
-    // an answer: before the first one and after a failed one.
+    // The stored cloud voice keys of the last read, each with its provider,
+    // undefined while no read has an answer: before the first one and after
+    // a failed one.
     property var voiceKeys: undefined
     // The provider of each offered AI model choice by its id, from the last
     // read; none before its answer and after a failed one.
@@ -53,6 +54,10 @@ Item {
     // The voice the daemon runs: the voxtype row shows for the local voice.
     readonly property string voiceProvider: shell === null ? "" : Gate.voiceProvider(shell.settings, voiceKeys)
     onVoiceProviderChanged: publishRequirements()
+    // The Voice key choices are the keys of the selected cloud voice's
+    // provider, so a change of Voice provider reads them again.
+    readonly property string voiceKeyProvider: shell === null ? "" : Gate.voiceKeyProvider(shell.settings)
+    onVoiceKeyProviderChanged: if (voiceKeys !== undefined) refresh()
     readonly property string program: String(Qt.resolvedUrl("backend/accounts.js")).replace(/^file:\/\//, "")
     onShellChanged: refresh()
     onEndedAtChanged: if (endedAt !== null) refresh()
@@ -144,19 +149,19 @@ Item {
             const accounts = value.accounts.map(item => Words.accountHint(item) === "" ? { label: item.label, value: item.value }
                 : { label: item.label, value: item.value, hint: Words.accountHint(item) });
             const search = Words.searchValue({ kind: "found", found: value.search.found, partial: value.search.partial });
+            const voiceChoices = Gate.voiceKeys(value.voiceAccounts, shell.settings);
             if (shell.status.set("accounts", accounts) !== "ok" || shell.status.set("brains", value.brains) !== "ok"
-                || shell.status.set("voiceAccounts", value.voiceAccounts) !== "ok"
-                || shell.status.set("voiceKey", Gate.voiceKey(value.voiceAccounts)) !== "ok"
+                || shell.status.set("voiceAccounts", voiceChoices) !== "ok"
+                || shell.status.set("voiceKey", Gate.voiceKey(voiceChoices, shell.settings)) !== "ok"
                 || shell.status.set("accountSearch", search) !== "ok"
                 || shell.status.set("copilotMemory", Gate.copilotMemory(value.accounts)) !== "ok"
                 || shell.status.set("setupSignIn", { tone: "info", text: "Optional", action: true }) !== "ok") throw new Error("status");
-            // voiceAccounts already contains only present OpenAI key references.
+            // voiceAccounts already contains only present cloud voice key references.
             // configure.set writes the plugin's row through the core writer.
             // A queued refresh can publish status, but cannot select a stale key.
-            if (!pending && shell.settings.voiceAccount === "" && value.voiceAccounts.length === 1) {
-                if (shell.configure.set("voiceAccount", value.voiceAccounts[0].value) !== "ok")
-                    console.warn("jarvis-accounts: voice-selection=refused");
-            }
+            const chosen = pending ? null : Gate.voiceChoice(value.voiceAccounts, shell.settings);
+            if (chosen !== null && shell.configure.set("voiceAccount", chosen) !== "ok")
+                console.warn("jarvis-accounts: voice-selection=refused");
         } catch (error) {
             modelAccess = { kind: "checking" };
             voiceKeys = undefined;
@@ -165,7 +170,7 @@ Item {
             console.warn(reason);
             const replies = [shell.status.set("accounts", []), shell.status.set("brains", []), shell.status.set("voiceAccounts", []),
                 shell.status.set("accountSearch", Words.searchValue({ kind: "failed", reason: reason })),
-                shell.status.set("copilotMemory", Gate.copilotMemory([])), shell.status.set("voiceKey", Gate.voiceKey(null)),
+                shell.status.set("copilotMemory", Gate.copilotMemory([])), shell.status.set("voiceKey", Gate.voiceKey(null, shell.settings)),
                 shell.status.set("setupSignIn", { tone: "info", text: "Optional", action: true })];
             if (replies.some(reply => reply !== "ok")) throw new Error("jarvis-accounts: status=refused");
         }
