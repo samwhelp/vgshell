@@ -82,12 +82,12 @@ Singleton {
     // `effective` a binding over `user`. A publish asked meanwhile, by a
     // write from such a handler, is therefore marked and runs once the
     // assignment returns. Each of those writes blocks on the disk, so one
-    // publish takes at most 16 of them and the rest are told on a later
-    // turn of the event loop, where the shell has answered its events:
-    // shipped writers settle in two or three, as the Updates service's
-    // clear takes two, and a handler that writes a fresh value on every
-    // change never settles. `user` already holds every write, so the later
-    // publish drops none.
+    // publish repeats at most 16 times, each repeat taking every write its
+    // handlers make, and the rest is told on a later turn of the event
+    // loop, where the shell has answered its events: shipped writers settle
+    // in two or three, as the Updates service's clear takes two, and a
+    // handler that writes a fresh value on every change never settles.
+    // `user` already holds every write, so the later publish drops none.
     function publish() {
         if (publishing) {
             republish = true;
@@ -100,7 +100,7 @@ Singleton {
             return;
         }
         publishing = true;
-        let writes = 0;
+        let repeats = 0;
         do {
             republish = false;
             if (mergedShipped !== shipped || mergedUser !== user) {
@@ -111,13 +111,13 @@ Singleton {
             }
             const notReadyNow = shipped === null ? shippedState : (userState === "pending" ? "pending" : "");
             if (publishedNotReady !== notReadyNow) publishedNotReady = notReadyNow;
-        } while (republish && ++writes < 16);
+        } while (republish && ++repeats < 16);
         publishing = false;
         if (!republish) {
             unsettled = false;
             return;
         }
-        if (!unsettled) console.warn("config: publish did not settle: writes=" + writes + " file=" + userPath + " writer=" + nestedWriter);
+        if (!unsettled) console.warn("config: publish did not settle: repeats=" + repeats + " file=" + userPath + " writer=" + nestedWriter);
         unsettled = true;
         Qt.callLater(publish);
     }

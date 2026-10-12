@@ -160,7 +160,7 @@ Item {
             const counts = createTemporaryObject(countsComponent, root);
             const seen = () => { turn.writesSeen = counts.writes; };
             turn.triggered.connect(seen);
-            ignoreWarning(/^config: publish did not settle: writes=16 file=.* writer=expression for onCountChanged@.*tst_config_writes\.qml:/);
+            ignoreWarning(/^config: publish did not settle: repeats=16 file=.* writer=expression for onCountChanged@.*tst_config_writes\.qml:/);
             turn.start();
             compare(Config.writeUser({ version: 2, count: 0 }), "ok");
             verify(counts.writes > 1 && counts.writes < counts.cap, "writes=" + counts.writes);
