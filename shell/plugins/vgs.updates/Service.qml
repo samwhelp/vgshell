@@ -45,6 +45,10 @@ Item {
     // The reboot-notice system step, which the core probes again after its
     // run in core/system and after each plugin scan.
     readonly property var rebootStep: shell === null ? null : shell.system.state["reboot-notice"]
+    // The Reboot notice setting: "" for the notice in place, else the change
+    // its field asks for, which this service runs once and clears, so the
+    // field always reads the probed notice.
+    readonly property string rebootRequest: shell === null || typeof shell.settings.rebootNotice !== "string" ? "" : shell.settings.rebootNotice
 
     onShellChanged: {
         start();
@@ -52,6 +56,9 @@ Item {
     }
     onCurrentIntervalMsChanged: schedule()
     onRebootStepChanged: publishNow()
+    // The change arrives inside the core's write of the user file, which a
+    // nested write there loses, so the request is taken after it.
+    onRebootRequestChanged: Qt.callLater(takeRebootRequest)
     // Only a run that ends after this instance first read the state starts
     // a check: `shell` arrives with every run an earlier instance saw end,
     // and this handler can run before onShellChanged does, so the first read
@@ -108,6 +115,18 @@ Item {
         return reply;
     }
 
+    // The core's `core/system` run shows its root commands and asks before
+    // it changes anything, and the probe after it moves the field.
+    function takeRebootRequest() {
+        if (shell === null || rebootRequest === "") return;
+        if (Logic.rebootNoticeRequested(rebootRequest, reported.rebootNotice)) {
+            const reply = shell.status.act("rebootNotice");
+            if (reply !== "ok") console.warn("updates: reboot notice " + reply);
+        }
+        const cleared = shell.configure.unset("rebootNotice");
+        if (cleared !== "ok") console.error("updates: " + cleared);
+    }
+
     function requestCheck(reason) {
         if (checking) {
             queued = true;
@@ -152,8 +171,9 @@ Item {
 
     function publishNow() {
         if (shell === null) return;
+        const notice = Logic.rebootNoticeValue(rebootStep);
         const values = Object.assign(Logic.publishValues(snapshot, checking, Date.now(), currentIntervalMs, checkFailure), Logic.reviewValues(shell.settings, agents),
-            { rebootNotice: Logic.rebootNoticeValue(rebootStep) });
+            { rebootNotice: notice, rebootNotices: Logic.rebootNoticeChoices(notice) });
         const writes = Logic.statusWrites(reported, values);
         if (writes.length === 0) return;
         const next = Object.assign({}, reported);

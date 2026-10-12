@@ -284,7 +284,7 @@ function statusRecordBytes(values) {
 function statusWrites(previous, next) {
     var before = previous || {};
     var out = [];
-    var keys = ["pending", "lastCheck", "checkState", "checking", "sources", "reviewAgents", "reviewAgent", "rebootNotice"];
+    var keys = ["pending", "lastCheck", "checkState", "checking", "sources", "reviewAgents", "reviewAgent", "rebootNotice", "rebootNotices"];
     for (var i = 0; i < keys.length; i++) {
         var key = keys[i];
         if (next[key] === null || next[key] === undefined) continue;
@@ -686,6 +686,24 @@ function rebootNoticeValue(step) {
         hint: "A file VGS did not write is at /etc/pacman.d/hooks/cachyos-reboot-required.hook, and VGS does not change it." };
     }
     return { tone: "warning", text: "Could not be checked" };
+}
+
+// The `rebootNotices` choices of the Reboot notice setting for VALUE, the
+// rebootNotice status value: the notice in place first, which the
+// setting's unset value stands for, then the one VALUE's action turns to,
+// each named by that action; none while VALUE offers no change.
+var REBOOT_NOTICE_LABELS = { both: "CachyOS and VGS", vgsOnly: "VGS only" };
+function rebootNoticeChoices(value) {
+    if (value === null || value === undefined || typeof value.action !== "string") return [];
+    var held = value.action === "vgsOnly" ? "both" : "vgsOnly";
+    return [held, value.action].map(function (name) { return { label: REBOOT_NOTICE_LABELS[name], value: name }; });
+}
+
+// Whether REQUEST, the Reboot notice setting, asks for the change VALUE,
+// the published rebootNotice status value, offers: "" is the notice in
+// place, so it asks for none.
+function rebootNoticeRequested(request, value) {
+    return value !== null && value !== undefined && typeof value.action === "string" && request === value.action;
 }
 
 // ---- What the bar widget and the window draw --------------------------------

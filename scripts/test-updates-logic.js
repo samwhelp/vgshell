@@ -447,6 +447,30 @@ function verifyView(logic) {
     else same([value.hidden, value.action], [undefined, undefined], "reboot notice offers nothing: " + JSON.stringify(step));
   }
   same(logic.statusWrites({}, { rebootNotice: { hidden: true } }), [{ key: "rebootNotice", value: { hidden: true } }]);
+  same(logic.statusWrites({}, { rebootNotices: [] }), [{ key: "rebootNotices", value: [] }]);
+  // [the rebootNotice status value, the Reboot notice setting's choices]
+  const both = { label: "CachyOS and VGS", value: "both" };
+  const vgsOnly = { label: "VGS only", value: "vgsOnly" };
+  const choiceRows = [
+    [{ tone: "info", text: "CachyOS and VGS", action: "vgsOnly" }, [both, vgsOnly]],
+    [{ tone: "ok", text: "VGS only", action: "both" }, [vgsOnly, both]],
+    [{ hidden: true }, []],
+    [{ tone: "warning", text: "Set by another file" }, []],
+    [null, []]
+  ];
+  for (const [value, want] of choiceRows) same(logic.rebootNoticeChoices(value), want, "reboot notice choices: " + JSON.stringify(value));
+  // [the setting, the rebootNotice status value, whether it asks for the value's change]
+  const requestRows = [
+    ["vgsOnly", { tone: "info", text: "CachyOS and VGS", action: "vgsOnly" }, true],
+    ["both", { tone: "ok", text: "VGS only", action: "both" }, true],
+    ["both", { tone: "info", text: "CachyOS and VGS", action: "vgsOnly" }, false],
+    ["vgsOnly", { tone: "ok", text: "VGS only", action: "both" }, false],
+    ["", { tone: "info", text: "CachyOS and VGS", action: "vgsOnly" }, false],
+    ["vgsOnly", { tone: "warning", text: "Set by another file" }, false],
+    ["vgsOnly", { hidden: true }, false],
+    ["vgsOnly", undefined, false]
+  ];
+  for (const [request, value, want] of requestRows) assert.equal(logic.rebootNoticeRequested(request, value), want, "reboot notice request: " + request + " " + JSON.stringify(value));
 }
 
 verify(load(file));
@@ -502,7 +526,7 @@ const controls = [
   ["the review is off with its setting", "if (s.reviewThirdParty !== true) return", "if (false) return"],
   ["a command naming an absent agent is missing", "if (named !== null && found.indexOf(named.id) < 0) return", "if (false) return"],
   ["the review's end starts no check", "if (UNCHECKED_TUIS.indexOf(key) >= 0) continue;", ""],
-  ["the review statuses are written", '"sources", "reviewAgents", "reviewAgent", "rebootNotice"]', '"sources", "rebootNotice"]'],
+  ["the review statuses are written", '"sources", "reviewAgents", "reviewAgent", "rebootNotice"', '"sources", "rebootNotice"'],
   ["a CachyOS repository is official", "/^(core|extra|multilib|cachyos.*)$/", "/^(core|extra|multilib)$/"],
   ["a flag names a reviewed package", "reviewed.indexOf(m[1]) < 0 || ", ""],
   ["a clean verdict holds no flag", "if ((head[1] === \"clean\") !== (flags.length === 0))", "if (false)"],
@@ -540,7 +564,11 @@ const controls = [
   ["the CachyOS notice on offers VGS only", 'case "needed": return { tone: "info", text: "CachyOS and VGS", action: "vgsOnly" };', 'case "needed": return { tone: "info", text: "CachyOS and VGS" };'],
   ["a file or link VGS did not make offers nothing", 'case "denied": return { tone: "warning", text: "Set by another file",', 'case "denied": return { tone: "warning", text: "Set by another file", action: "both",'],
   ["VGS only offers both", 'case "ready": return { tone: "ok", text: "VGS only", action: "both" };', 'case "ready": return { tone: "ok", text: "VGS only", action: "vgsOnly" };'],
-  ["the reboot notice is written", '"reviewAgents", "reviewAgent", "rebootNotice"]', '"reviewAgents", "reviewAgent"]'],
+  ["the reboot notice is written", '"reviewAgent", "rebootNotice", "rebootNotices"]', '"reviewAgent", "rebootNotices"]'],
+  ["the reboot notice choices are written", '"rebootNotice", "rebootNotices"]', '"rebootNotice"]'],
+  ["the notice in place is the first choice", "return [held, value.action].map(", "return [value.action, held].map("],
+  ["a notice without a change offers no choice", 'if (value === null || value === undefined || typeof value.action !== "string") return [];', 'if (value === null || value === undefined) return [];'],
+  ["a request names the offered change", "&& request === value.action;", "&& request !== \"\";"],
   ["failed probe is reported", "if (!probe || probe.status !== 0) return { ok: false, error: commandError(name, probe || { status: null, stderr: \"\" }) };", "if (!probe || probe.status !== 0) return { ok: true, value: [] };"],
 ];
 

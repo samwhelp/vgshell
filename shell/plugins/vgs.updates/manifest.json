@@ -9,7 +9,7 @@
   "icon": "refresh-cw",
   "kinds": ["service", "bar-widget", "window"],
   "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "window": "Window.qml" },
-  "capabilities": ["ipc", "screens", "shortcut", "status", "surfaces", "system", "tui"],
+  "capabilities": ["configure", "ipc", "screens", "shortcut", "status", "surfaces", "system", "tui"],
   "systemSteps": ["reboot-notice"],
   "defaultSection": "right",
   "requirements": [
@@ -40,7 +40,8 @@
     "trustPluginUpdates": false,
     "reviewThirdParty": true,
     "reviewAgent": "",
-    "reviewCommand": ""
+    "reviewCommand": "",
+    "rebootNotice": ""
   },
   "schema": {
     "intervalHours": { "type": "number", "label": "Check interval", "description": "Time between automatic update checks", "min": 1, "max": 48, "step": 1, "unit": "hours", "group": "Schedule" },
@@ -72,6 +73,15 @@
         { "value": "claude --model opus --effort medium --permission-mode default" },
         { "value": "codex -m gpt-6.1-sol -c model_reasoning_effort=medium --sandbox workspace-write --ask-for-approval on-request" }
       ]
+    },
+    "rebootNotice": {
+      "type": "string",
+      "label": "Reboot notice",
+      "description": "Choose which notice asks you to reboot after an update that needs one",
+      "info": "VGS asks to reboot at the end of an update that changes the kernel or another package the CachyOS notice names, and CachyOS shows its own notice too. VGS only turns the CachyOS notice off, and CachyOS and VGS turns it back on. A change shows its commands in a terminal and asks before it runs.",
+      "group": "Update options",
+      "optionsFrom": "rebootNotices",
+      "hideEmpty": true
     }
   },
   "hyprland": {
@@ -87,11 +97,11 @@
     "sources": { "type": "data", "label": "Sources" },
     "reviewAgents": { "type": "choices", "label": "Review agents" },
     "reviewAgent": { "type": "text", "label": "Review agent" },
+    "rebootNotices": { "type": "choices", "label": "Reboot notices" },
     "rebootNotice": {
       "type": "state",
       "label": "Reboot notice",
-      "hint": "Use the VGS reboot notice only adds /etc/pacman.d/hooks/cachyos-reboot-required.hook, which turns off the CachyOS notice, and Turn the CachyOS notice back on removes the file VGS added.",
-      "info": "At the end of an update that changes the kernel or another package the CachyOS notice names, VGS asks to reboot. The CachyOS notice also shows after such an update. Use the VGS reboot notice only to get the VGS question alone.",
+      "hidden": true,
       "actions": {
         "vgsOnly": { "label": "Use the VGS reboot notice only", "system": "reboot-notice" },
         "both": { "label": "Turn the CachyOS notice back on", "undo": "reboot-notice" }

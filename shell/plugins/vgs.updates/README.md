@@ -29,3 +29,4 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 | Review third-party packages | An AI agent checks packages from outside your distribution's official repositories before they install. On by default. |
 | AI agent | The AI agent that checks the packages: Claude Code or Codex, from the agents found. |
 | Review command | The command that starts the review agent. Automatic runs the agent's default command. An edited command runs as written. |
+| Reboot notice | On CachyOS, which notice asks you to reboot after an update: CachyOS and VGS, or VGS only. A change asks before it runs. |
