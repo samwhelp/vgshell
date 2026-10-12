@@ -8,15 +8,18 @@ import qs.Ui
 // `shell` (the widget's own scoped object), `bar` (the bar API),
 // `moduleName` (the plugin id), `settings` (the manifest defaults under
 // the widget's layout entry) and `frame`, what Hide, Settings and a drag
-// read and call: `describe()` answers { name, page, keys, stops, builtin,
-// owner }, `hide()` takes the widget out of every bar section,
-// `openSettings()` opens Plugins on `page`, `dragStart`, `dragMove` and
-// `dragEnd` take the drag's points, and `dragCancel()` ends a remove
+// read and call: `describe()` answers { name, page, readme, keys, stops,
+// builtin, owner }, `hide()` takes the widget out of every bar section,
+// `openReadme()` opens `readme`, `openSettings()` opens Plugins on
+// `page`, `dragStart`, `dragMove` and `dragEnd` take the drag's points,
+// and `dragCancel()` ends a remove
 // question, putting the widget back where the drag found it.
 //
 // Every widget gets the same right-click menu, with no code in the plugin:
 // Hide, then the entries the widget hands in `frameActions`, each
-// { label, icon, action }, which a click or Enter runs, then Settings. Settings
+// { label, icon, action }, which a click or Enter runs, then Readme, then
+// Settings. Readme opens a bundled plugin's README page on GitHub and is
+// absent for an installed plugin. Settings
 // opens Plugins on the owning plugin's page through the same link as a
 // pane's gear; a builtin opens its bar's page. The entry is absent when
 // the plugin has no Settings page. A builtin hides at once; its Settings >
@@ -151,9 +154,12 @@ Item {
             // What the open dialog says, read from `frame` when it opens.
             property var facts: ({ name: "", keys: [], stops: false, builtin: false, owner: "" })
             property string settingsPage: ""
+            property string readme: ""
 
             function openMenu() {
-                settingsPage = root.frame.describe().page;
+                const facts = root.frame.describe();
+                settingsPage = facts.page;
+                readme = facts.readme;
                 hideMenu.open("pointer");
             }
 
@@ -209,6 +215,15 @@ Item {
                         // Read from the list itself: a model entry is a copy
                         // that need not keep the function.
                         onTriggered: root.frameActions[index].action()
+                    }
+                }
+                MenuItem {
+                    text: "Readme"
+                    iconName: "book"
+                    visible: ui.readme !== ""
+                    onTriggered: {
+                        const reply = root.frame.openReadme();
+                        if (reply !== "ok") console.warn("bar widget: readme of " + root.moduleName + " " + reply);
                     }
                 }
                 MenuItem {

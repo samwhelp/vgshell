@@ -1,6 +1,8 @@
 # Every plugin with a bar widget shows in the bar once it is installed,
 # with no step in Settings, and every widget's right-click menu hides it
-# or opens the owning plugin's Settings page through its last entry.
+# or opens the owning plugin's Settings page through its last entry,
+# and offers Readme only for bundled plugins, with both entry points
+# opening the same GitHub README URL.
 # A copy of the acme.pane fixture, a service plus a bar widget, installed
 # as acme.hideable, is placed in its default section and enabled by the
 # rescan that finds it (PluginLogic.firstPresence). A real right click on
@@ -25,7 +27,7 @@
 # the two shipped plugins stay off and vgs.tray comes on. The row
 # restores the user file, removes its copies and puts the pointer back
 # where it found it.
-# inputs: shell/Ui/BarWidget.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/overlay/DismissScope.qml shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Config.qml scripts/smoke/fixtures/plugins/acme.pane/* shell/plugins/vgs.settings/* shell/plugins/vgs.voice/manifest.json shell/plugins/vgs.webapps/manifest.json shell/plugins/vgs.tray/manifest.json
+# inputs: shell/Ui/BarWidget.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/overlay/DismissScope.qml shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Config.qml shell/Commons/DesktopLaunch.js scripts/smoke/fixtures/plugins/acme.pane/* shell/plugins/vgs.settings/* shell/plugins/vgs.voice/manifest.json shell/plugins/vgs.webapps/manifest.json shell/plugins/vgs.tray/manifest.json
 set -euo pipefail
 hide_file="$home/.config/vgshell/shell.json"
 hide_saved="$sandbox/shell-before-widget-hide.json"
@@ -81,6 +83,10 @@ hide_ask() {
   expect_poll "Hide opens the dialog" true hide_read "$1" frameDialogOpen
 }
 hide_menu_last() { hide_read "$1" frameMenuEntries | py_reply 'import json,sys; rows=json.load(sys.stdin); print(json.dumps(rows[-1] if rows else ""))'; }
+hide_menu_entries() { hide_read "$1" frameMenuEntries; }
+hide_menu_has() { hide_read "$1" frameMenuEntries | py_reply 'import json,sys; print(json.dumps(sys.argv[1] in json.load(sys.stdin)))' "$2"; }
+hide_gio_since() { device_calls gio | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[int(sys.argv[1]):]))' "$1"; }
+hide_readme_action_visible() { ipc smoke revealText window vgs.settings RowAction "Open on GitHub" | py_reply 'import json,sys; value=json.load(sys.stdin); print("shown" if type(value) in (int,float) else "absent")'; }
 hide_settings() {
   local id="$1" page="$2"
   hide_right_click "$id" || fail "the right click on $id's widget failed"
@@ -105,6 +111,35 @@ cp -- "$hide_file" "$sandbox/shell-widget-hide-placed.json"
 hide_settings acme.hideable acme.hideable
 hide_settings vgs.bar/center-clock vgs.bar
 expect "the Settings menu steps leave the user file as it was" unchanged hide_unchanged "$sandbox/shell-widget-hide-placed.json"
+
+hide_readme_url="https://github.com/vanillagreencom/vgshell/blob/main/shell/plugins/vgs.bar/README.md"
+hide_readme_expected="$(python3 -c 'import json,sys; print(json.dumps([["open", sys.argv[1]]]))' "$hide_readme_url")" || fail "the README gio expectation could not be built"
+expect "the shell resolves gio to the device stand-in" "$shim/gio" shell_resolves gio
+hide_gio_before="$(device_calls gio | py_reply 'import json,sys; print(len(json.load(sys.stdin)))')" || hide_gio_before=0
+hide_right_click acme.hideable || fail "the right click on acme.hideable's widget failed for its README control"
+expect_poll "acme.hideable's widget menu opens for its README control" true hide_read acme.hideable frameMenuOpen
+expect "acme.hideable's menu has no README entry" false hide_menu_has acme.hideable Readme
+expect "acme.hideable's menu is Hide then Settings" '["Hide", "Settings"]' hide_menu_entries acme.hideable
+type_keys -k Escape || fail "Escape on acme.hideable's README control menu failed"
+expect_poll "Escape closes acme.hideable's README control menu" false hide_read acme.hideable frameMenuOpen
+expect "acme.hideable's README control makes no gio call" '[]' hide_gio_since "$hide_gio_before"
+hide_right_click vgs.bar/center-clock || fail "the right click on the clock widget failed for Readme"
+expect_poll "the clock widget menu opens for Readme" true hide_read vgs.bar/center-clock frameMenuOpen
+expect "the clock widget menu lists Readme" true hide_menu_has vgs.bar/center-clock Readme
+device_reply gio 0 "" open "$hide_readme_url"
+type_keys -k End -k Up -k Return || fail "End, Up and Return on the clock Readme entry failed"
+expect_poll "Readme closes the clock widget menu" false hide_read vgs.bar/center-clock frameMenuOpen
+expect_poll "the clock widget Readme opens the vgs.bar README" "$hide_readme_expected" hide_gio_since "$hide_gio_before"
+settings_page_open vgs.bar
+settings_details
+hide_gio_before="$(device_calls gio | py_reply 'import json,sys; print(len(json.load(sys.stdin)))')" || hide_gio_before=0
+device_reply gio 0 "" open "$hide_readme_url"
+settings_press --type RowAction "Open on GitHub" || fail "the click on the README link failed"
+expect_poll "the Details README link opens the vgs.bar README" "$hide_readme_expected" hide_gio_since "$hide_gio_before"
+settings_page_open acme.hideable
+settings_details
+expect "the installed plugin Details page has no README link" absent hide_readme_action_visible
+settings_page_close acme.hideable
 
 # Cancel holds the focus: Return presses it. Escape rejects too.
 hide_ask acme.hideable
@@ -193,7 +228,7 @@ if copy_tree widget-hide-control \
     expect_poll "control: Escape closes acme.hideable's menu" false hide_read acme.hideable frameMenuOpen
     hide_right_click vgs.bar/center-clock || fail "control: the right click on the clock widget failed"
     expect_poll "control: the clock widget menu opens" true hide_read vgs.bar/center-clock frameMenuOpen
-    expect "control: the clock menu has no Settings entry" '"Hide"' hide_menu_last vgs.bar/center-clock
+    expect "control: the clock menu has no Settings entry" '"Readme"' hide_menu_last vgs.bar/center-clock
     type_keys -k Escape || fail "control: Escape on the clock menu failed"
     expect_poll "control: Escape closes the clock menu" false hide_read vgs.bar/center-clock frameMenuOpen
   fi

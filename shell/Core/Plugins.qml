@@ -249,7 +249,7 @@ Singleton {
     // the five properties BarWidget declares. `frame` is what the shared
     // widget frame reads and calls: the plugin's name, its Settings page,
     // the keys in effect, whether hiding also turns the plugin off, the
-    // unplace, the pane-shared Settings link, and drag hooks.
+    // unplace, the README link, the pane-shared Settings link, and drag hooks.
     // `locator` is { section, nth }:
     // which layout entry with this id the widget reads, for its configure
     // capability. A widget that does not declare them is destroyed.
@@ -277,6 +277,10 @@ Singleton {
             describe: () => root.frameFacts(id, item),
             hide: () => root.setPlaced(id, false),
             openSettings: () => root.openSettingsPage(root.frameFacts(id, item).page),
+            openReadme: () => {
+                const url = root.frameFacts(id, item).readme;
+                return url === "" ? "refused: readme=none" : Capabilities.runDetached(DesktopLaunch.open(url));
+            },
             dragStart: point => root.dragStart(hostKey, id, locator, item, point),
             dragMove: point => root.dragMove(hostKey, point),
             dragEnd: point => root.dragEnd(hostKey, point),
@@ -496,8 +500,9 @@ Singleton {
     }
 
     // What the widget frame's menu and Hide and Remove dialogs say about
-    // entry `id`, read when one opens: { name, page, keys, stops, builtin,
-    // owner }, `page` the Settings page the menu can open, `keys` the keys
+    // entry `id`, read when one opens: { name, page, readme, keys, stops,
+    // builtin, owner }, `page` the Settings page the menu can open, `readme`
+    // the README page the menu can open, `keys` the keys
     // in effect of its bound shortcuts and `stops` true when hiding the
     // widget also turns the plugin off (PluginLogic.enablementRule
     // "widget"). A builtin has no independent settings or enablement; its
@@ -512,6 +517,7 @@ Singleton {
                 for (const key of row.keys) keys.push(key);
         return { name: owner === null ? m.name : item.Accessible.name, keys: keys,
             page: Registry.settingsPageOf("bar-widget", owner === null ? id : owner.id),
+            readme: Registry.readmeOf(owner === null ? id : owner.id),
             stops: owner === null && Logic.enablementRule(m) === "widget", builtin: owner !== null, owner: m.name };
     }
 

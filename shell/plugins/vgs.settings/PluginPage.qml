@@ -41,8 +41,9 @@ import "Steps.js" as Steps
 // holder button take no press.
 //
 // Details holds what a user reads: the description, in the hint role in
-// the muted colour, the capabilities, the listing metadata, the Update and
-// Remove actions of an installed plugin, one status section per status
+// the muted colour, the capabilities, the listing metadata, the README
+// link of a plugin included with VGS, the Update and Remove actions of an
+// installed plugin, one status section per status
 // group (entries without a group first, under `Status`), but for the
 // entries the Settings tab draws (Steps.detailEntries), whose values are
 // read-only and whose setup steps run through the manager (D061), and the
@@ -749,6 +750,17 @@ FocusScope {
                                 label: modelData[0]
                                 inline: true
                                 Label { role: "value"; text: detail.modelData[1]; width: parent.width; elide: Text.ElideRight }
+                            }
+                        }
+
+                        Field {
+                            width: parent.width
+                            label: "Readme"
+                            inline: true
+                            visible: page.row !== null && page.row.readme !== ""
+                            RowAction {
+                                text: "Open on GitHub"
+                                onClicked: page.panel.openLink(page.row.id, { url: page.row.readme })
                             }
                         }
 

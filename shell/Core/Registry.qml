@@ -21,6 +21,7 @@ Singleton {
     readonly property string managerId: Logic.managerId(Config.shipped)
     readonly property string bundledDir: Quickshell.shellDir + "/plugins"
     readonly property string userDir: Config.userDir + "/plugins"
+    readonly property string readmeBase: "https://github.com/vanillagreencom/vgshell/blob/main/shell/plugins/"
     // Where the scanner publishes each plugin's source revision for this
     // shell process; the runner removes the roots of earlier shells.
     readonly property string sourceDir: Quickshell.env("XDG_RUNTIME_DIR") + "/vgshell-sources-" + Quickshell.processId
@@ -136,6 +137,10 @@ Singleton {
     signal scanFinished()
 
     function has(id) { return Logic.hasOwn(manifests, id); }
+
+    function readmeOf(id) {
+        return has(id) && sourceOf(manifests[id]) === "bundled" ? readmeBase + id + "/README.md" : "";
+    }
 
     // Start one scan; a scan asked for while one runs starts when it ends.
     // The scan keeps the revisions of every listed plugin and every live
@@ -555,6 +560,7 @@ Singleton {
                 kinds: m.kinds,
                 capabilities: m.capabilities,
                 source: sourceOf(m),
+                readme: readmeOf(id),
                 enabled: isEnabled(id),
                 alwaysOn: m.alwaysOn === true,
                 placed: Logic.isPlaced(config, m),
