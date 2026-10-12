@@ -3083,9 +3083,12 @@ PY
   expect "the Jarvis AI model setting is delivered" ok ipc shell reloadConfig
 }
 scene_jarvis-causes() { # MODE
-  local phase cause slug label
+  local phase cause slug label headline=Setup
   phase=after
   [[ -z $rev ]] || phase=before
+  # The Setup tab draws the summary, which words the cause, in its own
+  # Status section over the steps.
+  ! "$has_setup_tab" || headline=Status
   expect "enabling vgs.jarvis for cause sheets is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
   expect "vgs.jarvis is placed for cause sheets" ok ipc shell setPluginPlaced vgs.jarvis true
   expect_poll "the Jarvis service exists for cause sheets" True record_exists vgs.jarvis
@@ -3111,7 +3114,7 @@ scene_jarvis-causes() { # MODE
     take_posed "jarvis-causes-$1-$phase-$slug-widget"
     park_pointer
     expect_poll "the Jarvis tooltip closes for $label" false tooltip_opened vgs.jarvis
-    jarvis_anchor_shot "jarvis-causes-$1-$phase-$slug-setup" SectionHeader Setup
+    jarvis_anchor_shot "jarvis-causes-$1-$phase-$slug-setup" SectionHeader "$headline"
   done
   settings_close
   expect "disabling vgs.jarvis after cause sheets is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
