@@ -20,7 +20,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, cloudsync, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-setup, jarvis-fleet, outdated, jarvis-causes, plugin-messages, traffic, ai-usage, sysmon, tui-edges, appearance, sounds, setup-tab or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-setup, jarvis-fleet, outdated, jarvis-causes, plugin-messages, traffic, ai-usage, sysmon, tui-edges, appearance, sounds, setup-tab, clone-voice or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -92,7 +92,13 @@
 # needed beside the warning icon, one that shows the icon alone and one that shows neither, that
 # icon's tooltip, a page with no Setup tab, a Setup tab that holds only
 # Requirements, and Jarvis's Settings tab and its Setup tab with steps
-# open and with steps done, taken only when named; outdated is the
+# open and with steps done, taken only when named; clone-voice is the
+# Jarvis page's Settings tab at its Local voice section and its Setup tab
+# at its Input step, over a ready Large local voice, with the Cloned voice
+# off and not set up, with the clone setup's floating terminal at its first
+# consent question beside the Settings window, set up with the setting on, and after Remove recording,
+# or once in a tree without the Cloned voice, taken only when named;
+# outdated is the
 # Jarvis page over a stand-in
 # agent-browser and a stand-in Pi that each answer a version below the
 # floor Jarvis holds them to, Pi chosen as the AI model: the Details tab
@@ -288,7 +294,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-setup|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab) scenes+=("$1"); shift ;;
+    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-setup|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab|clone-voice) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -431,6 +437,7 @@ scene_ships() {
     plugin-messages) ships_plugin vgs.clipboard vgs.lock vgs.notifications ;;
     voice-keys) [[ $manager_scene == settings ]] && ships_plugin vgs.voice ;;
     jarvis-setup|jarvis-fleet|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
+    clone-voice) [[ $manager_scene == settings && $has_setup_tab == true ]] && ships_plugin vgs.jarvis ;;
     ai-usage) ships_plugin vgs.ai-usage ;;
     traffic) ships_plugin vgs.traffic vgs.settings ;;
     devtools) ships_plugin vgs.devtools ;;
@@ -2913,7 +2920,7 @@ os.replace(path + ".next", path)
 print(answer["choices"][0]["label"])
 PY
 }
-jarvis_voice_page() { # LABEL
+jarvis_voice_page() { # LABEL [DRAWN]
   expect "enabling vgs.jarvis $1 is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
   expect_poll "the Jarvis daemon answers hello $1" ready jarvis_started
   for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
@@ -2923,7 +2930,7 @@ jarvis_voice_page() { # LABEL
   expect "the window opens the Jarvis page $1" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
   expect_poll "the Jarvis page is shown $1" '"vgs.jarvis"' settings_page
   page_setup
-  expect_poll "the Jarvis Setup section draws its rows $1" True jarvis_setup_drawn
+  expect_poll "the Jarvis Setup section draws its rows $1" True "${2:-jarvis_setup_drawn}"
 }
 jarvis_voice_states() { # MODE
   local state="$home/.local/state/vgshell/jarvis" data="$home/.local/share/vgshell/jarvis" world="$sandbox/jarvis-world"
@@ -2983,6 +2990,613 @@ print(tier)' "$repo/shell/plugins/vgs.jarvis/artifacts.json" "$data/local" "$sta
   rm -f -- "${state:?}/local-ready.json" "${data:?}/local/scenario.json"
   cp -- "$sandbox/voice-states-local-mode" "$world/local-mode"
   cp -- "$sandbox/voice-states-local-tiers" "$world/local-tiers.json" || fail "the planted local tiers are not put back"
+  jarvis_restore_requirements
+}
+
+# The Cloned voice (VGS-1385) for the owner's sheets, posed as
+# rows/jarvis-setup.sh poses it: the clone reader answers from the world's
+# clone-status.json (scripts/fixtures/jarvis/prepare.js instruments
+# CloneRuntime.qml), so no model, recording or tier is judged. The local
+# voice is the Large tier, ready: its marker, the world's local-mode at
+# ready and setup-local's own choices for a card its pick takes as Large.
+# Each Setup tab shot is anchored at the Input step, which both trees draw
+# just before where the Cloned voice step goes, so a tree without it is
+# shot at the same place. The consent shots run the real tui/clone-voice.sh
+# under gum in a kitty, as dictation-setup does, and close it at its first
+# question, before any download. The clone setup has no launcher entry,
+# so the manager's openTui refuses it as undeclared (listedTuiRequest in
+# shell/Core/PluginLogic.js); the scene opens it as the step's button does,
+# through the manager's act on the clonedVoiceSetup row, which opens the
+# action the row offers. The clone setup's later run and Remove recording
+# run over the harness's stand-in terminal, held live (hold_runs) while
+# the reader's next answer is written, so the run's end reads it.
+clone_ships() { tree_has shell/plugins/vgs.jarvis/manifest.json '"clonedVoiceSetup"'; }
+# Whether the Setup tab draws its Input step, where each Setup tab shot is
+# anchored.
+clone_setup_drawn() { ipc smoke setupRows "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); print(t.startswith("[") and any(r["label"] == "Input" for r in json.loads(t)))'; }
+# clone_answer TONE TEXT ACTION RECORDING: setup-local clone status's
+# answer, beside a ready Large tier.
+clone_answer() {
+  python3 - "$sandbox/jarvis-world/clone-status.json" "$@" <<'PY'
+import json,os,sys
+path,tone,text,action,recording=sys.argv[1:]
+open(path+".next","w").write(json.dumps({"tone":tone,"text":text,"action":action,"recording":recording=="true","tierReady":True}))
+os.replace(path+".next",path)
+PY
+}
+# clone_large_tiers PATH: setup-local's own choices for a machine whose
+# card its pick() takes as Large (GPU_SHARE times large's GPU peak and
+# dictation's model, and RAM_SHARE times its RAM peak), with Large ready,
+# written to PATH; prints the label the Local voice field then shows.
+clone_large_tiers() {
+  python3 - "$repo/shell/plugins/vgs.jarvis" "$1" <<'PY'
+import importlib.machinery, importlib.util, json, os, sys
+from pathlib import Path
+plugin, path = Path(sys.argv[1]), sys.argv[2]
+loader = importlib.machinery.SourceFileLoader("setup_local", str(plugin / "setup-local"))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+value = module.measurement().manifest(plugin / "artifacts.json")
+answer = module.choices(value, {"gpu": 16384, "ram": 32768, "threads": 16}, "large")
+assert answer["pick"] == "large", answer["pick"]
+open(path + ".next", "w").write(json.dumps(answer))
+os.replace(path + ".next", path)
+print(answer["choices"][0]["label"])
+PY
+}
+# clone_setting true|false: the Cloned voice setting in the user's
+# shell.json, false as no entry, delivered by a reload.
+clone_setting() {
+  python3 - "$home/.config/vgshell/shell.json" "$1" <<'PY' || { fail "the Cloned voice setting is not written"; return; }
+import json,os,sys
+value=json.load(open(sys.argv[1])) if os.path.exists(sys.argv[1]) else {"version": 2}
+row=next((r for r in value.setdefault("plugins",[]) if r["id"]=="vgs.jarvis"),None)
+if row is None:
+    row={"id":"vgs.jarvis"}; value["plugins"].append(row)
+if sys.argv[2]=="true": row["clonedVoice"]=True
+else: row.pop("clonedVoice",None)
+open(sys.argv[1]+".next","w").write(json.dumps(value))
+os.replace(sys.argv[1]+".next",sys.argv[1])
+PY
+  expect "deliver the Cloned voice setting $1" ok ipc shell reloadConfig
+}
+# The Cloned voice setting the running daemon's Session holds.
+clone_daemon_setting() {
+  ipc smoke jarvisProcess | py_reply 'import json,sys
+d=json.load(sys.stdin)
+detail=d.get("status",{}).get("detail") if isinstance(d,dict) else None
+print(json.dumps(detail["state"]["settings"].get("clonedVoice", False)) if isinstance(detail,dict) else "none")'
+}
+# clone_step LABEL: the Setup tab step LABEL's chip texts.
+clone_step() {
+  ipc smoke setupRows "$settings_kind" vgs.settings | py_reply 'import json,sys
+t=sys.stdin.read(); r=json.loads(t) if t.startswith("[") else []
+v=next((x for x in r if x["label"]==sys.argv[1]),None)
+print("absent" if v is None else " / ".join(c[0] for c in v["chips"]))' "$1"
+}
+# clone_offers LABEL: whether the page shows an enabled RowAction LABEL.
+clone_offers() {
+  local box
+  box="$(ipc smoke windowGeometry "$settings_kind" vgs.settings RowAction "$1")" || return 1
+  [[ $box == \[* ]] && echo shown || echo absent
+}
+clone_world_tool="$(dirname -- "$self")/clone-world.py"
+# The world of doubles clone_steps prepares for the mode it runs in.
+clone_world=""
+clone_tui_windows() { hypr -j clients | py_reply 'import json,sys; print(sum(c["class"] == "org.vgs.tui" and c["mapped"] for c in json.load(sys.stdin)))'; }
+clone_tui_floating() { hypr -j clients | py_reply 'import json,sys; c=[c for c in json.load(sys.stdin) if c["class"] == "org.vgs.tui" and c["mapped"]]; print(str(len(c)==1 and c[0]["floating"]).lower())'; }
+clone_asking() { [[ -e $sandbox/clone-voice-confirm ]] && echo asking || echo waiting; }
+# How many gum confirms the clone setup has asked in this run.
+clone_confirms() { if [[ -f $sandbox/clone-voice-confirms ]]; then wc -l <"$sandbox/clone-voice-confirms" | tr -d ' '; else echo 0; fi; }
+# The mapped floating terminal's whole hyprctl client entry.
+clone_tui_client() { hypr -j clients | py_reply 'import json,sys; c=[c for c in json.load(sys.stdin) if c["class"] == "org.vgs.tui" and c["mapped"]]; print(json.dumps(c[0]) if len(c)==1 else "windows=%d" % len(c))'; }
+clone_tui_address() { clone_tui_client | py_reply 'import json,sys; t=sys.stdin.read(); print(json.loads(t)["address"] if t.startswith("{") else "none")'; }
+clone_tui_fullscreen() { clone_tui_client | py_reply 'import json,sys; t=sys.stdin.read(); print(json.loads(t)["fullscreen"] if t.startswith("{") else "none")'; }
+# The Settings window's address, then the x that puts it at the output's
+# right edge, a gutter in.
+clone_settings_place() {
+  python3 - "$shell_class" "$(hypr -j clients)" "$(hypr -j monitors)" <<'PY'
+import json,sys
+shell,clients,monitors=sys.argv[1],json.loads(sys.argv[2]),json.loads(sys.argv[3])
+s=[c for c in clients if c["mapped"] and c["class"]==shell and c.get("title")=="Plugins"]
+if len(s)!=1 or not monitors:
+    print("none 0"); raise SystemExit
+print(s[0]["address"], monitors[0]["width"]-s[0]["size"][0]-16)
+PY
+}
+# true once the consent terminal and the Settings window do not overlap.
+clone_consent_apart() {
+  hypr -j clients | py_reply 'import json,sys
+clients=json.load(sys.stdin)
+tui=[c for c in clients if c["class"]=="org.vgs.tui" and c["mapped"]]
+settings=[c for c in clients if c["mapped"] and c["class"]==sys.argv[1] and c.get("title")=="Plugins"]
+if len(tui)!=1 or len(settings)!=1:
+    print("windows"); raise SystemExit
+t,s=tui[0]["at"]+tui[0]["size"],settings[0]["at"]+settings[0]["size"]
+print(str(t[0]+t[2]<=s[0] or s[0]+s[2]<=t[0] or t[1]+t[3]<=s[1] or s[1]+s[3]<=t[1]).lower())' "$shell_class"
+}
+# The consent terminal at the output's left and the Settings window at its
+# right, so a consent shot shows both. A tree from before VGS-1474 lets
+# kitty's remembered maximize through as fullscreen 1, which refuses a
+# move, so the terminal's fullscreen state is set to none first.
+clone_arrange_consent() { # LABEL
+  local tui settings x
+  tui="$(clone_tui_address)"
+  read -r settings x < <(clone_settings_place)
+  [[ $tui == 0x* && $settings == 0x* && $x =~ ^[0-9]+$ ]] || { fail "clone-voice: the consent windows are unreadable $1"; return 1; }
+  expect "the clone setup terminal leaves fullscreen $1" ok hypr dispatch "hl.dsp.window.fullscreen_state({ internal = 0, client = 0, window = \"address:$tui\" })"
+  expect_poll "the clone setup terminal is not fullscreen $1" 0 clone_tui_fullscreen
+  expect "the clone setup terminal is sized beside Settings $1" ok hypr dispatch "hl.dsp.window.resize({ x = 820, y = 814, relative = false, window = \"address:$tui\" })"
+  expect "the clone setup terminal moves left of Settings $1" ok hypr dispatch "hl.dsp.window.move({ x = 16, y = 74, relative = false, window = \"address:$tui\" })"
+  expect "the Settings window moves right of the clone setup $1" ok hypr dispatch "hl.dsp.window.move({ x = $x, y = 40, relative = false, window = \"address:$settings\" })"
+  expect_poll "the consent terminal does not cover Settings $1" true clone_consent_apart
+}
+# clone_box tui|settings: that window's [x, y, w, h] in logical pixels,
+# as hyprctl places it, its border outside.
+clone_box() {
+  if [[ $1 == tui ]]; then
+    clone_tui_client | py_reply 'import json,sys; t=sys.stdin.read(); print(json.dumps(json.loads(t)["at"] + json.loads(t)["size"]) if t.startswith("{") else t.strip())'
+  else
+    window_of Plugins at size | py_reply 'import json,sys; t=sys.stdin.read(); v=json.loads(t) if t.startswith("[") else None; print(json.dumps(v[0] + v[1]) if v else t.strip())'
+  fi
+}
+# clone_record NAME KIND [PAGE_KIND]: shot NAME's crop in items.tsv, the
+# box of window KIND, and with PAGE_KIND the box of that window as
+# NAME@page.
+clone_record() {
+  record_item "$1" "$(clone_box "$2")"
+  [[ $# -lt 3 ]] || record_item "$1@page" "$(clone_box "$3")"
+}
+clone_anchor_shot() { # NAME TYPE TEXT
+  jarvis_anchor_shot "$@"
+  clone_record "$1" settings
+}
+clone_tui_shot() { # NAME
+  park_pointer
+  take_posed "$1"
+  clone_record "$1" tui
+}
+# One line per open of the clone setup's terminal, for the window size
+# readings: the terminal's hyprctl client entry, the shell windows', the
+# outputs, the floating TUI rule the shell's Hyprland layer wrote to
+# vgs.lua (tuiWindowLines in shell/Core/HyprlandLayer.js) and what kitty
+# keeps in its cache, whose remember_window_size the scene's kitty.conf
+# leaves at kitty's default.
+clone_window_log() { # MODE LABEL
+  local client windows monitors rule cache
+  client="$(clone_tui_client)" || client=unread
+  windows="$(hypr -j clients | py_reply 'import json,sys; print(json.dumps([{k: c.get(k) for k in ("class","title","at","size","floating","fullscreen","pseudo")} for c in json.load(sys.stdin) if c["mapped"] and c["class"] == sys.argv[1]]))' "$shell_class")" || windows=unread
+  monitors="$(hypr -j monitors | py_reply 'import json,sys; print(json.dumps([{k: m.get(k) for k in ("name","width","height","scale","x","y","reserved","transform")} for m in json.load(sys.stdin)]))')" || monitors=unread
+  rule="$(grep -F -- 'name = "vgs:tui"' "$home/.local/state/vgshell/hypr/vgs.lua" 2>/dev/null)" || rule=unread
+  cache="$(find "$home/.cache/kitty" -type f -printf '%P=%s ' 2>/dev/null)" || cache=unread
+  [[ -n $cache ]] || cache=none
+  printf 'clone-voice-window: mode=%s open=%s client=%s shell-windows=%s monitors=%s tui-rule=%s kitty-cache=%s\n' \
+    "$1" "${2// /-}" "$client" "$windows" "$monitors" "$rule" "$cache"
+}
+# live while the terminal's kitty runs tui/clone-voice.sh below it, waiting
+# while that script runs no program for half a second, as at
+# vgs_tui_cancelled's closing key (bin/lib/tui.sh), ended once the script
+# has ended and present waits for its closing key.
+clone_script_state() {
+  local pid
+  pid="$(clone_tui_client | py_reply 'import json,sys; t=sys.stdin.read(); print(json.loads(t)["pid"] if t.startswith("{") else "none")')"
+  [[ $pid =~ ^[0-9]+$ ]] || { echo no-window; return; }
+  python3 - "$pid" <<'PY'
+import os, sys, time
+def tree():
+    children = {}
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entry}/stat") as stat:
+                parent = int(stat.read().rsplit(")", 1)[1].split()[1])
+            with open(f"/proc/{entry}/cmdline", "rb") as cmdline:
+                words = cmdline.read().split(b"\0")
+        except OSError:
+            continue
+        children.setdefault(parent, []).append((int(entry), words))
+    return children
+def scripts(children):
+    pending, found = [int(sys.argv[1])], []
+    while pending:
+        for pid, words in children.get(pending.pop(), []):
+            clean = [word for word in words if word]
+            head = os.path.basename(clean[0]) if clean else b""
+            if head in (b"bash", b"sh") and len(clean) > 1 and clean[1].endswith(b"tui/clone-voice.sh"):
+                found.append(pid)
+            pending.append(pid)
+    return found
+children = tree()
+live = scripts(children)
+if not live:
+    print("ended")
+    raise SystemExit
+if any(children.get(pid) for pid in live):
+    print("live")
+    raise SystemExit
+time.sleep(0.5)
+children = tree()
+print("waiting" if scripts(children) == live and not any(children.get(pid) for pid in live) else "live")
+PY
+}
+clone_curl_held() { [[ -e $clone_world/curl-held ]] && echo held || echo waiting; }
+clone_record_held() { [[ -e $clone_world/record-held ]] && echo held || echo waiting; }
+clone_world_marker() { [[ -f $clone_world/state/vgshell/jarvis/clone-ready.json ]] && echo ready || echo absent; }
+# Whether the tree's clone setup waits for a key after No (VGS-1475).
+clone_holds_cancel() { grep -qF -- 'vgs_tui_cancelled' "$repo/shell/plugins/vgs.jarvis/tui/clone-voice.sh"; }
+clone_refuses_before_consent() { grep -qF -- 'clone check' "$repo/shell/plugins/vgs.jarvis/tui/clone-voice.sh"; }
+active_class() { active_window | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps(v[0]) if v else "none")'; }
+clone_prepare_world() { # MODE
+  clone_world="$sandbox/clone-world-$1"
+  if [[ ! -d $clone_world ]]; then
+    if ! python3 "$clone_world_tool" prepare "$clone_world" "$repo/shell/plugins/vgs.jarvis"; then
+      fail "clone-voice: the clone setup's world of doubles is not prepared"
+      return 1
+    fi
+  fi
+  if [[ -f $home/.local/state/vgshell/theme/gum.env ]]; then
+    mkdir -p -- "$clone_world/state/vgshell/theme" && cp -- "$home/.local/state/vgshell/theme/gum.env" "$clone_world/state/vgshell/theme/gum.env" ||
+      fail "clone-voice: gum's theme is not copied to the world"
+  fi
+}
+# clone_key LABEL WTYPE_ARGS...: keys typed into the floating terminal once
+# it holds the keyboard.
+clone_key() {
+  local label="$1" address
+  shift
+  address="$(clone_tui_address)"
+  [[ $address == 0x* ]] || { fail "clone-voice: no terminal to type $label into"; return 1; }
+  expect "the terminal is focused for $label" ok hypr dispatch "hl.dsp.focus({ window = \"address:$address\" })"
+  expect_poll "the terminal holds the keyboard for $label" '"org.vgs.tui"' active_class
+  type_keys "$@" || { fail "clone-voice: typing $label failed"; return 1; }
+}
+# The Jarvis page shown again on the Setup tab, its daemon still running.
+clone_page_show() { # LABEL
+  expect "the Settings window opens $1" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings window maps $1" 1 settings_count
+  expect "the window opens the Jarvis page $1" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
+  expect_poll "the Jarvis page is shown $1" '"vgs.jarvis"' settings_page
+  page_setup
+  expect_poll "the Jarvis Setup tab draws its Input step $1" True clone_setup_drawn
+}
+clone_settings_tab() { # LABEL
+  settings_tab_click Settings || fail "the click on the Settings tab failed $1"
+  expect_poll "the Jarvis page shows Settings $1" 0 settings_tab
+}
+# The clone setup's requirements the shell does not find, stood in by
+# programs no run reaches: the consent shots stop at gum's first question,
+# and the step runs find the world's doubles first on their PATH.
+clone_tui_standins=()
+clone_tui_requirements() {
+  local commands command
+  clone_tui_standins=()
+  commands="$(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))["tui"]["clone-voice"]["requires"]))' "$repo/shell/plugins/vgs.jarvis/manifest.json")" || return 1
+  while IFS= read -r command; do
+    [[ $(shell_resolves "$command") == none ]] || continue
+    printf '#!/bin/sh\nexit 99\n' >"$shim/$command" && chmod 755 "$shim/$command" || return 1
+    clone_tui_standins+=("$command")
+  done <<<"$commands"
+}
+# The real clone setup in a kitty themed as the shell, gum's confirm
+# marking each question, as dictation-setup does for Voice's setup. While
+# $sandbox/clone-voice-steps names a world (clone-world.py prepare), a run
+# is a step run: the terminal stand-in hands present a copy of the
+# snapshot whose artifacts.json points at that world's synthetic downloads
+# and runs it with the world's doubles first on PATH and its state and data
+# roots, so the script's own setup-local runs every step and reaches no
+# network, model, microphone or the daemon's roots.
+clone_terminal_on() { # KITTY GUM
+  local bg fg theme_name
+  # Only gum is applied: terminal reload targets can signal host terminals.
+  cp -RT -- "$checkout/themes/targets/gum" "$repo/themes/targets/gum" || { fail "clone-voice: gum's theme target is not copied"; return 1; }
+  theme_name="$(ipc smoke themeName)" || { fail "clone-voice: the theme is unreadable"; return 1; }
+  if [[ $theme_name != vgs ]]; then
+    mkdir -p -- "$home/.config/vgshell/themes/$theme_name"
+    cp -- "$theme_file" "$home/.config/vgshell/themes/$theme_name/theme.json"
+  fi
+  sandbox_vgshell theme apply "$theme_name" >/dev/null || { fail "clone-voice: gum's theme did not apply"; return 1; }
+  bg="$(ipc smoke themeValue color.background)" fg="$(ipc smoke themeValue color.text)"
+  python3 - "$bg" "$fg" "$sandbox/clone-voice-kitty.conf" <<'PY' || { fail "clone-voice: terminal colours are unreadable"; return 1; }
+import json,sys
+background,foreground=("#"+json.loads(v)[-6:] for v in sys.argv[1:3])
+with open(sys.argv[3],"w") as out:
+    out.write(f"background {background}\nforeground {foreground}\nconfirm_os_window_close 0\nshell_integration disabled\nenable_audio_bell no\n")
+PY
+  {
+    printf '#!/usr/bin/env bash\nset -euo pipefail\n'
+    printf 'marker=%q confirms=%q gum=%q\n' "$sandbox/clone-voice-confirm" "$sandbox/clone-voice-confirms" "$2"
+    printf '[[ ${1:-} != confirm ]] || { : >"$marker"; printf "%%s\\n" "${*: -1}" >>"$confirms"; }\nexec "$gum" "$@"\n'
+  } >"$shim/gum" && chmod 755 "$shim/gum" || { fail "clone-voice: the gum wrapper is not written"; return 1; }
+  {
+    printf '#!/usr/bin/env bash\nset -euo pipefail\n'
+    printf 'kitty=%q config=%q presenter=%q key=%q script=%q steps=%q tool=%q\n' "$1" "$sandbox/clone-voice-kitty.conf" "$tui_self" vgs.jarvis/clone-voice \
+      "$repo/shell/plugins/vgs.jarvis/tui/clone-voice.sh" "$sandbox/clone-voice-steps" "$clone_world_tool"
+    cat <<'EOF'
+app_id="" title=""
+while [[ $# -gt 0 && $1 != -- ]]; do
+  case "$1" in --app-id=*) app_id="${1#*=}" ;; --title=*) title="${1#*=}" ;; *) exit 70 ;; esac
+  shift
+done
+[[ $# -gt 0 ]] || exit 70
+shift
+[[ ${1:-} == "$presenter" && ${2:-} == present ]] || exit 70
+run=("$@") plugin="" dir="" record=""
+shift 2
+while [[ $# -ge 2 && $1 != -- ]]; do
+  case "$1" in --plugin) plugin="$2" ;; --dir) dir="$2" ;; --record) record="$2" ;; esac
+  shift 2
+done
+[[ ${1:-} == -- && $record == "$key" ]] || exit 70
+shift
+# Only the clone setup's own script runs, from the core's private copy.
+[[ $# -eq 1 && $1 == tui/clone-voice.sh && $plugin == vgs.jarvis && $dir == /* && -f $dir/tui/clone-voice.sh && ! -L $dir/tui/clone-voice.sh ]] || exit 70
+cmp -s -- "$script" "$dir/tui/clone-voice.sh" || exit 70
+if [[ -f $steps ]]; then
+  world="$(<"$steps")"
+  copy="$world/snapshot-$$"
+  python3 "$tool" snapshot "$world" "$dir" "$copy" || exit 70
+  for i in "${!run[@]}"; do
+    [[ ${run[i]} == -- ]] && break
+    [[ ${run[i]} != --dir ]] || run[i + 1]="$copy"
+  done
+  # The installer doubles read their world from UV_CACHE_DIR's parent.
+  export PATH="$world/hold:$world/bin:$PATH" XDG_STATE_HOME="$world/state" XDG_DATA_HOME="$world/data" \
+    UV_CACHE_DIR="$world/data/vgshell/jarvis/local/cache"
+fi
+# kitty's documented --class retains the core's floating size class.
+# https://sw.kovidgoyal.net/kitty/invocation/
+exec "$kitty" --config "$config" --class "$app_id" --title "$title" "${run[@]}"
+EOF
+  } >"$tui_terminal" && chmod 755 "$tui_terminal" || { fail "clone-voice: the kitty terminal is not written"; return 1; }
+}
+# The clone setup's terminal asking its first consent question, floating.
+clone_consent_shown() { # LABEL
+  expect_poll "the clone setup asks its first consent question $1" asking clone_asking
+  expect_poll "the clone setup's floating terminal maps $1" 1 clone_tui_windows
+  expect "the clone setup's terminal floats $1" true clone_tui_floating
+}
+# The clone setup's terminal closed by the compositor.
+clone_tui_close() { # LABEL
+  local address
+  address="$(clone_tui_address)"
+  [[ $address == 0x* ]] || { fail "clone-voice: the floating terminal is unreadable $1"; return; }
+  expect "the clone setup's terminal closes $1" ok hypr dispatch "hl.dsp.window.close({ window = \"address:$address\" })"
+  expect_poll "the core sees the closed clone setup run $1" idle key_idle vgs.jarvis/clone-voice
+  expect_poll "no floating terminal is left $1" 0 clone_tui_windows
+}
+# A step run of the clone setup, opened as the step's button opens it.
+clone_step_open() { # MODE LABEL
+  rm -f -- "${sandbox:?}/clone-voice-confirm" "${sandbox:?}/clone-voice-confirms"
+  expect "the clone setup opens $2" ok settings_act vgs.jarvis clonedVoiceSetup
+  clone_consent_shown "$2"
+  clone_window_log "$1" "$2"
+}
+clone_failure_open() { # MODE LABEL
+  rm -f -- "${sandbox:?}/clone-voice-confirm" "${sandbox:?}/clone-voice-confirms"
+  expect "the clone setup opens $2" ok settings_act vgs.jarvis clonedVoiceSetup
+  expect_poll "the clone setup's floating terminal maps $2" 1 clone_tui_windows
+  expect "the clone setup's terminal floats $2" true clone_tui_floating
+  clone_window_log "$1" "$2"
+}
+# The clone setup's terminal at each step after the first question, over
+# the world clone-world.py prepares for MODE: No at the first question;
+# Yes twice without the Large tier, setup-local's refusal; then Yes to
+# each question with the model download held at its first file, the
+# recording question, and the end once setup-local published its marker.
+clone_steps() { # MODE
+  local mode="$1" marker precheck
+  clone_prepare_world "$mode" || return
+  marker="$clone_world/state/vgshell/jarvis/local-ready.json"
+  precheck=false
+  clone_refuses_before_consent && precheck=true
+  printf '%s\n' "$clone_world" >"$sandbox/clone-voice-steps"
+  clone_step_open "$mode" "for the No answer"
+  clone_key "No" n
+  if clone_holds_cancel; then
+    expect_poll "the clone setup waits for its closing key after No" waiting clone_script_state
+    clone_tui_shot "clone-voice-$mode-tui-declined"
+    clone_key "the closing key after No" -k Return
+    expect_poll "the core sees the closed clone setup run after No" idle key_idle vgs.jarvis/clone-voice
+    expect_poll "no floating terminal is left after No" 0 clone_tui_windows
+  else
+    expect_poll "the clone setup ends after No" ended clone_script_state
+    if [[ $(clone_tui_windows) == 1 ]]; then
+      clone_tui_shot "clone-voice-$mode-tui-declined"
+      clone_tui_close "after No"
+    else
+      printf 'clone-voice: declined-window=closed mode=%s\n' "$mode"
+      park_pointer
+      take_posed "clone-voice-$mode-tui-declined"
+      expect_poll "no floating terminal is left after No" 0 clone_tui_windows
+    fi
+  fi
+  mv -T -- "$marker" "$marker.aside" || fail "clone-voice: the world's Large tier marker is not set aside"
+  if "$precheck"; then
+    clone_failure_open "$mode" "without the Large tier"
+    expect_poll "the clone setup asks no consent without the Large tier" 0 clone_confirms
+  else
+    clone_step_open "$mode" "without the Large tier"
+    clone_key "Yes to the use text without the Large tier" -k Return
+    expect_poll "the clone setup asks whose voice it is without the Large tier" 2 clone_confirms
+    clone_key "Yes to whose voice without the Large tier" -k Return
+  fi
+  expect_poll "the clone setup ends without the Large tier" ended clone_script_state
+  clone_tui_shot "clone-voice-$mode-tui-failed"
+  clone_tui_close "without the Large tier"
+  mv -T -- "$marker.aside" "$marker" || fail "clone-voice: the world's Large tier marker is not put back"
+  clone_step_open "$mode" "for its steps"
+  clone_key "Yes to the use text" -k Return
+  expect_poll "the clone setup asks whose voice it is" 2 clone_confirms
+  clone_tui_shot "clone-voice-$mode-tui-permission"
+  : >"$clone_world/hold-curl"
+  clone_key "Yes to whose voice" -k Return
+  expect_poll "the clone setup's model download is held" held clone_curl_held
+  clone_tui_shot "clone-voice-$mode-tui-busy"
+  rm -f -- "${clone_world:?}/hold-curl"
+  expect_poll "the clone setup asks to start recording" 3 clone_confirms
+  clone_tui_shot "clone-voice-$mode-tui-recording-ready"
+  : >"$clone_world/hold-record"
+  clone_key "Start recording" -k Return
+  expect_poll "the clone setup's recording is held" held clone_record_held
+  clone_tui_shot "clone-voice-$mode-tui-recording"
+  rm -f -- "${clone_world:?}/hold-record"
+  expect_poll "the clone setup ends after its recording" ended clone_script_state
+  expect_poll "setup-local published the clone marker in the world" ready clone_world_marker
+  clone_tui_shot "clone-voice-$mode-tui-finished"
+  clone_tui_close "after the finished setup"
+  rm -f -- "${sandbox:?}/clone-voice-steps"
+}
+# Whether box A, [x, y, w, h], holds box B.
+clone_box_holds() { python3 -c 'import json,sys; a,b=(json.loads(v) for v in sys.argv[1:3]); print(str(a[0]<=b[0] and a[1]<=b[1] and a[0]+a[2]>=b[0]+b[2] and a[1]+a[3]>=b[1]+b[3]).lower())' "$1" "$2" 2>/dev/null || echo unread; }
+scene_clone-voice() { # MODE
+  local mode="$1" state="$home/.local/state/vgshell/jarvis" data="$home/.local/share/vgshell/jarvis" world="$sandbox/jarvis-world"
+  local auto step setup_label remove_label kitty_bin gum_bin command covered
+  jarvis_setup_requirements || fail "the Jarvis requirement stand-ins are not written"
+  mkdir -p -- "$state" "$data/local/venv/bin"
+  cp -- "$checkout/scripts/fixtures/jarvis-local-speech/standin.py" "$data/local/venv/bin/python"
+  chmod 700 -- "$data/local/venv/bin/python"
+  python3 -c 'import json,os,sys
+assert "large" in json.load(open(sys.argv[1]))["tiers"]
+open(sys.argv[3],"w").write(json.dumps({"tier": "large", "data": os.path.realpath(sys.argv[2])}))
+open(os.path.join(sys.argv[2],"scenario.json"),"w").write(json.dumps({"start": "ready"}))' "$repo/shell/plugins/vgs.jarvis/artifacts.json" "$data/local" "$state/local-ready.json" ||
+    fail "the Large local voice marker is not written"
+  cp -- "$world/local-mode" "$sandbox/clone-voice-local-mode" 2>/dev/null || printf 'absent\n' >"$sandbox/clone-voice-local-mode"
+  cp -- "$world/local-tiers.json" "$sandbox/clone-voice-local-tiers" || fail "the planted local tiers are not saved"
+  printf 'ready\n' >"$world/local-mode"
+  auto="$(clone_large_tiers "$world/local-tiers.json")" || fail "setup-local's Large choices are not read"
+  if clone_ships; then
+    cp -- "$world/clone-status.json" "$sandbox/clone-voice-status" || fail "the planted clone status is not saved"
+    clone_answer info "Not set up" setup false || fail "the clone status answer is not written"
+    # The manager opens the clone setup only while the scan finds its
+    # requirements, so its runs reach the terminal and raise no notice.
+    clone_tui_requirements || fail "the clone setup's requirement stand-ins are not written"
+  fi
+  tree_rescan "the clone voice stand-ins are scanned"
+  ! clone_ships || voice_setup_launcher_ready
+  ! clone_ships || clone_setting false
+  jarvis_voice_page "beside a ready Large local voice" clone_setup_drawn
+  if ! clone_ships; then
+    # A tree from before the Cloned voice: its Local voice section and
+    # Setup tab at the same places.
+    clone_settings_tab "before the Cloned voice"
+    expect_poll "the Local voice field reads the Large pick" false jarvis_tier_list_open "$auto"
+    clone_anchor_shot "clone-voice-$mode-before-settings" SectionHeader "Local voice"
+    page_setup
+    expect_poll "the Jarvis Setup tab draws its Input step before the Cloned voice" True clone_setup_drawn
+    clone_anchor_shot "clone-voice-$mode-before-setup" Field Input
+  else
+    { read -r step && read -r setup_label && read -r remove_label; } < <(python3 -c 'import json,sys
+row=json.load(open(sys.argv[1]))["status"]["clonedVoiceSetup"]
+print(row["label"]); print(row["actions"]["setup"]["label"]); print(row["actions"]["remove"]["label"])' "$repo/shell/plugins/vgs.jarvis/manifest.json") ||
+      fail "the manifest names no Cloned voice step, Set up or Remove action"
+    # off: no recording, the setting off.
+    expect_poll "the Cloned voice step reads Not set up" "Not set up" clone_step "$step"
+    expect_poll "the Cloned voice step offers $setup_label" shown clone_offers "$setup_label"
+    clone_anchor_shot "clone-voice-$mode-off-setup" Field Input
+    clone_settings_tab "with the Cloned voice off"
+    expect_poll "the daemon holds the Cloned voice off" false clone_daemon_setting
+    expect_poll "the Local voice field reads the Large pick" false jarvis_tier_list_open "$auto"
+    clone_anchor_shot "clone-voice-$mode-off-settings" SectionHeader "Local voice"
+    # consent: the real clone setup at its first question, over the
+    # Settings tab, then opened by the step's button over the Setup tab,
+    # each moved beside the Settings window (clone_arrange_consent),
+    # then alone once the Settings window closes; then its later steps.
+    if kitty_bin="$(command -v kitty)" && gum_bin="$(command -v gum)"; then
+      if clone_terminal_on "$kitty_bin" "$gum_bin"; then
+        clone_prepare_world "$mode" || return
+        printf '%s\n' "$clone_world" >"$sandbox/clone-voice-steps"
+        rm -f -- "${sandbox:?}/clone-voice-confirm" "${sandbox:?}/clone-voice-confirms"
+        expect "the clone setup opens over the Settings tab" ok settings_act vgs.jarvis clonedVoiceSetup
+        clone_consent_shown "over the Settings tab"
+        clone_arrange_consent "over the Settings tab"
+        if [[ $(clone_asking) == asking && $(clone_tui_windows) == 1 ]]; then
+          clone_window_log "$mode" "settings-tab"
+          park_pointer
+          take_posed "clone-voice-$mode-consent-settings"
+          clone_record "clone-voice-$mode-consent-settings" tui settings
+          clone_tui_close "over the Settings tab"
+        fi
+        page_setup
+        rm -f -- "${sandbox:?}/clone-voice-confirm" "${sandbox:?}/clone-voice-confirms"
+        settings_press --type RowAction "$setup_label" || fail "the click on $setup_label failed"
+        clone_consent_shown "from the Setup tab"
+        clone_arrange_consent "from the Setup tab"
+        if [[ $(clone_asking) == asking && $(clone_tui_windows) == 1 ]]; then
+          clone_window_log "$mode" "setup-tab-button"
+          park_pointer
+          take_posed "clone-voice-$mode-consent-setup"
+          clone_record "clone-voice-$mode-consent-setup" tui settings
+          # A terminal that holds the whole Settings window draws the same
+          # frame once that window closes, which shot.sh refuses as stale;
+          # the sheet then crops the terminal from consent-setup.
+          covered="$(clone_box_holds "$(clone_box tui)" "$(clone_box settings)")"
+          settings_close
+          if [[ $covered == true ]]; then
+            printf 'clone-voice: consent-tui=covered mode=%s crop=clone-voice-%s-consent-setup\n' "$mode" "$mode"
+          else
+            clone_tui_shot "clone-voice-$mode-consent-tui"
+          fi
+          clone_tui_close "alone"
+        fi
+        clone_page_show "for the clone setup's steps"
+        clone_steps "$mode"
+      fi
+      rm -f -- "${shim:?}/gum" "${sandbox:?}/clone-voice-steps"
+    else
+      fail "clone-voice: kitty or gum is missing, so the consent question is not drawn"
+    fi
+    terminal_stand_in
+    if [[ $(settings_count) == 1 ]]; then page_setup; else clone_page_show "for the cloned state"; fi
+    # cloned: a clone setup run ended with the recording and its marker
+    # present, then the setting turned on.
+    hold_runs
+    forget_record
+    expect "a clone setup run opens over the stand-in terminal" ok settings_act vgs.jarvis clonedVoiceSetup
+    expect_poll "the stand-in clone setup run is live" busy key_idle vgs.jarvis/clone-voice
+    printf 'RIFF' >"$state/voice-reference.wav" && chmod 600 -- "$state/voice-reference.wav" && printf '{}\n' >"$state/clone-ready.json" ||
+      fail "the planted recording and clone marker are not written"
+    clone_answer ok Ready remove true || fail "the clone status answer is not written"
+    release_runs
+    expect_run_end "the stand-in clone setup run ends" vgs.jarvis/clone-voice
+    expect_poll "no stand-in terminal window is left after the clone setup" 0 clone_tui_windows
+    clone_setting true
+    expect_poll "the daemon holds the Cloned voice on" true clone_daemon_setting
+    expect_poll "the Cloned voice step reads Ready" Ready clone_step "$step"
+    expect_poll "the Cloned voice step offers $remove_label" shown clone_offers "$remove_label"
+    clone_anchor_shot "clone-voice-$mode-cloned-setup" Field Input
+    clone_settings_tab "with the Cloned voice on"
+    clone_anchor_shot "clone-voice-$mode-cloned-settings" SectionHeader "Local voice"
+    # removed: Remove recording's run ended; the page reports whether the
+    # runtime turned the setting off.
+    page_setup
+    hold_runs
+    forget_record
+    settings_press --type RowAction "$remove_label" || fail "the click on $remove_label failed"
+    expect_poll "the stand-in recording removal run is live" busy key_idle vgs.jarvis/clone-voice-remove
+    rm -f -- "${state:?}/voice-reference.wav" "${state:?}/clone-ready.json"
+    clone_answer info "Not set up" setup false || fail "the clone status answer is not written"
+    release_runs
+    expect_run_end "the stand-in recording removal run ends" vgs.jarvis/clone-voice-remove
+    expect_poll "no stand-in terminal window is left after the removal" 0 clone_tui_windows
+    expect_poll "the Cloned voice step reads Not set up after the removal" "Not set up" clone_step "$step"
+    expect_poll "the Cloned voice step offers $setup_label again" shown clone_offers "$setup_label"
+    clone_anchor_shot "clone-voice-$mode-removed-setup" Field Input
+    clone_settings_tab "after the removal"
+    printf 'clone-voice: removed-setting mode=%s value=%s\n' "$mode" "$(clone_daemon_setting)"
+    clone_anchor_shot "clone-voice-$mode-removed-settings" SectionHeader "Local voice"
+  fi
+  park_pointer
+  settings_close
+  expect "disabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "vgs.jarvis is gone" absent ipc smoke jarvisProcess
+  rm -f -- "${state:?}/local-ready.json" "${data:?}/local/scenario.json"
+  cp -- "$sandbox/clone-voice-local-mode" "$world/local-mode"
+  cp -- "$sandbox/clone-voice-local-tiers" "$world/local-tiers.json" || fail "the planted local tiers are not put back"
+  if clone_ships; then cp -- "$sandbox/clone-voice-status" "$world/clone-status.json" || fail "the planted clone status is not put back"; fi
+  for command in "${clone_tui_standins[@]}"; do rm -f -- "${shim:?}/$command"; done
+  clone_tui_standins=()
   jarvis_restore_requirements
 }
 
