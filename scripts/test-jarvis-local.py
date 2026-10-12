@@ -563,7 +563,7 @@ class ConsumerContract(unittest.TestCase):
 
     def test_consumer_verdict_rules(self):
         cases = [
-            ("discovery-floor", {"ids": self.ids[:-1]},
+            ("discovery-floor", {"ids": self.ids[1:]},
              'if len(ids) < 6 or "nemotron" not in ids:', 1, "artifact discovery is incomplete"),
             ("required-member", {"ids": self.ids[:-1] + ["other"]},
              'if len(ids) < 6 or "nemotron" not in ids:', 1, "artifact discovery is incomplete"),

@@ -683,8 +683,10 @@ class Setup(unittest.TestCase):
     PICKS = [
         ("this host: RTX 5090, MemTotal 129444736 kB, 32 threads", 32607, 129444736 / 1024, 32, "large"),
         ("a PX13-class laptop: no NVIDIA GPU, about 32 GB, 24 threads", None, 32000000 / 1024, 24, "small"),
-        ("a 3 GiB GPU is not large", 3072, 129444736 / 1024, 32, "medium"),
-        ("a GPU of twice large's sampled peak is large", 3796, 129444736 / 1024, 32, "large"),
+        ("a 4 GiB GPU on a PX13-class laptop is small", 4096, 32000000 / 1024, 24, "small"),
+        ("a 6 GiB GPU on a PX13-class laptop is small", 6144, 32000000 / 1024, 24, "small"),
+        ("a GPU of twice large's sampled peak and dictation's model is large", 11504, 129444736 / 1024, 32, "large"),
+        ("a GPU one MiB below that is not large", 11503, 129444736 / 1024, 32, "medium"),
         ("a large GPU on 24 threads is large", 32607, 129444736 / 1024, 24, "large"),
         ("a large GPU with 16 GiB of RAM is medium", 32607, 16384, 32, "medium"),
         ("128 GB, 32 threads and no GPU is medium", None, 131072, 32, "medium"),
@@ -701,7 +703,8 @@ class Setup(unittest.TestCase):
         # Each control keeps the rule's text and drops one input from it.
         original = (self.plugin / "setup-local").read_text()
         for name, needle, replacement in (
-                ("GPU memory", 'reading["gpu"] is not None and reading["gpu"] >= GPU_SHARE * NEED["large"]["gpu"]', 'reading["gpu"] is not None'),
+                ("GPU memory", 'reading["gpu"] is not None and reading["gpu"] >= GPU_SHARE * (NEED["large"]["gpu"] + DICTATION_GPU)', 'reading["gpu"] is not None'),
+                ("dictation's model", '(NEED["large"]["gpu"] + DICTATION_GPU)', 'NEED["large"]["gpu"]'),
                 ("RAM for large", '\n            and reading["ram"] >= RAM_SHARE * NEED["large"]["ram"]):', "):"),
                 ("RAM for medium", 'if (reading["ram"] >= RAM_SHARE * NEED["medium"]["ram"]\n            and ', "if ("),
                 ("threads", '\n            and reading["threads"] is not None and reading["threads"] >= MEDIUM_THREADS):', "):")):

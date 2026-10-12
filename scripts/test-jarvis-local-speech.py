@@ -536,6 +536,13 @@ def roles_case(m):
             raise
     else:
         raise AssertionError("two voices accepted")
+    try:
+        m.roles([by_id[n] for n in value["tiers"]["small"]["artifacts"] if n != "wake"], "small")
+    except RuntimeError as error:
+        if str(error) != "tier=missing-role tier=small":
+            raise
+    else:
+        raise AssertionError("a tier without its wake model accepted")
     # A copy of the manifest with a final recognizer back in a tier: the
     # sidecar would never load it, so the tier is refused.
     changed = json.loads(json.dumps(value))
@@ -616,6 +623,7 @@ CONTROLS = [
     ("setup lock", "fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)", "fcntl.flock(lock, fcntl.LOCK_UN)",
      readiness_cases),
     ("one role each", "if role in found:", "if False:", roles_case),
+    ("every role", "if set(found) != set(ROLES.values()):", "if False:", roles_case),
     ("wake role", '"smart-turn": "turn", "wake": "wake"}', '"smart-turn": "turn"}', roles_case),
     ("unknown engine refused", 'raise RuntimeError(f"tier=unknown-role engine={artifact[\'engine\']} tier={tier}")', "continue",
      roles_case),

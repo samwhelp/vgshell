@@ -40,8 +40,15 @@ NEED = {"small": {"ram": 1289.95}, "medium": {"ram": 1680.33}, "large": {"ram": 
 # the browser and the AI app.
 RAM_SHARE = 8
 # The sampled GPU peak is a lower bound, the CUDA context kept 546 MiB after
-# unload in that run, and the desktop shares the card.
+# unload in that run, and the desktop shares the card. The share covers
+# dictation's model too: the local voice needs its recording, and the card
+# holds both at once.
 GPU_SHARE = 2
+# Dictation's Parakeet, resident on the card while voxtype runs
+# (config/voxtype/config.toml on_demand_loading = false), in MiB:
+# voxtype-onnx-cuda-13 in nvidia-smi --query-compute-apps on host cachy on
+# 2026-10-12 for VGS-1235, beside the loaded large-tier sidecar.
+DICTATION_GPU = 3854
 # medium's turn time was measured only on a 32-thread machine; no reading
 # proves it on fewer.
 MEDIUM_THREADS = 32
@@ -123,11 +130,11 @@ def machine(judge, data):
 def pick(reading):
     """The tier READING runs best.
 
-    large needs a GPU with GPU_SHARE times its sampled peak, medium a
-    MEDIUM_THREADS machine, and each a RAM_SHARE share of RAM for its peak;
-    small is the floor.
+    large needs a GPU with GPU_SHARE times its sampled peak and dictation's
+    model, medium a MEDIUM_THREADS machine, and each a RAM_SHARE share of
+    RAM for its peak; small is the floor.
     """
-    if (reading["gpu"] is not None and reading["gpu"] >= GPU_SHARE * NEED["large"]["gpu"]
+    if (reading["gpu"] is not None and reading["gpu"] >= GPU_SHARE * (NEED["large"]["gpu"] + DICTATION_GPU)
             and reading["ram"] >= RAM_SHARE * NEED["large"]["ram"]):
         return "large"
     if (reading["ram"] >= RAM_SHARE * NEED["medium"]["ram"]
