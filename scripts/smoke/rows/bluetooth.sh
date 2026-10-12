@@ -199,8 +199,8 @@ bt_field_kept() {
   echo kept
 }
 bt_service_action() { ipc smoke readInstance window "${bt_id:-vgs.bluetooth}" serviceAction | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
-bt_status_rows() { ipc shell listPlugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin)["plugins"] if p["id"]==sys.argv[1]][0]; print(json.dumps(p["status"]))' "${bt_id:-vgs.bluetooth}"; }
-bt_status_action() { bt_status_rows | py_reply 'import json,sys; rows={r["key"]: r for r in json.load(sys.stdin)}; print(json.dumps(rows[sys.argv[1]]["action"]))' "$1"; }
+# bt_status KEY: the status value the service published under KEY.
+bt_status() { ipc smoke statusValues "${bt_id:-vgs.bluetooth}" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get(sys.argv[1])))' "$1"; }
 bt_window_closed() { [[ $(window_count "System Settings") == 0 ]] && echo closed || echo open; }
 # The transcript of an agent that registers, takes the default role, then
 # prints PROMPT and runs the steps of REST, a JSON list's inside, before
@@ -471,8 +471,8 @@ PY
   bt_id=acme.bluetooth-bare
   expect_poll "with no adapter and the service stopped, the service reads service-needed" service-needed bt_view
   expect "the stopped service's line" "The Bluetooth service is off." bt_view text
-  expect_poll "the power reading publishes no action" null bt_status_action power
-  expect_poll "the service setup step offers Turn on" '{"label": "Turn on the service", "tone": "", "offered": true, "tui": ""}' bt_status_action service
+  expect_poll "the power reading publishes no action" '{"tone": "warning", "text": "The Bluetooth service is off."}' bt_status power
+  expect_poll "the service setup step is open and offers its action" '{"tone": "warning", "text": "Off", "action": true}' bt_status service
   expect "the bare copy's section summons" ok ipc shell summon window vgs.system '{"pane":"acme.bluetooth-bare"}'
   expect_poll "the bare copy's section mounts" '["acme.bluetooth-bare"]' window_panes
   expect_poll "the section offers the service status row's action" '{"label": "Turn on the service"}' bt_service_action

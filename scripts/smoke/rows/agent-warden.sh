@@ -358,6 +358,8 @@ info_close_click Control || fail "the click on the control info dialog's Close b
 expect "control: an info dialog whose Close action is removed stays open" true ipc smoke popupRead info-control opened
 expect "the info dialog close control is released" ok ipc smoke popupDrop info-control
 rm -r -- "${info_control_dir:?}" || fail "removing the info dialog close control failed"
+# The Requirements section draws on the Setup tab.
+settings_setup
 expect_poll "the vsys requirement draws Present" "$(words vsys Present "Shows your agents and provides Agent Warden")" vsys_drawn
 expect "the healthy page draws no Show command anywhere" true no_show_command
 expect "the healthy page draws no Install all missing" 0 install_drawn
