@@ -111,6 +111,15 @@ Scope {
         binding.objectName = "";
         binding.destroy();
     }
+    function windowDrawnEntry(win) {
+        let entry = root.drawnWindows.find(row => row[0] === win);
+        if (entry === undefined) {
+            entry = [win, "", 0];
+            root.drawnWindows = root.drawnWindows.concat([entry]);
+            win.frameSwapped.connect(() => { entry[1] = win.width + "x" + win.height; entry[2] += 1; });
+        }
+        return entry;
+    }
     function notificationCapturePaint(targets, name, property, value, hidden) {
         let pending = false;
         const bindings = [];
@@ -186,8 +195,9 @@ Scope {
     property var popupCopies: ({})
     // name -> how many times the SummonLayer copy of that name was dismissed.
     property var layerDismissals: ({})
-    // [window, size, frames] per window windowDrawn listens on: the size, `WxH`,
-    // of the last frame it presented, and the number of swapped frames.
+    // [window, size, frames] per window the IPC frame readers listen on:
+    // the size, `WxH`, of the last frame it presented, and the number
+    // of swapped frames.
     property var drawnWindows: []
     property var rememberedLayers: []
     // The vgs.polkit prompt over a stand-in authentication flow, for the
@@ -1847,21 +1857,12 @@ Scope {
         // a frame. A layer surface takes a press only where its presented
         // buffer reaches, so a row waits for this before it presses beside
         // a summon that has just mapped.
-        function windowDrawnEntry(win) {
-            let entry = root.drawnWindows.find(row => row[0] === win);
-            if (entry === undefined) {
-                entry = [win, "", 0];
-                root.drawnWindows = root.drawnWindows.concat([entry]);
-                win.frameSwapped.connect(() => { entry[1] = win.width + "x" + win.height; entry[2] += 1; });
-            }
-            return entry;
-        }
         function windowDrawn(hostKey: string, id: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
             const win = item.Window.window;
             if (win === null) return "no-window";
-            let entry = windowDrawnEntry(win);
+            let entry = root.windowDrawnEntry(win);
             if (entry[1] === win.width + "x" + win.height) return "drawn";
             win.update();
             return "pending";
@@ -1874,7 +1875,7 @@ Scope {
             if (item === null) return "absent";
             const win = item.Window.window;
             if (win === null) return "no-window";
-            let entry = windowDrawnEntry(win);
+            let entry = root.windowDrawnEntry(win);
             win.update();
             return entry[2].toString();
         }
