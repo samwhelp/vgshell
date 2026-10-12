@@ -1751,8 +1751,13 @@ scene_setup-tab() { # MODE
   take "setup-tab-$1-jarvis-partial"
   setup_tab_jarvis_off
   # Jarvis with its required tools stood in, a Codex folder chosen as the
-  # AI model and the local voice ready: steps done.
+  # AI model and the local voice ready: steps done. The local voice records
+  # through the core's dictation, whose daemon is the smoke's voxtype
+  # stand-in here, as in rows/jarvis-setup.sh.
   jarvis_setup_requirements || fail "the Jarvis requirement stand-ins are not written"
+  cp -- "$repo/scripts/smoke/fixtures/voxtype/voxtype" "$repo/scripts/smoke/fixtures/voxtype/wtype" "$shim/" && chmod 755 "$shim/voxtype" "$shim/wtype" ||
+    fail "the voxtype stand-ins are not written"
+  expect "the done Setup tab resolves voxtype to its stand-in" "$shim/voxtype" shell_resolves voxtype
   tree_rescan "the Jarvis requirement stand-ins are scanned"
   mkdir -p -- "$codex" "$state" "$data/local/venv/bin"
   python3 -c 'import json,sys; open(sys.argv[1],"w").write(json.dumps([{"provider": "codex", "directory": sys.argv[2], "label": "setup"}]))' "$state/accounts.json" "$codex"
@@ -1786,6 +1791,7 @@ open(sys.argv[1],"w").write(json.dumps(value))' "$config" "$brain"
   cp -- "$sandbox/setup-tab-config" "$config"
   expect "the Jarvis AI model setting is put back" ok ipc shell reloadConfig
   rm -f -- "${state:?}/accounts.json" "${state:?}/local-ready.json" "${sandbox:?}/jarvis-world/local-mode"
+  rm -f -- "${shim:?}/voxtype" "${shim:?}/wtype" "${sandbox:?}/voxtype-daemon.log" "${sandbox:?}/voxtype-follow.log"
   jarvis_restore_requirements
 }
 
