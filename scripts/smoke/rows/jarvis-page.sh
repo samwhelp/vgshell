@@ -20,7 +20,7 @@
 # daemon gets. The shell's log holds no unexpected line from these steps.
 # Two backup models added through the list's Add action sit the group
 # list's gap apart, with the hairline centred in it. A fresh profile saves
-# no Voice provider and reads Local; a saved Realtime survives a shell
+# no Voice provider and reads Local; a saved Auto survives a shell
 # restart, and with it taken out the page reads Local again.
 # No latency budget.
 # Poll once per nested IPC round trip. Only J09's process double and the
@@ -563,21 +563,20 @@ expect_poll "the System window is gone after the Sounds link" 0 window_count 'Sy
 [[ $page_system_was == True ]] && page_system_want=true || page_system_want=false
 expect "the System window's enablement is put back" ok ipc shell setPluginEnabled vgs.system "$page_system_want"
 expect_poll "vgs.system's enablement is as the row found it" "$page_system_was" plugin_enabled vgs.system
+
+# A saved Voice provider survives a shell restart. The page writes only
+# while Jarvis is on, so Auto is saved then: with the world's stored key it
+# runs the voice the rows ran before Local was the default. After the
+# restart the step takes it out and the page reads Local again.
+expect "the Settings page saves Auto as the Voice provider" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.jarvis","key":"voiceProvider","value":"auto"}'
+expect_poll "the user file holds Auto" '["auto"]' page_voice_saved
 settings_page_close vgs.jarvis
 jarvis_disable
 jarvis_notice_close
-
-# A saved Voice provider survives a shell restart. Jarvis is off, so the
-# saved Realtime starts no voice; the step takes it out after the restart
-# and the page reads Local again.
-settings_page_open vgs.jarvis
-expect "the Settings page saves Realtime as the Voice provider" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.jarvis","key":"voiceProvider","value":"realtime"}'
-expect_poll "the user file holds Realtime" '["realtime"]' page_voice_saved
-settings_page_close vgs.jarvis
 stop_shell || :
 start_shell "$repo" "$sandbox/jarvis-page-restarted.log"
 settings_page_open vgs.jarvis
-expect_poll "the saved Realtime survives a shell restart" '"realtime"' page_voice
+expect_poll "the saved Auto survives a shell restart" '"auto"' page_voice
 page_settings_drop voiceProvider
 expect "the user file holds no Voice provider again" absent page_voice_saved
 expect_poll "with nothing saved the Voice provider reads Local" '"local"' page_voice
