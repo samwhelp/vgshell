@@ -219,12 +219,18 @@ rows=[r for r in json.load(sys.stdin) if r["key"] == "copilotMemory"]
 print(json.dumps([[r["group"], r["report"], r["tone"], r["link"]["url"], r["link"]["text"] in r["hint"], r["action"]] for r in rows]))
 '; }
 expect_poll "with no Copilot account the page draws no Copilot Memory row" '[]' page_copilot
+jarvis_notice_close
 printf 'copilot\n' >"$sandbox/jarvis-world/account-mode"
 page_open accountSearch accounts "Jarvis accounts"
 expect_poll "with a Copilot account Setup shows Copilot Memory and its link to GitHub" '[["Setup", "reported", "info", "https://github.com/settings/copilot/features", true, null]]' page_copilot
 # A click on the row's link opens GitHub's page through the desktop open
 # route. `gio open` reaches the device fakes' stand-in, which records its
-# argv, so no browser starts. The hint line's box is read until two reads
+# argv, so no browser starts. The page is scrolled first so the hint line
+# lies in view, as a user scrolls to a row below the fold: Setup draws its
+# Status section and its open steps above the row. That puts the line at
+# the screen's centre, where the requirement notice that enabling Jarvis
+# raised sits and takes the pointer, so the step closes the notice before
+# it reads the accounts. The hint line's box is then read until two reads
 # 100 ms apart agree. The pointer then steps along the first line of the
 # link's words box (LinkText.linkBox), which spans the whole width when
 # the words wrap, until the link reads it.
@@ -234,7 +240,9 @@ page_link_before="$(device_calls gio | py_reply 'import json,sys; print(len(json
 device_reply gio 0 "" open https://github.com/settings/copilot/features
 page_link_opens() { device_calls gio | py_reply 'import json,sys; print(json.dumps([" ".join(c) for c in json.load(sys.stdin)[int(sys.argv[1]):]]))' "$page_link_before"; }
 page_link_click() {
-  local rect last="" box x y step steps
+  local shown rect last="" box x y step steps
+  shown="$(ipc smoke revealText window vgs.settings LinkText "$page_hint")" || return 1
+  [[ $shown =~ ^[0-9.]+$ ]] || { echo "page_link_click: no hint line to reveal: $shown" >&2; return 1; }
   for _ in $(seq 1 50); do
     rect="$(ipc smoke windowGeometry window vgs.settings LinkText "$page_hint")" || return 1
     [[ $rect == \[* && $rect == "$last" ]] && break
@@ -549,13 +557,10 @@ expect_poll "the page draws no backup model" '[]' page_backups
 # set, and a click on its link opens the Sounds page in the System window,
 # the panes holder, through the same pointer steps. The sandbox starts with
 # the System window disabled, so the step enables it and puts it back. The
-# requirement notice that enabling Jarvis raised sits at the screen's
-# centre over the revealed field and takes the pointer there, so the step
-# closes it first; it comes last so no earlier step reads the notice
-# closed.
+# Copilot Memory step closed the requirement notice, which would take the
+# pointer over the revealed field too.
 page_system_was="$(plugin_enabled vgs.system)" || fail "vgs.system's enabled state is unreadable"
 expect "enabling the System window is allowed" ok ipc shell setPluginEnabled vgs.system true
-jarvis_notice_close
 # The Microphone setting's description as the manifest gives it.
 page_hint="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["schema"]["microphone"]["description"])' "$repo/shell/plugins/vgs.jarvis/manifest.json")" ||
   fail "the Microphone description is unreadable"
