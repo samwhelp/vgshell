@@ -96,6 +96,7 @@ jarvis_follow_up_window() { # THEME
   expect_poll "the bar tooltip names the follow-up window" "Jarvis is listening for a follow-up" jarvis_follow_up_widget tooltip
   expect_poll "the bubble reads Listening during the follow-up window" drawn jarvis_follow_up_text Listening
   jarvis_follow_up_shot "$1-open"
+  expect "the follow-up window is still open after its capture" follow-up jarvis_follow_up_capture
   expect_poll "silence closes the follow-up window and returns to wake-word listening" armed jarvis_key_state phase
   expect_poll "the bar tooltip no longer names follow-up after the window" other jarvis_follow_up_tooltip_named
   expect_poll "the bubble no longer reads Listening after the follow-up window" absent jarvis_follow_up_text Listening
@@ -114,6 +115,9 @@ jarvis_follow_up_control() {
     echo "$failures"
   )"
   expect "control: removing the follow-up window fails the same capture check" 1 printf '%s\n' "$jarvis_follow_up_failures"
+  # The verdict line the harness prints: the capture went back to the wake
+  # word, not a reader that failed.
+  expect "control: the capture check reads the wake-word capture instead" 1 grep -c -x -F '  FAIL  the follow-up capture opens: got armed want follow-up' "$sandbox/jarvis-follow-up-control.log"
   jarvis_follow_up_end
   jarvis_disable
 }
