@@ -1,4 +1,4 @@
-// The provider table: wire brain drivers and the duplex voice engine. One row
+// The provider table: wire brain drivers and the cloud voices. One row
 // per provider names its driver, endpoint, key need, documented retention and
 // no-store request fields, each from its vendor's documentation. Contract:
 // docs/architecture/jarvis.md § Adapters.
@@ -61,6 +61,16 @@ const ROWS = Object.freeze({
     // Live session from being stored.
     "gemini-live": { driver: "gemini-live", base: "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
         key: "required", images: false, model: "gemini-3.8-live", noStore: null, retention: GEMINI_TERMS },
+    // The ElevenLabs voice, which speaks the released sentences of a reply:
+    // no brain runs on it. model is the one place the shell names its text
+    // to speech model, which each request body carries: eleven_flash_v2_5,
+    // the model ElevenLabs's models page documents for real-time use, read
+    // 2026-10-12. Zero retention (enable_logging=false) is for enterprise
+    // accounts only, so no request field keeps the exchange unstored.
+    elevenlabs: { driver: "elevenlabs", base: "https://api.elevenlabs.io", key: "required", images: false,
+        model: "eleven_flash_v2_5", noStore: null,
+        retention: { text: "ElevenLabs keeps request history, and may use it to improve its models unless the account turns that off under Terms and privacy, Data use.",
+            source: "https://elevenlabs.io/docs/help-center/legal/is-my-data-used-to-improve-eleven-labs-ai-models" } },
     ollama: { driver: "openai-chat", base: "http://127.0.0.1:11434/v1", key: "optional", images: true,
         noStore: null, retention: LOCAL },
     "llama-server": { driver: "openai-chat", base: "http://127.0.0.1:8080/v1", key: "optional", images: true,

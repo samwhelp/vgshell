@@ -215,16 +215,16 @@ world(async () => {
         assert.ok(ids.every(id => Array.isArray(PROVIDERS.find(row => row.id === id)?.signIn)));
     };
     signInProviders(plugin);
-    // Use keyring item offers the AI model key providers Add key does: key
-    // rows with a model, openai among them, never the speech-only
-    // ElevenLabs key or Cerebras, whose row names no model.
+    // Use keyring item offers the key providers Add key does: key rows
+    // with a model, openai among them, and the ElevenLabs speech key, never
+    // Cerebras, whose row names no model.
     const keyProviders = folder => {
         const ids = providerIds(folder, "key");
-        assert.ok(ids.includes("openai"));
-        for (const id of ["elevenlabs", "cerebras"]) assert.equal(ids.includes(id), false, "offered [" + id + "]");
+        for (const id of ["openai", "elevenlabs"]) assert.ok(ids.includes(id), "offered [" + id + "]");
+        assert.equal(ids.includes("cerebras"), false, "offered [cerebras]");
         for (const id of ids) {
             const row = PROVIDERS.find(item => item.id === id);
-            assert.ok(row && row.kind === "key" && row.probe.model !== "", "offered [" + id + "]");
+            assert.ok(row && (row.kind === "speech-key" || row.kind === "key" && row.probe.model !== ""), "offered [" + id + "]");
         }
     };
     keyProviders(plugin);
@@ -268,7 +268,9 @@ world(async () => {
         'return value >= MIN_WIDTH ? value : null;', folder => widths(folder, "maximum"));
     await control("backend/accounts.js", "choice-id", 'lines = judge.accounts.map(account => choiceLine(label(account.provider) + ": "',
         'lines = judge.accounts.map(account => choiceLine(account.id + ": "', choices);
-    await control("AccountProviders.js", "speech-key-offered", 'if (kind === "key") return modelKeyProvider(row);',
+    await control("AccountProviders.js", "speech-key-missing", 'return modelKeyProvider(row) || row.kind === "speech-key";',
+        "return modelKeyProvider(row);", keyProviders);
+    await control("AccountProviders.js", "model-less-key-offered", 'if (kind === "key") return storedKeyProvider(row);',
         'if (kind === "key") return keyProvider(row);', keyProviders);
     await control("AccountProviders.js", "model-less-offered", 'return row.kind === "key" && modelProvider(row);',
         'return row.kind === "key";', keyProviders);

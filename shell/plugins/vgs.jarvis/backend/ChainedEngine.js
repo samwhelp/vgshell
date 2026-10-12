@@ -25,6 +25,7 @@ const LocalSpeech = require("./LocalSpeech.js");
 const { PCM_RATE } = require("./Audio.js");
 const Realtime = require("./Realtime.js");
 const GeminiLive = require("./GeminiLive.js");
+const ElevenLabs = require("./ElevenLabs.js");
 const TaskVoice = require("./TaskVoice.js");
 const Redact = require("./Redact.js");
 
@@ -32,11 +33,12 @@ const Redact = require("./Redact.js");
 // accounts, directories})} answering {kind:"ready", recipients, voices,
 // open({net, recipients})} or {kind:"unconfigured", cause, detail?}, voices
 // its {label, value} offers, whose value is the speaker its adapter's speak
-// takes. The ElevenLabs row adds its own. A row's transcribe yields
+// takes. A row's transcribe yields
 // partials, then {kind: "final", text}; a ready row with `dictation: true`
 // takes each utterance's words from the core's dictation recording (D064)
 // and ends it with {kind: "ended", speech}, whether its voice activity
-// heard speech.
+// heard speech. The ElevenLabs voice speaks over the ready row, which still
+// hears the user (selectSpoken).
 const SPEECH = Object.freeze({ local: LocalSpeech.row });
 const DRIVERS = Object.freeze({ "openai-chat": OpenAIChat, "anthropic-messages": AnthropicMessages,
     "codex-app-server": CodexHarness, "copilot-acp": CopilotHarness, "pi-rpc": PiHarness, "claude-code": ClaudeCode });
@@ -186,14 +188,14 @@ function signal() {
  * holds the plan with the service's dictation cause, settings.dictation,
  * while the core's recording cannot start; its sidecar still loads.
  */
-function select(settings, accounts, directories) {
-    const speech = selectSpeech(settings, accounts, directories);
+function select(settings, accounts, directories, listed = () => null) {
+    const { list = null, ...speech } = selectSpeech(settings, accounts, directories, listed);
     const dictation = speech.kind === "ready" && speech.dictation === true && settings.dictation !== ""
         ? unconfigured(settings.dictation) : { kind: "ready" };
     const brain = selectBrain(settings, accounts);
     const failing = [speech, dictation, brain].filter(step => step.kind !== "ready");
-    if (failing.length > 0) return { ...failing[0], speech, causes: failing.map(step => step.cause) };
-    return { kind: "ready", speech, brain: brain.brain, entries: brain.entries };
+    if (failing.length > 0) return { ...failing[0], speech, causes: failing.map(step => step.cause), list };
+    return { kind: "ready", speech, brain: brain.brain, entries: brain.entries, list };
 }
 
 // A home folder's own keyed cause, or null for any other failure.
@@ -222,38 +224,77 @@ function heldByHome(plan, home) {
     default: fail("home-state");
     }
     if (cause === null) return plan;
-    return { ...unconfigured(cause), speech: plan.speech, causes: [cause, ...(plan.kind === "ready" ? [] : plan.causes)] };
+    return { ...unconfigured(cause), speech: plan.speech, causes: [cause, ...(plan.kind === "ready" ? [] : plan.causes)], list: plan.list };
 }
 
 // Always mode listens for the wake word on this computer, so it needs a row
 // that spots it locally; any other voice would stream the room to a provider.
-function selectSpeech(settings, accounts, directories) {
-    const speech = selectVoice(settings, accounts, directories);
+function selectSpeech(settings, accounts, directories, listed) {
+    const speech = selectVoice(settings, accounts, directories, listed);
     if (settings.mode === "always" && (Object.hasOwn(DUPLEX, settings.voiceProvider) || speech.kind === "ready" && speech.wake !== true))
         return unconfigured("speech=always-local-voice");
     return speech;
 }
 
-function selectVoice(settings, accounts, directories) {
+// The stored key a cloud voice uses: the Voice key setting's account, a
+// keyring key of the provider ACCOUNT names, which may travel to PROVIDER's
+// origin. {kind: "ready", key, recipient}, or the cloud voices' shared
+// cause.
+function voiceKey(settings, accounts, account, provider) {
+    if (!settings.voiceAccount) return unconfigured("speech=live-account-unselected");
+    let judge, resolved;
+    try { judge = accounts(); resolved = judge.resolve(settings.voiceAccount); }
+    catch (error) {
+        if (!/^jarvis-(?:accounts|keys): /.test(error?.message ?? "")) throw error;
+        return unconfigured("speech=live-account-unreadable");
+    }
+    if (resolved === null || resolved.provider !== account || resolved.source.kind !== "keyring")
+        return unconfigured("speech=live-key-required");
+    const reference = resolved.source.reference;
+    Net.assertKeyTarget(provider.base, reference.origin);
+    return { kind: "ready", key: { secrets: judge.secrets, reference },
+        recipient: { kind: "network", provider: resolved.provider, account: resolved.id, origin: Net.endpoint(provider.base).origin } };
+}
+
+function selectVoice(settings, accounts, directories, listed) {
     if (Object.hasOwn(DUPLEX, settings.voiceProvider)) {
         const duplex = DUPLEX[settings.voiceProvider];
         const provider = Providers.select(duplex.id);
-        if (!settings.voiceAccount) return unconfigured("speech=live-account-unselected");
-        let judge, account;
-        try { judge = accounts(); account = judge.resolve(settings.voiceAccount); }
-        catch (error) {
-            if (!/^jarvis-(?:accounts|keys): /.test(error?.message ?? "")) throw error;
-            return unconfigured("speech=live-account-unreadable");
-        }
-        if (account === null || account.provider !== duplex.account || account.source.kind !== "keyring")
-            return unconfigured("speech=live-key-required");
-        const reference = account.source.reference;
-        Net.assertKeyTarget(provider.base, reference.origin);
+        const key = voiceKey(settings, accounts, duplex.account, provider);
+        if (key.kind !== "ready") return key;
         const voices = duplex.adapter.VOICES;
-        return { kind: "ready", id: duplex.id, provider, key: { secrets: judge.secrets, reference },
-            voices, voice: voices[voiceIndex(voices, settings.voice)].value,
-            recipients: [{ kind: "network", provider: account.provider, account: account.id, origin: Net.endpoint(provider.base).origin }] };
+        return { kind: "ready", id: duplex.id, provider, key: key.key,
+            voices, voice: voices[voiceIndex(voices, settings.voice)].value, recipients: [key.recipient] };
     }
+    if (settings.voiceProvider === "elevenlabs") return selectSpoken(settings, accounts, directories, listed);
+    return selectHearing(settings, accounts, directories);
+}
+
+/**
+ * The ElevenLabs voice: the ready speech row hears the user, wake word and
+ * turn detection included, and ElevenLabs speaks with the stored key. Its
+ * recipients are that row's and ElevenLabs's. The speaker is one of the
+ * account's voices as LISTED(reference) last read them, null before a read
+ * answered and [] after a failed one; with none, the Voice setting while it
+ * names a voice id. `list` asks the engine to read the voices for this key,
+ * whatever the rest of the step answers.
+ */
+function selectSpoken(settings, accounts, directories, listed) {
+    const provider = Providers.select("elevenlabs");
+    const key = voiceKey(settings, accounts, "elevenlabs", provider);
+    if (key.kind !== "ready") return key;
+    const list = { provider, key: key.key, recipient: key.recipient };
+    const hearing = selectHearing(settings, accounts, directories);
+    if (hearing.kind !== "ready") return { ...hearing, list };
+    const voices = listed(key.key.reference) ?? [];
+    const speaker = voices.length !== 0 ? voices[voiceIndex(voices, settings.voice)].value
+        : ElevenLabs.VOICE.test(settings.voice) ? settings.voice : null;
+    if (speaker === null) return { ...unconfigured("speech=elevenlabs-voice"), list };
+    return { ...hearing, id: "elevenlabs", voices, speaker, recipients: [...hearing.recipients, key.recipient],
+        spoken: { provider, key: key.key }, list };
+}
+
+function selectHearing(settings, accounts, directories) {
     let speech = unconfigured("speech=no-adapter");
     for (const [id, row] of Object.entries(SPEECH)) {
         const answer = row.select({ settings, accounts, directories });
@@ -348,13 +389,22 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     const homePath = () => { const judged = home(); return judged.kind === "ready" ? judged.path : null; };
     // Whether the home folder's own cause holds the plan.
     let homeHeld = false;
+    // The settings of the last configure, which a voice list's answer
+    // judges again.
+    let lastSettings = null;
+    // The ElevenLabs voices of one key: identity is its reference's JSON,
+    // voices null before a read answered and [] after a failed one, and
+    // net the read in flight's owner, or null.
+    let voiceList = { identity: null, voices: null, net: null };
+    let listReads = 0;
+    const listed = reference => voiceList.identity === JSON.stringify(reference) ? voiceList.voices : null;
 
     function configuration() {
         const local = plan.speech?.kind === "ready" && plan.speech.lifetime === "daemon";
         const cause = local && speechState.kind === "starting" ? "speech=local-loading"
             : local && speechState.kind === "refused" ? "speech=local-" + speechState.error.code.split(" ")[0] : null;
         if (plan.kind !== "ready") {
-            const { speech, ...answer } = plan;
+            const { speech, list, ...answer } = plan;
             // One cause per step: the sidecar's goes before the recording's.
             return cause === null ? answer : { ...answer, cause, causes: [cause, ...answer.causes.filter(other => !other.startsWith("speech="))] };
         }
@@ -426,7 +476,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // late holds at most one call: the router runs one action at a time.
         // relay is the held prompt the user's next words answer, or null;
         // retried is that prompt once it was asked again after unjudged words.
-        const c = { gen, plan: activePlan, entry: 0, recipients, net, speech: null, liveOpen: null, brain: null, guidance: null, owner: null, grants: [], heard: null, relay: null, retried: null, unmatched: null,
+        const c = { gen, plan: activePlan, entry: 0, recipients, net, speech: null, spoken: null, liveOpen: null, brain: null, guidance: null, owner: null, grants: [], heard: null, relay: null, retried: null, unmatched: null,
             decisions: new Set(), releasePending: null, late: new Map(), results: [], turn: null, last: null,
             feedback: null, collection: null, unbound: null, rev: 0, quiet: Promise.resolve(), live: null };
         try {
@@ -441,6 +491,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 reargue();
                 if (plan.speech.lifetime === "daemon" && daemonSpeech === null) startSpeech(plan.speech);
                 c.speech = plan.speech.lifetime === "daemon" ? daemonSpeech : plan.speech.open({ net, recipients });
+                // A failover replaces the net owner and the grants, so the
+                // voice reads both at each request.
+                if (plan.speech.spoken !== undefined) c.spoken = ElevenLabs.create({ provider: plan.speech.spoken.provider,
+                    net: () => c.net, key: plan.speech.spoken.key, grants: () => c.grants, clock });
             }
         } catch (error) { net.close(); throw error; }
         return c;
@@ -479,6 +533,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         const quiet = brain === null ? Promise.resolve() : brain.cancel();
         brain?.close();
         if (c.plan.speech.lifetime !== "daemon") c.speech.close();
+        c.spoken?.close();
         c.net.close();
         retired = { gen: c.gen, closed: quiet };
         // After the teardown this observation runs, not inside it.
@@ -724,7 +779,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // Audio reports a failed source as a failed playback, including one
         // destroyed before Audio attached its own listener.
         readable.on("error", () => {});
-        readable.once("close", () => { ended = true; input.notify(); wanted.notify(); });
+        let output = null;
+        // A flush or a stopped turn closes the stream: the request in flight
+        // ends now, not when its next audio arrives.
+        readable.once("close", () => { ended = true; input.notify(); wanted.notify(); void output?.return?.(); });
         const sentenceInput = { [Symbol.asyncIterator]() { return { async next() {
             for (;;) {
                 if (sentences.length !== 0) {
@@ -737,7 +795,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             }
         }, async return() { ended = true; return { value: undefined, done: true }; } }; } };
         async function pump() {
-            const output = c.speech.speak(sentenceInput, c.plan.speech.speaker)[Symbol.asyncIterator]();
+            output = (c.spoken ?? c.speech).speak(sentenceInput, c.plan.speech.speaker)[Symbol.asyncIterator]();
             try {
                 for (;;) {
                     const step = await output.next();
@@ -1548,21 +1606,64 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         };
     }
 
+    function judge(settings) {
+        plan = select(settings, accounts, directories, listed);
+        const selected = plan;
+        plan = heldByHome(plan, home());
+        homeHeld = plan !== selected;
+        if (plan.speech?.kind === "ready" && plan.speech.lifetime === "daemon") {
+            // A completed setup publication can repair an initial
+            // refusal. Ordinary hellos leave that runtime unloaded.
+            const published = speechState.kind === "refused" && speechState.publication !== plan.speech.publication;
+            if (speechState.kind === "new" || published) startSpeech(plan.speech);
+            else reargue();
+        }
+        return configuration();
+    }
+
+    // Read the ElevenLabs account's voices for LIST, the plan's key, once a
+    // configure names it: each hello reads them again, so a voice made on
+    // ElevenLabs's site since shows up, and one read runs per key at a time.
+    // The read is its own recipient set, ElevenLabs alone, whose one item is
+    // an empty request, released and audited as any transfer. A failed read
+    // offers no voices, and the settings stay as the user left them.
+    function readVoices(list) {
+        const identity = JSON.stringify(list.key.reference);
+        if (voiceList.identity === identity && voiceList.net !== null) return;
+        voiceList.net?.close();
+        const recipients = Policy.recipients({ conversation: "voices-" + (++listReads), profile: policy().profile,
+            cloudVision: "never", brain: list.recipient, speech: [{ kind: "local", provider: "voice-list", account: list.recipient.account }] });
+        const read = { identity, voices: voiceList.identity === identity ? voiceList.voices : null, net: Net.create(recipients) };
+        voiceList = read;
+        const identityOf = { gen: state().gen, op: listReads };
+        const transfer = (item, start) => {
+            if (Policy.release(item, recipients).kind !== "send") fail("release-" + item.labels.join("-"));
+            const result = audit.before(releaseEvent({ recipients }, identityOf, item.labels, "send", "pending"), start);
+            if (result.kind !== "started") fail("audit-write");
+            return result.value;
+        };
+        void ElevenLabs.voices({ provider: list.provider, net: read.net, key: list.key, transfer, clock })
+            .catch(error => {
+                // A key reader's cause keeps its own prefix.
+                const reason = keyed(error);
+                log(/^jarvis-[a-z]+: /.test(reason) ? reason : "jarvis: " + reason);
+                return [];
+            })
+            .then(voices => {
+                read.net.close();
+                if (closed || voiceList !== read) return;
+                voiceList = { identity, voices, net: null };
+                if (lastSettings !== null) configured(judge(lastSettings));
+            });
+    }
+
     return Object.freeze({
         /** Select setup admission; healthy loading can accept bounded capture. */
         configure(settings) {
-            plan = select(settings, accounts, directories);
-            const selected = plan;
-            plan = heldByHome(plan, home());
-            homeHeld = plan !== selected;
-            if (plan.speech?.kind === "ready" && plan.speech.lifetime === "daemon") {
-                // A completed setup publication can repair an initial
-                // refusal. Ordinary hellos leave that runtime unloaded.
-                const published = speechState.kind === "refused" && speechState.publication !== plan.speech.publication;
-                if (speechState.kind === "new" || published) startSpeech(plan.speech);
-                else reargue();
-            }
-            return configuration();
+            lastSettings = settings;
+            const answer = judge(settings);
+            if (plan.list !== null && plan.list !== undefined) readVoices(plan.list);
+            return answer;
         },
         /**
          * Whether the last configure left the home folder holding the plan.
@@ -1734,6 +1835,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         close() {
             end();
             closed = true;
+            voiceList.net?.close();
             daemonSpeech?.close();
             brainText?.close();
         }

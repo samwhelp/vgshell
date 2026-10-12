@@ -43,7 +43,9 @@ var PROVIDERS = [
         probe: { driver: "chat", path: "/v1/chat/completions", model: "mistral-small-latest", limit: "max_tokens", header: "authorization", prefix: "Bearer " } },
     { id: "gemini", label: "Gemini", kind: "key", variable: "GEMINI_API_KEY", origin: "https://generativelanguage.googleapis.com", keyPage: "https://aistudio.google.com/apikey",
         probe: { driver: "chat", path: "/v1beta/openai/chat/completions", model: "gemini-2.5-flash-lite", limit: "max_tokens", header: "authorization", prefix: "Bearer " } },
-    { id: "elevenlabs", label: "ElevenLabs", kind: "speech-key", variable: "ELEVENLABS_API_KEY", origin: "https://api.elevenlabs.io" },
+    // A speech key: it serves the ElevenLabs voice, never an AI model.
+    { id: "elevenlabs", label: "ElevenLabs", kind: "speech-key", variable: "ELEVENLABS_API_KEY", origin: "https://api.elevenlabs.io",
+        keyPage: "https://elevenlabs.io/app/settings/api-keys" },
     { id: "ollama", label: "Ollama", kind: "local", port: 11434, origin: "http://127.0.0.1:11434",
         probe: { driver: "ollama", path: "/api/generate", model: "" } },
     { id: "llama-server", label: "llama-server", kind: "local", port: 8080, origin: "http://127.0.0.1:8080",
@@ -83,9 +85,15 @@ function modelProvider(row) {
 }
 
 // An API-key row the engine can use as its AI model; a speech-only key is
-// no AI model, so Add key and Use keyring item offer no other key row.
+// no AI model.
 function modelKeyProvider(row) {
     return row.kind === "key" && modelProvider(row);
+}
+
+// A key row Add key and Use keyring item store: an AI model's key, or the
+// speech key a voice speaks with. A key row with no model is neither.
+function storedKeyProvider(row) {
+    return modelKeyProvider(row) || row.kind === "speech-key";
 }
 
 // The models Jarvis prefers, first to last, each at PREFERRED_EFFORT (owner,
@@ -229,13 +237,13 @@ function choiceLine(label, value, width) {
 }
 
 // Add directory offers the sign-in programs, "cli"; Add key and Use keyring
-// item the AI model key providers, "key", Add key with the page that
+// item the key providers they store, "key", Add key with the page that
 // creates a key.
 function providerChoices(kind, width, pages) {
     var rows = PROVIDERS.filter(function (row) {
         if (kind === "cli") return row.kind === "cli";
         if (kind === "sign-in") return row.kind === "cli" && Array.isArray(row.signIn);
-        if (kind === "key") return modelKeyProvider(row);
+        if (kind === "key") return storedKeyProvider(row);
         throw new Error("jarvis-providers: kind=" + kind);
     });
     return rows.map(function (row) {
@@ -299,6 +307,6 @@ function probeFailure(completion, diagnostic) {
 }
 
 if (typeof module !== "undefined") module.exports = { PROVIDERS: PROVIDERS, runtimeDirectory: runtimeDirectory,
-    keyPresence: keyPresence, keyProvider: keyProvider, modelProvider: modelProvider, modelKeyProvider: modelKeyProvider, unlistedChoice: unlistedChoice, modelChoice: modelChoice, parseWidth: parseWidth, fitText: fitText, choiceLine: choiceLine,
+    keyPresence: keyPresence, keyProvider: keyProvider, modelProvider: modelProvider, storedKeyProvider: storedKeyProvider, unlistedChoice: unlistedChoice, modelChoice: modelChoice, parseWidth: parseWidth, fitText: fitText, choiceLine: choiceLine,
     providerChoices: providerChoices, FAILURE_KEYS: FAILURE_KEYS, feedDiagnostic: feedDiagnostic,
     helperFailure: helperFailure, probeFailure: probeFailure };

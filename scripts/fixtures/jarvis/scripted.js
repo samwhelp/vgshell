@@ -254,7 +254,7 @@ function instrument(file, root, engine = "chained", mappedIndicator = false) {
     edit(file, changes);
     fs.copyFileSync(__filename, path.join(path.dirname(file), "scripted-fixture.js"));
     edit(path.join(path.dirname(file), "ChainedEngine.js"), [
-        ["plan = select(settings, accounts, directories);", 'plan = require("./scripted-fixture.js").readyPlan();'],
+        ["plan = select(settings, accounts, directories, listed);", 'plan = require("./scripted-fixture.js").readyPlan();'],
         ['const DRIVERS = Object.freeze({ "openai-chat": OpenAIChat,',
             'const DRIVERS = Object.freeze({ scripted: require("./scripted-fixture.js").driver, "openai-chat": OpenAIChat,']
     ]);

@@ -10,7 +10,7 @@ log="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/jarvis/setup.log"
 opened_elsewhere="Open Add key from the Jarvis page in Settings."
 [[ $# == 0 ]] || vgs_tui_refuse "$log" 2 "jarvis-keys: arguments=none" "$opened_elsewhere" || exit
 keys() { vgs_tui_logged "$log" node "$VGS_PLUGIN_DIR/backend/keys.js" "$@"; }
-vgs_tui_header "Add an API key" "An API key from an AI provider lets Jarvis use that provider." \
+vgs_tui_header "Add an API key" "An API key from an AI or voice provider lets Jarvis use that provider." \
   "The key stays in your desktop keyring. Jarvis does not show it."
 [[ -t 0 ]] || vgs_tui_refuse "$log" 2 "jarvis-keys: store=terminal-required" "$opened_elsewhere" || exit
 choices="$(keys providers "$(vgs_tui_columns)")" ||
@@ -23,4 +23,4 @@ account="$(vgs_tui_input --header "A name for this key, to find it in the accoun
 vgs_tui_step "Paste the key at the prompt. The key does not show while you type."
 keys add-key "$provider" "$account" >>"$log" ||
   { vgs_tui_failed "$log" "Jarvis could not save the key." "Make sure that your keyring is unlocked, then try again."; exit 1; }
-vgs_tui_success "The key is in your keyring. Select it as the AI model on the Jarvis page."
+vgs_tui_success "The key is in your keyring. Select it as the AI model, or as the Voice key, on the Jarvis page."

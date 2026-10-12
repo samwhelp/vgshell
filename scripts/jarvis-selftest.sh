@@ -3,12 +3,12 @@
 #
 # Usage: scripts/jarvis-selftest.sh --cold N [--out FILE]
 #        scripts/jarvis-selftest.sh --suite NAME|all --brain ID
-#                                   [--voice local|realtime|gemini]
+#                                   [--voice local|realtime|gemini|elevenlabs]
 #                                   [--voices DIR]
 #                                   [--home PATH] [--out DIR]
 #        scripts/jarvis-selftest.sh (--wav FILE | --tts TEXT | --type TEXT)
 #                                   --brain ID [--home PATH]
-#                                   [--voice local|realtime|gemini]
+#                                   [--voice local|realtime|gemini|elevenlabs]
 #                                   [--mode toggle|always]
 #                                   [--follow-up-tts TEXT|--follow-up-wav FILE]
 #                                   [--confirm key|none] [--cloned-voice]
@@ -44,6 +44,8 @@
 # chooses by itself; --voice gemini does the same through Google's Gemini
 # Live session with the caller's one saved Gemini key. local, the default,
 # is the prepared local voice below plus the sandbox's own voxtype config.
+# --voice elevenlabs hears through that same local voice and speaks the
+# reply through ElevenLabs with the caller's one saved ElevenLabs key.
 # A saved key, the brain's or the cloud voice's, is read under the
 # owner's exception in docs/architecture/validation.md § Jarvis self-test.
 # Its reference, which holds no secret, is saved in the sandbox by the
@@ -64,8 +66,9 @@
 # rows it holds as read, and once after the turn, for the rows the turn added.
 # --mode toggle opens a voice turn through the Talk intent. --mode always
 # waits for the wake-word capture to read armed and feeds a wake phrase.
-# Always mode needs the local voice, because the local sidecar spots the
-# word. It is refused with --type, a cloud voice and --cold.
+# Always mode needs a voice that hears on this computer, local or
+# elevenlabs, because the local sidecar spots the word. It is refused with
+# --type, a voice that hears in the cloud and --cold.
 # --confirm key confirms each request Jarvis shows as its Confirm key does,
 # with one press a request, made once Session's draw guard has passed;
 # none, the default, answers none, so a request ends on Jarvis's own bound.
@@ -104,8 +107,8 @@
 #
 # Otherwise the record is one JSON object: `input` {kind, value}, `brain`, `home`,
 # `voice`, `mode`, `confirm`, `heard` (the text Session committed as the user turn),
-# `sentences` (each sentence released to speech as {ms, text}; with a cloud
-# voice, whose transcript of its own speech arrives in fragments, each
+# `sentences` (each sentence released to speech as {ms, text}; with a duplex
+# voice, realtime or gemini, whose transcript of its own speech arrives in fragments, each
 # assistant caption segment whole as {ms of its first words, text}), `raw`
 # (each brain turn's text as the brain wrote it, before Jarvis chose what to
 # speak, from the trace the daemon writes for a test run alone), `tools`
@@ -164,8 +167,8 @@ selftest_cpuinfo=/proc/cpuinfo
 # reference as JSON, which holds no secret; `local` for a model server on
 # this computer; `unknown`. The second is the key of the voice VOICE: `local`
 # for the local voice, else `keyring<TAB>ID<TAB>REFERENCE` for the one saved
-# key of its provider, OpenAI for realtime and Gemini for gemini, `none` with
-# no such key and `several` with more than one.
+# key of its provider, OpenAI for realtime, Gemini for gemini and ElevenLabs
+# for elevenlabs, `none` with no such key and `several` with more than one.
 selftest_accounts() { # TREE BRAIN VOICE
   local name words=()
   for name in HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME CLAUDE_CONFIG_DIR CODEX_HOME COPILOT_HOME PI_CODING_AGENT_DIR; do
@@ -185,7 +188,8 @@ selftest_accounts() { # TREE BRAIN VOICE
     else if (found.source.kind === "cli") line("cli", Core.accounts().harness(found.provider).variable, found.source.directory);
     else if (found.source.kind === "keyring") line("keyring", JSON.stringify(found.source.reference));
     else line(found.source.kind);
-    const keys = voice === "local" ? [] : judge.keyringRows().filter(key => key.row.id === (voice === "gemini" ? "gemini" : "openai"));
+    const provider = { gemini: "gemini", elevenlabs: "elevenlabs" }[voice] ?? "openai";
+    const keys = voice === "local" ? [] : judge.keyringRows().filter(key => key.row.id === provider);
     if (voice === "local") line("local");
     else if (keys.length !== 1) line(keys.length === 0 ? "none" : "several");
     else line("keyring", judge.account(keys[0].row, keys[0].label, { kind: "found" }, keys[0].source).id, JSON.stringify(keys[0].source.reference));
@@ -830,8 +834,8 @@ for event in events[first:]:
         shown, segment = "", None
         continue
     text = caption["text"]
-    if voice != "local":
-        # A cloud voice's adapter writes a segment once for each fragment of
+    if voice not in ("local", "elevenlabs"):
+        # A duplex voice's adapter writes a segment once for each fragment of
         # the voice's transcript, so a write is no sentence: the segment is
         # one entry, timed at its first write and holding its last.
         if segment is None and text.strip():
@@ -1129,7 +1133,7 @@ PY
     while IFS= read -r word; do
       if [[ $word == source=* ]]; then source="${word#source=}"; else case_args+=("$word"); fi
     done < <(selftest_case_child_args "$case_file" "$voices_dir")
-    if [[ $mode == always && $voice != local ]]; then
+    if [[ $mode == always && $hears_here == false ]]; then
       printf 'case=%s source=%s skipped=always-local-voice\n' "$name" "$source"
       not_run=$((not_run + 1))
       continue
@@ -1284,7 +1288,7 @@ while [[ $# -gt 0 ]]; do
       case "$1" in --brain) brain="$2" ;; --home) home_source="$2" ;; --out) out="$2" ;; --voices) voices_dir="$2" ;; esac
       shift 2 ;;
     --voice)
-      [[ $# -ge 2 && $2 =~ ^(local|realtime|gemini)$ ]] || refuse "argument=--voice value=${2-}"
+      [[ $# -ge 2 && $2 =~ ^(local|realtime|gemini|elevenlabs)$ ]] || refuse "argument=--voice value=${2-}"
       voice="$2"; shift 2 ;;
     --mode)
       [[ $# -ge 2 && $2 =~ ^(toggle|always)$ ]] || refuse "argument=--mode value=${2-}"
@@ -1297,6 +1301,12 @@ while [[ $# -gt 0 ]]; do
     *) refuse "argument=$1" ;;
   esac
 done
+# Whether the voice hears the user on this computer: the local voice, and
+# ElevenLabs, which only speaks the reply.
+case $voice in
+  local|elevenlabs) hears_here=true ;;
+  *) hears_here=false ;;
+esac
 if [[ -n $suite_name ]]; then
   [[ -z $input_kind ]] || refuse "argument=--suite reason=exclusive-with-input"
   [[ -z $follow_kind ]] || refuse "argument=--suite reason=exclusive-with-follow-up"
@@ -1324,7 +1334,7 @@ else
   [[ -z $follow_kind || $mode == always ]] || refuse "argument=--follow-up value=$follow_kind reason=requires-always"
   [[ -z $follow_kind || $input_kind != type ]] || refuse "argument=--follow-up value=$follow_kind reason=voice-input-required"
   [[ $mode != always || $input_kind != type ]] || refuse "argument=--mode value=always reason=always-needs-voice"
-  [[ $mode != always || $voice == local ]] || refuse "argument=--mode value=always reason=always-needs-local-voice"
+  [[ $mode != always || $hears_here == true ]] || refuse "argument=--mode value=always reason=always-needs-local-voice"
   [[ $cloned == false || $voice == local ]] || refuse "argument=--cloned-voice reason=needs-local-voice"
 fi
 if [[ $input_kind == wav ]]; then
@@ -1445,9 +1455,10 @@ if [[ ${#key_references[@]} -gt 0 ]]; then
   done
   secret_tool="$(command -v -- secret-tool)"
 fi
-# The prepared local voice is the local voice's and the --tts speaker's.
+# The prepared local voice is the local voice's, the ElevenLabs voice's
+# hearing and the --tts speaker's.
 local_root=""
-if [[ $voice == local || $input_kind == tts || $follow_kind == tts ]]; then
+if [[ $hears_here == true || $input_kind == tts || $follow_kind == tts ]]; then
   local_inputs="$(selftest_local_inputs)" || unavailable local-inputs-unavailable
   { read -r local_root; read -r local_marker; } <<<"$local_inputs"
 fi
@@ -1464,7 +1475,7 @@ fi
 voxtype_models=""
 voxtype_models_sum=""
 voxtype_cpu=""
-if [[ $voice == local ]]; then
+if [[ $hears_here == true ]]; then
   [[ -n ${VOXTYPE_MODELS:-} && -d ${VOXTYPE_MODELS:-} ]] || unavailable input-missing name=VOXTYPE_MODELS
   voxtype_models="$(cd -- "$VOXTYPE_MODELS" && pwd -P)" || unavailable input-missing name=VOXTYPE_MODELS
   selftest_voxtype_config "$repo/config/voxtype/config.toml" "$voxtype_models" "$repo/config/voxtype/sounds/bloop" "" >/dev/null || {
@@ -1523,7 +1534,7 @@ stop_shell || stopped shell-not-stopped
 rm -rf -- "${repo:?}/shell/plugins/vgs.jarvis"
 cp -R -- "$plugin" "$repo/shell/plugins/vgs.jarvis"
 install -d -m 700 -- "$home/.local/share/vgshell/jarvis" "$home/.local/state/vgshell/jarvis"
-if [[ $voice == local ]]; then
+if [[ $hears_here == true ]]; then
   # The prepared setup's marker names its own data root, so the sandbox's
   # data root is a link to it and the sidecar's readiness judge reads the
   # setup where setup-local made it.
@@ -1603,7 +1614,7 @@ devices_up || status=$?
 [[ $status -eq 0 ]] || stopped devices-failed "$devices_state"
 # The feed's two sides are there before Jarvis starts, with no reader yet.
 selftest_wait 10 absent=recorder devices_voice_feed_state || stopped no-voice-feed "$reading"
-if [[ $voice == local ]]; then
+if [[ $hears_here == true ]]; then
   devices_voice_feed_default || stopped no-voice-feed default-failed
   selftest_wait 10 "$devices_voice_feed_source" devices_voice_feed_default_source || stopped no-voice-feed "default=$reading"
 fi

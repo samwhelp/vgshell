@@ -175,6 +175,8 @@ const DICTATION = [
     ["daemon starting", "local", { daemon: "starting", device: "" }, [], "speech=dictation-starting", "loading", false],
     ["ready on the default", "local", { daemon: "ready", device: "default" }, [], "", "done", false],
     ["Realtime voice", "realtime", { daemon: "failed", device: "" }, ["voxtype"], "", "done", false],
+    ["ElevenLabs voice, which hears through dictation", "elevenlabs", { daemon: "failed", device: "" }, ["voxtype"], "speech=dictation-failed", "withheld", true],
+    ["ElevenLabs voice on another device", "elevenlabs", { daemon: "ready", device: "alsa_input.usb-fixture" }, [], "speech=dictation-device", "entry", false],
     ["state unread", "local", null, [], "", "done", false]
 ];
 // The Agent fleet row: [label, the home folder, the mail tool found in it,
@@ -197,6 +199,7 @@ const CLONE_READY = { tone: "ok", text: "Ready", action: "remove", recording: tr
 const CLONED = [
     ["a resolved Local voice on the Large model offers setup", CLONE_ANSWER, "local", "info", "setup", false, "clone-voice", null],
     ["the Realtime voice withholds setup", CLONE_ANSWER, "realtime", "info", undefined, true, null, "provider"],
+    ["the ElevenLabs voice withholds setup", CLONE_ANSWER, "elevenlabs", "info", undefined, true, null, "provider"],
     ["a tier off the graphics card withholds setup", { ...CLONE_ANSWER, tierReady: false }, "local", "info", undefined, true, null, "tier"],
     ["a ready cloned voice offers Remove and says what the recording gives", CLONE_READY, "local", "ok", "remove", true, "clone-voice-remove", null],
     ["a recording keeps Remove under the Realtime voice", CLONE_READY, "realtime", "ok", "remove", true, "clone-voice-remove", "provider"],
@@ -295,6 +298,7 @@ const plain = value => JSON.parse(JSON.stringify(value));
 // only the manifest's values, and a saved choice keeps its value.
 const KEY = [{ value: "openai-1", label: "OpenAI / fixture", provider: "openai" }];
 const GEMINI_KEY = [{ value: "gemini-1", label: "Gemini / fixture", provider: "gemini" }];
+const ELEVEN_KEY = [{ value: "eleven-1", label: "ElevenLabs / fixture", provider: "elevenlabs" }];
 const VOICE = [
     ["a fresh settings file with no key", {}, [], "local"],
     ["a fresh settings file beside a stored named key", { voiceAccount: "openai-1" }, KEY, "local"],
@@ -311,7 +315,11 @@ const VOICE = [
     ["Always talk mode with Realtime chosen", { mode: "always", voiceProvider: "realtime", voiceAccount: "openai-1" }, KEY, "realtime"],
     ["Gemini saved with no key", { voiceProvider: "gemini" }, [], "gemini"],
     ["Gemini saved beside a stored named key", { voiceProvider: "gemini", voiceAccount: "gemini-1" }, GEMINI_KEY, "gemini"],
-    ["Auto saved beside a named Gemini key: Auto means Realtime", { voiceProvider: "auto", voiceAccount: "gemini-1" }, GEMINI_KEY, "local"]
+    ["Auto saved beside a named Gemini key: Auto means Realtime", { voiceProvider: "auto", voiceAccount: "gemini-1" }, GEMINI_KEY, "local"],
+    ["ElevenLabs saved with no key", { voiceProvider: "elevenlabs" }, [], "elevenlabs"],
+    ["ElevenLabs saved beside a stored named key", { voiceProvider: "elevenlabs", voiceAccount: "eleven-1" }, ELEVEN_KEY, "elevenlabs"],
+    ["Always talk mode with ElevenLabs chosen", { mode: "always", voiceProvider: "elevenlabs", voiceAccount: "eleven-1" }, ELEVEN_KEY, "elevenlabs"],
+    ["Auto never runs ElevenLabs", { voiceProvider: "auto", voiceAccount: "eleven-1" }, [...KEY, ...ELEVEN_KEY], "local"]
 ];
 // The Voice group's key row: [label, the stored cloud voice keys or null
 // for a failed read, the Voice provider, the key row's tone and whether it
@@ -319,7 +327,8 @@ const VOICE = [
 const VOICE_KEY = [["no key", [], "realtime", ["info", true]], ["a stored key", KEY, "realtime", ["ok", false]],
     ["keys unread", null, "realtime", ["warning", true]], ["a stored key of the other voice", KEY, "gemini", ["info", true]],
     ["a stored Gemini key", [...KEY, ...GEMINI_KEY], "gemini", ["ok", false]], ["Gemini keys unread", null, "gemini", ["warning", true]],
-    ["Local beside a stored key", KEY, "local", ["ok", false]], ["Auto with no key", [], "auto", ["info", true]]];
+    ["Local beside a stored key", KEY, "local", ["ok", false]], ["Auto with no key", [], "auto", ["info", true]],
+    ["a stored ElevenLabs key", [...KEY, ...ELEVEN_KEY], "elevenlabs", ["ok", false]], ["no ElevenLabs key", KEY, "elevenlabs", ["info", true]]];
 // The keyed start causes the service can publish before the first ready state.
 // The widget and the Setup page both read these words from SetupGate.
 const START_CAUSES = [
@@ -761,18 +770,20 @@ function verifyVoice(gate, serviceSource, accountsSource) {
         // The Voice provider takes its four options and nothing else, and a
         // value a settings file already holds reads as it is.
         const provider = value => judge.settingRefusal(manifest, "voiceProvider", value);
-        assert.deepEqual(["auto", "local", "realtime", "gemini", "openai", "Gemini Live"].map(provider),
-            ["", "", "", "", "refused: setting=voiceProvider want=one-of:auto|local|realtime|gemini", "refused: setting=voiceProvider want=one-of:auto|local|realtime|gemini"],
-            "the Voice provider takes one of its options");
-        for (const saved of ["realtime", "gemini"])
+        const options = "refused: setting=voiceProvider want=one-of:auto|local|realtime|gemini|elevenlabs";
+        assert.deepEqual(["auto", "local", "realtime", "gemini", "elevenlabs", "openai", "Gemini Live", "ElevenLabs"].map(provider),
+            ["", "", "", "", "", options, options, options], "the Voice provider takes one of its options");
+        for (const saved of ["realtime", "gemini", "elevenlabs"])
             assert.equal(judge.settingsFor({ version: 2, plugins: [{ id: "vgs.jarvis", voiceProvider: saved }] }, manifest).voiceProvider, saved,
                 saved + ": a saved Voice provider reads unchanged");
         // The Voice key choices follow the selected cloud voice: a switch
         // from Realtime to Gemini offers the Gemini keys of the same read.
-        for (const [voiceProvider, want] of [["realtime", ["openai-1"]], ["gemini", ["gemini-1"]], ["auto", ["openai-1"]], ["local", ["openai-1"]]])
-            assert.deepEqual(plain(gate.voiceKeys([...KEY, ...GEMINI_KEY], { voiceProvider })), want.map(value =>
-                ({ value, label: [...KEY, ...GEMINI_KEY].find(key => key.value === value).label })), voiceProvider + ": the Voice key choices");
-        const hints = { realtime: new Set(), gemini: new Set(), local: new Set(), auto: new Set() };
+        const every = [...KEY, ...GEMINI_KEY, ...ELEVEN_KEY];
+        for (const [voiceProvider, want] of [["realtime", ["openai-1"]], ["gemini", ["gemini-1"]], ["elevenlabs", ["eleven-1"]],
+            ["auto", ["openai-1"]], ["local", ["openai-1"]]])
+            assert.deepEqual(plain(gate.voiceKeys(every, { voiceProvider })), want.map(value =>
+                ({ value, label: every.find(key => key.value === value).label })), voiceProvider + ": the Voice key choices");
+        const hints = { realtime: new Set(), gemini: new Set(), local: new Set(), auto: new Set(), elevenlabs: new Set() };
         // The row's one link, as the Settings page draws it: where the hint holds its words.
         const linked = {};
         for (const [label, offered, voiceProvider, want] of VOICE_KEY) {
@@ -796,20 +807,26 @@ function verifyVoice(gate, serviceSource, accountsSource) {
             hints[voiceProvider].add(entry.hint);
             linked[voiceProvider] = entry.link !== null && entry.hint.includes(entry.link.text) ? entry.link.url : null;
         }
-        assert.deepEqual(Object.values(hints).map(set => set.size), [1, 1, 1, 1], "one hint for each Voice provider");
-        const [realtimeHint, geminiHint, localHint, autoHint] = ["realtime", "gemini", "local", "auto"].map(name => [...hints[name]][0]);
-        assert.deepEqual([realtimeHint === geminiHint, localHint === realtimeHint, localHint === geminiHint, localHint === autoHint],
-            [false, false, false, true], "the key row says what the selected cloud voice's key unlocks, and under Local or Auto both");
+        assert.deepEqual(Object.values(hints).map(set => set.size), [1, 1, 1, 1, 1], "one hint for each Voice provider");
+        const [realtimeHint, geminiHint, localHint, autoHint, elevenHint] = ["realtime", "gemini", "local", "auto", "elevenlabs"].map(name => [...hints[name]][0]);
+        assert.deepEqual([realtimeHint === geminiHint, localHint === realtimeHint, localHint === geminiHint, localHint === autoHint,
+            [realtimeHint, geminiHint, localHint].includes(elevenHint)],
+        [false, false, false, true, false], "the key row says what the selected cloud voice's key unlocks, and under Local or Auto both");
         assert.deepEqual(linked, { realtime: null, gemini: "https://aistudio.google.com/apikey", local: "https://aistudio.google.com/apikey",
-            auto: "https://aistudio.google.com/apikey" }, "the key row links Google AI Studio where its hint names it");
+            auto: "https://aistudio.google.com/apikey", elevenlabs: null }, "the key row links Google AI Studio where its hint names it");
+        // The ElevenLabs key's page is the ElevenLabs voices row's link,
+        // which the key row's hint names.
+        assert.equal(elevenHint.includes(manifest.status.elevenLabs.link.text), true, "the ElevenLabs key row names the page its voices row links");
         // The Voice key field names both cloud voices' keys, links OpenAI's
         // key page and points at the key row, by the label that row has, for
         // Google AI Studio.
         const field = manifest.schema.voiceAccount;
         const row = manifest.status.voiceKey;
-        assert.deepEqual([plain(field.link), ["OpenAI", "Gemini", row.label, row.link.text].map(words => field.description.includes(words))],
-            [{ text: "OpenAI API keys", url: "https://platform.openai.com/api-keys" }, [true, true, true, true]],
-            "the Voice key field names both keys, links OpenAI API keys and points at the key row's link");
+        const eleven = manifest.status.elevenLabs;
+        assert.deepEqual([plain(field.link), ["OpenAI", "Gemini", "ElevenLabs", row.label, row.link.text, eleven.label, eleven.link.text]
+            .map(words => field.description.includes(words))],
+        [{ text: "OpenAI API keys", url: "https://platform.openai.com/api-keys" }, [true, true, true, true, true, true, true]],
+        "the Voice key field names every cloud voice's key, links OpenAI API keys and points at the rows that link the others");
         // The preview row of a cloud voice names whose key it uses.
         const preview = serviceSource.match(/^    function publishPreview\(\) \{\n[\s\S]*?^    \}/m);
         assert.ok(preview);
@@ -823,6 +840,12 @@ function verifyVoice(gate, serviceSource, accountsSource) {
             return value;
         };
         assert.notDeepEqual(previewed("gemini"), previewed("realtime"), "a cloud voice's preview names its own key");
+        // ElevenLabs speaks over the local voice's engine, yet its preview
+        // spends the user's key, so the row names it.
+        const local = previewed("local");
+        assert.equal(local.text, "Plays on this computer", "the local voice's preview plays on this computer");
+        assert.equal(new Set([previewed("elevenlabs"), previewed("gemini"), previewed("realtime"), local].map(value => JSON.stringify(value))).size, 4,
+            "the ElevenLabs preview names its own key");
     } catch (error) {
         error.check = "voice-default";
         throw error;
@@ -895,7 +918,8 @@ function verifyReadiness(gate) {
         assert.notEqual(got.setupVoice.hint.trim(), "", "memory refusal carries guidance");
     }
     assert.equal(new Set(lines).size, BRAIN_CAUSES.length, "each brain cause says its own hint");
-    for (const cause of ["speech=live-account-unselected", "speech=live-account-unreadable", "speech=live-key-required", "speech=always-local-voice"]) {
+    for (const cause of ["speech=live-account-unselected", "speech=live-account-unreadable", "speech=live-key-required", "speech=always-local-voice",
+        "speech=elevenlabs-voice"]) {
         const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setupVoice.tone, got.setupVoice.action, typeof got.setupVoice.hint], ["warning", false, "string"],
             "Realtime voice setup never starts local model installation");
@@ -962,7 +986,8 @@ function verifyReadiness(gate) {
         ["local voice to set up under Local", "localRuntime", LOCAL_ABSENT, "local", ["warning", "Not set up", false]],
         ["local voice ready under Local", "localRuntime", LOCAL_READY, "local", ["ok", "Ready: small", false]],
         ["local voice to set up under Realtime", "localRuntime", LOCAL_ABSENT, "realtime", ["info", "Not set up", true]],
-        ["local voice to set up under Gemini Live", "localRuntime", LOCAL_ABSENT, "gemini", ["info", "Not set up", true]]]) {
+        ["local voice to set up under Gemini Live", "localRuntime", LOCAL_ABSENT, "gemini", ["info", "Not set up", true]],
+        ["local voice to set up under ElevenLabs, which hears through it", "localRuntime", LOCAL_ABSENT, "elevenlabs", ["warning", "Not set up", false]]]) {
         const got = plain(provider === null ? gate.optionalStep(value) : gate.localVoiceStep(value, provider));
         assert.deepEqual([got.tone, got.text, got.action], want, label);
         assert.equal(judge.statusWrite(manifest, {}, key, got).ok, true, label + ": the manifest judge accepts " + key);
@@ -1238,7 +1263,7 @@ const CONTROLS = [
     ["memory guidance is a badge", "out.setupVoice = MEMORY[cause];", "out.setupVoice = Object.assign({}, MEMORY[cause], { lines: [MEMORY[cause].hint], hint: undefined });"],
     ["an optional reading keeps its open tone", 'value.tone === "ok" ? value : Object.assign({}, value, { tone: "info" })', "value", "the browser and input read optional"],
     ["Local voice offers setup beside the Voice step", 'Object.assign({}, value, { action: false }) : optionalStep(value)', "value : optionalStep(value)", "partial under Local: each screen once"],
-    ["Local voice is required under a cloud voice", 'return provider === "local" ? Object.assign', "return true ? Object.assign", "partial under Realtime: "],
+    ["Local voice is required under a cloud voice", 'return hearsLocally(provider) ? Object.assign', "return true ? Object.assign", "partial under Realtime: "],
     ["memory refusal offers reinstall", 'if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {', 'if (false) {'],
     ["loading is initial checking", "out.setupVoice = LOADING;", "out.setupVoice = CHECKING;"],
     ["loading offers setup", 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting") {', 'if (cause === "speech=dictation-starting") {'],
@@ -1249,19 +1274,22 @@ const CONTROLS = [
         '"speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under Setup in Settings > Voice.", action: "dictation" },', "another voxtype"],
     ["a failed daemon offers no setup", '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready.", action: "dictation" },',
         '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready." },', "the Voice step"],
-    ["the voxtype row shows for any voice", 'return provider === "local" ? requirementValue("voxtype", missing) : { hidden: true };', 'return requirementValue("voxtype", missing);', "Realtime voice"],
+    ["the voxtype row shows for any voice", 'return hearsLocally(provider) ? requirementValue("voxtype", missing) : { hidden: true };', 'return requirementValue("voxtype", missing);', "Realtime voice"],
+    ["the ElevenLabs voices row never shows", 'return provider === "elevenlabs" ? { tone: "info", text: "Your step" }', 'return false ? { tone: "info", text: "Your step" }', "the ElevenLabs voices row"],
+    ["the ElevenLabs voice runs no dictation", 'return provider === "local" || provider === "elevenlabs";', 'return provider === "local";', "ElevenLabs"],
     ["another device is no cause", 'return otherDevice(state) ? "speech=dictation-device" : "";', 'return "";', "another device"],
-    ["the Realtime voice takes the cause", 'if (provider !== "local" || state === null) return "";', 'if (state === null) return "";', "Realtime voice"],
+    ["the Realtime voice takes the cause", 'if (!hearsLocally(provider) || state === null) return "";', 'if (state === null) return "";', "Realtime voice"],
     ["the service starts another device", 'return otherDevice(state) ? "refused: dictation=device" : "";', 'return "";', "another device"],
     ["a step's named action is dropped", ': typeof value.action === "string" ? value : noAction(value);', ': noAction(value);', "the Voice step"],
     ["a stored key replaces the voice the user chose", 'if (settings.voiceProvider !== "auto") return settings.voiceProvider;', 'if (false) return settings.voiceProvider;'],
     ["a removed key keeps Realtime", 'offered.some(function (key) { return key.provider === "openai" && key.value === settings.voiceAccount; })', "true"],
     ["Auto runs a Gemini key as Realtime", 'return key.provider === "openai" && key.value === settings.voiceAccount;', "return key.value === settings.voiceAccount;"],
     ["the key row offers another voice's keys", "return keys.filter(function (key) { return key.provider === provider; })", "return keys.filter(function (key) { return key.provider === \"openai\"; })"],
-    ["the key row names one voice's key", 'var hint = VOICE_KEY_HINTS[settings.voiceProvider === "realtime" || settings.voiceProvider === "gemini" ? settings.voiceProvider : "other"];',
+    ["the key row names one voice's key", 'var hint = VOICE_KEY_HINTS[cloudSpeech(settings.voiceProvider) ? settings.voiceProvider : "other"];',
         "var hint = VOICE_KEY_HINTS.realtime;"],
     ["Local and Auto read the Realtime key's hint", '? settings.voiceProvider : "other"];', '? settings.voiceProvider : "realtime"];'],
-    ["the preview names one voice's key", 'return provider === "gemini"\n        ?', "return false\n        ?"],
+    ["the preview names one voice's key", "return PREVIEW_COSTS[provider];", "return PREVIEW_COSTS.realtime;"],
+    ["the ElevenLabs preview plays as local", 'return provider === "realtime" || provider === "gemini" || provider === "elevenlabs";', 'return provider === "realtime" || provider === "gemini";'],
     ["an unread key list runs Realtime", ' || offered === undefined) return "local";', ') return "local";\n    if (offered === undefined) return "realtime";'],
     ["Always talk mode runs Realtime", 'if (settings.mode === "always" || ', "if ("],
     ["no key offers no Add key", 'text: "No key stored", hint: hint, action: true }', 'text: "No key stored", hint: hint, action: false }'],
@@ -1400,11 +1428,13 @@ try {
     }
     {
         const accountsSource = fs.readFileSync(accountsFile, "utf8");
-        const needle = '        if (shell.status.set("voxtype", Gate.voxtypeValue(voiceProvider, missing)) !== "ok")\n            throw new Error("jarvis-accounts: status=refused");\n';
-        assert.equal(accountsSource.split(needle).length, 2, "the voxtype row control's text occurs once");
-        assert.throws(() => verifyDictation(load(file), serviceSource, accountsSource.replace(needle, "")), assert.AssertionError,
-            "an account reader that publishes no voxtype row must turn red");
-        console.log("test-jarvis-setup-gate: control=voxtype-row-unpublished rejected=true");
+        for (const [name, needle] of [["voxtype-row-unpublished", 'shell.status.set("voxtype", Gate.voxtypeValue(voiceProvider, missing)) !== "ok"\n            || '],
+            ["elevenlabs-row-unpublished", '\n            || shell.status.set("elevenLabs", Gate.elevenLabsStep(voiceProvider)) !== "ok"']]) {
+            assert.equal(accountsSource.split(needle).length, 2, name + ": the control's text occurs once");
+            assert.throws(() => verifyDictation(load(file), serviceSource, accountsSource.replace(needle, "")), assert.AssertionError,
+                name + " must turn red");
+            console.log("test-jarvis-setup-gate: control=" + name + " rejected=true");
+        }
     }
     verifyHomeSwitch(serviceSource);
     console.log("test-jarvis-setup-gate: case=home-switch passed=true");
@@ -1453,13 +1483,15 @@ try {
         ["Accounts.qml", accountsSource, "Gate.voiceKey(voiceChoices, shell.settings)", "Gate.voiceKey([], shell.settings)"],
         ["Accounts.qml", accountsSource, "Gate.voiceKey(null, shell.settings)", "Gate.voiceKey([], shell.settings)"],
         ["Accounts.qml", accountsSource, "const voiceChoices = Gate.voiceKeys(keys, shell.settings);", 'const voiceChoices = keys.filter(key => key.provider === "openai").map(key => ({ value: key.value, label: key.label }));'],
-        ["Service.qml", serviceSource, "? Gate.previewCost(Gate.voiceProvider(shell.settings, accountReader.voiceKeys))", '? Gate.previewCost("realtime")'],
+        ["Service.qml", serviceSource, "Gate.cloudSpeech(provider) ? Gate.previewCost(provider)", 'Gate.cloudSpeech(provider) ? Gate.previewCost("realtime")'],
         ["Accounts.qml", accountsSource, "providers = value.providers;", "providers = {};"],
         ["Accounts.qml", accountsSource, "providers = {};", "providers = providers;"],
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '"voiceProvider": "local", "voiceAccount"', '"voiceProvider": "auto", "voiceAccount"'],
-        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), ',\n        { "value": "gemini", "label": "Gemini Live" }]', "]"],
+        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), ',\n        { "value": "gemini", "label": "Gemini Live" }', ""],
+        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), ', { "value": "elevenlabs", "label": "ElevenLabs" }]', "]"],
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '"url": "https://platform.openai.com/api-keys" } },\n    "voice":', '"url": "https://aistudio.google.com/apikey" } },\n    "voice":'],
-        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), "Cloud voice key under Voice on Details", "the key row under Voice on Details"]
+        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), "Cloud voice key, on Setup", "the key row, on Setup"],
+        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), "ElevenLabs voices, on Details", "the voices row, on Details"]
     ]) {
         assert.equal(original.split(needle).length, 2);
         let failure = null;
@@ -1722,7 +1754,12 @@ function verifyDictation(gate, serviceSource, accountsSource) {
             { root: { shell, missing, voiceProvider: voice }, Gate: gate });
         const voxtype = judge.statusRows(manifest, values, missing).find(item => item.key === "voxtype");
         assert.deepEqual(voxtype === undefined ? "hidden" : [voxtype.action, voxtype.tone],
-            voice !== "local" ? "hidden" : [null, missing.includes("voxtype") ? "warning" : "success"], label + ": the voxtype row");
+            !["local", "elevenlabs"].includes(voice) ? "hidden" : [null, missing.includes("voxtype") ? "warning" : "success"], label + ": the voxtype row");
+        // The ElevenLabs voices row shows under ElevenLabs alone, with no
+        // step: its link names where the user's own steps are.
+        const eleven = judge.statusRows(manifest, values, missing).find(item => item.key === "elevenLabs");
+        assert.deepEqual(eleven === undefined ? "hidden" : [eleven.action, eleven.tone, new URL(eleven.link.url).hostname, eleven.hint.includes(eleven.link.text)],
+            voice === "elevenlabs" ? [null, "info", "elevenlabs.io", true] : "hidden", label + ": the ElevenLabs voices row");
         assert.equal(gate.dictationRefusal(state ?? { daemon: "absent", device: "" }), cause === "speech=dictation-device" ? "refused: dictation=device" : "",
             label + ": the start the service refuses itself");
     }

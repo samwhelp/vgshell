@@ -25,7 +25,8 @@
 # a calendar day opens in the profile chosen.
 # The disabled Jarvis page's Home folder field, fed by the homes Jarvis
 # publishes, offers only Custom… while Jarvis publishes none, and its Voice
-# field, fed by the voices Jarvis publishes, draws nothing then.
+# field, fed by the voices Jarvis publishes, draws nothing then. Its Voice
+# provider field offers each voice in words, ElevenLabs among them.
 # The window takes the shown page's height on each page or tab change at
 # its top-left corner, and every listed plugin's Details ends inside it or
 # shows the scroll area's bottom edge cue.
@@ -267,6 +268,8 @@ home_state() { home_field home | py_reply 'import json,sys; d=json.load(sys.stdi
 expect_poll "the disabled Jarvis page's Home folder field offers only Custom\u2026, unset" '[["Custom\u2026"], "", false]' home_state
 expect "control: a field the Jarvis page lacks reads absent" absent home_field homeFolder
 expect "the disabled Jarvis page draws no Voice field while Jarvis publishes no voices" absent home_field voice
+voice_providers() { home_field voiceProvider | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["model"]))'; }
+expect_poll "the Jarvis page's Voice provider field offers ElevenLabs in words beside the other voices" '[{"value": "auto", "label": "Auto"}, {"value": "local", "label": "Local"}, {"value": "realtime", "label": "Realtime"}, {"value": "gemini", "label": "Gemini Live"}, {"value": "elevenlabs", "label": "ElevenLabs"}]' voice_providers
 expect_poll "control: the disabled Jarvis page, with settings to change, draws the hint to turn it on" drawn enabled_hint Jarvis
 # The short fixture reaches the same scroll reader, which must refuse it
 # as setup rather than report a product failure or accept a clamped zero.

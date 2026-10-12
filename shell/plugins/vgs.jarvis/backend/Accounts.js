@@ -849,8 +849,8 @@ class Accounts {
                 update: item.state.kind === "unavailable" && item.state.reason === "pi-update" };
         });
         const resolve = this.resolver();
-        const offered = this.accounts.filter(item => ["found", "unchecked", "signed-in", "verified"].includes(item.state.kind)
-            && accepted(resolve(item.id), item.state.kind).kind === "accepted");
+        const usable = this.accounts.filter(item => ["found", "unchecked", "signed-in", "verified"].includes(item.state.kind));
+        const offered = usable.filter(item => accepted(resolve(item.id), item.state.kind).kind === "accepted");
         const order = (left, right) => left < right ? -1 : left > right ? 1 : 0;
         // Every label starts with its provider's name, so label order groups
         // the choices by provider and orders a harness's by email.
@@ -862,9 +862,13 @@ class Accounts {
                 label = one ? row.label : item.email ? row.label + " / " + item.email : row.label + " / " + item.label;
             return { value: item.id, label: label.slice(0, 60) };
         }).sort((left, right) => order(left.label, right.label) || order(left.value, right.value)).slice(0, MAX_ROWS);
-        // The keys of the two cloud voices' providers: OpenAI's serve Realtime,
-        // Gemini's serve Gemini Live. The service offers the selected voice's.
-        const voiceAccounts = offered.filter(item => ["openai", "gemini"].includes(item.provider))
+        // The keys of the cloud voices' providers: OpenAI's serve Realtime,
+        // Gemini's serve Gemini Live and ElevenLabs's speak the replies. An
+        // ElevenLabs key runs no AI model, so its stored key alone offers it.
+        // The service offers the selected voice's.
+        const voiced = item => ["openai", "gemini"].includes(item.provider) ? offered.includes(item)
+            : item.provider === "elevenlabs" && resolve(item.id)?.source.kind === "keyring";
+        const voiceAccounts = usable.filter(voiced)
             .map(item => ({ value: item.id, label: (provider(item.provider).label + " / " + item.label).slice(0, 60), provider: item.provider }))
             .sort((left, right) => order(left.label, right.label) || order(left.value, right.value));
         // Each offered account's provider by its id: the service chooses an

@@ -132,6 +132,7 @@ function rig(kit, server, options = {}) {
         captionLimit: options.captionLimit ?? Protocol.TRANSCRIPT_CHARS, dispatch: e => runner.dispatch(e), clock: runnerClock,
         directories: options.directories, configured, tasks: tasks?.port ?? null, request: dictation.send,
         ...(options.home === undefined ? {} : { home: options.home }),
+        ...(options.log === undefined ? {} : { log: options.log }),
         ...(options.trace === undefined ? {} : { trace: options.trace }) });
     ports.release = engine.release;
     const actionApproval = ports.approval;
@@ -151,7 +152,8 @@ function rig(kit, server, options = {}) {
         return answer;
     };
     const configuration = configure({ mode: options.mode ?? "hold", sounds: options.sounds === true,
-        microphone: "", speaker: "", brain: "fixture-account", fallbacks: options.fallbacks ?? [], dictation: options.dictation ?? "" });
+        microphone: "", speaker: "", brain: "fixture-account", fallbacks: options.fallbacks ?? [], dictation: options.dictation ?? "",
+        ...options.settings });
     assert.equal(configuration.kind, options.directories ? "loading" : "ready");
     runner.dispatch({ type: "indicator", shown: true });
     const rows = () => {
@@ -3019,7 +3021,7 @@ async function groupSelection(root, server) {
     controls++;
     for (const [name, needle, replacement = ""] of [
         ["speech-first", "const failing = [speech, dictation, brain]", "const failing = [brain, dictation, speech]"],
-        ["home-step", "            plan = heldByHome(plan, home());\n"],
+        ["home-step", "        plan = heldByHome(plan, home());\n"],
         ["home-refused", 'case "refused": cause = home.cause; break;', 'case "refused": break;'],
         ["home-text-judged", 'try { Guidance.compose("chained", "local", LANGUAGE, home.path); }', "try { void home.path; }"],
         ["home-first", 'causes: [cause, ...(plan.kind === "ready" ? [] : plan.causes)]', 'causes: [...(plan.kind === "ready" ? [] : plan.causes), cause]'],
@@ -3215,8 +3217,8 @@ async function groupPlants(root, server) {
             "else if (false) utterance.collection.failed(keyed(error));", "transcribe-failure"],
         ["speech-gates-brain", 'if (event.reason === "tool-calls") next(c, turn);\n                    else {\n                        clearProgress(turn);\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        concluded(c, turn);',
             'if (event.reason === "tool-calls") next(c, turn);\n                    else {\n                        clearProgress(turn);\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        await new Promise(resolve => turn.speech.readable.once("close", resolve));\n                        concluded(c, turn);', "long-speech"],
-        ["net-not-closed", "        if (c.plan.speech.lifetime !== \"daemon\") c.speech.close();\n        c.net.close();\n        retired = { gen: c.gen, closed: quiet };",
-            "        if (c.plan.speech.lifetime !== \"daemon\") c.speech.close();\n        retired = { gen: c.gen, closed: quiet };", "conversation-end"],
+        ["net-not-closed", "        c.spoken?.close();\n        c.net.close();\n        retired = { gen: c.gen, closed: quiet };",
+            "        c.spoken?.close();\n        retired = { gen: c.gen, closed: quiet };", "conversation-end"],
         ["observe-teardown", "if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === \"ended\")) end();", "void s;", "settings-change"],
         ["follow-up-abort", '            if (conversation?.collection !== null && conversation?.collection !== undefined\n                    && !collecting(conversation, conversation.collection)) {\n                conversation.collection.utterance?.abort();\n                conversation.collection = null;\n            }\n',
             "", "follow-up-close-aborts"],
@@ -3253,7 +3255,7 @@ async function groupPlants(root, server) {
         ["line-refused-retry", "if (c.live === null && turn.lineStream !== null) {",
             "if (c.live === null && (turn.lineStream !== null || turn.pendingLine !== null)) {", "progress-after-refused-line"],
         ["line-flush-heard", 'report === null || flushedLine ? "" : withoutLinePrefix', 'report === null ? "" : withoutLinePrefix', "line-held-reply-interrupt"],
-        ["preview-speaker", "c.speech.speak(sentenceInput, c.plan.speech.speaker)", 'c.speech.speak(sentenceInput, "fixture")', "voice-preview"],
+        ["preview-speaker", ".speak(sentenceInput, c.plan.speech.speaker)", '.speak(sentenceInput, "fixture")', "voice-preview"],
         ["preview-unspoken", "fixedLine(c, turn, PREVIEW_LINE);", 'turn.done("brain-done");', "voice-preview"],
         ["dictation-reply-dropped", 'settle(ok(result) ? { kind: "text", text: result.data.text }',
             'settle(ok(result) ? { kind: "text", text: "" }', "dictation-hold-turn"],
@@ -3355,7 +3357,281 @@ async function groupTasks(root, server) {
     return controls;
 }
 
-const GROUPS = Object.freeze({ selection: groupSelection, "daemon-speech": groupDaemonSpeech, "daemon-loading": groupDaemonLoading, plants: groupPlants, tasks: groupTasks });
+// The ElevenLabs voice: the scripted row hears the user and a loopback
+// stand-in of ElevenLabs's two endpoints speaks, which a plugin copy's
+// elevenlabs row names. Its routes, query and body follow the reading of
+// ElevenLabs's API reference on VGS-1202 (2026-10-12); the PCM and the
+// voices are synthetic, and the key is a fixture value.
+const ELEVEN_PORT = 9443;
+const ELEVEN_ORIGIN = "http://127.0.0.1:" + ELEVEN_PORT;
+const ELEVEN_KEY = "test-key-must-stay-private";
+// One synthetic sentence: 100 ms of 24 kHz PCM.
+const ELEVEN_FRAMES = 2400;
+const ELEVEN_SETTINGS = Object.freeze({ voiceProvider: "elevenlabs", voiceAccount: "eleven-key", voice: "VoiceA" });
+const PREVIEW = "This is how I sound when I answer you.";
+const BASE_NEEDLE = 'base: "https://api.elevenlabs.io",';
+
+// A plugin copy whose elevenlabs row names the stand-in, each backend edit
+// [file, needle, replacement] planted once, then the scripted speech table
+// and ENGINE's edits.
+function elevenKit(root, engine = [], backend = []) {
+    const from = fs.mkdtempSync(path.join(root, "elevenlabs-plugin-"));
+    const plugin = path.join(tree, "shell/plugins/vgs.jarvis");
+    fs.cpSync(path.join(plugin, "backend"), path.join(from, "backend"), { recursive: true });
+    for (const name of ["AccountProviders.js", "Session.js", "JarvisProtocol.js", "manifest.json"])
+        fs.copyFileSync(path.join(plugin, name), path.join(from, name));
+    for (const [file, needle, replacement] of [["Providers.js", BASE_NEEDLE, 'base: "' + ELEVEN_ORIGIN + '",'], ...backend]) {
+        const target = path.join(from, "backend", file);
+        const source = fs.readFileSync(target, "utf8");
+        assert.equal(source.split(needle).length - 1, 1, file + " edit match: " + needle.slice(0, 60));
+        fs.writeFileSync(target, source.replace(needle, replacement));
+    }
+    return Fixture.copy(root, engine, from);
+}
+
+// The stand-in: a voice list read answers PAGES in order, the last
+// repeating; a sentence answers its plan by text, ELEVEN_FRAMES of PCM by
+// default, {frames} of PCM, or {hold} with no answer.
+function elevenStandIn() {
+    const records = [];
+    const speech = new Map();
+    const state = { pages: [{ voices: [{ voice_id: "VoiceA", name: "Rachel", category: "premade" }], has_more: false }], served: 0 };
+    const server = http.createServer(async (request, response) => {
+        const record = { method: request.method, url: request.url, headers: request.headers, body: "", closed: false };
+        request.socket.once("close", () => { record.closed = true; });
+        records.push(record);
+        const chunks = [];
+        for await (const chunk of request) chunks.push(chunk);
+        record.body = Buffer.concat(chunks).toString("utf8");
+        if (request.method === "GET") {
+            const page = state.pages[Math.min(state.served++, state.pages.length - 1)];
+            if (page.status !== undefined) {
+                response.writeHead(page.status, { "content-type": "application/json", connection: "close" });
+                response.end("{}");
+                return;
+            }
+            response.writeHead(200, { "content-type": "application/json" });
+            response.end(JSON.stringify(page));
+            return;
+        }
+        record.text = JSON.parse(record.body).text;
+        const plan = speech.get(record.text) ?? { frames: ELEVEN_FRAMES };
+        if (plan.hold) return;
+        response.writeHead(200, { "content-type": "application/octet-stream" });
+        response.end(Buffer.alloc(plan.frames * 2, 0x22));
+    });
+    const ready = new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(ELEVEN_PORT, "127.0.0.1", resolve);
+    });
+    return { records, speech, state, ready, posts: () => records.filter(record => record.method === "POST"),
+        reset() {
+            records.length = 0;
+            speech.clear();
+            state.pages = [{ voices: [{ voice_id: "VoiceA", name: "Rachel", category: "premade" }], has_more: false }];
+            state.served = 0;
+        },
+        close: () => { server.closeAllConnections(); return new Promise(resolve => server.close(resolve)); } };
+}
+
+// The engine's accounts: the brain on the loopback model server, and the
+// stored ElevenLabs key the Voice key setting names.
+const elevenAccounts = Object.freeze({
+    secrets: { lookup: () => Buffer.from(ELEVEN_KEY) },
+    choose: id => ({ kind: "accepted", account: { id, provider: "ollama", label: "local",
+        source: { kind: "local", origin: "http://127.0.0.1:" + PORT }, model: "fixture-model" } }),
+    resolve: id => id === "eleven-key" ? { id, provider: "elevenlabs", label: "voice", model: "",
+        source: { kind: "keyring", reference: { provider: "elevenlabs", account: "voice", origin: ELEVEN_ORIGIN,
+            attributes: { service: "vgs-jarvis" } } } } : null
+});
+
+// Selection with the ElevenLabs voice: it needs a stored ElevenLabs key, the
+// ready row that hears the user, and a voice. Always mode stays allowed: the
+// wake word and the capture stay on this computer, and ElevenLabs gets only
+// released reply text (D102). Its recipients are that row's and ElevenLabs's.
+function spokenSelection(Engine) {
+    const keyring = provider => ({ kind: "keyring", reference: { provider, account: "voice", origin: "https://api.elevenlabs.io",
+        attributes: { service: "vgs-jarvis" } } });
+    const accountsWith = resolve => () => ({ secrets: { lookup: () => { throw new Error("jarvis-keys: secret-tool=locked"); } },
+        choose: elevenAccounts.choose, resolve });
+    const eleven = id => id === "eleven-key" ? { id, provider: "elevenlabs", label: "voice", source: keyring("elevenlabs"), model: "" }
+        : id === "openai-key" ? { id, provider: "openai", label: "voice", source: keyring("openai"), model: "" } : null;
+    const configure = (settings, { ready = true, wake = true, resolve = eleven } = {}) => {
+        Fixture.reset({ ready, wake });
+        const engine = Engine.create({ accounts: accountsWith(resolve), captionLimit: 1, state: () => ({ gen: 0 }),
+            policy: () => ({ profile: "standard", cloudVision: "ask" }), audit: { before: (event, start) => ({ kind: "started", value: start() }) } });
+        const answer = engine.configure({ brain: "a", mode: "toggle", ...ELEVEN_SETTINGS, ...settings });
+        return { answer, engine };
+    };
+    const cause = value => [value.kind, value.cause];
+    for (const [label, settings, options, want] of [
+        ["no key chosen", { voiceAccount: "" }, {}, ["unconfigured", "speech=live-account-unselected"]],
+        ["a key of another provider", { voiceAccount: "openai-key" }, {}, ["unconfigured", "speech=live-key-required"]],
+        ["a key no longer stored", { voiceAccount: "gone" }, {}, ["unconfigured", "speech=live-key-required"]],
+        ["the key reader's keyed failure", {}, { resolve: () => { throw new Error("jarvis-keys: references=json"); } }, ["unconfigured", "speech=live-account-unreadable"]],
+        ["the hearing row not set up", {}, { ready: false }, ["unconfigured", "speech=fixture-off"]],
+        ["no voice before the list answers", { voice: "" }, {}, ["unconfigured", "speech=elevenlabs-voice"]],
+        ["a voice no id names", { voice: "af_heart" }, {}, ["unconfigured", "speech=elevenlabs-voice"]],
+        ["a chosen voice", {}, {}, ["ready", undefined]],
+        ["Always mode, which listens on this computer", { mode: "always" }, {}, ["ready", undefined]],
+        ["Always mode over a row that cannot spot the word", { mode: "always" }, { wake: false }, ["unconfigured", "speech=always-local-voice"]]])
+        assert.deepEqual(cause(configure(settings, options).answer), want, label);
+    const { engine } = configure({});
+    assert.deepEqual([engine.plan().speech.id, engine.plan().speech.speaker, engine.plan().speech.recipients],
+        ["elevenlabs", "VoiceA", [{ kind: "local", provider: "scripted-speech", account: "" },
+            { kind: "network", provider: "elevenlabs", account: "eleven-key", origin: "https://api.elevenlabs.io" }]],
+        "the hearing row's recipients and ElevenLabs's");
+    assert.equal(engine.engine(), "chained", "the scripted row records no dictation: ElevenLabs keeps the hearing row's engine");
+    // Local stays local whatever key is stored.
+    const local = configure({ voiceProvider: "local" }).engine.plan().speech;
+    assert.deepEqual([local.id, local.recipients.length], ["scripted", 1], "Local never speaks through ElevenLabs");
+}
+const SPOKEN_CONTROLS = [
+    ["elevenlabs-selected", 'if (settings.voiceProvider === "elevenlabs") return selectSpoken(', 'if (false) return selectSpoken('],
+    ["elevenlabs-key-provider", 'voiceKey(settings, accounts, "elevenlabs", provider)', 'voiceKey(settings, accounts, "openai", provider)'],
+    ["elevenlabs-hearing", "const hearing = selectHearing(settings, accounts, directories);\n    if (hearing.kind !== \"ready\")",
+        "const hearing = { kind: \"ready\", recipients: [], voices: [] };\n    if (hearing.kind !== \"ready\")"],
+    ["elevenlabs-recipient", "recipients: [...hearing.recipients, key.recipient],", "recipients: hearing.recipients,"],
+    ["elevenlabs-voice-unset", '    if (speaker === null) return { ...unconfigured("speech=elevenlabs-voice"), list };\n', ""],
+    ["elevenlabs-voice-shape", ": ElevenLabs.VOICE.test(settings.voice) ? settings.voice : null;", ": settings.voice || null;"],
+    ["always-elevenlabs-refused", 'settings.mode === "always" && (Object.hasOwn(DUPLEX, settings.voiceProvider) ||',
+        'settings.mode === "always" && (Object.hasOwn(DUPLEX, settings.voiceProvider) || settings.voiceProvider === "elevenlabs" ||']
+];
+
+async function elevenCases(kit, server, eleven, only = null) {
+    const run = async (name, check, options = {}) => {
+        if (only !== null && only !== name) return;
+        Fixture.reset();
+        server.replies.length = 0;
+        eleven.reset();
+        options.before?.();
+        const logs = [];
+        const w = rig(kit, server, { settings: ELEVEN_SETTINGS, accounts: elevenAccounts, log: line => logs.push(line), ...options });
+        w.logs = logs;
+        try { await check(w); } finally {
+            await w.close();
+            server.closeAll();
+        }
+    };
+    const spoken = () => eleven.posts().map(record => record.text);
+
+    // The account's voices reach the Voice setting through the engine's
+    // offers, the user's own first, from keyed GETs that follow the next
+    // page's token, each released and audited first. A preview speaks the
+    // fixed sentence in the chosen voice through ElevenLabs, with no brain
+    // request.
+    await run("elevenlabs-voices", async w => {
+        await until(() => w.engine.voices().length === 2, "the account's voices are offered");
+        assert.deepEqual(w.engine.voices(), [{ label: "My voice (cloned)", value: "Clone1" }, { label: "Rachel", value: "VoiceA" }]);
+        const lists = eleven.records.filter(record => record.method === "GET");
+        assert.deepEqual(lists.map(record => [record.url, record.headers["xi-api-key"], record.body]), [
+            ["/v2/voices?page_size=100", ELEVEN_KEY, ""], ["/v2/voices?page_size=100&next_page_token=next", ELEVEN_KEY, ""]]);
+        assert.deepEqual(w.rows().filter(row => row.kind === "release").map(row => [row.decision, row.outcome, row.effect]),
+            lists.map(() => ["send", "pending", "external"]), "each page is audited before it leaves");
+        const requests = w.server.requests.length;
+        w.runner.dispatch({ type: "preview" });
+        await settled(() => spoken().includes(PREVIEW), () => w.s().turn.kind === "none" && w.s().playback.kind === "idle", "the preview speaks");
+        await playOut(w);
+        const preview = eleven.posts().find(record => record.text === PREVIEW);
+        assert.deepEqual([preview.url, preview.headers["xi-api-key"], w.server.requests.length],
+            ["/v1/text-to-speech/VoiceA/stream?output_format=pcm_24000", ELEVEN_KEY, requests], "the chosen voice, no brain request");
+    }, { before: () => {
+        eleven.state.pages = [{ voices: [{ voice_id: "VoiceA", name: "Rachel", category: "premade" }], has_more: true, next_page_token: "next" },
+            { voices: [{ voice_id: "Clone1", name: "My voice", category: "cloned" }], has_more: false, next_page_token: null }];
+    } });
+
+    // A list that fails offers no voices and leaves the chosen voice: the
+    // reply still speaks in it.
+    await run("elevenlabs-voices-failed", async w => {
+        await until(() => w.logs.includes("jarvis: speech=elevenlabs-voices-http status=500"), "the failed read is logged keyed");
+        assert.deepEqual(w.engine.voices(), [], "a failed list offers none");
+        const first = await say(w, utterance("Say hello."));
+        await requested(w, first + 1, "the request");
+        server.replies.push(text("Hello there."));
+        await until(() => spoken().includes("Hello there."), "the reply speaks");
+        await playOut(w);
+        assert.equal(eleven.posts().find(record => record.text === "Hello there.").url, "/v1/text-to-speech/VoiceA/stream?output_format=pcm_24000");
+    }, { before: () => { eleven.state.pages = [{ status: 500 }]; } });
+
+    // Barge-in: the brain is told exactly the sentences ElevenLabs played
+    // whole, as for the local voices, and the sentence still requested ends
+    // at once.
+    await run("elevenlabs-barge-in", async w => {
+        const first = await say(w, utterance("What time is it?"));
+        await requested(w, first + 1, "first request");
+        await until(() => spoken().length !== 0, "the acknowledgement speaks through ElevenLabs");
+        await playOut(w);
+        eleven.speech.set("The time is noon.", { frames: 24000 });
+        eleven.speech.set("Goodbye now.", { hold: true });
+        server.replies.push(text("Hello there. ", "The time is noon. ", "Goodbye now."));
+        await until(() => w.s().turn.kind === "none", "the reply completes before the interruption");
+        await until(() => spoken().includes("Goodbye now."), "the last sentence is requested");
+        await feeding(w, ELEVEN_FRAMES);
+        await advance(w, 8);
+        control.utterances.push(utterance("Stop there."));
+        w.runner.dispatch({ type: "talk-down" });
+        await until(() => w.s().capture.kind === "open", "capture reopens after the flush");
+        assert.equal(w.audio.lastPlayback.heardText, "Hello there.", "a sentence counts once it played whole");
+        const held = eleven.posts().find(record => record.text === "Goodbye now.");
+        await until(() => held.closed, "the barge-in ends the request in flight");
+        w.runner.dispatch({ type: "talk-up" });
+        server.replies.push(text("Stopped."));
+        const body = await requested(w, first + 2, "the request after barge-in");
+        assert.equal(user(body).at(-1), heardOnly("Hello there.") + "\n\nStop there.", "the brain is told exactly the heard prefix");
+    });
+
+    // The conversation's end ends the request in flight.
+    await run("elevenlabs-end", async w => {
+        const first = await say(w, utterance("Say something."));
+        await requested(w, first + 1, "first request");
+        await until(() => spoken().length !== 0, "the acknowledgement speaks through ElevenLabs");
+        await playOut(w);
+        eleven.speech.set("Wait for me.", { hold: true });
+        server.replies.push(text("Wait for me."));
+        await until(() => spoken().includes("Wait for me."), "the reply is requested");
+        w.runner.dispatch({ type: "stop" });
+        const held = eleven.posts().find(record => record.text === "Wait for me.");
+        await until(() => held.closed, "the end closes the request in flight");
+    });
+}
+
+const FLUSH_RETURNS = ["void output?.return?.(); });", "});"];
+async function groupElevenLabs(root, server) {
+    let controls = 0;
+    spokenSelection(Fixture.copy(root, [PLAN]).Engine);
+    for (const [name, needle, replacement] of SPOKEN_CONTROLS) {
+        assert.throws(() => spokenSelection(Fixture.copy(root, [PLAN, [needle, replacement]]).Engine), assert.AssertionError, name + " must turn red");
+        console.log("control=" + name + " detected");
+        controls++;
+    }
+    const eleven = elevenStandIn();
+    await eleven.ready;
+    try {
+        await elevenCases(elevenKit(root), server, eleven);
+        // A stop flushes the playback too: the end closes the request in
+        // flight on its own, which the end control below takes away.
+        await elevenCases(elevenKit(root, [FLUSH_RETURNS]), server, eleven, "elevenlabs-end");
+        for (const [name, scenario, engine, backend] of [
+            ["elevenlabs-voices-unread", "elevenlabs-voices", [["            if (plan.list !== null && plan.list !== undefined) readVoices(plan.list);\n", ""]], []],
+            ["elevenlabs-preview-voice", "elevenlabs-voices", [[".speak(sentenceInput, c.plan.speech.speaker)", '.speak(sentenceInput, "VoiceB")']], []],
+            ["elevenlabs-list-unaudited", "elevenlabs-voices", [['const result = audit.before(releaseEvent({ recipients }, identityOf, item.labels, "send", "pending"), start);',
+                'const result = { kind: "started", value: start() };']], []],
+            ["elevenlabs-failed-list-drops-voice", "elevenlabs-voices-failed", [[": ElevenLabs.VOICE.test(settings.voice) ? settings.voice : null;", ": null;"]], []],
+            ["elevenlabs-heard-uncredited", "elevenlabs-barge-in", [], [["ElevenLabs.js",
+                "yield { pcm: held, sentence: { text: item.content, frames: held.length / 2 } };", "yield { pcm: held };"]]],
+            ["elevenlabs-flush-keeps-request", "elevenlabs-barge-in", [FLUSH_RETURNS], []],
+            ["elevenlabs-end-keeps-request", "elevenlabs-end", [FLUSH_RETURNS, ["        c.spoken?.close();\n        c.net.close();\n", ""]], []]]) {
+            await assert.rejects(() => elevenCases(elevenKit(root, engine, backend), server, eleven, scenario), assert.AssertionError,
+                name + " must turn " + scenario + " red");
+            console.log("control=" + name + " detected");
+            controls++;
+        }
+    } finally { await eleven.close(); }
+    return controls;
+}
+
+const GROUPS = Object.freeze({ selection: groupSelection, "daemon-speech": groupDaemonSpeech, "daemon-loading": groupDaemonLoading, plants: groupPlants, tasks: groupTasks,
+    elevenlabs: groupElevenLabs });
 
 async function runGroup(name) {
     await runGroupWithServer(name, GROUPS[name]);

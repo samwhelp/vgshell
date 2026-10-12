@@ -13,6 +13,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Cloned voice, off at first: the local voice speaks in a voice recorded on your computer, on an NVIDIA graphics card.
 - Realtime voice from OpenAI with a saved OpenAI key, a slower cloud option.
 - Gemini Live voice from Google with a saved Gemini key, a second cloud option.
+- ElevenLabs voice with a saved ElevenLabs key: the local voice hears you, and Jarvis speaks the reply in a voice of your ElevenLabs account, a voice you designed or cloned on ElevenLabs's site among them.
 - The AI model you choose: an app you are signed in to (Claude Code, Codex, GitHub Copilot, or Pi with its own providers) or an API key.
 - Backup models that Jarvis tries when the answering model fails.
 - Short commands, such as "turn the volume up" or "go to workspace three", act at once with no AI model call.
@@ -37,9 +38,9 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 2. The voice turns your words into text. The local voice does this on your computer. The Realtime voice sends your voice to OpenAI, and the Gemini Live voice sends it to Google.
 3. Jarvis sends the text to the AI model you chose, with your instructions from the home folder.
 4. The AI model answers. When it asks for an action, such as moving a window or reading a file, Jarvis checks the action first. Jarvis asks you before it deletes a file, runs a command or sends something. It calls an action done only after it sees the result.
-5. Jarvis speaks the answer.
+5. Jarvis speaks the answer. With the ElevenLabs voice, ElevenLabs turns the answer into speech.
 
-What leaves your computer: the text of your request goes to the AI model you chose, over the network when that model runs outside your computer. With the Realtime voice, your voice goes to OpenAI; with the Gemini Live voice, it goes to Google. A screenshot goes out only as Screen to cloud allows. Jarvis keeps your keys in your desktop keyring.
+What leaves your computer: the text of your request goes to the AI model you chose, over the network when that model runs outside your computer. With the Realtime voice, your voice goes to OpenAI; with the Gemini Live voice, it goes to Google. With the ElevenLabs voice, your voice stays on your computer, and the answer Jarvis lets out goes to ElevenLabs. ElevenLabs keeps request history, and may use it to improve its models unless you turn that off in your ElevenLabs account under Terms and privacy, Data use. A screenshot goes out only as Screen to cloud allows. Jarvis keeps your keys in your desktop keyring.
 
 ## Turn Jarvis on
 
@@ -86,14 +87,15 @@ You can change the keys under Keys on the Jarvis page.
 - Jarvis closes its microphone while it speaks. Talk interrupts it.
 - The local voice works with no network after Set up local voice. voxtype, the dictation program that Voice also uses, records your words from the system default microphone. Its tones tell you when it records. You set them in Appearance → Sounds.
 - With a cloud voice, OpenAI for Realtime or Google for Gemini Live hears you and speaks the reply. The AI model you chose still answers each request, and Jarvis still checks each action and what it sends.
+- With the ElevenLabs voice, the local voice hears you, Hey Jarvis included, and ElevenLabs speaks the reply. Always talk mode works with it. Talk interrupts it, as it interrupts the local voice.
 
 ## Setup
 
-The Setup tab of the Jarvis page shows Ready or Not ready, and the reason. Its steps are Sign in, AI model, Voice, Local voice, Browser, Desktop input and Cloned voice. The AI model and Voice steps show Done or To do. Sign in is optional. Browser and Desktop input are optional: until they are done, they show their state in the optional tone. Local voice is required while it is the voice provider, and its setup is then the Voice step's button; under a cloud voice it is optional. Cloned voice is optional too: it shows Not set up, Ready, or why it cannot be set up yet. A step that has an action shows its button.
+The Setup tab of the Jarvis page shows Ready or Not ready, and the reason. Its steps are Sign in, AI model, Voice, Local voice, Browser, Desktop input and Cloned voice. The AI model and Voice steps show Done or To do. Sign in is optional. Browser and Desktop input are optional: until they are done, they show their state in the optional tone. Local voice is required while it hears you, under Local and ElevenLabs, and its setup is then the Voice step's button; under Realtime or Gemini Live it is optional. Cloned voice is optional too: it shows Not set up, Ready, or why it cannot be set up yet. A step that has an action shows its button.
 
 The buttons are also rows in the launcher's Jarvis group. Each opens a floating terminal.
 
-- Add key stores an API key from an AI provider in your desktop keyring. You type the key in a hidden field. Choose the provider from a list that names the page where it makes keys, then give the key a name. The Jarvis page shows whether a key is present, absent, locked or unavailable, and never shows the key.
+- Add key stores an API key from an AI provider, or an ElevenLabs key, in your desktop keyring. You type the key in a hidden field. Choose the provider from a list that names the page where it makes keys, then give the key a name. The Jarvis page shows whether a key is present, absent, locked or unavailable, and never shows the key.
 - Sign in opens the app's own sign-in: Claude Code, Codex, GitHub Copilot or Pi. Give a new account a name, or select an existing account folder. Jarvis shows the folder before sign-in and makes it if needed. After sign-in, select the account under AI model. The app keeps its own login.
 - Set up local voice downloads the local voice model that runs best on your computer. It checks free space, downloads the models and a private runtime, and says Ready only after it checks the download and a test clip passes. To use another model, choose it under Local voice model.
 - Set up cloned voice, on the Cloned voice step of the Setup tab and not in the launcher, shows Resemble AI's use text and asks two questions: whether you read it, and whether the voice is yours or you have the speaker's permission. Any answer but two yeses downloads and stores nothing. It then downloads the model and a private runtime, records 10 seconds while you read a sentence aloud, and says Ready after a test sentence in that voice is made on your computer, with nothing played. It needs the Large local voice model ready. Remove recording deletes the recording and turns off Cloned voice when its terminal closes; the model stays for a later setup.
@@ -107,6 +109,8 @@ When a tool that Jarvis needs is missing, the VGS requirement notice installs it
 
 Home folder shows in Setup only when Jarvis cannot use the folder you chose, and says what to change. Jarvis checks the folder again when you press Talk.
 
+With the ElevenLabs voice, the Details tab shows ElevenLabs voices, which links ElevenLabs API keys, where you make a key. You design or clone a voice on ElevenLabs's site, under Voices; Voice then lists it.
+
 With a GitHub Copilot account, Setup shows Copilot Memory. GitHub keeps that memory in your account, so only you can turn it off: open [GitHub Copilot settings](https://github.com/settings/copilot/features) and set Copilot Memory to Disabled.
 
 ## Settings
@@ -115,12 +119,12 @@ The settings are in Settings → Plugins → Jarvis. A change to Voice provider,
 
 | Setting | What it changes |
 | --- | --- |
-| Talk mode | Hold: Jarvis takes what you said when you release Talk. Toggle: the conversation stays open until you press Talk again. Always: say Hey Jarvis, then your request; Talk listens at once. Always needs the local voice, because your computer listens for the words. The bubble stays on the screen while the microphone is open. |
+| Talk mode | Hold: Jarvis takes what you said when you release Talk. Toggle: the conversation stays open until you press Talk again. Always: say Hey Jarvis, then your request; Talk listens at once. Always needs the local voice, alone or under ElevenLabs, because your computer listens for the words. The bubble stays on the screen while the microphone is open. |
 | Microphone | The microphone a cloud voice uses. The local voice uses the system default microphone. |
 | Speaker | The speaker Jarvis uses. |
-| Voice provider | Local is the default: speech stays on your computer, and Jarvis answers fastest. Realtime sends your voice and the results Jarvis lets out to OpenAI, and Gemini Live sends them to Google; both answer more slowly. Auto uses Realtime when an OpenAI key is stored, and Local when none is. In Always talk mode, Auto uses Local. Local, Realtime and Gemini Live stay as you set them, whatever keys are stored. |
-| Voice key | The key the cloud voice uses: an OpenAI key for Realtime, a Gemini key for Gemini Live. Add key stores a key in your desktop keyring. Get an OpenAI key at [OpenAI API keys](https://platform.openai.com/api-keys), or a Gemini key at [Google AI Studio](https://aistudio.google.com/apikey). With one key of the chosen voice, Jarvis selects it. With more keys, choose one. |
-| Voice | How Jarvis sounds, from the voices of the selected voice provider. Preview, under Voice on Details, says one sentence in that voice. |
+| Voice provider | Local is the default: speech stays on your computer, and Jarvis answers fastest. Realtime sends your voice and the results Jarvis lets out to OpenAI, and Gemini Live sends them to Google; both answer more slowly. ElevenLabs speaks the replies in your ElevenLabs voices, and Local still hears you. Auto uses Realtime when an OpenAI key is stored, and Local when none is; it never uses ElevenLabs. In Always talk mode, Auto uses Local. Local, Realtime, Gemini Live and ElevenLabs stay as you set them, whatever keys are stored. |
+| Voice key | The key the cloud voice uses: an OpenAI key for Realtime, a Gemini key for Gemini Live, an ElevenLabs key for ElevenLabs. Add key stores a key in your desktop keyring. Get an OpenAI key at [OpenAI API keys](https://platform.openai.com/api-keys), a Gemini key at [Google AI Studio](https://aistudio.google.com/apikey), or an ElevenLabs key at [ElevenLabs API keys](https://elevenlabs.io/app/settings/api-keys). With one key of the chosen voice, Jarvis selects it. With more keys, choose one. |
+| Voice | How Jarvis sounds, from the voices of the selected voice provider. With ElevenLabs, the voices of your account: its premade voices and the voices you designed or cloned on ElevenLabs's site, at most 64, yours first. Jarvis reads them again each time you open this page. Preview, under Voice on Setup, says one sentence in that voice; with a cloud voice it asks first, because it uses your key. |
 | Local voice model | Auto is the model that runs best on your computer, from its graphics card memory, its memory and its processor. The list shows each other model your computer can run, with its download size. When you choose one, it downloads in a floating terminal, which asks first if it replaces a model that is ready. The choice changes the voice Jarvis speaks with. Dictation uses voxtype's model: change it with Choose model in Voice. |
 | Cloned voice | Off at first. On, Jarvis speaks in the voice that Set up cloned voice, on the Setup tab, recorded, with Chatterbox Turbo by Resemble AI under the MIT licence. The recording and the model stay on your computer. It needs the Large local voice model on an NVIDIA graphics card; until its setup says Ready, Jarvis speaks in the local voice model's voice. Changing it ends the conversation. |
 | Account | Under AI model: the AI that answers you. It is an API key you added, or an app you are signed in to. The list shows only the choices Jarvis can use. An app with more than one account shows each account by its sign-in email. |

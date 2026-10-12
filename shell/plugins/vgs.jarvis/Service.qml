@@ -430,7 +430,9 @@ Item {
             return "refused: jarvis=not-ready";
         const refusal = Session.previewRefusal(sessionState);
         if (refusal !== null) return "refused: preview=" + refusal;
-        if (step === "kind") return sessionState.engine.kind === "duplex" ? "cloud" : "local";
+        // A cloud voice speaks the preview with the user's key, ElevenLabs
+        // over the local voice's engine included, so its screen asks first.
+        if (step === "kind") return Gate.cloudSpeech(Gate.voiceProvider(shell.settings, accountReader.voiceKeys)) ? "cloud" : "local";
         if (step !== "play") return "refused: preview=step";
         sendIntent("preview");
         return "ok";
@@ -443,9 +445,9 @@ Item {
     }
 
     function publishPreview() {
+        const provider = Gate.voiceProvider(shell.settings, accountReader.voiceKeys);
         const value = sessionState === null || Session.previewRefusal(sessionState) === "down" ? { hidden: true }
-            : sessionState.engine.kind === "duplex"
-            ? Gate.previewCost(Gate.voiceProvider(shell.settings, accountReader.voiceKeys))
+            : Gate.cloudSpeech(provider) ? Gate.previewCost(provider)
             : { tone: "info", text: "Plays on this computer", action: true };
         const reply = shell.status.set("voicePreview", value);
         if (reply !== "ok") throw new Error("jarvis: " + reply);

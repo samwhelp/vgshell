@@ -10,6 +10,9 @@ world(() => {
     const remote = { kind: "network", provider: "brain", account: "fixture", origin: "https://brain.example" };
     const loopback = { ...remote, origin: "http://127.0.0.1:11434" };
     const cloudSpeech = { ...remote, provider: "voice", origin: "https://voice.example" };
+    // The ElevenLabs voice: local hearing beside the network voice that
+    // speaks the reply, whatever brain answers.
+    const elevenLabs = { kind: "network", provider: "elevenlabs", account: "voice", origin: "https://api.elevenlabs.io" };
     const sources = ["speech", "desktop", "home", "clipboard", "file", "screen", "web", "command", "agent"];
     // What leaves with no grant: the user's own words, VGS's own reports and
     // the text of the user's home folder (D105).
@@ -18,7 +21,8 @@ world(() => {
         ["local", loopback, [local]],
         ["cloud-brain", remote, [local]],
         ["cloud-speech", loopback, [cloudSpeech]],
-        ["both", remote, [local, cloudSpeech]]
+        ["both", remote, [local, cloudSpeech]],
+        ["elevenlabs", loopback, [local, elevenLabs]]
     ];
     const select = (logic, profile = "standard", cloudVision = "ask", brain = remote, speech = [cloudSpeech],
         conversation = "conversation") => logic.recipients({ conversation, profile, cloudVision, brain, speech });
@@ -71,6 +75,14 @@ world(() => {
     assert.deepEqual(Policy.release(webMemory, selected),
         { kind: "ask", content: "[withheld: home content, web content]", labels: ["home", "web"], needed: ["web"] });
     assert.equal(Policy.release(webMemory, selected, [{ recipients: selected, labels: ["web"] }]).kind, "send");
+    // A reply with a label the ElevenLabs set holds no grant for is withheld
+    // from the voice, though the brain is on this computer; a grant of
+    // another label does not release it.
+    const spoken = select(Policy, "standard", "ask", loopback, [local, elevenLabs]);
+    const webReply = Policy.item("PRIVATE page text", ["web"]);
+    assert.deepEqual(Policy.release(webReply, spoken), { kind: "ask", content: "[withheld: web content]", labels: ["web"], needed: ["web"] });
+    assert.equal(Policy.release(webReply, spoken, [{ recipients: spoken, labels: ["file"] }]).kind, "ask");
+    assert.equal(Policy.release(webReply, spoken, [{ recipients: spoken, labels: ["web"] }]).kind, "send");
     const bytes = Buffer.from("PRIVATE image");
     const labelled = Policy.item(bytes, ["screen"]);
     bytes.fill(0);
@@ -167,6 +179,8 @@ world(() => {
             [{ recipients: set, labels: ["web"] }]).kind, "ask"); });
     control("whole-set", "[selectedBrain, ...selectedSpeech].every", "[selectedBrain].every",
         logic => cell(logic, "standard", "ask", "cloud-speech", loopback, [cloudSpeech], "file", false));
+    control("elevenlabs-withheld", "[selectedBrain, ...selectedSpeech].every", "[selectedBrain, selectedSpeech[0]].every",
+        logic => cell(logic, "standard", "ask", "elevenlabs", loopback, [local, elevenLabs], "web", false));
     control("local-send", 'if (selected.offline) return { kind: "send", ...current };', 'if (false) return { kind: "send", ...current };',
         logic => cell(logic, "standard", "never", "local", loopback, [local], "screen", false));
     for (const source of ungranted)

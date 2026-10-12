@@ -150,6 +150,8 @@ const CASES = [
         ["local speech ready timeout", "speech=local-ready-timeout", "localVoice"], ["local speech not ready", "speech=local-not-ready", "voice"],
         ["another speech fault", "speech=live-key-required", "voice"],
         ["a capture start", "audio-start: device-busy", "audio"],
+        ["an ElevenLabs reply ElevenLabs refused", "playback-source: jarvis: speech=elevenlabs-http status=401", "elevenlabs"],
+        ["another playback source failure", "playback-source: jarvis: speech=local-synthesis-timeout", "audio"],
         ["a device probe", "device-probe: pw-dump-exit", "audio"], ["a busy player", "playback-busy", "audio"],
         ["a home text over its bound", "guidance=home-too-large", "home"], ["a home skill list over its bound", "guidance=home-skills-too-large", "home"],
         ["a link in the home folder", "home=link", "home"],
@@ -344,6 +346,7 @@ verify(load(path.join(dir, "WidgetView.js")));
 // Each control removes one rule from a copy of the view and keeps the text
 // around it: [label, needle, replacement].
 const CONTROLS = [
+    ["an ElevenLabs refusal reads as a broken speaker", '    [/^playback-source: jarvis: speech=elevenlabs-/, "elevenlabs"],\n', ''],
     ["memory explanation discarded", 'return { title: step.text, action: "Open Settings > Jarvis. " + step.hint };', 'return GATE_TEXT.unconfigured;'],
     ["checking setup reads off", 'state.gate.reason === "unconfigured" && setupChecking(values)', 'state.gate.reason === "unconfigured" && false'],
     ["checking hides an offered setup action", '!step || offered(step) ||', '!step ||'],

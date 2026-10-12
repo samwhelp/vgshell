@@ -66,7 +66,8 @@ world(async () => {
     // Execute the shipped QML publication callback. Process timing and drawing
     // remain the nested smoke's contract; these cases judge its write decision.
     const publicationSource = fs.readFileSync(path.join(plugin, "Accounts.qml"), "utf8");
-    // choices are OpenAI keys and gemini Gemini keys; voice is the Voice
+    // choices are OpenAI keys, gemini Gemini keys and eleven ElevenLabs
+    // keys; voice is the Voice
     // provider setting, and switchTo the one the user changes it to after
     // the read. The selected cloud voice's keys are offered, and its sole key
     // is chosen for the user unless they named one of their own.
@@ -77,6 +78,8 @@ world(async () => {
         { name: "switch", choices: ["key-a"], gemini: ["key-g"], switchTo: "gemini", writes: ["key-a", "key-g"] },
         { name: "local-keeps", choices: ["key-a"], gemini: ["key-g", "key-h"], selected: "key-h", voice: "local", switchTo: "gemini", writes: [] },
         { name: "auto-keeps", choices: ["key-a"], gemini: ["key-g"], selected: "key-g", voice: "auto", writes: [] },
+        { name: "elevenlabs", choices: ["key-a"], gemini: ["key-g"], eleven: ["key-e"], voice: "elevenlabs", writes: ["key-e"] },
+        { name: "elevenlabs-other-voice", choices: ["key-a"], eleven: ["key-e"], selected: "key-a", voice: "elevenlabs", writes: ["key-e"] },
         { name: "zero", choices: [], writes: [] },
         { name: "multiple", choices: ["key-a", "key-b"], writes: [] },
         { name: "explicit", choices: ["key-a"], selected: "key-b", writes: [] },
@@ -99,7 +102,8 @@ world(async () => {
             diagnostic: { kind: "collected", text: "" },
             output: row.invalid ? "broken" : JSON.stringify({ accounts: [], brains: [],
                 voiceAccounts: [...row.choices.map(value => ({ value, label: "Fixture " + value, provider: "openai" })),
-                    ...(row.gemini ?? []).map(value => ({ value, label: "Fixture " + value, provider: "gemini" }))],
+                    ...(row.gemini ?? []).map(value => ({ value, label: "Fixture " + value, provider: "gemini" })),
+                    ...(row.eleven ?? []).map(value => ({ value, label: "Fixture " + value, provider: "elevenlabs" }))],
                 search: { found: row.choices.length, partial: "" } }),
             refreshed: () => refreshed++, shell: { settings: { voiceAccount: initial, voiceProvider: row.voice ?? "realtime" },
                 status: { set: (key, value) => {
@@ -126,7 +130,8 @@ world(async () => {
         const failed = row.code === 1 || row.invalid || row.refuseStatus;
         assert.equal(reports.get("accountSearch").tone, failed ? "danger" : row.choices.length ? "ok" : "info");
         assert.deepEqual(Array.from(reports.get("voiceAccounts"), item => item.value),
-            failed ? [] : (row.switchTo ?? row.voice) === "gemini" ? row.gemini : row.choices);
+            failed ? [] : (row.switchTo ?? row.voice) === "gemini" ? row.gemini
+                : (row.switchTo ?? row.voice) === "elevenlabs" ? row.eleven : row.choices);
         assert.equal(warnings.length, failed || row.refuseWrite ? 1 : 0);
     }
     for (const row of publicationCases) { publication(publicationSource, row); cases++; }
@@ -159,7 +164,12 @@ world(async () => {
         ["other-voice", "return other ? offered[0].value : null;", "return null;"],
         ["local-keeps", 'var other = cloud && keys.some(', "var other = keys.some("],
         ["auto-keeps", 'var other = cloud && keys.some(', "var other = keys.some("],
-        ["gemini", 'return settings.voiceProvider === "gemini" ? "gemini" : "openai";', 'return "openai";']
+        ["gemini", 'return settings.voiceProvider === "gemini" || settings.voiceProvider === "elevenlabs" ? settings.voiceProvider : "openai";',
+            'return settings.voiceProvider === "elevenlabs" ? settings.voiceProvider : "openai";'],
+        ["elevenlabs", 'return settings.voiceProvider === "gemini" || settings.voiceProvider === "elevenlabs" ? settings.voiceProvider : "openai";',
+            'return settings.voiceProvider === "gemini" ? settings.voiceProvider : "openai";'],
+        ["elevenlabs-other-voice", 'return provider === "realtime" || provider === "gemini" || provider === "elevenlabs";',
+            'return provider === "realtime" || provider === "gemini";']
     ]) {
         assert.equal(gateSource.split(needle).length - 1, 1, name + " gate mutation match");
         const copy = path.join(process.env.JARVIS_TEST_ROOT, "gate-" + name + ".js");
@@ -326,25 +336,33 @@ world(async () => {
     const ownedAlias = ownReference("anthropic", "Claude Code", "https://api.anthropic.com");
     references.remember(ownedAlias);
     assert.equal(store.discover().find(item => item.source.reference?.account === "Claude Code").state.kind, "found");
-    // The cloud voices' keys: an OpenAI key serves Realtime and a Gemini
-    // key serves Gemini Live; each choice names its provider.
+    // The cloud voices' keys: an OpenAI key serves Realtime, a Gemini key
+    // serves Gemini Live and an ElevenLabs key, which runs no AI model,
+    // speaks the replies; each choice names its provider. A key from the
+    // environment is no stored key, and no voice takes it.
     references.remember(ownReference("gemini", "voice", "https://generativelanguage.googleapis.com"));
+    references.remember(ownReference("elevenlabs", "voice", "https://api.elevenlabs.io"));
     const voiceOffers = Judge => {
-        const judge = new Judge(directory, { ...env, OPENAI_API_KEY: privateValue });
+        const judge = new Judge(directory, { ...env, OPENAI_API_KEY: privateValue, ELEVENLABS_API_KEY: privateValue });
         const rows = judge.discover();
         const wanted = rows.find(item => item.source.reference?.account === "other");
         const google = rows.find(item => item.source.reference?.account === "voice" && item.provider === "gemini");
-        const environmentAccount = rows.find(item => item.provider === "openai" && item.source.kind === "variable");
-        assert.ok(environmentAccount, "the fixture discovers an environment account");
+        const eleven = rows.find(item => item.source.reference?.account === "voice" && item.provider === "elevenlabs");
+        const environmentAccounts = rows.filter(item => ["openai", "elevenlabs"].includes(item.provider) && item.source.kind === "variable");
+        assert.equal(environmentAccounts.length, 2, "the fixture discovers both environment accounts");
         const choices = judge.status().voiceAccounts;
-        assert.equal(choices.some(choice => choice.value === environmentAccount.id), false);
-        assert.deepEqual(choices.map(choice => [choice.value, choice.provider]).sort(), [[wanted.id, "openai"], [google.id, "gemini"]].sort());
+        for (const environmentAccount of environmentAccounts)
+            assert.equal(choices.some(choice => choice.value === environmentAccount.id), false, environmentAccount.provider);
+        assert.deepEqual(choices.map(choice => [choice.value, choice.provider]).sort(),
+            [[wanted.id, "openai"], [google.id, "gemini"], [eleven.id, "elevenlabs"]].sort());
         safe(choices);
     };
     voiceOffers(Accounts);
     for (const [name, needle, replacement] of [
-        ["live-provider-offer", 'offered.filter(item => ["openai", "gemini"].includes(item.provider))', "offered"],
+        ["live-provider-offer", "usable.filter(voiced)", "usable"],
         ["live-gemini-offer", '["openai", "gemini"].includes(item.provider)', 'item.provider === "openai"'],
+        ["elevenlabs-offer", 'item.provider === "elevenlabs" && ', "false && "],
+        ["elevenlabs-stored-key", 'resolve(item.id)?.source.kind === "keyring"', "true"],
         ["live-offer-provider", "slice(0, 60), provider: item.provider }))", "slice(0, 60), provider: \"openai\" }))"],
         ["live-resolved-account-offer", 'if (resolved === null) return { kind: "refused", cause: "account-unavailable" };',
             'if (resolved === null) return { kind: "accepted", account: null };']
@@ -730,7 +748,7 @@ world(async () => {
         ["backend/Accounts.js", "model-rule", 'if (!modelProvider(provider(resolved.provider))) return', "if (false) return"],
         ["AccountProviders.js", "subscription-model", 'return row.kind === "cli" || (', "return ("],
         ["AccountProviders.js", "probe-model", '(row.probe !== undefined && row.probe.model !== "")', "row.probe !== undefined"],
-        ["backend/Accounts.js", "list-accepted", '\n            && accepted(resolve(item.id), item.state.kind).kind === "accepted");', ");"]]) {
+        ["backend/Accounts.js", "list-accepted", 'usable.filter(item => accepted(resolve(item.id), item.state.kind).kind === "accepted");', "usable;"]]) {
         await mutant(file, name, needle, replacement, folder => modelList(judgeIn(folder)));
         controls++;
     }

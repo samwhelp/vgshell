@@ -51,7 +51,8 @@ Item {
     readonly property var signInEndedAt: signInState === null || signInState === undefined ? null : signInState.endedAt
     readonly property var missing: shell === null ? [] : shell.requirements.missing
     onMissingChanged: publishRequirements()
-    // The voice the daemon runs: the voxtype row shows for the local voice.
+    // The voice the daemon runs: the voxtype row shows for a voice that hears
+    // the user on this computer, the ElevenLabs voices row for ElevenLabs.
     readonly property string voiceProvider: shell === null ? "" : Gate.voiceProvider(shell.settings, voiceKeys)
     onVoiceProviderChanged: publishRequirements()
     // The Voice key choices are the keys of the selected cloud voice's
@@ -73,7 +74,8 @@ Item {
         for (const command of ["claude", "codex"])
             if (shell.status.set(command, Gate.requirementValue(command, missing)) !== "ok")
                 throw new Error("jarvis-accounts: status=refused");
-        if (shell.status.set("voxtype", Gate.voxtypeValue(voiceProvider, missing)) !== "ok")
+        if (shell.status.set("voxtype", Gate.voxtypeValue(voiceProvider, missing)) !== "ok"
+            || shell.status.set("elevenLabs", Gate.elevenLabsStep(voiceProvider)) !== "ok")
             throw new Error("jarvis-accounts: status=refused");
     }
 

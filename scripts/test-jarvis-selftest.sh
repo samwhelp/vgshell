@@ -389,14 +389,20 @@ several_voices() {
 no_session_bus() { ends 77 "selftest=keyring-unavailable missing=session-bus" --type hello --brain "$saved_key"; }
 # The Gemini voice takes a Gemini key: the saved OpenAI key is not one.
 unsaved_gemini() { ends 77 "selftest=keyring-no-key key=unsaved" --type hello --brain "$sign_in" --voice gemini; }
+# The ElevenLabs voice takes an ElevenLabs key, and Always mode keeps it:
+# the local voice hears the room, so the run goes on to its missing key.
+unsaved_elevenlabs() { ends 77 "selftest=keyring-no-key key=unsaved" --tts hello --mode always --brain "$sign_in" --voice elevenlabs; }
 holds "the realtime voice with no OpenAI key saved ends as selftest=keyring-no-key key=unsaved, exit 77" unsaved_voice
 holds "the realtime voice with two OpenAI keys saved is refused" several_voices
 holds "a saved key with no session bus ends as selftest=keyring-unavailable, exit 77" no_session_bus
 holds "the gemini voice with only an OpenAI key saved ends as selftest=keyring-no-key key=unsaved, exit 77" unsaved_gemini
+holds "the elevenlabs voice in Always mode with only an OpenAI key saved ends as selftest=keyring-no-key key=unsaved, exit 77" unsaved_elevenlabs
 
 control plant "a runner that starts the realtime voice with no key saved" '  none) unavailable keyring-no-key key=unsaved ;;' '  none) ;;' unsaved_voice
 control plant "a runner that starts the realtime voice with two keys saved" '  several) refuse "argument=--voice value=$voice reason=several-keys" ;;' '  several) ;;' several_voices
-control plant "a runner that serves the gemini voice with an OpenAI key" 'key.row.id === (voice === "gemini" ? "gemini" : "openai")' 'key.row.id === "openai"' unsaved_gemini
+control plant "a runner that serves the gemini voice with an OpenAI key" 'const provider = { gemini: "gemini", elevenlabs: "elevenlabs" }[voice] ?? "openai";' 'const provider = "openai";' unsaved_gemini
+control plant "a runner that serves the elevenlabs voice with an OpenAI key" '{ gemini: "gemini", elevenlabs: "elevenlabs" }[voice]' '{ gemini: "gemini" }[voice]' unsaved_elevenlabs
+control plant "a runner that refuses Always mode with the elevenlabs voice" '  local|elevenlabs) hears_here=true ;;' '  local) hears_here=true ;;' unsaved_elevenlabs
 control plant "a runner that goes on to a key read with no session bus" '  [[ -n ${DBUS_SESSION_BUS_ADDRESS:-} ]] || unavailable keyring-unavailable missing=session-bus' '  :' no_session_bus
 control plant "a runner that goes on without a prepared local voice" 'selftest_local_inputs)" || unavailable local-inputs-unavailable' 'selftest_local_inputs)" || local_inputs=/nowhere$'"'"'\n'"'"'/nowhere' local_case "${local_rows[0]}"
 control plant "a runner that takes an interpreter of another setup" '  [[ $models -ef $root/models && $python -ef $root/venv/bin/python ]] || return 1' '' local_case "${local_rows[2]}"
@@ -407,7 +413,7 @@ control plant "a runner that starts with the configured voxtype model absent" 'i
 control plant "a runner that skips every VOXTYPE_MODELS pre-start guard" 'voxtype_models=""
 voxtype_models_sum=""
 voxtype_cpu=""
-if [[ $voice == local ]]; then' 'voxtype_models=""
+if [[ $hears_here == true ]]; then' 'voxtype_models=""
 voxtype_models_sum=""
 voxtype_cpu=""
 if false; then' voxtype_case "${voxtype_rows[0]}"
@@ -603,7 +609,7 @@ graph none vgs-smoke-speakers vgs-smoke-voice-feed vgs-smoke-voice
 holds "Always mode refuses typed input" refused "jarvis-selftest: refused: argument=--mode value=always reason=always-needs-voice" --type hello --mode always --brain "$sign_in"
 holds "Always mode refuses the realtime voice" refused "jarvis-selftest: refused: argument=--mode value=always reason=always-needs-local-voice" --tts hello --mode always --voice realtime --brain "$sign_in"
 holds "Always mode refuses the gemini voice" refused "jarvis-selftest: refused: argument=--mode value=always reason=always-needs-local-voice" --tts hello --mode always --voice gemini --brain "$sign_in"
-control plant "a runner that takes Always mode with the gemini voice" '  [[ $mode != always || $voice == local ]] || refuse' '  [[ $mode != always || $voice != realtime ]] || refuse' \
+control plant "a runner that takes Always mode with the gemini voice" '  [[ $mode != always || $hears_here == true ]] || refuse' '  [[ $mode != always || $voice != realtime ]] || refuse' \
   refused "jarvis-selftest: refused: argument=--mode value=always reason=always-needs-local-voice" --tts hello --mode always --voice gemini --brain "$sign_in"
 holds "a suite refuses a direct input" refused "jarvis-selftest: refused: argument=--suite reason=exclusive-with-input" --suite volume --tts hello --brain "$sign_in"
 holds "a suite refuses a direct mode" refused "jarvis-selftest: refused: argument=--suite reason=exclusive-with-mode" --suite volume --mode toggle --brain "$sign_in"
@@ -1182,6 +1188,8 @@ sentences_are() {
 realtime_sentences() { sentences_are realtime fragments '[{"ms": 1000, "text": "It is noon. Anything else?"}, {"ms": 2000, "text": "It is noon."}]'; }
 gemini_sentences() { sentences_are gemini fragments '[{"ms": 1000, "text": "It is noon. Anything else?"}, {"ms": 2000, "text": "It is noon."}]'; }
 local_sentences() { sentences_are local sentences '[{"ms": 1000, "text": "It is noon."}, {"ms": 1500, "text": "Anything else?"}, {"ms": 2000, "text": "It is noon."}]'; }
+# ElevenLabs speaks the engine's released sentences, as the local voice does.
+elevenlabs_sentences() { sentences_are elevenlabs sentences '[{"ms": 1000, "text": "It is noon."}, {"ms": 1500, "text": "Anything else?"}, {"ms": 2000, "text": "It is noon."}]'; }
 record_holds() {
   planted_trace final
   [[ "$(record completed true)" == passed ]] || return 1
@@ -1231,6 +1239,7 @@ holds "the record holds each row the mailbox read printed, whole" mailbox_rows
 holds "a run with no home folder records no mailbox" mailbox_none
 holds "the realtime voice's record holds each caption segment whole, timed at its first words" realtime_sentences
 holds "the gemini voice's record holds each caption segment whole, timed at its first words" gemini_sentences
+holds "the ElevenLabs voice's record holds each released sentence, as the local voice's" elevenlabs_sentences
 dictation_samples() {
   local state="$tmp/lent.json" daemon="$tmp/dictation-daemon.jsonl" recordings="$tmp/dictation-recordings.jsonl" unread="$tmp/dictation-unread"
   rm -f -- "$daemon" "$recordings" "$unread"
@@ -1260,9 +1269,10 @@ control cut_functions "a record that drops the Session phases" 'for e in events 
 control cut_functions "a record that reads two turns' brain text as one" '    if (row["gen"], row["op"]) != turn:' '    if turn is None:' record_holds
 control cut_functions "a record that drops the mailbox rows" '[json.loads(line) for line in mailbox.splitlines()] if home' '[] if home' mailbox_rows
 control cut_functions "a record that lists a mailbox for a run with no home folder" ' if home else None,' ',' mailbox_none
-control cut_functions "a record that reads the realtime voice's fragments as sentences" '    if voice != "local":' '    if False:' realtime_sentences
-control cut_functions "a record that reads the local voice's sentences as one segment" '    if voice != "local":' '    if True:' local_sentences
-control cut_functions "a record that reads only the realtime voice's fragments as segments" '    if voice != "local":' '    if voice == "realtime":' gemini_sentences
+control cut_functions "a record that reads the realtime voice's fragments as sentences" '    if voice not in ("local", "elevenlabs"):' '    if False:' realtime_sentences
+control cut_functions "a record that reads the local voice's sentences as one segment" '    if voice not in ("local", "elevenlabs"):' '    if True:' local_sentences
+control cut_functions "a record that reads only the realtime voice's fragments as segments" '    if voice not in ("local", "elevenlabs"):' '    if voice == "realtime":' gemini_sentences
+control cut_functions "a record that reads the ElevenLabs voice's sentences as one segment" '    if voice not in ("local", "elevenlabs"):' '    if voice != "local":' elevenlabs_sentences
 control cut_functions "a mark that passes a turn that did not complete" 'end == "completed" and ' '' not_passed "${failed_rows[0]}"
 control cut_functions "a mark that passes a run that broke a rule" ' and kept == "true"' '' not_passed "${failed_rows[3]}"
 control cut_functions "a mark that passes a turn with no heard text" 'heard is not None and ' '' not_passed "${failed_rows[4]}"

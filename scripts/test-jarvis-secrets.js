@@ -199,17 +199,17 @@ console.log(wanted);
         assert.equal(result.status, 0, result.stderr);
         return result.stdout.trimEnd().split("\n").map(line => line.split("\t")[1]);
     };
-    // Every offered row is an API key with a model the engine can use;
-    // openai is one, and the speech-only ElevenLabs key and Cerebras, whose
-    // row names no model, are not.
+    // Every offered row is an API key with a model the engine can use, or
+    // the speech key a voice speaks with: openai and the ElevenLabs key are
+    // offered, and Cerebras, whose row names no model, is not.
     const keyProviders = folder => {
         const ids = offered(folder);
         for (const id of ids) {
             const row = PROVIDERS.find(item => item.id === id);
-            assert.ok(row && row.kind === "key" && row.probe.model !== "", "offered [" + id + "]");
+            assert.ok(row && (row.kind === "speech-key" || row.kind === "key" && row.probe.model !== ""), "offered [" + id + "]");
         }
-        assert.ok(ids.includes("openai"));
-        for (const id of ["elevenlabs", "cerebras"]) assert.equal(ids.includes(id), false, "offered [" + id + "]");
+        for (const id of ["openai", "elevenlabs"]) assert.ok(ids.includes(id), "offered [" + id + "]");
+        assert.equal(ids.includes("cerebras"), false, "offered [cerebras]");
     };
     const chosen = folder => {
         provider("anthropic");
@@ -217,10 +217,13 @@ console.log(wanted);
             goodTui(tui(folder), added("anthropic", "https://api.anthropic.com"));
             const gum = calls("gum-calls").trim().split("\n").map(JSON.parse);
             assert.equal(gum.filter(args => args[0] === "input").length, 1, "only the key's name is typed");
+            // The ElevenLabs voice's key is bound to ElevenLabs's own origin.
+            provider("elevenlabs");
+            goodTui(tui(folder), added("elevenlabs", "https://api.elevenlabs.io"));
         } finally { provider("openai"); }
     };
     const unknown = folder => {
-        for (const id of ["fixture", "custom", "ollama", "elevenlabs", "cerebras", ""]) {
+        for (const id of ["fixture", "custom", "ollama", "cerebras", ""]) {
             const before = calls("secret-calls");
             const metadata = fs.readFileSync(store.file);
             const result = cp.spawnSync("node", [path.join(folder, "backend/keys.js"), "add-key", id, "test"], { env, encoding: "utf8" });
@@ -366,7 +369,8 @@ console.log(wanted);
     for (const [name, file, needle, replacement, check] of [
         ["unknown-provider", "backend/keys.js", 'if (row === undefined) throw new Error("jarvis-keys: provider=unknown");', "", unknown],
         ["provider-origin", "backend/keys.js", "ownReference(row.id, account, row.origin)", 'ownReference(row.id, account, "https://api.openai.com")', chosen],
-        ["model-providers", "AccountProviders.js", 'return row.kind === "key" && modelProvider(row);', 'return row.kind === "key";', unknown]
+        ["model-providers", "AccountProviders.js", 'return row.kind === "key" && modelProvider(row);', 'return row.kind === "key";', unknown],
+        ["speech-key-stored", "AccountProviders.js", 'return modelKeyProvider(row) || row.kind === "speech-key";', "return modelKeyProvider(row);", chosen]
     ]) {
         const original = fs.readFileSync(path.join(plugin, file), "utf8");
         assert.equal(original.split(needle).length - 1, 1, name + " matches");

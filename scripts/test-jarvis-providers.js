@@ -49,6 +49,13 @@ function pinned(logic) {
             "required", false, null, "gemini-3.8-live"]);
     assert.equal(gemini.retention.source, "https://ai.google.dev/gemini-api/terms");
     assert.ok(Object.isFrozen(gemini) && Object.isFrozen(gemini.retention));
+    // The ElevenLabs voice's row: the HTTPS origin its key travels to, and
+    // the text to speech model each request body names.
+    const eleven = logic.select("elevenlabs", "http://127.0.0.1:9000/v1");
+    assert.deepEqual([eleven.id, eleven.driver, eleven.base, eleven.key, eleven.images, eleven.noStore, eleven.model],
+        ["elevenlabs", "elevenlabs", "https://api.elevenlabs.io", "required", false, null, "eleven_flash_v2_5"]);
+    assert.match(eleven.retention.source, /^https:\/\/elevenlabs\.io\/docs\//, "elevenlabs cites its retention source");
+    assert.ok(Object.isFrozen(eleven) && Object.isFrozen(eleven.retention));
     // The harness rows: the program owns its login; base names the release recipient.
     const codex = logic.select("codex");
     assert.deepEqual([codex.id, codex.driver, codex.base, codex.key, codex.images, codex.noStore, codex.retention.source],
@@ -81,6 +88,10 @@ function joined(logic) {
         assert.equal(new URL(logic.select(row.id).base).origin, row.origin, row.id + " shares its declared origin");
     // A key added as Gemini serves the Gemini Live voice: the door lets it
     // travel to the voice's handshake origin.
+    // The ElevenLabs speech key serves the voice's row at its declared origin.
+    const speechKey = PROVIDERS.find(row => row.kind === "speech-key" && row.id === "elevenlabs");
+    assert.ok(speechKey, "the ElevenLabs key has an account declaration");
+    assert.doesNotThrow(() => Net.assertKeyTarget(logic.select("elevenlabs").base, speechKey.origin), "an ElevenLabs key serves its voice");
     const google = declared.find(row => row.id === "gemini");
     assert.doesNotThrow(() => Net.assertKeyTarget(logic.select("gemini-live").base, google.origin), "a Gemini key serves the Gemini Live voice");
 }
@@ -123,8 +134,9 @@ let controls = 0;
 // test-jarvis-account-verify.js (verify-no-store). Door holders are the
 // names Net.create's result is assigned to; a door passed on under another
 // name is not found.
-// The Gemini Live row documents no such field, so its socket carries none.
-const NO_STORE_SITES = ["Accounts.js:request", "GeminiLive.js:websocket", "Realtime.js:websocket", "WireBrain.js:request"];
+// The Gemini Live and ElevenLabs rows document no such field, so their
+// requests carry none.
+const NO_STORE_SITES = ["Accounts.js:request", "ElevenLabs.js:request", "GeminiLive.js:websocket", "Realtime.js:websocket", "WireBrain.js:request"];
 function doorSites(sources) {
     const holders = new Set(sources.flatMap(([, text]) => [...text.matchAll(/\b(\w+) = Net\.create\(/g)].map(match => match[1])));
     assert.ok(holders.has("door") && holders.has("net"), "door holders are discovered");
@@ -153,6 +165,8 @@ world("providers", root => {
         ["gemini-live-model", 'model: "gemini-3.8-live"', 'model: "gemini-3.8-flash-live"', pinned],
         ["gemini-live-query", "GenerativeService.BidiGenerateContent\",", "GenerativeService.BidiGenerateContent?alt=ws\",", pinned],
         ["gemini-live-origin", '"wss://generativelanguage.googleapis.com/ws/', '"wss://live.generativelanguage.googleapis.com/ws/', joined],
+        ["elevenlabs-model", 'model: "eleven_flash_v2_5"', 'model: "eleven_multilingual_v2"', pinned],
+        ["elevenlabs-origin", 'base: "https://api.elevenlabs.io"', 'base: "https://elevenlabs.io"', joined],
         ["codex-key", 'base: "https://chatgpt.com", key: "none"', 'base: "https://chatgpt.com", key: "optional"', pinned],
         ["claude-key", 'base: "https://api.anthropic.com", key: "none"', 'base: "https://api.anthropic.com", key: "optional"', pinned],
         ["claude-origin", 'base: "https://api.anthropic.com", key: "none"', 'base: "https://claude.ai", key: "none"', joined],

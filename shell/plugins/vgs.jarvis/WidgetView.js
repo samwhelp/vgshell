@@ -74,6 +74,9 @@ var FAULT_KINDS = [
     [/^speech=dictation-busy$/, "dictationBusy"],
     [/^speech=dictation-/, "dictation"],
     [/^speech=/, "voice"],
+    // The ElevenLabs voice fails a reply's playback with its own keyed cause
+    // (ElevenLabs.js), which Audio carries behind its source prefix.
+    [/^playback-source: jarvis: speech=elevenlabs-/, "elevenlabs"],
     [/^(audio-start|device-probe|capture|playback)/, "audio"]
 ];
 // What the bar and the bubble say of each kind: what went wrong, then what
@@ -94,6 +97,7 @@ var FAULT_TEXT = {
     "model": { title: "The AI app cannot use the model", action: "Choose another model in Settings > Jarvis." },
     "localVoice": { title: "Local voice did not get ready in time", action: "Turn Jarvis off and on again, or set it up again in Settings > Jarvis." },
     "voice": { title: "Local voice stopped working", action: RESTART },
+    "elevenlabs": { title: "ElevenLabs did not speak the reply", action: "Check your ElevenLabs key and its credits, then turn Jarvis off and on again in Settings > Jarvis." },
     "dictationBusy": { title: "Voice is recording", action: "Talk to Jarvis again when Voice stops recording." },
     "dictation": { title: "Dictation did not record", action: "Check dictation in Settings > Voice, then talk again." },
     "audio": { title: "The microphone or speaker stopped working", action: RESTART },

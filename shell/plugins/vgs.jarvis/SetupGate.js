@@ -29,15 +29,22 @@ function actionRequires(value) {
         ? ACTION_REQUIRES[value.action] : [];
 }
 
+// Whether the voice PROVIDER (voiceProvider) hears the user on this
+// computer: the local voice, and ElevenLabs, which only speaks the reply.
+function hearsLocally(provider) {
+    return provider === "local" || provider === "elevenlabs";
+}
+
 // The local voice takes its final words from the core's dictation
 // recording (D064), over the capability's lent STATE, null before the
 // first read. PROVIDER is the voice the daemon runs (voiceProvider). The
 // cause the daemon holds the local voice with while that recording cannot
 // start, which the hello carries (ChainedEngine select), "" while it can
-// or for another voice. voxtype records the device its config names, and
-// the local voice's captions hear the default source (Audio.js selected).
+// or for a voice that hears the user elsewhere. voxtype records the device
+// its config names, and the local voice's captions hear the default source
+// (Audio.js selected).
 function dictationCause(provider, state) {
-    if (provider !== "local" || state === null) return "";
+    if (!hearsLocally(provider) || state === null) return "";
     if (["absent", "starting", "failed", "elsewhere"].indexOf(state.daemon) !== -1) return "speech=dictation-" + state.daemon;
     return otherDevice(state) ? "speech=dictation-device" : "";
 }
@@ -58,10 +65,11 @@ function requirementValue(command, missing) {
     return { tone: "warning", text: "Not installed" };
 }
 
-// The voxtype row's value: its state for the local voice, whose words
-// voxtype records (dictationCause), and no row for another voice.
+// The voxtype row's value: its state for a voice that hears the user on
+// this computer, whose words voxtype records (dictationCause), and no row
+// for another voice.
 function voxtypeValue(provider, missing) {
-    return provider === "local" ? requirementValue("voxtype", missing) : { hidden: true };
+    return hearsLocally(provider) ? requirementValue("voxtype", missing) : { hidden: true };
 }
 
 // The value of the status row of COMMAND, one the manifest gives a floor:
@@ -92,9 +100,10 @@ var TODO = {
     "brain=signed-out": "The chosen AI model is not signed in. Sign in, then choose it in Settings > AI model.",
     "brain=pi-update": "Jarvis needs Pi 1.1.0 or later. Update it under Requirements, or choose another AI model in Settings > AI model.",
     "brain=accounts-unreadable": "Jarvis could not read your accounts. Open Accounts to check them.",
-    "speech=live-account-unselected": "Add a key for the cloud voice under Setup at the top of this page: an OpenAI key for Realtime, a Gemini key for Gemini Live.",
+    "speech=live-account-unselected": "Add a key for the cloud voice under Setup at the top of this page: an OpenAI key for Realtime, a Gemini key for Gemini Live, an ElevenLabs key for ElevenLabs.",
     "speech=live-account-unreadable": "Jarvis could not read your voice key. Use Accounts in Setup to check it.",
-    "speech=live-key-required": "Choose a key for the cloud voice under Voice key, or add one under Setup at the top of this page: an OpenAI key for Realtime, a Gemini key for Gemini Live.",
+    "speech=live-key-required": "Choose a key for the cloud voice under Voice key, or add one under Setup at the top of this page: an OpenAI key for Realtime, a Gemini key for Gemini Live, an ElevenLabs key for ElevenLabs.",
+    "speech=elevenlabs-voice": "Jarvis could not read the voices of your ElevenLabs key. Check that the key may read voices, then open this page again.",
     "speech=local-not-ready": "Local voice did not start. Set it up again.",
     "speech=local-ready-timeout": "Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis.",
     "speech=always-local-voice": "Always talk mode listens for Hey Jarvis on this computer. Choose Local in Settings > Voice, or Hold or Toggle in Settings > Listening."
@@ -120,9 +129,9 @@ var DICTATION = {
     "speech=dictation-device": { tone: "warning", text: "Dictation uses another microphone", hint: "The local voice hears the system default microphone. Choose it with Configure in Settings > Voice." }
 };
 // Causes whose step the voice setup action cannot complete: the user
-// changes a setting or adds a key instead.
+// changes a setting, adds a key or fixes the ElevenLabs key instead.
 function setupActs(cause) {
-    return cause.indexOf("speech=live-") !== 0 && cause !== "speech=always-local-voice";
+    return cause.indexOf("speech=live-") !== 0 && cause.indexOf("speech=elevenlabs-") !== 0 && cause !== "speech=always-local-voice";
 }
 var STEP_TODO = { brain: "The chosen AI model cannot be used. Add a key or sign in, then choose it in Settings > AI model." };
 // The home folder step shows only while the daemon refuses the folder the
@@ -340,9 +349,16 @@ function voiceProvider(settings, offered) {
 }
 
 // The account provider whose keys the Voice key setting offers for
-// SETTINGS: Gemini for Gemini Live, else OpenAI, which Realtime and Auto use.
+// SETTINGS: Gemini for Gemini Live, ElevenLabs for ElevenLabs, else OpenAI,
+// which Realtime and Auto use.
 function voiceKeyProvider(settings) {
-    return settings.voiceProvider === "gemini" ? "gemini" : "openai";
+    return settings.voiceProvider === "gemini" || settings.voiceProvider === "elevenlabs" ? settings.voiceProvider : "openai";
+}
+
+// Whether the voice PROVIDER (voiceProvider) speaks through a provider's
+// network service with the user's key, which a preview may be charged for.
+function cloudSpeech(provider) {
+    return provider === "realtime" || provider === "gemini" || provider === "elevenlabs";
 }
 
 // The Voice key choices for SETTINGS from KEYS, the account reader's stored
@@ -355,16 +371,16 @@ function voiceKeys(keys, settings) {
 
 // The key Jarvis selects for the user from KEYS, or null: the sole stored
 // key of the selected cloud voice, while the Voice key setting names none,
-// or, while Realtime or Gemini is chosen, a stored key of the other cloud
-// voice, as after a change of Voice provider. Under Local or Auto a named
-// key stays, so a Gemini key chosen before survives a visit to Local; a
-// named key that is not stored, such as a locked one, stays too.
+// or, while a cloud voice is chosen, a stored key of another cloud voice,
+// as after a change of Voice provider. Under Local or Auto a named key
+// stays, so a Gemini key chosen before survives a visit to Local; a named
+// key that is not stored, such as a locked one, stays too.
 function voiceChoice(keys, settings) {
     var offered = voiceKeys(keys, settings);
     if (offered.length !== 1) return null;
     var named = settings.voiceAccount;
     if (named === "") return offered[0].value;
-    var cloud = settings.voiceProvider === "realtime" || settings.voiceProvider === "gemini";
+    var cloud = cloudSpeech(settings.voiceProvider);
     var other = cloud && keys.some(function (key) { return key.value === named && key.provider !== voiceKeyProvider(settings); });
     return other ? offered[0].value : null;
 }
@@ -373,7 +389,8 @@ function voiceChoice(keys, settings) {
 // `setup-local clone status`'s answer, or the reader's own failure value
 // with `action: true`. PROVIDER is the voice the daemon runs
 // (voiceProvider). The cloned voice speaks only through the local voice,
-// beside its graphics card tier (VGS-1384): while either is missing, Set up
+// beside its graphics card tier (VGS-1384), never through a cloud voice,
+// ElevenLabs included: while either is missing, Set up
 // is withheld with the reason. Remove recording stays offered whatever the
 // voice. `recording` and `tierReady` are setup-local's, for this row only;
 // a failed read has neither, and its setup judges the tier itself. The row
@@ -407,24 +424,38 @@ function clonedVoiceStep(value, provider) {
 var VOICE_KEY_HINTS = {
     realtime: "An OpenAI key lets Jarvis use the Realtime voice: OpenAI hears you and speaks the reply. Get a key from OpenAI API keys.",
     gemini: "A Gemini key lets Jarvis use the Gemini Live voice: Google hears you and speaks the reply. Get a key from Google AI Studio.",
+    elevenlabs: "An ElevenLabs key lets Jarvis speak its replies in the voices of your ElevenLabs account. Get a key from ElevenLabs API keys.",
     other: "An OpenAI key lets Auto use the Realtime voice; a Gemini key serves Gemini Live once you choose it. Get a key from OpenAI API keys or Google AI Studio."
 };
 // The Voice group's key row for OFFERED, the stored keys of the cloud voice
 // SETTINGS select (voiceKeys), or null while the account reader could not
 // read them: Add key is offered until one is stored.
 function voiceKey(offered, settings) {
-    var hint = VOICE_KEY_HINTS[settings.voiceProvider === "realtime" || settings.voiceProvider === "gemini" ? settings.voiceProvider : "other"];
+    var hint = VOICE_KEY_HINTS[cloudSpeech(settings.voiceProvider) ? settings.voiceProvider : "other"];
     if (offered === null) return { tone: "warning", text: "Could not check", hint: hint, action: true };
     return offered.length === 0 ? { tone: "info", text: "No key stored", hint: hint, action: true }
         : { tone: "ok", text: "Key stored", hint: hint, action: false };
 }
 
+// The ElevenLabs voices row (the manifest's elevenLabs) under PROVIDER, the
+// voice the daemon runs (voiceProvider): while ElevenLabs speaks, the
+// user's own step on ElevenLabs's site, a key and the voices they design or
+// clone there, which its hint and link name (D075); no row under another
+// voice.
+function elevenLabsStep(provider) {
+    return provider === "elevenlabs" ? { tone: "info", text: "Your step" } : { hidden: true };
+}
+
 // The Voice preview row's words for a cloud voice PROVIDER (voiceProvider):
 // whose key the preview uses, and that it may cost money.
+var PREVIEW_COSTS = {
+    realtime: { tone: "info", text: "Uses your OpenAI key", hint: "A preview of the Realtime voice may cost money.", action: true },
+    gemini: { tone: "info", text: "Uses your Gemini key", hint: "A preview of the Gemini Live voice may cost money.", action: true },
+    elevenlabs: { tone: "info", text: "Uses your ElevenLabs key", hint: "A preview in an ElevenLabs voice uses credits of your ElevenLabs account.", action: true }
+};
 function previewCost(provider) {
-    return provider === "gemini"
-        ? { tone: "info", text: "Uses your Gemini key", hint: "A preview of the Gemini Live voice may cost money.", action: true }
-        : { tone: "info", text: "Uses your OpenAI key", hint: "A preview of the Realtime voice may cost money.", action: true };
+    if (!cloudSpeech(provider)) throw new Error("jarvis-setup: preview-provider=" + provider);
+    return PREVIEW_COSTS[provider];
 }
 
 // The Agent fleet row (the manifest's setupFleet) for HOME, the home folder
@@ -531,12 +562,13 @@ function optionalStep(value) {
 }
 
 // The Local voice row from VALUE, setup-local's reading, under PROVIDER,
-// the voice the daemon runs (voiceProvider). Under Local it is required,
-// and the Voice step offers Set up local voice (voiceCheck), so this row
-// offers none: the Setup tab offers each screen once. Under a cloud voice
-// it is optional and offers setup as its reading does.
+// the voice the daemon runs (voiceProvider). Under a voice that hears the
+// user on this computer it is required, and the Voice step offers Set up
+// local voice (voiceCheck), so this row offers none: the Setup tab offers
+// each screen once. Under a voice that hears the user elsewhere it is
+// optional and offers setup as its reading does.
 function localVoiceStep(value, provider) {
-    return provider === "local" ? Object.assign({}, value, { action: false }) : optionalStep(value);
+    return hearsLocally(provider) ? Object.assign({}, value, { action: false }) : optionalStep(value);
 }
 
 // The Local voice setting (`localTier`) and its downloads. WANTED is the
