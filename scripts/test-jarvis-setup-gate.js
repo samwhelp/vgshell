@@ -104,6 +104,24 @@ const SETUP = [
     ["ready yet missing", READY, ["agent-browser"], ["agent-browser"], ["agent-browser"]],
     ["two of three missing", ABSENT, ["node", "agent-browser", "chromium"], ["chromium", "node"], ["node", "chromium"]]
 ];
+// The local voice's dictation recording: [label, the voice, the lent state,
+// the commands the scan misses, the cause the hello carries, the Voice
+// step's value (the cause's DICTATION entry, the withheld form, LOADING or
+// DONE as the Voice step carries them, with no action), whether it offers
+// Set up dictation]. voxtype missing reads failed
+// in the core. Set up dictation is offered where the core's setup applies;
+// another voxtype or another microphone is the user's to change in Voice.
+const DICTATION = [
+    ["voxtype missing", "local", { daemon: "failed", device: "" }, ["voxtype"], "speech=dictation-failed", "withheld", true],
+    ["daemon absent", "local", { daemon: "absent", device: "" }, [], "speech=dictation-absent", "entry", true],
+    ["daemon failed", "local", { daemon: "failed", device: "" }, [], "speech=dictation-failed", "entry", true],
+    ["another voxtype", "local", { daemon: "elsewhere", device: "" }, [], "speech=dictation-elsewhere", "entry", false],
+    ["another device", "local", { daemon: "ready", device: "alsa_input.usb-fixture" }, [], "speech=dictation-device", "entry", false],
+    ["daemon starting", "local", { daemon: "starting", device: "" }, [], "speech=dictation-starting", "loading", false],
+    ["ready on the default", "local", { daemon: "ready", device: "default" }, [], "", "done", false],
+    ["Realtime voice", "realtime", { daemon: "failed", device: "" }, ["voxtype"], "", "done", false],
+    ["state unread", "local", null, [], "", "done", false]
+];
 // The Agent fleet row: [label, the home folder, the mail tool found in it,
 // whether the row shows].
 const FLEET = [
@@ -532,7 +550,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
     for (const row of MODEL) {
         const values = row.keys === undefined ? {} : { keys: row.keys.map(key => ({ label: "Fixture key", ...key })) };
         if (row.keys !== undefined) assert.equal(judge.statusWrite(manifest, {}, "keys", values.keys).ok, true);
-        const shell = { settings: { voiceAccount: "" }, status: { values, set: (key, value) => {
+        const shell = { settings: { voiceAccount: "" }, requirements: { missing: [] }, status: { values, set: (key, value) => {
             const accepted = judge.statusWrite(manifest, values, key, value);
             assert.equal(accepted.ok, true, row.name + ": accepted status " + key);
             values[key] = value;
@@ -583,7 +601,7 @@ function helloSettings(gate, serviceSource, providers, manifest, settings, reade
     let wire = null;
     const root = { accountReader: reader, shell: { settings,
         shortcut: { keys }, manifest: { hyprland: manifest.hyprland, __revision: "a".repeat(64) } },
-        child: { running: true, write: text => { wire = text; } }, cause: "", lifetime: { kind: "starting" }, sessionState: null,
+        child: { running: true, write: text => { wire = text; } }, cause: "", lifetime: { kind: "starting" }, sessionState: null, dictationCause: "",
         feedbackSounds: false, lockObservation: () => false, broken: reason => assert.fail(label + ": the daemon refuses the hello: " + reason) };
     vm.runInNewContext("(function() { with(root) { return (" + hello[0] + ").call(root); } })()", { root, Gate: gate, Protocol: protocol,
         Quickshell: { env: name => "/fixture/" + name }, Paths: { stateDir: "/fixture/state" }, Providers: { ...providers, runtimeDirectory: () => "/fixture/run" } });
@@ -858,6 +876,7 @@ function verify(gate) {
     verifyModelChoice(require(providersFile));
     verifyUnlisted(gate, require(providersFile), fs.readFileSync(serviceFile, "utf8"));
     verifyListRead(require(providersFile), fs.readFileSync(accountsFile, "utf8"));
+    verifyDictation(gate, fs.readFileSync(serviceFile, "utf8"), fs.readFileSync(accountsFile, "utf8"));
     for (const [label, value, requires, missing, names] of SETUP) {
         const got = gate.setupValue(value, requires, missing);
         if (names === null) {
@@ -965,7 +984,19 @@ const CONTROLS = [
     ["optional guidance changes with state", "action: value.action === true };", 'hint: "fixture guidance", action: value.action === true };'],
     ["memory refusal offers reinstall", 'if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {', 'if (false) {'],
     ["loading is initial checking", "out.setupVoice = LOADING;", "out.setupVoice = CHECKING;"],
-    ["loading offers setup", 'if (cause === "speech=local-loading") {', 'if (false) {'],
+    ["loading offers setup", 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting") {', 'if (cause === "speech=dictation-starting") {'],
+    ["a starting recording offers setup", 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting") {', 'if (cause === "speech=local-loading") {', "daemon starting"],
+    ["missing voxtype is not named", 'var ACTION_REQUIRES = { dictation: ["voxtype"] };', "var ACTION_REQUIRES = {};", "voxtype missing"],
+    ["missing voxtype withholds Set up dictation", 'if (value.action === "dictation") withheld.action = "dictation";', 'if (false) withheld.action = "dictation";', "voxtype missing"],
+    ["another voxtype offers setup", '"speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under Setup in Settings > Voice." },',
+        '"speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under Setup in Settings > Voice.", action: "dictation" },', "another voxtype"],
+    ["a failed daemon offers no setup", '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready.", action: "dictation" },',
+        '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready." },', "the Voice step"],
+    ["the voxtype row shows for any voice", 'return provider === "local" ? requirementValue("voxtype", missing) : { hidden: true };', 'return requirementValue("voxtype", missing);', "Realtime voice"],
+    ["another device is no cause", 'return otherDevice(state) ? "speech=dictation-device" : "";', 'return "";', "another device"],
+    ["the Realtime voice takes the cause", 'if (provider !== "local" || state === null) return "";', 'if (state === null) return "";', "Realtime voice"],
+    ["the service starts another device", 'return otherDevice(state) ? "refused: dictation=device" : "";', 'return "";', "another device"],
+    ["a step's named action is dropped", ': typeof value.action === "string" ? value : noAction(value);', ': noAction(value);', "the Voice step"],
     ["a stored key replaces the voice the user chose", 'if (settings.voiceProvider !== "auto") return settings.voiceProvider;', 'if (false) return settings.voiceProvider;'],
     ["no named key runs Realtime", ' || settings.voiceAccount === "") return "local";', ') return "local";'],
     ["a removed key keeps Realtime", "offered.some(function (key) { return key.value === settings.voiceAccount; })", "true"],
@@ -978,7 +1009,8 @@ const CONTROLS = [
     ["the fleet row shows once the tool is found", "if (home === null || tool !== null)", "if (home === null)", "a home with the mail tool: the row shows"],
     ["the fleet row offers no setup", 'return { tone: "info", text: "Optional", action: true };', 'return { tone: "info", text: "Optional", action: false };'],
     ["a missing command does not withhold setup", "return missing.indexOf(command) !== -1; });", "return false; });"],
-    ["the withheld step keeps its action", 'lacking.join(" and "), action: false', 'lacking.join(" and "), action: value.action'],
+    ["the withheld step keeps its action", 'else if (typeof value.action !== "string") withheld.action = false;', 'else withheld.action = value.action;'],
+    ["a withheld named action reads false", 'if (value.action === "dictation") withheld.action = "dictation";\n    else if (typeof value.action !== "string") withheld.action = false;', 'withheld.action = false;', "accepted status setupVoice"],
     ["any missing command withholds setup", "var lacking = requires.filter(", "var lacking = missing.filter("],
     ["the withheld text names every required command", 'lacking.join(" and ")', 'requires.join(" and ")'],
     ["a missing requirement offers no install", 'if (missing.indexOf(command) === -1) return { tone: "ok"', 'if (true) return { tone: "ok"'],
@@ -1065,6 +1097,23 @@ try {
         "no published voices draw no Voice field, and the setting is not written");
     console.log("test-jarvis-setup-gate: case=voice-field passed=true");
     const serviceSource = fs.readFileSync(serviceFile, "utf8");
+    verifyDictationStart(serviceSource);
+    console.log("test-jarvis-setup-gate: case=dictation-start passed=true");
+    for (const [label, needle, replacement] of [
+        ["dictation-start-unwaited", 'if (pending === null || !waited && shell.dictation.state.phase === "unread") return;', "if (pending === null) return;"],
+        ["dictation-start-locked", 'lockObservation() ? "refused: locked" : ', ""]]) {
+        assert.equal(serviceSource.split(needle).length, 2, label + ": the text to replace must occur once");
+        assert.throws(() => verifyDictationStart(serviceSource.replace(needle, replacement)), assert.AssertionError, label + " must turn red");
+        console.log("test-jarvis-setup-gate: control=" + label + " rejected=true");
+    }
+    {
+        const accountsSource = fs.readFileSync(accountsFile, "utf8");
+        const needle = '        if (shell.status.set("voxtype", Gate.voxtypeValue(voiceProvider, missing)) !== "ok")\n            throw new Error("jarvis-accounts: status=refused");\n';
+        assert.equal(accountsSource.split(needle).length, 2, "the voxtype row control's text occurs once");
+        assert.throws(() => verifyDictation(load(file), serviceSource, accountsSource.replace(needle, "")), assert.AssertionError,
+            "an account reader that publishes no voxtype row must turn red");
+        console.log("test-jarvis-setup-gate: control=voxtype-row-unpublished rejected=true");
+    }
     verifyHomeSwitch(serviceSource);
     console.log("test-jarvis-setup-gate: case=home-switch passed=true");
     {
@@ -1105,7 +1154,7 @@ try {
         console.log("test-jarvis-setup-gate: control=" + target + " check=setup-model-action rejected=true");
     }
     for (const [target, original, needle, replacement] of [
-        ["Service.qml", serviceSource, "voiceProvider: Gate.voiceProvider(shell.settings, accountReader.voiceKeys) },", "voiceProvider: shell.settings.voiceProvider },"],
+        ["Service.qml", serviceSource, "voiceProvider: Gate.voiceProvider(shell.settings, accountReader.voiceKeys), dictation", "voiceProvider: shell.settings.voiceProvider, dictation"],
         ["Accounts.qml", accountsSource, "voiceKeys = value.voiceAccounts;", "voiceKeys = [];"],
         ["Accounts.qml", accountsSource, "voiceKeys = undefined;", "voiceKeys = [];"],
         ["Accounts.qml", accountsSource, "Gate.voiceKey(value.voiceAccounts)", "Gate.voiceKey([])"],
@@ -1285,7 +1334,7 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length + FLEET.length} controls=${CONTROLS.length + 10 + 55}`);
+console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length + FLEET.length + DICTATION.length} controls=${CONTROLS.length + 10 + 55}`);
 // The fleet setup terminal opens from the Agent fleet row alone: in
 // MANIFEST, a judged manifest, the launcher lists no fleet TUI and the
 // Settings page draws none while the row is hidden, and the offered row
@@ -1310,9 +1359,103 @@ function verifySetupButtons(gate, manifest) {
 // configured): up while its causes are none or only speech=local-loading,
 // else down unconfigured. The shell's own cause, LocalRuntime.qml's
 // setupCause, never reaches the daemon.
+// Each DICTATION row through the shipped service's setup publication: the
+// cause the daemon publishes is the summary's line, the Voice step names
+// Set up dictation only where it is offered, and its press opens the core's
+// dictation setup. The voxtype row offers its install while it is missing.
+function verifyDictation(gate, serviceSource, accountsSource) {
+    const publishSetup = serviceSource.match(/^    function publishSetup\(answer\) \{\n[\s\S]*?^    \}/m);
+    const publishRequirements = accountsSource.match(/^    function publishRequirements\(\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(publishSetup && publishRequirements);
+    for (const [label, voice, state, missing, cause, expect, offered] of DICTATION) {
+        assert.equal(gate.dictationCause(voice, state), cause, label + ": the cause");
+        const values = {};
+        const shell = { settings: { voiceAccount: "" }, requirements: { missing }, status: { values, set: (key, value) => {
+            assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": accepted status " + key);
+            values[key] = value;
+            return "ok";
+        } } };
+        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, accountReader: { modelAccess: { kind: "checking" } },
+            localRuntime: { setupCause: "" }, sessionState: null, setupAnswer: { kind: "checking" } })({ kind: "answered", causes: cause === "" ? [] : [cause] });
+        const voice_ = plain(values.setupVoice);
+        if (expect === "withheld")
+            assert.deepEqual([voice_.tone, voice_.action, "hint" in voice_], ["warning", "dictation", false], label + ": the Voice step");
+        else assert.deepEqual(voice_, plain({ entry: gate.DICTATION[cause], loading: gate.noAction(gate.LOADING), done: gate.noAction(gate.DONE) }[expect]), label + ": the Voice step");
+        // A summary that reads Loading, as for the local voice's own, has no line.
+        assert.equal((values.setup.lines ?? []).includes(cause), cause !== "" && expect !== "loading", label + ": its line");
+        const row = judge.statusRows(manifest, values, missing).find(item => item.key === "setupVoice");
+        assert.equal(row.action.offered && row.action.label === "Set up dictation", offered, label + ": Set up dictation");
+        if (offered)
+            assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, values, "setupVoice")),
+                { ok: true, kind: "core", name: "dictation-setup" }, label + ": the press opens the core's setup");
+        // The voxtype row, the account reader's, shows for the local voice.
+        vm.runInNewContext("(function() { with(root) { return (" + publishRequirements[0] + ").call(root); } })()",
+            { root: { shell, missing, voiceProvider: voice }, Gate: gate });
+        const voxtype = judge.statusRows(manifest, values, missing).find(item => item.key === "voxtype");
+        assert.deepEqual(voxtype === undefined ? "hidden" : voxtype.action.offered,
+            voice !== "local" ? "hidden" : missing.includes("voxtype"), label + ": the voxtype row's install");
+        assert.equal(gate.dictationRefusal(state ?? { daemon: "absent", device: "" }), cause === "speech=dictation-device" ? "refused: dictation=device" : "",
+            label + ": the start the service refuses itself");
+    }
+}
+
+// The service's dictation start against a stand-in of the core that, as
+// DictationModel.start does, refuses a start while its read after the last
+// recording's command runs (phase `unread`): a start that follows a cancel
+// at once waits for the read and is taken, a read that outlasts the wait's
+// bound answers the core's refusal, a second start answers the first, and a
+// lock answers a waiting start.
+function verifyDictationStart(serviceSource) {
+    const pick = name => {
+        const found = serviceSource.match(new RegExp("^    function " + name + "\\([^)]*\\) \\{\\n[\\s\\S]*?^    \\}", "m"));
+        assert.ok(found, name);
+        return found[0];
+    };
+    const source = pick("queueStart") + "\n" + pick("startDictation");
+    const world = () => {
+        const core = { phase: "unread", starts: 0 };
+        const replies = [];
+        const root = { pendingStart: null, childSerial: 1, lifetime: { kind: "ready" }, child: { running: true }, locked: false,
+            shell: { dictation: { get state() { return { daemon: "ready", phase: core.phase, holder: "", device: "default" }; },
+                start: mode => { core.starts++; assert.equal(mode, "text"); return core.phase === "unread" ? "refused: dictation=engine-busy state=unread" : "ok"; } } },
+            startWait: { running: false, restart() { this.running = true; }, stop() { this.running = false; } },
+            lockObservation: () => root.locked,
+            reply: (message, result) => replies.push([message.id, result.answer]) };
+        vm.runInNewContext("(function() { with(root) { " + source + "\n root.queueStart = queueStart; root.startDictation = startDictation; } })()",
+            { root, Gate: load(file) });
+        return { core, replies, root };
+    };
+    // A cancel followed at once by a start: the start waits for the read.
+    let w = world();
+    w.root.queueStart({ id: 1 });
+    assert.deepEqual([w.replies, w.core.starts, w.root.startWait.running], [[], 0, true], "the start waits for the core's read");
+    w.core.phase = "idle";
+    w.root.startDictation(false);
+    assert.deepEqual([w.replies, w.core.starts, w.root.startWait.running], [[[1, "ok"]], 1, false], "the read's end takes the start");
+    // The bound passes while the core still reads: its refusal is answered.
+    w = world();
+    w.root.queueStart({ id: 2 });
+    w.root.startDictation(true);
+    assert.deepEqual(w.replies, [[2, "refused: dictation=engine-busy state=unread"]], "a read past the bound answers the refusal");
+    // A start with no read pending is taken at once; a second start answers the first.
+    w = world();
+    w.core.phase = "idle";
+    w.root.queueStart({ id: 3 });
+    assert.deepEqual(w.replies, [[3, "ok"]], "a start with no read pending is taken at once");
+    w.core.phase = "unread";
+    w.root.queueStart({ id: 4 });
+    w.root.queueStart({ id: 5 });
+    assert.deepEqual(w.replies.slice(1), [[4, "refused: dictation=engine-busy state=unread"]], "a second start answers the first");
+    // A lock answers the waiting start and starts nothing.
+    w.root.locked = true;
+    w.root.startDictation(true);
+    assert.deepEqual(w.replies.slice(2), [[5, "refused: locked"]], "a lock starts no recording");
+}
+
 function verifyOneReadiness(gate) {
     const shellCause = /setupCause: timedOut \? "([^"]+)"/.exec(fs.readFileSync(localRuntimeFile, "utf8"))[1];
-    const daemonCauses = [...Object.keys(gate.TODO), ...Object.keys(gate.HOME_TODO), ...Object.keys(gate.MEMORY), "speech=local-loading"];
+    const daemonCauses = [...Object.keys(gate.TODO), ...Object.keys(gate.HOME_TODO), ...Object.keys(gate.MEMORY),
+        ...Object.keys(gate.DICTATION), "speech=local-loading", "speech=dictation-starting"];
     assert.equal(daemonCauses.includes(shellCause), false, "the shell's cause is no daemon cause");
     const sets = [[], [shellCause], ...daemonCauses.map(cause => [cause]), ...daemonCauses.map(cause => [shellCause, cause])];
     const keys = { talk: "Super+Right Alt", mute: "Super+Shift+Right Alt", stop: "Super+Alt+Period", confirm: "Super+Alt+Y" };

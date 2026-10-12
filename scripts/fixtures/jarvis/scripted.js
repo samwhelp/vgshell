@@ -282,6 +282,51 @@ function chainedEngine(file) {
     ]);
 }
 
+// A brain whose every turn waits, unanswered, until it is cancelled, so a
+// row reads the user's words its turn took and ends the turn with Stop.
+const waitingDriver = { create() {
+    let pending = null;
+    const end = () => {
+        const resolve = pending;
+        pending = null;
+        resolve?.({ value: undefined, done: true });
+        return Promise.resolve();
+    };
+    return {
+        start() {},
+        send(request) {
+            const labels = [...new Set(request.items.flatMap(item => item.labels))];
+            const events = { [Symbol.asyncIterator]() { return {
+                next: () => new Promise(resolve => { pending = resolve; }),
+                return: () => end().then(() => ({ value: undefined, done: true }))
+            }; } };
+            return { release: { needed: [], withheld: [], labels }, events };
+        },
+        record() {},
+        cancel: end,
+        close() { void end(); }
+    };
+} };
+
+// The brain step of a disposable engine copy answered by waitingDriver, with
+// the speech rows left as they are: a local voice turn records through the
+// core's dictation and reaches this brain. The copy loads
+// scripted-fixture.js beside it.
+function dictationBrain(file) {
+    fs.copyFileSync(__filename, path.join(path.dirname(file), "scripted-fixture.js"));
+    edit(file, [
+        ["const brain = selectBrain(settings, accounts);",
+            'const brain = (entry => ({ kind: "ready", brain: entry, entries: [entry] }))(require("./scripted-fixture.js").waitingBrain());'],
+        ['const DRIVERS = Object.freeze({ "openai-chat": OpenAIChat,',
+            'const DRIVERS = Object.freeze({ waiting: require("./scripted-fixture.js").waitingDriver, "openai-chat": OpenAIChat,']
+    ]);
+}
+
+// The waiting brain's plan entry, local like the chained plan's.
+function waitingBrain() {
+    return { ...readyPlan().brain, provider: { id: "waiting", driver: "waiting" }, label: "Waiting" };
+}
+
 // The bubble row owns these held requests. Other drivers retain the real
 // router's approval and tool ports while using scripted capture and brain.
 function heldApprovals(file) {
@@ -319,10 +364,11 @@ function consoleData(file) {
     ]);
 }
 
-module.exports = { ports, instrument, readyPlan, plan, driver, chainedEngine, heldApprovals, consoleTasks, consoleAudit, consoleIntent, consoleData };
+module.exports = { ports, instrument, readyPlan, plan, driver, chainedEngine, heldApprovals, waitingDriver, waitingBrain, dictationBrain, consoleTasks, consoleAudit, consoleIntent, consoleData };
 if (require.main === module) {
     if (process.argv.length === 4 && process.argv[2] === "--console-data") consoleData(process.argv[3]);
     else if (process.argv.length === 4 && process.argv[2] === "--chained-engine") chainedEngine(process.argv[3]);
+    else if (process.argv.length === 4 && process.argv[2] === "--dictation-brain") dictationBrain(process.argv[3]);
     else if (process.argv.length === 4 && process.argv[2] === "--held-approvals") heldApprovals(process.argv[3]);
     else if (process.argv.length === 4 || (process.argv.length === 5 && process.argv[4] === "--mapped-indicator"))
         instrument(process.argv[2], process.argv[3], "chained", process.argv[4] === "--mapped-indicator");

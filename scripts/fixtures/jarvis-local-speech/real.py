@@ -1,9 +1,10 @@
 """Actual-model consumer of the speech sidecar. No model or network stand-ins.
 
-Each CPU tier's recognizer, voice activity model and voice run the bundled
-clip through the sidecar's own segmentation, bounded decoding, synthesis and
-wire. A missing input exits 77 through the artifact judge; it never makes a
-smaller passing test.
+Each CPU tier's wake, voice activity, caption, turn and voice models run the
+bundled clip through the sidecar's own wire: the wake word, an utterance whose
+end says voice activity heard speech, and synthesis. The utterance's words are
+the core's dictation recording's, so no recognizer runs. A missing input exits
+77 through the artifact judge; it never makes a smaller passing test.
 """
 from array import array
 import importlib.machinery
@@ -11,7 +12,6 @@ import importlib.util
 import io
 import json
 from pathlib import Path
-import re
 import struct
 import sys
 
@@ -31,34 +31,6 @@ judge = module("jarvis_measure", plugin / "measure-local")
 sidecar = module("jarvis_local_speech", plugin / "backend/local-speech.py")
 
 
-class Recorded:
-    """Delegates to the real recognizer and records each input the sidecar hands it."""
-
-    def __init__(self, recognizer):
-        self.recognizer = recognizer
-        self.sizes = []
-
-    def create_stream(self):
-        return RecordedStream(self.recognizer.create_stream(), self.sizes)
-
-    def decode_stream(self, stream):
-        self.recognizer.decode_stream(stream.stream)
-
-
-class RecordedStream:
-    def __init__(self, stream, sizes):
-        self.stream = stream
-        self.sizes = sizes
-
-    def accept_waveform(self, rate, samples):
-        self.sizes.append(len(samples))
-        self.stream.accept_waveform(rate, samples)
-
-    @property
-    def result(self):
-        return self.stream.result
-
-
 def frame(header, payload=b""):
     head = json.dumps(header).encode()
     return struct.pack(">II", len(head), len(payload)) + head + payload
@@ -73,40 +45,23 @@ def answers(data):
     return out
 
 
-def heard(text, words, label):
-    found = re.findall(r"\w+", text.lower())
-    if not all(word in found for word in words):
-        raise RuntimeError(f"transcript-mismatch {label}: {text!r}")
-
-
 try:
     value = judge.manifest(plugin / "artifacts.json")
     import numpy as np
     import sherpa_onnx as sherpa
     raw, text = judge.clip(value)
     clip = array("f", (np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768).tobytes())
-    words = value["fixture"]["transcriptWords"]
     for tier in ("small", "medium"):
         row = value["tiers"][tier]
         by_id = {a["id"]: a for a in value["artifacts"]}
         chosen = sidecar.roles([by_id[name] for name in row["artifacts"]], tier)
         judge.verify(value, models, list(chosen.values()))
-        loaded = {role: judge.load(a, models, row["provider"], np, sherpa) for role, a in chosen.items()}
-        recognizer = Recorded(loaded["stt"])
-        bound = chosen["stt"].get("maxInputSamples")
-        speech = sidecar.Speech(recognizer, bound, loaded["vad"], loaded["tts"], chosen["tts"]["outputSampleRate"],
+        loaded = {role: judge.load(a, models, row["provider"], np, sherpa) for role, a in chosen.items() if role != "stt"}
+        speech = sidecar.Speech(loaded["vad"], loaded["tts"], chosen["tts"]["outputSampleRate"],
                                 [speaker["name"] for speaker in chosen["tts"]["speakers"]], lambda samples: np.frombuffer(samples, dtype=np.float32), loaded["captions"],
                                 lambda samples: judge.infer(chosen["turn"], loaded["turn"], np.frombuffer(samples, dtype=np.float32),
                                                             "", value, np)["probability"],
                                 loaded["wake"], value["fixture"]["wakeTokens"])
-        heard(speech.transcribe(clip), words, tier + " clip")
-        # 60 s of repeated speech, built as measure-local builds its long input.
-        total = 60 * sidecar.RATE
-        long = array("f", bytes(4 * (total % len(clip)))) + clip * (total // len(clip))
-        recognizer.sizes.clear()
-        heard(speech.transcribe(long), words, tier + " 60 s")
-        if bound is not None and (not recognizer.sizes or max(recognizer.sizes) > bound):
-            raise RuntimeError(f"bound-exceeded {tier}: {recognizer.sizes}")
         def audio_frames(ident, samples):
             payload = sidecar.little(array("f", samples)).tobytes()
             return b"".join(frame({"type": "audio", "id": ident}, payload[at:at + sidecar.PAYLOAD_BYTES])
@@ -127,17 +82,16 @@ try:
         output = io.BytesIO()
         sidecar.serve(io.BytesIO(stream), output, speech)
         replies = answers(output.getvalue())
-        final = [h for h, _ in replies if h["type"] == "final"]
+        ended = [h for h, _ in replies if h["type"] == "ended"]
         spoken = [h for h, _ in replies if h["type"] == "spoken"]
         audio = sum(len(p) for h, p in replies if h["type"] == "audio")
         woken = [h for h, _ in replies if h["id"] in (1, 2)]
         if woken != [{"type": "woke", "id": 1}]:
             raise RuntimeError(f"wake-mismatch {tier}: {woken}")
-        if len(final) != 1 or spoken != [{"type": "spoken", "id": 4, "rate": chosen["tts"]["outputSampleRate"]}] or audio < 4 * spoken[0]["rate"]:
+        if ended != [{"type": "ended", "id": 3, "speech": True}] or spoken != [{"type": "spoken", "id": 4, "rate": chosen["tts"]["outputSampleRate"]}] or audio < 4 * spoken[0]["rate"]:
             raise RuntimeError(f"wire-mismatch {tier}: {[h for h, _ in replies][-3:]} audio={audio}")
-        heard(final[0]["text"], words, tier + " wire")
-        print(json.dumps({"tier": tier, "chunk_samples": recognizer.sizes, "bound": bound, "spoken_bytes": audio}), flush=True)
-        del loaded, speech, recognizer
+        print(json.dumps({"tier": tier, "spoken_bytes": audio}), flush=True)
+        del loaded, speech
 except judge.Unavailable as error:
     print(f"jarvis-local-speech: status=not-measured {error}", file=sys.stderr)
     sys.exit(77)

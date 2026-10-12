@@ -22,6 +22,9 @@
 # control is a LocalTier copy that opens no run.
 # inputs: scripts/fixtures/jarvis/audio-tool.py shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-local-speech/standin.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js
 set -euo pipefail
+# Jarvis holds `dictation`, and the shell finds no voxtype: the core's
+# probe does not start at each enable.
+expected_errors+=("${dictation_absent_errors[@]}")
 local_reader="$repo/shell/plugins/vgs.jarvis/LocalRuntime.qml"
 local_tui="$repo/shell/plugins/vgs.jarvis/tui/setup-local.sh"
 cp -- "$local_reader" "$sandbox/local-reader-original"
@@ -637,7 +640,7 @@ expect_poll "Voice gives not-heard guidance and keeps the check action" '["warni
 : >"${setup_check_home:?}/capture-silent"
 expect "Check microphone can check a silent source" ok ipc vgs.jarvis invoke check-microphone ''
 expect_poll "an all-zero stand-in source is silent" silent setup_check_result
-expect_poll "Voice gives the microphone Settings path in full" '["warning", "Muted or silent", "The microphone is muted or sends silence. Check Settings > Jarvis > Audio > Microphone.", "check-microphone"]' setup_check_row
+expect_poll "Voice gives the default microphone's Settings path in full" '["warning", "Muted or silent", "The default microphone is muted or sends silence. Check it in System > Sound.", "check-microphone"]' setup_check_row
 rm -f -- "${setup_check_home:?}/capture-silent"
 settings_page_close vgs.jarvis
 jarvis_disable

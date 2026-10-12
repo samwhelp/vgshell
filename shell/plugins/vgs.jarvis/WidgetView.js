@@ -71,6 +71,8 @@ var FAULT_KINDS = [
     [MODEL_REFUSED, "model"],
     [/^(brain|net)=/, "brain"],
     [/^speech=local-ready-timeout$/, "localVoice"],
+    [/^speech=dictation-busy$/, "dictationBusy"],
+    [/^speech=dictation-/, "dictation"],
     [/^speech=/, "voice"],
     [/^(audio-start|device-probe|capture|playback)/, "audio"]
 ];
@@ -79,16 +81,21 @@ var FAULT_KINDS = [
 // device fault asks for a device and every other for a restart. A home
 // folder fault asks for the folder: Jarvis reads it again at the next
 // request. A refused model asks for another: a changed model clears the
-// fault, and its title ends with the model's name.
+// fault, and its title ends with the model's name. A dictation fault, the
+// core's recording refused or failed, clears at the next Talk.
 var RESTART = "Turn Jarvis off and on again in Settings > Jarvis.";
 var FAULT_TEXT = {
     "slow": { title: "The AI model took too long to answer", action: RESTART },
     "device": { title: "The microphone or speaker is gone", action: "Connect it again, or choose another in Settings > Jarvis." },
+    // The local voice hears the system default microphone, as dictation does.
+    "defaultDevice": { title: "The microphone or speaker is gone", action: "Connect it again, or choose another default microphone in System > Sound." },
     "home": { title: "Jarvis cannot use the home folder", action: "Check AGENTS.md, MEMORY.md and the skills in the folder, or choose another folder in Settings > Jarvis." },
     "brain": { title: "The AI model did not answer", action: RESTART },
     "model": { title: "The AI app cannot use the model", action: "Choose another model in Settings > Jarvis." },
     "localVoice": { title: "Local voice did not get ready in time", action: "Turn Jarvis off and on again, or set it up again in Settings > Jarvis." },
     "voice": { title: "Local voice stopped working", action: RESTART },
+    "dictationBusy": { title: "Voice is recording", action: "Talk to Jarvis again when Voice stops recording." },
+    "dictation": { title: "Dictation did not record", action: "Check dictation in Settings > Voice, then talk again." },
     "audio": { title: "The microphone or speaker stopped working", action: RESTART },
     "other": { title: "Jarvis stopped after a problem", action: RESTART }
 };
@@ -188,8 +195,11 @@ function faultKind(fault) {
 }
 
 // What FAULT, a Session fault that is not none, says: { title, action }.
-function faultText(fault) {
+// ENGINE is Session's engine word: a dictation engine hears the default
+// microphone, not the Microphone setting.
+function faultText(fault, engine) {
     var kind = faultKind(fault);
+    if (kind === "device" && engine === "dictation") kind = "defaultDevice";
     if (kind === "model") return { title: FAULT_TEXT.model.title + " " + MODEL_REFUSED.exec(fault.reason)[1], action: FAULT_TEXT.model.action };
     return fault.kind === "retrying" ? RETRYING : FAULT_TEXT[kind];
 }
@@ -359,7 +369,7 @@ function view(values, keys, mode) {
         [armed ? "Say Hey Jarvis." : followUp ? "Speak now. No wake word needed." : "Speak now."], muteOn, effectiveKeys));
     if (daemon !== null && daemon.tone === "danger") return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
     if (daemon !== null && daemon.tone === "warning" && daemon.lines !== undefined) return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
-    if (detail !== null && detail.phase === "error") return withBrain(textLook("problem", faultText(state.fault), muteOn, effectiveKeys));
+    if (detail !== null && detail.phase === "error") return withBrain(textLook("problem", faultText(state.fault, state.engine.kind), muteOn, effectiveKeys));
     if (audio !== null && audio.tone === "danger") return withBrain(textLook("problem", AUDIO_TEXT, muteOn, effectiveKeys));
     if (state === null) return textLook("loading", GATE_TEXT.starting, muteOn, effectiveKeys);
     var down = gateDown(state.gate);

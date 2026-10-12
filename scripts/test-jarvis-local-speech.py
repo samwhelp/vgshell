@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Local speech sidecar contract: segmentation, bounded decoding, wire, readiness.
+"""Local speech sidecar contract: captions, turn end, the end marker, wire, readiness.
 
-Recognizer, voice activity and voice doubles test the sidecar's own calls, not
+Voice activity, caption and voice doubles test the sidecar's own calls, not
 model quality; scripts/check-jarvis-local-speech.sh runs the real models. The
 suite runs inside the shared Jarvis world. Each control loads a disposable copy
 of the sidecar with one planted defect and must turn its case red.
@@ -66,14 +66,6 @@ def mutant(needle, replacement):
     return load(changed)
 
 
-def level(total, quiet=()):
-    """Unit samples with silent [start, end) windows."""
-    samples = array("f", [1.0]) * total
-    for start, end in quiet:
-        samples[start:end] = array("f", [0.0]) * (end - start)
-    return samples
-
-
 class Vad:
     """Reports the scripted segments after the whole input was offered."""
 
@@ -103,35 +95,6 @@ class Vad:
 
     def pop(self):
         self.queue.pop(0)
-
-
-class Recognizer:
-    """Fresh streams only; text(index, samples) scripts each chunk's result."""
-
-    def __init__(self, text=lambda index, samples: f"w{index}"):
-        self.text = text
-        self.sizes = []
-        self.created = 0
-
-    def create_stream(self):
-        self.created += 1
-        owner = self
-
-        class Stream:
-            accepted = None
-            result = None
-
-            def accept_waveform(self, rate, samples):
-                if rate != 16000 or self.accepted is not None:
-                    raise AssertionError("one 16 kHz input per fresh stream")
-                self.accepted = samples
-
-        return Stream()
-
-    def decode_stream(self, stream):
-        index = len(self.sizes)
-        self.sizes.append(len(stream.accepted))
-        stream.result = type("Result", (), {"text": self.text(index, stream.accepted)})()
 
 
 class Voice:
@@ -229,9 +192,9 @@ class Spotter:
 KEYWORDS = json.loads((PLUGIN / "artifacts.json").read_text())["fixture"]["wakeTokens"]
 
 
-def speech(m, segments, bound, recognizer=None, voice=None, rate=22050, captions=None, turn=lambda s: 1.0, spotter=None):
+def speech(m, segments, voice=None, rate=22050, captions=None, turn=lambda s: 1.0, spotter=None):
     # Two named speakers, so the second one's sid is 1.
-    return m.Speech(recognizer or Recognizer(), bound, Vad(segments), voice or Voice(rate), rate, ["one", "two"], lambda s: s,
+    return m.Speech(Vad(segments), voice or Voice(rate), rate, ["one", "two"], lambda s: s,
                     captions or Captions(), turn, spotter or Spotter(), KEYWORDS)
 
 
@@ -268,88 +231,24 @@ def serve(m, messages, model):
     return answers(output.getvalue())
 
 
-# Segmentation rows: name, padded speech spans, input length, bound, silent
-# windows, expected chunks. Expected values are written out, not computed.
-PLANS = [
-    ("whisper bound keeps the final shorter segment", [(0, 960000)], 960000, 464000, (),
-     [(0, 464000), (464000, 928000), (928000, 960000)]),
-    ("moonshine 60 s fills twelve bounds", [(0, 960000)], 960000, 80000, (),
-     [(i * 80000, (i + 1) * 80000) for i in range(12)]),
-    ("moonshine final shorter chunk kept", [(0, 200000)], 200000, 80000, (),
-     [(0, 80000), (80000, 160000), (160000, 200000)]),
-    ("neighbours share a chunk that fits", [(0, 30000), (40000, 70000)], 70000, 80000, (), [(0, 70000)]),
-    ("neighbours that do not fit stay apart", [(0, 30000), (50000, 90000)], 90000, 80000, (),
-     [(0, 30000), (50000, 90000)]),
-    ("a long span is cut at its quietest frame", [(0, 100000)], 100000, 80000, [(60160, 60480)],
-     [(0, 60480), (60480, 100000)]),
-    ("no speech plans no chunk", [], 48000, 80000, (), []),
-]
-
-
-def plan_case(m, row):
-    name, speech_spans, total, bound, silent, expected = row
-    chunks = m.plan(speech_spans, bound, level(total, silent))
-    if chunks != expected:
-        raise AssertionError(f"{name}: {chunks}")
-    for (start, end), following in zip(chunks, chunks[1:] + [None]):
-        if not 0 < end - start <= bound or (following and following[0] < end):
-            raise AssertionError(f"{name}: chunk outside the bound or order {start, end}")
-    for span_start, span_end in speech_spans:
-        for sample in range(span_start, span_end, 997):
-            if not any(start <= sample < end for start, end in chunks):
-                raise AssertionError(f"{name}: speech sample {sample} not decoded")
-
-
-def spans_case(m):
-    got = m.spans([(1000, 2000), (7000, 1000), (20000, 500)], 21000, 3200)
-    if got != [(0, 11200), (16800, 21000)]:
-        raise AssertionError(f"padded spans {got}")
-    try:
-        m.spans([(5000, 10), (1000, 10)], 9000, 0)
-    except RuntimeError as error:
-        if str(error) != "vad=segment-order":
-            raise
-    else:
-        raise AssertionError("out-of-order segments accepted")
-
-
-def transcribe_cases(m):
-    # The 464000-sample decoder keeps its final shorter segment on fresh streams.
-    recognizer = Recognizer()
-    text = speech(m, [(0, 960000)], 464000, recognizer).transcribe(level(960000))
-    if (recognizer.sizes, recognizer.created, text) != ([464000, 464000, 32000], 3, "w0 w1 w2"):
-        raise AssertionError(f"bounded decoding {recognizer.sizes} {recognizer.created} {text!r}")
-    # No bound decodes the whole speech span once.
-    recognizer = Recognizer()
-    speech(m, [(4000, 8000)], None, recognizer).transcribe(level(48000))
-    if recognizer.sizes != [8000 + 2 * 3200]:
-        raise AssertionError(f"unbounded decoding {recognizer.sizes}")
-    if speech(m, [], 80000).transcribe(level(16000)) != "":
-        raise AssertionError("silence is not an empty transcript")
-    for name, script, cause in [
-            ("empty", lambda index, samples: "" if index == 1 else "w", "chunk-empty index=1"),
-            ("failed", lambda index, samples: (_ for _ in ()).throw(RuntimeError("decode")) if index == 2 else "w",
-             "chunk-failed index=2")]:
-        try:
-            text = speech(m, [(0, 240000)], 80000, Recognizer(script)).transcribe(level(240000))
-        except m.Failed as failure:
-            if str(failure) != cause:
-                raise AssertionError(f"{name}: cause {failure}")
-        else:
-            raise AssertionError(f"{name} chunk became a final: {text!r}")
-
-
 def wire_cases(m):
-    model = speech(m, [(0, 16000)], 80000)
+    # A dictation utterance's end: the marker alone, from voice activity that
+    # closes the open segment over every sample, the last window padded. No
+    # decode runs: the captions keep their one stream and its samples.
+    captions = Captions(["draft"])
+    model = speech(m, [(0, 16000)], captions=captions)
     out = serve(m, [({"type": "audio", "id": 1}, floats(8000)), ({"type": "audio", "id": 1}, floats(8000)),
                     ({"type": "end", "id": 1},)], model)
-    if [h for h, _ in out] != [{"type": "final", "id": 1, "text": "w0"}] or model.vad.offered != 16384:
+    if [h for h, _ in out] != [{"type": "partial", "id": 1, "text": "draft", "rev": 1},
+                               {"type": "ended", "id": 1, "speech": True}] or model.vad.offered != 16384:
         raise AssertionError(f"utterance {out} {model.vad.offered}")
+    if len(captions.streams) != 1 or captions.streams[0].samples != 16000:
+        raise AssertionError("the end decoded the utterance again")
     # An abort drops the utterance; its later frames crossed the abort.
     out = serve(m, [({"type": "audio", "id": 2}, floats(4)), ({"type": "abort", "id": 2},),
                     ({"type": "audio", "id": 2}, floats(4)), ({"type": "end", "id": 2},),
-                    ({"type": "end", "id": 3},)], speech(m, [], 80000))
-    if [h for h, _ in out] != [{"type": "final", "id": 3, "text": ""}]:
+                    ({"type": "end", "id": 3},)], speech(m, []))
+    if [h for h, _ in out] != [{"type": "ended", "id": 3, "speech": False}]:
         raise AssertionError(f"abort {out}")
     out = serve(m, [({"type": "speak", "id": 4, "speaker": "one"}, "Hello.".encode())], model)
     audio = b"".join(p for h, p in out if h["type"] == "audio")
@@ -366,12 +265,12 @@ def wire_cases(m):
     if [h for h, _ in out][0] != {"type": "failed", "id": 6, "cause": "speaker-unknown"} or out[-1][0]["type"] != "spoken":
         raise AssertionError(f"unknown speaker {[h for h, _ in out]}")
     out = serve(m, [({"type": "speak", "id": 5, "speaker": "one"}, "Hello.".encode())],
-                speech(m, [], 80000, voice=Voice(error=RuntimeError("voice"))))
+                speech(m, [], voice=Voice(error=RuntimeError("voice"))))
     if [h for h, _ in out] != [{"type": "failed", "id": 5, "cause": "synthesis-failed"}]:
         raise AssertionError(f"synthesis failure {out}")
     for name, voice, cause in [("rate", Voice(rate=16000), "synthesis-rate value=16000"),
                                ("silent", Voice(samples=[0.0] * 10), "synthesis-empty")]:
-        out = serve(m, [({"type": "speak", "id": 6, "speaker": "one"}, "Hi.".encode())], speech(m, [], 80000, voice=voice))
+        out = serve(m, [({"type": "speak", "id": 6, "speaker": "one"}, "Hi.".encode())], speech(m, [], voice=voice))
         if [h for h, _ in out] != [{"type": "failed", "id": 6, "cause": cause}]:
             raise AssertionError(f"{name}: {out}")
 
@@ -402,8 +301,7 @@ def streaming_cases(m):
             turns.append(len(samples))
             return 0.2 if len(turns) == 1 else 0.8
 
-        model = speech(m, [], 80000, Recognizer(lambda i, s: "final words"),
-                       captions=captions, turn=completion)
+        model = speech(m, [], captions=captions, turn=completion)
         model.vad = LiveVad(active)
         output = io.BytesIO()
         messages = [({"type": "listen", "id": 1, "detect": mode},)]
@@ -419,23 +317,23 @@ def streaming_cases(m):
                     expected = [{"type": "partial", "id": 1, "text": "draft", "rev": 1},
                                 {"type": "partial", "id": 1, "text": "revised draft", "rev": 2}]
                     if mode and not active:
-                        expected.append({"type": "final", "id": 1, "text": "final words"})
+                        expected.append({"type": "ended", "id": 1, "speech": True})
                     if observed != expected:
                         raise AssertionError(f"before end {mode, active}: {observed}")
                 return super().read(size)
 
         m.serve(Reader(prefix + frame({"type": "end", "id": 1})), output, model)
         headers = [h for h, _ in answers(output.getvalue())]
-        if headers[-1] != {"type": "final", "id": 1, "text": "final words"}:
-            raise AssertionError(f"final authority: {headers}")
+        if headers[-1] != {"type": "ended", "id": 1, "speech": True}:
+            raise AssertionError(f"end marker: {headers}")
         if len(captions.streams) != 1 or captions.streams[0].samples != 24576:
             raise AssertionError("captions must use one cached stream with every sample once")
         if turns != ([16384, 24576] if mode and not active else []):
             raise AssertionError(f"semantic detector {mode, active}: {turns}")
-    model = speech(m, [], 80000)
+    model = speech(m, [])
     output = serve(m, [({"type": "listen", "id": 1, "detect": True},),
                        ({"type": "audio", "id": 1}, floats(8000)), ({"type": "end", "id": 1},)], model)
-    if [h for h, _ in output] != [{"type": "final", "id": 1, "text": ""}]:
+    if [h for h, _ in output] != [{"type": "ended", "id": 1, "speech": False}]:
         raise AssertionError(f"silence {output}")
 
 
@@ -443,7 +341,7 @@ def wake_cases(m):
     # The keyword ends in the second block: one woke, no transcript, and the
     # stream saw only the samples sent until then.
     spotter = Spotter(at=6000)
-    model = speech(m, [(0, 16000)], 80000, spotter=spotter)
+    model = speech(m, [(0, 16000)], spotter=spotter)
     out = serve(m, [({"type": "wake", "id": 1},), ({"type": "audio", "id": 1}, floats(4000)),
                     ({"type": "audio", "id": 1}, floats(4000)), ({"type": "audio", "id": 1}, floats(4000))], model)
     if [h for h, _ in out] != [{"type": "woke", "id": 1}]:
@@ -455,22 +353,22 @@ def wake_cases(m):
     out = serve(m, [({"type": "wake", "id": 2},), ({"type": "audio", "id": 2}, floats(4000)),
                     ({"type": "abort", "id": 2},), ({"type": "audio", "id": 2}, floats(4)),
                     ({"type": "listen", "id": 3, "detect": False},), ({"type": "end", "id": 3},)],
-                speech(m, [], 80000, spotter=Spotter()))
-    if [h for h, _ in out] != [{"type": "final", "id": 3, "text": ""}]:
+                speech(m, [], spotter=Spotter()))
+    if [h for h, _ in out] != [{"type": "ended", "id": 3, "speech": False}]:
         raise AssertionError(f"no keyword {out}")
     # A keyword the model cannot encode fails the request, not the sidecar.
     out = serve(m, [({"type": "wake", "id": 4},), ({"type": "audio", "id": 4}, floats(4)),
                     ({"type": "listen", "id": 5, "detect": False},), ({"type": "end", "id": 5},)],
-                speech(m, [], 80000, spotter=Spotter(encodes=False)))
+                speech(m, [], spotter=Spotter(encodes=False)))
     if [h for h, _ in out] != [{"type": "failed", "id": 4, "cause": "wake-keywords"},
-                               {"type": "final", "id": 5, "text": ""}]:
+                               {"type": "ended", "id": 5, "speech": False}]:
         raise AssertionError(f"keywords {out}")
 
 
 def bound_case(m):
     m.UTTERANCE_SAMPLES = 10
     out = serve(m, [({"type": "audio", "id": 1}, floats(8)), ({"type": "audio", "id": 1}, floats(8)),
-                    ({"type": "end", "id": 1},)], speech(m, [(0, 16)], 80000))
+                    ({"type": "end", "id": 1},)], speech(m, [(0, 16)]))
     if [h for h, _ in out] != [{"type": "failed", "id": 1, "cause": "utterance-too-long"}]:
         raise AssertionError(f"utterance bound {out}")
 
@@ -479,14 +377,14 @@ def microphone_cases(m):
     for name, amplitude, wakes, expected in [("silence", 0, None, "silent"),
             ("not detected", 0.5, None, "not-heard"), ("detected", 0.5, 1, "ready")]:
         spotter = Spotter(at=wakes)
-        model = speech(m, [], 80000, spotter=spotter)
+        model = speech(m, [], spotter=spotter)
         out = serve(m, [({"type": "check", "id": 1},), ({"type": "audio", "id": 1}, floats(16000, amplitude)),
             ({"type": "audio", "id": 1}, floats(16000, amplitude)),
             ({"type": "audio", "id": 1}, floats(16000, amplitude)), ({"type": "end", "id": 1},)], model)
         if [h for h, _ in out] != [{"type": "checked", "id": 1, "result": expected}]:
             raise AssertionError(f"{name}: {out}")
-        if spotter.streams[0].keywords != KEYWORDS or model.recognizer.created != 0:
-            raise AssertionError("the check must use the wake detector, without transcription")
+        if spotter.streams[0].keywords != KEYWORDS or model.captions.streams:
+            raise AssertionError("the check must use the wake detector, without captions")
 
 
 # Wire violations: each frame list must end the sidecar with this protocol key.
@@ -527,7 +425,7 @@ VIOLATIONS = [
 def violation_cases(m):
     for name, data, key in VIOLATIONS:
         try:
-            m.serve(io.BytesIO(b"".join(data)), io.BytesIO(), speech(m, [], 80000))
+            m.serve(io.BytesIO(b"".join(data)), io.BytesIO(), speech(m, []))
         except m.Protocol as error:
             if str(error) != key:
                 raise AssertionError(f"{name}: {error}")
@@ -611,8 +509,10 @@ def admission_case(m):
                 return 2048
             judge.available = enough
             value = m.load(setup, state, state)
-            if not isinstance(value, m.Speech) or not {"moonshine", "piper", "silero"}.issubset(loaded):
-                raise AssertionError(f"admitted model roles missing: {loaded}")
+            # The small tier's recognizer is moonshine: setup's probe uses it,
+            # and the sidecar, whose words are dictation's, loads it not.
+            if not isinstance(value, m.Speech) or not {"piper", "silero"}.issubset(loaded) or "moonshine" in loaded:
+                raise AssertionError(f"admitted model roles: {loaded}")
             if value.speakers != ["ljspeech"]:
                 raise AssertionError(f"the small tier's Piper voice has one speaker, got {value.speakers}")
         with judge.loading(state / "models"):
@@ -667,12 +567,6 @@ def main_cases(source):
             raise AssertionError(f"foreign parent: {result.returncode} {result.stderr!r}")
 
 
-def guarded(check, *args):
-    def case(m):
-        check(m, *args)
-    return case
-
-
 # Controls: name, needle, replacement, the case that must turn red.
 CONTROLS = [
     ("check follows detector", 'return "ready" if self.heard else "not-heard" if self.sound else "silent"',
@@ -685,23 +579,15 @@ CONTROLS = [
     ("semantic end", 'ended = probability >= 0.5', 'ended = True', streaming_cases),
     ("hold mode", 'if self.detect_turn and self.has_segment', 'if self.has_segment', streaming_cases),
     ("active speech", 'and not speech.vad.is_speech_detected()', '', streaming_cases),
-    ("final authority", '                    send(writer, {"type": "final", "id": ident, "text": speech.transcribe(samples)})',
+    ("turn end answers a transcript", '                    send(writer, {"type": "ended", "id": ident, "speech": True})',
      '                    send(writer, {"type": "final", "id": ident, "text": "draft"})', streaming_cases),
-    ("bound split", "while end - start > bound:", "while False:", guarded(plan_case, PLANS[0])),
-    ("final chunk", "    if current is not None:\n        chunks.append(current)\n    return chunks",
-     "    return chunks", guarded(plan_case, PLANS[2])),
-    ("merge bound", "if current is not None and end - current[0] <= bound:", "if current is not None:",
-     guarded(plan_case, PLANS[4])),
-    ("quiet cut", "if least is None or energy < least:", "if least is None:", guarded(plan_case, PLANS[5])),
-    ("padding", "low, high = max(0, start - pad), min(total, start + length + pad)",
-     "low, high = start, start + length", spans_case),
-    ("segment order", "if length <= 0 or start < previous:", "if length <= 0:", spans_case),
-    ("fresh stream", "stream = self.recognizer.create_stream()",
-     "stream = getattr(self, 'kept', None) or self.recognizer.create_stream(); self.kept = stream",
-     transcribe_cases),
-    ("empty chunk", "if not text:", "if False:", transcribe_cases),
-    ("failed chunk", 'raise Failed(f"chunk-failed index={index}") from error', "continue", transcribe_cases),
-    ("input order", 'return " ".join(texts)', 'return " ".join(reversed(texts))', transcribe_cases),
+    ("end decodes the utterance", '            send(writer, {"type": "ended", "id": ident, "speech": utterances.pop(ident).heard()})',
+     '            done = utterances.pop(ident)\n            stream = speech.captions.create_stream()\n'
+     '            stream.accept_waveform(RATE, speech.waveform(done.samples))\n            speech.captions.decode_stream(stream)\n'
+     '            send(writer, {"type": "ended", "id": ident, "speech": done.heard()})', wire_cases),
+    ("end leaves the segment open", "            vad.flush()\n            self.has_segment = not vad.empty()",
+     "            self.has_segment = False", wire_cases),
+    ("end drops the last window", "            vad.accept_waveform(self.speech.waveform(window))\n", "", wire_cases),
     ("crossed message", "if ident not in utterances:\n            continue", "if False:\n            continue",
      wire_cases),
     ("synthesis empty", "if not samples or not all(math.isfinite(v) for v in samples) or not any(samples):",
@@ -728,6 +614,7 @@ CONTROLS = [
      '            if not fresh:\n                raise Protocol("wake=invalid")', violation_cases),
     ("wake has no end", 'raise Protocol("end=wake")', "continue", violation_cases),
     ("memory admission", 'judge.admit(ready["memory"], provider)', 'False and judge.admit(ready["memory"], provider)', admission_case),
+    ("recognizer loaded", 'for role, artifact in chosen.items() if role != "stt"}', "for role, artifact in chosen.items()}", admission_case),
     ("load serialization", 'with judge.loading(data / "models"):', 'if True:', admission_case),
 ]
 
@@ -771,16 +658,6 @@ def runner_case(source):
 
 
 class LocalSpeech(unittest.TestCase):
-    def test_plans(self):
-        m = load()
-        for row in PLANS:
-            with self.subTest(row=row[0]):
-                plan_case(m, row)
-        spans_case(m)
-
-    def test_transcription(self):
-        transcribe_cases(load())
-
     def test_streaming(self):
         streaming_cases(load())
 

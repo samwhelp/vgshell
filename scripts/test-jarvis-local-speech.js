@@ -75,7 +75,7 @@ function frames(pcm, size = 4801) {
     for (let at = 0; at < pcm.length; at += size) items.push({ content: pcm.subarray(at, at + size), labels: ["speech"] });
     return (async function* () { yield* items; })();
 }
-async function final(output) {
+async function drained(output) {
     const events = [];
     for await (const event of output) events.push(event);
     return events;
@@ -119,13 +119,14 @@ async function selection(folder) {
 }
 
 // One utterance: the boundary the sidecar starts in, and Audio's 24 kHz
-// capture reaching it as 16 kHz samples of the same tone.
+// capture reaching it as 16 kHz samples of the same tone. Its words are the
+// core's recording's: the sidecar's end says only whether it heard speech.
 async function utterance(folder) {
-    const w = runtime({ utterances: [{ final: "read this local test" }] });
+    const w = runtime({ utterances: [{ speech: true }, { speech: false }] });
     process.env.JARVIS_LOCAL_SPEECH_SENTINEL = "never passed";
     const speech = adapter(folder, w);
     try {
-        assert.deepEqual(await final(speech.transcribe(frames(tone(1000, 1, 0.5)))), [{ kind: "final", text: "read this local test" }]);
+        assert.deepEqual(await drained(speech.transcribe(frames(tone(1000, 1, 0.5)))), [{ kind: "ended", speech: true }]);
         const log = w.log();
         const facts = start(log);
         assert.deepEqual(facts.argv, ["-I", path.join(folder, "backend/local-speech.py"), "--state", w.directories.state,
@@ -138,16 +139,18 @@ async function utterance(folder) {
         assert.equal(ended.samples, 16000, "one second at 16 kHz");
         assert.ok(Math.abs(ended.crossings - 2000) <= 4, "a 1 kHz tone keeps its frequency: " + ended.crossings);
         assert.ok(Math.abs(ended.rms - 0.5 / Math.SQRT2) < 0.01, "and its level: " + ended.rms);
+        assert.deepEqual(await drained(speech.transcribe(frames(tone(1000, 1, 0.5)))), [{ kind: "ended", speech: false }],
+            "an utterance with no speech ends as one");
     } finally { speech.close(); delete process.env.JARVIS_LOCAL_SPEECH_SENTINEL; }
     cases++;
 }
 
 // A 9 kHz tone is above the 8 kHz band; decimation must not fold it in.
 async function antiAlias(folder) {
-    const w = runtime({ utterances: [{ final: "x" }] });
+    const w = runtime({ utterances: [{ speech: true }] });
     const speech = adapter(folder, w);
     try {
-        await final(speech.transcribe(frames(tone(9000, 1, 0.5))));
+        await drained(speech.transcribe(frames(tone(9000, 1, 0.5))));
         const ended = w.log().find(entry => entry.end);
         assert.ok(ended.rms < 0.02, "folded 9 kHz energy: " + ended.rms);
     } finally { speech.close(); }
@@ -155,7 +158,7 @@ async function antiAlias(folder) {
 }
 
 // File-free acknowledgments hold capture open until each partial has reached
-// the consumer. Toggle's final arrives before input EOF; hold needs EOF.
+// the consumer. Toggle's end arrives before input EOF; hold needs EOF.
 async function streaming(folder) {
     const next = async output => {
         let timer;
@@ -167,7 +170,7 @@ async function streaming(folder) {
     };
     for (const detect of [true, false]) {
         const w = runtime({ utterances: [{ partials: [{ text: "draft", rev: 1 }, { text: "corrected draft", rev: 2 }],
-            earlyFinal: "final words", final: "final words" }] });
+            turnEnd: true, speech: true }] });
         const speech = adapter(folder, w);
         let first, second, finish;
         const gates = [new Promise(done => { first = done; }), new Promise(done => { second = done; }),
@@ -188,10 +191,10 @@ async function streaming(folder) {
             assert.deepEqual(await next(output), { value: { kind: "partial", text: "corrected draft", rev: 2 }, done: false });
             second();
             if (!detect) finish();
-            assert.deepEqual(await next(output), { value: { kind: "final", text: "final words" }, done: false });
+            assert.deepEqual(await next(output), { value: { kind: "ended", speech: true }, done: false });
             assert.deepEqual(await next(output), { value: undefined, done: true });
             assert.equal(w.log().find(entry => entry.listen).detect, detect, "capture mode reaches the sidecar");
-            assert.equal(w.log().some(entry => entry.end), !detect, "toggle final does not need key release");
+            assert.equal(w.log().some(entry => entry.end), !detect, "toggle's end does not need key release");
         } finally { first(); second(); finish(); await output.return(); speech.close(); }
     }
     cases++;
@@ -199,9 +202,9 @@ async function streaming(folder) {
 
 async function partialViolations(folder) {
     for (const partials of [[{ text: "draft", rev: 0 }], [{ text: "draft", rev: 1 }, { text: "revised", rev: 1 }]]) {
-        const speech = adapter(folder, runtime({ utterances: [{ partials, final: "final" }] }));
+        const speech = adapter(folder, runtime({ utterances: [{ partials, speech: true }] }));
         try {
-            await assert.rejects(final(speech.transcribe(frames(tone(1000, 2, 0.5)))),
+            await assert.rejects(drained(speech.transcribe(frames(tone(1000, 2, 0.5)))),
                 error => error.code === "protocol key=partial value=" + (partials.length === 1 ? "invalid" : "revision"));
         } finally { speech.close(); }
     }
@@ -215,9 +218,9 @@ async function failures(folder) {
         ["not ready", { start: "not-ready" }, "jarvis: speech=local-runtime-not-ready"],
         ["load failure", { start: "exit" }, "jarvis: speech=local-exit code=70 signal=null"],
         ["malformed frame", { start: "garbage" }, "jarvis: speech=local-protocol key=message value=invalid"],
-        ["foreign id", { start: "foreign-id", utterances: [{ final: "x" }] }, "jarvis: speech=local-protocol key=id value=invalid"]]) {
+        ["foreign id", { start: "foreign-id", utterances: [{ speech: true }] }, "jarvis: speech=local-protocol key=id value=invalid"]]) {
         const speech = adapter(folder, runtime(scenario));
-        try { await rejects(final(speech.transcribe(frames(tone(1000, 1, 0.5)))), cause); }
+        try { await rejects(drained(speech.transcribe(frames(tone(1000, 1, 0.5)))), cause); }
         catch (error) { error.message = name + ": " + error.message; throw error; }
         finally { speech.close(); }
     }
@@ -226,7 +229,7 @@ async function failures(folder) {
 
 // An abandoned utterance is aborted at the sidecar; the next one still runs.
 async function abort(folder) {
-    const w = runtime({ utterances: [{ final: "second" }] });
+    const w = runtime({ utterances: [{ speech: true }] });
     const speech = adapter(folder, w);
     try {
         let release;
@@ -239,7 +242,7 @@ async function abort(folder) {
         await first.return();
         assert.deepEqual(await pending, { value: undefined, done: true });
         release();
-        assert.deepEqual(await final(speech.transcribe(frames(tone(1000, 1, 0.5)))), [{ kind: "final", text: "second" }]);
+        assert.deepEqual(await drained(speech.transcribe(frames(tone(1000, 1, 0.5)))), [{ kind: "ended", speech: true }]);
         const log = w.log();
         assert.equal(log.find(entry => "abort" in entry)?.abort, 1, "the abandoned utterance is aborted");
         assert.deepEqual(log.filter(entry => entry.end).map(entry => entry.end), [2]);
@@ -253,7 +256,7 @@ async function backlog(folder) {
     const w = runtime({ start: "deaf" });
     const speech = adapter(folder, w);
     try {
-        await rejects(final(speech.transcribe(frames(Buffer.alloc(24000 * 2 * 125), 48000))), "jarvis: speech=local-backlog");
+        await rejects(drained(speech.transcribe(frames(Buffer.alloc(24000 * 2 * 125), 48000))), "jarvis: speech=local-backlog");
     } finally { speech.close(); }
     cases++;
 }
@@ -317,11 +320,11 @@ async function speaking(folder) {
         assert.ok(Math.abs(crossings - 880) <= 4, "a 440 Hz voice keeps its pitch: " + crossings);
         assert.ok([chunks[1].pcm, chunks[2].pcm].every(pcm => pcm.equals(Buffer.alloc(pcm.length, Buffer.from([0x00, 0x20])))),
             "a 24 kHz voice passes unchanged");
-        await rejects(final(speech.speak((async function* () { yield { content: "Third.", labels: [] }; })(), "ljspeech")),
+        await rejects(drained(speech.speak((async function* () { yield { content: "Third.", labels: [] }; })(), "ljspeech")),
             "jarvis: speech=local-synthesis-failed");
-        await rejects(final(speech.speak((async function* () { yield { content: " ", labels: [] }; })(), "ljspeech")),
+        await rejects(drained(speech.speak((async function* () { yield { content: " ", labels: [] }; })(), "ljspeech")),
             "jarvis: speech=local-sentence-empty");
-        await rejects(final(speech.speak((async function* () { yield { content: "Fourth.", labels: [] }; })())),
+        await rejects(drained(speech.speak((async function* () { yield { content: "Fourth.", labels: [] }; })())),
             "jarvis: speech=local-speaker");
         assert.deepEqual(w.log().filter(entry => entry.speak).map(entry => [entry.text, entry.speaker]),
             [["First sentence.", "af_heart"], ["Second sentence.", "af_heart"], ["Third.", "ljspeech"]], "each request carries its speaker");
@@ -332,7 +335,7 @@ async function speaking(folder) {
 async function speechWaits(folder) {
     for (const [kind, scenario, cause, observed] of [
         ["ready", { start: "silent" }, "ready-timeout", log => start(log) !== undefined],
-        ["transcribe", { utterances: [{ stall: true }] }, "transcribe-timeout", log => log.some(entry => entry.end)],
+        ["end", { utterances: [{ stall: true }] }, "end-timeout", log => log.some(entry => entry.end)],
         ["synthesis", { speech: [{ stall: true }] }, "synthesis-timeout", log => log.some(entry => entry.speak)]
     ]) {
         const timers = new Set();
@@ -342,7 +345,7 @@ async function speechWaits(folder) {
         let release;
         const held = new Promise(resolve => { release = resolve; });
         const input = kind === "ready" ? (async function* () { await held; yield { content: Buffer.alloc(4800) }; })() : frames(Buffer.alloc(4800));
-        const result = final(kind === "synthesis" ? speech.speak((async function* () { yield { content: "Fixture.", labels: [] }; })(), "ljspeech")
+        const result = drained(kind === "synthesis" ? speech.speak((async function* () { yield { content: "Fixture.", labels: [] }; })(), "ljspeech")
             : speech.transcribe(input));
         result.catch(() => {});
         try {
@@ -356,20 +359,20 @@ async function speechWaits(folder) {
             await until(() => !alive(start(w.log()).pid), "deadline closes sidecar", OBSERVE_MS);
         } finally { release(); speech.close(); }
     }
-    // The final-result wait starts only after capture ends. A user may hold
-    // the key beyond it without expiring a healthy capture.
+    // The end's wait starts only after capture ends. A user may hold the key
+    // beyond it without expiring a healthy capture.
     const timers = new Set();
     const clock = { set: (fn, ms) => { const timer = { fn, ms }; timers.add(timer); return timer; }, clear: timer => timers.delete(timer) };
-    const w = runtime({ utterances: [{ final: "fixture" }] });
+    const w = runtime({ utterances: [{ speech: true }] });
     const speech = adapter(folder, w, clock);
     let release;
     const held = new Promise(resolve => { release = resolve; });
-    const result = final(speech.transcribe((async function* () { yield { content: Buffer.alloc(4800) }; await held; })()));
+    const result = drained(speech.transcribe((async function* () { yield { content: Buffer.alloc(4800) }; await held; })()));
     try {
         await until(() => start(w.log()) !== undefined && timers.size === 0, "model ready during capture", OBSERVE_MS);
         assert.equal(timers.size, 0);
         release();
-        assert.equal((await result)[0].kind, "final");
+        assert.equal((await result)[0].kind, "ended");
         assert.equal(timers.size, 0);
     } finally { release(); speech.close(); }
     cases++;
@@ -505,7 +508,7 @@ const CONTROLS = [
     ["partial revision positive", [[' || header.rev < 1)', ')']], "partialViolations"],
     ["partial revision order", [['if (header.rev <= rev) throw new Error("partial=revision");', '']], "partialViolations"],
     ["ready deadline", [["let readyTimer = clock.set(() => end(failure(\"ready-timeout\"), false), READY_MS);", "let readyTimer = null;"]], "speechWaits"],
-    ["transcription deadline", [["value.bound(TRANSCRIBE_MS, \"transcribe-timeout\");", ""]], "speechWaits"],
+    ["end deadline", [["value.bound(END_MS, \"end-timeout\");", ""]], "speechWaits"],
     ["synthesis deadline", [["value.bound(SYNTHESIS_MS, \"synthesis-timeout\");", ""]], "speechWaits"],
     ["long PCM framing", [["const textAt = Math.max(0, Math.ceil((frames - SENTENCE_FRAMES) / CHUNK_FRAMES) * CHUNK_FRAMES);", "const textAt = 0;"]], "longReply"],
     ["tier check", [["|| !Object.hasOwn(tiers, marker.tier) ", ""]], "selection"],
@@ -516,7 +519,8 @@ const CONTROLS = [
     ["no resampling", [["sendAudio(id, resampler.push(fromPcm(bytes)));", "sendAudio(id, fromPcm(bytes));"]], "utterance"],
     ["split sample dropped", [[" carry = bytes.subarray(bytes.length - (bytes.length % 2));", " carry = Buffer.alloc(0);"]], "utterance"],
     ["no anti-alias band", [["PASSBAND * Math.min(from, to)", "PASSBAND * Math.max(from, to)"]], "antiAlias"],
-    ["failure read as final", [['?.settle({ kind: "failed", error: failure(header.cause) });', '?.settle({ kind: "final", text: "" });']], "failures"],
+    ["failure read as an end", [['?.settle({ kind: "failed", error: failure(header.cause) });', '?.settle({ kind: "ended", speech: false });']], "failures"],
+    ["end heard speech forged", [['settle({ kind: "ended", speech: header.speech })', 'settle({ kind: "ended", speech: true })']], "utterance"],
     ["exit unobserved", [['child.on("close",', 'child.on("closed",']], "failures"],
     ["foreign id accepted", [[" || header.id > next)", ")"]], "failures"],
     ["no abort sent", [['if (life.kind !== "ended") write({ type: "abort", id });', ""]], "abort"],

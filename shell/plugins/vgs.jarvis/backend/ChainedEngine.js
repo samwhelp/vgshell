@@ -31,7 +31,11 @@ const Redact = require("./Redact.js");
 // accounts, directories})} answering {kind:"ready", recipients, voices,
 // open({net, recipients})} or {kind:"unconfigured", cause, detail?}, voices
 // its {label, value} offers, whose value is the speaker its adapter's speak
-// takes. The ElevenLabs row adds its own.
+// takes. The ElevenLabs row adds its own. A row's transcribe yields
+// partials, then {kind: "final", text}; a ready row with `dictation: true`
+// takes each utterance's words from the core's dictation recording (D064)
+// and ends it with {kind: "ended", speech}, whether its voice activity
+// heard speech.
 const SPEECH = Object.freeze({ local: LocalSpeech.row });
 const DRIVERS = Object.freeze({ "openai-chat": OpenAIChat, "anthropic-messages": AnthropicMessages,
     "codex-app-server": CodexHarness, "copilot-acp": CopilotHarness, "pi-rpc": PiHarness, "claude-code": ClaudeCode });
@@ -70,6 +74,12 @@ function earcon(kind) {
 }
 
 function fail(code) { throw new Error("jarvis: engine=" + code); }
+// A dictation request that did not answer "ok", as Session's keyed fault:
+// the word the core or the service refused with, or the port's own end.
+function dictationFault(result) {
+    if (result.kind !== "answer") return "speech=dictation-" + result.kind;
+    return "speech=dictation-" + (/^refused: dictation=([a-z-]{1,40})/.exec(result.answer)?.[1] ?? "refused");
+}
 function unconfigured(cause, detail) { return detail === undefined ? { kind: "unconfigured", cause } : { kind: "unconfigured", cause, detail }; }
 // The index in VOICES, a speech row's {label, value} offers, of the voice
 // SETTING names. The first offer stands for the unset setting
@@ -163,12 +173,16 @@ function signal() {
  * the provider table and the key reference. The speech and brain steps are
  * judged apart, so an unconfigured plan carries `cause`, the first failing
  * step's, speech before brain, and `causes`, every failing step's in that
- * order, which the daemon publishes for the setup view.
+ * order, which the daemon publishes for the setup view. A dictation row
+ * holds the plan with the service's dictation cause, settings.dictation,
+ * while the core's recording cannot start; its sidecar still loads.
  */
 function select(settings, accounts, directories) {
     const speech = selectSpeech(settings, accounts, directories);
+    const dictation = speech.kind === "ready" && speech.dictation === true && settings.dictation !== ""
+        ? unconfigured(settings.dictation) : { kind: "ready" };
     const brain = selectBrain(settings, accounts);
-    const failing = [speech, brain].filter(step => step.kind !== "ready");
+    const failing = [speech, dictation, brain].filter(step => step.kind !== "ready");
     if (failing.length > 0) return { ...failing[0], speech, causes: failing.map(step => step.cause) };
     return { kind: "ready", speech, brain: brain.brain, entries: brain.entries };
 }
@@ -304,9 +318,11 @@ function selectBrain(settings, accounts) {
  * daemon's judgement of the user's home folder: {kind: "none"}, {kind:
  * "ready", path} or {kind: "refused", cause}; rejudge has the daemon judge
  * the folder and the setup again. trace is {marker, file}, the daemon's
- * test-run marker and trace path, which tracer judges.
+ * test-run marker and trace path, which tracer judges. request is the
+ * daemon's shell request port, ShellRequests' send, which a dictation row's
+ * utterances record through.
  */
-function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, tasks = null, directories, dispatch, clock, configured = () => {}, log = () => {}, home = () => ({ kind: "none" }), rejudge, trace = {} }) {
+function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, tasks = null, directories, dispatch, clock, configured = () => {}, log = () => {}, home = () => ({ kind: "none" }), rejudge, trace = {}, request = null }) {
     if (!Number.isSafeInteger(captionLimit) || captionLimit < 1) fail("caption-limit");
     const brainText = tracer(trace);
     let plan = unconfigured("engine=starting");
@@ -326,7 +342,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             : local && speechState.kind === "refused" ? "speech=local-" + speechState.error.code.split(" ")[0] : null;
         if (plan.kind !== "ready") {
             const { speech, ...answer } = plan;
-            return cause === null ? answer : { ...answer, cause, causes: [cause, ...answer.causes] };
+            // One cause per step: the sidecar's goes before the recording's.
+            return cause === null ? answer : { ...answer, cause, causes: [cause, ...answer.causes.filter(other => !other.startsWith("speech="))] };
         }
         if (local && speechState.kind === "starting")
             return { kind: "loading", cause: "speech=local-loading", causes: ["speech=local-loading"] };
@@ -494,6 +511,53 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         return { sink, frames, drop() { held = null; wake.notify(); } };
     }
 
+    // One utterance's dictation recording: begin asks the core to record
+    // once Session admitted the capture, and stop hands back voxtype's words.
+    // finish is "stop" or "cancel"; an end asked for while the start waits
+    // runs once it answers. settle receives {kind: "text", text} or {kind:
+    // "failed", cause} once, and nothing for a cancelled recording. Session's
+    // collection deadline bounds the whole utterance, so it bounds each reply.
+    function dictation(settle) {
+        if (request === null) fail("dictation-port");
+        const record = { phase: "new", end: null };
+        const send = (kind, done) => request(kind, [], session.COLLECTION_TIMEOUT_MS, done);
+        const ok = result => result.kind === "answer" && result.answer === "ok";
+        function finish(how) {
+            if (record.phase === "new" || record.phase === "starting") { record.end = how; return; }
+            if (record.phase !== "recording") return;
+            if (how === "cancel") {
+                record.phase = "ended";
+                // A recording already gone, as the service cancels at a lock,
+                // answers a refusal that leaves nothing to undo.
+                send("dictation.cancel", () => {});
+                return;
+            }
+            record.phase = "stopping";
+            send("dictation.stop", result => {
+                record.phase = "ended";
+                settle(ok(result) ? { kind: "text", text: result.data.text } : { kind: "failed", cause: dictationFault(result) });
+            });
+        }
+        function begin() {
+            if (record.phase !== "new") return;
+            if (record.end === "cancel") {
+                record.phase = "ended";
+                return;
+            }
+            record.phase = "starting";
+            send("dictation.start", result => {
+                if (!ok(result)) {
+                    record.phase = "ended";
+                    if (record.end !== "cancel") settle({ kind: "failed", cause: dictationFault(result) });
+                    return;
+                }
+                record.phase = "recording";
+                if (record.end !== null) finish(record.end);
+            });
+        }
+        return { begin, stop: () => finish("stop"), cancel: () => finish("cancel") };
+    }
+
     // Speech to text. The capture sink exists while Audio holds the
     // recorder; one utterance yields partials and one final.
     function transcription(c, e) {
@@ -501,19 +565,56 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         const answer = approval.kind === "held" ? { id: approval.id, digest: approval.digest,
             gen: approval.gen, beganAt: clock.now(), idleAt } : null;
         let output = null;
-        // running: transcribing; concluded: final delivered or failed;
-        // aborted: abandoned by the conversation or by its replacement.
-        const utterance = { state: "running", collection: null, sink: null, abort() {
-            if (utterance.state !== "running") return;
+        // running: transcribing; ending: the row's final came and the
+        // dictation recording's words are awaited; concluded: final delivered
+        // or failed; aborted: abandoned by the conversation or by its
+        // replacement. begin starts the dictation recording once a turn takes
+        // the words: a live collection, or the held request it answers. A
+        // capture no turn takes, as Toggle reopens one while Jarvis thinks,
+        // records nothing.
+        const utterance = { state: "running", collection: null, sink: null, answers: answer !== null, abort() {
+            if (utterance.state !== "running" && utterance.state !== "ending") return;
             utterance.state = "aborted";
             input.drop();
             void output?.return?.();
-        } };
+            record?.cancel();
+        }, begin() { record?.begin(); } };
         // Audio's teardown ends the utterance. A conversation that ended
         // with it, as by mute or stop, aborts the utterance in end().
         const input = captured(() => utterance.state === "running");
         const { sink, frames } = input;
         utterance.sink = sink;
+        // The final words: the answer to a held request by its phrase, else
+        // the collection's final.
+        function concluded(text) {
+            utterance.state = "concluded";
+            if (answer !== null) {
+                const phrase = TaskVoice.phrase(text);
+                if (["yes", "confirm", "yes confirm"].includes(phrase))
+                    dispatch({ type: "confirm", ...answer, source: "voice" });
+                else if (["no", "cancel", "no cancel"].includes(phrase))
+                    dispatch({ type: "approval-cancel", gen: answer.gen, id: answer.id });
+            } else utterance.collection?.done("final", text);
+        }
+        // A dictation request that failed ends the utterance with no words; a
+        // live collection's turn carries the cause.
+        const record = c.plan.speech.dictation !== true ? null : dictation(result => {
+            if (utterance.state !== "running" && utterance.state !== "ending") return;
+            if (result.kind === "text") {
+                concluded(result.text);
+                return;
+            }
+            const running = utterance.state === "running";
+            if (running) {
+                input.drop();
+                void output?.return?.();
+            }
+            utterance.state = "concluded";
+            // A live collection's turn carries the cause; an unbound capture,
+            // as a held request's answer, carries it as run()'s catch does.
+            if (collecting(c, utterance.collection)) utterance.collection.failed(result.cause);
+            else if (running && !sink.destroyed) sink.destroy(new Error("jarvis: " + result.cause));
+        });
         async function run() {
             let rev = 0;
             try {
@@ -525,27 +626,34 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                     if (utterance.state !== "running") return;
                     if (step.done) fail("transcript-unfinished");
                     const event = step.value;
-                    if (event === null || typeof event !== "object" || typeof event.text !== "string") fail("transcript");
-                    if (event.kind === "partial") {
+                    if (event === null || typeof event !== "object") fail("transcript");
+                    if (event.kind === "partial" && typeof event.text === "string") {
                         if (!Number.isSafeInteger(event.rev) || event.rev <= rev) fail("transcript-revision");
                         rev = event.rev;
                         utterance.collection?.done("partial", event.text);
-                    } else if (event.kind === "final") {
-                        utterance.state = "concluded";
-                        if (answer !== null) {
-                            const phrase = TaskVoice.phrase(event.text);
-                            if (["yes", "confirm", "yes confirm"].includes(phrase))
-                                dispatch({ type: "confirm", ...answer, source: "voice" });
-                            else if (["no", "cancel", "no cancel"].includes(phrase))
-                                dispatch({ type: "approval-cancel", gen: answer.gen, id: answer.id });
-                        } else utterance.collection?.done("final", event.text);
+                    } else if (event.kind === "final" && record === null && typeof event.text === "string") {
                         void output.return?.();
+                        concluded(event.text);
+                        return;
+                    } else if (event.kind === "ended" && record !== null && typeof event.speech === "boolean") {
+                        void output.return?.();
+                        // voxtype would still write words for silence, so an
+                        // utterance with no speech is not stopped. Neither is
+                        // a recording whose words no turn takes.
+                        if (!event.speech || answer === null && utterance.collection === null) {
+                            record.cancel();
+                            concluded("");
+                        } else {
+                            utterance.state = "ending";
+                            record.stop();
+                        }
                         return;
                     } else fail("transcript");
                 }
             } catch (error) {
                 if (utterance.state !== "running") return;
                 utterance.state = "concluded";
+                record?.cancel();
                 // An open capture carries the failure; after it closed, the
                 // collection's turn does; unbound, only the service hears it.
                 if (!sink.destroyed) sink.destroy(error);
@@ -1521,9 +1629,11 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (collecting(c, collection) && collection.utterance === null) {
                 utterance.collection = collection;
                 collection.utterance = utterance;
+                utterance.begin();
             } else {
                 c.unbound?.abort();
                 c.unbound = utterance;
+                if (utterance.answers) utterance.begin();
             }
             return utterance.sink;
         },
@@ -1534,7 +1644,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             const adopted = c.unbound !== null && c.unbound.state === "running" ? c.unbound : null;
             if (adopted === null) c.unbound?.abort();
             c.collection = { op: e.op, done, failed, utterance: adopted };
-            if (adopted !== null) adopted.collection = c.collection;
+            if (adopted !== null) {
+                adopted.collection = c.collection;
+                adopted.begin();
+            }
             c.unbound = null;
         },
         playbackSource(op) {
@@ -1551,7 +1664,12 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             return turn.speech.readable;
         },
         playback, brain,
-        engine() { return plan.kind === "ready" && plan.speech.id === "openai-realtime" ? "duplex" : "chained"; },
+        // Session's engine word: a dictation row's recording sounds its own
+        // tones, so Session plays no start sound for it.
+        engine() {
+            if (plan.kind === "ready" && plan.speech.id === "openai-realtime") return "duplex";
+            return plan.speech?.kind === "ready" && plan.speech.dictation === true ? "dictation" : "chained";
+        },
         // The selected voice provider's offers for the Voice setting; none
         // while no speech row is ready.
         voices() { return plan.speech?.kind === "ready" ? plan.speech.voices : []; },

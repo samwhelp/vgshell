@@ -5,6 +5,8 @@
 // Cleanup acknowledgments and a running tool's outcome retain their original
 // identity across stop; content callbacks do not. A duplex engine owns one
 // speech session per conversation; its callbacks carry the session's gen/op.
+// A dictation engine is the chained engine whose final words come from the
+// core's dictation recording (D064), whose tones are the recording's cue.
 var SESSION_SETTINGS = ["mode", "voiceProvider", "voice", "language", "brain", "model", "effort", "fallbacks", "customBaseUrl", "home", "policy", "cloudVision", "account", "voiceAccount"];
 var RESPONSE_TIMEOUT_MS = 60000;
 var COLLECTION_TIMEOUT_MS = 60000;
@@ -16,7 +18,7 @@ var VOICE_QUIET_MS = 1000;
 // How long a wake-word request, or a spoken follow-up window, waits for its
 // first words. The captions model decodes in 560 ms chunks (artifacts.json,
 // nemotron), so speech shows as a partial within about a second; the rest is
-// the pause a speaker takes after the start sound. Keeping the window short
+// the pause a speaker takes after the start tone. Keeping the window short
 // also keeps the time a television or another person can reach the AI model
 // without a wake word short. A design choice, not a measurement.
 var WAKE_SILENCE_MS = 6000;
@@ -172,7 +174,7 @@ function canCapture(s) {
 // engine, whose capture streams to its provider. A wake capture is the
 // local chained engine's alone; it collects no utterance.
 function armedWanted(s) {
-    return s.settings.mode === "always" && s.engine.kind === "chained" && canEngage(s)
+    return s.settings.mode === "always" && s.engine.kind !== "duplex" && canEngage(s)
         && ["waiting", "recording", "finishing"].indexOf(s.check.kind) === -1
         && s.turn.kind === "none" && s.playback.kind === "idle"
         && s.approval.kind === "none" && s.action.kind === "none";
@@ -186,7 +188,7 @@ function closeArmed(s, effects) {
 function sayRefusal(s) {
     if (s === null || s.gate.kind !== "up") return "down";
     if (s.mute.kind !== "off") return "muted";
-    if (s.engine.kind !== "chained") return "duplex";
+    if (s.engine.kind === "duplex") return "duplex";
     if (s.approval.kind === "held") return "held";
     if (s.playback.kind !== "idle") return "speaking";
     if (s.action.kind === "running" || s.turn.kind === "thinking" || s.turn.kind === "cancelling") return "busy";
@@ -204,7 +206,7 @@ function captionText(value) {
 function relayRefusal(s) {
     if (s.gate.kind !== "up") return "down";
     if (s.mute.kind !== "off") return "muted";
-    if (s.engine.kind !== "chained") return "duplex";
+    if (s.engine.kind === "duplex") return "duplex";
     if (s.fault.kind !== "none") return "fault";
     if (s.conversation.kind === "ended") return "ended";
     if (s.turn.kind !== "none" || s.playback.kind !== "idle" || s.approval.kind !== "none" || s.action.kind !== "none"
@@ -239,7 +241,7 @@ function commitUserText(s, effects, text, at, rev, voiceRequest) {
         s.gen += 1;
         s.conversation = { kind: "active" };
     }
-    if (voiceRequest === true && s.settings.mode === "always" && s.engine.kind === "chained")
+    if (voiceRequest === true && s.settings.mode === "always" && s.engine.kind !== "duplex")
         s.followUp = { kind: "asked", gen: s.gen };
     if (s.input.kind === "held" || s.settings.mode === "always") s.input = { kind: "released" };
     closeCapture(s, effects);
@@ -275,7 +277,7 @@ function reconcile(s, effects, at) {
     if (s.followUp.kind !== "none" && s.turn.kind === "none" && s.playback.kind === "idle") {
         if (s.followUp.kind === "spoken" && s.followUp.gen === s.gen && s.input.kind === "released"
                 && s.action.kind === "none" && s.approval.kind === "none" && canEngage(s)
-                && s.conversation.kind === "active" && s.settings.mode === "always" && s.engine.kind === "chained")
+                && s.conversation.kind === "active" && s.settings.mode === "always" && s.engine.kind !== "duplex")
             s.input = { kind: "follow-up" };
         s.followUp = { kind: "none" };
     }
@@ -301,7 +303,7 @@ function reconcile(s, effects, at) {
     if (s.turn.kind === "collecting" && s.capture.kind === "closing" && s.turn.deadline === null)
         s.turn.deadline = at + COLLECTION_TIMEOUT_MS;
     // The duplex voice model owns turn-taking; no utterance is collected.
-    if (s.engine.kind === "chained" && canCapture(s) && s.input.kind !== "armed" && s.input.kind !== "check"
+    if (s.engine.kind !== "duplex" && canCapture(s) && s.input.kind !== "armed" && s.input.kind !== "check"
             && (s.capture.kind === "opening" || s.capture.kind === "open") && s.turn.kind === "none") {
         var collect = effect(s, effects, "collect", {});
         s.turn = { kind: "collecting", gen: collect.gen, op: collect.op, partial: "", deadline: at + COLLECTION_TIMEOUT_MS };
@@ -324,7 +326,8 @@ function start(s, effects, mode, at) {
     closeArmed(s, effects);
     s.input = { kind: mode };
     // Half duplex: the start sound drains before the microphone opens.
-    // A held approval's answer starts capture without another prompt sound.
+    // A held approval's answer starts capture without another prompt sound,
+    // and a dictation recording sounds voxtype's own start tone.
     if (s.settings.sounds === true && s.engine.kind === "chained"
             && s.playback.kind === "idle" && s.approval.kind === "none") {
         var cue = operation(s);
@@ -481,7 +484,7 @@ function reduce(state, e) {
     if (e.type !== "deadline") expire(s, effects, e.at);
     switch (e.type) {
     case "snapshot": {
-        if (e.engine !== "chained" && e.engine !== "duplex") throw new Error("jarvis: session=engine");
+        if (["chained", "dictation", "duplex"].indexOf(e.engine) === -1) throw new Error("jarvis: session=engine");
         var settingsChanged = changedSettings(s.settings, e.settings) || s.engine.kind !== e.engine;
         var devicesChanged = s.settings.microphone !== e.settings.microphone || s.settings.speaker !== e.settings.speaker;
         if (devicesChanged && ["done", "failed"].indexOf(s.check.kind) !== -1) s.check = { kind: "ready" };
@@ -908,7 +911,7 @@ var REGIONS = {
     input: { released: "", held: "", conversation: "", "follow-up": "", armed: "", woken: "", check: "" },
     followUp: { none: "", asked: "gen", spoken: "gen" },
     indicator: { gone: "", shown: "" }, duplex: { half: "" },
-    engine: { chained: "", duplex: "" }, speech: { closed: "", open: "gen op reply" },
+    engine: { chained: "", dictation: "", duplex: "" }, speech: { closed: "", open: "gen op reply" },
     check: { unavailable: "", ready: "", waiting: "gen op deadline", recording: "gen op deadline", finishing: "gen op deadline", done: "result", failed: "reason" }
 };
 

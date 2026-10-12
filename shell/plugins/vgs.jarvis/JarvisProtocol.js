@@ -46,7 +46,13 @@ var REQUESTS = {
     "run.detached": { args: "argv", data: "none", acts: true },
     "desktop.launch": { args: ["text"], data: "entry", acts: true },
     "desktop.list": { args: [], data: "entries", acts: false },
-    "tui.run": { args: "task-spec", data: "none", acts: true }
+    "tui.run": { args: "task-spec", data: "none", acts: true },
+    // The core's dictation recording the local voice takes its final words
+    // from (D064). Session admitted the capture that asks for each, so the
+    // lock rule for desktop changes does not apply.
+    "dictation.start": { args: [], data: "none", acts: false },
+    "dictation.stop": { args: [], data: "text", acts: false },
+    "dictation.cancel": { args: [], data: "none", acts: false }
 };
 // Requests awaiting a reply, the plan's bound. The daemon refuses the next.
 var MAX_PENDING_REQUESTS = 16;
@@ -188,6 +194,13 @@ function replyData(message) {
     }
     if (shape === "entry") {
         entryShape(message.data, true);
+        return;
+    }
+    // The words voxtype wrote, "" for a recording it heard nothing in.
+    if (shape === "text") {
+        keys(message.data, ["text"], "dictation-text");
+        if (typeof message.data.text !== "string" || message.data.text.length > TEXT_MAX
+                || message.data.text.indexOf("\u0000") !== -1) fail("dictation-text");
         return;
     }
     if (shape === "input" || shape === "keys") {
@@ -341,11 +354,15 @@ function accept(line, direction) {
     case "hello":
         if (direction !== "shell") fail("direction-hello");
         keys(message, ["v", "type", "gen", "settings", "directories", "revision", "locked", "keys"], "hello");
-        keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home"], "settings");
+        keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home", "dictation"], "settings");
         if (!["local", "realtime"].includes(message.settings.voiceProvider) || typeof message.settings.voiceAccount !== "string"
                 || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings.voiceAccount)) fail("voice-settings");
         if (!printable(message.settings.voice, 0, 200)) fail("voice-setting");
         if (typeof message.settings.sounds !== "boolean") fail("sounds");
+        // The service's cause while the core's dictation recording cannot
+        // start (SetupGate.dictationCause), "" while it can.
+        if (typeof message.settings.dictation !== "string"
+                || !/^(|speech=dictation-[a-z-]{1,40})$/.test(message.settings.dictation)) fail("dictation-setting");
         if (typeof message.settings.brain !== "string") fail("shape-settings");
         // The service's choice for the selected sign-in, each "" for its
         // program's own. A harness brain judges both before its argv.

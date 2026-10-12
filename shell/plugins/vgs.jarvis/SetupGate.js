@@ -9,11 +9,46 @@
 
 // The value a setup reader publishes: its probe's VALUE while every command
 // of REQUIRES is found, else a warning naming the missing commands that
-// offers no action.
+// offers no action: false for an entry's one action, and none for a named
+// one, which the manifest judge takes only as a name. Set up dictation stays
+// offered: voxtype is the program the core's dictation setup gets ready.
 function setupValue(value, requires, missing) {
     var lacking = requires.filter(function (command) { return missing.indexOf(command) !== -1; });
     if (lacking.length === 0) return value;
-    return { tone: "warning", text: "Needs " + lacking.join(" and "), action: false };
+    var withheld = { tone: "warning", text: "Needs " + lacking.join(" and ") };
+    if (value.action === "dictation") withheld.action = "dictation";
+    else if (typeof value.action !== "string") withheld.action = false;
+    return withheld;
+}
+
+// The commands a named step action needs: the core's dictation setup
+// gets voxtype ready, which it cannot run without.
+var ACTION_REQUIRES = { dictation: ["voxtype"] };
+function actionRequires(value) {
+    return typeof value.action === "string" && Object.prototype.hasOwnProperty.call(ACTION_REQUIRES, value.action)
+        ? ACTION_REQUIRES[value.action] : [];
+}
+
+// The local voice takes its final words from the core's dictation
+// recording (D064), over the capability's lent STATE, null before the
+// first read. PROVIDER is the voice the daemon runs (voiceProvider). The
+// cause the daemon holds the local voice with while that recording cannot
+// start, which the hello carries (ChainedEngine select), "" while it can
+// or for another voice. voxtype records the device its config names, and
+// the local voice's captions hear the default source (Audio.js selected).
+function dictationCause(provider, state) {
+    if (provider !== "local" || state === null) return "";
+    if (["absent", "starting", "failed", "elsewhere"].indexOf(state.daemon) !== -1) return "speech=dictation-" + state.daemon;
+    return otherDevice(state) ? "speech=dictation-device" : "";
+}
+function otherDevice(state) {
+    return state.daemon === "ready" && state.device !== "default";
+}
+
+// The service's answer to the daemon's dictation start before the core's,
+// for a hello the device changed after: a keyed refusal, else "".
+function dictationRefusal(state) {
+    return otherDevice(state) ? "refused: dictation=device" : "";
 }
 
 // The value of COMMAND's own status row, whose action is its install: offered
@@ -21,6 +56,12 @@ function setupValue(value, requires, missing) {
 function requirementValue(command, missing) {
     if (missing.indexOf(command) === -1) return { tone: "ok", text: "Installed", action: false };
     return { tone: "warning", text: "Not installed", action: true };
+}
+
+// The voxtype row's value: its install for the local voice, whose words
+// voxtype records (dictationCause), and no row for another voice.
+function voxtypeValue(provider, missing) {
+    return provider === "local" ? requirementValue("voxtype", missing) : { hidden: true };
 }
 
 // The value of the status row of COMMAND, one the manifest gives a floor,
@@ -66,6 +107,15 @@ var TODO = {
 var CAUTION = {
     "setup=probe-timeout": "Jarvis setup check timed out. Turn Jarvis off and on again in Settings > Jarvis."
 };
+// The dictation causes (dictationCause), by the Voice step's value. The
+// core's dictation setup copies voxtype's defaults and downloads its model;
+// the user stops another voxtype, or chooses voxtype's microphone, in Voice.
+var DICTATION = {
+    "speech=dictation-absent": { tone: "warning", text: "To do", hint: "The local voice hears your words through dictation. Set up dictation gets it ready.", action: "dictation" },
+    "speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready.", action: "dictation" },
+    "speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under Setup in Settings > Voice." },
+    "speech=dictation-device": { tone: "warning", text: "Dictation uses another microphone", hint: "The local voice hears the system default microphone. Choose it with Configure in Settings > Voice." }
+};
 // Causes whose step the voice setup action cannot complete: the user
 // changes a setting or adds a key instead.
 function setupActs(cause) {
@@ -89,10 +139,11 @@ var HOME_TODO = {
 var HOME_STEP_TODO = "Jarvis cannot use the home folder. Check that you can open and change it, or choose another folder in Settings > Home." + HOME_AGAIN;
 var HOME_READY = { hidden: true };
 var DONE = { tone: "ok", text: "Done", action: false };
-// Voice setup uses Session's check result, which only the local wake detector supplies.
+// Voice setup uses Session's check result, which only the local wake detector
+// supplies. A step that names its own action, such as Set up dictation, keeps it.
 function voiceCheck(value, check) {
     if (value.tone !== "ok" || check === null || check.kind === "unavailable") return value.action === true
-        ? Object.assign({}, value, { action: "setup" }) : noAction(value);
+        ? Object.assign({}, value, { action: "setup" }) : typeof value.action === "string" ? value : noAction(value);
     if (check.kind === "waiting" || check.kind === "recording")
         return { tone: "info", text: "Say Hey Jarvis", hint: "The microphone is open for three seconds." };
     if (check.kind === "finishing") return { tone: "info", text: "Checking" };
@@ -100,7 +151,8 @@ function voiceCheck(value, check) {
         hint: "Jarvis could not check the microphone: press Check microphone to try again.", action: "check" };
     if (check.kind === "done") {
         if (check.result === "ready") return { tone: "ok", text: "Ready", action: "check" };
-        if (check.result === "silent") return { tone: "warning", text: "Muted or silent", hint: "The microphone is muted or sends silence. Check Settings > Jarvis > Audio > Microphone.", action: "check" };
+        // Only the local voice checks, and it hears the system default.
+        if (check.result === "silent") return { tone: "warning", text: "Muted or silent", hint: "The default microphone is muted or sends silence. Check it in System > Sound.", action: "check" };
         return { tone: "warning", text: "Not heard", hint: "Jarvis did not hear Hey Jarvis: try again closer or in a quieter room.", action: "check" };
     }
     return { tone: "info", text: "Not checked", hint: "Press Check microphone, then say Hey Jarvis.", action: "check" };
@@ -218,13 +270,17 @@ function readiness(answer) {
                     hint: Object.prototype.hasOwnProperty.call(HOME_TODO, cause) ? HOME_TODO[cause] : HOME_STEP_TODO };
                 return;
             }
-            if (cause === "speech=local-loading") {
+            if (cause === "speech=local-loading" || cause === "speech=dictation-starting") {
                 out.setupVoice = LOADING;
                 if (blocking.length === 1) out.setup = LOADING_SUMMARY;
                 return;
             }
             if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {
                 out.setupVoice = MEMORY[cause];
+                return;
+            }
+            if (Object.prototype.hasOwnProperty.call(DICTATION, cause)) {
+                out.setupVoice = DICTATION[cause];
                 return;
             }
             var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];

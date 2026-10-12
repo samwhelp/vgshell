@@ -653,7 +653,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         clock: { now: Date.now, set: (fn, ms) => setTimeout(fn, ms).unref(), clear: timer => clearTimeout(timer) } });
                     const state = context.directories.state;
                     engine = ChainedEngine.create({ session: Session, state: () => runner.state, audit, router,
-                        accounts: () => new Accounts(state, process.env),
+                        accounts: () => new Accounts(state, process.env), request: requests.send,
                         policy: () => ({ profile: profile(), cloudVision: context.settings.cloudVision }), fault,
                         captionLimit: Protocol.TRANSCRIPT_CHARS, dispatch: event => runner.dispatch(event), clock, configured,
                         log: line => process.stderr.write(line + "\n"),

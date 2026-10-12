@@ -61,6 +61,18 @@ Item {
     property var taskResponse: null
     readonly property bool taskTuiRunning: shell !== null && shell.tui.state.task.running
     readonly property string daemon: String(Qt.resolvedUrl("backend/jarvisd.js")).replace(/^file:\/\//, "")
+    // The core's one recording (D106), which the local voice's final words
+    // come from (D064): a new copy after each change, and the cause the
+    // daemon holds the local voice with while it cannot start
+    // (SetupGate.dictationCause), which each hello carries.
+    readonly property var dictationState: shell === null ? null : shell.dictation.state
+    readonly property string dictationCause: shell === null ? ""
+        : Gate.dictationCause(Gate.voiceProvider(shell.settings, accountReader.voiceKeys), dictationState)
+    onDictationCauseChanged: hello()
+    // The daemon's dictation start that waits for the core's read after the
+    // last recording's command, { message, serial }, or null.
+    property var pendingStart: null
+    onDictationStateChanged: startDictation(false)
     // Quickshell builds its desktop entry index on first use and fills it
     // after that; reading it here starts the scan before a list request.
     readonly property int desktopEntryCount: DesktopEntries.applications.values.length
@@ -118,7 +130,13 @@ Item {
         }
         else hello();
     }
-    onLockedChanged: hello()
+    onLockedChanged: {
+        if (locked) {
+            startDictation(true);
+            cancelDictation();
+        }
+        hello();
+    }
     onFeedbackSoundsChanged: hello()
     onEffectiveKeysChanged: hello()
     onTaskTuiRunningChanged: sendTuiState()
@@ -168,6 +186,7 @@ Item {
             : answer;
         const values = Gate.readiness(merged);
         values.setupVoice = Gate.voiceCheck(values.setupVoice, sessionState === null ? null : sessionState.check);
+        values.setupVoice = Gate.setupValue(values.setupVoice, Gate.actionRequires(values.setupVoice), shell.requirements.missing);
         values.setupModel = Gate.modelStep(values.setupModel, shell.status.values["keys"], accountReader.modelAccess);
         for (const key of Object.keys(values)) {
             const reply = shell.status.set(key, values[key]);
@@ -259,7 +278,7 @@ Item {
             // model choice by the account it resolves, for a hello sent
             // before the account reader's first answer.
             settings: Object.assign(settings, { sounds: feedbackSounds,
-                voiceProvider: Gate.voiceProvider(shell.settings, accountReader.voiceKeys) },
+                voiceProvider: Gate.voiceProvider(shell.settings, accountReader.voiceKeys), dictation: dictationCause },
                 Providers.unlistedChoice(shell.settings, accountReader.providers[shell.settings.brain])),
             directories: {
                 state: Paths.stateDir + "/jarvis",
@@ -573,7 +592,8 @@ Item {
                 const data = entry === null ? null : Protocol.desktopEntry(entryRecord(entry), true);
                 if (data === null) return { answer: "refused: desktop=unknown", data: null };
                 return { answer: shell.run.detached(DesktopLaunch.entry(entry)), data: data };
-            }
+            },
+            "dictation.cancel": () => ({ answer: shell.dictation.cancel(), data: null })
         };
         for (const kind of Object.keys(Protocol.REQUESTS)) {
             if (!kind.startsWith("compositor.") || handlers[kind] !== undefined) continue;
@@ -584,6 +604,21 @@ Item {
     }
 
     function serve(message) {
+        if (message.kind === "dictation.start") {
+            queueStart(message);
+            return;
+        }
+        // The stop answers once voxtype wrote its words, in the core's
+        // callback; a reply after the daemon ended is not sent.
+        if (message.kind === "dictation.stop") {
+            const serial = childSerial;
+            const done = result => {
+                if (serial === childSerial && lifetime.kind === "ready" && child.running) reply(message, result);
+            };
+            const answer = shell.dictation.stop(result => done(dictationWords(result)));
+            if (answer !== "ok") done({ answer: answer, data: null });
+            return;
+        }
         if (message.kind === "input.observe" || message.kind === "input.keys") {
             const serial = childSerial;
             const done = value => {
@@ -626,6 +661,48 @@ Item {
             id: message.id, kind: message.kind, answer: answer, data: answer === "ok" ? result.data : null });
         Protocol.accept(wire, "shell");
         child.write(wire + "\n");
+    }
+
+    // The stop reply for the core's RESULT: voxtype's words, "" for none,
+    // or the keyed failure. A text recording is never typed.
+    function dictationWords(result) {
+        if (result.kind === "empty") return { answer: "ok", data: { text: "" } };
+        if (result.kind !== "text") return { answer: "refused: dictation=" + result.kind
+            + (result.kind === "failed" ? " reason=" + result.reason : ""), data: null };
+        if (result.text.length > Protocol.TEXT_MAX) return { answer: "refused: dictation=text-long", data: null };
+        return { answer: "ok", data: { text: result.text } };
+    }
+
+    // A start waits while the core reads voxtype after the last recording's
+    // command (state phase `unread`), when the core refuses a start; an older
+    // start still waiting answers first.
+    function queueStart(message) {
+        if (pendingStart !== null) startDictation(true);
+        pendingStart = { message: message, serial: childSerial };
+        startWait.restart();
+        startDictation(false);
+    }
+
+    // Answers the waiting start once the core's read ended, or with what the
+    // core then answers once WAITED says the bound passed. The recording
+    // records to the core's file and hands its words to the stop, never to
+    // voxtype's output; a locked session starts none.
+    function startDictation(waited) {
+        const pending = pendingStart;
+        if (pending === null || !waited && shell.dictation.state.phase === "unread") return;
+        pendingStart = null;
+        startWait.stop();
+        if (pending.serial !== childSerial || lifetime.kind !== "ready" || !child.running) return;
+        const refusal = lockObservation() ? "refused: locked" : Gate.dictationRefusal(shell.dictation.state);
+        reply(pending.message, { answer: refusal !== "" ? refusal : shell.dictation.start("text"), data: null });
+    }
+
+    // Ends the recording this plugin holds, when the daemon that asked for
+    // it ended, the session locked or the plugin is released.
+    function cancelDictation() {
+        if (shell === null || dictationState === null || dictationState.holder !== shell.manifest.id) return;
+        const answer = shell.dictation.cancel();
+        if (answer !== "ok") console.warn("jarvis: dictation-cancel " + answer);
     }
 
     // What a reply says of an entry. The launch itself is DesktopLaunch's.
@@ -842,6 +919,9 @@ Item {
         const permanent = completion !== null && completion.status === 0 && completion.code === 78;
         // The keyed cause goes to the log; the daemon row says what happened.
         console.warn("jarvis: ended cause=" + cause);
+        pendingStart = null;
+        startWait.stop();
+        cancelDictation();
         // The ended child's Session state is no longer current: neither the
         // retry wait nor a problem may show or act on it.
         sessionState = null;
@@ -869,6 +949,7 @@ Item {
     }
 
     Component.onDestruction: {
+        cancelDictation();
         lifetime = { kind: "stopped", pendingMute: "none" };
         retry.stop();
         helloDeadline.stop();
@@ -960,6 +1041,11 @@ Item {
     // pressure some avg10=0.00 avg60=0.17 avg300=2.16.
     Timer { id: retry; onTriggered: root.start() }
     Timer { id: helloDeadline; interval: 5000; onTriggered: root.broken("jarvis: hello=timeout") }
+    // A dictation start's wait for the core's read: one `voxtype status`
+    // run after the last recording's command. It is the time the core gives
+    // a daemon to take a cancel (DictationModel.js GRACE_MS, 2000 ms), a
+    // bound on one voxtype command; no reading measured the read itself.
+    Timer { id: startWait; interval: 2000; onTriggered: root.startDictation(true) }
     Timer {
         id: stopDeadline
         interval: 1000

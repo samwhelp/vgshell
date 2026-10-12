@@ -8,6 +8,9 @@
 # row restores would draw it, a layer no row before it left.
 # inputs: packaging/* scripts/check-install-tree.sh VERSION LICENSE README.md bin/* shell/* config/* themes/* scripts/fixtures/jarvis/* scripts/fixtures/jarvis-voice/* scripts/fixtures/jarvis-setup/* scripts/lib/jarvis-env.sh scripts/test-task-event.js scripts/smoke/rows/jarvis.sh
 set -euo pipefail
+# Jarvis holds `dictation`, and the shell finds no voxtype: the core's
+# probe does not start at each enable.
+expected_errors+=("${dictation_absent_errors[@]}")
 
 read_only_prefix_signal_path() { # DIR
   local tool

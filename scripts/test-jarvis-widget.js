@@ -156,6 +156,15 @@ const CASES = [
         ["a link in the home folder", "home=link", "home"],
         ["an unexpected engine failure", "engine=unexpected", "other"]].map(([label, reason, kind]) =>
         [label, up({ fault: { kind: "error", reason, retry: 0 } }), ["problem", "circle-alert", "danger", WITH(fault(kind), [MUTE])]]),
+    // The local voice records through the core's dictation and hears the
+    // system default microphone.
+    ...[["a dictation recording Voice holds", "speech=dictation-busy", "dictationBusy"],
+        ["a dictation start the core refuses", "speech=dictation-daemon-failed", "dictation"],
+        ["a dictation stop that failed", "speech=dictation-failed", "dictation"],
+        ["a lost device for the local voice", "device-lost", "defaultDevice"],
+        ["the sidecar's own fault", "speech=local-not-ready", "voice"]].map(([label, reason, kind]) =>
+        [label, up({ engine: { kind: "dictation" }, fault: { kind: "error", reason, retry: 0 } }),
+            ["problem", "circle-alert", "danger", WITH(fault(kind), [MUTE])]]),
     // A model its app refused reads with the model's name, from the reason.
     ["a refused model", up({ fault: { kind: "error", reason: "brain=harness-model-refused model=claude-fable-5-1", retry: 0 } }),
         ["problem", "circle-alert", "danger", WITH(v => ({ title: v.FAULT_TEXT.model.title + " claude-fable-5-1", action: v.FAULT_TEXT.model.action }), [MUTE])]],
@@ -293,7 +302,7 @@ function verify(view) {
         assert.deepEqual(copy(got), expected(want, view), label);
         if (typeof got !== "string") assert.equal(/[a-z-]+=[a-z0-9-]/.test(got[3]), false, label + ": no keyed cause on screen");
     }
-    for (const kind of ["slow", "device", "home", "brain", "localVoice", "voice", "audio", "other"])
+    for (const kind of ["slow", "device", "defaultDevice", "home", "brain", "localVoice", "dictationBusy", "dictation", "voice", "audio", "other"])
         assert.equal(typeof view.FAULT_TEXT[kind].title === "string" && typeof view.FAULT_TEXT[kind].action === "string", true, kind);
     const words = [view.GATE_TEXT.unconfigured.action, ...view.SETUP_TEXT.map(([, line]) => line.action)];
     assert.equal(new Set(words).size, words.length, "each remaining step says its own sentence");
@@ -379,6 +388,9 @@ const CONTROLS = [
     ["a home text fault reads as another", '[/^(home=|guidance=home-)/, "home"],', '[/^home=/, "home"],'],
     ["a slow answer reads as another", '[/^thinking-timeout$/, "slow"],', ""],
     ["a retry asks for a restart", 'fault.kind === "retrying" ? RETRYING : FAULT_TEXT[kind]', "FAULT_TEXT[kind]"],
+    ["a dictation fault asks for a restart", '    [/^speech=dictation-/, "dictation"],\n', ""],
+    ["a busy dictation reads as a failed one", '    [/^speech=dictation-busy$/, "dictationBusy"],\n', ""],
+    ["the local voice's lost device names the setting", 'if (kind === "device" && engine === "dictation") kind = "defaultDevice";', ""],
     ["an audio problem shows its text", 'return withBrain(textLook("problem", AUDIO_TEXT, muteOn, effectiveKeys))', 'return withBrain(look("problem", "Audio problem: " + audio.text, [RESTART], muteOn, effectiveKeys))'],
     ["an unconfigured gate names no step", 'state.gate.reason === "unconfigured" ? unconfiguredText(values) : GATE_TEXT[state.gate.reason]', 'GATE_TEXT[state.gate.reason]'],
     ["an offered step title reads generic", 'if (step && step.tone === "warning" && offered(step) && step.hint && hasCauseLine(step))\n            return { title: SETUP_TEXT[i][1].title, action: step.hint };', ''],

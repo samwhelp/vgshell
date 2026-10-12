@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local speech sidecar: wake word, speech to text and text to speech for the daemon.
+"""Local speech sidecar: wake word, captions, turn end and text to speech for the daemon.
 
 LocalSpeech.js starts it as the selected runtime's interpreter, inside a
 private network namespace, as `python -I local-speech.py --state DIR --data DIR
@@ -12,9 +12,12 @@ mono. Ids are positive integers; each new request takes a larger id.
   in:  {type:"listen", id, detect}; {type:"wake", id}; {type:"check", id}; {type:"audio", id} + 16 kHz samples;
        {type:"end", id}; {type:"abort", id};
        {type:"speak", id, speaker} + one sentence's UTF-8 text
-  out: {type:"ready"} once; {type:"partial", id, text, rev}; {type:"final", id, text};
+  out: {type:"ready"} once; {type:"partial", id, text, rev}; {type:"ended", id, speech};
        {type:"woke", id}; {type:"checked", id, result}; {type:"audio", id} + samples;
        {type:"spoken", id, rate}; {type:"failed", id?, cause}
+A listen answers ended once, at its turn end or its end: speech says whether
+voice activity found speech. The utterance's words are the core's dictation
+recording's (D064), so no offline decode runs.
 A speaker is the name of one of the voice artifact's `speakers`, whose index
 is the model's sid; a name the loaded voice lacks answers failed speaker-unknown.
 A wake request spots the keyword in its audio and answers woke once; it has no
@@ -46,9 +49,6 @@ HEADER_BYTES = 4096
 PAYLOAD_BYTES = 64 * 1024
 # Plan § 3.10 bounds maxUtteranceSeconds at 120; the VAD buffer holds as much.
 UTTERANCE_SAMPLES = 120 * RATE
-# Speech kept beside each detected segment, and the frame a cut is chosen by.
-PAD_SAMPLES = 3200
-CUT_FRAME = 320
 VAD_WINDOW = 512
 # Retry semantic completion after more silence, without a wall-clock timer.
 TURN_INTERVAL = RATE // 2
@@ -68,81 +68,10 @@ class Failed(Exception):
     """One request failed; its keyed cause reaches the daemon."""
 
 
-def spans(segments, total, pad):
-    """Pad detected speech within the input and merge what then overlaps."""
-    merged = []
-    previous = 0
-    for start, length in segments:
-        if length <= 0 or start < previous:
-            raise RuntimeError("vad=segment-order")
-        previous = start
-        low, high = max(0, start - pad), min(total, start + length + pad)
-        if merged and low <= merged[-1][1]:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], high))
-        else:
-            merged.append((low, high))
-    return merged
-
-
-def quiet(samples, low, high):
-    """The cut ending the least energetic frame in (low, high]; ties keep the latest."""
-    cut, least = high, None
-    end = high
-    while end - CUT_FRAME >= low:
-        energy = sum(value * value for value in samples[end - CUT_FRAME:end])
-        if least is None or energy < least:
-            cut, least = end, energy
-        end -= CUT_FRAME
-    return cut
-
-
-def plan(speech, bound, samples):
-    """Chunks of at most bound samples, in input order, covering every speech span.
-
-    Neighbouring spans share a chunk while it fits. A longer span is cut at
-    its quietest frame in the second half of each bound; its final shorter
-    part is kept as the last chunk.
-    """
-    chunks = []
-    current = None
-    for start, end in speech:
-        if current is not None and end - current[0] <= bound:
-            current = (current[0], end)
-            continue
-        if current is not None:
-            chunks.append(current)
-        while end - start > bound:
-            cut = quiet(samples, start + bound // 2, start + bound)
-            chunks.append((start, cut))
-            start = cut
-        current = (start, end)
-    if current is not None:
-        chunks.append(current)
-    return chunks
-
-
-def detect(vad, samples, waveform):
-    """Silero segments as (start, length), from the whole utterance."""
-    vad.reset()
-    for offset in range(0, len(samples), VAD_WINDOW):
-        window = samples[offset:offset + VAD_WINDOW]
-        if len(window) < VAD_WINDOW:
-            window.extend(array("f", bytes(4 * (VAD_WINDOW - len(window)))))
-        vad.accept_waveform(waveform(window))
-    vad.flush()
-    segments = []
-    while not vad.empty():
-        segments.append((vad.front.start, len(vad.front.samples)))
-        vad.pop()
-    return segments
-
-
 class Speech:
-    """The loaded models of one tier and the input bound of its recognizer."""
+    """The loaded models of one tier the sidecar runs."""
 
-    def __init__(self, recognizer, bound, vad, tts, rate, speakers, waveform, captions, turn, spotter, keywords):
-        self.recognizer = recognizer
-        self.bound = bound
+    def __init__(self, vad, tts, rate, speakers, waveform, captions, turn, spotter, keywords):
         self.vad = vad
         self.tts = tts
         self.rate = rate
@@ -152,28 +81,6 @@ class Speech:
         self.turn = turn
         self.spotter = spotter
         self.keywords = keywords
-
-    def transcribe(self, samples):
-        """Decode each chunk on a fresh stream, in order; join the texts once.
-
-        No detected speech is an empty transcript. An empty or failed chunk
-        fails the utterance; its neighbours never stand in for it.
-        """
-        speech = spans(detect(self.vad, samples, self.waveform), len(samples), PAD_SAMPLES)
-        bound = self.bound if self.bound is not None else max(1, len(samples))
-        texts = []
-        for index, (start, end) in enumerate(plan(speech, bound, samples)):
-            try:
-                stream = self.recognizer.create_stream()
-                stream.accept_waveform(RATE, self.waveform(samples[start:end]))
-                self.recognizer.decode_stream(stream)
-                text = stream.result.text.strip()
-            except (RuntimeError, ValueError) as error:
-                raise Failed(f"chunk-failed index={index}") from error
-            if not text:
-                raise Failed(f"chunk-empty index={index}")
-            texts.append(text)
-        return " ".join(texts)
 
     def speak(self, text, speaker):
         """One sentence's samples in the voice SPEAKER names, at the voice's declared rate."""
@@ -194,8 +101,8 @@ class Speech:
 class Utterance:
     """One capture: cached CPU captions and a semantic end after VAD silence.
 
-    Only the offline recognizer supplies the final. Nemotron's partial result
-    can change any word and never becomes a final or a confirmation phrase.
+    Nemotron's partial result can change any word and is only a caption; the
+    utterance's words are the core's dictation recording's.
     """
 
     def __init__(self, speech, detect_turn):
@@ -245,6 +152,20 @@ class Utterance:
                 raise Failed("turn-probability")
             ended = probability >= 0.5
         return partial, ended
+
+    def heard(self):
+        """Whether voice activity found speech: a segment it closed, or one the
+        end of the capture closes, its last window padded with silence."""
+        vad = self.speech.vad
+        if not self.has_segment and self.offset < len(self.samples):
+            window = self.samples[self.offset:]
+            window.extend(array("f", bytes(4 * (VAD_WINDOW - len(window)))))
+            vad.accept_waveform(self.speech.waveform(window))
+            self.offset = len(self.samples)
+        if not self.has_segment:
+            vad.flush()
+            self.has_segment = not vad.empty()
+        return self.has_segment
 
 
 class Wake:
@@ -405,8 +326,8 @@ def serve(reader, writer, speech):
                 if partial is not None:
                     send(writer, {**partial, "id": ident})
                 if ended:
-                    samples = utterances.pop(ident).samples
-                    send(writer, {"type": "final", "id": ident, "text": speech.transcribe(samples)})
+                    utterances.pop(ident)
+                    send(writer, {"type": "ended", "id": ident, "speech": True})
             except Failed as failure:
                 utterances.pop(ident, None)
                 send(writer, {"type": "failed", "id": ident, "cause": str(failure)})
@@ -416,11 +337,7 @@ def serve(reader, writer, speech):
                 raise Protocol("end=wake")
             send(writer, {"type": "checked", "id": ident, "result": wake.result()})
         else:
-            samples = utterances.pop(ident).samples
-            try:
-                send(writer, {"type": "final", "id": ident, "text": speech.transcribe(samples)})
-            except Failed as failure:
-                send(writer, {"type": "failed", "id": ident, "cause": str(failure)})
+            send(writer, {"type": "ended", "id": ident, "speech": utterances.pop(ident).heard()})
 
 
 def module(name, path):
@@ -481,11 +398,14 @@ def load(setup, state, data):
             raise NotReady(str(error)) from None
         import numpy as np
         import sherpa_onnx as sherpa
-        models = {role: judge.load(artifact, data / "models", provider, np, sherpa) for role, artifact in chosen.items()}
+        # The tier's recognizer is setup's probe's alone: the utterance's
+        # words are the core's dictation recording's, so it is not loaded.
+        models = {role: judge.load(artifact, data / "models", provider, np, sherpa)
+                  for role, artifact in chosen.items() if role != "stt"}
     def turn(samples):
         return judge.infer(chosen["turn"], models["turn"], np.frombuffer(samples, dtype=np.float32), "", value, np)["probability"]
     # The keyword is the one setup's probe decoded with this model.
-    return Speech(models["stt"], chosen["stt"].get("maxInputSamples"), models["vad"], models["tts"],
+    return Speech(models["vad"], models["tts"],
                   chosen["tts"]["outputSampleRate"], [speaker["name"] for speaker in chosen["tts"]["speakers"]],
                   lambda samples: np.frombuffer(samples, dtype=np.float32),
                   models["captions"], turn, models["wake"], value["fixture"]["wakeTokens"])

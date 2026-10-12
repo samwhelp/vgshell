@@ -1634,6 +1634,42 @@ function pendingFeedbackReply(logic) {
     const flushing = step(logic, s, snapshot({ at: 41, settings: { sounds: false } })).state;
     return step(logic, flushing, callback("play", s.turn, 42, { interruptible: true })).state;
 }
+// A dictation engine records each utterance through the core: its capture's
+// sink sends dictation.start (ChainedEngine captureSink), so capture-open is
+// the one effect that can start a recording, and only once the indicator
+// is presented. voxtype's tones are the recording's cue: Jarvis plays none.
+table.push(["dictation-start-admission", logic => {
+    for (const mode of ["hold", "toggle", "always"]) {
+        let s = step(logic, logic.initial(), snapshot({ engine: "dictation", settings: { mode, sounds: true } })).state;
+        assert.equal(logic.validate(s), true);
+        if (mode === "always") {
+            assert.deepEqual(kinds(step(logic, s, event("talk-down", 1))), [], "always: no capture before the indicator");
+            s = step(logic, s, event("indicator", 2, { shown: true })).state;
+            s = step(logic, s, callback("capture-opened", s.capture, 3)).state;
+            s = step(logic, s, callback("wake", s.capture, 4)).state;
+            s = step(logic, s, event("indicator", 5, { shown: false })).state;
+            s = step(logic, s, callback("capture-closed", s.capture, 6)).state;
+        }
+        const asked = step(logic, s, event(mode === "toggle" ? "toggle" : "talk-down", 10));
+        assert.equal(kinds(asked).includes("capture-open"), false, mode + ": the intent alone starts no recording");
+        const shown = step(logic, asked.state, event("indicator", 11, { shown: true }));
+        assert.deepEqual(kinds(shown), ["capture-open", "collect"], mode + ": the presented indicator admits the recording");
+        assert.equal(shown.state.playback.kind, "idle", mode + ": no start sound of Jarvis's own");
+    }
+}], ["dictation-no-cue", logic => {
+    for (const [engine, cued] of [["dictation", false], ["chained", true]]) {
+        const s = step(logic, ready(logic), snapshot({ engine, settings: { sounds: true } })).state;
+        const pressed = step(logic, s, event("talk-down", 10));
+        assert.equal(pressed.state.playback.kind === "feedback" && pressed.state.playback.cue === "start", cued, engine + ": the start sound");
+        assert.equal(kinds(pressed).includes("capture-open"), !cued, engine + ": the capture opens at once");
+        let armed = step(logic, step(logic, logic.initial(), snapshot({ engine, settings: { mode: "always", sounds: true } })).state,
+            event("indicator", 1, { shown: true })).state;
+        armed = step(logic, armed, callback("capture-opened", armed.capture, 2)).state;
+        assert.equal(logic.phaseOf(armed), "armed", engine + ": Always mode listens for the word");
+        const woke = step(logic, armed, callback("wake", armed.capture, 3)).state;
+        assert.equal(woke.playback.kind === "feedback", cued, engine + ": the word is answered by the start sound");
+    }
+}]);
 table.push(["feedback-start", logic => {
     const started = startFeedback(logic);
     const s = started.state;
@@ -2144,12 +2180,12 @@ try {
             'if (false && e.id !== s.approval.id) { stale(s); break; }', "shown-id"],
         ["cancel-id", 'if (e.id !== s.approval.id || e.gen !== s.approval.gen)',
             'if (false && (e.id !== s.approval.id || e.gen !== s.approval.gen))', "cancel-id"],
-        ["follow-up-asked", 'voiceRequest === true && s.settings.mode === "always" && s.engine.kind === "chained"',
-            'false && voiceRequest === true && s.settings.mode === "always" && s.engine.kind === "chained"', "always-follow-up-orders"],
+        ["follow-up-asked", 'voiceRequest === true && s.settings.mode === "always" && s.engine.kind !== "duplex"',
+            'false && voiceRequest === true && s.settings.mode === "always" && s.engine.kind !== "duplex"', "always-follow-up-orders"],
         ["follow-up-spoken", 'if (s.playback.kind === "playing" && s.followUp.kind === "asked" && s.followUp.gen === s.gen)\n            s.followUp = { kind: "spoken", gen: s.gen };',
             'if (false)\n            s.followUp = { kind: "spoken", gen: s.gen };', "always-follow-up-orders"],
-        ["follow-up-open", '&& s.engine.kind === "chained")\n            s.input = { kind: "follow-up" };',
-            '&& s.engine.kind === "chained")\n            void s;', "always-follow-up-orders"],
+        ["follow-up-open", '&& s.engine.kind !== "duplex")\n            s.input = { kind: "follow-up" };',
+            '&& s.engine.kind !== "duplex")\n            void s;', "always-follow-up-orders"],
         ["follow-up-no-reply", 's.input = { kind: "follow-up" };\n        s.followUp = { kind: "none" };',
             's.input = { kind: "follow-up" };\n        if (s.followUp.kind === "spoken") s.followUp = { kind: "none" };', "always-follow-up-refusals"],
         ["follow-up-overrun", 's.input = { kind: "follow-up" };\n        s.followUp = { kind: "none" };',
@@ -2204,6 +2240,8 @@ try {
         ["playback-fault", 'end(s, effects, e.at, "playback-failed", false);',
             'if (false) end(s, effects, e.at, "playback-failed", false);', "playback-fault"],
         ["indicator", 's.indicator.kind === "shown"', '(true || s.indicator.kind === "shown")', "indicator-gate"],
+        ["dictation-intent-start", 's.indicator.kind === "shown"', '(true || s.indicator.kind === "shown")', "dictation-start-admission"],
+        ["dictation-cue", 's.settings.sounds === true && s.engine.kind === "chained"', 's.settings.sounds === true && s.engine.kind !== "duplex"', "dictation-no-cue"],
         ["indicator-demand", 'return canEngage(s) && (s.input.kind === "armed"\n        || s.conversation.kind !== "ended" && s.input.kind !== "released");',
             'return false;', "indicator-gate"],
         ["hold", 'if (s.input.kind === "held") break;',
@@ -2284,7 +2322,7 @@ try {
         ["delegation-cancel", 'cancelTurn(s, effects, e.at);\n            dropApproval(s, effects, "replaced", e.at);',
             'dropApproval(s, effects, "replaced", e.at);', "duplex-delegation"],
         ["delegation-stale", 's.engine.kind !== "duplex" || !live(s, e, "speech", ["open"])', 's.engine.kind !== "duplex" || s.speech.kind !== "open"', "duplex-delegation"],
-        ["duplex-collect", 'if (s.engine.kind === "chained" && canCapture(s)', "if (canCapture(s)", "duplex-open"],
+        ["duplex-collect", 'if (s.engine.kind !== "duplex" && canCapture(s)', "if (canCapture(s)", "duplex-open"],
         ["held-reply", '&& s.input.kind !== "held";', ";", "duplex-hold-reply"],
         ["speech-flush", 'effect(s, effects, "speech-flush", { gen: s.speech.gen, target: s.speech.op });', "", "duplex-interrupt"],
         ["reply-drop", 'target: s.speech.op });\n        s.speech.reply = { kind: "none" };', "target: s.speech.op });", "duplex-interrupt"],
@@ -2322,14 +2360,14 @@ try {
         ["due-idle", 'end(s, effects, e.at, "idle", false);', "", "duplex-due-idle"],
         ["chained-speaks", 'if (s.playback.kind === "playing" || s.playback.kind === "feedback"', 'if (s.playback.kind === "feedback"', "chained-play-speaks"],
         ["line-reply-speaks", '|| s.playback.kind === "feedback" && s.playback.reply.kind === "waiting"\n', "\n", "feedback-line"],
-        ["engine-required", 'if (e.engine !== "chained" && e.engine !== "duplex") throw new Error("jarvis: session=engine");', "", "duplex-engine"]
+        ["engine-required", 'if (["chained", "dictation", "duplex"].indexOf(e.engine) === -1) throw new Error("jarvis: session=engine");', "", "duplex-engine"]
     ];
     mutants.push(
         ["always-arm", 'else if (s.input.kind === "released" && armedWanted(s)) s.input = { kind: "armed" };', "", "always-arms"],
         ["always-disarm", 'if (s.input.kind === "armed" && !armedWanted(s)) s.input = { kind: "released" };', 'if (false) s.input = { kind: "released" };', "always-disarms"],
         ["armed-idle-only", '&& s.turn.kind === "none" && s.playback.kind === "idle"\n', "\n", "always-one-utterance"],
-        ["armed-chained", 's.settings.mode === "always" && s.engine.kind === "chained" && canEngage(s)', 's.settings.mode === "always" && canEngage(s)', "always-disarms"],
-        ["armed-engaged", 's.settings.mode === "always" && s.engine.kind === "chained" && canEngage(s)', 's.settings.mode === "always" && s.engine.kind === "chained"', "always-disarms"],
+        ["armed-chained", 's.settings.mode === "always" && s.engine.kind !== "duplex" && canEngage(s)', 's.settings.mode === "always" && canEngage(s)', "always-disarms"],
+        ["armed-engaged", 's.settings.mode === "always" && s.engine.kind !== "duplex" && canEngage(s)', 's.settings.mode === "always" && s.engine.kind !== "duplex"', "always-disarms"],
         ["armed-no-collect", 'canCapture(s) && s.input.kind !== "armed"', "canCapture(s)", "always-arms"],
         ["armed-ended-capture", '(s.conversation.kind !== "ended" || s.input.kind === "armed" || checking)', '(s.conversation.kind !== "ended" || checking)', "always-arms"],
         ["armed-indicator", 's.input.kind === "armed"\n        || ', "", "always-arms"],

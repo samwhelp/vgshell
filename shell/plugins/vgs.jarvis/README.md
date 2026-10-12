@@ -63,7 +63,7 @@ The icon's tooltip says what to do next and names the answering AI model when on
 - The listening bubble's orb and text let clicks reach the application below. While Jarvis waits for Hey Jarvis, its bubble shows a still orb.
 - In Always talk mode the local voice on this computer hears Hey Jarvis. Nothing reaches the AI model until you speak after it.
 - Audio is half duplex: Jarvis closes its microphone while speech plays, and Talk interrupts speech.
-- Local voice runs speech to text and spoken replies on your computer, with no network access, after Set up local voice.
+- Local voice runs speech to text and spoken replies on your computer, with no network access, after Set up local voice. voxtype, the dictation program that Voice also uses, records your words and hears the system default microphone. Its tones, which you set in Voice, tell you when it records.
 - With the Realtime voice, OpenAI hears you and speaks the reply. The selected AI model answers each request through Jarvis's action and release checks.
 
 ## Setup
@@ -75,6 +75,7 @@ Setup actions are buttons on the Jarvis page in Plugins or rows in the launcher'
 - Add key stores a new API key from an AI provider in your desktop keyring, with hidden key input. Plugins shows whether a key is present, absent, locked or unavailable without reading it. You choose the provider from a list that names the page where it makes keys, then give the key a name.
 - Sign in opens the app's own sign-in: Claude Code, Codex, GitHub Copilot or Pi. Give a new account a name, or select an existing account folder. Jarvis shows the folder before sign-in and creates it if needed. After sign-in, select the account as the AI model. The app keeps its login token.
 - Set up local voice downloads the local voice model that runs best on this computer; choose another under Local voice in Settings. It checks free space, downloads the models and a private runtime, and reports Ready only after verification and a bundled test clip succeed.
+- Set up dictation gets voxtype ready for the local voice and downloads its speech model. The voxtype row offers Install while voxtype is missing.
 - Set up browser checks an installed browser on a blank page, or offers a private download. The Browser driver row offers Install while agent-browser is missing.
 - Accounts adds a directory, chooses an existing keyring item by label or inspects login hints. It finds the account folders of other tools in your home, config and data folders, and can remember a key another tool stored without copying its value. A login hint never proves that the AI answers.
 - Verify sends one small request to an account after you consent, because a real request may cost money.

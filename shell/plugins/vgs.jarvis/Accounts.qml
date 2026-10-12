@@ -50,6 +50,9 @@ Item {
     readonly property var signInEndedAt: signInState === null || signInState === undefined ? null : signInState.endedAt
     readonly property var missing: shell === null ? [] : shell.requirements.missing
     onMissingChanged: publishRequirements()
+    // The voice the daemon runs: the voxtype row shows for the local voice.
+    readonly property string voiceProvider: shell === null ? "" : Gate.voiceProvider(shell.settings, voiceKeys)
+    onVoiceProviderChanged: publishRequirements()
     readonly property string program: String(Qt.resolvedUrl("backend/accounts.js")).replace(/^file:\/\//, "")
     onShellChanged: refresh()
     onEndedAtChanged: if (endedAt !== null) refresh()
@@ -63,6 +66,8 @@ Item {
         for (const command of ["claude", "codex"])
             if (shell.status.set(command, Gate.requirementValue(command, missing)) !== "ok")
                 throw new Error("jarvis-accounts: status=refused");
+        if (shell.status.set("voxtype", Gate.voxtypeValue(voiceProvider, missing)) !== "ok")
+            throw new Error("jarvis-accounts: status=refused");
     }
 
     // Write the model and effort the page's state asks for. A model belongs

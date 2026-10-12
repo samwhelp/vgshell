@@ -108,6 +108,11 @@ function rig(kit, server, options = {}) {
         executions.push(call);
         done({ outcome: "completed", content: "harness acted" });
     } });
+    // The files executor stands in for a command-ready one; it touches nothing.
+    if (options.filesExecutor) router.register("files", { commands: [], timeoutMs: 30000, cancellable: false, start(call, done) {
+        executions.push(call);
+        done({ outcome: "completed", content: "fixture deleted" });
+    } });
     // The action approval case uses an inert executor, with no process.
     if (options.actionApproval) router.register("sandbox", { commands: ["bwrap"], timeoutMs: 30000,
         cancellable: false, start(call, done) {
@@ -117,14 +122,15 @@ function rig(kit, server, options = {}) {
     // Accounts.choose has its own suite; this stand-in names a loopback row.
     const accounts = () => options.accounts ?? ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "ollama", label: "local",
         source: { kind: "local", origin: "http://127.0.0.1:" + PORT }, model: "fixture-model" } }) });
-    const configured = answer => runner.dispatch({ type: "snapshot", locked: false, engine: "chained",
+    const configured = answer => runner.dispatch({ type: "snapshot", locked: false, engine: engine.engine(),
         configured: answer.kind === "ready" || answer.kind === "loading", settings: runner.state.settings });
+    const dictation = Fixture.dictation(backend("ShellRequests.js"), Protocol, runnerClock);
     const tasks = options.tasks ? taskWorld(kit, runner, Session, faults) : null;
     voice = tasks?.voice ?? null;
     engine = kit.Engine.create({ session: Session, state: () => runner.state, audit, router, accounts,
         policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => faults.push(reason),
         captionLimit: options.captionLimit ?? Protocol.TRANSCRIPT_CHARS, dispatch: e => runner.dispatch(e), clock: runnerClock,
-        directories: options.directories, configured, tasks: tasks?.port ?? null,
+        directories: options.directories, configured, tasks: tasks?.port ?? null, request: dictation.send,
         ...(options.home === undefined ? {} : { home: options.home }),
         ...(options.trace === undefined ? {} : { trace: options.trace }) });
     ports.release = engine.release;
@@ -140,12 +146,12 @@ function rig(kit, server, options = {}) {
     audio.playbackSource = engine.playbackSource;
     const configure = settings => {
         const answer = engine.configure(settings);
-        runner.dispatch({ type: "snapshot", locked: false, engine: "chained",
+        runner.dispatch({ type: "snapshot", locked: false, engine: engine.engine(),
             configured: answer.kind === "ready" || answer.kind === "loading", settings });
         return answer;
     };
     const configuration = configure({ mode: options.mode ?? "hold", sounds: options.sounds === true,
-        microphone: "", speaker: "", brain: "fixture-account", fallbacks: options.fallbacks ?? [] });
+        microphone: "", speaker: "", brain: "fixture-account", fallbacks: options.fallbacks ?? [], dictation: options.dictation ?? "" });
     assert.equal(configuration.kind, options.directories ? "loading" : "ready");
     runner.dispatch({ type: "indicator", shown: true });
     const rows = () => {
@@ -153,12 +159,13 @@ function rig(kit, server, options = {}) {
         return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
     };
     return { runner, router, audio, audioClock, engine, audit, faults, executions, held, partials, captions, rows, configure,
-        state, workspace, server, advanceRunner, writes, timers, tasks,
+        state, workspace, server, advanceRunner, writes, timers, tasks, dictation,
         s: () => runner.state,
         async close() {
             tasks?.close();
             runner.close();
             engine.close();
+            dictation.close();
             audit.close();
             await audio.close("test-end");
         } };
@@ -320,6 +327,24 @@ async function playOut(w) {
 const user = body => body.messages.filter(message => message.role === "user").map(message => message.content);
 const assistantCaptions = w => w.captions.filter(row => row[1] === "assistant");
 
+// The shipped daemon's stdout as ROWS. Its dictation requests are answered
+// as Service.qml answers them, with TEXT as the recording's words.
+function readDaemon(child, rows, send, text) {
+    let tail = "";
+    child.stdout.on("data", data => {
+        tail += data;
+        const lines = tail.split("\n");
+        tail = lines.pop();
+        for (const row of lines.filter(Boolean).map(JSON.parse)) {
+            rows.push(row);
+            if (row.type !== "request") continue;
+            assert.equal(row.kind.startsWith("dictation."), true, "the daemon asks the service only for its recording");
+            send({ type: "reply", gen: row.gen, revision: row.revision, id: row.id, kind: row.kind, answer: "ok",
+                data: row.kind === "dictation.stop" ? { text } : null });
+        }
+    });
+}
+
 // The real local row and sidecar wire with the interpreter stand-in. Session
 // and Audio still own conversation admission and faults in this rig.
 async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding = "stop") {
@@ -340,7 +365,7 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
     fs.mkdirSync(state);
     fs.copyFileSync(path.join(__dirname, "fixtures/jarvis-local-speech/standin.py"), path.join(local, "venv/bin/python"));
     fs.chmodSync(path.join(local, "venv/bin/python"), 0o700);
-    const scripts = { start: scenario, utterances: Array.from({ length: 6 }, () => ({ final: "Fixture request." })),
+    const scripts = { start: scenario, utterances: Array.from({ length: 6 }, () => ({ speech: true })),
         speech: Array.from({ length: 20 }, () => ({ rate: 16000, samples: 4800 })) };
     fs.writeFileSync(path.join(local, "scenario.json"), JSON.stringify(scripts));
     if (scenario === "held")
@@ -351,16 +376,18 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
     const starts = () => logs().filter(row => row.start).map(row => row.start);
     const alive = pid => { try { process.kill(pid, 0); return true; } catch (error) { if (error.code === "ESRCH") return false; throw error; } };
     const w = rig(kit, server, { directories: { state, data: root, runtime: root } });
+    // The local row's words come from the core's recording.
+    w.dictation.text = "Fixture request.";
     try {
         assert.equal(w.s().gate.kind, "up");
         await until(() => starts().length === 1, "sidecar starts before any conversation");
         if (scenario === "held") {
-            w.runner.dispatch({ type: "snapshot", locked: null, engine: "chained", configured: true, settings: w.s().settings });
+            w.runner.dispatch({ type: "snapshot", locked: null, engine: w.engine.engine(), configured: true, settings: w.s().settings });
             w.runner.dispatch({ type: "talk-down" });
             assert.equal(w.s().gate.reason, "lock-unknown");
             assert.equal(w.s().capture.kind, "closed");
             assert.equal(w.s().conversation.kind, "ended");
-            w.runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: w.s().settings });
+            w.runner.dispatch({ type: "snapshot", locked: false, engine: w.engine.engine(), configured: true, settings: w.s().settings });
             w.runner.dispatch({ type: "talk-down" });
             await until(() => w.s().capture.kind === "open", "bounded loading capture opens");
             w.runner.dispatch({ type: "talk-up" });
@@ -460,7 +487,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     fs.mkdirSync(state);
     fs.copyFileSync(path.join(__dirname, "fixtures/jarvis-local-speech/standin.py"), path.join(local, "venv/bin/python"));
     fs.chmodSync(path.join(local, "venv/bin/python"), 0o700);
-    fs.writeFileSync(path.join(local, "scenario.json"), JSON.stringify({ start: "held", utterances: [{ final: "Captured once." }],
+    fs.writeFileSync(path.join(local, "scenario.json"), JSON.stringify({ start: "held", utterances: [{ speech: true }],
         checks: [ending === "check-ready" ? { afterFrames: 1 } : {}] }));
     assert.equal(cp.spawnSync("python3", ["-I", "-c", "import os,sys;os.mkfifo(sys.argv[1])", path.join(local, "ready-gate")]).status, 0);
     if (ending !== "missing") fs.writeFileSync(path.join(state, "local-ready.json"), JSON.stringify({ tier: "small", data: fs.realpathSync(local) }));
@@ -478,13 +505,13 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     const states = () => rows.filter(row => row.type === "state");
     const s = () => states().at(-1)?.state;
     const status = () => rows.filter(row => row.type === "status").at(-1);
-    let tail = "", error = "";
-    child.stdout.on("data", data => { tail += data; const lines = tail.split("\n"); tail = lines.pop(); rows.push(...lines.filter(Boolean).map(JSON.parse)); });
+    let error = "";
+    readDaemon(child, rows, fields => send(fields), "Captured once.");
     child.stderr.on("data", data => { error += data; });
     child.stdin.on("error", e => { if (e.code !== "EPIPE") throw e; });
     const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
     const hello = (locked = false) => send({ type: "hello", locked,
-        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: ending === "brain" || ending.startsWith("check-") ? "" : "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", cloudVision: "ask", privateWindows: "bitwarden" },
+        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: ending === "brain" || ending.startsWith("check-") ? "" : "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", dictation: "", cloudVision: "ask", privateWindows: "bitwarden" },
         keys: { talk: null, mute: null, stop: null, confirm: null, console: null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     const intent = name => send({ type: "intent", intent: name });
     const before = server.requests.length;
@@ -643,7 +670,7 @@ async function alwaysTalk(server, ending = "ready", edits = []) {
     fs.copyFileSync(path.join(__dirname, "fixtures/jarvis-local-speech/standin.py"), path.join(local, "venv/bin/python"));
     fs.chmodSync(path.join(local, "venv/bin/python"), 0o700);
     fs.writeFileSync(path.join(local, "scenario.json"), JSON.stringify({ start: "ready", wakes: [{ afterFrames: 2 }],
-        utterances: [{ earlyFinal: "Woken request." }], speech: [{ rate: 16000, samples: 4800 }, { rate: 16000, samples: 4800 }] }));
+        utterances: [{ turnEnd: true }], speech: [{ rate: 16000, samples: 4800 }, { rate: 16000, samples: 4800 }] }));
     if (ending !== "unset") fs.writeFileSync(path.join(state, "local-ready.json"), JSON.stringify({ tier: "small", data: fs.realpathSync(local) }));
     const preload = path.join(root, "accounts.js");
     fs.writeFileSync(preload, 'require(' + JSON.stringify(path.join(kit.folder, "backend/Core.js")) + ').use(' + JSON.stringify(tree) + ');\n' +
@@ -656,14 +683,14 @@ async function alwaysTalk(server, ending = "ready", edits = []) {
     const states = () => rows.filter(row => row.type === "state");
     const s = () => states().at(-1)?.state;
     const status = () => rows.filter(row => row.type === "status").at(-1);
-    let tail = "", error = "";
-    child.stdout.on("data", data => { tail += data; const lines = tail.split("\n"); tail = lines.pop(); rows.push(...lines.filter(Boolean).map(JSON.parse)); });
+    let error = "";
+    readDaemon(child, rows, fields => send(fields), "Woken request.");
     child.stderr.on("data", data => { error += data; });
     child.stdin.on("error", e => { if (e.code !== "EPIPE") throw e; });
     const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
     const hello = () => send({ type: "hello", locked: false,
         settings: { home: "", sounds: false, mode: "always", microphone: "", speaker: "", brain: "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto",
-            voiceProvider: ending === "refused" ? "realtime" : "local", voiceAccount: "", voice: "", cloudVision: "ask", privateWindows: "bitwarden" },
+            voiceProvider: ending === "refused" ? "realtime" : "local", voiceAccount: "", voice: "", dictation: "", cloudVision: "ask", privateWindows: "bitwarden" },
         keys: { talk: null, mute: null, stop: null, confirm: null, console: null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     hello();
     const before = server.requests.length;
@@ -2090,6 +2117,212 @@ async function cases(kit, server, only = null) {
         assert.equal(server.requests.length, before, "muted words never reach the brain");
     });
 
+    // A dictation row: the core records each utterance once Session admitted
+    // its capture, and the words its stop hands back are the user's turn.
+    // The row's own final only says whether it heard speech.
+    const dictating = { fixture: { dictation: true } };
+    await run("dictation-hold-turn", async w => {
+        w.dictation.text = "Open the voxtype browser.";
+        w.runner.dispatch({ type: "indicator", shown: false });
+        control.utterances.push(utterance("Open the sidecar browser."));
+        w.runner.dispatch({ type: "talk-down" });
+        await turn();
+        assert.deepEqual(w.dictation.calls, [], "no recording before the indicator is presented");
+        const before = server.requests.length;
+        w.runner.dispatch({ type: "indicator", shown: true });
+        await until(() => w.s().capture.kind === "open", "the presented indicator opens the capture");
+        assert.deepEqual(w.dictation.calls, ["dictation.start"]);
+        w.runner.dispatch({ type: "talk-up" });
+        const body = await requested(w, before + 1, "the recording's words reach the brain");
+        assert.deepEqual(user(body), ["Open the voxtype browser."], "the recording's words are the user's turn");
+        assert.deepEqual(w.dictation.calls, ["dictation.start", "dictation.stop"]);
+        server.replies.push(text(""));
+        await until(() => w.s().turn.kind === "none", "the turn completes");
+    }, dictating);
+
+    // voxtype's tones, set in Voice, are the recording's cue: with Jarvis's
+    // sounds on, Talk opens the capture with no sound of Jarvis's own.
+    await run("dictation-no-cue", async w => {
+        control.utterances.push(utterance("Hello."));
+        w.runner.dispatch({ type: "talk-down" });
+        assert.equal(w.s().playback.kind, "idle", "no start sound is queued");
+        await until(() => w.s().capture.kind === "open", "the capture opens at once");
+        assert.deepEqual(w.writes, [], "Jarvis played nothing before the recording");
+        w.runner.dispatch({ type: "stop" });
+        await until(() => w.s().capture.kind === "closed", "stop ends the capture");
+    }, { ...dictating, sounds: true });
+
+    // Each end that drops the utterance cancels its recording: no stop, and
+    // no words reach the brain.
+    for (const trigger of ["mute", "stop", "lock", "daemon-end"]) await run("dictation-cancel-" + trigger, async w => {
+        w.dictation.text = "Words that never leave.";
+        control.utterances.push(utterance("Words that never leave.", ["Words"]));
+        const before = server.requests.length;
+        w.runner.dispatch({ type: "talk-down" });
+        await until(() => w.partials.at(-1) === "Words", "the utterance is heard");
+        await until(() => w.dictation.calls.length === 1, "the recording starts");
+        // Its answer comes on a later turn, as a reply line does.
+        await new Promise(resolve => setImmediate(resolve));
+        if (trigger === "mute") w.runner.dispatch({ type: "mute-toggle" });
+        else if (trigger === "stop") w.runner.dispatch({ type: "stop" });
+        else if (trigger === "lock") w.runner.dispatch({ type: "snapshot", configured: true, locked: true,
+            engine: w.engine.engine(), settings: w.s().settings });
+        else w.engine.close();
+        await until(() => w.dictation.calls.includes("dictation.cancel"), trigger + " cancels the recording");
+        w.runner.dispatch({ type: "talk-up" });
+        await turn();
+        assert.deepEqual(w.dictation.calls, ["dictation.start", "dictation.cancel"], trigger + ": never stopped");
+        assert.equal(server.requests.length, before, trigger + ": no words reach the brain");
+    }, dictating);
+
+    // An end asked for while the start is unanswered runs once it answers:
+    // a dropped utterance's recording is cancelled, never stopped, and a Hold
+    // released then is stopped and its words are the turn.
+    for (const trigger of ["stop", "mute", "lock"]) await run("dictation-pending-" + trigger, async w => {
+        w.dictation.hold = true;
+        w.dictation.text = "Words that never leave.";
+        control.utterances.push(utterance("Words that never leave.", ["Words"]));
+        const before = server.requests.length;
+        w.runner.dispatch({ type: "talk-down" });
+        await until(() => w.dictation.calls.length === 1 && w.partials.at(-1) === "Words", "the start waits for its answer");
+        if (trigger === "stop") w.runner.dispatch({ type: "stop" });
+        else if (trigger === "mute") w.runner.dispatch({ type: "mute-toggle" });
+        else w.runner.dispatch({ type: "snapshot", configured: true, locked: true, engine: w.engine.engine(), settings: w.s().settings });
+        await until(() => w.s().conversation.kind === "ended", trigger + " ends the conversation");
+        w.dictation.release();
+        await until(() => w.dictation.calls.includes("dictation.cancel"), trigger + " cancels the recording once the start answers");
+        w.runner.dispatch({ type: "talk-up" });
+        await turn();
+        assert.deepEqual(w.dictation.calls, ["dictation.start", "dictation.cancel"], trigger + ": never stopped");
+        assert.equal(server.requests.length, before, trigger + ": no words reach the brain");
+    }, dictating);
+    await run("dictation-pending-release", async w => {
+        w.dictation.hold = true;
+        w.dictation.text = "Released early.";
+        control.utterances.push(utterance("Released early."));
+        const before = server.requests.length;
+        w.runner.dispatch({ type: "talk-down" });
+        await until(() => w.dictation.calls.length === 1 && w.s().capture.kind === "open", "the start waits for its answer");
+        w.runner.dispatch({ type: "talk-up" });
+        await until(() => control.finals === 1, "the row's end comes before the start answers");
+        assert.deepEqual(w.dictation.calls, ["dictation.start"]);
+        w.dictation.release();
+        const body = await requested(w, before + 1, "the released Hold's words reach the brain");
+        assert.deepEqual(user(body), ["Released early."]);
+        assert.deepEqual(w.dictation.calls, ["dictation.start", "dictation.stop"]);
+        server.replies.push(text(""));
+        await until(() => w.s().turn.kind === "none", "the turn completes");
+    }, dictating);
+
+    // A stop the core refuses fails the turn with its keyed cause.
+    await run("dictation-stop-refused", async w => {
+        w.dictation.stop = "refused: dictation=failed reason=stop code=1";
+        const before = await say(w, utterance("Lost words."));
+        await until(() => w.s().fault.kind === "error", "the refused stop is the turn's fault");
+        assert.equal(w.s().fault.reason, "speech=dictation-failed");
+        assert.deepEqual(w.dictation.calls, ["dictation.start", "dictation.stop"]);
+        assert.equal(server.requests.length, before, "no words reach the brain");
+    }, dictating);
+
+    // Toggle reopens the capture while Jarvis thinks; no turn takes it, so it
+    // records nothing, and the next turn's capture records again.
+    await run("dictation-toggle-second-turn", async w => {
+        control.utterances.push(utterance("First turn.", [], null, { afterFrames: 3 }),
+            utterance("unbound while thinking", [], null, { afterFrames: 1 }),
+            utterance("Second turn.", [], null, { afterFrames: 3 }),
+            utterance("never ends", [], null, { afterFrames: 100000 }));
+        w.dictation.text = "First turn.";
+        const before = server.requests.length;
+        const thinkingCapture = gate();
+        server.replies.push([...pause(thinkingCapture), ...text("One.").slice(1)], text("Two."));
+        w.runner.dispatch({ type: "talk-down" });
+        assert.deepEqual(user(await requested(w, before + 1, "the first toggle turn")), ["First turn."]);
+        await playOut(w);
+        await until(() => control.utterances.length === 2 && control.finals === 2, "the capture reopened while the brain thinks ends");
+        await turn();
+        assert.deepEqual(w.dictation.calls, ["dictation.start", "dictation.stop"], "the capture no turn takes records nothing");
+        w.dictation.text = "Second turn.";
+        thinkingCapture.open();
+        await replyPlays(w, "the first reply speaks");
+        await playOut(w);
+        const next = await requested(w, before + 2, "the second toggle turn",
+            () => control.finals === 3 && w.s().turn.kind === "collecting");
+        assert.equal(user(next).at(-1), "Second turn.");
+        assert.deepEqual(w.dictation.calls, ["dictation.start", "dictation.stop", "dictation.start", "dictation.stop"]);
+    }, { ...dictating, mode: "toggle" });
+
+    // No speech in the utterance: voxtype would still write words for the
+    // silence, so the recording is cancelled, never stopped.
+    await run("dictation-silent", async w => {
+        w.dictation.text = "Yeah.";
+        const before = await say(w, utterance(""));
+        await until(() => w.dictation.calls.includes("dictation.cancel"), "the silent recording is cancelled");
+        await until(() => w.s().turn.kind === "none" && w.s().capture.kind === "closed", "the empty turn settles");
+        assert.deepEqual(w.dictation.calls, ["dictation.start", "dictation.cancel"]);
+        assert.equal(server.requests.length, before, "the silence's words never reach the brain");
+    }, dictating);
+
+    // A start the core or the service refuses fails the collection with its
+    // keyed cause; nothing is stopped and no words reach the brain.
+    await run("dictation-start-refused", async w => {
+        w.dictation.start = "refused: dictation=busy holder=vgs.voice";
+        control.utterances.push(utterance("Words for nobody.", ["Words"]));
+        const before = server.requests.length;
+        w.runner.dispatch({ type: "talk-down" });
+        await until(() => w.s().fault.kind === "error", "the refusal is the turn's fault");
+        assert.equal(w.s().fault.reason, "speech=dictation-busy");
+        await until(() => w.s().capture.kind === "closed", "the refused utterance's capture closes");
+        w.runner.dispatch({ type: "talk-up" });
+        await turn();
+        assert.deepEqual(w.dictation.calls, ["dictation.start"], "a refused recording is never stopped");
+        assert.equal(server.requests.length, before);
+    }, dictating);
+
+    // The service's dictation cause holds the local voice: no capture opens
+    // and nothing is recorded.
+    await run("dictation-cause-holds", async w => {
+        assert.deepEqual(w.configure({ ...w.s().settings, dictation: "speech=dictation-device" }),
+            { kind: "unconfigured", cause: "speech=dictation-device", causes: ["speech=dictation-device"] });
+        assert.equal(w.s().gate.kind, "down");
+        control.utterances.push(utterance("Hello."));
+        w.runner.dispatch({ type: "talk-down" });
+        await turn();
+        assert.deepEqual([w.s().capture.kind, w.dictation.calls], ["closed", []], "no capture and no recording");
+        assert.equal(w.configure({ ...w.s().settings, dictation: "" }).kind, "ready", "a hello without the cause frees it");
+    }, dictating);
+
+    // The confirm phrase is judged on the recording's words, and a voice
+    // confirmation never passes a physical hold: a voxtype replacement that
+    // turns another word into "yes" confirms nothing.
+    await run("dictation-physical-hold", async w => {
+        const target = path.join(w.workspace, "fixture.txt");
+        fs.writeFileSync(target, "fixture");
+        w.dictation.text = "Delete the fixture.";
+        const first = await say(w, utterance("Delete the fixture."));
+        server.replies.push(calls({ id: "call_delete", name: "files_delete", arguments: { path: target } }), text(""));
+        await until(() => w.s().approval.kind === "held", "the delete is held");
+        const h = w.s().approval;
+        assert.equal(h.physical, true, "a destructive action holds for a physical confirmation");
+        w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
+        await until(() => w.s().playback.kind === "idle", "the acknowledgement is flushed");
+        w.advanceRunner(1100);
+        w.dictation.text = "Yes.";
+        control.utterances.push(utterance("Maybe."));
+        const calls0 = w.dictation.calls.length;
+        w.runner.dispatch({ type: "talk-down" });
+        await until(() => w.s().capture.kind === "open", "the answer capture opens");
+        w.advanceRunner(1100);
+        w.runner.dispatch({ type: "talk-up" });
+        await until(() => w.dictation.calls.slice(calls0).join(",") === "dictation.start,dictation.stop", "the answer is recorded");
+        await until(() => w.s().capture.kind === "closed", "the answer capture closes");
+        await turn();
+        await turn();
+        assert.equal(w.s().approval.kind, "held", "the voice answer leaves the hold");
+        assert.equal(w.s().approval.id, h.id);
+        assert.deepEqual(w.executions, [], "nothing was deleted");
+        assert.equal(server.requests.length, first + 1, "no brain turn follows the refused answer");
+    }, { ...dictating, actionApproval: true, filesExecutor: true });
+
     // A coding task's question and the user's answer pass through the
     // relay, never the brain. With no conversation the prompt is a
     // notification; in one, Jarvis asks it at the first idle moment, and
@@ -2622,7 +2855,7 @@ world(async () => {
         console.log("control=brain-plan-unlisted detected");
         controls++;
         for (const [name, needle, replacement = ""] of [
-            ["speech-first", "const failing = [speech, brain]", "const failing = [brain, speech]"],
+            ["speech-first", "const failing = [speech, dictation, brain]", "const failing = [brain, dictation, speech]"],
             ["home-step", "            plan = heldByHome(plan, home());\n"],
             ["home-refused", 'case "refused": cause = home.cause; break;', 'case "refused": break;'],
             ["home-text-judged", 'try { Guidance.compose("chained", "local", LANGUAGE, home.path); }', "try { void home.path; }"],
@@ -2838,6 +3071,24 @@ world(async () => {
             ["line-flush-heard", 'report === null || flushedLine ? "" : withoutLinePrefix', 'report === null ? "" : withoutLinePrefix', "line-held-reply-interrupt"],
             ["preview-speaker", "c.speech.speak(sentenceInput, c.plan.speech.speaker)", 'c.speech.speak(sentenceInput, "fixture")', "voice-preview"],
             ["preview-unspoken", "fixedLine(c, turn, PREVIEW_LINE);", 'turn.done("brain-done");', "voice-preview"],
+            ["dictation-reply-dropped", 'settle(ok(result) ? { kind: "text", text: result.data.text }',
+                'settle(ok(result) ? { kind: "text", text: "" }', "dictation-hold-turn"],
+            ...["mute", "stop", "lock", "daemon-end"].map(trigger => ["dictation-abort-records-on-" + trigger,
+                "            record?.cancel();\n        }, begin() { record?.begin(); } };", "        }, begin() { record?.begin(); } };",
+                "dictation-cancel-" + trigger]),
+            ["dictation-silence-stopped", 'if (!event.speech || answer === null && utterance.collection === null) {',
+                'if (answer === null && utterance.collection === null) {', "dictation-silent"],
+            ["dictation-voice-as-key", 'dispatch({ type: "confirm", ...answer, source: "voice" });',
+                'dispatch({ type: "confirm", ...answer, source: "key" });', "dictation-physical-hold"],
+            ["dictation-start-cue", 'return plan.speech?.kind === "ready" && plan.speech.dictation === true ? "dictation" : "chained";',
+                'return "chained";', "dictation-no-cue"],
+            ["dictation-cause-ignored", 'speech.kind === "ready" && speech.dictation === true && settings.dictation !== ""', "false", "dictation-cause-holds"],
+            ...["stop", "mute", "lock", "release"].map(trigger => ["dictation-pending-end-lost-" + trigger,
+                "                if (record.end !== null) finish(record.end);\n", "", "dictation-pending-" + trigger]),
+            ["dictation-stop-refusal-read-empty", 'settle(ok(result) ? { kind: "text", text: result.data.text } : { kind: "failed", cause: dictationFault(result) });',
+                'settle({ kind: "text", text: ok(result) ? result.data.text : "" });', "dictation-stop-refused"],
+            ["dictation-unbound-records", "                if (utterance.answers) utterance.begin();", "                utterance.begin();", "dictation-toggle-second-turn"],
+            ["dictation-refusal-unheard", "if (collecting(c, utterance.collection)) utterance.collection.failed(result.cause);\n            else if (running", "if (running", "dictation-start-refused"],
         ];
         for (const [name, needle, replacement, scenario] of plants) {
             // The copy asserts its match outside the measured run.

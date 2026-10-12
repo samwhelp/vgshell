@@ -26,7 +26,7 @@ const TAPS = 64;
 const PASSBAND = 0.9;
 const STDERR_BYTES = 4096;
 const READY_MS = 60000;
-const TRANSCRIBE_MS = 60000;
+const END_MS = 60000;
 const SYNTHESIS_MS = 60000;
 const CLOCK = Object.freeze({ set: setTimeout, clear: clearTimeout });
 const RECIPIENTS = Object.freeze([Object.freeze({ kind: "local", provider: "local-speech", account: "" })]);
@@ -34,7 +34,7 @@ const CAUSE = /^[a-z-]+(?: [a-z]+=[0-9A-Za-z._-]+)*$/;
 // The keys of each sidecar message and whether it carries a payload.
 const SHAPES = Object.freeze({
     ready: [["type"], false], partial: [["id", "rev", "text", "type"], false],
-    final: [["id", "text", "type"], false], audio: [["id", "type"], true],
+    ended: [["id", "speech", "type"], false], audio: [["id", "type"], true],
     spoken: [["id", "rate", "type"], false], failed: [["cause", "type"], false],
     woke: [["id", "type"], false], checked: [["id", "result", "type"], false]
 });
@@ -155,7 +155,9 @@ function reader(receive) {
 
 /**
  * Start one sidecar attempt. transcribe and speak follow the chained
- * engine's adapter contract; every failure is a keyed speech=local-* error.
+ * engine's adapter contract for a dictation row: transcribe yields partials
+ * and ends with {kind: "ended", speech}. Every failure is a keyed
+ * speech=local-* error.
  */
 function open(state, data, clock = CLOCK, changed = () => {}) {
     const environment = { LC_ALL: "C.UTF-8" };
@@ -225,9 +227,9 @@ function open(state, data, clock = CLOCK, changed = () => {}) {
             if (utterance !== undefined) utterance.partial(header);
             return;
         }
-        case "final":
-            if (typeof header.text !== "string") throw new Error("final=invalid");
-            request(header, "utterance")?.settle({ kind: "final", text: header.text });
+        case "ended":
+            if (typeof header.speech !== "boolean") throw new Error("ended=invalid");
+            request(header, "utterance")?.settle({ kind: "ended", speech: header.speech });
             return;
         case "woke":
             request(header, "wake")?.settle({ kind: "woke" });
@@ -333,7 +335,7 @@ function open(state, data, clock = CLOCK, changed = () => {}) {
                 // A half sample left when capture ended is not a sample.
                 sendAudio(id, resampler.flush());
                 write({ type: "end", id });
-                value.bound(TRANSCRIBE_MS, "transcribe-timeout");
+                value.bound(END_MS, "end-timeout");
             })().catch(error => value.settle({ kind: "failed", error }));
             let answered = false;
             return {
@@ -349,7 +351,7 @@ function open(state, data, clock = CLOCK, changed = () => {}) {
                     const result = terminal;
                     answered = true;
                     switch (result.kind) {
-                    case "final": return { value: { kind: "final", text: result.text }, done: false };
+                    case "ended": return { value: { kind: "ended", speech: result.speech }, done: false };
                     case "failed": throw result.error;
                     case "abandoned": return { value: undefined, done: true };
                     default: throw new Error("jarvis: speech=local-outcome");
@@ -400,7 +402,7 @@ function open(state, data, clock = CLOCK, changed = () => {}) {
                         if (!check || stream.kind !== "sent") { abort(); return; }
                         sendAudio(id, stream.resampler.flush());
                         write({ type: "end", id });
-                        value.bound(TRANSCRIBE_MS, "check-timeout");
+                        value.bound(END_MS, "check-timeout");
                         return;
                     }
                     if (life.kind !== "ready") continue;
@@ -455,7 +457,8 @@ function open(state, data, clock = CLOCK, changed = () => {}) {
  * data root. The sidecar asks setup's readiness judge before it loads, so a
  * stale marker refuses readiness with speech=local-not-ready. `voices` are
  * the speakers of the tier's text-to-speech artifact, in sid order, as
- * {label, value} offers whose value is the speaker's name.
+ * {label, value} offers whose value is the speaker's name. Its final words
+ * come from the core's dictation recording (D064).
  */
 function select({ directories }) {
     const state = directories.state;
@@ -486,7 +489,7 @@ function select({ directories }) {
     const voice = artifacts.artifacts.find(artifact => tiers[marker.tier].artifacts.includes(artifact.id)
         && artifact.speakers !== undefined);
     const voices = voice.speakers.map(speaker => ({ label: speaker.label, value: speaker.name }));
-    return { kind: "ready", lifetime: "daemon", wake: true, publication, recipients: RECIPIENTS, voices,
+    return { kind: "ready", lifetime: "daemon", wake: true, dictation: true, publication, recipients: RECIPIENTS, voices,
         open: ({ clock = CLOCK, changed } = {}) => open(state, data, clock, changed) };
 }
 

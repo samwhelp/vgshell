@@ -6,6 +6,9 @@
 # round trip; fixture callback gates poll at 10 ms.
 # inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* shell/Ui/foundation/KeyNavLogic.js scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* bin/lib/qml-library.js
 set -euo pipefail
+# Jarvis holds `dictation`, and the shell finds no voxtype: the core's
+# probe does not start at each enable.
+expected_errors+=("${dictation_absent_errors[@]}")
 
 jarvis_widget_config="$home/.config/vgshell/shell.json"
 jarvis_widget_lua="$home/.config/hypr/hyprland.lua"

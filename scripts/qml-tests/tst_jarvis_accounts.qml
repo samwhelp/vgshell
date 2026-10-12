@@ -32,7 +32,9 @@ Item {
             // The plugin's row of the user file, and each key written to it.
             property var user: ({ brain: "claude-a", model: "", effort: "" })
             property var writes: []
-            readonly property var effective: Object.assign({}, user)
+            // The manifest's voice defaults under the user's row, as the
+            // core merges them.
+            readonly property var effective: Object.assign({ voiceProvider: "auto", voiceAccount: "", mode: "hold" }, user)
             onEffectiveChanged: shell = build()
             // Whether the Settings window shows the Jarvis page.
             property bool viewed: false

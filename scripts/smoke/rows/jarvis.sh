@@ -5,7 +5,21 @@
 # It polls once per nested IPC round trip.
 # The real child runs inside J09, with synthetic audio commands and no
 # account, real audio or desktop endpoint.
-# inputs: shell/Core/Sounds.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
+# The local voice's final words come from the core's `dictation` capability
+# (D064, D106), over the shared voxtype stand-in on the shell's PATH, whose
+# daemon hears the row's words; the sidecar is its stand-in too. While the
+# shell finds no voxtype, Jarvis alone reads the core's daemon failed and
+# its Voice step offers Set up dictation. With the stand-in and a disposable
+# engine copy whose brain waits unanswered (scripted.js --dictation-brain),
+# a held Talk with Jarvis the only holder records through the core: the
+# stand-in's daemon notes a start and a stop, and the user's words are the
+# stand-in's. The daemon killed during a recording, and the session locked
+# during one, each leave no recording and a cancel note; its control is a
+# service copy whose daemon end cancels nothing, which leaves the recording
+# held. With Voice on too, Voice's toggle during a Jarvis recording answers
+# busy and changes neither recording. With both off, no voxtype process
+# runs. Each read polls once per nested IPC round trip.
+# inputs: scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/plugins/vgs.voice/* scripts/fixtures/jarvis-local-speech/standin.py shell/Core/Sounds.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
 set -euo pipefail
 expected_errors+=('WARN qml: jarvis: stderr=.*Killed.*')
 expected_errors+=('WARN qml: jarvis: stderr=jarvis: node=21[.]0[.]0 need=22')
@@ -19,6 +33,11 @@ expected_errors+=('WARN qml: jarvis-keys: (presence|busctl)=[a-z-]+')
 # cause; the bar and the page say what happened in plain words.
 expected_errors+=('WARN qml: jarvis: (fault|audio-fault)=')
 expected_errors+=('WARN qml: jarvis: ended cause=')
+# Jarvis holds `dictation`, and the shell finds no voxtype: the core's probe
+# does not start at each enable. Voice's toggle during Jarvis's recording
+# logs the core's refusal.
+expected_errors+=("${dictation_absent_errors[@]}")
+expected_errors+=('WARN qml: voice: start refused: dictation=busy holder=vgs[.]jarvis$')
 
 # Read the actual daemon below the Process-owned J09 launcher. PIDs come
 # only from that launcher's /proc descendants, never a name-based search.
@@ -1116,7 +1135,7 @@ import sys
 p=Path(sys.argv[1])
 s=p.read_text()
 for needle, replacement in (
-        ("onLockedChanged: hello()", 'onLockedChanged: if (lifetime.kind === "ready") hello()'),
+        ("            cancelDictation();\n        }\n        hello();\n    }", '            cancelDictation();\n        }\n        if (lifetime.kind === "ready") hello();\n    }'),
         ('if (message.daemon !== (lockObservation() ? "locked" : "ready")) continue;', "")):
     assert s.count(needle)==1
     s=s.replace(needle, replacement)
@@ -1627,4 +1646,142 @@ printf 'present\n' >"$sandbox/jarvis-world/key-mode"
 jarvis_rescan
 expect_poll "restored Keys account refresh shows present" matched jarvis_key_value present
 jarvis_disable
+
+# The local voice records through the core's dictation (the header). The
+# local row's marker and sidecar stand-in are the hanging-probe part's.
+jarvis_local="$home/.local/share/vgshell/jarvis/local"
+jarvis_local_marker="$home/.local/state/vgshell/jarvis/local-ready.json"
+jarvis_dictation_words="$sandbox/voxtype-words"
+jarvis_dictation_notes="$sandbox/voxtype-daemon.log"
+jarvis_voxtype="$shim/voxtype"
+mkdir -p -- "$jarvis_local/venv/bin" "$(dirname -- "$jarvis_local_marker")"
+cp -- "$source_repo/scripts/fixtures/jarvis-local-speech/standin.py" "$jarvis_local/venv/bin/python"
+chmod 700 -- "$jarvis_local/venv/bin/python"
+python3 - "$repo/shell/plugins/vgs.jarvis/artifacts.json" "$jarvis_local" "$jarvis_local_marker" <<'PY'
+import json, os, sys
+tier = next(iter(json.load(open(sys.argv[1]))["tiers"]))
+open(sys.argv[3], "w").write(json.dumps({"tier": tier, "data": os.path.realpath(sys.argv[2])}))
+open(os.path.join(sys.argv[2], "scenario.json"), "w").write(json.dumps({"start": "ready",
+    "utterances": [{"speech": True}] * 10, "speech": [{"rate": 16000, "samples": 4800}] * 20}))
+PY
+# The Voice step's offered action, "" for none; the core's daemon, its
+# child and its holders; and the live recording's holder and mode.
+jarvis_voice_action() { ipc smoke statusValues vgs.jarvis | py_reply 'import json,sys; v=json.load(sys.stdin).get("setupVoice") or {}; a=v.get("action"); print(a if isinstance(a,str) else "")'; }
+jarvis_dictation_recording() { lent dictation | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["holder"] or "-", d["mode"] or "-")'; }
+# What the stand-in's daemons noted, in order, `none` for no line.
+jarvis_dictation_noted() { if [[ -s $jarvis_dictation_notes ]]; then tr '\n' ' ' <"$jarvis_dictation_notes" | sed 's/ $//'; echo; else echo none; fi; }
+# The Session gate and capture the service holds.
+jarvis_gate_capture() { ipc smoke readInstance service vgs.jarvis sessionState | py_reply 'import json,sys; s=json.load(sys.stdin); print("pending" if s is None else s["gate"]["kind"] + " " + s["capture"]["kind"])'; }
+# The user's last words in the conversation the service publishes.
+jarvis_user_words() { ipc smoke statusValues vgs.jarvis | py_reply 'import json,sys; rows=[r for r in json.load(sys.stdin).get("conversation") or [] if r["role"] == "user"]; print(rows[-1]["text"] if rows else "none")'; }
+jarvis_intent() { ipc smoke invokeInstance service vgs.jarvis intent "$1"; }
+# SIGKILL to the daemon below the service's J09 launcher, as a crash ends it.
+jarvis_kill_daemon() {
+  local launcher daemon
+  launcher="$(ipc smoke jarvisProcess | jarvis_launcher_pid)" || return 1
+  daemon="$(jarvis_descendants "$launcher")" || { fail "the Jarvis daemon is unreadable: $daemon"; return 1; }
+  kill -KILL "$daemon"
+}
+# A held Talk recording through the core, from a fresh note log.
+jarvis_dictation_talk() { # LABEL
+  rm -f -- "${jarvis_dictation_notes:?}"
+  expect_poll "$1: the local voice takes Talk" "up closed" jarvis_gate_capture
+  expect "$1: Talk goes down" "" jarvis_intent talk-down
+  expect_poll "$1: Talk records through the core" "vgs.jarvis text" jarvis_dictation_recording
+  expect_poll "$1: the stand-in's daemon records once" start jarvis_dictation_noted
+}
+
+dictation_stand_ins off
+rescan "the shell finds no voxtype for Jarvis's recording"
+jarvis_enable
+expect_poll "without voxtype the core's daemon for Jarvis reads failed" "failed none vgs.jarvis" dictation_lent
+expect_poll "without voxtype the Voice step offers Set up dictation" dictation jarvis_voice_action
+jarvis_disable
+
+# The stand-in answers Voice's config and info verbs from this part's files,
+# as rows/voice.sh's copy does.
+jarvis_voice_feedback="$sandbox/jarvis-voice-feedback"
+printf 'true\n' >"$jarvis_voice_feedback"
+printf '%s' 'the stand-in heard this' >"$jarvis_dictation_words"
+rm -f -- "${jarvis_dictation_notes:?}"
+dictation_stand_ins on || fail "the shell does not resolve voxtype to the stand-in: $(shell_resolves voxtype)"
+cat >"$jarvis_voxtype" <<EOF_STUB
+#!/usr/bin/env bash
+voice_installed=$(printf %q "$sandbox/jarvis-voice-installed")
+voice_feedback=$(printf %q "$jarvis_voice_feedback")
+voice_feedback_sets=$(printf %q "$sandbox/jarvis-voice-feedback-sets")
+voice_feedback_unreadable=$(printf %q "$sandbox/jarvis-voice-feedback-unreadable")
+voice_feedback_refused=$(printf %q "$sandbox/jarvis-voice-feedback-refused")
+voice_feedback_dropped=$(printf %q "$sandbox/jarvis-voice-feedback-dropped")
+. $(printf %q "$repo/scripts/smoke/fixtures/voxtype/voxtype")
+EOF_STUB
+chmod 755 "$jarvis_voxtype"
+rescan "the shell finds the voxtype stand-in for Jarvis's recording"
+cp -- "$jarvis_engine" "$sandbox/jarvis-engine-original"
+"$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" --dictation-brain "$jarvis_engine"
+jarvis_rescan
+jarvis_enable
+expect_poll "Jarvis's recording daemon reads ready" "ready running vgs.jarvis" dictation_lent
+jarvis_dictation_talk "Jarvis alone"
+expect "Jarvis alone: Talk comes up" "" jarvis_intent talk-up
+expect_poll "Jarvis alone: the user's words are the stand-in voxtype's" "the stand-in heard this" jarvis_user_words
+expect_poll "Jarvis alone: the recording was stopped" "start stop" jarvis_dictation_noted
+expect "Jarvis alone: Stop ends the turn" "" jarvis_intent stop
+jarvis_dictation_talk "the daemon's end"
+jarvis_kill_daemon
+expect_poll "the daemon's end cancels Jarvis's recording" "- -" jarvis_dictation_recording
+expect_poll "the daemon's end reaches the stand-in as a cancel" "start cancel" jarvis_dictation_noted
+expect "Jarvis starts its daemon again" ready jarvis_wait_ready 1
+jarvis_dictation_talk "the lock"
+expect "the lock: the test-only holder locks" ok probe lock
+expect_poll "the lock cancels Jarvis's recording" "- -" jarvis_dictation_recording
+expect_poll "the lock reaches the stand-in as a cancel" "start cancel" jarvis_dictation_noted
+expect "the lock: the fixture unlocks without authentication" ok probe unlock
+expect "Voice enables beside Jarvis" ok ipc shell setPluginEnabled vgs.voice true
+expect_poll "both holders are lent the one daemon" "ready running vgs.jarvis,vgs.voice" dictation_lent
+jarvis_dictation_talk "both on"
+expect "Voice's toggle during Jarvis's recording answers busy" "refused: dictation=busy holder=vgs.jarvis" ipc vgs.voice invoke toggle ""
+expect "Voice's toggle leaves Jarvis's recording" "vgs.jarvis text" jarvis_dictation_recording
+expect "Voice's toggle starts no recording of its own" start jarvis_dictation_noted
+expect "Voice shows no recording of its own" '"idle"' ipc smoke readInstance service vgs.voice dictation
+expect "both on: Talk comes up" "" jarvis_intent talk-up
+expect_poll "both on: the recording was stopped" "start stop" jarvis_dictation_noted
+expect "both on: Stop ends the turn" "" jarvis_intent stop
+expect "Voice disables" ok ipc shell setPluginEnabled vgs.voice false
+jarvis_disable
+# Control: a service whose daemon end cancels nothing leaves the recording
+# held after the daemon is killed; the release at disable cancels it.
+cp -- "$jarvis_service" "$sandbox/jarvis-dictation-service"
+python3 - "$jarvis_service" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+s=p.read_text()
+needle="        startWait.stop();\n        cancelDictation();\n"
+assert s.count(needle)==1
+p.write_text(s.replace(needle, "        startWait.stop();\n"))
+PY
+jarvis_rescan
+jarvis_enable
+jarvis_dictation_talk "the cancel-free daemon end"
+jarvis_kill_daemon
+jarvis_dictation_end_control() {
+  (failures=0 behaviour_failures=0
+   expect_poll "the daemon's end cancels Jarvis's recording" "- -" jarvis_dictation_recording >"$sandbox/jarvis-dictation-end-control.log"
+   echo "$failures")
+}
+expect "a service that cancels nothing at the daemon's end leaves the recording held" 1 jarvis_dictation_end_control
+expect "the cancel-free service restarts its daemon" ready jarvis_wait_ready 1
+jarvis_disable
+expect_poll "the release cancels the held recording" "- -" jarvis_dictation_recording
+cp -- "$sandbox/jarvis-dictation-service" "$jarvis_service"
+jarvis_rescan
+expect_poll "with Jarvis and Voice off, no voxtype process runs" "daemon=0 follower=0 other=0 children=0" dictation_processes
+cp -- "$sandbox/jarvis-engine-original" "$jarvis_engine"
+rm -- "${repo:?}/shell/plugins/vgs.jarvis/backend/scripted-fixture.js"
+rm -rf -- "${jarvis_local:?}"
+rm -f -- "${jarvis_local_marker:?}" "${jarvis_voxtype:?}" "${jarvis_dictation_words:?}" "${jarvis_dictation_notes:?}" "${jarvis_voice_feedback:?}" \
+  "$sandbox/voxtype-follow.log" "$sandbox/jarvis-voice-feedback-sets"
+dictation_stand_ins off
+jarvis_rescan
 jarvis_notice_close

@@ -295,9 +295,11 @@ class Audio {
             this.failPlayback("device-lost");
     }
 
+    // A dictation engine's words are voxtype's, which records the default
+    // source, so its captions, turn end and wake word hear that source too.
     selected(group, setting) {
         const offers = this.devices[group];
-        const configured = this.state.settings[setting] || "";
+        const configured = group === "microphones" && this.state.engine.kind === "dictation" ? "" : this.state.settings[setting] || "";
         const value = configured === "" ? this.defaults[group] : configured;
         if (!offers.some(item => item.value === value)) throw new Error("device-lost");
         return value;

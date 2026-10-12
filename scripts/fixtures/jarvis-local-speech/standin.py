@@ -5,8 +5,9 @@ The suite installs this file as DATA/venv/bin/python. It speaks the sidecar wire
 from shell/plugins/vgs.jarvis/backend/local-speech.py's header (2026-10-02),
 written independently of LocalSpeech.js. DATA/scenario.json scripts it:
   start: "ready" | "held" | "not-ready" | "exit" | "deaf" | "garbage" | "foreign-id"
-  utterances: per end, {final} | {failed} | {exit}; optional streaming:
-    {partials:[{text,rev}], earlyFinal:text} answered on successive audio frames
+  utterances: per end, {speech} answered ended | {failed} | {exit} | {stall};
+    optional streaming: {partials:[{text,rev}], turnEnd:true} answered on
+    successive audio frames, the turn end only for a detecting listen
   speech: per speak, {rate, samples, tone?, value?} | {failed} | {raw}
   wakes: per wake, {afterFrames} answered woke on that audio frame | {failed}
     answered on the first; with none left a wake waits for its abort
@@ -101,7 +102,7 @@ if start == "garbage":
 send({"type": "ready"})
 record({"ready": True})
 if start == "foreign-id":
-    send({"type": "final", "id": 99, "text": "never asked"})
+    send({"type": "ended", "id": 99, "speech": True})
 
 utterances = list(scenario.get("utterances", []))
 speech = list(scenario.get("speech", []))
@@ -161,9 +162,9 @@ while True:
             if at < len(partials):
                 send({"type": "partial", "id": ident, **partials[at]})
                 record({"partial": ident, **partials[at]})
-            elif live["detect"] and "earlyFinal" in action:
-                send({"type": "final", "id": ident, "text": action["earlyFinal"]})
-                record({"final": ident})
+            elif live["detect"] and action.get("turnEnd"):
+                send({"type": "ended", "id": ident, "speech": True})
+                record({"ended": ident})
                 del listening[ident]
                 utterances.pop(0)
     elif kind == "abort":
@@ -190,8 +191,8 @@ while True:
             continue
         if "exit" in action:
             sys.exit(action["exit"])
-        if "final" in action:
-            send({"type": "final", "id": ident, "text": action["final"]})
+        if "speech" in action:
+            send({"type": "ended", "id": ident, "speech": action["speech"]})
         else:
             send({"type": "failed", "id": ident, "cause": action["failed"]})
     elif kind == "speak":

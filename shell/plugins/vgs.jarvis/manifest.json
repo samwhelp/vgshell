@@ -9,7 +9,7 @@
   "icon": "mic",
   "kinds": ["bar-widget", "service", "window"],
   "entryPoints": { "bar-widget": "Widget.qml", "service": "Service.qml", "window": "Console.qml" },
-  "capabilities": ["compositor", "configure", "ipc", "requirements", "run", "session", "status", "notify", "tui", "shortcut", "layers", "hyprland", "surfaces", "screens", "sounds"],
+  "capabilities": ["compositor", "configure", "ipc", "requirements", "run", "session", "status", "notify", "tui", "shortcut", "layers", "hyprland", "surfaces", "screens", "sounds", "dictation"],
   "defaultSection": "right",
   "settings": { "mode": "hold", "microphone": "", "speaker": "", "brain": "", "model": "", "effort": "", "fallbacks": [], "taskTerminal": "auto", "cloudVision": "ask",
     "voiceProvider": "auto", "voiceAccount": "", "voice": "", "localTier": "auto",
@@ -20,7 +20,7 @@
       "options": ["hold", "toggle", "always"],
       "description": "Hold: Jarvis takes what you said when you let go of the Talk key. Toggle: the conversation stays open until you press Talk again. Always: say Hey Jarvis, then your request; Talk listens at once. Always needs the local voice and keeps the microphone open on this computer." },
     "microphone": { "type": "string", "label": "Microphone", "group": "Audio", "optionsFrom": "microphones",
-      "description": "Set feedback tones in Appearance → Sounds.",
+      "description": "The microphone the Realtime voice uses. The local voice hears the system default, as dictation does. Set feedback tones in Appearance → Sounds.",
       "link": { "text": "Appearance → Sounds", "pane": "vgs.sounds" } },
     "speaker": { "type": "string", "label": "Speaker", "group": "Audio", "optionsFrom": "speakers",
       "description": "Half duplex: Jarvis closes its microphone while speech plays. Talk interrupts speech." },
@@ -69,7 +69,7 @@
   },
   "sounds": {
     "feedback": { "label": "Feedback sounds", "own": "Jarvis tones", "default": "own",
-      "description": "A short sound tells you when to speak. Another sound tells you when the AI is still working." }
+      "description": "A sound tells you when the AI is still working. With the local voice, the dictation tones you set in Voice tell you when to speak." }
   },
   "hyprland": {
     "binds": [
@@ -101,6 +101,7 @@
     { "command": "setpriv", "packages": { "pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux", "nix": "util-linux" }, "optional": false, "purpose": "Kills audio children when their parent ends" },
     { "command": "unshare", "packages": { "pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux-core", "nix": "util-linux" }, "optional": false, "purpose": "Owns audio process namespaces and isolates the local voice probe" },
     { "command": "python3", "packages": { "pacman": "python", "apt": "python3", "dnf": "python3", "nix": "python3" }, "optional": false, "purpose": "Owns audio pipe leases and verifies the private local voice runtime" },
+    { "command": "voxtype", "packages": { "aur": "voxtype-bin" }, "optional": true, "purpose": "Records what you say to the local voice, as dictation does" },
     { "command": "uv", "packages": { "pacman": "uv", "dnf": "uv", "mise": "uv", "nix": "uv" }, "optional": false, "purpose": "Installs the locked local voice runtime when setup is selected" },
     { "command": "curl", "packages": { "pacman": "curl", "apt": "curl", "dnf": "curl", "nix": "curl" }, "optional": false, "purpose": "Downloads pinned local voice models when setup is selected" },
     { "command": "nvidia-smi", "packages": { "pacman": "nvidia-utils", "apt": "nvidia-smi" }, "optional": true, "purpose": "Verifies CUDA execution only when a CUDA local tier is selected" },
@@ -142,6 +143,7 @@
     "personality": { "type": "state", "label": "Personality", "group": "Personality",
       "hint": "How Jarvis talks: the text under the heading ## Personality in AGENTS.md of the home folder. Every AI model reads it.",
       "action": { "label": "Edit", "tui": "edit-personality" } },
+    "voxtype": { "type": "state", "label": "voxtype", "group": "Voice", "hint": "The local voice hears your words through voxtype, the dictation program.", "action": { "label": "Install voxtype", "install": ["voxtype"] } },
     "voiceKey": { "type": "state", "label": "OpenAI key", "group": "Voice", "hint": "An OpenAI key lets Jarvis use the Realtime voice: OpenAI hears you and speaks the reply.", "action": { "label": "Add key", "tui": "add-key" } },
     "microphones": { "type": "choices", "label": "Microphones" },
     "speakers": { "type": "choices", "label": "Speakers" },
@@ -168,7 +170,7 @@
     "claude": { "type": "state", "label": "Claude Code", "group": "AI model", "action": { "label": "Install Claude Code", "install": ["claude"] } },
     "codex": { "type": "state", "label": "Codex", "group": "AI model", "action": { "label": "Install Codex", "install": ["codex"] } },
     "setupModel": { "type": "state", "label": "AI model", "group": "Setup", "hint": "Jarvis uses the AI model to answer you.", "actions": { "key": { "label": "Add key", "tui": "add-key" }, "signIn": { "label": "Sign in", "tui": "sign-in" }, "update": { "label": "Update Pi", "install": ["pi"] } } },
-    "setupVoice": { "type": "state", "label": "Voice", "group": "Setup", "hint": "Jarvis uses the selected voice provider to hear you and speak.", "actions": { "setup": { "label": "Set up local voice", "tui": "setup-local" }, "check": { "label": "Check microphone", "tui": "check-microphone" } } },
+    "setupVoice": { "type": "state", "label": "Voice", "group": "Setup", "hint": "Jarvis uses the selected voice provider to hear you and speak.", "actions": { "setup": { "label": "Set up local voice", "tui": "setup-local" }, "check": { "label": "Check microphone", "tui": "check-microphone" }, "dictation": { "label": "Set up dictation", "dictation": "setup" } } },
     "setupBrowser": { "type": "state", "label": "Browser", "group": "Setup", "hint": "Set up the browser so Jarvis can use websites for you.", "action": { "label": "Set up browser", "tui": "setup-browser" } },
     "setupInput": { "type": "state", "label": "Input", "group": "Setup", "hint": "Check input so Jarvis can type and click for you.", "action": { "label": "Check input", "tui": "setup-input" } },
     "setupFleet": { "type": "state", "label": "Agent fleet", "group": "Setup", "hint": "Jarvis can hand a request for your agent fleet to your Jarvis session.", "action": { "label": "Install kendex", "tui": "setup-fleet" } },

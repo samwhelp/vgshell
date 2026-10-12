@@ -8,7 +8,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const { freshSuite } = require("./fixtures/jarvis/prepare.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.jarvis/JarvisProtocol.js");
 const Protocol = load(file);
-const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "",
+const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", dictation: "",
     cloudVision: "ask", privateWindows: "bitwarden, incognito" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
@@ -33,7 +33,7 @@ const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manif
 // reads from the manifest's one sound event, `feedback`, but `localTier`:
 // the Local voice choice is a download request the service keeps
 // (LocalTier.qml), and the daemon loads the tier setup left ready.
-assert.deepEqual(Object.keys(manifest.settings).filter(key => key !== "localTier").concat(["sounds"]).sort(), Object.keys(hello.settings).sort());
+assert.deepEqual(Object.keys(manifest.settings).filter(key => key !== "localTier").concat(["sounds", "dictation"]).sort(), Object.keys(hello.settings).sort());
 assert.deepEqual([Object.keys(manifest.sounds), manifest.sounds.feedback.own !== undefined], [["feedback"], true]);
 assert.deepEqual([manifest.settings.cloudVision, manifest.schema.cloudVision.options], ["ask", ["ask", "allow", "never"]]);
 assert.equal(typeof manifest.settings.privateWindows, "string");
@@ -64,6 +64,8 @@ const reply = { v: 1, type: "reply", gen: 0, revision: hello.revision, id: 1, ki
 const entry = { id: "org.example.App", name: "Example", startupClass: "example" };
 const listReply = { ...reply, kind: "desktop.list", data: { entries: [entry], complete: true } };
 const entryReply = { ...reply, kind: "desktop.launch", data: { ...entry, terminal: false } };
+// The local voice's final words, as the service hands back voxtype's text.
+const stopReply = { ...reply, kind: "dictation.stop", data: { text: "Open the browser." } };
 assert.equal(manifest.capabilities.includes("compositor") && manifest.capabilities.includes("run"), true);
 const taskStop = { ...intent, intent: "task-stop", task: "0f7c6a2e-5d1b-4c3a-9e8f-1a2b3c4d5e6f" };
 const taskOpen = { ...taskStop, intent: "task-open" };
@@ -304,8 +306,15 @@ const cases = [
     ["reply-entry-name", changed(listReply, { data: { entries: [{ ...entry, name: "a\nb" }], complete: true } }), "shell", "entry"],
     ["reply-entry-duplicate", changed(listReply, { data: { entries: [entry, entry], complete: true } }), "shell", "entry-duplicate"],
     ["reply-entry-terminal", changed(entryReply, { data: { ...entryReply.data, terminal: "no" } }), "shell", "entry"],
+    ["dictation-text-long", changed(stopReply, { data: { text: "a".repeat(4097) } }), "shell", "dictation-text"],
+    ["dictation-text-extra", changed(stopReply, { data: { text: "words", status: "ok" } }), "shell", "shape-dictation-text"],
+    ["dictation-text-nul", changed(stopReply, { data: { text: "a\u0000b" } }), "shell", "dictation-text"],
+    ["dictation-start-args", changed(request, { kind: "dictation.start", args: ["text"] }), "daemon", "request-args"],
+    ["dictation-start-data", changed(reply, { kind: "dictation.start", data: { text: "words" } }), "shell", "reply-data"],
     ["task-terminal", changed(hello, { settings: { ...hello.settings, taskTerminal: "kitty" } }), "shell", "task-terminal"],
     ["sounds-type", changed(hello, { settings: { ...hello.settings, sounds: "true" } }), "shell", "sounds"],
+    ["dictation-setting-type", changed(hello, { settings: { ...hello.settings, dictation: [""] } }), "shell", "dictation-setting"],
+    ["dictation-setting-step", changed(hello, { settings: { ...hello.settings, dictation: "brain=dictation-device" } }), "shell", "dictation-setting"],
     ["cloud-vision", changed(hello, { settings: { ...hello.settings, cloudVision: "sometimes" } }), "shell", "cloud-vision"],
     ["voice-provider", changed(hello, { settings: { ...hello.settings, voiceProvider: "other" } }), "shell", "voice-settings"],
     ["live-account-type", changed(hello, { settings: { ...hello.settings, voiceAccount: true } }), "shell", "voice-settings"],
@@ -432,6 +441,8 @@ for (const cloudVision of ["ask", "allow", "never"])
     assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, cloudVision } }), "shell").settings.cloudVision, cloudVision);
 for (const privateWindows of ["", "a".repeat(1024), manifest.settings.privateWindows])
     assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, privateWindows } }), "shell").settings.privateWindows, privateWindows);
+for (const dictation of ["", "speech=dictation-device", "speech=dictation-starting"])
+    assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, dictation } }), "shell").settings.dictation, dictation);
 for (const taskTerminal of ["auto", "tmux", "floating"])
     assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, taskTerminal } }), "shell").settings.taskTerminal, taskTerminal);
 assert.equal(Protocol.MAX_PENDING_REQUESTS, 16);
@@ -453,7 +464,11 @@ for (const kind of Object.keys(Protocol.REQUESTS)) {
     assert.equal(Protocol.accept(changed(request, { kind, args }), "daemon").kind, kind);
 }
 for (const message of [inputReply, keysReply, reply, listReply, entryReply, { ...reply, answer: "refused: dispatcher=moveWindow argument=1" },
-    { ...entryReply, answer: "refused: desktop=unknown", data: null }, { ...listReply, data: { entries: [], complete: false } }])
+    { ...entryReply, answer: "refused: desktop=unknown", data: null }, { ...listReply, data: { entries: [], complete: false } },
+    stopReply, { ...stopReply, data: { text: "" } }, { ...stopReply, data: { text: "a".repeat(4096) } },
+    { ...stopReply, answer: "refused: dictation=failed reason=stop code=1", data: null },
+    { ...reply, kind: "dictation.start" }, { ...reply, kind: "dictation.start", answer: "refused: dictation=busy holder=vgs.voice" },
+    { ...reply, kind: "dictation.cancel" }])
     assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(message), "shell")), JSON.stringify(message));
 // The service's builders produce what the judge accepts, from Quickshell's
 // DesktopEntry fields as Service.qml copies them.
@@ -479,7 +494,8 @@ const acting = ["compositor.focusWorkspace", "compositor.focusWindow", "composit
     "compositor.toggleSpecialWorkspace", "compositor.closeWindow", "compositor.fullscreenWindow", "compositor.floatWindow",
     "compositor.moveWindow", "compositor.moveCursor", "compositor.resizeWindow", "compositor.focusMonitor", "compositor.reveal", "run.detached", "desktop.launch", "tui.run"];
 function lockedRows(logic) {
-    assert.deepEqual(Object.keys(logic.REQUESTS).sort(), [...acting, "desktop.list", "input.observe", "input.keys"].sort(), "the request kinds");
+    assert.deepEqual(Object.keys(logic.REQUESTS).sort(), [...acting, "desktop.list", "input.observe", "input.keys",
+        "dictation.start", "dictation.stop", "dictation.cancel"].sort(), "the request kinds");
     for (const kind of Object.keys(logic.REQUESTS)) {
         assert.equal(logic.lockedRefusal(kind, true), acting.includes(kind) ? "refused: locked" : "", kind + " while locked");
         assert.equal(logic.lockedRefusal(kind, false), "", kind + " while unlocked");
@@ -652,12 +668,14 @@ try {
         ["hello-direction", 'if (direction !== "shell") fail("direction-hello");', 'if (false) fail("direction-hello");', "hello-direction"],
         ["status-direction", 'if (direction !== "daemon") fail("direction-status");', 'if (false) fail("direction-status");', "status-direction"],
         ["shape", 'fail("shape-" + name);', ';', "hello-shape"],
-        ["settings-name", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home"], "settings");',
-            'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home"], "settings");', "extra-setting"],
+        ["settings-name", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home", "dictation"], "settings");',
+            'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home", "dictation"], "settings");', "extra-setting"],
         ["brain-type", 'typeof message.settings.brain !== "string"', 'false', "brain-setting"],
         ["model-type", 'typeof message.settings.model !== "string" || ', '', "model-type"],
         ["effort-type", ' || typeof message.settings.effort !== "string"', '', "effort-type"],
         ["sounds-type", 'if (typeof message.settings.sounds !== "boolean") fail("sounds");', 'void message;', "sounds-type"],
+        ["dictation-setting-type", 'if (typeof message.settings.dictation !== "string"', 'if (false', "dictation-setting-type"],
+        ["dictation-setting-step", "/^(|speech=dictation-[a-z-]{1,40})$/", "/^(|[a-z]+=dictation-[a-z-]{1,40})$/", "dictation-setting-step"],
         ["directory", 'if (!directory(message.directories[name])) fail("directory-" + name);', 'if (false) fail("directory-" + name);', "directory"],
         ["lock", 'if (typeof message.locked !== "boolean") fail("lock");', 'if (false) fail("lock");', "lock"],
         ["revision", 'if (typeof message.revision !== "string" || !/^[0-9a-f]{64}$/.test(message.revision)) fail("revision");', 'if (false) fail("revision");', "revision"],
@@ -717,7 +735,10 @@ try {
         ["task-count", 'if (!Number.isSafeInteger(message.count) || message.count < 0) fail("task-count");', 'if (false) fail("task-count");', "task-count"],
         ["task-answer-direction", 'if (direction !== "daemon") fail("direction-task-answer");', 'if (false) fail("direction-task-answer");', "task-answer-direction"],
         ["task-answer-task", 'if (!taskId(message.task)) fail("answer-task-id");', 'if (false) fail("answer-task-id");', "task-answer-task"],
-        ["task-answer-value", 'fail("task-answer");', ';', "task-answer-value"]
+        ["task-answer-value", 'fail("task-answer");', ';', "task-answer-value"],
+        ["dictation-text-max", "message.data.text.length > TEXT_MAX", "message.data.text.length > TEXT_MAX + 1", "dictation-text-long"],
+        ["dictation-text-shape", 'keys(message.data, ["text"], "dictation-text");', "", "dictation-text-extra"],
+        ["dictation-text-nul", 'message.data.text.indexOf("\\u0000") !== -1) fail("dictation-text");', 'false) fail("dictation-text");', "dictation-text-nul"]
     ];
     for (const [name, needle, replacement, example, matches] of guards)
         control(name, needle, replacement, logic => rejected(logic, cases.find(row => row[0] === example)), matches);
@@ -725,8 +746,8 @@ try {
         assert.equal(logic.memoryInboxEntries(Array(9).fill({ ...memoryEntry, text: "x".repeat(16 * 1024) })).length, 7));
     control("memory-inbox-filter-invalid", "if (!memoryEntryAccepted(entry)) continue;", "", logic =>
         assert.equal(logic.memoryInboxEntries([{ ...memoryEntry, problem: "other" }, memoryEntry]).length, 1));
-    control("unsupported-echo", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home"], "settings");',
-        'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home"], "settings");',
+    control("unsupported-echo", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home", "dictation"], "settings");',
+        'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home", "dictation"], "settings");',
         logic => {
             for (const row of cases.filter(row => row[0].startsWith("echo-setting-"))) rejected(logic, row);
         });

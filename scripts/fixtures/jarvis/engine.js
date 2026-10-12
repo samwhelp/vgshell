@@ -19,7 +19,7 @@ const CHUNK_FRAMES = 24000; // Below Audio's 64 KiB chunk bound.
 // One shared controller per test process. A case resets it before use.
 const control = {};
 function reset(options = {}) {
-    Object.assign(control, { ready: true, wake: false, recipients: [{ kind: "local", provider: "scripted-speech", account: "" }],
+    Object.assign(control, { ready: true, wake: false, dictation: false, recipients: [{ kind: "local", provider: "scripted-speech", account: "" }],
         voices: [{ label: "Fixture", value: "fixture" }, { label: "Other", value: "other" }], speakers: [],
         utterances: [], detections: [], spoken: [], labels: new Set(), opened: [], closed: 0, aborted: 0, finals: 0,
         finalTimes: [], inputEnds: [], frames: 0, ...options });
@@ -27,7 +27,8 @@ function reset(options = {}) {
 reset();
 
 // A scripted utterance: partials after successive capture frames, then the
-// final once Audio closes the sink. events replaces the scripted sequence.
+// final once Audio closes the sink, or for a dictation row the end marker,
+// speech while the final holds words. events replaces the scripted sequence.
 // afterFrames ends the utterance early, as a provider's turn detection does;
 // failAfterClose throws once the capture has closed.
 function utterance(final, partials = [], events = null, options = {}) {
@@ -50,6 +51,7 @@ function synthesized(text) {
 const row = {
     select() {
         return control.ready ? { kind: "ready", recipients: control.recipients, voices: control.voices, ...(control.wake ? { wake: true } : {}),
+            ...(control.dictation ? { dictation: true } : {}),
             open: ({ net, recipients }) => adapter(net, recipients) }
             : { kind: "unconfigured", cause: "speech=fixture-off" };
     }
@@ -66,7 +68,7 @@ function adapter(net, recipients) {
             const script = control.utterances.shift();
             assert.ok(script, "a scripted utterance exists for each capture");
             const events = script.events ?? [...script.partials.map((text, index) => ({ kind: "partial", text, rev: index + 1 })),
-                { kind: "final", text: script.final }];
+                control.dictation ? { kind: "ended", speech: script.final.trim() !== "" } : { kind: "final", text: script.final }];
             const input = frames[Symbol.asyncIterator]();
             let index = 0;
             let ended = false;
@@ -78,7 +80,7 @@ function adapter(net, recipients) {
             };
             const emit = () => {
                 const event = events[index++];
-                if (event.kind === "final") { control.finals++; control.finalTimes.push(performance.now()); }
+                if (event.kind === "final" || event.kind === "ended") { control.finals++; control.finalTimes.push(performance.now()); }
                 return { value: event, done: false };
             };
             return { [Symbol.asyncIterator]() { return this; },
@@ -118,6 +120,33 @@ function adapter(net, recipients) {
         },
         close() { control.closed++; }
     };
+}
+
+// The service's answers to the engine's dictation requests, as Service.qml
+// gives them, through the daemon's own request owner and the protocol judge
+// in both directions: start answers `start`, cancel "ok" and stop `stop`,
+// with `text`, the stand-in voxtype's words, for "ok"; each on a later turn,
+// as a reply line comes. While `hold` is set a start's answer waits for
+// release(). `calls` lists each request's kind in order.
+function dictation(ShellRequests, Protocol, clock) {
+    const revision = "a".repeat(64);
+    const stand = { calls: [], text: "", start: "ok", stop: "ok", hold: false, held: [], closed: false };
+    const requests = ShellRequests.create({ Protocol, clock, write: fields => {
+        Protocol.accept(JSON.stringify({ v: 1, type: "request", gen: 0, revision, ...fields }), "daemon");
+        stand.calls.push(fields.kind);
+        const answer = fields.kind === "dictation.start" ? stand.start : fields.kind === "dictation.stop" ? stand.stop : "ok";
+        const data = fields.kind === "dictation.stop" && answer === "ok" ? { text: stand.text } : null;
+        const reply = () => {
+            if (!stand.closed) requests.reply(Protocol.accept(JSON.stringify({ v: 1, type: "reply", gen: 0, revision,
+                id: fields.id, kind: fields.kind, answer, data }), "shell"));
+        };
+        if (fields.kind === "dictation.start" && stand.hold) stand.held.push(reply);
+        else setImmediate(reply);
+    } });
+    stand.send = requests.send;
+    stand.release = () => { stand.hold = false; for (const reply of stand.held.splice(0)) setImmediate(reply); };
+    stand.close = () => { stand.closed = true; requests.close(); };
+    return stand;
 }
 
 // A disposable plugin copy whose speech table holds the scripted row. Extra
@@ -215,4 +244,4 @@ function calls(...values) {
     delta({}, "tool_calls"), "[DONE]"];
 }
 
-module.exports = { control, reset, utterance, synthesized, row, copy, brain, text, calls, WORD_FRAMES };
+module.exports = { dictation, control, reset, utterance, synthesized, row, copy, brain, text, calls, WORD_FRAMES };
