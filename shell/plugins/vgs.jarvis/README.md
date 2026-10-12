@@ -4,6 +4,8 @@ Jarvis is a voice assistant for your desktop. You talk to it, and it answers wit
 
 ![The Jarvis page in Settings](../../../docs/images/plugins/vgs.jarvis-page.webp)
 
+Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
+
 ## Features
 
 - Talk with a key, or say Hey Jarvis.
