@@ -1160,10 +1160,15 @@ cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
 cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
 jarvis_rescan
 
+# The permanent stop sends the stopped notice, so a notifications holder
+# draws it; with none, the core logs it unsent and the log checks fail.
+notes_on "jarvis permanent stop"
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --floor-daemon "$jarvis_backend"
 jarvis_rescan
 expect "the unsupported Node fixture enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "Node exit 78 is a permanent problem without retries" permanent jarvis_permanent
+expect_poll "the permanent stop sends one Jarvis notification" '[["Jarvis needs Node 22 or later", "danger", "mic"]]' jarvis_cards
+expect "the permanent stop logs no unsent notice" 0 log_lines 'notify: unsent plugin=vgs\.jarvis '
 expect "the unsupported Node service disables" ok ipc shell setPluginEnabled vgs.jarvis false
 python3 - "$jarvis_service" <<'PY'
 from pathlib import Path
@@ -1178,6 +1183,7 @@ jarvis_rescan
 expect "the Node-floor recovery control enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "the missing permanent-exit rule wrongly retries" retried jarvis_permanent
 expect "the recovery control disables" ok ipc shell setPluginEnabled vgs.jarvis false
+notes_off "jarvis permanent stop"
 cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
 cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
 jarvis_rescan
