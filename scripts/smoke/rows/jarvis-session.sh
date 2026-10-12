@@ -86,7 +86,7 @@ session_tmux() {
 }
 # VALUES, a JSON object, written over Jarvis's settings; null removes a key.
 session_set() { # VALUES
-  python3 - "$session_config" "$1" <<'PY'
+  user_config_write python3 - "$session_config" "$1" <<'PY'
 import json, sys
 from pathlib import Path
 path = Path(sys.argv[1]); value = json.loads(path.read_text())
@@ -96,7 +96,7 @@ if row is None:
 for key, setting in json.loads(sys.argv[2]).items():
     if setting is None: row.pop(key, None)
     else: row[key] = setting
-path.write_text(json.dumps(value))
+print(json.dumps(value))
 PY
 }
 session_shell_start() { # TREE NAME

@@ -126,7 +126,7 @@ setup_voice_left='[["setup", ["warning"], [], 1], ["setupVoice", ["warning"], ["
 setup_ready='[["setup", ["success"], [], 1], ["setupVoice", ["info"], ["check-microphone"], 1], ["setupBrowser", true], ["setupInput", true], ["setupModel", ["success"], [], 1], ["clonedVoiceSetup", true]]'
 # BRAIN as the Jarvis AI model setting, "" for none, delivered by a reload.
 setup_brain() { # BRAIN
-  python3 - "$setup_config" "$1" <<'PY'
+  user_config_write python3 - "$setup_config" "$1" <<'PY'
 import json,sys
 from pathlib import Path
 p=Path(sys.argv[1]); value=json.loads(p.read_text())
@@ -135,7 +135,7 @@ if row is None:
     row={"id":"vgs.jarvis"}; value["plugins"].append(row)
 if sys.argv[2]: row["brain"]=sys.argv[2]
 else: row.pop("brain",None)
-p.write_text(json.dumps(value))
+print(json.dumps(value))
 PY
   expect "deliver the Jarvis AI model" ok ipc shell reloadConfig
 }
@@ -266,7 +266,7 @@ print(json.dumps(offers[0]) if offers else "none")
 }
 # VALUE as the Local voice setting, delivered by a reload.
 setup_tier() { # VALUE
-  python3 - "$setup_config" "$1" <<'PY'
+  user_config_write python3 - "$setup_config" "$1" <<'PY'
 import json,sys
 from pathlib import Path
 p=Path(sys.argv[1]); value=json.loads(p.read_text())
@@ -274,7 +274,7 @@ row=next((r for r in value.setdefault("plugins",[]) if r["id"]=="vgs.jarvis"),No
 if row is None:
     row={"id":"vgs.jarvis"}; value["plugins"].append(row)
 row["localTier"]=sys.argv[2]
-p.write_text(json.dumps(value))
+print(json.dumps(value))
 PY
   expect "deliver the Local voice setting $1" ok ipc shell reloadConfig
 }
@@ -563,7 +563,7 @@ PY
 }
 # VALUE as the Voice provider setting, "" for none, delivered by a reload.
 setup_provider() { # VALUE
-  python3 - "$setup_config" "$1" <<'PY'
+  user_config_write python3 - "$setup_config" "$1" <<'PY'
 import json,sys
 from pathlib import Path
 p=Path(sys.argv[1]); value=json.loads(p.read_text())
@@ -572,7 +572,7 @@ if row is None:
     row={"id":"vgs.jarvis"}; value["plugins"].append(row)
 if sys.argv[2]: row["voiceProvider"]=sys.argv[2]
 else: row.pop("voiceProvider",None)
-p.write_text(json.dumps(value))
+print(json.dumps(value))
 PY
   expect "deliver the Voice provider ${1:-default}" ok ipc shell reloadConfig
 }

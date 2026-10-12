@@ -16,14 +16,14 @@ sysmon_shown() {
 sysmon_numeric() { ipc smoke statusValues vgs.sysmon | py_reply 'import json,sys; r=json.load(sys.stdin).get("readings",{}); print("numeric" if all(isinstance(r.get(k,{}).get("use"),(int,float)) for k in ("cpu","memory")) else "pending")'; }
 sysmon_icons() { ipc smoke itemValues "$1" "$2" BarItem iconName,visible | py_reply 'import json,sys; print(json.dumps([r["iconName"] for r in json.load(sys.stdin) if r["visible"]]))'; }
 sysmon_setting() {
-  python3 - "$home/.config/vgshell/shell.json" "$1" "$2" <<'PYSETTING' || return
+  user_config_write python3 - "$home/.config/vgshell/shell.json" "$1" "$2" <<'PYSETTING' || return
 import json,pathlib,sys
 p=pathlib.Path(sys.argv[1]); data=json.loads(p.read_text())
 rows=data.setdefault("plugins",[])
 row=next((r for r in rows if r.get("id")=="vgs.sysmon"),None)
 if row is None: row={"id":"vgs.sysmon"}; rows.append(row)
 row[sys.argv[2]]=json.loads(sys.argv[3])
-p.write_text(json.dumps(data))
+print(json.dumps(data))
 PYSETTING
   ipc shell reloadConfig
 }
@@ -171,7 +171,7 @@ expect "the Enter control window closes" ok ipc shell hide window "$sysmon_fixtu
 expect "the Enter control disables" ok ipc shell setPluginEnabled "$sysmon_fixture_id" false
 rm -rf -- "${sysmon_fixture:?}"
 rescan "the Enter control is removed"
-cp -- "$sysmon_saved" "$home/.config/vgshell/shell.json"
+user_config_restore "$sysmon_saved"
 expect "the original configuration returns" ok ipc shell reloadConfig
 rest_pointer
 # smoke_row runs scripts/smoke/leaks.sh on this restored state.

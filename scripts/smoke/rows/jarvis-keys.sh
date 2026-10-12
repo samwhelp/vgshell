@@ -79,7 +79,7 @@ jarvis_key_received_control() { # FIXTURE_FILE
 }
 jarvis_key_gate() { : >"$jarvis_key_gates/$1"; }
 jarvis_key_mode() { # MODE
-  python3 - "$jarvis_key_config" "$1" <<'PY'
+  user_config_write python3 - "$jarvis_key_config" "$1" <<'PY'
 import json,sys
 from pathlib import Path
 p=Path(sys.argv[1]); value=json.loads(p.read_text())
@@ -87,7 +87,7 @@ row=next((r for r in value.setdefault("plugins",[]) if r["id"]=="vgs.jarvis"),No
 if row is None:
     row={"id":"vgs.jarvis"}; value["plugins"].append(row)
 row["mode"]=sys.argv[2]
-p.write_text(json.dumps(value))
+print(json.dumps(value))
 PY
   expect "deliver the Jarvis talk mode" ok ipc shell reloadConfig
   expect_poll "the running daemon receives its mode" "$1" jarvis_key_state mode

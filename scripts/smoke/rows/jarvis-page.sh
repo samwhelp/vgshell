@@ -294,14 +294,14 @@ page_reads() { if [[ -f "$sandbox/jarvis-world/model-reads" ]]; then wc -l <"$sa
 # Take each named Jarvis setting out of the user file's plugin row, which
 # the page and the service both read.
 page_settings_drop() {
-  python3 - "$home/.config/vgshell/shell.json" "$@" <<'PY'
+  user_config_write python3 - "$home/.config/vgshell/shell.json" "$@" <<'PY'
 import json,sys
 from pathlib import Path
 p=Path(sys.argv[1]); value=json.loads(p.read_text())
 for row in value.get("plugins", []):
     if isinstance(row, dict) and row.get("id") == "vgs.jarvis":
         for key in sys.argv[2:]: row.pop(key, None)
-p.write_text(json.dumps(value))
+print(json.dumps(value))
 PY
   expect "the user file's Jarvis settings are read again" ok ipc shell reloadConfig
 }

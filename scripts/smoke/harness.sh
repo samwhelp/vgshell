@@ -959,8 +959,8 @@ SH
 # removed
 # (docs/decisions/D075-consumer-features-need-no-developer-setup.md).
 set_slack_photos() { # on|absent
-  python3 - "$home/.config/vgshell/shell.json" "$1" <<'PY'
-import json, os, sys
+  user_config_write python3 - "$home/.config/vgshell/shell.json" "$1" <<'PY'
+import json, sys
 path, want = sys.argv[1], sys.argv[2]
 doc = json.load(open(path))
 rows = doc.setdefault("plugins", [])
@@ -976,9 +976,7 @@ elif want == "absent":
         rows.remove(row)
 else:
     sys.exit("set_slack_photos: want on or absent, got " + want)
-with open(path + ".tmp", "w") as out:
-    json.dump(doc, out)
-os.replace(path + ".tmp", path)
+print(json.dumps(doc))
 PY
 }
 
@@ -1009,15 +1007,13 @@ default_set_prepare() { # PLUGINS_JSON [DISABLED_JSON]
   expected_errors+=("${dictation_absent_errors[@]}")
   devtools_stand_ins
   updates_cache_fresh
-  python3 - "$home/.config/vgshell/shell.json" "$1" "${2:-[]}" <<'PY'
+  user_config_write python3 - "$home/.config/vgshell/shell.json" "$1" "${2:-[]}" <<'PY'
 import json, os, sys
 user, plugins, disabled = sys.argv[1], json.loads(sys.argv[2]), json.loads(sys.argv[3])
 installed = os.path.join(os.path.dirname(user), "plugins")
 left = sorted(d for d in os.listdir(installed) if d not in plugins and d not in disabled) if os.path.isdir(installed) else []
 disabled = disabled + left
-with open(user + ".tmp", "w") as out:
-    json.dump({"version": 2, "plugins": [{"id": p} for p in plugins], "disabledPlugins": disabled}, out)
-os.replace(user + ".tmp", user)
+print(json.dumps({"version": 2, "plugins": [{"id": p} for p in plugins], "disabledPlugins": disabled}))
 PY
 }
 # updates_cache_fresh: the shipped vgs.updates's status cache written as a
@@ -1041,7 +1037,7 @@ case "$plugin_set" in
     tick="$home/.config/vgshell/plugins/acme.tick"
     mkdir -p "$tick"
     cp -R "$repo/scripts/smoke/fixtures/plugins/acme.tick/." "$tick/"
-    cat >"$home/.config/vgshell/shell.json" <<'JSON'
+    user_config_write cat <<'JSON'
 { "version": 2, "bar": { "id": "vgs.bar", "layout": { "left": [{ "id": "vgs.bar/left-workspaces" }], "center": [{ "id": "vgs.bar/center-clock" }, { "id": "acme.tick" }], "right": [] } }, "plugins": [{ "id": "vgs.settings" }, { "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.updates", "vgs.agent-warden", "vgs.devtools", "vgs.automations", "vgs.cloud-sync", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.power", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.screensaver", "vgs.ai-usage", "vgs.traffic", "vgs.tray", "vgs.voice", "vgs.webapps", "vgs.clipboard", "vgs.sysmon", "vgs.sudo", "vgs.printers"] }
 JSON
     ;;

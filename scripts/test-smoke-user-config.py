@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Read the destination while the real smoke restore still copies its source.
+"""Read the destination while the real smoke writer still stages its source.
 
-The FIFO holds cp after its first byte. The same check must fail when the
-writer copies into the watched file. Row checks establish source wiring only.
+The FIFO holds the writer after its first byte. The same check must fail when
+the writer redirects into the watched file. Row checks establish source wiring
+only.
 """
 import errno
 import json
@@ -86,9 +87,9 @@ class RestoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch:
             scratch = Path(scratch)
             text = WRITER.read_text()
-            old = 'cp -- "$1" "$staged"'
+            old = '"$@" >"$staged" || return'
             self.assertEqual(text.count(old), 1)
-            changed = text.replace(old, 'cp -- "$1" "$destination"')
+            changed = text.replace(old, '"$@" >"$destination" || return')
             self.assertNotEqual(changed, text)
             mutant = scratch / "direct-copy.sh"
             mutant.write_text(changed)
