@@ -93,7 +93,7 @@ var DAEMON_LINES = {
 // while another line stands, "" once ready.
 function setupState(reads, daemon) {
     if (reads.present === false)
-        return { tone: "warning", text: "Set up needed", lines: ["voxtype is not installed."], action: "install", engine: DEFAULT_ENGINE, model: DEFAULT_MODEL };
+        return { tone: "warning", text: "Setup needed", lines: ["voxtype is not installed."], action: "install", engine: DEFAULT_ENGINE, model: DEFAULT_MODEL };
     if (DAEMON_LINES[daemon] === undefined)
         throw new Error("voice: daemon " + JSON.stringify(daemon) + " is not one of " + Object.keys(DAEMON_LINES).join(", "));
     var engine = configValue(reads.engine || "", DEFAULT_ENGINE);
@@ -102,7 +102,7 @@ function setupState(reads, daemon) {
     if (!engineAvailable(reads.engines || "", engine)) lines.push("The active build cannot use " + engine + ".");
     if (!modelInstalled(reads.models || "", engine, model)) lines.push("The speech model is missing.");
     if (DAEMON_LINES[daemon] !== "") lines.push(DAEMON_LINES[daemon]);
-    if (lines.length > 0) return { tone: "warning", text: "Set up needed", lines: lines, action: daemon === "elsewhere" ? "stop" : "setup", engine: engine, model: model };
+    if (lines.length > 0) return { tone: "warning", text: "Setup needed", lines: lines, action: daemon === "elsewhere" ? "stop" : "setup", engine: engine, model: model };
     var version = versionOf(reads.version || "");
     var summary = (version === "" ? "voxtype" : "voxtype " + version) + " \u00b7 " + model;
     return { tone: "ok", text: "Ready", lines: [summary], action: "", engine: engine, model: model };

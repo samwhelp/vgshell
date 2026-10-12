@@ -185,7 +185,7 @@ const controls = [
   ["the transcription after Voice's stop reads idle", "phase: after ? \"transcribing\" : \"idle\"", "phase: \"idle\""],
   ["model presence ignored", "row.name === wanted && row.installed === true", "row.name === wanted"],
   ["engine compiled ignored", "return row.compiled === true;", "return true;"],
-  ["setup never offers action", "if (lines.length > 0) return { tone: \"warning\", text: \"Set up needed\", lines: lines, action: daemon === \"elsewhere\" ? \"stop\" : \"setup\",", "if (lines.length > 0) return { tone: \"warning\", text: \"Set up needed\", lines: lines, action: \"\","],
+  ["setup never offers action", "if (lines.length > 0) return { tone: \"warning\", text: \"Setup needed\", lines: lines, action: daemon === \"elsewhere\" ? \"stop\" : \"setup\",", "if (lines.length > 0) return { tone: \"warning\", text: \"Setup needed\", lines: lines, action: \"\","],
   ["a daemon that is not ready reads ready", "    if (DAEMON_LINES[daemon] !== \"\") lines.push(", "    if (false) lines.push("],
   ["a daemon the shell did not start reads as one that failed", "    elsewhere: \"Another voxtype is already running. Stop the other voxtype so VGS can start its own.\",", "    elsewhere: \"voxtype did not start.\","],
   ["a daemon the shell did not start offers Set up", "action: daemon === \"elsewhere\" ? \"stop\" : \"setup\",", "action: \"setup\","],

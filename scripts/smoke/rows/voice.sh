@@ -34,7 +34,7 @@
 # the notice drawing voxtype and its bridge under the one package of both;
 # its control is a disposable manifest copy whose Configure declares no
 # `requires`, which launches the script with no notice. The Voice page's
-# Setup section reads Voice's setup state: without voxtype Set up needed
+# Setup section reads Voice's setup state: without voxtype Setup needed
 # with the install step first, and Configure and Choose model, whose
 # `requires` name voxtype, disabled with a reason that names it; once set
 # up, Ready with voxtype's version and the model. Its control is a
@@ -1055,8 +1055,8 @@ print(json.dumps({"action": v["action"] or "none", "lines": len(want), "drawn": 
 }
 # Control: Voice's own Setup value with its last line changed.
 voice_setup_value_changed() { ipc smoke readInstance service vgs.voice setupValue | py_reply 'import json,sys; v=json.load(sys.stdin); v["lines"][-1] += " (changed)"; print(json.dumps(v))'; }
-voice_setup_missing='{"chips": [["Set up needed", "warning"]], "buttons": [["Install requirements", "accent", true, false], ["Configure", "accent", false, true], ["Choose model", "accent", false, true]]}'
-voice_setup_needed='{"chips": [["Set up needed", "warning"]], "buttons": [["Set up", "accent", true, false], ["Configure", "accent", true, false], ["Choose model", "accent", true, false]]}'
+voice_setup_missing='{"chips": [["Setup needed", "warning"]], "buttons": [["Install requirements", "accent", true, false], ["Configure", "accent", false, true], ["Choose model", "accent", false, true]]}'
+voice_setup_needed='{"chips": [["Setup needed", "warning"]], "buttons": [["Set up", "accent", true, false], ["Configure", "accent", true, false], ["Choose model", "accent", true, false]]}'
 voice_setup_ready='{"chips": [["Ready", "success"]], "buttons": [["Configure", "accent", true, false], ["Choose model", "accent", true, false]]}'
 voice_engine_installed() {
   cp -- "$sandbox/voice-voxtype.stub" "$voice_stub" && cp -- "$repo/scripts/smoke/fixtures/voxtype/wtype" "$voice_wtype" && cp -- "$sandbox/voice-bridge.stub" "$voice_bridge_stub" && chmod 755 "$voice_stub" "$voice_wtype" "$voice_bridge_stub"
@@ -1146,7 +1146,7 @@ settings_setup
 # The Setup section reads Voice's own setup state: without voxtype it says
 # so, and the install step it offers comes first; Configure and Choose
 # model, which need voxtype, take no press and say so on hover.
-expect_poll "the Setup section draws Set up needed, the install step first and the screens that need voxtype disabled" "$voice_setup_missing" voice_setup_section
+expect_poll "the Setup section draws Setup needed, the install step first and the screens that need voxtype disabled" "$voice_setup_missing" voice_setup_section
 expect "the Setup section draws the service's one install line" '{"action": "install", "lines": 1, "drawn": true}' voice_setup_lines
 voice_setup_changed="$(voice_setup_value_changed)" || fail "control: the service's Setup value is unreadable"
 expect "control: a drawn line that differs from the service value reads undrawn" '{"action": "install", "lines": 1, "drawn": false}' voice_setup_lines "$voice_setup_changed"
@@ -1183,7 +1183,7 @@ expect "enabling Voice after the Setup section control is allowed" ok ipc shell 
 expect_poll "Voice builds after the Setup section control" True record_exists vgs.voice
 settings_page_open vgs.voice
 settings_setup
-expect_poll "the Setup section reads Set up needed again" "$voice_setup_missing" voice_setup_section
+expect_poll "the Setup section reads Setup needed again" "$voice_setup_missing" voice_setup_section
 # Without voxtype, the setup entry alone offers an install, and the Setup
 # tab draws the Requirements row.
 expect_poll "the Voice page offers the setup entry's install alone without voxtype" '[["setup", "Install requirements", true]]' offered_actions vgs.voice
@@ -1265,7 +1265,7 @@ expect_poll "Set up is withheld once the model is in place and the daemon runs" 
 expect_poll "the Setup section reads Ready, every screen active and no step" "$voice_setup_ready" voice_setup_section
 expect "the Setup section draws the service's one Ready line" '{"action": "none", "lines": 1, "drawn": true}' voice_setup_lines
 # Control: the core's daemon ended by the row, the stand-in whose pid its
-# own lock names, turns the same reading red: Set up needed, and Set up
+# own lock names, turns the same reading red: Setup needed, and Set up
 # first. Set up's run then starts a daemon, and the section reads Ready.
 expected_errors+=('WARN qml: dictation: daemon stderr=' 'WARN qml: dictation: daemon=failed reason=ended code=0$')
 voice_daemon_pid="$(cat -- "$rt_dir/voxtype/voxtype.lock")" || voice_daemon_pid=unread
@@ -1275,7 +1275,7 @@ else
   fail "control: the stand-in daemon's pid is unreadable: $voice_daemon_pid"
 fi
 expect_poll "control: Voice reads the ended daemon failed" "failed idle -" voice_state
-expect_poll "control: an ended daemon draws Set up needed with Set up first" "$voice_setup_needed" voice_setup_section
+expect_poll "control: an ended daemon draws Setup needed with Set up first" "$voice_setup_needed" voice_setup_section
 expect "control: the Setup section draws the service's one setup line for the ended daemon" '{"action": "setup", "lines": 1, "drawn": true}' voice_setup_lines
 voice_forget
 forget_record
@@ -1343,7 +1343,7 @@ voice_noted_within() { # MS
   while [[ $(voice_noted) == none ]] && (( $(now_ms) < until )); do sleep 0.2; done
   voice_noted
 }
-voice_setup_elsewhere='{"chips": [["Set up needed", "warning"]], "buttons": [["Stop the other voxtype", "accent", true, false], ["Configure", "accent", true, false], ["Choose model", "accent", true, false]]}'
+voice_setup_elsewhere='{"chips": [["Setup needed", "warning"]], "buttons": [["Stop the other voxtype", "accent", true, false], ["Configure", "accent", true, false], ["Choose model", "accent", true, false]]}'
 # voice_stop_other LABEL: from Voice enabled over the core's daemon, the
 # row's own daemon holds the place, Voice offers the step, the step's run
 # is held while that daemon ends, and the run ends; the stand-in's notes
@@ -1362,7 +1362,7 @@ voice_stop_other() { # LABEL
   expect_poll "$1: Setup offers Stop the other voxtype" stop voice_setup_offered
   settings_page_open vgs.voice
   settings_setup
-  expect_poll "$1: the Setup section draws Set up needed with Stop the other voxtype first" "$voice_setup_elsewhere" voice_setup_section
+  expect_poll "$1: the Setup section draws Setup needed with Stop the other voxtype first" "$voice_setup_elsewhere" voice_setup_section
   expect "$1: the Setup section draws the service's one line for the other voxtype" '{"action": "stop", "lines": 1, "drawn": true}' voice_setup_lines
   voice_stop_other_before="$(voice_stop_other_end)" || voice_stop_other_before=unread
   forget_record
