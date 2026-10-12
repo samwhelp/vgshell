@@ -46,80 +46,11 @@
     "wakeTokens": "▁HE Y ▁JA R VI S @HEY_JARVIS"
   },
   "tiers": {
-    "small": {"provider": "cpu", "name": "Small", "description": "English, quick setup", "downloadBytes": 796490765, "artifacts": ["moonshine", "piper", "silero", "smart-turn", "wake", "nemotron"]},
-    "medium": {"provider": "cpu", "name": "Medium", "description": "English, more accurate", "downloadBytes": 1455131612, "artifacts": ["parakeet", "kokoro", "silero", "smart-turn", "wake", "nemotron"]},
-    "large": {"provider": "cuda", "name": "Large", "description": "English, graphics card", "downloadBytes": 1700556447, "artifacts": ["parakeet", "kokoro", "silero", "smart-turn", "wake", "nemotron"]},
-    "multilingual-cpu": {"provider": "cpu", "name": "Multilingual", "description": "many languages", "downloadBytes": 2018921819, "artifacts": ["parakeet", "whisper", "kokoro", "silero", "smart-turn", "wake", "nemotron"]},
-    "multilingual-cuda": {"provider": "cuda", "name": "Multilingual", "description": "many languages, graphics card", "downloadBytes": 2264346654, "artifacts": ["parakeet", "whisper", "kokoro", "silero", "smart-turn", "wake", "nemotron"]}
+    "small": {"provider": "cpu", "name": "Small", "description": "English, quick setup", "downloadBytes": 685224540, "artifacts": ["piper", "silero", "smart-turn", "wake", "nemotron"]},
+    "medium": {"provider": "cpu", "name": "Medium", "description": "English, many voices", "downloadBytes": 967961557, "artifacts": ["kokoro", "silero", "smart-turn", "wake", "nemotron"]},
+    "large": {"provider": "cuda", "name": "Large", "description": "English, graphics card", "downloadBytes": 1213386392, "artifacts": ["kokoro", "silero", "smart-turn", "wake", "nemotron"]}
   },
   "artifacts": [
-    {
-      "id": "parakeet",
-      "engine": "parakeet",
-      "directory": "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
-      "revision": "asr-models asset updated 2025-08-16T09:29:29Z",
-      "sha256": "5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf",
-      "runtime": "sherpa-onnx",
-      "providers": ["cpu", "cuda"],
-      "input": "mono 16000 Hz float32 PCM normalized to [-1,1]",
-      "languages": ["bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk"],
-      "modelLicense": "CC-BY-4.0",
-      "voiceLicense": null,
-      "licenseSource": "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3/tree/541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
-      "files": {
-        "encoder.int8.onnx": "acfc2b4456377e15d04f0243af540b7fe7c992f8d898d751cf134c3a55fd2247",
-        "decoder.int8.onnx": "179e50c43d1a9de79c8a24149a2f9bac6eb5981823f2a2ed88d655b24248db4e",
-        "joiner.int8.onnx": "3164c13fc2821009440d20fcb5fdc78bff28b4db2f8d0f0b329101719c0948b3",
-        "tokens.txt": "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d"
-      }
-    },
-    {
-      "id": "moonshine",
-      "engine": "moonshine",
-      "maxInputSamples": 80000,
-      "inputContractSource": "https://k2-fsa.github.io/sherpa/onnx/moonshine/models-v2.html#sherpa-onnx-moonshine-base-en-quantized-2026-02-27-english",
-      "directory": "sherpa-onnx-moonshine-base-en-quantized-2026-02-27",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-base-en-quantized-2026-02-27.tar.bz2",
-      "revision": "asr-models asset updated 2026-02-27T09:30:12Z",
-      "sha256": "43232c1d13013d37317163baec3135bd771a186a4356f28c889bab453bb0e891",
-      "runtime": "sherpa-onnx",
-      "providers": ["cpu"],
-      "input": "mono 16000 Hz float32 PCM normalized to [-1,1]; independent chunks of at most 80000 samples",
-      "languages": ["en"],
-      "modelLicense": "MIT",
-      "voiceLicense": null,
-      "licenseSource": "LICENSE in the pinned archive, SECTION 1",
-      "files": {
-        "encoder_model.ort": "7c66495948d0d08ec1af454cd4b5514862ae6511e94712a60e6d83eaec8dc8cf",
-        "decoder_model_merged.ort": "d9d7b333af34bc552580576ddcf248a1c6c839e0d3b43b09afb9376ed009899d",
-        "tokens.txt": "2870d843e14c1e187bf1913a521562a63b53933814bd7f2145120468f494a049",
-        "LICENSE": "6148d7574a6554b7379b633cfd4c4fe5840c3f548d13bc83e00b52dc6fa00abd"
-      }
-    },
-    {
-      "id": "whisper",
-      "engine": "whisper",
-      "maxInputSamples": 464000,
-      "inputContractSource": "https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/sherpa-onnx/csrc/offline-recognizer-whisper-impl.h",
-      "directory": "sherpa-onnx-whisper-turbo",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-turbo.tar.bz2",
-      "revision": "asr-models asset updated 2024-10-02T09:56:09Z",
-      "sha256": "b11acbbcd660b44a8e0df33724feb5aaa709cf65668f2823d59f656312544f22",
-      "runtime": "sherpa-onnx",
-      "providers": ["cpu", "cuda"],
-      "input": "mono 16000 Hz float32 PCM normalized to [-1,1]; independent chunks of at most 464000 samples",
-      "languagesSource": "https://github.com/openai/whisper/blob/main/whisper/tokenizer.py",
-      "languages": ["en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no", "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw", "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl", "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su", "yue"],
-      "modelLicense": "MIT",
-      "voiceLicense": null,
-      "licenseSource": "https://github.com/openai/whisper/blob/main/LICENSE",
-      "files": {
-        "turbo-encoder.int8.onnx": "b02dcdf54f348741e93fe732b67d933c8dcb6735655f710640143081db38878b",
-        "turbo-decoder.int8.onnx": "20accd02388482eb3a46bd615631adfdc85e1eb2c7db9ea3f02a40ffe6b81547",
-        "turbo-tokens.txt": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126"
-      }
-    },
     {
       "id": "kokoro",
       "engine": "kokoro",

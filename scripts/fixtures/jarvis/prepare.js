@@ -348,9 +348,8 @@ function service(sourceTree, tree, root) {
         // A PX13-class laptop's answer with nothing set up.
         if (!fs.existsSync(path.join(root, "local-tiers.json")))
             fs.writeFileSync(path.join(root, "local-tiers.json"), JSON.stringify({ pick: "small", ready: null, choices: [
-                { value: "auto", label: "Auto: Small, English, quick setup, 796 MB" },
-                { value: "medium", label: "Medium: English, more accurate, 1.5 GB" },
-                { value: "multilingual-cpu", label: "Multilingual: many languages, 2.0 GB" }] }) + "\n");
+                { value: "auto", label: "Auto: Small, English, quick setup, 685 MB" },
+                { value: "medium", label: "Medium: English, many voices, 968 MB" }] }) + "\n");
         fs.writeFileSync(tier, tierSource.replace(tierNeedle, tierCommand));
     }
     const browser = path.join(tree, "shell/plugins/vgs.jarvis/BrowserRuntime.qml");

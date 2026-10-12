@@ -509,9 +509,8 @@ def admission_case(m):
                 return 2048
             judge.available = enough
             value = m.load(setup, state, state)
-            # The small tier's recognizer is moonshine: setup's probe uses it,
-            # and the sidecar, whose words are dictation's, loads it not.
-            if not isinstance(value, m.Speech) or not {"piper", "silero"}.issubset(loaded) or "moonshine" in loaded:
+            tier = json.loads((PLUGIN / "artifacts.json").read_text())["tiers"]["small"]["artifacts"]
+            if not isinstance(value, m.Speech) or sorted(loaded) != sorted(tier):
                 raise AssertionError(f"admitted model roles: {loaded}")
             if value.speakers != ["ljspeech"]:
                 raise AssertionError(f"the small tier's Piper voice has one speaker, got {value.speakers}")
@@ -528,15 +527,28 @@ def roles_case(m):
         raise AssertionError("tier discovery is broken: no small tier")
     for tier, row in value["tiers"].items():
         chosen = m.roles([by_id[n] for n in row["artifacts"]], tier)
-        if set(chosen) != {"stt", "tts", "vad", "captions", "turn", "wake"} or chosen["wake"]["id"] != "wake":
+        if set(chosen) != {"tts", "vad", "captions", "turn", "wake"} or chosen["wake"]["id"] != "wake":
             raise AssertionError(f"{tier}: {chosen}")
     try:
-        m.roles([by_id["moonshine"], by_id["parakeet"], by_id["piper"], by_id["silero"]], "x")
+        m.roles([by_id["kokoro"], by_id["piper"], by_id["silero"]], "x")
     except RuntimeError as error:
-        if str(error) != "tier=duplicate-role role=stt tier=x":
+        if str(error) != "tier=duplicate-role role=tts tier=x":
             raise
     else:
-        raise AssertionError("two recognizers accepted")
+        raise AssertionError("two voices accepted")
+    # A copy of the manifest with a final recognizer back in a tier: the
+    # sidecar would never load it, so the tier is refused.
+    changed = json.loads(json.dumps(value))
+    changed["artifacts"].append({"id": "parakeet", "engine": "parakeet"})
+    changed["tiers"]["small"]["artifacts"].insert(0, "parakeet")
+    by_id = {a["id"]: a for a in changed["artifacts"]}
+    try:
+        m.roles([by_id[n] for n in changed["tiers"]["small"]["artifacts"]], "small")
+    except RuntimeError as error:
+        if str(error) != "tier=unknown-role engine=parakeet tier=small":
+            raise
+    else:
+        raise AssertionError("a recognizer no role loads was accepted")
 
 
 def run(program, parent, state):
@@ -604,7 +616,9 @@ CONTROLS = [
     ("setup lock", "fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)", "fcntl.flock(lock, fcntl.LOCK_UN)",
      readiness_cases),
     ("one role each", "if role in found:", "if False:", roles_case),
-    ("wake role", 'else "wake" if engine == "wake" else None', "else None", roles_case),
+    ("wake role", '"smart-turn": "turn", "wake": "wake"}', '"smart-turn": "turn"}', roles_case),
+    ("unknown engine refused", 'raise RuntimeError(f"tier=unknown-role engine={artifact[\'engine\']} tier={tier}")', "continue",
+     roles_case),
     ("woke once", '                    utterances.pop(ident)\n                    send(writer, {"type": "woke", "id": ident})',
      '                    send(writer, {"type": "woke", "id": ident})', wake_cases),
     ("wake answered", 'send(writer, {"type": "woke", "id": ident})', "pass", wake_cases),
@@ -614,7 +628,6 @@ CONTROLS = [
      '            if not fresh:\n                raise Protocol("wake=invalid")', violation_cases),
     ("wake has no end", 'raise Protocol("end=wake")', "continue", violation_cases),
     ("memory admission", 'judge.admit(ready["memory"], provider)', 'False and judge.admit(ready["memory"], provider)', admission_case),
-    ("recognizer loaded", 'for role, artifact in chosen.items() if role != "stt"}', "for role, artifact in chosen.items()}", admission_case),
     ("load serialization", 'with judge.loading(data / "models"):', 'if True:', admission_case),
 ]
 

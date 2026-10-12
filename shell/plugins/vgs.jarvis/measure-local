@@ -71,8 +71,6 @@ def manifest(path):
             raise ValueError(f"metadata=missing id={artifact['id']}")
         if artifact["runtime"] not in value["runtimes"] or not artifact["files"]:
             raise ValueError(f"runtime-or-files=missing id={artifact['id']}")
-        if "maxInputSamples" in artifact and (type(artifact["maxInputSamples"]) is not int or artifact["maxInputSamples"] <= 0):
-            raise ValueError(f"input-bound=invalid id={artifact['id']}")
         if not isinstance(artifact["providers"], list) or not artifact["providers"] or any(type(p) is not str or p not in PROVIDERS for p in artifact["providers"]):
             raise ValueError(f"artifact-provider=invalid id={artifact['id']}")
         for name, digest in artifact["files"].items():
@@ -286,20 +284,10 @@ def load(artifact, root, provider, np, sherpa):
     engine = artifact["engine"]
     provider = provider if provider in artifact["providers"] else "cpu"
     options = {"num_threads": 2, "provider": provider}
-    if engine in ("parakeet", "nemotron"):
-        options.update(encoder=str(d / "encoder.int8.onnx"), decoder=str(d / "decoder.int8.onnx"),
-                       joiner=str(d / "joiner.int8.onnx"), tokens=str(d / "tokens.txt"))
-        if engine == "parakeet":
-            return sherpa.OfflineRecognizer.from_transducer(model_type="nemo_transducer", **options)
-        return sherpa.OnlineRecognizer.from_transducer(**options)
-    if engine == "moonshine":
-        return sherpa.OfflineRecognizer.from_moonshine_v2(
-            encoder=str(d / "encoder_model.ort"), decoder=str(d / "decoder_model_merged.ort"),
-            tokens=str(d / "tokens.txt"), **options)
-    if engine == "whisper":
-        return sherpa.OfflineRecognizer.from_whisper(
-            encoder=str(d / "turbo-encoder.int8.onnx"), decoder=str(d / "turbo-decoder.int8.onnx"),
-            tokens=str(d / "turbo-tokens.txt"), language="en", **options)
+    if engine == "nemotron":
+        return sherpa.OnlineRecognizer.from_transducer(
+            encoder=str(d / "encoder.int8.onnx"), decoder=str(d / "decoder.int8.onnx"),
+            joiner=str(d / "joiner.int8.onnx"), tokens=str(d / "tokens.txt"), **options)
     if engine in ("piper", "kokoro"):
         if engine == "piper":
             tts = {"vits": sherpa.OfflineTtsVitsModelConfig(
@@ -342,23 +330,6 @@ def load(artifact, root, provider, np, sherpa):
 def infer(artifact, model, samples, text, value, np):
     """Exercise real inference; return only JSON values, never model objects."""
     engine = artifact["engine"]
-    if engine in ("parakeet", "moonshine", "whisper"):
-        # The pinned offline exports have bounded SDK inputs. This tests
-        # independent calls, not production segmentation or reconstruction.
-        bound = artifact.get("maxInputSamples", len(samples))
-        texts = []
-        chunk_sizes = []
-        for offset in range(0, len(samples), bound):
-            chunk = samples[offset:offset + bound]
-            stream = model.create_stream()
-            stream.accept_waveform(16000, chunk)
-            model.decode_stream(stream)
-            if not stream.result.text.strip():
-                raise ValueError(f"inference=empty-transcript id={artifact['id']}")
-            texts.append(stream.result.text)
-            chunk_sizes.append(len(chunk))
-        return {"text": " ".join(texts), "chunk_samples": chunk_sizes,
-                "input_samples": len(samples)}
     if engine in ("piper", "kokoro"):
         audio = model.generate(text, sid=0, speed=1)
         data = np.asarray(audio.samples)
@@ -429,9 +400,8 @@ def outcome(artifact, result, value):
     """The bundled fixture's execution oracle, not a semantic quality score."""
     engine = artifact["engine"]
     fixture = value["fixture"]
-    if engine in ("parakeet", "moonshine", "whisper", "nemotron"):
-        text = result["final_text"] if engine == "nemotron" else result["text"]
-        words = re.findall(r"\w+", text.lower())
+    if engine == "nemotron":
+        words = re.findall(r"\w+", result["final_text"].lower())
         if not all(word in words for word in fixture["transcriptWords"]):
             raise ValueError(f"fixture=transcript-mismatch id={artifact['id']}")
     elif engine in ("piper", "kokoro"):

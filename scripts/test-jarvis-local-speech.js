@@ -218,6 +218,7 @@ async function failures(folder) {
         ["not ready", { start: "not-ready" }, "jarvis: speech=local-runtime-not-ready"],
         ["load failure", { start: "exit" }, "jarvis: speech=local-exit code=70 signal=null"],
         ["malformed frame", { start: "garbage" }, "jarvis: speech=local-protocol key=message value=invalid"],
+        ["a final transcript", { utterances: [{ final: "read this local test" }] }, "jarvis: speech=local-protocol key=message value=invalid"],
         ["foreign id", { start: "foreign-id", utterances: [{ speech: true }] }, "jarvis: speech=local-protocol key=id value=invalid"]]) {
         const speech = adapter(folder, runtime(scenario));
         try { await rejects(drained(speech.transcribe(frames(tone(1000, 1, 0.5)))), cause); }
@@ -523,6 +524,8 @@ const CONTROLS = [
     ["end heard speech forged", [['settle({ kind: "ended", speech: header.speech })', 'settle({ kind: "ended", speech: true })']], "utterance"],
     ["exit unobserved", [['child.on("close",', 'child.on("closed",']], "failures"],
     ["foreign id accepted", [[" || header.id > next)", ")"]], "failures"],
+    ["final read as the end", [['    ended: [["id", "speech", "type"], false], audio:', '    ended: [["id", "speech", "type"], false], final: [["id", "text", "type"], false], audio:'],
+        ['        case "ended":\n', '        case "final":\n            request(header, "utterance")?.settle({ kind: "ended", speech: true });\n            return;\n        case "ended":\n']], "failures"],
     ["no abort sent", [['if (life.kind !== "ended") write({ type: "abort", id });', ""]], "abort"],
     ["woke unsettled", [['request(header, "wake")?.settle({ kind: "woke" });', ""]], "wake"],
     ["frames before ready sent", [['                    if (life.kind !== "ready") continue;\n', ""]], "wake"],

@@ -5,7 +5,8 @@ The suite installs this file as DATA/venv/bin/python. It speaks the sidecar wire
 from shell/plugins/vgs.jarvis/backend/local-speech.py's header (2026-10-02),
 written independently of LocalSpeech.js. DATA/scenario.json scripts it:
   start: "ready" | "held" | "not-ready" | "exit" | "deaf" | "garbage" | "foreign-id"
-  utterances: per end, {speech} answered ended | {failed} | {exit} | {stall};
+  utterances: per end, {speech} answered ended | {failed} | {exit} | {stall}
+    | {final} answered with the retired final transcript, a protocol violation;
     optional streaming: {partials:[{text,rev}], turnEnd:true} answered on
     successive audio frames, the turn end only for a detecting listen
   speech: per speak, {rate, samples, tone?, value?} | {failed} | {raw}
@@ -193,6 +194,8 @@ while True:
             sys.exit(action["exit"])
         if "speech" in action:
             send({"type": "ended", "id": ident, "speech": action["speech"]})
+        elif "final" in action:
+            send({"type": "final", "id": ident, "text": action["final"]})
         else:
             send({"type": "failed", "id": ident, "cause": action["failed"]})
     elif kind == "speak":

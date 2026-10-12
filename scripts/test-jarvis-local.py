@@ -2,8 +2,7 @@
 """Consumer contract controls, not model feasibility or speech quality.
 
 All child processes run in the shared Jarvis world. Neutral local bytes test
-the verifier, never inference. The external recognizer double checks the
-consumer's decode call, not a replacement speech algorithm.
+the verifier, never inference.
 """
 import copy
 import hashlib
@@ -56,11 +55,11 @@ class LocalContract(unittest.TestCase):
         (self.models / "export").mkdir(parents=True)
         (self.models / "model").write_bytes(data)
         (self.models / "export/model").write_bytes(data)
-        a = self.spec["artifacts"][0]
+        a = next(a for a in self.spec["artifacts"] if not a.get("auxiliaryDirectories"))
         a.update(directory="export", url="https://fixture.invalid/model", sha256=digest,
                  files={"model": digest})
         self.spec["artifacts"] = [a]
-        self.spec["tiers"] = {"probe": {"provider": "cpu", "artifacts": ["parakeet"]}}
+        self.spec["tiers"] = {"probe": {"provider": "cpu", "artifacts": [a["id"]]}}
 
     def command(self, spec=None, mode="--check"):
         path = self.root / "artifacts.json"
@@ -110,8 +109,6 @@ class LocalContract(unittest.TestCase):
              'if not re.fullmatch(r"[0-9a-f]{64}", artifact["sha256"]):', "archive-sha256=invalid"),
             ("tier", lambda s: s["tiers"]["probe"].update(artifacts=["unknown"]),
              'if not tier["artifacts"] or any(a not in ids for a in tier["artifacts"]):', "tier=unknown-or-empty"),
-            ("bound", lambda s: s["artifacts"][0].update(maxInputSamples=0),
-             'if "maxInputSamples" in artifact and (type(artifact["maxInputSamples"]) is not int or artifact["maxInputSamples"] <= 0):', "input-bound=invalid"),
         ]
         for name, plant, needle, diagnostic in cases:
             with self.subTest(name=name):
@@ -184,29 +181,6 @@ class LocalContract(unittest.TestCase):
         self.mutant("if not text:")
         self.assertEqual(self.command().returncode, 0)
 
-    def test_consumer_decode_control(self):
-        class Recognizer:
-            def create_stream(self):
-                class Stream:
-                    def accept_waveform(self, rate, samples):
-                        self.result = type("Result", (), {"text": ""})()
-                return Stream()
-
-            def decode_stream(self, stream):
-                stream.result.text = "external recognizer result"
-
-        artifact = {"engine": "parakeet", "id": "parakeet"}
-        self.assertEqual(self.load_module().infer(artifact, Recognizer(), [0.1], "", self.spec, None),
-                         {"text": "external recognizer result", "chunk_samples": [1], "input_samples": 1})
-        text = SOURCE.read_text()
-        needle = "            model.decode_stream(stream)\n            if not stream.result.text.strip():"
-        self.assertEqual(text.count(needle), 1)
-        changed = text.replace(needle, "            pass  # decode call removed by control\n            if not stream.result.text.strip():")
-        self.assertNotEqual(text, changed)
-        self.program.write_text(changed)
-        with self.assertRaisesRegex(ValueError, "inference=empty-transcript"):
-            self.load_module().infer(artifact, Recognizer(), [0.1], "", self.spec, None)
-
     def load_module(self, builtins_override=None):
         loader = importlib.machinery.SourceFileLoader("local_contract", str(self.program))
         spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -218,7 +192,7 @@ class LocalContract(unittest.TestCase):
 
     def test_fixture_outcomes_and_controls(self):
         cases = [
-            ("parakeet", {"text": "unrelated nonempty text"},
+            ("nemotron", {"final_text": "unrelated nonempty text"},
              'if not all(word in words for word in fixture["transcriptWords"]):', "transcript-mismatch"),
             ("piper", {"sample_rate": 16000, "audio_seconds": 2},
              'if result["sample_rate"] != artifact["outputSampleRate"] or result["audio_seconds"] < 1:', "audio-mismatch"),
@@ -240,70 +214,6 @@ class LocalContract(unittest.TestCase):
                 self.mutant(needle)
                 self.load_module().outcome(artifact, result, self.spec)
 
-    def test_bounded_chunks_preserve_input(self):
-        class Recognizer:
-            def __init__(self):
-                self.inputs = []
-
-            def create_stream(self):
-                owner = self
-                class Stream:
-                    def accept_waveform(self, rate, samples):
-                        owner.inputs.append((rate, samples))
-                        self.result = type("Result", (), {"text": "read this local test"})()
-                return Stream()
-
-            def decode_stream(self, stream):
-                pass
-
-        artifact = {"engine": "moonshine", "id": "moonshine", "maxInputSamples": 3}
-        model = Recognizer()
-        result = self.load_module().infer(artifact, model, [1, 2, 3, 4, 5, 6, 7], "", self.spec, None)
-        self.assertEqual(model.inputs, [(16000, [1, 2, 3]), (16000, [4, 5, 6]), (16000, [7])])
-        self.assertEqual(result["chunk_samples"], [3, 3, 1])
-        # Disabling the bound must turn the same independent assertion red.
-        text = SOURCE.read_text()
-        needle = 'bound = artifact.get("maxInputSamples", len(samples))'
-        self.assertEqual(text.count(needle), 1)
-        self.program.write_text(text.replace(needle, "bound = len(samples)"))
-        model = Recognizer()
-        self.load_module().infer(artifact, model, [1, 2, 3, 4, 5, 6, 7], "", self.spec, None)
-        self.assertNotEqual(model.inputs, [(16000, [1, 2, 3]), (16000, [4, 5, 6]), (16000, [7])])
-
-    def test_whisper_later_segment_executes(self):
-        # The double emits a later marker only after decode_stream consumes
-        # that segment. Submission counts alone cannot satisfy this assertion.
-        class Recognizer:
-            def create_stream(self):
-                class Stream:
-                    def accept_waveform(self, rate, samples):
-                        self.samples = samples
-                        self.result = type("Result", (), {"text": ""})()
-                return Stream()
-
-            def decode_stream(self, stream):
-                visible = stream.samples[:464000]
-                stream.result.text = "later-segment" if 2 in visible else "first-segment"
-
-        spec = json.loads((SOURCE.parent / "artifacts.json").read_text())
-        artifact = next(a for a in spec["artifacts"] if a["id"] == "whisper")
-        self.assertEqual(artifact["maxInputSamples"], 464000)
-        samples = [1] * 464000 + [2] * 32000
-        result = self.load_module().infer(artifact, Recognizer(), samples, "", self.spec, None)
-        self.assertEqual(result["text"], "first-segment later-segment")
-        text = SOURCE.read_text()
-        needle = "for offset in range(0, len(samples), bound):"
-        self.assertEqual(text.count(needle), 1)
-        self.program.write_text(text.replace(needle, "for offset in range(0, min(len(samples), bound), bound):"))
-        result = self.load_module().infer(artifact, Recognizer(), samples, "", self.spec, None)
-        self.assertNotEqual(result["text"], "first-segment later-segment")
-        # A single oversized call also loses the marker in the bounded SDK.
-        needle = 'bound = artifact.get("maxInputSamples", len(samples))'
-        self.assertEqual(text.count(needle), 1)
-        self.program.write_text(text.replace(needle, "bound = len(samples)"))
-        result = self.load_module().infer(artifact, Recognizer(), samples, "", self.spec, None)
-        self.assertNotEqual(result["text"], "first-segment later-segment")
-
     def test_provider_vocabulary_controls(self):
         for provider in ("gpu", None, 1, [], {}, True):
             with self.subTest(provider=provider):
@@ -323,8 +233,8 @@ class LocalContract(unittest.TestCase):
         self.assertEqual(self.command(bad).returncode, 0)
         self.program.write_text(SOURCE.read_text())
         from types import SimpleNamespace
-        sdk = SimpleNamespace(OfflineRecognizer=SimpleNamespace(from_moonshine_v2=lambda **kwargs: kwargs))
-        artifact = {"id": "moonshine", "engine": "moonshine", "directory": ".", "providers": ["cpu"]}
+        sdk = SimpleNamespace(OnlineRecognizer=SimpleNamespace(from_transducer=lambda **kwargs: kwargs))
+        artifact = {"id": "nemotron", "engine": "nemotron", "directory": ".", "providers": ["cpu"]}
         self.assertEqual(self.load_module().load(artifact, self.root, "cuda", None, sdk)["provider"], "cpu")
 
     def test_sampler_primary_and_secondary_controls(self):
@@ -374,7 +284,7 @@ class LocalContract(unittest.TestCase):
         module = self.load_module()
         artifact = {"engine": "piper"}
         self.assertEqual(module.speed([artifact], [{"audio_seconds": 10}], 2, 0.5), (0.05, "generated-audio"))
-        self.assertEqual(module.speed([artifact, {"engine": "moonshine"}], [], 2, 0.5), (0.25, "tier-input-audio"))
+        self.assertEqual(module.speed([artifact, {"engine": "nemotron"}], [], 2, 0.5), (0.25, "tier-input-audio"))
         text = SOURCE.read_text()
         needle = 'elapsed / warm[0]["audio_seconds"]'
         self.assertEqual(text.count(needle), 1)
@@ -604,8 +514,7 @@ class ConsumerContract(unittest.TestCase):
         self.python = self.root / "prepared/venv/bin/python"
         self.python.parent.mkdir(parents=True)
         self.python.symlink_to(sys.executable)
-        self.ids = ["parakeet", "moonshine", "whisper", "kokoro", "piper",
-                    "silero", "smart-turn", "wake", "nemotron"]
+        self.ids = ["kokoro", "piper", "silero", "smart-turn", "wake", "nemotron"]
         (folder / "artifacts.json").write_text(json.dumps({"artifacts": [{"id": n} for n in self.ids]}))
         self.control = folder / "control.json"
         self.control.write_text("{}")
@@ -655,9 +564,9 @@ class ConsumerContract(unittest.TestCase):
     def test_consumer_verdict_rules(self):
         cases = [
             ("discovery-floor", {"ids": self.ids[:-1]},
-             'if len(ids) < 9 or "nemotron" not in ids:', 1, "artifact discovery is incomplete"),
+             'if len(ids) < 6 or "nemotron" not in ids:', 1, "artifact discovery is incomplete"),
             ("required-member", {"ids": self.ids[:-1] + ["other"]},
-             'if len(ids) < 9 or "nemotron" not in ids:', 1, "artifact discovery is incomplete"),
+             'if len(ids) < 6 or "nemotron" not in ids:', 1, "artifact discovery is incomplete"),
             ("child-exit", {"exit": 42},
              "if child.returncode:", 42, "fixture-child-error"),
             ("identity", {"reading": {"artifact_ids": ["wrong"]}},
@@ -723,40 +632,6 @@ class ConsumerContract(unittest.TestCase):
                                 capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 77)
 
-    def test_unbounded_probe_control(self):
-        program = self.control.parent / "measure-local"
-        program.write_text(
-            'import json\n'
-            'class Unavailable(Exception): pass\n'
-            'def sha256(path): return "fixture-digest"\n'
-            'def manifest(path): return {"runtimes":{},"artifacts":[{"id":"moonshine","maxInputSamples":80000}]}\n'
-            'def run(value, artifacts, models, provider, seconds, scope):\n'
-            ' present="maxInputSamples" in artifacts[0]\n'
-            ' print(json.dumps({"scope":scope,"seconds":seconds,"bound_present":present}),flush=True)\n'
-            ' if present: raise RuntimeError("fixture-bound-still-active")\n'
-            ' raise ValueError("inference=empty-transcript id=moonshine")\n')
-        probe = self.consumer.parent / "probe-moonshine.py"
-        source = (REPO / "scripts/fixtures/jarvis-local/probe-moonshine.py").read_text()
-        probe.write_text(source)
-        command = [sys.executable, str(probe), str(self.repo), str(self.models)]
-        result = subprocess.run(command, env=self.env, text=True, capture_output=True, check=False)
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("inference=empty-transcript", result.stderr)
-        records = [json.loads(line) for line in result.stdout.splitlines()]
-        self.assertEqual(records[-1], {"scope": "moonshine-unbounded", "seconds": 60, "bound_present": False})
-        self.assertFalse((self.control.parent / "__pycache__").exists())
-        needle = "sys.dont_write_bytecode = True"
-        self.assertEqual(source.count(needle), 1)
-        probe.write_text(source.replace(needle, "sys.dont_write_bytecode = False"))
-        result = subprocess.run(command, env=self.env, text=True, capture_output=True, check=False)
-        self.assertEqual(result.returncode, 1)
-        self.assertTrue((self.control.parent / "__pycache__").exists())
-        needle = 'del artifact["maxInputSamples"]'
-        self.assertEqual(source.count(needle), 1)
-        probe.write_text(source.replace(needle, "pass  # bound removal disabled by control"))
-        result = subprocess.run(command, env=self.env, text=True, capture_output=True, check=False)
-        self.assertNotIn("inference=empty-transcript", result.stderr)
-        self.assertIn("fixture-bound-still-active", result.stderr)
 
 
 if __name__ == "__main__":

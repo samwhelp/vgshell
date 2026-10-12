@@ -56,7 +56,7 @@ try:
         by_id = {a["id"]: a for a in value["artifacts"]}
         chosen = sidecar.roles([by_id[name] for name in row["artifacts"]], tier)
         judge.verify(value, models, list(chosen.values()))
-        loaded = {role: judge.load(a, models, row["provider"], np, sherpa) for role, a in chosen.items() if role != "stt"}
+        loaded = {role: judge.load(a, models, row["provider"], np, sherpa) for role, a in chosen.items()}
         speech = sidecar.Speech(loaded["vad"], loaded["tts"], chosen["tts"]["outputSampleRate"],
                                 [speaker["name"] for speaker in chosen["tts"]["speakers"]], lambda samples: np.frombuffer(samples, dtype=np.float32), loaded["captions"],
                                 lambda samples: judge.infer(chosen["turn"], loaded["turn"], np.frombuffer(samples, dtype=np.float32),

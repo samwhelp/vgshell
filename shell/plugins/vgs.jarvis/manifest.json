@@ -35,7 +35,7 @@
       "description": "Who Jarvis sounds like, from the voices of the selected voice provider. Preview under Voice on Details plays one sentence in it.",
       "info": "Changing this ends the conversation." },
     "localTier": { "type": "string", "label": "Local voice model", "group": "Local voice", "optionsFrom": "localTiers",
-      "description": "Auto is the model that runs best on this computer. Choosing another model downloads it now. This choice changes only what Jarvis hears; dictation with the Voice widget uses its own model." },
+      "description": "Auto is the model that runs best on this computer. Choosing another model downloads it now. This choice changes the voice Jarvis speaks with. Dictation uses voxtype's model: change it with Choose model in Voice." },
     "brain": { "type": "string", "label": "Account", "group": "AI model", "optionsFrom": "brains", "placeholder": "Choose an account",
       "description": "The account Jarvis asks: an API key you added, or an app you are signed in to." },
     "model": { "type": "string", "label": "Model", "group": "AI model", "optionsFrom": "models", "hideEmpty": true,

@@ -226,7 +226,7 @@ const TIERS = [
     ["auto beside another ready tier installs the pick", "auto", "large", "small", [], "small"],
     ["a chosen tier beside the ready pick installs it", "medium", "large", "large", ["medium"], "auto"],
     ["choosing the pick by name beside another tier installs it", "large", "large", "small", ["large"], "small"],
-    ["a chosen tier beside a third ready tier", "multilingual-cuda", "large", "small", ["multilingual-cuda"], "small"],
+    ["a chosen tier beside a third ready tier", "medium", "large", "small", ["medium"], "small"],
     ["the pick by name while it is ready starts nothing", "large", "large", "large", null, null]
 ];
 
@@ -852,7 +852,7 @@ function verifyTiers(gate) {
         assert.deepEqual(gate.tierAfterRun(wanted, pick, ready), after, label + ": the setting after a run");
         if (after !== null) assert.equal(gate.tierRun(after, pick, ready), null, label + ": the written setting starts no run");
     }
-    const choices = [{ value: "auto", label: "Auto: Large, English, graphics card, 1.7 GB" }, { value: "small", label: "Small: English, quick setup, 796 MB" }];
+    const choices = [{ value: "auto", label: "Auto: Large, English, graphics card, 1.2 GB" }, { value: "small", label: "Small: English, quick setup, 685 MB" }];
     assert.equal(judge.statusWrite(manifest, {}, "localTiers", choices).ok, true, "the manifest judge accepts the Local voice offers");
     assert.equal(manifest.schema.localTier.optionsFrom, "localTiers", "the Local voice setting reads its offers");
     assert.equal(manifest.settings.localTier, "auto", "the Local voice setting defaults to the pick");

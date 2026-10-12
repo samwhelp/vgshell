@@ -8,7 +8,7 @@ repo, models = map(Path, sys.argv[1:])
 program = repo / "shell/plugins/vgs.jarvis/measure-local"
 spec = json.loads((program.parent / "artifacts.json").read_text())
 ids = [a["id"] for a in spec["artifacts"]]
-if len(ids) < 9 or "nemotron" not in ids:
+if len(ids) < 6 or "nemotron" not in ids:
     raise RuntimeError("artifact discovery is incomplete")
 for name in ids:
     # Already inside the environment owner's namespace. Pass only that

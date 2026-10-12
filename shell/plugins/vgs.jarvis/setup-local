@@ -31,16 +31,16 @@ from urllib.parse import urlparse
 
 HERE = Path(__file__).resolve().parent
 sys.dont_write_bytecode = True
-# Each English tier's measured need, in MiB. Measured by measure-local on host
-# cachy (AMD Ryzen 9 9950X, 32 threads, RTX 5090) on 2026-09-30 for VGS-651:
-# the tier's whole resident set on a 60 s input with 2 inference threads.
-# medium's warm turn took 10.971 s there; large's GPU figure is a sampled peak.
-NEED = {"small": {"ram": 1813.71}, "medium": {"ram": 3303.58}, "large": {"ram": 3782.72, "gpu": 4004.00}}
+# Each tier's measured need, in MiB. Measured by measure-local on host cachy
+# (AMD Ryzen 9 9950X, 32 threads, RTX 5090) on 2026-10-12 for VGS-1235: the
+# tier's whole resident set on a 60 s input with 2 inference threads.
+# medium's warm turn took 7.245 s there; large's GPU figure is a sampled peak.
+NEED = {"small": {"ram": 1289.95}, "medium": {"ram": 1680.33}, "large": {"ram": 2587.48, "gpu": 1898.00}}
 # The voice holds at most an eighth of RAM, leaving the rest to the desktop,
 # the browser and the AI app.
 RAM_SHARE = 8
-# The sampled GPU peak is a lower bound, the CUDA context keeps about 627 MB
-# after unload, and the desktop shares the card.
+# The sampled GPU peak is a lower bound, the CUDA context kept 546 MiB after
+# unload in that run, and the desktop shares the card.
 GPU_SHARE = 2
 # medium's turn time was measured only on a 32-thread machine; no reading
 # proves it on fewer.
@@ -121,7 +121,7 @@ def machine(judge, data):
 
 
 def pick(reading):
-    """The English tier READING runs best; multilingual is the user's choice.
+    """The tier READING runs best.
 
     large needs a GPU with GPU_SHARE times its sampled peak, medium a
     MEDIUM_THREADS machine, and each a RAM_SHARE share of RAM for its peak;

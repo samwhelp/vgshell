@@ -238,6 +238,29 @@ class Setup(unittest.TestCase):
         self.install(77)
         self.assertTrue((self.state / "local-ready.json").exists(), "invalidation control did not reach the marker")
 
+    def test_retired_tier_reads_unavailable_and_control(self):
+        # A marker or a Local voice setting saved while the multilingual tiers
+        # were declared names a tier the manifest no longer has.
+        self.install()
+        self.ready()
+        marker = self.state / "local-ready.json"
+        saved = json.loads(marker.read_text())
+        for tier in ("multilingual-cpu", "multilingual-cuda"):
+            with self.subTest(tier=tier):
+                marker.write_text(json.dumps(dict(saved, tier=tier)))
+                report = self.report()
+                self.assertEqual([report["tone"], report["action"]], ["warning", True])
+                self.assertIsNone(self.offered()["ready"])
+                self.reset_calls()
+                result = self.run_command("install", tier)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertEqual([call[0] for call in self.calls() if call[0] != "nvidia-smi"], [])
+        # A planted migration that reads a retired tier as another.
+        self.mutant('tier = saved["tier"]\n',
+                    'tier = saved["tier"] = {"multilingual-cuda": "small"}.get(saved["tier"], saved["tier"])\n')
+        with self.assertRaises(AssertionError):
+            self.not_ready()
+
     def test_identity_and_controls(self):
         cases = [
             ("requirements-local.lock", "lock"),
@@ -660,13 +683,13 @@ class Setup(unittest.TestCase):
     PICKS = [
         ("this host: RTX 5090, MemTotal 129444736 kB, 32 threads", 32607, 129444736 / 1024, 32, "large"),
         ("a PX13-class laptop: no NVIDIA GPU, about 32 GB, 24 threads", None, 32000000 / 1024, 24, "small"),
-        ("a 6 GiB GPU is not large", 6144, 129444736 / 1024, 32, "medium"),
-        ("a GPU of twice large's sampled peak is large", 8008, 129444736 / 1024, 32, "large"),
+        ("a 3 GiB GPU is not large", 3072, 129444736 / 1024, 32, "medium"),
+        ("a GPU of twice large's sampled peak is large", 3796, 129444736 / 1024, 32, "large"),
         ("a large GPU on 24 threads is large", 32607, 129444736 / 1024, 24, "large"),
-        ("a large GPU with 16 GiB of RAM is small", 32607, 16384, 32, "small"),
+        ("a large GPU with 16 GiB of RAM is medium", 32607, 16384, 32, "medium"),
         ("128 GB, 32 threads and no GPU is medium", None, 131072, 32, "medium"),
         ("128 GB, 24 threads and no GPU is small", None, 131072, 24, "small"),
-        ("16 GiB, 32 threads and no GPU is small", None, 16384, 32, "small"),
+        ("12 GiB, 32 threads and no GPU is small", None, 12288, 32, "small"),
     ]
 
     def assert_picks(self, module):

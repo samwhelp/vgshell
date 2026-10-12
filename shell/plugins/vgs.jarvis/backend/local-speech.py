@@ -52,8 +52,10 @@ UTTERANCE_SAMPLES = 120 * RATE
 VAD_WINDOW = 512
 # Retry semantic completion after more silence, without a wall-clock timer.
 TURN_INTERVAL = RATE // 2
-SPEECH_TO_TEXT = ("moonshine", "parakeet")
-TEXT_TO_SPEECH = ("piper", "kokoro")
+# The role of each engine the sidecar loads. A tier holds one engine for each
+# role and no other, so setup downloads no model the sidecar leaves unloaded.
+ROLES = {"piper": "tts", "kokoro": "tts", "silero": "vad", "nemotron": "captions",
+         "smart-turn": "turn", "wake": "wake"}
 
 
 class Protocol(Exception):
@@ -360,19 +362,16 @@ def hold(state):
 
 
 def roles(artifacts, tier):
-    """The tier's recognizer, voice activity, caption, turn, wake and voice models, one each."""
+    """The tier's voice activity, caption, turn, wake and voice models, one each."""
     found = {}
     for artifact in artifacts:
-        engine = artifact["engine"]
-        role = ("stt" if engine in SPEECH_TO_TEXT else "tts" if engine in TEXT_TO_SPEECH
-                else "vad" if engine == "silero" else "captions" if engine == "nemotron"
-                else "turn" if engine == "smart-turn" else "wake" if engine == "wake" else None)
+        role = ROLES.get(artifact["engine"])
         if role is None:
-            continue
+            raise RuntimeError(f"tier=unknown-role engine={artifact['engine']} tier={tier}")
         if role in found:
             raise RuntimeError(f"tier=duplicate-role role={role} tier={tier}")
         found[role] = artifact
-    if set(found) != {"stt", "tts", "vad", "captions", "turn", "wake"}:
+    if set(found) != set(ROLES.values()):
         raise RuntimeError(f"tier=missing-role tier={tier}")
     return found
 
@@ -398,10 +397,8 @@ def load(setup, state, data):
             raise NotReady(str(error)) from None
         import numpy as np
         import sherpa_onnx as sherpa
-        # The tier's recognizer is setup's probe's alone: the utterance's
-        # words are the core's dictation recording's, so it is not loaded.
         models = {role: judge.load(artifact, data / "models", provider, np, sherpa)
-                  for role, artifact in chosen.items() if role != "stt"}
+                  for role, artifact in chosen.items()}
     def turn(samples):
         return judge.infer(chosen["turn"], models["turn"], np.frombuffer(samples, dtype=np.float32), "", value, np)["probability"]
     # The keyword is the one setup's probe decoded with this model.
