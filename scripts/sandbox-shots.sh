@@ -2842,7 +2842,9 @@ if (phase === "before") {
   addReady({ kind: "answered", causes: [cause] }, cause === "speech=local-ready-timeout" ? { kind: "down", reason: "unconfigured" } : { kind: "up" });
   if (cause === "setup=probe-timeout") {
     const problem = gate.startCause(cause);
-    rows.push(["localRuntime", { tone: "warning", text: problem.title, hint: problem.action, action: true, lines: [problem.lines[0]] }]);
+    // The row as Service.qml shapes LocalRuntime's reading: the sandbox
+    // keeps the manifest's default voice, Local, whose row offers no setup.
+    rows.push(["localRuntime", gate.localVoiceStep({ tone: "warning", text: problem.title, hint: problem.action, action: true, lines: [problem.lines[0]] }, "local")]);
   }
 } else {
   rows.push(["detail", null], ["daemon", gate.startStatus(cause, false)]);
