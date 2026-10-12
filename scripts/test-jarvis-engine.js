@@ -224,17 +224,17 @@ function taskWorld(kit, runner, Session, faults) {
 }
 
 // One utterance through real capture: down, partials, up, final.
-async function say(w, script, { waitPartial = true } = {}) {
+async function say(w, script, { waitPartial = true, over = () => false } = {}) {
     control.utterances.push(script);
     const before = w.server.requests.length;
     w.runner.dispatch({ type: "talk-down" });
     if (w.s().playback.kind === "feedback") await playOut(w);
     // An early final leaves collection; the case's own assertions judge it.
     const collecting = () => w.s().turn.kind === "collecting";
-    await until(() => w.s().capture.kind === "open" || (w.s().turn.kind !== "none" && !collecting()),
+    await settled(() => w.s().capture.kind === "open" || (w.s().turn.kind !== "none" && !collecting()), over,
         "capture opens from real fixture PCM");
     if (waitPartial && script.partials.length)
-        await until(() => w.partials.at(-1) === script.partials.at(-1) || !collecting(), "partials reach Session");
+        await settled(() => w.partials.at(-1) === script.partials.at(-1) || !collecting(), over, "partials reach Session");
     w.runner.dispatch({ type: "talk-up" });
     return before;
 }
@@ -322,12 +322,14 @@ async function replyPlays(w, label) {
 }
 // Each poll advances the injected playback clock one node period. Child pipes
 // and the stand-in player's exit cross real I/O, so the poll is short.
-async function playOut(w) {
+async function playOut(w, over = () => false) {
+    let idle = false;
     await wait(() => {
-        if (w.s().playback.kind === "idle") return true;
+        if ((idle = w.s().playback.kind === "idle") || over()) return true;
         w.audioClock.advance(20);
         return false;
     }, "playback completes", OBSERVE_MS, 1);
+    assert.ok(idle, "playback completes");
 }
 const user = body => body.messages.filter(message => message.role === "user").map(message => message.content);
 const assistantCaptions = w => w.captions.filter(row => row[1] === "assistant");
@@ -504,7 +506,9 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
         await w.close();
         // A control can leave a replaced sidecar running; its handle would
         // keep this world alive past its bound.
-        try { await until(() => starts().every(row => !alive(row.pid)), "daemon teardown releases speech child"); }
+        await turn();
+        try { await settled(() => starts().every(row => !alive(row.pid)),
+            () => edits.length !== 0 && starts().some(row => alive(row.pid)), "daemon teardown releases speech child"); }
         finally {
             for (const row of starts()) if (alive(row.pid)) process.kill(row.pid, "SIGKILL");
             server.closeAll();
@@ -547,6 +551,8 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     const child = cp.spawn("node", ["--require", preload, path.join(kit.folder, "backend/jarvisd.js"), "--tree", tree], {
         env: { PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR }, stdio: ["pipe", "pipe", "pipe"] });
     const closed = once(child, "close");
+    let childDone = false;
+    closed.then(() => { childDone = true; });
     const rows = [], logs = () => fs.existsSync(path.join(local, "log.jsonl"))
         ? fs.readFileSync(path.join(local, "log.jsonl"), "utf8").trim().split("\n").filter(Boolean).map(JSON.parse) : [];
     const starts = () => logs().filter(row => row.start);
@@ -565,7 +571,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     const before = server.requests.length;
     try {
         hello(ending === "locked");
-        await until(() => status() && s(), "shipped daemon publishes admission: " + error);
+        await settled(() => status() && s(), () => childDone, "shipped daemon publishes admission: " + error);
         if (ending.startsWith("check-")) {
             await until(() => starts().length === 1, "the setup check has one local speech owner");
             fs.writeFileSync(path.join(local, "ready-gate"), "R");
@@ -660,7 +666,9 @@ async function loadingTalk(server, ending = "ready", edits = []) {
         if (ending === "stop") intent("stop");
         else if (ending === "mute") intent("mute");
         else if (ending === "lock") hello(true);
-        if (ending !== "ready") await until(() => s().conversation.kind === "ended", "loading cancellation ends its utterance");
+        if (ending !== "ready") await settled(() => s().conversation.kind === "ended",
+            () => childDone || ending === "held" && s().turn.kind === "collecting" && s().capture.kind === "closed",
+            "loading cancellation ends its utterance");
         fs.writeFileSync(path.join(local, "ready-gate"), "R");
         await settled(() => status().causes.length === 0,
             () => starts().length > 1, "actual ready clears loading status");
@@ -730,6 +738,8 @@ async function alwaysTalk(server, ending = "ready", edits = []) {
     const child = cp.spawn("node", ["--require", preload, path.join(kit.folder, "backend/jarvisd.js"), "--tree", tree], {
         env: { PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR }, stdio: ["pipe", "pipe", "pipe"] });
     const closed = once(child, "close");
+    let childDone = false;
+    closed.then(() => { childDone = true; });
     const rows = [], logs = () => fs.existsSync(path.join(local, "log.jsonl"))
         ? fs.readFileSync(path.join(local, "log.jsonl"), "utf8").trim().split("\n").filter(Boolean).map(JSON.parse) : [];
     const states = () => rows.filter(row => row.type === "state");
@@ -747,7 +757,7 @@ async function alwaysTalk(server, ending = "ready", edits = []) {
     hello();
     const before = server.requests.length;
     try {
-        await until(() => status() && s(), "shipped daemon publishes admission: " + error);
+        await settled(() => status() && s(), () => childDone, "shipped daemon publishes admission: " + error);
         if (ending !== "ready") {
             assert.deepEqual(status().causes, [ending === "refused" ? "speech=always-local-voice" : "speech=local-not-set-up"]);
             assert.equal(s().gate.kind, "down");
@@ -2368,7 +2378,7 @@ async function cases(kit, server, only = null) {
         await turn();
         await settled(() => w.dictation.calls.includes("dictation.cancel"),
             () => w.dictation.calls.length === 1 && w.s().capture.kind === "closed"
-                || control.finals > 0 && w.dictation.calls.length === 1 || quietTurn(w),
+                || w.dictation.calls.includes("dictation.stop") || control.finals > 0 && w.dictation.calls.length === 1 || quietTurn(w),
             "the silent recording is cancelled");
         await until(() => w.s().turn.kind === "none" && w.s().capture.kind === "closed", "the empty turn settles");
         assert.deepEqual(w.dictation.calls, ["dictation.start", "dictation.cancel"]);
@@ -2457,14 +2467,14 @@ async function cases(kit, server, only = null) {
     }
     // Waits until speech holds every sentence of line after the first from,
     // then plays it out and answers the spoken text.
-    async function spoken(w, from, line, over = () => false) {
+    async function spoken(w, from, line, over = () => false, playOver = () => false) {
         await settled(() => control.spoken.slice(from).join(" ") === line,
             () => {
                 const said = control.spoken.slice(from).join(" ");
                 return over() || said.length > line.length || said !== "" && !line.startsWith(said)
                     || quietTurn(w) && said !== line;
             }, "Jarvis speaks: " + line);
-        await playOut(w);
+        await playOut(w, playOver);
     }
     await run("task-relay", async w => {
         const t = w.tasks;
@@ -2481,7 +2491,7 @@ async function cases(kit, server, only = null) {
         assert.deepEqual(t.notes, [["Coding task", QUESTION_CARD]], "with no conversation the prompt is a notification");
         assert.deepEqual([control.spoken, w.s().conversation.kind], [[], "ended"], "nothing is spoken with no conversation");
         const asked = await opened(w);
-        await spoken(w, asked, QUESTION);
+        await spoken(w, asked, QUESTION, () => false, () => control.spoken.slice(asked).join(" ") !== QUESTION);
         assert.ok(control.labels.has("agent"), "the agent's text reaches speech labelled as agent output");
         const requests = server.requests.length;
         // Another idle state publication asks nothing new.
@@ -2690,9 +2700,12 @@ async function cases(kit, server, only = null) {
         const PERMISSION = "The coding agent asks to use Bash: Run the tests. Say allow or deny.";
         // One brain turn of the user's own words; answers the brain's request.
         async function own(said, reply) {
+            const spokenBefore = control.spoken.length;
             const next = await say(w, utterance(said));
             const body = await requested(w, next + 1, "the words reach the brain: " + said,
-                () => t.Relay.answerTo(t.prompts, permission) !== null || control.spoken.includes(SENT) || quietTurn(w));
+                () => control.spoken.slice(spokenBefore).includes(PERMISSION)
+                    || control.spoken.slice(spokenBefore).includes("Say allow or deny.")
+                    || t.Relay.answerTo(t.prompts, permission) !== null || control.spoken.includes(SENT) || quietTurn(w));
             server.replies.push(text(reply));
             await until(() => control.spoken.includes(reply), "the brain's reply is spoken");
             return body;
