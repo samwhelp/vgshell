@@ -6,8 +6,8 @@ import "BrowserLogic.js" as BrowserLogic
 
 // The wallpaper view of the browser: the applied theme's wallpapers, or
 // every package's and the user folder's, as angled cards on a rail, one
-// dim hint line under it, Type to search beside Show all or Show theme,
-// and with two screens or more the scope words, All monitors and This
+// dim hint line under it, naming what typing searches beside Show all or
+// Show theme, and with two screens or more the scope words, All monitors and This
 // monitor. At rest the view draws the cards, the tabs, that line and those
 // words alone: the selection, which
 // opens on the image the scope shows, marks it. Enter or a click on the selected
@@ -461,7 +461,7 @@ FocusScope {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: root.filterText === ""
                         role: "itemHint"
-                        text: "Type to search |"
+                        text: "Type a wallpaper or image file name to search |"
                         color: Theme.carousel.hint
                     }
 

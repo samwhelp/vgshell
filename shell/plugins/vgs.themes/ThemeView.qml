@@ -8,8 +8,8 @@ import "BrowserLogic.js" as BrowserLogic
 // theme as an angled card on one rail, a typed filter, and Enter or a
 // click on the selected card installing a catalog theme if it needs it and
 // applying it. At rest the view draws the cards, the tabs, and the
-// selected theme's name and a Type to search hint under the rail: the
-// selection, which opens on the
+// selected theme's name and a hint under the rail naming what typing
+// searches: the selection, which opens on the
 // applied theme, marks it, and a busy card turns its own Spinner while its
 // install or apply runs. After an apply of a theme whose wallpapers are
 // not downloaded, a Dialog offers the download; Download runs it on the
@@ -440,7 +440,7 @@ FocusScope {
                     anchors.horizontalCenter: parent.horizontalCenter
                     visible: root.filterText === ""
                     role: "itemHint"
-                    text: "Type to search"
+                    text: "Type a theme name to search"
                     color: Theme.carousel.hint
                 }
 

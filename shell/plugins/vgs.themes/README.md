@@ -38,7 +38,7 @@ Window corners, borders and animations are on the Windows and Motion pages under
 
 ## Browser keys
 
-The browsers show one hint under the cards, Type to search. These keys work in both:
+Each browser shows one hint under the cards that names what typing searches. The theme browser shows Type a theme name to search. The wallpaper browser shows Type a wallpaper or image file name to search, beside Show all or Show theme. These keys work in both:
 
 | Key | What it does |
 | --- | --- |
