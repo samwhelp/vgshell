@@ -989,9 +989,8 @@ class Controls(unittest.TestCase):
         return root
 
     def run_tests(self, root, tests):
-        (root / "tmp").mkdir(exist_ok=True)
         return subprocess.run([sys.executable, "-B", str(root / "scripts/test-displays-brightness.py"), *tests],
-                              env={"PATH": "/usr/bin:/bin", "HOME": str(root), "LC_ALL": "C", "TMPDIR": str(root / "tmp")},
+                              env={"PATH": "/usr/bin:/bin", "HOME": str(root), "LC_ALL": "C"},
                               text=True, capture_output=True, check=False)
 
     def test_mirror_passes_unplanted(self):
