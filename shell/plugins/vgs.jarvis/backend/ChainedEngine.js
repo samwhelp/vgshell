@@ -862,6 +862,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             done("brain-failed", { reason: keyed(error) });
             return false;
         }
+        // Off the runner's drain, the judgement's snapshot can end the
+        // conversation at once, its turn stopped with it.
+        if (conversation !== c) return false;
         c.brain = DRIVERS[c.plan.brain.provider.driver].create({ provider: c.plan.brain.provider,
             model: c.plan.brain.model, effort: c.plan.brain.effort, net: c.net, recipients: c.recipients, key: c.plan.brain.key,
             account: c.plan.brain.account, gen: c.gen, harness });
