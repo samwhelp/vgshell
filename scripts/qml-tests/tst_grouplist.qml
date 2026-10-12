@@ -229,13 +229,24 @@ Item {
         // `inkAbove()`, is the line's first drawn row in the image, within
         // a pixel, for a link drawn as the value and a text value whose
         // ink starts below their boxes. A line that reports its value's
-        // box top in place of its ink is off by that ink offset.
+        // box top in place of its ink is off by that ink offset, which
+        // the image shows is more than the pixel allowed: the line draws
+        // nothing, label or value, within 1.5 of its value's box top.
         function test_a_lines_ink_starts_at_its_first_drawn_row() {
             checkDivided(valueInkList);
             const link = findChild(linkInk, LinkText);
             verify(link !== null && link.lineCount === 1, "the hint is drawn as the value, as one line of a link");
             verify(link.linked, "the hint cites its link's words");
-            verify(link.inkAbove() > 1, "the link's ink starts below its box: " + link.inkAbove());
+            // The Loader that holds a line's value, in the frame.
+            const valueTop = line => {
+                const stack = [line];
+                while (stack.length > 0) {
+                    const at = stack.pop();
+                    if (at.firstLine !== undefined) return at.children.find(child => child instanceof Loader).mapToItem(valueInkFrame, 0, 0).y;
+                    for (const child of at.children) stack.push(child);
+                }
+                return null;
+            };
             verify(waitForRendering(valueInkFrame));
             const img = grabImage(valueInkFrame);
             const scale = img.width / valueInkFrame.width;
@@ -247,6 +258,7 @@ Item {
                 while (row < img.height && !rowDrawn(img, row, surface)) row++;
                 const ink = top + Theme.inkAbove(line);
                 if (Math.abs(row / scale - ink) > 1) out.push(line.label + " ink=" + ink + " drawn=" + row / scale);
+                if ((line === linkInk || line === textInk) && !(row / scale - valueTop(line) > 1.5)) out.push(line.label + " drawn=" + row / scale + " within 1.5 of its value's box top " + valueTop(line));
             }
             compare(out, [], "each line's ink starts at its first drawn row");
         }
