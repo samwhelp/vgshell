@@ -14,13 +14,16 @@
 # primary action, ahead of the optional Sign in step, and a click on it
 # raises the core's notice for pi; after that notice closes, a control makes
 # the button never report the pointer and expects the press to fail there.
-# The same Pi at its floor offers no update, which is the control. The Local voice setting: a start opens no
+# The same Pi at its floor offers no update, which is the control. The local
+# voice records through the core's dictation, so the row puts the voxtype
+# stand-in on the shell's PATH (rows/capabilities.sh) for its ready reads
+# and takes it away at its end. The Local voice setting: a start opens no
 # local setup, which a reader copy that reads its start setting from the
 # binding breaks; a change opens local setup with the wanted tier,
 # Automatic with none; the run's end writes back the tier it left ready,
 # which opens nothing, and nor does a wanted tier that is ready. Its
 # control is a LocalTier copy that opens no run.
-# inputs: scripts/fixtures/jarvis/audio-tool.py shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-local-speech/standin.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js
+# inputs: scripts/fixtures/jarvis/audio-tool.py shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-local-speech/standin.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js scripts/smoke/rows/capabilities.sh scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js
 set -euo pipefail
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's
 # probe does not start at each enable.
@@ -37,6 +40,7 @@ sign_in_tui="$repo/shell/plugins/vgs.jarvis/tui/sign-in.sh"
 cp -- "$sign_in_tui" "$sandbox/sign-in-tui-original"
 cp -- "$source_repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/sign-in.sh" "$sign_in_tui"
 jarvis_setup_requirements
+dictation_stand_ins on || fail "the shell does not resolve voxtype to the stand-in: $(shell_resolves voxtype)"
 terminal_stand_in
 terminal_ready "Jarvis local setup"
 # A `pi` for the last section. The daemon's world copies its stand-ins when
@@ -646,4 +650,6 @@ settings_page_close vgs.jarvis
 jarvis_disable
 rm -f -- "${setup_marker:?}"
 printf 'absent\n' >"$sandbox/jarvis-world/local-mode"
+dictation_stand_ins off
+rm -f -- "${sandbox:?}/voxtype-daemon.log" "${sandbox:?}/voxtype-follow.log"
 jarvis_restore_requirements

@@ -530,7 +530,9 @@ expect_poll "the page draws no backup model" '[]' page_backups
 page_system_was="$(plugin_enabled vgs.system)" || fail "vgs.system's enabled state is unreadable"
 expect "enabling the System window is allowed" ok ipc shell setPluginEnabled vgs.system true
 jarvis_notice_close
-page_hint="Set feedback tones in Appearance → Sounds."
+# The Microphone setting's description as the manifest gives it.
+page_hint="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["schema"]["microphone"]["description"])' "$repo/shell/plugins/vgs.jarvis/manifest.json")" ||
+  fail "the Microphone description is unreadable"
 page_link="Appearance → Sounds"
 ipc smoke revealText window vgs.settings LinkText "$page_hint" >/dev/null || fail "the Microphone description is not on the page"
 expect_poll "no pane is mounted before the Sounds link's click" '[]' window_panes
