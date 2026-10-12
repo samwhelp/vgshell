@@ -23,7 +23,8 @@
   ],
   "systemSteps": ["service-bluetooth"],
   "status": {
-    "power": { "type": "state", "label": "Bluetooth", "action": { "label": "Turn on the service", "system": "service-bluetooth" } },
+    "power": { "type": "state", "label": "Bluetooth" },
+    "service": { "type": "state", "label": "Bluetooth service", "hint": "Turn on the service starts Bluetooth through the system setup.", "action": { "label": "Turn on the service", "system": "service-bluetooth" } },
     "bluetooth": { "type": "data", "label": "Bluetooth" }
   }
 }

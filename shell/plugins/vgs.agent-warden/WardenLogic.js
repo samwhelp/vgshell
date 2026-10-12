@@ -359,6 +359,25 @@ function wardenRow(detail) {
     throw new Error("agent-warden: state=" + JSON.stringify(detail.state) + " unknown");
 }
 
+// The Settings setup step for installing the warden checks. It is open
+// only while no warden is set up; vsys missing is handled by the required
+// requirement row, so the step offers its action only when vsys is present.
+function setupRow(detail, vsysMissing) {
+    switch (detail.state) {
+    case "not-set-up":
+        var row = { tone: "warning", text: "Not set up" };
+        if (setupStep(detail, vsysMissing) === "setup") row.action = true;
+        return row;
+    case "calm":
+    case "working":
+    case "look":
+    case "problem":
+    case "not-checking":
+        return { tone: "ok", text: "Done" };
+    }
+    throw new Error("agent-warden: state=" + JSON.stringify(detail.state) + " unknown");
+}
+
 // The one setup step DETAIL calls for, or null for a state that needs
 // none: `setup`, the setup TUI, which runs vsys warden install for a warden
 // not set up; `start`, the warden timer started again after it
@@ -380,13 +399,13 @@ function setupStep(detail, vsysMissing) {
 // with MISSING, the plugin's requirement commands the last scan did not
 // find: key -> value for each key the manifest declares. `agents` and
 // `lastCheck` are left out while no status has told them. The warden row
-// offers the manifest's Set up action while setupStep answers `setup`.
-// Whether vsys is installed is its requirement's row, never a status value.
+// stays a reading. The setup row offers Set up while setupStep answers
+// `setup`. Whether vsys is installed is its requirement's row, never a
+// status value.
 function published(detail, missing) {
     var vsysMissing = missing.indexOf("vsys") !== -1;
-    var warden = wardenRow(detail);
-    if (setupStep(detail, vsysMissing) === "setup") warden.action = true;
-    var out = { warden: warden, detail: detail };
+    var setup = setupRow(detail, vsysMissing);
+    var out = { warden: wardenRow(detail), setup: setup, detail: detail };
     if (detail.agents !== null) out.agents = detail.agents;
     if (detail.checkedAt !== null) out.lastCheck = detail.checkedAt;
     return out;

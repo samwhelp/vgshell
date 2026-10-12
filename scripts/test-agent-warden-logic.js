@@ -16,13 +16,21 @@ const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.agent-warden", "WardenLogic.js");
+const manifestFile = path.join(__dirname, "..", "shell", "plugins", "vgs.agent-warden", "manifest.json");
 const fixtures = path.join(__dirname, "smoke", "fixtures", "agent-warden");
+const producer = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
+const steps = load(path.join(__dirname, "..", "shell", "plugins", "vgs.settings", "Steps.js"));
 // The logic runs in its own context, whose arrays and objects are not this
 // one's; values are compared as JSON.
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), want, message === undefined ? JSON.stringify(want) : message);
 const fixture = name => JSON.parse(fs.readFileSync(path.join(fixtures, "status-" + name + ".json"), "utf8"));
 // A fixture with EDIT applied to a copy of it.
 const edited = (name, edit) => { const doc = fixture(name); edit(doc); return doc; };
+const manifest = source => {
+    const loaded = producer.validateManifest(JSON.parse(fs.readFileSync(source, "utf8")), path.dirname(source));
+    assert.equal(loaded.ok, true, "the manifest validates: " + (loaded.error || ""));
+    return loaded.manifest;
+};
 
 const SLICE = { used: 40802189312, high: 68719476736, max: 85899345920 };
 const LANE = { scope: "agent-warden-100-200.scope", label: { tool: "claude", worktree: "vsy-52" }, tasks: 120, tasksMax: 8192, memory: 25769803776, memoryHigh: 68719476736, near: [] };
@@ -184,18 +192,19 @@ function verify(logic) {
 
     // Published values: every declared key the detail tells.
     const calm = logic.derive(read(logic, fixture("calm")), MS);
-    // A healthy warden's row carries no action, so the page shows no step
-    // and no command, with vsys present or gone.
-    same(logic.published(calm, []), { warden: { tone: "ok", text: "Running" }, detail: JSON.parse(JSON.stringify(calm)), agents: 1, lastCheck: MS });
+    // A healthy warden's row carries no action. Its setup step reads done.
+    same(logic.published(calm, []), { warden: { tone: "ok", text: "Running" }, setup: { tone: "ok", text: "Done" }, detail: JSON.parse(JSON.stringify(calm)), agents: 1, lastCheck: MS });
     same(logic.published(calm, ["vsys"]).warden, { tone: "ok", text: "Running" });
-    // The warden row offers Set up exactly where the flyout's step is the
+    same(logic.published(calm, ["vsys"]).setup, { tone: "ok", text: "Done" });
+    // The setup row offers Set up exactly where the flyout's step is the
     // setup TUI: a warden not set up, with vsys present.
     const stateOf = (state, reason) => Object.assign(logic.derive({ kind: "absent" }, MS), { state: state, reason: reason === undefined ? null : reason });
     for (const [label, detail, missing, want] of [
-        ["not set up with vsys", stateOf("not-set-up"), [], { tone: "info", text: "Not set up", action: true }],
-        ["not set up without vsys", stateOf("not-set-up"), ["vsys"], { tone: "info", text: "Not set up" }],
-        ["stopped checking", stateOf("not-checking", "stale"), [], { tone: "warning", text: "Stopped checking" }],
-    ]) same(logic.published(detail, missing).warden, want, "warden row, " + label);
+        ["not set up with vsys", stateOf("not-set-up"), [], { tone: "warning", text: "Not set up", action: true }],
+        ["not set up without vsys", stateOf("not-set-up"), ["vsys"], { tone: "warning", text: "Not set up" }],
+        ["stopped checking", stateOf("not-checking", "stale"), [], { tone: "ok", text: "Done" }],
+    ]) same(logic.published(detail, missing).setup, want, "setup row, " + label);
+    same(logic.published(stateOf("not-set-up"), []).warden, { tone: "info", text: "Not set up" }, "the warden row reads not set up without offering setup");
     for (const [label, detail, missing, want] of [
         ["not set up with vsys", stateOf("not-set-up"), [], "setup"],
         ["not set up without vsys", stateOf("not-set-up"), ["vsys"], "get-vsys"],
@@ -204,11 +213,42 @@ function verify(logic) {
         ["checking", calm, [], null],
     ]) assert.equal(logic.setupStep(detail, missing.indexOf("vsys") !== -1), want, "setup step, " + label);
     const unset = logic.derive({ kind: "absent" }, MS);
-    same(Object.keys(logic.published(unset, ["vsys"])).sort(), ["detail", "warden"], "an unset warden publishes no count and no time");
+    same(Object.keys(logic.published(unset, ["vsys"])).sort(), ["detail", "setup", "warden"], "an unset warden publishes no count and no time");
     const unlisted = logic.derive(read(logic, edited("calm", d => { d.lanes = null; })), MS);
-    same(Object.keys(logic.published(unlisted, [])).sort(), ["detail", "lastCheck", "warden"], "unlisted lanes publish no count");
+    same(Object.keys(logic.published(unlisted, [])).sort(), ["detail", "lastCheck", "setup", "warden"], "unlisted lanes publish no count");
+
+    verifyPlacement(logic, manifestFile);
 
     for (const [bytes, want] of GIB) assert.equal(logic.gib(bytes), want, "gib " + bytes);
+}
+
+function verifyPlacement(logic, source) {
+    const checked = manifest(source);
+    const base = logic.derive({ kind: "absent" }, MS);
+    const detailOf = (state, reason) => Object.assign({}, base, { state, reason: reason === undefined ? null : reason, items: state === "problem" ? [{ kind: "scan-failed" }] : [] });
+    const rows = [
+        ["not set up with vsys", detailOf("not-set-up"), [], true, true],
+        ["not set up without vsys", detailOf("not-set-up"), ["vsys"], false, true],
+        ["calm", detailOf("calm"), [], false, false],
+        ["look", detailOf("look"), [], false, false],
+        ["problem", detailOf("problem"), [], false, false],
+        ["stale", detailOf("not-checking", "stale"), [], false, false],
+        ["unreadable", detailOf("not-checking", "unreadable"), [], false, false],
+        ["schema", detailOf("not-checking", "schema"), [], false, false],
+    ];
+    for (const [label, detail, missing, buttonOpen, needsOpen] of rows) {
+        const values = logic.published(detail, missing);
+        const status = producer.statusRows(checked, values, missing);
+        assert.equal(steps.detailEntries(status).some(entry => entry.key === "warden"), true, "Details keeps the warden reading: " + label);
+        const section = steps.setupSections(producer.listedTuiRows(checked, missing), status).find(row => row.title === "Setup");
+        assert.notEqual(section, undefined, "Setup section exists: " + label);
+        const setup = section.items.find(item => item.key === "setup");
+        assert.notEqual(setup, undefined, "the setup step is on Setup: " + label);
+        assert.equal(steps.detailEntries(status).some(entry => entry.key === "setup"), false, "setup is never on Details: " + label);
+        assert.equal(setup.button !== null, buttonOpen, "setup button matches the open setup step: " + label);
+        const requirements = producer.requirementRows(checked, missing, {});
+        same(steps.setupNeeds(status, requirements, true).open, needsOpen, "setupNeeds.open: " + label);
+    }
 }
 
 verify(load(file));
@@ -234,12 +274,13 @@ const CONTROLS = [
     ["a failed scan warns", 'detail.items.some(function (i) { return i.kind === "scan-failed"; })', "false"],
     ["an unknown count is published", "if (detail.agents !== null) out.agents", "out.agents"],
     ["GB always one decimal", "return value < 10 ?", "return true ?"],
-    ["the warden row never offers Set up", "if (setupStep(detail, vsysMissing) === \"setup\") warden.action = true;", ""],
+    ["the setup step never offers Set up", "if (setupStep(detail, vsysMissing) === \"setup\") row.action = true;", ""],
     ["Set up offered without vsys", "return vsysMissing ? \"get-vsys\" : \"setup\";", "return \"setup\";"],
     ["a healthy warden reads as a warning", "return { tone: \"ok\", text: \"Running\" };", "return { tone: \"warning\", text: \"Running\" };"],
     ["a warning reads as healthy", "if (detail.state === \"look\") return { tone: \"warning\", text: \"Warnings need attention\" };", ""],
-    ["a healthy warden offers Set up", "if (setupStep(detail, vsysMissing) === \"setup\") warden.action = true;", "warden.action = true;"],
-    ["vsys is published as a status value", "var out = { warden: warden, detail: detail };", "var out = { warden: warden, vsys: \"present\", detail: detail };"]
+    ["a healthy setup step offers Set up", "return { tone: \"ok\", text: \"Done\" };", "return { tone: \"ok\", text: \"Done\", action: true };"],
+    ["the warden row carries Set up again", "var out = { warden: wardenRow(detail), setup: setup, detail: detail };", "var out = { warden: Object.assign(wardenRow(detail), { action: true }), setup: setup, detail: detail };"],
+    ["vsys is published as a status value", "var out = { warden: wardenRow(detail), setup: setup, detail: detail };", "var out = { warden: wardenRow(detail), setup: setup, vsys: \"present\", detail: detail };"]
 ];
 
 const source = fs.readFileSync(file, "utf8");
@@ -262,4 +303,23 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-agent-warden-logic: ok refused=${REFUSED.length} derived=${DERIVED.length} next=${NEXT.length + NO_NEXT.length} controls=${CONTROLS.length}`);
+
+const manifestSource = fs.readFileSync(manifestFile, "utf8");
+const manifestTemp = fs.mkdtempSync(path.join(scratchRoot, "agent-warden-manifest-control-"));
+try {
+    const mutant = path.join(manifestTemp, "manifest.json");
+    const doc = JSON.parse(manifestSource);
+    doc.status.warden.action = { label: "Set up", tui: "setup" };
+    fs.writeFileSync(mutant, JSON.stringify(doc, null, 2));
+    let failed = false;
+    try {
+        verifyPlacement(load(file), mutant);
+    } catch (e) {
+        failed = true;
+    }
+    assert.ok(failed, "control \"warden action in manifest\": the placement check passed with the action back on warden");
+} finally {
+    fs.rmSync(manifestTemp, { recursive: true, force: true });
+}
+
+console.log(`test-agent-warden-logic: ok refused=${REFUSED.length} derived=${DERIVED.length} next=${NEXT.length + NO_NEXT.length} controls=${CONTROLS.length + 1}`);

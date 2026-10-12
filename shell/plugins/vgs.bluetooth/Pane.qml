@@ -9,7 +9,7 @@ import "BluetoothLogic.js" as Logic
 // alone, from x 0, its height its implicitHeight.
 //
 // From the top: the power switch (PowerField.qml); while the Bluetooth
-// service is off, the `power` status entry's action, Turn on the service,
+// service is off, the `service` status entry's action, Turn on the service,
 // offered as the core's status rows offer it (`status.rows`) and run
 // through `status.act`; Discoverable, which
 // lets other devices find this computer and pair with it while this
@@ -33,11 +33,11 @@ FocusScope {
     readonly property var adapter: Bluetooth.defaultAdapter
     readonly property bool discoverable: adapter !== null && adapter.discoverable
     readonly property bool hideWhenOff: shell !== null && shell.settings.hideWhenOff === true
-    // The `power` status entry's action while the core offers it,
+    // The `service` status entry's action while the core offers it,
     // { label }, else null.
     readonly property var serviceAction: {
         if (shell === null) return null;
-        const row = shell.status.rows.find(r => r.key === "power");
+        const row = shell.status.rows.find(r => r.key === "service");
         return row === undefined || row.action === null || !row.action.offered ? null : { label: row.action.label };
     }
     // The agent lease Discoverable holds.
@@ -73,12 +73,12 @@ FocusScope {
         return reply;
     }
 
-    // Run the `power` entry's action, which turns the Bluetooth service on
+    // Run the `service` entry's action, which turns the Bluetooth service on
     // in the core's system setup; answers the core's reply.
     function turnOnService() {
-        const reply = shell.status.act("power");
+        const reply = shell.status.act("service");
         power.problem = reply === "ok" ? "" : "VGS could not open the Bluetooth service setup.";
-        if (reply !== "ok") console.warn("bluetooth: act power " + reply);
+        if (reply !== "ok") console.warn("bluetooth: act service " + reply);
         return reply;
     }
 

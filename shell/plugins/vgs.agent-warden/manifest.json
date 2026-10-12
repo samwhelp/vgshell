@@ -64,7 +64,12 @@
       "type": "state",
       "label": "Warden",
       "hint": "Checks whether AI agents stay within their memory and process limits",
-      "info": "Shows whether the vsys warden is set up, checking agents and reporting problems.",
+      "info": "Shows whether the vsys warden is set up, checking agents and reporting problems."
+    },
+    "setup": {
+      "type": "state",
+      "label": "Warden setup",
+      "hint": "Set up starts the Agent Warden checks in a floating terminal.",
       "action": { "label": "Set up", "tui": "setup" }
     },
     "agents": {

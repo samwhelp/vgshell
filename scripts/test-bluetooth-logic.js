@@ -16,10 +16,18 @@ const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.bluetooth", "BluetoothLogic.js");
+const manifestFile = path.join(__dirname, "..", "shell", "plugins", "vgs.bluetooth", "manifest.json");
+const producer = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
+const steps = load(path.join(__dirname, "..", "shell", "plugins", "vgs.settings", "Steps.js"));
 const utf8Bytes = load(path.join(__dirname, "..", "shell", "Commons", "SettingValues.js")).utf8Bytes;
 const scratch = path.join(__dirname, "..", "tmp", "test-bluetooth-logic-" + process.pid);
 const plain = value => JSON.parse(JSON.stringify(value));
 const same = (got, want, message) => assert.deepEqual(plain(got), plain(want), message);
+const manifest = source => {
+    const loaded = producer.validateManifest(JSON.parse(fs.readFileSync(source, "utf8")), path.dirname(source));
+    assert.equal(loaded.ok, true, "the manifest validates: " + (loaded.error || ""));
+    return loaded.manifest;
+};
 
 function rfkillJson(radios) {
     return JSON.stringify({ rfkilldevices: radios.map((r, i) => ({ id: i, type: r[0], device: "x" + i, soft: r[1], hard: r[2] })) });
@@ -74,9 +82,8 @@ function verifyView(logic) {
         const view = logic.powerView(powerInput(changes));
         same([view.key, view.on, view.canToggle], [key, on, canToggle], "view: " + label);
         assert.ok(typeof view.text === "string" && view.text.length > 0, "view: " + label + " tells the user");
+        assert.equal(Object.prototype.hasOwnProperty.call(view, "action"), false, "view: " + label + " carries no setup action");
     }
-    assert.equal(logic.powerView(powerInput({ adapters: 0, powered: false, step: "needed" })).action, true, "the service step is offered while needed");
-    assert.equal(logic.powerView(powerInput({ adapters: 0, powered: false, step: "ready" })).action, false, "the service step is not offered while ready");
     assert.throws(() => logic.powerView(powerInput({ op: op("dancing", "", false, "") })), /power phase/, "an unknown phase is refused");
 
     // The lines under the switch: a hint for a state that explains itself,
@@ -91,6 +98,23 @@ function verifyView(logic) {
     ];
     for (const [label, current, problem, want] of lines) same(logic.powerLine(current, problem), want, "powerLine: " + label);
     same([logic.publishedPower({}), logic.publishedPower(null), logic.publishedPower({ bluetooth: { power: { key: "on" } } })], [null, null, { key: "on" }], "the published power");
+}
+
+function verifyServiceRow(logic) {
+    const rows = [
+        ["an adapter means the service runs before the step reports", "", 1, { tone: "ok", text: "Running" }],
+        ["ready with no adapter is running", "ready", 0, { tone: "ok", text: "Running" }],
+        ["needed with no adapter is an open setup step", "needed", 0, { tone: "warning", text: "Off", action: true }],
+        ["nixos with no adapter is an open setup step", "nixos", 0, { tone: "warning", text: "Off", action: true }],
+        ["absent with no adapter is informational", "absent", 0, { tone: "info", text: "Not installed" }],
+        ["denied with no adapter is informational", "denied", 0, { tone: "info", text: "Unavailable" }],
+        ["unknown with no adapter is informational", "unknown", 0, { tone: "info", text: "Unknown" }],
+        ["empty with no adapter is informational", "", 0, { tone: "info", text: "Unknown" }],
+        ["an adapter wins over a stopped step", "needed", 2, { tone: "ok", text: "Running" }],
+    ];
+    for (const [label, step, adapters, want] of rows)
+        same(logic.serviceRow(step, adapters), want, "service row: " + label);
+    assert.throws(() => logic.serviceRow("future", 0), /service step/, "an unknown service step is refused");
 }
 
 // Run a power scenario: each step is [kind, arg, seen]; answers the trail of
@@ -526,12 +550,41 @@ function verifyBar(logic) {
 function verify(logic) {
     verifyRfkill(logic);
     verifyView(logic);
+    verifyServiceRow(logic);
     verifyPower(logic);
     verifyDiscovery(logic);
     verifyPairing(logic);
     verifyPrompts(logic);
     verifyDevices(logic);
     verifyBar(logic);
+    verifyPlacement(logic, manifestFile);
+}
+
+function verifyPlacement(logic, source) {
+    const checked = manifest(source);
+    const rows = [
+        ["ready with no adapter", "ready", 0, "no-adapter", false, false],
+        ["needed with no adapter", "needed", 0, "service-needed", true, true],
+        ["nixos with no adapter", "nixos", 0, "service-needed", true, true],
+        ["absent with no adapter", "absent", 0, "no-adapter", false, false],
+        ["denied with no adapter", "denied", 0, "no-adapter", false, false],
+        ["unknown with no adapter", "unknown", 0, "no-adapter", false, false],
+        ["empty with no adapter", "", 0, "no-adapter", false, false],
+        ["adapter listed", "needed", 1, "on", false, false],
+    ];
+    for (const [label, step, adapters, powerKey, buttonOpen, needsOpen] of rows) {
+        const power = logic.powerView(powerInput({ adapters, powered: adapters > 0, step }));
+        assert.equal(power.key, powerKey, "power key: " + label);
+        const status = producer.statusRows(checked, { power: { tone: power.tone, text: power.text }, service: logic.serviceRow(step, adapters), bluetooth: { power } }, []);
+        same(steps.detailEntries(status).map(entry => entry.key), ["power"], "Details keeps the power reading: " + label);
+        const section = steps.setupSections([], status).find(row => row.title === "Setup");
+        assert.notEqual(section, undefined, "Setup section exists: " + label);
+        const service = section.items.find(item => item.key === "service");
+        assert.notEqual(service, undefined, "the service step is on Setup: " + label);
+        assert.equal(steps.detailEntries(status).some(entry => entry.key === "service"), false, "service is never on Details: " + label);
+        assert.equal(service.button !== null, buttonOpen, "service button matches the open service step: " + label);
+        same(steps.setupNeeds(status, [], true).open, needsOpen, "setupNeeds.open: " + label);
+    }
 }
 
 verify(load(file));
@@ -564,6 +617,9 @@ const controls = [
     ["a refused press writes nothing", "if (!current.canToggle) return", "if (false) return", "power refuses a hard block"],
     ["a soft block reads off", "    if (read && rfkill.soft) return view(\"off\", {});\n", "", "view: a soft block reads off"],
     ["no adapter offers the service step", 'input.step === "needed" || input.step === "nixos" ? "service-needed" : "no-adapter"', '"no-adapter"', "view: no adapter with the service step needed"],
+    ["a done service step offers Turn on", 'if (adapters > 0 || step === "ready") return { tone: "ok", text: "Running" };', 'if (adapters > 0 || step === "ready") return { tone: "ok", text: "Running", action: true };', "service row: an adapter means the service runs before the step reports"],
+    ["an open service step loses Turn on", 'return { tone: "warning", text: "Off", action: true };', 'return { tone: "warning", text: "Off" };', "service row: needed with no adapter is an open setup step"],
+    ["the power reading carries Turn on again", "var out = { key: key, on: base.on, canToggle: base.canToggle, tone: base.tone, text: base.text, shows: base.shows };", "var out = { key: key, on: base.on, canToggle: base.canToggle, tone: base.tone, text: base.text, action: true, shows: base.shows };", "view: unblocked and powered reads on"],
     ["a hint line shows its text", 'hint: current.shows === "hint" ? current.text : "",', 'hint: "",', "powerLine: a hard block is a hint"],
     ["a refused press wins the error line", 'error: problem !== "" ? problem : current.shows === "error" ? current.text : ""', 'error: current.shows === "error" ? current.text : ""', "powerLine: a refused press is an error"],
     ["any radio's soft block counts", 'soft = soft || row.soft === "blocked";', 'soft = row.soft === "blocked";', "rfkill: a block on any of two radios"],
@@ -623,4 +679,23 @@ try {
     fs.rmSync(scratch, { recursive: true, force: true });
 }
 
-console.log("test-bluetooth-logic: ok controls=" + controls.length);
+const manifestScratch = path.join(__dirname, "..", "tmp", "test-bluetooth-manifest-" + process.pid);
+fs.rmSync(manifestScratch, { recursive: true, force: true });
+fs.mkdirSync(manifestScratch, { recursive: true });
+try {
+    const mutant = path.join(manifestScratch, "manifest.json");
+    const doc = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+    doc.status.power.action = { label: "Turn on the service", system: "service-bluetooth" };
+    fs.writeFileSync(mutant, JSON.stringify(doc, null, 2));
+    let failed = false;
+    try {
+        verifyPlacement(load(file), mutant);
+    } catch (e) {
+        failed = true;
+    }
+    assert.ok(failed, "control \"power action in manifest\": the placement check passed with the action back on power");
+} finally {
+    fs.rmSync(manifestScratch, { recursive: true, force: true });
+}
+
+console.log("test-bluetooth-logic: ok controls=" + (controls.length + 1));

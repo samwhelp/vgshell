@@ -61,17 +61,21 @@ warden_rows() { settings_rows | py_reply 'import json,sys; r=[p for p in json.lo
 # The answer the scan gives for vsys on the sandbox PATH, as a requirement
 # row's state.
 vsys_on_path() { if [[ $(shell_resolves vsys) != none ]]; then echo present; else echo missing; fi; }
-# The open Settings page as drawn. warden_drawn: the texts of the Warden
-# step on the Setup tab, a Field. page_buttons: every visible button text on the page, used to
-# assert the page has no Show command control. vsys_drawn: the texts of the vsys
-# requirement row. install_drawn: how many buttons read Install all missing.
-warden_drawn() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,sys; r=[r for r in json.load(sys.stdin) if r and r[0] == "Warden"]; print(json.dumps(r[0] if len(r) == 1 else "rows=%d" % len(r)))'; }
+# The open Settings page as drawn. warden_detail_drawn: the texts of the
+# Warden reading on the Details tab, a Field. warden_setup_drawn: the texts
+# of the Warden setup step on the Setup tab, a Field. page_buttons: every
+# visible button text on the page, used to assert the page has no Show
+# command control. vsys_drawn: the texts of the vsys requirement row.
+# install_drawn: how many buttons read Install all missing.
+warden_detail_drawn() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,sys; r=[r for r in json.load(sys.stdin) if r and r[0] == "Warden"]; print(json.dumps(r[0] if len(r) == 1 else "rows=%d" % len(r)))'; }
+warden_setup_drawn() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,sys; r=[r for r in json.load(sys.stdin) if r and r[0] == "Warden setup"]; print(json.dumps(r[0] if len(r) == 1 else "rows=%d" % len(r)))'; }
 page_buttons() { ipc smoke itemTexts window vgs.settings Button | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
 no_show_command() { page_buttons | py_reply 'import json,sys; print(str(not any("Show command" in r for r in json.load(sys.stdin))).lower())'; }
 vsys_drawn() { ipc smoke itemTexts window vgs.settings RequirementRow | py_reply 'import json,sys; r=[r for r in json.load(sys.stdin) if r and r[0] == "vsys"]; print(json.dumps(r[0] if len(r) == 1 else "rows=%d" % len(r)))'; }
 install_drawn() { ipc smoke itemTexts window vgs.settings Button | py_reply 'import json,sys; print(sum(1 for b in json.load(sys.stdin) if b == ["Install all missing"]))'; }
 warden_hint="Checks whether AI agents stay within their memory and process limits"
 warden_info="Shows whether the vsys warden is set up, checking agents and reporting problems."
+warden_setup_hint="Set up starts the Agent Warden checks in a floating terminal."
 # info_label TEXT: whether an open info dialog draws TEXT.
 info_label() { ipc smoke popupItemGeometry window vgs.settings "" "" Label "$1" | py_reply 'import sys; print("shown" if sys.stdin.read().strip().startswith("[") else "absent")'; }
 warden_info_dialog() { printf '%s|%s\n' "$(info_label Warden)" "$(info_label "$warden_info")"; }
@@ -204,21 +208,24 @@ expect_poll "no warden directory reads as not set up" '["not-set-up", null, 0, [
 expect "no status leaves the heartbeat alone" absent warden_heartbeat
 expect "an absent status logs nothing" 0 log_lines 'agent-warden: status='
 vsys_first="$(vsys_on_path)"
-# A warden row that offers Set up while vsys is present, D061: VALUE with
-# `action: true` added then.
-warden_setup_row() { python3 -c 'import json,sys; v=json.loads(sys.argv[1]); v.update({"action": True} if sys.argv[2] == "present" else {}); print(json.dumps(v))' "$1" "$vsys_first"; }
-expect "the warden row says it is not set up" "$(warden_setup_row '{"tone": "info", "text": "Not set up"}')" warden_value warden
+expect "the warden row says it is not set up with no action" '{"tone": "info", "text": "Not set up"}' warden_value warden
+if [[ $vsys_first == present ]]; then
+  expect "the setup row offers Set up while the warden is not set up" '{"tone": "warning", "text": "Not set up", "action": true}' warden_value setup
+else
+  expect "the setup row is open without Set up while vsys is missing" '{"tone": "warning", "text": "Not set up"}' warden_value setup
+fi
 expect "no agent count is published before a status" null warden_value agents
-expect "the lending record holds the published keys" '["detail", "warden"]' warden_lent
+expect "the lending record holds the published keys" '["detail", "setup", "warden"]' warden_lent
 expect "the vsys requirement reads as the scan finds it on the sandbox PATH" "$vsys_first" warden_requirement vsys
 
 calm_time="$(warden_put calm 0)"
 expect_poll "a fresh calm status reads as calm" '["calm", null, 0, []]' warden_state
 expect_poll "a status that reads starts the heartbeat" fresh warden_heartbeat
 expect "the warden row reads Running with no action" '{"tone": "ok", "text": "Running"}' warden_value warden
+expect "the setup row reads Done with no action" '{"tone": "ok", "text": "Done"}' warden_value setup
 expect "one agent runs in the calm status" 1 warden_value agents
 expect "the last check is the status time" "$((calm_time * 1000))" warden_value lastCheck
-expect "the lending record holds every declared key" '["agents", "detail", "lastCheck", "warden"]' warden_lent
+expect "the lending record holds every declared key" '["agents", "detail", "lastCheck", "setup", "warden"]' warden_lent
 
 # Each document replaces the last by rename, as the warden writes it.
 warden_put near-limit 0 >/dev/null
@@ -266,10 +273,10 @@ calm_time="$(warden_put calm 0)"
 expect_poll "a fresh status after the refusals reads as calm again" '["calm", null, 0, []]' warden_state
 expect_poll "a status that reads again touches the heartbeat at once" fresh warden_heartbeat
 
-# The Settings page draws the three rows, never `detail`, and no row for
-# vsys, which the Requirements section lists.
+# The Settings page draws the reading rows and setup row, never `detail`,
+# and no row for vsys, which the Requirements section lists.
 expect "the Settings window is summoned" ok ipc shell summon window vgs.settings '{}'
-expect_poll "the Settings rows show the warden, the agents and the last check" "$(python3 -c 'import json,sys; print(json.dumps([["Warden", "reported", {"tone": "ok", "text": "Running"}, "success"], ["Agents running", "reported", 1, ""], ["Last check", "reported", int(sys.argv[1]) * 1000, ""]]))' "$calm_time")" warden_rows
+expect_poll "the Settings rows show the warden, setup, agents and last check" "$(python3 -c 'import json,sys; print(json.dumps([["Warden", "reported", {"tone": "ok", "text": "Running"}, "success"], ["Warden setup", "reported", {"tone": "ok", "text": "Done"}, "success"], ["Agents running", "reported", 1, ""], ["Last check", "reported", int(sys.argv[1]) * 1000, ""]]))' "$calm_time")" warden_rows
 # Enabling a plugin with a missing required command raises its notice.
 # The existing PATH stand-in satisfies it before the action refusal check.
 expect_poll "enabling without vsys raises its required-command notice" '["vgs.agent-warden", ["vsys"], ["vsys"], false]' notice_shown
@@ -277,11 +284,13 @@ printf '#!/bin/sh\nexit 0\n' >"$shim/vsys"; chmod 755 "$shim/vsys"
 rescan "a rescan after vsys arrives starts"
 expect_poll "vsys reads as present" present warden_requirement vsys
 expect_poll "the scan that finds vsys clears the enable notice" null notice_shown
-# The control of Set up, D061: a warden that checks offers no Set up, and
-# the manager refuses the act then.
-expect_poll "a checking warden offers no Set up" '[["warden", "Set up", false]]' offered_actions vgs.agent-warden
-expected_errors+=('settings: vgs\.agent-warden/warden refused: action=warden reason=not-offered')
-expect "the manager refuses Set up for a checking warden" "refused: action=warden reason=not-offered" settings_act vgs.agent-warden warden
+# The control of Set up, D061: a warden that checks offers no Set up, the
+# Warden reading declares no action, and the setup step refuses the act
+# then.
+expect_poll "a checking warden offers no Set up" '[["setup", "Set up", false]]' offered_actions vgs.agent-warden
+expected_errors+=('settings: vgs\.agent-warden/warden refused: action=warden reason=undeclared' 'settings: vgs\.agent-warden/setup refused: action=setup reason=not-offered')
+expect "the manager refuses the Warden reading because it declares no action" "refused: action=warden reason=undeclared" settings_act vgs.agent-warden warden
+expect "the manager refuses Set up for a checking warden" "refused: action=setup reason=not-offered" settings_act vgs.agent-warden setup
 expect "the refused act raised no notice" null notice_shown
 expect "the Settings window is hidden" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone" 0 window_count Plugins
@@ -289,14 +298,16 @@ expect_poll "the Settings window is gone" 0 window_count Plugins
 # vsys follows the scan: a stub on the sandbox PATH is present after a
 # rescan and gone after the next, and the service is not rebuilt. With the
 # warden checking and vsys present nothing is left to set up, so the page
-# draws no step and no command anywhere: the Warden row its value and hint
-# alone, the vsys requirement Present, and no Install all missing. The
+# draws the Warden setup step done with no command, the Warden reading on
+# Details, the vsys requirement Present, and no Install all missing. The
 # control of Install all missing, D061: its call with nothing missing is
 # refused and raises no notice.
 settings_page_open vgs.agent-warden
 settings_setup
-expect_poll "a checking warden with vsys present offers no Set up" '[["warden", "Set up", false]]' offered_actions vgs.agent-warden
-expect_poll "the Warden row draws Running, its hint and no step" "$(words Warden Running "$warden_hint")" warden_drawn
+expect_poll "a checking warden with vsys present offers no Set up" '[["setup", "Set up", false]]' offered_actions vgs.agent-warden
+expect_poll "the Warden setup row draws Done, its hint and no action" "$(words "Warden setup" Done "$warden_setup_hint")" warden_setup_drawn
+settings_details
+expect_poll "the Warden reading draws Running, its hint and no step" "$(words Warden Running "$warden_hint")" warden_detail_drawn
 settings_press --type InfoButton "About Warden" Field Warden || fail "the click on the Warden row's info icon failed"
 expect_poll "the Warden info dialog opens with its title and text" "shown|shown" warden_info_dialog
 info_close_click Warden || fail "the click on the Warden info dialog's Close button failed"
@@ -524,8 +535,8 @@ expect_run_end "the setup run ends" vgs.agent-warden/setup
 # same readers read the healthy page above as drawing neither.
 settings_page_open vgs.agent-warden
 settings_setup
-expect_poll "a warden not set up offers Set up" '[["warden", "Set up", true]]' offered_actions vgs.agent-warden
-expect_poll "the Warden row draws Set up" "$(words Warden "Not set up" "Set up" "$warden_hint")" warden_drawn
+expect_poll "a warden not set up offers Set up" '[["setup", "Set up", true]]' offered_actions vgs.agent-warden
+expect_poll "the Warden setup row draws Set up" "$(words "Warden setup" "Not set up" "Set up" "$warden_setup_hint")" warden_setup_drawn
 expect "the page draws no Show command control" true no_show_command
 forget_record
 settings_press "Set up" || fail "the click on the Settings page's Set up failed"
@@ -778,7 +789,8 @@ if [[ $vsys_first == missing ]]; then
   # which draws the Requirements section.
   settings_page_open vgs.agent-warden
   settings_setup
-  expect_poll "a warden not set up without vsys offers no Set up" '[["warden", "Set up", false]]' offered_actions vgs.agent-warden
+  expect_poll "a warden not set up without vsys offers no Set up" '[["setup", "Set up", false]]' offered_actions vgs.agent-warden
+  expect_poll "the Warden setup row stays open without an action while vsys is missing" "$(words "Warden setup" "Not set up" "$warden_setup_hint")" warden_setup_drawn
   expect_poll "the vsys requirement draws Missing" "$(words vsys "Missing" "Shows your agents and provides Agent Warden")" vsys_drawn
   expect "the page without vsys draws no Show command" true no_show_command
   expect "the page without vsys draws Install all missing once" 1 install_drawn

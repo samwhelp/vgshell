@@ -15,10 +15,10 @@ import "BluetoothLogic.js" as Logic
 // A panel or pane takes a discovery lease while it is shown and ends it
 // from its own teardown (DiscoveryLease.qml).
 //
-// It publishes the status `power`, the line the Settings page draws, with
-// the service-bluetooth step's Turn on action while no adapter exists and
-// the step reads needed, and `bluetooth`, `{ power }`, powerView's answer,
-// which the widget, the flyout and the pane draw.
+// It publishes the status `power`, the line the Settings page draws, the
+// status `service`, the setup row for service-bluetooth, and `bluetooth`,
+// `{ power }`, powerView's answer, which the widget, the flyout and the
+// pane draw.
 //
 // rfkill is read when the service starts, after each of its own block and
 // unblock runs, after each requirement scan and whenever an adapter's
@@ -91,8 +91,10 @@ Item {
 
     function publish() {
         if (shell === null) return;
-        const reply = shell.status.set("power", { tone: view.tone, text: view.text, action: view.action });
+        const reply = shell.status.set("power", { tone: view.tone, text: view.text });
         if (reply !== "ok") console.error("bluetooth: status power " + reply);
+        const service = shell.status.set("service", Logic.serviceRow(step, adapters.length));
+        if (service !== "ok") console.error("bluetooth: status service " + service);
         const data = shell.status.set("bluetooth", { power: view });
         if (data !== "ok") console.error("bluetooth: status bluetooth " + data);
     }

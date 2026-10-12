@@ -93,21 +93,21 @@ function isBlockValue(value) { return value === "blocked" || value === "unblocke
 
 // Each power view by key: where the switch stands (`on`), whether a press
 // may start an operation (`canToggle`), the status state tone, the line,
-// whether the service-bluetooth step applies (`action`), and whether the
-// line draws as a hint, an error or not at all (`shows`). `failed` takes
+// and whether the line draws as a hint, an error or not at all (`shows`).
+// `failed` takes
 // its text from FAILURE_TEXT; `failed` and `rfkill-failed` take `on` from
 // the observed power.
 var POWER_VIEWS = {
-    "rfkill-missing": { on: false, canToggle: false, tone: "warning", text: "Install rfkill to turn Bluetooth on and off.", action: false, shows: "hint" },
-    "hard-blocked": { on: false, canToggle: false, tone: "warning", text: "Turned off by a hardware switch", action: false, shows: "hint" },
-    "service-needed": { on: false, canToggle: false, tone: "warning", text: "The Bluetooth service is off.", action: true, shows: "hint" },
-    "no-adapter": { on: false, canToggle: false, tone: "info", text: "No Bluetooth adapter found", action: false, shows: "hint" },
-    "turning-on": { on: true, canToggle: false, tone: "info", text: "Turning on", action: false, shows: "hint" },
-    "turning-off": { on: false, canToggle: false, tone: "info", text: "Turning off", action: false, shows: "hint" },
-    "failed": { on: false, canToggle: true, tone: "danger", text: "", action: false, shows: "error" },
-    "rfkill-failed": { on: false, canToggle: true, tone: "danger", text: "VGS could not read the Bluetooth switch.", action: false, shows: "error" },
-    "off": { on: false, canToggle: true, tone: "ok", text: "Off", action: false, shows: "none" },
-    "on": { on: true, canToggle: true, tone: "ok", text: "On", action: false, shows: "none" }
+    "rfkill-missing": { on: false, canToggle: false, tone: "warning", text: "Install rfkill to turn Bluetooth on and off.", shows: "hint" },
+    "hard-blocked": { on: false, canToggle: false, tone: "warning", text: "Turned off by a hardware switch", shows: "hint" },
+    "service-needed": { on: false, canToggle: false, tone: "warning", text: "The Bluetooth service is off.", shows: "hint" },
+    "no-adapter": { on: false, canToggle: false, tone: "info", text: "No Bluetooth adapter found", shows: "hint" },
+    "turning-on": { on: true, canToggle: false, tone: "info", text: "Turning on", shows: "hint" },
+    "turning-off": { on: false, canToggle: false, tone: "info", text: "Turning off", shows: "hint" },
+    "failed": { on: false, canToggle: true, tone: "danger", text: "", shows: "error" },
+    "rfkill-failed": { on: false, canToggle: true, tone: "danger", text: "VGS could not read the Bluetooth switch.", shows: "error" },
+    "off": { on: false, canToggle: true, tone: "ok", text: "Off", shows: "none" },
+    "on": { on: true, canToggle: true, tone: "ok", text: "On", shows: "none" }
 };
 
 // The user-facing line of each failure key the power operation leaves.
@@ -123,8 +123,8 @@ var FAILURE_TEXT = {
 //   powered        any adapter reports Powered
 //   op             the power operation, powerIdle() and on
 //   step           the service-bluetooth system step's state, or ""
-// Answers { key, on, canToggle, tone, text, action, shows } from
-// POWER_VIEWS. The keys, in the order they win: rfkill-missing,
+// Answers { key, on, canToggle, tone, text, shows } from POWER_VIEWS. The
+// keys, in the order they win: rfkill-missing,
 // hard-blocked, service-needed (no adapter and the service is not
 // running), no-adapter, turning-on, turning-off, failed, rfkill-failed,
 // off (soft-blocked, or unblocked with no adapter powered) and on.
@@ -151,9 +151,28 @@ function powerView(input) {
 
 function view(key, changes) {
     var base = POWER_VIEWS[key];
-    var out = { key: key, on: base.on, canToggle: base.canToggle, tone: base.tone, text: base.text, action: base.action, shows: base.shows };
+    var out = { key: key, on: base.on, canToggle: base.canToggle, tone: base.tone, text: base.text, shows: base.shows };
     for (var name in changes) out[name] = changes[name];
     return out;
+}
+
+// The Settings setup step for the Bluetooth service from the
+// service-bluetooth system step and the adapters Quickshell lists.
+function serviceRow(step, adapters) {
+    if (adapters > 0 || step === "ready") return { tone: "ok", text: "Running" };
+    switch (step) {
+    case "needed":
+    case "nixos":
+        return { tone: "warning", text: "Off", action: true };
+    case "absent":
+        return { tone: "info", text: "Not installed" };
+    case "denied":
+        return { tone: "info", text: "Unavailable" };
+    case "unknown":
+    case "":
+        return { tone: "info", text: "Unknown" };
+    }
+    throw new Error("bluetooth: service step " + JSON.stringify(step) + " is not one of ready, needed, denied, absent, unknown, nixos or empty");
 }
 
 // The lines under a power switch for VIEW and PROBLEM, the refusal the last
