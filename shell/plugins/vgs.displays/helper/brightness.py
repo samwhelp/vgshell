@@ -16,10 +16,12 @@ they are strings.
 `restore` reads {"restore": [{"id": ID, "percent": P}, ...]} from FILE,
 sets every entry it can, removes FILE only when its bytes are unchanged
 since the read, and answers {"restored": [{"id", "percent"}...],
-"failed": [{"id", ...failure fields}...]}. An absent FILE answers with
-empty lists. A refused record answers {"error": "restore-record",
-"detail": REASON} and is removed when unchanged, so the next start does
-not read the same bad record.
+"failed": [{"id", ...failure fields}...]}. When the unchanged file cannot
+be removed, the answer adds "kept": {"path": FILE, "detail": REASON}. An
+absent FILE answers with empty lists. A refused record answers {"error":
+"restore-record", "detail": REASON}, may add the same "kept" field, and is
+removed when unchanged, so the next start does not read the same bad
+record.
 
 `list` answers {"backends": {"ddc": STATE, "backlight": STATE},
 "displays": [DISPLAY...]}. A backend STATE is {"state": S}, S one of
@@ -719,11 +721,11 @@ def list_displays(roots, reports, env, outputs, now):
     return {"backends": {"ddc": ddc_backend, "backlight": light_state}, "displays": shown + ddc_shown}
 
 
-
 # --- restore ------------------------------------------------------------------
 
 def restore_refusal(detail):
     return Failure("restore-record", detail=detail)
+
 
 def parse_restore(data):
     try:
@@ -741,11 +743,12 @@ def parse_restore(data):
             raise restore_refusal(f"refused: restore={index} id={id_!r}")
         if id_ in seen:
             raise restore_refusal(f"refused: restore={index} id={id_!r} reason=repeated")
-        if not isinstance(percent, int) or percent < 0 or percent > 100:
+        if isinstance(percent, bool) or not isinstance(percent, int) or percent < 0 or percent > 100:
             raise restore_refusal(f"refused: restore={index} percent={percent!r}")
         seen.add(id_)
         entries.append({"id": id_, "percent": percent})
     return entries
+
 
 def remove_unchanged(path, before):
     try:
@@ -753,8 +756,20 @@ def remove_unchanged(path, before):
             return False
     except FileNotFoundError:
         return True
-    os.unlink(path)
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        return True
     return True
+
+
+def remove_unchanged_report(path, before):
+    try:
+        remove_unchanged(path, before)
+    except OSError as error:
+        return {"path": error.filename or path, "detail": error.strerror or str(error)}
+    return None
+
 
 def restore_record(roots, reports, env, path, now):
     try:
@@ -766,8 +781,9 @@ def restore_record(roots, reports, env, path, now):
     try:
         entries = parse_restore(original)
     except Failure as failure:
-        with contextlib.suppress(OSError):
-            remove_unchanged(path, original)
+        kept = remove_unchanged_report(path, original)
+        if kept is not None:
+            failure.fields["kept"] = kept
         raise failure
     restored, failed = [], []
     for item in entries:
@@ -779,9 +795,12 @@ def restore_record(roots, reports, env, path, now):
             failed.append(fields)
         except OSError as error:
             failed.append({"id": item["id"], "error": "os", "path": error.filename, "detail": error.strerror})
-    with contextlib.suppress(OSError):
-        remove_unchanged(path, original)
-    return {"restored": restored, "failed": failed}
+    answer = {"restored": restored, "failed": failed}
+    kept = remove_unchanged_report(path, original)
+    if kept is not None:
+        answer["kept"] = kept
+    return answer
+
 
 # --- set ----------------------------------------------------------------------
 

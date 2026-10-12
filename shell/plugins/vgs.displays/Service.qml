@@ -73,8 +73,8 @@ Item {
     // [{ id, percent }], each dimmed display's level before.
     property var dim: ({ state: "awake" })
     property var idleDisposer: null
+    // The restore record as this instance last wrote it.
     property var recorded: []
-
 
     readonly property var outputs: shell === null ? null : shell.monitors.outputs
     readonly property var trialState: shell === null ? ({ phase: "idle", token: "", deadline: 0, failure: "" }) : shell.monitors.trialState
@@ -212,6 +212,7 @@ Item {
         const ended = helper.timedOut ? "timeout" : helper.exitCode === null ? "start-failed" : "exit=" + helper.exitCode;
         if (run.verb === "restore") {
             const judged = Logic.parseRestoreAnswer(text);
+            if (judged.kept !== undefined) console.warn("displays: restore record kept: file=" + judged.kept.path + " detail=" + judged.kept.detail);
             if (judged.ok) {
                 for (const failed of judged.failed) console.warn("displays: restore=" + failed.id + " " + ended + " " + failed.details + root.stderrLine());
             } else {
@@ -279,8 +280,8 @@ Item {
     function apply(changes, osdShown) {
         if (flashed !== null && changes.some(c => c.id === flashed.id)) flashed = null;
         if (dim.state === "dimmed") dim = { state: "dimmed", kept: Logic.releaseKept(dim.kept, changes.map(c => c.id)) };
-        syncRestoreRecord();
         for (const change of changes) requestSet(change.id, change.percent);
+        syncRestoreRecord();
         if (osdShown && changes.length > 0) {
             const display = Logic.displayById(current, changes[0].id);
             osd = { shown: true, outputs: display === null ? [] : display.outputs, percent: changes[0].percent };
@@ -356,8 +357,8 @@ Item {
         if (flashed !== null) {
             const back = flashed;
             flashed = null;
-            syncRestoreRecord();
             requestSet(back.id, back.percent);
+            syncRestoreRecord();
         }
     }
 
@@ -389,9 +390,9 @@ Item {
     function wake() {
         const was = dim;
         dim = { state: "awake" };
-        syncRestoreRecord();
         if (was.state !== "dimmed") return;
         for (const change of Logic.restoreChanges(current, was.kept)) requestSet(change.id, change.percent);
+        syncRestoreRecord();
     }
 
     Component.onDestruction: {
@@ -480,7 +481,6 @@ Item {
             console.error("displays: assignments not written: file=" + root.assignmentsPath + " error=" + error);
         }
     }
-
 
     // Quickshell 0.3.1 FileView creates missing parent directories before
     // it writes (src/io/fileview.cpp, v0.3.1); setText also follows

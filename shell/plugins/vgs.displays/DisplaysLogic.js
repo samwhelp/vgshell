@@ -36,6 +36,7 @@ var BACKEND_STATES = ["ready", "missing", "module-not-loaded", "no-access", "err
 var KEY_TARGETS = ["focused", "all"];
 var ASSIGNMENT_KEYS = ["device", "label", "output"];
 var RESTORE_KEYS = ["id", "percent"];
+var RESTORE_KEPT_KEYS = ["detail", "path"];
 var STEP_STATES = ["ready", "needed", "denied", "absent", "unknown", "nixos"];
 var TRANSFORMS = [
     { value: 0, label: "Normal" },
@@ -572,15 +573,13 @@ function restoreEntry(value, at, what) {
 function owedLevels(dim, flashed) {
     var owed = [];
     var kept = {};
-    if (dim !== null && dim.state === "dimmed" && Array.isArray(dim.kept)) {
+    if (dim.state === "dimmed") {
         dim.kept.forEach(function (entry) {
-            if (typeof entry.id === "string" && Number.isInteger(entry.percent)) {
-                kept[entry.id] = true;
-                owed.push({ id: entry.id, percent: entry.percent });
-            }
+            kept[entry.id] = true;
+            owed.push({ id: entry.id, percent: entry.percent });
         });
     }
-    if (flashed !== null && typeof flashed.id === "string" && Number.isInteger(flashed.percent) && kept[flashed.id] !== true)
+    if (flashed !== null && kept[flashed.id] !== true)
         owed.push({ id: flashed.id, percent: flashed.percent });
     return owed;
 }
@@ -627,6 +626,20 @@ function restoreRecordDecision(recorded, owed, helperIdle) {
     return { write: !sameLevels(recorded, owed) && helperIdle, entries: owed };
 }
 
+function restoreKept(value) {
+    if (!isPlainObject(value)) return { ok: false, error: "refused: restore=kept want={path,detail}" };
+    var keys = Object.keys(value).sort();
+    if (keys.join(",") !== RESTORE_KEPT_KEYS.join(",")) return { ok: false, error: "refused: restore=kept keys=" + shown(keys) + " want=path,detail" };
+    if (typeof value.path !== "string" || value.path === "") return { ok: false, error: "refused: restore=kept path=" + shown(value.path) };
+    if (typeof value.detail !== "string" || value.detail === "") return { ok: false, error: "refused: restore=kept detail=" + shown(value.detail) };
+    return { ok: true, kept: { path: value.path, detail: value.detail } };
+}
+
+function parseRestoreKept(answer) {
+    if (!hasOwn(answer, "kept")) return { ok: true };
+    return restoreKept(answer.kept);
+}
+
 // The helper's `restore` answer, judged: { ok: true, restored, failed } or
 // { ok: false, error }. Each failed item carries a `details` suffix for
 // the service's keyed warning.
@@ -635,7 +648,13 @@ function parseRestoreAnswer(text) {
     if (!parsed.ok) return parsed;
     var answer = parsed.value;
     if (!isPlainObject(answer)) return { ok: false, error: "refused: restore=shape want=object" };
-    if (hasOwn(answer, "error")) return { ok: false, error: "refused: restore=helper error=" + shown(answer.error) + (hasOwn(answer, "detail") ? " detail=" + shown(answer.detail) : "") };
+    var kept = parseRestoreKept(answer);
+    if (!kept.ok) return kept;
+    if (hasOwn(answer, "error")) {
+        var failure = { ok: false, error: "refused: restore=helper error=" + shown(answer.error) + (hasOwn(answer, "detail") ? " detail=" + shown(answer.detail) : "") };
+        if (kept.kept !== undefined) failure.kept = kept.kept;
+        return failure;
+    }
     if (!Array.isArray(answer.restored) || !Array.isArray(answer.failed)) return { ok: false, error: "refused: restore=shape want={restored,failed}" };
     var restored = [];
     for (var i = 0; i < answer.restored.length; i++) {
@@ -651,7 +670,9 @@ function parseRestoreAnswer(text) {
         var fields = Object.keys(item).filter(function (key) { return key !== "id"; }).sort().map(function (key) { return key + "=" + shown(item[key]); }).join(" ");
         failed.push({ id: item.id, details: fields });
     }
-    return { ok: true, restored: restored, failed: failed };
+    var result = { ok: true, restored: restored, failed: failed };
+    if (kept.kept !== undefined) result.kept = kept.kept;
+    return result;
 }
 
 // --- Runs ----------------------------------------------------------------------

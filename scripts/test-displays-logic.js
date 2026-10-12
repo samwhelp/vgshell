@@ -131,8 +131,18 @@ function verify(logic) {
   same(logic.restoreRecordDecision([{ id: STUDIO_A, percent: 60 }], [{ id: STUDIO_A, percent: 60 }], true), { write: false, entries: [{ id: STUDIO_A, percent: 60 }] }, "an equal record does not write");
   const restoreAnswer = { restored: [{ id: STUDIO_A, percent: 60 }], failed: [{ id: STUDIO_B, error: "state", state: "no-access" }] };
   same(logic.parseRestoreAnswer(JSON.stringify(restoreAnswer)), { ok: true, restored: [{ id: STUDIO_A, percent: 60 }], failed: [{ id: STUDIO_B, details: "error=\"state\" state=\"no-access\"" }] });
+  const keptRecord = { path: "/state/plugins/vgs.displays/restore.json", detail: "permission denied" };
+  same(logic.parseRestoreAnswer(JSON.stringify(Object.assign({ kept: keptRecord }, restoreAnswer))),
+    { ok: true, restored: [{ id: STUDIO_A, percent: 60 }], failed: [{ id: STUDIO_B, details: "error=\"state\" state=\"no-access\"" }], kept: keptRecord },
+    "parseRestoreAnswer: reports kept record");
   same(logic.parseRestoreAnswer(JSON.stringify({ error: "restore-record", detail: "refused: restore=unparsed" })),
     { ok: false, error: "refused: restore=helper error=\"restore-record\" detail=\"refused: restore=unparsed\"" });
+  same(logic.parseRestoreAnswer(JSON.stringify({ error: "restore-record", detail: "refused: restore=unparsed", kept: keptRecord })),
+    { ok: false, error: "refused: restore=helper error=\"restore-record\" detail=\"refused: restore=unparsed\"", kept: keptRecord },
+    "parseRestoreAnswer: refused record reports kept record");
+  same(logic.parseRestoreAnswer(JSON.stringify(Object.assign({ kept: { path: "/x" } }, restoreAnswer))),
+    { ok: false, error: "refused: restore=kept keys=[\"path\"] want=path,detail" },
+    "parseRestoreAnswer: refuses malformed kept record");
 
   // --- Runs: latest wins per display, one run in flight --------------------
   let runs = logic.emptyRuns();
@@ -582,12 +592,15 @@ const CONTROLS = [
   ["the set judge takes a percent past 100", "answer.percent < 0 || answer.percent > 100)", "answer.percent < 0)"],
   ["the set judge takes a negative percent", "!Number.isInteger(answer.percent) || answer.percent < 0 ||", "!Number.isInteger(answer.percent) ||"],
   ["restore record ignores a flashed level", "owed.push({ id: flashed.id, percent: flashed.percent });", ""],
-  ["restore record lets a flash replace a kept level", "&& kept[flashed.id] !== true", ""],
+  ["restore record lets a flash replace a kept level", " && kept[flashed.id] !== true", ""],
   ["restore text uses the assignments key", "return JSON.stringify({ restore: entries }, null, 2)", "return JSON.stringify({ assignments: entries }, null, 2)"],
   ["restore record takes a repeated id", "if (hasOwn(seen, judged.entry.id)) return { ok: false", "if (false) return { ok: false"],
   ["restore shrink writes while busy", "return { write: !sameLevels(recorded, owed) && helperIdle, entries: owed };", "return { write: !sameLevels(recorded, owed), entries: owed };"],
   ["restore grow waits for idle", "return { write: true, entries: owed };", "return { write: helperIdle, entries: owed };"],
   ["restore answer drops failed displays", "failed.push({ id: item.id, details: fields });", ""],
+  ["restore refused answer ignores kept records", "if (kept.kept !== undefined) failure.kept = kept.kept;", ""],
+  ["restore answer ignores kept records", "if (kept.kept !== undefined) result.kept = kept.kept;", ""],
+  ["restore answer takes malformed kept records", "if (!kept.ok) return kept;", ""],
   ["restore run waits behind sets", "if (next.restore) {", "if (false && next.restore) {"],
   ["assignment text has no length cap", "value.length <= ASSIGNMENT_TEXT_MAX && ", ""],
   ["a set request takes any osd", "(hasOwn(r, \"osd\") && typeof r.osd !== \"boolean\")", "false"],

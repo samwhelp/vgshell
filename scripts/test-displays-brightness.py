@@ -18,6 +18,7 @@ and Pro Display XDR's interfaces report in
 defect per rule in a copy of the helper and run the named test against it.
 """
 from concurrent.futures import ThreadPoolExecutor
+import errno
 import importlib.util
 import json
 import os
@@ -817,6 +818,16 @@ class Restore(Case):
         status, answer, _ = world.helper("restore", str(world.root / "absent.json"))
         self.assertEqual((status, answer), (0, {"restored": [], "failed": []}))
 
+    def test_restore_reports_kept_when_unlink_fails(self):
+        world = self.world()
+        record = self.restore_file(world, [])
+        error = OSError(errno.EACCES, "permission denied", str(record))
+        with mock.patch.object(helper.os, "unlink", side_effect=error):
+            answer = helper.restore_record(helper.Roots(str(world.sys), str(world.dev), None), None, {}, str(record), 0)
+        self.assertEqual(answer, {"restored": [], "failed": [],
+                                  "kept": {"path": str(record), "detail": "permission denied"}})
+        self.assertTrue(record.exists())
+
     def test_restore_refused_shape_is_reported_and_removed(self):
         world = self.world()
         world.start()
@@ -826,6 +837,21 @@ class Restore(Case):
         self.assertEqual((status, answer["error"]), (1, "restore-record"))
         self.assertIn("reason=repeated", answer["detail"])
         self.assertFalse(record.exists())
+
+    def test_restore_refused_shape_reports_kept_when_unlink_fails(self):
+        world = self.world()
+        record = world.root / "restore.json"
+        record.write_text(json.dumps({"restore": [{"id": "hidraw:x", "percent": 50}, {"id": "hidraw:x", "percent": 60}]}))
+        with mock.patch.object(helper.os, "unlink", side_effect=OSError(errno.EACCES, "permission denied", str(record))):
+            with self.assertRaises(helper.Failure) as raised:
+                helper.restore_record(helper.Roots(str(world.sys), str(world.dev), None), None, {}, str(record), 0)
+        self.assertEqual(raised.exception.fields["kept"], {"path": str(record), "detail": "permission denied"})
+        self.assertTrue(record.exists())
+
+    def test_restore_refuses_bool_percent(self):
+        with self.assertRaises(helper.Failure) as raised:
+            helper.parse_restore(json.dumps({"restore": [{"id": "hidraw:x", "percent": True}]}).encode())
+        self.assertIn("percent=True", raised.exception.fields["detail"])
 
 
 class Seam(Case):
@@ -941,7 +967,13 @@ class Controls(unittest.TestCase):
         ("kernel backlight ignored", "if kernel is not None:", "if False:", "Backlights.test_kernel_backlight_preferred_over_hidraw"),
         ("restore removes changed records", "if read_bytes(path) != before:", "if False and read_bytes(path) != before:", "Restore.test_restore_keeps_changed_file"),
         ("restore stops after first failure", "failed.append(fields)", "failed.append(fields); raise", "Restore.test_restore_reports_failed_display_without_stopping_others"),
-        ("restore leaves refused records", "with contextlib.suppress(OSError):\n            remove_unchanged(path, original)\n        raise failure", "with contextlib.suppress(OSError):\n            False\n        raise failure", "Restore.test_restore_refused_shape_is_reported_and_removed"),
+        ("restore removes refused records",
+         "kept = remove_unchanged_report(path, original)\n        if kept is not None:\n            failure.fields[\"kept\"] = kept\n        raise failure",
+         "raise failure", "Restore.test_restore_refused_shape_is_reported_and_removed"),
+        ("restore reports kept file", "        answer[\"kept\"] = kept", "        pass", "Restore.test_restore_reports_kept_when_unlink_fails"),
+        ("restore reports kept refused record", "            failure.fields[\"kept\"] = kept", "            pass",
+         "Restore.test_restore_refused_shape_reports_kept_when_unlink_fails"),
+        ("restore bool percent refused", "isinstance(percent, bool) or ", "", "Restore.test_restore_refuses_bool_percent"),
     )
 
     def mirror(self, scratch, helper_text):
@@ -957,8 +989,9 @@ class Controls(unittest.TestCase):
         return root
 
     def run_tests(self, root, tests):
+        (root / "tmp").mkdir(exist_ok=True)
         return subprocess.run([sys.executable, "-B", str(root / "scripts/test-displays-brightness.py"), *tests],
-                              env={"PATH": "/usr/bin:/bin", "HOME": str(root), "LC_ALL": "C"},
+                              env={"PATH": "/usr/bin:/bin", "HOME": str(root), "LC_ALL": "C", "TMPDIR": str(root / "tmp")},
                               text=True, capture_output=True, check=False)
 
     def test_mirror_passes_unplanted(self):
