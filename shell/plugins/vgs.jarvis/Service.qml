@@ -169,9 +169,10 @@ Item {
         return shell === null || shell.session === undefined || shell.session.locked !== false;
     }
 
-    function publish(tone, text, lines) {
-        const value = { tone: tone, text: text };
-        if (lines !== undefined) value.lines = lines;
+    function publish(tone, text) {
+        publishDaemon({ tone: tone, text: text });
+    }
+    function publishDaemon(value) {
         const reply = shell.status.set("daemon", value);
         if (reply !== "ok") throw new Error("jarvis: " + reply);
     }
@@ -303,7 +304,7 @@ Item {
         if (shell === null || lifetime.kind === "stopped") return;
         if (name === "mute") {
             if (lifetime.kind === "problem") {
-                refuseMute(cause);
+                notice(Gate.muteRefusedNotice(cause));
                 return;
             }
             if (lifetime.pendingMute !== "none") return;
@@ -571,12 +572,6 @@ Item {
         }
     }
 
-    function refuseMute(reason) {
-        notice({ title: "Jarvis mute not saved",
-            message: "Mute request could not be saved: " + reason.slice(0, 180),
-            tone: "danger", icon: "mic" });
-    }
-
     // One reply per daemon request, from the capability that owns the act.
     // The reply carries the shell's own answer; the daemon reads every
     // effect back from Hyprland itself. Each handler answers {answer, data}.
@@ -757,8 +752,7 @@ Item {
         cause = reason;
         console.warn(reason);
         if (shell !== null && lifetime.kind !== "stopped") {
-            const problem = Gate.startCause(cause);
-            publish("warning", problem.title, [Gate.RETRYING_START].concat(problem.lines));
+            publishDaemon(Gate.startStatus(cause, true));
             publishSetup({ kind: "problem", cause, action: Gate.RETRYING_START });
         }
         child.stdinEnabled = false;
@@ -828,7 +822,7 @@ Item {
                 }
                 if (message.type === "memory") {
                     const reply = shell.status.set("memory", { tone: "warning", text: "Off",
-                        hint: "jarvis: memory=sqlite. Memory search needs Node 22.13 or later with SQLite. Jarvis still answers without it." });
+                        hint: "Memory search needs Node 22.13 or later with SQLite. Jarvis still answers without it." });
                     if (reply !== "ok") throw new Error("jarvis: " + reply);
                     continue;
                 }
@@ -932,13 +926,12 @@ Item {
         shellStatus({ kind: "unavailable", reason: "daemon-ended" });
         const stale = shell.status.set("detail", null);
         if (stale !== "ok") throw new Error("jarvis: " + stale);
-        const problem = Gate.startCause(cause);
         if (permanent || retries === 5) {
-            if (lifetime.pendingMute !== "none") refuseMute(cause);
+            if (lifetime.pendingMute !== "none") notice(Gate.muteRefusedNotice(cause));
             lifetime = { kind: "problem", pendingMute: "none" };
-            publish("danger", problem.title, [problem.action].concat(problem.lines));
+            publishDaemon(Gate.startStatus(cause, false));
             publishSetup({ kind: "problem", cause });
-            notice({ title: "Jarvis daemon stopped", message: cause.slice(0, 180), tone: "danger", icon: "mic" });
+            notice(Gate.stoppedNotice(cause));
             return;
         }
         // A successful hello does not reset the allowance: a daemon that
@@ -946,7 +939,7 @@ Item {
         retry.interval = 250 * Math.pow(2, retries);
         retries++;
         lifetime = { kind: "retry", pendingMute: lifetime.pendingMute };
-        publish("warning", problem.title, [Gate.RETRYING_START].concat(problem.lines));
+        publishDaemon(Gate.startStatus(cause, true));
         publishSetup({ kind: "problem", cause, action: Gate.RETRYING_START });
         retry.start();
     }

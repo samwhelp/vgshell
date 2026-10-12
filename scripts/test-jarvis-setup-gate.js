@@ -1032,12 +1032,13 @@ function verify(gate) {
     assert.equal(fallback.kind, "daemon-exit", "arbitrary stderr maps to daemon exit");
     for (const cause of ["jarvis: daemon=exit code=1 status=0 " + "x".repeat(240), "jarvis: protocol=bad\u0001line"]) {
         const words = gate.startCause(cause);
-        const daemon = { tone: "danger", text: words.title, lines: [words.action].concat(words.lines) };
+        const daemon = gate.startStatus(cause, false);
         const setup = gate.readiness({ kind: "problem", cause }).setup;
         assert.equal(judge.statusWrite(manifest, {}, "daemon", daemon).ok, true, "daemon accepts bounded cause line");
         assert.equal(judge.statusWrite(manifest, {}, "setup", setup).ok, true, "setup accepts bounded cause line");
         assert.equal(words.lines[0].length <= 200 && !/[\u0000-\u001f]/.test(words.lines[0]), true, "cause line is bounded and printable");
     }
+    verifyWordedText(gate);
 }
 
 verify(load(file));
@@ -1048,6 +1049,10 @@ console.log("test-jarvis-setup-gate: consumer=Settings,Details hint=Choose an AI
 // Each control removes one rule from a copy and keeps the text around it:
 // [label, needle, replacement].
 const CONTROLS = [
+    ["a failed start's tooltip draws its keyed cause", 'hint: retrying ? RETRYING_START : problem.action,', 'hint: retrying ? RETRYING_START : problem.lines[0],', "the bar tooltip draws no keyed cause"],
+    ["the stopped notice draws its keyed cause", 'message: problem.action, tone: "danger"', 'message: problem.lines[0], tone: "danger"', "the stopped notice draws no keyed cause"],
+    ["the mute notice draws its keyed cause", '"Mute request could not be saved: " + startCause(cause).title', '"Mute request could not be saved: " + statusCauseLine(cause)', "the mute refused notice draws no keyed cause"],
+    ["the Daemon row loses its cause", 'hint: retrying ? RETRYING_START : problem.action, lines: problem.lines };', 'hint: retrying ? RETRYING_START : problem.action };', "the Daemon row keeps the cause"],
     ["check failure hidden", 'if (check.kind === "failed") return', 'if (false) return'],
     ["microphone check hides a setup cause", 'value.tone !== "ok" || ', "", "voice setup cause survives microphone check"],
     ["silent check is ready", 'if (check.result === "silent") return { tone: "warning"', 'if (check.result === "silent") return { tone: "ok"'],
@@ -1577,6 +1582,35 @@ function verifyOneReadiness(gate) {
         assert.equal(bar.state === "ready", status.setup.tone === "ok", causes.join(",") + ": the bar and the Setup status state one readiness");
         if (causes.includes(shellCause) && bar.state === "ready")
             assert.equal(bar.tooltipDetails.includes(status.setup.hint), true, causes.join(",") + ": the bar shows the caution");
+    }
+}
+
+// The class check: every text a user reads after a READINESS case or a
+// failed start (the bar tooltip, the desktop notices and the Setup values)
+// words its state; the keyed cause stays on the Daemon row's line.
+function verifyWordedText(gate) {
+    const keys = { talk: "Super+Right Alt", mute: "Super+Shift+Right Alt", stop: "Super+Alt+Period", confirm: "Super+Alt+Y" };
+    const state = Object.assign(plain(session.initial()), { gate: { kind: "down", reason: "unconfigured" } });
+    const up = { daemon: { tone: "info", text: "Ready; no capture" }, audio: { tone: "ok", text: "Device list ready" },
+        detail: { phase: session.phaseOf(state), seq: 1, state } };
+    for (const [label, answer] of READINESS) {
+        const status = plain(gate.readiness(answer));
+        const bar = widget.view(Object.assign({}, up, status), keys, "hold");
+        assert.deepEqual(keyedCauses(bar, ["tooltip", "tooltipDetails"]), [], label + ": the bar tooltip draws no keyed cause");
+    }
+    const causes = START_CAUSES.map(([label, cause]) => [label, cause]).concat([["keyed stderr", "node: heap=exhausted"]]);
+    for (const [label, cause] of causes) {
+        for (const retrying of [true, false]) {
+            const daemon = plain(gate.startStatus(cause, retrying));
+            assert.deepEqual(daemon.lines, [gate.startCause(cause).lines[0]], label + ": the Daemon row keeps the cause");
+            assert.equal(judge.statusWrite(manifest, {}, "daemon", daemon).ok, true, label + ": the daemon value fits its entry");
+            const setup = plain(gate.readiness(retrying ? { kind: "problem", cause, action: gate.RETRYING_START } : { kind: "problem", cause }));
+            const bar = widget.view(Object.assign({ daemon, detail: null }, setup), keys, "hold");
+            assert.equal(bar.state, "problem", label + ": the bar reads a problem");
+            assert.deepEqual(keyedCauses(bar, ["tooltip", "tooltipDetails"]), [], label + " retrying=" + retrying + ": the bar tooltip draws no keyed cause");
+        }
+        for (const [name, notice] of [["stopped", gate.stoppedNotice(cause)], ["mute refused", gate.muteRefusedNotice(cause)]])
+            assert.deepEqual(keyedCauses(notice, ["title", "message"]), [], label + ": the " + name + " notice draws no keyed cause");
     }
 }
 

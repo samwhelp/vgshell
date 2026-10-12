@@ -194,6 +194,26 @@ function startCause(cause) {
     }
     return { kind: DAEMON_EXIT.kind, title: DAEMON_EXIT.title, action: DAEMON_EXIT.action, lines: [line] };
 }
+
+// The `daemon` value after a failed start, RETRYING or stopped for good:
+// the bar words it from its title and hint; the keyed cause is only its
+// line, which the Daemon row keeps for diagnostics.
+function startStatus(cause, retrying) {
+    var problem = startCause(cause);
+    return { tone: retrying ? "warning" : "danger", text: problem.title,
+        hint: retrying ? RETRYING_START : problem.action, lines: problem.lines };
+}
+
+// The desktop notices after CAUSE stopped Jarvis for good, and after it
+// refused a mute press: the cause's title and action, never its key.
+function stoppedNotice(cause) {
+    var problem = startCause(cause);
+    return { title: problem.title, message: problem.action, tone: "danger", icon: "mic" };
+}
+function muteRefusedNotice(cause) {
+    return { title: "Jarvis mute not saved", message: "Mute request could not be saved: " + startCause(cause).title + ".",
+        tone: "danger", icon: "mic" };
+}
 // The installed voice stays verified. Reinstalling it cannot free memory.
 var MEMORY = {
     "speech=local-memory-insufficient": { tone: "warning", text: "Not enough memory",

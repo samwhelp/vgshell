@@ -224,19 +224,28 @@ print("problem" if ok else "not-problem")
 ' <<<"$answer"
 }
 
+# The Daemon row keeps the keyed cause; the bar tooltip and the Setup
+# summary say the state and what to do.
 jarvis_start_problem_words() {
-  ipc smoke jarvisProcess | py_reply '
+  local process widget
+  process="$(ipc smoke jarvisProcess)" || return
+  widget="$(ipc smoke readInstance "$(bar_key)" vgs.jarvis view)" || return
+  python3 - "$process" "$widget" <<'PY'
 import json, sys
-d = json.load(sys.stdin)
+d = json.loads(sys.argv[1])
+widget = json.loads(sys.argv[2])
 daemon = d["status"].get("daemon", {})
 setup = d["status"].get("setup", {})
+action = "Turn Jarvis off and on again in Settings > Jarvis."
 ok = d["lifetime"]["kind"] == "problem" and d["pid"] is None
 ok = ok and daemon.get("tone") == "danger" and daemon.get("text") == "Jarvis did not answer in time"
-ok = ok and "jarvis: hello=timeout" in daemon.get("lines", [])
+ok = ok and daemon.get("lines") == ["jarvis: hello=timeout"] and daemon.get("hint") == action
 ok = ok and setup.get("text") == "Jarvis did not answer in time"
-ok = ok and setup.get("hint") == "Turn Jarvis off and on again in Settings > Jarvis." and "lines" not in setup
+ok = ok and setup.get("hint") == action and "lines" not in setup
+ok = ok and widget.get("tooltip") == "Jarvis did not answer in time" and widget.get("tooltipDetails", [])[:1] == [action]
+ok = ok and not any("hello=timeout" in line for line in widget.get("tooltipDetails", []))
 print("problem-words" if ok else "pending")
-'
+PY
 }
 
 jarvis_start_retry_words() {
@@ -247,7 +256,7 @@ daemon = d["status"].get("daemon", {})
 setup = d["status"].get("setup", {})
 ok = d["lifetime"]["kind"] == "retry"
 ok = ok and daemon.get("tone") == "warning" and daemon.get("text") == "Jarvis did not answer in time"
-ok = ok and daemon.get("lines") == ["Jarvis is trying again by itself.", "jarvis: hello=timeout"]
+ok = ok and daemon.get("lines") == ["jarvis: hello=timeout"] and daemon.get("hint") == "Jarvis is trying again by itself."
 ok = ok and setup.get("text") == "Jarvis did not answer in time"
 ok = ok and setup.get("hint") == "Jarvis is trying again by itself."
 ok = ok and "lines" not in setup

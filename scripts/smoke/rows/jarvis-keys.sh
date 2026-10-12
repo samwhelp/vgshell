@@ -162,8 +162,8 @@ jarvis_shortcut_control() {
    jarvis_shortcut_assertion >"$sandbox/jarvis-home-shortcut-control.log"
    echo "$failures")
 }
-# The Jarvis cards that say Mute was not saved for CAUSE.
-jarvis_key_refusals() { # CAUSE
+# The Jarvis cards that say Mute was not saved for TITLE, the words of its cause.
+jarvis_key_refusals() { # TITLE
   plugin_card_count Jarvis "Jarvis mute not saved" "$1"
 }
 jarvis_key_refusal_assertion() { expect_poll "unavailable Mute reports its actual cause" "$1" jarvis_key_refusals "$2"; }
@@ -364,28 +364,28 @@ cp -- "$sandbox/jarvis-key-backend-before" "$jarvis_key_backend"
 jarvis_rescan
 expect "the permanent-problem key service enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "the real service reports its permanent cause" permanent jarvis_permanent
-jarvis_key_refused="$(jarvis_key_refusals 'jarvis: node=21.0.0 need=22')"
+jarvis_key_refused="$(jarvis_key_refusals 'Jarvis needs Node 22 or later')"
 jarvis_key_mute
 hold_barrier
-jarvis_key_refusal_assertion "$((jarvis_key_refused + 1))" 'jarvis: node=21.0.0 need=22'
+jarvis_key_refusal_assertion "$((jarvis_key_refused + 1))" 'Jarvis needs Node 22 or later'
 expect "the permanent-problem service disables" ok ipc shell setPluginEnabled vgs.jarvis false
 python3 - "$jarvis_key_service" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]); assert not p.is_symlink()
-s=p.read_text(); needle='function refuseMute(reason) {'
+s=p.read_text(); needle='notice(Gate.muteRefusedNotice(cause));\n                return;'
 assert s.count(needle)==1
-changed=s.replace(needle, needle + '\n        return;')
+changed=s.replace(needle, 'return;')
 assert changed!=s
 p.write_text(changed)
 PY
 jarvis_rescan
 expect "the refusal control enables without changing the key trigger" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "the refusal control reaches the same permanent cause" permanent jarvis_permanent
-jarvis_key_refused="$(jarvis_key_refusals 'jarvis: node=21.0.0 need=22')"
+jarvis_key_refused="$(jarvis_key_refusals 'Jarvis needs Node 22 or later')"
 jarvis_key_mute
 hold_barrier
-expect "dropping refusal breaks its same cause assertion" 1 jarvis_key_refusal_control "$((jarvis_key_refused + 1))" 'jarvis: node=21.0.0 need=22'
+expect "dropping refusal breaks its same cause assertion" 1 jarvis_key_refusal_control "$((jarvis_key_refused + 1))" 'Jarvis needs Node 22 or later'
 expect "the refusal control disables" ok ipc shell setPluginEnabled vgs.jarvis false
 notes_off "jarvis mute notices"
 cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"

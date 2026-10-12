@@ -124,7 +124,7 @@ r = None if t == "absent" else json.loads(t)
 d = None if p in ("absent", "missing") else json.loads(p)
 ok = (r is not None and d is not None and r[:2] == ["circle-alert", "danger"]
       and d["lifetime"]["kind"] == "retry" and d["status"]["daemon"]["tone"] == "warning"
-      and "Jarvis is trying again by itself." in d["status"]["daemon"].get("lines", []))
+      and d["status"]["daemon"].get("hint") == "Jarvis is trying again by itself.")
 print("restarting" if ok else t)
 PY
 }
@@ -224,11 +224,11 @@ expect_poll "the restarted daemon answers after one retry" ready jarvis_ready 1
 expect_poll "the widget reads ready after the restart" "$jarvis_widget_ready" jarvis_widget
 jarvis_widget_restore Service.qml
 
-# Keep the retry. Drop only the report lines that make a retry a problem
+# Keep the retry. Drop only the report hint that makes a retry a problem
 # with plain action text.
 jarvis_widget_plant Service.qml "$jarvis_widget_retry_needle" "$jarvis_widget_retry_delay" \
-  $'lifetime = { kind: "retry", pendingMute: lifetime.pendingMute };\n        publish("warning", problem.title, [Gate.RETRYING_START].concat(problem.lines));' \
-  'lifetime = { kind: "retry", pendingMute: lifetime.pendingMute }; publish("warning", problem.title);'
+  $'lifetime = { kind: "retry", pendingMute: lifetime.pendingMute };\n        publishDaemon(Gate.startStatus(cause, true));' \
+  'lifetime = { kind: "retry", pendingMute: lifetime.pendingMute }; publish("warning", Gate.startStatus(cause, true).text);'
 jarvis_enable
 expect_poll "the clear control draws the ready widget" "$jarvis_widget_ready" jarvis_widget
 jarvis_widget_kill
@@ -267,9 +267,9 @@ expect_poll "the widget reads the permanent problem" '["circle-alert", "danger"]
 # The refusal is a Jarvis card, read while vgs.notifications draws with
 # Silence off; it goes back to disabled, as the row found it, after.
 notes_on "the problem-state refusal"
-jarvis_widget_refused="$(jarvis_key_refusals 'jarvis: node=21.0.0 need=22')"
+jarvis_widget_refused="$(jarvis_key_refusals 'Jarvis needs Node 22 or later')"
 jarvis_widget_click
-expect_poll "a click in the problem state reports the refusal" "$((jarvis_widget_refused + 1))" jarvis_key_refusals 'jarvis: node=21.0.0 need=22'
+expect_poll "a click in the problem state reports the refusal" "$((jarvis_widget_refused + 1))" jarvis_key_refusals 'Jarvis needs Node 22 or later'
 expect "the permanent-problem service disables" ok ipc shell setPluginEnabled vgs.jarvis false
 notes_off "the problem-state refusal"
 

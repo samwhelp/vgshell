@@ -123,6 +123,7 @@ function report(name, value, tones) {
         refuse(name, value);
     if (value.lines !== undefined && (!Array.isArray(value.lines) || value.lines.some(function (line) { return typeof line !== "string"; })))
         refuse(name, value);
+    if (value.hint !== undefined && typeof value.hint !== "string") refuse(name, value);
     return value;
 }
 
@@ -332,8 +333,10 @@ function textLook(state, text, muteOn, keys) {
     return look(state, text.title, [text.action], muteOn, keys);
 }
 
+// A report's lines hold its keyed cause for the Daemon row; the tooltip
+// says its title and hint.
 function reportLook(state, report, muteOn, keys) {
-    return look(state, report.text, report.lines === undefined ? [RESTART] : report.lines, muteOn, keys);
+    return look(state, report.text, [report.hint === undefined ? RESTART : report.hint], muteOn, keys);
 }
 
 // The widget's { state, icon, tone, tooltip, tooltipDetails } for VALUES,
@@ -370,7 +373,7 @@ function view(values, keys, mode) {
         armed ? "Jarvis is listening for Hey Jarvis" : followUp ? "Jarvis is listening for a follow-up" : "Jarvis is listening",
         [armed ? "Say Hey Jarvis." : followUp ? "Speak now. No wake word needed." : "Speak now."], muteOn, effectiveKeys));
     if (daemon !== null && daemon.tone === "danger") return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
-    if (daemon !== null && daemon.tone === "warning" && daemon.lines !== undefined) return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
+    if (daemon !== null && daemon.tone === "warning" && daemon.hint !== undefined) return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
     if (detail !== null && detail.phase === "error") return withBrain(textLook("problem", faultText(state.fault, state.engine.kind), muteOn, effectiveKeys));
     if (audio !== null && audio.tone === "danger") return withBrain(textLook("problem", AUDIO_TEXT, muteOn, effectiveKeys));
     if (state === null) return textLook("loading", GATE_TEXT.starting, muteOn, effectiveKeys);

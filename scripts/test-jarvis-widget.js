@@ -52,9 +52,8 @@ const READY = { tone: "info", text: "Ready; no capture" };
 const DEVICES = { tone: "ok", text: "Device list ready" };
 const FLOOR = { tone: "danger", text: "Stopped after a problem. Turn Jarvis off and on again." };
 const HELLO_EXPECTED = { title: "Jarvis did not answer in time", action: "Turn Jarvis off and on again in Settings > Jarvis." };
-const helloActual = SetupGate.startCause("jarvis: hello=timeout");
-const DAEMON_HELLO = { tone: "warning", text: helloActual.title, lines: [helloActual.action, "jarvis: hello=timeout"] };
-const FLOOR_HELLO = { tone: "danger", text: helloActual.title, lines: [helloActual.action, "jarvis: hello=timeout"] };
+const DAEMON_HELLO = SetupGate.startStatus("jarvis: hello=timeout", true);
+const FLOOR_HELLO = SetupGate.startStatus("jarvis: hello=timeout", false);
 const START_CAUSES = [
     ["jarvis: hello=timeout", "Jarvis did not answer in time", "Turn Jarvis off and on again in Settings > Jarvis."],
     ["jarvis: node=20.19.5 need=22", "Jarvis needs Node 22 or later", "Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis."],
@@ -102,7 +101,7 @@ const CASES = [
     ["starting before the first state", { daemon: { tone: "info", text: "Starting" }, detail: null, audio: { tone: "info", text: "Reading devices" } },
         ["loading", "loader", "info", tip("Jarvis is starting", ["Wait for Jarvis to start.", MUTE])]],
     ["restarting", { daemon: DAEMON_HELLO, detail: null },
-        ["problem", "circle-alert", "danger", tip(HELLO_EXPECTED.title, [HELLO_EXPECTED.action, "jarvis: hello=timeout", MUTE])]],
+        ["problem", "circle-alert", "danger", tip(HELLO_EXPECTED.title, [SetupGate.RETRYING_START, MUTE])]],
     ["mute pending", { daemon: { tone: "warning", text: "Mute pending; disabling Jarvis cancels the request" }, detail: null },
         ["loading", "loader", "info", tip("Jarvis is starting", ["Wait for Jarvis to start.", MUTE])]],
     ["ready", up({}), ["ready", "mic", "calm", tip("Jarvis is ready", [HOLD, MUTE])]],
@@ -135,7 +134,7 @@ const CASES = [
     ["listening over an audio problem", up(OPEN, { audio: OVERFLOW }),
         ["listening", "audio-lines", "accent", tip("Jarvis is listening", ["Speak now.", MUTE])]],
     ["permanent daemon problem", { daemon: FLOOR_HELLO, detail: null, audio: DEVICES },
-        ["problem", "circle-alert", "danger", tip(HELLO_EXPECTED.title, [HELLO_EXPECTED.action, "jarvis: hello=timeout", MUTE])]],
+        ["problem", "circle-alert", "danger", tip(HELLO_EXPECTED.title, [HELLO_EXPECTED.action, MUTE])]],
     ["Session error", up({ fault: { kind: "error", reason: "thinking-timeout", retry: 0 } }),
         ["problem", "circle-alert", "danger", WITH(fault("slow"), [MUTE])]],
     ["Session retrying a lost device", up({ fault: { kind: "retrying", reason: "device-lost", retry: 1 } }),
@@ -208,6 +207,7 @@ const REFUSALS = [
     ["daemon tone outside its set", { daemon: { tone: "ok", text: "Ready" } }, /^jarvis widget: daemon=\{"tone":"ok","text":"Ready"\} unexpected$/],
     ["daemon without text", { daemon: { tone: "info" } }, /^jarvis widget: daemon=/],
     ["daemon null", { daemon: null }, /^jarvis widget: daemon=null unexpected$/],
+    ["daemon hint not text", { daemon: { tone: "warning", text: "Retrying", hint: ["Wait."] } }, /^jarvis widget: daemon=/],
     ["audio tone outside its set", { audio: { tone: "warning", text: "Reading devices" } }, /^jarvis widget: audio=/],
     ["detail not a record", { detail: "idle" }, /^jarvis widget: detail="idle" unexpected$/],
     ["detail without a state", { detail: { phase: "idle", seq: 1, state: null } }, /^jarvis widget: detail=/],
@@ -321,11 +321,13 @@ function verify(view) {
         assert.deepEqual([got.state, got.icon, got.tone], ["off", "power-off", "neutral"], causes[0]);
         assert.equal(got.tooltipDetails[0].includes(status.setupHome.hint), true, causes[0] + ": the widget says what to change in the home folder");
     }
+    // A failed start, retrying and stopped: its title and hint, never its key.
     for (const [cause, title, action] of START_CAUSES) {
-        const words = SetupGate.startCause(cause);
-        const got = callView(view, { daemon: { tone: "warning", text: words.title, lines: [words.action, cause] }, detail: null });
-        assert.deepEqual([got.state, got.icon, got.tone, got.tooltip, got.tooltipDetails],
-            ["problem", "circle-alert", "danger", title, [action, cause, MUTE]], cause);
+        for (const [retrying, hint] of [[true, SetupGate.RETRYING_START], [false, action]]) {
+            const got = callView(view, { daemon: SetupGate.startStatus(cause, retrying), detail: null });
+            assert.deepEqual(copy([got.state, got.icon, got.tone, got.tooltip, got.tooltipDetails]),
+                ["problem", "circle-alert", "danger", title, [hint, MUTE]], cause + " retrying=" + retrying);
+        }
     }
     for (const [cause, state, title, details] of SETTING_CAUSES) {
         const status = SetupGate.readiness({ kind: "answered", causes: [cause] });
@@ -363,7 +365,7 @@ const CONTROLS = [
     ["an unchecked microphone reads as a pending voice", '(voice.tone === "info" && !offered(voice))', 'voice.tone === "info"'],
     ["an opening armed capture reads listening while the voice loads", '(state.capture.kind === "opening" || (', '(false || ('],
     ["a daemon problem is not a problem", 'daemon.tone === "danger") return', 'false) return'],
-    ["a retrying daemon problem is not a problem", 'daemon.tone === "warning" && daemon.lines !== undefined) return', 'false) return'],
+    ["a retrying daemon problem is not a problem", 'daemon.tone === "warning" && daemon.hint !== undefined) return', 'false) return'],
     ["a Session error is not a problem", 'detail.phase === "error") return', 'false) return'],
     ["an audio problem is not a problem", 'audio.tone === "danger") return', 'false) return'],
     ["no state yet is not loading", 'if (state === null) return textLook("loading"', 'if (false) return textLook("loading"'],
@@ -376,6 +378,8 @@ const CONTROLS = [
     ["speaking reads working", 'return withBrain(look("speaking", "Jarvis is speaking", [stopAction(effectiveKeys)], muteOn, effectiveKeys));', 'return withBrain(look("working", "Jarvis is speaking", [stopAction(effectiveKeys)], muteOn, effectiveKeys));'],
     ["the click line follows the icon, not the mute region", 'var verb = muteOn ? "unmute" : "mute";', 'var verb = false ? "unmute" : "mute";'],
     ["any report tone is accepted", "tones.indexOf(value.tone) === -1", "false"],
+    ["any report hint is accepted", 'if (value.hint !== undefined && typeof value.hint !== "string") refuse(name, value);', ""],
+    ["the tooltip shows the keyed cause", '[report.hint === undefined ? RESTART : report.hint]', 'report.lines === undefined ? [RESTART] : report.lines'],
     ["an unknown capture is closed", 'default: refuse("capture", capture);', "default: return false;"],
     ["an unknown gate reason is off", 'if (!hasOwn(GATE_TEXT, gate.reason)) refuse("gate", gate);', ""],
     ["an unexpected phase reads ready", 'refuse("phase", detail.phase);', 'return withBrain(look("ready", "Jarvis is ready", [readyAction(effectiveMode, effectiveKeys)], muteOn, effectiveKeys));'],

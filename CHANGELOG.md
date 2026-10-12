@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The Jarvis bar tooltip, its Mute not saved notice and its stopped notice after a failed start say what happened and what to do. Before, each also showed an internal code, such as jarvis: hello=timeout. The Jarvis memory row no longer starts with jarvis: memory=sqlite. The code stays in the log and on the Daemon row.
 - Settings > Jarvis > Voice provider shows one line of help. Its info button explains Realtime and Auto.
 - On the Jarvis page under Setup, the Voice step reads Timed out with what to do when local voice does not get ready in time, and the Setup row after a failed start shows what happened and what to do. Before, each also showed an internal code, such as SPEECH=LOCAL-READY-TIMEOUT or JARVIS: HELLO=TIMEOUT. The code stays in the log and on the Daemon row.
 - Jarvis uses the local voice by default: speech stays on your computer and replies start sooner. Realtime stays a choice under Settings > Jarvis > Voice provider, as the slower cloud voice, and Auto keeps its meaning. A Voice provider you already chose stays. Before, the default was Auto, which used Realtime whenever an OpenAI key was stored.
