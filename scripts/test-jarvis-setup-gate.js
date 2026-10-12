@@ -1129,6 +1129,81 @@ function verifySession(gate) {
     }
 }
 
+// Run the shipped service's function NAME over ROOT, with GATE.
+function serviceCall(serviceSource, name, root, gate) {
+    const found = serviceSource.match(new RegExp("^    function " + name + "\\(\\) \\{\\n[\\s\\S]*?^    \\}", "m"));
+    assert.ok(found, name);
+    vm.runInNewContext("(function() { with(root) { return (" + found[0] + ").call(root); } })()", { root, Gate: gate });
+}
+
+// The ElevenLabs voices row through the shipped service's publication, one
+// state per fact: [label, facts, the row's tone and text, or "hidden"].
+// With a key chosen the row never asks for one; every state keeps the
+// row's link, whose words its hint holds.
+const ELEVEN_KEY_STORED = [{ value: "eleven-1", label: "ElevenLabs / personal", provider: "elevenlabs" }];
+const ELEVEN_ROWS = [
+    ["another voice", { provider: "local", keys: ELEVEN_KEY_STORED, account: "eleven-1", answer: { kind: "answered", causes: [] }, voices: 3 }, "hidden"],
+    ["no key chosen", { provider: "elevenlabs", keys: [], account: "", answer: { kind: "answered", causes: ["speech=live-account-unselected"] }, voices: 0 }, ["info", "Your step"]],
+    ["a chosen key no longer stored", { provider: "elevenlabs", keys: [], account: "eleven-1", answer: { kind: "answered", causes: ["speech=live-key-required"] }, voices: 0 }, ["info", "Your step"]],
+    ["the voices being read", { provider: "elevenlabs", keys: ELEVEN_KEY_STORED, account: "eleven-1", answer: { kind: "answered", causes: ["speech=elevenlabs-voices-reading"] }, voices: 0 }, ["info", "Reading voices"]],
+    ["before the daemon answers", { provider: "elevenlabs", keys: undefined, account: "eleven-1", answer: { kind: "checking" }, voices: 0 }, ["info", "Reading voices"]],
+    ["a failed read", { provider: "elevenlabs", keys: ELEVEN_KEY_STORED, account: "eleven-1", answer: { kind: "answered", causes: ["speech=elevenlabs-voice"] }, voices: 0 }, ["warning", "Could not read voices"]],
+    ["another cause holding the Voice step", { provider: "elevenlabs", keys: ELEVEN_KEY_STORED, account: "eleven-1", answer: { kind: "answered", causes: ["speech=local-not-set-up"] }, voices: 0 }, ["info", "Waiting for setup"]],
+    ["voices listed", { provider: "elevenlabs", keys: ELEVEN_KEY_STORED, account: "eleven-1", answer: { kind: "answered", causes: [] }, voices: 12 }, ["ok", "12 voices"]],
+    ["one voice listed", { provider: "elevenlabs", keys: ELEVEN_KEY_STORED, account: "eleven-1", answer: { kind: "answered", causes: ["brain=unselected"] }, voices: 1 }, ["ok", "1 voice"]]
+];
+function verifyElevenLabsRow(gate, serviceSource) {
+    const hints = new Set();
+    for (const [label, facts, want] of ELEVEN_ROWS) {
+        const values = {};
+        const shell = { settings: { voiceAccount: facts.account }, status: { set: (key, value) => {
+            assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": the ElevenLabs voices row is accepted");
+            values[key] = value;
+            return "ok";
+        } } };
+        serviceCall(serviceSource, "publishElevenLabs", { shell, accountReader: { voiceProvider: facts.provider, voiceKeys: facts.keys },
+            setupAnswer: facts.answer, voiceOffers: facts.voices }, gate);
+        const row = judge.statusRows(manifest, values, []).find(item => item.key === "elevenLabs");
+        if (want === "hidden") {
+            assert.equal(row, undefined, label + ": the ElevenLabs voices row is hidden");
+            continue;
+        }
+        assert.ok(row !== undefined, label + ": the ElevenLabs voices row shows");
+        assert.deepEqual([row.tone, values.elevenLabs.text, row.action], [{ info: "info", ok: "success", warning: "warning" }[want[0]], want[1], null],
+            label + ": the ElevenLabs voices row");
+        assert.equal(row.hint.includes(row.link.text) && new URL(row.link.url).hostname === "elevenlabs.io", true,
+            label + ": the ElevenLabs voices row keeps its link");
+        assert.equal(facts.account !== "" && facts.keys?.length !== 0 && /Get a key/.test(row.hint), false,
+            label + ": the ElevenLabs voices row asks for no key once one is chosen");
+        hints.add(row.hint);
+    }
+    assert.equal(hints.size, 5, "the ElevenLabs voices row: each state words its own hint");
+    // The failed read reads as the Voice step does.
+    assert.equal(gate.elevenLabsStep(ELEVEN_ROWS[5][1]).hint, gate.readiness({ kind: "answered", causes: ["speech=elevenlabs-voice"] }).setupVoice.hint,
+        "the ElevenLabs voices row: a failed read reads as the Setup tab does");
+}
+
+// The Voice provider field's hint is the voiceRoute row the service
+// publishes from the chosen provider: each provider its own sentence,
+// naming it, drawn through the field's hintFrom.
+function verifyVoiceRoute(gate, serviceSource) {
+    const sentences = new Set();
+    for (const option of manifest.schema.voiceProvider.options) {
+        const values = {};
+        const shell = { settings: { voiceProvider: option.value }, status: { set: (key, value) => {
+            assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, option.value + ": the Voice provider hint is accepted");
+            values[key] = value;
+            return "ok";
+        } } };
+        serviceCall(serviceSource, "publishVoiceRoute", { shell }, gate);
+        const hint = settings.settingHint(manifest.schema.voiceProvider, judge.statusRows(manifest, values, []));
+        assert.equal(hint.includes(option.label), true, option.value + ": the Voice provider hint names " + option.label);
+        sentences.add(hint);
+    }
+    assert.equal(sentences.size, manifest.schema.voiceProvider.options.length, "the Voice provider hint: one sentence per provider");
+    assert.equal(settings.settingHint(manifest.schema.voiceProvider, []), "", "the Voice provider hint: a page with no report draws none");
+}
+
 function verify(gate) {
     verifySession(gate);
     for (const check of [{ kind: "ready" }, { kind: "done", result: "ready" }]) {
@@ -1157,6 +1232,8 @@ function verify(gate) {
     verifyUnlisted(gate, require(providersFile), fs.readFileSync(serviceFile, "utf8"));
     verifyListRead(require(providersFile), fs.readFileSync(accountsFile, "utf8"));
     verifyDictation(gate, fs.readFileSync(serviceFile, "utf8"), fs.readFileSync(accountsFile, "utf8"));
+    verifyElevenLabsRow(gate, fs.readFileSync(serviceFile, "utf8"));
+    verifyVoiceRoute(gate, fs.readFileSync(serviceFile, "utf8"));
     for (const [label, value, requires, missing, names] of SETUP) {
         const got = gate.setupValue(value, requires, missing);
         if (names === null) {
@@ -1281,7 +1358,10 @@ const CONTROLS = [
     ["a failed daemon offers no setup", '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready.", action: "dictation" },',
         '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready." },', "the Voice step"],
     ["the voxtype row shows for any voice", 'return hearsLocally(provider) ? requirementValue("voxtype", missing) : { hidden: true };', 'return requirementValue("voxtype", missing);', "Realtime voice"],
-    ["the ElevenLabs voices row never shows", 'return provider === "elevenlabs" ? { tone: "info", text: "Your step" }', 'return false ? { tone: "info", text: "Your step" }', "the ElevenLabs voices row"],
+    ["the ElevenLabs voices row never shows", 'if (facts.provider !== "elevenlabs") return { hidden: true };', "return { hidden: true };", "the ElevenLabs voices row"],
+    ["a stored ElevenLabs key still reads as the user's step", 'if (!chosen) return { tone: "info", text: "Your step" };', 'return { tone: "info", text: "Your step" };', "the ElevenLabs voices row"],
+    ["a failed voice read reads as being read", 'if (causes.indexOf("speech=elevenlabs-voice") !== -1) return', "if (false) return", "the ElevenLabs voices row"],
+    ["every voice provider reads as Local", "var route = VOICE_ROUTES[setting];", "var route = VOICE_ROUTES.local;", "the Voice provider hint"],
     ["the ElevenLabs voice runs no dictation", 'return provider === "local" || provider === "elevenlabs";', 'return provider === "local";', "ElevenLabs"],
     ["another device is no cause", 'return otherDevice(state) ? "speech=dictation-device" : "";', 'return "";', "another device"],
     ["the Realtime voice takes the cause", 'if (!hearsLocally(provider) || state === null) return "";', 'if (state === null) return "";', "Realtime voice"],
@@ -1434,13 +1514,22 @@ try {
     }
     {
         const accountsSource = fs.readFileSync(accountsFile, "utf8");
-        for (const [name, needle] of [["voxtype-row-unpublished", 'shell.status.set("voxtype", Gate.voxtypeValue(voiceProvider, missing)) !== "ok"\n            || '],
-            ["elevenlabs-row-unpublished", '\n            || shell.status.set("elevenLabs", Gate.elevenLabsStep(voiceProvider)) !== "ok"']]) {
+        for (const [name, needle] of [["voxtype-row-unpublished",
+            '        if (shell.status.set("voxtype", Gate.voxtypeValue(voiceProvider, missing)) !== "ok")\n            throw new Error("jarvis-accounts: status=refused");\n']]) {
             assert.equal(accountsSource.split(needle).length, 2, name + ": the control's text occurs once");
             assert.throws(() => verifyDictation(load(file), serviceSource, accountsSource.replace(needle, "")), assert.AssertionError,
                 name + " must turn red");
             console.log("test-jarvis-setup-gate: control=" + name + " rejected=true");
         }
+    }
+    // The service publishes each row from its own facts.
+    for (const [label, needle, replacement, check] of [
+        ["elevenlabs-row-offers-unread", "answer: setupAnswer, voices: voiceOffers }", "answer: setupAnswer, voices: 0 }", verifyElevenLabsRow],
+        ["elevenlabs-row-key-unread", "keys: accountReader.voiceKeys, account: shell.settings.voiceAccount", "keys: [], account: shell.settings.voiceAccount", verifyElevenLabsRow],
+        ["voice-route-fixed", 'Gate.voiceRoute(shell.settings.voiceProvider)', 'Gate.voiceRoute("local")', verifyVoiceRoute]]) {
+        assert.equal(serviceSource.split(needle).length, 2, label + ": the text to replace must occur once");
+        assert.throws(() => check(load(file), serviceSource.replace(needle, replacement)), assert.AssertionError, label + " must turn red");
+        console.log("test-jarvis-setup-gate: control=" + label + " rejected=true");
     }
     verifyHomeSwitch(serviceSource);
     console.log("test-jarvis-setup-gate: case=home-switch passed=true");
@@ -1761,11 +1850,6 @@ function verifyDictation(gate, serviceSource, accountsSource) {
         const voxtype = judge.statusRows(manifest, values, missing).find(item => item.key === "voxtype");
         assert.deepEqual(voxtype === undefined ? "hidden" : [voxtype.action, voxtype.tone],
             !["local", "elevenlabs"].includes(voice) ? "hidden" : [null, missing.includes("voxtype") ? "warning" : "success"], label + ": the voxtype row");
-        // The ElevenLabs voices row shows under ElevenLabs alone, with no
-        // step: its link names where the user's own steps are.
-        const eleven = judge.statusRows(manifest, values, missing).find(item => item.key === "elevenLabs");
-        assert.deepEqual(eleven === undefined ? "hidden" : [eleven.action, eleven.tone, new URL(eleven.link.url).hostname, eleven.hint.includes(eleven.link.text)],
-            voice === "elevenlabs" ? [null, "info", "elevenlabs.io", true] : "hidden", label + ": the ElevenLabs voices row");
         assert.equal(gate.dictationRefusal(state ?? { daemon: "absent", device: "" }), cause === "speech=dictation-device" ? "refused: dictation=device" : "",
             label + ": the start the service refuses itself");
     }

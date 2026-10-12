@@ -27,6 +27,16 @@ Item {
     property var sessionState: null
     property var conversationLog: []
     property var setupAnswer: ({ kind: "checking" })
+    // How many voices the daemon offers the Voice setting, from its last
+    // voices message; 0 before one.
+    property int voiceOffers: 0
+    // The facts the ElevenLabs voices row and the Voice provider hint follow,
+    // as text, so only a changed fact publishes them again.
+    readonly property string elevenLabsFacts: shell === null ? "" : JSON.stringify([accountReader.voiceProvider,
+        accountReader.voiceKeys === undefined ? null : accountReader.voiceKeys, shell.settings.voiceAccount, setupAnswer, voiceOffers])
+    onElevenLabsFactsChanged: publishElevenLabs()
+    readonly property string voiceChoice: shell === null ? "" : shell.settings.voiceProvider
+    onVoiceChoiceChanged: publishVoiceRoute()
     property var homeMessage: ({ homes: [], current: "" })
     // The request handlers, built on the first request; see requestHandlers().
     property var requests: null
@@ -212,6 +222,7 @@ Item {
         cause = "";
         lastDiagnostic = "";
         setupAnswer = { kind: "checking" };
+        voiceOffers = 0;
         audioHealth = { kind: "reading" };
         sessionState = null;
         indicatorDelivery = { kind: "unknown" };
@@ -442,6 +453,22 @@ Item {
     function personalityFile() {
         if (shell === null || homeMessage.current === "") return "refused: home=none";
         return Quickshell.env("HOME") + homeMessage.current.slice(1) + "/AGENTS.md";
+    }
+
+    // The ElevenLabs voices row: the user's step until a key is chosen, then
+    // the key's voice list as the daemon last reported it.
+    function publishElevenLabs() {
+        if (shell === null) return;
+        const reply = shell.status.set("elevenLabs", Gate.elevenLabsStep({ provider: accountReader.voiceProvider,
+            keys: accountReader.voiceKeys, account: shell.settings.voiceAccount, answer: setupAnswer, voices: voiceOffers }));
+        if (reply !== "ok") throw new Error("jarvis: " + reply);
+    }
+
+    // The Voice provider field's hint, from the provider the user chose.
+    function publishVoiceRoute() {
+        if (shell === null) return;
+        const reply = shell.status.set("voiceRoute", Gate.voiceRoute(shell.settings.voiceProvider));
+        if (reply !== "ok") throw new Error("jarvis: " + reply);
     }
 
     function publishPreview() {
@@ -791,6 +818,7 @@ Item {
                 if (message.type === "voices") {
                     const reply = shell.status.set("voices", message.voices);
                     if (reply !== "ok") throw new Error("jarvis: " + reply);
+                    voiceOffers = message.voices.length;
                     continue;
                 }
                 if (message.type === "personality") {

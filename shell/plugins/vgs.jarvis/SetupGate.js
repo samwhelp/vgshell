@@ -88,6 +88,9 @@ function flooredValue(command, missing, outdated) {
 // the causes the daemon publishes, ChainedEngine's one readiness judge, by
 // the step each cause names; the optional ones from their own readers.
 var REQUIRED = { home: "setupHome", guidance: "setupHome", speech: "setupVoice", brain: "setupModel" };
+// What the Voice step and the ElevenLabs voices row say after a failed read
+// of the key's voices (ChainedEngine voicesHeld).
+var ELEVENLABS_UNREAD = "Jarvis could not read the voices of your ElevenLabs key. Check under ElevenLabs API keys that the key may read voices. Jarvis reads them again when you press Talk.";
 // The hint a required step still to do shows in place of its declared one,
 // by its cause: what the step's own action does not already say. A cause
 // named nowhere here takes its step's hint below; a step with none there,
@@ -103,7 +106,7 @@ var TODO = {
     "speech=live-account-unselected": "Add a key for the cloud voice under Setup at the top of this page: an OpenAI key for Realtime, a Gemini key for Gemini Live, an ElevenLabs key for ElevenLabs.",
     "speech=live-account-unreadable": "Jarvis could not read your voice key. Use Accounts in Setup to check it.",
     "speech=live-key-required": "Choose a key for the cloud voice under Voice key, or add one under Setup at the top of this page: an OpenAI key for Realtime, a Gemini key for Gemini Live, an ElevenLabs key for ElevenLabs.",
-    "speech=elevenlabs-voice": "Jarvis could not read the voices of your ElevenLabs key. Check that the key may read voices. Jarvis reads them again when you press Talk.",
+    "speech=elevenlabs-voice": ELEVENLABS_UNREAD,
     "speech=local-not-ready": "Local voice did not start. Set it up again.",
     "speech=local-ready-timeout": "Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis.",
     "speech=always-local-voice": "Always talk mode listens for Hey Jarvis on this computer. Choose Local in Settings > Voice, or Hold or Toggle in Settings > Listening."
@@ -439,13 +442,47 @@ function voiceKey(offered, settings) {
         : { tone: "ok", text: "Key stored", hint: hint, action: false };
 }
 
-// The ElevenLabs voices row (the manifest's elevenLabs) under PROVIDER, the
-// voice the daemon runs (voiceProvider): while ElevenLabs speaks, the
-// user's own step on ElevenLabs's site, a key and the voices they design or
-// clone there, which its hint and link name (D075); no row under another
-// voice.
-function elevenLabsStep(provider) {
-    return provider === "elevenlabs" ? { tone: "info", text: "Your step" } : { hidden: true };
+// The ElevenLabs voices row (the manifest's elevenLabs) from FACTS:
+// `provider`, the voice the daemon runs (voiceProvider); `keys`, the
+// account reader's stored cloud voice keys, undefined before its answer;
+// `account`, the Voice key setting; `answer`, the daemon's setup answer
+// (readiness's ANSWER); `voices`, how many voices the daemon offers. No row
+// under another voice. With no ElevenLabs key chosen the row is the user's
+// own step, which its declared hint words (D075). With one, it follows the
+// key's voice list: offered, failed (the Voice step's cause), being read,
+// or waiting while another cause holds the Voice step. Every hint names
+// ElevenLabs API keys, so the row's link draws in each state.
+var ELEVENLABS_READY = "Voice lists them. Design or clone more on ElevenLabs's site under Voices; your key is under ElevenLabs API keys.";
+var ELEVENLABS_READING = "Jarvis is reading the voices of your ElevenLabs key. Design or clone voices on ElevenLabs's site under Voices; your key is under ElevenLabs API keys.";
+var ELEVENLABS_WAITING = "Jarvis reads the voices of your ElevenLabs key once the Voice step under Setup is done. Your key is under ElevenLabs API keys.";
+function elevenLabsStep(facts) {
+    if (facts.provider !== "elevenlabs") return { hidden: true };
+    var named = facts.account;
+    var chosen = named !== "" && (facts.keys === undefined
+        || facts.keys.some(function (key) { return key.provider === "elevenlabs" && key.value === named; }));
+    if (!chosen) return { tone: "info", text: "Your step" };
+    if (facts.voices > 0) return { tone: "ok", text: facts.voices === 1 ? "1 voice" : facts.voices + " voices", hint: ELEVENLABS_READY };
+    var causes = facts.answer.kind === "answered" ? facts.answer.causes : [];
+    if (causes.indexOf("speech=elevenlabs-voice") !== -1) return { tone: "warning", text: "Could not read voices", hint: ELEVENLABS_UNREAD };
+    if (facts.answer.kind === "checking" || causes.indexOf("speech=elevenlabs-voices-reading") !== -1)
+        return { tone: "info", text: "Reading voices", hint: ELEVENLABS_READING };
+    return { tone: "info", text: "Waiting for setup", hint: ELEVENLABS_WAITING };
+}
+
+// The Voice provider field's hint (the manifest's voiceRoute, which the
+// field's hintFrom names) for SETTING, the provider the user chose: what
+// leaves the computer, to whom, and with which key.
+var VOICE_ROUTES = {
+    auto: { text: "Auto", hint: "Auto runs Realtime, sending your voice to OpenAI, while your Voice key is an OpenAI key; else Local, which keeps speech on this computer." },
+    local: { text: "Local", hint: "Local keeps your voice and the replies on this computer, and answers fastest." },
+    realtime: { text: "Realtime", hint: "Realtime sends your voice and the replies Jarvis lets out to OpenAI, with your OpenAI key." },
+    gemini: { text: "Gemini Live", hint: "Gemini Live sends your voice and the replies Jarvis lets out to Google, with your Gemini key." },
+    elevenlabs: { text: "ElevenLabs", hint: "ElevenLabs keeps your voice on this computer and sends the replies Jarvis lets out to ElevenLabs, with your ElevenLabs key." }
+};
+function voiceRoute(setting) {
+    if (!Object.prototype.hasOwnProperty.call(VOICE_ROUTES, setting)) throw new Error("jarvis-setup: voice-provider=" + setting);
+    var route = VOICE_ROUTES[setting];
+    return { tone: "info", text: route.text, hint: route.hint };
 }
 
 // The Voice preview row's words for a cloud voice PROVIDER (voiceProvider):
