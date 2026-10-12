@@ -131,29 +131,34 @@ const FLEET = [
 ];
 // The Cloned voice setup row (VGS-1385): [label, setup-local's clone status
 // answer, the voice the daemon runs, the published row's tone and action,
-// whether it carries a hint of why, the TUI its press opens or null]. Set
+// whether it carries a hint of why, the TUI its press opens or null, the
+// withheld reason of SetupGate's CLONE_WITHHELD it shows or null]. Set
 // up is withheld for the Realtime voice and beside a tier off the graphics
 // card; Remove recording stays offered whatever the voice.
 const CLONE_ANSWER = { tone: "info", text: "Not set up", action: "setup", recording: false, tierReady: true };
 const CLONE_READY = { tone: "ok", text: "Ready", action: "remove", recording: true, tierReady: true };
 const CLONED = [
-    ["a resolved Local voice on the Large model offers setup", CLONE_ANSWER, "local", "info", "setup", false, "clone-voice"],
-    ["the Realtime voice withholds setup", CLONE_ANSWER, "realtime", "info", undefined, true, null],
-    ["a tier off the graphics card withholds setup", { ...CLONE_ANSWER, tierReady: false }, "local", "info", undefined, true, null],
-    ["a ready cloned voice offers Remove", CLONE_READY, "local", "ok", "remove", false, "clone-voice-remove"],
-    ["a recording keeps Remove under the Realtime voice", CLONE_READY, "realtime", "ok", "remove", true, "clone-voice-remove"],
-    ["a recording keeps Remove beside another tier", { ...CLONE_READY, tone: "warning", tierReady: false }, "local", "warning", "remove", true, "clone-voice-remove"],
-    ["a failed read offers setup", { tone: "warning", text: "Setup check failed", action: true }, "local", "warning", "setup", false, "clone-voice"],
+    ["a resolved Local voice on the Large model offers setup", CLONE_ANSWER, "local", "info", "setup", false, "clone-voice", null],
+    ["the Realtime voice withholds setup", CLONE_ANSWER, "realtime", "info", undefined, true, null, "provider"],
+    ["a tier off the graphics card withholds setup", { ...CLONE_ANSWER, tierReady: false }, "local", "info", undefined, true, null, "tier"],
+    ["a ready cloned voice offers Remove", CLONE_READY, "local", "ok", "remove", false, "clone-voice-remove", null],
+    ["a recording keeps Remove under the Realtime voice", CLONE_READY, "realtime", "ok", "remove", true, "clone-voice-remove", "provider"],
+    ["a recording keeps Remove beside another tier", { ...CLONE_READY, tone: "warning", tierReady: false }, "local", "warning", "remove", true, "clone-voice-remove", "tier"],
+    ["a failed read offers setup", { tone: "warning", text: "Setup check failed", action: true }, "local", "warning", "setup", false, "clone-voice", null],
     ["a timed-out read words its state", { tone: "warning", text: "Setup check timed out", hint: "Try again.", action: true, lines: ["setup=probe-timeout"] },
-        "local", "warning", "setup", true, "clone-voice"],
-    ["a setup in progress offers nothing", { ...CLONE_ANSWER, text: "Setting up", action: false }, "local", "info", undefined, false, null],
+        "local", "warning", "setup", true, "clone-voice", null],
+    ["a setup in progress offers nothing", { ...CLONE_ANSWER, text: "Setting up", action: false }, "local", "info", undefined, false, null, null],
 ];
 function verifyClonedVoice(gate, judged) {
-    for (const [label, answer, provider, tone, action, reasoned, tui] of CLONED) {
+    for (const [label, answer, provider, tone, action, reasoned, tui, reason] of CLONED) {
         const value = plain(gate.clonedVoiceStep(answer, provider));
         assert.equal(judge.statusWrite(judged, {}, "clonedVoiceSetup", value).ok, true, label + ": the manifest judge accepts the row");
         assert.deepEqual([value.tone, value.action, value.hint !== undefined], [tone, action, reasoned], label);
         assert.deepEqual(keyedCauses(value, ["text", "hint", "lines"]), [], label + ": the row draws no keyed cause");
+        const withheld = reason === null ? null : gate.CLONE_WITHHELD[reason];
+        assert.equal(reason === null ? Object.values(gate.CLONE_WITHHELD).some(row => row.hint === value.hint) : value.hint === withheld.hint, reason !== null,
+            label + ": the hint names " + (reason ?? "no withheld reason"));
+        if (withheld !== null && action === undefined) assert.equal(value.text, withheld.text, label + ": the text names the reason");
         const row = judge.statusRows(judged, { clonedVoiceSetup: value }, []).find(entry => entry.key === "clonedVoiceSetup");
         assert.deepEqual([row.group, row.action.offered, row.action.tui || null], ["Local voice", tui !== null, tui], label + ": its press");
         if (tui !== null)
@@ -1118,6 +1123,8 @@ const CONTROLS = [
     ["a failed key read offers no Add key", 'text: "Could not check", action: true }', 'text: "Could not check", action: false }'],
     ["the Realtime voice offers clone setup", 'var reason = provider !== "local" ? CLONE_WITHHELD.provider : ', "var reason = ", "the Realtime voice withholds setup"],
     ["a tier off the graphics card offers clone setup", 'value.tierReady === false ? CLONE_WITHHELD.tier : null', "null", "a tier off the graphics card withholds setup"],
+    ["the two withheld reasons swapped", 'provider !== "local" ? CLONE_WITHHELD.provider : value.tierReady === false ? CLONE_WITHHELD.tier : null',
+        'provider !== "local" ? CLONE_WITHHELD.tier : value.tierReady === false ? CLONE_WITHHELD.provider : null', "the Realtime voice withholds setup: the hint names provider"],
     ["a recording loses Remove under another voice", 'if (reason !== null && action !== "remove")', "if (reason !== null)", "a recording keeps Remove under the Realtime voice"],
     ["a clone row keeps a failed read's keyed line", "    else if (value.hint !== undefined) row.hint = value.hint;\n    return row;",
         "    else if (value.hint !== undefined) row.hint = value.hint;\n    if (value.lines !== undefined) row.lines = value.lines;\n    return row;",

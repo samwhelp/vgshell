@@ -377,6 +377,17 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         });
     }
 
+    // Replace the daemon's sidecar with the plan's row when that row's
+    // identity differs: the cloned voice setting changed, or a clone setup
+    // or removal published. Never under a conversation, whose pending
+    // speech the old sidecar holds; its end or the next one's open does.
+    function reargue() {
+        if (closed || conversation !== null || plan.speech?.kind !== "ready" || plan.speech.lifetime !== "daemon"
+                || speechState.kind === "new" || speechIdentity === plan.speech.identity) return;
+        daemonSpeech?.close();
+        startSpeech(plan.speech);
+    }
+
     function releaseEvent(c, identity, labels, decision, outcome) {
         return { kind: "release", gen: identity.gen, op: identity.op, tool: "release",
             args: { labels, recipients: c.recipients }, effect: RELEASE_EFFECT, decision, confirmed: "none", outcome };
@@ -415,6 +426,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                         grants: () => c.grants, transfer: (item, start) => transfer(c, e, item, start) }) });
                 c.speech = { close: () => c.live.port.release() };
             } else {
+                reargue();
                 if (plan.speech.lifetime === "daemon" && daemonSpeech === null) startSpeech(plan.speech);
                 c.speech = plan.speech.lifetime === "daemon" ? daemonSpeech : plan.speech.open({ net, recipients });
             }
@@ -457,6 +469,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         if (c.plan.speech.lifetime !== "daemon") c.speech.close();
         c.net.close();
         retired = { gen: c.gen, closed: quiet };
+        // After the teardown this observation runs, not inside it.
+        queueMicrotask(reargue);
     }
     function cancelRelease(c) {
         if (c.releasePending === null) return;
@@ -1533,14 +1547,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 // A completed setup publication can repair an initial
                 // refusal. Ordinary hellos leave that runtime unloaded.
                 const published = speechState.kind === "refused" && speechState.publication !== plan.speech.publication;
-                // A row with other arguments, such as the cloned voice
-                // turned on, replaces the sidecar; the setting's change
-                // ends the conversation that held the old one.
-                const reargued = speechState.kind !== "new" && speechIdentity !== plan.speech.identity;
-                if (speechState.kind === "new" || published || reargued) {
-                    daemonSpeech?.close();
-                    startSpeech(plan.speech);
-                }
+                if (speechState.kind === "new" || published) startSpeech(plan.speech);
+                else reargue();
             }
             return configuration();
         },

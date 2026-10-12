@@ -447,13 +447,14 @@ SETUP = setup_local()
 
 class Setup:
     """setup-local's surface the sidecar uses, answering a fixed status; its
-    clone judge reads ready only while the recording exists, as the shipped
-    judge does among its other rules."""
+    clone judge reads ready only while the recording exists and the tier
+    verdict it is handed holds, as the shipped judge does among its other
+    rules."""
 
     def __init__(self, tone):
         self.tone = tone
         self.HERE = PLUGIN
-        for name in ("CLONE", "CLONE_LOCK", "CLONE_MARKER", "REFERENCE", "shared", "clone_row"):
+        for name in ("CLONE", "CLONE_LOCK", "CLONE_MARKER", "CLONE_PROVIDER", "REFERENCE", "shared", "clone_row"):
             setattr(self, name, getattr(SETUP, name))
 
     def measurement(self):
@@ -462,8 +463,8 @@ class Setup:
     def status(self, judge, state, data):
         return {"tone": self.tone}
 
-    def clone_status(self, judge, state, data):
-        return {"tone": "ok" if (state / self.REFERENCE).is_file() else "info"}
+    def clone_status(self, judge, state, data, tier):
+        return {"tone": "ok" if tier is True and (state / self.REFERENCE).is_file() else "info"}
 
 
 def readiness_cases(m):
@@ -563,6 +564,13 @@ def clone_cases(m):
         judge.available = lambda resource: 2 ** 40
         judge.admit = lambda need, provider: admitted.append(need)
         def model(artifact, *args):
+            # The tier's loads run with the clone lock free: a removal or a
+            # clone setup waits only for the clone's own load.
+            with (state / "clone-setup.lock").open("a") as lock:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    raise AssertionError("a tier model loads under the clone lock") from None
             loaded.append(artifact["id"])
             return voice if artifact["engine"] == "kokoro" else object()
         judge.load = model
@@ -601,6 +609,13 @@ def clone_cases(m):
                 raise AssertionError(f"the cloned voice speaks from the recording: {rate} {list(samples)[:3]}")
             if "kokoro" in loaded or admitted != [{"ram": 2048 + 4096, "gpu": 1024 + 8192}]:
                 raise AssertionError(f"cloned load: {loaded} {admitted}")
+            # A tier off the graphics card: the clone judge reads its verdict
+            # from the tier the sidecar verified, and the tier speaks.
+            (state / "local-ready.json").write_text(json.dumps({"tier": "medium", "memory": {"ram": 2048, "gpu": None}}))
+            (rate, samples), _ = speak(True)
+            if list(samples) != [0.5] * 2400:
+                raise AssertionError("beside a CPU tier the tier's voice speaks")
+            (state / "local-ready.json").write_text(json.dumps({"tier": "large", "memory": {"ram": 2048, "gpu": 1024}}))
             child = speech.tts.child
             if child.returncode is None:
                 raise AssertionError("closing the sidecar's voice reaps its child")
@@ -814,10 +829,11 @@ CONTROLS = [
      '            if not fresh:\n                raise Protocol("wake=invalid")', violation_cases),
     ("wake has no end", 'raise Protocol("end=wake")', "continue", violation_cases),
     ("memory admission", 'judge.admit(need, provider)', 'False and judge.admit(need, provider)', admission_case),
-    ("load serialization", 'with judge.loading(data / "models"), setup', 'with setup', admission_case),
-    ("clone readiness", ' and setup.clone_status(judge, state, data)["tone"] == "ok"', '', clone_cases),
+    ("load serialization", 'with judge.loading(data / "models"):', 'if True:', admission_case),
+    ("clone readiness", '\n                      and setup.clone_status(judge, state, data, provider == setup.CLONE_PROVIDER)["tone"] == "ok")', ')', clone_cases),
+    ("clone tier verdict", 'provider == setup.CLONE_PROVIDER)["tone"]', 'True)["tone"]', clone_cases),
     ("clone admission", 'need = {resource: need[resource] + extra[resource] for resource in ("ram", "gpu")}', 'pass', clone_cases),
-    ("clone setting", 'cloned = reference is not None and held', 'cloned = held', clone_cases),
+    ("clone setting", 'cloned = (reference is not None and held', 'cloned = (held', clone_cases),
     ("clone end ends the sidecar", 'except StopIteration:\n            raise CloneEnded("clone-ended") from None',
      'except StopIteration:\n            return {"type": "ready"}, b""', clone_cases),
     ("clone answer of another id", 'if ident != self.last:', 'if False:', clone_cases),

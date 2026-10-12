@@ -462,9 +462,25 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
         await until(() => !alive(starts()[1].pid), "the replaced sidecar ends");
         w.configure(w.s().settings);
         assert.equal(starts().length, 3, "an unchanged setting keeps the sidecar");
+        // A clone setup that publishes under an open conversation replaces
+        // the sidecar only once that conversation ends.
+        await until(() => w.s().conversation.kind === "ended" && w.configure(w.s().settings).kind === "ready", "the cloned sidecar is ready");
+        const asked = await say(w, utterance("Fixture request."));
+        await requested(w, asked + 1, "request beside the cloned sidecar");
+        const marker = path.join(state, "clone-ready.json");
+        fs.writeFileSync(marker + ".new", "{}");
+        fs.renameSync(marker + ".new", marker);
+        // A replacement would answer loading at once; the open one keeps its ready sidecar.
+        assert.deepEqual([w.configure(w.s().settings).kind, w.s().conversation.kind], ["ready", "active"], "the open conversation keeps its sidecar");
+        await turn();
+        assert.equal(starts().length, 3, "no sidecar starts under the open conversation");
+        w.runner.dispatch({ type: "stop" });
+        await until(() => starts().length === 4, "the conversation's end replaces the sidecar");
+        assert.deepEqual(starts()[3].argv.slice(-2), ["--reference", path.join(state, "voice-reference.wav")]);
         w.configure({ ...w.s().settings, clonedVoice: false });
-        await until(() => starts().length === 4, "turning it off restarts the sidecar");
-        assert.equal(starts()[3].argv.includes("--reference"), false);
+        await until(() => starts().length === 5, "turning it off restarts the sidecar");
+        assert.equal(starts()[4].argv.includes("--reference"), false);
+        fs.rmSync(marker);
         w.runner.dispatch({ type: "stop" });
         // A tier whose marker is gone offers no voices, and the setting stays.
         fs.rmSync(path.join(state, "local-ready.json"));
@@ -2985,9 +3001,10 @@ world(async () => {
             controls++;
         }
         for (const [name, edits] of [
-            ["ready before model load", [['if (speechState.kind === "new" || published || reargued) {', 'if (false) {']]],
-            ["new arguments keep the sidecar", [['const reargued = speechState.kind !== "new" && speechIdentity !== plan.speech.identity;', 'const reargued = false;']]],
-            ["replaced sidecar kept", [['                    daemonSpeech?.close();\n', '']]],
+            ["ready before model load", [['speechState.kind === "new" || published) startSpeech(plan.speech);', 'false) startSpeech(plan.speech);']]],
+            ["new arguments keep the sidecar", [['|| speechState.kind === "new" || speechIdentity === plan.speech.identity) return;', '|| true) return;']]],
+            ["replaced sidecar kept", [['        daemonSpeech?.close();\n        startSpeech(plan.speech);\n    }', '        startSpeech(plan.speech);\n    }']]],
+            ["restart under a conversation", [['if (closed || conversation !== null || plan.speech', 'if (closed || plan.speech']]],
             ["conversation unloads local speech", [['if (c.plan.speech.lifetime !== "daemon") c.speech.close();', 'c.speech.close();']]],
             ["faulted child kept", [["daemonSpeech = null;\n            // A startup", "// A startup"]]],
             ["admission refusal admitted", [['{ kind: "refused", error, publication: row.publication }', '{ kind: "unloaded" }']]],

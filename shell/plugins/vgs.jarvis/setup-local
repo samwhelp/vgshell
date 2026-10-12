@@ -508,6 +508,16 @@ def clone_tier(judge, value, state, data):
     return tier is not None and value["tiers"][tier]["provider"] == CLONE_PROVIDER
 
 
+def marked_tier(value, state):
+    """Whether the tier setup-local's marker names runs on CLONE_PROVIDER,
+    read without verifying that tier: the Local voice row's status does."""
+    try:
+        tier = json.loads((state / "local-ready.json").read_text())["tier"]
+        return value["tiers"][tier]["provider"] == CLONE_PROVIDER
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
 def clone_requirements(root):
     """Project requirements-local.lock beside the clone environment with its
     one onnxruntime pin replaced by requirements-clone.lock's: every other
@@ -678,14 +688,15 @@ def clone_remove(state):
     print("jarvis-setup: clone=removed", flush=True)
 
 
-def clone_status(judge, state, data):
+def clone_status(judge, state, data, tier):
     """The cloned voice's one readiness judge. Ready only while the marker
     matches the installed identity and the recording, the model verifies, the
-    recording is this user's 0600 file and the ready tier runs on the
-    graphics card. `recording` and `tierReady` are for SetupGate, which
-    shapes the published row: Remove while a recording exists, else Set up."""
+    recording is this user's 0600 file and TIER holds: whether the ready tier
+    runs on the graphics card, which the caller judged. A tier verification
+    takes tens of seconds, so this judge runs none of its own. `recording`
+    and `tierReady` are for SetupGate, which shapes the published row:
+    Remove while a recording exists, else Set up."""
     value = judge.manifest(HERE / "artifacts.json")
-    tier = clone_tier(judge, value, state, data)
     have = recorded(state)
 
     def report(tone, text, offered=True):
@@ -733,7 +744,9 @@ def main():
         elif args.tier == "remove":
             clone_remove(state)
         elif args.tier == "status":
-            print(json.dumps(clone_status(judge, state, data)))
+            # The Local voice row verifies the tier; this row reads its marker.
+            tier = marked_tier(judge.manifest(HERE / "artifacts.json"), state)
+            print(json.dumps(clone_status(judge, state, data, tier)))
         else:
             parser.error("clone takes install, record, probe, remove or status")
         return

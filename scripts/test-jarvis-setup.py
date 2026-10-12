@@ -1181,6 +1181,30 @@ class Setup(unittest.TestCase):
                 (self.plugin / "setup-local").write_text((PLUGIN / "setup-local").read_text())
                 restore()
 
+    def test_clone_status_verifies_no_tier_and_control(self):
+        # The Local voice row verifies the tier; the clone row reads its
+        # marker, so a tier model the verifier would refuse leaves the
+        # clone row's tier verdict as the marker gives it.
+        self.large()
+        self.assertEqual(self.clone_tui("clone-voice.sh", ["yes", "yes"]).returncode, 0)
+        tier_model = next(path for path in (self.data / "models").rglob("*") if path.is_file())
+        tier_model.write_bytes(b"corrupt")
+        self.not_ready()
+        self.assertEqual(self.clone_status()["tone"], "ok")
+        self.mutant("tier = marked_tier(judge.manifest(HERE / \"artifacts.json\"), state)",
+                    "tier = clone_tier(judge, judge.manifest(HERE / \"artifacts.json\"), state, data)")
+        self.assertEqual(self.clone_status()["tierReady"], False, "must-fail control: the clone row verified the tier")
+        # A marker naming a CPU tier, or none, reads no graphics card tier.
+        (self.plugin / "setup-local").write_text((PLUGIN / "setup-local").read_text())
+        marker = self.state / "local-ready.json"
+        saved = marker.read_text()
+        for text in (json.dumps(dict(json.loads(saved), tier="small")), "{", ""):
+            with self.subTest(marker=text[:20]):
+                marker.write_text(text)
+                self.assertEqual(self.clone_status()["tierReady"], False)
+        marker.unlink()
+        self.assertEqual(self.clone_status()["tierReady"], False)
+
     def test_clone_install_needs_large_tier_and_control(self):
         self.install()
         self.ready()

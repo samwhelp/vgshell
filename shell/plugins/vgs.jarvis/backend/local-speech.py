@@ -476,24 +476,36 @@ def load(setup, state, data, reference=None):
     value = judge.manifest(setup.HERE / "artifacts.json")
     artifacts, provider = setup.selected(value, tier)
     chosen = roles(artifacts, tier)
-    # The clone lock keeps the recording and its marker for the load; a
-    # removal after it changes the daemon's row, which restarts this sidecar.
-    with judge.loading(data / "models"), setup.shared(state / setup.CLONE_LOCK) as held:
-        cloned = reference is not None and held and setup.clone_status(judge, state, data)["tone"] == "ok"
-        need = ready["memory"]
-        if cloned:
-            extra = json.loads((state / setup.CLONE_MARKER).read_text())["memory"]
-            need = {resource: need[resource] + extra[resource] for resource in ("ram", "gpu")}
+    models = {}
+    with judge.loading(data / "models"):
+        # The clone lock is held shared from the clone judge's read through
+        # the child's ready, by when it has read the recording and its model,
+        # so a removal or a clone setup waits that long and never across the
+        # tier's own loads. A change after it alters the daemon's row, which
+        # restarts this sidecar. The tier status above is the one tier
+        # verification; the clone judge takes its verdict.
+        with setup.shared(state / setup.CLONE_LOCK) as held:
+            cloned = (reference is not None and held
+                      and setup.clone_status(judge, state, data, provider == setup.CLONE_PROVIDER)["tone"] == "ok")
+            need = ready["memory"]
+            if cloned:
+                extra = json.loads((state / setup.CLONE_MARKER).read_text())["memory"]
+                need = {resource: need[resource] + extra[resource] for resource in ("ram", "gpu")}
+            try:
+                judge.admit(need, provider)
+            except judge.Unavailable as error:
+                raise NotReady(str(error)) from None
+            if cloned:
+                models["tts"] = clone(setup, data, reference)
         try:
-            judge.admit(need, provider)
-        except judge.Unavailable as error:
-            raise NotReady(str(error)) from None
-        import numpy as np
-        import sherpa_onnx as sherpa
-        models = {role: judge.load(artifact, data / "models", provider, np, sherpa)
-                  for role, artifact in chosen.items() if not (cloned and role == "tts")}
-        if cloned:
-            models["tts"] = clone(setup, data, reference)
+            import numpy as np
+            import sherpa_onnx as sherpa
+            models.update({role: judge.load(artifact, data / "models", provider, np, sherpa)
+                           for role, artifact in chosen.items() if role not in models})
+        except BaseException:
+            if cloned:
+                models["tts"].close()
+            raise
     rate = setup.clone_row(value)["outputSampleRate"] if cloned else chosen["tts"]["outputSampleRate"]
     def turn(samples):
         return judge.infer(chosen["turn"], models["turn"], np.frombuffer(samples, dtype=np.float32), "", value, np)["probability"]

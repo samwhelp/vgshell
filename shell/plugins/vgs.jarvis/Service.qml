@@ -1059,9 +1059,12 @@ Item {
     // engine judges, so each reader's refresh sends the daemon a fresh
     // snapshot; hello() sends none while the child is not running or broken.
     Jarvis.Keys { shell: root.shell; onRefreshed: root.hello() }
-    Jarvis.LocalRuntime { id: localRuntime; shell: root.shell; onRefreshed: { root.publishShellSetup(); root.hello(); } }
+    // A tier setup changes whether the cloned voice can run, so the clone
+    // row reads again after each local voice check.
+    Jarvis.LocalRuntime { id: localRuntime; shell: root.shell; onRefreshed: { root.publishShellSetup(); root.hello(); cloneRuntime.refresh(); } }
     Jarvis.LocalTier { shell: root.shell }
     Jarvis.CloneRuntime {
+        id: cloneRuntime
         shell: root.shell
         provider: root.shell === null ? "" : Gate.voiceProvider(root.shell.settings, accountReader.voiceKeys)
         onRefreshed: root.hello()
