@@ -28,7 +28,7 @@
       "options": [{ "value": "auto", "label": "Auto" }, { "value": "local", "label": "Local" }, { "value": "realtime", "label": "Realtime" },
         { "value": "gemini", "label": "Gemini Live" }, { "value": "elevenlabs", "label": "ElevenLabs" }],
       "description": "Local keeps speech on this computer and answers fastest.",
-      "info": "Local is the default. Realtime sends your voice to OpenAI, and Gemini Live sends it to Google; both answer more slowly. ElevenLabs speaks the replies in your ElevenLabs voices, and Local still hears you. Auto never uses ElevenLabs. Changing this ends the conversation." },
+      "info": "Local is the default. Realtime sends your voice to OpenAI, and Gemini Live sends it to Google; both answer more slowly. ElevenLabs speaks the replies in your ElevenLabs voices, and Local still hears you. Auto uses Realtime when an OpenAI key is stored and Talk mode is not Always; otherwise it uses Local, never ElevenLabs. Changing this ends the conversation." },
     "voiceAccount": { "type": "string", "label": "Voice key", "group": "Voice", "optionsFrom": "voiceAccounts", "placeholder": "Choose a key",
       "description": "Your key for the cloud voice: an OpenAI key for Realtime, a Gemini key for Gemini Live, an ElevenLabs key for ElevenLabs. With one key, Jarvis picks it. Get an OpenAI key from OpenAI API keys. Cloud voice key, on Setup, links Google AI Studio; ElevenLabs voices, on Details, links ElevenLabs API keys.",
       "link": { "text": "OpenAI API keys", "url": "https://platform.openai.com/api-keys" } },
