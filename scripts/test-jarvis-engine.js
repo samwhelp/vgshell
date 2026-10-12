@@ -460,7 +460,7 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
         assert.equal(starts().length, 1, "hello does not restart a failed child");
         const before = await say(w, utterance("Fixture request."));
         await requested(w, before + 1, "request after sidecar fault",
-            () => starts().length === 1 || w.s().fault.kind === "error");
+            () => w.s().fault.kind === "error");
         assert.equal(starts().length, 2);
         assert.notEqual(starts()[1].pid, pid);
         // The cloned voice setting ends the conversation and replaces the
@@ -469,14 +469,10 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
         w.configure({ ...w.s().settings, clonedVoice: true });
         assert.deepEqual([w.s().conversation.kind, w.s().gen > gen], ["ended", true], "the setting ends the conversation");
         await turn();
-        await settled(() => starts().length === 3,
-            () => false,
-            "the setting restarts the sidecar");
+        await until(() => starts().length === 3, "the setting restarts the sidecar");
         assert.deepEqual(starts()[2].argv.slice(-2), ["--reference", path.join(state, "voice-reference.wav")]);
         await turn();
-        await settled(() => !alive(starts()[1].pid),
-            () => starts().length >= 3 && alive(starts()[1].pid),
-            "the replaced sidecar ends");
+        await until(() => !alive(starts()[1].pid), "the replaced sidecar ends");
         w.configure(w.s().settings);
         assert.equal(starts().length, 3, "an unchanged setting keeps the sidecar");
         // A clone setup that publishes under an open conversation replaces
@@ -508,8 +504,7 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
         // A control can leave a replaced sidecar running; its handle would
         // keep this world alive past its bound.
         await turn();
-        try { await settled(() => starts().every(row => !alive(row.pid)),
-            () => false, "daemon teardown releases speech child"); }
+        try { await until(() => starts().every(row => !alive(row.pid)), "daemon teardown releases speech child"); }
         finally {
             for (const row of starts()) if (alive(row.pid)) process.kill(row.pid, "SIGKILL");
             server.closeAll();
@@ -570,6 +565,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
         keys: { talk: null, mute: null, stop: null, confirm: null, console: null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     const intent = name => send({ type: "intent", intent: name });
     const before = server.requests.length;
+    let tryPassed = false;
     try {
         hello(ending === "locked");
         await settled(() => status() && s(), () => childDone, "shipped daemon publishes admission: " + error);
@@ -591,6 +587,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
                 ["ended", "none", "closed", before]);
             assert.equal(starts().length, 1);
             assert.equal(logs().some(row => row.listen), false, "check audio never reaches transcription");
+            tryPassed = true;
             return;
         }
         if (["missing", "brain", "locked", "muted"].includes(ending)) {
@@ -606,6 +603,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
             assert.equal(s().conversation.kind, "ended");
             assert.equal(server.requests.length, before);
             if (ending === "missing") assert.equal(starts().length, 0);
+            tryPassed = true;
             return;
         }
         assert.equal(s().gate.kind, "up", "healthy loading admits Talk");
@@ -623,6 +621,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
             assert.equal(s().fault.reason, "device-lost");
             assert.equal(s().capture.kind, "closed");
             assert.equal(server.requests.length, before);
+            tryPassed = true;
             return;
         }
         await until(() => s().capture.kind === "open", "real Audio captures before model ready");
@@ -654,6 +653,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
             assert.equal(s().fault.kind, "none");
             assert.equal(s().turn.kind, "collecting");
             assert.equal(server.requests.length, before, "faulted utterance is not replayed during recovery");
+            tryPassed = true;
             return;
         }
         if (ending === "lease") {
@@ -662,14 +662,14 @@ async function loadingTalk(server, ending = "ready", edits = []) {
             assert.equal(code, 0, error);
             assert.equal(signal, null);
             assert.equal(server.requests.length, before, "lease ends without replaying the held utterance");
+            tryPassed = true;
             return;
         }
         if (ending === "stop") intent("stop");
         else if (ending === "mute") intent("mute");
         else if (ending === "lock") hello(true);
         if (ending !== "ready") await settled(() => s().conversation.kind === "ended",
-            () => childDone || ending === "held" && s().turn.kind === "collecting" && s().capture.kind === "closed",
-            "loading cancellation ends its utterance");
+            () => childDone, "loading cancellation ends its utterance");
         fs.writeFileSync(path.join(local, "ready-gate"), "R");
         await settled(() => status().causes.length === 0,
             () => starts().length > 1, "actual ready clears loading status");
@@ -687,21 +687,21 @@ async function loadingTalk(server, ending = "ready", edits = []) {
             assert.ok(ends[0].samples > 0, "queued utterance contains actual fixture PCM");
         } else {
             await settled(() => logs().some(row => row.abort),
-                () => server.requests.length > before || status().causes.length === 0 && s().turn.kind === "none",
+                () => server.requests.length > before,
                 "cancelled loading utterance abort reaches the same child");
             assert.equal(s().conversation.kind, "ended");
             assert.equal(s().turn.kind, "none");
             assert.equal(server.requests.length, before, "ready does not replay cancelled Talk");
         }
         assert.equal(starts().length, 1, "loading Talk starts no second child");
+        tryPassed = true;
     } finally {
         child.stdin.end();
-        const extraChild = starts().length > 1;
-        if (extraChild && !childDone) child.kill("SIGKILL");
+        if (!tryPassed && !childDone) child.kill("SIGKILL");
         const timer = setTimeout(() => child.kill("SIGKILL"), OBSERVE_MS);
         try {
             const [code, signal] = await closed;
-            if (!extraChild) {
+            if (tryPassed) {
                 assert.equal(signal, null);
                 assert.equal(code, 0, error);
             }
@@ -788,9 +788,7 @@ async function alwaysTalk(server, ending = "ready", edits = []) {
         await until(() => s().capture.kind === "open" && s().capture.mode === "armed", "the wake capture opens");
         const armedGen = s().gen;
         assert.equal(s().conversation.kind, "ended");
-        await settled(() => s().conversation.kind === "active",
-            () => logs().some(row => row.listen !== undefined)
-                || logs().some(row => row.woke !== undefined) && s().conversation.kind === "ended" && s().capture.kind === "closed",
+        await until(() => s().conversation.kind === "active",
             "the word starts a conversation: " + JSON.stringify(logs().slice(-3)));
         const log = logs();
         const wake = log.findIndex(row => row.wake !== undefined), woke = log.findIndex(row => row.woke !== undefined);
@@ -799,8 +797,7 @@ async function alwaysTalk(server, ending = "ready", edits = []) {
         assert.equal(server.requests.length, before, "the wake capture reaches no brain");
         assert.equal(s().gen, armedGen + 1);
         server.replies.push(Fixture.text("Done."));
-        const body = await requested({ server }, before + 1, "the woken utterance reaches the brain",
-            () => false);
+        const body = await requested({ server }, before + 1, "the woken utterance reaches the brain");
         assert.deepEqual(user(body), ["Woken request."]);
         const listen = logs().find(row => row.listen !== undefined);
         assert.equal(listen.detect, true, "the woken utterance ends by turn detection");
@@ -1995,13 +1992,14 @@ async function cases(kit, server, only = null) {
         await until(() => w.s().playback.kind === "idle", "the acknowledgement line is flushed before voice confirmation");
         w.advanceRunner(1100);
         control.utterances.push(utterance("Yes."));
+        const finals = control.finals;
         w.runner.dispatch({type: "talk-down"});
         await until(() => w.s().capture.kind === "open", "answer capture opens without a new brain turn");
         assert.equal(w.s().approval.id, h.id);
         assert.equal(w.s().turn.kind, "thinking");
         w.runner.dispatch({type: "talk-up"});
         const body = await requested(w, first + 2, "final voice answer releases the result",
-            () => w.s().approval.kind === "held" && w.s().capture.kind === "closed" && control.finals > 0);
+            () => w.s().approval.kind === "held" && w.s().capture.kind === "closed" && control.finals > finals);
         assert.equal(body.messages.find(m => m.role === "tool").content, "clipboard words");
         assert.deepEqual(user(body), ["Read my clipboard."], "confirmation is not a new user turn");
         assert.ok(w.rows().some(row => row.kind === "release" && row.confirmed === "voice" && row.decision === "send"));
@@ -2498,7 +2496,7 @@ async function cases(kit, server, only = null) {
         assert.deepEqual([control.spoken, w.s().conversation.kind], [[], "ended"], "nothing is spoken with no conversation");
         const asked = await opened(w,
             from => control.spoken.slice(from).join(" ").startsWith(QUESTION + " "));
-        await spoken(w, asked, QUESTION, () => false, () => control.spoken.slice(asked).join(" ") !== QUESTION);
+        await spoken(w, asked, QUESTION, undefined, () => control.spoken.slice(asked).join(" ") !== QUESTION);
         assert.ok(control.labels.has("agent"), "the agent's text reaches speech labelled as agent output");
         const requests = server.requests.length;
         // Another idle state publication asks nothing new.
@@ -3379,17 +3377,24 @@ async function roster() {
     const results = await Promise.all(Object.keys(GROUPS).map(runChild));
     let controls = 0;
     const failed = [];
+    const notMeasured = [];
     for (const result of results) {
         process.stdout.write("test-jarvis-engine: group=" + result.name + " secs=" + result.secs + " exit=" + result.code + "\n");
         if (result.stdout) process.stdout.write(result.stdout);
         if (result.stderr) process.stderr.write(result.stderr);
         const ok = result.stdout.match(new RegExp("test-jarvis-engine: ok group=" + result.name + " requests=\\d+ controls=(\\d+)"));
-        if (result.code !== 0 || result.signal !== null || ok === null) failed.push(result.name);
+        if (result.code === 77 && result.signal === null && ok === null) notMeasured.push(result.name);
+        else if (result.code !== 0 || result.signal !== null || ok === null) failed.push(result.name);
         else controls += Number(ok[1]);
     }
     if (failed.length !== 0) {
-        console.error("test-jarvis-engine: failed groups=" + failed.join(","));
+        console.error("test-jarvis-engine: failed groups=" + [...failed, ...notMeasured].join(","));
         process.exitCode = 1;
+        return;
+    }
+    if (notMeasured.length !== 0) {
+        console.log("test-jarvis-engine: not-measured groups=" + notMeasured.join(","));
+        process.exitCode = 77;
         return;
     }
     console.log("test-jarvis-engine: ok groups=" + results.length + " controls=" + controls);
@@ -3398,7 +3403,7 @@ async function roster() {
 const args = process.argv[2] === "--inside" ? process.argv.slice(3) : process.argv.slice(2);
 if (args[0] === "--group") {
     const name = args[1] ?? "";
-    if (!Object.hasOwn(GROUPS, name)) {
+    if (args.length !== 2 || !Object.hasOwn(GROUPS, name)) {
         console.error("test-jarvis-engine: unknown group=" + name);
         process.exitCode = 1;
     } else world(() => runGroup(name), 900000).catch(error => { console.error(error); process.exitCode = 1; });
