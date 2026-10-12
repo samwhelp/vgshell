@@ -127,6 +127,19 @@ function inside() {
             assert.equal(calls(folder).some(call => call.argv[0] === "stop" || call.argv[0] === "start"), false, block + ": the old session stays");
             cases++;
         }
+        // An old home whose command does not answer may hold a live
+        // session: the change fails and touches neither home.
+        answers(folder, { status: { exit: 3, object: { state: "running", reason: "resumed" } }, stop: said("stopping", "stop-requested") });
+        answers(other, { status: said("stopped", "never-started"), start: said("starting", "launching") });
+        assert.deepEqual(helper(directory, ["change", "~/Jarvis", claude, "~/Other", "resume"]), { kind: "failed" });
+        assert.deepEqual([calls(folder).map(call => call.argv), calls(other)], [[status(folder)], []], "an unread old home is left as it is");
+        cases++;
+        // The selection the session already runs on replaces nothing.
+        answers(folder, { status: said("running", "resumed", { home: folder, harness: "claude", account }), stop: said("stopping", "stop-requested"),
+            start: said("running", "existing") });
+        assert.equal(helper(directory, ["change", "~/Jarvis", claude, "~/Jarvis", "resume"]).state, "running");
+        assert.deepEqual(calls(folder).map(call => call.argv), [status(folder), status(folder)], "the same selection stops and starts nothing");
+        cases++;
         // With no live session a change only reads the new selection.
         answers(folder, { status: said("stopped", "stopped"), stop: said("stopped", "stopped") });
         answers(other, { status: said("stopped", "never-started"), start: said("starting", "launching") });
@@ -183,6 +196,16 @@ function inside() {
             assert.deepEqual(helper(directory, ["start", claude, "~/Jarvis", "resume"]), { kind: "failed" }, name);
             cases++;
         }
+        // A line the Settings page cannot draw as a hint, or a name with a
+        // control character, is outside the contract too.
+        const launch = more => ({ exit: 1, object: { state: "failed", reason: "launch-failed", detail: "The app ended.", ...more } });
+        for (const [name, more, kind] of [["detail-fits", { detail: "x".repeat(200) }, "answer"], ["detail-long", { detail: "x".repeat(201) }, "failed"],
+            ["detail-tab", { detail: "The app\tended." }, "failed"], ["detail-line-separator", { detail: "The app\u2028ended." }, "failed"],
+            ["home-control", { home: folder + "\u0007" }, "failed"]]) {
+            answers(folder, { status: good, start: launch(more) });
+            assert.equal(helper(directory, ["start", claude, "~/Jarvis", "resume"]).kind, kind, name);
+            cases++;
+        }
         // A refusal's own object is the answer, with its line for the user.
         answers(folder, { status: good, start: { exit: 1, object: { state: "blocked", reason: "sign-in-required", detail: "Sign in to the app." } } });
         const refused = helper(directory, ["start", claude, "~/Jarvis", "resume"]);
@@ -193,12 +216,30 @@ function inside() {
     const checks = { boot, bootOff, enable, manual, off, change, changeRefused, blocks, noPackage, outside };
     for (const check of Object.values(checks)) check(plugin);
 
-    function control(name, file, needle, replacement, check) {
-        const source = fs.readFileSync(path.join(plugin, file), "utf8");
+    // A copy of the plugin tree FROM with one text of FILE replaced.
+    function planted(name, file, needle, replacement, from = plugin) {
+        const source = fs.readFileSync(path.join(from, file), "utf8");
         assert.equal(source.split(needle).length - 1, 1, name + " match");
-        const copy = path.join(root, "control-" + name);
-        fs.cpSync(plugin, copy, { recursive: true });
+        const copy = path.join(root, name);
+        fs.cpSync(from, copy, { recursive: true });
         fs.writeFileSync(path.join(copy, file), source.replace(needle, () => replacement));
+        return copy;
+    }
+    // The stall bound, on a copy whose bound is short: a command that
+    // waits on a child holding its output open ends as a failure at the
+    // bound, not when that child lets go. Real time, for the timer's wiring.
+    const quick = planted("quick-bound", "backend/session-control.js", "const COMMAND_MS = 60000;", "const COMMAND_MS = 400;");
+    function stalled(directory) {
+        answers(folder, { stop: { ...said("stopping", "stop-requested"), hold: 5 } });
+        const from = Date.now();
+        assert.deepEqual(helper(directory, ["stop", "~/Jarvis"]), { kind: "failed" });
+        assert.ok(Date.now() - from < 3000, "the bound ends the run while a child holds the output: ms=" + (Date.now() - from));
+        cases++;
+    }
+    stalled(quick);
+
+    function control(name, file, needle, replacement, check, from = plugin) {
+        const copy = planted("control-" + name, file, needle, replacement, from);
         assert.throws(() => check(copy), error => {
             assert.ok(error instanceof assert.AssertionError, name + " must turn red, not crash: " + error.stack);
             console.log("test-jarvis-session-control: control=" + name + " killed by=" + JSON.stringify(error.message.split("\n")[0]));
@@ -218,6 +259,12 @@ function inside() {
     control("check-before-stop", C, 'if (probe.kind === "blocked") return { ...answer(before), unapplied: probe.block };', "", changeRefused);
     control("stop-old-home", C, 'if (await run(from, ["stop"]) === null) return failed;', "", change);
     control("live-only", C, "if (!live) return", "if (false) return", changeRefused);
+    control("bound-ends-run", C, "                child.stdout.destroy();\n                end(null);", "", stalled, quick);
+    control("old-home-unread", C, 'const before = from.kind === "blocked" ? from : await run(from, ["status"]);',
+        'const before = from.kind === "blocked" ? from : await read(from);', changeRefused);
+    control("same-selection", C, "if (at.folder === from.folder && before.harness === who.harness && before.account === who.directory) return answer(before);", "", changeRefused);
+    control("detail-length", C, " || value.detail.length > DETAIL_MAX", "", outside);
+    control("printable", C, "value[field] !== null && UNPRINTABLE.test(value[field])", "false", outside);
     control("contract-pair", C, "|| !STATES[value.state].includes(value.reason)", "", outside);
     control("exit-status", C, "signal === null && (code === 0 || code === 1) ? accepted(out) : null", "accepted(out)", outside);
     control("one-line", C, "if (!/^[^\\n]+\\n$/.test(text)) return null;", "text = text.split(\"\\n\")[0];", outside);

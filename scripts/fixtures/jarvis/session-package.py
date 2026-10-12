@@ -9,8 +9,10 @@ reached it. It answers from answers.json beside itself, an object keyed by
 verb: {"exit": N, "object": {...}} prints the contract's object, with the
 fields the entry leaves out filled in, and {"exit": N, "raw": TEXT} prints
 TEXT as it is. A verb with no entry exits 2 with a keyed line, as the
-contract's argument refusal does."""
-import json, os, sys
+contract's argument refusal does. An entry's "hold": SECONDS stalls the
+call as a command does that waits on a program it started: a child that
+holds the output open sleeps that long, and so does the call."""
+import json, os, subprocess, sys, time
 
 here = os.path.dirname(os.path.abspath(__file__))
 argv = sys.argv[1:]
@@ -28,6 +30,9 @@ entry = answers.get(argv[0]) if argv else None
 if entry is None:
     sys.stderr.write("jarvis-session: verb=%s\n" % (argv[0] if argv else ""))
     sys.exit(2)
+if "hold" in entry:
+    subprocess.Popen(["sleep", str(entry["hold"])])
+    time.sleep(entry["hold"])
 if "raw" in entry:
     sys.stdout.write(entry["raw"])
 else:

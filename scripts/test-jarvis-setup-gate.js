@@ -901,6 +901,15 @@ function verifySession(gate) {
             }
     assert.equal(offered(plain(gate.sessionStart(true, { kind: "answer", state: "running", reason: "existing", detail: "", names: null }))), "none",
         "a running session with no recorded names is a row the judge accepts");
+    // The status judge's hint limit: a detail at the limit is drawn, and
+    // names too long for one hint leave the row its text alone.
+    const limit = plain(gate.sessionStart(true, { kind: "answer", state: "failed", reason: "launch-failed", detail: "x".repeat(200), names }));
+    assert.deepEqual([limit.hint.length, offered(limit)], [200, "retry:start-session"], "a detail at the hint limit is a row the judge accepts");
+    const long = plain(gate.sessionStart(true, { kind: "answer", state: "running", reason: "resumed", detail: "",
+        names: { home: "~/" + "h".repeat(120), account: "Claude Code, ~/" + "a".repeat(120) } }));
+    assert.deepEqual([long.text, long.hint, offered(long)], [plain(gate.sessionStart(true, { kind: "answer", state: "running", reason: "resumed", detail: "", names })).text, undefined, "none"],
+        "names too long for a hint leave a row the judge accepts");
+    assert.deepEqual(Object.keys(SESSION_CONTRACT).filter(state => gate.sessionLive(state)), ["running", "starting", "handing-over"], "the states of a session that lives");
     const stopped = wanted => plain(gate.sessionStart(wanted, { kind: "answer", state: "stopped", reason: "ended", detail: "", names: null }));
     assert.notEqual(stopped(true).text, stopped(false).text, "a stopped session reads by the boot setting");
     for (const block of ["no-account", "not-app", "no-home", "package"]) {
@@ -1139,6 +1148,8 @@ const CONTROLS = [
     ["an answer outside the contract reads as a state", "    if (row === undefined) return failure;", '    if (row === undefined) return { tone: "ok", text: "Running", hint: "Planted." };', "outside the contract"],
     ["the package's failure line is dropped", 'var hint = row.detail ? (result.detail !== "" ? result.detail : SESSION_FAILED)', "var hint = row.detail ? SESSION_FAILED", "the package's own line is shown"],
     ["the unapplied selection is not shown", "    if (result.unapplied !== undefined) value.lines = [SESSION_BLOCKS[result.unapplied]];", "", "a selection that failed its check"],
+    ["names too long for a hint are published", "hint === \"\" || hint.length > SESSION_HINT_MAX ?", "hint === \"\" ?", "the manifest judge accepts the row"],
+    ["a starting session is not live", 'var SESSION_LIVE = ["running", "starting", "handing-over"];', 'var SESSION_LIVE = ["running", "handing-over"];', "the states of a session that lives"],
     ["the session field draws while the setting is off", "return wanted ? SESSION_MODES : [];", "return SESSION_MODES;", "the session field while the setting is false"]
 ];
 

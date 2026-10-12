@@ -18,18 +18,27 @@ Item {
     property var shell: null
     // The account and home the last call read, as JSON; "" before the build's.
     property string judged: ""
-    // The home that call read: a change stops the session there.
-    property string judgedHome: ""
+    // The home setting whose session the row shows. It follows the selected
+    // home only once a call for that home is applied: a selection that
+    // failed its check leaves the session, and so this, where it was.
+    property string sessionHome: ""
+    // The block of that failed selection, "" for none. A read of the
+    // session that stays keeps it on the row.
+    property string unapplied: ""
     // The helper's last answer, null before the first.
     property var result: null
+    // The running call's verb and the home setting it is for.
+    property var current: null
     // The calls that wait for the running one, oldest first.
     property var waiting: []
     property string output: ""
+    property string errors: ""
+    property int exitCode: 0
     readonly property string program: String(Qt.resolvedUrl("backend/session-control.js")).replace(/^file:\/\//, "")
     readonly property bool wanted: shell !== null && shell.settings.startAtBoot
     onWantedChanged: publish()
     readonly property bool pageViewed: shell !== null && shell.status.viewed
-    onPageViewedChanged: if (pageViewed && judged !== "") call(["status", shell.settings.home])
+    onPageViewedChanged: if (pageViewed && judged !== "") call("status", sessionHome, [sessionHome])
     onShellChanged: {
         if (shell === null) return;
         // A new `shell` is any changed setting, so only a change of what a
@@ -42,53 +51,82 @@ Item {
             // The TUI step behind the row's Start and Retry (tui/start-session.sh).
             shell.ipc.handle("start-session", () => {
                 const now = root.shell.settings;
-                root.call(["start", now.brain, now.home, now.bootSession === "new" ? "new" : "resume"]);
+                root.call("start", now.home, [now.brain, now.home, now.bootSession === "new" ? "new" : "resume"]);
                 return "ok";
             });
-            call(["build", settings.brain, settings.home, mode, settings.startAtBoot ? "on" : "off"]);
-        } else if (read !== judged) call(["change", judgedHome, settings.brain, settings.home, mode]);
+            sessionHome = settings.home;
+            call("build", settings.home, [settings.brain, settings.home, mode, settings.startAtBoot ? "on" : "off"]);
+        } else if (read !== judged) call("change", settings.home, [sessionHome, settings.brain, settings.home, mode]);
         judged = read;
-        judgedHome = settings.home;
         publish();
     }
 
+    // False when the status judge refuses the row, which then keeps its
+    // last value.
     function publish() {
-        if (shell === null) return;
-        if (shell.status.set("sessionModes", Gate.sessionModes(shell.settings.startAtBoot)) !== "ok"
-                || shell.status.set("sessionStart", Gate.sessionStart(shell.settings.startAtBoot, result)) !== "ok")
-            throw new Error("jarvis-session: status=refused");
+        if (shell === null) return true;
+        const modes = shell.status.set("sessionModes", Gate.sessionModes(shell.settings.startAtBoot));
+        const row = shell.status.set("sessionStart", Gate.sessionStart(shell.settings.startAtBoot, result));
+        if (modes === "ok" && row === "ok") return true;
+        console.warn("jarvis-session: status=refused modes=" + modes + " row=" + row);
+        return false;
     }
 
-    function call(args) {
+    function call(verb, home, args) {
         if (helper.running) {
             // A status read adds nothing behind a call that answers the session.
-            if (args[0] !== "status" || waiting.length === 0) waiting = waiting.concat([args]);
+            if (verb !== "status" || waiting.length === 0) waiting = waiting.concat([{ verb: verb, home: home, args: args }]);
             return;
         }
+        // A queued change names the session's home as it is when it runs.
+        if (verb === "change") args = [sessionHome].concat(args.slice(1));
+        current = { verb: verb, home: home };
         output = "";
-        helper.command = ["node", program, "--tree", Quickshell.shellDir + "/.."].concat(args);
+        errors = "";
+        helper.command = ["node", program, "--tree", Quickshell.shellDir + "/..", verb].concat(args);
         helper.running = true;
     }
 
     function answered() {
-        try { result = JSON.parse(output); }
+        let answer;
+        try { answer = JSON.parse(output); }
         catch (error) {
-            console.warn("jarvis-session: control=no-answer");
-            result = { kind: "failed" };
+            // The helper's keyed line goes to the log; the row says it failed.
+            console.warn("jarvis-session: control=no-answer verb=" + current.verb + " exit=" + exitCode + " cause=" + errors.split("\n")[0].slice(0, 180));
+            answer = { kind: "failed" };
         }
+        let again = false;
+        if (answer.kind === "answer" && answer.unapplied !== undefined) unapplied = answer.unapplied;
+        else if (answer.kind !== "failed" && current.verb === "status" && unapplied !== "") {
+            // A read of the session a refused selection left in place.
+            if (answer.kind === "answer" && Gate.sessionLive(answer.state)) answer = Object.assign({}, answer, { unapplied: unapplied });
+            else {
+                // That session is gone: the row follows the selected home.
+                unapplied = "";
+                sessionHome = shell.settings.home;
+                again = true;
+            }
+        } else if (answer.kind !== "failed") {
+            // An applied call: the session, or none, is the selected home's.
+            unapplied = "";
+            sessionHome = current.home;
+        }
+        result = answer;
         publish();
+        if (again) call("status", sessionHome, [sessionHome]);
         if (waiting.length === 0) return;
         const next = waiting[0];
         waiting = waiting.slice(1);
-        Qt.callLater(() => root.call(next));
+        Qt.callLater(() => root.call(next.verb, next.home, next.args));
     }
 
     // The core calls this on the service when the user disables the plugin,
-    // before it destroys the service; a reload and a shell exit do not.
+    // before it destroys the service; a reload and a shell exit do not. The
+    // stop goes to the home the session lives in, which a refused selection
+    // leaves behind the selected one. No home folder holds no session.
     function turnedOff() {
-        // No home folder holds no session to stop.
-        if (shell === null || shell.settings.home === "") return;
-        const reply = shell.run.detached(["node", program, "--tree", Quickshell.shellDir + "/..", "stop", shell.settings.home, "app-off"]);
+        if (shell === null || sessionHome === "") return;
+        const reply = shell.run.detached(["node", program, "--tree", Quickshell.shellDir + "/..", "stop", sessionHome, "app-off"]);
         if (reply !== "ok") console.warn("jarvis-session: stop " + reply);
     }
 
@@ -98,6 +136,8 @@ Item {
         // the helper passes on less the shell's own marks: the session is the
         // user's own program.
         stdout: StdioCollector { onStreamFinished: root.output = text }
+        stderr: StdioCollector { onStreamFinished: root.errors = text }
+        onExited: (code, status) => root.exitCode = code
         onRunningChanged: if (!running) root.answered()
     }
 }

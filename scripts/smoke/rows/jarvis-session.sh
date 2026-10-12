@@ -11,8 +11,11 @@
 # home, for the account's app, and a second shell start asks again and VGS
 # starts nothing itself. The Start step asks for a manual start. Disabling
 # Jarvis asks for one stop with the app's Off, and a shell restart asks for
-# none. Control: a tree whose helper asks twice reads two starts for one
-# shell start.
+# none. A home selection that fails its check, None here, leaves the live
+# session's home as the one the service holds, and the Off then stops the
+# session there. Controls: a tree whose helper asks twice reads two starts
+# for one shell start, and a tree whose service follows a refused selection
+# holds the new home.
 # No latency ceiling. Reads poll once per nested IPC round trip.
 # inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/* scripts/fixtures/jarvis/session-package.py shell/Core/Plugins.qml shell/Commons/AccountDirectories.js bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Core/PluginStatus.qml scripts/smoke/rows/jarvis.sh
 set -euo pipefail
@@ -151,12 +154,41 @@ expect_poll "with the setting off again the shell start only reads" "Not started
 expect "the Start step is taken" ok ipc vgs.jarvis invoke start-session ''
 expect_poll "the Start step asks the package for a manual start in the chosen mode" "$(session_start_words new manual)" session_calls start
 
+# The home the service holds for the session, and the block of a selection
+# that failed its check, as [home, block].
+session_held() {
+  ipc smoke itemValues service vgs.jarvis SessionStart sessionHome,unapplied | py_reply '
+import json,sys
+rows=json.load(sys.stdin)
+print(json.dumps([rows[0]["sessionHome"], rows[0]["unapplied"]]) if len(rows) == 1 else "pending")
+'
+}
+session_refuse() { # LABEL
+  session_set '{"home": null}'
+  expect "$1: the configuration reloads with no home folder" ok ipc shell reloadConfig
+}
+copy_tree jarvis-session-follows
+if edit_tree jarvis-session-follows shell/plugins/vgs.jarvis/SessionStart.qml \
+    '        if (answer.kind === "answer" && answer.unapplied !== undefined) unapplied = answer.unapplied;' \
+    '        if (answer.kind === "answer" && answer.unapplied !== undefined) { unapplied = answer.unapplied; sessionHome = current.home; }'; then
+  session_answers "running existing" "running existing" "stopping stop-requested"
+  session_shell_start "$sandbox/tree-jarvis-session-follows" follows
+  expect_poll "control: the copy reads the running session" '["~/SmokeJarvis", ""]' session_held
+  session_refuse control
+  expect_poll "control: a service that follows a refused selection holds the new home" '["", "no-home"]' session_held
+  session_set '{"home": "~/SmokeJarvis"}'
+fi
+
 session_answers "running existing" "running existing" "stopping stop-requested"
 session_shell_start "$repo" restart
 expect_poll "the restarted shell reads the running session" Running session_text
 expect "a shell restart asks for no stop" '[]' session_calls stop
+session_refuse "a refused selection"
+expect_poll "a refused home selection leaves the live session's home held" '["~/SmokeJarvis", "no-home"]' session_held
+expect "the row still reads the session that runs" Running session_text
+expect "a refused selection asks for no stop" '[]' session_calls stop
 expect "disabling Jarvis is accepted" ok ipc shell setPluginEnabled vgs.jarvis false
-expect_poll "disabling Jarvis asks for one stop that records the app's Off" \
+expect_poll "disabling Jarvis asks for one stop, with the app's Off, in the home the session lives in" \
   "$(python3 -c 'import json,sys; print(json.dumps([["stop", "--origin", "app-off", "--home", sys.argv[1]]]))' "$session_home")" session_calls stop
 
 session_set '{"startAtBoot": null, "bootSession": null, "brain": null, "home": null}'

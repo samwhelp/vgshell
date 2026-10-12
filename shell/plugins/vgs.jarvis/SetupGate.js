@@ -351,6 +351,13 @@ var SESSION_BLOCKS = {
     "package": "Install or update the Jarvis package in this home folder."
 };
 var SESSION_FAILED = "Jarvis did not start.";
+// PluginLogic STATUS_HINT_MAX, the longest hint a status row takes.
+var SESSION_HINT_MAX = 200;
+// The states of a session that lives, which a status read may find.
+var SESSION_LIVE = ["running", "starting", "handing-over"];
+function sessionLive(state) {
+    return SESSION_LIVE.indexOf(state) !== -1;
+}
 // The package's state and reason, as "state reason", to the row. `detail`
 // takes the package's own line, `names` the recorded session's home and
 // account, `wanted` the row of the boot setting, and `action` names the
@@ -402,9 +409,10 @@ function sessionStart(wanted, result) {
     else {
         var hint = row.detail ? (result.detail !== "" ? result.detail : SESSION_FAILED)
             : row.names ? (result.names === null ? "" : "Jarvis runs in " + result.names.home + " with " + result.names.account + ".") : row.hint;
-        // The status judge takes no empty hint: a recorded session with
-        // no names reads by its row text alone.
-        value = hint === "" ? { tone: row.tone, text: row.text } : { tone: row.tone, text: row.text, hint: hint };
+        // The status judge takes a hint of 1 to SESSION_HINT_MAX
+        // characters: a recorded session with no names, or with names too
+        // long for one, reads by its row text alone.
+        value = hint === "" || hint.length > SESSION_HINT_MAX ? { tone: row.tone, text: row.text } : { tone: row.tone, text: row.text, hint: hint };
         if (row.action !== undefined) value.action = row.action;
     }
     // The selection that failed its check, beside the session that stays.

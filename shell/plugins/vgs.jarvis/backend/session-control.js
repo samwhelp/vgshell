@@ -46,6 +46,12 @@ const LIVE = ["running", "starting", "handing-over"];
 // One command run: a bound on a stalled command, not a latency budget.
 const COMMAND_MS = 60000;
 const OUTPUT_BYTES = 16384;
+// The contract's `detail`: empty, or one printable line the Settings page
+// can draw as a row's hint (PluginLogic STATUS_HINT_MAX). The names it
+// draws, `home`, `harness` and `account`, are printable too.
+// What that page draws as one line (SettingValues.CONTROL_OR_SEPARATOR).
+const UNPRINTABLE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
+const DETAIL_MAX = 200;
 
 /** The contract's one object from a run's stdout, or null for anything else. */
 function accepted(text) {
@@ -55,7 +61,8 @@ function accepted(text) {
     const optional = field => value[field] === null || typeof value[field] === "string";
     if (value === null || typeof value !== "object" || Array.isArray(value) || value.v !== 1
             || !Object.hasOwn(STATES, value.state) || !STATES[value.state].includes(value.reason)
-            || !["home", "harness", "account"].every(optional) || typeof value.detail !== "string") return null;
+            || !["home", "harness", "account"].every(optional) || typeof value.detail !== "string" || value.detail.length > DETAIL_MAX
+            || ["home", "harness", "account", "detail"].some(field => value[field] !== null && UNPRINTABLE.test(value[field]))) return null;
     return value;
 }
 
@@ -107,19 +114,29 @@ async function main() {
         return resolved.source.kind === "cli" ? { harness: resolved.provider, directory: resolved.source.directory } : blocked("not-app");
     }
     // One run of the command by argument list in its home: the contract's
-    // object for exit 0 or 1, else null.
+    // object for exit 0 or 1, else null. The bound ends the run itself: a
+    // program the command started can hold its output open past the
+    // command's own end, and `close` waits for that.
     function run(at, words) {
         return new Promise(resolve => {
             const child = cp.spawn(at.command, words.concat(["--home", at.folder]), { cwd: at.folder, env: environment, stdio: ["ignore", "pipe", "ignore"] });
             let out = "";
-            const timer = setTimeout(() => child.kill("SIGKILL"), COMMAND_MS);
+            let ended = false;
+            const end = value => {
+                if (ended) return;
+                ended = true;
+                clearTimeout(timer);
+                resolve(value);
+            };
+            const timer = setTimeout(() => {
+                child.kill("SIGKILL");
+                child.stdout.destroy();
+                end(null);
+            }, COMMAND_MS);
             child.stdout.setEncoding("utf8");
             child.stdout.on("data", text => { if (out.length <= OUTPUT_BYTES) out += text; });
-            child.on("error", () => { clearTimeout(timer); resolve(null); });
-            child.on("close", (code, signal) => {
-                clearTimeout(timer);
-                resolve(signal === null && (code === 0 || code === 1) ? accepted(out) : null);
-            });
+            child.on("error", () => end(null));
+            child.on("close", (code, signal) => end(signal === null && (code === 0 || code === 1) ? accepted(out) : null));
         });
     }
     const failed = { kind: "failed" };
@@ -150,7 +167,10 @@ async function main() {
     if (verb === "change") {
         const [old, setting, home, mode] = args;
         const from = place(old);
-        const before = from.kind === "blocked" ? from : await read(from);
+        const before = from.kind === "blocked" ? from : await run(from, ["status"]);
+        // A command that does not answer says nothing of its session: the
+        // session may live, so it is not passed over as absent.
+        if (before === null) return failed;
         const at = place(home);
         const live = before.kind !== "blocked" && LIVE.includes(before.state);
         if (!live) return at.kind === "blocked" ? at : shown(await read(at));
@@ -158,6 +178,9 @@ async function main() {
         const who = account(setting);
         const probe = at.kind === "blocked" ? at : who.kind === "blocked" ? who : await read(at);
         if (probe.kind === "blocked") return { ...answer(before), unapplied: probe.block };
+        // The selection the session already runs on, as after a refused
+        // selection is taken back, replaces nothing.
+        if (at.folder === from.folder && before.harness === who.harness && before.account === who.directory) return answer(before);
         if (await run(from, ["stop"]) === null) return failed;
         return start(at, who, mode, "manual");
     }
