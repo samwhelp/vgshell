@@ -453,7 +453,7 @@ browser_text() { status_row vgs.themes browserTheming | py_reply 'import json,sy
 themes_source_dir() { ipc shell listPlugins | py_reply 'import json,sys; print(next((p["dir"] for p in json.load(sys.stdin)["plugins"] if p["id"] == "vgs.themes"), "absent"))'; }
 expected_errors+=('settings: vgs\.themes/browserTheming refused: action=browserTheming reason=not-offered')
 settings_page_open vgs.themes
-settings_details
+settings_setup
 expect_poll "a tree that ships no target reads browser theming not shipped" '"This version of VGS does not support browser themes"' browser_text
 expect "the manager refuses the install while no target ships" "refused: action=browserTheming reason=not-offered" settings_act vgs.themes browserTheming
 expect "chromium resolves to the device stand-in on the shell's PATH" "$shim/chromium" shell_resolves chromium
@@ -472,7 +472,7 @@ case $first_setup in
   '["reported", "warning", true]')
     forget_record
     hold_runs
-    settings_press --type RowAction "Install browser theming" || fail "the click on Install browser theming failed"
+    settings_press "Install browser theming" || fail "the click on Install browser theming failed"
     expect_poll "Install browser theming hands the terminal the browser-policy TUI" "$(words vgs.themes/browser-policy tui/browser-policy.sh)" recorded_tail
     expect_poll "the browser-policy run is live under the hold" busy key_idle vgs.themes/browser-policy
     printf '#!/bin/sh\nexit 0\n' >"$shim/vgshell-browser-policy"

@@ -1151,9 +1151,10 @@ expect "the Setup section draws the service's one install line" '{"action": "ins
 voice_setup_changed="$(voice_setup_value_changed)" || fail "control: the service's Setup value is unreadable"
 expect "control: a drawn line that differs from the service value reads undrawn" '{"action": "install", "lines": 1, "drawn": false}' voice_setup_lines "$voice_setup_changed"
 # Control: a disposable manifest copy whose setup entry is in no Setup
-# group and whose Configure declares no `requires` draws no chip, no step
-# first, and Configure active: voxtype is optional, so it then needs
-# nothing missing.
+# group and whose Configure declares no `requires` keeps the chip and the
+# install step first, since an entry of no group that declares an action is
+# still a step of the Setup section, and draws Configure active: voxtype is
+# optional, so Configure then needs nothing missing.
 cp -- "$voice_manifest" "$sandbox/voice-manifest-before"
 settings_page_close vgs.voice
 expect "disabling Voice for the Setup section control is allowed" ok ipc shell setPluginEnabled vgs.voice false
@@ -1174,7 +1175,7 @@ expect "enabling Voice for the Setup section control is allowed" ok ipc shell se
 expect_poll "Voice builds for the Setup section control" True record_exists vgs.voice
 settings_page_open vgs.voice
 settings_setup
-expect_poll "control: a setup entry in no group and a Configure with no requires draw no chip, no step and Configure active" '{"chips": [], "buttons": [["Configure", "accent", true, false], ["Choose model", "accent", false, true]]}' voice_setup_section
+expect_poll "control: a setup entry in no group and a Configure with no requires keep the chip and the install step and draw Configure active" '{"chips": [["Setup needed", "warning"]], "buttons": [["Install requirements", "primary", true, false], ["Configure", "accent", true, false], ["Choose model", "accent", false, true]]}' voice_setup_section
 settings_page_close vgs.voice
 expect "disabling Voice after the Setup section control is allowed" ok ipc shell setPluginEnabled vgs.voice false
 cp -- "$sandbox/voice-manifest-before" "$voice_manifest"

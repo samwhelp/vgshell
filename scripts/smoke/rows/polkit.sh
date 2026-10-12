@@ -55,8 +55,9 @@ polkit_lent() { ipc shell lent | py_reply 'import json,sys; v=json.load(sys.stdi
 for k in sys.argv[1].split("."): v=v.get(k) if isinstance(v, dict) else None
 print(json.dumps(v))' "$1"; }
 polkit_status() { ipc smoke statusValues vgs.polkit | py_reply 'import json,sys; v=json.load(sys.stdin).get("agent"); print(json.dumps(v if v is None else [v["tone"], v["text"], v.get("lines", [])]))'; }
-# The Badges the Settings window draws for the other agents, as their texts.
-polkit_badges() { ipc smoke itemTexts window vgs.settings Badge | py_reply 'import json,sys; print(json.dumps([t for badge in json.load(sys.stdin) for t in badge if t.startswith("Another app is showing password prompts: ")]))'; }
+# What the Settings window's step draws for the other agents, as texts:
+# the first in its chip and each further one on a line under it.
+polkit_named() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,sys; print(json.dumps([t for field in json.load(sys.stdin) for t in field if t.startswith("Another app is showing password prompts: ")]))'; }
 # The summon a request would make, with no request live: the host's answer.
 flowless_summon() { ipc shell summon overlay vgs.polkit '{}'; }
 unregistered='["warning", "Password prompts are unavailable. No other app is showing them.", []]'
@@ -194,10 +195,10 @@ expect_poll "the stand-in polkitd is on the sandbox's system bus" ready polkit_s
 terminal_stand_in
 terminal_ready "the polkit steps"
 settings_page_open vgs.polkit
-settings_details
+settings_setup
 
 polkit_behind "a package nothing requires"
-expect_poll "one other agent draws one Badge" '["Another app is showing password prompts: acme-polkit."]' polkit_badges
+expect_poll "the step names one other agent" '["Another app is showing password prompts: acme-polkit."]' polkit_named
 polkit_step "a package nothing requires" uninstall Uninstall
 polkit_registered "after Uninstall"
 
@@ -209,7 +210,7 @@ spawn "$polkit_dir/second.out" "${shell_env[@]}" PYTHONHOME="$polkit_python_home
 polkit_second_pid="$spawn_pid"
 expect_poll "the second agent runs under its program's name" polkit-beta-age cat "/proc/$polkit_second_pid/comm"
 polkit_behind "a package another requires" "$other_two"
-expect_poll "two other agents draw one Badge each" '["Another app is showing password prompts: beta-polkit.", "Another app is showing password prompts: acme-polkit."]' polkit_badges
+expect_poll "the step names two other agents, one a line" '["Another app is showing password prompts: beta-polkit.", "Another app is showing password prompts: acme-polkit."]' polkit_named
 polkit_step "a package another requires" stop Stop
 kill "$polkit_second_pid" || fail "ending the second stand-in agent pid $polkit_second_pid failed"
 polkit_registered "after Stop"

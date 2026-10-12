@@ -2401,9 +2401,10 @@ Scope {
             });
         }
         // A plugin page's shown Status and Setup sections by row, as
-        // [{ label, chips, buttons, lines }]: each shown step row of the
-        // sections, a Field drawn for one row of Steps.setupSections,
-        // its label, its Badges as [text, tone], its actions as { tui,
+        // [{ key, label, chips, buttons, lines }]: each shown step row of the
+        // sections, a Field drawn for one row of Steps.setupSections, the
+        // key of that row's entry, which the Loader that builds the Field
+        // holds, its label, its Badges as [text, tone], its actions as { tui,
         // tone, enabled }, tui the screen the row's step opens (its
         // Steps.setupSections button) and tone "primary" for the page's
         // primary Button, and the shown lines of text the Field draws under
@@ -2422,6 +2423,7 @@ Scope {
                 const under = shown.filter(child => root.typeName(child) === "Label" && child.text !== "" && inValue.indexOf(child) === -1);
                 const step = field.button;
                 return {
+                    key: field.parent.modelData.key,
                     label: field.label,
                     chips: shown.filter(child => root.typeName(child) === "Badge").map(badge => [badge.text, badge.tone]),
                     buttons: shown.filter(child => root.typeName(child) === "RowAction" || root.typeName(child) === "Button").map(button => ({

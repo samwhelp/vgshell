@@ -9,10 +9,12 @@ import "../../shell/plugins/vgs.settings"
 // has a Setup tab, between Settings and Details, only while the plugin has
 // a step, a key or a screen to draw there or a tool to install; the
 // Requirements section draws on that tab, and on Details for a page with
-// none. A page opens on the tab it is asked for, and on Settings when it
-// has no such tab. A row of the list shows Setup needed while its plugin
-// asks for a setup step and a warning icon while an optional tool is
-// missing; a click on the row opens Setup while the chip shows, else
+// none. A status entry that declares an action draws as a step on Setup,
+// one of a group of its own under that group's title, and Details draws
+// neither it nor any action. A page opens on the tab it is asked for, and
+// on Settings when it has no such tab. A row of the list shows Setup needed
+// while its plugin asks for a setup step and a warning icon while an
+// optional tool is missing; a click on the row opens Setup while the chip shows, else
 // Settings, and a click on the icon opens Setup. A change of the manager's
 // rows keeps the shown tab by its text, and a Setup tab that leaves while
 // it shows hands on to Details. The rows are the core's own,
@@ -74,6 +76,20 @@ Item {
         }, fields);
     }
 
+    // Steps outside the Setup group: one of no group and one of a group of
+    // its own, beside a state that declares no action.
+    readonly property var moved: ({
+        requirements: [],
+        tui: { allow: { requires: [] } },
+        status: {
+            health: { type: "state", label: "Health" },
+            capture: { type: "state", label: "Capture", action: { label: "Allow capture", tui: "allow" } },
+            apple: { type: "state", label: "Apple displays", group: "Access", action: { label: "Allow access", tui: "allow" } }
+        }
+    })
+    readonly property var movedOpen: ({ health: { tone: "ok", text: "Good" }, capture: { tone: "warning", text: "Not allowed", action: true }, apple: { tone: "warning", text: "No access", action: true } })
+    readonly property var movedIdle: ({ health: { tone: "ok", text: "Good" }, capture: { tone: "warning", text: "Not allowed" }, apple: { tone: "ok", text: "Allowed" } })
+
     readonly property var plain: ({ requirements: tools, tui: ({}), status: ({ health: { type: "state", label: "Health" } }) })
     // [id, manifest, published values, missing tools, row fields].
     readonly property var fixtures: [
@@ -85,7 +101,9 @@ Item {
         ["acme.blocked", stepped, todo, ["acme-other"], {}],
         ["acme.off", plain, {}, ["acme-tool", "acme-other"], { enabled: false }],
         ["acme.installed", stepped, done, [], { source: "installed" }],
-        ["acme.loose", plain, {}, [], { source: "installed" }]
+        ["acme.loose", plain, {}, [], { source: "installed" }],
+        ["acme.moved", moved, movedOpen, [], {}],
+        ["acme.idle", moved, movedIdle, [], {}]
     ]
     function rows(change) {
         return fixtures.map(f => change !== undefined && change[f[0]] !== undefined ? pluginRow(f[0], f[1], f[2], change[f[0]], f[4]) : pluginRow(f[0], f[1], f[2], f[3], f[4]));
@@ -175,7 +193,8 @@ Item {
                 { tag: "open steps", id: "acme.todo", tabs: ["Settings", "Setup", "Details"] },
                 { tag: "done steps", id: "acme.done", tabs: ["Settings", "Setup", "Details"] },
                 { tag: "a missing optional tool", id: "acme.optional", tabs: ["Settings", "Setup", "Details"] },
-                { tag: "a missing required tool", id: "acme.required", tabs: ["Settings", "Setup", "Details"] }
+                { tag: "a missing required tool", id: "acme.required", tabs: ["Settings", "Setup", "Details"] },
+                { tag: "steps outside the Setup group", id: "acme.moved", tabs: ["Settings", "Setup", "Details"] }
             ];
         }
         function test_a_page_has_a_setup_tab_only_with_something_to_set_up(data) {
@@ -204,6 +223,27 @@ Item {
             tabs().currentIndex = 1;
             tryCompare(pageOf(window), "tab", "Details");
             compare(texts(all), ["Status", "Requirements"], "a page with no Setup tab draws the requirements on Details");
+        }
+
+        // An entry that declares an action is a step on Setup, in the Setup
+        // section or under its group's title, with its action beside it;
+        // Details draws the state that declares none, and no action.
+        function test_an_entry_with_an_action_draws_on_setup_alone() {
+            const window = opened();
+            const texts = () => shownSections(window).filter(text => ["Status", "Setup", "Access"].indexOf(text) !== -1);
+            const steps = ["Allow capture", "Allow access"];
+            const actions = () => descendants(pageOf(window)).filter(item => (item instanceof RowAction || item instanceof Button) && item.visible && steps.indexOf(item.text) !== -1).map(item => item.text);
+            const labels = () => descendants(pageOf(window)).filter(item => item instanceof Field && item.visible).map(field => field.label).filter(label => ["Health", "Capture", "Apple displays"].indexOf(label) !== -1);
+            window.openPlugin("acme.moved", Qt.OtherFocusReason, "Setup");
+            compare(pageOf(window).tab, "Setup");
+            compare(texts(), ["Setup", "Access"], "Setup draws the step of no group, then the group's own section");
+            compare(labels(), ["Capture", "Apple displays"], "each step draws under its entry's label");
+            compare(actions(), steps, "each offered step draws its action on Setup");
+            tabsOf(window).currentIndex = 2;
+            tryCompare(pageOf(window), "tab", "Details");
+            compare(texts(), ["Status"], "Details draws no section of the group whose entries are steps");
+            compare(labels(), ["Health"], "Details draws the state that declares no action alone");
+            compare(actions(), [], "Details draws no action");
         }
 
         // Details is the strip's third page beside a Setup tab and draws
@@ -235,6 +275,8 @@ Item {
                 { tag: "the row of a plugin with every step done", open: w => w.openRow("acme.done", Qt.OtherFocusReason), tab: "Settings" },
                 { tag: "the row of a plugin missing an optional tool", open: w => w.openRow("acme.optional", Qt.OtherFocusReason), tab: "Settings" },
                 { tag: "the row of a plugin with nothing to set up", open: w => w.openRow("acme.plain", Qt.OtherFocusReason), tab: "Settings" },
+                { tag: "the row of a plugin with an open step outside the Setup group", open: w => w.openRow("acme.moved", Qt.OtherFocusReason), tab: "Setup" },
+                { tag: "the row of a plugin whose open step outside the Setup group offers no action", open: w => w.openRow("acme.idle", Qt.OtherFocusReason), tab: "Settings" },
                 { tag: "the row of a plugin that is off", open: w => w.openRow("acme.off", Qt.OtherFocusReason), tab: "Settings" },
                 { tag: "a deep link, as a widget's Settings entry sends", open: w => w.open('{"plugin":"acme.todo"}'), tab: "Settings" },
                 { tag: "the title's menu", open: w => w.openPlugin("acme.todo", Qt.OtherFocusReason), tab: "Settings" },
@@ -255,7 +297,9 @@ Item {
                 { tag: "every step done", id: "acme.done", marks: [false, false] },
                 { tag: "a missing optional tool", id: "acme.optional", marks: [false, true] },
                 { tag: "a missing required tool", id: "acme.required", marks: [true, false] },
-                { tag: "off", id: "acme.off", marks: [false, false] }
+                { tag: "off", id: "acme.off", marks: [false, false] },
+                { tag: "an open step outside the Setup group that offers its action", id: "acme.moved", marks: [true, false] },
+                { tag: "an open step outside the Setup group that offers no action", id: "acme.idle", marks: [false, false] }
             ];
         }
         function test_a_row_shows_what_its_plugin_asks(data) {

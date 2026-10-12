@@ -91,6 +91,35 @@ function verifyEditAction(script, root) {
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "SetupGate.js");
 const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
+
+// The Jarvis entries outside the Setup group that declare an action each
+// draw once, as a step of the Setup tab in the section the table names,
+// with the action its value offers, and Details draws no action: [key,
+// section, action label]. Voice reads done and offers its check, so the
+// screen it shares with Local voice draws beside Local voice alone.
+{
+    const MOVED = [
+        ["keyStore", "AI model", "Add key"],
+        ["accountSearch", "AI model", "Accounts"],
+        ["voicePreview", "Voice", "Preview"],
+        ["voxtype", "Voice", "Install voxtype"],
+        ["voiceKey", "Voice", "Add key"],
+        ["localRuntime", "Setup", "Set up local voice"],
+        ["input", "Setup", "Check input"]
+    ];
+    const values = Object.fromEntries(MOVED.map(([key]) => [key, { tone: "warning", text: "To do", action: true }]));
+    values.setupVoice = { tone: "ok", text: "Ready", action: "check" };
+    const status = judge.statusRows(manifest, values, []);
+    const sections = settings.setupSections(judge.listedTuiRows(manifest, []), status);
+    const drawn = Array.from(sections).flatMap(section => Array.from(section.items, item => [String(item.key), String(section.title), item.button === null ? null : String(item.button.label)]));
+    for (const row of MOVED)
+        assert.deepEqual(drawn.filter(item => item[0] === row[0]), [row], row[0] + ": one step on Setup, in its section, with its action");
+    assert.deepEqual(Array.from(settings.detailEntries(status)).filter(entry => entry.action !== null).map(entry => entry.key), [], "Jarvis Details draws no entry that declares an action");
+    assert.deepEqual(Array.from(settings.detailEntries(status)).filter(entry => drawn.some(item => item[0] === entry.key)).map(entry => entry.key), [], "no Jarvis entry draws on both tabs");
+    const local = Array.from(sections).flatMap(section => Array.from(section.items).filter(item => item.button !== null && item.button.name === "setup-local").map(item => String(item.key))
+        .concat(Array.from(section.buttons).filter(button => button.name === "setup-local").map(() => "More setup")));
+    assert.deepEqual(local, ["localRuntime"], "Set up local voice draws once, beside Local voice");
+}
 const ABSENT = { tone: "warning", text: "Browser needs setup", action: true };
 const READY = { tone: "ok", text: "Private browser ready", action: false };
 // [label, probe value, requires, missing, null for the probe value itself or

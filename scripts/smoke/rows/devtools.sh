@@ -572,11 +572,15 @@ checks_text="Checks failed"
 if dev_installed="$(installed_count)" && dev_missing="$(missing_count)"; then
   expect_poll "the manager row carries the published status" \
     "$(python3 -c 'import json,sys; print(json.dumps([["Tool manager", "reported", {"tone": "ok", "text": "2026.9.9"}, "success"], ["Checks", "reported", {"tone": "warning", "text": sys.argv[3]}, "warning"], ["Tools installed", "reported", int(sys.argv[1]), ""], ["Tool updates", "reported", 0, ""], ["Missing tools", "reported", int(sys.argv[2]), ""]]))' "$dev_installed" "$dev_missing" "$checks_text")" status_of vgs.devtools
-  expect_poll "the page draws each status row, the catalog data not" \
-    "$(python3 -c 'import json,sys; print(json.dumps([["Tool manager", "2026.9.9", "mise manages the developer tools"], ["Checks", sys.argv[3], "Open Dev Tools again after 10 minutes to retry all checks."], ["Tools installed", sys.argv[1]], ["Tool updates", "0"], ["Missing tools", sys.argv[2], "Install these tools from the VGS section in Dev Tools"]]))' "$dev_installed" "$dev_missing" "$checks_text")" drawn_status
-  expect "no Dev Tools status row takes an edit" '[[],[],[],[],[]]' ipc smoke statusRowInputs window vgs.settings
+  expect_poll "Details draws each status row that declares no action, the catalog data not" \
+    "$(python3 -c 'import json,sys; print(json.dumps([["Checks", sys.argv[3], "Open Dev Tools again after 10 minutes to retry all checks."], ["Tools installed", sys.argv[1]], ["Tool updates", "0"], ["Missing tools", sys.argv[2], "Install these tools from the VGS section in Dev Tools"]]))' "$dev_installed" "$dev_missing" "$checks_text")" drawn_status
+  expect "no Dev Tools status row takes an edit" '[[],[],[],[]]' ipc smoke statusRowInputs window vgs.settings
+  # The tool manager declares Install mise, so it is a step of the Setup
+  # tab; step_drawn is rows/settings.sh's.
+  settings_setup
+  expect_poll "the Setup tab draws the tool manager as a step" '["Tool manager", "2026.9.9", "mise manages the developer tools"]' step_drawn "Tool manager"
   # Install mise, D061: the entry declares the action, which a present
-  # mise does not call for, so the page draws no button and the manager
+  # mise does not call for, so the step draws no button and the manager
   # refuses the act, the control. The absent case's button is the shared
   # install action rows/settings.sh presses on the status fixture.
   expect_poll "a present mise offers no Install mise" '[["mise", "Install mise", false]]' offered_actions vgs.devtools

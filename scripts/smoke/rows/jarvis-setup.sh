@@ -93,7 +93,11 @@ setup_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
 # optional Browser and Input among them, then the done ones, each in
 # manifest order, and
 # labels each step from its manifest entry. Optional rows read their chip
-# category because their readers depend on the world.
+# category because their readers depend on the world. The Setup section
+# also draws the entries of no group that declare an action, one of them
+# labelled Browser too; the reader keeps the Setup group's rows by their
+# entry's key, and scripts/test-settings-steps.js pins where the others
+# draw.
 setup_rows() {
   ipc smoke setupRows window vgs.settings | py_reply '
 import json,sys
@@ -104,16 +108,12 @@ try:
 except (OSError, ValueError):
     print("unread")
     sys.exit(0)
-steps=[(key, entry["label"]) for key, entry in manifest["status"].items() if entry.get("group")=="Setup" and key!="setup"]
-ids={label:key for key, label in steps}
-if len(ids)!=len(steps):
-    print("unread")
-    sys.exit(0)
+steps=[key for key, entry in manifest["status"].items() if entry.get("group")=="Setup"]
 out=[]
-for index, r in enumerate(rows):
-    if r["label"] == "Sign in":
+for r in rows:
+    key=r["key"]
+    if key == "setupSignIn" or key not in steps:
         continue
-    key="setup" if index==0 else ids.get(r["label"], "unmapped")
     if key in ("setupBrowser", "setupInput", "clonedVoiceSetup"):
         out.append([key, len(r["chips"]) == 1 and r["chips"][0][1] in ("success", "info")])
     else:

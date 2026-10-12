@@ -62,10 +62,10 @@ warden_rows() { settings_rows | py_reply 'import json,sys; r=[p for p in json.lo
 # row's state.
 vsys_on_path() { if [[ $(shell_resolves vsys) != none ]]; then echo present; else echo missing; fi; }
 # The open Settings page as drawn. warden_drawn: the texts of the Warden
-# status row. page_buttons: every visible button text on the page, used to
+# step on the Setup tab, a Field. page_buttons: every visible button text on the page, used to
 # assert the page has no Show command control. vsys_drawn: the texts of the vsys
 # requirement row. install_drawn: how many buttons read Install all missing.
-warden_drawn() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; r=[r for r in json.load(sys.stdin) if r and r[0] == "Warden"]; print(json.dumps(r[0] if len(r) == 1 else "rows=%d" % len(r)))'; }
+warden_drawn() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,sys; r=[r for r in json.load(sys.stdin) if r and r[0] == "Warden"]; print(json.dumps(r[0] if len(r) == 1 else "rows=%d" % len(r)))'; }
 page_buttons() { ipc smoke itemTexts window vgs.settings Button | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
 no_show_command() { page_buttons | py_reply 'import json,sys; print(str(not any("Show command" in r for r in json.load(sys.stdin))).lower())'; }
 vsys_drawn() { ipc smoke itemTexts window vgs.settings RequirementRow | py_reply 'import json,sys; r=[r for r in json.load(sys.stdin) if r and r[0] == "vsys"]; print(json.dumps(r[0] if len(r) == 1 else "rows=%d" % len(r)))'; }
@@ -294,22 +294,22 @@ expect_poll "the Settings window is gone" 0 window_count Plugins
 # control of Install all missing, D061: its call with nothing missing is
 # refused and raises no notice.
 settings_page_open vgs.agent-warden
-settings_details
+settings_setup
 expect_poll "a checking warden with vsys present offers no Set up" '[["warden", "Set up", false]]' offered_actions vgs.agent-warden
 expect_poll "the Warden row draws Running, its hint and no step" "$(words Warden Running "$warden_hint")" warden_drawn
-settings_press --type InfoButton "About Warden" StatusRow Warden || fail "the click on the Warden row's info icon failed"
+settings_press --type InfoButton "About Warden" Field Warden || fail "the click on the Warden row's info icon failed"
 expect_poll "the Warden info dialog opens with its title and text" "shown|shown" warden_info_dialog
 info_close_click Warden || fail "the click on the Warden info dialog's Close button failed"
 expect_poll "the Warden info dialog closes from its Close button" absent warden_info_closed
 expect_poll "the Warden info dialog returns focus to its icon after Close" '["InfoButton", "About Warden"]' warden_info_focus
-settings_press --type InfoButton "About Warden" StatusRow Warden || fail "the second click on the Warden row's info icon failed"
+settings_press --type InfoButton "About Warden" Field Warden || fail "the second click on the Warden row's info icon failed"
 expect_poll "the Warden info dialog opens again for the outside press" "shown|shown" warden_info_dialog
 read -r warden_info_outside_x warden_info_outside_y < <(outside_surface_point window:Plugins) || fail "the outside point for the Warden info dialog is unreadable"
 click "$warden_info_outside_x" "$warden_info_outside_y" || fail "the outside press for the Warden info dialog failed"
 expect_poll "a press outside closes the Warden info dialog" absent warden_info_closed
 warden_info_unready() {
   (control_hovered() { echo false; }
-   if settings_press --type InfoButton "About Warden" StatusRow Warden 2>&1 >/dev/null; then echo pressed; fi)
+   if settings_press --type InfoButton "About Warden" Field Warden 2>&1 >/dev/null; then echo pressed; fi)
 }
 expect "a scoped press the Warden row's info icon cannot take yet fails at the press with its cause" "settings_press: pointer-not-ready=InfoButton About Warden" warden_info_unready
 info_control_dir="$repo/shell/Core/InfoButtonControl"
@@ -523,12 +523,12 @@ expect_run_end "the setup run ends" vgs.agent-warden/setup
 # present, offers Set up, and its button opens the same setup TUI. The
 # same readers read the healthy page above as drawing neither.
 settings_page_open vgs.agent-warden
-settings_details
+settings_setup
 expect_poll "a warden not set up offers Set up" '[["warden", "Set up", true]]' offered_actions vgs.agent-warden
 expect_poll "the Warden row draws Set up" "$(words Warden "Not set up" "Set up" "$warden_hint")" warden_drawn
 expect "the page draws no Show command control" true no_show_command
 forget_record
-settings_press --type RowAction "Set up" || fail "the click on the Settings page's Set up failed"
+settings_press "Set up" || fail "the click on the Settings page's Set up failed"
 expect_poll "the Settings page's Set up hands the terminal the setup TUI" "$(words vgs.agent-warden/setup tui/setup.sh)" recorded_tail
 expect_run_end "the Settings page's setup run ends" vgs.agent-warden/setup
 settings_page_close vgs.agent-warden
