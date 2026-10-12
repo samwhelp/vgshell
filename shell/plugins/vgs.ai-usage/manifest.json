@@ -44,7 +44,7 @@
   "tui": {
     "sign-in-claude": { "script": "tui/sign-in-claude.sh", "title": "Sign in to Claude Code", "requires": ["claude", "gum"] },
     "sign-in-codex": { "script": "tui/sign-in-codex.sh", "title": "Sign in to Codex", "requires": ["codex", "gum"] },
-    "gateway-key": {"script": "tui/gateway-key.sh", "title": "Get AI Gateway key", "requires": ["xdg-open", "gum"], "entry": {"label": "Get AI Gateway key", "icon": "external-link", "group": "Sign-in"}}
+    "gateway-key": {"script": "tui/gateway-key.sh", "title": "Get AI Gateway key", "requires": ["xdg-open", "gum"], "entry": {"label": "Get AI Gateway key", "icon": "external-link", "group": "Sign-in", "setup": true}}
   },
   "status": {
     "usage": { "type": "data", "label": "Usage" },

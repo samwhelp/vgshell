@@ -587,7 +587,7 @@ assert requirement["optional"] is True
 requirement["optional"]=False
 setup=manifest["tui"]["setup"]
 assert "entry" not in setup
-setup["entry"]={"label":"Token setup","icon":"key-round","group":"Smoke"}
+setup["entry"]={"label":"Token setup","icon":"key-round","group":"Smoke","setup":True}
 path.write_text(json.dumps(manifest))
 PYTHON
 rescan "the fixture now declares its missing command required"

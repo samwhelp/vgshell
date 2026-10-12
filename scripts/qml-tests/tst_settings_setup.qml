@@ -11,7 +11,9 @@ import "../../shell/plugins/vgs.settings"
 // Requirements section draws on that tab, and on Details for a page with
 // none. A status entry that declares an action draws as a step on Setup,
 // one of a group of its own under that group's title, and Details draws
-// neither it nor any action. A page opens on the tab it is asked for, and
+// neither it nor its action. A listed screen draws on Setup only when its
+// manifest marks it as a setup screen, else in the Actions row of Details,
+// where a press opens it. A page opens on the tab it is asked for, and
 // on Settings when it has no such tab. A row of the list shows Setup needed
 // while its plugin asks for a setup step and a warning icon while an
 // optional tool is missing; a click on the row opens Setup while the chip shows, else
@@ -91,6 +93,11 @@ Item {
     readonly property var movedIdle: ({ health: { tone: "ok", text: "Good" }, capture: { tone: "warning", text: "Not allowed" }, apple: { tone: "ok", text: "Allowed" } })
 
     readonly property var plain: ({ requirements: tools, tui: ({}), status: ({ health: { type: "state", label: "Health" } }) })
+    // One listed screen no entry declares, as the manager row lists it,
+    // marked as a setup screen or not.
+    function listed(setup) {
+        return { tuis: [{ name: "tools", label: "Manage tools", icon: "wrench", setup: setup, withheld: "" }] };
+    }
     // [id, manifest, published values, missing tools, row fields].
     readonly property var fixtures: [
         ["acme.plain", plain, { health: { tone: "warning", text: "Slow" } }, [], {}],
@@ -103,7 +110,9 @@ Item {
         ["acme.installed", stepped, done, [], { source: "installed" }],
         ["acme.loose", plain, {}, [], { source: "installed" }],
         ["acme.moved", moved, movedOpen, [], {}],
-        ["acme.idle", moved, movedIdle, [], {}]
+        ["acme.idle", moved, movedIdle, [], {}],
+        ["acme.tasks", plain, {}, [], listed(false)],
+        ["acme.screen", plain, {}, [], listed(true)]
     ]
     function rows(change) {
         return fixtures.map(f => change !== undefined && change[f[0]] !== undefined ? pluginRow(f[0], f[1], f[2], change[f[0]], f[4]) : pluginRow(f[0], f[1], f[2], f[3], f[4]));
@@ -120,6 +129,9 @@ Item {
         // Each installed plugin the window asked to update.
         property var updates: []
         function update(id) { updates = updates.concat([id]); return "ok"; }
+        // Each listed screen the window asked to open, as [id, name].
+        property var opens: []
+        function openTui(id, name) { opens = opens.concat([[id, name]]); return "ok"; }
     }
     QtObject {
         id: fakeCompositor
@@ -154,6 +166,7 @@ Item {
             fakeManager.plugins = root.rows();
             fakeManager.installs = [];
             fakeManager.updates = [];
+            fakeManager.opens = [];
         }
 
         function opened() {
@@ -194,7 +207,9 @@ Item {
                 { tag: "done steps", id: "acme.done", tabs: ["Settings", "Setup", "Details"] },
                 { tag: "a missing optional tool", id: "acme.optional", tabs: ["Settings", "Setup", "Details"] },
                 { tag: "a missing required tool", id: "acme.required", tabs: ["Settings", "Setup", "Details"] },
-                { tag: "steps outside the Setup group", id: "acme.moved", tabs: ["Settings", "Setup", "Details"] }
+                { tag: "steps outside the Setup group", id: "acme.moved", tabs: ["Settings", "Setup", "Details"] },
+                { tag: "a listed setup screen", id: "acme.screen", tabs: ["Settings", "Setup", "Details"] },
+                { tag: "a listed screen that is no setup screen", id: "acme.tasks", tabs: ["Settings", "Details"] }
             ];
         }
         function test_a_page_has_a_setup_tab_only_with_something_to_set_up(data) {
@@ -244,6 +259,27 @@ Item {
             compare(texts(), ["Status"], "Details draws no section of the group whose entries are steps");
             compare(labels(), ["Health"], "Details draws the state that declares no action alone");
             compare(actions(), [], "Details draws no action");
+        }
+
+        // A listed screen draws once: a setup screen on Setup, and one
+        // with no mark in the Actions row of Details, where a press opens
+        // it through the manager.
+        function test_a_listed_screen_draws_on_setup_only_when_marked() {
+            const window = opened();
+            const screens = () => descendants(pageOf(window)).filter(item => item instanceof RowAction && item.visible && item.text === "Manage tools");
+            const rowOf = action => descendants(pageOf(window)).find(item => item instanceof Field && item.visible && descendants(item).indexOf(action) !== -1).label;
+            window.openPlugin("acme.screen", Qt.OtherFocusReason, "Setup");
+            compare(screens().map(rowOf), ["More setup"], "Setup draws the setup screen");
+            tabsOf(window).currentIndex = 2;
+            tryCompare(pageOf(window), "tab", "Details");
+            compare(screens(), [], "Details draws no setup screen");
+            window.openPlugin("acme.tasks", Qt.OtherFocusReason);
+            tabsOf(window).currentIndex = 1;
+            tryCompare(pageOf(window), "tab", "Details");
+            compare(screens().map(rowOf), ["Actions"], "Details draws the screen that is no setup screen");
+            tryVerify(() => screens()[0].height > 0 && pageOf(window).parent.x === -window.width, 2000, "the page has slid in on Details");
+            mouseClick(screens()[0]);
+            compare(fakeManager.opens, [["acme.tasks", "tools"]]);
         }
 
         // Details is the strip's third page beside a Setup tab and draws

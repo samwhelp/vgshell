@@ -5,7 +5,8 @@
 // plugin's stored keys draws in the Setup section alone, an entry that
 // declares an action draws as a step on Setup and never on Details, and
 // one judge says what a plugin still asks of its user and whether its page
-// has a Setup tab. The rows are the core's
+// has a Setup tab, which a listed screen opens only when its manifest marks
+// it as a setup screen. The rows are the core's
 // own, PluginLogic.statusRows and requirementRows over a manifest written
 // here, so the rule is read against what the Settings page is handed; every
 // expected value is written out by hand.
@@ -44,7 +45,7 @@ const HEADED = {
     tui: { configure: { script: "tui/configure.sh", title: "Configure", size: "default", presentation: "full", entry: null, requires: null } },
     status: { setup: { type: "state", label: "Setup", group: "Setup", actions: { allow: { label: "Allow tool", system: "i2c-dev" }, configure: { label: "Finish", tui: "configure" } } } }
 };
-const HEADED_TUIS = [{ name: "configure", label: "Configure", icon: "sliders-horizontal", withheld: "" }];
+const HEADED_TUIS = [{ name: "configure", label: "Configure", icon: "sliders-horizontal", setup: true, withheld: "" }];
 // [label, published values, the Flow as [name, status, label, enabled]].
 const HEADED_FLOW = [
     ["the headline's action that opens no screen draws as the entry's act, and the screen it declares draws only while offered", { setup: { tone: "warning", text: "To do", action: "allow" } }, [["", "setup", "Allow tool", true]]],
@@ -67,9 +68,15 @@ const ENTRIES = [
 
 // The manager row's listed setup screens.
 const TUIS = [
-    { name: "setup", label: "Set up again", icon: "download", withheld: "" },
-    { name: "configure", label: "Configure", icon: "sliders-horizontal", withheld: "" }
+    { name: "setup", label: "Set up again", icon: "download", setup: true, withheld: "" },
+    { name: "configure", label: "Configure", icon: "sliders-horizontal", setup: true, withheld: "" }
 ];
+// The same row with two listed screens that are no setup screens: one no
+// entry declares and one MANIFEST's entries declare.
+const MIXED = TUIS.slice(1).concat([
+    { name: "tools", label: "Manage tools", icon: "wrench", setup: false, withheld: "" },
+    { name: "setup", label: "Set up again", icon: "download", setup: false, withheld: "" }
+]);
 // The same screens while the requirements both need are missing, as
 // PluginLogic.listedTuiRows marks them.
 const WITHHELD = TUIS.map(tui => Object.assign({}, tui, { withheld: "Needs acme-other. Install all missing first." }));
@@ -101,10 +108,12 @@ const STEPPED = {
         keyStore: { type: "state", label: "API keys", action: { label: "Add key", tui: "keys" } }
     }
 };
+// Each is marked as a setup screen: one an entry declares still draws on
+// that entry's row alone.
 const STEPPED_TUIS = [
-    { name: "keys", label: "Add key", icon: "key-round", withheld: "" },
-    { name: "browser", label: "Set up browser", icon: "globe", withheld: "" },
-    { name: "accounts", label: "Accounts", icon: "users", withheld: "" }
+    { name: "keys", label: "Add key", icon: "key-round", setup: true, withheld: "" },
+    { name: "browser", label: "Set up browser", icon: "globe", setup: true, withheld: "" },
+    { name: "accounts", label: "Accounts", icon: "users", setup: true, withheld: "" }
 ];
 // A row that declares a listed screen and an unlisted repair screen: while
 // danger and offering repair, the listed screen does not apply.
@@ -119,7 +128,7 @@ const DECLARED_FLOW = {
         gate: { type: "state", label: "Gate", group: "Setup", actions: { listed: { label: "Open listed screen", tui: "listed" }, repair: { label: "Repair", tui: "repair" } } }
     }
 };
-const DECLARED_FLOW_TUIS = [{ name: "listed", label: "Listed screen", icon: "list", withheld: "" }];
+const DECLARED_FLOW_TUIS = [{ name: "listed", label: "Listed screen", icon: "list", setup: false, withheld: "" }];
 const TODO = { tone: "warning", text: "To do", action: true };
 // The AI model step names the action that applies.
 const KEY = { tone: "warning", text: "To do", action: "key" };
@@ -244,7 +253,7 @@ const GROUPED = {
         last: { type: "time", label: "Last sync" }
     }
 };
-const GROUPED_TUIS = [{ name: "pairs", label: "Folder pairs", icon: "folder", withheld: "" }, { name: "connect", label: "Connect", icon: "log-in", withheld: "" }];
+const GROUPED_TUIS = [{ name: "pairs", label: "Folder pairs", icon: "folder", setup: false, withheld: "" }, { name: "connect", label: "Connect", icon: "log-in", setup: false, withheld: "" }];
 // [label, published values, the sections as [title, items as [key, keys
 // or the button as [name, label, tone, primary] or null], Flow as [name,
 // label, tone, primary]]].
@@ -320,7 +329,7 @@ const MOVED = {
         tool: { type: "presence", label: "Tool", group: "Access", action: { label: "Install", tui: "allow" } }
     }
 };
-const MOVED_TUIS = [{ name: "allow", label: "Allow", icon: "shield", withheld: "" }];
+const MOVED_TUIS = [{ name: "allow", label: "Allow", icon: "shield", setup: false, withheld: "" }];
 // [label, published values, the Setup tab's sections as [title, items as
 // [key, step, the button as [name, label, primary] or null], Flow]]. The
 // entries Details draws are the same under every row.
@@ -422,7 +431,8 @@ const NEEDS = [
     ["a keyed group's state in the warning tone opens the setup", GROUPED, GROUPED_TUIS, { sync: READY, pairs: READY, down: WARN }, [], {}, true, { open: true, optional: 0 }, true],
     ["a stored key that is absent opens nothing", GROUPED, GROUPED_TUIS, { sync: READY, pairs: READY, down: READY, downKeys: [{ label: "A", value: "absent", secret: "acme:a" }], other: [{ label: "B", value: "signed-out" }] }, [], {}, true, { open: false, optional: 0 }, true],
     ["a plugin whose only setup material is a stored key has a Setup tab", KEYED, [], {}, [], {}, true, { open: false, optional: 0 }, true],
-    ["a plugin whose only setup material is a listed screen has a Setup tab", PLAIN, TUIS, {}, [], {}, true, { open: false, optional: 0 }, true]
+    ["a plugin whose only setup material is a listed setup screen has a Setup tab", PLAIN, TUIS, {}, [], {}, true, { open: false, optional: 0 }, true],
+    ["a plugin whose listed screens are no setup screens has no Setup tab", PLAIN, MIXED.slice(1), {}, [], {}, true, { open: false, optional: 0 }, false]
 ];
 
 // The Flow of the Setup section setupSections draws for TUIS and STATUS.
@@ -434,7 +444,7 @@ function flowOf(logic, tuis, status) {
 function verify(logic) {
     const ready = { setup: { tone: "warning", text: "Not ready" }, setupModel: { tone: "warning", text: "To do" },
         setupVoice: { tone: "ok", text: "Ready", action: "check" }, localRuntime: { tone: "info", text: "Optional", action: true } };
-    const jarvisTuis = [{ name: "setup-local", label: "Set up local voice", withheld: "" }, { name: "check-microphone", label: "Check microphone", withheld: "" }];
+    const jarvisTuis = [{ name: "setup-local", label: "Set up local voice", setup: false, withheld: "" }, { name: "check-microphone", label: "Check microphone", setup: false, withheld: "" }];
     const jarvisSections = logic.setupSections(jarvisTuis, producer.statusRows(VOICE_SETUP, ready, []));
     same(jarvisSections.flatMap(section => section.items.filter(item => item.button !== null).map(item => item.button).concat(section.buttons))
         .filter(button => button.primary).length, 0, "Jarvis actionless required model reserves no filled button");
@@ -525,6 +535,15 @@ function verify(logic) {
     same(flowOf(logic, TUIS, producer.statusRows(NORMAL, {}, [])).map(b => [b.enabled, b.reason]), [[true, ""]], "Flow: a screen that lacks nothing takes a press");
     same(flowOf(logic, HEADED_TUIS.map(tui => Object.assign({}, tui, { withheld: "Needs acme-tool. Install all missing first." })), producer.statusRows(HEADED, { setup: { tone: "warning", text: "To do", action: "allow" } }, []))
         .map(b => [b.name, b.enabled]), [["", true]], "Flow: the headline's act takes its press while a screen is withheld");
+    // Only a listed screen marked as a setup screen draws on Setup: Details
+    // draws the rest that no entry declares, withheld as a Flow screen is.
+    const mixedStatus = producer.statusRows(NORMAL, {}, []);
+    same([flowOf(logic, MIXED, mixedStatus).map(b => b.name), logic.freeScreens(MIXED, mixedStatus, false).map(b => [b.name, b.label, b.enabled, b.reason])],
+        [["configure"], [["tools", "Manage tools", true, ""]]], "a listed screen with no mark draws on Details alone, and one an entry declares on neither");
+    same(logic.freeScreens(MIXED.map(tui => Object.assign({}, tui, { withheld: "Needs acme-other. Install all missing first." })), mixedStatus, false).map(b => [b.name, b.enabled, b.reason !== ""]),
+        [["tools", false, true]], "Details: a withheld screen draws disabled with a reason");
+    same(new Set([true, false].map(held => logic.freeScreens(MIXED.map(tui => Object.assign({}, tui, { withheld: held ? "Needs acme-other." : "" })), mixedStatus, false)[0].key)).size, 2,
+        "Details: a screen that turns withheld is drawn anew");
     // Two acts of one headline under two labels, each opening no screen.
     const twoActs = Object.assign({}, HEADED, { status: { setup: Object.assign({}, HEADED.status.setup, { actions: Object.assign({ enable: { label: "Enable tool", system: "apple-displays" } }, HEADED.status.setup.actions) }) } });
     same(new Set(["allow", "enable"].map(action => flowOf(logic, HEADED_TUIS, producer.statusRows(twoActs, { setup: { tone: "warning", text: "To do", action: action } }, []))[0])
@@ -611,7 +630,10 @@ const CONTROLS = [
     ["a step's action that opens no listed screen draws no button", 'var name = tui === undefined ? "" : tui.name;', 'if (tui === undefined) return null;\n    var name = tui.name;'],
     ["a step drops its tone", "tone: entry.action.tone, primary: false };", "tone: \"\", primary: false };"],
     ["a step draws an action its value does not offer", "if (entry.action === null || !entry.action.offered) return null;", "if (entry.action === null) return null;"],
-    ["a screen an entry declares draws in the Flow too", "        if (declared.indexOf(tui.name) !== -1) return;\n", ""],
+    ["a screen an entry declares draws in the Flow too", " && declared.indexOf(tui.name) === -1; })", "; })"],
+    ["a listed screen with no mark draws on Setup and opens the tab", "return out.concat(freeScreens(tuis, status, true));", "return out.concat(freeScreens(tuis, status, true), freeScreens(tuis, status, false));"],
+    ["a setup screen draws on Details too", "return tui.setup === setup && ", "return (setup || tui.setup) === setup && "],
+    ["a Details screen's key ignores its state", 'key: tui.name + " " + tui.label + " " + enabled,', 'key: tui.name + " " + tui.label,'],
     ["only the first entry's screens count as declared", "declared = declared.concat(entry.declaredTuis);", "if (declared.length === 0) declared = entry.declaredTuis;"],
     ["the headline's offered action draws nothing", "if (step !== null)\n        out.push", "if (false)\n        out.push"],
     ["the headline's action that opens a screen draws as an act", 'status: step.name === "" ? headline.key : ""', "status: headline.key"],

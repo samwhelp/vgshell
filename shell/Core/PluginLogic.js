@@ -2588,9 +2588,11 @@ function welcomeStep(welcomeState, event) {
 // hidden. The sizes are the size classes of HyprlandLayer.TUI_WINDOWS, the
 // table the layer's window rules and the launcher's app-ids come from, and
 // the presentations are bin/vgshell-tui's. A title, a label and a group are one
-// printable line of at most TUI_TEXT_MAX characters.
+// printable line of at most TUI_TEXT_MAX characters. An entry's `setup: true`
+// marks its screen as one a user sets the plugin up with, which the plugin's
+// page draws on its Setup tab.
 var TUI_KEYS = ["script", "title", "size", "presentation", "entry", "requires"];
-var TUI_ENTRY_KEYS = ["label", "icon", "group"];
+var TUI_ENTRY_KEYS = ["label", "icon", "group", "setup"];
 var TUI_SIZES = Object.keys(HyprlandLayer.TUI_WINDOWS);
 var TUI_PRESENTATIONS = ["full", "plain"];
 var TUI_TEXT_MAX = 60;
@@ -2867,8 +2869,8 @@ function tuiRequiresError(at, requires, requirements) {
 }
 
 // The first defect of the `entry` of a TUI row at AT, or "": an object of
-// TUI_ENTRY_KEYS holding a tuiText `label` and `group` and an `icon` of the
-// shipped set.
+// TUI_ENTRY_KEYS holding a tuiText `label` and `group`, an `icon` of the
+// shipped set and, when present, a boolean `setup`.
 function tuiEntryError(at, entry) {
     if (!isPlainObject(entry))
         return at + ".entry must be an object";
@@ -2883,6 +2885,8 @@ function tuiEntryError(at, entry) {
         return at + ".entry.icon must name an icon of the shipped set, shell/Ui/icons/Lucide.js, got " + JSON.stringify(entry.icon);
     if (!tuiText(entry.group))
         return at + ".entry.group must be one printable line of 1 to " + TUI_TEXT_MAX + " characters";
+    if (entry.setup !== undefined && typeof entry.setup !== "boolean")
+        return at + ".entry.setup must be a boolean when present";
     return "";
 }
 
@@ -3158,15 +3162,16 @@ function tuiEntries(manifests, enabledIds, core) {
     return rows.sort(function (a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; });
 }
 
-// The setup screens of plugin MANIFEST, for its manager row: each `tui`
-// script with an `entry`, in manifest order, as { name, label, icon }.
+// The listed screens of plugin MANIFEST, for its manager row: each `tui`
+// script with an `entry`, in manifest order, as { name, label, icon, setup },
+// `setup` whether the entry marks it as a setup screen.
 function listedTuis(manifest) {
     return Object.keys(manifest.tui).filter(function (name) { return manifest.tui[name].entry !== null; }).map(function (name) {
-        return { name: name, label: manifest.tui[name].entry.label, icon: manifest.tui[name].entry.icon };
+        return { name: name, label: manifest.tui[name].entry.label, icon: manifest.tui[name].entry.icon, setup: manifest.tui[name].entry.setup === true };
     });
 }
 
-// The setup screens of plugin MANIFEST, its active manifest, as its manager
+// The listed screens of plugin MANIFEST, its active manifest, as its manager
 // row draws them, each listedTuis' row with `withheld`: "" while MISSING, the
 // plugin's missing requirement names, holds none the screen needs
 // (tuiMissingRequirements), else tuiWithheldReason's line, since its press
@@ -3175,7 +3180,7 @@ function listedTuis(manifest) {
 function listedTuiRows(manifest, missing) {
     return listedTuis(manifest).map(function (tui) {
         var lacking = tuiMissingRequirements(manifest, tui.name, missing);
-        return { name: tui.name, label: tui.label, icon: tui.icon, withheld: lacking.length === 0 ? "" : tuiWithheldReason(lacking) };
+        return { name: tui.name, label: tui.label, icon: tui.icon, setup: tui.setup, withheld: lacking.length === 0 ? "" : tuiWithheldReason(lacking) };
     });
 }
 

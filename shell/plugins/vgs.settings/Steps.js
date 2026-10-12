@@ -8,9 +8,9 @@
 // a step applies (PluginLogic.statusActionOffered, SECRET_ACCESS,
 // requirementRows); this file decides what the page then draws, and where:
 // a setup step, which is every entry that declares an action, a stored key
-// and a setup screen on the Setup tab, an entry outside them on Details,
-// and the requirements on Setup when the page has that tab, else on
-// Details. It also judges what a plugin still asks of its user
+// and a setup screen on the Setup tab, an entry outside them and a listed
+// screen that is no setup screen on Details, and the requirements on Setup
+// when the page has that tab, else on Details. It also judges what a plugin still asks of its user
 // (setupNeeds), which the plugin list marks its row with.
 
 // What the line of ENTRY, one row of PluginLogic.statusRows, draws of its
@@ -140,7 +140,7 @@ function declaresStep(entry) {
 // keyed group (keyedGroups), which the Setup tab draws beside its keys,
 // and each entry of another group that declares a step (declaresStep),
 // which the Setup tab draws as a step. No entry draws on both tabs, and
-// Details draws no action.
+// Details draws no entry's action.
 function keyEntries(status) {
     return status.filter(listsKeys);
 }
@@ -195,7 +195,7 @@ function inKeyedGroup(entry, keyed) {
 //   stepRank, open steps first, then the steps that wait on an offered
 //   action, then the done ones, each rank in manifest order; then the key
 //   lists of group "" or SETUP_GROUP, then `buttons`, the headline's
-//   offered action and the screens no entry declares (flowButtons);
+//   offered action and the setup screens no entry declares (flowButtons);
 // - each further group that holds a key list or a declared step
 //   (sectionGroups): its key lists, the states of a keyed group and the
 //   entries that declare a step, in manifest order, each but a key list a
@@ -306,8 +306,10 @@ function stepButton(tuis, entry) {
 // the offered action of HEADLINE, the entry the Status section draws with
 // no step, or null, as a screen when it opens a listed one (stepButton), else
 // as a press the manager's act on `status`, the entry's key; then each
-// listed screen no entry of STATUS declares (`declaredTuis`), in manifest
-// order, with its entry's label. A screen an entry declares belongs to
+// listed screen its manifest marks as a setup screen and no entry of STATUS
+// declares (freeScreens), with its entry's label. A listed screen with no
+// mark is no setup screen: Details draws it, so it gives the page no Setup
+// tab. A screen an entry declares belongs to
 // that entry's row, which draws it beside the row while the entry's value
 // offers it, so a done step draws no setup action anywhere on the page.
 // A screen of no entry that lacks a requirement takes no press and reads
@@ -315,20 +317,28 @@ function stepButton(tuis, entry) {
 // requirement notice; the headline's offered action always
 // takes its press. Each { key, name, status, label, tone, primary,
 // enabled, reason }, `status` "" for a screen, `key` naming the action as
-// drawn, so a change of label or state draws it anew (markPrimary sets it).
+// drawn, so a change of label or state draws it anew (markPrimary sets the
+// Flow's).
 function flowButtons(tuis, status, headline) {
     var out = [];
     var step = headline === null ? null : stepButton(tuis, headline);
     if (step !== null)
         out.push({ key: "", name: step.name, status: step.name === "" ? headline.key : "", label: step.label, tone: step.tone, primary: false, enabled: true, reason: "" });
+    return out.concat(freeScreens(tuis, status, true));
+}
+
+// The listed screens of TUIS that no entry of STATUS declares
+// (`declaredTuis`), in manifest order, each a Flow button of no entry, its
+// `key` naming it as drawn: the setup screens for SETUP true, which the
+// Setup section draws, and for false the rest, such as a screen that runs
+// the plugin's own task, which Details draws as its Actions.
+function freeScreens(tuis, status, setup) {
     var declared = [];
     status.forEach(function (entry) { declared = declared.concat(entry.declaredTuis); });
-    tuis.forEach(function (tui) {
-        if (declared.indexOf(tui.name) !== -1) return;
+    return tuis.filter(function (tui) { return tui.setup === setup && declared.indexOf(tui.name) === -1; }).map(function (tui) {
         var enabled = tui.withheld === "";
-        out.push({ key: "", name: tui.name, status: "", label: tui.label, tone: "", primary: false, enabled: enabled, reason: enabled ? "" : tui.withheld });
+        return { key: tui.name + " " + tui.label + " " + enabled, name: tui.name, status: "", label: tui.label, tone: "", primary: false, enabled: enabled, reason: enabled ? "" : tui.withheld };
     });
-    return out;
 }
 
 // Choose the first open required step before inspecting its action. An

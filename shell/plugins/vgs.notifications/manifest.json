@@ -84,7 +84,7 @@
     "label": "VGS notifications Slack token"
   },
   "tui": {
-    "setup-slack": {"script": "tui/setup-slack.sh", "title": "Set up Slack photos", "requires": ["xdg-open", "node", "gum"], "entry": {"label": "Set up Slack photos", "icon": "external-link", "group": "Slack"}},
+    "setup-slack": {"script": "tui/setup-slack.sh", "title": "Set up Slack photos", "requires": ["xdg-open", "node", "gum"], "entry": {"label": "Set up Slack photos", "icon": "external-link", "group": "Slack", "setup": true}},
     "open": { "script": "tui/open.sh", "title": "Open notification file", "presentation": "plain" }
   },
   "requirements": [

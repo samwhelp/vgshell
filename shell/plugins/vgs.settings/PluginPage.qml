@@ -36,10 +36,10 @@ import "Steps.js" as Steps
 // group or of `Setup`, each entry a StatusRow with one line per key, whose
 // steps add, replace and remove a key the core stores, then, on an
 // unlabelled row from the value column, the first entry's offered action
-// when it opens no listed screen, then one action per other setup screen
-// the manifest lists, which opens it through the manager: a screen an
-// offered status action opens first, with the action's label, then the
-// others; then one section per other status group that holds a key list
+// when it opens no listed screen, then one action per other screen the
+// manifest lists and marks as a setup screen, which opens it through the
+// manager: a screen an offered status action opens first, with the
+// action's label, then the others; then one section per other status group that holds a key list
 // or an entry that declares an action, titled with the group, its keys,
 // the states beside a key and the entries that declare an action in
 // manifest order; then the Requirements section
@@ -54,11 +54,13 @@ import "Steps.js" as Steps
 // Details holds what a user reads: the description, in the hint role in
 // the muted colour, the capabilities, the listing metadata, the README
 // link of a plugin included with VGS, the Update and Remove actions of an
-// installed plugin, one status section per status
+// installed plugin, the Actions row with each listed screen that is no
+// setup screen and that no status entry declares, such as one that runs
+// the plugin's own task, one status section per status
 // group (entries without a group first, under `Status`), but for the
 // entries the Setup tab draws (Steps.detailEntries), every entry that
 // declares an action among them, whose values are read-only and which
-// draw no action, and, for a plugin with no Setup tab, the Requirements
+// draw no action of their own, and, for a plugin with no Setup tab, the Requirements
 // section, every tool of which then reads present. A disabled plugin's
 // status rows say it has not reported.
 //
@@ -155,6 +157,9 @@ FocusScope {
     // Whether the page has a Setup tab, which then holds the Requirements
     // section too.
     readonly property bool hasSetup: row !== null && Steps.setupTab(setupSections, row.requirements)
+    // The listed screens Details draws in its Actions row: those that are
+    // no setup screens and that no status entry declares.
+    readonly property var detailScreens: row === null ? [] : Steps.freeScreens(row.tuis, row.status, false)
     // Give the strip the tabs the row has now and keep the shown tab by its
     // text. The strip builds a new button per text, which moves its index,
     // so the index is set again before the page answers a tab change. A
@@ -892,6 +897,37 @@ FocusScope {
                                     text: "Remove"
                                     tone: "danger"
                                     onClicked: page.panel.removePlugin(page.row.id)
+                                }
+                            }
+                        }
+
+                        // Each screen opens through the manager, and the
+                        // last refusal of one reads under the row. A
+                        // withheld screen takes no press and no Tab stop;
+                        // its reason opens on hover, as on Setup.
+                        Field {
+                            width: parent.width
+                            label: "Actions"
+                            inline: true
+                            visible: page.detailScreens.length > 0
+                            error: page.row === null || page.panel === null ? ""
+                                : page.detailScreens.map(screen => page.panel.replyOf(page.row.id, page.panel.tuiKey(screen.name))).find(reply => reply !== "") || ""
+                            Flow {
+                                width: parent.width
+                                spacing: Theme.rowAction.gap
+                                Repeater {
+                                    model: ScriptModel {
+                                        values: page.detailScreens
+                                        objectProp: "key"
+                                    }
+                                    RowAction {
+                                        id: detailScreen
+                                        required property var modelData
+                                        text: modelData.label
+                                        enabled: page.editable && modelData.enabled
+                                        onClicked: page.panel.openTui(page.row.id, modelData.name)
+                                        Tooltip { text: detailScreen.modelData.reason }
+                                    }
                                 }
                             }
                         }
