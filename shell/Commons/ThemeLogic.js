@@ -246,6 +246,7 @@ var READABILITY_FLOOR = 4.5;
 var READABILITY_PAIRS = [
     ["segmented.foreground", "segmented.background"],
     ["segmented.selectedForeground", "segmented.selected"],
+    ["listItem.selectedForeground", "listItem.selected"],
     ["badge.tone.neutral.foreground", "badge.tone.neutral.background"],
     ["badge.tone.accent.foreground", "badge.tone.accent.background"],
     ["badge.tone.success.foreground", "badge.tone.success.background"],

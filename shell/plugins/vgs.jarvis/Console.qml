@@ -442,23 +442,23 @@ FocusScope {
             }
             FocusRing { target: auditBody; outside: true }
             // Audit rows are read-only, like the transcript, and take no cursor.
+            // Each record is one group of a GroupList, so a hairline parts it from the next.
             // Control sizes its content inside padding; rows use that content width.
             // https://doc.qt.io/qt-6/qml-qtquick-controls-control.html#contentItem-prop
-            contentItem: Column {
-                id: auditColumn
-                spacing: Theme.stack.row
+            contentItem: GroupList {
+                id: auditList
                 Repeater {
                     model: root.auditRows
                     Column {
                         required property var modelData
-                        width: auditColumn.width
+                        width: auditList.width
                         spacing: Theme.row.lineGap
                         Label { width: parent.width; role: "hint"; text: new Date(modelData.time).toLocaleTimeString(); textFormat: Text.PlainText; color: Theme.color.textMuted }
                         Label { width: parent.width; role: "bodyStrong"; text: modelData.tool; textFormat: Text.PlainText; wrapMode: Text.Wrap }
                         Label { width: parent.width; role: "body"; text: root.auditDetail(modelData); textFormat: Text.PlainText; color: Theme.color.danger; wrapMode: Text.Wrap }
                     }
                 }
-                EmptyState { width: auditColumn.width; visible: root.auditRows.length === 0; iconName: "shield-alert"; text: "No recent failures" }
+                EmptyState { width: auditList.width; visible: root.auditRows.length === 0; iconName: "shield-alert"; text: "No recent failures" }
             }
         }
 

@@ -663,7 +663,7 @@ const catalogTheme = (name, mode, accent) => JSON.stringify({ schemaVersion: 1, 
 const READABILITY_ROLES = ["color.text", "color.textHeading", "color.textMuted", "color.textFaint", "color.accent", "color.success", "color.warning", "color.danger", "color.info"];
 const READABILITY_SURFACES = ["color.background", "color.surface", "color.surfaceRaised", "color.surfaceSunken"];
 const BOUNDARY_ROLES = ["checkbox.borderColor", "radio.borderColor", "textField.borderColor", "toggle.off", "checkbox.checked", "radio.checked", "toggle.on"];
-const READABILITY_PAIRS = [["segmented.foreground", "segmented.background"], ["segmented.selectedForeground", "segmented.selected"],
+const READABILITY_PAIRS = [["segmented.foreground", "segmented.background"], ["segmented.selectedForeground", "segmented.selected"], ["listItem.selectedForeground", "listItem.selected"],
     ...["neutral", "accent", "success", "warning", "danger", "info"].map(tone => [`badge.tone.${tone}.foreground`, `badge.tone.${tone}.background`])];
 const BOUNDARY_PAIRS = [["toggle.knobOff", "toggle.off"], ["toggle.knobOn", "toggle.on"], ["checkbox.mark", "checkbox.checked"], ["segmented.indicatorColor", "segmented.selected"], ["segmented.indicatorColor", "segmented.background"]];
 const truncateRatio = value => Math.floor(value * 100) / 100;
@@ -743,6 +743,12 @@ function verify(judge) {
         assert.equal(segmentedFailure.ok, true, segmentedFailure.ok ? "" : judge.refusalLine(segmentedFailure));
         assert.deepEqual(plain(judge.readabilityShortfalls(segmentedFailure.values).map(row => [row.text, row.surface, row.floor])), rows, JSON.stringify(segmented));
     }
+    // A selected list row's text is judged on its translucent plate laid
+    // over each resting surface.
+    const rowFailure = judge.accept(TOKENS, document({ listItem: { selectedForeground: "#3a3a3a" } }));
+    assert.equal(rowFailure.ok, true, rowFailure.ok ? "" : judge.refusalLine(rowFailure));
+    assert.deepEqual(plain(judge.readabilityShortfalls(rowFailure.values).map(row => [row.text, row.surface, row.floor])),
+        READABILITY_SURFACES.map(surface => ["listItem.selectedForeground", "listItem.selected over " + surface, 4.5]));
 
     // A badge's text on its translucent fill is judged on the fill laid
     // over each resting surface, by the ratio of that blend; an opaque

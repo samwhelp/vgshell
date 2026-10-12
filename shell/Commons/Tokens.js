@@ -773,7 +773,11 @@ var TOKENS = {
     },
 
     // `height` is a one-line row's; `twoLineHeight` a row with a
-    // secondary line, whose two lines centre on the icon as one block.
+    // secondary line, whose two lines centre on the icon as one block. A
+    // selected or active row draws both lines and its icon in
+    // `selectedForeground`, the accent badge's text, which holds the
+    // readability floor on the `selected` plate over every resting surface
+    // (ThemeLogic.READABILITY_PAIRS).
     listItem: {
         height: length("{row.height}"),
         twoLineHeight: length("{row.twoLineHeight}"),
@@ -785,7 +789,7 @@ var TOKENS = {
         pressed: color("{color.border}"),
         selected: color("{color.accentSubtle}"),
         selectedPressed: color("alpha({palette.accent}, 0.24)"),
-        selectedForeground: color("{color.accent}")
+        selectedForeground: color("{badge.tone.accent.foreground}")
     },
 
     // A device's row: its battery badge turns `warning` at or below

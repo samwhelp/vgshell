@@ -20,11 +20,11 @@ import qs.Ui
 // `pointed` for a pick list to select the row, and the row enters through
 // ListEntrance when it is created, unless `enters` is false, as for a view
 // that creates rows as they scroll in. Without a cursor the row's own fill
-// follows hover, press and highlight. The text and icon of a row that is
-// `highlighted` or `active`, the page a navigation list shows now, draw in
-// the accent, so the shown page stays marked while the plate sits on
-// another row. Under a rounded theme the side padding grows until the
-// content clears the drawn corner. `textStart` is where the row's text
+// follows hover, press and highlight. The text, icon and untoned secondary
+// line of a row that is `highlighted` or `active`, the page a navigation
+// list shows now, draw in `listItem.selectedForeground`, so the shown page
+// stays marked while the plate sits on another row. Under a rounded theme
+// the side padding grows until the content clears the drawn corner. `textStart` is where the row's text
 // starts, its padding plus its icon and icon gap, for content a caller
 // lines up under the text. `secondaryTone` "danger" draws the secondary
 // line in the danger colour, for a state that is a failure, such as a
@@ -94,7 +94,7 @@ T.ItemDelegate {
             Label {
                 id: secondaryLabel
                 role: "itemHint"
-                color: root.secondaryTone === "danger" ? Theme.color.danger : Theme.text.itemHint.color
+                color: root.secondaryTone === "danger" ? Theme.color.danger : root.highlighted || root.active ? Theme.listItem.selectedForeground : Theme.text.itemHint.color
                 textFormat: Text.PlainText
                 text: root.secondary
                 visible: root.secondary !== ""

@@ -14,7 +14,7 @@ import qs.Unit
 // the selection when the pointer leaves the list or a key disarms it, and
 // a pick list's selection goes back to the row that held it unless a
 // click chose the hovered row; a disabled row takes no plate; an active
-// row keeps the accent; a row in a cursor list draws no fill of its own and enters staggered, and stands in place
+// row keeps the accent on its text, icon and secondary line; a row in a cursor list draws no fill of its own and enters staggered, and stands in place
 // at once while motion is stilled; a plugin's own background and bezier
 // step are taken.
 Item {
@@ -306,10 +306,10 @@ Item {
             row(2).enabled = true;
         }
 
-        function itemLabel(item) {
+        function itemLabel(item, role) {
             const found = [item];
             for (let i = 0; i < found.length; i++) {
-                if (found[i].role === "item") return found[i];
+                if (found[i].role === (role || "item")) return found[i];
                 for (const child of found[i].children) found.push(child);
             }
             return null;
@@ -329,6 +329,8 @@ Item {
             compare(String(itemLabel(row(2)).color), String(Qt.color(Theme.color.text)), "a row holding the plate alone keeps its resting text");
             compare(String(row(2).contentItem.children[0].color), String(Qt.color(Theme.color.textMuted)));
             compare(String(itemLabel(row(0)).color), String(accent), "the highlighted row keeps the accent");
+            compare(String(itemLabel(row(3), "itemHint").color), String(accent), "the active row's secondary line takes the selected text colour");
+            compare(String(itemLabel(row(1), "itemHint").color), String(Qt.color(Theme.text.itemHint.color)), "a resting row's secondary line keeps its role's colour");
             row(3).active = false;
             row(3).iconName = "";
             row(2).iconName = "";

@@ -119,6 +119,12 @@ jarvis_console_audit() {
 jarvis_console_tasks_tab_check() { expect_poll "the tab bar reaches Tasks" '[[3, 1]]' jarvis_console_tabs; }
 jarvis_console_stop_check() { expect_poll "Stop sends the selected fixture id" "$1" jarvis_console_intent task-stop; }
 jarvis_console_audit_check() { expect_poll "Audit draws the fixture failure" shown jarvis_console_audit; }
+# The hairline count of each shown GroupList: the fixture's two Audit
+# records are two groups, so one hairline parts them.
+jarvis_console_audit_groups() {
+  ipc smoke itemValues window vgs.jarvis GroupList visible,hairlines | py_reply 'import json,sys; rows=json.load(sys.stdin); print(json.dumps([len(r.get("hairlines") or []) for r in rows if r.get("visible")]))'
+}
+jarvis_console_audit_groups_check() { expect_poll "Audit draws its records as one GroupList with a hairline between them" '[1]' jarvis_console_audit_groups; }
 jarvis_console_tasks_path() {
   expect_poll "Conversation has composer focus before its tab switch" true jarvis_console_text_field_focused
   type_keys -M ctrl -k Tab -m ctrl || fail "switching to Tasks failed"
@@ -148,6 +154,11 @@ jarvis_console_stop_control() {
 jarvis_console_audit_control() {
   (failures=0 behaviour_failures=0
    jarvis_console_audit_check >"$sandbox/jarvis-console-audit-control.log"
+   echo "$failures")
+}
+jarvis_console_groups_control() {
+  (failures=0 behaviour_failures=0
+   jarvis_console_audit_groups_check >"$sandbox/jarvis-console-groups-control.log"
    echo "$failures")
 }
 jarvis_console_requirement_shims() {
@@ -227,6 +238,7 @@ type_keys -k Right || fail "switching the tab bar to Audit failed"
 expect_poll "Right selects Audit" '[[3, 2]]' jarvis_console_tabs
 expect_poll "Audit takes keyboard focus" true jarvis_console_body_focused
 jarvis_console_audit_check
+jarvis_console_audit_groups_check
 type_keys -k Page_Down -k Page_Up -M shift -k Tab -m shift || fail "Audit scrolling or Backtab failed"
 expect_poll "Audit Backtab reaches the tab bar" true ipc smoke activeFocusWithin window vgs.jarvis Tabs
 type_keys -k Left || fail "switching the tab bar left failed"
@@ -296,7 +308,7 @@ hold_barrier
 expect "control: moving focus off the field breaks the keyboard-path assertion" 1 jarvis_console_focus_control
 jarvis_disable
 cp -- "$sandbox/jarvis-console-qml-before" "$jarvis_console_qml"
-for jarvis_console_mutant in tabs stop audit; do
+for jarvis_console_mutant in tabs stop audit groups; do
   python3 - "$jarvis_console_qml" "$jarvis_console_mutant" <<'PY_CONTROL'
 from pathlib import Path
 import sys
@@ -305,6 +317,7 @@ changes={
     "tabs": ('model: ["Conversation", "Tasks", "Audit"]', 'model: ["Conversation", "Audit"]'),
     "stop": ('"open-task", task.id);', '"open-task", taskRows[0].id);'),
     "audit": ('model: root.auditRows', 'model: []'),
+    "groups": ('contentItem: GroupList {', 'contentItem: Column {'),
 }
 needle,replacement=changes[sys.argv[2]]
 assert s.count(needle)==1, needle
@@ -325,11 +338,16 @@ PY_CONTROL
       jarvis_console_stop_path
       expect "control: sending the first id breaks the selected-task assertion" 1 jarvis_console_stop_control "$second_task"
       ;;
-    audit)
+    audit|groups)
       jarvis_console_tasks_tab_check
       expect_poll "the Audit control starts with Tasks focus" true jarvis_console_body_focused
       type_keys -M ctrl -k Tab -m ctrl || fail "switching the mutant Audit tab failed"
-      expect "control: empty audit data breaks the failure assertion" 1 jarvis_console_audit_control
+      if [[ "$jarvis_console_mutant" == audit ]]; then
+        expect "control: empty audit data breaks the failure assertion" 1 jarvis_console_audit_control
+      else
+        jarvis_console_audit_check
+        expect "control: a plain Column breaks the GroupList assertion" 1 jarvis_console_groups_control
+      fi
       ;;
   esac
   jarvis_disable
