@@ -346,6 +346,20 @@ voice_frames_advancing() {
   [[ $before =~ ^[0-9]+$ && $after =~ ^[0-9]+$ ]] || { echo "unreadable before=$before after=$after"; return; }
   if ((after > before)); then echo advancing; else echo stopped; fi
 }
+# stopped once the display presents no frame over 0.5 s, read at most three
+# times in a row; advancing when each of the three reads a frame.
+voice_frames_settled() {
+  local before after
+  before="$(ipc smoke layerFrames)" || return 1
+  for _ in 1 2 3; do
+    sleep 0.5
+    after="$(ipc smoke layerFrames)" || return 1
+    [[ $before =~ ^[0-9]+$ && $after =~ ^[0-9]+$ ]] || { echo "unreadable before=$before after=$after"; return; }
+    if ((after == before)); then echo stopped; return; fi
+    before=$after
+  done
+  echo advancing
+}
 voice_frames_quiet() {
   local before after
   sleep 0.2
@@ -356,24 +370,44 @@ voice_frames_quiet() {
   if ((after == before)); then echo quiet; else echo swapped; fi
 }
 # Motion scale 0 through the user's theme file, and the file as it was.
+# Only the scale changes: the theme keeps its name and other tokens, so
+# the Hyprland layer, whose borders line names the theme, is not written
+# again, and Hyprland reloads no configuration while the display is read
+# (VGS-1447).
 voice_motion_still() {
+  local name
   if [[ -e $voice_theme ]]; then cp -- "$voice_theme" "$sandbox/voice-theme-before"; else rm -f -- "$sandbox/voice-theme-before"; fi
-  printf '%s\n' '{"schemaVersion":1,"name":"still","tokens":{"motion":{"scale":0}}}' >"$voice_theme.tmp"
-  mv -T -- "$voice_theme.tmp" "$voice_theme"
+  name="$(ipc smoke themeValue name)" || return 1
+  python3 - "$voice_theme" "$name" <<'PY'
+import json, os, sys
+path, name = sys.argv[1], json.loads(sys.argv[2])
+theme = json.load(open(path)) if os.path.exists(path) else {"schemaVersion": 1, "name": name}
+theme.setdefault("tokens", {}).setdefault("motion", {})["scale"] = 0
+with open(path + ".tmp", "w") as f:
+    json.dump(theme, f)
+os.replace(path + ".tmp", path)
+PY
 }
 voice_motion_restore() {
   if [[ -e $sandbox/voice-theme-before ]]; then mv -T -- "$sandbox/voice-theme-before" "$voice_theme"; else rm -f -- "$voice_theme"; fi
 }
 # The orb watched for two seconds at motion scale 0 while transcribing; the
-# theme and the watcher are put back whatever the reading.
+# theme and the watcher are put back whatever the reading. The two seconds
+# start once the display has settled: the frame that draws the stopped
+# orb, the tail of the palette fade and the frames the window presents with
+# no item changed, read up to half a second after the motion change, fall
+# before them. A WANT of swapped expects the frames to keep advancing.
 voice_still_frames() { # LABEL WANT
+  local settled=stopped
+  [[ $2 == quiet ]] || settled=advancing
   voice_to recording "$1"
   voice_to transcribing "$1"
   expect_poll "$1: transcribing presents the display" presented voice_osd
   expect "$1: the display's window is watched" ok ipc smoke watchLayerFrames vgs.voice
   expect_poll "$1: the transcribing orb presents frames" advancing voice_frames_advancing
-  voice_motion_still
+  voice_motion_still || fail "$1: zero motion is written to the theme file"
   expect_poll "$1: zero motion reaches the shell" 0 ipc smoke themeValue motion.scale
+  expect "$1: the orb's frames read $settled at zero motion" "$settled" voice_frames_settled
   expect "$1" "$2" voice_frames_quiet
   voice_motion_restore
   expect_poll "$1: the motion scale is restored" 1 ipc smoke themeValue motion.scale
