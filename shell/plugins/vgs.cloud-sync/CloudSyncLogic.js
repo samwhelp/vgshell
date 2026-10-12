@@ -384,7 +384,14 @@ function scheduleValue(units) {
     throw new Error("cloud-sync: units " + JSON.stringify(units) + " is not one of " + UNITS.join(", "));
 }
 
-// The `pairs` value of CLOUD: each pair's label and Google Drive folder, with Add a
+// A pair's second line, in the window row and the Settings Folder pairs
+// line: its Google Drive folder, or Both ways when that folder carries
+// the pair's own name, where repeating it would say nothing.
+function pairDrive(pair) {
+    return pair.remote === pair.label ? "Both ways" : pair.remote;
+}
+
+// The `pairs` value of CLOUD: each pair's label and pairDrive line, with Add a
 // folder pair while there is none and Remove a folder pair once one
 // exists; while the runner cannot read the list it offers Reset, the one
 // change the runner accepts in that state.
@@ -395,7 +402,7 @@ function pairsValue(cloud) {
     return {
         tone: "ok",
         text: pairs.length === 1 ? "1 folder pair" : pairs.length + " folder pairs",
-        lines: pairs.map(function (p) { return p.label + ": " + (p.remote || "Two-way"); }).slice(0, LINES_MAX),
+        lines: pairs.map(function (p) { return p.label + ": " + pairDrive(p); }).slice(0, LINES_MAX),
         action: "remove"
     };
 }
@@ -500,12 +507,12 @@ function windowStatus(cloud, now, timeText) {
 }
 
 // One folder pair's row in the window: { id, label, secondary, icon, text,
-// tone }, its Google Drive folder, since a ListItem's secondary line elides and
+// tone }, its pairDrive line, since a ListItem's secondary line elides and
 // the long form does not fit beside the state and Remove, and its state as
 // a Badge tone.
 function pairRow(pair, now) {
     var view = stateView(pair.state, pair.staleAfter, now);
-    return { id: pair.id, label: pair.label, secondary: pair.remote || "Two-way", icon: "folder-sync", text: view.text, tone: badgeTone(view.tone) };
+    return { id: pair.id, label: pair.label, secondary: pairDrive(pair), icon: "folder-sync", text: view.text, tone: badgeTone(view.tone) };
 }
 
 // One conflict's row in the window: its path, and what happened.

@@ -211,6 +211,18 @@ function verify(L) {
     same(pairsOf(well({ state: "not-set-up", pairs: [] })), { tone: "warning", text: "None", action: "add", hint: "Add a folder pair to choose what Cloud Sync keeps in step." });
     same(values.pairs, { tone: "ok", text: "2 folder pairs", lines: ["Documents: Docs", "Agent uploads: Inbox"], action: "remove" });
     same(pairsOf(well()).text, "1 folder pair");
+    // A pair's second line, the same in the window row and the Settings
+    // line: its Drive folder, or Both ways where that folder carries its name.
+    const pairDrives = [
+        ["a Drive folder named as the pair", "Documents", "Both ways"],
+        ["a differing Drive folder", "Docs", "Docs"],
+        ["a nested Drive folder", "Work/Documents", "Work/Documents"]
+    ];
+    for (const [label, remote, line] of pairDrives) {
+        const rec = well({ pairs: [Object.assign({}, DOCS, { remote })] });
+        assert.equal(L.pairRow(L.cloudValue(rec, "").pairs[0], NOW).secondary, line, label + ": the window row");
+        same(pairsOf(rec).lines, ["Documents: " + line], label + ": the Settings line");
+    }
     const invalidPairs = pairsOf(invalid());
     assert.equal(invalidPairs.tone, "danger", "an unreadable list is danger");
     assert.equal(invalidPairs.text, "Not readable", "an unreadable list states that it is not readable");
@@ -402,6 +414,7 @@ const controls = [
     ["a connection notifies first", "if (reasons.indexOf(\"authorization-required\") !== -1)\n", "if (false)\n"],
     ["no file to review draws no count", "cloud.conflictCount > 0 ? String(cloud.conflictCount) : \"\"", "String(cloud.conflictCount)"],
     ["no folder pair hides the icon", "if (cloud === undefined || cloud === null || (cloud.pairs.length === 0 && pairListValid(cloud))) return", "if (cloud === undefined || cloud === null) return"],
+    ["a Drive folder named as the pair reads Both ways", "return pair.remote === pair.label ? \"Both ways\" : pair.remote;", "return pair.remote;"],
     ["the account key list is published", "values.keys = keyItems(presence);", "values.account = signInValue(presence, record);"]
 ];
 

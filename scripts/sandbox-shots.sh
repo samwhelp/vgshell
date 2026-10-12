@@ -4910,9 +4910,11 @@ SH
     for a in client-id client-secret; do printf 'stand-in\n' >"$cs/secrets/$a"; done
     printf '{"access_token":"x","refresh_token":"y"}\na.person@example.com\n' >"$cs/secrets/token"
   }
+  # One pair's Drive folder carries its name and one's does not, so the
+  # shots show both forms of a pair's second line.
   cs_pairs() {
     csr pair-add --definition "{\"id\":\"documents\",\"label\":\"Documents\",\"remote\":\"Documents\",\"local\":\"$home/cloudsync-$m/Drive/Documents\"}" || fail "cloudsync scene: pair documents"
-    csr pair-add --definition "{\"id\":\"uploads\",\"label\":\"Agent uploads\",\"remote\":\"Agent uploads\",\"local\":\"$home/cloudsync-$m/inbox/agent-uploads\"}" || fail "cloudsync scene: pair uploads"
+    csr pair-add --definition "{\"id\":\"uploads\",\"label\":\"Agent uploads\",\"remote\":\"VGS/Uploads\",\"local\":\"$home/cloudsync-$m/inbox/agent-uploads\"}" || fail "cloudsync scene: pair uploads"
   }
   printf 'Return filed.\n' >"$drive/Documents/Taxes/2025 return.pdf"
   printf '# Notes\n' >"$drive/Documents/notes.md"
