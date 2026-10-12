@@ -404,6 +404,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/backend/Core.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Denied.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Desktop.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/DesktopSession.js
+f share/vgshell/shell/plugins/vgs.jarvis/backend/ElevenLabs.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Executors.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Files.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/GeminiLive.js
