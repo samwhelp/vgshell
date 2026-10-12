@@ -234,7 +234,7 @@ ok = d["lifetime"]["kind"] == "problem" and d["pid"] is None
 ok = ok and daemon.get("tone") == "danger" and daemon.get("text") == "Jarvis did not answer in time"
 ok = ok and "jarvis: hello=timeout" in daemon.get("lines", [])
 ok = ok and setup.get("text") == "Jarvis did not answer in time"
-ok = ok and "jarvis: hello=timeout" in setup.get("lines", [])
+ok = ok and setup.get("hint") == "Turn Jarvis off and on again in Settings > Jarvis." and "lines" not in setup
 print("problem-words" if ok else "pending")
 '
 }
@@ -250,7 +250,7 @@ ok = ok and daemon.get("tone") == "warning" and daemon.get("text") == "Jarvis di
 ok = ok and daemon.get("lines") == ["Jarvis is trying again by itself.", "jarvis: hello=timeout"]
 ok = ok and setup.get("text") == "Jarvis did not answer in time"
 ok = ok and setup.get("hint") == "Jarvis is trying again by itself."
-ok = ok and setup.get("lines") == ["jarvis: hello=timeout"]
+ok = ok and "lines" not in setup
 print("retry-words" if ok else "pending")
 '
 }

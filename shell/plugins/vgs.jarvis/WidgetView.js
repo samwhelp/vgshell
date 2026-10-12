@@ -16,9 +16,9 @@
 //   working    Jarvis thinks, waits for confirmation or runs a task
 //   speaking   playback is speaking
 //   ready      Session is idle
-// An offered setup step with a cause hint and keyed detail line keeps its
-// setup title and shows that hint while Jarvis is off; a ready Setup
-// summary's caution shows under ready.
+// An offered setup step whose state names its own result, local voice
+// that timed out, keeps its setup title and shows its hint while Jarvis is
+// off; a ready Setup summary's caution shows under ready.
 // A tone is `calm` or a Theme.color state role, `neutral` being textMuted.
 // A value outside the shapes the service and Session.js produce throws a
 // keyed error; nothing falls back.
@@ -223,8 +223,10 @@ function offered(step) {
     return step.action === true || typeof step.action === "string";
 }
 
-function hasCauseLine(step) {
-    return Array.isArray(step.lines) && step.lines.some(function (line) { return /^[a-z-]+=[a-z0-9-]|^jarvis: [a-z-]+=/.test(line); });
+// The Voice step's state while local voice did not get ready in time
+// (SetupGate.TIMED_OUT): set up, so its hint, not Set it up, is the action.
+function timedOut(step) {
+    return step.text === "Timed out";
 }
 
 // Whether the daemon refuses the home folder the user chose: the step
@@ -245,7 +247,7 @@ function homeText(values) {
 function unconfiguredText(values) {
     for (var i = 0; i < SETUP_TEXT.length; i++) {
         var step = values[SETUP_TEXT[i][0]];
-        if (step && step.tone === "warning" && offered(step) && step.hint && hasCauseLine(step))
+        if (step && step.tone === "warning" && offered(step) && step.hint && timedOut(step))
             return { title: SETUP_TEXT[i][1].title, action: step.hint };
         if (step && step.tone === "warning" && !offered(step) && step.hint)
             return { title: step.text, action: "Open Settings > Jarvis. " + step.hint };

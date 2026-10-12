@@ -706,9 +706,8 @@ function verifyReadiness(gate) {
             const step = got[key];
             const open = todo.includes(key);
             const action = key === "setupModel" ? model ?? "key" : true;
-            const expectedLines = open && answer.kind === "answered" && answer.causes[0] === "speech=local-ready-timeout" ? [answer.causes[0]] : undefined;
-            assert.deepEqual([step.tone, step.action, step.lines], open ? ["warning", action, expectedLines] : ["ok", DONE_ACTION[key], undefined], label + ": " + key);
-            assert.deepEqual(keyedCauses(step, ["text", "hint"]), [], label + ": " + key + " words its cause");
+            assert.deepEqual([step.tone, step.action, step.lines], open ? ["warning", action, undefined] : ["ok", DONE_ACTION[key], undefined], label + ": " + key);
+            assert.deepEqual(keyedCauses(step, ["text", "hint", "lines"]), [], label + ": " + key + " words its cause");
             if (!open || declared.includes(key)) assert.equal(step.hint, undefined, label + ": " + key + " keeps its declared hint");
             else assert.equal(typeof step.hint === "string" && step.hint !== "" && !/=/.test(step.hint), true,
                 label + ": a plain hint, no keyed cause on screen");
@@ -718,7 +717,8 @@ function verifyReadiness(gate) {
     const localNotReady = plain(gate.readiness({ kind: "answered", causes: ["speech=local-not-ready"] })).setupVoice;
     assert.equal(localNotReady.hint, "Local voice did not start. Set it up again.", "local voice setup-broken words");
     const localReadyTimeout = plain(gate.readiness({ kind: "answered", causes: ["speech=local-ready-timeout"] })).setupVoice;
-    assert.equal(localReadyTimeout.hint, "Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis.", "local voice timeout words");
+    assert.deepEqual([localReadyTimeout.text, localReadyTimeout.hint], ["Timed out",
+        "Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis."], "local voice timeout words");
     const probeTimeout = plain(gate.readiness({ kind: "answered", causes: ["setup=probe-timeout"] }));
     assert.equal(typeof probeTimeout.setup.hint === "string" && probeTimeout.setup.hint !== "" && !/=/.test(probeTimeout.setup.hint), true,
         "probe timeout: the ready summary carries its caution");
@@ -939,9 +939,9 @@ function verify(gate) {
     verifySession(gate);
     for (const check of [{ kind: "ready" }, { kind: "done", result: "ready" }]) {
         const value = gate.voiceCheck(gate.readiness({ kind: "answered", causes: ["speech=local-ready-timeout"] }).setupVoice, check);
-        assert.deepEqual(plain(value), { tone: "warning", text: "To do",
+        assert.deepEqual(plain(value), { tone: "warning", text: "Timed out",
             hint: "Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis.",
-            action: "setup", lines: ["speech=local-ready-timeout"] }, "voice setup cause survives microphone check");
+            action: "setup" }, "voice setup cause survives microphone check");
     }
     for (const [check, tone, action] of [[{ kind: "ready" }, "info", "check"],
         [{ kind: "waiting" }, "info", undefined], [{ kind: "recording" }, "info", undefined],
@@ -1024,8 +1024,8 @@ function verify(gate) {
         assert.equal(typeof words.action, "string", label + ": action");
         assert.deepEqual(JSON.parse(JSON.stringify(words.lines)), [cause], label + ": detail line");
         const setup = gate.readiness({ kind: "problem", cause }).setup;
-        assert.equal(setup.text, words.title, label + ": setup text");
-        assert.deepEqual(JSON.parse(JSON.stringify(setup.lines)), [cause], label + ": setup detail line");
+        assert.deepEqual([setup.text, setup.hint], [words.title, words.action], label + ": the start failure summary says its state and hint");
+        assert.deepEqual([setup.lines, keyedCauses(setup, ["text", "hint"])], [undefined, []], label + ": the start failure summary draws no keyed cause");
     }
     let fallback;
     assert.doesNotThrow(() => { fallback = gate.startCause(ARBITRARY_STDERR); }, "arbitrary stderr maps to daemon exit");
@@ -1121,10 +1121,15 @@ const CONTROLS = [
     ["the brain causes share one hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = STEP_TODO[step];"],
     ["an unknown cause has no hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = TODO[cause];"],
     ["local voice repeats its action as its hint", "var STEP_TODO = { brain:", 'var STEP_TODO = { speech: "fixture repeat", brain:'],
-    ["a step to do draws its hint as a line", 'lines === undefined ? { tone: "warning", text: "To do", hint: hint, action: action }', 'false ? { tone: "warning", text: "To do", hint: hint, action: action }'],
+    ["the timed-out Voice step draws its cause", ': { tone: "warning", text: text, hint: hint, action: action };',
+        ': cause === "speech=local-ready-timeout" ? { tone: "warning", text: text, hint: hint, action: action, lines: [statusCauseLine(cause)] } : { tone: "warning", text: text, hint: hint, action: action };',
+        "voice setup cause survives microphone check"],
+    ["the timed-out Voice step reads to do", 'var text = cause === "speech=local-ready-timeout" ? TIMED_OUT : "To do";', 'var text = "To do";', "voice setup cause survives microphone check"],
+    ["a start failure summary draws its cause", "hint: answer.action || problem.action },", "hint: answer.action || problem.action, lines: problem.lines },",
+        "hello timeout: the start failure summary draws no keyed cause"],
     ["a stopped summary draws its reason as a line", 'hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." }', 'lines: ["Jarvis stopped after a problem. Turn Jarvis off and on again."] }'],
-    ["the not-ready summary draws its causes", ': { tone: "warning", text: "Not ready" },', ': { tone: "warning", text: "Not ready", lines: answer.causes.map(setupCauseLine) },', "nothing set up: the summary draws no keyed cause"],
-    ["a caution summary draws its cause", '.join(" ") }', '.join(" "), lines: answer.causes.map(setupCauseLine) }', "probe timeout: the summary draws no keyed cause"],
+    ["the not-ready summary draws its causes", ': { tone: "warning", text: "Not ready" },', ': { tone: "warning", text: "Not ready", lines: answer.causes.map(statusCauseLine) },', "nothing set up: the summary draws no keyed cause"],
+    ["a caution summary draws its cause", '.join(" ") }', '.join(" "), lines: answer.causes.map(statusCauseLine) }', "probe timeout: the summary draws no keyed cause"],
     ["causes leave the summary ready", 'setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" }', 'setup: true ? { tone: "ok", text: "Ready" }'],
     ["checking reads done", 'return { setup: CHECKING_SUMMARY, setupHome: HOME_READY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };', 'return { setup: CHECKING_SUMMARY, setupHome: HOME_READY, setupVoice: DONE, setupModel: noAction(DONE) };'],
     ["an optional step reads done when not ok", 'if (value.tone === "ok") return DONE;', "if (true) return DONE;"],

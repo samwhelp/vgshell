@@ -100,6 +100,10 @@ var TODO = {
     "speech=local-ready-timeout": "Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis.",
     "speech=always-local-voice": "Always talk mode listens for Hey Jarvis on this computer. Choose Local in Settings > Voice, or Hold or Toggle in Settings > Listening."
 };
+// Local voice that did not get ready in time is set up: its step states
+// that result in place of To do, and the bar shows the step's hint for it
+// (WidgetView.unconfiguredText).
+var TIMED_OUT = "Timed out";
 // The shell's own causes (LocalRuntime.qml setupCause), by their hint. The
 // daemon never reads one, and Session's gate follows the daemon alone
 // (jarvisd.js configured), so Jarvis still takes a request: the summary
@@ -190,15 +194,6 @@ function startCause(cause) {
     }
     return { kind: DAEMON_EXIT.kind, title: DAEMON_EXIT.title, action: DAEMON_EXIT.action, lines: [line] };
 }
-
-function setupCauseLine(cause) {
-    if (cause === "setup=probe-timeout") return statusCauseLine("jarvis: setup=probe-timeout");
-    return statusCauseLine(cause);
-}
-
-function stepCauseLines(cause) {
-    return cause === "speech=local-ready-timeout" ? [setupCauseLine(cause)] : undefined;
-}
 // The installed voice stays verified. Reinstalling it cannot free memory.
 var MEMORY = {
     "speech=local-memory-insufficient": { tone: "warning", text: "Not enough memory",
@@ -243,8 +238,10 @@ function modelStep(value, keys, access) {
 
 // The summary and required step values for ANSWER: { kind: "checking" }
 // while the daemon has not answered, { kind: "stopped" } once it stopped
-// for good, or { kind: "answered", causes } from its status, as { setup,
-// setupHome, setupVoice, setupModel }.
+// for good, { kind: "problem", cause } after a failed start, or
+// { kind: "answered", causes } from its status, as { setup, setupHome,
+// setupVoice, setupModel }. No value holds a keyed cause: the log and the
+// Daemon row keep it.
 function readiness(answer) {
     switch (answer.kind) {
     case "checking":
@@ -254,7 +251,7 @@ function readiness(answer) {
             setupHome: HOME_READY, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };
     case "problem":
         var problem = startCause(answer.cause);
-        return { setup: { tone: "danger", text: problem.title, hint: answer.action || problem.action, lines: problem.lines },
+        return { setup: { tone: "danger", text: problem.title, hint: answer.action || problem.action },
             setupHome: HOME_READY, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };
     case "answered":
         // The summary says only its state and hint: each step words its own
@@ -287,10 +284,9 @@ function readiness(answer) {
             }
             var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];
             var action = step === "brain" ? (cause === "brain=signed-out" ? "signIn" : cause === "brain=pi-update" ? "update" : "key") : setupActs(cause);
-            var lines = stepCauseLines(cause);
-            out[REQUIRED[step]] = hint === undefined ? { tone: "warning", text: "To do", action: action }
-                : lines === undefined ? { tone: "warning", text: "To do", hint: hint, action: action }
-                    : { tone: "warning", text: "To do", hint: hint, action: action, lines: lines };
+            var text = cause === "speech=local-ready-timeout" ? TIMED_OUT : "To do";
+            out[REQUIRED[step]] = hint === undefined ? { tone: "warning", text: text, action: action }
+                : { tone: "warning", text: text, hint: hint, action: action };
         });
         return out;
     }
