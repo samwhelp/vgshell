@@ -47,6 +47,21 @@ FocusScope {
             binds: p.binds.filter(b => holds([p.name, b.description, b.shortcut].concat(Array.from(b.keys))))
         })).filter(g => g.binds.length > 0);
     }
+    // Whether the window's first frame is queued for presenting. A row's
+    // items are most of an open, and the count grows with every plugin bind,
+    // so the first frame builds only the groups that fill the window and
+    // the rest are built behind it.
+    property bool presented: false
+    readonly property var built: {
+        if (presented) return groups;
+        // A row with its gap is no shorter than a field with the group gap,
+        // so this many rows fill the screen's room and the window's first
+        // size request is unchanged.
+        let rows = Math.ceil(OverlayState.room(screen).height / (Theme.textField.height + Theme.stack.group));
+        const first = [];
+        for (let i = 0; i < groups.length && rows > 0; rows -= groups[i++].binds.length) first.push(groups[i]);
+        return first;
+    }
     property Item initialFocus: search
 
     implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
@@ -77,6 +92,21 @@ FocusScope {
         search.forceActiveFocus(Qt.ShortcutFocusReason);
         search.insert(search.cursorPosition, typed);
         event.accepted = true;
+    }
+
+    // QQuickWindow emits frameSwapped once a frame is queued for presenting.
+    // callLater runs after the handlers already queued for that frame, by
+    // when a hide may have destroyed this window.
+    // https://doc.qt.io/qt-6/qquickwindow.html#frameSwapped
+    // https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method
+    Connections {
+        target: root.Window.window
+        enabled: !root.presented
+        function onFrameSwapped() {
+            Qt.callLater(() => {
+                if (root !== null) root.presented = true;
+            });
+        }
     }
 
     Pane {
@@ -124,7 +154,7 @@ FocusScope {
 
         Repeater {
             model: ScriptModel {
-                values: root.groups
+                values: root.built
                 objectProp: "id"
             }
 

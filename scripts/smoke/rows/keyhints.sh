@@ -47,6 +47,14 @@
 # 145 later opens at or below the limit, median 124 ms, three over 200 ms
 # (215, 219, 222), each in a run whose fastest later open read 165 ms or less.
 # Restoring eager Tooltip window construction must exceed the same budget.
+# The first frame holds the groups that fill the window, and each open
+# polls for the rows built behind it; a copy that never builds them is the
+# control. This row's timing marks, with marks around the plugin build and
+# the first animation tick added, on 2026-10-12 on cachy at 5e0f29a0 with
+# 42 plugins and CPU pressure under 2%: building every row first took 69 to
+# 113 ms of opens of 146 to 261 ms and the frame's own 55 to 86 ms; with
+# the first frame's groups alone the build took 38 to 54 ms and the frame
+# was swapped 92 to 126 ms after the shortcut.
 # Hyprland consent wires the shortcuts before this row types its open key.
 # inputs: scripts/smoke/rows/hyprland-consent.sh shell/plugins/vgs.keyhints/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.voice/manifest.json shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/overlay/Tooltip.qml shell/Commons/AnchorTracker.qml shell/Hosts/AppWindow.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/HyprlandLayer.js bin/lib/qml-library.js
 set -euo pipefail
@@ -173,7 +181,7 @@ expect_poll "the Key Hints shortcut reaches Hyprland before its first key" True 
 kh_toggle || fail "typing SUPER+SLASH failed"
 expect_poll "SUPER+SLASH opens the Key Hints window" 1 window_count "$kh_title"
 expect_poll "the Key Hints window has the keyboard" "[\"$shell_class\", \"$kh_title\"]" active_window
-expect "the Voice tap row's unbind is applied" applied ipc smoke invokeInstance window vgs.keyhints applyKey '{"id":"vgs.voice","shortcut":"tap","key":null}'
+expect_poll "the Voice tap row's unbind is applied" applied ipc smoke invokeInstance window vgs.keyhints applyKey '{"id":"vgs.voice","shortcut":"tap","key":null}'
 expect_poll "the unbound Voice tap leaves hyprctl binds" False kh_bound_has vgs.voice:tap
 expect_poll "the window draws exactly the vgs. binds hyprctl reports" same kh_same
 expect "Key Hints rows use the shared group spacing token" True kh_spacing
@@ -379,6 +387,19 @@ expect 'control: Key Hints fails when every later open misses' over kh_timing_bu
 expect 'Key Hints passes a fastest later open of exactly 200 ms' within kh_timing_budget '[{"drawn":169,"cpu_some_pct":0.3},{"drawn":215,"cpu_some_pct":0.9},{"drawn":200,"cpu_some_pct":0.9}]'
 expect 'control: a fast busy later open cannot hide slow measured ones' over kh_timing_budget '[{"drawn":169,"cpu_some_pct":0.3},{"drawn":150,"cpu_some_pct":2.9},{"drawn":215,"cpu_some_pct":0.9},{"drawn":230,"cpu_some_pct":1.0},{"drawn":202,"cpu_some_pct":0.6}]'
 kh_timing_rows() { ipc smoke itemValues window vgs.keyhints BindField pluginId,bind | py_reply 'import json,sys; print(sum(r["pluginId"].startswith("vgs.") for r in json.load(sys.stdin)))'; }
+# kh_timing_held: True once the window draws the baseline's 34 rows.
+kh_timing_held() { local rows; rows="$(kh_timing_rows)" && [[ $rows =~ ^[0-9]+$ ]] || return 1; ((rows >= 34)) && echo True || echo False; }
+# kh_timing_held_within: kh_timing_held once it reads True within
+# expect_poll's window, 25 readings 200 ms apart, else False.
+kh_timing_held_within() {
+  local got
+  for _ in $(seq 1 25); do
+    got="$(kh_timing_held)" || return 1
+    [[ $got == True ]] && break
+    sleep 0.2
+  done
+  echo "$got"
+}
 kh_timing_opens() {
   local count="$1" n before="$failures" pressure start end elapsed sample profile pct bound verdict
   kh_timing_readings=()
@@ -410,7 +431,7 @@ print(len(shipped))' "$repo/shell/plugins")" || { fail 'the measured all-shipped
     kh_timing_readings+=("{\"drawn\":$sample,\"cpu_some_pct\":$pct}")
     printf '  keyhints-open index=%s latency_ms=%s cpu_some_pct=%s pressure_interval_ms=%s machine=cachy result=%s\n' "$n" "$sample" "$pct" "$elapsed" "$verdict"
     expect "the measured open $n has the keyboard" "[\"$shell_class\", \"$kh_title\"]" active_window
-    expect "the measured open $n holds the baseline bind workload" True bash -c '[[ "$1" -ge 34 ]] && echo True || echo False' _ "$(kh_timing_rows)"
+    expect_poll "the measured open $n holds the baseline bind workload behind its first frame" True kh_timing_held
     [[ $failures == "$before" ]] || return 1
     if ! ipc shell hide window vgs.keyhints; then fail 'the measured window hide failed'; return 1; fi
     expect_poll 'the measured window is destroyed on hide' 0 window_count "$kh_title"
@@ -446,10 +467,33 @@ if kh_timing_tree keyhints-timing; then
     fi
     # Every bind is still a row after the timed window was destroyed.
     expect 'the timed Key Hints window opens for its row count' ok ipc shell summon window vgs.keyhints '{}'
-    expect 'the all-plugin measurement holds at least the baseline bind count' True bash -c '[[ "$1" -ge 34 ]] && echo True || echo False' _ "$(kh_timing_rows)"
+    expect_poll 'the all-plugin measurement holds at least the baseline bind count' True kh_timing_held
     expect 'Key Hints sections use the shared group spacing token' True kh_spacing
     expect 'the row-count window is hidden' ok ipc shell hide window vgs.keyhints
   fi
+  stop_shell
+fi
+# The control never builds the rows behind the first frame.
+if copy_tree keyhints-unbuilt && edit_tree keyhints-unbuilt shell/plugins/vgs.keyhints/Window.qml 'root.presented = true' 'root.presented = false'; then
+  start_shell "$sandbox/tree-keyhints-unbuilt" "$sandbox/keyhints-unbuilt.log" || fail 'the unbuilt-rows control shell starts'
+  expect 'control: Key Hints is summoned with no rows behind its frame' ok ipc shell summon window vgs.keyhints '{}'
+  expect_poll 'control: the window with no rows behind its frame maps' 1 window_count "$kh_title"
+  expect 'control: a window that builds no row behind its first frame fails the workload check' False kh_timing_held_within
+  stop_shell
+fi
+# A window hidden between its first frame and the rows built behind it
+# takes them with it and leaves no QML fault in the log, which also holds
+# what the all-plugin profile's absent services report: this copy hides
+# itself there, ahead of the build each frame's handler queues.
+kh_hidden() { grep -q 'keyhints-timing: hidden=ok' "$instance_log" && echo True || echo False; }
+kh_hidden_faults() { grep -cE 'TypeError|ReferenceError|is not defined|Cannot read|Cannot assign' "$instance_log"; [[ $? -le 1 ]]; }
+if copy_tree keyhints-hidden && edit_tree keyhints-hidden shell/plugins/vgs.keyhints/Window.qml '        function onFrameSwapped() {' '        function onFrameSwapped() {
+            Qt.callLater(() => console.info("keyhints-timing: hidden=" + root.shell.surfaces.hide("window")));'; then
+  start_shell "$sandbox/tree-keyhints-hidden" "$sandbox/keyhints-hidden.log" || fail 'the hidden-window shell starts'
+  expect 'Key Hints is summoned to hide after its first frame' ok ipc shell summon window vgs.keyhints '{}'
+  expect_poll 'the window hides itself between its first frame and its later rows' True kh_hidden
+  expect_poll 'the window hidden before its later rows is destroyed' 0 window_count "$kh_title"
+  expect 'the window hidden before its later rows leaves no QML fault' 0 kh_hidden_faults
   stop_shell
 fi
 if kh_timing_tree keyhints-slow \
