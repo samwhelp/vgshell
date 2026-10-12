@@ -1064,7 +1064,7 @@ Item {
     // so the row reads again when that voice changes.
     Jarvis.LocalRuntime {
         id: localRuntime
-        readonly property string provider: root.shell === null ? "" : Gate.voiceProvider(root.shell.settings, accountReader.voiceKeys)
+        readonly property string provider: accountReader.voiceProvider
         shell: root.shell
         shape: value => Gate.localVoiceStep(value, localRuntime.provider)
         onProviderChanged: refresh()

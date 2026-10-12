@@ -89,7 +89,7 @@ You can change the keys under Keys on the Jarvis page.
 
 ## Setup
 
-The Setup tab of the Jarvis page shows Ready or Not ready, and the reason. Its steps are Sign in, AI model, Voice, Browser, Input and Cloned voice. The AI model and Voice steps show Done or To do. Sign in is optional. Browser and Input show Optional until they are done. Cloned voice is optional too: it shows Not set up, Ready, or why it cannot be set up yet. A step that has an action shows its button.
+The Setup tab of the Jarvis page shows Ready or Not ready, and the reason. Its steps are Sign in, AI model, Voice, Local voice, Browser, Desktop input and Cloned voice. The AI model and Voice steps show Done or To do. Sign in is optional. Browser and Desktop input are optional: until they are done, they show their state in the optional tone. Local voice is required while it is the voice provider, and its setup is then the Voice step's button; under a cloud voice it is optional. Cloned voice is optional too: it shows Not set up, Ready, or why it cannot be set up yet. A step that has an action shows its button.
 
 The buttons are also rows in the launcher's Jarvis group. Each opens a floating terminal.
 
