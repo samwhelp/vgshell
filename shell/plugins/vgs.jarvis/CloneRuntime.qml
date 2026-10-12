@@ -20,11 +20,15 @@ LocalRuntime {
         // must not turn off a setting for an old Remove recording run.
         const endedMs = Date.parse(removedAt);
         if (removeState.code === 0 && !isNaN(endedMs) && endedMs >= readerStartedAtMs
-                && shell !== null && shell.settings.clonedVoice === true) {
-            const reply = shell.configure.unset("clonedVoice");
-            if (reply !== "ok") console.warn("jarvis-clone: setting=unwritten reply=" + reply);
-        }
+                && shell !== null && shell.settings.clonedVoice === true)
+            Qt.callLater(unsetClonedVoice);
         refresh();
     }
     onProviderChanged: refresh()
+
+    function unsetClonedVoice() {
+        if (shell === null) return;
+        const reply = shell.configure.unset("clonedVoice");
+        if (reply !== "ok") console.warn("jarvis-clone: setting=unwritten reply=" + reply);
+    }
 }

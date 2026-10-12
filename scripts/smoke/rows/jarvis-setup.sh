@@ -589,14 +589,19 @@ PY
 }
 setup_clone_setting() { # VALUE: true|false
   python3 - "$setup_config" "$1" <<'PY'
-import json,sys
+import json,os,sys
 from pathlib import Path
 p=Path(sys.argv[1]); value=json.loads(p.read_text())
 row=next((r for r in value.setdefault("plugins",[]) if r["id"]=="vgs.jarvis"),None)
 if row is None:
     row={"id":"vgs.jarvis"}; value["plugins"].append(row)
-row["clonedVoice"] = sys.argv[2] == "true"
-p.write_text(json.dumps(value))
+if sys.argv[2] == "true":
+    row["clonedVoice"] = True
+else:
+    row.pop("clonedVoice", None)
+tmp=str(p)+".next"
+open(tmp,"w").write(json.dumps(value))
+os.replace(tmp,p)
 PY
   expect "deliver the Cloned voice setting $1" ok ipc shell reloadConfig
 }

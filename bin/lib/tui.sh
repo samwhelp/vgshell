@@ -116,7 +116,7 @@ vgs_tui_header() { # TITLE [LINE...]
   for line in "$title_line" "$@"; do
     if (( ${#line} + 6 > columns )); then width=(--width "$columns"); break; fi
   done
-  title="$(gum style --bold -- "$title_line")"
+  printf -v title '\033[1m%s\033[0m' "$title_line"
   _vgs_tui_header_gap
   gum style --border normal --padding "1 2" "${width[@]}" -- "$title" "$@"
 }
@@ -309,7 +309,7 @@ vgs_tui_logged() { # FILE COMMAND [ARG...]
 }
 
 vgs_tui_split() { # FILE KEY COMMAND [ARG...]
-  local file="${1:-}" key="${2:-}" fd status had_errexit=""
+  local file="${1:-}" key="${2:-}" fd status had_errexit="" segment="" char terminator
   [[ -n $file && -n $key && $# -ge 3 ]] || _vgs_tui_refuse 2 "split=missing" || return
   shift 2
   { mkdir -p -- "$(dirname -- "$file")" && : >>"$file"; } 2>/dev/null ||
@@ -317,12 +317,28 @@ vgs_tui_split() { # FILE KEY COMMAND [ARG...]
   exec {fd}>>"$file" || _vgs_tui_refuse 1 "split=$file reason=open-failed" || return
   [[ $- == *e* ]] && had_errexit=1
   set +e
-  ( exec {fd}>&-; "$@" ) 2>&1 | while IFS= read -r line || [[ -n $line ]]; do
-    case "$line" in
-      "$key":\ *) printf '%s\n' "$line" >&"$fd" ;;
-      *) printf '%s\n' "$line" ;;
-    esac
-  done
+  ( exec {fd}>&-; "$@" ) 2>&1 | {
+    while LC_ALL=C IFS= read -r -N 1 char; do
+      case "$char" in
+        $'\n'|$'\r')
+          terminator="$char"
+          if [[ $terminator == $'\n' && $segment == "$key":\ * ]]; then
+            printf '%s\n' "$segment" >&"$fd" || exit 1
+          else
+            printf '%s%s' "$segment" "$terminator" || exit 1
+          fi
+          segment=""
+          ;;
+        *) segment+="$char" ;;
+      esac
+    done
+    if [[ -n $segment ]]; then
+      case "$segment" in
+        "$key":\ *) printf '%s\n' "$segment" >&"$fd" || exit 1 ;;
+        *) printf '%s' "$segment" || exit 1 ;;
+      esac
+    fi
+  }
   status=${PIPESTATUS[0]}
   [[ -z $had_errexit ]] || set -e
   exec {fd}>&-

@@ -20,7 +20,7 @@ mkdir -p "$stubs" "$rt"
 stub() { printf '#!/bin/sh\n%s\n' "$2" >"$stubs/$1"; chmod +x "$stubs/$1"; } # NAME BODY
 # gum records its argv, one per line, prints an answer for captured prompts,
 # and exits with $tmp/gum-exit, 0 when absent.
-stub gum ": >\"$tmp/gum\"; cmd=\"\$1\"; last=\"\"; for a; do printf '%s\\n' \"\$a\" >>\"$tmp/gum\"; last=\"\$a\"; done; case \"\$cmd \$2\" in 'style --bold') printf 'bold:%s\\n' \"\$last\";; choose*|input*|filter*) printf 'gum-answer\\n';; esac; st=0; [ -f \"$tmp/gum-exit\" ] && read -r st <\"$tmp/gum-exit\"; exit \"\$st\""
+stub gum ": >\"$tmp/gum\"; cmd=\"\$1\"; for a; do printf '%s\\n' \"\$a\" >>\"$tmp/gum\"; done; case \"\$cmd\" in choose|input|filter) printf 'gum-answer\\n';; esac; st=0; [ -f \"$tmp/gum-exit\" ] && read -r st <\"$tmp/gum-exit\"; exit \"\$st\""
 # sudo records each call; `sudo /usr/bin/true` exits 1 while $tmp/sudo-deny exists.
 stub sudo "printf '%s\\n' \"\$*\" >>\"$tmp/sudo\"; [ \"\$*\" = /usr/bin/true ] && [ -e \"$tmp/sudo-deny\" ] && exit 1; exit 0"
 # uname -r prints $tmp/release; pgrep prints $tmp/pids and exits with $tmp/pgrep-exit, else 1.
@@ -93,7 +93,7 @@ check "an error is on stderr alone" test ! -s "$tmp/out"
 check "an error without a theme is ANSI red" test "$(cat "$tmp/err")" == "${esc}[31mbroken${esc}[0m"
 
 run 'vgs_tui_header "-Title" "a line"'
-check "a header is one bordered gum style with a bold title" test "$(cat "$tmp/gum")" == "$(printf '%s\n' style --border normal --padding "1 2" -- bold:-Title "a line")"
+check "a header is one bordered gum style with a bold title" test "$(cat "$tmp/gum")" == "$(printf '%s\n' style --border normal --padding "1 2" -- $'\033[1m-Title\033[0m' "a line")"
 check "a header starts with one blank line" starts_one_blank "$tmp/out"
 check "a header with no terminal writes nothing on stderr" test ! -s "$tmp/err"
 
@@ -320,6 +320,54 @@ split_fd_row() {
   ! grep -qxF "$tmp/split/clone.log" "$tmp/child-fds"
 }
 check "a split command does not inherit the log descriptor" split_fd_row
+split_segment_row() { # LIB_PATH
+  local row_lib="$1"
+  rm -rf -- "${tmp:?}/split"
+  mkdir -p -- "$tmp/split"
+  status=0
+  "${lib_env[@]}" LIB="$row_lib" TMP="$tmp" timeout 5 "$BASH" -c '
+    set -euo pipefail
+    source "$LIB"
+    mkfifo "$TMP/split/terminal" "$TMP/split/ack"
+    {
+      IFS= read -r -N 2 first <"$TMP/split/terminal"
+      printf "%s" "$first" >"$TMP/split/first"
+      printf x >"$TMP/split/ack"
+      IFS= read -r -N 4 rest <"$TMP/split/terminal"
+      printf "%s" "$rest" >"$TMP/split/rest"
+    } &
+    reader=$!
+    cmd() {
+      printf "a\r"
+      IFS= read -r -N 1 _ <"$TMP/split/ack"
+      printf "b\rc\n"
+      printf "jarvis-setup: hidden\n"
+    }
+    vgs_tui_split "$TMP/split/clone.log" jarvis-setup cmd >"$TMP/split/terminal"
+    wait "$reader"
+  ' >"$tmp/out" 2>"$tmp/err" || status=$?
+  [[ $status == 0 ]] &&
+    cmp -s "$tmp/split/first" <(printf 'a\r') &&
+    cmp -s "$tmp/split/rest" <(printf 'b\rc\n') &&
+    [[ $(cat "$tmp/split/clone.log") == 'jarvis-setup: hidden' && ! -s $tmp/err ]]
+}
+check "a split command streams carriage-return segments and logs keyed lines" split_segment_row "$LIB"
+split_closed_row() { # LIB_PATH
+  local row_lib="$1"
+  rm -rf -- "${tmp:?}/split"
+  mkdir -p -- "$tmp/split"
+  status=0
+  "${lib_env[@]}" LIB="$row_lib" TMP="$tmp" timeout 3 "$BASH" -c '
+    set -o pipefail
+    trap "" PIPE
+    source "$LIB"
+    cmd() { while :; do printf "plain\n" || exit 7; done; }
+    vgs_tui_split "$TMP/split/closed.log" jarvis-setup cmd | :
+    exit "${PIPESTATUS[0]}"
+  ' >"$tmp/out" 2>"$tmp/err" || status=$?
+  [[ $status != 0 && $status != 124 ]]
+}
+check "a split command stops when terminal output closes" split_closed_row "$LIB"
 run "vgs_tui_split /proc/version/clone.log jarvis-setup true"
 check "an unopenable split log is refused before the command" test "$status:$(err_first)" == "1:vgs-tui: refused: split=/proc/version/clone.log reason=open-failed"
 # A refusal: the keyed line to the log, each sentence and the log's name on
@@ -480,9 +528,12 @@ check "the unguarded mutant fails a guard row" test "$(guard_rows quiet && echo 
 control no-header-blank "_vgs_tui_header_gap() { printf '\\n'; }" "_vgs_tui_header_gap() { :; }"
 run 'vgs_tui_header "-Title" "a line"'
 check "the no-header-blank mutant fails the header blank row" test "$(starts_one_blank "$tmp/out" && echo green || echo red)" == red
-control no-bold-header 'title="$(gum style --bold -- "$title_line")"' 'title="$title_line"'
+control no-bold-header "printf -v title '\\033[1m%s\\033[0m' \"\$title_line\"" 'title="$title_line"'
 run 'vgs_tui_header "-Title" "a line"'
-check "the no-bold-header mutant fails the header argv row" test "$(cat "$tmp/gum")" != "$(printf '%s\n' style --border normal --padding "1 2" -- bold:-Title "a line")"
+check "the no-bold-header mutant fails the header argv row" test "$(cat "$tmp/gum")" != "$(printf '%s\n' style --border normal --padding "1 2" -- $'\033[1m-Title\033[0m' "a line")"
+control captured-gum-header "printf -v title '\\033[1m%s\\033[0m' \"\$title_line\"" 'title="$(gum style --bold -- "$title_line")"'
+run 'vgs_tui_header "-Title" "a line"'
+check "the captured-gum-header mutant fails the header argv row" test "$(cat "$tmp/gum")" != "$(printf '%s\n' style --border normal --padding "1 2" -- $'\033[1m-Title\033[0m' "a line")"
 control no-header-width '"${width[@]}" -- "$title" "$@"' '-- "$title" "$@"'
 check "the no-header-width mutant breaks the border at 60 columns" test "$(header_row 60 FILLS && echo green || echo red)" == red
 control columns-loud-without-terminal 'size="$(stty size 2>/dev/null </dev/tty)"' 'size="$(stty size </dev/tty 2>/dev/null)"'
@@ -501,12 +552,16 @@ run 'vgs_tui_success "Ready."' VGS_TUI_SUCCESS='#070809' VGS_TUI_ACCENT='#010203
 check "the accent-success mutant fails the success colour row" test "$(cat "$tmp/out")" != $'\n'"${esc}[38;2;7;8;9mReady.${esc}[0m"
 control stderr-on-screen '"$@" 2>>"$file"' '"$@"'
 check "the stderr-on-screen mutant fails the cause log row" test "$(logged_row && echo green || echo red)" == red
-control split-key-on-screen '      "$key":\ *) printf '\''%s\n'\'' "$line" >&"$fd" ;;' '      "$key":\ *) printf '\''%s\n'\'' "$line" ;;'
+control split-key-on-screen '            printf '\''%s\n'\'' "$segment" >&"$fd" || exit 1' '            printf '\''%s\n'\'' "$segment" || exit 1'
 check "the split-key-on-screen mutant fails the split row" test "$(split_row && echo green || echo red)" == red
 control split-status-lost 'status=${PIPESTATUS[0]}' 'status=0'
 check "the split-status-lost mutant fails the split row" test "$(split_row && echo green || echo red)" == red
-control split-fd-inherited '( exec {fd}>&-; "$@" ) 2>&1' '"$@" 2>&1'
+control split-fd-inherited '( exec {fd}>&-; "$@" ) 2>&1' '( "$@" ) 2>&1'
 check "the split-fd-inherited mutant fails the split descriptor row" test "$(split_fd_row && echo green || echo red)" == red
+control split-line-buffered 'while LC_ALL=C IFS= read -r -N 1 char; do' 'while IFS= read -r char; do'
+check "the split-line-buffered mutant fails the segment row" test "$(split_segment_row "$copy" && echo green || echo red)" == red
+control split-terminal-ignored 'printf '\''%s%s'\'' "$segment" "$terminator" || exit 1' 'printf '\''%s%s'\'' "$segment" "$terminator"'
+check "the split-terminal-ignored mutant fails the closed terminal row" test "$(split_closed_row "$copy" && echo green || echo red)" == red
 control refuse-status 'return "$refused"' 'return 0'
 check "the refuse-status mutant fails the refusal row" test "$(refuse_row && echo green || echo red)" == red
 control refuse-one-sentence '  vgs_tui_failed "$file" "$@"' '  vgs_tui_failed "$file" "$1"'
