@@ -1,6 +1,9 @@
 # An unreadable user file settles, keeps the bar, and refuses every write
 # until it reads again. A user file the shell reads and the disk refuses to
-# write answers the write with the refusal and keeps its value.
+# write answers the write with the refusal and keeps its value. A version 1
+# user file is written as version 2 once the shell reads it, its layout
+# entry's settings moved into the plugin's row; a copy whose read migrates
+# nothing is its control, and refuses the file.
 # inputs: shell/Core/Config.qml shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/Bar.qml shell/plugins/vgs.bar/Service.qml bin/vgshell shell/Commons/WatchedFile.qml bin/vgshell-plugin-judge scripts/smoke/rows/capability-release.sh
 set -euo pipefail
 config_user_state() { ipc shell listPlugins | py_reply 'import json,sys; print(json.load(sys.stdin)["config"]["user"])'; }
@@ -43,7 +46,7 @@ expect_widgets "the widget is back after the unwritable rows" '["acme.tick"]'
 # until the file passes again.
 user_good="$(cat "$home/.config/vgshell/shell.json")"
 expected_errors+=('config: .*/shell\.json malformed: plugins\.0 must be an object with a string id')
-printf '{ "version": 1, "plugins": ["acme.tick"] }\n' >"$home/.config/vgshell/shell.json.tmp" && mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
+printf '{ "version": 2, "plugins": ["acme.tick"] }\n' >"$home/.config/vgshell/shell.json.tmp" && mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
 expect_poll "a user file with a malformed plugins row reads as malformed" malformed config_user_state
 expect_log "the malformed row is logged with its path in the file" 1 'config: .*/shell\.json malformed: plugins\.0 must be an object with a string id'
 expect "a write to a malformed user file is refused" "refused: user-config=malformed path=$home/.config/vgshell/shell.json" ipc shell setPluginEnabled acme.tick false
@@ -73,6 +76,36 @@ expect_poll "vgshell plugin list names a disabled id no plugin has" "unknown vgs
 printf '%s\n' "$user_good" >"$home/.config/vgshell/shell.json.tmp" && mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
 expect_poll "vgshell plugin list names no unknown id once the file drops it" "" plugin_list_unknown
 
+# A user file of the previous format version is migrated where the shell
+# reads it: a key of a layout entry moves into the plugin's row, where the
+# row's own value wins, the file is written once as version 2 and the log
+# names it.
+config_plant_version_one() {
+  python3 - "$home/.config/vgshell/shell.json" <<'PY'
+import json, os, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["version"] = 1
+d["plugins"] = [r for r in d.get("plugins", []) if r["id"] != "acme.tick"] + [{"id": "acme.tick", "format": "row-wins"}]
+entries = [e for s in ("left", "center", "right") for e in d["bar"]["layout"].get(s, []) if e["id"] == "acme.tick"]
+assert len(entries) == 1, entries
+entries[0].update(format="entry-loses", extra="moves")
+json.dump(d, open(p + ".tmp", "w"), indent=2)
+os.replace(p + ".tmp", p)
+PY
+}
+# config_migration_read: the user file's version, acme.tick's layout
+# entries and its plugins row.
+config_migration_read() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); l=d["bar"]["layout"]; print(json.dumps([d.get("version"), [e for s in ("left", "center", "right") for e in l.get(s, []) if e["id"] == "acme.tick"], [r for r in d.get("plugins", []) if r["id"] == "acme.tick"]]))' "$home/.config/vgshell/shell.json"; }
+config_migrated_before="$(log_lines 'config: user file migrated: ')" || fail "the instance log is unreadable before the migration"
+config_plant_version_one || fail "planting the version 1 user file failed"
+expect_poll "a version 1 user file is written as version 2 once it is read" '[2, [{"id": "acme.tick"}], [{"id": "acme.tick", "format": "row-wins", "extra": "moves"}]]' config_migration_read
+expect_log "the migration names the file and the version" "$((config_migrated_before + 1))" 'config: user file migrated: file=.*/shell\.json version=2'
+expect "the migrated user file reads as loaded" loaded config_user_state
+expect_poll "the widget reads the row's value" '"row-wins"' ipc smoke readInstance "$(bar_key)" acme.tick format
+printf '%s\n' "$user_good" >"$home/.config/vgshell/shell.json.tmp" && mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
+expect_poll "the user file reads as loaded once it is put back" loaded config_user_state
+
 configuration_control_restore() {
   chmod 644 "$home/.config/vgshell/shell.json" || :
   printf '%s\n' "$user_good" >"$home/.config/vgshell/shell.json.tmp" && mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
@@ -86,10 +119,22 @@ if copy_tree configuration-overwrites-malformed && edit_tree configuration-overw
     'if (false && userState !== "loaded" && userState !== "absent") return "refused: user-config=" + userState + " path=" + userPath;'; then
   stop_shell || :
   if start_shell "$sandbox/tree-configuration-overwrites-malformed" "$sandbox/configuration-overwrites-malformed-qs.log"; then
-    printf '{ "version": 1, "plugins": ["acme.tick"] }\n' >"$home/.config/vgshell/shell.json.tmp" && mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
+    printf '{ "version": 2, "plugins": ["acme.tick"] }\n' >"$home/.config/vgshell/shell.json.tmp" && mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
     expect_poll "control: the malformed file reaches the overwrite copy" malformed config_user_state
     expect "control: a shell that ignores the bad-state gate overwrites a malformed user file" ok ipc shell setPluginEnabled acme.tick false
     expect "control: the overwritten malformed file disables the plugin" True file_disables acme.tick
+  fi
+  configuration_control_restore
+fi
+
+if copy_tree configuration-unmigrated && edit_tree configuration-unmigrated shell/Core/Config.qml \
+    'const r = root.judge(path, content, true);' 'const r = root.judge(path, content, false);'; then
+  stop_shell || :
+  if start_shell "$sandbox/tree-configuration-unmigrated" "$sandbox/configuration-unmigrated-qs.log"; then
+    expected_errors+=('config: .*/shell\.json malformed: version must be 2, got 1')
+    config_plant_version_one || fail "control: planting the version 1 user file failed"
+    expect_poll "control: a shell that migrates nothing refuses the version 1 file" malformed config_user_state
+    expect "control: the version 1 file stays as it was" '[1, [{"id": "acme.tick", "format": "entry-loses", "extra": "moves"}], [{"id": "acme.tick", "format": "row-wins"}]]' config_migration_read
   fi
   configuration_control_restore
 fi

@@ -1,0 +1,9 @@
+{ "schemaVersion": 1, "id": "acme.outside", "name": "Outside", "version": "0.1.0", "author": "acme", "description": "smoke fixture of a settings row written outside the Settings page",
+  "icon": "flask-conical",
+  "kinds": ["service", "bar-widget"], "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml" }, "defaultSection": "right",
+  "settings": { "compact": false, "mode": "calm", "label": "probe" },
+  "schema": {
+    "compact": { "type": "boolean", "label": "Compact" },
+    "mode": { "type": "enum", "label": "Mode", "options": ["calm", "busy", "off"] },
+    "label": { "type": "string", "label": "Label", "allowCustom": true, "presets": [{ "value": "alpha", "label": "Alpha" }] }
+  } }

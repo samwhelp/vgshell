@@ -24,6 +24,13 @@
 # plugin's own page a key typed as text waits the same way, as the page's
 # only edit it holds the Details tab behind the prompt, and a refused one
 # returns to its text entry.
+# A settings row written outside the page: a second fixture, acme.outside,
+# a service and a bar widget whose settings live in its plugins row alone,
+# draws a switch, Compact, a segmented control, Mode, and a Custom text
+# field, Label. A row an editor saves over the user file while the page is
+# open redraws all three; one saved while the window is closed draws on
+# the next open; the widget reads the same row, and its layout entry holds
+# its id alone.
 # Controls. A copy of the Settings plugin, installed over the shipped one,
 # whose text field writes when it loses focus, whose bar is bound to no
 # edit, whose Discard and Ctrl+S do nothing and whose window asks nothing
@@ -33,16 +40,19 @@
 # hands its item fields no set and keys its items by nothing, whose page
 # moves no keyboard when its last edit goes, whose key field
 # reads its text entry's visibility, whose window host asks no instance
-# before it hides and whose window leaves after a refused save: the same
+# before it hides, whose window leaves after a refused save and whose
+# configuration keeps the user file it read first: the same
 # readers read no bar over a list item's typed value and that value gone
 # after the switch's write, the keyboard off the strip after the bar's Save,
 # Details shown over a typed key with no prompt, a hide that closes the
-# window with its edit lost and a page popped with its refused value.
+# window with its edit lost, a page popped with its refused value, and the
+# outside fixture's page and widget left on the old row once the copy has
+# read a newer one.
 # No latency is measured; each reading polls every 200 ms for up to 5 s.
 # The bar holds its Saved line for saveBar.duration, 1600 ms, and fades for
 # motion.duration.normal, 150 ms (Tokens.js), so the control waits 3 s
 # before it reads a bar still drawn.
-# inputs: shell/plugins/vgs.settings/* scripts/smoke/fixtures/plugins/acme.unsaved/* shell/Ui/feedback/SaveBar.qml shell/Ui/feedback/Dialog.qml shell/Ui/foundation/Scrim.qml shell/Ui/controls/TextField.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/Button.qml shell/Ui/layout/Pane.qml shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Hosts/SummonHost.qml shell/Hosts/AppWindow.qml shell/Hosts/PluginSlot.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/PluginLogic.js shell/Commons/Reply.js shell/Commons/Tokens.js bin/vgshell bin/vgshell-scan
+# inputs: shell/plugins/vgs.settings/* scripts/smoke/fixtures/plugins/acme.unsaved/* scripts/smoke/fixtures/plugins/acme.outside/* shell/Ui/BarWidget.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/Switch.qml shell/Ui/feedback/SaveBar.qml shell/Ui/feedback/Dialog.qml shell/Ui/foundation/Scrim.qml shell/Ui/controls/TextField.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/Button.qml shell/Ui/layout/Pane.qml shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Hosts/SummonHost.qml shell/Hosts/AppWindow.qml shell/Hosts/PluginSlot.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/PluginLogic.js shell/Commons/Reply.js shell/Commons/Tokens.js bin/vgshell bin/vgshell-scan
 set -euo pipefail
 
 us_id=acme.unsaved
@@ -392,6 +402,59 @@ expect_poll "Discard closes the text entry" false settings_key_field typing
 expect_poll "the bar leaves after the key's Discard" hidden us_bar
 settings_page_close "$us_id"
 
+# A settings row written outside the page.
+uo_id=acme.outside
+# uo_drawn: the page's Compact switch, Mode's selected index and Label's
+# Custom text, as one JSON list, or what could not be read.
+uo_drawn() {
+  local compact mode label
+  compact="$(ipc smoke invokeInstance window vgs.settings fieldBoolean "{\"id\":\"$uo_id\",\"key\":\"compact\"}")" || return 1
+  mode="$(ipc smoke readMatchingDescendant window vgs.settings SegmentedControl model calm,busy,off currentIndex)" || return 1
+  label="$(ipc smoke invokeInstance window vgs.settings fieldCustom "{\"id\":\"$uo_id\",\"key\":\"label\"}")" || return 1
+  python3 -c 'import json,sys
+try: print(json.dumps([json.loads(sys.argv[1])["checked"], json.loads(sys.argv[2]), json.loads(sys.argv[3])["text"]]))
+except (ValueError, KeyError, TypeError): print("unread: %s | %s | %s" % tuple(sys.argv[1:]))' "$compact" "$mode" "$label"
+}
+# uo_widget: the same three settings as the fixture's widget holds them.
+uo_widget() { ipc smoke readInstance "$(bar_key)" "$uo_id" settings | py_reply 'import json,sys; s=json.load(sys.stdin); print(json.dumps([s["compact"], s["mode"], s["label"]]))'; }
+uo_widgets() { ipc smoke pluginInstances "$(bar_key)" "$uo_id"; }
+# uo_entries: the fixture's layout entries in the user file.
+uo_entries() { python3 -c 'import json,sys; l=json.load(open(sys.argv[1])).get("bar", {}).get("layout", {}); print(json.dumps([e for s in ("left", "center", "right") for e in l.get(s, []) if e["id"] == sys.argv[2]]))' "$us_file" "$uo_id"; }
+# uo_write COMPACT MODE LABEL: the fixture's row set as an editor saves the
+# user file, outside the page: written whole and moved into place.
+uo_write() {
+  python3 - "$us_file" "$uo_id" "$1" "$2" "$3" <<'PY'
+import json, os, sys
+path, ident, compact, mode, label = sys.argv[1:]
+doc = json.load(open(path))
+rows = doc.setdefault("plugins", [])
+row = next((r for r in rows if r["id"] == ident), None)
+if row is None:
+    row = {"id": ident}
+    rows.append(row)
+row.update(compact=compact == "true", mode=mode, label=label)
+with open(path + ".tmp", "w") as out:
+    json.dump(doc, out, indent=2)
+os.replace(path + ".tmp", path)
+PY
+}
+install_plugin_copy acme.outside "$uo_id" Outside
+rescan "a rescan finds the outside-write fixture"
+expect "enabling the outside-write fixture is allowed" ok ipc shell setPluginEnabled "$uo_id" true
+expect_poll "the outside-write fixture's widget is on the bar" 1 uo_widgets
+settings_page_open "$uo_id"
+expect_poll "the page draws the manifest's defaults" '[false, 0, "probe"]' uo_drawn
+uo_write true busy outside-one || fail "writing the row outside the page failed"
+expect_poll "a row written outside redraws the open page" '[true, 1, "outside-one"]' uo_drawn
+expect_poll "the widget reads the row written outside" '[true, "busy", "outside-one"]' uo_widget
+settings_page_close "$uo_id"
+uo_write false off outside-two || fail "writing the row with the window closed failed"
+settings_page_open "$uo_id"
+expect_poll "a row written while the window was closed draws on the next open" '[false, 2, "outside-two"]' uo_drawn
+expect_poll "the widget reads the newer row" '[false, "off", "outside-two"]' uo_widget
+expect "the widget's layout entry holds its id alone" '[{"id": "acme.outside"}]' uo_entries
+settings_page_close "$uo_id"
+
 # Control of the page's rules: a copy of the Settings plugin, installed
 # over the shipped one, that breaks each, read by the same readers.
 expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.settings')
@@ -454,9 +517,19 @@ if copy_tree unsaved-host \
   && edit_tree unsaved-host shell/plugins/vgs.settings/ListField.qml 'objectProp: "name"' '' \
   && edit_tree unsaved-host shell/plugins/vgs.settings/PluginPage.qml 'onEditedChanged: if (!edited && saveBar.activeFocus) tabs.tabs.forceActiveFocus(Qt.TabFocusReason)' 'onEditedChanged: {}' \
   && edit_tree unsaved-host shell/Ui/controls/ShortcutField.qml 'readonly property alias typing: entry.open' 'readonly property bool typing: entry.visible' \
-  && edit_tree unsaved-host shell/plugins/vgs.settings/Window.qml 'choice === "save" ? detail.save() : choice === "discard";' 'choice === "save" ? (detail.save(), true) : choice === "discard";'; then
+  && edit_tree unsaved-host shell/plugins/vgs.settings/Window.qml 'choice === "save" ? detail.save() : choice === "discard";' 'choice === "save" ? (detail.save(), true) : choice === "discard";' \
+  && edit_tree unsaved-host shell/Core/Config.qml 'root.user = r.value;' 'if (root.user === null) root.user = r.value;'; then
   stop_shell
   start_shell "$sandbox/tree-unsaved-host" "$sandbox/unsaved-host.log" || fail "the control shell of the tree copy starts"
+  settings_page_open "$uo_id"
+  expect_poll "control: the page draws the row the copy read at start" '[false, 2, "outside-two"]' uo_drawn
+  uo_loads="$(ipc smoke configUserLoads)" || fail "control: the user file's read count is unreadable"
+  uo_write true busy outside-three || fail "control: writing the row outside the page failed"
+  uo_read_since() { local loads; loads="$(ipc smoke configUserLoads)" || return 1; ((loads > uo_loads)) && echo read || echo waiting; }
+  expect_poll "control: the copy reads the file the editor saved" read uo_read_since
+  expect "control: a configuration that keeps its first row leaves the page on the old row" '[false, 2, "outside-two"]' uo_drawn
+  expect "control: and leaves the widget on the old row" '[false, "off", "outside-two"]' uo_widget
+  settings_page_close "$uo_id"
   settings_page_open "$us_id"
   expect_poll "control: the page draws its Gap field" drawn us_line Gap
   us_edit "control: the list item's edit" 34 35
@@ -506,7 +579,10 @@ fi
 
 expect "disabling the unsaved-edits fixture is allowed" ok ipc shell setPluginEnabled "$us_id" false
 expect_poll "the fixture's service is gone" False record_exists "$us_id"
-rm -rf -- "${home:?}/.config/vgshell/plugins/$us_id"
+expect "disabling the outside-write fixture is allowed" ok ipc shell setPluginEnabled "$uo_id" false
+expect_poll "the outside-write fixture's widget is gone" 0 uo_widgets
+rm -rf -- "${home:?}/.config/vgshell/plugins/$us_id" "${home:?}/.config/vgshell/plugins/$uo_id"
 cp -- "$us_saved" "$us_file.tmp" && mv -T -- "$us_file.tmp" "$us_file" || fail "putting the user file back failed"
 rescan "a rescan drops the unsaved-edits fixture"
 expect "the fixture is no longer listed" False plugin_known "$us_id"
+expect "the outside-write fixture is no longer listed" False plugin_known "$uo_id"
