@@ -429,12 +429,15 @@ Item {
         if (reply !== "ok") throw new Error("jarvis: " + reply);
     }
 
-    // The Personality row: the section's lines, or what keeps it from showing.
+    // The Personality row: the section as the row's hint, which Settings
+    // draws as text where a state's text and lines draw as badges; or what
+    // keeps it from showing. The hint holds at most PluginLogic's
+    // STATUS_HINT_MAX of 200 characters, so a longer or cut section ends in "…".
     function publishPersonality(shown) {
-        const more = shown.kind === "section" && shown.more ? ["More is in AGENTS.md."] : [];
+        const joined = shown.kind === "section" ? shown.lines.join(" ") : "";
+        const cut = joined.length > 200 || shown.more === true;
         const value = shown.kind === "section"
-            ? Object.assign({ tone: "ok", text: shown.lines[0], action: true },
-                shown.lines.length + more.length > 1 ? { lines: shown.lines.slice(1).concat(more) } : {})
+            ? { tone: "ok", text: "Set", hint: cut ? joined.slice(0, 199).trimEnd() + "…" : joined, action: true }
             : shown.kind === "none" ? { tone: "info", text: "No home folder",
                 hint: "Choose a home folder first in Settings > Jarvis > Home folder." }
             : shown.kind === "missing" ? { tone: "info", text: "No Personality section", action: true,
