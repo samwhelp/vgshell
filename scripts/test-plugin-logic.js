@@ -153,7 +153,7 @@ function suite(ctx, check) {
         ["a schema info of 400 characters", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", info: "x".repeat(400) } } }, null],
         ["min on a string entry", { settings: { a: "x" }, schema: { a: { type: "string", label: "A", presets: [{ value: "x" }], min: 1 } } }, "schema.a.min needs type number"],
         ["step on a boolean entry", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", step: 1 } } }, "schema.a.step needs type number"],
-        ["max on an enum entry", { settings: { a: "x" }, schema: { a: { type: "enum", label: "A", options: ["x"], max: 1 } } }, "schema.a.max needs type number"],
+        ["max on an enum entry", { settings: { a: "x" }, schema: { a: { type: "enum", label: "A", options: [{ value: "x", label: "X" }], max: 1 } } }, "schema.a.max needs type number"],
         ["a min that is not a number", { settings: { a: 8 }, schema: { a: { type: "number", label: "A", min: "1" } } }, "schema.a.min must be a finite number"],
         ["a max that is not finite", { settings: { a: 8 }, schema: { a: { type: "number", label: "A", max: null } } }, "schema.a.max must be a finite number"],
         ["min equal to max", { settings: { a: 8 }, schema: { a: { type: "number", label: "A", min: 8, max: 8 } } }, "schema.a.min must be less than max"],
@@ -204,12 +204,18 @@ function suite(ctx, check) {
         ["a description link to a page that is not a string", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Tones are set in Appearance → Sounds.", link: { text: "Appearance → Sounds", pane: ["vgs.sounds"] } } } }, "schema.a.link.pane must be a plugin id"],
         ["a list item's description link is judged", { settings: { a: [] }, schema: { a: { type: "list", label: "A", items: { enabled: { type: "boolean", label: "Enabled", description: "Get a key at OpenAI.", link: { text: "OpenAI", url: "http://platform.openai.com/" } } }, defaults: { enabled: true } } } }, "schema.a.items: schema.enabled.link.url must be an https address"],
         ["enum entry without options", { settings: { a: "x" }, schema: { a: { type: "enum", label: "A" } } }, "schema.a.options must be a non-empty array"],
-        ["enum entry with a repeated option", { settings: { a: "x" }, schema: { a: { type: "enum", label: "A", options: ["x", "x"] } } }, "schema.a.options must hold distinct"],
+        ["enum entry with a repeated option", { settings: { a: "x" }, schema: { a: { type: "enum", label: "A", options: [{ value: "x", label: "X" }, { value: "x", label: "Y" }] } } }, "schema.a.options must hold distinct values"],
+        ["an enum option that is a plain string", { settings: { a: "x" }, schema: { a: { type: "enum", label: "A", options: ["x"] } } }, "schema.a.options.0 must be an object"],
+        ["an enum option without a label", { settings: { a: "x" }, schema: { a: { type: "enum", label: "A", options: [{ value: "x" }] } } }, "schema.a.options.0.label must be a printable line"],
+        ["an enum option without a value", { settings: { a: "x" }, schema: { a: { type: "enum", label: "A", options: [{ label: "X" }] } } }, "schema.a.options.0.value must be a non-empty string"],
+        ["an enum option with an empty value", { settings: { a: "" }, schema: { a: { type: "enum", label: "A", options: [{ value: "", label: "None" }] } } }, "schema.a.options.0.value must be a non-empty string"],
+        ["an enum option with a label of two lines", { settings: { a: "x" }, schema: { a: { type: "enum", label: "A", options: [{ value: "x", label: "A\nB" }] } } }, "schema.a.options.0.label must be a printable line"],
+        ["an enum option with an unknown key", { settings: { a: "x" }, schema: { a: { type: "enum", label: "A", options: [{ value: "x", label: "X", name: "X" }] } } }, "schema.a.options.0 has unknown key \"name\""],
         ["options on a non-enum entry", { settings: { a: "x" }, schema: { a: { type: "string", label: "A", options: ["x"] } } }, "schema.a.options needs type enum"],
         ["a string takes choices from status", { capabilities: ["status"], status: { devices: { type: "choices", label: "Devices" } }, settings: { a: "" }, schema: { a: { type: "string", label: "A", optionsFrom: "devices" } } }, null],
         ["a configured choice need not be offered", { capabilities: ["status"], status: { devices: { type: "choices", label: "Devices", hidden: true } }, settings: { a: "removed" }, schema: { a: { type: "string", label: "A", optionsFrom: "devices" } } }, null],
         ["optionsFrom on a number", { settings: { a: 1 }, schema: { a: { type: "number", label: "A", optionsFrom: "devices" } } }, "schema.a.optionsFrom needs type string"],
-        ["optionsFrom on an enum", { settings: { a: "x" }, schema: { a: { type: "enum", label: "A", options: ["x"], optionsFrom: "devices" } } }, "schema.a.optionsFrom needs type string"],
+        ["optionsFrom on an enum", { settings: { a: "x" }, schema: { a: { type: "enum", label: "A", options: [{ value: "x", label: "X" }], optionsFrom: "devices" } } }, "schema.a.optionsFrom needs type string"],
         ["optionsFrom on a boolean", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", optionsFrom: "devices" } } }, "schema.a.optionsFrom needs type string"],
         ["optionsFrom not a string", { settings: { a: "" }, schema: { a: { type: "string", label: "A", optionsFrom: 3 } } }, "schema.a.optionsFrom must name a status key"],
         ["optionsFrom empty", { settings: { a: "" }, schema: { a: { type: "string", label: "A", optionsFrom: "" } } }, "schema.a.optionsFrom must name a status key"],
@@ -254,7 +260,7 @@ function suite(ctx, check) {
         ["unit is known", { settings: { a: 2 }, schema: { a: { type: "number", label: "A", unit: "weeks" } } }, "schema.a.unit must be one of seconds, minutes, hours, days, %"],
         ["schema entry without a default", { schema: { a: { type: "string", label: "A", presets: [{ value: "x" }] } } }, "schema.a has no default in settings"],
         ["default of the wrong type", { settings: { a: 3 }, schema: { a: { type: "string", label: "A", presets: [{ value: "x" }] } } }, "settings.a does not fit its schema: want=string"],
-        ["enum default outside its options", { settings: { a: "z" }, schema: { a: { type: "enum", label: "A", options: ["x", "y"] } } }, "settings.a does not fit its schema: want=one-of:x|y"],
+        ["enum default outside its options", { settings: { a: "z" }, schema: { a: { type: "enum", label: "A", options: [{ value: "x", label: "X" }, { value: "y", label: "Y" }] } } }, "settings.a does not fit its schema: want=one-of:x|y"],
         ["configure without a schema", { capabilities: ["configure"] }, "capability configure needs a schema"],
         ["configure with a schema", { capabilities: ["configure"], settings: { a: true }, schema: { a: { type: "boolean", label: "A" } } }, null],
         ["status with every entry key", { capabilities: ["status", "tui"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { slackToken: { type: "presence", label: "Slack token", group: "Slack", hint: "h", action: { label: "Set up", tui: "setup" }, hidden: false }, detail: { type: "data", label: "Detail" }, catalog: { type: "launcherRows", label: "Catalog" } } }, null],
@@ -372,7 +378,7 @@ function suite(ctx, check) {
         tap: { type: "boolean", label: "T" },
         natural: { type: "boolean", label: "N" },
         layouts: { type: "string", label: "L", presets: [{ value: "us" }, { value: "us,de" }], allowCustom: true },
-        profile: { type: "enum", label: "P", options: ["flat", "adaptive"] }
+        profile: { type: "enum", label: "P", options: [{ value: "flat", label: "Flat" }, { value: "adaptive", label: "Adaptive" }] }
     };
     const optionRows = [
         ["an option of each type", { sensitivity: "input.sensitivity", rate: "input.repeat_rate", tap: "input.touchpad.tap_to_click", layouts: "input.kb_layout", profile: "input.accel_profile" }, {}, null],
@@ -394,7 +400,7 @@ function suite(ctx, check) {
         ["an int with a fractional step", { rate: "input.repeat_rate" }, { rate: { type: "number", label: "R", min: 1, max: 100, step: 0.5 } }, "hyprland.options.rate needs a whole min, max and step"],
         ["an int with a fractional bound", { rate: "input.repeat_delay" }, { rate: { type: "number", label: "R", min: 1.5, max: 100 } }, "hyprland.options.rate needs a whole min, max and step"],
         ["a string for a path with choices", { layouts: "input.accel_profile" }, {}, "hyprland.options.layouts needs an enum schema entry, got string"],
-        ["an enum offering a value outside the choices", { profile: "input.accel_profile" }, { profile: { type: "enum", label: "P", options: ["flat", "custom"] } }, "hyprland.options.profile offers \"custom\", not one of adaptive, flat"],
+        ["an enum offering a value outside the choices", { profile: "input.accel_profile" }, { profile: { type: "enum", label: "P", options: [{ value: "flat", label: "Flat" }, { value: "custom", label: "Custom" }] } }, "hyprland.options.profile offers \"custom\", not one of adaptive, flat"],
         ["a boolean for a free string", { tap: "input.kb_layout" }, {}, "hyprland.options.tap needs a string or enum schema entry, got boolean"]
     ];
     for (const [name, options, schemaPatch, want] of optionRows) {
@@ -1078,10 +1084,54 @@ function suite(ctx, check) {
     const shippedSettings = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.settings", "manifest.json"), "utf8")), "/p");
     check("enabledRefusal: the shipped Plugins manifest refuses a disable", shippedSettings.ok ? ctx.enabledRefusal(shippedSettings.manifest, false) : shippedSettings.error, "refused: enabled=vgs.settings reason=always-on");
 
+    // The enum values a configuration written under the plain-string
+    // option form may hold: [plugin, setting, list item field or null,
+    // values]. Each still writes and reads back as it is.
+    const STORED_ENUMS = [
+        ["vgs.agent-warden", "notify", null, ["problems", "everything", "off"]],
+        ["vgs.ai-usage", "view", null, ["compact", "full"]],
+        ["vgs.capture", "processing", null, ["save-copy", "copy", "save"]],
+        ["vgs.capture", "audio", null, ["none", "desktop", "microphone", "both"]],
+        ["vgs.capture", "quality", null, ["medium", "high", "very_high", "ultra"]],
+        ["vgs.capture", "codec", null, ["auto", "h264", "hevc", "av1", "vp9"]],
+        ["vgs.displays", "keysTarget", null, ["focused", "all"]],
+        ["vgs.jarvis", "mode", null, ["hold", "toggle", "always"]],
+        ["vgs.jarvis", "voiceProvider", null, ["auto", "local", "realtime", "gemini"]],
+        ["vgs.jarvis", "taskTerminal", null, ["auto", "tmux", "floating"]],
+        ["vgs.jarvis", "cloudVision", null, ["ask", "allow", "never"]],
+        ["vgs.mouse", "accelProfile", null, ["adaptive", "flat"]],
+        ["vgs.notifications", "position", null, ["top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right"]],
+        ["vgs.power", "chargerProfile", null, ["power-saver", "balanced", "performance"]],
+        ["vgs.power", "batteryProfile", null, ["power-saver", "balanced", "performance"]],
+        ["vgs.scratchpads", "pads", "position", ["center", "top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"]],
+        ["vgs.scratchpads", "pads", "entry", ["top", "bottom", "left", "right"]],
+        ["vgs.scratchpads", "pads", "motion", ["slide", "fade", "none"]],
+        ["vgs.sysmon", "layout", null, ["Stacked", "One line"]],
+        ["vgs.sysmon", "labelStyle", null, ["icons", "text"]],
+        ["vgs.sysmon", "temperatureUnit", null, ["Celsius", "Fahrenheit"]],
+        ["vgs.sysmon", "memoryUnit", null, ["percent", "used"]],
+        ["vgs.themes", "placement", null, ["top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"]],
+        ["vgs.traffic", "layout", null, ["Stacked", "One line"]],
+        ["vgs.traffic", "labelStyle", null, ["icons", "text"]],
+        ["vgs.traffic", "show", null, ["both", "download", "upload"]],
+        ["vgs.updates", "snapshot", null, ["auto", "off"]],
+        ["vgs.voice", "osd", null, ["plasma", "ring", "off"]]
+    ];
+    for (const [id, key, field, values] of STORED_ENUMS) {
+        const judged = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", id, "manifest.json"), "utf8")), "/p");
+        const got = !judged.ok ? [judged.error] : values.map(value => {
+            const stored = field === null ? value : [Object.assign({ name: "stored" }, judged.manifest.schema[key].defaults, { [field]: value })];
+            const refusal = ctx.settingRefusal(judged.manifest, key, stored);
+            const read = refusal !== "" ? refusal : ctx.settingsFor({ plugins: [{ id: id, [key]: stored }] }, judged.manifest)[key];
+            return field === null || typeof read === "string" ? read : read[0][field];
+        });
+        check("a stored enum value reads unchanged: " + id + " " + key + (field === null ? "" : "." + field), got, values);
+    }
+
     // A plugin with a settings schema, for the setting rows.
     const tunable = ctx.validateManifest({ schemaVersion: 1, id: "acme.tune", name: "T", version: "1", author: "a", description: "d", kinds: ["service", "bar-widget"], entryPoints: { service: "S.qml", "bar-widget": "W.qml" },
         settings: { label: "x", size: 2, on: true, mode: "a", free: 1, limit: 8 },
-        schema: { label: { type: "string", label: "Label", presets: [{ value: "x" }], allowCustom: true }, size: { type: "number", label: "Size" }, on: { type: "boolean", label: "On" }, mode: { type: "enum", label: "Mode", options: ["a", "b"] }, limit: { type: "number", label: "Limit", min: 2, max: 30, step: 1, group: "Timing" } } }, "/p").manifest;
+        schema: { label: { type: "string", label: "Label", presets: [{ value: "x" }], allowCustom: true }, size: { type: "number", label: "Size" }, on: { type: "boolean", label: "On" }, mode: { type: "enum", label: "Mode", options: [{ value: "a", label: "A" }, { value: "b", label: "B" }] }, limit: { type: "number", label: "Limit", min: 2, max: 30, step: 1, group: "Timing" } } }, "/p").manifest;
     if (tunable === undefined) throw new Error("fixture manifest refused: acme.tune");
 
     // settingRefusal rows: [name, key, value, want]
@@ -1646,8 +1696,8 @@ function suite(ctx, check) {
     // The `list` type and `hyprland.pads` as PluginLogic judges and expands
     // them through Pads.js, whose own rules scripts/test-pads.js holds.
     const padItems = { "class": { type: "string", label: "Class", presets: [{ value: "org.acme.pad" }], allowCustom: true }, width: { type: "number", label: "Width", min: 10, max: 100 },
-        height: { type: "number", label: "Height", min: 10, max: 100 }, position: { type: "enum", label: "Position", options: ["center", "top"] }, margin: { type: "number", label: "Margin", min: 0, max: 20 },
-        entry: { type: "enum", label: "Entry", options: ["top", "left"] }, motion: { type: "enum", label: "Motion", options: ["slide", "none"] } };
+        height: { type: "number", label: "Height", min: 10, max: 100 }, position: { type: "enum", label: "Position", options: [{ value: "center", label: "Center" }, { value: "top", label: "Top" }] }, margin: { type: "number", label: "Margin", min: 0, max: 20 },
+        entry: { type: "enum", label: "Entry", options: [{ value: "top", label: "Top" }, { value: "left", label: "Left" }] }, motion: { type: "enum", label: "Motion", options: [{ value: "slide", label: "Slide" }, { value: "none", label: "None" }] } };
     const padDefaults = { "class": "org.acme.pad", width: 60, height: 50, position: "top", margin: 2, entry: "top", motion: "slide" };
     const padSchema = { pads: { type: "list", label: "Pads", items: padItems, defaults: padDefaults } };
     const padsRaw = Object.assign({}, svc, { id: "acme.pads", capabilities: ["shortcut"], settings: { pads: [] }, schema: padSchema, hyprland: { pads: "pads" } });
@@ -1861,7 +1911,13 @@ const CONTROLS = [
     ["an int option is whole", "if (row.type === \"int\" && !(", "if (false && !("],
     ["an int option's step is whole", " && (entry.step === undefined || Number.isInteger(entry.step))))", "))"],
     ["a choice option takes an enum", "if (entry.type !== \"enum\")\n            return \"needs an enum", "if (false)\n            return \"needs an enum"],
-    ["a choice option offers its choices alone", "if (row.choices.indexOf(entry.options[o]) === -1)", "if (false)"],
+    ["a choice option offers its choices alone", "if (row.choices.indexOf(offered[o]) === -1)", "if (false)"],
+    ["an enum option is an object, never a plain string", "if (!isPlainObject(option))", "if (false)"],
+    ["an enum option carries only value and label", "if (OPTION_KEYS.indexOf(optionKeys[ok]) === -1)", "if (false)"],
+    ["an enum option has a value", "if (typeof option.value !== \"string\" || option.value.length === 0)", "if (false)"],
+    ["an enum option has a label", "if (!isPrintableLine(option.label, PRESET_LABEL_MAX))", "if (false)"],
+    ["enum option values are distinct", "if (seenOptions.indexOf(option.value) !== -1)", "if (false)"],
+    ["an enum stores its option values", "return entry.options.map(function (option) { return option.value; });", "return entry.options.map(function (option) { return option.label; });"],
     ["a free string option takes a string or an enum", "return entry.type === \"string\" || entry.type === \"enum\" ? \"\" : \"needs a string", "return true ? \"\" : \"needs a string"],
     ["a manifest carries its options", "options: clone(raw.hyprland.options || {})", "options: {}"],
     ["dictation actions need the capability", 'if (capabilities.indexOf("dictation") === -1)', 'if (false)'],

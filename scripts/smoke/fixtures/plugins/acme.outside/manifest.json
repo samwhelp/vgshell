@@ -4,6 +4,6 @@
   "settings": { "compact": false, "mode": "calm", "label": "probe" },
   "schema": {
     "compact": { "type": "boolean", "label": "Compact" },
-    "mode": { "type": "enum", "label": "Mode", "options": ["calm", "busy", "off"] },
+    "mode": { "type": "enum", "label": "Mode", "options": [{ "value": "calm", "label": "Calm" }, { "value": "busy", "label": "Busy" }, { "value": "off", "label": "Off" }] },
     "label": { "type": "string", "label": "Label", "allowCustom": true, "presets": [{ "value": "alpha", "label": "Alpha" }] }
   } }

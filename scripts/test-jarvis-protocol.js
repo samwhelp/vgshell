@@ -38,10 +38,10 @@ const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manif
 const kept = ["localTier", "startAtBoot", "bootSession"];
 assert.deepEqual(Object.keys(manifest.settings).filter(key => !kept.includes(key)).concat(["sounds", "dictation"]).sort(), Object.keys(hello.settings).sort());
 assert.deepEqual([Object.keys(manifest.sounds), manifest.sounds.feedback.own !== undefined], [["feedback"], true]);
-assert.deepEqual([manifest.settings.cloudVision, manifest.schema.cloudVision.options], ["ask", ["ask", "allow", "never"]]);
+assert.deepEqual([manifest.settings.cloudVision, manifest.schema.cloudVision.options.map(option => option.value)], ["ask", ["ask", "allow", "never"]]);
 assert.equal(typeof manifest.settings.privateWindows, "string");
-assert.deepEqual(manifest.schema.mode.options, ["hold", "toggle", "always"]);
-assert.deepEqual(manifest.schema.taskTerminal.options, ["auto", "tmux", "floating"]);
+assert.deepEqual(manifest.schema.mode.options.map(option => option.value), ["hold", "toggle", "always"]);
+assert.deepEqual(manifest.schema.taskTerminal.options.map(option => option.value), ["auto", "tmux", "floating"]);
 assert.deepEqual(manifest.tui.task, { script: "tui/task.sh", title: "Jarvis coding task", presentation: "plain" });
 assert.deepEqual(manifest.status.tasks.type, "count");
 assert.equal(manifest.hyprland.binds.every(bind => typeof bind.info === "string" && bind.info !== ""), true);

@@ -88,8 +88,8 @@
       "type": "enum",
       "label": "Layout",
       "options": [
-        "Stacked",
-        "One line"
+        { "value": "Stacked", "label": "Stacked" },
+        { "value": "One line", "label": "One line" }
       ],
       "description": "Stacked shows two readings on two short lines.",
       "group": "Readings"
@@ -98,8 +98,8 @@
       "type": "enum",
       "label": "Labels",
       "options": [
-        "icons",
-        "text"
+        { "value": "icons", "label": "Icons" },
+        { "value": "text", "label": "Text" }
       ],
       "description": "Shows an icon or a short name before each reading.",
       "group": "Readings"
@@ -117,8 +117,8 @@
       "type": "enum",
       "label": "Temperature unit",
       "options": [
-        "Celsius",
-        "Fahrenheit"
+        { "value": "Celsius", "label": "Celsius" },
+        { "value": "Fahrenheit", "label": "Fahrenheit" }
       ],
       "description": "Sets the unit for CPU and GPU temperatures.",
       "group": "Readings"
@@ -155,8 +155,8 @@
       "label": "Memory unit",
       "group": "Memory",
       "options": [
-        "percent",
-        "used"
+        { "value": "percent", "label": "Percent" },
+        { "value": "used", "label": "Used" }
       ]
     },
     "showGpu": {

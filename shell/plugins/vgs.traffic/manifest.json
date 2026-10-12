@@ -117,8 +117,8 @@
       "type": "enum",
       "label": "Layout",
       "options": [
-        "Stacked",
-        "One line"
+        { "value": "Stacked", "label": "Stacked" },
+        { "value": "One line", "label": "One line" }
       ],
       "description": "Stacked shows two readings on two short lines.",
       "group": "Readings"
@@ -127,8 +127,8 @@
       "type": "enum",
       "label": "Labels",
       "options": [
-        "icons",
-        "text"
+        { "value": "icons", "label": "Icons" },
+        { "value": "text", "label": "Text" }
       ],
       "description": "Shows an icon or a short name before each reading.",
       "group": "Readings"
@@ -146,9 +146,9 @@
       "type": "enum",
       "label": "Speeds shown",
       "options": [
-        "both",
-        "download",
-        "upload"
+        { "value": "both", "label": "Both" },
+        { "value": "download", "label": "Download" },
+        { "value": "upload", "label": "Upload" }
       ],
       "group": "Display"
     },

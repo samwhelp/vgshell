@@ -35,9 +35,9 @@
       "label": "On-screen display",
       "description": "Shown at the bottom of the focused screen while you dictate",
       "options": [
-        "plasma",
-        "ring",
-        "off"
+        { "value": "plasma", "label": "Plasma" },
+        { "value": "ring", "label": "Ring" },
+        { "value": "off", "label": "Off" }
       ],
       "group": "Display"
     }

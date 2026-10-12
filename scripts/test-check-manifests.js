@@ -77,7 +77,7 @@ row("two unset default keys pass", tmp => {
 // Pads: the check refuses a second manifest that declares pads, since the
 // layer holds one pads table.
 const padItems = { "class": { type: "string", label: "Class", presets: [{ value: "org.acme.pad" }], allowCustom: true }, width: { type: "number", label: "Width", min: 10, max: 100 }, height: { type: "number", label: "Height", min: 10, max: 100 },
-    position: { type: "enum", label: "Position", options: ["center", "top"] }, margin: { type: "number", label: "Margin", min: 0, max: 20 }, entry: { type: "enum", label: "Entry", options: ["top", "left"] }, motion: { type: "enum", label: "Motion", options: ["slide", "none"] } };
+    position: { type: "enum", label: "Position", options: [{ value: "center", label: "Center" }, { value: "top", label: "Top" }] }, margin: { type: "number", label: "Margin", min: 0, max: 20 }, entry: { type: "enum", label: "Entry", options: [{ value: "top", label: "Top" }, { value: "left", label: "Left" }] }, motion: { type: "enum", label: "Motion", options: [{ value: "slide", label: "Slide" }, { value: "none", label: "None" }] } };
 const padDefaults = { "class": "org.acme.pad", width: 60, height: 50, position: "top", margin: 2, entry: "top", motion: "slide" };
 const padsPlugin = id => Object.assign({}, good, { id: id, capabilities: ["shortcut"], settings: { pads: [] }, schema: { pads: { type: "list", label: "Pads", items: padItems, defaults: padDefaults } }, hyprland: { pads: "pads" } });
 row("a plugin declaring pads passes", tmp => { const d = path.join(tmp, "a"); plugin(d, padsPlugin("acme.one"), true); return ["--", d]; }, 0, "ok       acme.one");
@@ -124,7 +124,7 @@ row("a tui key without its capability is refused with the judge's line", tmp => 
 function widget(fields) {
     const schema = {}, settings = {};
     for (const [key, group] of fields) {
-        schema[key] = Object.assign({ type: "enum", label: key, options: ["a", "b"] }, group === null ? {} : { group: group });
+        schema[key] = Object.assign({ type: "enum", label: key, options: [{ value: "a", label: "A" }, { value: "b", label: "B" }] }, group === null ? {} : { group: group });
         settings[key] = "a";
     }
     return Object.assign({}, good, { kinds: ["bar-widget"], entryPoints: { "bar-widget": "Service.qml" }, settings: settings, schema: schema });

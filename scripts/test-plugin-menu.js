@@ -33,7 +33,7 @@ function fixture() {
         schemaVersion: 1, id: "acme.style", name: "Style", version: "1", author: "a", description: "d",
         kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["shortcut"],
         settings: { noGaps: false, mode: "dark" },
-        schema: { noGaps: { type: "boolean", label: "No gaps" }, mode: { type: "enum", label: "Mode", options: ["dark", "light"] } },
+        schema: { noGaps: { type: "boolean", label: "No gaps" }, mode: { type: "enum", label: "Mode", options: [{ value: "dark", label: "Dark" }, { value: "light", label: "Light" }] } },
         menu: {
             style: { label: "Style", icon: "paintbrush" },
             "style.open": { label: "Open", icon: "palette", aliases: ["themes"], description: "Open the browser", shortcut: "open" },

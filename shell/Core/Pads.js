@@ -149,9 +149,9 @@ function manifestError(pads, capabilities, schema) {
         if (items[field].type !== FIELDS[field])
             return at + " must be a " + FIELDS[field] + " entry, got " + items[field].type;
         if (hasOwn(ENUMS, field)) {
-            var foreign = items[field].options.filter(function (option) { return ENUMS[field].indexOf(option) === -1; });
+            var foreign = items[field].options.filter(function (option) { return ENUMS[field].indexOf(option.value) === -1; });
             if (foreign.length > 0)
-                return at + " option " + JSON.stringify(foreign[0]) + " is not one of " + ENUMS[field].join(", ");
+                return at + " option " + JSON.stringify(foreign[0].value) + " is not one of " + ENUMS[field].join(", ");
         }
         if (hasOwn(SHARES, field) && !(items[field].min >= SHARES[field][0] && items[field].max <= SHARES[field][1]))
             return at + " must set min and max within " + SHARES[field][0] + " to " + SHARES[field][1];

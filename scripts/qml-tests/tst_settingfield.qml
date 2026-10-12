@@ -118,6 +118,29 @@ Item {
         value: "gone"
     }
 
+    // An enum draws each option's label and writes its value: three
+    // options in a segmented control, more in a Select.
+    SettingField {
+        id: fewOptions
+        x: 480
+        y: 220
+        width: 420
+        key: "mode"
+        spec: ({ type: "enum", label: "Mode", options: [{ value: "save-copy", label: "Save and copy" }, { value: "copy", label: "Copy" }, { value: "save", label: "Save" }] })
+        value: "copy"
+        onApply: value => root.applied.push(value)
+    }
+    SettingField {
+        id: manyOptions
+        x: 480
+        y: 280
+        width: 420
+        key: "quality"
+        spec: ({ type: "enum", label: "Quality", options: [{ value: "medium", label: "Medium" }, { value: "high", label: "High" }, { value: "very_high", label: "Very high" }, { value: "ultra", label: "Ultra" }] })
+        value: "very_high"
+        onApply: value => root.applied.push(value)
+    }
+
     // A page taller than its view whose status-fed field sits at the
     // view's bottom edge, so its custom editor appears under that edge.
     ScrollArea {
@@ -227,6 +250,26 @@ Item {
 
         function selectOf(item) {
             return descendants(item).find(child => String(child).indexOf("Select") === 0);
+        }
+
+        function test_a_short_enum_draws_labels_and_writes_values() {
+            const segments = descendants(fewOptions).find(child => String(child).indexOf("SegmentedControl") === 0);
+            verify(segments !== undefined, "three options draw as a segmented control");
+            compare(segments.model, ["Save and copy", "Copy", "Save"], "each segment reads its option's label");
+            compare(segments.currentIndex, 1, "the stored value chooses its segment");
+            segments.choose(0);
+            compare(root.applied, ["save-copy"], "a segment writes its option's value");
+            compare(segments.currentIndex, 1, "the segment follows what the configuration holds");
+        }
+
+        function test_a_long_enum_draws_labels_and_writes_values() {
+            const select = selectOf(manyOptions);
+            verify(select !== undefined, "four options draw as a Select");
+            compare(select.contentItem.text, "Very high", "the Select reads the stored value's label");
+            compare(select.model.map(row => row.label), ["Medium", "High", "Very high", "Ultra"], "each row reads its option's label");
+            select.choose(3);
+            compare(root.applied, ["ultra"], "a row writes its option's value");
+            compare(select.currentIndex, 2, "the Select follows what the configuration holds");
         }
 
         function selectList(owner) {

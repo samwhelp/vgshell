@@ -90,9 +90,9 @@ REQUIRED_HEADS = ("vgshell", "sudo")
 # table or index of a list.
 FIELDS = (
     ("name",), ("description",), ("author",),
-    ("schema", "*", "label"), ("schema", "*", "description"), ("schema", "*", "placeholder"), ("schema", "*", "info"), ("schema", "*", "link", "text"), ("schema", "*", "group"), ("schema", "*", "options", "*"), ("schema", "*", "presets", "*", "label"),
+    ("schema", "*", "label"), ("schema", "*", "description"), ("schema", "*", "placeholder"), ("schema", "*", "info"), ("schema", "*", "link", "text"), ("schema", "*", "group"), ("schema", "*", "options", "*", "label"), ("schema", "*", "presets", "*", "label"),
     ("schema", "*", "items", "*", "label"), ("schema", "*", "items", "*", "description"), ("schema", "*", "items", "*", "placeholder"), ("schema", "*", "items", "*", "group"),
-    ("schema", "*", "items", "*", "options", "*"), ("schema", "*", "items", "*", "presets", "*", "label"),
+    ("schema", "*", "items", "*", "options", "*", "label"), ("schema", "*", "items", "*", "presets", "*", "label"),
     ("status", "*", "label"), ("status", "*", "group"), ("status", "*", "hint"), ("status", "*", "info"), ("status", "*", "link", "text"), ("status", "*", "action", "label"), ("status", "*", "actions", "*", "label"),
     ("requirements", "*", "purpose"),
     ("pane", "group"),

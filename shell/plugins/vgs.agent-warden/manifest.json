@@ -50,7 +50,7 @@
       "type": "enum",
       "label": "Notifications",
       "description": "Choose alerts for problems, all events or none",
-      "options": ["problems", "everything", "off"],
+      "options": [{ "value": "problems", "label": "Problems" }, { "value": "everything", "label": "Everything" }, { "value": "off", "label": "Off" }],
       "group": "Notifications"
     }
   },

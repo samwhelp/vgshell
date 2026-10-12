@@ -33,10 +33,10 @@ const items = {
     "class": { type: "string", label: "Class", presets: [{ value: "org.acme.pad" }], allowCustom: true },
     width: { type: "number", label: "Width", min: 10, max: 100 },
     height: { type: "number", label: "Height", min: 10, max: 100 },
-    position: { type: "enum", label: "Position", options: ["center", "top", "bottom-right"] },
+    position: { type: "enum", label: "Position", options: [{ value: "center", label: "Center" }, { value: "top", label: "Top" }, { value: "bottom-right", label: "Bottom-right" }] },
     margin: { type: "number", label: "Margin", min: 0, max: 20 },
-    entry: { type: "enum", label: "Entry", options: ["top", "left"] },
-    motion: { type: "enum", label: "Motion", options: ["slide", "fade", "none"] },
+    entry: { type: "enum", label: "Entry", options: [{ value: "top", label: "Top" }, { value: "left", label: "Left" }] },
+    motion: { type: "enum", label: "Motion", options: [{ value: "slide", label: "Slide" }, { value: "fade", label: "Fade" }, { value: "none", label: "None" }] },
     screen: { type: "string", label: "Screen", optionsFrom: "screens" }
 };
 const defaults = { command: "foot", "class": "org.acme.pad", width: 60, height: 50, position: "top", margin: 2, entry: "top", motion: "slide", screen: "" };
@@ -98,10 +98,10 @@ function suite(pads, check) {
         ["pads naming a flat entry", "on", ["shortcut"], { on: { type: "boolean", label: "On" } }, "hyprland.pads must name a list schema entry, got \"on\""],
         ["pads without capability shortcut", "pads", [], schemaOf({}), "hyprland.pads needs capability shortcut"],
         ["an item without a rendered field", "pads", ["shortcut"], { pads: Object.assign({}, entry, { items: (() => { const i = Object.assign({}, items); delete i.margin; return i; })() }) }, "hyprland.pads item field margin is missing from schema.pads.items"],
-        ["a rendered field of another type", "pads", ["shortcut"], schemaOf({ width: { type: "enum", label: "Width", options: ["half"] } }), "hyprland.pads item field width must be a number entry, got enum"],
-        ["a position outside the core's", "pads", ["shortcut"], schemaOf({ position: { type: "enum", label: "Position", options: ["top", "middle"] } }), "hyprland.pads item field position option \"middle\" is not one of center, top, bottom, left, right, top-left, top-right, bottom-left, bottom-right"],
-        ["an entry side outside the core's", "pads", ["shortcut"], schemaOf({ entry: { type: "enum", label: "Entry", options: ["up"] } }), "hyprland.pads item field entry option \"up\" is not one of top, bottom, left, right"],
-        ["a motion outside the core's", "pads", ["shortcut"], schemaOf({ motion: { type: "enum", label: "Motion", options: ["spin"] } }), "hyprland.pads item field motion option \"spin\" is not one of slide, fade, none"],
+        ["a rendered field of another type", "pads", ["shortcut"], schemaOf({ width: { type: "enum", label: "Width", options: [{ value: "half", label: "Half" }] } }), "hyprland.pads item field width must be a number entry, got enum"],
+        ["a position outside the core's", "pads", ["shortcut"], schemaOf({ position: { type: "enum", label: "Position", options: [{ value: "top", label: "Top" }, { value: "middle", label: "Middle" }] } }), "hyprland.pads item field position option \"middle\" is not one of center, top, bottom, left, right, top-left, top-right, bottom-left, bottom-right"],
+        ["an entry side outside the core's", "pads", ["shortcut"], schemaOf({ entry: { type: "enum", label: "Entry", options: [{ value: "up", label: "Up" }] } }), "hyprland.pads item field entry option \"up\" is not one of top, bottom, left, right"],
+        ["a motion outside the core's", "pads", ["shortcut"], schemaOf({ motion: { type: "enum", label: "Motion", options: [{ value: "spin", label: "Spin" }] } }), "hyprland.pads item field motion option \"spin\" is not one of slide, fade, none"],
         ["a size below 1 %", "pads", ["shortcut"], schemaOf({ height: { type: "number", label: "Height", min: 0, max: 100 } }), "hyprland.pads item field height must set min and max within 1 to 100"],
         ["a size over the work area", "pads", ["shortcut"], schemaOf({ width: { type: "number", label: "Width", min: 10, max: 101 } }), "hyprland.pads item field width must set min and max within 1 to 100"],
         ["a size without bounds", "pads", ["shortcut"], schemaOf({ width: { type: "number", label: "Width" } }), "hyprland.pads item field width must set min and max within 1 to 100"],
@@ -155,7 +155,7 @@ function suite(pads, check) {
         ["left", "start", "center"], ["right", "end", "center"], ["top-left", "start", "start"],
         ["top-right", "end", "start"], ["bottom-left", "start", "end"], ["bottom-right", "end", "end"]
     ];
-    const allPositions = withItems({ position: { type: "enum", label: "Position", options: positionRows.map(r => r[0]) } });
+    const allPositions = withItems({ position: { type: "enum", label: "Position", options: positionRows.map(r => ({ value: r[0], label: r[0] })) } });
     for (const [position, x, y] of positionRows) {
         const got = plain(pads.expand("pads", { pads: allPositions }, { pads: [pad("1", { position: position })] }, {}, logic.hyprlandKey, logic.settingError)).pads.map(p => [p.x, p.y]);
         check("expand: a " + position + " pad's anchors", got, [[x, y]]);
@@ -189,7 +189,7 @@ const CONTROLS = [
     ["every rendered field is declared", "if (!hasOwn(items, field))\n            return at + \" is missing", "if (false)\n            return at + \" is missing"],
     ["every rendered field has its type", "if (items[field].type !== FIELDS[field])", "if (false)"],
     ["an item field never hides", "if (isPlainObject(entry.items[fields[i]]) && entry.items[fields[i]].hideEmpty !== undefined)", "if (false)"],
-    ["enum options are the core's", "return ENUMS[field].indexOf(option) === -1; });", "return false; });"],
+    ["enum options are the core's", "return ENUMS[field].indexOf(option.value) === -1; });", "return false; });"],
     ["shares keep their bounds", "!(items[field].min >= SHARES[field][0] && items[field].max <= SHARES[field][1])", "false"],
     ["a pad shortcut needs declared pads", "isPlainObject(declared) && typeof declared.pads === \"string\" && ", "isPlainObject(declared) && "],
     ["a pad shortcut has the prefix", "shortcut.indexOf(SHORTCUT_PREFIX) === 0 && ", ""],

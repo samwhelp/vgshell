@@ -24,7 +24,7 @@ cfg="$tmp/cfg"
 probe="$cfg/vgshell/plugins/acme.probe"
 mkdir -p "$probe"
 manifest acme.probe 0.1.0 ', "settings": { "mode": "fast", "count": 2, "trust": false },
-  "schema": { "mode": { "type": "enum", "label": "Mode", "options": ["fast", "slow"] }, "count": { "type": "number", "label": "Count", "min": 1, "max": 9 }, "trust": { "type": "boolean", "label": "Trust" } }' >"$probe/manifest.json"
+  "schema": { "mode": { "type": "enum", "label": "Mode", "options": [{ "value": "fast", "label": "Fast" }, { "value": "slow", "label": "Slow" }] }, "count": { "type": "number", "label": "Count", "min": 1, "max": 9 }, "trust": { "type": "boolean", "label": "Trust" } }' >"$probe/manifest.json"
 printf 'import QtQuick\nItem { property var shell: null }\n' >"$probe/Service.qml"
 user_file() { printf '%s\n' "$1" >"$cfg/vgshell/shell.json"; } # JSON
 

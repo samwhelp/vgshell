@@ -594,7 +594,7 @@ const PADS_SECTION = [
 // The pads fixture: a list setting of two pads, the first with its key.
 function padsFixture(logic, id, pads) {
     const items = { "class": { type: "string", label: "Class", presets: [{ value: "org.acme.pad" }], allowCustom: true }, width: { type: "number", label: "Width", min: 10, max: 100 }, height: { type: "number", label: "Height", min: 10, max: 100 },
-        position: { type: "enum", label: "Position", options: ["center", "top", "bottom-right"] }, margin: { type: "number", label: "Margin", min: 0, max: 20 }, entry: { type: "enum", label: "Entry", options: ["top", "left"] }, motion: { type: "enum", label: "Motion", options: ["slide", "none"] } };
+        position: { type: "enum", label: "Position", options: [{ value: "center", label: "Center" }, { value: "top", label: "Top" }, { value: "bottom-right", label: "Bottom-right" }] }, margin: { type: "number", label: "Margin", min: 0, max: 20 }, entry: { type: "enum", label: "Entry", options: [{ value: "top", label: "Top" }, { value: "left", label: "Left" }] }, motion: { type: "enum", label: "Motion", options: [{ value: "slide", label: "Slide" }, { value: "none", label: "None" }] } };
     const defaults = { "class": "org.acme.pad", width: 60, height: 50, position: "top", margin: 2, entry: "top", motion: "slide" };
     const judged = logic.validateManifest({ schemaVersion: 1, id: id, name: "P", version: "1.0.0", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["shortcut"], settings: { pads: [] }, schema: { pads: { type: "list", label: "Pads", items: items, defaults: defaults } }, hyprland: { pads: "pads" } }, "/p");
     assert.ok(judged.ok, "the pads fixture manifest passes: " + judged.error);
@@ -1125,7 +1125,7 @@ function verify(logic, layer, shellText) {
     const enumOptionManifest = manifestOf(logic, {
         capabilities: ["hyprland"],
         settings: { layouts: "us" },
-        schema: { layouts: { type: "enum", label: "L", options: ["us", "us\nos.exit()"] } },
+        schema: { layouts: { type: "enum", label: "L", options: [{ value: "us", label: "Us" }, { value: "us\nos.exit()", label: "L" }] } },
         hyprland: { options: { layouts: "input.kb_layout" } }
     });
     same(logic.hyprlandSection(optionConfig({ layouts: "us\nos.exit()" }), enumOptionManifest).options,

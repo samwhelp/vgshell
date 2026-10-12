@@ -118,9 +118,9 @@
       "label": "When charging",
       "description": "Use this profile after you connect power",
       "options": [
-        "power-saver",
-        "balanced",
-        "performance"
+        { "value": "power-saver", "label": "Power saver" },
+        { "value": "balanced", "label": "Balanced" },
+        { "value": "performance", "label": "Performance" }
       ],
       "group": "Power profiles"
     },
@@ -129,9 +129,9 @@
       "label": "On battery",
       "description": "Use this profile after you disconnect power",
       "options": [
-        "power-saver",
-        "balanced",
-        "performance"
+        { "value": "power-saver", "label": "Power saver" },
+        { "value": "balanced", "label": "Balanced" },
+        { "value": "performance", "label": "Performance" }
       ],
       "group": "Power profiles"
     }

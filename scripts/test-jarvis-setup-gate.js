@@ -758,12 +758,12 @@ function verifyVoice(gate, serviceSource, accountsSource) {
             assert.equal(helloSettings(gate, serviceSource, require(providersFile), manifest, settings, { voiceKeys: offered, providers: {} }, label).voiceProvider, want, label);
         }
         assert.equal(plain(gate.readiness({ kind: "answered", causes: [] })).setup.tone, "ok", "no cause, as a fresh install with its local voice set up: ready");
-        // The Voice provider takes its four presets and nothing else, and a
+        // The Voice provider takes its four options and nothing else, and a
         // value a settings file already holds reads as it is.
         const provider = value => judge.settingRefusal(manifest, "voiceProvider", value);
         assert.deepEqual(["auto", "local", "realtime", "gemini", "openai", "Gemini Live"].map(provider),
-            ["", "", "", "", "refused: setting=voiceProvider want=one-of-presets", "refused: setting=voiceProvider want=one-of-presets"],
-            "the Voice provider takes one of its presets");
+            ["", "", "", "", "refused: setting=voiceProvider want=one-of:auto|local|realtime|gemini", "refused: setting=voiceProvider want=one-of:auto|local|realtime|gemini"],
+            "the Voice provider takes one of its options");
         for (const saved of ["realtime", "gemini"])
             assert.equal(judge.settingsFor({ version: 2, plugins: [{ id: "vgs.jarvis", voiceProvider: saved }] }, manifest).voiceProvider, saved,
                 saved + ": a saved Voice provider reads unchanged");
@@ -1457,7 +1457,6 @@ try {
         ["Accounts.qml", accountsSource, "providers = value.providers;", "providers = {};"],
         ["Accounts.qml", accountsSource, "providers = {};", "providers = providers;"],
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '"voiceProvider": "local", "voiceAccount"', '"voiceProvider": "auto", "voiceAccount"'],
-        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '{ "value": "gemini", "label": "Gemini Live" }],', '{ "value": "gemini", "label": "Gemini Live" }], "allowCustom": true,'],
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), ',\n        { "value": "gemini", "label": "Gemini Live" }]', "]"],
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '"url": "https://platform.openai.com/api-keys" } },\n    "voice":', '"url": "https://aistudio.google.com/apikey" } },\n    "voice":'],
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), "Cloud voice key under Voice on Details", "the key row under Voice on Details"]

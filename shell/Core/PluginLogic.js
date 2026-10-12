@@ -57,6 +57,7 @@ var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];
 var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "hintFrom", "info", "link", "options", "optionsFrom", "presets", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults", "placeholder", "hideEmpty"];
 var NUMBER_BOUND_KEYS = ["min", "max", "step"];
 var PRESET_KEYS = ["value", "label"];
+var OPTION_KEYS = ["value", "label"];
 var PRESET_LABEL_MAX = 40;
 // A schema entry's `link`: the words of its description that open `url`,
 // or `pane`, the id of the plugin whose page the panes holder opens.
@@ -468,6 +469,11 @@ function presetValues(entry) {
     return Array.isArray(entry.presets) ? entry.presets.map(function (preset) { return preset.value; }) : [];
 }
 
+// The values an enum entry stores, in its options' order.
+function optionValues(entry) {
+    return entry.options.map(function (option) { return option.value; });
+}
+
 function presetMembershipError(entry, value) {
     return entry.presets !== undefined && entry.allowCustom !== true && presetValues(entry).indexOf(value) === -1 ? "want=one-of-presets" : "";
 }
@@ -491,13 +497,14 @@ function settingError(entry, value) {
         return presetMembershipError(entry, value);
     }
     if (entry.type === "boolean") return typeof value === "boolean" ? "" : "want=boolean";
-    if (entry.type === "enum") return entry.options.indexOf(value) !== -1 ? "" : "want=one-of:" + entry.options.join("|");
+    if (entry.type === "enum") return optionValues(entry).indexOf(value) !== -1 ? "" : "want=one-of:" + optionValues(entry).join("|");
     if (entry.type === "list") return Pads.listValueError(entry, value, settingError, NAME_PATTERN);
     throw new Error("settingError: schema entry type " + JSON.stringify(entry.type) + " passed validation but has no rule");
 }
 
 // The first defect of a settings schema, or "". Every entry names a type
-// from SETTING_TYPES and a label; an enum entry lists its options; a number
+// from SETTING_TYPES and a label; an enum entry lists its options, each the
+// stored `value` and the `label` the Settings page draws for it; a number
 // entry may bound its control with finite `min` below finite `max` and a
 // positive `step`, which no other type carries; `unit` names a number's
 // words; `group`, when present, is a non-empty string; every entry has a
@@ -553,9 +560,24 @@ function schemaError(schema, settings, status) {
         if (entry.type === "enum") {
             if (!Array.isArray(entry.options) || entry.options.length === 0)
                 return at + ".options must be a non-empty array for type enum";
+            var seenOptions = [];
             for (var o = 0; o < entry.options.length; o++) {
-                if (typeof entry.options[o] !== "string" || entry.options[o].length === 0 || entry.options.indexOf(entry.options[o]) !== o)
-                    return at + ".options must hold distinct non-empty strings";
+                var option = entry.options[o];
+                var optionAt = at + ".options." + o;
+                if (!isPlainObject(option))
+                    return optionAt + " must be an object";
+                var optionKeys = Object.keys(option);
+                for (var ok = 0; ok < optionKeys.length; ok++) {
+                    if (OPTION_KEYS.indexOf(optionKeys[ok]) === -1)
+                        return optionAt + " has unknown key " + JSON.stringify(optionKeys[ok]);
+                }
+                if (typeof option.value !== "string" || option.value.length === 0)
+                    return optionAt + ".value must be a non-empty string";
+                if (!isPrintableLine(option.label, PRESET_LABEL_MAX))
+                    return optionAt + ".label must be a printable line of 1 to " + PRESET_LABEL_MAX + " characters";
+                if (seenOptions.indexOf(option.value) !== -1)
+                    return at + ".options must hold distinct values";
+                seenOptions.push(option.value);
             }
         } else if (entry.options !== undefined) {
             return at + ".options needs type enum";
@@ -1991,9 +2013,10 @@ function optionSchemaError(row, entry) {
             return entry.type === "string" || entry.type === "enum" ? "" : "needs a string or enum schema entry, got " + entry.type;
         if (entry.type !== "enum")
             return "needs an enum schema entry, got " + entry.type;
-        for (var o = 0; o < entry.options.length; o++) {
-            if (row.choices.indexOf(entry.options[o]) === -1)
-                return "offers " + JSON.stringify(entry.options[o]) + ", not one of " + row.choices.join(", ");
+        var offered = optionValues(entry);
+        for (var o = 0; o < offered.length; o++) {
+            if (row.choices.indexOf(offered[o]) === -1)
+                return "offers " + JSON.stringify(offered[o]) + ", not one of " + row.choices.join(", ");
         }
         return "";
     }

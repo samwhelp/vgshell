@@ -6,7 +6,8 @@ import "Steps.js" as Steps
 
 // Draw the least-effort editor for one schema entry. Booleans use Switch.
 // Enums of at most three options use SegmentedControl because each choice
-// fits in one row. Larger enums and status-fed strings use Select. String
+// fits in one row. Larger enums and status-fed strings use Select. Both
+// draw an enum option's label and write its value. String
 // and number presets use Select. When custom values are allowed, Custom…
 // follows the presets or the published choices, and a configured value no
 // row holds shows under it; for a status-fed string "" is the unset value,
@@ -46,6 +47,8 @@ Column {
     readonly property bool bounded: spec.type === "number" && spec.min !== undefined && spec.max !== undefined
     readonly property bool hasPresets: spec.presets !== undefined && Array.isArray(spec.presets)
     readonly property bool statusFed: spec.optionsFrom !== undefined
+    // The row of an enum's options that holds the value, or -1.
+    readonly property int optionIndex: spec.type === "enum" ? spec.options.findIndex(option => option.value === value) : -1
     readonly property bool allowCustom: (hasPresets || statusFed) && spec.allowCustom === true
     readonly property int selectedOfferIndex: offerIndex(value)
     readonly property bool customVisible: allowCustom && (customChosen || (selectedOfferIndex < 0 && !(statusFed && value === "")))
@@ -174,7 +177,7 @@ Column {
             id: loader
             width: parent.width
             sourceComponent: root.spec.type === "boolean" ? toggle
-                : root.spec.type === "enum" && root.spec.options !== undefined && root.spec.options.length <= root.segmentedLimit ? segmented
+                : root.spec.type === "enum" && root.spec.options.length <= root.segmentedLimit ? segmented
                 : root.spec.type === "enum" || root.spec.optionsFrom !== undefined ? choice
                 : root.hasPresets ? presetChoice
                 : root.bounded ? slider
@@ -293,10 +296,10 @@ Column {
             readonly property var rows: !dynamic ? root.spec.options
                 : root.allowCustom ? root.choices.concat([{ label: "Custom…", custom: true }])
                 : root.choices
-            readonly property int configuredIndex: dynamic ? root.selectedOfferIndex : root.spec.options.indexOf(root.value)
+            readonly property int configuredIndex: dynamic ? root.selectedOfferIndex : root.optionIndex
             readonly property int shownIndex: configuredIndex >= 0 ? configuredIndex : root.customVisible ? root.choices.length : -1
             model: rows
-            textRole: dynamic ? "label" : ""
+            textRole: "label"
             emptyText: dynamic ? "None found yet" : ""
             placeholderText: dynamic && root.spec.placeholder !== undefined ? root.spec.placeholder : ""
             currentIndex: shownIndex
@@ -310,9 +313,8 @@ Column {
                     return;
                 }
                 root.customChosen = false;
-                const chosen = dynamic ? row.value : row;
-                if (chosen === root.value) return;
-                root.apply(chosen);
+                if (row.value === root.value) return;
+                root.apply(row.value);
             }
         }
     }
@@ -326,12 +328,12 @@ Column {
             SegmentedControl {
                 id: seg
                 width: implicitWidth
-                model: root.spec.options
-                currentIndex: root.spec.options.indexOf(root.value)
+                model: root.spec.options.map(option => option.label)
+                currentIndex: root.optionIndex
                 enabled: root.editable
                 onActivated: index => {
-                    currentIndex = Qt.binding(() => root.spec.options.indexOf(root.value));
-                    root.apply(root.spec.options[index]);
+                    currentIndex = Qt.binding(() => root.optionIndex);
+                    root.apply(root.spec.options[index].value);
                 }
             }
         }

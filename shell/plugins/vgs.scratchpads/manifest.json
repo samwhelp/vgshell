@@ -59,11 +59,11 @@
         "position": {
           "type": "enum",
           "label": "Position",
-          "options": ["center", "top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"]
+          "options": [{ "value": "center", "label": "Center" }, { "value": "top", "label": "Top" }, { "value": "bottom", "label": "Bottom" }, { "value": "left", "label": "Left" }, { "value": "right", "label": "Right" }, { "value": "top-left", "label": "Top left" }, { "value": "top-right", "label": "Top right" }, { "value": "bottom-left", "label": "Bottom left" }, { "value": "bottom-right", "label": "Bottom right" }]
         },
         "margin": { "type": "number", "label": "Margin", "min": 0, "max": 20, "step": 1, "unit": "%" },
-        "entry": { "type": "enum", "label": "Comes in from", "options": ["top", "bottom", "left", "right"] },
-        "motion": { "type": "enum", "label": "Motion", "options": ["slide", "fade", "none"] },
+        "entry": { "type": "enum", "label": "Comes in from", "options": [{ "value": "top", "label": "Top" }, { "value": "bottom", "label": "Bottom" }, { "value": "left", "label": "Left" }, { "value": "right", "label": "Right" }] },
+        "motion": { "type": "enum", "label": "Motion", "options": [{ "value": "slide", "label": "Slide" }, { "value": "fade", "label": "Fade" }, { "value": "none", "label": "None" }] },
         "screen": { "type": "string", "label": "Screen", "optionsFrom": "screens" },
         "preload": { "type": "boolean", "label": "Start at login", "description": "The first press shows the app at once." }
       },

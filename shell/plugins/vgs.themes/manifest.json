@@ -40,7 +40,7 @@
       "type": "enum",
       "label": "Panel position",
       "description": "Where the panel opens when you use its shortcut",
-      "options": ["top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"]
+      "options": [{ "value": "top-left", "label": "Top left" }, { "value": "top", "label": "Top" }, { "value": "top-right", "label": "Top right" }, { "value": "left", "label": "Left" }, { "value": "center", "label": "Center" }, { "value": "right", "label": "Right" }, { "value": "bottom-left", "label": "Bottom left" }, { "value": "bottom", "label": "Bottom" }, { "value": "bottom-right", "label": "Bottom right" }]
     },
     "noWindowGaps": {
       "type": "boolean",
