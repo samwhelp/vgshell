@@ -51,8 +51,18 @@ FocusScope {
     function focusTab() {
         layout.scrollArea.contentY = 0;
         const control = tab === 0 ? entryField : tab === 1 ? tasksBody : auditBody;
-        control.forceActiveFocus(consoleTabs.focusReason);
+        control.forceActiveFocus(consoleTabs.activeFocus ? consoleTabs.focusReason : Qt.TabFocusReason);
         if (tab === 0) Qt.callLater(followEnd);
+    }
+
+    // Specific Keys handlers run before the control's native Tab traversal:
+    // https://doc.qt.io/qt-6/qml-qtquick-keys.html#key-handling-priorities
+    function focusTabs(event) {
+        if (event.modifiers & Qt.ControlModifier) event.accepted = consoleTabs.nav.handle(event);
+        else {
+            consoleTabs.forceActiveFocus(Qt.BacktabFocusReason);
+            event.accepted = true;
+        }
     }
 
     function taskState(row) {
@@ -91,7 +101,7 @@ FocusScope {
         selectedTask = Math.max(0, Math.min(selectedTask, taskRows.length - 1));
     }
     Keys.onPressed: event => {
-        if (event.key === Qt.Key_Tab && (event.modifiers & Qt.ControlModifier)) {
+        if ((event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) && (event.modifiers & Qt.ControlModifier)) {
             event.accepted = consoleTabs.nav.handle(event);
         }
     }
@@ -373,8 +383,7 @@ FocusScope {
             implicitHeight: taskColumn.implicitHeight
             focusPolicy: Qt.StrongFocus
             Keys.onPressed: event => { event.accepted = taskNav.handle(event); }
-            KeyNavigation.priority: KeyNavigation.BeforeItem
-            KeyNavigation.backtab: consoleTabs
+            Keys.onBacktabPressed: event => root.focusTabs(event)
             FocusRing { target: tasksBody; outside: true }
             ListCursor { id: taskCursor }
             KeyNav {
@@ -422,8 +431,7 @@ FocusScope {
             implicitHeight: auditColumn.implicitHeight
             focusPolicy: Qt.StrongFocus
             Keys.onPressed: event => { if (layout.scrollArea.handleScrollKey(event)) event.accepted = true; }
-            KeyNavigation.priority: KeyNavigation.BeforeItem
-            KeyNavigation.backtab: consoleTabs
+            Keys.onBacktabPressed: event => root.focusTabs(event)
             FocusRing { target: auditBody; outside: true }
             // Audit rows are read-only, like the transcript, and take no cursor.
             contentItem: Column {
@@ -477,8 +485,7 @@ FocusScope {
 
                     TextField {
                         id: entryField
-                        KeyNavigation.priority: KeyNavigation.BeforeItem
-                        KeyNavigation.backtab: consoleTabs
+                        Keys.onBacktabPressed: event => root.focusTabs(event)
                         width: parent.width - sendButton.width - stopButton.width - parent.spacing - parent.spacing
                         placeholderText: "Message Jarvis"
                         maximumLength: Session.TRANSCRIPT_CHARS
