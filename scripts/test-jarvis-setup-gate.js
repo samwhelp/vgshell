@@ -134,7 +134,9 @@ const FLEET = [
 // whether it carries a hint of why, the TUI its press opens or null, the
 // withheld reason of SetupGate's CLONE_WITHHELD it shows or null]. Set
 // up is withheld for the Realtime voice and beside a tier off the graphics
-// card; Remove recording stays offered whatever the voice.
+// card; Remove recording stays offered whatever the voice. The row is an
+// optional step of the Setup tab: no state of it opens Setup needed, and
+// beside an open required step it never holds the page's primary action.
 const CLONE_ANSWER = { tone: "info", text: "Not set up", action: "setup", recording: false, tierReady: true };
 const CLONE_READY = { tone: "ok", text: "Ready", action: "remove", recording: true, tierReady: true };
 const CLONED = [
@@ -143,10 +145,10 @@ const CLONED = [
     ["a tier off the graphics card withholds setup", { ...CLONE_ANSWER, tierReady: false }, "local", "info", undefined, true, null, "tier"],
     ["a ready cloned voice offers Remove", CLONE_READY, "local", "ok", "remove", false, "clone-voice-remove", null],
     ["a recording keeps Remove under the Realtime voice", CLONE_READY, "realtime", "ok", "remove", true, "clone-voice-remove", "provider"],
-    ["a recording keeps Remove beside another tier", { ...CLONE_READY, tone: "warning", tierReady: false }, "local", "warning", "remove", true, "clone-voice-remove", "tier"],
-    ["a failed read offers setup", { tone: "warning", text: "Setup check failed", action: true }, "local", "warning", "setup", false, "clone-voice", null],
+    ["a recording keeps Remove beside another tier", { ...CLONE_READY, tone: "warning", tierReady: false }, "local", "info", "remove", true, "clone-voice-remove", "tier"],
+    ["a failed read offers setup", { tone: "warning", text: "Setup check failed", action: true }, "local", "info", "setup", false, "clone-voice", null],
     ["a timed-out read words its state", { tone: "warning", text: "Setup check timed out", hint: "Try again.", action: true, lines: ["setup=probe-timeout"] },
-        "local", "warning", "setup", true, "clone-voice", null],
+        "local", "info", "setup", true, "clone-voice", null],
     ["a setup in progress offers nothing", { ...CLONE_ANSWER, text: "Setting up", action: false }, "local", "info", undefined, false, null, null],
 ];
 function verifyClonedVoice(gate, judged) {
@@ -160,7 +162,14 @@ function verifyClonedVoice(gate, judged) {
             label + ": the hint names " + (reason ?? "no withheld reason"));
         if (withheld !== null && action === undefined) assert.equal(value.text, withheld.text, label + ": the text names the reason");
         const row = judge.statusRows(judged, { clonedVoiceSetup: value }, []).find(entry => entry.key === "clonedVoiceSetup");
-        assert.deepEqual([row.group, row.action.offered, row.action.tui || null], ["Local voice", tui !== null, tui], label + ": its press");
+        assert.deepEqual([row.group, row.action.offered, row.action.tui || null], ["Setup", tui !== null, tui], label + ": its press");
+        const tuis = judge.listedTuiRows(judged, []);
+        assert.equal(settings.setupNeeds([row], [], true).open, false, label + ": the row alone opens no Setup needed");
+        assert.equal(settings.detailEntries([row]).length, 0, label + ": Details draws no copy of it");
+        const steps = settingsRows(settings.setupSections(tuis, judge.statusRows(judged,
+            { setupVoice: { tone: "warning", text: "To do", action: "setup" }, clonedVoiceSetup: value }, [])));
+        const primary = steps.filter(item => item.button !== null && item.button.primary).map(item => item.entry.key);
+        assert.deepEqual(primary, ["setupVoice"], label + ": an open required step keeps the page's primary action");
         if (tui !== null)
             assert.deepEqual(plain(judge.statusActionRequest(judged, "vgs.jarvis", true, { clonedVoiceSetup: value }, "clonedVoiceSetup")),
                 { ok: true, kind: "tui", name: tui }, label + ": the press opens its TUI");
@@ -1125,6 +1134,8 @@ const CONTROLS = [
     ["a tier off the graphics card offers clone setup", 'value.tierReady === false ? CLONE_WITHHELD.tier : null', "null", "a tier off the graphics card withholds setup"],
     ["the two withheld reasons swapped", 'provider !== "local" ? CLONE_WITHHELD.provider : value.tierReady === false ? CLONE_WITHHELD.tier : null',
         'provider !== "local" ? CLONE_WITHHELD.tier : value.tierReady === false ? CLONE_WITHHELD.provider : null', "the Realtime voice withholds setup: the hint names provider"],
+    ["a not-ready clone row reads as an open step", 'var row = { tone: value.tone === "ok" ? "ok" : "info", text: value.text };', "var row = { tone: value.tone, text: value.text };",
+        "a recording keeps Remove beside another tier"],
     ["a recording loses Remove under another voice", 'if (reason !== null && action !== "remove")', "if (reason !== null)", "a recording keeps Remove under the Realtime voice"],
     ["a clone row keeps a failed read's keyed line", "    else if (value.hint !== undefined) row.hint = value.hint;\n    return row;",
         "    else if (value.hint !== undefined) row.hint = value.hint;\n    if (value.lines !== undefined) row.lines = value.lines;\n    return row;",

@@ -346,7 +346,10 @@ function voiceProvider(settings, offered) {
 // is withheld with the reason. Remove recording stays offered whatever the
 // voice. `recording` and `tierReady` are setup-local's, for this row only;
 // a failed read has neither, and its setup judges the tier itself. The row
-// words its state: a failed read's keyed line stays off it.
+// words its state: a failed read's keyed line stays off it. It is an
+// optional step of the Setup tab, as Browser and Input are: any state but
+// ready reads info, so it never makes Jarvis read Setup needed nor takes the
+// page's primary action from a required step (Steps.js stepOpen).
 var CLONE_WITHHELD = {
     provider: { text: "Needs the Local voice", hint: "Choose Local as the Voice provider to use a cloned voice." },
     tier: { text: "Needs the Large model", hint: "Set up the Large local voice model, which needs an NVIDIA graphics card." }
@@ -356,7 +359,7 @@ function clonedVoiceStep(value, provider) {
     var reason = provider !== "local" ? CLONE_WITHHELD.provider : value.tierReady === false ? CLONE_WITHHELD.tier : null;
     // A row of named actions offers none by leaving `action` out.
     if (reason !== null && action !== "remove") return { tone: "info", text: reason.text, hint: reason.hint };
-    var row = { tone: value.tone, text: value.text };
+    var row = { tone: value.tone === "ok" ? "ok" : "info", text: value.text };
     if (typeof action === "string") row.action = action;
     if (reason !== null) row.hint = reason.hint;
     else if (value.hint !== undefined) row.hint = value.hint;
