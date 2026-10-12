@@ -651,7 +651,13 @@ function tuiLength(axis, share, cells, cell, margin, hard) {
 // BORDER a side so its frame stays on the output and off the bar.
 // Hyprland offers no reserved-area variable, so the bar's height is taken
 // whether or not a bar is up, and a screen with no bar leaves a clamped
-// TUI that many pixels short.
+// TUI that many pixels short. The rule owns the geometry, so it also
+// refuses a client's maximize request: kitty 0.49.2 stores a closed
+// window's `window-state` and, on its next open, answers the rule's
+// configure with `set_maximized`, which Hyprland 0.56.2 grants as
+// fullscreen 1 at the output's whole work area unless the event is
+// suppressed (WAYLAND_DEBUG=1 of kitty under this rule in the nested
+// sandbox, 2026-10-12).
 function tuiWindowLines(margins, cell, border) {
     var across = luaNumber(2 * tuiMargin(margins, "gutter"));
     var keptAcross = luaNumber(2 * border);
@@ -661,7 +667,7 @@ function tuiWindowLines(margins, cell, border) {
         var row = TUI_WINDOWS[size];
         var width = tuiLength("monitor_w", row.widthShare, row.columns + TUI_PADDING.columns, tuiCell(cell, "width"), across, keptAcross);
         var height = tuiLength("monitor_h", row.heightShare, row.rows + TUI_PADDING.rows, tuiCell(cell, "height"), down, keptDown);
-        return "hl.window_rule({ name = \"" + row.rule + "\", match = { class = " + classLiteral(row.appId) + " }, float = true, center = true, size = { " + width + ", " + height + " } })";
+        return "hl.window_rule({ name = \"" + row.rule + "\", match = { class = " + classLiteral(row.appId) + " }, float = true, center = true, suppress_event = \"maximize\", size = { " + width + ", " + height + " } })";
     }));
 }
 

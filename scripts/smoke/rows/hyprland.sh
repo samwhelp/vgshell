@@ -10,10 +10,13 @@
 # hyprland.lua as the consent row left it. The window rules are read back on
 # windows the harness's toplevel helper maps, each stopped by the pid the
 # row started: each floating TUI class fits the output at the sandbox's
-# own mode, takes its own size, its share of the output or its cells,
-# inside the gutters on a 3008x1692 output, and on a 1440x900 one the tall
-# class stops at the work area's edge; the row holds each mode on the first
-# monitor and then gives back its own mode. It restarts the shell, reloads
+# own mode, and a window that asks to be maximized once it maps, as kitty
+# 0.49.2 does when it remembers a maximized window, stays unmaximized at
+# its rule's size open after open, while a copy of the rule without its
+# suppressed maximize grants it; each class takes its own size, its share
+# of the output or its cells, inside the gutters on a 3008x1692 output, and
+# on a 1440x900 one the tall class stops at the work area's edge; the row
+# holds each mode on the first monitor and then gives back its own mode. It restarts the shell, reloads
 # Hyprland and reads each vgs bind once in its submap.
 #
 # Hyprland v0.56.2 reads no layer rule back, so the rows hold the layer rules
@@ -97,16 +100,25 @@ section_count() { local status=0; grep -c -- ': binds and layer rules from its m
 # then the harness's own text.
 restore_hypr_lua() { { printf '%s\n' "$wire_line"; cat -- "$sandbox/hyprland-harness.lua"; } >"$hypr_lua.next" && mv -T -- "$hypr_lua.next" "$hypr_lua"; }
 # The toplevel helper, for the floating TUIs' window rules. open_tui APP_ID
-# starts it on the nested socket, leaves its pid in tui_pid and returns once
-# it prints that its first buffer is committed. close_tui LABEL stops that
-# pid alone and passes LABEL when the helper exits 0 on the signal.
+# [maximized] starts it on the nested socket, leaves its pid in tui_pid and
+# returns once it prints that its first buffer is committed and, given
+# maximized, that the compositor has handled its maximize request.
+# close_tui LABEL stops that pid alone and passes LABEL when the helper
+# exits 0 on the signal.
 tui_pid=""
+# logged LOG LINE...: whether LOG holds each LINE whole.
+logged() { local log="$1" line; shift; for line in "$@"; do grep -qxF -- "$line" "$log" || return 1; done; }
 open_tui() {
-  local log="$sandbox/toplevel-$1.log"
-  spawn "$log" "${shell_env[@]}" "$sandbox/toplevel" "$1"
+  local log="$sandbox/toplevel-$1.log" flags=() want=("mapped $1")
+  case "${2:-}" in
+    "") ;;
+    maximized) flags=(--maximized); want+=("maximize requested") ;;
+    *) printf 'open_tui: request=%s unknown\n' "$2" >&2; return 1 ;;
+  esac
+  spawn "$log" "${shell_env[@]}" "$sandbox/toplevel" "${flags[@]}" "$1"
   tui_pid="$spawn_pid"
   for _ in $(seq 1 25); do
-    grep -qxF -- "mapped $1" "$log" && return 0
+    logged "$log" "${want[@]}" && return 0
     kill -0 -- "$tui_pid" 2>/dev/null || break
     sleep 0.2
   done
@@ -128,6 +140,45 @@ import json, sys
 cs = [c for c in json.load(sys.stdin) if c["pid"] == int(sys.argv[1])]
 if len(cs) != 1: print("clients=%d" % len(cs))
 else: print("%s floating=%s" % (cs[0]["class"], str(cs[0]["floating"]).lower()))' "$1"; }
+# The same client as `<class> fullscreen=<n>`, Hyprland's fullscreen mode,
+# 1 for maximized, or clients=<n>.
+tui_fullscreen() { hypr -j clients | py_reply '
+import json, sys
+cs = [c for c in json.load(sys.stdin) if c["pid"] == int(sys.argv[1])]
+if len(cs) != 1: print("clients=%d" % len(cs))
+else: print("%s fullscreen=%d" % (cs[0]["class"], cs[0]["fullscreen"]))' "$1"; }
+# The same client's size as `<w>x<h>`, or clients=<n>.
+tui_size() { hypr -j clients | py_reply '
+import json, sys
+cs = [c for c in json.load(sys.stdin) if c["pid"] == int(sys.argv[1])]
+if len(cs) != 1: print("clients=%d" % len(cs))
+else: print("%dx%d" % tuple(cs[0]["size"]))' "$1"; }
+# sizes_agree SIZE...: `sizes=<n> distinct=<n>` over SIZEs of the form
+# `<w>x<h>`, or `unread=<values>` when one is another text.
+sizes_agree() { python3 -c '
+import re, sys
+sizes = sys.argv[1:]
+bad = [v for v in sizes if not re.fullmatch("[0-9]+x[0-9]+", v)]
+print("unread=" + ",".join(bad) if bad else "sizes=%d distinct=%d" % (len(sizes), len(set(sizes))))' "$@"; }
+# The written layer's vgs:tui rule renamed vgs-smoke:tui-control, matching
+# org.vgs.tui.control, with its suppressed maximize removed; it prints why
+# and exits 1 when the layer is unreadable, holds not one vgs:tui rule or
+# lacks a text to replace once.
+tui_control_rule() { python3 -c '
+import sys
+def refuse(reason):
+    print("tui_control_rule: " + reason); sys.exit(1)
+try:
+    with open(sys.argv[1]) as written: lines = written.read().split("\n")
+except OSError:
+    refuse("layer=unreadable")
+rules = [line for line in lines if line.startswith("hl.window_rule({ name = \"vgs:tui\", ")]
+if len(rules) != 1: refuse("rules=%d name=vgs:tui" % len(rules))
+rule = rules[0]
+for old, new in (("name = \"vgs:tui\", ", "name = \"vgs-smoke:tui-control\", "), ("class = \"^org\\\\.vgs\\\\.tui$\" }", "class = \"^org\\\\.vgs\\\\.tui\\\\.control$\" }"), ("suppress_event = \"maximize\", ", "")):
+    if rule.count(old) != 1: refuse("text=absent value=%s" % old)
+    rule = rule.replace(old, new)
+print(rule)' "$hypr_layer"; }
 # tui_area TARGET CLASS [MODE]: how a floating TUI of app-id CLASS sits on
 # a monitor's work area: its logical box less the reserved space, [left,
 # top, right, bottom], and less general:float_gaps, CSS order, where
@@ -378,6 +429,40 @@ rm -rf -- "$probe_theme"
 # on the work area, at its rule's size and never outside the work area,
 # at the sandbox's own mode, on a large output and on a small one.
 tui_fit_rows "at the sandbox's own mode"
+# A floating TUI that asks to be maximized once it maps, as kitty 0.49.2
+# answers the rule's configure when it remembers a maximized window, keeps
+# its rule's size: the rule suppresses the request, read right after the
+# compositor has handled it, and three opens in a row take one size.
+tui_sizes=()
+for tui_open in 1 2 3; do
+  if open_tui org.vgs.tui maximized; then
+    expect "open $tui_open: an org.vgs.tui window that asks to be maximized is not" "org.vgs.tui fullscreen=0" tui_fullscreen "$tui_pid"
+    geometry expect_poll "open $tui_open: an org.vgs.tui window that asks to be maximized fits the work area at its rule's size, centred" '[]' tui_fits "$tui_pid" org.vgs.tui
+    if tui_open_size="$(tui_size "$tui_pid")"; then tui_sizes+=("$tui_open_size"); else fail "open $tui_open: the org.vgs.tui window's size is unreadable: $tui_open_size"; fi
+    close_tui "open $tui_open: the maximize-asking org.vgs.tui helper exits 0 on SIGTERM"
+    expect_poll "open $tui_open: the maximize-asking org.vgs.tui window is gone" clients=0 tui_floating "$tui_pid"
+  else
+    fail "open $tui_open: the toplevel helper maps an org.vgs.tui window that asks to be maximized"
+  fi
+done
+expect "three maximize-asking org.vgs.tui opens take one size" "sizes=3 distinct=1" sizes_agree "${tui_sizes[@]}"
+# Control: the same rule without its suppressed maximize, for its own
+# class, grants the request by the same read.
+if tui_control="$(tui_control_rule)"; then
+  printf '%s\n' "$tui_control" >>"$hypr_lua"
+  expect "the nested instance reloads with the control TUI rule without configuration errors" '[]' hypr_reload_errors
+  if open_tui org.vgs.tui.control maximized; then
+    expect "control: a window under the rule without its suppressed maximize is maximized" "org.vgs.tui.control fullscreen=1" tui_fullscreen "$tui_pid"
+    close_tui "control: the maximized org.vgs.tui.control helper exits 0 on SIGTERM"
+  else
+    fail "control: the toplevel helper maps an org.vgs.tui.control window that asks to be maximized"
+  fi
+  restore_hypr_lua || fail "hyprland.lua is put back after the maximize control"
+  expect "the nested instance reloads the consent-wired hyprland.lua after the maximize control" ok hypr reload config-only
+  expect_poll "control: the org.vgs.tui.control window is gone" clients=0 tui_floating "$tui_pid"
+else
+  fail "control: the layer's vgs:tui rule yields a rule without its suppressed maximize: $tui_control"
+fi
 tui_monitor="$(first_name)" || fail "the first monitor's name is unreadable"
 tui_base_mode="$(first_mode)" || fail "the first monitor's mode is unreadable"
 hold_mode "the nested compositor holds $tui_monitor at 3008x1692 for the floating TUIs" "$tui_monitor" 3008x1692

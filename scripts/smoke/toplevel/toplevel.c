@@ -3,7 +3,7 @@
  * compositor maps a window of that class: the helper connects to the
  * socket it is given and to nothing else.
  *
- *   toplevel APP_ID [TITLE]
+ *   toplevel [--maximized] APP_ID [TITLE]
  *
  * Maps a toplevel whose app-id is APP_ID and whose title is TITLE, APP_ID
  * when it is absent, and answers every
@@ -12,6 +12,10 @@
  * whatever size the compositor asks. It answers the compositor's ping,
  * prints `mapped APP_ID` once its first buffer is committed, and exits 0
  * when the compositor closes the toplevel or on SIGTERM, SIGINT or SIGHUP.
+ * With --maximized, once that first buffer is committed it sends
+ * xdg_toplevel.set_maximized once, as kitty 0.49.2 does when it restores
+ * a remembered maximized window, waits a roundtrip so the compositor has
+ * handled the request, and prints `maximize requested`.
  * When the seat has a keyboard it also prints, one line each as they
  * arrive, `keyboard enter` and `keyboard leave` when the compositor gives
  * the window the keyboard focus or takes it away, and `key <code>
@@ -56,6 +60,8 @@ static const char *title = NULL;
 /* The size the last toplevel configure asked, 0 for the client's choice. */
 static int32_t asked_width = 0, asked_height = 0;
 static int closed = 0, mapped = 0, buffer_failed = 0;
+/* Whether the client asks to be maximized after it maps, and whether it has. */
+static enum { MAXIMIZE_NONE, MAXIMIZE_WANTED, MAXIMIZE_REQUESTED } maximize = MAXIMIZE_NONE;
 
 static void on_global(void *data, struct wl_registry *registry, uint32_t name, const char *interface, uint32_t version) {
     (void)data;
@@ -306,12 +312,18 @@ static int broken(struct wl_display *display) {
 }
 
 int main(int argc, char **argv) {
-    if (argc < 2 || argc > 3 || argv[1][0] == '\0' || (argc == 3 && argv[2][0] == '\0')) {
-        fprintf(stderr, "toplevel: refused: usage=APP_ID [TITLE]\n");
+    int first = 1;
+    if (argc > 1 && strcmp(argv[1], "--maximized") == 0) {
+        maximize = MAXIMIZE_WANTED;
+        first = 2;
+    }
+    int given = argc - first;
+    if (given < 1 || given > 2 || argv[first][0] == '\0' || (given == 2 && argv[first + 1][0] == '\0')) {
+        fprintf(stderr, "toplevel: refused: usage=[--maximized] APP_ID [TITLE]\n");
         return 2;
     }
-    app_id = argv[1];
-    title = argc == 3 ? argv[2] : argv[1];
+    app_id = argv[first];
+    title = given == 2 ? argv[first + 1] : argv[first];
     /* The signals arrive on a descriptor the event loop polls beside the
      * display's, so a signal never interrupts a Wayland call half done. */
     sigset_t stops;
@@ -358,6 +370,17 @@ int main(int argc, char **argv) {
         if (closed || buffer_failed) {
             wl_display_cancel_read(display);
             break;
+        }
+        /* The request waits for the loop, outside the listener that mapped
+         * the window, since its roundtrip dispatches that listener's queue. */
+        if (maximize == MAXIMIZE_WANTED && mapped) {
+            wl_display_cancel_read(display);
+            xdg_toplevel_set_maximized(toplevel);
+            if (wl_display_roundtrip(display) < 0) return broken(display);
+            maximize = MAXIMIZE_REQUESTED;
+            printf("maximize requested\n");
+            fflush(stdout);
+            continue;
         }
         if (wl_display_flush(display) < 0 && errno != EAGAIN) {
             wl_display_cancel_read(display);
