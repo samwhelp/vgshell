@@ -130,6 +130,21 @@ const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(pat
 }
 const ABSENT = { tone: "warning", text: "Browser needs setup", action: true };
 const READY = { tone: "ok", text: "Private browser ready", action: false };
+const INPUT_ABSENT = { tone: "warning", text: "Input tools unavailable", action: true };
+const INPUT_READY = { tone: "ok", text: "Keys ready; pointer ready", action: true };
+const LOCAL_ABSENT = { tone: "warning", text: "Not set up", action: true };
+const LOCAL_READY = { tone: "ok", text: "Ready: small", action: false };
+// The Jarvis Setup tab, partial and done, as the service publishes it: no
+// section offers one screen twice, so Set up local voice, Set up browser
+// and Check input each draw beside one row. Add key draws in the AI model
+// and Voice sections, one for each kind of key. [label, the voice the
+// daemon runs, the daemon's causes, the local voice, browser and input
+// readings].
+const ONCE = [
+    ["partial under Local", "local", ["brain=unselected", "speech=local-not-set-up"], LOCAL_ABSENT, ABSENT, INPUT_ABSENT],
+    ["done under Local", "local", [], LOCAL_READY, READY, INPUT_READY],
+    ["partial under Realtime", "realtime", ["brain=unselected"], LOCAL_ABSENT, ABSENT, INPUT_ABSENT]
+];
 // [label, probe value, requires, missing, null for the probe value itself or
 // the commands the withheld value names].
 const SETUP = [
@@ -929,25 +944,28 @@ function verifyReadiness(gate) {
     for (const key of ["setupVoice", "setupModel"])
         assert.deepEqual([stopped[key].tone === checking[key].tone, stopped[key].action], [false, DONE_ACTION[key]], "stopped: " + key);
     assert.throws(() => gate.readiness({ kind: "answered", causes: ["voice=missing"] }), /^Error: jarvis-setup: cause=voice=missing/);
-    // An optional step: done while its reader is ok, else optional with
-    // its reader's action.
-    for (const [label, key, value, want] of [
-        ["browser ready", "setupBrowser", READY, ["ok", false]],
-        ["browser to set up", "setupBrowser", ABSENT, ["info", true]],
-        ["browser withheld", "setupBrowser", { tone: "warning", text: "Needs agent-browser", action: false }, ["info", false]],
-        ["input ready", "setupInput", { tone: "ok", text: "Keys ready; pointer ready", action: true }, ["ok", false]],
-        ["input missing", "setupInput", { tone: "warning", text: "Input tools unavailable", action: true }, ["info", true]]]) {
-        const got = plain(gate.optionalStep(key, value));
-        assert.deepEqual([got.tone, got.action], want, label);
-        assert.equal(typeof got.text, "string");
-        assert.notEqual(got.text.trim(), "", "an optional step carries a state label");
-        assert.equal(got.hint, undefined, "optional guidance stays in the manifest");
-        assert.equal(got.lines, undefined, "optional guidance is no state badge");
+    const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
+    // An optional step reads its reader's state, in the info tone while it
+    // is not ok, and the Local voice row is required under Local alone,
+    // where it leaves its setup to the Voice step: [label, entry, the
+    // reader's value, the voice the daemon runs or null for an optional
+    // step, the published [tone, text, action]].
+    for (const [label, key, value, provider, want] of [
+        ["browser ready", "browser", READY, null, ["ok", "Private browser ready", false]],
+        ["browser to set up", "browser", ABSENT, null, ["info", "Browser needs setup", true]],
+        ["browser withheld", "browser", { tone: "warning", text: "Needs agent-browser", action: false }, null, ["info", "Needs agent-browser", false]],
+        ["input ready", "input", INPUT_READY, null, ["ok", "Keys ready; pointer ready", true]],
+        ["input missing", "input", INPUT_ABSENT, null, ["info", "Input tools unavailable", true]],
+        ["local voice to set up under Local", "localRuntime", LOCAL_ABSENT, "local", ["warning", "Not set up", false]],
+        ["local voice ready under Local", "localRuntime", LOCAL_READY, "local", ["ok", "Ready: small", false]],
+        ["local voice to set up under Realtime", "localRuntime", LOCAL_ABSENT, "realtime", ["info", "Not set up", true]],
+        ["local voice to set up under Gemini Live", "localRuntime", LOCAL_ABSENT, "gemini", ["info", "Not set up", true]]]) {
+        const got = plain(provider === null ? gate.optionalStep(value) : gate.localVoiceStep(value, provider));
+        assert.deepEqual([got.tone, got.text, got.action], want, label);
+        assert.equal(judge.statusWrite(manifest, {}, key, got).ok, true, label + ": the manifest judge accepts " + key);
     }
-    assert.throws(() => gate.optionalStep("setupModel", READY), /step=setupModel is not optional/);
     // Every value the service publishes is one the manifest judge accepts
     // for its entry, so a refused write cannot stop the service's start.
-    const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
     const answers = READINESS.map(row => row[1]).concat([{ kind: "checking" }, { kind: "stopped" },
         { kind: "answered", causes: ["speech=local-memory-insufficient"] },
         { kind: "answered", causes: ["speech=local-memory-unavailable"] }], HOME_CAUSES.map(cause => ({ kind: "answered", causes: [cause] })));
@@ -964,17 +982,15 @@ function verifyReadiness(gate) {
         for (const [key, value] of Object.entries(plain(gate.readiness(answer))))
             assert.equal(judge.statusWrite(manifest, {}, key, key === "setupVoice" ? gate.voiceCheck(value, null) : value).ok, true,
                 "the manifest judge accepts " + key + " for " + JSON.stringify(answer));
-    for (const [key, value] of [["setupBrowser", READY], ["setupBrowser", ABSENT], ["setupInput", ABSENT]])
-        assert.equal(judge.statusWrite(manifest, {}, key, plain(gate.optionalStep(key, value))).ok, true, "the manifest judge accepts " + key);
     const published = {
         ...plain(gate.readiness({ kind: "answered", causes: ["speech=local-memory-insufficient"] })),
-        setupBrowser: plain(gate.optionalStep("setupBrowser", ABSENT)),
-        setupInput: plain(gate.optionalStep("setupInput", ABSENT))
+        browser: plain(gate.optionalStep(ABSENT)),
+        input: plain(gate.optionalStep(INPUT_ABSENT))
     };
     const fixtureManifest = plain(manifest);
     published.setupVoice = gate.voiceCheck(published.setupVoice, null);
     published.setupVoice.hint = "fixture state voice guidance";
-    for (const key of ["setupVoice", "setupBrowser", "setupInput"]) {
+    for (const key of ["setupVoice", "browser", "input"]) {
         fixtureManifest.status[key].hint = "fixture declaration " + key;
         if (key !== "setupVoice") {
             assert.equal(published[key].hint, undefined, "optional guidance stays in the manifest");
@@ -1098,6 +1114,7 @@ function verify(gate) {
         assert.equal(judge.statusWrite(manifest, {}, "setupVoice", value).ok, true);
     }
     verifyOneReadiness(gate);
+    verifyScreensOnce(gate);
     verifyReadiness(gate);
     verifyChipTitles(gate);
     verifyTiers(gate);
@@ -1216,8 +1233,9 @@ const CONTROLS = [
     ["a merely found app suppresses Add key", '["signed-in", "verified", "verifying"].indexOf(account.state) !== -1', '["found", "unchecked", "signed-in", "verified", "verifying"].indexOf(account.state) !== -1'],
     ["checking account discovery offers Add key", 'access.kind === "absent"', 'access.kind !== "present"'],
     ["memory guidance is a badge", "out.setupVoice = MEMORY[cause];", "out.setupVoice = Object.assign({}, MEMORY[cause], { lines: [MEMORY[cause].hint], hint: undefined });"],
-    ["optional guidance is a badge", "action: value.action === true };", 'lines: ["fixture guidance"], action: value.action === true };'],
-    ["optional guidance changes with state", "action: value.action === true };", 'hint: "fixture guidance", action: value.action === true };'],
+    ["an optional reading keeps its open tone", 'value.tone === "ok" ? value : Object.assign({}, value, { tone: "info" })', "value", "the browser and input read optional"],
+    ["Local voice offers setup beside the Voice step", 'Object.assign({}, value, { action: false }) : optionalStep(value)', "value : optionalStep(value)", "partial under Local: each screen once"],
+    ["Local voice is required under a cloud voice", 'return provider === "local" ? Object.assign', "return true ? Object.assign", "partial under Realtime: the browser and input read optional"],
     ["memory refusal offers reinstall", 'if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {', 'if (false) {'],
     ["loading is initial checking", "out.setupVoice = LOADING;", "out.setupVoice = CHECKING;"],
     ["loading offers setup", 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting") {', 'if (cause === "speech=dictation-starting") {'],
@@ -1304,8 +1322,8 @@ const CONTROLS = [
     ["a caution summary draws its cause", '.join(" ") }', '.join(" "), lines: answer.causes.map(statusCauseLine) }', "probe timeout: the summary draws no keyed cause"],
     ["causes leave the summary ready", 'setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" }', 'setup: true ? { tone: "ok", text: "Ready" }'],
     ["checking reads done", 'return { setup: CHECKING_SUMMARY, setupHome: HOME_READY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };', 'return { setup: CHECKING_SUMMARY, setupHome: HOME_READY, setupVoice: DONE, setupModel: noAction(DONE) };'],
-    ["an optional step reads done when not ok", 'if (value.tone === "ok") return DONE;', "if (true) return DONE;"],
-    ["an optional step drops its action", "action: value.action === true };", "action: false };"],
+    ["an optional step reads open when ok", 'return value.tone === "ok" ? value :', "return false ? value :", "done under Local: the browser and input read optional"],
+    ["an optional step drops its action", 'Object.assign({}, value, { tone: "info" })', 'Object.assign({}, value, { tone: "info", action: false })', "browser to set up"],
     ["the checking summary offers a step", "return { setup: CHECKING_SUMMARY,", "return { setup: CHECKING,"],
     ["a stopped daemon's steps read checking", 'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },\n            setupHome: HOME_READY, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };',
         'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },\n            setupHome: HOME_READY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };'],
@@ -1313,7 +1331,6 @@ const CONTROLS = [
     ["a status cause line is not bounded", ".slice(0, STATUS_TEXT_MAX)", ""],
     ["an arbitrary stderr line has no words", "return { kind: DAEMON_EXIT.kind, title: DAEMON_EXIT.title, action: DAEMON_EXIT.action, lines: [line] };", 'throw new Error("jarvis-setup: start-cause=" + cause + " has no words");'],
     ["a cause naming no step is taken", 'if (!Object.prototype.hasOwnProperty.call(REQUIRED, step)) throw new Error("jarvis-setup: cause=" + cause + " names no step");', ""],
-    ["a required step reads as optional", 'if (!Object.prototype.hasOwnProperty.call(OPTIONAL, key)) throw new Error("jarvis-setup: step=" + key + " is not optional");', ""],
     ["auto names no tier of its own", 'return wanted === "auto" ? pick : wanted;', "return wanted;"],
     ["a ready wanted tier downloads again", "if (wantedTier(wanted, pick) === ready) return null;\n    return wanted", "return wanted"],
     ["auto passes its own name to setup", 'return wanted === "auto" ? [] : [wanted];', "return [wanted];"],
@@ -1628,6 +1645,38 @@ function verifySetupButtons(gate, manifest) {
                 assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { setupFleet: value }, "setupFleet")), { ok: true, kind: "tui", name: "setup-fleet" },
                     label + ": the row's press opens the fleet setup");
         }
+}
+// The screens a section of SECTIONS draws beside more than one row, as
+// "section: screen".
+function drawnTwice(sections) {
+    return sections.flatMap(section => {
+        const names = Array.from(section.items).filter(item => item.button !== null && item.button.name !== "").map(item => String(item.button.name))
+            .concat(Array.from(section.buttons, button => String(button.name)));
+        return names.filter((name, at) => names.indexOf(name) !== at).map(name => section.title + ": " + name);
+    });
+}
+function verifyScreensOnce(gate) {
+    const tuis = judge.listedTuiRows(manifest, []);
+    for (const [label, provider, causes, local, browser, input] of ONCE) {
+        const values = plain(gate.readiness({ kind: "answered", causes }));
+        values.setupVoice = gate.voiceCheck(values.setupVoice, null);
+        values.setupModel = gate.modelStep(values.setupModel, [{ value: "absent" }], { kind: "absent" });
+        Object.assign(values, plain({ localRuntime: gate.localVoiceStep(local, provider), browser: gate.optionalStep(browser), input: gate.optionalStep(input),
+            keyStore: { tone: "ok", text: "1 key stored", action: true }, voiceKey: { tone: "info", text: "No key stored", action: true } }));
+        const sections = Array.from(settings.setupSections(tuis, judge.statusRows(manifest, values, [])));
+        assert.deepEqual(drawnTwice(sections), [], label + ": each screen once");
+        const tones = Object.fromEntries(settingsRows(sections).filter(item => ["localRuntime", "browser", "input"].includes(item.key)).map(item => [item.key, item.entry.tone]));
+        const open = causes.length > 0;
+        assert.deepEqual(tones, { localRuntime: !open ? "success" : provider === "local" ? "warning" : "info", browser: open ? "info" : "success", input: open ? "info" : "success" },
+            label + ": the browser and input read optional, Local voice required under Local alone");
+    }
+    // Its control: the Voice step's and the Local voice row's setup both
+    // offered, as the two entries published before VGS-1486.
+    const both = plain(gate.readiness({ kind: "answered", causes: ["speech=local-not-set-up"] }));
+    both.setupVoice = gate.voiceCheck(both.setupVoice, null);
+    both.localRuntime = LOCAL_ABSENT;
+    assert.deepEqual(drawnTwice(Array.from(settings.setupSections(tuis, judge.statusRows(manifest, both, [])))), ["Setup: setup-local"],
+        "two rows that offer Set up local voice turn the check red");
 }
 // Every cause the Setup table knows states one readiness on the bar and in
 // the Setup status. Session's gate follows the daemon alone (jarvisd.js

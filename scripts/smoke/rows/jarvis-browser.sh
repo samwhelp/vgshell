@@ -19,15 +19,16 @@ jarvis_rescan
 jarvis_enable
 settings_page_open vgs.jarvis
 
+# The browser is optional: a reading that is not ready takes the info tone.
 browser_value() {
   status_row vgs.jarvis browser | py_reply '
 import json,sys
 r=json.load(sys.stdin)
-expected={"absent":{"tone":"warning","text":"Browser needs setup","action":True},
+expected={"absent":{"tone":"info","text":"Browser needs setup","action":True},
           "ready":{"tone":"ok","text":"Private browser ready","action":False},
-          "failed":{"tone":"warning","text":"Setup check failed","action":True},
-          "invalid":{"tone":"warning","text":"Setup check returned invalid status","action":True},
-          "withheld":{"tone":"warning","text":"Needs agent-browser","action":False}}[sys.argv[1]]
+          "failed":{"tone":"info","text":"Setup check failed","action":True},
+          "invalid":{"tone":"info","text":"Setup check returned invalid status","action":True},
+          "withheld":{"tone":"info","text":"Needs agent-browser","action":False}}[sys.argv[1]]
 print("matched" if r["value"]==expected and r["action"]["offered"]==expected["action"] else "pending")
 ' "$1"
 }

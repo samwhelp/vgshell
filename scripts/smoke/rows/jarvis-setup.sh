@@ -68,10 +68,11 @@ local_value() {
   status_row vgs.jarvis localRuntime | py_reply '
 import json,sys
 r=json.load(sys.stdin)
-expected={"absent":{"tone":"warning","text":"Not set up","action":True},
+expected={"absent":{"tone":"warning","text":"Not set up","action":False},
+          "optional":{"tone":"info","text":"Not set up","action":True},
           "ready":{"tone":"ok","text":"Ready: small","action":False},
-          "failed":{"tone":"warning","text":"Setup check failed","action":True},
-          "invalid":{"tone":"warning","text":"Setup check returned invalid status","action":True}}[sys.argv[1]]
+          "failed":{"tone":"warning","text":"Setup check failed","action":False},
+          "invalid":{"tone":"warning","text":"Setup check returned invalid status","action":False}}[sys.argv[1]]
 print("matched" if r["value"]==expected and r["action"]["offered"]==expected["action"] else "pending")
 ' "$1"
 }
@@ -89,15 +90,13 @@ setup_marker="$setup_state/local-ready.json"
 setup_config="$home/.config/vgshell/shell.json"
 setup_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
 # Setup rows use manifest ids. The renderer puts its summary first, then
-# the open steps, then the steps not done that offer their action, the
-# optional Browser and Input among them, then the done ones, each in
-# manifest order, and
-# labels each step from its manifest entry. Optional rows read their chip
-# category because their readers depend on the world. The Setup section
-# also draws the entries of no group that declare an action, one of them
-# labelled Browser too; the reader keeps the Setup group's rows by their
-# entry's key, and scripts/test-settings-steps.js pins where the others
-# draw.
+# the open steps, then the steps not done that offer their action, then
+# the done ones, each in manifest order, and
+# labels each step from its manifest entry. The optional row reads its chip
+# category because its reader depends on the world. The Setup section
+# also draws the entries of no group that declare an action; the reader
+# keeps the Setup group's rows by their entry's key, and
+# scripts/test-settings-steps.js pins where the others draw.
 setup_rows() {
   ipc smoke setupRows window vgs.settings | py_reply '
 import json,sys
@@ -114,16 +113,31 @@ for r in rows:
     key=r["key"]
     if key == "setupSignIn" or key not in steps:
         continue
-    if key in ("setupBrowser", "setupInput", "clonedVoiceSetup"):
+    if key == "clonedVoiceSetup":
         out.append([key, len(r["chips"]) == 1 and r["chips"][0][1] in ("success", "info")])
     else:
         out.append([key, [c[1] for c in r["chips"]], [b["tui"] for b in r["buttons"]], len(r["lines"])])
 print(json.dumps(out))
 ' "$repo/shell/plugins/vgs.jarvis/manifest.json"
 }
-setup_fresh='[["setup", ["warning"], [], 1], ["setupModel", ["warning"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupBrowser", true], ["setupInput", true], ["clonedVoiceSetup", true]]'
-setup_voice_left='[["setup", ["warning"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupBrowser", true], ["setupInput", true], ["setupModel", ["success"], [], 1], ["clonedVoiceSetup", true]]'
-setup_ready='[["setup", ["success"], [], 1], ["setupVoice", ["info"], ["check-microphone"], 1], ["setupBrowser", true], ["setupInput", true], ["setupModel", ["success"], [], 1], ["clonedVoiceSetup", true]]'
+setup_fresh='[["setup", ["warning"], [], 1], ["setupModel", ["warning"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["clonedVoiceSetup", true]]'
+setup_voice_left='[["setup", ["warning"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupModel", ["success"], [], 1], ["clonedVoiceSetup", true]]'
+setup_ready='[["setup", ["success"], [], 1], ["setupVoice", ["info"], ["check-microphone"], 1], ["setupModel", ["success"], [], 1], ["clonedVoiceSetup", true]]'
+# The Setup tab offers the local voice, browser and input screens once
+# each, and the browser and input rows read optional: [the screens of the
+# three that draw beside more than one row, whether Browser and Input each
+# read info or success].
+setup_once() {
+  ipc smoke setupRows window vgs.settings | py_reply '
+import json,sys
+t=sys.stdin.read()
+rows=json.loads(t) if t.startswith("[") else []
+drawn=[b["tui"] for r in rows for b in r["buttons"]]
+twice=sorted(n for n in ("setup-local","setup-browser","setup-input") if drawn.count(n) > 1)
+optional=[any(len(r["chips"]) == 1 and r["chips"][0][1] in ("success", "info") for r in rows if r["key"] == key) for key in ("browser", "input")]
+print(json.dumps([twice] + optional) if rows else "absent")
+'
+}
 # BRAIN as the Jarvis AI model setting, "" for none, delivered by a reload.
 setup_brain() { # BRAIN
   user_config_write python3 - "$setup_config" "$1" <<'PY'
@@ -231,7 +245,7 @@ PY
 }
 setup_keys_hook="Jarvis.Keys { shell: root.shell; onRefreshed: root.hello() }"
 setup_accounts_hook="Jarvis.Accounts { id: accountReader; shell: root.shell; onRefreshed: root.hello() }"
-setup_local_hook="Jarvis.LocalRuntime { id: localRuntime; shell: root.shell; onRefreshed: { root.publishShellSetup(); root.hello(); cloneRuntime.refresh(); } }"
+setup_local_hook="onRefreshed: { root.publishShellSetup(); root.hello(); cloneRuntime.refresh(); }"
 # The Local voice reader's answer (scripts/fixtures/jarvis-setup/status.py
 # --choices): PICK, READY ("none" for none) and the offers of a machine that
 # runs every English tier.
@@ -332,7 +346,7 @@ local_open() { # manager action or listed launcher entry
   snapshot="$rt_dir/vgshell-sources-$shell_qs_pid/$revision"
   forget_record
   if [[ $1 == status ]]; then
-    expect "Settings starts its declared local setup action" ok settings_act vgs.jarvis localRuntime
+    expect "Settings starts the Voice step's local setup action" ok settings_act vgs.jarvis setupVoice
   else
     expect "the launcher starts its listed local setup" ok ipc shell openTui vgs.jarvis/setup-local
   fi
@@ -342,7 +356,7 @@ local_open() { # manager action or listed launcher entry
       --app-id org.vgs.tui --window-title "VGS · Set up Jarvis local voice" -- tui/setup-local.sh)" recorded
   expect_run_end "the fixture local setup terminal ends" vgs.jarvis/setup-local
 }
-expect_poll "local setup is offered before verification" matched local_value absent
+expect_poll "Local voice reads not set up and leaves its setup to the Voice step" matched local_value absent
 ipc shell listTuis | py_reply '
 import json,sys
 rows=json.load(sys.stdin)
@@ -351,6 +365,7 @@ assert any(row["key"]=="vgs.jarvis/setup-local" and row["group"]=="Jarvis" for r
 expect_poll "the Setup fixture retains its present key" matched jarvis_key_value present
 expect_poll "the Setup fixture retains its signed-in app" matched jarvis_account_hint signed-in
 expect_poll "a fresh profile's Setup section reads the AI model and local voice to do" "$setup_fresh" setup_rows
+expect_poll "a fresh profile's Setup tab offers each setup screen once, the browser and input as optional steps" '[[], true, true]' setup_once
 expect_poll "Setup offers its declared Sign in action beside Add key" \
   '["info", true, "sign-in"]' setup_sign_in_value
 setup_sign_in_end
@@ -397,6 +412,7 @@ printf 'ready\n' >"$sandbox/jarvis-world/local-mode"
 local_open status
 expect_poll "the service rereads readiness after the Settings action ends" matched local_value ready
 expect_poll "the ended local setup reaches the daemon: the Setup section reads ready" "$setup_ready" setup_rows
+expect_poll "a ready Setup tab offers each setup screen once, the browser and input as optional steps" '[[], true, true]' setup_once
 
 # Control: the local voice reader's end sends no snapshot, so the daemon
 # keeps its answer after the marker appears and local setup ends.
@@ -509,7 +525,7 @@ expect "removing end refresh breaks its consumer read" 1 local_control_count loc
 cp -- "$sandbox/local-reader-original" "$local_reader"
 printf 'absent\n' >"$sandbox/jarvis-world/local-mode"
 jarvis_rescan
-expect_poll "the restored reader offers setup" matched local_value absent
+expect_poll "the restored reader reads not set up" matched local_value absent
 
 python3 - "$local_reader" <<'PY'
 from pathlib import Path
@@ -540,7 +556,7 @@ cp -- "$sandbox/accounts-tui-original" "$accounts_tui"
 cp -- "$sandbox/sign-in-tui-original" "$sign_in_tui"
 printf 'absent\n' >"$sandbox/jarvis-world/local-mode"
 jarvis_rescan
-expect_poll "the restored setup action is offered" matched local_value absent
+expect_poll "the restored reader reads not set up again" matched local_value absent
 rm -f -- "$setup_marker" "$setup_state/accounts.json"
 [[ ! -e $sandbox/setup-accounts-before ]] || cp -- "$sandbox/setup-accounts-before" "$setup_state/accounts.json"
 rm -rf -- "${setup_codex:?}"
@@ -663,7 +679,9 @@ expect_poll "the step's button opens the clone setup in the core floating termin
 expect_run_end "the clone setup terminal ends" vgs.jarvis/clone-voice
 setup_provider realtime
 expect_poll "with Realtime chosen the setup row offers nothing" '["Setup", false, ""]' setup_clone_row
+expect_poll "with Realtime chosen Local voice reads optional and offers its setup" matched local_value optional
 setup_provider ""
+expect_poll "the default voice, Local, makes Local voice required again" matched local_value absent
 expect_poll "the default voice, Local, offers the clone setup again" '["Setup", true, "clone-voice"]' setup_clone_row
 
 setup_clone_ready_answer true
