@@ -180,18 +180,20 @@ const plain = value => JSON.parse(JSON.stringify(value));
 // The voice the daemon hears of: [label, the settings a user changed over the
 // manifest's own, the stored OpenAI keys the account reader holds or
 // undefined while it has no answer, the voice]. A fresh settings file holds
-// only the manifest's values.
+// only the manifest's values, and a saved choice keeps its value.
 const KEY = [{ value: "openai-1", label: "OpenAI / fixture" }];
 const VOICE = [
     ["a fresh settings file with no key", {}, [], "local"],
-    ["a stored key and no choice", { voiceAccount: "openai-1" }, KEY, "realtime"],
-    ["a stored key the Realtime key setting does not name", {}, KEY, "local"],
-    ["the named key removed", { voiceAccount: "openai-1" }, [], "local"],
-    ["the named key before the reader answers", { voiceAccount: "openai-1" }, undefined, "realtime"],
-    ["no key before the reader answers", {}, undefined, "local"],
+    ["a fresh settings file beside a stored named key", { voiceAccount: "openai-1" }, KEY, "local"],
+    ["Auto saved beside a stored named key", { voiceProvider: "auto", voiceAccount: "openai-1" }, KEY, "realtime"],
+    ["Auto saved beside a stored key the Realtime key setting does not name", { voiceProvider: "auto" }, KEY, "local"],
+    ["Auto saved with the named key removed", { voiceProvider: "auto", voiceAccount: "openai-1" }, [], "local"],
+    ["Auto saved with the named key before the reader answers", { voiceProvider: "auto", voiceAccount: "openai-1" }, undefined, "realtime"],
+    ["Auto saved with no key before the reader answers", { voiceProvider: "auto" }, undefined, "local"],
     ["Local chosen beside a stored key", { voiceProvider: "local", voiceAccount: "openai-1" }, KEY, "local"],
-    ["Realtime chosen with no key", { voiceProvider: "realtime" }, [], "realtime"],
-    ["Always talk mode beside a stored key", { mode: "always", voiceAccount: "openai-1" }, KEY, "local"],
+    ["Realtime saved with no key", { voiceProvider: "realtime" }, [], "realtime"],
+    ["Realtime saved beside a stored named key", { voiceProvider: "realtime", voiceAccount: "openai-1" }, KEY, "realtime"],
+    ["Always talk mode with Auto saved beside a stored key", { mode: "always", voiceProvider: "auto", voiceAccount: "openai-1" }, KEY, "local"],
     ["Always talk mode with Realtime chosen", { mode: "always", voiceProvider: "realtime", voiceAccount: "openai-1" }, KEY, "realtime"]
 ];
 // The Voice group's key row: [label, the stored keys or null for a failed
@@ -1246,6 +1248,7 @@ try {
         assert.equal(failure.check, "setup-model-action");
         console.log("test-jarvis-setup-gate: control=" + target + " check=setup-model-action rejected=true");
     }
+    const manifestFile = path.join(path.dirname(file), "manifest.json");
     for (const [target, original, needle, replacement] of [
         ["Service.qml", serviceSource, "voiceProvider: Gate.voiceProvider(shell.settings, accountReader.voiceKeys), dictation", "voiceProvider: shell.settings.voiceProvider, dictation"],
         ["Accounts.qml", accountsSource, "voiceKeys = value.voiceAccounts;", "voiceKeys = [];"],
@@ -1253,20 +1256,28 @@ try {
         ["Accounts.qml", accountsSource, "Gate.voiceKey(value.voiceAccounts)", "Gate.voiceKey([])"],
         ["Accounts.qml", accountsSource, "Gate.voiceKey(null)", "Gate.voiceKey([])"],
         ["Accounts.qml", accountsSource, "providers = value.providers;", "providers = {};"],
-        ["Accounts.qml", accountsSource, "providers = {};", "providers = providers;"]
+        ["Accounts.qml", accountsSource, "providers = {};", "providers = providers;"],
+        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '"voiceProvider": "local", "voiceAccount"', '"voiceProvider": "auto", "voiceAccount"']
     ]) {
         assert.equal(original.split(needle).length, 2);
         let failure = null;
+        // A manifest copy is read in place of the plugin's while the row runs.
+        const readFile = fs.readFileSync;
+        if (target === "manifest.json") {
+            const copy = path.join(temp, "voice-default-manifest.json");
+            fs.writeFileSync(copy, original.replace(needle, replacement));
+            fs.readFileSync = (name, ...rest) => readFile(name === manifestFile ? copy : name, ...rest);
+        }
         try { verifyVoice(load(file), target === "Service.qml" ? original.replace(needle, replacement) : serviceSource,
             target === "Accounts.qml" ? original.replace(needle, replacement) : accountsSource); }
         catch (error) { failure = error; }
+        finally { fs.readFileSync = readFile; }
         assert.ok(failure instanceof assert.AssertionError);
         assert.equal(failure.check, "voice-default");
         console.log("test-jarvis-setup-gate: control=" + target + " check=voice-default rejected=true");
     }
     // The model and effort choice and its list read: one rule at a time.
     const providersSource = fs.readFileSync(providersFile, "utf8");
-    const manifestFile = path.join(path.dirname(file), "manifest.json");
     const CHOICE_CONTROLS = [
         ["AccountProviders.js", 'var PREFERRED_MODELS = ["claude-fable-5-1", "claude-opus-5-5"];', 'var PREFERRED_MODELS = ["claude-opus-5-5", "claude-fable-5-1"];'],
         ["AccountProviders.js", 'var PREFERRED_MODELS = ["claude-fable-5-1", "claude-opus-5-5"];', 'var PREFERRED_MODELS = ["claude-fable-5-1"];'],
@@ -1427,7 +1438,7 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length + FLEET.length + DICTATION.length} controls=${CONTROLS.length + 10 + 55}`);
+console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length + FLEET.length + DICTATION.length} controls=${CONTROLS.length + 10 + 56}`);
 // The fleet setup terminal opens from the Agent fleet row alone: in
 // MANIFEST, a judged manifest, the launcher lists no fleet TUI and the
 // Settings page draws none while the row is hidden, and the offered row

@@ -19,8 +19,8 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Start Jarvis at boot: your Jarvis session starts in tmux in the home folder when VGS starts after you sign in.
 - An AI model from an API key or a signed-in app: Claude Code, Codex, GitHub Copilot, or Pi with its own providers.
 - Backup models that Jarvis tries when the answering model fails.
-- Local voice: speech to text and spoken replies on your computer.
-- Realtime voice from OpenAI with a saved OpenAI key.
+- Local voice, the default: speech to text and spoken replies on your computer.
+- Realtime voice from OpenAI with a saved OpenAI key, a slower cloud option.
 - Talk interrupts Jarvis while it speaks.
 - Provider keys kept in your desktop keyring.
 - Accounts finds the keys and sign-ins your other tools already have.
@@ -71,7 +71,7 @@ The icon's tooltip says what to do next and names the answering AI model when on
 
 The Setup section at the top of the Jarvis page says Ready when Jarvis has an AI model it can use and the selected voice provider, and Not ready when it does not. It offers Sign in, AI model, Voice, Browser and Input. The AI model and voice steps read Done or To do. Sign in is optional. A step with a setup action shows its action beside it. The browser and input steps read Optional until they are done. If start fails, Setup names the cause and shows the keyed cause on its detail line.
 
-Setup actions are buttons on the Jarvis page in Plugins or rows in the launcher's Jarvis group. These actions open a floating terminal. For the Realtime voice, use Add key under Setup at the top of this page to save an OpenAI key. With no OpenAI key, Jarvis uses the local voice and Setup does not ask for a key. Jarvis selects the only available OpenAI key when Realtime key is empty, and Voice provider Auto then uses the Realtime voice. With several keys, choose one under Voice.
+Setup actions are buttons on the Jarvis page in Plugins or rows in the launcher's Jarvis group. These actions open a floating terminal. Jarvis uses the local voice unless you choose Realtime under Voice provider, and Setup does not ask for a key. For the Realtime voice, use Add key under Setup at the top of this page to save an OpenAI key. Jarvis selects the only available OpenAI key when Realtime key is empty, and Voice provider Auto then uses the Realtime voice. With several keys, choose one under Voice.
 
 - Add key stores a new API key from an AI provider in your desktop keyring, with hidden key input. Plugins shows whether a key is present, absent, locked or unavailable without reading it. You choose the provider from a list that names the page where it makes keys, then give the key a name.
 - Sign in opens the app's own sign-in: Claude Code, Codex, GitHub Copilot or Pi. Give a new account a name, or select an existing account folder. Jarvis shows the folder before sign-in and creates it if needed. After sign-in, select the account as the AI model. The app keeps its login token.
@@ -94,7 +94,7 @@ With a GitHub Copilot account, Setup shows Copilot Memory. GitHub keeps that mem
 | --- | --- |
 | Talk mode | Hold: Jarvis takes what you said when you let go of the Talk key. Toggle: the conversation stays open until you press Talk again. Always: say Hey Jarvis, then your request; Talk listens at once. Always needs the local voice: the word is heard on this computer, and the bubble stays on screen while the microphone is open. |
 | Microphone, Speaker | The audio devices Jarvis uses. |
-| Voice provider | Auto uses Realtime when an OpenAI key is stored, else Local; in Always talk mode it stays Local. Local keeps speech on this computer. Realtime sends microphone audio and released results to OpenAI. A choice of Local or Realtime stays, whatever keys are stored. Changing it ends the conversation. |
+| Voice provider | Local is the default: it keeps speech on this computer and answers fastest. Realtime sends microphone audio and released results to OpenAI and answers more slowly. Auto uses Realtime when an OpenAI key is stored, else Local; in Always talk mode it stays Local. A choice of Local or Realtime stays, whatever keys are stored. Changing it ends the conversation. |
 | Local voice model | Auto is the model that runs best on this computer, from its graphics card memory, its memory and its processor threads. The list shows each other model this computer can run, with its download size. Choosing one downloads it now in a floating terminal, which asks first when it would replace a ready model. The choice changes the voice Jarvis speaks with. Dictation uses voxtype's model: change it with Choose model in Voice. |
 | Realtime key | A saved OpenAI key the Realtime voice uses. Add key opens hidden key input and stores the key in your desktop keyring. Get the key at [OpenAI API keys](https://platform.openai.com/api-keys). |
 | AI model | The AI that answers you: an API key you added, or an app you are signed in to. It lists only the choices Jarvis can use. An app with more than one account shows each by its sign-in email. |

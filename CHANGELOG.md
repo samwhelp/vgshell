@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Jarvis uses the local voice by default: speech stays on your computer and replies start sooner. Realtime stays a choice under Settings > Jarvis > Voice provider, as the slower cloud voice, and Auto keeps its meaning. A Voice provider you already chose stays. Before, the default was Auto, which used Realtime whenever an OpenAI key was stored.
 - Agent Warden, AI Usage, Passwordless sudo and Jarvis draw their bar icon in the theme's own colour for each state, as Updates and Cloud Sync do: a warning is one amber on every widget. Before, these four drew a paler or darker shade of that colour.
 - In the notifications panel's header, Sound off shows its icon in a round accent box, as Do Not Disturb on and an open History do. Before, Sound off changed only its icon, and the box was square inside the round header. A screen reader names each icon's state: Notification sound on or off, Do Not Disturb on or off, History open or closed.
 - Jarvis calls the session that runs your agent fleet your Jarvis session: in the confirmation before a fleet request, the Agent fleet row under Setup, its setup window and the Jarvis README. Before, it called it the master session.

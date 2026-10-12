@@ -19,7 +19,9 @@
 # read leaves the saved model, marked, and with nothing saved the model the
 # daemon gets. The shell's log holds no unexpected line from these steps.
 # Two backup models added through the list's Add action sit the group
-# list's gap apart, with the hairline centred in it.
+# list's gap apart, with the hairline centred in it. A fresh profile saves
+# no Voice provider and reads Local; a saved Realtime survives a shell
+# restart, and with it taken out the page reads Local again.
 # No latency budget.
 # Poll once per nested IPC round trip. Only J09's process double and the
 # allow-listed TUI fixtures run here.
@@ -42,6 +44,24 @@ terminal_ready "Jarvis page"
 jarvis_rescan
 jarvis_enable
 settings_page_open vgs.jarvis
+
+# The Voice provider: the user file's saved value, from the plugin's row and
+# its widget's layout entries, "absent" when none holds one, and the value
+# the page draws, the core's merge of the file over the manifest default.
+page_voice_saved() {
+  python3 - "$home/.config/vgshell/shell.json" <<'PY'
+import json,sys
+value=json.load(open(sys.argv[1]))
+entries=list(value.get("plugins", []))
+for section in value.get("bar", {}).get("layout", {}).values():
+    if isinstance(section, list): entries+=section
+saved=[row["voiceProvider"] for row in entries if isinstance(row, dict) and row.get("id") == "vgs.jarvis" and "voiceProvider" in row]
+print(json.dumps(saved) if saved else "absent")
+PY
+}
+page_voice() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; r=[p["settings"].get("voiceProvider") for p in json.load(sys.stdin) if p["id"] == "vgs.jarvis"]; print(json.dumps(r[0]) if r else "absent")'; }
+expect "a fresh profile saves no Voice provider" absent page_voice_saved
+expect_poll "a fresh profile reads Local as the Voice provider" '"local"' page_voice
 
 page_home_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"vgs.jarvis","key":"home"}'; }
 page_home_text() { page_home_field | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["text"]))'; }
@@ -546,3 +566,19 @@ expect_poll "vgs.system's enablement is as the row found it" "$page_system_was" 
 settings_page_close vgs.jarvis
 jarvis_disable
 jarvis_notice_close
+
+# A saved Voice provider survives a shell restart. Jarvis is off, so the
+# saved Realtime starts no voice; the step takes it out after the restart
+# and the page reads Local again.
+settings_page_open vgs.jarvis
+expect "the Settings page saves Realtime as the Voice provider" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.jarvis","key":"voiceProvider","value":"realtime"}'
+expect_poll "the user file holds Realtime" '["realtime"]' page_voice_saved
+settings_page_close vgs.jarvis
+stop_shell || :
+start_shell "$repo" "$sandbox/jarvis-page-restarted.log"
+settings_page_open vgs.jarvis
+expect_poll "the saved Realtime survives a shell restart" '"realtime"' page_voice
+page_settings_drop voiceProvider
+expect "the user file holds no Voice provider again" absent page_voice_saved
+expect_poll "with nothing saved the Voice provider reads Local" '"local"' page_voice
+settings_page_close vgs.jarvis

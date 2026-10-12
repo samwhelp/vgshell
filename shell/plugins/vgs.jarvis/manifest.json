@@ -12,7 +12,7 @@
   "capabilities": ["compositor", "configure", "ipc", "requirements", "run", "session", "status", "notify", "tui", "shortcut", "layers", "hyprland", "surfaces", "screens", "sounds", "dictation"],
   "defaultSection": "right",
   "settings": { "mode": "hold", "microphone": "", "speaker": "", "brain": "", "model": "", "effort": "", "fallbacks": [], "taskTerminal": "auto", "cloudVision": "ask",
-    "voiceProvider": "auto", "voiceAccount": "", "voice": "", "localTier": "auto",
+    "voiceProvider": "local", "voiceAccount": "", "voice": "", "localTier": "auto",
     "home": "", "startAtBoot": false, "bootSession": "",
     "privateWindows": "1password, bitwarden, keepass, proton pass, enpass, pinentry, seahorse, private browsing, incognito" },
   "schema": {
@@ -26,7 +26,7 @@
       "description": "Half duplex: Jarvis closes its microphone while speech plays. Talk interrupts speech." },
     "voiceProvider": { "type": "enum", "label": "Voice provider", "group": "Voice",
       "options": ["auto", "local", "realtime"],
-      "description": "Auto uses Realtime when an OpenAI key is stored, else Local. Local keeps speech on this computer. Realtime sends your voice to OpenAI.",
+      "description": "Local is the default: it keeps speech on this computer and answers fastest. Realtime sends your voice to OpenAI and answers more slowly. Auto uses Realtime when an OpenAI key is stored, else Local.",
       "info": "Changing this ends the conversation." },
     "voiceAccount": { "type": "string", "label": "Realtime key", "group": "Voice", "optionsFrom": "voiceAccounts", "placeholder": "Choose a key",
       "description": "Your OpenAI key for the Realtime voice. With one key, Jarvis picks it. Get a key from OpenAI API keys.",
