@@ -508,11 +508,12 @@ function suite(ctx, check) {
     // the error text.
     const configRows = [
         ["an empty object passes", {}, ""],
-        ["every key of the table, well formed, passes", { version: 1, bar: { id: "vgs.bar", layout: { left: [{ id: "a.b" }], center: [], right: [] } }, plugins: [{ id: "a.c", x: 1 }], disabledPlugins: ["a.d"], disabledTargets: ["foot"] }, ""],
+        ["every key of the table, well formed, passes", { version: 2, bar: { id: "vgs.bar", layout: { left: [{ id: "a.b" }], center: [], right: [] } }, plugins: [{ id: "a.c", x: 1 }], disabledPlugins: ["a.d"], disabledTargets: ["foot"] }, ""],
         ["a key outside the table is carried", { unrelated: { any: 1 } }, ""],
         ["a list is not a config", [], "config must be an object"],
         ["null is not a config", null, "config must be an object"],
-        ["version 2", { version: 2 }, "version must be 1"],
+        ["version 1", { version: 1 }, "version must be 2"],
+        ["version 3", { version: 3 }, "version must be 2"],
         ["plugins not a list", { plugins: {} }, "plugins must be a list"],
         ["a plugins row without an id", { plugins: [{ id: "a.b" }, { x: 1 }] }, "plugins.1 must be an object with a string id"],
         ["a plugins row that is a string", { plugins: ["a.b"] }, "plugins.0 must be an object with a string id"],
@@ -526,6 +527,8 @@ function suite(ctx, check) {
         ["a section not a list", { bar: { layout: { left: { id: "a.b" } } } }, "bar.layout.left must be a list"],
         ["a layout row without an id", { bar: { layout: { center: [{ format: "x" }] } } }, "bar.layout.center.0 must be an object with a string id"],
         ["a layout row with a numeric id", { bar: { layout: { right: [{ id: 3 }] } } }, "bar.layout.right.0 must be an object with a string id"],
+        ["a layout row with a setting beside its id", { bar: { layout: { left: [{ id: "a.b" }], center: [{ id: "a.c" }, { id: "a.d", format: "HH:mm" }] } } }, "bar.layout.center.1 has key \"format\" beside its id"],
+        ["a layout row with a plugins row's keys beside its id", { bar: { layout: { right: [{ id: "a.b", keys: {} }] } } }, "bar.layout.right.0 has key \"keys\" beside its id"],
         ["packages with each elevation command passes", { packages: { elevate: "run0" } }, ""],
         ["packages without elevate passes", { packages: {} }, ""],
         ["packages not an object", { packages: ["sudo"] }, "packages must be an object"],
@@ -561,7 +564,70 @@ function suite(ctx, check) {
     // passes, so a refused config/shell.json leaves every screen without a bar.
     check("configError: the repository's config/shell.json passes", ctx.configError(JSON.parse(require("fs").readFileSync(path.join(__dirname, "..", "config", "shell.json"), "utf8"))), "");
 
-    const shipped = { version: 1, bar: { id: "vgs.bar", layout: { left: [{ id: "vgs.workspaces" }], center: [{ id: "vgs.clock" }], right: [] } }, plugins: [{ id: "acme.svc", x: 1 }], disabledPlugins: [] };
+    // migrateConfig rows: [name, user file, want file, want migrated, the
+    // judge's verdict on the result]. A version 1 file's layout entries
+    // keep their ids alone, and every other key moves into the plugins row
+    // of its id, where the row's own value wins. No row reads a manifest, so
+    // a plugin that is not installed moves the same way.
+    const v1 = (layout, rest) => Object.assign({ version: 1, bar: { id: "vgs.bar", layout: layout } }, rest || {});
+    const v2 = (layout, rest) => Object.assign({ version: 2, bar: { id: "vgs.bar", layout: layout } }, rest || {});
+    const migrateRows = [
+        ["a key the row lacks moves into the row",
+            v1({ left: [], center: [{ id: "a.b", format: "HH:mm" }], right: [] }, { plugins: [{ id: "a.b", other: 1 }] }),
+            v2({ left: [], center: [{ id: "a.b" }], right: [] }, { plugins: [{ id: "a.b", other: 1, format: "HH:mm" }] }), true, ""],
+        ["the row's value wins over the entry's",
+            v1({ left: [{ id: "a.b", format: "entry", size: 3 }], center: [], right: [] }, { plugins: [{ id: "a.b", format: "row" }] }),
+            v2({ left: [{ id: "a.b" }], center: [], right: [] }, { plugins: [{ id: "a.b", format: "row", size: 3 }] }), true, ""],
+        ["a row the file lacks is appended",
+            v1({ right: [{ id: "a.b", on: true }] }, { plugins: [{ id: "z.z" }] }),
+            v2({ right: [{ id: "a.b" }] }, { plugins: [{ id: "z.z" }, { id: "a.b", on: true }] }), true, ""],
+        ["a file with no plugins key gains the row",
+            v1({ right: [{ id: "a.b", on: true }] }),
+            v2({ right: [{ id: "a.b" }] }, { plugins: [{ id: "a.b", on: true }] }), true, ""],
+        ["of two entries with one id, the first in section order wins",
+            v1({ right: [{ id: "a.b", k: "right" }], left: [{ id: "a.b", k: "left", only: "left" }] }),
+            v2({ right: [{ id: "a.b" }], left: [{ id: "a.b" }] }, { plugins: [{ id: "a.b", k: "left", only: "left" }] }), true, ""],
+        ["of two entries with one id in one section, the first wins",
+            v1({ center: [{ id: "a.b", k: "first" }, { id: "c.d" }, { id: "a.b", k: "second", later: 2 }] }),
+            v2({ center: [{ id: "a.b" }, { id: "c.d" }, { id: "a.b" }] }, { plugins: [{ id: "a.b", k: "first", later: 2 }] }), true, ""],
+        ["every section moves, each entry into its own row",
+            v1({ left: [{ id: "l.l", a: 1 }], center: [{ id: "c.c", b: 2 }], right: [{ id: "r.r", c: [3] }] }),
+            v2({ left: [{ id: "l.l" }], center: [{ id: "c.c" }], right: [{ id: "r.r" }] }, { plugins: [{ id: "l.l", a: 1 }, { id: "c.c", b: 2 }, { id: "r.r", c: [3] }] }), true, ""],
+        ["a plugin that is not installed moves the same way, keys included",
+            v1({ right: [{ id: "gone.plugin", keys: { toggle: "SUPER+G" }, mode: "x" }] }),
+            v2({ right: [{ id: "gone.plugin" }] }, { plugins: [{ id: "gone.plugin", keys: { toggle: "SUPER+G" }, mode: "x" }] }), true, ""],
+        ["every other key stays as it was",
+            v1({ left: [{ id: "a.b", n: 1 }] }, { disabledPlugins: ["c.d"], unrelated: { keep: true }, appearance: { motion: false } }),
+            v2({ left: [{ id: "a.b" }] }, { disabledPlugins: ["c.d"], unrelated: { keep: true }, appearance: { motion: false }, plugins: [{ id: "a.b", n: 1 }] }), true, ""],
+        ["a version 1 file with nothing to move takes version 2",
+            { version: 1, plugins: [{ id: "a.b", x: 1 }] }, { version: 2, plugins: [{ id: "a.b", x: 1 }] }, true, ""],
+        ["a version 1 file with no bar key moves nothing",
+            { version: 1, disabledPlugins: [] }, { version: 2, disabledPlugins: [] }, true, ""],
+        ["an unversioned file with a key in an entry is migrated",
+            { bar: { layout: { right: [{ id: "a.b", on: false }] } } }, { bar: { layout: { right: [{ id: "a.b" }] } }, plugins: [{ id: "a.b", on: false }], version: 2 }, true, ""],
+        ["an unversioned file with nothing to move is left as it is",
+            { bar: { layout: { right: [{ id: "a.b" }] } } }, { bar: { layout: { right: [{ id: "a.b" }] } } }, false, ""],
+        ["a version 2 file is left as it is",
+            v2({ right: [{ id: "a.b" }] }, { plugins: [{ id: "a.b", on: true }] }), v2({ right: [{ id: "a.b" }] }, { plugins: [{ id: "a.b", on: true }] }), false, ""],
+        ["a version 2 file with a key in an entry is left for the judge",
+            v2({ right: [{ id: "a.b", on: true }] }), v2({ right: [{ id: "a.b", on: true }] }), false, "bar.layout.right.0 has key \"on\" beside its id"],
+        ["a later version is left for the judge",
+            { version: 3, bar: { layout: { right: [{ id: "a.b", on: true }] } } }, { version: 3, bar: { layout: { right: [{ id: "a.b", on: true }] } } }, false, "version must be 2, got 3"],
+        ["a version 1 entry that is no object is left for the judge",
+            v1({ center: ["a.b", { id: "c.d", k: 1 }] }), v2({ center: ["a.b", { id: "c.d" }] }, { plugins: [{ id: "c.d", k: 1 }] }), true, "bar.layout.center.0 must be an object with a string id"],
+        ["a version 1 plugins key that is no list is left for the judge",
+            v1({ right: [{ id: "a.b", on: true }] }, { plugins: {} }), v2({ right: [{ id: "a.b", on: true }] }, { plugins: {} }), true, "plugins must be a list"],
+        ["a list is left for the judge", [], [], false, "config must be an object"],
+    ];
+    for (const [name, user, want, migrated, verdict] of migrateRows) {
+        const before = JSON.stringify(user);
+        const got = ctx.migrateConfig(user);
+        check("migrateConfig: " + name, got, { config: want, migrated: migrated });
+        check("migrateConfig leaves its input: " + name, JSON.stringify(user), before);
+        check("migrateConfig result judged: " + name, ctx.configError(got.config), verdict);
+    }
+
+    const shipped = { version: 2, bar: { id: "vgs.bar", layout: { left: [{ id: "vgs.workspaces" }], center: [{ id: "vgs.clock" }], right: [] } }, plugins: [{ id: "acme.svc", x: 1 }], disabledPlugins: [] };
 
     // effectiveConfig rows: [name, user, path, want]
     const mergeRows = [
@@ -578,8 +644,6 @@ function suite(ctx, check) {
     }
     check("effectiveConfig does not alias shipped", (() => { const c = ctx.effectiveConfig(shipped, null); c.bar.id = "x"; return shipped.bar.id; })(), "vgs.bar");
     check("effectiveConfig does not alias the user file", (() => { const user = { bar: { id: "u.bar" } }; const c = ctx.effectiveConfig(shipped, user); c.bar.id = "x"; return user.bar.id; })(), "u.bar");
-    check("layoutEntryOf finds the first entry in section order", ctx.layoutEntryOf({ bar: { layout: { right: [{ id: "a", n: 3 }], center: [{ id: "a", n: 2 }], left: [{ id: "b" }] } } }, "a"), { id: "a", n: 2 });
-    check("layoutEntryOf is null for an unplaced id", ctx.layoutEntryOf(shipped, "acme.svc"), null);
     check("managerId reads the manager's id", ctx.managerId({ manager: { id: "a.b" } }), "a.b");
     check("managerId is empty for a file that names none", ctx.managerId({}), "");
     check("managerId is empty for an id that is not a string", ctx.managerId({ manager: { id: 3 } }), "");
@@ -733,7 +797,7 @@ function suite(ctx, check) {
         ["restores clock at its default before automatic widgets", "vgs.bar/center-clock", { left: [], center: [{ id: "acme.extra" }], right: [] },
             { left: [], center: [{ id: "vgs.bar/center-clock" }, { id: "acme.extra" }], right: [] }],
     ]) {
-        const user = { version: 1, bar: { id: "vgs.bar", layout }, plugins: [{ id: "vgs.bar", clockFormat: "HH:mm" }], disabledPlugins: [], unrelated: { keep: true } };
+        const user = { version: 2, bar: { id: "vgs.bar", layout }, plugins: [{ id: "vgs.bar", clockFormat: "HH:mm" }], disabledPlugins: [], unrelated: { keep: true } };
         const restored = ctx.withPlaced(user, manifests["vgs.bar"], true, user, id, builtinDefaults);
         check("builtin default restore: " + name, restored, Object.assign({}, user, { bar: { id: "vgs.bar", layout: expected } }));
         check("builtin restore twice is once: " + name, ctx.withPlaced(restored, manifests["vgs.bar"], true, restored, id, builtinDefaults), restored);
@@ -743,28 +807,21 @@ function suite(ctx, check) {
         { bar: { layout: { left: [], center: [], right: [] } } }, "vgs.bar/left-workspaces", relocatedDefault).bar.layout,
         { left: [], center: [], right: [{ id: "vgs.bar/left-workspaces" }] });
 
-    // settingTargetOf rows: [kind, want]. Every kind has one target.
-    for (const kind of ctx.KINDS)
-        check("settingTargetOf: " + kind, ctx.settingTargetOf(kind), kind === "bar-widget" ? "layout" : "plugins");
-
-    // settingsFor: manifest defaults under the entry a setting target names.
-    check("settingsFor merges the layout entry over defaults", ctx.settingsFor(shipped, manifests["acme.widget"], "layout", { id: "acme.widget", size: 9 }), { size: 9, tags: ["a"] });
-    check("settingsFor drops the id key", ctx.settingsFor(shipped, manifests["acme.widget"], "layout", { id: "acme.widget" }).id, undefined);
-    check("settingsFor reads the plugins entry for a non-widget", ctx.settingsFor(ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.svc", x: 2 }] }), manifests["acme.svc"], "plugins", null), { x: 2 });
-    check("settingsFor is empty with no entry and no defaults", ctx.settingsFor(shipped, manifests["vgs.svc"], "plugins", null), {});
-    check("settingsFor gives a service the manifest defaults under its plugins row", ctx.settingsFor(ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.both", label: "changed" }] }), manifests["acme.both"], "plugins", null), { label: "changed" });
-    check("settingsFor gives a widget the manifest defaults with no row", ctx.settingsFor(shipped, manifests["acme.both"], "layout", { id: "acme.both" }), { label: "probe" });
-    check("settingsFor ignores a layout entry for the plugins target", ctx.settingsFor(ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.both", label: "row" }] }), manifests["acme.both"], "plugins", { id: "acme.both", label: "entry" }), { label: "row" });
-    check("settingsFor does not alias the entry", (() => { const e = { id: "acme.widget", tags: ["z"] }; const s2 = ctx.settingsFor(shipped, manifests["acme.widget"], "layout", e); s2.tags.push("y"); return e.tags; })(), ["z"]);
-    check("settingsFor refuses a kind passed where a target belongs", (() => { try { ctx.settingsFor(shipped, manifests["acme.widget"], "bar-widget", { id: "acme.widget" }); return "returned"; } catch (e) { return e.message.split(":")[0]; } })(), "settingsFor");
-    for (const target of ["plugins", "layout"]) {
-        const entry = { id: "acme.widget", size: 0, retired: "unused", keys: { toggle: "SUPER+A" } };
-        check("settingsFor ignores undeclared and reserved keys in " + target, ctx.settingsFor({ plugins: [entry] }, manifests["acme.widget"], target, entry), { size: 0, tags: ["a"] });
-    }
+    // settingsFor: manifest defaults under the plugins row, for every kind.
+    check("settingsFor merges the plugins row over defaults", ctx.settingsFor(ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.widget", size: 9 }] }), manifests["acme.widget"]), { size: 9, tags: ["a"] });
+    check("settingsFor drops the id key", ctx.settingsFor(ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.widget" }] }), manifests["acme.widget"]).id, undefined);
+    check("settingsFor reads the plugins entry for a service", ctx.settingsFor(ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.svc", x: 2 }] }), manifests["acme.svc"]), { x: 2 });
+    check("settingsFor is empty with no entry and no defaults", ctx.settingsFor(shipped, manifests["vgs.svc"]), {});
+    check("settingsFor gives a widget the manifest defaults with no row", ctx.settingsFor(shipped, manifests["acme.both"]), { label: "probe" });
+    // The manager's page, the service and the widget of a placed
+    // widget-plus-service read one value: the row's.
+    const placedRow = ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [{ id: "acme.both" }], right: [] } }, plugins: [{ id: "acme.both", label: "row" }] });
+    check("settingsFor gives a placed widget-plus-service its plugins row", ctx.settingsFor(placedRow, manifests["acme.both"]), { label: "row" });
+    check("settingsFor does not alias the row", (() => { const c = { plugins: [{ id: "acme.widget", tags: ["z"] }] }; const s2 = ctx.settingsFor(c, manifests["acme.widget"]); s2.tags.push("y"); return c.plugins[0].tags; })(), ["z"]);
+    check("settingsFor ignores undeclared and reserved keys", ctx.settingsFor({ plugins: [{ id: "acme.widget", size: 0, retired: "unused", keys: { toggle: "SUPER+A" } }] }, manifests["acme.widget"]), { size: 0, tags: ["a"] });
     const unreadValue = { id: "acme.widget", size: 0, keys: { toggle: "SUPER+A" } };
     Object.defineProperty(unreadValue, "retired", { enumerable: true, get() { throw new Error("undeclared value read"); } });
-    for (const target of ["plugins", "layout"])
-        check("settingsFor never reads an undeclared value in " + target, ctx.settingsFor({ plugins: [unreadValue] }, manifests["acme.widget"], target, unreadValue), { size: 0, tags: ["a"] });
+    check("settingsFor never reads an undeclared value", ctx.settingsFor({ plugins: [unreadValue] }, manifests["acme.widget"]), { size: 0, tags: ["a"] });
     for (const stored of [false, true]) {
         const copied = ctx.copyEntrySettings({}, unreadValue, manifests["acme.widget"], stored);
         check("copyEntrySettings reads only declared and retained reserved values: stored=" + stored, copied, stored ? { id: "acme.widget", size: 0, keys: { toggle: "SUPER+A" } } : { size: 0 });
@@ -773,14 +830,11 @@ function suite(ctx, check) {
     }
     const prototypeEntry = JSON.parse('{"id":"vgs.bar","constructor":1,"__proto__":2}');
     check("copyEntrySettings excludes inherited declaration names", ctx.copyEntrySettings({}, prototypeEntry, manifests["vgs.bar"], true), { id: "vgs.bar" });
-    check("managerSettings shows a placed widget its first layout entry", ctx.managerSettings(ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [{ id: "acme.both", label: "entry" }], right: [] } }, plugins: [{ id: "acme.both", label: "row" }] }), manifests["acme.both"]), { label: "entry" });
-    check("managerSettings shows an unplaced widget-plus-service its plugins row", ctx.managerSettings(ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.both", label: "row" }] }), manifests["acme.both"]), { label: "row" });
-    check("managerSettings shows a service its plugins row", ctx.managerSettings(ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.svc", x: 2 }] }), manifests["acme.svc"]), { x: 2 });
 
     // withEnabled rows: [name, user, effective, id, enabled, path, want].
     // `effective` is the merged configuration the manager reads presence from.
-    const placedClock = { version: 1, bar: { id: "vgs.bar", layout: { left: [{ id: "vgs.workspaces" }], center: [{ id: "vgs.clock", format: "HH:mm:ss" }], right: [] } } };
-    const listedSvc = { version: 1, plugins: [{ id: "acme.svc", x: 1 }] };
+    const placedClock = { version: 2, bar: { id: "vgs.bar", layout: { left: [{ id: "vgs.workspaces" }], center: [{ id: "vgs.clock" }], right: [] } }, plugins: [{ id: "vgs.clock", format: "HH:mm:ss" }] };
+    const listedSvc = { version: 2, plugins: [{ id: "acme.svc", x: 1 }] };
     const withRows = [
         ["disable preserves inherited disabled plugins", null, Object.assign({}, shipped, { disabledPlugins: ["vgs.clock"] }), "acme.svc", false, "disabledPlugins", ["vgs.clock", "acme.svc"]],
         ["enable removes only its inherited disabled entry", null, Object.assign({}, shipped, { disabledPlugins: ["vgs.clock", "acme.svc"] }), "acme.svc", true, "disabledPlugins", ["vgs.clock"]],
@@ -789,7 +843,8 @@ function suite(ctx, check) {
         ["disable twice lists it once", { disabledPlugins: ["vgs.bar"] }, shipped, "vgs.bar", false, "disabledPlugins", ["vgs.bar"]],
         ["enable bar unlists it", { disabledPlugins: ["vgs.bar"] }, shipped, "vgs.bar", true, "disabledPlugins", []],
         ["disable bar leaves the bar key alone", null, shipped, "vgs.bar", false, "bar", undefined],
-        ["disable widget keeps its placement and settings", placedClock, ctx.effectiveConfig(shipped, placedClock), "vgs.clock", false, "bar.layout.center", [{ id: "vgs.clock", format: "HH:mm:ss" }]],
+        ["disable widget keeps its placement", placedClock, ctx.effectiveConfig(shipped, placedClock), "vgs.clock", false, "bar.layout.center", [{ id: "vgs.clock" }]],
+        ["disable widget keeps its settings row", placedClock, ctx.effectiveConfig(shipped, placedClock), "vgs.clock", false, "plugins", [{ id: "vgs.clock", format: "HH:mm:ss" }]],
         ["disable widget only lists it", placedClock, ctx.effectiveConfig(shipped, placedClock), "vgs.clock", false, "disabledPlugins", ["vgs.clock"]],
         ["re-enable a placed widget changes only the disabled list", Object.assign({ disabledPlugins: ["vgs.clock"] }, placedClock), ctx.effectiveConfig(shipped, Object.assign({ disabledPlugins: ["vgs.clock"] }, placedClock)), "vgs.clock", true, "bar", placedClock.bar],
         ["enable a placed widget is idempotent", placedClock, ctx.effectiveConfig(shipped, placedClock), "vgs.clock", true, "bar", placedClock.bar],
@@ -804,14 +859,14 @@ function suite(ctx, check) {
         ["disable third-party service keeps its row", listedSvc, ctx.effectiveConfig(shipped, listedSvc), "acme.svc", false, "plugins", [{ id: "acme.svc", x: 1 }]],
         ["disable third-party service lists it", listedSvc, ctx.effectiveConfig(shipped, listedSvc), "acme.svc", false, "disabledPlugins", ["acme.svc"]],
         ["enable first-party service does not list it in plugins", { disabledPlugins: ["vgs.svc"] }, shipped, "vgs.svc", true, "plugins", undefined],
-        ["writes version 1", null, shipped, "acme.svc", true, "version", 1],
+        ["writes version 2", null, shipped, "acme.svc", true, "version", 2],
         ["enable bar sets it active", null, shipped, "acme.bar", true, "bar.id", "acme.bar"],
         ["enable bar seeds the layout from the effective bar", null, shipped, "acme.bar", true, "bar.layout.center.0.id", "vgs.clock"],
         ["enable the active bar changes nothing but the disabled list", { disabledPlugins: ["vgs.bar"] }, shipped, "vgs.bar", true, "bar", undefined],
         ["enable bar does not list it in plugins", null, shipped, "acme.bar", true, "plugins", undefined],
         ["enable widget does not list it in plugins", null, shipped, "acme.widget", true, "plugins", undefined],
         ["enable a widget-plus-service plugin places it and does not list it", null, shipped, "acme.both", true, "plugins", undefined],
-        ["enable an unplaced widget seeds its entry with its plugins row's settings", null, ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.both", label: "row", keys: {} }] }), "acme.both", true, "bar.layout.right", [{ id: "acme.both", label: "row" }]],
+        ["enable an unplaced widget places an entry holding its id alone", null, ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.both", label: "row", keys: {} }] }), "acme.both", true, "bar.layout.right", [{ id: "acme.both" }]],
     ];
     for (const [name, user, effective, id, enabled, p, want] of withRows) {
         check("withEnabled: " + name, dig(ctx.withEnabled(user, manifests[id], enabled, effective), p), want);
@@ -840,23 +895,23 @@ function suite(ctx, check) {
     for (const [name, config, id, want] of placedRefusalRows) check("placedRefusal: " + name, ctx.placedRefusal(config, manifests[id], "vgs.bar"), want);
 
     // withPlaced rows: [name, user, effective, id, placed, path, want].
-    const placedBoth = { version: 1, bar: { id: "vgs.bar", layout: { left: [{ id: "acme.both", label: "left" }], center: [{ id: "vgs.clock" }], right: [{ id: "acme.both", label: "right" }] } } };
-    const placedPanel = { version: 1, bar: { id: "vgs.bar", layout: { left: [], center: [{ id: "vgs.clock" }], right: [{ id: "vgs.widgetpanel" }] } } };
+    const placedBoth = { version: 2, bar: { id: "vgs.bar", layout: { left: [{ id: "acme.both" }], center: [{ id: "vgs.clock" }], right: [{ id: "acme.both" }] } } };
+    const placedPanel = { version: 2, bar: { id: "vgs.bar", layout: { left: [], center: [{ id: "vgs.clock" }], right: [{ id: "vgs.widgetpanel" }] } } };
     const inheritedDisabled = Object.assign({}, shipped, { disabledPlugins: ["vgs.workspaces"] });
     const placeRows = [
         ["place puts the widget in its default section", null, shipped, "acme.both", true, "bar.layout.right", [{ id: "acme.both" }]],
         ["place puts a widget with no default section in center", null, shipped, "acme.widget", true, "bar.layout.center", [{ id: "vgs.clock" }, { id: "acme.widget" }]],
         ["place seeds the user bar from the effective bar", null, shipped, "acme.both", true, "bar.layout.left", [{ id: "vgs.workspaces" }]],
-        ["place seeds the entry with its plugins row's settings", null, ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.both", label: "row", keys: {} }] }), "acme.both", true, "bar.layout.right", [{ id: "acme.both", label: "row" }]],
+        ["place puts an entry holding its id alone", null, ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.both", label: "row", keys: {} }] }), "acme.both", true, "bar.layout.right", [{ id: "acme.both" }]],
         ["place lists nothing in plugins", null, shipped, "acme.both", true, "plugins", undefined],
         ["place a placed widget changes nothing", placedBoth, ctx.effectiveConfig(shipped, placedBoth), "acme.both", true, "bar", placedBoth.bar],
         ["place keeps the user's disabled list", { disabledPlugins: ["vgs.svc"] }, ctx.effectiveConfig(shipped, { disabledPlugins: ["vgs.svc"] }), "acme.both", true, "disabledPlugins", ["vgs.svc"]],
         ["place writes no inherited disabled list", null, inheritedDisabled, "acme.both", true, "disabledPlugins", undefined],
-        ["place writes version 1", null, shipped, "acme.both", true, "version", 1],
+        ["place writes version 2", null, shipped, "acme.both", true, "version", 2],
         ["unplace removes every entry in every section and keeps other widgets", placedBoth, ctx.effectiveConfig(shipped, placedBoth), "acme.both", false, "bar.layout", { left: [], center: [{ id: "vgs.clock" }], right: [] }],
         ["unplace keeps the bar id", placedBoth, ctx.effectiveConfig(shipped, placedBoth), "acme.both", false, "bar.id", "vgs.bar"],
         ["unplace seeds the user bar from the effective bar", null, shipped, "vgs.clock", false, "bar.layout", { left: [{ id: "vgs.workspaces" }], center: [], right: [] }],
-        ["unplace a third-party widget-plus-service lists it with its first entry's settings", placedBoth, ctx.effectiveConfig(shipped, placedBoth), "acme.both", false, "plugins", [{ id: "acme.both", label: "left" }]],
+        ["unplace a third-party widget-plus-service lists it", placedBoth, ctx.effectiveConfig(shipped, placedBoth), "acme.both", false, "plugins", [{ id: "acme.both" }]],
         ["unplace a listed third-party widget-plus-service keeps its row", Object.assign({ plugins: [{ id: "acme.both", label: "row" }] }, placedBoth), ctx.effectiveConfig(shipped, Object.assign({ plugins: [{ id: "acme.both", label: "row" }] }, placedBoth)), "acme.both", false, "plugins", [{ id: "acme.both", label: "row" }]],
         ["unplace a first-party widget-plus-panel lists it", placedPanel, ctx.effectiveConfig(shipped, placedPanel), "vgs.widgetpanel", false, "plugins", [{ id: "vgs.widgetpanel" }]],
         ["unplace a widget-only plugin lists it", null, shipped, "vgs.clock", false, "plugins", [{ id: "vgs.clock" }]],
@@ -880,18 +935,16 @@ function suite(ctx, check) {
     check("withPlaced: placing twice is placing once", twice(null, "acme.both", true), true);
     check("withPlaced: unplacing twice is unplacing once", twice(placedBoth, "acme.both", false), true);
     check("withPlaced does not alias the user file on place", (() => { const u = { bar: { layout: { left: [], center: [], right: [] } } }; ctx.withPlaced(u, manifests["acme.both"], true, ctx.effectiveConfig(shipped, u)); return u.bar.layout.right; })(), []);
-    check("withPlaced does not alias the effective plugins row it seeds the entry from", (() => { const e = ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.widget", tags: ["z"] }] }); const out = ctx.withPlaced(null, manifests["acme.widget"], true, e); out.bar.layout.center.find(entry => entry.id === "acme.widget").tags.push("y"); return ctx.pluginRow(e, "acme.widget").tags; })(), ["z"]);
     // A third-party plugin whose only kind is bar-widget: unplacing lists a
-    // row with its settings, it still reads disabled, and the disabled list
-    // stays the user's.
-    const placedWidget = { version: 1, disabledPlugins: ["vgs.svc"], bar: { id: "vgs.bar", layout: { left: [], center: [{ id: "vgs.clock" }], right: [{ id: "acme.widget", size: 5 }] } } };
+    // row, it still reads disabled, and the disabled list stays the user's.
+    const placedWidget = { version: 2, disabledPlugins: ["vgs.svc"], bar: { id: "vgs.bar", layout: { left: [], center: [{ id: "vgs.clock" }], right: [{ id: "acme.widget" }] } } };
     const unplacedWidget = ctx.withPlaced(placedWidget, manifests["acme.widget"], false, ctx.effectiveConfig(shipped, placedWidget));
-    check("withPlaced: unplace a third-party widget-only plugin lists it with its entry's settings", unplacedWidget.plugins, [{ id: "acme.widget", size: 5 }]);
+    check("withPlaced: unplace a third-party widget-only plugin lists it", unplacedWidget.plugins, [{ id: "acme.widget" }]);
     check("withPlaced: unplace a third-party widget-only plugin keeps the user's disabled list", unplacedWidget.disabledPlugins, ["vgs.svc"]);
     check("withPlaced: a third-party widget-only plugin reads disabled once unplaced", ctx.isEnabled(ctx.effectiveConfig(shipped, unplacedWidget), manifests["acme.widget"], "vgs.bar"), false);
 
     // moveRefusal rows: [name, config, id, section, index, want].
-    const movedConfig = { version: 1, bar: { id: "vgs.bar", layout: { left: [{ id: "acme.both", label: "left" }], center: [{ id: "vgs.clock" }], right: [] } } };
+    const movedConfig = { version: 2, bar: { id: "vgs.bar", layout: { left: [{ id: "acme.both" }], center: [{ id: "vgs.clock" }], right: [] } } };
     const moveRefusalRows = [
         ["a placed widget may move", movedConfig, "acme.both", "right", 0, ""],
         ["a service has no widget", movedConfig, "acme.svc", "right", 0, "refused: moved=acme.svc reason=no-bar-widget"],
@@ -904,28 +957,32 @@ function suite(ctx, check) {
     for (const [name, config, id, section, index, want] of moveRefusalRows)
         check("moveRefusal: " + name, ctx.moveRefusal(config, manifests[id], section, index, "vgs.bar"), want);
 
-    const moveUser = { version: 1, bar: { id: "vgs.bar", layout: {
-        left: [{ id: "vgs.workspaces" }, { id: "acme.both", label: "left", nested: ["l"] }, { id: "acme.widget" }],
-        center: [{ id: "vgs.clock" }, { id: "acme.both", label: "center" }],
+    // Entries hold their ids alone, so each row tells two entries of one id
+    // apart by where they stand.
+    const moveUser = { version: 2, bar: { id: "vgs.bar", layout: {
+        left: [{ id: "vgs.workspaces" }, { id: "acme.both" }, { id: "acme.widget" }],
+        center: [{ id: "vgs.clock" }, { id: "acme.both" }],
         right: []
     } }, plugins: [{ id: "acme.both", label: "row" }] };
     const moveEffective = ctx.effectiveConfig(shipped, moveUser);
+    const ws = { id: "vgs.workspaces" }, both = { id: "acme.both" }, widget = { id: "acme.widget" }, clockEntry = { id: "vgs.clock" };
     const moveRows = [
-        ["within a section forward", moveUser, moveEffective, { section: "left", nth: 0 }, "left", 2, { left: [{ id: "vgs.workspaces" }, { id: "acme.widget" }, { id: "acme.both", label: "left", nested: ["l"] }], center: [{ id: "vgs.clock" }, { id: "acme.both", label: "center" }], right: [] }],
-        ["within a section back", moveUser, moveEffective, { section: "left", nth: 0 }, "left", 0, { left: [{ id: "acme.both", label: "left", nested: ["l"] }, { id: "vgs.workspaces" }, { id: "acme.widget" }], center: [{ id: "vgs.clock" }, { id: "acme.both", label: "center" }], right: [] }],
-        ["across sections", moveUser, moveEffective, { section: "left", nth: 0 }, "right", 0, { left: [{ id: "vgs.workspaces" }, { id: "acme.widget" }], center: [{ id: "vgs.clock" }, { id: "acme.both", label: "center" }], right: [{ id: "acme.both", label: "left", nested: ["l"] }] }],
-        ["into an empty section", moveUser, moveEffective, { section: "center", nth: 0 }, "right", 0, { left: [{ id: "vgs.workspaces" }, { id: "acme.both", label: "left", nested: ["l"] }, { id: "acme.widget" }], center: [{ id: "vgs.clock" }], right: [{ id: "acme.both", label: "center" }] }],
-        ["index past the end clamps", moveUser, moveEffective, { section: "left", nth: 0 }, "center", 99, { left: [{ id: "vgs.workspaces" }, { id: "acme.widget" }], center: [{ id: "vgs.clock" }, { id: "acme.both", label: "center" }, { id: "acme.both", label: "left", nested: ["l"] }], right: [] }],
-        ["nth selects the second entry with the id", moveUser, moveEffective, { section: "center", nth: 0 }, "left", 1, { left: [{ id: "vgs.workspaces" }, { id: "acme.both", label: "center" }, { id: "acme.both", label: "left", nested: ["l"] }, { id: "acme.widget" }], center: [{ id: "vgs.clock" }], right: [] }],
-        ["a null source moves the first entry in section order", moveUser, moveEffective, null, "right", 0, { left: [{ id: "vgs.workspaces" }, { id: "acme.widget" }], center: [{ id: "vgs.clock" }, { id: "acme.both", label: "center" }], right: [{ id: "acme.both", label: "left", nested: ["l"] }] }],
+        ["within a section forward", moveUser, moveEffective, { section: "left", nth: 0 }, "left", 2, { left: [ws, widget, both], center: [clockEntry, both], right: [] }],
+        ["within a section back", moveUser, moveEffective, { section: "left", nth: 0 }, "left", 0, { left: [both, ws, widget], center: [clockEntry, both], right: [] }],
+        ["across sections", moveUser, moveEffective, { section: "left", nth: 0 }, "right", 0, { left: [ws, widget], center: [clockEntry, both], right: [both] }],
+        ["into an empty section", moveUser, moveEffective, { section: "center", nth: 0 }, "right", 0, { left: [ws, both, widget], center: [clockEntry], right: [both] }],
+        ["index past the end clamps", moveUser, moveEffective, { section: "left", nth: 0 }, "center", 99, { left: [ws, widget], center: [clockEntry, both, both], right: [] }],
+        ["the source section's entry moves, not another section's", moveUser, moveEffective, { section: "center", nth: 0 }, "left", 1, { left: [ws, both, both, widget], center: [clockEntry], right: [] }],
+        ["a null source moves the first entry in section order", moveUser, moveEffective, null, "right", 0, { left: [ws, widget], center: [clockEntry, both], right: [both] }],
     ];
     for (const [name, user, effective, from, section, index, want] of moveRows)
         check("withMoved: " + name, ctx.withMoved(user, manifests["acme.both"], from, section, index, effective).bar.layout, want);
-    const duplicateMoveUser = { version: 1, bar: { id: "vgs.bar", layout: { left: [{ id: "acme.both", label: "first" }, { id: "vgs.workspaces" }, { id: "acme.both", label: "second", nested: ["two"] }], center: [], right: [] } } };
-    check("withMoved: from nth 1 moves the second copy with its settings", ctx.withMoved(duplicateMoveUser, manifests["acme.both"], { section: "left", nth: 1 }, "right", 0, ctx.effectiveConfig(shipped, duplicateMoveUser)).bar.layout,
-        { left: [{ id: "acme.both", label: "first" }, { id: "vgs.workspaces" }], center: [], right: [{ id: "acme.both", label: "second", nested: ["two"] }] });
+    check("withMoved: a move keeps the plugins row", ctx.withMoved(moveUser, manifests["acme.both"], { section: "left", nth: 0 }, "right", 0, moveEffective).plugins, [{ id: "acme.both", label: "row" }]);
+    const duplicateMoveUser = { version: 2, bar: { id: "vgs.bar", layout: { left: [{ id: "acme.both" }, { id: "vgs.workspaces" }, { id: "acme.both" }], center: [], right: [] } } };
+    check("withMoved: from nth 1 moves the second copy", ctx.withMoved(duplicateMoveUser, manifests["acme.both"], { section: "left", nth: 1 }, "right", 0, ctx.effectiveConfig(shipped, duplicateMoveUser)).bar.layout,
+        { left: [both, ws], center: [], right: [both] });
     check("withMoved: seeds the user bar from the effective bar", ctx.withMoved(null, manifests["vgs.clock"], null, "right", 0, shipped).bar.layout.right, [{ id: "vgs.clock" }]);
-    check("withMoved does not alias the user file", (() => { const u = ctx.clone(moveUser); const out = ctx.withMoved(u, manifests["acme.both"], { section: "left", nth: 0 }, "right", 0, moveEffective); out.bar.layout.right[0].nested.push("r"); return u.bar.layout.left[1].nested; })(), ["l"]);
+    check("withMoved does not alias the user file", (() => { const u = ctx.clone(moveUser); const out = ctx.withMoved(u, manifests["acme.both"], { section: "left", nth: 0 }, "right", 0, moveEffective); out.bar.layout.right[0].id = "moved"; return u.bar.layout.left[1].id; })(), "acme.both");
     check("withMoved: moving to the same slot keeps the layout", ctx.withMoved(moveUser, manifests["acme.both"], { section: "left", nth: 0 }, "left", 1, moveEffective).bar.layout, moveUser.bar.layout);
 
     const dropSections = {
@@ -1126,31 +1183,6 @@ function suite(ctx, check) {
         check("settingRefusal presets: " + name, ctx.settingRefusal(presetManifest, key, value), want);
     }
 
-    // settingTargets rows: [name, config, manifest, want]
-    const tunePlaced = ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "acme.tune" }] } } });
-    const targetRows = [
-        ["a placed widget writes its layout entry", shipped, manifests["vgs.clock"], ["layout"]],
-        ["an unplaced widget has no entry", ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [] } } }), manifests["vgs.clock"], []],
-        ["a service writes its plugins row", shipped, manifests["acme.svc"], ["plugins"]],
-        ["a bar writes its plugins row", shipped, manifests["vgs.bar"], ["plugins"]],
-        ["a placed widget-plus-service writes both", tunePlaced, tunable, ["layout", "plugins"]],
-        ["a placed pane plugin writes both", ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "acme.pane" }] } } }), manifests["acme.pane"], ["layout", "plugins"]],
-    ];
-    for (const [name, config, manifest, want] of targetRows) {
-        check("settingTargets: " + name, ctx.settingTargets(config, manifest), want);
-    }
-
-    const configureTargetRows = [
-        ["a pane writes every entry its plugin reads", ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "acme.pane" }] } } }), manifests["acme.pane"], "pane", ["layout", "plugins"]],
-        ["the widget of a widget-plus-pane writes its layout entry", ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "acme.pane" }] } } }), manifests["acme.pane"], "bar-widget", ["layout"]],
-        ["a service writes its own plugins row", shipped, manifests["acme.svc"], "service", ["plugins"]],
-        ["the service of a placed widget-plus-service writes every entry its plugin reads", tunePlaced, tunable, "service", ["layout", "plugins"]],
-        ["the widget of a placed widget-plus-service writes its layout entry", tunePlaced, tunable, "bar-widget", ["layout"]],
-        ["a window writes its own plugins row", shipped, manifests["vgs.widgetpanel"], "panel", ["plugins"]],
-    ];
-    for (const [name, config, manifest, kind, want] of configureTargetRows)
-        check("configureTargets: " + name, ctx.configureTargets(config, manifest, kind), want);
-
     // barShown: [name, bar instance, want], the one answer BarHost maps a
     // bar's window on and the service gate counts a bar by.
     for (const [name, instance, want] of [["a bar being built", null, true], ["a bar without the property", {}, true], ["a shown bar", { shown: true }, true], ["a hidden bar", { shown: false }, false]])
@@ -1197,77 +1229,59 @@ function suite(ctx, check) {
     check("panesHolderId: the enabled holder is selected by id", ctx.panesHolderId(holderConfig, holderManifests, "vgs.bar"), "acme.host-a");
     check("panesHolderId: no enabled holder is empty", ctx.panesHolderId({ plugins: [] }, holderManifests, "vgs.bar"), "");
 
-    // withSetting rows: [name, user, effective, targets, path, want]
+    // withSetting rows: [name, user, effective, path, want]. The row is the
+    // one place a setting lives, a placed widget's included.
+    const tunePlaced = ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "acme.tune" }] } } });
     const shippedTune = Object.assign({}, tunePlaced, { plugins: [{ id: "acme.tune", size: 9 }] });
-    const twiceTune = { bar: { id: "vgs.bar", layout: { left: [{ id: "acme.tune" }], center: [], right: [{ id: "acme.tune", label: "r" }] } } };
     const settingRows = [
-        ["layout sets the key on the placed entry", null, tunePlaced, ["layout"], "bar.layout.right", [{ id: "acme.tune", label: "new" }]],
-        ["layout seeds the user bar from the effective bar", null, tunePlaced, ["layout"], "bar.id", "vgs.bar"],
-        ["layout sets every entry with the id", twiceTune, ctx.effectiveConfig(shipped, twiceTune), ["layout"], "bar.layout", { left: [{ id: "acme.tune", label: "new" }], center: [], right: [{ id: "acme.tune", label: "new" }] }],
-        ["layout leaves plugins alone", null, tunePlaced, ["layout"], "plugins", undefined],
-        ["a locator sets only its own entry", twiceTune, ctx.effectiveConfig(shipped, twiceTune), ["layout"], "bar.layout", { left: [{ id: "acme.tune" }], center: [], right: [{ id: "acme.tune", label: "new" }] }, { section: "right", nth: 0 }],
-        ["a locator counts entries with the same id", { bar: { id: "vgs.bar", layout: { left: [{ id: "acme.tune" }, { id: "b.c" }, { id: "acme.tune" }], center: [], right: [] } } }, tunePlaced, ["layout"], "bar.layout.left", [{ id: "acme.tune" }, { id: "b.c" }, { id: "acme.tune", label: "new" }], { section: "left", nth: 1 }],
-        ["plugins adds a row with the id", null, tunePlaced, ["plugins"], "plugins", [{ id: "acme.tune", label: "new" }]],
-        ["plugins seeds the row from the effective row", null, shippedTune, ["plugins"], "plugins", [{ id: "acme.tune", size: 9, label: "new" }]],
-        ["plugins updates the user row in place", { plugins: [{ id: "acme.tune", size: 4 }, { id: "b.c" }] }, shippedTune, ["plugins"], "plugins", [{ id: "acme.tune", size: 4, label: "new" }, { id: "b.c" }]],
-        ["plugins leaves the bar key alone", null, tunePlaced, ["plugins"], "bar", undefined],
-        ["writes version 1", null, tunePlaced, ["plugins"], "version", 1],
+        ["adds a row with the id", null, tunePlaced, "plugins", [{ id: "acme.tune", label: "new" }]],
+        ["seeds the row from the effective row", null, shippedTune, "plugins", [{ id: "acme.tune", size: 9, label: "new" }]],
+        ["updates the user row in place", { plugins: [{ id: "acme.tune", size: 4 }, { id: "b.c" }] }, shippedTune, "plugins", [{ id: "acme.tune", size: 4, label: "new" }, { id: "b.c" }]],
+        ["leaves a placed widget's layout entry alone", { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "acme.tune" }] } } }, tunePlaced, "bar.layout.right", [{ id: "acme.tune" }]],
+        ["seeds no bar key", null, tunePlaced, "bar", undefined],
+        ["writes version 2", null, tunePlaced, "version", 2],
     ];
-    for (const [name, user, effective, targets, p, want, locator] of settingRows) {
-        check("withSetting: " + name, dig(ctx.withSetting(user, tunable, "label", "new", effective, targets, locator || null), p), want);
+    for (const [name, user, effective, p, want] of settingRows) {
+        check("withSetting: " + name, dig(ctx.withSetting(user, tunable, "label", "new", effective), p), want);
     }
-    check("withSetting does not alias the user file", (() => { const u = { plugins: [{ id: "acme.tune", size: 4 }] }; ctx.withSetting(u, tunable, "label", "new", shippedTune, ["plugins"]); return u.plugins[0]; })(), { id: "acme.tune", size: 4 });
+    check("withSetting does not alias the user file", (() => { const u = { plugins: [{ id: "acme.tune", size: 4 }] }; ctx.withSetting(u, tunable, "label", "new", shippedTune); return u.plugins[0]; })(), { id: "acme.tune", size: 4 });
 
-    // withoutSetting rows: [name, user, targets, path, want]
-    const labelled = { bar: { id: "vgs.bar", layout: { left: [{ id: "acme.tune", label: "l", size: 2 }], center: [{ id: "b.c", label: "other" }], right: [{ id: "acme.tune", label: "r" }] } }, plugins: [{ id: "acme.tune", label: "p", size: 4 }, { id: "b.c", label: "other" }] };
-    const tunedTwice = { bar: { id: "vgs.bar", layout: { right: [{ id: "acme.tune", label: "first" }, { id: "b.c", label: "other" }, { id: "acme.tune", label: "second" }] } } };
+    // withoutSetting rows: [name, user, path, want]
+    const labelled = { bar: { id: "vgs.bar", layout: { left: [{ id: "acme.tune" }], center: [{ id: "b.c" }], right: [] } }, plugins: [{ id: "acme.tune", label: "p", size: 4 }, { id: "b.c", label: "other" }] };
     const unsetRows = [
-        ["plugins removes the key from the row and keeps its others", labelled, ["plugins"], "plugins", [{ id: "acme.tune", size: 4 }, { id: "b.c", label: "other" }]],
-        ["plugins leaves the layout alone", labelled, ["plugins"], "bar.layout.left", [{ id: "acme.tune", label: "l", size: 2 }]],
-        ["layout removes the key from every entry with the id", labelled, ["layout"], "bar.layout", { left: [{ id: "acme.tune", size: 2 }], center: [{ id: "b.c", label: "other" }], right: [{ id: "acme.tune" }] }],
-        ["layout leaves the plugins row alone", labelled, ["layout"], "plugins", [{ id: "acme.tune", label: "p", size: 4 }, { id: "b.c", label: "other" }]],
-        ["a locator removes it from its own entry alone", labelled, ["layout"], "bar.layout", { left: [{ id: "acme.tune", label: "l", size: 2 }], center: [{ id: "b.c", label: "other" }], right: [{ id: "acme.tune" }] }, { section: "right", nth: 0 }],
-        ["a locator removes it from the second of two entries in one section", tunedTwice, ["layout"], "bar.layout.right", [{ id: "acme.tune", label: "first" }, { id: "b.c", label: "other" }, { id: "acme.tune" }], { section: "right", nth: 1 }],
-        ["a locator removes it from the first of two entries in one section", tunedTwice, ["layout"], "bar.layout.right", [{ id: "acme.tune" }, { id: "b.c", label: "other" }, { id: "acme.tune", label: "second" }], { section: "right", nth: 0 }],
-        ["a file with no row seeds none", null, ["layout", "plugins"], "plugins", undefined],
-        ["a file with no bar seeds none", null, ["layout", "plugins"], "bar", undefined],
-        ["writes version 1", null, ["plugins"], "version", 1],
+        ["removes the key from the row and keeps its others", labelled, "plugins", [{ id: "acme.tune", size: 4 }, { id: "b.c", label: "other" }]],
+        ["leaves the layout alone", labelled, "bar.layout", { left: [{ id: "acme.tune" }], center: [{ id: "b.c" }], right: [] }],
+        ["a file with no row seeds none", null, "plugins", undefined],
+        ["a file with no bar seeds none", null, "bar", undefined],
+        ["writes version 2", null, "version", 2],
     ];
-    for (const [name, user, targets, p, want, locator] of unsetRows) {
-        check("withoutSetting: " + name, dig(ctx.withoutSetting(user, tunable, "label", targets, locator || null), p), want);
+    for (const [name, user, p, want] of unsetRows) {
+        check("withoutSetting: " + name, dig(ctx.withoutSetting(user, tunable, "label"), p), want);
     }
-    // Both ordinary writers must filter the entries they update. A locator
-    // keeps every other entry intact, as does an edit to another plugin.
-    const savedTune = { version: 1, extra: "kept", plugins: [
+    // Both ordinary writers must filter the row they update, and keep every
+    // other row and key intact.
+    const savedTune = { version: 2, extra: "kept", plugins: [
         { id: "acme.tune", label: "p", size: 0, on: false, retired: "old", keys: { toggle: "SUPER+A" } },
         { id: "acme.gone", retired: "unrelated" }
-    ], bar: { layout: { left: [
-        { id: "acme.tune", label: "first", retired: "first-old" },
-        { id: "acme.tune", label: "second", size: 0, retired: "second-old" }
-    ], center: [], right: [] } } };
+    ], bar: { layout: { left: [{ id: "acme.tune" }], center: [], right: [] } } };
     const savedBefore = JSON.stringify(savedTune);
     const writeRows = [
-        ["set plugins", "set", ["plugins"], null, "plugins.0", { id: "acme.tune", label: "new", size: 0, on: false, keys: { toggle: "SUPER+A" } }],
-        ["reset plugins", "reset", ["plugins"], null, "plugins.0", { id: "acme.tune", size: 0, on: false, keys: { toggle: "SUPER+A" } }],
-        ["set layout", "set", ["layout"], null, "bar.layout.left", [{ id: "acme.tune", label: "new" }, { id: "acme.tune", label: "new", size: 0 }]],
-        ["reset layout", "reset", ["layout"], null, "bar.layout.left", [{ id: "acme.tune" }, { id: "acme.tune", size: 0 }]],
-        ["set located entry", "set", ["layout"], { section: "left", nth: 1 }, "bar.layout.left", [{ id: "acme.tune", label: "first", retired: "first-old" }, { id: "acme.tune", label: "new", size: 0 }]],
-        ["reset located entry", "reset", ["layout"], { section: "left", nth: 1 }, "bar.layout.left", [{ id: "acme.tune", label: "first", retired: "first-old" }, { id: "acme.tune", size: 0 }]],
-        ["set inherited plugins", "seed", ["plugins"], null, "plugins.0", { id: "acme.tune", label: "new", size: 0, on: false, keys: { toggle: "SUPER+A" } }],
+        ["set", "set", "plugins.0", { id: "acme.tune", label: "new", size: 0, on: false, keys: { toggle: "SUPER+A" } }],
+        ["reset", "reset", "plugins.0", { id: "acme.tune", size: 0, on: false, keys: { toggle: "SUPER+A" } }],
+        ["set inherited", "seed", "plugins.0", { id: "acme.tune", label: "new", size: 0, on: false, keys: { toggle: "SUPER+A" } }],
     ];
-    for (const [name, operation, targets, locator, at, want] of writeRows) {
-        const out = operation === "reset" ? ctx.withoutSetting(savedTune, tunable, "label", targets, locator)
-            : ctx.withSetting(operation === "seed" ? null : savedTune, tunable, "label", "new", savedTune, targets, locator);
+    for (const [name, operation, at, want] of writeRows) {
+        const out = operation === "reset" ? ctx.withoutSetting(savedTune, tunable, "label")
+            : ctx.withSetting(operation === "seed" ? null : savedTune, tunable, "label", "new", savedTune);
         check("ordinary setting write silently drops retired keys: " + name, dig(out, at), want);
         check("ordinary setting write leaves caller data intact: " + name, JSON.stringify(savedTune), savedBefore);
         if (operation !== "seed") {
             check("ordinary setting write keeps unknown ids: " + name, out.plugins[1], { id: "acme.gone", retired: "unrelated" });
             check("ordinary setting write keeps unrelated top-level keys: " + name, out.extra, "kept");
-            const untouched = targets.indexOf("plugins") === -1 ? "plugins" : "bar";
-            check("ordinary setting write leaves untargeted entries intact: " + name, out[untouched], savedTune[untouched]);
+            check("ordinary setting write leaves the layout intact: " + name, out.bar, savedTune.bar);
         }
     }
-    check("withoutSetting does not alias the user file", (() => { const u = { plugins: [{ id: "acme.tune", label: "p" }] }; ctx.withoutSetting(u, tunable, "label", ["plugins"]); return u.plugins[0]; })(), { id: "acme.tune", label: "p" });
+    check("withoutSetting does not alias the user file", (() => { const u = { plugins: [{ id: "acme.tune", label: "p" }] }; ctx.withoutSetting(u, tunable, "label"); return u.plugins[0]; })(), { id: "acme.tune", label: "p" });
 
     // lendRefusal rows: [name, held, capabilities, want]
     const lendRows = [
@@ -1347,7 +1361,7 @@ function suite(ctx, check) {
     }
 
     // withKey rows: [name, user, effective, shortcut, key, path, want]
-    const keyRow = { version: 1, plugins: [{ id: "acme.keys", x: 1, keys: { toggle: "SUPER+K" } }] };
+    const keyRow = { version: 2, plugins: [{ id: "acme.keys", x: 1, keys: { toggle: "SUPER+K" } }] };
     const keyRows = [
         ["a key is written normalised into a new row", null, {}, "toggle", "ctrl+super+k", "plugins", [{ id: "acme.keys", keys: { toggle: "SUPER+CTRL+K" } }]],
         ["Settings writes a normalized keycode", null, {}, "toggle", "shift+super+CODE:00108", "plugins", [{ id: "acme.keys", keys: { toggle: "SUPER+SHIFT+code:108" } }]],
@@ -1360,19 +1374,19 @@ function suite(ctx, check) {
         ["a reset of the last entry removes keys", { plugins: [{ id: "acme.keys", keys: { toggle: "SUPER+K" } }] }, {}, "toggle", undefined, "plugins", [{ id: "acme.keys" }]],
         ["a reset no row needs writes no row", null, {}, "toggle", undefined, "plugins", undefined],
         ["a reset seeds from an effective row that holds the entry", null, keyRow, "toggle", undefined, "plugins", [{ id: "acme.keys", x: 1 }]],
-        ["writes version 1", null, {}, "toggle", "SUPER+K", "version", 1],
+        ["writes version 2", null, {}, "toggle", "SUPER+K", "version", 2],
     ];
     for (const [name, user, effective, shortcut, key, p, want] of keyRows) {
         check("withKey: " + name, dig(ctx.withKey(user, keyed, shortcut, key, effective), p), want);
     }
     // withAppearance rows: [name, user, effective, key, value, want file]
     const appearanceRows = [
-        ["a value is written into a new file", null, {}, "windowRadius", 12, { version: 1, appearance: { windowRadius: 12 } }],
-        ["a value joins the user's others and leaves other keys", { version: 1, plugins: [{ id: "a.b" }], appearance: { motion: false } }, {}, "windowRadius", "hyprland", { version: 1, plugins: [{ id: "a.b" }], appearance: { motion: false, windowRadius: "hyprland" } }],
-        ["a value replaces the user's", { appearance: { windowRadius: 4 } }, {}, "windowRadius", 8, { appearance: { windowRadius: 8 }, version: 1 }],
-        ["the user key is seeded from the effective one", null, { appearance: { motion: false } }, "windowRadius", 6, { version: 1, appearance: { motion: false, windowRadius: 6 } }],
-        ["an unset removes the member alone", { appearance: { windowRadius: 4, motion: true } }, {}, "windowRadius", undefined, { appearance: { motion: true }, version: 1 }],
-        ["an unset of the last member removes the key", { version: 1, appearance: { windowRadius: 4 } }, {}, "windowRadius", undefined, { version: 1 }],
+        ["a value is written into a new file", null, {}, "windowRadius", 12, { version: 2, appearance: { windowRadius: 12 } }],
+        ["a value joins the user's others and leaves other keys", { version: 2, plugins: [{ id: "a.b" }], appearance: { motion: false } }, {}, "windowRadius", "hyprland", { version: 2, plugins: [{ id: "a.b" }], appearance: { motion: false, windowRadius: "hyprland" } }],
+        ["a value replaces the user's", { appearance: { windowRadius: 4 } }, {}, "windowRadius", 8, { appearance: { windowRadius: 8 }, version: 2 }],
+        ["the user key is seeded from the effective one", null, { appearance: { motion: false } }, "windowRadius", 6, { version: 2, appearance: { motion: false, windowRadius: 6 } }],
+        ["an unset removes the member alone", { appearance: { windowRadius: 4, motion: true } }, {}, "windowRadius", undefined, { appearance: { motion: true }, version: 2 }],
+        ["an unset of the last member removes the key", { version: 2, appearance: { windowRadius: 4 } }, {}, "windowRadius", undefined, { version: 2 }],
     ];
     for (const [name, user, effective, key, value, want] of appearanceRows) {
         check("withAppearance: " + name, ctx.withAppearance(user, effective, key, value), want);
@@ -1477,19 +1491,19 @@ function suite(ctx, check) {
 
     // soundEdit rows: [name, user, effective, event, value, want]
     const soundEditRows = [
-        ["a choice is written into a new file", null, {}, "ping", "pop", { ok: true, user: { version: 1, sounds: { "acme.svc": { ping: "pop" } } } }],
-        ["off is written", null, {}, "ping", "", { ok: true, user: { version: 1, sounds: { "acme.svc": { ping: "" } } } }],
-        ["a choice joins the plugin's others and leaves other keys", { version: 1, plugins: [{ id: "a.b" }], sounds: { "acme.svc": { quiet: "ping" }, "acme.other": { x: "pop" } } }, {}, "ping", "pop", { ok: true, user: { version: 1, plugins: [{ id: "a.b" }], sounds: { "acme.svc": { quiet: "ping", ping: "pop" }, "acme.other": { x: "pop" } } } }],
-        ["the user key is seeded from the effective one", null, { sounds: { "acme.other": { x: "pop" } } }, "ping", "pop", { ok: true, user: { version: 1, sounds: { "acme.other": { x: "pop" }, "acme.svc": { ping: "pop" } } } }],
-        ["the default removes the choice alone", { sounds: { "acme.svc": { ping: "pop", quiet: "ping" } } }, {}, "ping", "chime", { ok: true, user: { sounds: { "acme.svc": { quiet: "ping" } }, version: 1 } }],
-        ["the default of the plugin's last choice removes its object", { version: 1, sounds: { "acme.svc": { ping: "pop" }, "acme.other": { x: "pop" } } }, {}, "ping", "chime", { ok: true, user: { version: 1, sounds: { "acme.other": { x: "pop" } } } }],
-        ["the default of the last choice removes the key", { version: 1, sounds: { "acme.svc": { ping: "pop" } } }, {}, "ping", "chime", { ok: true, user: { version: 1 } }],
-        ["an own event is turned off", null, {}, "tone", "", { ok: true, user: { version: 1, sounds: { "acme.svc": { tone: "" } } } }],
+        ["a choice is written into a new file", null, {}, "ping", "pop", { ok: true, user: { version: 2, sounds: { "acme.svc": { ping: "pop" } } } }],
+        ["off is written", null, {}, "ping", "", { ok: true, user: { version: 2, sounds: { "acme.svc": { ping: "" } } } }],
+        ["a choice joins the plugin's others and leaves other keys", { version: 2, plugins: [{ id: "a.b" }], sounds: { "acme.svc": { quiet: "ping" }, "acme.other": { x: "pop" } } }, {}, "ping", "pop", { ok: true, user: { version: 2, plugins: [{ id: "a.b" }], sounds: { "acme.svc": { quiet: "ping", ping: "pop" }, "acme.other": { x: "pop" } } } }],
+        ["the user key is seeded from the effective one", null, { sounds: { "acme.other": { x: "pop" } } }, "ping", "pop", { ok: true, user: { version: 2, sounds: { "acme.other": { x: "pop" }, "acme.svc": { ping: "pop" } } } }],
+        ["the default removes the choice alone", { sounds: { "acme.svc": { ping: "pop", quiet: "ping" } } }, {}, "ping", "chime", { ok: true, user: { sounds: { "acme.svc": { quiet: "ping" } }, version: 2 } }],
+        ["the default of the plugin's last choice removes its object", { version: 2, sounds: { "acme.svc": { ping: "pop" }, "acme.other": { x: "pop" } } }, {}, "ping", "chime", { ok: true, user: { version: 2, sounds: { "acme.other": { x: "pop" } } } }],
+        ["the default of the last choice removes the key", { version: 2, sounds: { "acme.svc": { ping: "pop" } } }, {}, "ping", "chime", { ok: true, user: { version: 2 } }],
+        ["an own event is turned off", null, {}, "tone", "", { ok: true, user: { version: 2, sounds: { "acme.svc": { tone: "" } } } }],
         ["a sound the set lacks is refused", null, {}, "ping", "gong", { ok: false, answer: "refused: sound=ping reason=value" }],
         ["a value that is no string is refused", null, {}, "ping", true, { ok: false, answer: "refused: sound=ping reason=value" }],
         ["a core sound for an own event is refused", null, {}, "tone", "pop", { ok: false, answer: "refused: sound=tone reason=value" }],
         ["an undeclared event is refused", null, {}, "gong", "pop", { ok: false, answer: "refused: sound=gong reason=undeclared" }],
-        ["a held event's choice writes no file", { version: 1 }, {}, "relay", "", { ok: true, held: true }],
+        ["a held event's choice writes no file", { version: 2 }, {}, "relay", "", { ok: true, held: true }],
         ["a held event's choice is judged first", null, {}, "relay", "pop", { ok: false, answer: "refused: sound=relay reason=value" }],
     ];
     for (const [name, user, effective, event, value, want] of soundEditRows) check("soundEdit: " + name, ctx.soundEdit(user, effective, noisy, "acme.svc", event, value), want);
@@ -1818,11 +1832,6 @@ const CONTROLS = [
     ["a written key is normalised", "row.keys[shortcut] = keyRowValue(key);", "row.keys[shortcut] = key;"],
     ["null unbinds", "return value === null ? null : keyWriteValue(value);", "return keyWriteValue(value);"],
     ["an unset removes the key from the plugins row", "        delete row[key];", ""],
-    ["an unset removes the key from the layout entries", "                    delete entry[key];", ""],
-    ["an unset of the plugins row leaves the layout", "if (targets.indexOf(\"layout\") !== -1 && isPlainObject(out.bar) && isPlainObject(out.bar.layout)) {", "if (isPlainObject(out.bar) && isPlainObject(out.bar.layout)) {"],
-    ["an unset of the layout leaves the plugins row", "var row = targets.indexOf(\"plugins\") !== -1 ? pluginRow(out, manifest.id) : undefined;", "var row = pluginRow(out, manifest.id);"],
-    ["an unset with a locator counts the entries of its id", "out.bar.layout[section][index] = entry;\n                }\n                seen += 1;", "out.bar.layout[section][index] = entry;\n                }\n                seen += 0;"],
-    ["an unset with a locator keeps the other entries", "if (isPlainObject(locator) && locator.section !== section) return;\n            var seen = 0;\n            (Array.isArray(out.bar.layout[section])", "var seen = 0;\n            (Array.isArray(out.bar.layout[section])"],
     ["a reset removes the entry", "            delete row.keys[shortcut];\n", ""],
     ["an empty keys is removed", "if (Object.keys(row.keys).length === 0) delete row.keys;", ""],
     ["a reset the row does not need changes nothing", "if (!needed)\n            return out;", "if (false)\n            return out;"],
@@ -1922,7 +1931,6 @@ const CONTROLS = [
     ["pane order is finite", "if (typeof pane.order !== \"number\" || !isFinite(pane.order))", "if (false)"],
     ["kind pane needs pane key", "} else if (raw.kinds.indexOf(\"pane\") !== -1) {", "} else if (false) {"],
     ["capability panes needs window", "if (capabilities.indexOf(\"panes\") !== -1 && raw.kinds.indexOf(\"window\") === -1)", "if (false)"],
-    ["pane configure writes every target", "return kind === \"pane\" || kind === \"service\" ? settingTargets(config, manifest) : [settingTargetOf(kind)];", "return kind === \"pane\" ? [\"plugins\"] : kind === \"service\" ? settingTargets(config, manifest) : [settingTargetOf(kind)];"],
     ["pane rows filter pane kind", "return manifests[id].kinds.indexOf(\"pane\") !== -1 && isEnabled(config, manifests[id], defaultBarId);", "return isEnabled(config, manifests[id], defaultBarId);"],
     ["pane rows filter and order by group, order, name and id", "    }).sort(function (a, b) {\n        if (a.group !== b.group) return a.group < b.group ? -1 : 1;\n        if (a.order !== b.order) return a.order - b.order;\n        if (a.name !== b.name) return a.name < b.name ? -1 : 1;\n        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;\n    });", "    });"],
     ["panes holder is an enabled window", "return manifest.capabilities.indexOf(\"panes\") !== -1 && isEnabled(config, manifest, defaultBarId);", "return manifest.capabilities.indexOf(\"panes\") !== -1;"],
@@ -2022,14 +2030,11 @@ const CONTROLS = [
     ["an alwaysOn plugin takes an enable", "if (!enabled && manifest.alwaysOn === true)", "if (manifest.alwaysOn === true)"],
     ["a widget-only plugin is enabled only by its placement", "if (manifest.kinds.every(function (k) { return k === \"bar-widget\"; })) return \"widget\";", ""],
     ["a copied entry setting shares nothing with its source", "target[k] = clone(entry[k]);", "target[k] = entry[k];"],
-    ["an unplaced plugin's new row carries the entry's settings", "copyEntrySettings({ id: id }, layoutEntryOf(out, id), manifest, false)", "{ id: manifest.id }"],
-    ["a placed entry carries the plugins row's settings", "copyEntrySettings({ id: id }, pluginRow(effective, id), manifest, false)", "{ id: manifest.id }"],
     ["open chooses a window over a panel", "if (manifest.kinds.indexOf(\"window\") !== -1) return \"window\";\n    if (manifest.kinds.indexOf(\"panel\") !== -1) return \"panel\";", "if (manifest.kinds.indexOf(\"panel\") !== -1) return \"panel\";\n    if (manifest.kinds.indexOf(\"window\") !== -1) return \"window\";"],
     ["a disabled plugin's placement is refused", "if (!isEnabled(config, manifest, defaultBarId))\n        return \"refused: placed=\"", "if (false)\n        return \"refused: placed=\""],
     ["a plugin without a widget is refused placement", "if (!builtin && manifest.kinds.indexOf(\"bar-widget\") === -1)\n        return \"refused: placed=\"", "if (false)\n        return \"refused: placed=\""],
     ["a hidden bar maps no surface", "return instance === null || instance.shown !== false;", "return true;"],
     ["a bar being built maps its surface", "return instance === null || instance.shown !== false;", "return instance !== null && instance.shown !== false;"],
-    ["a service writes every entry its plugin reads", 'return kind === "pane" || kind === "service" ? settingTargets(config, manifest)', 'return kind === "pane" ? settingTargets(config, manifest)'],
     ["a list entry's keys are judged", "var listBad = Pads.listEntryError(entry, at, status, schemaError);", "var listBad = \"\";"],
     ["a list value is judged", "if (entry.type === \"list\") return Pads.listValueError(entry, value, settingError, NAME_PATTERN);", "if (entry.type === \"list\") return \"\";"],
     ["list is a setting type", "\"enum\", \"list\"];", "\"enum\"];"],
@@ -2137,6 +2142,15 @@ const CONTROLS = [
     ["a side view takes the drop over it", "x >= view.x && x < view.x + view.width) section = side;", "false) section = side;"],
     ["a scrolled section slots among its shown widgets", "widgets = widgets.filter(function (widget) { return widget.x >= low && widget.x + widget.width <= high; });", ""],
     ["a drop past the shown widgets lands before the hidden next", "var target = slot < widgets.length ? widgets[slot] : next;", "var target = slot < widgets.length ? widgets[slot] : null;"],
+    ["a layout entry holds its id alone", "if (extra.length > 0)\n                        return", "if (false)\n                        return"],
+    ["a migration lets the row's value win", "if (!hasOwn(row, k)) row[k] = entry[k];", "row[k] = entry[k];"],
+    ["a migrated entry keeps its id alone", "            return { id: entry.id };\n        });", "            return entry;\n        });"],
+    ["a migration appends the row the file lacks", "                row = { id: entry.id };\n                out.plugins.push(row);", "                row = { id: entry.id };"],
+    ["a migration reads every section", "    SECTIONS.forEach(function (section) {\n        if (!Array.isArray(layout[section])) return;\n        layout[section] = layout[section].map(", "    [\"left\"].forEach(function (section) {\n        if (!Array.isArray(layout[section])) return;\n        layout[section] = layout[section].map("],
+    ["a migrated file takes this version", "    out.version = CONFIG_VERSION;\n    return { config: out, migrated: true };", "    return { config: out, migrated: true };"],
+    ["a migration leaves its input", "    var out = clone(config);\n    var layout = isPlainObject(out.bar)", "    var out = config;\n    var layout = isPlainObject(out.bar)"],
+    ["only a version 1 or unversioned file migrates", "(config.version !== 1 && config.version !== undefined)", "(config.version === 3)"],
+    ["an unversioned file with nothing to move is left", "    if (config.version === undefined && !moved)\n        return same;\n", ""],
 ];
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-logic-control-"));

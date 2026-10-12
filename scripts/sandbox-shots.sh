@@ -2433,10 +2433,12 @@ traffic_shot_setting() {
 import json, os, sys
 path, show = sys.argv[1:]
 config = json.load(open(path))
-for section in config["bar"]["layout"].values():
-    for row in section:
-        if row["id"] == "vgs.traffic":
-            row["show"] = show
+rows = config.setdefault("plugins", [])
+row = next((r for r in rows if r["id"] == "vgs.traffic"), None)
+if row is None:
+    row = {"id": "vgs.traffic"}
+    rows.append(row)
+row["show"] = show
 with open(path + ".tmp", "w") as out:
     json.dump(config, out)
 os.replace(path + ".tmp", path)
@@ -2989,7 +2991,7 @@ print(tier)' "$repo/shell/plugins/vgs.jarvis/artifacts.json" "$data/local" "$sta
 jarvis_home_setting() {
   python3 - "$1" "$2" <<'PY' || fail "the Jarvis home folder setting is not written"
 import json,os,sys
-value=json.load(open(sys.argv[1])) if os.path.exists(sys.argv[1]) else {"version": 1}
+value=json.load(open(sys.argv[1])) if os.path.exists(sys.argv[1]) else {"version": 2}
 row=next((r for r in value.setdefault("plugins",[]) if r["id"]=="vgs.jarvis"),None)
 if row is None:
     row={"id":"vgs.jarvis"}; value["plugins"].append(row)
@@ -3142,15 +3144,12 @@ jarvis_backups() {
   python3 - "$config" "$1" ${ids:+$ids} <<'PY' || fail "the Jarvis backup model setting is not written"
 import json, os, re, sys
 config, action, *ids = sys.argv[1:]
-value = json.load(open(config)) if os.path.exists(config) else {"version": 1}
+value = json.load(open(config)) if os.path.exists(config) else {"version": 2}
 row = next((r for r in value.setdefault("plugins", []) if r["id"] == "vgs.jarvis"), None)
 if row is None:
     row = {"id": "vgs.jarvis"}
     value["plugins"].append(row)
-layout = value.get("bar", {}).get("layout", {})
-layout_rows = [entry for entries in layout.values() if isinstance(entries, list) for entry in entries
-               if isinstance(entry, dict) and entry.get("id") == "vgs.jarvis"]
-targets = [row] + layout_rows
+targets = [row]
 if action == "plant":
     fallbacks = [{"name": f"backup-{i + 1}", "brain": ids[i], "model": ""} for i in range(2)]
     name_pattern = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -3183,7 +3182,7 @@ NODE
 outdated_brain() {
   python3 - "$1" "$2" <<'PY' || fail "the Jarvis AI model setting is not written"
 import json,os,sys
-value=json.load(open(sys.argv[1])) if os.path.exists(sys.argv[1]) else {"version": 1}
+value=json.load(open(sys.argv[1])) if os.path.exists(sys.argv[1]) else {"version": 2}
 row=next((r for r in value.setdefault("plugins",[]) if r["id"]=="vgs.jarvis"),None)
 if row is None:
     row={"id":"vgs.jarvis"}; value["plugins"].append(row)
@@ -4145,9 +4144,6 @@ if row is None:
     row = {"id": "vgs.keyboard"}
     rows.append(row)
 row.update(layouts="us,de", variants=",nodeadkeys")
-for section in doc.get("bar", {}).get("layout", {}).values():
-    for entry in section:
-        if entry.get("id") == "vgs.keyboard": entry.update(layouts="us,de", variants=",nodeadkeys")
 with open(path + ".tmp", "w") as out: json.dump(doc, out)
 os.replace(path + ".tmp", path)
 PYKEYBOARD

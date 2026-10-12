@@ -166,7 +166,7 @@ const tokens = load(path.join(repo, "shell", "Commons", "Tokens.js")).TOKENS;
 const pluginLogic = load(path.join(repo, "shell", "Core", "PluginLogic.js"));
 const accountRule = load(path.join(repo, "shell", "Commons", "AccountDirectories.js"));
 const { spawnSync } = require("child_process");
-const { Refusal, refuse, main, readJson, readConfig, writing, replaceFile, linkByRename, editFile, onPath } = require(path.join(__dirname, "lib", "judge-files.js"));
+const { Refusal, refuse, main, readJson, readConfig, readUserConfig, writing, replaceFile, linkByRename, editFile, onPath } = require(path.join(__dirname, "lib", "judge-files.js"));
 const render = require(path.join(__dirname, "lib", "theme-render.js"));
 const backgrounds = require(path.join(__dirname, "lib", "theme-backgrounds.js"));
 const select = require(path.join(__dirname, "lib", "theme-select.js"));
@@ -866,7 +866,7 @@ const PARTIAL_STATUS = 3;
 // then be known.
 function shellConfig(configDir, key) {
     const shipped = readConfig(pluginLogic, SHIPPED_CONFIG, key);
-    const user = readConfig(pluginLogic, path.join(configDir, "shell.json"), key, true);
+    const user = readUserConfig(pluginLogic, path.join(configDir, "shell.json"), key);
     return pluginLogic.effectiveConfig(shipped, user);
 }
 

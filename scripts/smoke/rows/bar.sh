@@ -380,8 +380,8 @@ cp -- "$calendar_saved" "$home/.config/vgshell/shell.json.tmp"
 mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
 geometry expect_poll "the clock returns to the centre" center clock_third
 
-# Disable only lists the id: the layout entry and its settings stay, so
-# re-enabling restores the exact screen. The effective configuration is
+# Disable only lists the id: the layout entry and the settings row stay,
+# so re-enabling restores the exact screen. The effective configuration is
 # read back for the entry, the user file for what the manager wrote.
 # Latency from a setPluginEnabled reply to `built` reflecting it, polled
 # with qs ipc against the shell's pid; the reading carries one IPC round trip.
@@ -410,11 +410,13 @@ fi
 printf '  reconcile_observation polls=%s latency_ms=%s cpu_some_pct=%s\n' "${reconcile_poll_count:-0}" "$reconcile_ms" "$reconcile_cpu_some_pct"
 if [[ $disable_reply == ok ]]; then ok "disabling a widget is allowed"; else fail "disabling a widget is allowed: got $disable_reply"; fi
 tick_entry() { ipc shell listShellConfig | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([e for e in d["bar"]["layout"]["center"] if e["id"]=="acme.tick"]))'; }
+tick_row() { ipc shell listShellConfig | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([e for e in d.get("plugins",[]) if e["id"]=="acme.tick"]))'; }
 user_keys() { python3 -c 'import json,sys; print(",".join(sorted(json.load(open(sys.argv[1])).keys())))' "$home/.config/vgshell/shell.json"; }
 expect_widgets "the bar dropped the disabled widget" '[]'
 expect_builtins "the built-ins stay while a plugin widget leaves" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
 expect "widget reads disabled after the user file changed" False plugin_enabled acme.tick
-expect "the disabled widget keeps its layout entry and settings" '[{"id": "acme.tick", "format": "ddd d MMM  HH:mm"}]' tick_entry
+expect "the disabled widget keeps its layout entry" '[{"id": "acme.tick"}]' tick_entry
+expect "the disabled widget keeps its settings row" '[{"id": "acme.tick", "format": "ddd d MMM  HH:mm"}]' tick_row
 expect "disable wrote only the disabled list" "bar,disabledPlugins,plugins,version" user_keys
 expect "re-enabling the widget is allowed" ok ipc shell setPluginEnabled acme.tick true
 expect_widgets "the bar rebuilt the re-enabled widget" '["acme.tick"]'
@@ -708,11 +710,14 @@ rows = config.setdefault("plugins", [])
 held = {r["id"] for r in rows}
 rows += [{"id": i} for i in owner + ["vgs.sudo"] if i not in right and i not in held]
 entries = [{"id": i} for i in right]
-for entry in entries:
-    if entry["id"] == "vgs.sysmon":
-        entry.update({"cpuTemperature": True, "gpuTemperature": True, "showSwap": True, "showMemory": True, "memoryUnit": "percent", "layout": "One line"})
-    if entry["id"] == "vgs.traffic":
-        entry["layout"] = "One line"
+for pid, values in (("vgs.sysmon", {"cpuTemperature": True, "gpuTemperature": True, "showSwap": True, "showMemory": True, "memoryUnit": "percent", "layout": "One line"}),
+                    ("vgs.traffic", {"layout": "One line"})):
+    if pid not in right: continue
+    row = next((r for r in rows if r["id"] == pid), None)
+    if row is None:
+        row = {"id": pid}
+        rows.append(row)
+    row.update(values)
 config["bar"] = {"id": "vgs.bar", "layout": {"left": [{"id": "vgs.launcher"}, {"id": "vgs.bar/left-workspaces"}, {"id": "vgs.tray"}],
                                              "center": [{"id": "vgs.bar/center-clock"}], "right": entries}}
 with open(path + ".tmp", "w") as out:
@@ -1177,9 +1182,11 @@ bar_participation_state() {
   python3 - "$bar_participation_profile" "$home/.config/vgshell/shell.json" "$1" <<'PY'
 import json,os,sys
 config=json.load(open(sys.argv[1])); state=sys.argv[3]
-for entry in config["bar"]["layout"]["center"]:
-    if entry["id"]=="vgs.network": entry["showDisconnected"]=state!="hidden"
-    if entry["id"]=="acme.tick": entry["format"]=state
+rows=config.setdefault("plugins",[])
+for pid,key,value in (("vgs.network","showDisconnected",state!="hidden"),("acme.tick","format",state)):
+    row=next((r for r in rows if r["id"]==pid),None)
+    if row is None: row={"id":pid}; rows.append(row)
+    row[key]=value
 with open(sys.argv[2]+".tmp","w") as out: json.dump(config,out)
 os.replace(sys.argv[2]+".tmp",sys.argv[2])
 PY

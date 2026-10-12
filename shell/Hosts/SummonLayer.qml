@@ -32,7 +32,7 @@ PanelWindow {
     signal dismissed()
 
     readonly property var place: {
-        const settings = Registry.settingsOf(pluginId, kind);
+        const settings = Registry.settingsOf(pluginId);
         return PluginLogic.surfacePlacement(kind, settings, Theme.space.md);
     }
     readonly property bool catches: PluginLogic.layerCatchesOutside(kind)

@@ -100,7 +100,7 @@ const path = require("path");
 
 const repo = path.join(__dirname, "..");
 const logic = require(path.join(__dirname, "lib", "qml-library.js")).load(path.join(repo, "shell", "Core", "PluginLogic.js"));
-const { refuse, main, readJson, readConfig, editFile, onPath } = require(path.join(__dirname, "lib", "judge-files.js"));
+const { refuse, main, readJson, readConfig, readUserConfig, editFile, onPath } = require(path.join(__dirname, "lib", "judge-files.js"));
 
 // What detection answers on a system where no manager is looked for.
 const NO_MANAGERS = { primary: null, overlays: [], sources: [] };
@@ -290,7 +290,7 @@ function doctorLines(report) {
 // write, or null to leave the file. EDIT may run twice, as editFile's may.
 function editUserConfig(userPath, edit) {
     const failure = editFile("user-config", userPath, true, current => {
-        const next = edit(current === undefined ? null : readConfig(logic, userPath, "user-config"));
+        const next = edit(current === undefined ? null : readUserConfig(logic, userPath, "user-config"));
         if (next === null) return null;
         // editFile writes one byte per character; the JSON is UTF-8.
         return Buffer.from(JSON.stringify(next, null, 2) + "\n", "utf8").toString("latin1");
@@ -412,7 +412,7 @@ main(() => {
         const [form, shippedPath, userPath, id] = args;
         const json = format(form) === "json";
         const shipped = readConfig(logic, shippedPath, "shipped-config");
-        const user = readConfig(logic, userPath, "user-config", true);
+        const user = readUserConfig(logic, userPath, "user-config");
         const plugin = pluginOf(registryOf(readScan()), id);
         const enabled = logic.isEnabled(logic.effectiveConfig(shipped, user), plugin.manifest, logic.activeBarId(shipped, "")) ? [id] : [];
         const rows = reportRows(plugin.manifest.requirements, plugin.missing, systemRead({ [id]: plugin.manifest }, { [id]: plugin.missing }, enabled));
@@ -423,9 +423,9 @@ main(() => {
     case "settings": {
         const [shippedPath, userPath, id] = args;
         const shipped = readConfig(logic, shippedPath, "shipped-config");
-        const user = readConfig(logic, userPath, "user-config", true);
+        const user = readUserConfig(logic, userPath, "user-config");
         const manifest = pluginOf(registryOf(readScan()), id).manifest;
-        const settings = logic.settingsFor(logic.effectiveConfig(shipped, user), manifest, "plugins", null);
+        const settings = logic.settingsFor(logic.effectiveConfig(shipped, user), manifest);
         for (const key of Object.keys(manifest.schema)) {
             const refusal = logic.settingRefusal(manifest, key, settings[key]);
             if (refusal !== "") refuse(refusal.slice("refused: ".length) + " id=" + id);
@@ -438,7 +438,7 @@ main(() => {
         const json = format(form) === "json";
         if (!Object.prototype.hasOwnProperty.call(SESSION_LINES, graphicalSession)) refuse("graphical-session=" + graphicalSession);
         const shipped = readConfig(logic, shippedPath, "shipped-config");
-        const user = readConfig(logic, userPath, "user-config", true);
+        const user = readUserConfig(logic, userPath, "user-config");
         const core = coreRequirements(corePath);
         const report = doctorReport(registryOf(readScan()), shipped, user, core);
         report.session = { graphicalSession };

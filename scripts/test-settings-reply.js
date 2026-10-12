@@ -27,7 +27,7 @@ const CASES = [
     ["refused: user-config=unwritable path=/fixture error=permission denied\nsecond line", /could not save this change/],
     ...["refused: disabled=acme.example", ...["action", "secret", "placed", "tui"].map(kind => `refused: ${kind}=example reason=disabled`)].map(raw => [raw, /Turn on this plugin/]),
     ["refused: bundled=acme.example", /included with VGS/],
-    ...["undeclared", "entry=none"].map(reason => [`refused: setting=example ${reason}`, /setting is no longer available/]),
+    ["refused: setting=example undeclared", /setting is no longer available/],
     ["refused: setting=example want=number", /Enter a number/],
     ["refused: setting=example want=string", /Enter text/],
     ["refused: setting=example want=boolean", /Use the switch/],

@@ -299,16 +299,19 @@ d=json.load(sys.stdin)
 print(json.dumps([i for i, row in enumerate(d[:-1]) if isinstance(row, dict) and not isinstance(row.get("value"), (int, float))]))'; }
 widget_tip_last() { ipc smoke readDescendant "$widget_key" vgs.updates Tooltip details | py_reply 'import json,sys; d=json.load(sys.stdin); print(bool(d and isinstance(d[-1], str) and d[-1]))'; }
 updates_focused() { ipc smoke focused window vgs.updates | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(t if not t.startswith("[") else json.dumps([json.loads(t)[2], json.loads(t)[3], json.loads(t)[4]]))'; }
-# hideWhenCurrent in the widget's layout entry of the user file, written
-# whole and moved into place.
+# hideWhenCurrent in the plugin's row of the user file, written whole and
+# moved into place.
 widget_hide_when_current() { # true|false
   python3 -c '
 import json, os, sys
 path, want = sys.argv[1], sys.argv[2] == "true"
 doc = json.load(open(path))
-entries = [e for e in doc["bar"]["layout"]["right"] if e["id"] == "vgs.updates"]
-assert len(entries) == 1, entries
-entries[0]["hideWhenCurrent"] = want
+rows = doc.setdefault("plugins", [])
+row = next((r for r in rows if r["id"] == "vgs.updates"), None)
+if row is None:
+    row = {"id": "vgs.updates"}
+    rows.append(row)
+row["hideWhenCurrent"] = want
 open(path + ".next", "w").write(json.dumps(doc))
 os.replace(path + ".next", path)' "$home/.config/vgshell/shell.json" "$1"
 }

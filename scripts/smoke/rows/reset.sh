@@ -242,7 +242,8 @@ reset_run_row() {
 import json, os, sys
 path = sys.argv[1]
 doc = json.load(open(path))
-doc["bar"] = {"id": "vgs.bar", "layout": {"left": [{"id": "acme.tick", "format": "HH:mm"}], "center": [], "right": [{"id": "vgs.settings"}]}}
+doc["bar"] = {"id": "vgs.bar", "layout": {"left": [{"id": "acme.tick"}], "center": [], "right": [{"id": "vgs.settings"}]}}
+doc["plugins"] = [r for r in doc["plugins"] if r["id"] != "acme.tick"] + [{"id": "acme.tick", "format": "HH:mm"}]
 with open(path + ".tmp", "w") as out:
     json.dump(doc, out)
 os.replace(path + ".tmp", path)

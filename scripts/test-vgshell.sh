@@ -850,14 +850,14 @@ check "the mutant add runs the post-checkout hook" test -e "$hooks/post-checkout
 rm -f -- "${hooks:?}/post-checkout.marker"
 
 cfg="$tmp/cfg-listed"; mkdir -p "$cfg/vgshell"
-printf '{ "version": 1, "plugins": [ { "id": "acme.probe", "label": "kept" } ] }\n' >"$cfg/vgshell/shell.json"
+printf '{ "version": 2, "plugins": [ { "id": "acme.probe", "label": "kept" } ] }\n' >"$cfg/vgshell/shell.json"
 inst "add of a plugin the configuration lists succeeds" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/probe.git"
 check "add of a listed plugin reports the user file written" test "$(head -n 1 "$tmp/out")" == "ok added=acme.probe path=$cfg/vgshell/plugins/acme.probe config=written lands=disabled"
 check "add lands a listed plugin disabled and keeps its settings row" json_is "$cfg/vgshell/shell.json" 'd["disabledPlugins"] == ["acme.probe"] and d["plugins"] == [{"id": "acme.probe", "label": "kept"}]'
 # A user file a dotfile manager keeps as a link stays a link: the landing
 # edits the file the link names.
 cfg="$tmp/cfg-linked"; mkdir -p "$cfg/vgshell" "$tmp/dotfiles"
-printf '{ "version": 1, "plugins": [ { "id": "acme.probe", "label": "kept" } ] }\n' >"$tmp/dotfiles/shell.json"
+printf '{ "version": 2, "plugins": [ { "id": "acme.probe", "label": "kept" } ] }\n' >"$tmp/dotfiles/shell.json"
 ln -s "$tmp/dotfiles/shell.json" "$cfg/vgshell/shell.json"
 inst "add with a linked user file succeeds" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/probe.git"
 check "add keeps a linked user file a link" test -L "$cfg/vgshell/shell.json"
@@ -875,7 +875,7 @@ inst "add of a plugin with a bar widget succeeds" "$cfg" "$rt_empty" 0 "shell=no
 check "add of a plugin with a bar widget says it lands shown" test "$(head -n 1 "$tmp/out")" == "ok added=acme.widget path=$cfg/vgshell/plugins/acme.widget config=written lands=shown"
 check "add places the widget in its default section" widget_shown "$cfg"
 cfg="$tmp/cfg-widget-disabled"; mkdir -p "$cfg/vgshell"
-printf '{ "version": 1, "disabledPlugins": [ "acme.widget" ] }\n' >"$cfg/vgshell/shell.json"
+printf '{ "version": 2, "disabledPlugins": [ "acme.widget" ] }\n' >"$cfg/vgshell/shell.json"
 inst "add of a widget plugin an earlier install left disabled succeeds" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/widget.git"
 check "add enables and places a widget plugin an earlier install left disabled" widget_shown "$cfg"
 # The control: a judge copy that lands every plugin as a plugin without a
@@ -925,7 +925,7 @@ fi
 cfg="$tmp/cfg-unparseable"; mkdir -p "$cfg/vgshell"; printf '{ nope\n' >"$cfg/vgshell/shell.json"
 inst "add refuses while the user file does not parse" "$cfg" "$rt_empty" 1 "" "vgshell: refused: user-config=unparseable path=$cfg/vgshell/shell.json" plugin add --yes "$tmp/src/probe.git"
 check "a refused user file leaves no plugin and no staging directory" no_residue "$cfg"
-cfg="$tmp/cfg-malformed"; mkdir -p "$cfg/vgshell"; printf '{ "version": 1, "plugins": [ { "id": "acme.probe" }, "junk" ] }\n' >"$cfg/vgshell/shell.json"
+cfg="$tmp/cfg-malformed"; mkdir -p "$cfg/vgshell"; printf '{ "version": 2, "plugins": [ { "id": "acme.probe" }, "junk" ] }\n' >"$cfg/vgshell/shell.json"
 inst "add refuses a user file the config judge refuses" "$cfg" "$rt_empty" 1 "" "vgshell: refused: user-config=malformed path=$cfg/vgshell/shell.json error=plugins.1 must be an object with a string id" plugin add --yes "$tmp/src/probe.git"
 check "a malformed user file leaves no plugin and no staging directory" no_residue "$cfg"
 check "a malformed user file is left as it was" grep -q '"junk"' "$cfg/vgshell/shell.json"

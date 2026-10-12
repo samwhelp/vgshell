@@ -7,8 +7,8 @@ import "TrayLogic.js" as TrayLogic
 // that edit those lists, `pin` and `hide`, each with a tray item's id: the
 // manage popup calls them, and a call toggles the item as
 // TrayLogic.toggle decides. The lists go through capability `configure`,
-// which writes every entry the plugin reads, so the bar, the Settings page
-// and the next start agree. Referencing SystemTray makes Quickshell host
+// which writes the plugin's row, the one every instance reads, so the bar,
+// the Settings page and the next start agree. Referencing SystemTray makes Quickshell host
 // the tray on the session bus (its StatusNotifierWatcher and host); the
 // widget draws from the same singleton.
 Item {

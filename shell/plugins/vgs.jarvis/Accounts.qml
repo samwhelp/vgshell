@@ -151,7 +151,7 @@ Item {
                 || shell.status.set("copilotMemory", Gate.copilotMemory(value.accounts)) !== "ok"
                 || shell.status.set("setupSignIn", { tone: "info", text: "Optional", action: true }) !== "ok") throw new Error("status");
             // voiceAccounts already contains only present OpenAI key references.
-            // configure.set uses the core writer for every entry the service reads.
+            // configure.set writes the plugin's row through the core writer.
             // A queued refresh can publish status, but cannot select a stale key.
             if (!pending && shell.settings.voiceAccount === "" && value.voiceAccounts.length === 1) {
                 if (shell.configure.set("voiceAccount", value.voiceAccounts[0].value) !== "ok")

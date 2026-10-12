@@ -59,8 +59,7 @@ keyboard_catalog() { ipc smoke statusValues vgs.keyboard | py_reply 'import json
 keyboard_saved_value() {
   cat -- "$keyboard_file" | py_reply 'import json,sys
 doc=json.load(sys.stdin)
-entries=[e for section in doc.get("bar", {}).get("layout", {}).values() for e in section if e.get("id") == "vgs.keyboard"]
-entries += [r for r in doc.get("plugins", []) if r.get("id") == "vgs.keyboard"]
+entries=[r for r in doc.get("plugins", []) if r.get("id") == "vgs.keyboard"] or [{}]
 print(json.dumps([r.get(sys.argv[1], "absent") for r in entries]))' "$1"
 }
 keyboard_focus() {
@@ -124,9 +123,6 @@ if row is None:
     row = {"id":"vgs.keyboard"}
     rows.append(row)
 row.update(layouts=layouts, variants=variants)
-for section in doc.get("bar", {}).get("layout", {}).values():
-    for entry in section:
-        if entry.get("id") == "vgs.keyboard": entry.update(layouts=layouts, variants=variants)
 with open(path + ".tmp", "w") as out: json.dump(doc, out)
 os.replace(path + ".tmp", path)
 PY
@@ -252,25 +248,25 @@ keyboard_pick layoutPicker code de || { keyboard_restore; return 0; }
 keyboard_pick variantPicker code nodeadkeys || { keyboard_restore; return 0; }
 keyboard_focus Button addSource || { keyboard_restore; return 0; }
 keyboard_editor_keys -k space || { keyboard_restore; return 0; }
-expect_poll "Add saves the selected layout in every settings entry" '["us,de", "us,de"]' keyboard_saved_value layouts
-expect_poll "Add saves the selected variant in every settings entry" '[",nodeadkeys", ",nodeadkeys"]' keyboard_saved_value variants
+expect_poll "Add saves the selected layout in the plugins row" '["us,de"]' keyboard_saved_value layouts
+expect_poll "Add saves the selected variant in the plugins row" '[",nodeadkeys"]' keyboard_saved_value variants
 expect_poll "Add applies the selected layout" '"us,de"' keyboard_option input:kb_layout str
 expect_poll "Add applies the selected variant" '",nodeadkeys"' keyboard_option input:kb_variant str
 keyboard_focus RowAction systemLayout || { keyboard_restore; return 0; }
 keyboard_editor_keys -k space || { keyboard_restore; return 0; }
-expect_poll "reset removes both saved layout values" '["absent", "absent"]' keyboard_saved_value layouts
-expect_poll "reset removes both saved variant values" '["absent", "absent"]' keyboard_saved_value variants
+expect_poll "reset removes the saved layout value" '["absent"]' keyboard_saved_value layouts
+expect_poll "reset removes the saved variant value" '["absent"]' keyboard_saved_value variants
 expect_poll "reset restores the compositor's system layout" "$keyboard_system_layout" keyboard_option input:kb_layout str
 expect_poll "reset restores the compositor's system variant" "$keyboard_system_variant" keyboard_option input:kb_variant str
 keyboard_pick modifierPicker value caps:escape || { keyboard_restore; return 0; }
-expect_poll "the modifier preset is saved" '["caps:escape", "caps:escape"]' keyboard_saved_value options
+expect_poll "the modifier preset is saved" '["caps:escape"]' keyboard_saved_value options
 expect_poll "the modifier preset reaches Hyprland" '"caps:escape"' keyboard_option input:kb_options str
 keyboard_pick modifierPicker value __custom || { keyboard_restore; return 0; }
 keyboard_focus TextField customOptions || { keyboard_restore; return 0; }
 keyboard_editor_keys -M ctrl -k a -m ctrl || { keyboard_restore; return 0; }
 keyboard_editor_keys 'compose:ralt,grp:alt_shift_toggle' || { keyboard_restore; return 0; }
 keyboard_editor_keys -k Return || { keyboard_restore; return 0; }
-expect_poll "custom modifiers are saved" '["compose:ralt,grp:alt_shift_toggle", "compose:ralt,grp:alt_shift_toggle"]' keyboard_saved_value options
+expect_poll "custom modifiers are saved" '["compose:ralt,grp:alt_shift_toggle"]' keyboard_saved_value options
 expect_poll "custom modifiers reach Hyprland" '"compose:ralt,grp:alt_shift_toggle"' keyboard_option input:kb_options str
 # The same checks must reject a row whose action leaves the VGS value saved.
 keyboard_source_row() { ipc smoke readMatchingDescendant window vgs.keyboard KeyboardRow setting repeatRate "$1"; }
@@ -287,7 +283,7 @@ keyboard_source_focus() {
 keyboard_source_warning() { keyboard_source_row warning | py_reply 'import json,sys; print("shown" if json.load(sys.stdin) else "hidden")'; }
 keyboard_source_check() {
   expect "the mapped row draws its Hyprland config warning" shown keyboard_source_warning
-  expect "the mapped row action clears every saved repeat rate" '["absent", "absent"]' keyboard_saved_value repeatRate
+  expect "the mapped row action clears the saved repeat rate" '["absent"]' keyboard_saved_value repeatRate
 }
 hypr_lua_save keyboard-source
 printf '%s\n' 'hl.config({ input = { repeat_rate = 31 } })' >>"$home/.config/hypr/hyprland.lua"
@@ -298,7 +294,7 @@ expect "the mapped row offers Use my Hyprland value" true keyboard_source_row of
 expect "the mapped row draws its Hyprland config warning" shown keyboard_source_warning
 keyboard_source_focus || { keyboard_restore; return 0; }
 keyboard_editor_keys -k space || { keyboard_restore; return 0; }
-expect_poll "the mapped row action clears every saved repeat rate" '["absent", "absent"]' keyboard_saved_value repeatRate
+expect_poll "the mapped row action clears the saved repeat rate" '["absent"]' keyboard_saved_value repeatRate
 expect_poll "the configured repeat rate applies after the action" 31 keyboard_option input:repeat_rate int
 expect_poll "the mapped slider shows Hyprland's repeat rate" 31 ipc smoke readMatchingDescendant window vgs.keyboard Slider objectName repeatRate value
 expect_poll "the action returns focus to the repeat slider" true ipc smoke readMatchingDescendant window vgs.keyboard Slider objectName repeatRate activeFocus
@@ -316,7 +312,7 @@ expect "the variant conflict offers the Hyprland value action" true keyboard_var
 expect "the variant conflict draws a warning" shown keyboard_variant_warning
 keyboard_source_focus || { keyboard_restore; return 0; }
 keyboard_editor_keys -k space || { keyboard_restore; return 0; }
-expect_poll "the variant action clears the saved value" '["absent", "absent"]' keyboard_saved_value variants
+expect_poll "the variant action clears the saved value" '["absent"]' keyboard_saved_value variants
 expect_poll "the configured variant applies after the action" '"dvorak"' keyboard_option input:kb_variant str
 expect_poll "the variant action hides after the edit" false keyboard_variant_row offersHyprlandValue
 keyboard_variant_hidden_check
@@ -380,7 +376,7 @@ expect "the variants focus control pane opens" ok ipc shell summon window vgs.sy
 expect_poll "the variants focus control offers the configured value" '"dvorak"' keyboard_variant_row hyprlandConfigValue
 keyboard_source_focus || { keyboard_restore; return 0; }
 keyboard_editor_keys -k space || { keyboard_restore; return 0; }
-expect_poll "the focus control still clears the saved variant" '["absent", "absent"]' keyboard_saved_value variants
+expect_poll "the focus control still clears the saved variant" '["absent"]' keyboard_saved_value variants
 keyboard_variant_control() { (failures=0 behaviour_failures=0; keyboard_variant_check >"$sandbox/keyboard-variant-focus-control.log"; echo "$failures"); }
 expect "control: omitting the variants focus handoff fails the same focus check" 1 keyboard_variant_control
 keyboard_control_log <"$sandbox/keyboard-variant-focus-control.log"

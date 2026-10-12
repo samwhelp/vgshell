@@ -18,7 +18,7 @@ cp -R -- "$repo/bin" "$tree/"
 cp -- "$repo/shell/Core/PluginLogic.js" "$repo/shell/Core/PackageManagers.js" "$repo/shell/Core/HyprlandLayer.js" "$repo/shell/Core/MonitorLogic.js" "$repo/shell/Core/Pads.js" "$tree/shell/Core/"
 cp -- "$repo/shell/Commons/SettingValues.js" "$tree/shell/Commons/"
 cp -- "$repo/shell/Ui/icons/Lucide.js" "$tree/shell/Ui/icons/"
-printf '{ "version": 1, "plugins": [], "disabledPlugins": [] }\n' >"$tree/config/shell.json"
+printf '{ "version": 2, "plugins": [], "disabledPlugins": [] }\n' >"$tree/config/shell.json"
 
 cfg="$tmp/cfg"
 probe="$cfg/vgshell/plugins/acme.probe"
@@ -44,6 +44,7 @@ settings_of() {
 rows=(
   "the manifest's defaults with no user file|-|acme.probe|0|{\"mode\":\"fast\",\"count\":2,\"trust\":false}|"
   "the user's plugins row over the defaults|{ \"plugins\": [{ \"id\": \"acme.probe\", \"count\": 5, \"trust\": true }] }|acme.probe|0|{\"mode\":\"fast\",\"count\":5,\"trust\":true}|"
+  "a version 1 file's layout entry setting, read as migrated into the row|{ \"version\": 1, \"bar\": { \"layout\": { \"right\": [{ \"id\": \"acme.probe\", \"count\": 7 }] } }, \"plugins\": [{ \"id\": \"acme.probe\", \"trust\": true }] }|acme.probe|0|{\"mode\":\"fast\",\"count\":7,\"trust\":true}|"
   "a value the schema refuses|{ \"plugins\": [{ \"id\": \"acme.probe\", \"trust\": \"yes\" }] }|acme.probe|1||vgshell: refused: setting=trust want=boolean id=acme.probe"
   "a number past the schema's bound|{ \"plugins\": [{ \"id\": \"acme.probe\", \"count\": 12 }] }|acme.probe|1||vgshell: refused: setting=count want=at-most:9 id=acme.probe"
   "an id no plugin has|-|acme.none|1||vgshell: refused: unknown=acme.none"
@@ -75,17 +76,25 @@ settings_of "$tree/bin/vgshell" acme.probe
 check "a user file the config judge refuses is refused" test "$status:${err%% error=*}" == "1:vgshell: refused: user-config=malformed path=$cfg/vgshell/shell.json"
 settings_of "$tree/bin/vgshell" acme.probe extra
 check "a second argument is refused" test "$status:$err" == "2:vgshell: refused: argument=extra"
+# A read migrates in memory alone: the shell, the file's owner, writes the
+# migrated file.
+version_one='{ "version": 1, "bar": { "layout": { "right": [{ "id": "acme.probe", "count": 7 }] } } }'
+user_file "$version_one"
+settings_of "$tree/bin/vgshell" acme.probe
+check "a read leaves a version 1 user file as it was" test "$status:$(cat -- "$cfg/vgshell/shell.json")" == "0:$version_one"
 
-# Controls: a judge copy that reads no user file, and one that hands a
-# value the schema refuses through.
-control() { # NAME NEEDLE REPLACEMENT
+# Controls: a judge copy that reads no user file, one that hands a value
+# the schema refuses through, and a reader that judges a version 1 user
+# file unmigrated.
+control() { # NAME FILE NEEDLE REPLACEMENT
   local copy_tree="$tmp/tree-$1"
   cp -R -- "$tree" "$copy_tree"
-  copy_with "$1" "$tree/bin/vgshell-plugin-judge" "$2" "$3"
-  cp -- "$copy" "$copy_tree/bin/vgshell-plugin-judge"
+  copy_with "$1" "$tree/$2" "$3" "$4"
+  cp -- "$copy" "$copy_tree/$2"
   check "the $1 mutant fails a row" test "$(settings_rows "$copy_tree/bin/vgshell" quiet && echo green || echo red)" == red
 }
-control ignores-user 'settingsFor(logic.effectiveConfig(shipped, user)' 'settingsFor(logic.effectiveConfig(shipped, null)'
-control skips-schema 'if (refusal !== "") refuse(refusal.slice(' 'if (false) refuse(refusal.slice('
+control ignores-user bin/vgshell-plugin-judge 'settingsFor(logic.effectiveConfig(shipped, user)' 'settingsFor(logic.effectiveConfig(shipped, null)'
+control skips-schema bin/vgshell-plugin-judge 'if (refusal !== "") refuse(refusal.slice(' 'if (false) refuse(refusal.slice('
+control unmigrated bin/lib/judge-files.js 'logic.migrateConfig(config).config' 'config'
 
 rows_done test-vgshell-plugin-settings

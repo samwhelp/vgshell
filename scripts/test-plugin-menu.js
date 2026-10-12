@@ -141,8 +141,6 @@ function suite(ctx, check) {
         [["style.bar", "Show bar", "panel-top-close"]]);
     check("menuRows: only true turns a toggle on", labels({ plugins: [{ id: "acme.style", noGaps: "yes" }] }, ["acme.style"]).slice(2),
         [["style.gaps", "No gaps", "maximize"]]);
-    check("menuRows: a toggle reads the plugins row, never a layout entry", labels({ bar: { layout: { left: [{ id: "acme.style", noGaps: true }] } } }, ["acme.style"]).slice(2),
-        [["style.gaps", "No gaps", "maximize"]]);
     check("menuRows: a disabled plugin lists nothing", labels({}, ["acme.bar"]), [["style.bar", "Hide bar", "panel-top-close"]]);
     check("menuRows: an enabled id with no manifest lists nothing", labels({}, ["acme.gone"]), []);
     check("menuRows: a taken id stays with the first plugin by id", ctx.menuRows(manifests, ["zeta.style", "acme.style"], {}),
@@ -244,7 +242,7 @@ const CONTROLS = [
     ["rows go by plugin id", "enabledIds.filter(function (id) { return hasOwn(manifests, id); }).sort().forEach(", "enabledIds.filter(function (id) { return hasOwn(manifests, id); }).forEach("],
     ["a taken id stays with its first plugin", "if (owners[id] !== undefined) {", "if (false) {"],
     ["only true turns a toggle on", "settings[row.toggle.setting] === true;", "!!settings[row.toggle.setting];"],
-    ["a toggle reads the plugins row", "var settings = settingsFor(config, manifest, \"plugins\", null);\n        ids.forEach(", "var settings = settingsFor(config, manifest, \"layout\", layoutEntryOf(config, manifest.id));\n        ids.forEach("],
+    ["a toggle reads the plugins row", "var settings = settingsFor(config, manifest);\n        ids.forEach(", "var settings = manifest.settings;\n        ids.forEach("],
     ["a toggle shows its label", "label: on ? row.toggle.label : row.label,", "label: row.label,"],
     ["a toggle shows its icon", "icon: on && row.toggle.icon !== undefined ? row.toggle.icon : row.icon,", "icon: on ? row.toggle.icon : row.icon,"],
     ["a row names its plugin's global", "shortcut: row.shortcut === undefined ? \"\" : plugin + \":\" + row.shortcut", "shortcut: row.shortcut === undefined ? \"\" : row.shortcut"],

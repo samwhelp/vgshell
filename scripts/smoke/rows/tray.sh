@@ -71,8 +71,8 @@ tray_count() { if [[ -f $tray_record ]]; then grep -cFx -- "$1" "$tray_record" |
 tray_logged() { if grep -qF -- "$1" "$instance_log"; then echo True; else echo False; fi; }
 # The open popup's control TYPE reading TEXT: drawn or absent.
 tray_popup() { ipc smoke popupItemGeometry "$(bar_key)" "$tray_id" "" "" "$1" "$2" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
-# The pinned ids of plugin tray_id's layout entry in the user file.
-tray_file_pinned() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); l=d.get("bar", {}).get("layout", {}); e=[e for s in ("left", "center", "right") for e in l.get(s, []) if e["id"] == sys.argv[2]]; print(json.dumps([i["item"] for i in e[0].get("pinned", [])]) if e else "unplaced")' "$tray_file" "$tray_id"; }
+# The pinned ids of plugin tray_id's plugins row in the user file.
+tray_file_pinned() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); e=[r for r in d.get("plugins", []) if r["id"] == sys.argv[2]]; print(json.dumps([i["item"] for i in (e[0].get("pinned", []) if e else [])]))' "$tray_file" "$tray_id"; }
 # The drawn drawer clip: `full` while its box is as wide as the drawer,
 # `shut` while it has no width, else its width. The clip is the item
 # holding the Row of the drawer's icons, read from the probe's boxes of
@@ -171,7 +171,7 @@ tray_slow_guard() { # on|off
 }
 # The settings the running tray reads, against the saved user file:
 # `restored` while vgs.tray is disabled there and in the shell, or its
-# pinned and hidden ids are the saved entry's, else what differs.
+# pinned and hidden ids are the saved row's, else what differs.
 tray_restored() {
   local enabled pinned hidden
   enabled="$(plugin_enabled vgs.tray)" || return 1
@@ -182,7 +182,7 @@ tray_restored() {
   python3 -c 'import json,sys
 d = json.load(open(sys.argv[1]))
 disabled = "vgs.tray" in d.get("disabledPlugins", [])
-entries = [e for s in ("left", "center", "right") for e in d.get("bar", {}).get("layout", {}).get(s, []) if e["id"] == "vgs.tray"]
+entries = [r for r in d.get("plugins", []) if r["id"] == "vgs.tray"]
 saved = [[i["item"] for i in (entries[0].get(k, []) if entries else [])] for k in ("pinned", "hidden")]
 if disabled:
     print("restored" if sys.argv[2] == "False" else "enabled=%s" % sys.argv[2])

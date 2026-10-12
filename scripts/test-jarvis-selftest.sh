@@ -178,7 +178,7 @@ repo="\$sandbox/repo"
 rm -rf -- "\${sandbox:?}"
 mkdir -p "\$home/.config/vgshell" "\$repo/shell/plugins/vgs.jarvis"
 echo instrumented >"\$repo/shell/plugins/vgs.jarvis/Service.qml"
-echo '{"version": 1, "plugins": [{"id": "vgs.settings"}], "disabledPlugins": ["vgs.jarvis"]}' >"\$home/.config/vgshell/shell.json"
+echo '{"version": 2, "plugins": [{"id": "vgs.settings"}], "disabledPlugins": ["vgs.jarvis"]}' >"\$home/.config/vgshell/shell.json"
 failures=0 instance_log="" devices_state=down auth_log="\$sandbox/auth.calls" shell_env=()
 rt_dir="$tmp/rt" shim="\$sandbox/shim" sentinels_saved="\$sandbox/sentinels" sentinels_stood="\$sandbox/sentinels.stood" pgids=()
 shell_start_path="\$shim:$path"

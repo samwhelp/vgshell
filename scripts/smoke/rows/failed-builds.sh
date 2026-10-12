@@ -99,7 +99,7 @@ python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json, os, sys
 p = sys.argv[1]
 d = json.load(open(p))
-[e for e in d["bar"]["layout"]["center"] if e["id"] == "acme.tick"][0]["format"] = "aligned"
+d["plugins"] = [e for e in d.get("plugins", []) if e["id"] != "acme.tick"] + [{"id": "acme.tick", "format": "aligned"}]
 json.dump(d, open(p + ".tmp", "w"), indent=2)
 os.replace(p + ".tmp", p)
 PY

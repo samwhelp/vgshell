@@ -17,7 +17,7 @@ var MESSAGES = [
     [/^refused: user-config=unwritable(?: |$)/, "VGS could not save this change. Try again."],
     [/^refused: disabled=\S+$|^refused: (?:action|secret|placed|tui)=\S+ reason=disabled$/, "Turn on this plugin before you change it."],
     [/^refused: bundled=\S+$/, "This plugin is included with VGS. Update VGS to update it, or turn it off to stop it."],
-    [/^refused: setting=\S+ (?:undeclared|entry=none)$/, "This setting is no longer available. Close Plugins and open it again."],
+    [/^refused: setting=\S+ undeclared$/, "This setting is no longer available. Close Plugins and open it again."],
     [/^refused: setting=\S+ want=number$/, "Enter a number."],
     [/^refused: setting=\S+ want=string$/, "Enter text for this setting."],
     [/^refused: setting=\S+ want=boolean$/, "Use the switch to change this setting."],

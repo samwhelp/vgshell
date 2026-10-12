@@ -73,11 +73,23 @@ function readJson(file, key, optional = false) {
 // A shell.json layer read and judged by PluginLogic.configError, LOGIC here,
 // the judge Config.qml runs on every parse, so a judge and the shell agree on
 // which files hold a configuration and which are malformed: the refusal
-// `KEY=malformed path=<file> error=<defect>`. With OPTIONAL an absent file
-// answers null.
-function readConfig(logic, file, key, optional = false) {
-    const config = readJson(file, key, optional);
-    if (config === null && optional) return null;
+// `KEY=malformed path=<file> error=<defect>`.
+function readConfig(logic, file, key) {
+    return judgedConfig(logic, readJson(file, key, false), file, key);
+}
+
+// The user's shell.json layer as readConfig reads it, migrated first by
+// PluginLogic.migrateConfig as Config.qml migrates it, so a file of the
+// previous format version reads as this version's. The migrated file
+// reaches the disk only through a caller that writes the value. An absent
+// file answers null.
+function readUserConfig(logic, file, key) {
+    const config = readJson(file, key, true);
+    if (config === null) return null;
+    return judgedConfig(logic, logic.migrateConfig(config).config, file, key);
+}
+
+function judgedConfig(logic, config, file, key) {
     const error = logic.configError(config);
     if (error !== "") refuse(key + "=malformed path=" + file + " error=" + error, "malformed");
     return config;
@@ -302,4 +314,4 @@ function shellWord(word) {
     return "'" + word.replace(/'/g, "'\\''") + "'";
 }
 
-module.exports = { Refusal, refuse, main, readJson, readConfig, writing, replaceFile, linkByRename, lockFile, editFile, commandFile, onPath, refuseOutsideTerminal, shellWord };
+module.exports = { Refusal, refuse, main, readJson, readConfig, readUserConfig, writing, replaceFile, linkByRename, lockFile, editFile, commandFile, onPath, refuseOutsideTerminal, shellWord };

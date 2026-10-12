@@ -15,7 +15,9 @@ import "PluginLogic.js" as Logic
 // loaded once and the user file has settled, so a bar never draws from the
 // user file alone. Each file is a WatchedFile, so an edit that lands during
 // a read is read again. An edit of the user file is on the disk before its
-// write answers.
+// write answers. A user file of the previous format version is rewritten as
+// this one when it is read (PluginLogic.migrateConfig), through the same
+// judge, and written once; one the judge refuses is never overwritten.
 Singleton {
     id: root
 
@@ -50,8 +52,10 @@ Singleton {
 
     Binding { target: Theme; property: "appearanceInput"; value: root.appearanceText }
 
-    // Judge one file's text: { state, value } with `value` only when loaded.
-    function judge(label, text) {
+    // Judge one file's text: { state, value, migrated } with `value` only
+    // when loaded. With `migrate`, the user file's case, the parsed value is
+    // migrated first and `migrated` says whether the migration changed it.
+    function judge(label, text, migrate) {
         let value;
         try {
             value = JSON.parse(text);
@@ -59,12 +63,13 @@ Singleton {
             console.error("config: " + label + " does not parse: " + e.message);
             return { state: "unparseable" };
         }
-        const bad = Logic.configError(value);
+        const moved = migrate ? Logic.migrateConfig(value) : { config: value, migrated: false };
+        const bad = Logic.configError(moved.config);
         if (bad !== "") {
             console.error("config: " + label + " malformed: " + bad);
             return { state: "malformed" };
         }
-        return { state: "loaded", value: value };
+        return { state: "loaded", value: moved.config, migrated: moved.migrated };
     }
 
     WatchedFile {
@@ -73,7 +78,7 @@ Singleton {
         onChanged: read()
         onLoaded: content => {
             if (root.shippedState === "loaded" && content === root.shippedText) return;
-            const r = root.judge(path, content);
+            const r = root.judge(path, content, false);
             if (r.state === "loaded") {
                 if (content !== root.shippedText) root.shipped = r.value;
                 root.shippedText = content;
@@ -98,12 +103,18 @@ Singleton {
                 root.userState = "loaded";
                 return;
             }
-            const r = root.judge(path, content);
+            const r = root.judge(path, content, true);
             if (r.state === "loaded") {
                 root.user = r.value;
                 root.userText = content;
             }
             root.userState = r.state;
+            // Written once, so the next read finds this version's file.
+            if (r.migrated) {
+                console.info("config: user file migrated: file=" + path + " version=" + Logic.CONFIG_VERSION);
+                const written = root.writeUser(r.value);
+                if (written !== "ok") console.error("config: migrated user file not written: " + written);
+            }
         }
         onLoadFailed: error => {
             root.saveError = "";

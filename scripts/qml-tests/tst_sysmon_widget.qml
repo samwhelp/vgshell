@@ -116,12 +116,13 @@ Item {
             return item.leftPadding + Math.ceil(content) + item.rightPadding;
         }
         // The settings the core hands the widget: the manifest's defaults
-        // under the saved values, PluginLogic.settingsFor.
+        // under the values saved in its plugins row, PluginLogic.settingsFor.
         function saved(values) {
             const request = new XMLHttpRequest();
             request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.sysmon/manifest.json"), false);
             request.send();
-            return PluginLogic.settingsFor({}, JSON.parse(request.responseText), "layout", values);
+            const manifest = JSON.parse(request.responseText);
+            return PluginLogic.settingsFor({ plugins: [Object.assign({ id: manifest.id }, values)] }, manifest);
         }
         function allReadings() {
             return { showCpu: true, showMemory: true, showGpu: true,

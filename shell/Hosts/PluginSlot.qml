@@ -131,7 +131,7 @@ FocusScope {
         // Lending changes take a refused key away, then restore it when the
         // capability becomes available. Settings alone do not trigger retries.
         loadedKey = key;
-        const result = Plugins.createInstance(pluginId, kind, slot, hostKey, null, context, screen);
+        const result = Plugins.createInstance(pluginId, kind, slot, hostKey, context, screen);
         if (result.state === "failed") { buildFailed(key); return; }
         if (result.state === "refused") return;
         instance = result.instance;

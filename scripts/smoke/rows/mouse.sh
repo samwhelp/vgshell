@@ -24,9 +24,9 @@
 #
 # Control runs on 2026-10-05, host cachy, through this row after the consent
 # row, each on a source_tree copy of the shell. A copy whose
-# MouseControls.useHyprlandValue calls no configure.unset failed "the action
-# removes the setting from the bar entry and the plugins row", reading
-# [0.55, 0.55], and getoption kept 0.55. A copy whose row line logic
+# MouseControls.useHyprlandValue calls no configure.unset failed the check
+# that the action removes the saved sensitivity, reading it still saved,
+# and getoption kept 0.55. A copy whose row line logic
 # gives every row a line, whose FormRow never moves its action under the
 # message and whose action hands the keys to no control failed "no row
 # shows a message before the user table", read the flyout's message -10.95
@@ -109,14 +109,13 @@ mouse_action_point() {
   echo "mouse_action_point: unsettled at $now" >&2
   return 1
 }
-# The sensitivity the user file holds for Mouse, in its bar entry and in its
-# plugins row, each `absent` when the file gives none.
+# The sensitivity the user file holds for Mouse in its plugins row,
+# `absent` when the row gives none.
 mouse_saved_sensitivity() {
   python3 -c 'import json,sys
 config = json.load(open(sys.argv[1]))
-entries = [e for section in config.get("bar", {}).get("layout", {}).values() for e in section if e.get("id") == "vgs.mouse"]
-rows = [r for r in config.get("plugins", []) if r.get("id") == "vgs.mouse"]
-print(json.dumps([e.get("sensitivity", "absent") for e in entries] + [r.get("sensitivity", "absent") for r in rows]))' "$mouse_file"
+rows = [r for r in config.get("plugins", []) if r.get("id") == "vgs.mouse"] or [{}]
+print(json.dumps([r.get("sensitivity", "absent") for r in rows]))' "$mouse_file"
 }
 mouse_layer_mentions() { if grep -qF -- "$1" "$mouse_layer"; then echo yes; else echo no; fi; }
 mouse_status_published() { ipc smoke statusValues vgs.mouse | py_reply 'import json,sys; d=json.load(sys.stdin).get("devices"); print("ok" if isinstance(d, dict) and d.get("hasTouchpad") is False and isinstance(d.get("devices"), list) else "bad")'; }
@@ -214,7 +213,7 @@ expect "an untouched natural-scroll option keeps Hyprland's default" '[false, fa
 expect "the layer writes no untouched natural-scroll option" no mouse_layer_mentions natural_scroll
 expect_poll "the Mouse layer records the sensitivity option" ok mouse_contract '[0.55, true]'
 
-expect "the user file holds the pane's sensitivity in the bar entry and the plugins row" '[0.55, 0.55]' mouse_saved_sensitivity
+expect "the user file holds the pane's sensitivity in the plugins row" '[0.55]' mouse_saved_sensitivity
 expect "no row offers the user's Hyprland value while the user's config sets none" 0 mouse_action_count
 mouse_width="$(mouse_slider_width)" || fail "the Mouse pointer-speed slider's width is unreadable"
 expect "no row shows a message before the user table" '[]' mouse_messages
@@ -242,7 +241,7 @@ expect_poll "the reopened pane offers the user's Hyprland value" 1 mouse_action_
 read -r ax ay < <(mouse_action_point) || fail "the Mouse action has no box"
 hover "$ax" "$ay" || fail "hovering the Mouse action failed"
 click "$ax" "$ay" || fail "clicking the Mouse action failed"
-expect_poll "the action removes the setting from the bar entry and the plugins row" '["absent", "absent"]' mouse_saved_sensitivity
+expect_poll "the action removes the setting from the plugins row" '["absent"]' mouse_saved_sensitivity
 expect_poll "the action leaves the keys on the row's slider" '["Slider",null]' mouse_focus
 expect_poll "with the setting gone getoption reads the user's value again" '[-0.5, true]' mouse_option input:sensitivity float
 expect_poll "with the setting gone the pointer speed row reads the user's value" '-0.50×' mouse_speed_label

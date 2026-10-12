@@ -45,17 +45,14 @@ jarvis_rescan
 jarvis_enable
 settings_page_open vgs.jarvis
 
-# The Voice provider: the user file's saved values, each once, from the
-# plugin's row and its widget's layout entries, which a page write both
-# holds, "absent" when none holds one; and the value the page draws, the
-# core's merge of the file over the manifest default.
+# The Voice provider: the user file's saved value, from the plugin's row,
+# "absent" when it holds none; and the value the page draws, the core's
+# merge of the file over the manifest default.
 page_voice_saved() {
   python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json,sys
 value=json.load(open(sys.argv[1]))
 entries=list(value.get("plugins", []))
-for section in value.get("bar", {}).get("layout", {}).values():
-    if isinstance(section, list): entries+=section
 saved=[row["voiceProvider"] for row in entries if isinstance(row, dict) and row.get("id") == "vgs.jarvis" and "voiceProvider" in row]
 print(json.dumps(sorted(set(saved))) if saved else "absent")
 PY
@@ -294,18 +291,14 @@ print(json.dumps([detail["state"]["settings"]["model"], detail["state"]["setting
 '; }
 # How many model list reads the world's worker has run.
 page_reads() { if [[ -f "$sandbox/jarvis-world/model-reads" ]]; then wc -l <"$sandbox/jarvis-world/model-reads" | tr -d ' '; else echo 0; fi; }
-# Take each named Jarvis setting out of the user file: out of the plugin's
-# row and its widget's layout entries, which the service's writes both hold,
-# so the page and the service read the same settings.
+# Take each named Jarvis setting out of the user file's plugin row, which
+# the page and the service both read.
 page_settings_drop() {
   python3 - "$home/.config/vgshell/shell.json" "$@" <<'PY'
 import json,sys
 from pathlib import Path
 p=Path(sys.argv[1]); value=json.loads(p.read_text())
-entries=list(value.get("plugins", []))
-for section in value.get("bar", {}).get("layout", {}).values():
-    if isinstance(section, list): entries+=section
-for row in entries:
+for row in value.get("plugins", []):
     if isinstance(row, dict) and row.get("id") == "vgs.jarvis":
         for key in sys.argv[2:]: row.pop(key, None)
 p.write_text(json.dumps(value))

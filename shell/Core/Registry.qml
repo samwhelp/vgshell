@@ -474,10 +474,10 @@ Singleton {
         return manifests[id].__loadUrl + "/" + entry.split("/").map(encodeURIComponent).join("/");
     }
 
-    // The settings an instance of `kind` of plugin `id` receives from its
-    // plugins[] row, for a host that reads a plugin's settings for itself.
-    function settingsOf(id, kind) {
-        return has(id) ? Logic.settingsFor(Config.effective, manifests[id], Logic.settingTargetOf(kind), null) : {};
+    // The settings plugin `id` receives from its plugins[] row, for a host
+    // that reads a plugin's settings for itself.
+    function settingsOf(id) {
+        return has(id) ? Logic.settingsFor(Config.effective, manifests[id]) : {};
     }
 
     // The commands the last scan did not find, by owner: the core's and
@@ -515,8 +515,8 @@ Singleton {
     // Every discovered plugin as the plugin manager shows it: listing
     // metadata, its icon, capabilities and source, whether it is enabled,
     // whether its widget is placed (PluginLogic.isPlaced), its settings
-    // schema, the settings it currently receives (a bar widget's from its
-    // first layout entry), its Keys rows, its Status rows
+    // schema, the settings every instance of it receives (its plugins[]
+    // row's, PluginLogic.settingsFor), its Keys rows, its Status rows
     // (PluginLogic.statusRows over its manifest and the values it
     // published), the label of its `secrets`, "" without, its setup
     // screens (PluginLogic.listedTuis), its Open surface
@@ -547,7 +547,7 @@ Singleton {
                 if (problem.id === id) errors.push(problem.error);
             for (const conflict of menuConflicts)
                 if (conflict.plugin === id) errors.push(menuConflictText(conflict));
-            const settings = Logic.managerSettings(config, m);
+            const settings = Logic.settingsFor(config, m);
             const values = PluginStatus.valuesOf(id);
             return {
                 id: id,

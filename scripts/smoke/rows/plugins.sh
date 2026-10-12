@@ -104,7 +104,7 @@ if copy_tree unlatched-services \
   expect_poll "the restored shell builds the bare service once" 1 ipc smoke pluginInstances service acme.bare
 fi
 expect "the fixture service reads the manifest default" '"probe"' read_service label
-expect "a placed widget reads its layout entry" '"ddd d MMM  HH:mm"' read_tick format
+expect "a placed widget reads its plugins row" '"ddd d MMM  HH:mm"' read_tick format
 expect "the built-in clock reads the bar's clock format" '"ddd d MMM  HH:mm"' read_clock format
 
 # The built-in receives the bar's capability, independently of fixture grants.
@@ -121,7 +121,8 @@ fi
 active_ws() { hypr -j activeworkspace | py_reply 'import json,sys; print(json.load(sys.stdin)["id"])'; }
 
 # A settings change reaches the running instance and builds nothing: the
-# service's plugins[] row, then the clock's layout entry.
+# fixture's plugins[] row, which its service and its widget both read, then
+# the clock's row.
 if before="$(builds)"; then
   python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json, os, sys
@@ -132,18 +133,17 @@ json.dump(d, open(p + ".tmp", "w"), indent=2)
 os.replace(p + ".tmp", p)
 PY
   expect_poll "the running service received its changed setting" '"changed-service-setting"' read_service label
-  expect "the fixture widget keeps the manifest default its entry does not override" '"probe"' read_widget label
+  expect_poll "the running widget received the same changed setting" '"changed-service-setting"' read_widget label
   expect "a service settings change rebuilds nothing" "$before" builds
   python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json, os, sys
 p = sys.argv[1]
 d = json.load(open(p))
-center = d["bar"]["layout"]["center"]
-[e for e in center if e["id"] == "acme.tick"][0]["format"] = "HH:mm:ss"
+d["plugins"] = [e for e in d.get("plugins", []) if e["id"] != "acme.tick"] + [{"id": "acme.tick", "format": "HH:mm:ss"}]
 json.dump(d, open(p + ".tmp", "w"), indent=2)
 os.replace(p + ".tmp", p)
 PY
-  expect_poll "the running widget received its changed layout entry" '"HH:mm:ss"' read_tick format
+  expect_poll "the running widget received its changed plugins row" '"HH:mm:ss"' read_tick format
   expect "a widget settings change rebuilds nothing" "$before" builds
   python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json, os, sys

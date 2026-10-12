@@ -58,7 +58,7 @@ fixture() { # NAME [unthemed]
     # A hand edit of the applied theme file, which restore keeps.
     printf '\n' >>"$cfg/theme.json"
   fi
-  printf '{ "version": 1, "bar": { "layout": { "left": [{ "id": "acme.probe" }] } }, "disabledPlugins": ["vgs.launcher"] }\n' >"$cfg/shell.json"
+  printf '{ "version": 2, "bar": { "layout": { "left": [{ "id": "acme.probe" }] } }, "disabledPlugins": ["vgs.launcher"] }\n' >"$cfg/shell.json"
   manifest acme.probe 0.1.0 >"$cfg/plugins/acme.probe/manifest.json"
   printf 'launcher\n' >"$cfg/launcher/pins.json"
   printf 'automation\n' >"$cfg/automations/night.json"

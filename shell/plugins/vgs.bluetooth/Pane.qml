@@ -14,8 +14,8 @@ import "BluetoothLogic.js" as Logic
 // through `status.act`; Discoverable, which
 // lets other devices find this computer and pair with it while this
 // section is shown and while the adapter stays discoverable; Hide when off,
-// the bar icon's setting, written through `configure` to every entry the
-// plugin reads; the pairing's line; and My Devices and Nearby
+// the bar icon's setting, written through `configure` to the plugin's
+// row, which its widget reads too; the pairing's line; and My Devices and Nearby
 // (DeviceSections.qml). A discovery lease looks for nearby devices while
 // Bluetooth is on, and the section's teardown ends it.
 //

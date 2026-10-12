@@ -37,7 +37,7 @@ if before="$(builds)"; then
   expect_poll "the edited sibling reaches the rebuilt widget" '"two"' read_tick sibling
   expect "the edit rebuilt the widget on every screen and nothing else" "$((before + monitors))" builds
   if revision_two="$(tick_revision)" && [[ -n $revision_one && -n $revision_two && $revision_one != "$revision_two" ]]; then ok "the edit gave the plugin a new revision"; else fail "revisions before and after the edit: $revision_one ${revision_two:-unreadable}"; fi
-  expect "the rebuilt widget keeps its layout entry" '"HH:mm:ss"' read_tick format
+  expect "the rebuilt widget keeps its plugins row's setting" '"HH:mm:ss"' read_tick format
 else
   fail "buildCount unreadable before the source rows"
 fi
@@ -114,11 +114,11 @@ if before="$(builds)"; then
 import json, os, sys
 p = sys.argv[1]
 d = json.load(open(p))
-[e for e in d["bar"]["layout"]["center"] if e["id"] == "acme.tick"][0]["format"] = "retry-check"
+d["plugins"] = [e for e in d.get("plugins", []) if e["id"] != "acme.tick"] + [{"id": "acme.tick", "format": "retry-check"}]
 json.dump(d, open(p + ".tmp", "w"), indent=2)
 os.replace(p + ".tmp", p)
 PY
-  tick_format_effective() { ipc shell listShellConfig | py_reply 'import json,sys; print([e["format"] for e in json.load(sys.stdin)["bar"]["layout"]["center"] if e["id"]=="acme.tick"][0])'; }
+  tick_format_effective() { ipc shell listShellConfig | py_reply 'import json,sys; print([e.get("format") for e in json.load(sys.stdin).get("plugins",[]) if e["id"]=="acme.tick"][0])'; }
   expect_poll "the shell read the settings change for the broken widget" retry-check tick_format_effective
   expect "a settings change does not try the failed code again" "$((loads_before + monitors))" log_lines 'plugins: acme\.tick failed to load: '
   expect "a settings change builds nothing for the failed code" "$before" builds
@@ -128,7 +128,7 @@ fi
 write_tick Widget.qml "$widget_good"
 rescan "a rescan after repairing the widget answers ok"
 expect_widgets "the repaired widget returns to the bar" '["acme.probe","acme.tick"]'
-expect_poll "the repaired widget reads its layout entry" '"retry-check"' read_tick format
+expect_poll "the repaired widget reads its plugins row" '"retry-check"' read_tick format
 
 # Two rescans asked for back to back: the second is queued while the first
 # runs, or starts after it. Either way one answers `ok` for the scan ending

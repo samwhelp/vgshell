@@ -64,7 +64,7 @@ const SETTING_REPLIES = [
         "VGS could not read your settings. Close Dev Tools and open it again to retry."
     ]),
     ["refused: user-config=unwritable path=/fixture/settings error=permission denied\nsecond line", "VGS could not save this change. Try again."],
-    ...["undeclared", "want=boolean", "entry=none"].map(reason => [
+    ...["undeclared", "want=boolean"].map(reason => [
         `refused: setting=writeLaunchers ${reason}`,
         "VGS could not change this setting. Close Dev Tools and open it again to retry."
     ]),

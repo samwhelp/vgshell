@@ -50,7 +50,8 @@ expect "configure refuses a value of the wrong type" "refused: setting=label wan
 expect "configure refuses an undeclared setting" "refused: setting=tags undeclared" probe set 'tags="x"'
 expect "configure refuses to unset an undeclared setting" "refused: setting=id undeclared" probe unset id
 
-# A widget placed twice writes only the layout entry it reads.
+# A widget placed twice writes its plugins row, which its service and both
+# placements read; its layout entries keep their ids alone.
 right_entries() {
   python3 - "$home/.config/vgshell/shell.json" "$1" <<'PY'
 import json, os, sys
@@ -58,22 +59,25 @@ p, action = sys.argv[1], sys.argv[2]
 d = json.load(open(p))
 right = d["bar"]["layout"]["right"]
 if action == "add":
-    right.append({"id": "acme.probe", "label": "second"})
+    right.append({"id": "acme.probe"})
 elif action == "drop":
-    d["bar"]["layout"]["right"] = [e for e in right if not (e["id"] == "acme.probe" and e.get("label") == "second")]
+    last = max(i for i, e in enumerate(right) if e["id"] == "acme.probe")
+    del right[last]
 else:
-    print(json.dumps([e.get("label") for e in right if e["id"] == "acme.probe"]))
+    print(json.dumps([e for e in right if e["id"] == "acme.probe"]))
     sys.exit(0)
 json.dump(d, open(p + ".tmp", "w"), indent=2)
 os.replace(p + ".tmp", p)
 PY
 }
 probe_widgets() { ipc shell built | py_reply 'import json,sys; d=json.load(sys.stdin); print(sum(1 for r in d[sys.argv[1]] if r["id"]=="acme.probe"))' "$(bar_key)"; }
+probe_row_label() { python3 -c 'import json,sys; print(json.dumps([e.get("label") for e in json.load(open(sys.argv[1])).get("plugins",[]) if e["id"]=="acme.probe"]))' "$home/.config/vgshell/shell.json"; }
 right_entries add
 expect_poll "the fixture widget is placed twice" 2 probe_widgets
-expect "a widget's configure writes only its own layout entry" ok ipc smoke invokeInstance "$(bar_key)" acme.probe setLabel only-first
-labels_now() { right_entries show; }
-expect_poll "the other entry keeps its setting" '["only-first", "second"]' labels_now
+expect "a widget's configure writes its plugins row" ok ipc smoke invokeInstance "$(bar_key)" acme.probe setLabel only-first
+expect_poll "the plugins row holds the widget's setting" '["only-first"]' probe_row_label
+expect "the layout entries keep their ids alone" '[{"id": "acme.probe"}, {"id": "acme.probe"}]' right_entries show
+expect_poll "the service reads the setting the widget wrote" '"only-first"' read_service label
 right_entries drop
 expect_poll "the second placement is gone" 1 probe_widgets
 

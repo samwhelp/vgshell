@@ -18,8 +18,8 @@ REPO = Path(__file__).resolve().parents[1]
 WRITER = REPO / "scripts/smoke/user-config.sh"
 BASH = shutil.which("bash")
 ENV = {"PATH": os.defpath, "LANG": "C"}
-BEFORE = b'{"version":1,"plugins":[]}\n'
-AFTER = b'{"version":1,"plugins":[{"id":"acme.tick"}]}\n'
+BEFORE = b'{"version":2,"plugins":[]}\n'
+AFTER = b'{"version":2,"plugins":[{"id":"acme.tick"}]}\n'
 
 
 def restore(writer, home, backup):
@@ -61,7 +61,7 @@ def concurrent_read(writer, scratch):
             time.sleep(0.01)
         assert child.poll() is None, "restore ended before the source finished"
         observed = json.loads(destination.read_bytes())
-        assert observed == {"version": 1, "plugins": []}, "unfinished restore replaced the document"
+        assert observed == {"version": 2, "plugins": []}, "unfinished restore replaced the document"
         os.write(fd, AFTER[1:])
         os.close(fd)
         fd = None

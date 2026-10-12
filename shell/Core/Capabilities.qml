@@ -93,10 +93,9 @@ Singleton {
     }
 
     // The providers for one instance: one per capability its manifest
-    // names. `ctx` is { id, manifest, kind, hostKey, screen, locator,
-    // onDispose(fn), active }, `active` reading the instance's lifetime,
-    // `locator` being a bar widget's { section, nth }; every
-    // hold and registration is released through ctx.onDispose.
+    // names. `ctx` is { id, manifest, kind, hostKey, screen,
+    // onDispose(fn), active }, `active` reading the instance's lifetime;
+    // every hold and registration is released through ctx.onDispose.
     function providersFor(ctx) {
         const out = {};
         for (const name of ctx.manifest.capabilities) {
@@ -134,11 +133,8 @@ Singleton {
             return out;
         },
         configure: ctx => ({
-            set: (key, value) => {
-                const targets = Logic.configureTargets(Config.effective, ctx.manifest, ctx.kind);
-                return Plugins.writeSetting(ctx.id, key, value, targets, ctx.locator);
-            },
-            unset: key => Plugins.clearSetting(ctx.id, key, Logic.configureTargets(Config.effective, ctx.manifest, ctx.kind), ctx.locator)
+            set: (key, value) => Plugins.writeSetting(ctx.id, key, value),
+            unset: key => Plugins.clearSetting(ctx.id, key)
         }),
         idle: idleWatches.provider,
         ipc: commands.provider,

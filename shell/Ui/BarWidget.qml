@@ -7,7 +7,8 @@ import qs.Ui
 // assigns five properties to plugin widgets after it builds the widget:
 // `shell` (the widget's own scoped object), `bar` (the bar API),
 // `moduleName` (the plugin id), `settings` (the manifest defaults under
-// the widget's layout entry) and `frame`, what Hide, Settings and a drag
+// the plugin's plugins[] row, as every kind receives them) and `frame`,
+// what Hide, Settings and a drag
 // read and call: `describe()` answers { name, page, readme, keys, stops,
 // builtin, owner }, `hide()` takes the widget out of every bar section,
 // `openReadme()` opens `readme`, `openSettings()` opens Plugins on

@@ -294,8 +294,9 @@ function clone(value) {
 
 // The version a configuration file declares. Each user-file edit here
 // (`withEnabled`, `withPlaced`, `withSetting`, `withKey`, `withAppearance`)
-// writes it into a user file that has none.
-var CONFIG_VERSION = 1;
+// writes it into a user file that has none. Version 2 keeps every setting
+// of a plugin in its plugins[] row; migrateConfig rewrites a version 1 file.
+var CONFIG_VERSION = 2;
 
 // The first defect of a configuration file (shipped or user), or "". The
 // file is an object; `version`, when present, is CONFIG_VERSION; `plugins`
@@ -303,7 +304,8 @@ var CONFIG_VERSION = 1;
 // present, passes keysError; `disabledPlugins` and
 // `disabledTargets` are lists of strings; `bar` is an object whose `id` is
 // a string and whose `layout` holds, per section in SECTIONS, a list of
-// objects each with a string `id`; `packages` is an object whose `elevate`,
+// objects each with a string `id` and no other key, since a layout entry
+// places a widget and its settings live in the plugins[] row; `packages` is an object whose `elevate`,
 // when present, is one of PackageManagers.ELEVATORS, the command
 // `vgshell pkg run` elevates through; `welcome` is an object whose `keys` is
 // a list of objects each with a string `id`, a string `shortcut` and a
@@ -368,8 +370,15 @@ function configError(config) {
                 return "bar.layout must be an object";
             for (var s = 0; s < SECTIONS.length; s++) {
                 var section = SECTIONS[s];
-                if (config.bar.layout[section] !== undefined && (bad = rows(config.bar.layout[section], "bar.layout." + section)) !== "")
+                if (config.bar.layout[section] === undefined)
+                    continue;
+                if ((bad = rows(config.bar.layout[section], "bar.layout." + section)) !== "")
                     return bad;
+                for (var e = 0; e < config.bar.layout[section].length; e++) {
+                    var extra = Object.keys(config.bar.layout[section][e]).filter(function (k) { return k !== "id"; });
+                    if (extra.length > 0)
+                        return "bar.layout." + section + "." + e + " has key " + JSON.stringify(extra[0]) + " beside its id";
+                }
             }
         }
     }
@@ -408,6 +417,51 @@ function configError(config) {
         }
     }
     return "";
+}
+
+// The user file CONFIG as this version stores it: { config, migrated }.
+// Version 1 let a layout entry carry a widget's settings beside its id.
+// Each such key, in every section of SECTIONS, moves into the plugins[]
+// row with the entry's id, appended as { id } when the file has none: the
+// row's value wins where the row sets the key, and of two entries with one
+// id the first in section order wins. The entry keeps its id alone. No
+// manifest is read, so the key of a plugin that is not installed moves the
+// same way. A version 1 file takes this version; a file with no version,
+// which configError reads as this version, is migrated only when an entry
+// carries a key to move. Any other value comes back as it is, and a shape
+// the move cannot read is left for configError to name. CONFIG is not
+// changed.
+function migrateConfig(config) {
+    var same = { config: config, migrated: false };
+    if (!isPlainObject(config) || (config.version !== 1 && config.version !== undefined))
+        return same;
+    var out = clone(config);
+    var layout = isPlainObject(out.bar) && isPlainObject(out.bar.layout) ? out.bar.layout : {};
+    var moved = false;
+    SECTIONS.forEach(function (section) {
+        if (!Array.isArray(layout[section])) return;
+        layout[section] = layout[section].map(function (entry) {
+            if (!isPlainObject(entry) || typeof entry.id !== "string") return entry;
+            var keys = Object.keys(entry).filter(function (k) { return k !== "id"; });
+            if (keys.length === 0) return entry;
+            if (out.plugins === undefined) out.plugins = [];
+            if (!Array.isArray(out.plugins)) return entry;
+            var row = out.plugins.filter(function (r) { return isPlainObject(r) && r.id === entry.id; })[0];
+            if (row === undefined) {
+                row = { id: entry.id };
+                out.plugins.push(row);
+            }
+            keys.forEach(function (k) {
+                if (!hasOwn(row, k)) row[k] = entry[k];
+            });
+            moved = true;
+            return { id: entry.id };
+        });
+    });
+    if (config.version === undefined && !moved)
+        return same;
+    out.version = CONFIG_VERSION;
+    return { config: out, migrated: true };
 }
 
 function presetValues(entry) {
@@ -3586,7 +3640,7 @@ function menuRows(manifests, enabledIds, config) {
         var ids = Object.keys(menu);
         if (ids.length === 0)
             return;
-        var settings = settingsFor(config, manifest, "plugins", null);
+        var settings = settingsFor(config, manifest);
         ids.forEach(function (id) {
             if (owners[id] !== undefined) {
                 conflicts.push({ id: id, plugin: plugin, heldBy: owners[id] });
@@ -3939,18 +3993,9 @@ function activeBarId(config, defaultBarId) {
     return config && config.bar && typeof config.bar.id === "string" && config.bar.id.length > 0 ? config.bar.id : defaultBarId;
 }
 
-// The first layout entry with `id`, in section order, or null.
-function layoutEntryOf(config, id) {
-    for (var i = 0; i < SECTIONS.length; i++) {
-        var hit = sectionEntries(config, SECTIONS[i]).filter(function (entry) { return entry.id === id; })[0];
-        if (hit !== undefined) return hit;
-    }
-    return null;
-}
-
 // The position of LOCATOR, `{ section, nth }`, for plugin ID in CONFIG, or
 // null. `nth` counts entries with ID in one section, the same locator
-// withSetting receives from a mounted widget.
+// withMoved receives from a mounted widget's drag.
 function layoutPositionOf(config, id, locator) {
     if (isPlainObject(locator) && SECTIONS.indexOf(locator.section) !== -1 && Number.isInteger(locator.nth) && locator.nth >= 0) {
         var seen = 0;
@@ -3980,40 +4025,20 @@ function pluginRow(config, id) {
     })[0];
 }
 
-// The configuration entries a plugin's settings live in, in the order a
-// plugin's target list reports them.
-var SETTING_TARGETS = ["layout", "plugins"];
-
-// The configuration entry an instance of `kind` reads its settings from
-// and writes them to: "layout", its layout entry, for a bar widget;
-// "plugins", the plugins[] row with its id, for every other kind. The one
-// place this is decided; settingTargets, the configure capability and every
-// core caller of settingsFor call it.
-function settingTargetOf(kind) {
-    return kind === "bar-widget" ? "layout" : "plugins";
-}
-
-// The settings a plugin receives from setting target `target`, one of
-// SETTING_TARGETS: its manifest's `settings` under that entry. For
-// "layout" the entry is `layoutEntry`, the widget's own layout entry the
-// caller passes; for "plugins" it is the plugins[] row with the plugin's
-// id, and `layoutEntry` is not read. A caller holding an instance's kind
-// passes settingTargetOf(kind). Keys the entry sets win, but for the keys
-// ENTRY_RESERVED_KEYS names, which are no setting. The result holds only
-// declared settings and is a fresh object.
-function settingsFor(config, manifest, target, layoutEntry) {
+// The settings every instance of plugin MANIFEST receives, whatever its
+// kind, and the plugin manager shows: its manifest's `settings` under its
+// plugins[] row in CONFIG, the one place a plugin's settings live. Keys the
+// row sets win, but for the keys ENTRY_RESERVED_KEYS names, which are no
+// setting. The result holds only declared settings and is a fresh object.
+function settingsFor(config, manifest) {
     var out = {};
     Object.keys(manifest.settings).forEach(function (k) { out[k] = manifest.settings[k]; });
-    var entry;
-    if (target === "layout") entry = layoutEntry;
-    else if (target === "plugins") entry = pluginRow(config, manifest.id);
-    else throw new Error("settingsFor: target " + JSON.stringify(target) + " is not one of " + SETTING_TARGETS.join(", "));
-    return copyEntrySettings(clone(out), entry, manifest, false);
+    return copyEntrySettings(clone(out), pluginRow(config, manifest.id), manifest, false);
 }
 
 // Copy declared settings without reading undeclared values. Stored entries
-// also keep their reserved keys; runtime settings and placement transfers
-// exclude them. Values are copied so TARGET and ENTRY share nothing.
+// also keep their reserved keys; runtime settings exclude them. Values are
+// copied so TARGET and ENTRY share nothing.
 function copyEntrySettings(target, entry, manifest, stored) {
     if (isPlainObject(entry))
         Object.keys(entry).forEach(function (k) {
@@ -4068,7 +4093,7 @@ function hyprlandSection(config, manifest) {
         });
     });
     var names = declared.binds.map(function (bind) { return bind.shortcut; });
-    var settings = settingsFor(config, manifest, "plugins", null);
+    var settings = settingsFor(config, manifest);
     var appearance = {};
     Object.keys(declared.appearance || {}).forEach(function (group) {
         var setting = declared.appearance[group];
@@ -4124,14 +4149,6 @@ function monitorRuleOwner(manifests, enabledIds, held) {
 function monitorRuleRefusal(manifests, enabledIds, held, id) {
     var owner = monitorRuleOwner(manifests, enabledIds, held);
     return owner !== "" && id !== owner && monitorRuleOwners(manifests, enabledIds).indexOf(id) !== -1 ? "refused: hyprland.monitors=" + id + " held-by=" + owner : "";
-}
-
-// The settings the plugin manager shows for a plugin: the ones its placed
-// bar widget reads, from its first layout entry, or, for a plugin with no
-// placed widget, the ones every other kind reads from its plugins[] row.
-function managerSettings(config, manifest) {
-    var entry = manifest.kinds.indexOf("bar-widget") !== -1 ? layoutEntryOf(config, manifest.id) : null;
-    return entry !== null ? settingsFor(config, manifest, "layout", entry) : settingsFor(config, manifest, "plugins", null);
 }
 
 // Whether plugin MANIFEST's widget is placed under CONFIG: the manifest
@@ -4331,11 +4348,9 @@ function seedUserBar(out, effective) {
 }
 
 // Place plugin MANIFEST's widget in OUT, a user file being edited: one
-// entry at the end of its default section, `center` when the manifest names
-// none. The entry carries the settings of the plugin's effective plugins[]
-// row: the manager writes a plugin-wide setting to both entries
-// (settingTargets), so a setting outlives an unplace and a place. The one
-// placement rule; enabling and placing both call it.
+// entry, `{ id }`, at the end of its default section, `center` when the
+// manifest names none. The one placement rule; enabling and placing both
+// call it.
 // Builtins restore their shipped section beside a remaining declared
 // neighbour, or at the declared index when those neighbours are absent.
 function placeWidget(out, manifest, effective, id, shipped) {
@@ -4361,7 +4376,7 @@ function placeWidget(out, manifest, effective, id, shipped) {
             }
         }
     }
-    entries.splice(at, 0, id === manifest.id ? copyEntrySettings({ id: id }, pluginRow(effective, id), manifest, false) : { id: id });
+    entries.splice(at, 0, { id: id });
 }
 
 // Why MANIFEST's ordinary widget ID may not be placed or unplaced under CONFIG,
@@ -4378,8 +4393,8 @@ function placedRefusal(config, manifest, defaultBarId, builtinNames, id) {
 }
 
 // Why plugin MANIFEST's widget may not be moved under CONFIG to SECTION at
-// INDEX, or "". Moving keeps the existing layout entry and its settings, so
-// it needs a placed and enabled widget. SECTION and INDEX are the persisted
+// INDEX, or "". Moving keeps the existing layout entry, so it needs a
+// placed and enabled widget. SECTION and INDEX are the persisted
 // layout address, not pixel geometry.
 function moveRefusal(config, manifest, section, index, defaultBarId, builtinNames, id) {
     id = id === undefined ? manifest.id : id;
@@ -4412,8 +4427,8 @@ function enabledRefusal(manifest, enabled) {
 //
 // Placing an unplaced widget is placeWidget. Unplacing seeds the user `bar`
 // and removes every layout entry with the plugin's id from every section.
-// It lists a plugin with no plugins[] row there, the row seeded with the
-// first removed entry's settings: the row is the record firstPresence reads
+// It lists a plugin with no plugins[] row there as `{ id }`: the row is the
+// record firstPresence reads
 // as the user's choice, so a hidden widget stays hidden, and a "row" plugin
 // (enablementRule), enabled only by its placement, stays enabled through
 // it. A "widget" plugin has nothing left once unplaced: it reads as
@@ -4432,8 +4447,7 @@ function withPlaced(user, manifest, placed, effective, id, shipped) {
     }
     seedUserBar(out, effective);
     if (id === manifest.id && pluginRow(effective, id) === undefined) {
-        var row = copyEntrySettings({ id: id }, layoutEntryOf(out, id), manifest, false);
-        out.plugins = (Array.isArray(out.plugins) ? out.plugins : []).concat([row]);
+        out.plugins = (Array.isArray(out.plugins) ? out.plugins : []).concat([{ id: id }]);
     }
     SECTIONS.forEach(function (section) {
         var entries = out.bar.layout[section];
@@ -4446,7 +4460,6 @@ function withPlaced(user, manifest, placed, effective, id, shipped) {
 // The user-file change that moves plugin MANIFEST's widget. FROM is
 // `{ section, nth }` or null for the first entry in section order. INDEX is
 // the target section's entry index after the source entry has been removed.
-// The moved entry keeps its settings.
 function withMoved(user, manifest, from, section, index, effective, id) {
     id = id === undefined ? manifest.id : id;
     var out = isPlainObject(user) ? clone(user) : {};
@@ -4670,28 +4683,6 @@ function pluginIcon(manifest) {
     return typeof manifest.icon === "string" ? manifest.icon : DEFAULT_ICON;
 }
 
-// The configuration entries a plugin's instances read their settings from,
-// one per settingTargetOf(kind) over its kinds, "layout" only while a
-// widget is placed in the bar. The plugin manager, and a pane or a service
-// through configure, write every entry the plugin reads; any other running
-// instance writes only the entry it reads.
-function settingTargets(config, manifest) {
-    var wanted = manifest.kinds.map(settingTargetOf);
-    return SETTING_TARGETS.filter(function (target) {
-        if (wanted.indexOf(target) === -1) return false;
-        return target !== "layout" || isPlaced(config, manifest);
-    });
-}
-
-// The configuration entries an instance of KIND writes through the
-// configure capability. A pane or a service writes every entry its plugin
-// reads, the same contract as the manager, so a setting it flips reads the
-// same on the Settings page while the plugin's widget is placed; other
-// kinds write the one entry they read.
-function configureTargets(config, manifest, kind) {
-    return kind === "pane" || kind === "service" ? settingTargets(config, manifest) : [settingTargetOf(kind)];
-}
-
 // Pane rows for the exclusive panes holder: every enabled plugin of kind
 // `pane`, grouped and ordered by its manifest's `pane` key, with placement
 // from the same rule the manager reads. The row is data for the holder; it
@@ -4729,47 +4720,25 @@ function panesHolderId(config, manifests, defaultBarId) {
     return ids.length === 0 ? "" : ids[0];
 }
 
-// The user-file change that sets one setting of one plugin in each of
-// `targets`. "layout" sets the key on every layout entry with the plugin's
-// id, or with `locator` { section, nth } on the nth such entry of that
-// section alone, seeding the user `bar` key first (seedUserBar); "plugins"
-// sets it on the plugin's plugins[] row, seeding that row from the
-// effective one, since a user row replaces the shipped row whole. The
-// caller checks the value with settingRefusal first.
-function withSetting(user, manifest, key, value, effective, targets, locator) {
+// The user-file change that sets one setting of one plugin in its
+// plugins[] row, which every instance of the plugin reads, seeding that row
+// from the effective one, since a user row replaces the shipped row whole.
+// The caller checks the value with settingRefusal first.
+function withSetting(user, manifest, key, value, effective) {
     var out = isPlainObject(user) ? clone(user) : {};
     if (out.version === undefined) out.version = CONFIG_VERSION;
-    if (targets.indexOf("layout") !== -1) {
-        seedUserBar(out, effective);
-        var layout = isPlainObject(out.bar.layout) ? out.bar.layout : {};
-        SECTIONS.forEach(function (section) {
-            if (isPlainObject(locator) && locator.section !== section) return;
-            var seen = 0;
-            (Array.isArray(layout[section]) ? layout[section] : []).forEach(function (entry, index) {
-                if (entry.id !== manifest.id) return;
-                if (!isPlainObject(locator) || seen === locator.nth) {
-                    entry = copyEntrySettings({}, entry, manifest, true);
-                    entry[key] = clone(value);
-                    layout[section][index] = entry;
-                }
-                seen += 1;
-            });
-        });
+    var plugins = Array.isArray(out.plugins) ? out.plugins : [];
+    var row = pluginRow(out, manifest.id);
+    if (row === undefined) {
+        var shippedRow = pluginRow(effective, manifest.id);
+        row = shippedRow !== undefined ? shippedRow : { id: manifest.id };
+        plugins.push(row);
     }
-    if (targets.indexOf("plugins") !== -1) {
-        var plugins = Array.isArray(out.plugins) ? out.plugins : [];
-        var row = pluginRow(out, manifest.id);
-        if (row === undefined) {
-            var shippedRow = pluginRow(effective, manifest.id);
-            row = shippedRow !== undefined ? shippedRow : { id: manifest.id };
-            plugins.push(row);
-        }
-        var index = plugins.indexOf(row);
-        row = copyEntrySettings({}, row, manifest, true);
-        row[key] = clone(value);
-        plugins[index] = row;
-        out.plugins = plugins;
-    }
+    var index = plugins.indexOf(row);
+    row = copyEntrySettings({}, row, manifest, true);
+    row[key] = clone(value);
+    plugins[index] = row;
+    out.plugins = plugins;
     return out;
 }
 
@@ -4930,32 +4899,14 @@ function soundArgv(directory, sound) {
     return entry === null ? null : ["pw-play", "--media-role", "Notification", directory + "/" + entry.file];
 }
 
-// The user-file change that removes one setting of one plugin from each of
-// `targets`, so the plugin reads its manifest's default again and the
-// Hyprland layer stops writing the option the setting maps to. "layout"
-// removes the key from the user file's layout entries with the plugin's id,
-// or with `locator` from that one entry; "plugins" removes it from the
-// user file's plugins[] row. An entry the user file does not hold is not
-// seeded.
-function withoutSetting(user, manifest, key, targets, locator) {
+// The user-file change that removes one setting of one plugin from the
+// user file's plugins[] row, so the plugin reads its manifest's default
+// again and the Hyprland layer stops writing the option the setting maps
+// to. A row the user file does not hold is not seeded.
+function withoutSetting(user, manifest, key) {
     var out = isPlainObject(user) ? clone(user) : {};
     if (out.version === undefined) out.version = CONFIG_VERSION;
-    if (targets.indexOf("layout") !== -1 && isPlainObject(out.bar) && isPlainObject(out.bar.layout)) {
-        SECTIONS.forEach(function (section) {
-            if (isPlainObject(locator) && locator.section !== section) return;
-            var seen = 0;
-            (Array.isArray(out.bar.layout[section]) ? out.bar.layout[section] : []).forEach(function (entry, index) {
-                if (entry.id !== manifest.id) return;
-                if (!isPlainObject(locator) || seen === locator.nth) {
-                    entry = copyEntrySettings({}, entry, manifest, true);
-                    delete entry[key];
-                    out.bar.layout[section][index] = entry;
-                }
-                seen += 1;
-            });
-        });
-    }
-    var row = targets.indexOf("plugins") !== -1 ? pluginRow(out, manifest.id) : undefined;
+    var row = pluginRow(out, manifest.id);
     if (row !== undefined) {
         var index = out.plugins.indexOf(row);
         row = copyEntrySettings({}, row, manifest, true);

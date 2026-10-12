@@ -1,7 +1,9 @@
 # Pane kind and panes capability: a holder window lists enabled pane
 # plugins, mounts a pane with that pane plugin's own shell, owns one mount
 # at a time and refuses a second panes holder while it holds the capability.
-# The pane's configure writes every configuration entry its plugin reads.
+# The pane's configure writes its plugin's plugins row, which every view of
+# the plugin reads: the service, the widget, the pane and the Settings page.
+# Its control is a copy whose core stops handing a widget the row's changes.
 # A pane plugin's Settings page ends with a button named for the enabled
 # holder, absent for a plugin without kind pane and while no holder is
 # enabled, whose press opens the holder on that plugin's pane; a copy whose
@@ -9,7 +11,7 @@
 # control.
 # The row sets vgs.system and every enabled shipped section aside first, so
 # the holder lists its fixtures alone, and puts each back as it found it.
-# inputs: scripts/smoke/fixtures/plugins/acme.pane/* scripts/smoke/fixtures/plugins/acme.panehost/* shell/Hosts/PaneHost.qml shell/Hosts/PluginSlot.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/plugins/vgs.system/* shell/plugins/*/manifest.json shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js scripts/smoke/rows/start-order.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.pane/* scripts/smoke/fixtures/plugins/acme.panehost/* shell/Hosts/PaneHost.qml shell/Hosts/PluginSlot.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/plugins/vgs.system/* shell/plugins/*/manifest.json shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js scripts/smoke/rows/start-order.sh
 set -euo pipefail
 
 pane_file="$home/.config/vgshell/shell.json"
@@ -274,12 +276,12 @@ expect "provider restore: pane identity and capabilities are green" '["acme.pane
 expect "configure control baseline writes every view" ok ipc smoke invokeInstance window acme.pane setLabel before-control
 expect "configure control baseline opens Settings" ok ipc shell summon window vgs.settings '{"plugin":"acme.pane"}'
 expect_poll "configure control baseline is green" '["before-control","before-control","before-control","before-control"]' four_view_labels
-restart_control_shell pane-configure-target shell/Core/PluginLogic.js 'return kind === "pane" || kind === "service" ? settingTargets(config, manifest) : [settingTargetOf(kind)];' 'return kind === "pane" ? ["plugins"] : kind === "service" ? settingTargets(config, manifest) : [settingTargetOf(kind)];'
-expect "control: plugins-only configure shell summons" ok ipc shell summon window acme.panehost '{}'
-expect "control: plugins-only configure mounts the pane" ok ipc smoke invokeInstance window acme.panehost mountPane 'acme.pane'
+restart_control_shell pane-widget-stale shell/Core/Plugins.qml 'if (row.origin === "plugin" || !Registry.has(row.id)) continue;' 'if (row.kind === "bar-widget" || row.origin === "plugin" || !Registry.has(row.id)) continue;'
+expect "control: stale-widget shell summons" ok ipc shell summon window acme.panehost '{}'
+expect "control: stale-widget shell mounts the pane" ok ipc smoke invokeInstance window acme.panehost mountPane 'acme.pane'
 expect "control: Settings opens the pane plugin page" ok ipc shell summon window vgs.settings '{"plugin":"acme.pane"}'
-expect "control: the pane edit is accepted by the mutant" ok ipc smoke invokeInstance window acme.pane setLabel plugins-only
-expect_poll "control: plugins-only pane configure breaks four-view readback" '["plugins-only","before-control","plugins-only","before-control"]' four_view_labels
+expect "control: the pane edit is accepted by the mutant" ok ipc smoke invokeInstance window acme.pane setLabel row-only
+expect_poll "control: a widget that misses the row's change breaks four-view readback" '["row-only","before-control","row-only","row-only"]' four_view_labels
 restore_product_shell restored-configure
 expect "configure restore: the host summons again" ok ipc shell summon window acme.panehost '{}'
 expect "configure restore: mounting the pane is allowed" ok ipc smoke invokeInstance window acme.panehost mountPane 'acme.pane'

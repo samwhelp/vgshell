@@ -60,7 +60,7 @@ function verifyProvider(library, pluginsSource, capabilitiesSource, hyprlandSour
         const lifetime = library.create(error => { throw error; });
         const ctx = vm.runInNewContext("(" + contextMatches[0][1] + ")", {
             row: { lifetime }, id: "fixture", manifest: { capabilities: ["compositor"] },
-            kind: "bar", hostKey: "bar:fixture", onScreen: null, locator: null
+            kind: "bar", hostKey: "bar:fixture", onScreen: null
         });
         let pending = null;
         let observations = 0;

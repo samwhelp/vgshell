@@ -221,7 +221,7 @@ row_doctor() {
   req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/needs.git"
   REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- doctor --json
   [[ $status == 0 ]] && json_is "$tmp/out" '"acme.needs" not in d["plugins"]' || { why "doctor --json, acme.needs disabled"; return 1; }
-  printf '{ "version": 1, "plugins": [ { "id": "acme.needs" } ] }\n' >"$2/vgshell/shell.json"
+  printf '{ "version": 2, "plugins": [ { "id": "acme.needs" } ] }\n' >"$2/vgshell/shell.json"
   REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- doctor --json
   [[ $status == 0 ]] && json_is "$tmp/out" '[r["state"] for r in d["plugins"]["acme.needs"]] == ["missing"] * 7 and {r["name"]: r["state"] for r in d["core"]}["node"] == "present" and {r["name"]: r["state"] for r in d["core"]}["git"] == "missing" and {r["name"]: r["package"] for r in d["core"]}["python3"] == {"manager": "pacman", "name": "python"}' || { why "doctor --json, acme.needs enabled"; return 1; }
   REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- doctor
@@ -274,7 +274,7 @@ row_floor_agrees() {
   req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/floor.git"
   REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- plugin requirements acme.floor
   [[ $status == 0 ]] && out_is "present vgs-need-old (need-old): Old" && ! grep -q -- "-Qoq" "$log" || { why "plugin requirements, acme.floor disabled"; return 1; }
-  printf '{ "version": 1, "plugins": [ { "id": "acme.floor" } ] }\n' >"$2/vgshell/shell.json"
+  printf '{ "version": 2, "plugins": [ { "id": "acme.floor" } ] }\n' >"$2/vgshell/shell.json"
   REQ_PATH="$tools" req "$notice_view" plain "" "$2" "$rt_empty" REPO="$repo" -- "$2/vgshell/plugins/acme.floor"
   [[ $status == 0 ]] && json_is "$tmp/out" "d == $floor_rows" || { why "the notice's rows"; return 1; }
   REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- plugin requirements --json acme.floor
@@ -343,7 +343,7 @@ inst "doctor refuses an argument" "$tmp/cfg-usage" "$rt_empty" 2 "" "vgshell: re
 inst "plugin rescan with no shell says so" "$tmp/cfg-usage" "$rt_empty" 0 "shell=not-running" "" plugin rescan
 INST_REPLY="ok scan=1" inst "plugin rescan asks a running shell" "$tmp/cfg-usage" "$rt_live" 0 "shell=rescan-started" "" plugin rescan
 check "the rescan names the shell's pid from the lock file" test "$(cat "$tmp/args")" == "ipc --pid $$ call shell rescanPlugins"
-mkdir -p "$tmp/cfg-bad/vgshell"; printf '{ "version": 1, "plugins": [ "junk" ] }\n' >"$tmp/cfg-bad/vgshell/shell.json"
+mkdir -p "$tmp/cfg-bad/vgshell"; printf '{ "version": 2, "plugins": [ "junk" ] }\n' >"$tmp/cfg-bad/vgshell/shell.json"
 inst "doctor refuses a user file the config judge refuses" "$tmp/cfg-bad" "$rt_empty" 1 "" "vgshell: refused: user-config=malformed path=$tmp/cfg-bad/vgshell/shell.json error=plugins.0 must be an object with a string id" doctor
 
 # controls: label, the file under bin/, its text and the replacement, and

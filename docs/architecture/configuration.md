@@ -18,6 +18,11 @@ One file stops delivering shipped defaults the moment a user edits it, and a dee
 - Do start an enable or disable edit from the effective disabled list, so a user file with no list keeps the shipped exclusions; an explicit empty user list still overrides them. `scripts/test-plugin-logic.js` pins it.
 - Do read `welcome.keys` and `manager.id` from the shipped layer alone, as the shell reads the default bar; they name the product's own surfaces, not a user preference.
 
+### Plugin settings
+
+- Do keep every setting of a plugin in its `plugins[]` row, the one place every instance of the plugin, a bar widget included, and the Settings page read it from (`PluginLogic.settingsFor`). A `bar.layout` entry places a widget and holds its `id` alone; `PluginLogic.configError` refuses any other key. `scripts/test-plugin-logic.js` pins both, and `scripts/smoke/rows/settings-unsaved.sh` reads a row written outside the page on the page and the widget.
+- Do migrate a user file of the previous format version where it is read: `Config.qml` runs `PluginLogic.migrateConfig` before the judge and writes the result once, and the `bin/` readers run it in memory ([D107](../decisions/D107-format-change-ships-its-migration.md)). Version 1 let a layout entry carry its widget's settings; each such key moves into the plugin's row, where the row's own value wins, and of two entries with one id the first in section order wins. `scripts/test-plugin-logic.js` pins the table.
+
 ### Reads and writes
 
 - Do judge each layer with `PluginLogic.configError` after every parse. A file that fails keeps its last good value, and the log names the defect.
@@ -29,7 +34,7 @@ One file stops delivering shipped defaults the moment a user edits it, and a dee
 
 ### Unknown ids
 
-- Silently omit saved settings the plugin manifest does not declare from runtime settings and from each entry the next normal setting write updates, while keeping reserved entry keys in the file.
+- Silently omit saved settings the plugin manifest does not declare from runtime settings and from the row the next normal setting write updates, while keeping the row's reserved `keys` in the file.
 - Do keep an id that `plugins` or `disabledPlugins` lists and no discovered plugin has, as a removed plugin leaves behind, in the file, and report it through `PluginLogic.unknownIds`. `scripts/test-plugin-logic.js`, `scripts/test-vgshell-plugin-list.sh` and `scripts/smoke/rows/configuration.sh` pin it.
 
 ### Theme file

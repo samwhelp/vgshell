@@ -722,7 +722,7 @@ function verify(logic, layer, shellText) {
         assert.ok(want === "" ? got === "" : got.startsWith(want), "configError " + name + ": want " + JSON.stringify(want) + ", got " + JSON.stringify(got));
     }
     const config = { plugins: [{ id: "acme.keys", keys: { toggle: "ctrl+super+t", inbox: null, later: "SUPER+L", early: null }, size: 3 }] };
-    same(logic.settingsFor(config, declared, "plugins", null), { size: 3 }, "a plugins row's keys are no setting");
+    same(logic.settingsFor(config, declared), { size: 3 }, "a plugins row's keys are no setting");
     same(logic.hyprlandSection(config, declared), {
         id: "acme.keys", version: "1.0.0",
         binds: [{ shortcut: "toggle", key: "SUPER+CTRL+T" }, { shortcut: "inbox", key: null }],
@@ -1632,7 +1632,7 @@ const CONTROLS = [
     [logicFile, "keys null unbinds", "if (keys[names[i]] === null)\n            continue;", "if (false)\n            continue;"],
     [logicFile, "keys values", "if (!key.ok)\n            return itemAt + \" \" + key.error;", "if (false)\n            return itemAt + \" \" + key.error;"],
     [logicFile, "keys empty lists", "if (Array.isArray(value) && value.length === 0)\n        return at + \" must not be an empty list\";", "if (false)\n        return at + \" must not be an empty list\";"],
-    [logicFile, "keys no setting", "return copyEntrySettings(clone(out), entry, manifest, false);", "return copyEntrySettings(clone(out), entry, manifest, true);"],
+    [logicFile, "keys no setting", "return copyEntrySettings(clone(out), pluginRow(config, manifest.id), manifest, false);", "return copyEntrySettings(clone(out), pluginRow(config, manifest.id), manifest, true);"],
     [logicFile, "row key wins", "var given = hasOwn(keys, bind.shortcut) ? keys[bind.shortcut] : bind.key;", "var given = bind.key;"],
     [logicFile, "null unbinds", "var given = hasOwn(keys, bind.shortcut) ? keys[bind.shortcut] : bind.key;", "var given = hasOwn(keys, bind.shortcut) && keys[bind.shortcut] !== null ? keys[bind.shortcut] : bind.key;"],
     [logicFile, "key lists expand to binds", "keyValues(given).forEach(function (value) {", "[keyValues(given)[0]].forEach(function (value) {"],
