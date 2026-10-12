@@ -4812,7 +4812,7 @@ console.log(fields.map(f => String(read[f])).join(" "));' "$tree/bin/lib/qml-lib
 # the widget and its tooltip unless the code hides it, the Cloud Sync
 # window, and every screen of the Cloud Sync Settings page.
 cs_shots() {
-  local m="$1" s="$2" want="$3" fields=(cause) hidden box name f
+  local m="$1" s="$2" want="$3" fields=(cause) hidden box name f at
   if [[ $# -gt 3 ]]; then want+=" $4"; fields+=(kind); fi
   expect "Cloud Sync reads its record again ($s)" ok ipc vgs.cloud-sync invoke refresh ""
   expect_poll "Cloud Sync's code reads the published values as $s" "$want" cs_code "${fields[@]}"
@@ -4832,6 +4832,16 @@ cs_shots() {
   expect_poll "the Cloud Sync window maps ($s)" 1 window_count "Cloud Sync"
   take "cloudsync-$m-$s-window"
   record_item "cloudsync-$m-$s-window" "$(one_window "Cloud Sync")"
+  # A window that runs past its view is shot again at its end, so each row
+  # to review shows in a shot. The probe's reply is [contentY,
+  # contentHeight, height].
+  at="$(ipc smoke scrollTo window vgs.cloud-sync 1000000)" || at=""
+  if [[ $at != \[* ]]; then
+    fail "the Cloud Sync window did not scroll ($s): ${at:-no reply}"
+  elif [[ $at != \[0,* ]]; then
+    take "cloudsync-$m-$s-window-end"
+    record_item "cloudsync-$m-$s-window-end" "$(one_window "Cloud Sync")"
+  fi
   expect "the Cloud Sync window hides ($s)" ok ipc shell hide window vgs.cloud-sync
   expect_poll "the Cloud Sync window is gone ($s)" 0 window_count "Cloud Sync"
   expect "the Settings window opens ($s)" ok ipc shell summon "$settings_kind" vgs.settings '{}'
