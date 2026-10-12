@@ -158,7 +158,8 @@ vgs_tui_cancelled() { # TEXT
 # gum 2.0.2 draws its own key help in fixed greys no GUM_ variable themes,
 # under 4.5 to 1 on a dark background, so gum's is off and the key help is
 # drawn above the question in the gum target's help colour,
-# GUM_PAGER_HELP_FOREGROUND, or the terminal's own text colour without one.
+# GUM_PAGER_HELP_FOREGROUND, or the terminal's own text colour without one,
+# on the terminal gum draws on, so a caller's captured stderr holds none of it.
 # A Yes or No answer clears gum's whole view and leaves the cursor where it
 # started, so the help line, one row above, goes with it; a Ctrl-C leaves
 # the question, and the help above it. Checked in a private tmux run of
@@ -178,11 +179,11 @@ vgs_tui_confirm() { # QUESTION [GUM_FLAG...]
   done
   _vgs_tui_prompt_gap
   printf '%s←→ toggle • enter submit • y %s • n %s\033[0m\n' \
-    "$(vgs_tui_sgr "${GUM_PAGER_HELP_FOREGROUND:-}" 39)" "$yes" "$no" >&2
+    "$(vgs_tui_sgr "${GUM_PAGER_HELP_FOREGROUND:-}" 39)" "$yes" "$no" >/dev/tty
   # gum 2.0.2 accepts these margin keys though `gum confirm --help` omits
   # them; checked in a private tmux run for VGS-1475 on 2026-10-12.
   GUM_CONFIRM_SHOW_HELP=false gum confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" "$@" -- "$question" || status=$?
-  if [[ $status == 0 || $status == 1 ]]; then printf '\033[1A\r\033[2K' >&2; fi
+  if [[ $status == 0 || $status == 1 ]]; then printf '\033[1A\r\033[2K' >/dev/tty; fi
   return "$status"
 }
 

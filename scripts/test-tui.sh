@@ -714,7 +714,7 @@ control() { # NAME NEEDLE REPLACEMENT: LIB names the copy
 }
 control no-terminal-check '_vgs_tui_has_terminal() { : 2>/dev/null <>/dev/tty; }' '_vgs_tui_has_terminal() { true; }'
 rm -f -- "$tmp/gum"
-run 'vgs_tui_confirm "Remove it?"'
+run 'vgs_tui_choose a b'
 check "the no-terminal-check mutant asks gum with no terminal" test -e "$tmp/gum"
 control kept-credential 'sudo -k || _vgs_tui_refuse 1 "sudo=revoke-failed"' 'true || _vgs_tui_refuse 1 "sudo=revoke-failed"'
 rm -f -- "$tmp/sudo"
@@ -755,7 +755,7 @@ control gum-help-shown 'GUM_CONFIRM_SHOW_HELP=false gum confirm' 'gum confirm'
 check "the gum-help-shown mutant fails the vgs-dark contrast row" test "$(contrast_row "${contrast_themes[0]}" && echo green || echo red)" == red
 control help-low-colour '"$(vgs_tui_sgr "${GUM_PAGER_HELP_FOREGROUND:-}" 39)"' '"$(vgs_tui_sgr "#3a3a3a" 39)"'
 check "the help-low-colour mutant fails the vgs-dark contrast row" test "$(contrast_row "${contrast_themes[0]}" && echo green || echo red)" == red
-control help-kept "then printf '\\033[1A\\r\\033[2K' >&2; fi" 'then :; fi'
+control help-kept "then printf '\\033[1A\\r\\033[2K' >/dev/tty; fi" 'then :; fi'
 check "the help-kept mutant fails an erase row" test "$(erase_rows quiet && echo green || echo red)" == red
 control accent-success '"$(vgs_tui_sgr "${VGS_TUI_SUCCESS:-}" 32)" "$*"' '"$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 32)" "$*"'
 run 'vgs_tui_success "Ready."' VGS_TUI_SUCCESS='#070809' VGS_TUI_ACCENT='#010203'

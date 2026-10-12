@@ -286,13 +286,14 @@ run() {
   verdict "$name" "$want_exit" "$want_err" "$status"
 }
 # run_tty NAME WANT_EXIT ARGS...: the same on a pseudo-terminal; stdout and
-# stderr together land in $tmp/out, carriage returns dropped.
+# stderr together land in $tmp/out, carriage returns, cursor moves and line
+# erases dropped, as the erase of a question's key help line after its answer.
 tty_env=()
 run_tty() {
   local name="$1" want_exit="$2" status=0
   shift 2
   "${row_env[@]}" SHELL="$BASH" "${tty_env[@]}" "$script_bin" -qec "$(printf '%q ' "$vgs/bin/vgshell" system "$@")" /dev/null </dev/null >"$tmp/raw" 2>&1 || status=$?
-  tr -d '\r' <"$tmp/raw" >"$tmp/out"
+  sed -e $'s/\e\\[[0-9]*[ABCDJK]//g' "$tmp/raw" | tr -d '\r' >"$tmp/out"
   if [[ $status == "$want_exit" ]]; then ok "$name"; else fail "$name: exit=$status want=$want_exit output=[$(cat "$tmp/out")]"; fi
 }
 tree_snapshot() { find "$root" "$tmp/units" -printf '%P %y %s %m %T@\n' | sort; }
