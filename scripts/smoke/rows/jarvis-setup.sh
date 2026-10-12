@@ -687,7 +687,7 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 s=p.read_text()
-needle='            const reply = shell.configure.unset("clonedVoice");\n            if (reply !== "ok") console.warn("jarvis-clone: setting=unwritten reply=" + reply);\n'
+needle='        const reply = shell.configure.unset("clonedVoice");\n        if (reply !== "ok") console.warn("jarvis-clone: setting=unwritten reply=" + reply);\n'
 assert s.count(needle)==1
 p.write_text(s.replace(needle, ""))
 PY
