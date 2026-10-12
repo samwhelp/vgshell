@@ -31,6 +31,8 @@ const SYNTHESIS_MS = 60000;
 const CLOCK = Object.freeze({ set: setTimeout, clear: clearTimeout });
 const RECIPIENTS = Object.freeze([Object.freeze({ kind: "local", provider: "local-speech", account: "" })]);
 const CAUSE = /^[a-z-]+(?: [a-z]+=[0-9A-Za-z._-]+)*$/;
+// The engines of a tier's one text-to-speech artifact, as local-speech.py names them.
+const TEXT_TO_SPEECH = Object.freeze(["piper", "kokoro"]);
 // The keys of each sidecar message and whether it carries a payload.
 const SHAPES = Object.freeze({
     ready: [["type"], false], partial: [["id", "rev", "text", "type"], false],
@@ -416,7 +418,10 @@ function open(state, data, clock = CLOCK, changed = () => {}) {
             })().catch(error => value.settle({ kind: "failed", error }));
             return { outcome, abort };
         },
-        async *speak(sentences) {
+        // SPEAKER is the voice's index in its artifact's speakers, the sid
+        // the sidecar judges against the same table.
+        async *speak(sentences, speaker) {
+            if (!Number.isSafeInteger(speaker) || speaker < 0) throw failure("speaker");
             for await (const item of sentences) {
                 const text = Buffer.from(item.content, "utf8");
                 if (item.content.trim() === "") throw failure("sentence-empty");
@@ -424,7 +429,7 @@ function open(state, data, clock = CLOCK, changed = () => {}) {
                 let resolve;
                 const outcome = new Promise(done => { resolve = done; });
                 const { id, value } = track("speech", resolve);
-                write({ type: "speak", id }, text);
+                write({ type: "speak", id, speaker }, text);
                 value.bound(SYNTHESIS_MS, "synthesis-timeout");
                 const result = await outcome;
                 if (result.kind !== "spoken") throw result.error;
@@ -449,7 +454,9 @@ function open(state, data, clock = CLOCK, changed = () => {}) {
 /**
  * Ready when local setup published a marker naming a declared tier for this
  * data root. The sidecar asks setup's readiness judge before it loads, so a
- * stale marker refuses readiness with speech=local-not-ready.
+ * stale marker refuses readiness with speech=local-not-ready. `voices` are
+ * the speakers of the tier's text-to-speech artifact, in sid order, as
+ * {label, value} offers whose value is the speaker's name.
  */
 function select({ directories }) {
     const state = directories.state;
@@ -471,11 +478,15 @@ function select({ directories }) {
     }
     try { root = fs.realpathSync(data); }
     catch (error) { return unconfigured("speech=local-not-ready", error.code); }
-    const tiers = JSON.parse(fs.readFileSync(ARTIFACTS, "utf8")).tiers;
+    const artifacts = JSON.parse(fs.readFileSync(ARTIFACTS, "utf8"));
+    const tiers = artifacts.tiers;
     if (marker === null || typeof marker !== "object" || typeof marker.tier !== "string"
             || !Object.hasOwn(tiers, marker.tier) || marker.data !== root)
         return unconfigured("speech=local-not-ready", "marker-stale");
-    return { kind: "ready", lifetime: "daemon", wake: true, publication, recipients: RECIPIENTS,
+    const voice = artifacts.artifacts.find(artifact => tiers[marker.tier].artifacts.includes(artifact.id)
+        && TEXT_TO_SPEECH.includes(artifact.engine));
+    const voices = voice.speakers.map(speaker => ({ label: speaker.label, value: speaker.name }));
+    return { kind: "ready", lifetime: "daemon", wake: true, publication, recipients: RECIPIENTS, voices,
         open: ({ clock = CLOCK, changed } = {}) => open(state, data, clock, changed) };
 }
 

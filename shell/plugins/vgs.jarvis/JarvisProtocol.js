@@ -2,7 +2,7 @@
 .import "Session.js" as Session
 
 // Shell produces hello, intent, indicator, shown, requirements-scan, tui-state and reply. Voice confirmation
-// is daemon-internal. Daemon produces status/state/devices/homes/level/audio-fault,
+// is daemon-internal. Daemon produces status/state/devices/homes/voices/personality/level/audio-fault,
 // request, tasks, task-answer and transcript. A line excludes its LF.
 // A transcript is one speaker's caption segment: partial text grows under
 // a rising rev; final closes the segment.
@@ -11,6 +11,12 @@ var TASK_TERMINALS = ["auto", "tmux", "floating"];
 // The manifest's cloudVision options; Policy.recipients judges the same set.
 var CLOUD_VISION = ["ask", "allow", "never"];
 var TRANSCRIPT_CHARS = Session.TRANSCRIPT_CHARS;
+// The Voice setting's offers, and the Personality section's lines as a
+// Settings state carries them: PluginLogic's STATUS_LIST_MAX, STATUS_LABEL_MAX
+// and STATUS_TEXT_MAX bound each.
+var VOICES_MAX = 64;
+var PERSONALITY_LINES = 24;
+var PERSONALITY_CHARS = 200;
 
 // Requests the daemon sends and the service answers, one reply each. `args`
 // lists each argument's type, or "argv" for a command; `data` names the
@@ -292,6 +298,24 @@ function setupCauses(value) {
     return true;
 }
 
+// The `personality` message's section for TEXT, Guidance.personality's: each
+// non-blank line with its control characters as spaces, cut at a space into
+// pieces of at most PERSONALITY_CHARS, the first PERSONALITY_LINES of them;
+// `more` says pieces were left out.
+function personalitySection(text) {
+    var pieces = [];
+    for (var line of String(text).split("\n")) {
+        var rest = line.replace(/[\x00-\x1f\x7f]/g, " ").trim();
+        while (rest !== "") {
+            var piece = rest.slice(0, PERSONALITY_CHARS);
+            if (piece.length < rest.length && piece.lastIndexOf(" ") > 0) piece = piece.slice(0, piece.lastIndexOf(" "));
+            pieces.push(piece);
+            rest = rest.slice(piece.length).trim();
+        }
+    }
+    return { kind: "section", lines: pieces.slice(0, PERSONALITY_LINES), more: pieces.length > PERSONALITY_LINES };
+}
+
 // Return the judged message, or throw a keyed protocol error.
 function accept(line, direction) {
     if (typeof line !== "string") fail("line-not-string");
@@ -307,9 +331,10 @@ function accept(line, direction) {
     case "hello":
         if (direction !== "shell") fail("direction-hello");
         keys(message, ["v", "type", "gen", "settings", "directories", "revision", "locked", "keys"], "hello");
-        keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");
+        keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home"], "settings");
         if (!["local", "realtime"].includes(message.settings.voiceProvider) || typeof message.settings.voiceAccount !== "string"
                 || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings.voiceAccount)) fail("voice-settings");
+        if (!printable(message.settings.voice, 0, 200)) fail("voice-setting");
         if (typeof message.settings.sounds !== "boolean") fail("sounds");
         if (typeof message.settings.brain !== "string") fail("shape-settings");
         // The service's choice for the selected sign-in, each "" for its
@@ -384,7 +409,7 @@ function accept(line, direction) {
             if (!printable(message.text, 1, TRANSCRIPT_CHARS) || message.text.trim() === "") fail("say-text");
         } else {
             keys(message, fields, "intent");
-            if (["talk-down", "talk-up", "mute", "stop", "voice-check"].indexOf(message.intent) === -1) fail("intent");
+            if (["talk-down", "talk-up", "mute", "stop", "voice-check", "preview"].indexOf(message.intent) === -1) fail("intent");
         }
         break;
     case "shown":
@@ -566,6 +591,33 @@ function accept(line, direction) {
             Object.defineProperty(seen, choice.value, { value: true });
             if (Object.prototype.hasOwnProperty.call(seen, choice.id)) fail("home-id-duplicate");
             Object.defineProperty(seen, choice.id, { value: true });
+        }
+        break;
+    case "voices":
+        if (direction !== "daemon") fail("direction-voices");
+        keys(message, ["v", "type", "gen", "revision", "voices"], "voices");
+        if (!Array.isArray(message.voices) || message.voices.length > VOICES_MAX) fail("voices");
+        var voiced = {};
+        for (var voice of message.voices) {
+            keys(voice, ["label", "value"], "voice");
+            if (!printable(voice.label, 1, 60) || !printable(voice.value, 1, 200)) fail("voice");
+            if (Object.prototype.hasOwnProperty.call(voiced, voice.value)) fail("voice-duplicate");
+            Object.defineProperty(voiced, voice.value, { value: true });
+        }
+        break;
+    case "personality":
+        if (direction !== "daemon") fail("direction-personality");
+        keys(message, ["v", "type", "gen", "revision", "personality"], "personality");
+        var shown = message.personality;
+        if (!object(shown)) fail("personality");
+        if (shown.kind === "section") {
+            keys(shown, ["kind", "lines", "more"], "personality");
+            if (!Array.isArray(shown.lines) || shown.lines.length < 1 || shown.lines.length > PERSONALITY_LINES
+                    || !shown.lines.every(line => printable(line, 1, PERSONALITY_CHARS)) || typeof shown.more !== "boolean")
+                fail("personality-lines");
+        } else {
+            keys(shown, ["kind"], "personality");
+            if (["none", "missing", "too-large", "unreadable"].indexOf(shown.kind) === -1) fail("personality-kind");
         }
         break;
     case "level":

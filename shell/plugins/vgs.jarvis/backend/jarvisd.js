@@ -48,6 +48,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     const { Accounts, accountRoots } = require("./Accounts.js");
     const Denied = require("./Denied.js");
     const Home = require("./Home.js");
+    const Guidance = require("./Guidance.js");
     const { load } = require(path.join(process.argv[3], "bin/lib/qml-library.js"));
     const { commandFile, onPath } = require(path.join(process.argv[3], "bin/lib/judge-files.js"));
     const Protocol = load(path.join(__dirname, "../JarvisProtocol.js"));
@@ -76,6 +77,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     const clock = { now: () => performance.now(), set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer) };
     let tasks = null;
     let publishedTasks = null;
+    let publishedVoices = null;
     let voice = null;
     let bridge = null;
     let gate = null;
@@ -107,6 +109,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         write({ v: 1, type: "status", gen: runner.state.gen, revision: context.revision,
             daemon: context.locked ? "locked" : "ready",
             causes: configuration.kind === "ready" ? [] : configuration.causes });
+        publishVoices();
         // A selected healthy loading plan can accept bounded capture. The
         // loading cause remains until the same child reports model readiness.
         // Session still owns lock, mute, fault and indicator admission.
@@ -120,6 +123,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         homeFolder = judgeHome(context.settings.home);
         rememberHome();
         publishHomes();
+        publishPersonality();
         configured(engine.configure(context.settings));
         scheduleMemoryReconcile();
     }
@@ -334,6 +338,31 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         write({ v: 1, type: "homes", gen: runner.state.gen, revision: context.revision,
             homes: Home.offers(homes, process.env.HOME),
             current: homeFolder.state.kind === "ready" ? Home.relativeHome(homeFolder.state.path, process.env.HOME) : "" });
+    }
+
+    // The Voice setting's offers, sent when they change: a provider or tier
+    // whose voices cannot be read offers none, and the setting stays.
+    function publishVoices() {
+        const voices = engine.voices().map(voice => ({ label: voice.label, value: voice.value }));
+        const signature = JSON.stringify(voices);
+        if (signature === publishedVoices) return;
+        publishedVoices = signature;
+        write({ v: 1, type: "voices", gen: runner.state.gen, revision: context.revision, voices });
+    }
+
+    // The home's Personality section as the Settings page shows it, read
+    // again at each judgement: a hello follows the page's opening.
+    function publishPersonality() {
+        let personality = { kind: homeFolder.state.kind === "none" ? "none" : "unreadable" };
+        if (homeFolder.state.kind === "ready") {
+            try {
+                const section = Guidance.personality(homeFolder.state.path);
+                personality = section.kind === "section" ? Protocol.personalitySection(section.text) : section;
+            } catch (error) {
+                if (!/^jarvis: home=[a-z-]{1,60}$/.test(error.message)) throw error;
+            }
+        }
+        write({ v: 1, type: "personality", gen: runner.state.gen, revision: context.revision, personality });
     }
 
     function fault(reason) {

@@ -61,7 +61,7 @@ async function daemonLease(ending, removeClose = false) {
         fs.writeFileSync(file, mutant);
     }
     const hello = { v: 1, type: "hello", gen: 0,
-        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", cloudVision: "ask", privateWindows: "" },
+        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", cloudVision: "ask", privateWindows: "" },
         directories: {
             state: path.join(process.env.JARVIS_TEST_ROOT, "state/vgshell/jarvis"),
             data: path.join(process.env.JARVIS_TEST_ROOT, "data/vgshell/jarvis"),
@@ -96,7 +96,7 @@ async function daemonLease(ending, removeClose = false) {
             assert.equal(signal, null, "stdin EOF must end the daemon");
             assert.equal(actual, 0, err);
             assert.equal(err, "");
-            assert.deepEqual((out.trim() === "" ? [] : out.trim().split("\n").map(JSON.parse)).filter(frame => frame.type !== "homes"), [
+            assert.deepEqual((out.trim() === "" ? [] : out.trim().split("\n").map(JSON.parse)).filter(frame => !["homes", "voices", "personality"].includes(frame.type)), [
                 { v: 1, type: "audit-failures", gen: 0, revision: hello.revision, rows: [] },
                 { v: 1, type: "shell-status", gen: 0, revision: hello.revision, availability: { kind: "checking" } },
                 { v: 1, type: "status", gen: 0, revision: hello.revision, daemon: "ready",
@@ -139,7 +139,7 @@ async function daemonStartup(browserFile) {
         fs.copyFileSync(path.join(plugin, file), path.join(folder, file));
     fs.copyFileSync(browserFile, path.join(folder, "backend/Browser.js"));
     const hello = { v: 1, type: "hello", gen: 0,
-        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", cloudVision: "ask", privateWindows: "" },
+        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", cloudVision: "ask", privateWindows: "" },
         directories: {
             state: path.join(process.env.JARVIS_TEST_ROOT, "state/vgshell/jarvis"),
             data: path.join(process.env.JARVIS_TEST_ROOT, "data/vgshell/jarvis"),

@@ -26,7 +26,8 @@ var EVENTS = [
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
     "final", "say", "collect-failed", "brain-done", "brain-failed", "brain-ended", "cancelled", "play", "played",
     "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "deadline", "lease-ended",
-    "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "wake", "voice-check", "voice-checked", "voice-check-failed"
+    "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "wake", "voice-check", "voice-checked", "voice-check-failed",
+    "preview"
 ];
 
 function initial() {
@@ -208,6 +209,17 @@ function relayRefusal(s) {
     if (s.conversation.kind === "ended") return "ended";
     if (s.turn.kind !== "none" || s.playback.kind !== "idle" || s.approval.kind !== "none" || s.action.kind !== "none"
             || s.input.kind !== "released" || s.capture.kind !== "closed") return "busy";
+    return null;
+}
+
+// Why a voice preview cannot start now, or null. It speaks between turns,
+// never over one, and a duplex voice speaks it in a session of its own.
+function previewRefusal(s) {
+    if (s === null || s.gate.kind !== "up") return "down";
+    if (s.mute.kind !== "off") return "muted";
+    if (s.turn.kind !== "none" || s.playback.kind !== "idle" || s.approval.kind !== "none" || s.action.kind !== "none"
+            || ["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1
+            || s.engine.kind === "duplex" && s.conversation.kind !== "ended") return "busy";
     return null;
 }
 
@@ -639,6 +651,19 @@ function reduce(state, e) {
         if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) end(s, effects, e.at, "say", false);
         recover(s, effects, e.at);
         commitUserText(s, effects, e.text, e.at, 1, false);
+        break;
+    // A preview speaks the engine's fixed sentence as a turn of its own; a
+    // duplex voice opens its session for it with no capture.
+    case "preview":
+        if (previewRefusal(s) !== null) break;
+        recover(s, effects, e.at);
+        // A new conversation takes a new gen; one between turns keeps its own.
+        if (s.conversation.kind === "ended") s.gen += 1;
+        if (s.conversation.kind !== "active") s.conversation = { kind: "active" };
+        if (s.engine.kind === "duplex") {
+            var opened = effect(s, effects, "speech-open", { preview: true });
+            s.speech = { kind: "open", gen: opened.gen, op: opened.op, reply: { kind: "none" } };
+        } else think(s, effects, { preview: true }, e.at);
         break;
     // A task line the daemon wrote speaks as a turn of its own: no user
     // words, and the engine never hands it to the brain.

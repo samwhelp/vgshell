@@ -20,6 +20,7 @@ const CHUNK_FRAMES = 24000; // Below Audio's 64 KiB chunk bound.
 const control = {};
 function reset(options = {}) {
     Object.assign(control, { ready: true, wake: false, recipients: [{ kind: "local", provider: "scripted-speech", account: "" }],
+        voices: [{ label: "Fixture", value: "fixture" }, { label: "Other", value: "other" }], speakers: [],
         utterances: [], detections: [], spoken: [], labels: new Set(), opened: [], closed: 0, aborted: 0, finals: 0,
         finalTimes: [], inputEnds: [], frames: 0, ...options });
 }
@@ -48,7 +49,7 @@ function synthesized(text) {
 
 const row = {
     select() {
-        return control.ready ? { kind: "ready", recipients: control.recipients, ...(control.wake ? { wake: true } : {}),
+        return control.ready ? { kind: "ready", recipients: control.recipients, voices: control.voices, ...(control.wake ? { wake: true } : {}),
             open: ({ net, recipients }) => adapter(net, recipients) }
             : { kind: "unconfigured", cause: "speech=fixture-off" };
     }
@@ -107,9 +108,10 @@ function adapter(net, recipients) {
                     return { value: undefined, done: true };
                 } };
         },
-        async *speak(sentences) {
+        async *speak(sentences, speaker) {
             for await (const sentence of sentences) {
                 control.spoken.push(sentence.content);
+                control.speakers.push(speaker);
                 for (const label of sentence.labels) control.labels.add(label);
                 yield* synthesized(sentence.content);
             }

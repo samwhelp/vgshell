@@ -222,5 +222,29 @@ world("jg", root => {
     ]) {
         control(root, name, "Guidance.js", needle, replacement, logic => homeText(logic, path.join(root, name))); controls++;
     }
+    // The Personality section the Settings page shows: its text up to the
+    // next heading of level one or two, its own deeper headings kept, and
+    // missing for no heading or an empty one.
+    const sections = [
+        ["between headings", "# Mine\n\nIntro.\n\n## Personality\n\nCalm.\n### Pace\nSlow.\n\n## Tools\nNone.\n", { kind: "section", text: "Calm.\n### Pace\nSlow." }],
+        ["last", "## personality  \nBrief and warm.\n", { kind: "section", text: "Brief and warm." }],
+        ["before a title", "## Personality\nDry.\n# Other\nx\n", { kind: "section", text: "Dry." }],
+        ["absent", "# Mine\nNo section.\n", { kind: "missing" }],
+        ["empty", "## Personality\n\n## Tools\nx\n", { kind: "missing" }],
+        ["another heading", "## Personality notes\nx\n", { kind: "missing" }]
+    ].map(([name, agents, expected]) => [name, home("personality-" + name.replace(/ /g, "-"), agents), expected]);
+    const personality = (logic, copy = backend) => {
+        require(path.join(copy, "Core.js")).use(tree);
+        for (const [name, folder, expected] of sections) assert.deepEqual(logic.personality(folder), expected, name);
+        assert.deepEqual(logic.personality(oversize), { kind: "too-large" });
+    };
+    personality(Guidance);
+    for (const [name, needle, replacement] of [
+        ["personality-end", 'const end = rest.findIndex(line => /^#{1,2}\\s/.test(line));', "const end = -1;"],
+        ["personality-heading", "/^##\\s+Personality\\s*$/i", "/^##\\s+Personality/i"],
+        ["personality-empty", 'return text === "" ? { kind: "missing" } : { kind: "section", text };', 'return { kind: "section", text };']
+    ]) {
+        control(root, name, "Guidance.js", needle, replacement, logic => personality(logic, path.join(root, name))); controls++;
+    }
 });
 console.log("test-jarvis-guidance: ok fixtures=" + fixtures.length + " controls=" + controls);

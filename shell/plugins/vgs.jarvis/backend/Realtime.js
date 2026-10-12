@@ -41,6 +41,15 @@ const SPEECH_CHARS = 240;
 const REPLY_BYTES = sourceLimit(false, false);
 const REPLY_LOW_BYTES = PCM_RATE * 2 * 2;
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+// The voices of audio.output.voice, as the Settings page offers them. The
+// Realtime conversations guide lists these ten and recommends marin and
+// cedar, read 2026-10-11; the first stands for the unset setting. Once the
+// session has made audio its voice cannot change, so a new voice is a new
+// session, as a changed setting ends the conversation.
+const VOICES = Object.freeze(["marin", "cedar", "alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse"]
+    .map(name => Object.freeze({ label: name[0].toUpperCase() + name.slice(1), value: name })));
+// The delegation a preview's words answer: no user request exists.
+const PREVIEW = "preview";
 
 function fail(code) { throw new Error("jarvis: live=" + code); }
 function plain(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
@@ -129,9 +138,12 @@ function eventOf(data) {
 /**
  * create({provider, clock, conversation, captionLimit, log}) returns
  * {port, captureSink, playbackSource, played, commentary, heard}. provider is the Providers.select
- * "openai-realtime" row. conversation(e) answers {net, key, language, transfer, grants} for a
+ * "openai-realtime" row. conversation(e) answers {net, key, language, voice, preview, transfer, grants} for a
  * speech-open effect: the session's net owner, null or {secrets, reference},
- * the speech language, audited transfer and current release grants. captionLimit
+ * the speech language, a value of VOICES, the sentence a preview speaks or
+ * null, audited transfer and current release grants. A preview session asks
+ * for its sentence once it starts and reports idle once Audio played it, so
+ * Session ends the conversation. captionLimit
  * is the wire's transcript bound. log receives keyed diagnostic lines. One
  * session at a time is live.
  */
@@ -356,6 +368,10 @@ function create({ provider, clock, conversation, captionLimit, log }) {
                 if (!pump(session)) return;
                 silence(session);
                 activity(session);
+                if (session.preview !== null) {
+                    session.delegation = PREVIEW;
+                    commentary(PREVIEW, Policy.item(session.preview, ["desktop"]));
+                }
                 break;
             case "activity": activity(session); break;
             case "hearing":
@@ -411,11 +427,13 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             }
         } catch (error) { failed(session, reasonOf(error)); }
     }
-    function connect(session, { net, key, language, transfer, grants }) {
+    function connect(session, { net, key, language, voice, preview, transfer, grants }) {
         session.transfer = transfer;
         session.grants = grants;
         session.language = language;
+        session.preview = preview;
         if (key === null) fail("no-key");
+        if (!VOICES.some(row => row.value === voice)) fail("voice");
         Net.assertKeyTarget(provider.base, key.reference.origin);
         session.reader = Guidance.compose("duplex", "duplex", language).instructions;
         // No tools, and create_response false: the voice has no function to
@@ -423,7 +441,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         session.update = { type: "session.update", session: { type: "realtime", output_modalities: ["audio"], tools: [],
             audio: { input: { format: FORMAT, transcription: { model: TRANSCRIBE },
                 turn_detection: { type: "semantic_vad", create_response: false, interrupt_response: false } },
-                output: { format: FORMAT } }, ...provider.noStore } };
+                output: { format: FORMAT, voice } }, ...provider.noStore } };
         const secret = key.secrets.lookup(key.reference);
         let answer;
         try {
@@ -443,10 +461,10 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         open(e, events) {
             if (live !== null) throw new Error("jarvis: live=session-live");
             const session = { op: e.op, events, state: { kind: "connecting" }, channel: null, update: null, reader: "",
-                timers: { start: null, silence: null, idle: null, gap: null, words: null },
+                timers: { start: null, silence: null, idle: null, gap: null, words: null, preview: null },
                 pending: [], pendingBytes: 0, inputAt: clock.now(), capture: null, playing: null, next: null,
                 speech: { queue: [], chars: 0, active: null }, delegation: null, said: [], taken: null,
-                segments: { user: null, assistant: null }, rev: 0, language: "" };
+                segments: { user: null, assistant: null }, rev: 0, language: "", preview: null };
             live = session;
             session.timers.start = clock.set(() => failed(session, "live=start-timeout"), START_WAIT_MS);
             try { connect(session, conversation(e)); } catch (error) { failed(session, reasonOf(error)); }
@@ -564,6 +582,11 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         if (session === null || session.op !== source || session.taken === null) return;
         session.said.push(...session.taken.marks);
         session.taken = null;
+        // Session hears Audio's played after this call; the idle report that
+        // ends a preview's conversation waits for it, on a timer of its own
+        // that the reply's close, which restarts the idle wait, leaves.
+        if (session.preview !== null && session.delegation === PREVIEW && session.next === null && quiet(session))
+            session.timers.preview = clock.set(() => { session.timers.preview = null; session.events.idle(); }, 0);
     }
 
     /**
@@ -593,4 +616,4 @@ function create({ provider, clock, conversation, captionLimit, log }) {
     return Object.freeze({ port: Object.freeze(port), captureSink, playbackSource, played, commentary, heard });
 }
 
-module.exports = { create };
+module.exports = { create, VOICES };

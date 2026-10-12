@@ -64,6 +64,10 @@ Item {
     // Quickshell builds its desktop entry index on first use and fills it
     // after that; reading it here starts the scan before a list request.
     readonly property int desktopEntryCount: DesktopEntries.applications.values.length
+    // Each opening of the Jarvis Settings page judges the home again, so the
+    // Personality row reads AGENTS.md as it is now.
+    readonly property bool pageViewed: shell !== null && shell.status.viewed
+    onPageViewedChanged: if (pageViewed) hello()
 
     onShellChanged: {
         if (shell === null) return;
@@ -85,6 +89,10 @@ Item {
                 intent("voice-check");
                 return "ok";
             });
+            // The Preview and Edit actions' screens: `kind` answers whether
+            // the preview is local or cloud, `play` speaks it.
+            shell.ipc.handle("preview-voice", step => previewVoice(step));
+            shell.ipc.handle("edit-personality", () => editPersonality());
             shell.ipc.handle("memory-confirm", text => memoryIntent("memory-confirm", text));
             shell.ipc.handle("memory-discard", text => memoryIntent("memory-discard", text));
             // The console's Stop button and `vgshell ipc call vgs.jarvis
@@ -189,7 +197,7 @@ Item {
         indicatorDelivery = { kind: "unknown" };
         const result = shell.status.set("detail", null);
         if (result !== "ok") throw new Error("jarvis: " + result);
-        for (const key of ["microphones", "speakers"]) {
+        for (const key of ["microphones", "speakers", "voices"]) {
             const cleared = shell.status.set(key, []);
             if (cleared !== "ok") throw new Error("jarvis: " + cleared);
         }
@@ -202,6 +210,10 @@ Item {
         taskResponse = null;
         const idle = shell.status.set("tasks", 0);
         if (idle !== "ok") throw new Error("jarvis: " + idle);
+        for (const key of ["voicePreview", "personality"]) {
+            const unread = shell.status.set(key, { hidden: true });
+            if (unread !== "ok") throw new Error("jarvis: " + unread);
+        }
         const memory = shell.status.set("memory", { hidden: true });
         if (memory !== "ok") throw new Error("jarvis: " + memory);
         const inbox = shell.status.set("memoryInbox", []);
@@ -388,6 +400,49 @@ Item {
             Protocol.accept(wire, "shell");
             child.write(wire + "\n");
         } catch (error) { broken(error.message); }
+    }
+
+    function previewVoice(step) {
+        if (shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running || sessionState === null)
+            return "refused: jarvis=not-ready";
+        const refusal = Session.previewRefusal(sessionState);
+        if (refusal !== null) return "refused: preview=" + refusal;
+        if (step === "kind") return sessionState.engine.kind === "duplex" ? "cloud" : "local";
+        if (step !== "play") return "refused: preview=step";
+        sendIntent("preview");
+        return "ok";
+    }
+
+    // AGENTS.md of the home the daemon judged ready, in its default application.
+    function editPersonality() {
+        if (shell === null || homeMessage.current === "") return "refused: home=none";
+        return shell.run.detached(["gio", "open", Quickshell.env("HOME") + homeMessage.current.slice(1) + "/AGENTS.md"]);
+    }
+
+    function publishPreview() {
+        const value = sessionState === null || Session.previewRefusal(sessionState) === "down" ? { hidden: true }
+            : sessionState.engine.kind === "duplex"
+            ? { tone: "info", text: "Uses your OpenAI key", hint: "A preview of the Realtime voice may cost money.", action: true }
+            : { tone: "info", text: "Plays on this computer", action: true };
+        const reply = shell.status.set("voicePreview", value);
+        if (reply !== "ok") throw new Error("jarvis: " + reply);
+    }
+
+    // The Personality row: the section's lines, or what keeps it from showing.
+    function publishPersonality(shown) {
+        const more = shown.kind === "section" && shown.more ? ["More is in AGENTS.md."] : [];
+        const value = shown.kind === "section"
+            ? Object.assign({ tone: "ok", text: shown.lines[0], action: true },
+                shown.lines.length + more.length > 1 ? { lines: shown.lines.slice(1).concat(more) } : {})
+            : shown.kind === "none" ? { tone: "info", text: "No home folder",
+                hint: "Choose a home folder first in Settings > Jarvis > Home folder." }
+            : shown.kind === "missing" ? { tone: "info", text: "No Personality section", action: true,
+                hint: "Edit opens AGENTS.md. Add a Personality heading and say how Jarvis talks under it." }
+            : shown.kind === "too-large" ? { tone: "warning", text: "AGENTS.md is too long", action: true,
+                hint: "Edit opens AGENTS.md. Make it shorter than 8 KB." }
+            : { tone: "warning", text: "AGENTS.md cannot be read", hint: "Check the home folder in Settings > Jarvis > Home folder." };
+        const reply = shell.status.set("personality", value);
+        if (reply !== "ok") throw new Error("jarvis: " + reply);
     }
 
     function stopTask(task) {
@@ -654,6 +709,15 @@ Item {
                     publishHomes(message);
                     continue;
                 }
+                if (message.type === "voices") {
+                    const reply = shell.status.set("voices", message.voices);
+                    if (reply !== "ok") throw new Error("jarvis: " + reply);
+                    continue;
+                }
+                if (message.type === "personality") {
+                    publishPersonality(message.personality);
+                    continue;
+                }
                 if (message.type === "request") {
                     serve(message);
                     continue;
@@ -744,6 +808,7 @@ Item {
                         console.warn("jarvis: fault=" + fault.reason + " kind=" + fault.kind);
                     sessionState = message.state;
                     publishShellSetup();
+                    publishPreview();
                     const result = shell.status.set("detail", { phase: message.phase, seq: message.seq, state: message.state, brain: message.brain });
                     if (result !== "ok") throw new Error("jarvis: " + result);
                     deliverMute();
@@ -776,6 +841,7 @@ Item {
         // The ended child's Session state is no longer current: neither the
         // retry wait nor a problem may show or act on it.
         sessionState = null;
+        publishPreview();
         shellStatus({ kind: "unavailable", reason: "daemon-ended" });
         const stale = shell.status.set("detail", null);
         if (stale !== "ok") throw new Error("jarvis: " + stale);

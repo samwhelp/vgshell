@@ -8,7 +8,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const { freshSuite } = require("./fixtures/jarvis/prepare.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.jarvis/JarvisProtocol.js");
 const Protocol = load(file);
-const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "",
+const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "",
     cloudVision: "ask", privateWindows: "bitwarden, incognito" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
@@ -55,6 +55,8 @@ const devices = { v: 1, type: "devices", gen: 0, revision: hello.revision,
     microphones: [{ label: "Microphone", value: "fixture.mic" }], speakers: [] };
 const homes = { v: 1, type: "homes", gen: 0, revision: hello.revision,
     homes: [{ id: "h012345abcdef", label: "~/Jarvis", value: "~/Jarvis" }], current: "~/Jarvis" };
+const voices = { v: 1, type: "voices", gen: 0, revision: hello.revision, voices: [{ label: "Heart, American English, female", value: "af_heart" }] };
+const personality = { v: 1, type: "personality", gen: 0, revision: hello.revision, personality: { kind: "section", lines: ["Calm."], more: false } };
 const level = { v: 1, type: "level", gen: 0, revision: hello.revision, level: { capture: 0.5, playback: 0 } };
 const audioFault = { v: 1, type: "audio-fault", gen: 0, revision: hello.revision, reason: "discovery-exit" };
 const request = { v: 1, type: "request", gen: 0, revision: hello.revision, id: 1, kind: "compositor.moveWindow", args: ["0xa1", -10, 20] };
@@ -177,6 +179,15 @@ const cases = [
     ["choice-duplicate", changed(devices, { microphones: devices.microphones.concat(devices.microphones) }), "daemon", "choice-duplicate"],
     ["homes-direction", JSON.stringify(homes), "shell", "direction-homes"],
     ["homes-current", changed(homes, { current: 7 }), "daemon", "home-current"],
+    ["voice-setting", changed(hello, { settings: { ...hello.settings, voice: "af_heart\n" } }), "shell", "voice-setting"],
+    ["voices-direction", JSON.stringify(voices), "shell", "direction-voices"],
+    ["voices-bound", changed(voices, { voices: Array.from({ length: 65 }, (_, n) => ({ label: "V" + n, value: "v" + n })) }), "daemon", "voices"],
+    ["voices-label", changed(voices, { voices: [{ label: "", value: "af_heart" }] }), "daemon", "voice"],
+    ["voices-duplicate", changed(voices, { voices: voices.voices.concat(voices.voices) }), "daemon", "voice-duplicate"],
+    ["personality-direction", JSON.stringify(personality), "shell", "direction-personality"],
+    ["personality-kind", changed(personality, { personality: { kind: "granted" } }), "daemon", "personality-kind"],
+    ["personality-lines", changed(personality, { personality: { kind: "section", lines: Array(25).fill("Calm."), more: true } }), "daemon", "personality-lines"],
+    ["personality-control", changed(personality, { personality: { kind: "section", lines: ["Calm.\nBrief."], more: false } }), "daemon", "personality-lines"],
     ["homes-current-path", changed(homes, { current: "/user/One" }), "daemon", "home-current"],
     ["homes-id", changed(homes, { homes: [{ ...homes.homes[0], id: "../../outside" }] }), "daemon", "home-id"],
     ["homes-id-duplicate", changed(homes, { homes: [homes.homes[0], { ...homes.homes[0], value: "~/Other" }] }), "daemon", "home-id-duplicate"],
@@ -360,9 +371,22 @@ const dueState = (() => {
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(dueState), "daemon")), JSON.stringify(dueState), "a due reply is a wire state");
 rejected(Protocol, ["state-speech-reply", JSON.stringify({ ...dueState, state: { ...dueState.state, speech: { ...dueState.state.speech, reply: { kind: "coming" } } } }),
     "daemon", "state"]);
-for (const name of ["talk-down", "talk-up", "mute", "stop", "voice-check"])
+for (const name of ["talk-down", "talk-up", "mute", "stop", "voice-check", "preview"])
     assert.equal(Protocol.accept(changed(intent, { intent: name }), "shell").intent, name);
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(say), "shell")), JSON.stringify(say));
+for (const shown of [personality, { ...personality, personality: { kind: "none" } }, { ...personality, personality: { kind: "missing" } }, voices, { ...voices, voices: [] }])
+    assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(shown), "daemon")), JSON.stringify(shown));
+// The section's text as the wire carries it: blank lines dropped, a long
+// line cut at a space into pieces of 200, tabs as spaces, 24 pieces at most.
+{
+    const long = Array(60).fill("word").join(" ");
+    const section = Protocol.personalitySection("Calm\tand brief.\n\n" + long + " " + long + "\n" + Array(30).fill("Line.").join("\n"));
+    assert.deepEqual([section.lines[0], section.lines.length, section.more], ["Calm and brief.", 24, true]);
+    assert.ok(section.lines.slice(1, 3).every(line => line.length <= 200 && !line.startsWith(" ") && !line.endsWith(" ")), "a long line splits at a space");
+    assert.equal(section.lines.slice(1).join(" ").startsWith(long + " " + long), true, "no word is lost at a cut");
+    assert.equal(Protocol.accept(changed(personality, { personality: section }), "daemon").personality.lines.length, 24);
+    assert.equal(JSON.stringify(Protocol.personalitySection("Brief.")), JSON.stringify({ kind: "section", lines: ["Brief."], more: false }));
+}
 for (const [message, direction] of [
     [taskOpen, "shell"], [{ ...taskOpen, task: "a".repeat(64) }, "shell"],
     [taskOpened, "daemon"], [{ ...taskOpened, task: "a".repeat(64), answer: "a".repeat(40) }, "daemon"],
@@ -560,7 +584,7 @@ try {
         ["key-type", 'fail("key-" + shortcut);', ';', "key-type"],
         ["intent-direction", 'if (direction !== "shell") fail("direction-intent");',
             'if (false) fail("direction-intent");', "intent-direction"],
-        ["intent-name", 'if (["talk-down", "talk-up", "mute", "stop", "voice-check"].indexOf(message.intent) === -1) fail("intent");',
+        ["intent-name", 'if (["talk-down", "talk-up", "mute", "stop", "voice-check", "preview"].indexOf(message.intent) === -1) fail("intent");',
             'if (false) fail("intent");', "intent-name"],
         ["say-shape", 'keys(message, fields.concat(["text"]), "say");', 'if (false) keys(message, fields.concat(["text"]), "say");', "say-shape"],
         ["say-text", 'if (!printable(message.text, 1, TRANSCRIPT_CHARS) || message.text.trim() === "") fail("say-text");',
@@ -583,6 +607,15 @@ try {
         ["choice-duplicate", 'if (Object.prototype.hasOwnProperty.call(seen, choice.value)) fail("choice-duplicate");',
             'if (false) fail("choice-duplicate");', "choice-duplicate"],
         ["homes-direction", 'if (direction !== "daemon") fail("direction-homes");', 'if (false) fail("direction-homes");', "homes-direction"],
+        ["voice-setting", 'fail("voice-setting");', ';', "voice-setting"],
+        ["voices-direction", 'if (direction !== "daemon") fail("direction-voices");', 'if (false) fail("direction-voices");', "voices-direction"],
+        ["voices-bound", 'message.voices.length > VOICES_MAX) fail("voices");', 'false) fail("voices");', "voices-bound"],
+        ["voices-label", 'fail("voice");', ';', "voices-label"],
+        ["voices-duplicate", 'if (Object.prototype.hasOwnProperty.call(voiced, voice.value)) fail("voice-duplicate");', ';', "voices-duplicate"],
+        ["personality-direction", 'if (direction !== "daemon") fail("direction-personality");', ';', "personality-direction"],
+        ["personality-kind", 'fail("personality-kind");', ';', "personality-kind"],
+        ["personality-lines", 'shown.lines.length > PERSONALITY_LINES', 'false', "personality-lines"],
+        ["personality-control", '!shown.lines.every(line => printable(line, 1, PERSONALITY_CHARS))', 'false', "personality-control"],
         ["homes-current", 'fail("home-current");', ';', "homes-current"],
         ["homes-id", 'fail("home-id");', ';', "homes-id"],
         ["homes-id-duplicate", 'if (Object.prototype.hasOwnProperty.call(seen, choice.id)) fail("home-id-duplicate");',
@@ -601,8 +634,8 @@ try {
         ["hello-direction", 'if (direction !== "shell") fail("direction-hello");', 'if (false) fail("direction-hello");', "hello-direction"],
         ["status-direction", 'if (direction !== "daemon") fail("direction-status");', 'if (false) fail("direction-status");', "status-direction"],
         ["shape", 'fail("shape-" + name);', ';', "hello-shape"],
-        ["settings-name", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
-            'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");', "extra-setting"],
+        ["settings-name", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home"], "settings");',
+            'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home"], "settings");', "extra-setting"],
         ["brain-type", 'typeof message.settings.brain !== "string"', 'false', "brain-setting"],
         ["model-type", 'typeof message.settings.model !== "string" || ', '', "model-type"],
         ["effort-type", ' || typeof message.settings.effort !== "string"', '', "effort-type"],
@@ -674,8 +707,8 @@ try {
         assert.equal(logic.memoryInboxEntries(Array(9).fill({ ...memoryEntry, text: "x".repeat(16 * 1024) })).length, 7));
     control("memory-inbox-filter-invalid", "if (!memoryEntryAccepted(entry)) continue;", "", logic =>
         assert.equal(logic.memoryInboxEntries([{ ...memoryEntry, problem: "other" }, memoryEntry]).length, 1));
-    control("unsupported-echo", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
-        'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
+    control("unsupported-echo", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home"], "settings");',
+        'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "home"], "settings");',
         logic => {
             for (const row of cases.filter(row => row[0].startsWith("echo-setting-"))) rejected(logic, row);
         });

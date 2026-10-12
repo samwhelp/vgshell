@@ -11,10 +11,11 @@ a UTF-8 JSON object header and the payload bytes. Audio is float32 little-endian
 mono. Ids are positive integers; each new request takes a larger id.
   in:  {type:"listen", id, detect}; {type:"wake", id}; {type:"check", id}; {type:"audio", id} + 16 kHz samples;
        {type:"end", id}; {type:"abort", id};
-       {type:"speak", id} + one sentence's UTF-8 text
+       {type:"speak", id, speaker} + one sentence's UTF-8 text
   out: {type:"ready"} once; {type:"partial", id, text, rev}; {type:"final", id, text};
        {type:"woke", id}; {type:"checked", id, result}; {type:"audio", id} + samples;
        {type:"spoken", id, rate}; {type:"failed", id?, cause}
+A speaker is the voice's index in its artifact's `speakers`, the model's sid.
 A wake request spots the keyword in its audio and answers woke once; it has no
 end, only abort. A check uses that same detector until end, then answers ready,
 silent (only zero or no samples), or not-heard. One input request is open at a time.
@@ -138,12 +139,13 @@ def detect(vad, samples, waveform):
 class Speech:
     """The loaded models of one tier and the input bound of its recognizer."""
 
-    def __init__(self, recognizer, bound, vad, tts, rate, waveform, captions, turn, spotter, keywords):
+    def __init__(self, recognizer, bound, vad, tts, rate, speakers, waveform, captions, turn, spotter, keywords):
         self.recognizer = recognizer
         self.bound = bound
         self.vad = vad
         self.tts = tts
         self.rate = rate
+        self.speakers = speakers
         self.waveform = waveform
         self.captions = captions
         self.turn = turn
@@ -172,10 +174,10 @@ class Speech:
             texts.append(text)
         return " ".join(texts)
 
-    def speak(self, text):
-        """One sentence's samples at the voice's declared rate."""
+    def speak(self, text, speaker):
+        """One sentence's samples in SPEAKER's voice at the voice's declared rate."""
         try:
-            audio = self.tts.generate(text, sid=0, speed=1.0)
+            audio = self.tts.generate(text, sid=speaker, speed=1.0)
         except (RuntimeError, ValueError) as error:
             raise Failed("synthesis-failed") from error
         if audio.sample_rate != self.rate:
@@ -324,7 +326,7 @@ def send(writer, header, payload=b""):
 SHAPES = {"listen": ({"type", "id", "detect"}, False), "wake": ({"type", "id"}, False),
           "check": ({"type", "id"}, False),
           "audio": ({"type", "id"}, True), "end": ({"type", "id"}, False),
-          "abort": ({"type", "id"}, False), "speak": ({"type", "id"}, True)}
+          "abort": ({"type", "id"}, False), "speak": ({"type", "id", "speaker"}, True)}
 
 
 def serve(reader, writer, speech):
@@ -358,10 +360,11 @@ def serve(reader, writer, speech):
                 text = payload.decode("utf-8")
             except UnicodeDecodeError:
                 raise Protocol("speak=invalid") from None
-            if not fresh or not text.strip():
+            speaker = header["speaker"]
+            if not fresh or not text.strip() or type(speaker) is not int or not 0 <= speaker < speech.speakers:
                 raise Protocol("speak=invalid")
             try:
-                rate, samples = speech.speak(text)
+                rate, samples = speech.speak(text, speaker)
             except Failed as failure:
                 send(writer, {"type": "failed", "id": ident, "cause": str(failure)})
                 continue
@@ -478,7 +481,8 @@ def load(setup, state, data):
         return judge.infer(chosen["turn"], models["turn"], np.frombuffer(samples, dtype=np.float32), "", value, np)["probability"]
     # The keyword is the one setup's probe decoded with this model.
     return Speech(models["stt"], chosen["stt"].get("maxInputSamples"), models["vad"], models["tts"],
-                  chosen["tts"]["outputSampleRate"], lambda samples: np.frombuffer(samples, dtype=np.float32),
+                  chosen["tts"]["outputSampleRate"], len(chosen["tts"]["speakers"]),
+                  lambda samples: np.frombuffer(samples, dtype=np.float32),
                   models["captions"], turn, models["wake"], value["fixture"]["wakeTokens"])
 
 

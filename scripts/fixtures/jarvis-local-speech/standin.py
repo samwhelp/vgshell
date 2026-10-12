@@ -195,7 +195,7 @@ while True:
         else:
             send({"type": "failed", "id": ident, "cause": action["failed"]})
     elif kind == "speak":
-        record({"speak": ident, "text": payload.decode()})
+        record({"speak": ident, "text": payload.decode(), "speaker": header["speaker"]})
         action = speech.pop(0)
         if action.get("stall"):
             continue

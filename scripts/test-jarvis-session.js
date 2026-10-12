@@ -13,7 +13,8 @@ const copy = value => JSON.parse(JSON.stringify(value));
 const events = ["snapshot", "indicator", "talk-down", "talk-up", "toggle", "mute", "unmute", "mute-toggle", "stop",
     "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial", "final", "say", "collect-failed", "brain-done",
     "brain-failed", "brain-ended", "cancelled", "play", "played", "flushed", "tool", "tool-done", "approval",
-    "shown", "confirm", "approval-cancel", "deadline", "lease-ended", "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "wake", "voice-check", "voice-checked", "voice-check-failed"];
+    "shown", "confirm", "approval-cancel", "deadline", "lease-ended", "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "wake", "voice-check", "voice-checked", "voice-check-failed",
+    "preview"];
 assert.deepEqual(copy(Session.EVENTS), events, "every supported event enters the pair matrix");
 const snapshot = extra => ({ type: "snapshot", at: 0, locked: false, engine: "chained", configured: true,
     settings: {}, ...extra });
@@ -478,6 +479,58 @@ const table = [
         unchanged("busy-turn", thinking(logic), "busy");
         unchanged("busy-action", acting(logic), "busy");
         unchanged("busy-cancel", step(logic, thinking(logic), event("cancel", 50)).state, "busy");
+    }],
+    // A local preview is a turn of its own with no user words: the engine
+    // speaks its fixed sentence, Session admits the playback as a reply's.
+    ["preview-local", logic => {
+        for (const [label, s] of [["idle", ready(logic)], ["between turns", between(logic)], ["always armed", alwaysArmed(logic)]]) {
+            assert.equal(logic.previewRefusal(s), null, label);
+            let r = step(logic, s, event("preview", 50));
+            const send = r.effects.find(e => e.kind === "brain-send");
+            assert.ok(send, label + ": the engine is asked for the sentence");
+            assert.deepEqual([send.preview, send.text, r.state.turn.kind, r.state.turn.op, r.state.conversation.kind],
+                [true, undefined, "thinking", send.op, "active"], label);
+            assert.equal(r.state.gen, s.conversation.kind === "ended" ? s.gen + 1 : s.gen, label + ": a new conversation takes a new gen");
+            assert.equal(kinds(r).includes("transcript"), false, label + ": a preview is no user turn");
+            assert.equal(r.state.capture.kind === "open" || r.state.capture.kind === "opening", false, label + ": no microphone opens");
+            r = step(logic, r.state, callback("play", r.state.turn, 51, { interruptible: true }));
+            assert.deepEqual([r.state.playback.kind, r.state.playback.source], ["playing", send.op], label + ": the sentence plays");
+        }
+    }],
+    ["preview-refusals", logic => {
+        const unchanged = (label, s, key) => {
+            assert.equal(logic.previewRefusal(s), key, label);
+            assert.deepEqual(step(logic, s, event("preview", 20)), { state: copy(s), effects: [] }, label);
+        };
+        unchanged("down", logic.initial(), "down");
+        unchanged("muted", step(logic, ready(logic), event("mute", 10)).state, "muted");
+        unchanged("listening", listening(logic), "busy");
+        unchanged("thinking", thinking(logic), "busy");
+        unchanged("speaking", speaking(logic), "busy");
+        unchanged("held", held(logic), "busy");
+        unchanged("acting", acting(logic), "busy");
+        unchanged("follow-up window", alwaysFollowUp(logic), "busy");
+        unchanged("duplex conversation", duplexListening(logic), "busy");
+        let checking = step(logic, logic.initial(), snapshot({ checkReady: true })).state;
+        checking = step(logic, step(logic, checking, event("indicator", 1, { shown: true })).state, event("voice-check", 20)).state;
+        assert.equal(checking.check.kind, "waiting");
+        unchanged("microphone check", checking, "busy");
+    }],
+    // A duplex preview opens the voice's session alone, with no capture;
+    // the voice's idle report after the sentence ends the conversation.
+    ["preview-duplex", logic => {
+        const s = duplexReady(logic);
+        let r = step(logic, s, event("preview", 50));
+        const open = r.effects.find(e => e.kind === "speech-open");
+        assert.ok(open, "the voice's session opens");
+        assert.deepEqual([open.preview, r.state.speech.op, r.state.conversation.kind, r.state.gen, r.state.turn.kind],
+            [true, open.op, "active", s.gen + 1, "none"]);
+        assert.equal(kinds(r).includes("capture-open"), false, "no microphone opens");
+        r = step(logic, r.state, callback("speak", r.state.speech, 51));
+        assert.equal(r.effects.find(e => e.kind === "playback-start").source, open.op, "the voice's sentence plays");
+        r = step(logic, r.state, callback("played", r.state.playback, 52));
+        r = step(logic, r.state, callback("speech-idle", r.state.speech, 53));
+        assert.deepEqual([r.state.conversation.kind, r.effects.find(e => e.kind === "speech-close").target], ["ended", open.op]);
     }],
     ["relay-idle", logic => {
         const s = between(logic);
@@ -2161,6 +2214,7 @@ try {
         ["end-gen", 's.gen++;\n        s.conversation = { kind: "ended" };', 's.gen += 0;\n        s.conversation = { kind: "ended" };', "end-generation"],
         ["settings", 'a[key] !== b[key]', '(false && a[key] !== b[key])', "settings-model"],
         ["settings-voice-account", '"account", "voiceAccount"]', '"account"]', "settings-voiceAccount"],
+        ["settings-voice", '"voiceProvider", "voice", "language"', '"voiceProvider", "language"', "settings-voice"],
         ["settings-home", '"customBaseUrl", "home", "policy"', '"customBaseUrl", "policy"', "settings-home"],
         ["settings-effort", '"model", "effort", "fallbacks", "customBaseUrl"', '"model", "fallbacks", "customBaseUrl"', "settings-effort"],
         ["settings-fallbacks", '"effort", "fallbacks", "customBaseUrl"', '"effort", "customBaseUrl"', "settings-fallbacks"],
@@ -2283,6 +2337,13 @@ try {
             '    if (!canEngage(s)) return;\n    s.toggleAt = at;\n    interrupt(', "always-talk", "on a fault"]
     );
     mutants.push(
+        ["preview-judge", 'case "preview":\n        if (previewRefusal(s) !== null) break;', 'case "preview":', "preview-refusals"],
+        ["preview-turn-busy", 'return "muted";\n    if (s.turn.kind !== "none" || ', 'return "muted";\n    if (', "preview-refusals"],
+        ["preview-check", '|| ["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1\n            || s.engine.kind === "duplex"', '|| s.engine.kind === "duplex"', "preview-refusals"],
+        ["preview-duplex-busy", ' || s.engine.kind === "duplex" && s.conversation.kind !== "ended") return "busy";', ') return "busy";', "preview-refusals"],
+        ["preview-gen", 'if (s.conversation.kind === "ended") s.gen += 1;', '', "preview-local"],
+        ["preview-turn", '} else think(s, effects, { preview: true }, e.at);', '}', "preview-local"],
+        ["preview-duplex-open", 'effect(s, effects, "speech-open", { preview: true });', 'effect(s, effects, "speech-open", {});', "preview-duplex"],
         ["say-judge", 'case "say":\n        if (sayRefusal(s) !== null) break;', 'case "say":', "say-refusals"],
         ["say-recover", 'recover(s, effects, e.at);\n        commitUserText(s, effects, e.text, e.at, 1, false);', 'commitUserText(s, effects, e.text, e.at, 1, false);', "say-recovers"],
         ["say-speaking", 'if (s.playback.kind !== "idle") return "speaking";', 'if (false) return "speaking";', "say-refuses-speaking"],

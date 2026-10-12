@@ -36,6 +36,8 @@ const TURN = 65536;
 const IDLE = 60000;
 const APPEND = "input_audio_buffer.append";
 const SPEAK = "response.create";
+// The sentence the rig, standing in for the engine, hands a preview session.
+const PREVIEW_LINE = "A fixture preview sentence.";
 const CLIENT = { "session.update": "SessionUpdateEvent", [APPEND]: "InputAudioBufferAppendEvent", [SPEAK]: "ResponseCreateEvent" };
 const SERVER = { "session.created": "SessionCreatedEvent", "session.updated": "SessionUpdatedEvent",
     "input_audio_buffer.speech_started": "InputAudioBufferSpeechStartedEvent",
@@ -206,7 +208,7 @@ world(async () => {
     }
 
     // thinking keeps each brain turn open: its port never reports done.
-    function rig(kit, { key = "own", mode = "hold", synchronousClose = false, redirect = false, thinking = false } = {}) {
+    function rig(kit, { key = "own", mode = "hold", synchronousClose = false, redirect = false, thinking = false, voice = "marin" } = {}) {
         const clock = manual();
         const w = { id: ++conversations, kit, clock, played: [], flushes: 0, transcripts: [], logs: [], collected: [], sink: null,
             source: null, handed: [], backlog: null, delegations: [], tools: 0, starts: 0, judged: [], approvals: [],
@@ -238,7 +240,8 @@ world(async () => {
         } };
         const engine = kit.Live.create({ provider: kit.Providers.select("openai-realtime"), clock,
             captionLimit: Protocol.TRANSCRIPT_CHARS, log: line => w.logs.push(line),
-            conversation: () => ({ net, key: key === null ? null : { secrets, reference }, language: "",
+            conversation: e => ({ net, key: key === null ? null : { secrets, reference }, language: "", voice,
+                preview: e.preview === true ? PREVIEW_LINE : null,
                 transfer: (item, start) => { w.judged.push(item); return start(); }, grants: () => [] }) });
         w.engine = engine;
         const ports = kit.Runner.unavailable();
@@ -375,7 +378,7 @@ world(async () => {
         assert.deepEqual(update.session, { type: "realtime", output_modalities: ["audio"], tools: [], tracing: null,
             audio: { input: { format: { type: "audio/pcm", rate: 24000 }, transcription: { model: "gpt-live-transcribe" },
                 turn_detection: { type: "semantic_vad", create_response: false, interrupt_response: false } },
-                output: { format: { type: "audio/pcm", rate: 24000 } } } });
+                output: { format: { type: "audio/pcm", rate: 24000 }, voice: "marin" } } });
         w.sink.write(Buffer.alloc(4800, 5));
         await turn();
         assert.equal(conn.count(APPEND), 0, "no audio before session.updated");
@@ -425,6 +428,33 @@ world(async () => {
         assert.equal(w.state.fault.kind, "none");
         quiet(w, conn);
         return { w, conn };
+    }
+
+    // A preview opens the voice's session with no capture and in the chosen
+    // voice, asks for its one sentence with no user turn, and reports idle
+    // once Audio played it, so Session ends the conversation.
+    async function preview(kit) {
+        const w = rig(kit, { voice: "cedar" });
+        w.dispatch("preview");
+        const conn = await main.accept(w);
+        conn.play("created");
+        assert.equal((await conn.event("session.update")).session.audio.output.voice, "cedar", "the chosen voice speaks");
+        assert.equal(w.sink, null, "no microphone opens");
+        conn.play("updated");
+        const spoken = await conn.event(SPEAK);
+        assert.equal(spoken.response.instructions,
+            kit.Guidance.compose("duplex", "duplex", "").instructions + "\n\n" + JSON.stringify(PREVIEW_LINE), "the preview's sentence, exactly");
+        conn.play("reply-old");
+        await until(() => bytes(w, 0x11) === 1440, "the sentence reaches playback");
+        conn.play("done-old");
+        await mark(w, conn, "done");
+        w.clock.advance(500);
+        await until(() => w.state.playback.kind === "idle", "the sentence plays out");
+        assert.equal(w.state.conversation.kind, "active", "Session hears the sentence played before the voice reports idle");
+        w.clock.advance(0);
+        await until(() => w.state.conversation.kind === "ended", "the played preview ends the conversation");
+        assert.deepEqual([w.delegations.length, w.tools, w.state.fault.kind], [0, 0, "none"], "a preview asks no brain and starts nothing");
+        quiet(w, conn);
     }
 
     // Idle is 60 s with no user speech or transcript, no words for the voice,
@@ -1286,7 +1316,7 @@ world(async () => {
         const heldReply = new Promise(resolve => { releaseReply = resolve; });
         try {
             send({ type: "hello", settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain, model: "", effort: "", fallbacks: [], taskTerminal: "auto",
-                cloudVision: "ask", privateWindows: "", voiceProvider: "realtime", voiceAccount: live }, directories, locked: false,
+                cloudVision: "ask", privateWindows: "", voiceProvider: "realtime", voiceAccount: live, voice: "" }, directories, locked: false,
                 keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } });
             await wait(() => last()?.gate.kind === "up", "the configured Realtime voice raises the daemon gate");
             assert.equal(last().engine.kind, "duplex");
@@ -1446,7 +1476,7 @@ world(async () => {
         }
     }
 
-    const cases = { roundTrip, idle, idleRestarts, idleTurn, idleThinking, idleApproval, closing, captions, interruptPlaying,
+    const cases = { roundTrip, preview, idle, idleRestarts, idleTurn, idleThinking, idleApproval, closing, captions, interruptPlaying,
         interruptQueued, replacedReply, heardAccount, replyDue, replyDueCarried, releaseDue, labels, failures, unread, redirect,
         startTimeout, responseTimeout, keys, opening, releaseLifetime, pacing, replyQueue, backlog, delegation, lineQueue, violations,
         daemonDelegation, daemonStale: kit => daemonDelegation(kit, "stale"), daemonRelease: kit => daemonDelegation(kit, "release"),
@@ -1473,6 +1503,9 @@ world(async () => {
         const mutations = [
             ["no-tools", "output_modalities: [\"audio\"], tools: [],", 'output_modalities: ["audio"], tools: [{ type: "function", name: "files_delete" }],', as("roundTrip")],
             ["no-own-answer", "create_response: false", "create_response: true", as("roundTrip")],
+            ["no-voice", "output: { format: FORMAT, voice } }", "output: { format: FORMAT } }", as("preview")],
+            ["no-preview", "commentary(PREVIEW, Policy.item(session.preview, [\"desktop\"]));", "", as("preview")],
+            ["preview-unended", "session.timers.preview = clock.set(() => { session.timers.preview = null; session.events.idle(); }, 0);", "void session;", as("preview")],
             ["no-trace", "...provider.noStore } };", "} };", as("roundTrip")],
             ["out-of-band", 'response: { conversation: "none", ', "response: { ", as("roundTrip")],
             ["exact-words", '+ "\\n\\n" + JSON.stringify(words.text)', '+ "\\n\\n" + JSON.stringify("")', as("roundTrip")],

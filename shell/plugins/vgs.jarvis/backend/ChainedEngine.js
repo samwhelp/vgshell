@@ -28,9 +28,10 @@ const TaskVoice = require("./TaskVoice.js");
 const Redact = require("./Redact.js");
 
 // Speech adapter rows in selection order. A row is {select({settings,
-// accounts, directories})} answering {kind:"ready", recipients, open({net,
-// recipients})} or {kind:"unconfigured", cause, detail?}. The ElevenLabs row
-// adds its own.
+// accounts, directories})} answering {kind:"ready", recipients, voices,
+// open({net, recipients})} or {kind:"unconfigured", cause, detail?}, voices
+// its {label, value} offers, whose index is the speaker its adapter's speak
+// takes. The ElevenLabs row adds its own.
 const SPEECH = Object.freeze({ local: LocalSpeech.row });
 const DRIVERS = Object.freeze({ "openai-chat": OpenAIChat, "anthropic-messages": AnthropicMessages,
     "codex-app-server": CodexHarness, "copilot-acp": CopilotHarness, "pi-rpc": PiHarness, "claude-code": ClaudeCode });
@@ -53,6 +54,8 @@ const RELEASE_EFFECT = "external";
 const WORKING_AFTER_MS = 1200;
 // Owner ruling VGS-1320: longer than a few seconds gets one spoken progress line per stated step.
 const PROGRESS_AFTER_MS = 4000;
+// The one sentence a voice preview speaks.
+const PREVIEW_LINE = "This is how I sound when I answer you.";
 
 function earcon(kind) {
     const frames = PCM_RATE * (kind === "start" ? 80 : 120) / 1000;
@@ -68,6 +71,14 @@ function earcon(kind) {
 
 function fail(code) { throw new Error("jarvis: engine=" + code); }
 function unconfigured(cause, detail) { return detail === undefined ? { kind: "unconfigured", cause } : { kind: "unconfigured", cause, detail }; }
+// The index in VOICES, a speech row's {label, value} offers, of the voice
+// SETTING names. The first offer stands for the unset setting
+// (docs/architecture/design-system.md § Settings pages), and so for a voice
+// of another provider, which this row cannot speak.
+function voiceIndex(voices, setting) {
+    const at = voices.findIndex(voice => voice.value === setting);
+    return at === -1 ? 0 : at;
+}
 // Session's fault carries the producer's keyed cause, never other text.
 function keyed(error) {
     const message = error?.message ?? "";
@@ -215,12 +226,13 @@ function selectVoice(settings, accounts, directories) {
         const reference = account.source.reference;
         Net.assertKeyTarget(provider.base, reference.origin);
         return { kind: "ready", id: "openai-realtime", provider, key: { secrets: judge.secrets, reference },
+            voices: Realtime.VOICES, voice: Realtime.VOICES[voiceIndex(Realtime.VOICES, settings.voice)].value,
             recipients: [{ kind: "network", provider: account.provider, account: account.id, origin: Net.endpoint(provider.base).origin }] };
     }
     let speech = unconfigured("speech=no-adapter");
     for (const [id, row] of Object.entries(SPEECH)) {
         const answer = row.select({ settings, accounts, directories });
-        if (answer.kind === "ready") return { ...answer, id };
+        if (answer.kind === "ready") return { ...answer, id, speaker: voiceIndex(answer.voices, settings.voice) };
         if (answer.kind !== "unconfigured") fail("speech-row");
         if (speech.cause === "speech=no-adapter") speech = answer;
     }
@@ -378,7 +390,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         try {
             if (plan.speech.id === "openai-realtime") {
                 c.live = Realtime.create({ provider: plan.speech.provider, clock, captionLimit,
-                    log, conversation: e => ({ net: c.net, key: plan.speech.key, language: LANGUAGE,
+                    log, conversation: e => ({ net: c.net, key: plan.speech.key, language: LANGUAGE, voice: plan.speech.voice,
+                        preview: e.preview === true ? PREVIEW_LINE : null,
                         grants: () => c.grants, transfer: (item, start) => transfer(c, e, item, start) }) });
                 c.speech = { close: () => c.live.port.release() };
             } else {
@@ -587,7 +600,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             }
         }, async return() { ended = true; return { value: undefined, done: true }; } }; } };
         async function pump() {
-            const output = c.speech.speak(sentenceInput)[Symbol.asyncIterator]();
+            const output = c.speech.speak(sentenceInput, c.plan.speech.speaker)[Symbol.asyncIterator]();
             try {
                 for (;;) {
                     const step = await output.next();
@@ -1083,9 +1096,13 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             brain.send(turn.fast.e, turn.done);
             return;
         }
+        fixedLine(c, turn, FAST_LINES[outcome]);
+    }
+    // Jarvis's own words as the whole turn: spoken, captioned and done.
+    function fixedLine(c, turn, text) {
         try {
             const line = Speakable.create(LANGUAGE);
-            for (const sentence of [...line.push(FAST_LINES[outcome]), ...line.finish()]) say(c, turn, sentence);
+            for (const sentence of [...line.push(text), ...line.finish()]) say(c, turn, sentence);
             if (turn.stopped) return;
             turn.phase = "done";
             c.turn = null;
@@ -1201,6 +1218,15 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     const brain = {
         send(e, done) {
             const c = current(e.gen);
+            // A voice preview: one fixed sentence in the chosen voice, never
+            // a brain request. As a relay line it leaves the brain no heard
+            // prefix, and as a done one no task line to report back.
+            if (e.preview === true) {
+                const turn = relayTurn(c, e, done, { ask: null, line: null, done: true });
+                turn.labels.add("desktop");
+                fixedLine(c, turn, PREVIEW_LINE);
+                return;
+            }
             if (e.relay !== undefined) {
                 const turn = relayTurn(c, e, done, { ask: e.relay.ask, line: e.relay.ask === null ? e.relay.text : null, done: false });
                 void relayLine(c, turn, e.relay.text, e.relay.ask === null ? ["desktop"] : ["agent"]);
@@ -1526,6 +1552,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         },
         playback, brain,
         engine() { return plan.kind === "ready" && plan.speech.id === "openai-realtime" ? "duplex" : "chained"; },
+        // The selected voice provider's offers for the Voice setting; none
+        // while no speech row is ready.
+        voices() { return plan.speech?.kind === "ready" ? plan.speech.voices : []; },
         answering() {
             const current = conversation !== null ? conversation.plan.brain : plan.kind === "ready" ? plan.brain : null;
             return current === null ? "" : brainLabel(current);

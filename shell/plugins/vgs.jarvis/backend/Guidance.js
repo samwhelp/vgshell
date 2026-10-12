@@ -78,6 +78,25 @@ function homeLayers(home) {
     return out;
 }
 
+/**
+ * The `## Personality` section of the home's AGENTS.md, which the Settings
+ * page shows: {kind: "section", text} with its text up to the next heading
+ * of level one or two, {kind: "missing"} for no such heading or no text
+ * under it, or {kind: "too-large"}. Every brain reads the section with the
+ * rest of AGENTS.md through compose; this read only shows it.
+ */
+function personality(home) {
+    const agents = Home.read(home, "AGENTS.md", MAX_LAYER_BYTES);
+    if (agents.kind !== "text") return { kind: "too-large" };
+    const lines = agents.text.split("\n");
+    const start = lines.findIndex(line => /^##\s+Personality\s*$/i.test(line.trim()));
+    if (start === -1) return { kind: "missing" };
+    const rest = lines.slice(start + 1);
+    const end = rest.findIndex(line => /^#{1,2}\s/.test(line));
+    const text = (end === -1 ? rest : rest.slice(0, end)).join("\n").trim();
+    return text === "" ? { kind: "missing" } : { kind: "section", text };
+}
+
 /** Compose only the layers assigned to this consumer by the voice contract. */
 function compose(engine, brainClass, language, home = null) {
     if (engine !== "chained" && engine !== "duplex") throw new Error("jarvis: guidance=engine");
@@ -108,4 +127,4 @@ function compose(engine, brainClass, language, home = null) {
         withHome: folder => compose(engine, brainClass, language, folder) });
 }
 
-module.exports = { compose };
+module.exports = { compose, personality };

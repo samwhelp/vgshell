@@ -479,7 +479,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     child.stdin.on("error", e => { if (e.code !== "EPIPE") throw e; });
     const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
     const hello = (locked = false) => send({ type: "hello", locked,
-        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: ending === "brain" || ending.startsWith("check-") ? "" : "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", cloudVision: "ask", privateWindows: "bitwarden" },
+        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: ending === "brain" || ending.startsWith("check-") ? "" : "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", cloudVision: "ask", privateWindows: "bitwarden" },
         keys: { talk: null, mute: null, stop: null, confirm: null, console: null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     const intent = name => send({ type: "intent", intent: name });
     const before = server.requests.length;
@@ -658,7 +658,7 @@ async function alwaysTalk(server, ending = "ready", edits = []) {
     const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
     const hello = () => send({ type: "hello", locked: false,
         settings: { home: "", sounds: false, mode: "always", microphone: "", speaker: "", brain: "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto",
-            voiceProvider: ending === "refused" ? "realtime" : "local", voiceAccount: "", cloudVision: "ask", privateWindows: "bitwarden" },
+            voiceProvider: ending === "refused" ? "realtime" : "local", voiceAccount: "", voice: "", cloudVision: "ask", privateWindows: "bitwarden" },
         keys: { talk: null, mute: null, stop: null, confirm: null, console: null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     hello();
     const before = server.requests.length;
@@ -1750,6 +1750,33 @@ async function cases(kit, server, only = null) {
         assert.equal(control.opened[1].recipients.brain.account, "other-account");
     });
 
+    // A preview speaks one fixed sentence in the chosen voice with no brain
+    // request, and a changed voice ends the conversation, as a changed
+    // provider does: a Realtime voice cannot change once it has spoken.
+    await run("voice-preview", async w => {
+        const before = w.server.requests.length;
+        w.runner.dispatch({ type: "preview" });
+        await until(() => control.spoken.length === 1, "the preview speaks");
+        await playOut(w);
+        assert.deepEqual([control.speakers, w.server.requests.length], [[0], before], "the first voice, no brain request");
+        const first = await say(w, utterance("Remember blue."));
+        server.replies.push(text(""));
+        await requested(w, first + 1, "first request");
+        await until(() => w.s().turn.kind === "none", "the first turn completes");
+        const old = control.opened[0];
+        const gen = w.s().gen;
+        w.configure({ ...w.s().settings, voice: "other" });
+        await assert.rejects(old.net.request({ content: "x", labels: ["speech"] }, { url: "http://127.0.0.1:" + PORT + "/v1" }),
+            { message: "jarvis: net=closed" }, "the voice change closes the conversation's transport");
+        assert.deepEqual([w.s().conversation.kind, w.s().gen > gen], ["ended", true]);
+        // The ended turn's acknowledgement is flushed first; a preview waits for a quiet speaker.
+        await until(() => w.s().playback.kind === "idle", "the ended conversation's playback is flushed");
+        w.runner.dispatch({ type: "preview" });
+        await until(() => control.spoken.filter(line => line === control.spoken[0]).length === 2, "the preview speaks again");
+        await playOut(w);
+        assert.deepEqual([control.speakers.at(-1), control.spoken.at(-1)], [1, control.spoken[0]], "the same sentence in the new voice");
+    });
+
     // Release markers: a remote speech recipient makes the set non-offline,
     // so a clipboard result travels as its marker and the ask is audited.
     await run("release-markers", async w => {
@@ -2533,7 +2560,7 @@ async function checkFailures(file) {
         const owner = { status: () => ({ kind: "ready" }), closed: new Promise(() => {}),
             spot: () => ({ outcome }), close() {} };
         const local = { row: { select: () => ({ kind: "ready", lifetime: "daemon", wake: true,
-            recipients: [], open: () => owner }) } };
+            recipients: [], voices: [], open: () => owner }) } };
         const exported = { exports: {} };
         vm.runInNewContext(fs.readFileSync(file, "utf8"), { module: exported, Buffer, setTimeout, clearTimeout,
             require: name => name === "./LocalSpeech.js" ? local : actual(name) });
@@ -2804,6 +2831,8 @@ world(async () => {
             ["line-refused-retry", "if (c.live === null && turn.lineStream !== null) {",
                 "if (c.live === null && (turn.lineStream !== null || turn.pendingLine !== null)) {", "progress-after-refused-line"],
             ["line-flush-heard", 'report === null || flushedLine ? "" : withoutLinePrefix', 'report === null ? "" : withoutLinePrefix', "line-held-reply-interrupt"],
+            ["preview-speaker", "c.speech.speak(sentenceInput, c.plan.speech.speaker)", "c.speech.speak(sentenceInput, 0)", "voice-preview"],
+            ["preview-unspoken", "fixedLine(c, turn, PREVIEW_LINE);", 'turn.done("brain-done");', "voice-preview"],
         ];
         for (const [name, needle, replacement, scenario] of plants) {
             // The copy asserts its match outside the measured run.
