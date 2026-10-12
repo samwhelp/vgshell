@@ -120,12 +120,15 @@ jarvis_console_tasks_tab_check() { expect_poll "the tab bar reaches Tasks" '[[3,
 jarvis_console_stop_check() { expect_poll "Stop sends the selected fixture id" "$1" jarvis_console_intent task-stop; }
 jarvis_console_audit_check() { expect_poll "Audit draws the fixture failure" shown jarvis_console_audit; }
 jarvis_console_tasks_path() {
+  expect_poll "Conversation has composer focus before its tab switch" true jarvis_console_text_field_focused
   type_keys -M ctrl -k Tab -m ctrl || fail "switching to Tasks failed"
   jarvis_console_tasks_tab_check
   expect_poll "Tasks takes keyboard focus" true jarvis_console_body_focused
 }
 jarvis_console_stop_path() {
-  local intents_before
+  local intents_before first_fixture
+  first_fixture="$(jarvis_console_fixture_task 0)"
+  expect_poll "the Tasks cursor starts on the newest fixture" "$first_fixture" jarvis_console_selected
   intents_before="$(jarvis_console_intent_count task-stop)"
   type_keys -k Down || fail "selecting the second task by keyboard failed"
   expect_poll "Down moves the cursor to the second task" "$second_task" jarvis_console_selected
@@ -311,6 +314,7 @@ PY_CONTROL
   jarvis_enable
   jarvis_console_open
   hold_barrier
+  expect_poll "the mutant Conversation has composer focus before switching" true jarvis_console_text_field_focused
   type_keys -M ctrl -k Tab -m ctrl || fail "switching the mutant Tasks tab failed"
   case "$jarvis_console_mutant" in
     tabs) expect "control: dropping Tasks breaks the tab assertion" 1 jarvis_console_tab_control ;;
@@ -322,6 +326,8 @@ PY_CONTROL
       expect "control: sending the first id breaks the selected-task assertion" 1 jarvis_console_stop_control "$second_task"
       ;;
     audit)
+      jarvis_console_tasks_tab_check
+      expect_poll "the Audit control starts with Tasks focus" true jarvis_console_body_focused
       type_keys -M ctrl -k Tab -m ctrl || fail "switching the mutant Audit tab failed"
       expect "control: empty audit data breaks the failure assertion" 1 jarvis_console_audit_control
       ;;
