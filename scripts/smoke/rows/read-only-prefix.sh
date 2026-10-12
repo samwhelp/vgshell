@@ -97,6 +97,14 @@ PY
 tree_snapshot "$readonly_dest/usr" >"$sandbox/read-only-before.txt"
 
 installed_bin="$readonly_dest/usr/bin/vgshell"
+# Jarvis holds `dictation`, so an enablement this row leaves on makes it a
+# holder in every later row.
+read_only_jarvis_before="$(plugin_enabled vgs.jarvis)" || read_only_jarvis_before=unread
+read_only_jarvis_as_received() {
+  local got
+  got="$(plugin_enabled vgs.jarvis)" || return
+  if [[ $got == "$read_only_jarvis_before" ]]; then echo received; else echo "changed $got"; fi
+}
 if stop_shell && start_shell "$readonly_dest/usr" "$sandbox/read-only-qs.log" bar PATH="$signal_shim:$shell_start_path" VGS_READ_ONLY_SIGNAL_LOG="$signal_log"; then
   ok "the shell starts from a non-writable installed prefix"
 fi
@@ -203,12 +211,21 @@ else
     *) fail "the read-only prefix diff could not be read: status=$diff_status" ;;
   esac
 fi
+case "$read_only_jarvis_before" in
+  True) ;;
+  False)
+    expect "control: with no restore, Jarvis's enablement reads changed" "changed True" read_only_jarvis_as_received
+    expect "Jarvis is disabled again as the row found it" ok ipc shell setPluginEnabled vgs.jarvis false
+    ;;
+  *) fail "Jarvis's enabled state before the row: got $read_only_jarvis_before" ;;
+esac
 chmod -R u+w -- "$readonly_dest/usr"
 read_only_prefix_check_installed_log "$instance_log"
 jarvis_notice_close
 # Later rows edit the sandbox tree, so they must run its shell again.
 if stop_shell && start_shell "$repo" "$sandbox/read-only-restored-qs.log"; then
   ok "the read-only prefix row restores the repository shell"
+  expect_poll "the restored shell has Jarvis's enablement as the row received it" received read_only_jarvis_as_received
 else
   fail "the read-only prefix row could not restore the repository shell"
 fi

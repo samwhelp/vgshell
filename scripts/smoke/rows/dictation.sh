@@ -7,6 +7,8 @@
 #
 # The fixtures acme.dictation and acme.dictation-other hold the capability
 # and drive it over IPC. Rows, on the tree:
+# - a holder other than the fixtures, which an earlier row left, ends the
+#   row with one failure that names it;
 # - with no holder, the sandbox holds no stand-in process;
 # - a holder starts one daemon and one follower, children of the shell;
 # - one `text` request hands the stand-in's words to the stop's callback
@@ -114,11 +116,26 @@ dictation_end_left() {
   for pid in $(dictation_processes pids); do kill -TERM "$pid" 2>/dev/null || true; done
 }
 
+# Holders of the dictation lending record, read as JSON on stdin, that are
+# not this row's fixtures; `none` for none.
+dictation_strangers() { py_reply 'import json,sys; print(",".join(h for h in (json.load(sys.stdin) or []) if h not in sys.argv[1:]) or "none")' acme.dictation acme.dictation-other; }
+expect "control: a holder outside the fixtures is named" vgs.jarvis dictation_strangers <<<'["acme.dictation", "vgs.jarvis"]'
+
 rescan "rescan after adding the dictation fixtures answers ok"
 expect_poll "the dictation fixture is discovered" True plugin_known acme.dictation
 expect_poll "the second dictation fixture is discovered" True plugin_known acme.dictation-other
 if ! dictation_stand_ins on; then
   fail "the shell does not resolve voxtype to the stand-in: $(shell_resolves voxtype)"
+  dictation_stand_ins off
+  return 0
+fi
+# A holder an earlier row left would fail every lending check below, so
+# the row names it once and ends.
+dictation_others="$(lent holders.dictation | dictation_strangers)" || dictation_others="unread: $dictation_others"
+if [[ $dictation_others == none ]]; then
+  ok "no plugin outside the row's fixtures holds dictation"
+else
+  fail "no plugin outside the row's fixtures holds dictation: got $dictation_others"
   dictation_stand_ins off
   return 0
 fi
