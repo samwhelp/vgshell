@@ -101,21 +101,34 @@ def downloads(artifact):
             for name, digest in artifact["files"].items()]
 
 
-def verify(value, root, artifacts):
-    """Verify the actual archives and direct inference inputs before loading."""
+def pinned(path, digest):
+    """Refuse a local input that is missing or is not the manifest's bytes."""
+    if not path.is_file():
+        raise Unavailable(f"input=missing path={path}")
+    if sha256(path) != digest:
+        raise ValueError(f"input=hash-mismatch path={path}")
+
+
+def verify_inputs(root, artifacts):
+    """Verify what a model load reads and open no archive: each pinned file,
+    and that each auxiliary directory exists. The archive pins an auxiliary
+    directory's bytes, which `verify` compares."""
     for artifact in artifacts:
         directory = root / relative(artifact["directory"])
-        inputs = [(root / path, digest) for _, path, digest in downloads(artifact)]
-        if "url" in artifact:
-            inputs += [(directory / relative(name), digest) for name, digest in artifact["files"].items()]
-        for path, digest in inputs:
-            if not path.is_file():
-                raise Unavailable(f"input=missing path={path}")
-            if sha256(path) != digest:
-                raise ValueError(f"input=hash-mismatch path={path}")
+        for name, digest in artifact["files"].items():
+            pinned(directory / relative(name), digest)
         for name in artifact.get("auxiliaryDirectories", []):
             if not (directory / relative(name)).is_dir():
                 raise Unavailable(f"auxiliary=missing id={artifact['id']} path={name}")
+
+
+def verify(value, root, artifacts):
+    """Verify the actual archives and direct inference inputs before loading."""
+    verify_inputs(root, artifacts)
+    for artifact in artifacts:
+        if "url" in artifact:
+            pinned(root / Path(urlparse(artifact["url"]).path).name, artifact["sha256"])
+        for name in artifact.get("auxiliaryDirectories", []):
             # The archive hash pins dictionaries and espeak data too. Compare
             # the local auxiliary bytes to that archive, not merely its URL.
             prefix = f"{artifact['directory']}/{name}/"

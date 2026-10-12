@@ -158,8 +158,8 @@ class Setup(unittest.TestCase):
     def not_ready(self):
         self.assertNotEqual(self.report()["tone"], "ok")
 
-    def mutant(self, needle, replacement):
-        path = self.plugin / "setup-local"
+    def mutant(self, needle, replacement, name="setup-local"):
+        path = self.plugin / name
         text = path.read_text()
         self.assertEqual(text.count(needle), 1, needle)
         changed = text.replace(needle, replacement)
@@ -344,6 +344,108 @@ class Setup(unittest.TestCase):
         self.mutant(needle, 'if False and ' + needle[3:])
         self.ready()
         (self.plugin / "setup-local").write_text((PLUGIN / "setup-local").read_text())
+
+    def auxiliary(self):
+        """The small tier's artifact with an auxiliary directory, and that
+        directory's installed file."""
+        artifact = next(a for a in self.spec["artifacts"]
+                        if a["id"] in self.spec["tiers"]["small"]["artifacts"] and a.get("auxiliaryDirectories"))
+        return artifact, self.data / "models" / artifact["directory"] / artifact["auxiliaryDirectories"][0] / "data"
+
+    def test_status_binds_installed_model_bytes_and_controls(self):
+        artifact, auxiliary = self.auxiliary()
+        pinned = self.data / "models" / artifact["directory"] / next(iter(artifact["files"]))
+        unbound = ("if not previous:", "if False and not previous:")
+        unverified = ('judge.verify_inputs(data / "models", artifacts)',
+                      'False and judge.verify_inputs(data / "models", artifacts)')
+        for name, path, control in (("auxiliary file changed", auxiliary, unbound),
+                                    ("pinned file changed", pinned, unverified),
+                                    ("auxiliary file added", auxiliary.with_name("added"), unbound)):
+            with self.subTest(case=name):
+                self.install()
+                self.ready()
+                path.write_bytes(b"not the installed bytes")
+                self.not_ready()
+                # The copy without the rule installs, then reads the same defect ready.
+                self.mutant(*control)
+                self.install()
+                path.write_bytes(b"not the installed bytes")
+                self.assertEqual(self.report()["tone"], "ok", "must-fail control stayed green: " + name)
+                (self.plugin / "setup-local").write_text((PLUGIN / "setup-local").read_text())
+
+    def test_status_opens_no_archive_and_install_still_checks_it(self):
+        self.install()
+        artifact, _ = self.auxiliary()
+        (self.data / "models" / Path(artifact["url"]).name).write_bytes(b"not an archive")
+        self.ready()
+        # A copy whose status read runs the archive check cannot read this ready.
+        self.mutant('judge.verify_inputs(data / "models", artifacts)', 'judge.verify(value, data / "models", artifacts)')
+        self.not_ready()
+        (self.plugin / "setup-local").write_text((PLUGIN / "setup-local").read_text())
+        self.reset_calls()
+        self.install()
+        self.ready()
+        self.assertEqual([call[-1] for call in self.calls() if call[0] == "curl"], [artifact["url"]])
+
+    def version_1_marker(self, memory):
+        """The marker the version 1 setup-local published for the installed
+        small tier, built from that format and not by the copy under test."""
+        by_id = {artifact["id"]: artifact for artifact in self.spec["artifacts"]}
+        inputs = {"provider": "cpu", "cudaWheel": {"python": self.spec["runtimes"]["sherpa-onnx"]["cudaWheel"]["python"]},
+                  "artifacts": [{key: by_id[name][key] for key in ("id", "url", "sha256", "directory")}
+                                for name in self.spec["tiers"]["small"]["artifacts"]]}
+        venv = self.data / "venv"
+        files = [(name, self.plugin / name) for name in (
+            "requirements-local.lock", "requirements-local-cpu.lock",
+            self.spec["fixture"]["audio"], self.spec["fixture"]["transcript"])]
+        files += [("venv/" + str(path.relative_to(venv)), path) for path in sorted(venv.rglob("*"))
+                  if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"]
+        digest = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode() + b"\0")
+        for name, path in files:
+            digest.update(name.encode() + b"\0" + hashlib.sha256(path.read_bytes()).hexdigest().encode() + b"\0")
+        digest.update(str((venv / "bin/python").resolve()).encode())
+        return {"schemaVersion": 1, "tier": "small", "data": str(self.data.resolve()),
+                "inputs": digest.hexdigest(), "memory": memory}
+
+    def test_version_1_marker_migrates_in_place_and_controls(self):
+        self.install()
+        marker = self.state / "local-ready.json"
+        current = json.loads(marker.read_text())
+        self.assertEqual(current["schemaVersion"], 2)
+        old = self.version_1_marker(current["memory"])
+        marker.write_text(json.dumps(old))
+        self.ready()
+        self.assertEqual(json.loads(marker.read_text()), current)
+        self.assertEqual(marker.stat().st_mode & 0o777, 0o600)
+        self.assertEqual([path.name for path in self.state.glob(".local-ready-*")], [])
+        # A second read publishes nothing: a publication replaces the file.
+        published = marker.stat().st_ino
+        self.ready()
+        self.assertEqual(marker.stat().st_ino, published)
+        # Not ready, and left as planted: an unknown version, a version 1
+        # marker whose tier fails the version 2 judge, and one whose own
+        # identity no longer holds.
+        artifact, _ = self.auxiliary()
+        pinned = self.data / "models" / artifact["directory"] / next(iter(artifact["files"]))
+        installed = self.data / "venv/installed"
+        for name, planted, path in (("unknown version", dict(current, schemaVersion=3), None),
+                                    ("version 2 judge", old, pinned),
+                                    ("version 1 identity", old, installed)):
+            with self.subTest(case=name):
+                marker.write_text(json.dumps(planted))
+                original = path.read_bytes() if path else None
+                if path:
+                    path.write_bytes(original + b"changed")
+                self.not_ready()
+                self.assertEqual(json.loads(marker.read_text()), planted)
+                if path:
+                    path.write_bytes(original)
+        # The copy that skips the version 1 identity migrates that marker.
+        self.mutant('data, previous=True):\n        raise ValueError("marker=stale")',
+                    'data, previous=True) and False:\n        raise ValueError("marker=stale")')
+        installed.write_bytes(installed.read_bytes() + b"changed")
+        self.ready()
+        self.assertEqual(json.loads(marker.read_text())["schemaVersion"], 2)
 
     def test_install_reuses_verified_models_and_redownloads_only_corrupt_model(self):
         self.install()
@@ -1187,7 +1289,8 @@ class Setup(unittest.TestCase):
         # clone row's tier verdict as the marker gives it.
         self.large()
         self.assertEqual(self.clone_tui("clone-voice.sh", ["yes", "yes"]).returncode, 0)
-        tier_model = next(path for path in (self.data / "models").rglob("*") if path.is_file())
+        artifact = next(a for a in self.spec["artifacts"] if a["id"] == self.spec["tiers"]["large"]["artifacts"][0])
+        tier_model = self.data / "models" / artifact["directory"] / next(iter(artifact["files"]))
         tier_model.write_bytes(b"corrupt")
         self.not_ready()
         self.assertEqual(self.clone_status()["tone"], "ok")

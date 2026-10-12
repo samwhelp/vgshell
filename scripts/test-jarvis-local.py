@@ -320,14 +320,13 @@ class LocalContract(unittest.TestCase):
         self.assertIn("input=hash-mismatch path=" + str(self.models / "onnx/graph.onnx"), result.stderr)
         (self.models / "onnx/graph.onnx").unlink()
         self.assertEqual(self.command(mode="--verify").returncode, 77)
-        # A copy that reads a per-file row's archive cannot verify it.
+        # A copy that reads a per-file row's archive cannot list its files.
         text = SOURCE.read_text()
         needle = '    if "url" in artifact:\n        return [(artifact["url"]'
         self.assertEqual(text.count(needle), 1)
         self.program.write_text(text.replace(needle, '    if True:\n        return [(artifact["url"]'))
-        result = self.command(mode="--verify")
-        self.assertEqual(result.returncode, 1)
-        self.assertNotIn("measure-local: inputs=", result.stdout)
+        with self.assertRaises(KeyError):
+            self.load_module().downloads(row)
 
     def test_runtimes_follow_the_environment_and_control(self):
         # VGS-1384 point 3: the clone environment holds onnxruntime-gpu and

@@ -264,13 +264,16 @@ def identity_inputs(value, tier):
     }
 
 
-def identity(judge, tier, data):
+def identity(judge, tier, data, previous=False):
     """Bind readiness to bytes that decide the installed runtime and models.
 
     The digest uses selected artifact URLs and hashes, lock and fixture bytes,
-    installed runtime files and the resolved interpreter. Display text and
-    setup code are excluded: each status read still verifies the models, the
-    fixture and the installed runtime identity.
+    installed runtime files, the resolved interpreter and every installed
+    file of the selected artifacts' auxiliary directories. The manifest pins
+    no auxiliary file: install compares them with their archive just before
+    it takes this identity, and a status read holds them to it. Display text
+    and setup code are excluded. PREVIOUS gives the version 1 identity, which
+    bound no auxiliary file; only the migration asks for it.
     """
     value = judge.manifest(HERE / "artifacts.json")
     hashed_files = [
@@ -279,7 +282,14 @@ def identity(judge, tier, data):
         (value["fixture"]["audio"], HERE / value["fixture"]["audio"]),
         (value["fixture"]["transcript"], HERE / value["fixture"]["transcript"]),
     ]
-    return {"schemaVersion": 1, "tier": tier, "data": str(data.resolve()),
+    if not previous:
+        models = data / "models"
+        for artifact in selected(value, tier)[0]:
+            for name in artifact.get("auxiliaryDirectories", []):
+                hashed_files += [("models/" + str(path.relative_to(models)), path)
+                                 for path in sorted((models / artifact["directory"] / name).rglob("*"))
+                                 if path.is_file()]
+    return {"schemaVersion": 1 if previous else 2, "tier": tier, "data": str(data.resolve()),
             "inputs": installed(judge, identity_inputs(value, tier), hashed_files, data / "venv")}
 
 
@@ -358,6 +368,21 @@ def shared(path):
             yield False
             return
         yield True
+
+
+def publish(marker, value):
+    """Write VALUE as the marker MARKER, whole or not at all."""
+    # mkstemp creates the file exclusively with mode 0600.
+    with tempfile.NamedTemporaryFile(mode="w", dir=marker.parent, prefix="." + marker.stem + "-",
+                                     delete=False) as output:
+        temporary = Path(output.name)
+        try:
+            json.dump(value, output)
+            output.flush()
+            os.fsync(output.fileno())
+            temporary.replace(marker)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def room(data, need, advice):
@@ -444,15 +469,7 @@ def install(judge, state, data, tier, reading):
             if ready != identity(judge, tier, data):
                 raise ValueError("runtime=changed-during-probe")
             ready["memory"] = need
-            with tempfile.NamedTemporaryFile(mode="w", dir=state, prefix=".local-ready-", delete=False) as output:
-                temporary = Path(output.name)
-                try:
-                    json.dump(ready, output)
-                    output.flush()
-                    os.fsync(output.fileno())
-                    temporary.replace(marker)
-                finally:
-                    temporary.unlink(missing_ok=True)
+            publish(marker, ready)
         except BaseException:
             remove_runtime(data)
             kept = stored(data)
@@ -461,6 +478,20 @@ def install(judge, state, data, tier, reading):
                   "the next setup reuses them.", file=sys.stderr)
             raise
         print("jarvis-setup: ready=" + tier, flush=True)
+
+
+def migrated(judge, saved, data):
+    """The version 2 marker for the version 1 marker SAVED.
+
+    Version 1 bound no auxiliary file and compared them with their archive
+    on each status read. This binds the auxiliary bytes installed now, while
+    the rest of SAVED's identity still holds, and opens no archive: the
+    service ends a status read long before an archive comparison finishes.
+    """
+    if {key: item for key, item in saved.items() if key != "memory"} != identity(
+            judge, saved["tier"], data, previous=True):
+        raise ValueError("marker=stale")
+    return dict(identity(judge, saved["tier"], data), memory=saved["memory"])
 
 
 def status(judge, state, data):
@@ -479,11 +510,17 @@ def status(judge, state, data):
             tier = saved["tier"]
             value = judge.manifest(HERE / "artifacts.json")
             artifacts, _ = selected(value, tier)
+            previous = saved["schemaVersion"] == 1
+            if previous:
+                saved = migrated(judge, saved, data)
             judge.validate_memory(saved["memory"], value["tiers"][tier]["provider"])
             if {key: item for key, item in saved.items() if key != "memory"} != identity(judge, tier, data):
                 raise ValueError("marker=stale")
             judge.clip(value)
-            judge.verify(value, data / "models", artifacts)
+            judge.verify_inputs(data / "models", artifacts)
+            # Only a marker this read judged ready replaces the version 1 one.
+            if previous:
+                publish(marker, saved)
             return {"tone": "ok", "text": "Ready: " + tier, "action": False}
         except (ValueError, KeyError, TypeError, OSError, judge.Unavailable):
             return {"tone": "warning", "text": "Setup needs verification", "action": True}
@@ -655,15 +692,7 @@ def clone_record(judge, state, data, source):
             if ready != clone_identity(judge, value, data, reference):
                 raise ValueError("runtime=changed-during-probe")
             ready["memory"] = need
-            with tempfile.NamedTemporaryFile(mode="w", dir=state, prefix=".clone-ready-", delete=False) as output:
-                temporary = Path(output.name)
-                try:
-                    json.dump(ready, output)
-                    output.flush()
-                    os.fsync(output.fileno())
-                    temporary.replace(marker)
-                finally:
-                    temporary.unlink(missing_ok=True)
+            publish(marker, ready)
         except BaseException:
             reference.unlink(missing_ok=True)
             raise
@@ -692,10 +721,9 @@ def clone_status(judge, state, data, tier):
     """The cloned voice's one readiness judge. Ready only while the marker
     matches the installed identity and the recording, the model verifies, the
     recording is this user's 0600 file and TIER holds: whether the ready tier
-    runs on the graphics card, which the caller judged. A tier verification
-    takes tens of seconds, so this judge runs none of its own. `recording`
-    and `tierReady` are for SetupGate, which shapes the published row:
-    Remove while a recording exists, else Set up."""
+    runs on the graphics card, which the caller judged: this judge verifies
+    no tier of its own. `recording` and `tierReady` are for SetupGate, which
+    shapes the published row: Remove while a recording exists, else Set up."""
     value = judge.manifest(HERE / "artifacts.json")
     have = recorded(state)
 
