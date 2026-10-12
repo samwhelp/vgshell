@@ -105,8 +105,8 @@
 # floor Jarvis holds them to, Pi chosen as the AI model: the Details tab
 # at its Browser driver line, the driver's line of its Requirements
 # section, the Setup section, each on the tab the tree draws it on, and the
-# screen after the driver line's step is pressed, the core's requirement
-# notice where the tree offers that step, over a stand-in bin/vgshell-pkg
+# core's requirement notice that Install all missing raises, its missing
+# and outdated packages, over a stand-in bin/vgshell-pkg
 # that answers pacman, paru and mise whatever the host runs, and that
 # notice once a run of its step that changed nothing has ended, taken only
 # when named; jarvis-fleet is the Settings tab's Setup section with a
@@ -3660,10 +3660,11 @@ scene_jarvis-fleet() { # MODE
 # copies its stand-ins when the daemon starts (scripts/lib/jarvis-env.sh),
 # so its Pi is written before Jarvis is enabled, and the shell's scan reads
 # the same program from the sandbox PATH. Pi's folder is added to the
-# account list by hand and chosen as the AI model. The driver line's step
-# is asked for through the Settings window's own act; a tree that offers no
-# step there refuses it, and its third shot is the page with no notice.
-# Where the notice shows, its step is then run: the stand-in terminal runs
+# account list by hand and chosen as the AI model. The notice is raised as
+# the Requirements section's Install all missing raises it, through the
+# Settings window's installRequirements; a notice that does not show fails
+# the scene and takes no notice shot.
+# Its step is then run: the stand-in terminal runs
 # the update as `true`, which ends with code 0, the driver stays below its
 # floor, and the last shot is the notice that comes back.
 scene_outdated() { # MODE
@@ -3717,12 +3718,11 @@ EOF_PKG
   ! "$has_setup_tab" || jarvis_anchor_shot "outdated-$1-requirement" Label agent-browser
   expect_poll "the Jarvis Setup section draws its rows for the outdated scene" True jarvis_setup_drawn
   jarvis_anchor_shot "outdated-$1-setup" SectionHeader Setup
-  expected_errors+=('settings: vgs.jarvis/browserDriver refused: action=browserDriver reason=not-offered')
-  ipc smoke invokeInstance "$settings_kind" vgs.settings act '{"id":"vgs.jarvis","key":"browserDriver"}' >/dev/null || fail "the driver line's step could not be asked for"
-  for _ in $(seq 1 25); do [[ $(layer_count vgs:notice) == 1 ]] && break; sleep 0.2; done
-  park_pointer
-  take "outdated-$1-notice"
+  expect "Install all missing is answered for the outdated scene" ok ipc smoke invokeInstance "$settings_kind" vgs.settings installRequirements vgs.jarvis
+  expect_poll "Jarvis's requirement notice shows for the outdated scene" 1 layer_count vgs:notice
   if [[ $(layer_count vgs:notice) == 1 ]]; then
+    park_pointer
+    take "outdated-$1-notice"
     terminal_stand_in
     forget_record
     expect_poll "the driver's notice holds the keyboard for its step" true ipc smoke noticeFocused
