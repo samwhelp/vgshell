@@ -180,6 +180,7 @@ mutations=(
   "a removal takes one of several lines|../Core/KeyCapture.qml|if (rows.length !== 1) { done(|if (rows.length === 0) { done(|tst_keycapture.qml"
   "an undo reads no line the removal printed|../Core/KeyCapture.qml|undo: JSON.parse(m[1]) };|undo: null };|tst_keycapture.qml"
   "an undo moves no later line|../Core/KeyCapture.qml|root.shiftRemoved(row.file, m === null ? row.line : Number(m[1]), 1);|{}|tst_keycapture.qml"
+  "a configure write from a change handler is told in place|../Core/Config.qml|        if (publishing) {|        if (false) {|tst_config_writes.qml"
   "a removal moves no later line|../Core/KeyCapture.qml|root.shiftRemoved(row.file, row.line + 1, -1);|{}|tst_keycapture.qml"
   "an undo runs twice|../Core/KeyCapture.qml|root.releaseUserBind(token);|;|tst_keycapture.qml"
   "a released undo is kept|../Core/KeyCapture.qml|delete removedBinds.rows[token];|;|tst_keycapture.qml"

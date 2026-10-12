@@ -56,9 +56,7 @@ Item {
     }
     onCurrentIntervalMsChanged: schedule()
     onRebootStepChanged: publishNow()
-    // The change arrives inside the core's write of the user file, which a
-    // nested write there loses, so the request is taken after it.
-    onRebootRequestChanged: Qt.callLater(takeRebootRequest)
+    onRebootRequestChanged: takeRebootRequest()
     // Only a run that ends after this instance first read the state starts
     // a check: `shell` arrives with every run an earlier instance saw end,
     // and this handler can run before onShellChanged does, so the first read

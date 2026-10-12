@@ -7,9 +7,13 @@ import "PluginLogic.js" as Logic
 
 // Shell configuration: the shipped defaults under config/ merged with the
 // user's file. Both files are watched; a change re-derives `effective`
-// once. Each file's state is one tagged value. A file that does not parse
-// or fails PluginLogic.configError keeps the last good value and logs the
-// error, so a typo never blanks the desktop; a user file in that state
+// once. Each file's state is one tagged value. A read or a write commits
+// the file's text, state and value before any reader is told, and readers
+// are told only through publish(), so a write made from a handler of that
+// change builds on it, and its own change is told after the one in flight.
+// A file that does not parse or fails PluginLogic.configError keeps the
+// last good value and logs the error, so a typo never blanks the desktop;
+// a user file in that state
 // blocks writes until it passes again, so a manager edit never overwrites
 // unread edits. Nothing is built before `ready`: the shipped file has
 // loaded once and the user file has settled, so a bar never draws from the
@@ -41,9 +45,9 @@ Singleton {
     // shipped file's state while it has never loaded ("pending" until its
     // first answer, then the failure that stays until the file is fixed),
     // "pending" while the user file has not settled.
-    readonly property string notReady: shipped === null ? shippedState : (userState === "pending" ? "pending" : "")
+    readonly property string notReady: publishedNotReady
     readonly property bool ready: notReady === ""
-    readonly property var effective: shipped === null ? ({}) : Logic.effectiveConfig(shipped, user)
+    readonly property var effective: publishedEffective
     // The effective `appearance` as JSON text, "" before `ready` or when
     // the file sets none, which Theme resolves over the theme. Text, so an
     // edit of another key, which replaces `effective`, compares equal and
@@ -51,6 +55,45 @@ Singleton {
     readonly property string appearanceText: ready && Logic.isPlainObject(effective.appearance) ? JSON.stringify(effective.appearance) : ""
 
     Binding { target: Theme; property: "appearanceInput"; value: root.appearanceText }
+
+    // What readers see, assigned by publish() alone, and the shipped and
+    // user values the merge was made from.
+    property string publishedNotReady: "pending"
+    property var publishedEffective: ({})
+    property var mergedShipped: null
+    property var mergedUser: null
+    property bool publishing: false
+    property bool republish: false
+
+    // Tell readers the committed state: `effective` when the shipped or the
+    // user value changed, then `notReady`, so the configuration turns ready
+    // with its merge in place. A reader's handler runs inside the
+    // assignment that told it, while the bindings between are still
+    // updating, and Qt refuses to update a binding again from there: it
+    // logs "Binding loop detected" and keeps the value it had, as
+    // tst_config_writes.qml showed under qmltestrunner 6.11.2 with
+    // `effective` a binding over `user`. A publish asked meanwhile, by a
+    // write from such a handler, is therefore marked and runs once the
+    // assignment returns.
+    function publish() {
+        if (publishing) {
+            republish = true;
+            return;
+        }
+        publishing = true;
+        do {
+            republish = false;
+            if (mergedShipped !== shipped || mergedUser !== user) {
+                mergedShipped = shipped;
+                mergedUser = user;
+                publishedEffective = shipped === null ? ({}) : Logic.effectiveConfig(shipped, user);
+                if (republish) continue;
+            }
+            const notReadyNow = shipped === null ? shippedState : (userState === "pending" ? "pending" : "");
+            if (publishedNotReady !== notReadyNow) publishedNotReady = notReadyNow;
+        } while (republish);
+        publishing = false;
+    }
 
     // Judge one file's text: { state, value, migrated } with `value` only
     // when loaded. With `migrate`, the user file's case, the parsed value is
@@ -84,10 +127,12 @@ Singleton {
                 root.shippedText = content;
             }
             root.shippedState = r.state;
+            root.publish();
         }
         onLoadFailed: error => {
             console.error("config: shipped defaults unreadable at " + path + ": " + error);
             root.shippedState = "unreadable";
+            root.publish();
         }
     }
 
@@ -104,17 +149,21 @@ Singleton {
                 return;
             }
             const r = root.judge(path, content, true);
-            if (r.state === "loaded") {
-                root.user = r.value;
-                root.userText = content;
-            }
+            if (r.state === "loaded") root.userText = content;
             root.userState = r.state;
-            // Written once, so the next read finds this version's file.
+            // Written once, so the next read finds this version's file, and
+            // before it is published, which writeUser does, so a write
+            // made during that publish is not overwritten.
             if (r.migrated) {
                 const written = root.writeUser(r.value);
-                if (written === "ok") console.info("config: user file migrated: file=" + path + " version=" + Logic.CONFIG_VERSION);
-                else console.error("config: user file migrated in memory, not written: file=" + path + " version=" + Logic.CONFIG_VERSION + " refusal=" + written);
+                if (written === "ok") {
+                    console.info("config: user file migrated: file=" + path + " version=" + Logic.CONFIG_VERSION);
+                    return;
+                }
+                console.error("config: user file migrated in memory, not written: file=" + path + " version=" + Logic.CONFIG_VERSION + " refusal=" + written);
             }
+            if (r.state === "loaded") root.user = r.value;
+            root.publish();
         }
         onLoadFailed: error => {
             root.saveError = "";
@@ -126,6 +175,7 @@ Singleton {
                 console.error("config: user file unreadable at " + path + ": " + error);
                 root.userState = "unreadable";
             }
+            root.publish();
         }
         onSaveFailed: error => {
             console.error("config: user file not written at " + path + ": " + error);
@@ -144,8 +194,10 @@ Singleton {
     // Replace the user file whole. Refused unless the file was read or is
     // absent, so an unparseable, malformed or unreadable file is never
     // overwritten unread, and after a write the disk refused until the file
-    // is read again. `ok` means the file holds the value. Returns `ok` or
-    // the keyed refusal.
+    // is read again. `ok` means the file holds the value. A write from a
+    // handler publish() runs is on the file before it answers, and its
+    // change is told after the one in flight. Returns `ok` or the keyed
+    // refusal.
     function writeUser(value) {
         if (userState !== "loaded" && userState !== "absent") return "refused: user-config=" + userState + " path=" + userPath;
         if (saveError !== "") return "refused: user-config=unwritable path=" + userPath + " error=" + saveError;
@@ -156,6 +208,7 @@ Singleton {
         user = value;
         userText = content;
         userState = "loaded";
+        publish();
         return "ok";
     }
 
