@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The provider table against its vendors' documentation. No request is made.
 "use strict";
-const { assert, path, backend, world, control } = require("./fixtures/jarvis-voice/assertions.js");
+const { assert, fs, path, backend, world, control } = require("./fixtures/jarvis-voice/assertions.js");
 const Providers = require(path.join(backend, "Providers.js"));
 
 // Pinned independently of the table: base URL, key need, image input and
@@ -103,6 +103,29 @@ assert.throws(() => Providers.assertRow({ ...Providers.select("openai") }), { me
 assert.throws(() => Providers.select("openai").noStore.store = true, TypeError);
 
 let controls = 0;
+// Every call through a network door is a provider request, and each one
+// carries its provider row's noStore fields under its own test: the wire
+// brain in test-jarvis-brain-openai.js (no-store), the voice engine in
+// test-jarvis-live.js (no-trace) and the key check in
+// test-jarvis-account-verify.js (verify-no-store). Door holders are the
+// names Net.create's result is assigned to; a door passed on under another
+// name is not found.
+const NO_STORE_SITES = ["Accounts.js:request", "Realtime.js:websocket", "WireBrain.js:request"];
+function doorSites(sources) {
+    const holders = new Set(sources.flatMap(([, text]) => [...text.matchAll(/\b(\w+) = Net\.create\(/g)].map(match => match[1])));
+    assert.ok(holders.has("door") && holders.has("net"), "door holders are discovered");
+    return sources.flatMap(([name, text]) => [...text.matchAll(/\b(\w+)\.(request|websocket)\(/g)]
+        .filter(match => holders.has(match[1])).map(match => name + ":" + match[2])).sort();
+}
+
+// noStore reaches every provider request: each call site below is the one
+// place its body is built, and each one's own test holds the merge.
+const sources = fs.readdirSync(backend).filter(name => name.endsWith(".js") && name !== "net.js")
+    .map(name => [name, fs.readFileSync(path.join(backend, name), "utf8")]);
+assert.deepEqual(doorSites(sources), NO_STORE_SITES, "every provider request site is named with its no-store test");
+assert.notDeepEqual(doorSites([...sources, ["Planted.js", "await net.request(item, options, grants);"]]), NO_STORE_SITES,
+    "an unnamed door call turns the inventory red");
+
 world("providers", root => {
     const mutants = [
         ["anthropic-driver", 'driver: "anthropic-messages"', 'driver: "openai-chat"', pinned],
