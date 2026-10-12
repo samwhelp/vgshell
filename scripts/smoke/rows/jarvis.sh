@@ -138,6 +138,7 @@ jarvis_reject_timeout_start() {
 
 # The cards from Jarvis as [title, tone, icon].
 jarvis_cards() { plugin_cards Jarvis | py_reply 'import json,sys; print(json.dumps([[r[0], r[3], r[4]] for r in json.load(sys.stdin)]))'; }
+jarvis_unsent() { log_lines 'notify: unsent plugin=vgs\.jarvis '; }
 
 jarvis_revision() {
   ipc shell listPlugins | py_reply 'import json,sys; print(next(p["revision"] for p in json.load(sys.stdin)["plugins"] if p["id"] == "vgs.jarvis"))'
@@ -1115,10 +1116,18 @@ assert s.count(needle)==1
 p.write_text(s.replace(needle, 'void wire;'))
 PY
 jarvis_rescan
+# The timeout after the fifth retry sends the stopped notice, so a notifications
+# holder draws it. Each unsent check counts only the lines its own case
+# adds to the shell log, from a mark taken before the case.
+notes_on "jarvis hello-less daemon"
+jarvis_unsent_mark="$(jarvis_unsent)" || { fail "the shell log is unreadable before the hello-less daemon"; jarvis_unsent_mark=unread; }
 expect "the hello-less daemon fixture enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "the hello-less daemon names the first failed start" retry-words jarvis_start_retry_words
 expect_poll "the hello-less daemon reads problem with words" problem-words jarvis_start_problem_words
+expect_poll "the hello-less daemon sends one Jarvis notification" '[["Jarvis did not answer in time", "danger", "mic"]]' jarvis_cards
+expect "the hello-less daemon logs no unsent notice" "$jarvis_unsent_mark" jarvis_unsent
 expect "the hello-less daemon service disables" ok ipc shell setPluginEnabled vgs.jarvis false
+notes_off "jarvis hello-less daemon"
 cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
 jarvis_rescan
 
@@ -1165,10 +1174,11 @@ jarvis_rescan
 notes_on "jarvis permanent stop"
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --floor-daemon "$jarvis_backend"
 jarvis_rescan
+jarvis_unsent_mark="$(jarvis_unsent)" || { fail "the shell log is unreadable before the permanent stop"; jarvis_unsent_mark=unread; }
 expect "the unsupported Node fixture enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "Node exit 78 is a permanent problem without retries" permanent jarvis_permanent
 expect_poll "the permanent stop sends one Jarvis notification" '[["Jarvis needs Node 22 or later", "danger", "mic"]]' jarvis_cards
-expect "the permanent stop logs no unsent notice" 0 log_lines 'notify: unsent plugin=vgs\.jarvis '
+expect "the permanent stop logs no unsent notice" "$jarvis_unsent_mark" jarvis_unsent
 expect "the unsupported Node service disables" ok ipc shell setPluginEnabled vgs.jarvis false
 python3 - "$jarvis_service" <<'PY'
 from pathlib import Path
