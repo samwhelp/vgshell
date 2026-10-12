@@ -45,6 +45,9 @@ function suite(ctx, check) {
   check("canvas size floors cells", ctx.canvasSize(2560, 1440, 15, 32), { columns: 170, rows: 45 });
   check("newest frame drops older rows", ctx.newestFrame(["old"], ["new"]), ["new"]);
   check("background drops alpha for ttfx", ctx.backgroundHex("#ff102030"), "#102030");
+  check("empty art is the logo", ctx.artFile("", "/state/art.txt"), "");
+  check("image art reads the converted text", [ctx.artFile("/a/b.PNG", "/state/art.txt"), ctx.artFile("/a/b.svg", "/state/art.txt")], ["/state/art.txt", "/state/art.txt"]);
+  check("text art is read as it is", ctx.artFile("/a/art.txt", "/state/art.txt"), "/a/art.txt");
   check("random command uses random flag", ctx.command("/art", "random", 30, 80, 24, "#000000").slice(-1), ["--random-effect"]);
   check("named command passes the effect", ctx.command("/art", "beams", 30, 80, 24, "#000000").slice(-1), ["beams"]);
   const exits = ctx.createExitState();
@@ -78,6 +81,7 @@ const controls = [
   ["same raw row with changed carried colour reparses", "state.rawRows[i] === raw && state.colorsIn[i] === color", "state.rawRows[i] === raw"],
   ["same colour run is merged", "if (next !== KEEP_COLOR && next !== current) {", "if (next !== KEEP_COLOR) {"],
   ["colour cache is bounded", "if (state.cacheSize > COLOR_CACHE_MAX) {", "if (false) {"],
+  ["image art reads the converted text", "return isArtImage(value) ? converted : value;", "return value;"],
   ["quick exits stop respawn", "if (state.quickExits >= QUICK_EXIT_LIMIT) {", "if (false) {"],
 ];
 

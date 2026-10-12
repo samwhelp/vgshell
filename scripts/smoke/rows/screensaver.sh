@@ -24,16 +24,11 @@ cp -- "$repo/scripts/smoke/fixtures/screensaver-ttfx" "$shim/ttfx"
 chmod 755 "$shim/ttfx"
 state_text() { ipc smoke statusValues vgs.screensaver | py_reply 'import json,sys; v=json.load(sys.stdin).get("state",{}); print(v.get("text","missing"))'; }
 lock_order() { ipc smoke statusValues vgs.screensaver | py_reply 'import json,sys; v=json.load(sys.stdin).get("lockOrder"); print("absent" if v is None else json.dumps([v.get("tone"), v.get("text")]))'; }
-art_status() { ipc smoke statusValues vgs.screensaver | py_reply 'import json,sys; v=json.load(sys.stdin).get("art",{}); print(v.get("text","missing"))'; }
+art_status() { ipc smoke statusValues vgs.screensaver | py_reply 'import json,sys; v=json.load(sys.stdin).get("art"); print("absent" if v is None else v.get("text"))'; }
+art_setting() { python3 -c 'import json,sys; row=next((r for r in json.load(open(sys.argv[1])).get("plugins",[]) if r.get("id")=="vgs.screensaver"),{}); print(row.get("art",""))' "$ss_config"; }
 cover_count() { layer_count vgs:cover; }
 output_count() { hypr -j monitors | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 standin_alive() { pgrep -f -- "$shim/ttfx" >/dev/null && echo yes || echo no; }
-plant_art_record() {
-  local dir="$rt_dir/vgshell/tui" run="smoke-stale-art"
-  mkdir -p -- "$dir"
-  printf '{"key":"vgs.screensaver/art","run":"%s","state":"ended","code":0,"startedAt":"2026-10-06T00:00:00Z","endedAt":"2026-10-06T00:00:01Z","window":{"appId":"org.vgshell.tui.vgs.screensaver.art","title":"Screensaver art"}}\n' "$run" >"$dir/vgs.screensaver@art@$run.ended.json"
-}
-tui_art_loaded() { ipc shell lent | py_reply 'import json,sys; slot=json.load(sys.stdin)["tui"]["runs"].get("vgs.screensaver/art"); print(slot is not None and slot.get("ended") is not None)'; }
 set_screensaver() { # JSON
   python3 - "$ss_config" "$1" <<'PY'
 import json, os, sys
@@ -52,18 +47,13 @@ PY
 }
 set_screensaver '{"idleEnabled": false, "idleSeconds": 2, "effect": "planted", "frameRate": 30}'
 expect "reload config for screensaver settings" ok ipc shell reloadConfig
-expect "disabling screensaver before stale art record is allowed" ok ipc shell setPluginEnabled vgs.screensaver false
-plant_art_record
-expect_poll "the planted art run is loaded" True tui_art_loaded
 expect "enabling screensaver for its row is allowed" ok ipc shell setPluginEnabled vgs.screensaver true
-sleep 1
-expect "a stale art run does not start the cover" 0 layer_count vgs:cover
 expect "disabling lock before screensaver checks is allowed" ok ipc shell setPluginEnabled vgs.lock false
 rescan "rescan after adding ttfx stand-in answers ok"
 expect_poll "screensaver service is built" True record_exists vgs.screensaver
 choices() { ipc smoke statusValues vgs.screensaver | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("effects", [])))'; }
 expect_poll "effect choices come from ttfx help" '[{"label": "Random", "value": "random"}, {"label": "planted", "value": "planted"}, {"label": "beams", "value": "beams"}]' choices
-expect_poll "default art status is truthful" "Default art" art_status
+expect_poll "the VGS logo shows no art problem" absent art_status
 expect "enabling lock for lock order status is allowed" ok ipc shell setPluginEnabled vgs.lock true
 set_screensaver '{"idleEnabled": true, "idleSeconds": 2}'
 expect "lock order reload before ok status" ok ipc shell reloadConfig
@@ -211,21 +201,51 @@ mkdir -p -- "$art_dir"
 fixture="$sandbox/screensaver-fixture.png"
 expected="$sandbox/screensaver-expected.txt"
 magick -size 4x4 xc:none -fill black -draw 'point 0,0 point 1,1 point 0,2 point 1,3' "$fixture"
-"$repo/shell/plugins/vgs.screensaver/bin/transcode-ascii" "$fixture" "$art_dir/screensaver.txt" --width 2 --height 1
+"$repo/shell/plugins/vgs.screensaver/bin/transcode-ascii" "$fixture" "$sandbox/screensaver-transcode.txt" --width 2 --height 1
 printf '⢕\n' >"$expected"
-art_matches() { cmp -s -- "$expected" "$art_dir/screensaver.txt" && echo same || echo different; }
+art_matches() { cmp -s -- "$expected" "$sandbox/screensaver-transcode.txt" && echo same || echo different; }
 expect "image transcode writes expected art" same art_matches
-expect_poll "custom art status is truthful" "Custom art" art_status
+converted="$home/.local/state/vgshell/screensaver-art.txt"
+rm -f -- "${home:?}/.local/state/vgshell/screensaver-art.txt"
+converted_ready() { [[ -s $converted ]] && echo yes || echo no; }
+argv_names() { grep -q -- "$1" "$ss_log" && echo yes || echo no; }
+art_patch() { python3 -c 'import json,sys; print(json.dumps({"art": sys.argv[1]}))' "$1"; }
+set_screensaver "$(art_patch "$fixture")"
+expect "reload config for image art" ok ipc shell reloadConfig
+expect_poll "the Art setting converts the image" yes converted_ready
+expect_poll "a readable art image shows no art problem" absent art_status
 : >"$ss_log"
-expect "starts after custom art" ok ipc vgs.screensaver invoke start ''
-argv_names_art() { grep -q -- "$art_dir/screensaver.txt" "$ss_log" && echo yes || echo no; }
-expect_poll "ttfx argv names the art file" yes argv_names_art
+expect "starts after image art" ok ipc vgs.screensaver invoke start ''
+expect_poll "ttfx argv names the converted art" yes argv_names "$converted"
 expect "screensaver stops by IPC" ok ipc vgs.screensaver invoke stop ''
 expect_poll "cover is gone after IPC stop" 0 layer_count vgs:cover
-rm -f -- "$art_dir/screensaver.txt"
+set_screensaver "$(art_patch "$sandbox/screensaver-missing.png")"
+expect "reload config for a missing art image" ok ipc shell reloadConfig
+expect_poll "a missing art image shows the art problem" "Cannot read the art image" art_status
+text_art="$sandbox/screensaver-art-text.txt"
+printf 'VGS\n' >"$text_art"
+set_screensaver "$(art_patch "$text_art")"
+expect "reload config for text art" ok ipc shell reloadConfig
+expect_poll "text art shows no art problem" absent art_status
+: >"$ss_log"
+expect "starts after text art" ok ipc vgs.screensaver invoke start ''
+expect_poll "ttfx argv names the text art file" yes argv_names "$text_art"
+expect "screensaver stops by IPC after text art" ok ipc vgs.screensaver invoke stop ''
+expect_poll "cover is gone after text art stop" 0 layer_count vgs:cover
 stop_shell || fail "the shell stops before lock-order checks"
+# D107: art made before the Art setting sat in screensaver.txt; the service
+# moves it once into the file the setting names.
+set_screensaver '{"art": ""}'
+rm -f -- "${art_dir:?}/screensaver-art.txt"
+printf 'OLD\n' >"$art_dir/screensaver.txt"
 start_shell "$repo" "$sandbox/screensaver-lock-order-qs.log" || fail "the shell starts again before lock-order checks"
 expect_poll "screensaver service is rebuilt before lock-order checks" True record_exists vgs.screensaver
+expect_poll "earlier art moves into the Art setting" "$art_dir/screensaver-art.txt" art_setting
+legacy_art_moved() { [[ ! -e $art_dir/screensaver.txt ]] && [[ $(cat -- "$art_dir/screensaver-art.txt") == OLD ]] && echo yes || echo no; }
+expect "earlier art keeps its text at its new path" yes legacy_art_moved
+set_screensaver '{"art": ""}'
+expect "reload config after the art migration" ok ipc shell reloadConfig
+rm -f -- "${art_dir:?}/screensaver-art.txt"
 idle_start() { # LABEL
   type_keys -k Shift_L || fail "$1: typing the idle-start key failed"
   idle_started_ms="$(now_ms)"

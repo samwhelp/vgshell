@@ -8,7 +8,9 @@ Item {
 
     property var shell: null
     property var screen: null
-    property string artPath: Logic.fileUrlPath(Qt.resolvedUrl("logo.txt"))
+    readonly property string logoPath: Logic.fileUrlPath(Qt.resolvedUrl("logo.txt"))
+    readonly property string artFile: Logic.artFile(shell === null ? "" : shell.settings.art, Paths.stateDir + "/screensaver-art.txt")
+    property string artPath: logoPath
     property string pendingFrame: ""
     property var frameState: Logic.createState()
     property var exitState: Logic.createExitState()
@@ -59,6 +61,7 @@ Item {
     onWidthChanged: if (shown) restartDelay.restart()
     onHeightChanged: if (shown) restartDelay.restart()
     onArtPathChanged: restart()
+    onArtFileChanged: if (artFile === "") artPath = logoPath
     onBackgroundChanged: restart()
 
     function stop() {
@@ -116,11 +119,11 @@ Item {
 
     FileView {
         id: configuredArt
-        path: Paths.configDir + "/screensaver.txt"
+        path: root.artFile
         watchChanges: true
         printErrors: false
         onLoaded: root.artPath = path
-        onLoadFailed: error => root.artPath = Logic.fileUrlPath(Qt.resolvedUrl("logo.txt"))
+        onLoadFailed: error => root.artPath = root.logoPath
         onFileChanged: reload()
     }
 

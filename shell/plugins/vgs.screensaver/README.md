@@ -12,7 +12,7 @@ Screenshot made with `scripts/readme-shots.sh`.
 - Starts on demand from Screensaver in the launcher, or from a key you assign under Keys.
 - Stops on keyboard input, pointer movement or session lock.
 - Random or one named text effect.
-- Change art makes the art from an image, opens the text to edit, or resets it.
+- Shows the VGS logo, text art made from a PNG or SVG image, or a text file of your own.
 - Shows whether the lock follows the screensaver.
 
 ## Settings
@@ -22,6 +22,7 @@ Screenshot made with `scripts/readme-shots.sh`.
 | Start when inactive | Turns the start on inactivity on or off. |
 | Start after | The inactive time in seconds. This time and the lock time both count from the start of inactivity. |
 | Effect | Random, or one named effect. |
+| Art | The VGS logo, or the path of a PNG or SVG image or a text file. |
 | Frame rate | How many frames the screensaver draws each second. |
 
 ## Licence

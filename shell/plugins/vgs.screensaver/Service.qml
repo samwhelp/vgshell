@@ -13,23 +13,24 @@ Item {
     property bool running: false
     property bool effectFailed: false
     property var published: ({})
-    property var seenArtEndedAt: null
-    property bool artRunReady: false
-    property string artStatus: "Default art"
+    property bool artFailed: false
+    property bool convertAgain: false
 
     readonly property bool locked: shell !== null && shell.session.locked
     readonly property bool idleEnabled: shell !== null && shell.settings.idleEnabled === true
     readonly property int idleSeconds: shell === null ? 150 : shell.settings.idleSeconds
     readonly property int requirementsRevision: shell === null ? 0 : shell.requirements.revision
-    readonly property var artRun: shell === null ? ({ running: false, code: null, endedAt: null }) : shell.tui.state.art
+    readonly property string art: shell === null || shell.settings.art === undefined ? "" : shell.settings.art
+    readonly property string convertedArt: Paths.stateDir + "/screensaver-art.txt"
+    readonly property string legacyArt: Paths.configDir + "/screensaver.txt"
+    readonly property string movedArt: Paths.configDir + "/screensaver-art.txt"
     readonly property string managerKey: shell === null ? "" : JSON.stringify(shell.manager.plugins)
 
     onShellChanged: {
         if (shell === null) return;
         if (registeredWith === null) {
             registeredWith = shell;
-            if (shell.tui.state.art !== undefined && shell.tui.state.art !== null) seenArtEndedAt = shell.tui.state.art.endedAt;
-            artRunReady = true;
+            if (art === "") artMigration.running = true;
             shell.shortcut.register("start", "Start the screensaver", () => root.start());
             shell.ipc.handle("start", () => root.start());
             shell.ipc.handle("stop", () => root.stop());
@@ -46,8 +47,8 @@ Item {
     onRequirementsRevisionChanged: refreshEffects()
     onLockedChanged: if (locked) stop()
     onRunningChanged: { publishState(); watchActivity(); }
-    onArtStatusChanged: publishArt()
-    onArtRunChanged: checkArtRun()
+    onArtChanged: convertArt()
+    onArtFailedChanged: publishArt()
     onManagerKeyChanged: publishLockOrder()
 
     function start() {
@@ -70,11 +71,24 @@ Item {
         return "ok";
     }
 
-    function checkArtRun() {
-        if (shell === null || !artRunReady || artRun === undefined || artRun === null) return;
-        if (artRun.endedAt === null || artRun.endedAt === seenArtEndedAt) return;
-        seenArtEndedAt = artRun.endedAt;
-        if (artRun.code === 0) start();
+    function convertArt() {
+        if (shell === null) return;
+        if (!Logic.isArtImage(art)) {
+            artFailed = false;
+            return;
+        }
+        if (artConvert.running) {
+            convertAgain = true;
+            return;
+        }
+        artConvert.command = [Logic.fileUrlPath(Qt.resolvedUrl("bin/transcode-ascii")), art, convertedArt];
+        artConvert.running = true;
+    }
+
+    function migratedArt() {
+        if (shell === null) return;
+        const reply = shell.manager.setSetting("vgs.screensaver", "art", movedArt);
+        if (reply !== "ok") console.warn("screensaver: art migration " + reply);
     }
 
     function watchIdle() {
@@ -125,7 +139,7 @@ Item {
     }
 
     function publishArt() {
-        publish("art", { tone: artStatus === "Custom art" ? "ok" : "info", text: artStatus, action: true });
+        publish("art", artFailed ? { tone: "warning", text: "Cannot read the art image" } : null);
     }
 
     function publishLockOrder() {
@@ -153,14 +167,27 @@ Item {
         effectsHelp.running = true;
     }
 
-    FileView {
-        id: artFile
-        path: Paths.configDir + "/screensaver.txt"
-        watchChanges: true
-        printErrors: false
-        onLoaded: root.artStatus = "Custom art"
-        onLoadFailed: error => root.artStatus = "Default art"
-        onFileChanged: reload()
+    Process {
+        id: artConvert
+        stderr: SplitParser { onRead: line => console.warn("screensaver: " + line) }
+        onExited: code => {
+            if (root.convertAgain) {
+                root.convertAgain = false;
+                Qt.callLater(root.convertArt);
+                return;
+            }
+            root.artFailed = Logic.isArtImage(root.art) && code !== 0;
+        }
+    }
+
+    // D107: art made before the Art setting sat in screensaver.txt. Move it
+    // once into a text file the setting names.
+    Process {
+        id: artMigration
+        command: ["mv", "-n", "--", root.legacyArt, root.movedArt]
+        onExited: code => {
+            if (code === 0) root.migratedArt();
+        }
     }
 
     Process {

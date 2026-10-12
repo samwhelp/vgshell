@@ -211,6 +211,18 @@ function fileUrlPath(url) {
     return decodeURIComponent(text.slice(7));
 }
 
+function isArtImage(art) {
+    return /\.(png|svg)$/i.test(String(art || ""));
+}
+
+// The text file ttfx reads for the Art setting: "" for the VGS logo, the
+// service's converted text for an image, else the configured text file.
+function artFile(art, converted) {
+    const value = String(art || "");
+    if (value === "") return "";
+    return isArtImage(value) ? converted : value;
+}
+
 function command(artPath, effect, frameRate, columns, rows, background) {
     const args = ["ttfx", "-i", artPath].concat([
         "--frame-rate", String(frameRate),
