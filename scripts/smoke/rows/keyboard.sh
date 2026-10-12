@@ -419,7 +419,7 @@ expect_poll "the absent-action widget builds and stays visible" true ipc smoke r
 expect_poll "the absent-action widget still reads US" '"US"' keyboard_active_code
 keyboard_right_click || fail "right clicking the absent-action control failed"
 expect_poll "the absent-action widget menu opens" true ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuOpen
-expect "the absent-action menu keeps System settings and Readme" '["Hide","Keyboard Settings","Readme","Settings"]' ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuEntries
+expect "the absent-action menu, an installed copy, keeps System settings and offers no Readme" '["Hide","Keyboard Settings","Settings"]' ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuEntries
 if keyboard_controls_activate; then fail "control: an absent action still activates Keyboard Controls"
 else ok "control: removing the action fails the same menu opener"; fi
 expect "control: the absent action builds no typed Keyboard panel" absent ipc smoke readDescendant panel vgs.keyboard KeyboardControls sources

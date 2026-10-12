@@ -295,7 +295,7 @@ expect_poll "the page change back returns the body to its top" '[0]' page_top
 # returns on Settings. Then every plugin the manager lists is judged on
 # Details by one judge: its last row ends inside the window, or the scroll
 # area's bottom edge cue shows. Jarvis's Details runs past the room and
-# reads the cue, and the Bar's fits without it, so the cue reads both
+# reads the cue, and Windows' fits without it, so the cue reads both
 # ways. The control hands the judge VPN's
 # Details reading with the window at its Settings height and no cue, as
 # with neither the resize nor the cue: the judge reads it cut.
@@ -354,16 +354,16 @@ expect_poll "the window takes the VPN Settings height again" settled fit_settled
 vpn_settings_box="$(printf '%s\n' "$vpn_settings" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["client"]))')" || vpn_settings_box=unread
 expect "the window returns to the VPN Settings box" "$vpn_settings_box" fit_client
 fit_ids="$(settings_rows | py_reply 'import json,sys; print(" ".join(r["id"] for r in json.load(sys.stdin)))')" || fit_ids=""
-[[ " $fit_ids " == *" vgs.bar "* && " $fit_ids " == *" vgs.jarvis "* ]] || fail "the manager lists the Bar and Jarvis for the Details judge: got $fit_ids"
+[[ " $fit_ids " == *" vgs.windows "* && " $fit_ids " == *" vgs.jarvis "* ]] || fail "the manager lists Windows and Jarvis for the Details judge: got $fit_ids"
 jarvis_details=unread
-bar_details=unread
+windows_details=unread
 for fit_id in $fit_ids; do
   expect "the window opens $fit_id's page for the Details judge" ok ipc smoke invokeInstance window vgs.settings openPlugin "$fit_id"
   settings_details
   expect_poll "the window takes $fit_id's Details height" settled fit_settled
   fit_reading="$(fit_state)" || fit_reading=unread
   [[ $fit_id == vgs.jarvis ]] && jarvis_details="$fit_reading"
-  [[ $fit_id == vgs.bar ]] && bar_details="$fit_reading"
+  [[ $fit_id == vgs.windows ]] && windows_details="$fit_reading"
   fit_verdict="$(fit_judge "$fit_reading")" || fit_verdict=unread
   case $fit_verdict in
     fits|cued) ok "$fit_id Details ends inside the window or shows the bottom cue: $fit_verdict" ;;
@@ -374,8 +374,8 @@ expect "Jarvis Details runs past the window and shows the bottom cue" cued fit_j
 jarvis_past_cap() { printf '%s\n' "$1" | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["client"][3] > d["end"]["implicitHeight"])'; }
 expect "the window takes Jarvis's Details past the cap, to the room" True jarvis_past_cap "$jarvis_details"
 expect "Jarvis Details shows the bottom cue" true fit_field "$jarvis_details" end cueBelow
-expect "the Bar's Details ends inside the window" fits fit_judge "$bar_details"
-expect "the Bar's Details that fits shows no bottom cue" false fit_field "$bar_details" end cueBelow
+expect "Windows' Details ends inside the window" fits fit_judge "$windows_details"
+expect "Windows' Details that fits shows no bottom cue" false fit_field "$windows_details" end cueBelow
 
 open_rows() { settings_rows | py_reply 'import json,sys; ids=("acme.probe","vgs.gallery","vgs.devtools","vgs.themes"); print(json.dumps({r["id"]: r["opens"] for r in json.load(sys.stdin) if r["id"] in ids}, sort_keys=True))'; }
 open_button() { ipc smoke windowGeometry window vgs.settings Button Open | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
