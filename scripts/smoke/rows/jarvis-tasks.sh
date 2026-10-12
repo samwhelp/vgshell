@@ -18,6 +18,9 @@ task_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
 task_gates="$sandbox/jarvis-task-gates"
 task_state="$home/.local/state/vgshell/jarvis"
 task_round=0
+# The fixture audit record's time: this run's own, so its daily file is the
+# newest one Audit.seed can read on any day.
+task_audit_time="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
 task_prompts="$rt_dir/vgshell/jarvis/prompts"
 task_permission=11111111-1111-4111-8111-111111111111
 task_question=22222222-2222-4222-8222-222222222222
@@ -77,9 +80,9 @@ task_reset() {
   task_round=$((task_round + 1))
   task_id="smoke-task-$task_round"
   task_record "$task_id" create "{\"goal\":\"Smoke fixture\",\"cwd\":\"$home\",\"agent\":\"fixture\",\"account\":\"\"}"
-  "$node_bin" - "$repo/shell/plugins/vgs.jarvis/backend/Audit.js" "$task_state" <<'JS'
+  "$node_bin" - "$repo/shell/plugins/vgs.jarvis/backend/Audit.js" "$task_state" "$task_audit_time" <<'JS'
 const Audit = require(process.argv[2]);
-const writer = Audit.create({ state: process.argv[3], now: () => Date.parse("2026-10-11T12:00:00.000Z") });
+const writer = Audit.create({ state: process.argv[3], now: () => Date.parse(process.argv[4]) });
 try {
   const result = writer.record({ kind: "action", gen: 0, op: 1, tool: "files.write", args: { path: "/synthetic", text: "private" },
     effect: "persistent", decision: "refuse", confirmed: "none", outcome: "failed" });
@@ -152,7 +155,7 @@ task_scenario() {
   expect_poll "the synthetic task row reaches status" \
     "{\"id\": \"$task_id\", \"goal\": \"Smoke fixture\", \"agent\": \"fixture\", \"state\": \"starting\", \"failure\": null}" task_list_row
   expect_poll "the fixture audit failure reaches status without args" \
-    '{"time": "2026-10-11T12:00:00.000Z", "tool": "files.write", "effect": "persistent", "decision": "refuse", "outcome": "failed", "refusal": null}' task_audit_failure
+    "{\"time\": \"$task_audit_time\", \"tool\": \"files.write\", \"effect\": \"persistent\", \"decision\": \"refuse\", \"outcome\": \"failed\", \"refusal\": null}" task_audit_failure
   expect "the open-task IPC handle answers" ok ipc vgs.jarvis invoke open-task "$task_id"
   expect_poll "the daemon receives the task-open intent" "\"$task_id\"" task_last task-opens.jsonl
   expect_poll "the core runs task-view with the id alone" \
