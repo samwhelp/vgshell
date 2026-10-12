@@ -86,7 +86,9 @@ hide_menu_last() { hide_read "$1" frameMenuEntries | py_reply 'import json,sys; 
 hide_menu_entries() { hide_read "$1" frameMenuEntries; }
 hide_menu_has() { hide_read "$1" frameMenuEntries | py_reply 'import json,sys; print(json.dumps(sys.argv[1] in json.load(sys.stdin)))' "$2"; }
 hide_gio_since() { device_calls gio | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[int(sys.argv[1]):]))' "$1"; }
-hide_readme_action_visible() { ipc smoke revealText window vgs.settings RowAction "Open on GitHub" | py_reply 'import json,sys; value=json.load(sys.stdin); print("shown" if type(value) in (int,float) else "absent")'; }
+# Whether the open page draws a shown README link: revealText answers its
+# scroll position, or `absent` when no shown item reads it.
+hide_readme_action_visible() { local at; at="$(ipc smoke revealText window vgs.settings RowAction "Open on GitHub")" || return 1; if [[ $at =~ ^[0-9.]+$ ]]; then echo shown; else echo absent; fi; }
 hide_settings() {
   local id="$1" page="$2"
   hide_right_click "$id" || fail "the right click on $id's widget failed"
@@ -119,7 +121,7 @@ hide_gio_before="$(device_calls gio | py_reply 'import json,sys; print(len(json.
 hide_right_click acme.hideable || fail "the right click on acme.hideable's widget failed for its README control"
 expect_poll "acme.hideable's widget menu opens for its README control" true hide_read acme.hideable frameMenuOpen
 expect "acme.hideable's menu has no README entry" false hide_menu_has acme.hideable Readme
-expect "acme.hideable's menu is Hide then Settings" '["Hide", "Settings"]' hide_menu_entries acme.hideable
+expect "acme.hideable's menu is Hide then Settings" '["Hide","Settings"]' hide_menu_entries acme.hideable
 type_keys -k Escape || fail "Escape on acme.hideable's README control menu failed"
 expect_poll "Escape closes acme.hideable's README control menu" false hide_read acme.hideable frameMenuOpen
 expect "acme.hideable's README control makes no gio call" '[]' hide_gio_since "$hide_gio_before"
