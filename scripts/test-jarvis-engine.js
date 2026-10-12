@@ -439,7 +439,8 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
         assert.deepEqual(w.engine.voices().map(voice => voice.value), ["ljspeech"], "the ready small tier offers its Piper voice");
         const pid = starts()[0].pid;
         for (const ending of [firstEnding, "brain-failed", "stop"]) {
-            const before = await say(w, utterance("Fixture request."));
+            const before = await say(w, utterance("Fixture request."),
+                { over: () => starts().length === 1 && !alive(pid) && w.s().gate.kind === "down" });
             const body = await requested(w, before + 1, "first request in conversation");
             assert.deepEqual(user(body), ["Fixture request."]);
             assert.equal(starts().length, 1, "conversation starts no new sidecar");
@@ -469,7 +470,7 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
         assert.deepEqual([w.s().conversation.kind, w.s().gen > gen], ["ended", true], "the setting ends the conversation");
         await turn();
         await settled(() => starts().length === 3,
-            () => starts().length === 2 && w.configure(w.s().settings).kind === "ready",
+            () => false,
             "the setting restarts the sidecar");
         assert.deepEqual(starts()[2].argv.slice(-2), ["--reference", path.join(state, "voice-reference.wav")]);
         await turn();
@@ -508,7 +509,7 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
         // keep this world alive past its bound.
         await turn();
         try { await settled(() => starts().every(row => !alive(row.pid)),
-            () => edits.length !== 0 && starts().some(row => alive(row.pid)), "daemon teardown releases speech child"); }
+            () => false, "daemon teardown releases speech child"); }
         finally {
             for (const row of starts()) if (alive(row.pid)) process.kill(row.pid, "SIGKILL");
             server.closeAll();
@@ -695,8 +696,16 @@ async function loadingTalk(server, ending = "ready", edits = []) {
         assert.equal(starts().length, 1, "loading Talk starts no second child");
     } finally {
         child.stdin.end();
+        const extraChild = starts().length > 1;
+        if (extraChild && !childDone) child.kill("SIGKILL");
         const timer = setTimeout(() => child.kill("SIGKILL"), OBSERVE_MS);
-        try { const [code, signal] = await closed; assert.equal(signal, null); assert.equal(code, 0, error); }
+        try {
+            const [code, signal] = await closed;
+            if (!extraChild) {
+                assert.equal(signal, null);
+                assert.equal(code, 0, error);
+            }
+        }
         finally {
             clearTimeout(timer); server.closeAll();
             for (const file of ["no-devices", "capture-silent"]) fs.rmSync(path.join(process.env.HOME, file), { force: true });
@@ -791,8 +800,7 @@ async function alwaysTalk(server, ending = "ready", edits = []) {
         assert.equal(s().gen, armedGen + 1);
         server.replies.push(Fixture.text("Done."));
         const body = await requested({ server }, before + 1, "the woken utterance reaches the brain",
-            () => edits.length !== 0 && (logs().some(row => row.listen !== undefined)
-                || logs().some(row => row.woke !== undefined) && s().capture.kind === "closed" && server.requests.length === before));
+            () => false);
         assert.deepEqual(user(body), ["Woken request."]);
         const listen = logs().find(row => row.listen !== undefined);
         assert.equal(listen.detect, true, "the woken utterance ends by turn detection");
@@ -1309,9 +1317,7 @@ async function cases(kit, server, only = null) {
         const held = gate();
         server.replies.push(text("<step>Comparing the clipboard</step>", { wait: held.wait }, "Done."));
         await requested(w, first + 2, "the granted result reaches the brain");
-        await settled(() => control.spoken.includes("Comparing the clipboard"),
-            () => w.s().turn.kind === "thinking" && w.s().playback.kind === "idle",
-            "a later step speaks after the hold");
+        await until(() => control.spoken.includes("Comparing the clipboard"), "a later step speaks after the hold");
         held.open();
         await until(() => w.s().turn.kind === "none", "the turn completes");
         assert.deepEqual(w.faults, []);
@@ -2456,13 +2462,13 @@ async function cases(kit, server, only = null) {
     const SENT = "I sent your answer to the coding agent.";
     // A conversation idle after one brain turn. Answers the count of
     // sentences spoken before the idle moment, when a task line may start.
-    async function opened(w) {
+    async function opened(w, playbackOver = () => false) {
         const first = await say(w, utterance("Hello."));
         await requested(w, first + 1, "the opening turn reaches the brain");
         server.replies.push(text("Hi."));
         await until(() => w.s().turn.kind === "none" && control.spoken.includes("Hi."), "the opening reply completes");
         const spokenBefore = control.spoken.length;
-        await playOut(w);
+        await playOut(w, () => playbackOver(spokenBefore));
         return spokenBefore;
     }
     // Waits until speech holds every sentence of line after the first from,
@@ -2490,7 +2496,8 @@ async function cases(kit, server, only = null) {
             () => control.spoken.length > 0 || quietTurn(w), "the held prompt is notified");
         assert.deepEqual(t.notes, [["Coding task", QUESTION_CARD]], "with no conversation the prompt is a notification");
         assert.deepEqual([control.spoken, w.s().conversation.kind], [[], "ended"], "nothing is spoken with no conversation");
-        const asked = await opened(w);
+        const asked = await opened(w,
+            from => control.spoken.slice(from).join(" ").startsWith(QUESTION + " "));
         await spoken(w, asked, QUESTION, () => false, () => control.spoken.slice(asked).join(" ") !== QUESTION);
         assert.ok(control.labels.has("agent"), "the agent's text reaches speech labelled as agent output");
         const requests = server.requests.length;
