@@ -269,10 +269,10 @@ voice = status.get("setupVoice", {})
 ok = row.get("tone") == "warning" and row.get("text") == "Jarvis setup check timed out"
 ok = ok and "jarvis: setup=probe-timeout" in row.get("lines", [])
 # The daemon never reads the probe timeout: the bar and the Setup status
-# state the readiness of the daemon's own causes, the summary keeps the
-# timeout line, a ready bar shows it as a caution, and no step claims it.
+# state the readiness of the daemon's own causes, the summary draws no
+# keyed line, a ready bar shows it as a caution, and no step claims it.
 ready = widget.get("state") == "ready"
-ok = ok and ready == (setup.get("tone") == "ok") and "jarvis: setup=probe-timeout" in setup.get("lines", [])
+ok = ok and ready == (setup.get("tone") == "ok") and "lines" not in setup
 ok = ok and "jarvis: setup=probe-timeout" not in voice.get("lines", []) and "Jarvis setup check timed out" not in voice.get("hint", "")
 ok = ok and (not ready or setup.get("hint", "") in widget.get("tooltipDetails", []))
 print("probe-timeout" if ok else "pending")

@@ -257,10 +257,12 @@ function readiness(answer) {
         return { setup: { tone: "danger", text: problem.title, hint: answer.action || problem.action, lines: problem.lines },
             setupHome: HOME_READY, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };
     case "answered":
+        // The summary says only its state and hint: each step words its own
+        // causes, and a caution's hint is its words.
         var blocking = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });
         var out = { setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" }
-                : blocking.length === 0 ? { tone: "ok", text: "Ready", hint: answer.causes.map(function (cause) { return CAUTION[cause]; }).join(" "), lines: answer.causes.map(setupCauseLine) }
-                    : { tone: "warning", text: "Not ready", lines: answer.causes.map(setupCauseLine) },
+                : blocking.length === 0 ? { tone: "ok", text: "Ready", hint: answer.causes.map(function (cause) { return CAUTION[cause]; }).join(" ") }
+                    : { tone: "warning", text: "Not ready" },
             setupHome: HOME_READY, setupVoice: DONE, setupModel: noAction(DONE) };
         blocking.forEach(function (cause) {
             var step = cause.slice(0, cause.indexOf("="));

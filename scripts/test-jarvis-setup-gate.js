@@ -148,7 +148,8 @@ const REQUIREMENT = [
 // hint, the AI model's named action while to do, "key" when left out]. A
 // step to do is a warning with its action and, unless its action already
 // says what it asks, a hint of its own; a done step is ok with neither.
-// The summary draws keyed cause detail lines for setting-place causes.
+// No value the Setup group draws holds a keyed cause (area=cause): the
+// summary says its state and hint, and each step words its own cause.
 const READINESS = [
     ["ready", { kind: "answered", causes: [] }, "ok", [], []],
     ["nothing set up", { kind: "answered", causes: ["speech=local-not-set-up", "brain=unselected"] }, "warning", ["setupVoice", "setupModel"], ["setupVoice"]],
@@ -684,6 +685,13 @@ function verifyVoiceConsumers(gate, pageSource) {
     }
 }
 
+// The keyed causes (area=cause, or jarvis: area=cause) among VALUE's FIELDS,
+// as the Setup group draws them.
+function keyedCauses(value, fields) {
+    return fields.flatMap(field => value[field] === undefined ? [] : [].concat(value[field]))
+        .filter(text => /(^|\s)(jarvis: )?[a-z-]+=[a-z0-9-]/.test(text));
+}
+
 function verifyReadiness(gate) {
     for (const [label, answer, tone, todo, declared, model] of READINESS) {
         const got = plain(gate.readiness(answer));
@@ -691,14 +699,14 @@ function verifyReadiness(gate) {
         assert.deepEqual(got.setupHome, { hidden: true }, label + ": the home folder step stays off the page");
         assert.equal(got.setup.tone, tone, label + ": the summary");
         assert.equal(got.setup.action, undefined, label + ": the summary offers no step");
-        if (answer.kind === "answered" && answer.causes.length > 0 && !(answer.causes.length === 1 && answer.causes[0] === "speech=local-loading"))
-            assert.deepEqual(got.setup.lines, answer.causes.map(cause => cause === "setup=probe-timeout" ? "jarvis: setup=probe-timeout" : cause), label + ": the summary detail lines");
+        assert.deepEqual(keyedCauses(got.setup, ["text", "hint", "lines"]), [], label + ": the summary draws no keyed cause");
         for (const key of ["setupVoice", "setupModel"]) {
             const step = got[key];
             const open = todo.includes(key);
             const action = key === "setupModel" ? model ?? "key" : true;
             const expectedLines = open && answer.kind === "answered" && answer.causes[0] === "speech=local-ready-timeout" ? [answer.causes[0]] : undefined;
             assert.deepEqual([step.tone, step.action, step.lines], open ? ["warning", action, expectedLines] : ["ok", DONE_ACTION[key], undefined], label + ": " + key);
+            assert.deepEqual(keyedCauses(step, ["text", "hint"]), [], label + ": " + key + " words its cause");
             if (!open || declared.includes(key)) assert.equal(step.hint, undefined, label + ": " + key + " keeps its declared hint");
             else assert.equal(typeof step.hint === "string" && step.hint !== "" && !/=/.test(step.hint), true,
                 label + ": a plain hint, no keyed cause on screen");
@@ -710,7 +718,6 @@ function verifyReadiness(gate) {
     const localReadyTimeout = plain(gate.readiness({ kind: "answered", causes: ["speech=local-ready-timeout"] })).setupVoice;
     assert.equal(localReadyTimeout.hint, "Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis.", "local voice timeout words");
     const probeTimeout = plain(gate.readiness({ kind: "answered", causes: ["setup=probe-timeout"] }));
-    assert.equal(probeTimeout.setup.lines[0], "jarvis: setup=probe-timeout", "probe timeout detail line");
     assert.equal(typeof probeTimeout.setup.hint === "string" && probeTimeout.setup.hint !== "" && !/=/.test(probeTimeout.setup.hint), true,
         "probe timeout: the ready summary carries its caution");
     assert.deepEqual(probeTimeout.setupVoice, { tone: "ok", text: "Done", action: false }, "probe timeout: the voice step offers no setup");
@@ -953,8 +960,6 @@ function verify(gate) {
         assert.equal(judge.statusWrite(manifest, {}, "setup", setup).ok, true, "setup accepts bounded cause line");
         assert.equal(words.lines[0].length <= 200 && !/[\u0000-\u001f]/.test(words.lines[0]), true, "cause line is bounded and printable");
     }
-    const answered = gate.readiness({ kind: "answered", causes: ["speech=" + "x".repeat(240) + "\u0001"] }).setup;
-    assert.equal(judge.statusWrite(manifest, {}, "setup", answered).ok, true, "answered setup accepts bounded cause line");
 }
 
 verify(load(file));
@@ -1040,6 +1045,8 @@ const CONTROLS = [
     ["local voice repeats its action as its hint", "var STEP_TODO = { brain:", 'var STEP_TODO = { speech: "fixture repeat", brain:'],
     ["a step to do draws its hint as a line", 'lines === undefined ? { tone: "warning", text: "To do", hint: hint, action: action }', 'false ? { tone: "warning", text: "To do", hint: hint, action: action }'],
     ["a stopped summary draws its reason as a line", 'hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." }', 'lines: ["Jarvis stopped after a problem. Turn Jarvis off and on again."] }'],
+    ["the not-ready summary draws its causes", ': { tone: "warning", text: "Not ready" },', ': { tone: "warning", text: "Not ready", lines: answer.causes.map(setupCauseLine) },', "nothing set up: the summary draws no keyed cause"],
+    ["a caution summary draws its cause", '.join(" ") }', '.join(" "), lines: answer.causes.map(setupCauseLine) }', "probe timeout: the summary draws no keyed cause"],
     ["causes leave the summary ready", 'setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" }', 'setup: true ? { tone: "ok", text: "Ready" }'],
     ["checking reads done", 'return { setup: CHECKING_SUMMARY, setupHome: HOME_READY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };', 'return { setup: CHECKING_SUMMARY, setupHome: HOME_READY, setupVoice: DONE, setupModel: noAction(DONE) };'],
     ["an optional step reads done when not ok", 'if (value.tone === "ok") return DONE;', "if (true) return DONE;"],
@@ -1381,8 +1388,7 @@ function verifyDictation(gate, serviceSource, accountsSource) {
         if (expect === "withheld")
             assert.deepEqual([voice_.tone, voice_.action, "hint" in voice_], ["warning", "dictation", false], label + ": the Voice step");
         else assert.deepEqual(voice_, plain({ entry: gate.DICTATION[cause], loading: gate.noAction(gate.LOADING), done: gate.noAction(gate.DONE) }[expect]), label + ": the Voice step");
-        // A summary that reads Loading, as for the local voice's own, has no line.
-        assert.equal((values.setup.lines ?? []).includes(cause), cause !== "" && expect !== "loading", label + ": its line");
+        assert.equal(values.setup.lines, undefined, label + ": the summary draws no cause line");
         const row = judge.statusRows(manifest, values, missing).find(item => item.key === "setupVoice");
         assert.equal(row.action.offered && row.action.label === "Set up dictation", offered, label + ": Set up dictation");
         if (offered)
