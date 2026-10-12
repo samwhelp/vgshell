@@ -437,7 +437,13 @@ fi
 # open. A monitor removed while a panel shows takes its catcher with it,
 # and the panel stays. The far monitor is a second nested Wayland output,
 # placed right of the first: a headless one read 0x0 here (cachy,
-# 2026-10-11), as compositor-reveal.sh notes. The click tool maps a point
+# 2026-10-11), as compositor-reveal.sh notes. It is placed `auto-right`,
+# not at an explicit point: Hyprland v0.56.2 places every monitor with an
+# explicit position first and every `auto` one right of them
+# (MonitorPositionController.cpp, arrangeMonitors), so an explicit far
+# monitor moved the first one right of it, and menu_marker_centre, which
+# reads the first monitor's pixels as layout points, pressed the far
+# monitor instead of the menu (VGS-1434). The click tool maps a point
 # over the whole layout (Hyprland v0.56.2 CPointerManager::warpAbsolute),
 # so these presses pass the layout's size, and the compositor's layer list
 # gives boxes in layout coordinates. A catcher takes a press only once it
@@ -464,13 +470,16 @@ near_focus() {
 }
 # far_box: the far monitor as `x y w h`, or `absent`.
 far_box() { hypr -j monitors | py_reply 'import json,sys; ms=[m for m in json.load(sys.stdin) if m["name"] == sys.argv[1]]; print("%d %d %d %d" % (ms[0]["x"], ms[0]["y"], ms[0]["width"], ms[0]["height"]) if ms else "absent")' "$far_output"; }
+# first_origin: the first monitor's layout position, as `x y`.
+first_origin() { hypr -j monitors | py_reply 'import json,sys; ms=[m for m in json.load(sys.stdin) if m["name"] == sys.argv[1]]; print("%d %d" % (ms[0]["x"], ms[0]["y"]) if ms else "absent")' "$screen_name"; }
 # far_sized: `sized` once the far monitor stands right of the first with a
-# mode, else what far_box read.
+# mode and the first still stands at the layout's origin, else both reads.
 far_sized() {
-  local box x y w h
+  local box first x y w h
   box="$(far_box)" || return 1
+  first="$(first_origin)" || return 1
   read -r x y w h <<<"$box"
-  if [[ $x == "$mon_w" && $y == 0 && ${w:-0} -gt 0 && ${h:-0} -gt 0 ]]; then echo sized; else echo "$box"; fi
+  if [[ $first == "0 0" && $x == "$mon_w" && $y == 0 && ${w:-0} -gt 0 && ${h:-0} -gt 0 ]]; then echo sized; else echo "first=$first far=$box"; fi
 }
 # far_press NAMESPACE: presses the far monitor's centre until no NAMESPACE
 # layer is mapped; `closed`, or `open` after the fifth press.
@@ -552,7 +561,7 @@ menu_marker_press() {
   [[ $x =~ ^[0-9]+$ && $y =~ ^[0-9]+$ ]] || { echo "$at"; return 1; }
   layout_click "$x" "$y" && echo ok
 }
-expect "the far monitor is placed right of the first" ok hypr eval "hl.monitor({ output = \"$far_output\", mode = \"preferred\", position = \"${mon_w}x0\", scale = 1 })"
+expect "the far monitor is placed right of the first" ok hypr eval "hl.monitor({ output = \"$far_output\", mode = \"preferred\", position = \"auto-right\", scale = 1 })"
 expect "the nested compositor adds the far monitor" ok hypr output create wayland "$far_output"
 expect_poll "the far monitor stands right of the first with a mode" sized far_sized
 read -r far_x _ far_w far_h < <(far_box) || fail "the far monitor's box is readable"
@@ -575,8 +584,12 @@ expect_poll "the press on the panel's own menu is sent" ok menu_marker_press
 expect_poll "the press reached the panel's own menu" "$((popup_mark + 1))" menu_marks
 expect "a press inside the panel and one on its own menu leave the panel open" 1 layer_count vgs:panel
 expect "the press on the panel's own menu leaves the menu open" 1 ipc smoke readInstance menu acme.surfaces opened
-expect "hiding the panel's menu is allowed" ok ipc shell hide menu acme.surfaces
-expect_poll "the panel's menu is gone" absent ipc smoke readInstance menu acme.surfaces opened
+# Control: a press on the far monitor, where the marker press landed while
+# the first monitor stood right of the far one, closes the menu, and the
+# press marker the check above reads is absent.
+far_click() { local x y w h; read -r x y w h < <(far_box) || return 1; layout_click "$((x + w / 2))" "$((y + h / 2))" && echo ok; }
+expect "control: the press on the far monitor beside the panel's own menu is sent" ok far_click
+expect_poll "control: a press on the far monitor leaves no press marker on the panel's own menu" absent menu_marks
 expect "a press on the far monitor closes the panel" closed far_press vgs:panel
 expect_poll "the far press called the panel's close()" yes marker "$sandbox/closed-by-far-press"
 expect_poll "the closed panel's catcher is gone" "[]" far_catchers vgs:panel
