@@ -505,8 +505,11 @@ shell_hidden_commands=(voxtype voxtype-audio-bridge)
 # the browser-policy writer they would draw none. The shell finds those
 # three absent (harness.sh's shell_hidden_commands); a scene that stands
 # its own stand-in for one, as panels does for vsys and devtools for mise,
-# still finds it, and the shot of that button is then skipped.
-if [[ " ${scenes[*]} " == *" settings "* && -f $tree/shell/plugins/vgs.settings/Steps.js ]]; then
+# still finds it, and the shot of that button is then skipped. focus and
+# jarvis-causes run the settings setup too (need_setup), which ships the
+# chromium target: a later theme apply would run its reload hook were the
+# writer found.
+if [[ " ${scenes[*]} " =~ " "(settings|focus|jarvis-causes)" " && -f $tree/shell/plugins/vgs.settings/Steps.js ]]; then
   shell_hidden_commands+=(vsys mise vgshell-browser-policy)
 fi
 if [[ " ${scenes[*]} " == *" by-hand "* ]]; then
@@ -2775,10 +2778,15 @@ jarvis_anchor_shot() {
     fail "the Jarvis page's $3 is unreadable: $top"
   fi
 }
+# The label of the tree's input step on the Setup tab: its checklist entry
+# where the tree has one, else the input reader's own row.
+jarvis_input_label() {
+  python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["status"]; print(s.get("setupInput", s["input"])["label"])' "$repo/shell/plugins/vgs.jarvis/manifest.json"
+}
 # Whether the Setup tab draws its steps: four rows with their chips, the
-# Input step among them, where the clone-voice shots anchor. The Accounts
+# input step among them, where the clone-voice shots anchor. The Accounts
 # action draws in the AI model section, which setupRows does not read.
-jarvis_setup_drawn() { ipc smoke setupRows "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); r=json.loads(t) if t.startswith("[") else []; print(sum(1 for x in r if x["chips"]) >= 4 and any(x["label"] == "Input" for x in r))'; }
+jarvis_setup_drawn() { ipc smoke setupRows "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); r=json.loads(t) if t.startswith("[") else []; print(sum(1 for x in r if x["chips"]) >= 4 and any(x["label"] == sys.argv[1] for x in r))' "$(jarvis_input_label)"; }
 jarvis_ships_backups() { grep -q '"fallbacks"' "$repo/shell/plugins/vgs.jarvis/manifest.json"; }
 jarvis_backups_drawn() { ipc smoke invokeInstance "$settings_kind" vgs.settings listItems '{"id":"vgs.jarvis","key":"fallbacks"}' | py_reply 'import json,sys; t=sys.stdin.read(); print(t!="absent" and len(json.loads(t)) == 2)'; }
 jarvis_brain_choice_ids() {
@@ -3011,7 +3019,7 @@ print(tier)' "$repo/shell/plugins/vgs.jarvis/artifacts.json" "$data/local" "$sta
 # CloneRuntime.qml), so no model, recording or tier is judged. The local
 # voice is the Large tier, ready: its marker, the world's local-mode at
 # ready and setup-local's own choices for a card its pick takes as Large.
-# Each Setup tab shot is anchored at the Input step, which both trees draw
+# Each Setup tab shot is anchored at the input step, which both trees draw
 # just before where the Cloned voice step goes, so a tree without it is
 # shot at the same place. The consent shots run the real tui/clone-voice.sh
 # under gum in a kitty, as dictation-setup does, and close it at its first
@@ -3494,7 +3502,7 @@ open(os.path.join(sys.argv[2],"scenario.json"),"w").write(json.dumps({"start": "
     clone_anchor_shot "clone-voice-$mode-before-settings" SectionHeader "Local voice"
     page_setup
     expect_poll "the Jarvis Setup tab draws its steps before the Cloned voice" True jarvis_setup_drawn
-    clone_anchor_shot "clone-voice-$mode-before-setup" Field Input
+    clone_anchor_shot "clone-voice-$mode-before-setup" Field "$(jarvis_input_label)"
   else
     { read -r step && read -r setup_label && read -r remove_label; } < <(python3 -c 'import json,sys
 row=json.load(open(sys.argv[1]))["status"]["clonedVoiceSetup"]
@@ -3503,7 +3511,7 @@ print(row["label"]); print(row["actions"]["setup"]["label"]); print(row["actions
     # off: no recording, the setting off.
     expect_poll "the Cloned voice step reads Not set up" "Not set up" clone_step "$step"
     expect_poll "the Cloned voice step offers $setup_label" shown clone_offers "$setup_label"
-    clone_anchor_shot "clone-voice-$mode-off-setup" Field Input
+    clone_anchor_shot "clone-voice-$mode-off-setup" Field "$(jarvis_input_label)"
     clone_settings_tab "with the Cloned voice off"
     expect_poll "the daemon holds the Cloned voice off" false clone_daemon_setting
     expect_poll "the Local voice field reads the Large pick" false jarvis_tier_list_open "$auto"
@@ -3574,7 +3582,7 @@ print(row["label"]); print(row["actions"]["setup"]["label"]); print(row["actions
     expect_poll "the daemon holds the Cloned voice on" true clone_daemon_setting
     expect_poll "the Cloned voice step reads Ready" Ready clone_step "$step"
     expect_poll "the Cloned voice step offers $remove_label" shown clone_offers "$remove_label"
-    clone_anchor_shot "clone-voice-$mode-cloned-setup" Field Input
+    clone_anchor_shot "clone-voice-$mode-cloned-setup" Field "$(jarvis_input_label)"
     clone_settings_tab "with the Cloned voice on"
     clone_anchor_shot "clone-voice-$mode-cloned-settings" SectionHeader "Local voice"
     # removed: Remove recording's run ended; the page reports whether the
@@ -3591,7 +3599,7 @@ print(row["label"]); print(row["actions"]["setup"]["label"]); print(row["actions
     expect_poll "no stand-in terminal window is left after the removal" 0 clone_tui_windows
     expect_poll "the Cloned voice step reads Not set up after the removal" "Not set up" clone_step "$step"
     expect_poll "the Cloned voice step offers $setup_label again" shown clone_offers "$setup_label"
-    clone_anchor_shot "clone-voice-$mode-removed-setup" Field Input
+    clone_anchor_shot "clone-voice-$mode-removed-setup" Field "$(jarvis_input_label)"
     clone_settings_tab "after the removal"
     printf 'clone-voice: removed-setting mode=%s value=%s\n' "$mode" "$(clone_daemon_setting)"
     clone_anchor_shot "clone-voice-$mode-removed-settings" SectionHeader "Local voice"
