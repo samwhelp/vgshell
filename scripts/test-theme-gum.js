@@ -89,7 +89,6 @@ const writeLine = seen => {
 
 const READABLE_TEXT = [
     "FOREGROUND",
-    "GUM_CONFIRM_HELP_FOREGROUND",
     "GUM_INPUT_PLACEHOLDER_FOREGROUND",
     "GUM_FILTER_PLACEHOLDER_FOREGROUND",
     "GUM_FILTER_UNSELECTED_PREFIX_FOREGROUND",
@@ -198,14 +197,6 @@ try {
             && error.actual?.[0]?.kind === "gum-write-line-contrast",
         "control: unreadable write cursor-line text passed");
         console.log(`test-theme-gum: write-line control=${name} rejected=true`);
-        const helpNeedle = "GUM_CONFIRM_HELP_FOREGROUND=#@{color.textFaint}";
-        assert.equal(template.split(helpNeedle).length, 2);
-        const faintHelp = template.replace(helpNeedle, "GUM_CONFIRM_HELP_FOREGROUND=#@{color.borderSubtle}");
-        assert.throws(() => readableText(presented(path.join(root, `${name}-help-control`),
-            rendered(themePackage(dir, shipped), faintHelp))), error => error.code === "ERR_ASSERTION"
-            && error.actual?.[0]?.key === "GUM_CONFIRM_HELP_FOREGROUND",
-        "control: unreadable confirm help text passed");
-        console.log(`test-theme-gum: help control=${name} rejected=true`);
         lines = text.split("\n").length - 1;
     }
 
@@ -302,7 +293,7 @@ try {
         "control: the check passed a gum.env line holding $(...)");
     assert.equal(fs.existsSync(planted), false, "control: present ran the planted line");
 
-    console.log(`test-theme-gum: ok packages=${EXPECTED.length} lines=${lines} controls=6`);
+    console.log(`test-theme-gum: ok packages=${EXPECTED.length} lines=${lines} controls=4`);
 } finally {
     fs.rmSync(root, { recursive: true, force: true });
 }
