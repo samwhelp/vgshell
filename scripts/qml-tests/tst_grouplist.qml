@@ -187,6 +187,11 @@ Item {
             compare(hairlinesOf(inner).length, 1);
         }
 
+        // The image cases call no waitForRendering: it waits for the next
+        // frameSwapped (qtdeclarative 6.11 quicktestresult.cpp), which an
+        // idle scene whose last frame swapped first never schedules, while
+        // grabImage's grabWindow polishes, syncs and renders the scene itself
+        // (qsgthreadedrenderloop.cpp and qsgrenderloop.cpp grab()).
         // Whether row Y of IMG, in device pixels, holds a pixel apart from
         // the surface: ink, or the hairline itself.
         function rowDrawn(img, y, surface) {
@@ -203,7 +208,6 @@ Item {
         // gap. The rows are read from the image, not from the list.
         function test_each_hairline_is_centred_between_the_drawn_groups() {
             checkDivided(inkList);
-            verify(waitForRendering(inkFrame));
             verify(inkFrame.y + inkFrame.height <= root.height, "the list fits the window, so its image is whole");
             const img = grabImage(inkFrame);
             const scale = img.width / inkFrame.width;
@@ -247,7 +251,6 @@ Item {
                 }
                 return null;
             };
-            verify(waitForRendering(valueInkFrame));
             const img = grabImage(valueInkFrame);
             const scale = img.width / valueInkFrame.width;
             const surface = Qt.color(Theme.color.surface);
