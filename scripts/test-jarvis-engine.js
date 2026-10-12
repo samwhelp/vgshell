@@ -2819,9 +2819,8 @@ async function taskControls(root, server) {
         console.log("control=" + name + " detected");
         controls++;
     }
-    assert.deepEqual(server.faults, [], "selection requests matched the pinned schema");
-        return controls;
-    }
+    return controls;
+}
 
 // Selection: the first ready speech row, then the saved brain account as
 // Accounts.choose takes it and its provider row. The two steps are judged
@@ -2989,376 +2988,378 @@ async function runGroupWithServer(name, run) {
 
 async function groupSelection(root, server) {
     let controls = 0;
-// Without local setup's marker the stock table's local row is the cause.
-const stock = require(path.join(tree, "shell/plugins/vgs.jarvis/backend/ChainedEngine.js"));
-const bare = fs.mkdtempSync(path.join(root, "stock-"));
-assert.deepEqual(stock.create({ accounts: () => ({ secrets: null, choose: () => ({ kind: "refused", cause: "account-unavailable" }) }),
-    captionLimit: 1, directories: { state: bare, data: bare, runtime: bare } }).configure({ brain: "a" }),
-{ kind: "unconfigured", cause: "speech=local-not-set-up", causes: ["speech=local-not-set-up", "brain=account-unavailable"] },
-"the stock daemon stays unconfigured and judges the brain too");
-const file = path.join(tree, "shell/plugins/vgs.jarvis/backend/ChainedEngine.js");
-await checkFailures(file);
-const original = fs.readFileSync(file, "utf8");
-const needle = 'result.kind === "failed" && e.mode === "check"';
-assert.equal(original.split(needle).length, 2, "one check failure dispatch rule");
-const mutantRoot = fs.mkdtempSync(path.join(root, "jarvis-check-failure-"));
-try {
-    const mutant = path.join(mutantRoot, "closed-check-failure.js");
-    fs.writeFileSync(mutant, original.replace(needle, needle + " && !sink.destroyed"));
-    await assert.rejects(() => checkFailures(mutant), assert.AssertionError,
-        "dropping a closed capture failure turns the check red");
-} finally { fs.rmSync(mutantRoot, { recursive: true, force: true }); }
-console.log("control=closed-check-failure detected");
-controls++;
-// A wait that never observes fails typed; one that settles on another
-// state fails its own assertion, so a control names which it met.
-await assert.rejects(wait(() => false, "unobserved", 20), { operator: "until" });
-await assert.rejects(settled(() => false, () => true, "settled elsewhere"), error => error.operator === "==");
-selection(Fixture.copy(root).Engine);
-brainPlan(Fixture.copy(root, [PLAN]).Engine);
-assert.throws(() => brainPlan(Fixture.copy(root, [PLAN, ["unlistedChoice(settings, account.provider);",
-    "{ model: settings.model, effort: settings.effort };"]]).Engine), assert.AssertionError, "brain-plan-unlisted must turn red");
-console.log("control=brain-plan-unlisted detected");
-controls++;
-for (const [name, needle, replacement = ""] of [
-    ["speech-first", "const failing = [speech, dictation, brain]", "const failing = [brain, dictation, speech]"],
-    ["home-step", "            plan = heldByHome(plan, home());\n"],
-    ["home-refused", 'case "refused": cause = home.cause; break;', 'case "refused": break;'],
-    ["home-text-judged", 'try { Guidance.compose("chained", "local", LANGUAGE, home.path); }', "try { void home.path; }"],
-    ["home-first", 'causes: [cause, ...(plan.kind === "ready" ? [] : plan.causes)]', 'causes: [...(plan.kind === "ready" ? [] : plan.causes), cause]'],
-    ["home-state", 'default: fail("home-state");', "default: break;"],
-    ["every-cause", "causes: failing.map(step => step.cause)", "causes: [failing[0].cause]"],
-    ["first-speech-cause", 'if (speech.cause === "speech=no-adapter") speech = answer;'],
-    ["accounts-unreadable", 'return primary ? unconfigured("brain=accounts-unreadable", error.message) : null;'],
-    ["unselected", 'if (id === "") return primary ? unconfigured("brain=unselected") : null;'],
-    ["refused-cause", 'return primary ? unconfigured("brain=" + choice.cause) : null;', 'return primary ? unconfigured("brain=account-unavailable") : null;'],
-    ["harness-driver", '"codex-app-server": CodexHarness, '],
-    ["claude-driver", ', "claude-code": ClaudeCode });', " });"],
-    ["always-any-voice", 'settings.mode === "always" && (', "false && ("],
-    ["always-live-voice", 'Object.hasOwn(DUPLEX, settings.voiceProvider) || speech.kind', "speech.kind"],
-    ["always-gemini-voice", '    gemini: Object.freeze({ id: "gemini-live", account: "gemini", adapter: GeminiLive })\n', ""],
-    ["always-wake-row", ' && speech.wake !== true))', "))"]]) {
-    const { Engine } = Fixture.copy(root, [[needle, replacement]]);
-    assert.throws(() => selection(Engine), assert.AssertionError, name + " must turn red");
-    console.log("control=" + name + " detected");
+    // Without local setup's marker the stock table's local row is the cause.
+    const stock = require(path.join(tree, "shell/plugins/vgs.jarvis/backend/ChainedEngine.js"));
+    const bare = fs.mkdtempSync(path.join(root, "stock-"));
+    assert.deepEqual(stock.create({ accounts: () => ({ secrets: null, choose: () => ({ kind: "refused", cause: "account-unavailable" }) }),
+        captionLimit: 1, directories: { state: bare, data: bare, runtime: bare } }).configure({ brain: "a" }),
+    { kind: "unconfigured", cause: "speech=local-not-set-up", causes: ["speech=local-not-set-up", "brain=account-unavailable"] },
+    "the stock daemon stays unconfigured and judges the brain too");
+    const file = path.join(tree, "shell/plugins/vgs.jarvis/backend/ChainedEngine.js");
+    await checkFailures(file);
+    const original = fs.readFileSync(file, "utf8");
+    const needle = 'result.kind === "failed" && e.mode === "check"';
+    assert.equal(original.split(needle).length, 2, "one check failure dispatch rule");
+    const mutantRoot = fs.mkdtempSync(path.join(root, "jarvis-check-failure-"));
+    try {
+        const mutant = path.join(mutantRoot, "closed-check-failure.js");
+        fs.writeFileSync(mutant, original.replace(needle, needle + " && !sink.destroyed"));
+        await assert.rejects(() => checkFailures(mutant), assert.AssertionError,
+            "dropping a closed capture failure turns the check red");
+    } finally { fs.rmSync(mutantRoot, { recursive: true, force: true }); }
+    console.log("control=closed-check-failure detected");
     controls++;
-}
-tracePaths(Fixture.copy(root).Engine);
-const classifier = Fixture.copy(root).Engine.failoverCause;
-for (const cause of ["brain=stream-failed", "brain=stream-truncated", "brain=stream-error", "net=request", "brain=http status=502", "brain=harness-api-error status=403",
-    "brain=harness-api-error status=429", "brain=harness-model-refused model=fable",
-    "brain=harness-exit code=1", "brain=codex-exited code=1 signal=null", "brain=copilot-signed-out"])
-    assert.equal(classifier(cause), true, cause);
-for (const cause of ["brain=refusal", "brain=finish reason=content-filter",
-    "brain=context-limit", "brain=harness-tool name=bad"])
-    assert.equal(classifier(cause), false, cause);
-for (const [name, needle, replacement] of [
-    ["trace-unmarked", 'if (trace.marker !== "1" || trace.file === undefined) return null;', "if (trace.file === undefined) return null;"],
-    ["trace-relative", 'if (typeof trace.file !== "string" || !path.isAbsolute(trace.file)) fail("trace-path");', ""],
-    ["trace-link", "O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o600", "O_WRONLY | O_APPEND | O_CREAT, 0o600"],
-    ["trace-open-cause", 'catch (error) { failed("open", error); }', "catch (error) { throw error; }"],
-    ["trace-mode", "O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o600", "O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o644"]]) {
-    const { Engine } = Fixture.copy(root, [[needle, replacement]]);
-    assert.throws(() => tracePaths(Engine), assert.AssertionError, name + " must turn red");
-    console.log("control=" + name + " detected");
+    // A wait that never observes fails typed; one that settles on another
+    // state fails its own assertion, so a control names which it met.
+    await assert.rejects(wait(() => false, "unobserved", 20), { operator: "until" });
+    await assert.rejects(settled(() => false, () => true, "settled elsewhere"), error => error.operator === "==");
+    selection(Fixture.copy(root).Engine);
+    brainPlan(Fixture.copy(root, [PLAN]).Engine);
+    assert.throws(() => brainPlan(Fixture.copy(root, [PLAN, ["unlistedChoice(settings, account.provider);",
+        "{ model: settings.model, effort: settings.effort };"]]).Engine), assert.AssertionError, "brain-plan-unlisted must turn red");
+    console.log("control=brain-plan-unlisted detected");
     controls++;
-}
-await cases(Fixture.copy(root), server);
-for (const [name, needle, replacement] of [
-    ["home-text-stale", "try { return c.plan.brain.guidance.withHome(folder); }", "try { return c.plan.brain.guidance; }"],
-    ["home-text-cut", '            done("brain-failed", { reason: keyed(error) });\n            return false;\n', "            c.guidance = c.plan.brain.guidance;\n"]
-]) {
-    await assert.rejects(() => cases(Fixture.copy(root, [[needle, replacement]]), server, "home-text"), assert.AssertionError,
-        name + " must turn home-text red");
-    console.log("control=" + name + " detected");
-    controls++;
-}
+    for (const [name, needle, replacement = ""] of [
+        ["speech-first", "const failing = [speech, dictation, brain]", "const failing = [brain, dictation, speech]"],
+        ["home-step", "            plan = heldByHome(plan, home());\n"],
+        ["home-refused", 'case "refused": cause = home.cause; break;', 'case "refused": break;'],
+        ["home-text-judged", 'try { Guidance.compose("chained", "local", LANGUAGE, home.path); }', "try { void home.path; }"],
+        ["home-first", 'causes: [cause, ...(plan.kind === "ready" ? [] : plan.causes)]', 'causes: [...(plan.kind === "ready" ? [] : plan.causes), cause]'],
+        ["home-state", 'default: fail("home-state");', "default: break;"],
+        ["every-cause", "causes: failing.map(step => step.cause)", "causes: [failing[0].cause]"],
+        ["first-speech-cause", 'if (speech.cause === "speech=no-adapter") speech = answer;'],
+        ["accounts-unreadable", 'return primary ? unconfigured("brain=accounts-unreadable", error.message) : null;'],
+        ["unselected", 'if (id === "") return primary ? unconfigured("brain=unselected") : null;'],
+        ["refused-cause", 'return primary ? unconfigured("brain=" + choice.cause) : null;', 'return primary ? unconfigured("brain=account-unavailable") : null;'],
+        ["harness-driver", '"codex-app-server": CodexHarness, '],
+        ["claude-driver", ', "claude-code": ClaudeCode });', " });"],
+        ["always-any-voice", 'settings.mode === "always" && (', "false && ("],
+        ["always-live-voice", 'Object.hasOwn(DUPLEX, settings.voiceProvider) || speech.kind', "speech.kind"],
+        ["always-gemini-voice", '    gemini: Object.freeze({ id: "gemini-live", account: "gemini", adapter: GeminiLive })\n', ""],
+        ["always-wake-row", ' && speech.wake !== true))', "))"]]) {
+        const { Engine } = Fixture.copy(root, [[needle, replacement]]);
+        assert.throws(() => selection(Engine), assert.AssertionError, name + " must turn red");
+        console.log("control=" + name + " detected");
+        controls++;
+    }
+    tracePaths(Fixture.copy(root).Engine);
+    const classifier = Fixture.copy(root).Engine.failoverCause;
+    for (const cause of ["brain=stream-failed", "brain=stream-truncated", "brain=stream-error", "net=request", "brain=http status=502", "brain=harness-api-error status=403",
+        "brain=harness-api-error status=429", "brain=harness-model-refused model=fable",
+        "brain=harness-exit code=1", "brain=codex-exited code=1 signal=null", "brain=copilot-signed-out"])
+        assert.equal(classifier(cause), true, cause);
+    for (const cause of ["brain=refusal", "brain=finish reason=content-filter",
+        "brain=context-limit", "brain=harness-tool name=bad"])
+        assert.equal(classifier(cause), false, cause);
+    for (const [name, needle, replacement] of [
+        ["trace-unmarked", 'if (trace.marker !== "1" || trace.file === undefined) return null;', "if (trace.file === undefined) return null;"],
+        ["trace-relative", 'if (typeof trace.file !== "string" || !path.isAbsolute(trace.file)) fail("trace-path");', ""],
+        ["trace-link", "O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o600", "O_WRONLY | O_APPEND | O_CREAT, 0o600"],
+        ["trace-open-cause", 'catch (error) { failed("open", error); }', "catch (error) { throw error; }"],
+        ["trace-mode", "O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o600", "O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o644"]]) {
+        const { Engine } = Fixture.copy(root, [[needle, replacement]]);
+        assert.throws(() => tracePaths(Engine), assert.AssertionError, name + " must turn red");
+        console.log("control=" + name + " detected");
+        controls++;
+    }
+    await cases(Fixture.copy(root), server);
+    for (const [name, needle, replacement] of [
+        ["home-text-stale", "try { return c.plan.brain.guidance.withHome(folder); }", "try { return c.plan.brain.guidance; }"],
+        ["home-text-cut", '            done("brain-failed", { reason: keyed(error) });\n            return false;\n', "            c.guidance = c.plan.brain.guidance;\n"]
+    ]) {
+        await assert.rejects(() => cases(Fixture.copy(root, [[needle, replacement]]), server, "home-text"), assert.AssertionError,
+            name + " must turn home-text red");
+        console.log("control=" + name + " detected");
+        controls++;
+    }
+    assert.deepEqual(server.faults, [], "selection requests matched the pinned schema");
     return controls;
 }
 
-async function groupDaemon(root, server) {
+async function groupDaemonSpeech(root, server) {
     let controls = 0;
-await daemonSpeech(server);
-await daemonSpeech(server, [], "ready", "brain-failed");
-await daemonSpeech(server, [], "not-ready");
-await daemonSpeech(server, [], "memory-refused");
-await daemonSpeech(server, [], "memory-unavailable");
-await assert.rejects(() => daemonSpeech(server,
-    [['error.kind === "refused"', 'false']], "memory-refused"), assert.AssertionError,
-    "a startup memory refusal cannot restore readiness");
-console.log("control=memory refusal admitted detected");
-controls++;
-await daemonSpeech(server, [], "held");
-for (const ending of ["ready", "stop", "mute", "lock", "lease", "fault", "locked", "muted", "missing", "brain", "device", "check-ready", "check-silent", "check-not-heard"])
-    await loadingTalk(server, ending);
-for (const ending of ["ready", "refused", "unset"]) await alwaysTalk(server, ending);
-for (const [name, file, needle, replacement] of [
-    ["wake sink removed", "backend/ChainedEngine.js", '            if (e.mode === "armed" || e.mode === "check") return spotting(e);\n', ""],
-    ["wake not dispatched", "backend/ChainedEngine.js", 'else if (result.kind === "woke") dispatch({ type: "wake", gen: e.gen, op: e.op });', "else void result;"],
-    ["Always refusal removed", "backend/ChainedEngine.js", 'settings.mode === "always" && (settings.voiceProvider', 'false && (settings.voiceProvider']
-]) {
-    await assert.rejects(() => alwaysTalk(server, name === "Always refusal removed" ? "refused" : "ready", [[file, needle, replacement]]),
-        assert.AssertionError, name);
-    console.log("control=" + name + " detected");
+    await daemonSpeech(server);
+    await daemonSpeech(server, [], "ready", "brain-failed");
+    await daemonSpeech(server, [], "not-ready");
+    await daemonSpeech(server, [], "memory-refused");
+    await daemonSpeech(server, [], "memory-unavailable");
+    await assert.rejects(() => daemonSpeech(server,
+        [['error.kind === "refused"', 'false']], "memory-refused"), assert.AssertionError,
+        "a startup memory refusal cannot restore readiness");
+    console.log("control=memory refusal admitted detected");
     controls++;
-}
-for (const [name, file, needle, replacement] of [
-    ["loading admission removed", "backend/jarvisd.js", ' || configuration.kind === "loading"', ""],
-    ["loading ready too early", "backend/ChainedEngine.js", 'return { kind: "loading", cause: "speech=local-loading", causes: ["speech=local-loading"] };', 'return { kind: "ready" };'],
-    ["loading ignores presented indicator", "Session.js", 's.indicator.kind === "shown"', "true"],
-    ["loading starts a second child", "backend/ChainedEngine.js", 'if (plan.speech.lifetime === "daemon" && daemonSpeech === null) startSpeech(plan.speech);', 'if (plan.speech.lifetime === "daemon") startSpeech(plan.speech);'],
-    ["replacement loading unpublished", "backend/ChainedEngine.js", 'daemonSpeech = owner;\n        configured(configuration());', 'daemonSpeech = owner;'],
-    ["ready timeout reads ready", "backend/ChainedEngine.js", ' || (speechState.kind === "starting" && error.code === "ready-timeout")', ""],
-    ["loading cancellation replays", "backend/ChainedEngine.js", '            if (utterance) utterance.abort();', '            void utterance;']
-]) {
-    const ending = name === "loading cancellation replays" ? "stop" : name === "replacement loading unpublished" ? "fault" : name === "ready timeout reads ready" ? "held" : "ready";
-    await assert.rejects(() => loadingTalk(server, ending, [[file, needle, replacement]]), assert.AssertionError, name);
-    console.log("control=" + name + " detected");
+    await daemonSpeech(server, [], "held");
+    for (const [name, edits] of [
+        ["ready before model load", [['speechState.kind === "new" || published) startSpeech(plan.speech);', 'false) startSpeech(plan.speech);']]],
+        ["new arguments keep the sidecar", [['|| speechState.kind === "new" || speechIdentity === plan.speech.identity) return;', '|| true) return;']]],
+        ["replaced sidecar kept", [['        daemonSpeech?.close();\n        startSpeech(plan.speech);\n    }', '        startSpeech(plan.speech);\n    }']]],
+        ["restart under a conversation", [['if (closed || conversation !== null || plan.speech', 'if (closed || plan.speech']]],
+        ["conversation unloads local speech", [['if (c.plan.speech.lifetime !== "daemon") c.speech.close();', 'c.speech.close();']]],
+        ["faulted child kept", [["daemonSpeech = null;\n            // A startup", "// A startup"]]],
+        ["admission refusal admitted", [['{ kind: "refused", error, publication: row.publication }', '{ kind: "unloaded" }']]],
+        ["ordinary hello retries refusal", [['speechState.publication !== plan.speech.publication', 'true']]],
+        ["setup publication ignored", [['speechState.publication !== plan.speech.publication', 'false']]]
+    ]) {
+        await assert.rejects(() => daemonSpeech(server, edits, ["admission refusal admitted", "ordinary hello retries refusal", "setup publication ignored"].includes(name) ? "not-ready" : "ready"),
+            assert.AssertionError, name + " control must fail");
+        console.log("control=" + name + " detected");
+        controls++;
+    }
+    await assert.rejects(() => daemonSpeech(server,
+        [['if (c.plan.speech.lifetime !== "daemon") c.speech.close();', 'c.speech.close();']], "ready", "brain-failed"),
+        assert.AssertionError, "conversation fault unload control must fail");
+    console.log("control=conversation fault unloads local speech detected");
     controls++;
+    assert.deepEqual(server.faults, [], "daemon-speech requests matched the pinned schema");
+    return controls;
 }
-for (const [name, edits] of [
-    ["ready before model load", [['speechState.kind === "new" || published) startSpeech(plan.speech);', 'false) startSpeech(plan.speech);']]],
-    ["new arguments keep the sidecar", [['|| speechState.kind === "new" || speechIdentity === plan.speech.identity) return;', '|| true) return;']]],
-    ["replaced sidecar kept", [['        daemonSpeech?.close();\n        startSpeech(plan.speech);\n    }', '        startSpeech(plan.speech);\n    }']]],
-    ["restart under a conversation", [['if (closed || conversation !== null || plan.speech', 'if (closed || plan.speech']]],
-    ["conversation unloads local speech", [['if (c.plan.speech.lifetime !== "daemon") c.speech.close();', 'c.speech.close();']]],
-    ["faulted child kept", [["daemonSpeech = null;\n            // A startup", "// A startup"]]],
-    ["admission refusal admitted", [['{ kind: "refused", error, publication: row.publication }', '{ kind: "unloaded" }']]],
-    ["ordinary hello retries refusal", [['speechState.publication !== plan.speech.publication', 'true']]],
-    ["setup publication ignored", [['speechState.publication !== plan.speech.publication', 'false']]]
-]) {
-    await assert.rejects(() => daemonSpeech(server, edits, ["admission refusal admitted", "ordinary hello retries refusal", "setup publication ignored"].includes(name) ? "not-ready" : "ready"),
-        assert.AssertionError, name + " control must fail");
-    console.log("control=" + name + " detected");
-    controls++;
-}
-await assert.rejects(() => daemonSpeech(server,
-    [['if (c.plan.speech.lifetime !== "daemon") c.speech.close();', 'c.speech.close();']], "ready", "brain-failed"),
-    assert.AssertionError, "conversation fault unload control must fail");
-console.log("control=conversation fault unloads local speech detected");
-controls++;
-assert.deepEqual(server.faults, [], "every request matched the pinned schema");
+
+async function groupDaemonLoading(root, server) {
+    let controls = 0;
+    for (const ending of ["ready", "stop", "mute", "lock", "lease", "fault", "locked", "muted", "missing", "brain", "device", "check-ready", "check-silent", "check-not-heard"])
+        await loadingTalk(server, ending);
+    for (const ending of ["ready", "refused", "unset"]) await alwaysTalk(server, ending);
+    for (const [name, file, needle, replacement] of [
+        ["wake sink removed", "backend/ChainedEngine.js", '            if (e.mode === "armed" || e.mode === "check") return spotting(e);\n', ""],
+        ["wake not dispatched", "backend/ChainedEngine.js", 'else if (result.kind === "woke") dispatch({ type: "wake", gen: e.gen, op: e.op });', "else void result;"],
+        ["Always refusal removed", "backend/ChainedEngine.js", 'settings.mode === "always" && (settings.voiceProvider', 'false && (settings.voiceProvider']
+    ]) {
+        await assert.rejects(() => alwaysTalk(server, name === "Always refusal removed" ? "refused" : "ready", [[file, needle, replacement]]),
+            assert.AssertionError, name);
+        console.log("control=" + name + " detected");
+        controls++;
+    }
+    for (const [name, file, needle, replacement] of [
+        ["loading admission removed", "backend/jarvisd.js", ' || configuration.kind === "loading"', ""],
+        ["loading ready too early", "backend/ChainedEngine.js", 'return { kind: "loading", cause: "speech=local-loading", causes: ["speech=local-loading"] };', 'return { kind: "ready" };'],
+        ["loading ignores presented indicator", "Session.js", 's.indicator.kind === "shown"', "true"],
+        ["loading starts a second child", "backend/ChainedEngine.js", 'if (plan.speech.lifetime === "daemon" && daemonSpeech === null) startSpeech(plan.speech);', 'if (plan.speech.lifetime === "daemon") startSpeech(plan.speech);'],
+        ["replacement loading unpublished", "backend/ChainedEngine.js", 'daemonSpeech = owner;\n        configured(configuration());', 'daemonSpeech = owner;'],
+        ["ready timeout reads ready", "backend/ChainedEngine.js", ' || (speechState.kind === "starting" && error.code === "ready-timeout")', ""],
+        ["loading cancellation replays", "backend/ChainedEngine.js", '            if (utterance) utterance.abort();', '            void utterance;']
+    ]) {
+        const ending = name === "loading cancellation replays" ? "stop" : name === "replacement loading unpublished" ? "fault" : name === "ready timeout reads ready" ? "held" : "ready";
+        await assert.rejects(() => loadingTalk(server, ending, [[file, needle, replacement]]), assert.AssertionError, name);
+        console.log("control=" + name + " detected");
+        controls++;
+    }
+    assert.deepEqual(server.faults, [], "daemon-loading requests matched the pinned schema");
     return controls;
 }
 
 async function groupPlants(root, server) {
     let controls = 0;
-// Each control plants one defect in a disposable engine copy.
-const plants = [
-    ["start-earcon-silenced", 'pcm.writeInt16LE(Math.round(3900 * envelope * Math.sin(2 * Math.PI * frequency * frame / PCM_RATE)), frame * 2);',
-        'pcm.writeInt16LE(0, frame * 2);', "feedback-start"],
-    ["working-earcon-silenced", 'c.turn.speech.readable.push(earcon("working"));',
-        'c.turn.speech.readable.push(Buffer.alloc(5760));', "feedback-working"],
-    ["feedback-text-suppression", "                        quiet(turn);\n                        say(c, turn, sentence);", "                        say(c, turn, sentence);", "feedback-suppressed-text"],
-    ["feedback-tool-suppression", 'case "done":\n                    quiet(turn);',
-        'case "done":\n                    void turn;', "feedback-suppressed-tool"],
-    ["acknowledgement", 'line(c, turn, Speakable.acknowledgement(e.text), ["speech"]);',
-        '', "spoken-lines"],
-    ["step-drain", "for (const step of stream.steps()) {",
-        "for (const step of []) {", "spoken-lines"],
-    ["progress-threshold", "const PROGRESS_AFTER_MS = 4000;", "const PROGRESS_AFTER_MS = 0;", "progress-short-request"],
-    ["progress-repeat", 'if (key === "" || turn.lines.has(key)) return false;',
-        'if (key === "") return false;', "progress-repeat"],
-    ["progress-one-waits", "                turn.waitingLine = { text, labels };\n                return true;",
-        "                turn.waitingLine = null;\n                return true;", "progress-one-waits"],
-    ["progress-secret", "if (turn.stopped || turn.speaking || turn.replyStarted || Redact.secret(text)) return false;",
-        "if (turn.stopped || turn.speaking || turn.replyStarted) return false;", "spoken-lines-secret"],
-    ["progress-timer-labels", "if (turn.step !== null) line(c, turn, turn.step, [...turn.labels]);",
-        'if (turn.step !== null) line(c, turn, turn.step, ["speech"]);', "progress-line-labels-timer"],
-    ["progress-late-labels", "if (turn.progressDue) line(c, turn, step, [...turn.labels]);",
-        'if (turn.progressDue) line(c, turn, step, ["speech"]);', "progress-line-labels-late"],
-    ["line-feedback", 'turn.done("feedback", { cue: "line" });',
-        'turn.done("feedback");', "spoken-lines"],
-    ["release-grant", "if (accepted) c.grants.push(grant);", "void grant;", "release-grants"],
-    ["release-decline-once", "for (const label of pending.labels) c.decisions.add(label);", "void pending.labels;", "release-decisions"],
-    ["voice-confirmation", 'dispatch({ type: "confirm", ...answer, source: "voice" });',
-        'dispatch({ type: "confirm", ...answer, source: "model" });', "voice-release"],
-    ["voice-final-time", 'dispatch({ type: "confirm", ...answer, source: "voice" });',
-        'dispatch({ type: "confirm", ...answer, beganAt: clock.now(), source: "voice" });', "voice-before-display"],
-    ["voice-idle-across-playback", 'if (s.playback.kind !== "idle") idleAt = null;',
-        'if (false) idleAt = null;', "voice-after-playback"],
-    ["release-refusal-record", 'refusal: e.reason });', 'refusal: undefined });', "release-refusal"],
-    ["router-offers", "tools: router.offer()", "tools: []", "turn-loop"],
-    ["heard-omitted", "if (c.heard !== null) items.push(heardItem(c.heard));", "", "barge-in"],
-    ["heard-once", "            c.heard = null;\n", "", "barge-in"],
-    ["full-reply-heard", 'heard(c, turn, report === null || flushedLine ? "" : withoutLinePrefix(turn, report.heardText));',
-        'heard(c, turn, "Hello there. The time is noon.");', "barge-in"],
-    ["cancel-heard", '            if (c.live === null && turn.relay === null) heard(c, turn, "");\n', "", "cancel-thinking"],
-    ["partial-to-brain", 'utterance.collection?.done("partial", event.text);', 'utterance.collection?.done("final", event.text);', "turn-loop"],
-    ["tool-names-spoken", "const text = Speakable.create(LANGUAGE, { tools: TOOL_NAMES });", "const text = Speakable.create(LANGUAGE, { tools: [] });", "brain-trace"],
-    ["trace-not-written", "                    brainText?.write(turn, event.text);\n", "", "brain-trace"],
-    ["trace-after-speakable", "brainText?.write(turn, event.text);", "for (const sentence of Speakable.create(LANGUAGE).push(event.text)) brainText?.write(turn, sentence);", "brain-trace"],
-    ["unlabelled-frames", 'return { value: Policy.item(chunk, ["speech"]), done: false };',
-        'return { value: Policy.item(chunk, ["desktop"]), done: false };', "turn-loop"],
-    ["result-identity", 'if (turn !== null && turn.op === value.op && turn.phase === "routing" && turn.routing?.id === id) {',
-        "if (turn !== null) {", "stale-outcome"],
-    ["interrupted-answers", "if (routing && c.brain !== null) c.brain.record(", "if (false) c.brain.record(", "stale-outcome"],
-    ["not-started", 'return router.interrupted(call, "not-started");', 'return router.interrupted(call, "running");', "stale-outcome"],
-    ["late-result", "c.results.push(lateItem(late.call, value.outcome, item));", "void lateItem;", "stale-outcome"],
-    ["fast-match", "? null : Tools.match(e.text);", "? null : null;", "fast-path"],
-    ["fast-account", "c.results.push(fastAccount(turn.fast.e.text, call, outcome, item));", "", "fast-path"],
-    ["fast-fallthrough", "if (!Object.hasOwn(FAST_LINES, outcome)) {", "if (false) {", "fast-path-refused"],
-    ["fast-late-account", "if (late.fast !== undefined) c.results.push(", "if (false) c.results.push(", "fast-path-interrupted"],
-    ["fast-proposer", ', proposer: "matcher" };', " };", "fast-path"],
-    ["fast-heard", "        if (turn.fast !== undefined) return;\n", "", "fast-path-barge-in"],
-    ["fast-late", 'if (turn.phase === "fast" && turn.routing !== null) c.late.set(', "if (false) c.late.set(", "fast-path-interrupted"],
-    ["history-taint", "router.observe(turn, reply.release.labels);", "void reply;", "history-taint"],
-    ["toggle-adoption", 'c.unbound !== null && c.unbound.state === "running" ? c.unbound : null',
-        "c.unbound", "toggle-turns"],
-    ["toggle-detection", 'transcribe(frames, { detect: e.mode !== "hold" })',
-        'transcribe(frames, { detect: false })', "toggle-turns"],
-    ["collect-failure", "else if (collecting(c, utterance.collection)) utterance.collection.failed(keyed(error));",
-        "else if (false) utterance.collection.failed(keyed(error));", "transcribe-failure"],
-    ["speech-gates-brain", 'if (event.reason === "tool-calls") next(c, turn);\n                    else {\n                        clearProgress(turn);\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        concluded(c, turn);',
-        'if (event.reason === "tool-calls") next(c, turn);\n                    else {\n                        clearProgress(turn);\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        await new Promise(resolve => turn.speech.readable.once("close", resolve));\n                        concluded(c, turn);', "long-speech"],
-    ["net-not-closed", "        if (c.plan.speech.lifetime !== \"daemon\") c.speech.close();\n        c.net.close();\n        retired = { gen: c.gen, closed: quiet };",
-        "        if (c.plan.speech.lifetime !== \"daemon\") c.speech.close();\n        retired = { gen: c.gen, closed: quiet };", "conversation-end"],
-    ["observe-teardown", "if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === \"ended\")) end();", "void s;", "settings-change"],
-    ["follow-up-abort", '            if (conversation?.collection !== null && conversation?.collection !== undefined\n                    && !collecting(conversation, conversation.collection)) {\n                conversation.collection.utterance?.abort();\n                conversation.collection = null;\n            }\n',
-        "", "follow-up-close-aborts"],
-    ["after-tool-rule", "...(after === null ? {} : { instructions: after }),", "", "tool-round"],
-    ["image-answer", "turn.answers.set(id, image === undefined ? { item } : { item, image });", "turn.answers.set(id, { item });", "screen-image"],
-    ["images-ready", 'return current.kind === "ready" && current.brain.provider.images;', "return true;", "screen-image"],
-    ["context-clean-end", 'turn.done(reason === "brain=context-limit" ? "brain-ended" : "brain-failed", { reason });',
-        'turn.done("brain-failed", { reason });', "context-bound"],
-    ["readable-backpressure", "if (!readable.push(step.value)) await wanted.wait();", "readable.push(step.value);", "backpressure"],
-    ["partial-revision", "event.rev <= rev", "false", "partial-revision"],
-    ["end-aborts-transcription", "            if (utterance) utterance.abort();", "            void utterance;", "mute-capture"],
-    ["caption-revision", "rev: ++c.rev", "rev: 1", "turn-loop"],
-    ["caption-before-release", "        transfer(c, turn, item, () => {\n            if (turn.speech === null) {",
-        "        caption(c, turn, sentence);\n        transfer(c, turn, item, () => {\n            if (turn.speech === null) {", "audit-refusal-speech"],
-    ["audit-skipped", '"pending"), start);\n        if (result.kind !== "started") fail("audit-write");\n        return result.value;',
-        '"pending"), () => {});\n        void result;\n        return start();', "audit-refusal-line"],
-    ["caption-dropped", "        caption(c, turn, sentence);\n", "", "turn-loop"],
-    ["caption-final", 'else {\n                        clearProgress(turn);\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        concluded(c, turn);\n                        turn.done("brain-done");',
-        'else {\n                        clearProgress(turn);\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        turn.done("brain-done");', "turn-loop"],
-    ["caption-separator", "        if (turn.caption.length + 1 >= captionLimit) concluded(c, turn);\n", "", "caption-segments"],
-    ["caption-bound", "const room = captionLimit - turn.caption.length;", "const room = Infinity;", "caption-segments"],
-    ["caption-failure-final", "        concluded(c, turn);\n        const reason = keyed(error);", "        const reason = keyed(error);", "caption-segments"],
-    ["speakable-bypass", "for (const sentence of sentences) {\n                        quiet(turn);\n                        say(c, turn, sentence);\n                    }",
-        "say(c, turn, event.text);", "turn-loop"],
-    ["feedback-silenced-text-cancels", "for (const sentence of sentences) {\n                        quiet(turn);",
-        "quiet(turn);\n                    for (const sentence of sentences) {", "feedback-silenced-text"],
-    ["feedback-disable-stream", 'turn.speech = null;\n            }\n            if (s.playback.kind',
-        'void turn.speech;\n            }\n            if (s.playback.kind', "feedback-disable-working"],
-    ...["action", "release"].map(purpose => ["feedback-approval-stream-" + purpose,
-        's.settings.sounds !== true || s.approval.kind === "held"', 's.settings.sounds !== true',
-        "feedback-voice-" + purpose]),
-    ["feedback-flush-heard-context", "const speaking = turn?.speaking === true;",
-        "const speaking = c !== null && c !== undefined;", "feedback-delayed-flush"],
-    ["line-refused-retry", "if (c.live === null && turn.lineStream !== null) {",
-        "if (c.live === null && (turn.lineStream !== null || turn.pendingLine !== null)) {", "progress-after-refused-line"],
-    ["line-flush-heard", 'report === null || flushedLine ? "" : withoutLinePrefix', 'report === null ? "" : withoutLinePrefix', "line-held-reply-interrupt"],
-    ["preview-speaker", "c.speech.speak(sentenceInput, c.plan.speech.speaker)", 'c.speech.speak(sentenceInput, "fixture")', "voice-preview"],
-    ["preview-unspoken", "fixedLine(c, turn, PREVIEW_LINE);", 'turn.done("brain-done");', "voice-preview"],
-    ["dictation-reply-dropped", 'settle(ok(result) ? { kind: "text", text: result.data.text }',
-        'settle(ok(result) ? { kind: "text", text: "" }', "dictation-hold-turn"],
-    ...["mute", "stop", "lock", "daemon-end"].map(trigger => ["dictation-abort-records-on-" + trigger,
-        "            record?.cancel();\n        }, begin() { record?.begin(); } };", "        }, begin() { record?.begin(); } };",
-        "dictation-cancel-" + trigger]),
-    ["dictation-silence-stopped", 'if (!event.speech || answer === null && utterance.collection === null) {',
-        'if (answer === null && utterance.collection === null) {', "dictation-silent"],
-    ["dictation-voice-as-key", 'dispatch({ type: "confirm", ...answer, source: "voice" });',
-        'dispatch({ type: "confirm", ...answer, source: "key" });', "dictation-physical-hold"],
-    ["dictation-start-cue", 'return plan.speech?.kind === "ready" && plan.speech.dictation === true ? "dictation" : "chained";',
-        'return "chained";', "dictation-no-cue"],
-    ["dictation-cause-ignored", 'speech.kind === "ready" && speech.dictation === true && settings.dictation !== ""', "false", "dictation-cause-holds"],
-    ...["stop", "mute", "lock", "release"].map(trigger => ["dictation-pending-end-lost-" + trigger,
-        "                if (record.end !== null) finish(record.end);\n", "", "dictation-pending-" + trigger]),
-    ["dictation-stop-refusal-read-empty", 'settle(ok(result) ? { kind: "text", text: result.data.text } : { kind: "failed", cause: dictationFault(result) });',
-        'settle({ kind: "text", text: ok(result) ? result.data.text : "" });', "dictation-stop-refused"],
-    ["dictation-unbound-records", "                if (utterance.answers) utterance.begin();", "                utterance.begin();", "dictation-toggle-second-turn"],
-    ["dictation-refusal-unheard", "if (collecting(c, utterance.collection)) utterance.collection.failed(result.cause);\n            else if (running", "if (running", "dictation-start-refused"],
-];
-for (const [name, needle, replacement, scenario] of plants) {
-    // The copy asserts its match outside the measured run.
-    const kit = Fixture.copy(root, [[needle, replacement]]);
-    let failure = null;
-    try { await cases(kit, server, scenario); }
-    catch (error) { failure = error; }
-    assert.ok(failure instanceof assert.AssertionError, name + " must turn an assertion red: " + failure);
-    console.log("control=" + name + " detected operator=" + failure.operator + ": " + failure.message.split("\n")[0]);
-    controls++;
-}
+    // Each control plants one defect in a disposable engine copy.
+    const plants = [
+        ["start-earcon-silenced", 'pcm.writeInt16LE(Math.round(3900 * envelope * Math.sin(2 * Math.PI * frequency * frame / PCM_RATE)), frame * 2);',
+            'pcm.writeInt16LE(0, frame * 2);', "feedback-start"],
+        ["working-earcon-silenced", 'c.turn.speech.readable.push(earcon("working"));',
+            'c.turn.speech.readable.push(Buffer.alloc(5760));', "feedback-working"],
+        ["feedback-text-suppression", "                        quiet(turn);\n                        say(c, turn, sentence);", "                        say(c, turn, sentence);", "feedback-suppressed-text"],
+        ["feedback-tool-suppression", 'case "done":\n                    quiet(turn);',
+            'case "done":\n                    void turn;', "feedback-suppressed-tool"],
+        ["acknowledgement", 'line(c, turn, Speakable.acknowledgement(e.text), ["speech"]);',
+            '', "spoken-lines"],
+        ["step-drain", "for (const step of stream.steps()) {",
+            "for (const step of []) {", "spoken-lines"],
+        ["progress-threshold", "const PROGRESS_AFTER_MS = 4000;", "const PROGRESS_AFTER_MS = 0;", "progress-short-request"],
+        ["progress-repeat", 'if (key === "" || turn.lines.has(key)) return false;',
+            'if (key === "") return false;', "progress-repeat"],
+        ["progress-one-waits", "                turn.waitingLine = { text, labels };\n                return true;",
+            "                turn.waitingLine = null;\n                return true;", "progress-one-waits"],
+        ["progress-secret", "if (turn.stopped || turn.speaking || turn.replyStarted || Redact.secret(text)) return false;",
+            "if (turn.stopped || turn.speaking || turn.replyStarted) return false;", "spoken-lines-secret"],
+        ["progress-timer-labels", "if (turn.step !== null) line(c, turn, turn.step, [...turn.labels]);",
+            'if (turn.step !== null) line(c, turn, turn.step, ["speech"]);', "progress-line-labels-timer"],
+        ["progress-late-labels", "if (turn.progressDue) line(c, turn, step, [...turn.labels]);",
+            'if (turn.progressDue) line(c, turn, step, ["speech"]);', "progress-line-labels-late"],
+        ["line-feedback", 'turn.done("feedback", { cue: "line" });',
+            'turn.done("feedback");', "spoken-lines"],
+        ["release-grant", "if (accepted) c.grants.push(grant);", "void grant;", "release-grants"],
+        ["release-decline-once", "for (const label of pending.labels) c.decisions.add(label);", "void pending.labels;", "release-decisions"],
+        ["voice-confirmation", 'dispatch({ type: "confirm", ...answer, source: "voice" });',
+            'dispatch({ type: "confirm", ...answer, source: "model" });', "voice-release"],
+        ["voice-final-time", 'dispatch({ type: "confirm", ...answer, source: "voice" });',
+            'dispatch({ type: "confirm", ...answer, beganAt: clock.now(), source: "voice" });', "voice-before-display"],
+        ["voice-idle-across-playback", 'if (s.playback.kind !== "idle") idleAt = null;',
+            'if (false) idleAt = null;', "voice-after-playback"],
+        ["release-refusal-record", 'refusal: e.reason });', 'refusal: undefined });', "release-refusal"],
+        ["router-offers", "tools: router.offer()", "tools: []", "turn-loop"],
+        ["heard-omitted", "if (c.heard !== null) items.push(heardItem(c.heard));", "", "barge-in"],
+        ["heard-once", "            c.heard = null;\n", "", "barge-in"],
+        ["full-reply-heard", 'heard(c, turn, report === null || flushedLine ? "" : withoutLinePrefix(turn, report.heardText));',
+            'heard(c, turn, "Hello there. The time is noon.");', "barge-in"],
+        ["cancel-heard", '            if (c.live === null && turn.relay === null) heard(c, turn, "");\n', "", "cancel-thinking"],
+        ["partial-to-brain", 'utterance.collection?.done("partial", event.text);', 'utterance.collection?.done("final", event.text);', "turn-loop"],
+        ["tool-names-spoken", "const text = Speakable.create(LANGUAGE, { tools: TOOL_NAMES });", "const text = Speakable.create(LANGUAGE, { tools: [] });", "brain-trace"],
+        ["trace-not-written", "                    brainText?.write(turn, event.text);\n", "", "brain-trace"],
+        ["trace-after-speakable", "brainText?.write(turn, event.text);", "for (const sentence of Speakable.create(LANGUAGE).push(event.text)) brainText?.write(turn, sentence);", "brain-trace"],
+        ["unlabelled-frames", 'return { value: Policy.item(chunk, ["speech"]), done: false };',
+            'return { value: Policy.item(chunk, ["desktop"]), done: false };', "turn-loop"],
+        ["result-identity", 'if (turn !== null && turn.op === value.op && turn.phase === "routing" && turn.routing?.id === id) {',
+            "if (turn !== null) {", "stale-outcome"],
+        ["interrupted-answers", "if (routing && c.brain !== null) c.brain.record(", "if (false) c.brain.record(", "stale-outcome"],
+        ["not-started", 'return router.interrupted(call, "not-started");', 'return router.interrupted(call, "running");', "stale-outcome"],
+        ["late-result", "c.results.push(lateItem(late.call, value.outcome, item));", "void lateItem;", "stale-outcome"],
+        ["fast-match", "? null : Tools.match(e.text);", "? null : null;", "fast-path"],
+        ["fast-account", "c.results.push(fastAccount(turn.fast.e.text, call, outcome, item));", "", "fast-path"],
+        ["fast-fallthrough", "if (!Object.hasOwn(FAST_LINES, outcome)) {", "if (false) {", "fast-path-refused"],
+        ["fast-late-account", "if (late.fast !== undefined) c.results.push(", "if (false) c.results.push(", "fast-path-interrupted"],
+        ["fast-proposer", ', proposer: "matcher" };', " };", "fast-path"],
+        ["fast-heard", "        if (turn.fast !== undefined) return;\n", "", "fast-path-barge-in"],
+        ["fast-late", 'if (turn.phase === "fast" && turn.routing !== null) c.late.set(', "if (false) c.late.set(", "fast-path-interrupted"],
+        ["history-taint", "router.observe(turn, reply.release.labels);", "void reply;", "history-taint"],
+        ["toggle-adoption", 'c.unbound !== null && c.unbound.state === "running" ? c.unbound : null',
+            "c.unbound", "toggle-turns"],
+        ["toggle-detection", 'transcribe(frames, { detect: e.mode !== "hold" })',
+            'transcribe(frames, { detect: false })', "toggle-turns"],
+        ["collect-failure", "else if (collecting(c, utterance.collection)) utterance.collection.failed(keyed(error));",
+            "else if (false) utterance.collection.failed(keyed(error));", "transcribe-failure"],
+        ["speech-gates-brain", 'if (event.reason === "tool-calls") next(c, turn);\n                    else {\n                        clearProgress(turn);\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        concluded(c, turn);',
+            'if (event.reason === "tool-calls") next(c, turn);\n                    else {\n                        clearProgress(turn);\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        await new Promise(resolve => turn.speech.readable.once("close", resolve));\n                        concluded(c, turn);', "long-speech"],
+        ["net-not-closed", "        if (c.plan.speech.lifetime !== \"daemon\") c.speech.close();\n        c.net.close();\n        retired = { gen: c.gen, closed: quiet };",
+            "        if (c.plan.speech.lifetime !== \"daemon\") c.speech.close();\n        retired = { gen: c.gen, closed: quiet };", "conversation-end"],
+        ["observe-teardown", "if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === \"ended\")) end();", "void s;", "settings-change"],
+        ["follow-up-abort", '            if (conversation?.collection !== null && conversation?.collection !== undefined\n                    && !collecting(conversation, conversation.collection)) {\n                conversation.collection.utterance?.abort();\n                conversation.collection = null;\n            }\n',
+            "", "follow-up-close-aborts"],
+        ["after-tool-rule", "...(after === null ? {} : { instructions: after }),", "", "tool-round"],
+        ["image-answer", "turn.answers.set(id, image === undefined ? { item } : { item, image });", "turn.answers.set(id, { item });", "screen-image"],
+        ["images-ready", 'return current.kind === "ready" && current.brain.provider.images;', "return true;", "screen-image"],
+        ["context-clean-end", 'turn.done(reason === "brain=context-limit" ? "brain-ended" : "brain-failed", { reason });',
+            'turn.done("brain-failed", { reason });', "context-bound"],
+        ["readable-backpressure", "if (!readable.push(step.value)) await wanted.wait();", "readable.push(step.value);", "backpressure"],
+        ["partial-revision", "event.rev <= rev", "false", "partial-revision"],
+        ["end-aborts-transcription", "            if (utterance) utterance.abort();", "            void utterance;", "mute-capture"],
+        ["caption-revision", "rev: ++c.rev", "rev: 1", "turn-loop"],
+        ["caption-before-release", "        transfer(c, turn, item, () => {\n            if (turn.speech === null) {",
+            "        caption(c, turn, sentence);\n        transfer(c, turn, item, () => {\n            if (turn.speech === null) {", "audit-refusal-speech"],
+        ["audit-skipped", '"pending"), start);\n        if (result.kind !== "started") fail("audit-write");\n        return result.value;',
+            '"pending"), () => {});\n        void result;\n        return start();', "audit-refusal-line"],
+        ["caption-dropped", "        caption(c, turn, sentence);\n", "", "turn-loop"],
+        ["caption-final", 'else {\n                        clearProgress(turn);\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        concluded(c, turn);\n                        turn.done("brain-done");',
+            'else {\n                        clearProgress(turn);\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        turn.done("brain-done");', "turn-loop"],
+        ["caption-separator", "        if (turn.caption.length + 1 >= captionLimit) concluded(c, turn);\n", "", "caption-segments"],
+        ["caption-bound", "const room = captionLimit - turn.caption.length;", "const room = Infinity;", "caption-segments"],
+        ["caption-failure-final", "        concluded(c, turn);\n        const reason = keyed(error);", "        const reason = keyed(error);", "caption-segments"],
+        ["speakable-bypass", "for (const sentence of sentences) {\n                        quiet(turn);\n                        say(c, turn, sentence);\n                    }",
+            "say(c, turn, event.text);", "turn-loop"],
+        ["feedback-silenced-text-cancels", "for (const sentence of sentences) {\n                        quiet(turn);",
+            "quiet(turn);\n                    for (const sentence of sentences) {", "feedback-silenced-text"],
+        ["feedback-disable-stream", 'turn.speech = null;\n            }\n            if (s.playback.kind',
+            'void turn.speech;\n            }\n            if (s.playback.kind', "feedback-disable-working"],
+        ...["action", "release"].map(purpose => ["feedback-approval-stream-" + purpose,
+            's.settings.sounds !== true || s.approval.kind === "held"', 's.settings.sounds !== true',
+            "feedback-voice-" + purpose]),
+        ["feedback-flush-heard-context", "const speaking = turn?.speaking === true;",
+            "const speaking = c !== null && c !== undefined;", "feedback-delayed-flush"],
+        ["line-refused-retry", "if (c.live === null && turn.lineStream !== null) {",
+            "if (c.live === null && (turn.lineStream !== null || turn.pendingLine !== null)) {", "progress-after-refused-line"],
+        ["line-flush-heard", 'report === null || flushedLine ? "" : withoutLinePrefix', 'report === null ? "" : withoutLinePrefix', "line-held-reply-interrupt"],
+        ["preview-speaker", "c.speech.speak(sentenceInput, c.plan.speech.speaker)", 'c.speech.speak(sentenceInput, "fixture")', "voice-preview"],
+        ["preview-unspoken", "fixedLine(c, turn, PREVIEW_LINE);", 'turn.done("brain-done");', "voice-preview"],
+        ["dictation-reply-dropped", 'settle(ok(result) ? { kind: "text", text: result.data.text }',
+            'settle(ok(result) ? { kind: "text", text: "" }', "dictation-hold-turn"],
+        ...["mute", "stop", "lock", "daemon-end"].map(trigger => ["dictation-abort-records-on-" + trigger,
+            "            record?.cancel();\n        }, begin() { record?.begin(); } };", "        }, begin() { record?.begin(); } };",
+            "dictation-cancel-" + trigger]),
+        ["dictation-silence-stopped", 'if (!event.speech || answer === null && utterance.collection === null) {',
+            'if (answer === null && utterance.collection === null) {', "dictation-silent"],
+        ["dictation-voice-as-key", 'dispatch({ type: "confirm", ...answer, source: "voice" });',
+            'dispatch({ type: "confirm", ...answer, source: "key" });', "dictation-physical-hold"],
+        ["dictation-start-cue", 'return plan.speech?.kind === "ready" && plan.speech.dictation === true ? "dictation" : "chained";',
+            'return "chained";', "dictation-no-cue"],
+        ["dictation-cause-ignored", 'speech.kind === "ready" && speech.dictation === true && settings.dictation !== ""', "false", "dictation-cause-holds"],
+        ...["stop", "mute", "lock", "release"].map(trigger => ["dictation-pending-end-lost-" + trigger,
+            "                if (record.end !== null) finish(record.end);\n", "", "dictation-pending-" + trigger]),
+        ["dictation-stop-refusal-read-empty", 'settle(ok(result) ? { kind: "text", text: result.data.text } : { kind: "failed", cause: dictationFault(result) });',
+            'settle({ kind: "text", text: ok(result) ? result.data.text : "" });', "dictation-stop-refused"],
+        ["dictation-unbound-records", "                if (utterance.answers) utterance.begin();", "                utterance.begin();", "dictation-toggle-second-turn"],
+        ["dictation-refusal-unheard", "if (collecting(c, utterance.collection)) utterance.collection.failed(result.cause);\n            else if (running", "if (running", "dictation-start-refused"],
+    ];
+    for (const [name, needle, replacement, scenario] of plants) {
+        // The copy asserts its match outside the measured run.
+        const kit = Fixture.copy(root, [[needle, replacement]]);
+        let failure = null;
+        try { await cases(kit, server, scenario); }
+        catch (error) { failure = error; }
+        assert.ok(failure instanceof assert.AssertionError, name + " must turn an assertion red: " + failure);
+        console.log("control=" + name + " detected operator=" + failure.operator + ": " + failure.message.split("\n")[0]);
+        controls++;
+    }
     return controls;
 }
 
 async function groupTasks(root, server) {
     let controls = 0;
-// The state root's protection is what withholds the recording.
-const deniedKit = Fixture.copy(root);
-const deniedFile = path.join(deniedKit.folder, "backend/Denied.js");
-const deniedSource = fs.readFileSync(deniedFile, "utf8");
-const stateNeedle = 'path.join(data, "vgshell"), path.join(state, "vgshell"),';
-assert.equal(deniedSource.split(stateNeedle).length, 2, "one state root protection match");
-fs.writeFileSync(deniedFile, deniedSource.replace(stateNeedle, 'path.join(data, "vgshell"),'));
-let deniedFailure = null;
-try { await cases(deniedKit, server, "cloned-voice-reference-withheld"); }
-catch (error) { deniedFailure = error; }
-assert.ok(deniedFailure instanceof assert.AssertionError, "state root control must turn an assertion red: " + deniedFailure);
-console.log("control=state root unprotected detected: " + deniedFailure.message.split("\n")[0]);
-controls++;
-controls += await taskControls(root, server);
-const toggleKit = Fixture.copy(root);
-const sessionFile = path.join(toggleKit.folder, "Session.js");
-const sessionSource = fs.readFileSync(sessionFile, "utf8");
-const closeNeedle = '                closeCapture(s, effects);\n                start(s, effects, "held", e.at);';
-assert.equal(sessionSource.split(closeNeedle).length, 2, "one held-answer capture control match");
-fs.writeFileSync(sessionFile, sessionSource.replace(closeNeedle, '                start(s, effects, "held", e.at);'));
-await assert.rejects(() => cases(toggleKit, server, "voice-toggle-reopened"), assert.AssertionError,
-    "retaining a prior Toggle capture must fail the fresh-answer assertion");
-console.log("control=voice-toggle-reopened detected");
-controls++;
-for (const [name, needle, replacement, scenario] of [
-    ["feedback-pending-play", 'if (s.playback.kind === "flushing" && s.conversation.kind === "active") {',
-        'if (false && s.playback.kind === "flushing" && s.conversation.kind === "active") {', "feedback-delayed-flush"],
-    ...["action", "release"].map(purpose => ["feedback-approval-flush-" + purpose,
-        '                || s.playback.cue === "line" && s.playback.reply.kind === "none")) flushPlayback(s, effects);',
-        '                || s.playback.cue === "line" && s.playback.reply.kind === "none")) void effects;',
-        "feedback-voice-" + purpose])
-]) {
-    const kit = Fixture.copy(root);
-    const file = path.join(kit.folder, "Session.js");
-    const source = fs.readFileSync(file, "utf8");
-    assert.equal(source.split(needle).length - 1, 1, name + " mutation match");
-    fs.writeFileSync(file, source.replace(needle, replacement));
-    await assert.rejects(() => cases(kit, server, scenario), assert.AssertionError,
-        name + " must turn the playback assertion red");
-    console.log("control=" + name + " detected");
+    // The state root's protection is what withholds the recording.
+    const deniedKit = Fixture.copy(root);
+    const deniedFile = path.join(deniedKit.folder, "backend/Denied.js");
+    const deniedSource = fs.readFileSync(deniedFile, "utf8");
+    const stateNeedle = 'path.join(data, "vgshell"), path.join(state, "vgshell"),';
+    assert.equal(deniedSource.split(stateNeedle).length, 2, "one state root protection match");
+    fs.writeFileSync(deniedFile, deniedSource.replace(stateNeedle, 'path.join(data, "vgshell"),'));
+    let deniedFailure = null;
+    try { await cases(deniedKit, server, "cloned-voice-reference-withheld"); }
+    catch (error) { deniedFailure = error; }
+    assert.ok(deniedFailure instanceof assert.AssertionError, "state root control must turn an assertion red: " + deniedFailure);
+    console.log("control=state root unprotected detected: " + deniedFailure.message.split("\n")[0]);
     controls++;
-}
-const refusalKit = Fixture.copy(root);
-const daemonFile = path.join(refusalKit.folder, "backend/jarvisd.js");
-const daemonSource = fs.readFileSync(daemonFile, "utf8");
-const refusalNeedle = 'e.purpose === "release" ? engine.release.refused(e) : actionApproval.refused(e)';
-assert.equal(daemonSource.split(refusalNeedle).length, 2, "one release refusal wiring control match");
-fs.writeFileSync(daemonFile, daemonSource.replace(refusalNeedle,
-    'e.purpose === "release" ? undefined : actionApproval.refused(e)'));
-await assert.rejects(() => cases(refusalKit, server, "release-refusal"), assert.AssertionError,
-    "dropping daemon release refusal delivery must fail its audit assertion");
-console.log("control=release-refusal-wiring detected");
-controls++;
-const auditKit = Fixture.copy(root);
-const auditFile = path.join(auditKit.folder, "backend/Audit.js");
-const auditSource = fs.readFileSync(auditFile, "utf8");
-const auditNeedle = 'if (event.refusal !== undefined && (kind !== "release" || ![';
-assert.equal(auditSource.split(auditNeedle).length, 2, "one refusal category control match");
-fs.writeFileSync(auditFile, auditSource.replace(auditNeedle, 'if (false && (kind !== "release" || !['));
-await assert.rejects(() => cases(auditKit, server, "release-refusal"), assert.AssertionError,
-    "copying arbitrary refusal text must fail its sanitization assertion");
-console.log("control=release-refusal-category detected");
-controls++;
+    controls += await taskControls(root, server);
+    const toggleKit = Fixture.copy(root);
+    const sessionFile = path.join(toggleKit.folder, "Session.js");
+    const sessionSource = fs.readFileSync(sessionFile, "utf8");
+    const closeNeedle = '                closeCapture(s, effects);\n                start(s, effects, "held", e.at);';
+    assert.equal(sessionSource.split(closeNeedle).length, 2, "one held-answer capture control match");
+    fs.writeFileSync(sessionFile, sessionSource.replace(closeNeedle, '                start(s, effects, "held", e.at);'));
+    await assert.rejects(() => cases(toggleKit, server, "voice-toggle-reopened"), assert.AssertionError,
+        "retaining a prior Toggle capture must fail the fresh-answer assertion");
+    console.log("control=voice-toggle-reopened detected");
+    controls++;
+    for (const [name, needle, replacement, scenario] of [
+        ["feedback-pending-play", 'if (s.playback.kind === "flushing" && s.conversation.kind === "active") {',
+            'if (false && s.playback.kind === "flushing" && s.conversation.kind === "active") {', "feedback-delayed-flush"],
+        ...["action", "release"].map(purpose => ["feedback-approval-flush-" + purpose,
+            '                || s.playback.cue === "line" && s.playback.reply.kind === "none")) flushPlayback(s, effects);',
+            '                || s.playback.cue === "line" && s.playback.reply.kind === "none")) void effects;',
+            "feedback-voice-" + purpose])
+    ]) {
+        const kit = Fixture.copy(root);
+        const file = path.join(kit.folder, "Session.js");
+        const source = fs.readFileSync(file, "utf8");
+        assert.equal(source.split(needle).length - 1, 1, name + " mutation match");
+        fs.writeFileSync(file, source.replace(needle, replacement));
+        await assert.rejects(() => cases(kit, server, scenario), assert.AssertionError,
+            name + " must turn the playback assertion red");
+        console.log("control=" + name + " detected");
+        controls++;
+    }
+    const refusalKit = Fixture.copy(root);
+    const daemonFile = path.join(refusalKit.folder, "backend/jarvisd.js");
+    const daemonSource = fs.readFileSync(daemonFile, "utf8");
+    const refusalNeedle = 'e.purpose === "release" ? engine.release.refused(e) : actionApproval.refused(e)';
+    assert.equal(daemonSource.split(refusalNeedle).length, 2, "one release refusal wiring control match");
+    fs.writeFileSync(daemonFile, daemonSource.replace(refusalNeedle,
+        'e.purpose === "release" ? undefined : actionApproval.refused(e)'));
+    await assert.rejects(() => cases(refusalKit, server, "release-refusal"), assert.AssertionError,
+        "dropping daemon release refusal delivery must fail its audit assertion");
+    console.log("control=release-refusal-wiring detected");
+    controls++;
+    const auditKit = Fixture.copy(root);
+    const auditFile = path.join(auditKit.folder, "backend/Audit.js");
+    const auditSource = fs.readFileSync(auditFile, "utf8");
+    const auditNeedle = 'if (event.refusal !== undefined && (kind !== "release" || ![';
+    assert.equal(auditSource.split(auditNeedle).length, 2, "one refusal category control match");
+    fs.writeFileSync(auditFile, auditSource.replace(auditNeedle, 'if (false && (kind !== "release" || !['));
+    await assert.rejects(() => cases(auditKit, server, "release-refusal"), assert.AssertionError,
+        "copying arbitrary refusal text must fail its sanitization assertion");
+    console.log("control=release-refusal-category detected");
+    controls++;
     return controls;
 }
 
-const GROUPS = Object.freeze({ selection: groupSelection, daemon: groupDaemon, plants: groupPlants, tasks: groupTasks });
+const GROUPS = Object.freeze({ selection: groupSelection, "daemon-speech": groupDaemonSpeech, "daemon-loading": groupDaemonLoading, plants: groupPlants, tasks: groupTasks });
 
 async function runGroup(name) {
-    if (!Object.hasOwn(GROUPS, name)) {
-        console.error("test-jarvis-engine: unknown group=" + name);
-        process.exitCode = 1;
-        return;
-    }
     await runGroupWithServer(name, GROUPS[name]);
 }
 
