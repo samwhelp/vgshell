@@ -770,7 +770,7 @@ jarvis_shell_status() {
   ipc smoke jarvisProcess | py_reply '
 import json,sys
 want = {"ready": {"tone":"ok", "text":"Ready"},
-        "missing": {"tone":"warning", "text":"Unavailable: bwrap-missing", "action":True}}[sys.argv[1]]
+        "missing": {"tone":"warning", "text":"Unavailable: bwrap-missing"}}[sys.argv[1]]
 print("matched" if json.load(sys.stdin)["status"].get("shell") == want else "pending")
 ' "$1"
 }

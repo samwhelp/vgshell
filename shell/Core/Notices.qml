@@ -384,15 +384,16 @@ Singleton {
         return answer.startsWith("refused: ") ? answer : "";
     }
 
-    // Install, or Update once nothing is left to install: the shown
-    // notice's first group that installs, else its first that updates,
-    // through the core TUI. Answers the TUI's answer; a busy key focuses the
+    // Update, or Install once nothing is left to update: the shown
+    // notice's first group that updates, else its first that installs,
+    // through the core TUI, so an outdated command a plugin needs never
+    // waits on the installs of its optional ones. Answers the TUI's answer; a busy key focuses the
     // live run.
     function accept() {
         const shown = view;
         if (shown === null || (shown.install === null && shown.update === null) || installing) return "refused: install=none";
         const id = shown.id;
-        const ran = { action: shown.install !== null ? "install" : "update", args: shown.install !== null ? shown.install : shown.update };
+        const ran = { action: shown.update !== null ? "update" : "install", args: shown.update !== null ? shown.update : shown.install };
         failure = null;
         const answer = Capabilities.tuis.openCore("requirements-" + ran.action, ran.args, result => root.installEnded(id, ran, result));
         if (answer === "ok") installingId = id;

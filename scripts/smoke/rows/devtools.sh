@@ -550,6 +550,21 @@ expect_poll "the notice maps" 1 layer_count vgs:notice
 expect_poll "the notice holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape to the notice failed"
 expect_poll "Escape closes the notice" 0 layer_count vgs:notice
+# The offer scans before it raises: the last scan found the command, from
+# a stand-in since removed with no rescan, so only a scan the offer starts
+# finds it missing. A notice raised from the last scan would answer
+# satisfied and show nothing.
+fixture_missing() { ipc smoke doctorMissing service vgs.devtools | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("acme.requires") or []))'; }
+printf '#!/bin/sh\nexit 0\n' >"$shim/vgs-smoke-devtool"
+chmod 755 "$shim/vgs-smoke-devtool"
+rescan "a rescan with the fixture's command stood in starts"
+expect_poll "the scan finds the fixture's command present" '[]' fixture_missing
+rm -f -- "${shim:?}/vgs-smoke-devtool"
+expect "with the stand-in gone and no rescan the last scan still reads it present" '[]' fixture_missing
+expect "the doctor capability takes the fixture's command" ok ipc smoke doctorOffer service vgs.devtools acme.requires vgs-smoke-devtool
+expect_poll "the offer's own scan raises the notice for the command" '["acme.requires", ["vgs-smoke-devtool"], ["vgs-smoke-devtool"], false]' notice_shown
+type_keys -k Escape || fail "sending Escape to the fresh-scan notice failed"
+expect_poll "Escape closes the fresh-scan notice" 0 layer_count vgs:notice
 # The doctor capability's other owners: the core's commands the scan
 # finds, and a disabled or unknown plugin.
 scans="$(log_lines 'plugins: scan complete changed=')" || fail "the instance log is unreadable before the core request"

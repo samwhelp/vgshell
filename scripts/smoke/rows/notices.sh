@@ -484,6 +484,17 @@ release_runs
 expect_run_end "the held-manager update run ends" core/requirements-update
 expect_poll "the read after the held-manager update settles the notice" settled install_settled
 expect "the held-manager update notice closes" null notice_shown
+# A notice that holds an outdated command and a missing one offers Update
+# first, so the command the plugin needs updated never waits on the
+# install of an optional one (VGS-1464).
+old_version 1.9.0 || fail "the stand-in below the floor is written for the mixed notice"
+rescan "a rescan with the command below its floor starts for the mixed notice"
+expect_poll "the command reads outdated for the mixed notice" '["outdated"]' floor_state
+expect "an offer of the outdated command and a missing extra raises the notice" ok floor_plugin offer 'vgs-smoke-old|vgs-smoke-extra'
+expect_poll "the mixed notice lists both commands" '["acme.floor", ["vgs-smoke-old", "vgs-smoke-extra"], ["vgs-smoke-old", "vgs-smoke-extra"], false]' notice_shown
+expect_poll "the mixed notice offers Update before Install" '["Update", "Not now"]' drawn actions
+type_keys -k Escape || fail "sending Escape to the mixed notice failed"
+expect_poll "Escape closes the mixed notice" null notice_shown
 expect "disabling acme.floor is allowed" ok ipc shell setPluginEnabled acme.floor false
 floor_removed() { local out; out="$("${shell_env[@]}" "$repo/bin/vgshell" plugin remove --yes acme.floor 2>>"$sandbox/ipc.log")" || return 1; printf '%s\n' "${out%%$'\n'*}"; }
 expect "acme.floor is removed" "ok removed=acme.floor" floor_removed

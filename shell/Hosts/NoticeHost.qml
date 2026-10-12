@@ -50,9 +50,9 @@ Scope {
     }
 
     // The label of the step the notice runs, "" when no manager here runs
-    // one: Install while a listed package is missing, then Update.
+    // one: Update while a listed package is outdated, then Install.
     function step(shown) {
-        return shown.install !== null ? "Install" : shown.update !== null ? "Update" : "";
+        return shown.update !== null ? "Update" : shown.install !== null ? "Install" : "";
     }
 
     // The line under SHOWN's entries for FAILURE, Notices.failure: why its

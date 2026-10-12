@@ -31,7 +31,7 @@ function requirementApplies(requirement) {
 // rows: null while the step applies to none, else { label, hint, button,
 // icon }, the install's words while one is missing and the update's once
 // each one the step applies to is outdated. Either button asks the core for
-// the one notice, which installs first and then updates.
+// the one notice, which updates first and then installs.
 function requirementStep(requirements) {
     var lacking = requirements.filter(requirementApplies);
     if (lacking.length === 0) return null;
