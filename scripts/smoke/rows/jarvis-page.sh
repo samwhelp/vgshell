@@ -45,9 +45,10 @@ jarvis_rescan
 jarvis_enable
 settings_page_open vgs.jarvis
 
-# The Voice provider: the user file's saved value, from the plugin's row and
-# its widget's layout entries, "absent" when none holds one, and the value
-# the page draws, the core's merge of the file over the manifest default.
+# The Voice provider: the user file's saved values, each once, from the
+# plugin's row and its widget's layout entries, which a page write both
+# holds, "absent" when none holds one; and the value the page draws, the
+# core's merge of the file over the manifest default.
 page_voice_saved() {
   python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json,sys
@@ -56,7 +57,7 @@ entries=list(value.get("plugins", []))
 for section in value.get("bar", {}).get("layout", {}).values():
     if isinstance(section, list): entries+=section
 saved=[row["voiceProvider"] for row in entries if isinstance(row, dict) and row.get("id") == "vgs.jarvis" and "voiceProvider" in row]
-print(json.dumps(saved) if saved else "absent")
+print(json.dumps(sorted(set(saved))) if saved else "absent")
 PY
 }
 page_voice() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; r=[p["settings"].get("voiceProvider") for p in json.load(sys.stdin) if p["id"] == "vgs.jarvis"]; print(json.dumps(r[0]) if r else "absent")'; }
