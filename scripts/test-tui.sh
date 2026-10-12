@@ -119,6 +119,171 @@ on_tty 'vgs_tui_confirm "Remove it?"'
 check "a confirm without caller flags still aligns gum" test "$(cat "$tmp/gum")" == "$(printf '%s\n' confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" -- "Remove it?")"
 check "a confirm answers gum's no" test "$status" == 1
 rm -f -- "$tmp/gum-exit"
+# A Yes or No answer erases the key help line with gum's view; a Ctrl-C
+# leaves it above the question gum keeps. erase_rows QUIET: ok and FAIL
+# lines unless QUIET is `quiet`; returns the number of failing rows.
+erase_rows() {
+  local row code want got red=0
+  for row in "0|erased" "1|erased" "130|kept"; do
+    IFS='|' read -r code want <<<"$row"
+    echo "$code" >"$tmp/gum-exit"
+    on_tty 'vgs_tui_confirm "Remove it?" || :'
+    got=kept
+    [[ $(cat "$tmp/out") != *"${esc}[1A"$'\r'"${esc}[2K" ]] || got=erased
+    if [[ $got == "$want" ]]; then
+      [[ $1 == quiet ]] || ok "a confirm answered $code leaves the help line $want"
+    else
+      red=$((red + 1))
+      [[ $1 == quiet ]] || fail "a confirm answered $code leaves the help line $want: got $got"
+    fi
+  done
+  rm -f -- "${tmp:?}/gum-exit"
+  return "$red"
+}
+erase_rows loud || true
+
+# Every colour a yes-or-no question draws, against the colour under it,
+# meets 4.5 to 1, the WCAG ratio for text, on vgs dark and flexoki-light.
+# The host's gum draws the question through the library on an 80-column
+# pseudo-terminal with each theme's gum colours, pinned from the render of
+# themes/targets/gum for each package on 2026-10-12; FOREGROUND and
+# BACKGROUND stand for the terminal's own text and background. Each drawn
+# character is judged by its foreground and background. A colour from the
+# terminal's own 16-colour palette, or faint text, has no value to measure
+# and fails. The prompt, both buttons and the key help must each be drawn,
+# so a run that draws nothing, or a judge that reads no colour, fails.
+# Rows: theme | text | background | prompt | selected text | selected fill | unselected text | key help
+contrast_themes=(
+  "vgs-dark|#d7d7d9|#000000|#ff5a36|#000000|#ff5a36|#d7d7d9|#7d7d7e"
+  "flexoki-light|#100f0f|#fffcf0|#205ea6|#ffffff|#205ea6|#100f0f|#6b6965"
+)
+cat >"$tmp/contrast.py" <<'PY'
+import re
+import sys
+
+drawn = open(sys.argv[1], "rb").read().decode("utf-8", "replace")
+text, background = sys.argv[2], sys.argv[3]
+required = dict(zip(("prompt", "selected", "unselected", "help"), sys.argv[4:8]))
+FLOOR = 4.5
+CSI = re.compile(r"\x1b\[([0-?]*)([ -/]*)([@-~])")
+OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+
+
+def luminance(colour):
+    channels = [int(colour[at:at + 2], 16) / 255 for at in (1, 3, 5)]
+    linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def ratio(first, second):
+    light, dark = sorted((luminance(first), luminance(second)), reverse=True)
+    return (light + 0.05) / (dark + 0.05)
+
+
+def indexed(n):
+    """xterm's 256-colour table past the 16 the terminal's palette sets."""
+    if n < 16:
+        return "palette"
+    if n < 232:
+        levels = (0, 95, 135, 175, 215, 255)
+        n -= 16
+        return "#%02x%02x%02x" % (levels[n // 36], levels[n // 6 % 6], levels[n % 6])
+    grey = 8 + 10 * (n - 232)
+    return "#%02x%02x%02x" % (grey, grey, grey)
+
+
+state = {"fg": None, "bg": None, "faint": False, "reverse": False}
+
+
+def sgr(params):
+    codes = params.replace(":", ";").split(";") if params else ["0"]
+    at = 0
+    while at < len(codes):
+        code = int(codes[at] or 0)
+        if code == 0:
+            state.update(fg=None, bg=None, faint=False, reverse=False)
+        elif code == 2:
+            state["faint"] = True
+        elif code == 22:
+            state["faint"] = False
+        elif code == 7:
+            state["reverse"] = True
+        elif code == 27:
+            state["reverse"] = False
+        elif code in (39, 49):
+            state["fg" if code == 39 else "bg"] = None
+        elif 30 <= code <= 37 or 90 <= code <= 97:
+            state["fg"] = "palette"
+        elif 40 <= code <= 47 or 100 <= code <= 107:
+            state["bg"] = "palette"
+        elif code in (38, 48):
+            key = "fg" if code == 38 else "bg"
+            if codes[at + 1] == "2":
+                state[key] = "#%02x%02x%02x" % tuple(int(c) for c in codes[at + 2:at + 5])
+                at += 4
+            else:
+                state[key] = indexed(int(codes[at + 2]))
+                at += 2
+        at += 1
+
+
+pairs = {}
+at = 0
+while at < len(drawn):
+    char = drawn[at]
+    if char == "\x1b":
+        match = CSI.match(drawn, at) or OSC.match(drawn, at)
+        if match is None:
+            at += 2
+            continue
+        if match.re is CSI and match.group(3) == "m" and not match.group(2) and match.group(1)[:1] not in "<=>?":
+            sgr(match.group(1))
+        at = match.end()
+        continue
+    at += 1
+    if char.isspace() or ord(char) < 0x20:
+        continue
+    fg, bg = state["fg"] or text, state["bg"] or background
+    if state["reverse"]:
+        fg, bg = bg, fg
+    if state["faint"]:
+        fg = "faint"
+    pairs.setdefault((fg, bg), []).append(char)
+
+failed = 0
+for (fg, bg), chars in pairs.items():
+    if not fg.startswith("#") or not bg.startswith("#"):
+        print(f"contrast=unmeasured fg={fg} bg={bg} drawn={''.join(chars)[:24]}")
+        failed += 1
+        continue
+    value = ratio(fg, bg)
+    verdict = "ok" if value >= FLOOR else "low"
+    failed += verdict == "low"
+    print(f"contrast={verdict} fg={fg} bg={bg} ratio={value:.2f} drawn={''.join(chars)[:24]}")
+drawn_fgs = {fg for fg, _ in pairs}
+for element, colour in required.items():
+    if colour not in drawn_fgs:
+        print(f"contrast=missing element={element} fg={colour}")
+        failed += 1
+sys.exit(1 if failed else 0)
+PY
+# contrast_row ROW: the question drawn under ROW's colours and judged; the
+# judge's lines in $tmp/contrast, its status returned.
+contrast_row() {
+  local name fg bg prompt sel_fg sel_bg unsel help
+  IFS='|' read -r name fg bg prompt sel_fg sel_bg unsel help <<<"$1"
+  "${lib_env[@]}" PATH="$tmp/real-gum:$base_path" TERM=xterm-256color COLORTERM=truecolor \
+    FOREGROUND="$fg" BACKGROUND="$bg" GUM_CONFIRM_PROMPT_FOREGROUND="$prompt" GUM_CONFIRM_PROMPT_BACKGROUND="$bg" \
+    GUM_CONFIRM_SELECTED_FOREGROUND="$sel_fg" GUM_CONFIRM_SELECTED_BACKGROUND="$sel_bg" \
+    GUM_CONFIRM_UNSELECTED_FOREGROUND="$unsel" GUM_CONFIRM_UNSELECTED_BACKGROUND="$bg" GUM_PAGER_HELP_FOREGROUND="$help" \
+    timeout 20 script -qec "$(printf '%q ' "$BASH" -c "stty cols 80 rows 24; source $(printf '%q' "$LIB"); vgs_tui_confirm 'Remove it?' --timeout=1s")" /dev/null \
+    </dev/null >"$tmp/drawn" 2>&1 || :
+  python3 "$tmp/contrast.py" "$tmp/drawn" "$fg" "$bg" "$prompt" "$sel_fg" "$unsel" "$help" >"$tmp/contrast"
+}
+for row in "${contrast_themes[@]}"; do
+  if contrast_row "$row"; then ok "every colour of a question meets 4.5 to 1 on ${row%%|*}"
+  else fail "a colour of a question is under 4.5 to 1 on ${row%%|*}: $(paste -sd' ' "$tmp/contrast")"; fi
+done
 on_tty 'printf "a\nb\n" | vgs_tui_choose --header Pick'
 check "a choose on a terminal hands gum its arguments" test "$(cat "$tmp/gum")" == "$(printf '%s\n' choose --header Pick)"
 check "a choose on a terminal starts with one blank line on the terminal stream" starts_one_blank "$tmp/out"
@@ -586,6 +751,12 @@ check "the no-prompt-blank mutant fails the prompt blank row" test "$(starts_one
 control no-confirm-margins 'gum confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" "$@" -- "$question"' 'gum confirm "$@" -- "$question"'
 on_tty 'vgs_tui_confirm "Remove it?"'
 check "the no-confirm-margins mutant fails the confirm argv row" test "$(cat "$tmp/gum")" != "$(printf '%s\n' confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" -- "Remove it?")"
+control gum-help-shown 'GUM_CONFIRM_SHOW_HELP=false gum confirm' 'gum confirm'
+check "the gum-help-shown mutant fails the vgs-dark contrast row" test "$(contrast_row "${contrast_themes[0]}" && echo green || echo red)" == red
+control help-low-colour '"$(vgs_tui_sgr "${GUM_PAGER_HELP_FOREGROUND:-}" 39)"' '"$(vgs_tui_sgr "#3a3a3a" 39)"'
+check "the help-low-colour mutant fails the vgs-dark contrast row" test "$(contrast_row "${contrast_themes[0]}" && echo green || echo red)" == red
+control help-kept "then printf '\\033[1A\\r\\033[2K' >&2; fi" 'then :; fi'
+check "the help-kept mutant fails an erase row" test "$(erase_rows quiet && echo green || echo red)" == red
 control accent-success '"$(vgs_tui_sgr "${VGS_TUI_SUCCESS:-}" 32)" "$*"' '"$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 32)" "$*"'
 run 'vgs_tui_success "Ready."' VGS_TUI_SUCCESS='#070809' VGS_TUI_ACCENT='#010203'
 check "the accent-success mutant fails the success colour row" test "$(cat "$tmp/out")" != $'\n'"${esc}[38;2;7;8;9mReady.${esc}[0m"

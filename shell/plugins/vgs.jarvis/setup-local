@@ -8,12 +8,13 @@ pick, the tier ready now (null for none) and the Local voice setting's offers,
 run, in declaration order. The TUI calls `install [TIER]`; with no tier it
 installs the pick. The service calls `status`, which emits one status value
 for localRuntime. `probe` runs only inside a network namespace. Exit 77 means
-unavailable, never ready. No audio device or host setting is opened. The
-state lock covers invalidation, installation and publication.
+unavailable, never ready; 69 is a refusal before anything ran, whose sentence
+names the step the user takes first. No audio device or host setting is
+opened. The state lock covers invalidation, installation and publication.
 
 `clone` holds the cloned voice's verbs, under a lock of their own:
-`check` refuses without output unless the Large tier can run the clone,
-`install` builds its environment and fetches its model beside a ready
+`check` refuses with 69, printing nothing on stdout, unless the Large tier
+can run the clone, `install` builds its environment and fetches its model beside a ready
 graphics card tier, `record` stores the reference read on stdin and
 publishes after a probe, `probe` runs only inside a network namespace,
 `remove` deletes the recording and `status` emits clonedVoiceSetup's value.
@@ -546,10 +547,14 @@ def clone_tier(judge, value, state, data):
     return tier is not None and value["tiers"][tier]["provider"] == CLONE_PROVIDER
 
 
+class Unmet(ValueError):
+    """A precondition the user meets on the Jarvis page; nothing ran."""
+
+
 def require_clone_tier(judge, value, state, data):
     """Refuse clone setup until the verified Local voice tier can host it."""
     if not clone_tier(judge, value, state, data):
-        raise ValueError("clone=needs-large-tier\n"
+        raise Unmet("clone=needs-large-tier\n"
                          "The cloned voice runs beside the Large local voice model on an NVIDIA graphics card. "
                          "Set up Large under Local voice on the Jarvis page first.")
 
@@ -823,6 +828,9 @@ if __name__ == "__main__":
     except measurement().Unavailable as error:
         print(f"jarvis-setup: unavailable={error}", file=sys.stderr)
         sys.exit(77)
+    except Unmet as error:
+        print(f"jarvis-setup: refused={error}", file=sys.stderr)
+        sys.exit(69)
     except (ValueError, KeyError, TypeError, OSError, tarfile.TarError) as error:
         print(f"jarvis-setup: failed={error}", file=sys.stderr)
         sys.exit(1)

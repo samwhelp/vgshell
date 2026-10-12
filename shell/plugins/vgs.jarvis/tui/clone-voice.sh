@@ -16,10 +16,15 @@ mkdir -p -- "$state"
 details() {
   vgs_tui_error "The details are in ${log/#"$HOME"/\~}."
 }
-if ! vgs_tui_split "$log" jarvis-setup python3 -I "$VGS_PLUGIN_DIR/setup-local" clone check; then
-  details
-  exit 1
-fi
+# 69 is setup-local's refusal before anything ran: its sentence says what
+# to set up first, and present closes it without Failed.
+status=0
+vgs_tui_split "$log" jarvis-setup python3 -I "$VGS_PLUGIN_DIR/setup-local" clone check || status=$?
+case "$status" in
+  0) ;;
+  69) exit 69 ;;
+  *) details; exit 1 ;;
+esac
 # The recording's length, inside setup-local's bounds of 5 to 15 s.
 seconds=10
 declined() {

@@ -33,7 +33,8 @@
 # present clears the screen, prints bin/lib/logo.txt in the theme accent,
 # runs argv as a list, never through a shell, and keeps its exit code.
 # Unless the code is 130, a Ctrl-C, it shows the library's closing prompt,
-# vgs_tui_close_prompt: `● Done! Press any key to close...` or `● Failed!
+# vgs_tui_close_prompt: `● Done! Press any key to close...`, `● Press any
+# key to close...` for 69, a refusal before anything ran, or `● Failed!
 # Press any key to close...` on /dev/tty, not on stdout, and waits for
 # one key. The prompt hides the exit code; the ended run record below keeps
 # `code` for logs and readers. `plain` skips the logo and the prompt. A plugin's

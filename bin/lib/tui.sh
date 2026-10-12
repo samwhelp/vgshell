@@ -3,8 +3,9 @@
 # bin/vgshell-tui runs sources it as `source "$VGS_TUI_LIB"`; bin/vgshell-tui
 # sources it for its own colours. It defines functions and sets no shell
 # option. Colours are the #rrggbb values `vgshell-tui present` exports from
-# gum.env (VGS_TUI_ACCENT, VGS_TUI_SUCCESS, VGS_TUI_WARNING, VGS_TUI_DANGER),
-# each with an ANSI fallback when absent or empty.
+# gum.env (VGS_TUI_ACCENT, VGS_TUI_SUCCESS, VGS_TUI_WARNING, VGS_TUI_DANGER,
+# and gum's GUM_PAGER_HELP_FOREGROUND for the confirm's key help), each with
+# an ANSI fallback when absent or empty.
 #
 # Every refusal prints one keyed line on stderr first:
 # `vgs-tui: refused: <key>=<value>`. A function that refuses returns 2 for a
@@ -20,7 +21,8 @@
 #   vgs_tui_cancelled TEXT           print TEXT and, when there is a terminal,
 #                                    wait for one key to close
 #   vgs_tui_confirm QUESTION [GUM_FLAG...]
-#                                    gum confirm; yes under VGS_TUI_UNATTENDED=1
+#                                    gum confirm under a key help line in the
+#                                    theme; yes under VGS_TUI_UNATTENDED=1
 #   vgs_tui_choose|input|filter [GUM_ARG...]
 #                                    gum choose, input or filter
 #   vgs_tui_gum_env ARRAY            set ARRAY to NAME=VALUE for each exported
@@ -56,7 +58,8 @@
 #                                    reports none
 #   vgs_tui_reboot_check             print why a reboot is needed; 1 when none is
 #   vgs_tui_close_prompt CODE [MARKER]
-#                                    `● Done!` for 0, `● Failed!`
+#                                    `● Done!` for 0, no word for 69, a refusal
+#                                    before anything ran, `● Failed!`
 #                                    otherwise, and one key, or MARKER's removal
 #                                    when given, on /dev/tty; nothing for 130, a
 #                                    Ctrl-C, or with no terminal
@@ -151,18 +154,36 @@ vgs_tui_cancelled() { # TEXT
 # Answers yes without asking under VGS_TUI_UNATTENDED=1 and prints the
 # question with that answer. Otherwise gum asks; its status is the answer:
 # 0 yes, 1 no, 130 cancelled.
+#
+# gum 2.0.2 draws its own key help in fixed greys no GUM_ variable themes,
+# under 4.5 to 1 on a dark background, so gum's is off and the key help is
+# drawn above the question in the gum target's help colour,
+# GUM_PAGER_HELP_FOREGROUND, or the terminal's own text colour without one.
+# A Yes or No answer clears gum's whole view and leaves the cursor where it
+# started, so the help line, one row above, goes with it; a Ctrl-C leaves
+# the question, and the help above it. Checked in a private tmux run of
+# gum 2.0.2 for VGS-1492 on 2026-10-12.
 vgs_tui_confirm() { # QUESTION [GUM_FLAG...]
-  local question="$1"
+  local question="$1" flag previous="" yes=Yes no=No status=0
   shift
   if [[ ${VGS_TUI_UNATTENDED:-} == 1 ]]; then
     printf '\n%s yes (unattended)\n' "$question"
     return 0
   fi
   _vgs_tui_terminal confirm || return
+  for flag; do
+    case "$previous" in --affirmative) yes="$flag" ;; --negative) no="$flag" ;; esac
+    case "$flag" in --affirmative=*) yes="${flag#*=}" ;; --negative=*) no="${flag#*=}" ;; esac
+    previous="$flag"
+  done
   _vgs_tui_prompt_gap
+  printf '%s←→ toggle • enter submit • y %s • n %s\033[0m\n' \
+    "$(vgs_tui_sgr "${GUM_PAGER_HELP_FOREGROUND:-}" 39)" "$yes" "$no" >&2
   # gum 2.0.2 accepts these margin keys though `gum confirm --help` omits
   # them; checked in a private tmux run for VGS-1475 on 2026-10-12.
-  gum confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" "$@" -- "$question"
+  GUM_CONFIRM_SHOW_HELP=false gum confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" "$@" -- "$question" || status=$?
+  if [[ $status == 0 || $status == 1 ]]; then printf '\033[1A\r\033[2K' >&2; fi
+  return "$status"
 }
 
 vgs_tui_choose() { _vgs_tui_terminal choose || return; _vgs_tui_prompt_gap; gum choose "$@"; }
@@ -394,6 +415,9 @@ vgs_tui_columns() {
 # MARKER, a file the caller made, the prompt also ends once the file is
 # gone: the key is read with a 0.2 s timeout and the file looked for
 # between reads, so a later run can close a window that waits here.
+# 69, sysexits' EX_UNAVAILABLE, is a refusal before anything ran, whose
+# sentence already says what the user needs: nothing failed, so the prompt
+# names no outcome.
 vgs_tui_close_prompt() { # CODE [MARKER]
   local code="$1" marker="${2:-}" status
   [[ $code != 130 ]] || return 0
@@ -401,6 +425,8 @@ vgs_tui_close_prompt() { # CODE [MARKER]
   _vgs_tui_drain_terminal
   if [[ $code == 0 ]]; then
     printf '\n%s● \033[0mDone! Press any key to close...' "$(vgs_tui_sgr "${VGS_TUI_SUCCESS:-}" 32)" >/dev/tty
+  elif [[ $code == 69 ]]; then
+    printf '\n%s● \033[0mPress any key to close...' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 36)" >/dev/tty
   else
     printf '\n%s● \033[0mFailed! Press any key to close...' "$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" >/dev/tty
   fi

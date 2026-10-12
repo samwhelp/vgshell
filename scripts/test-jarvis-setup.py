@@ -1203,13 +1203,20 @@ esac
         return subprocess.run(["bash", "-c", "umask \"${UMASK:-077}\"; exec \"$1\"", "clone-tui", str(path)],
                               env=env, capture_output=True, text=True, check=False, timeout=60)
 
-    def clone_tui_pty(self, source, gum_exit="1"):
+    def clone_tui_pty(self, source, gum_exit="1", closed=False):
+        """Run the setup TUI on a pseudo-terminal; when CLOSED, followed by
+        the library's closing prompt for its exit code, as bin/vgshell-tui
+        present ends a floating terminal (scripts/test-vgshell-tui.sh holds
+        the presenter to that call)."""
         path = self.plugin / "tui/clone-voice.sh"
         path.write_text(source)
         env = dict(self.env, VGS_TUI_LIB=str(REPO / "bin/lib/tui.sh"), VGS_PLUGIN_DIR=str(self.plugin),
                    UV_CACHE_DIR=str(self.data / "cache"), GUM_CONFIRM_EXIT=gum_exit)
         master, slave = pty.openpty()
         cmd = shlex.join(["bash", str(path)])
+        if closed:
+            cmd = shlex.join(["bash", "-c", 'code=0; bash "$1" || code=$?; source "$VGS_TUI_LIB"; '
+                              'vgs_tui_close_prompt "$code"; exit "$code"', "closed", str(path)])
         script_bin = shutil.which("script", path="/usr/bin:/bin")
         self.assertIsNotNone(script_bin)
         proc = subprocess.Popen([script_bin, "-qec", cmd, "/dev/null"], env=env, stdin=slave, stdout=slave, stderr=slave,
@@ -1331,6 +1338,43 @@ esac
                 proc.kill()
                 proc.wait()
 
+    def test_clone_tier_refusal_closes_without_failed_and_control(self):
+        """Without the Large tier the setup closes on the neutral prompt
+        with no log path; the control sends the refusal down the failure
+        path, which shows Failed! and the log."""
+        self.install()
+        self.ready()
+        source = (PLUGIN / "tui/clone-voice.sh").read_text()
+
+        def closed(text):
+            proc, master = self.clone_tui_pty(text, closed=True)
+            try:
+                output = self.read_pty_until(proc, master, "Press any key to close")
+                self.assertIsNone(proc.poll(), "the window closed before its key: " + output)
+                os.write(master, b"x")
+                output += self.read_pty_rest(proc, master)
+            finally:
+                os.close(master)
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait()
+            return proc.returncode, output
+
+        code, output = closed(source)
+        self.assertEqual(code, 69, output)
+        self.assertIn("jarvis-setup: refused=clone=needs-large-tier",
+                      (self.state / "clone-voice.log").read_text().splitlines())
+        self.assertIn("Press any key to close", output)
+        self.assertNotIn("Failed!", output)
+        self.assertNotIn("clone-voice.log", output)
+        control = source.replace("  69) exit 69 ;;\n", "  69) details; exit 1 ;;\n")
+        self.assertNotEqual(control, source)
+        code, output = closed(control)
+        self.assertEqual(code, 1, output)
+        self.assertIn("Failed!", output, "must-fail control: the refusal read Failed! on the failure path")
+        self.assertIn("clone-voice.log", output, "must-fail control: the failure path named its log")
+        (self.plugin / "tui/clone-voice.sh").write_text(source)
+
     def test_clone_tui_terminal_text_and_controls(self):
         source = (PLUGIN / "tui/clone-voice.sh").read_text()
         self.large()
@@ -1388,7 +1432,7 @@ esac
         self.reset_calls()
         result = self.clone_tui_real(source)
         output = result.stdout + result.stderr
-        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.returncode, 69)
         self.assertIn("The cloned voice runs beside the Large local voice model", output)
         self.assertNotIn("Have you read", output)
         self.assertNotIn("Downloading the model", output)
@@ -1405,7 +1449,7 @@ esac
         shutil.rmtree(self.state, ignore_errors=True)
         env = {"UMASK": "022"}
         result = self.clone_tui_real(source, env)
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 69, result.stdout + result.stderr)
         self.assertEqual(stat.S_IMODE(self.state.stat().st_mode), 0o700)
         self.assertEqual(stat.S_IMODE((self.state / "clone-voice.log").stat().st_mode), 0o600)
         control = source.replace("# The recording log and state directory hold a user's voice setup evidence.\numask 077\n", "")
@@ -1413,7 +1457,7 @@ esac
         shutil.rmtree(self.state, ignore_errors=True)
         shutil.rmtree(self.data / "clone", ignore_errors=True)
         result = self.clone_tui_real(control, env)
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 69, result.stdout + result.stderr)
         self.assertNotEqual(stat.S_IMODE(self.state.stat().st_mode), 0o700,
                             "must-fail control: state root stayed private without the umask")
 
@@ -1536,12 +1580,12 @@ esac
         self.ready()
         self.reset_calls()
         result = self.clone("check")
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stderr.decode().splitlines()[0], "jarvis-setup: failed=clone=needs-large-tier")
+        self.assertEqual(result.returncode, 69)
+        self.assertEqual(result.stderr.decode().splitlines()[0], "jarvis-setup: refused=clone=needs-large-tier")
         self.assertEqual(result.stdout, b"")
         result = self.clone("install")
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stderr.decode().splitlines()[0], "jarvis-setup: failed=clone=needs-large-tier")
+        self.assertEqual(result.returncode, 69)
+        self.assertEqual(result.stderr.decode().splitlines()[0], "jarvis-setup: refused=clone=needs-large-tier")
         self.assertEqual([call[0] for call in self.calls()], [], "nothing is built or downloaded")
         self.assertFalse((self.data / "clone").exists())
         self.mutant("        require_clone_tier(judge, value, state, data)\n", "")

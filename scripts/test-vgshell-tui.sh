@@ -75,11 +75,13 @@ done_text="Done! Press any key to close..."
 failed_text() { printf 'Failed! Press any key to close...'; }
 
 # present: the prompt by exit code, none on 130 or under plain, the logo
-# under full only, and the command's code as present's own.
-# Rows: name | presentation | code | prompt: done, failed or none | logo: yes or no
+# under full only, and the command's code as present's own. A refusal
+# before anything ran, 69, closes on the prompt with neither word.
+# Rows: name | presentation | code | prompt: done, failed, refused or none | logo: yes or no
 rows=(
   "a success|full|0|done|yes"
   "a failure|full|1|failed|yes"
+  "a refusal|full|69|refused|yes"
   "an exit of 130|full|130|none|yes"
   "a plain failure|plain|1|none|no"
   "a plain success|plain|0|none|no"
@@ -92,6 +94,10 @@ for row in "${rows[@]}"; do
   case "$want_prompt" in
     done) check "$name prompts Done" out_has "$done_text" ;;
     failed) check "$name prompts Failed" out_has "$(failed_text)" ;;
+    refused)
+      check "$name prompts a key" out_has "Press any key to close..."
+      check "$name prompts neither Done nor Failed" test "$(grep -c -e 'Done!' -e 'Failed!' "$tmp/out")" == 0
+      ;;
     none) check "$name prompts nothing" test "$(grep -c -e 'Done!' -e 'Failed!' "$tmp/out")" == 0 ;;
   esac
   if [[ $want_logo == yes ]]; then check "$name draws every line of the logo" logo_drawn
