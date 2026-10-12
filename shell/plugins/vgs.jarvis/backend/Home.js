@@ -5,7 +5,7 @@
 // one VGS ships, and reads its text; it never follows a link at the home or below
 // it, since a link there could hand another file to every brain. Home text
 // gives knowledge, never permission: the gate stays the only source of that.
-// It also finds the one program Jarvis starts from the home, the kendex
+// It also finds the one program of the home Jarvis starts, the kendex
 // mail tool that writes the Jarvis session's mailbox there.
 // Contract: docs/decisions/D105-jarvis-home-folder.md.
 "use strict";
@@ -62,7 +62,7 @@ const PATH_BYTES = 4096;
 const HOMES = 10;
 const OFFER_VALUE_MAX = 200;
 const OFFER_LABEL_MAX = 60;
-// The one program Jarvis starts from the home: lane-mail, which kendex
+// The one program of the home Jarvis starts: lane-mail, which kendex
 // installs here with its orch skill, writes the Jarvis session's mailbox
 // (D105). It runs the orch skill's own scripts and the home's kendex
 // settings in turn; Jarvis starts no other path of the home.

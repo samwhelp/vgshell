@@ -858,7 +858,37 @@ function verifyTiers(gate) {
     assert.equal(manifest.settings.localTier, "auto", "the Local voice setting defaults to the pick");
 }
 
+// The Start Jarvis at boot setting: each answer of backend/session-start.js
+// is a row the manifest judge accepts, only a missing tmux offers its
+// install, and the page draws the session field only while the setting is
+// on.
+const SESSION_KINDS = [["started", "ok"], ["running", "ok"], ["ready", "info"], ["tmux-failed", "danger"], ["failed", "danger"],
+    ["no-account", "warning"], ["not-app", "warning"], ["no-home", "warning"], ["program-missing", "warning"], ["tmux-missing", "warning"]];
+function verifySession(gate) {
+    const off = plain(gate.sessionStart(false, ""));
+    assert.equal(judge.statusWrite(manifest, {}, "sessionStart", off).ok, true, "the manifest judge accepts the off row");
+    assert.equal(manifest.schema.startAtBoot.hintFrom, "sessionStart", "the setting shows the row's hint");
+    assert.equal(manifest.settings.startAtBoot, false, "the setting is off at first");
+    for (const [kind, tone] of SESSION_KINDS) {
+        const value = plain(gate.sessionStart(true, kind));
+        assert.equal(judge.statusWrite(manifest, {}, "sessionStart", value).ok, true, kind + ": the manifest judge accepts the row");
+        assert.equal(value.tone, tone, kind + ": the tone");
+        assert.equal(typeof value.hint === "string" && value.hint !== "", true, kind + ": the setting has a hint");
+        const request = plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { sessionStart: value }, "sessionStart"));
+        assert.equal(request.ok, kind === "tmux-missing", kind + ": only a missing tmux offers its install");
+        if (request.ok) assert.deepEqual(request, { ok: true, kind: "install", commands: ["tmux"] });
+    }
+    assert.throws(() => gate.sessionStart(true, "unknown"), { message: "jarvis-setup: session=unknown" });
+    for (const [wanted, values] of [[false, []], [true, ["", "new"]]]) {
+        const offers = plain(gate.sessionModes(wanted));
+        assert.equal(judge.statusWrite(manifest, {}, "sessionModes", offers).ok, true, "the manifest judge accepts the session offers");
+        const drawn = plain(judge.settingChoices(manifest, { sessionModes: offers }, manifest.settings).bootSession);
+        assert.deepEqual(drawn.map(choice => choice.value), values, "the session field while the setting is " + wanted);
+    }
+}
+
 function verify(gate) {
+    verifySession(gate);
     for (const check of [{ kind: "ready" }, { kind: "done", result: "ready" }]) {
         const value = gate.voiceCheck(gate.readiness({ kind: "answered", causes: ["speech=local-ready-timeout"] }).setupVoice, check);
         assert.deepEqual(plain(value), { tone: "warning", text: "To do",
@@ -1064,7 +1094,11 @@ const CONTROLS = [
     ["auto passes its own name to setup", 'return wanted === "auto" ? [] : [wanted];', "return [wanted];"],
     ["the setting ignores what a run left ready", "if (wantedTier(wanted, pick) === ready) return null;\n    return ready ===", "return null;\n    return ready ==="],
     ["the setting follows a ready wanted tier", "if (wantedTier(wanted, pick) === ready) return null;\n    return ready ===", "return ready ==="],
-    ["the ready pick is written by name", 'return ready === pick ? "auto" : ready;', "return ready;"]
+    ["the ready pick is written by name", 'return ready === pick ? "auto" : ready;', "return ready;"],
+    ["no start offers the tmux install", 'action: kind === "tmux-missing" };', "action: false };", "only a missing tmux offers its install"],
+    ["every blocked start offers the tmux install", 'action: kind === "tmux-missing" };', "action: true };", "only a missing tmux offers its install"],
+    ["the session field draws while the setting is off", "return wanted ? SESSION_MODES : [];", "return SESSION_MODES;", "the session field while the setting is false"],
+    ["an unknown answer reads as a block", 'if (!Object.prototype.hasOwnProperty.call(SESSION_BLOCKS, kind)) throw new Error("jarvis-setup: session=" + kind);', ""]
 ];
 
 const source = fs.readFileSync(file, "utf8");

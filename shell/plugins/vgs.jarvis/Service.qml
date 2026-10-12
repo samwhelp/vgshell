@@ -271,6 +271,9 @@ Item {
         // LocalTier owns; the daemon loads the tier setup left ready.
         const settings = Object.assign({}, shell.settings);
         delete settings.localTier;
+        // SessionStart owns the boot session's two settings.
+        delete settings.startAtBoot;
+        delete settings.bootSession;
         const message = {
             v: 1, type: "hello", gen: sessionState === null ? 0 : sessionState.gen,
             // The one place a voice is chosen for a user who chose none, and
@@ -1062,5 +1065,6 @@ Item {
     Jarvis.LocalTier { shell: root.shell }
     Jarvis.BrowserRuntime { shell: root.shell; stepKey: "setupBrowser" }
     Jarvis.FleetRuntime { shell: root.shell }
+    Jarvis.SessionStart { shell: root.shell }
     Jarvis.Accounts { id: accountReader; shell: root.shell; onRefreshed: root.hello() }
 }

@@ -32,8 +32,11 @@ const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manif
 // The hello's settings are the manifest's and `sounds`, which the service
 // reads from the manifest's one sound event, `feedback`, but `localTier`:
 // the Local voice choice is a download request the service keeps
-// (LocalTier.qml), and the daemon loads the tier setup left ready.
-assert.deepEqual(Object.keys(manifest.settings).filter(key => key !== "localTier").concat(["sounds", "dictation"]).sort(), Object.keys(hello.settings).sort());
+// (LocalTier.qml), and the daemon loads the tier setup left ready. The
+// service also keeps the two Start Jarvis at boot settings
+// (SessionStart.qml): the daemon starts no session.
+const kept = ["localTier", "startAtBoot", "bootSession"];
+assert.deepEqual(Object.keys(manifest.settings).filter(key => !kept.includes(key)).concat(["sounds", "dictation"]).sort(), Object.keys(hello.settings).sort());
 assert.deepEqual([Object.keys(manifest.sounds), manifest.sounds.feedback.own !== undefined], [["feedback"], true]);
 assert.deepEqual([manifest.settings.cloudVision, manifest.schema.cloudVision.options], ["ask", ["ask", "allow", "never"]]);
 assert.equal(typeof manifest.settings.privateWindows, "string");

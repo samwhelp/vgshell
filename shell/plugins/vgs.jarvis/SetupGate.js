@@ -340,6 +340,41 @@ function fleetStep(home, tool) {
     return { tone: "info", text: "Optional", action: true };
 }
 
+// The Start Jarvis at boot setting. Its hint says what the setting does,
+// or why no session can start and where the user changes that.
+var SESSION_HINT = "A tmux session in your selected home folder starts Jarvis at every boot.";
+var SESSION_BLOCKS = {
+    "no-account": "No session can start without an account: under AI model, choose an app as the Account.",
+    "not-app": "No session can start with an API key or a local model: under AI model, choose an app as the Account.",
+    "no-home": "No session can start without a home folder: choose a Home folder.",
+    "program-missing": "No session can start, because the app of the selected account is not installed.",
+    "tmux-missing": "No session can start without tmux."
+};
+// The setting's two session choices; the first is what the unset value means.
+var SESSION_MODES = [{ label: "Resume the last session", value: "resume" }, { label: "Start a new session", value: "new" }];
+
+// The Jarvis session row (the manifest's sessionStart), whose hint is the
+// setting's. WANTED is the setting. KIND is backend/session-start.js's
+// answer, "failed" where it gave none, and is not read while the setting is
+// off.
+function sessionStart(wanted, kind) {
+    if (!wanted) return { tone: "info", text: "Not started at boot", hint: SESSION_HINT };
+    switch (kind) {
+    case "started": case "running": return { tone: "ok", text: "Running", hint: SESSION_HINT };
+    case "ready": return { tone: "info", text: "Starts at the next boot", hint: SESSION_HINT };
+    case "tmux-failed": case "failed": return { tone: "danger", text: "Not started", hint: "The session did not start in tmux." };
+    default:
+        if (!Object.prototype.hasOwnProperty.call(SESSION_BLOCKS, kind)) throw new Error("jarvis-setup: session=" + kind);
+        return { tone: "warning", text: "Cannot start", hint: SESSION_BLOCKS[kind], action: kind === "tmux-missing" };
+    }
+}
+
+// The session choices the page offers: none while the setting is off, so
+// the page draws no session field.
+function sessionModes(wanted) {
+    return wanted ? SESSION_MODES : [];
+}
+
 // The optional steps, by their status key. Their guidance is declared by
 // the manifest and does not change with their state.
 var OPTIONAL = {

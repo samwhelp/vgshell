@@ -626,7 +626,8 @@ world(() => {
         const state = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "home-wire-"));
         const settings = { ...JSON.parse(fs.readFileSync(path.join(tree, "shell/plugins/vgs.jarvis/manifest.json"))).settings,
             sounds: false, voiceProvider: "local", dictation: "" };
-        delete settings.localTier;
+        // The service keeps these settings; the daemon's hello holds none.
+        for (const kept of ["localTier", "startAtBoot", "bootSession"]) delete settings[kept];
         const hello = { v: 1, type: "hello", gen: 0, revision: "a".repeat(64), locked: false,
             directories: { state, data: state + "/data", runtime: state + "/run" },
             keys: { talk: null, mute: null, stop: null, confirm: null, console: null } };

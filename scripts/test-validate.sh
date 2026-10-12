@@ -802,6 +802,15 @@ if area in ["cli", "offline", "all"] and home not in lines and home_input:
             break
     else:
         raise AssertionError("no later Home consumer in expected plan: " + file)
+# The session start suite's row follows the Home row, and its inputs are among
+# the Home suite's.
+session = "node scripts/test-jarvis-session-start.js"
+session_input = (file.startswith("shell/plugins/vgs.jarvis/backend/")
+                 or file in {"shell/plugins/vgs.jarvis/AccountProviders.js", "shell/Commons/AccountDirectories.js",
+                             "bin/lib/qml-library.js", "bin/lib/judge-files.js", "bin/lib/anchored.js",
+                             "bin/lib/account-folders.js", "scripts/lib/jarvis-env.sh"})
+if area in ["cli", "offline", "all"] and session not in lines and session_input:
+    lines.insert(lines.index(home) + 1, session)
 print("\n".join(lines), end="")
 PYLIVE
 }

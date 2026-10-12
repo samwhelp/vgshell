@@ -380,6 +380,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/LocalRuntime.qml
 f share/vgshell/shell/plugins/vgs.jarvis/LocalTier.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Service.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Session.js
+f share/vgshell/shell/plugins/vgs.jarvis/SessionStart.qml
 f share/vgshell/shell/plugins/vgs.jarvis/SetupGate.js
 f share/vgshell/shell/plugins/vgs.jarvis/Widget.qml
 f share/vgshell/shell/plugins/vgs.jarvis/WidgetView.js
@@ -449,6 +450,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/backend/local-speech.py
 f share/vgshell/shell/plugins/vgs.jarvis/backend/mcp-shim
 f share/vgshell/shell/plugins/vgs.jarvis/backend/net.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/session-runner.js
+f share/vgshell/shell/plugins/vgs.jarvis/backend/session-start.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/skills/browser/LICENSE
 f share/vgshell/shell/plugins/vgs.jarvis/backend/skills/browser/SKILL.md
 f share/vgshell/shell/plugins/vgs.jarvis/backend/skills/computer/input.md
