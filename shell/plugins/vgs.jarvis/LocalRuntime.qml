@@ -6,9 +6,8 @@ import "SetupGate.js" as Gate
 // One readiness reader. Every completed setup run and every requirement scan
 // triggers a fresh check. While the last scan misses a command of `requires`,
 // the published value withholds the setup step (SetupGate.setupValue). A
-// reader with a `stepKey` also publishes its optional Setup step from that
-// value (SetupGate.optionalStep). A reader's `shape` turns the probe's
-// value into the one it publishes. Each published check emits `refreshed`.
+// reader's `shape` turns that value into the one it publishes. Each
+// published check emits `refreshed`.
 Item {
     id: root
     property var shell: null
@@ -17,8 +16,6 @@ Item {
     property var command: ["python3", "-I", program, "status"]
     // The declared requirement commands the setup TUI needs.
     property var requires: []
-    // The Setup group's step this reader's value sets, "" for none.
-    property string stepKey: ""
     property var shape: value => value
     property bool pending: false
     property bool timedOut: false
@@ -57,12 +54,8 @@ Item {
             value = { tone: "warning", text: "Setup check returned invalid status", action: true };
         }
         const missing = shell.requirements.missing;
-        let published = Gate.setupValue(shape(value), requires, missing);
-        if (shell.status.set(statusKey, published) !== "ok") {
-            published = Gate.setupValue(shape({ tone: "warning", text: "Setup check returned invalid status", action: true }), requires, missing);
-            if (shell.status.set(statusKey, published) !== "ok") throw new Error("jarvis-setup: status=refused");
-        }
-        if (stepKey !== "" && shell.status.set(stepKey, Gate.optionalStep(stepKey, published)) !== "ok")
+        if (shell.status.set(statusKey, shape(Gate.setupValue(value, requires, missing))) !== "ok"
+                && shell.status.set(statusKey, shape(Gate.setupValue({ tone: "warning", text: "Setup check returned invalid status", action: true }, requires, missing))) !== "ok")
             throw new Error("jarvis-setup: status=refused");
         refreshed();
     }

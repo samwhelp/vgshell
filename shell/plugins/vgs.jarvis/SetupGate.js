@@ -523,20 +523,20 @@ function sessionModes(wanted) {
     return wanted ? SESSION_MODES : [];
 }
 
-// The optional steps, by their status key. Their guidance is declared by
-// the manifest and does not change with their state.
-var OPTIONAL = {
-    setupBrowser: true,
-    setupInput: true
-};
+// An optional step's row from VALUE, its reader's state: that state, in
+// the info tone that marks a step optional while it is not ok, so Jarvis
+// reads ready without it. The browser and input are optional.
+function optionalStep(value) {
+    return value.tone === "ok" ? value : Object.assign({}, value, { tone: "info" });
+}
 
-// The value of optional step KEY from VALUE, its reader's state: done while
-// that state is ok, else Optional, offering the step while the
-// reader offers its own action.
-function optionalStep(key, value) {
-    if (!Object.prototype.hasOwnProperty.call(OPTIONAL, key)) throw new Error("jarvis-setup: step=" + key + " is not optional");
-    if (value.tone === "ok") return DONE;
-    return { tone: "info", text: "Optional", action: value.action === true };
+// The Local voice row from VALUE, setup-local's reading, under PROVIDER,
+// the voice the daemon runs (voiceProvider). Under Local it is required,
+// and the Voice step offers Set up local voice (voiceCheck), so this row
+// offers none: the Setup tab offers each screen once. Under a cloud voice
+// it is optional and offers setup as its reading does.
+function localVoiceStep(value, provider) {
+    return provider === "local" ? Object.assign({}, value, { action: false }) : optionalStep(value);
 }
 
 // The Local voice setting (`localTier`) and its downloads. WANTED is the

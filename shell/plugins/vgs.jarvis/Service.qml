@@ -178,7 +178,7 @@ Item {
     }
 
     // The Setup section's summary and required steps for ANSWER
-    // (SetupGate.readiness), and the input step from its reader's VALUE.
+    // (SetupGate.readiness).
     function publishSetup(answer) {
         setupAnswer = answer;
         const setupCause = localRuntime.setupCause;
@@ -197,11 +197,10 @@ Item {
     function publishShellSetup() {
         publishSetup(setupAnswer);
     }
+    // The optional input step from its reader's VALUE.
     function publishInput(value) {
-        for (const [key, shown] of [["input", value], ["setupInput", Gate.optionalStep("setupInput", value)]]) {
-            const reply = shell.status.set(key, shown);
-            if (reply !== "ok") throw new Error("jarvis: " + reply);
-        }
+        const reply = shell.status.set("input", Gate.optionalStep(value));
+        if (reply !== "ok") throw new Error("jarvis: " + reply);
     }
 
     function start() {
@@ -1061,7 +1060,16 @@ Item {
     Jarvis.Keys { shell: root.shell; onRefreshed: root.hello() }
     // A tier setup changes whether the cloned voice can run, so the clone
     // row reads again after each local voice check.
-    Jarvis.LocalRuntime { id: localRuntime; shell: root.shell; onRefreshed: { root.publishShellSetup(); root.hello(); cloneRuntime.refresh(); } }
+    // Local voice is required only while it is the voice the daemon runs,
+    // so the row reads again when that voice changes.
+    Jarvis.LocalRuntime {
+        id: localRuntime
+        readonly property string provider: root.shell === null ? "" : Gate.voiceProvider(root.shell.settings, accountReader.voiceKeys)
+        shell: root.shell
+        shape: value => Gate.localVoiceStep(value, localRuntime.provider)
+        onProviderChanged: refresh()
+        onRefreshed: { root.publishShellSetup(); root.hello(); cloneRuntime.refresh(); }
+    }
     Jarvis.LocalTier { shell: root.shell }
     Jarvis.CloneRuntime {
         id: cloneRuntime
@@ -1069,7 +1077,7 @@ Item {
         provider: root.shell === null ? "" : Gate.voiceProvider(root.shell.settings, accountReader.voiceKeys)
         onRefreshed: root.hello()
     }
-    Jarvis.BrowserRuntime { shell: root.shell; stepKey: "setupBrowser" }
+    Jarvis.BrowserRuntime { shell: root.shell }
     Jarvis.FleetRuntime { shell: root.shell }
     Jarvis.SessionStart { id: sessionStart; shell: root.shell }
     Jarvis.Accounts { id: accountReader; shell: root.shell; onRefreshed: root.hello() }
