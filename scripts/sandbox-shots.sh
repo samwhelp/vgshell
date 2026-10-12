@@ -176,7 +176,11 @@
 # btop's theme target alone and then with Ghostty's beside it, shot as
 # tui-edges-<mode>-btop-alone and tui-edges-<mode>-btop-and-ghostty; it
 # fails unless the first shows a band other than btop's background on all
-# four sides of the window and the second none. A host without
+# four sides of the window and the second none, with a Free meter in vgs's
+# terminal.color2. It then applies the catalog's flexoki-light and shoots
+# tui-edges-<mode>-btop-flexoki-light, which fails unless btop draws that
+# package's palette.background and a Used meter in its terminal.color1. A
+# sheet of a themed TUI at its class size takes these shots. A host without
 # xdg-terminal-exec, ghostty or btop leaves it not measured.
 # theme-previews, taken only when named, applies each theme of
 # --preview-themes, a comma list of package names, and shoots
@@ -5415,7 +5419,11 @@ scene_sysmon() {
 # on each side as the lines of the corner's colour, which must differ from
 # btop's background there; the second must hold only btop's background in
 # the same lines. The launcher runs nothing but System Monitor's btop
-# script, byte for byte the sandbox's copy, which execs btop.
+# script, byte for byte the sandbox's copy, which execs btop. A last window
+# under the catalog's flexoki-light is the light panel. btop draws memory as
+# meters (mem_graphs), whose cells up to half the meter hold the gradient's
+# start, so the second window's Free meter and the light window's Used
+# meter are read as exact colours.
 tui_edges_windows() { hypr -j clients | py_reply 'import json,sys; print(len([c for c in json.load(sys.stdin) if c["class"] == "org.vgs.tui.wide" and c["mapped"]]))'; }
 tui_edges_box() { hypr -j clients | py_reply 'import json,sys; c=[c for c in json.load(sys.stdin) if c["class"] == "org.vgs.tui.wide" and c["mapped"]]; print("%s %d %d %d %d" % (c[0]["address"], c[0]["at"][0], c[0]["at"][1], c[0]["size"][0], c[0]["size"][1]) if len(c) == 1 else "none")'; }
 # tui_edges_running COMM: `running` while a process in the fence's PID
@@ -5437,8 +5445,11 @@ tui_edges_file() { if [[ -f $1 ]] && { [[ $# -lt 2 ]] || grep -qxF -- "$2" "$1";
 # paints (theme_background); `band` the depth in pixels of each side's
 # lines that hold nothing but the window corner's colour, then that
 # colour, as `L R T B RRGGBB`; `sides BG L R T B` the sides whose outer L,
-# R, T or B lines hold a pixel other than BG, or `none`.
-tui_edges_read() { # drawn BG | band | sides BG L R T B
+# R, T or B lines hold a pixel other than BG, or `none`; `meter RRGGBB`
+# `held` once 16 pixels of the window's lower left, left of two fifths and
+# below half, where btop draws memory, disks and network and neither its
+# CPU nor its process box, are RRGGBB.
+tui_edges_read() { # drawn BG | band | sides BG L R T B | meter RRGGBB
   local box address x y w h
   box="$(tui_edges_box)" || { echo unreadable; return; }
   [[ $box != none ]] || { echo no-window; return; }
@@ -5473,6 +5484,10 @@ elif kind == "band":
         return n
     print(depth(col(x) for x in range(w)), depth(col(x) for x in range(w - 1, -1, -1)),
           depth(row(y) for y in range(h)), depth(row(y) for y in range(h - 1, -1, -1)), corner.hex())
+elif kind == "meter":
+    want = bytes.fromhex(sys.argv[2])
+    same = sum(1 for y in range(h // 2, h) for x in range(w * 2 // 5) if at(x, y) == want)
+    print("held" if same >= 16 else "pixels=%d" % same)
 else:
     want = bytes.fromhex(sys.argv[2])
     l, r, t, b = map(int, sys.argv[3:7])
@@ -5487,6 +5502,8 @@ tui_edges_band_other() {
   [[ $# -eq 6 && $2 =~ ^[1-9][0-9]*$ && $3 =~ ^[1-9][0-9]*$ && $4 =~ ^[1-9][0-9]*$ && $5 =~ ^[1-9][0-9]*$ && $6 != "$1" ]] && echo band || echo "no-band:${*:2}"
 }
 tui_edges_refused() { if [[ -s $sandbox/tui-edges.refused ]]; then tr '\n' ';' <"$sandbox/tui-edges.refused"; echo; else echo none; fi; }
+# tui_edges_slot NAME SLOT: package NAME's terminal colour SLOT, as rrggbb.
+tui_edges_slot() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["slots"][sys.argv[2]].lstrip("#").lower())' "$repo/themes/$1/terminal.json" "$2"; }
 tui_edges_launcher() { ipc shell lent | py_reply 'import json,sys; t=json.load(sys.stdin)["tui"]; print(json.dumps([t["launcher"], t["probing"]]))'; }
 tui_edges_open() { # LABEL BG
   expect "$1: no TUI window is open" 0 tui_edges_windows
@@ -5513,7 +5530,8 @@ tui_edges_close() { # LABEL
   expect_poll "$1: the core saw the run end" idle key_idle vgs.sysmon/btop
 }
 scene_tui-edges() { # MODE
-  local mode="$1" tool real state="$home/.local/state/vgshell/theme" bg box band before_box status
+  local mode="$1" tool real state="$home/.local/state/vgshell/theme" bg box band before_box status free used light
+  local light_dir="$home/.config/vgshell/themes/flexoki-light"
   for tool in xdg-terminal-exec ghostty btop; do
     if ! command -v "$tool" >/dev/null 2>&1; then
       printf 'sandbox-shots: scene=tui-edges mode=%s status=not-measured missing=%s\n' "$mode" "$tool"
@@ -5547,7 +5565,7 @@ EOF
   mkdir -p -- "$home/.config/ghostty"
   printf 'confirm-close-surface = false\n' >"$home/.config/ghostty/config"
   mkdir -p -- "$home/.config/btop"
-  printf 'color_theme = "vgs"\ntheme_background = true\ntruecolor = true\n' >"$home/.config/btop/btop.conf"
+  printf 'color_theme = "vgs"\ntheme_background = true\ntruecolor = true\nmem_graphs = false\n' >"$home/.config/btop/btop.conf"
   expect "System Monitor is enabled" ok ipc shell setPluginEnabled vgs.sysmon true
   expect "System Monitor is placed" ok ipc shell setPluginPlaced vgs.sysmon true
   expect_poll "System Monitor builds its widget" True record_exists vgs.sysmon
@@ -5587,8 +5605,26 @@ EOF
   expect "btop and Ghostty: the window has the first window's size" "${before_box#* }" echo "${box#* }"
   printf 'sandbox-shots: tui-edges mode=%s case=btop-and-ghostty window=%s band=%s\n' "$mode" "${box#* }" "$(tui_edges_read band)"
   expect "btop and Ghostty: no side holds a pixel other than btop's background" none tui_edges_read sides "$bg" "${band[@]:0:4}"
+  free="$(tui_edges_slot vgs color2)" || { fail "tui-edges: vgs names no terminal color2"; return; }
+  expect_poll "btop and Ghostty: the Free meter is vgs's terminal.color2 #$free" held tui_edges_read meter "$free"
+  printf 'sandbox-shots: tui-edges mode=%s case=btop-and-ghostty theme=vgs main_bg=%s free_meter=%s\n' "$mode" "$bg" "$free"
   take "tui-edges-$mode-btop-and-ghostty"
   tui_edges_close "btop and Ghostty" || return
+
+  light="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tokens"]["palette"]["background"].lstrip("#").lower())' "$repo/themes/catalog/flexoki-light/theme.json")" || { fail "tui-edges: flexoki-light names no palette.background"; return; }
+  used="$(tui_edges_slot catalog/flexoki-light color1)" || { fail "tui-edges: flexoki-light names no terminal color1"; return; }
+  rm -rf -- "${light_dir:?}"
+  sandbox_vgshell theme install flexoki-light >/dev/null || { fail "tui-edges: flexoki-light does not install"; return; }
+  status=0; sandbox_vgshell theme apply flexoki-light >/dev/null 2>&1 || status=$?
+  expect "btop light: flexoki-light applies, its reloads refused" 3 echo "$status"
+  expect "btop light: the applied main_bg is flexoki-light's palette.background" "$light" sed -n 's/^theme\[main_bg\]="#\([0-9a-fA-F]*\)"$/\L\1/p' "$state/btop.theme"
+  tui_edges_open "btop light" "$light" || return
+  settle_hold || { fail "btop light: the held mode could not be taken again"; return; }
+  expect_poll "btop light: the Used meter is flexoki-light's terminal.color1 #$used" held tui_edges_read meter "$used"
+  printf 'sandbox-shots: tui-edges mode=%s case=btop-flexoki-light theme=flexoki-light main_bg=%s used_meter=%s\n' "$mode" "$light" "$used"
+  take "tui-edges-$mode-btop-flexoki-light"
+  tui_edges_close "btop light" || return
+  rm -rf -- "${light_dir:?}"
 
   rm -rf -- "${repo:?}/themes/targets/btop" "${repo:?}/themes/targets/ghostty"
   if [[ -f $tui_terminal_written ]]; then cp -- "$tui_terminal_written" "$tui_terminal"; else rm -f -- "$tui_terminal"; fi
