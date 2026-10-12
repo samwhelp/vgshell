@@ -54,7 +54,8 @@
    },
    {
     "serverContent": {
-     "turnComplete": true
+     "turnComplete": true,
+     "interactionStatus": "IDLE"
     },
     "usageMetadata": {
      "promptTokenCount": 12,
@@ -77,6 +78,11 @@
       "text": " What changed?",
       "finished": true
      }
+    }
+   },
+   {
+    "serverContent": {
+     "turnComplete": true
     }
    }
   ],
@@ -129,7 +135,8 @@
    },
    {
     "serverContent": {
-     "turnComplete": true
+     "turnComplete": true,
+     "interactionStatus": "IDLE"
     },
     "usageMetadata": {
      "promptTokenCount": 12,
@@ -170,7 +177,8 @@
    },
    {
     "serverContent": {
-     "turnComplete": true
+     "turnComplete": true,
+     "interactionStatus": "IDLE"
     },
     "usageMetadata": {
      "promptTokenCount": 12,
@@ -209,7 +217,8 @@
    },
    {
     "serverContent": {
-     "turnComplete": true
+     "turnComplete": true,
+     "interactionStatus": "IDLE"
     },
     "usageMetadata": {
      "promptTokenCount": 12,
@@ -285,8 +294,37 @@
    },
    {
     "serverContent": {
-     "waitingForInput": false,
-     "turnCompleteReason": "TURN_COMPLETE_REASON_UNSPECIFIED"
+     "waitingForInput": false
+    }
+   },
+   {
+    "voiceActivity": {
+     "type": "ACTIVITY_START",
+     "audioOffset": "1.200s"
+    }
+   },
+   {
+    "serverContent": {
+     "interimInputTranscription": {
+      "text": "Wh"
+     }
+    },
+    "voiceActivity": {
+     "type": "ACTIVITY_END",
+     "audioOffset": "1.900s"
+    }
+   },
+   {
+    "serverContent": {
+     "generationComplete": true
+    },
+    "usageMetadata": {
+     "promptTokenCount": 12,
+     "responseTokenCount": 30,
+     "totalTokenCount": 42
+    },
+    "voiceActivity": {
+     "type": "ACTIVITY_END"
     }
    }
   ]

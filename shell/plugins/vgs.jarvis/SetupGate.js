@@ -327,15 +327,15 @@ function copilotMemory(accounts) {
 // stored OpenAI key, else Local. Always talk mode listens on this
 // computer, so "auto" stays Local in it. OFFERED is the account reader's
 // stored cloud voice keys, each {value, label, provider}, undefined while
-// it has no answer, before its first read and after a failed one: the
-// named key then counts as stored, so a start loads no local voice the
-// first answer would replace, and the daemon judges a key it cannot read.
-// Jarvis names a sole stored key itself (voiceChoice).
+// it has no answer, before its first read and after a failed one. A key's
+// id does not tell its provider, so with no answer "auto" is Local: the
+// named key may be a Gemini key, which Realtime cannot use, and the first
+// answer moves "auto" to Realtime when it names an OpenAI key. Jarvis
+// names a sole stored key itself (voiceChoice).
 function voiceProvider(settings, offered) {
     if (settings.voiceProvider !== "auto") return settings.voiceProvider;
-    if (settings.mode === "always" || settings.voiceAccount === "") return "local";
-    var stored = offered === undefined || offered.some(function (key) { return key.provider === "openai" && key.value === settings.voiceAccount; });
-    return stored ? "realtime" : "local";
+    if (settings.mode === "always" || offered === undefined) return "local";
+    return offered.some(function (key) { return key.provider === "openai" && key.value === settings.voiceAccount; }) ? "realtime" : "local";
 }
 
 // The account provider whose keys the Voice key setting offers for
@@ -353,15 +353,19 @@ function voiceKeys(keys, settings) {
 }
 
 // The key Jarvis selects for the user from KEYS, or null: the sole stored
-// key of the selected cloud voice, while the Voice key setting names none
-// or a stored key of the other cloud voice, as after a change of Voice
-// provider. A named key that is not stored stays the user's choice.
+// key of the selected cloud voice, while the Voice key setting names none,
+// or, while Realtime or Gemini is chosen, a stored key of the other cloud
+// voice, as after a change of Voice provider. Under Local or Auto a named
+// key stays, so a Gemini key chosen before survives a visit to Local; a
+// named key that is not stored, such as a locked one, stays too.
 function voiceChoice(keys, settings) {
     var offered = voiceKeys(keys, settings);
     if (offered.length !== 1) return null;
     var named = settings.voiceAccount;
-    var other = keys.some(function (key) { return key.value === named && key.provider !== voiceKeyProvider(settings); });
-    return named === "" || other ? offered[0].value : null;
+    if (named === "") return offered[0].value;
+    var cloud = settings.voiceProvider === "realtime" || settings.voiceProvider === "gemini";
+    var other = cloud && keys.some(function (key) { return key.value === named && key.provider !== voiceKeyProvider(settings); });
+    return other ? offered[0].value : null;
 }
 
 // The Cloned voice setup row (the manifest's clonedVoiceSetup) for VALUE,

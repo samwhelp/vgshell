@@ -239,7 +239,8 @@ const VOICE = [
     ["Auto saved beside a stored named key", { voiceProvider: "auto", voiceAccount: "openai-1" }, KEY, "realtime"],
     ["Auto saved beside a stored key the Realtime key setting does not name", { voiceProvider: "auto" }, KEY, "local"],
     ["Auto saved with the named key removed", { voiceProvider: "auto", voiceAccount: "openai-1" }, [], "local"],
-    ["Auto saved with the named key before the reader answers", { voiceProvider: "auto", voiceAccount: "openai-1" }, undefined, "realtime"],
+    ["Auto saved with the named key before the reader answers: its provider is unknown", { voiceProvider: "auto", voiceAccount: "openai-1" }, undefined, "local"],
+    ["Auto saved with a named Gemini key before the reader answers", { voiceProvider: "auto", voiceAccount: "gemini-1" }, undefined, "local"],
     ["Auto saved with no key before the reader answers", { voiceProvider: "auto" }, undefined, "local"],
     ["Local chosen beside a stored key", { voiceProvider: "local", voiceAccount: "openai-1" }, KEY, "local"],
     ["Realtime saved with no key", { voiceProvider: "realtime" }, [], "realtime"],
@@ -600,7 +601,7 @@ const MODEL = [
 // Run both shipped publication functions. Accounts supplies typed sign-in
 // facts; Service publishes the model row without relying on offered models.
 function verifyModelConsumers(gate, serviceSource, accountsSource) {
-    const publishAccounts = accountsSource.match(/^    function publish\(\) \{\n[\s\S]*?^    \}/m);
+    const publishAccounts = [accountsPublication(accountsSource)];
     const publishSetup = serviceSource.match(/^    function publishSetup\(answer\) \{\n[\s\S]*?^    \}/m);
     assert.ok(publishAccounts && publishSetup);
     const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
@@ -617,7 +618,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
             completion: { kind: "exited", code: row.code ?? 0 }, diagnostic: { kind: "collected", text: "" },
             output: JSON.stringify({ accounts: row.apps.map(app => ({ label: "Fixture app", value: "present", plan: "", email: "", mismatch: false, signIn: false, ...app })),
                 brains: [], voiceAccounts: [], search: { found: row.apps.length, partial: "" } }), refreshed: () => {} };
-        vm.runInNewContext("(function() { with(root) { return (" + publishAccounts[0] + ").call(root); } })()",
+        vm.runInNewContext(publishAccounts[0],
             { root, Gate: gate, Words: words, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
         vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, accountReader: root, localRuntime: { setupCause: "" }, sessionState: null, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
         try {
@@ -662,6 +663,13 @@ function helloSettings(gate, serviceSource, providers, manifest, settings, reade
     return JSON.parse(wire).settings;
 }
 
+// The account reader's shipped publication as a script over `root`: publish
+// and the voice publication it calls.
+function accountsPublication(source) {
+    const [publish, voice] = ["publish", "publishVoice"].map(name => source.match(new RegExp("^    function " + name + "\\([a-z]*\\) \\{\\n[\\s\\S]*?^    \\}", "m")));
+    assert.ok(publish && voice, "the account reader's publication");
+    return "(function() { with(root) { root.publishVoice = (" + voice[0] + "); return (" + publish[0] + ").call(root); } })()";
+}
 // The model and effort the daemon gets with no list read.
 function verifyUnlisted(gate, providers, serviceSource) {
     const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
@@ -679,7 +687,7 @@ function verifyUnlisted(gate, providers, serviceSource) {
 }
 
 function verifyVoice(gate, serviceSource, accountsSource) {
-    const publishAccounts = accountsSource.match(/^    function publish\(\) \{\n[\s\S]*?^    \}/m);
+    const publishAccounts = [accountsPublication(accountsSource)];
     assert.ok(publishAccounts);
     const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
     try {
@@ -688,6 +696,11 @@ function verifyVoice(gate, serviceSource, accountsSource) {
             assert.equal(helloSettings(gate, serviceSource, require(providersFile), manifest, settings, { voiceKeys: offered, providers: {} }, label).voiceProvider, want, label);
         }
         assert.equal(plain(gate.readiness({ kind: "answered", causes: [] })).setup.tone, "ok", "no cause, as a fresh install with its local voice set up: ready");
+        // The Voice key choices follow the selected cloud voice: a switch
+        // from Realtime to Gemini offers the Gemini keys of the same read.
+        for (const [voiceProvider, want] of [["realtime", ["openai-1"]], ["gemini", ["gemini-1"]], ["auto", ["openai-1"]], ["local", ["openai-1"]]])
+            assert.deepEqual(plain(gate.voiceKeys([...KEY, ...GEMINI_KEY], { voiceProvider })), want.map(value =>
+                ({ value, label: [...KEY, ...GEMINI_KEY].find(key => key.value === value).label })), voiceProvider + ": the Voice key choices");
         const hints = { realtime: new Set(), gemini: new Set() };
         for (const [label, offered, voiceProvider, want] of VOICE_KEY) {
             const values = {};
@@ -699,7 +712,7 @@ function verifyVoice(gate, serviceSource, accountsSource) {
             const root = { shell, modelAccess: { kind: "checking" }, voiceKeys: "unread", providers: "unread", pending: false, completion: { kind: "exited", code: offered === null ? 1 : 0 },
                 diagnostic: { kind: "collected", text: "" }, refreshed: () => {},
                 output: JSON.stringify({ accounts: [], brains: [], providers: { "claude-team": "claude" }, voiceAccounts: offered ?? [], search: { found: 0, partial: "" } }) };
-            vm.runInNewContext("(function() { with(root) { return (" + publishAccounts[0] + ").call(root); } })()",
+            vm.runInNewContext(publishAccounts[0],
                 { root, Gate: gate, Words: words, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
             assert.deepEqual(plain({ keys: root.voiceKeys }), plain({ keys: offered ?? undefined }), label + ": the keys the reader hands the service");
             assert.deepEqual(plain(root.providers), offered === null ? {} : { "claude-team": "claude" }, label + ": the providers the reader hands the service");
@@ -1150,13 +1163,12 @@ const CONTROLS = [
     ["the service starts another device", 'return otherDevice(state) ? "refused: dictation=device" : "";', 'return "";', "another device"],
     ["a step's named action is dropped", ': typeof value.action === "string" ? value : noAction(value);', ': noAction(value);', "the Voice step"],
     ["a stored key replaces the voice the user chose", 'if (settings.voiceProvider !== "auto") return settings.voiceProvider;', 'if (false) return settings.voiceProvider;'],
-    ["no named key runs Realtime", ' || settings.voiceAccount === "") return "local";', ') return "local";'],
     ["a removed key keeps Realtime", 'offered.some(function (key) { return key.provider === "openai" && key.value === settings.voiceAccount; })', "true"],
     ["Auto runs a Gemini key as Realtime", 'return key.provider === "openai" && key.value === settings.voiceAccount;', "return key.value === settings.voiceAccount;"],
     ["the key row offers another voice's keys", "return keys.filter(function (key) { return key.provider === provider; })", "return keys.filter(function (key) { return key.provider === \"openai\"; })"],
     ["the key row names one voice's key", "var hint = VOICE_KEY_HINTS[voiceKeyProvider(settings)];", "var hint = VOICE_KEY_HINTS.openai;"],
     ["the preview names one voice's key", 'return provider === "gemini"\n        ?', "return false\n        ?"],
-    ["a start loads the local voice beside a named key", "var stored = offered === undefined || ", "var stored = offered !== undefined && "],
+    ["an unread key list runs Realtime", ' || offered === undefined) return "local";', ') return "local";\n    if (offered === undefined) return "realtime";'],
     ["Always talk mode runs Realtime", 'if (settings.mode === "always" || ', "if ("],
     ["no key offers no Add key", 'text: "No key stored", hint: hint, action: true }', 'text: "No key stored", hint: hint, action: false }'],
     ["a stored key still offers Add key", 'text: "Key stored", hint: hint, action: false }', 'text: "Key stored", hint: hint, action: true }'],
@@ -1345,7 +1357,7 @@ try {
         ["Accounts.qml", accountsSource, "voiceKeys = undefined;", "voiceKeys = [];"],
         ["Accounts.qml", accountsSource, "Gate.voiceKey(voiceChoices, shell.settings)", "Gate.voiceKey([], shell.settings)"],
         ["Accounts.qml", accountsSource, "Gate.voiceKey(null, shell.settings)", "Gate.voiceKey([], shell.settings)"],
-        ["Accounts.qml", accountsSource, "const voiceChoices = Gate.voiceKeys(value.voiceAccounts, shell.settings);", 'const voiceChoices = value.voiceAccounts.filter(key => key.provider === "openai").map(key => ({ value: key.value, label: key.label }));'],
+        ["Accounts.qml", accountsSource, "const voiceChoices = Gate.voiceKeys(keys, shell.settings);", 'const voiceChoices = keys.filter(key => key.provider === "openai").map(key => ({ value: key.value, label: key.label }));'],
         ["Service.qml", serviceSource, "? Gate.previewCost(Gate.voiceProvider(shell.settings, accountReader.voiceKeys))", '? Gate.previewCost("realtime")'],
         ["Accounts.qml", accountsSource, "providers = value.providers;", "providers = {};"],
         ["Accounts.qml", accountsSource, "providers = {};", "providers = providers;"],

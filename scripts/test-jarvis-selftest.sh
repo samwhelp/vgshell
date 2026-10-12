@@ -1180,6 +1180,7 @@ sentences_are() {
   python3 -c 'import json,sys; sys.exit(json.load(open(sys.argv[1]))["sentences"] != json.loads(sys.argv[2]))' "$tmp/record.json" "$3"
 }
 realtime_sentences() { sentences_are realtime fragments '[{"ms": 1000, "text": "It is noon. Anything else?"}, {"ms": 2000, "text": "It is noon."}]'; }
+gemini_sentences() { sentences_are gemini fragments '[{"ms": 1000, "text": "It is noon. Anything else?"}, {"ms": 2000, "text": "It is noon."}]'; }
 local_sentences() { sentences_are local sentences '[{"ms": 1000, "text": "It is noon."}, {"ms": 1500, "text": "Anything else?"}, {"ms": 2000, "text": "It is noon."}]'; }
 record_holds() {
   planted_trace final
@@ -1229,6 +1230,7 @@ holds "the record holds no argument of a tool call" names_only
 holds "the record holds each row the mailbox read printed, whole" mailbox_rows
 holds "a run with no home folder records no mailbox" mailbox_none
 holds "the realtime voice's record holds each caption segment whole, timed at its first words" realtime_sentences
+holds "the gemini voice's record holds each caption segment whole, timed at its first words" gemini_sentences
 dictation_samples() {
   local state="$tmp/lent.json" daemon="$tmp/dictation-daemon.jsonl" recordings="$tmp/dictation-recordings.jsonl" unread="$tmp/dictation-unread"
   rm -f -- "$daemon" "$recordings" "$unread"
@@ -1260,6 +1262,7 @@ control cut_functions "a record that drops the mailbox rows" '[json.loads(line) 
 control cut_functions "a record that lists a mailbox for a run with no home folder" ' if home else None,' ',' mailbox_none
 control cut_functions "a record that reads the realtime voice's fragments as sentences" '    if voice != "local":' '    if False:' realtime_sentences
 control cut_functions "a record that reads the local voice's sentences as one segment" '    if voice != "local":' '    if True:' local_sentences
+control cut_functions "a record that reads only the realtime voice's fragments as segments" '    if voice != "local":' '    if voice == "realtime":' gemini_sentences
 control cut_functions "a mark that passes a turn that did not complete" 'end == "completed" and ' '' not_passed "${failed_rows[0]}"
 control cut_functions "a mark that passes a run that broke a rule" ' and kept == "true"' '' not_passed "${failed_rows[3]}"
 control cut_functions "a mark that passes a turn with no heard text" 'heard is not None and ' '' not_passed "${failed_rows[4]}"

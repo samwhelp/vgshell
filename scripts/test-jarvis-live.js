@@ -2,9 +2,12 @@
 // The duplex engines, Realtime and Gemini Live, against hand-made sessions:
 // scripts written from each provider's documented message shapes and pinned
 // to a schema excerpt, which a loopback WebSocket server replays inside the
-// J09 world, through the real Session reducer and runner. One rule set holds
-// both adapters. In-memory capture and playback ports follow Audio's sink and
-// source contract. A manual clock drives silence, reply ends and idle close.
+// J09 world, through the real Session reducer and runner. The session rules
+// both adapters keep run once for each (SHARED); each adapter's message rules
+// have rows of their own. Every Realtime control whose text Gemini Live
+// copies runs against that copy too. In-memory capture and playback ports
+// follow Audio's sink and source contract. A manual clock drives silence,
+// reply ends and idle close.
 // Excerpts and scripts: scripts/fixtures/jarvis-live/. The key is the
 // keys-world stand-in's fixture value; no network or account.
 "use strict";
@@ -69,11 +72,12 @@ for (const [name, events] of Object.entries(fixtures.scripts)) for (const event 
 const script = (name, index = 0) => structuredClone(fixtures.scripts[name].at(index));
 // Off-schema frames a fault row needs, built from a pinned event.
 const off = (name, change, index = 0) => JSON.stringify(change(script(name, index)));
-// A Gemini Live message holds one kind beside an optional usageMetadata.
-const geminiKind = value => Object.keys(value).find(key => key !== "usageMetadata") ?? "usageMetadata";
+// A Gemini Live message holds one kind beside optional usageMetadata and voiceActivity.
+const GEMINI_BESIDE = ["usageMetadata", "voiceActivity"];
+const geminiKind = value => Object.keys(value).find(key => !GEMINI_BESIDE.includes(key)) ?? Object.keys(value)[0];
 const GEMINI_CLIENT = { setup: "SetupMessage", realtimeInput: "RealtimeInputMessage", clientContent: "ClientContentMessage" };
 const GEMINI_SERVER = { setupComplete: "SetupCompleteMessage", serverContent: "ServerContentMessage", usageMetadata: "UsageMetadataMessage",
-    goAway: "GoAwayMessage", sessionResumptionUpdate: "SessionResumptionUpdateMessage", toolCall: "ToolCallMessage",
+    voiceActivity: "VoiceActivityMessage", goAway: "GoAwayMessage", sessionResumptionUpdate: "SessionResumptionUpdateMessage", toolCall: "ToolCallMessage",
     toolCallCancellation: "ToolCallCancellationMessage" };
 for (const [name, events] of Object.entries(geminiFixtures.scripts))
     for (const event of events) pinned(GEMINI_SERVER[geminiKind(event)], event, name, geminiExcerpt);
@@ -88,7 +92,43 @@ const quoted = text => JSON.parse(text.split("\n\n").at(-1));
 // for the daemon rows (conn.auto), with the PCM byte count a row queued in
 // conn.voice, or none.
 const REALTIME = { setting: "realtime", row: "openai-realtime", keyProvider: "openai", file: "Realtime.js", previewVoice: "cedar",
-    scripts: fixtures.scripts, kind: value => value.type, SPEAK,
+    scripts: fixtures.scripts, kind: value => value.type, SPEAK, APPEND, rate: 1,
+    // The session is configured and waits; then the provider starts it.
+    async start(conn) {
+        conn.play("created");
+        await conn.event("session.update");
+    },
+    go: conn => conn.play("updated"),
+    // The start of the user's speech, which this provider reports on its own.
+    started: conn => conn.send(script("turn")),
+    sent: conn => Buffer.concat(conn.events.filter(event => event.type === APPEND).map(event => Buffer.from(event.audio, "base64"))),
+    // Partial text of one user turn, and the turn's end with its whole text.
+    part(conn, item, text) {
+        const event = script("turn", 1);
+        Object.assign(event, { item_id: item, delta: text });
+        conn.send(event);
+    },
+    heard(conn, item, text) {
+        const event = script("turn", -1);
+        Object.assign(event, { item_id: item, transcript: text });
+        conn.send(event);
+    },
+    // One spoken response: its start, a piece of its audio and of its
+    // transcript, and its end, each by the response's identity.
+    begin(conn, id = "resp_old") {
+        const event = script("reply-old");
+        event.response.id = id;
+        conn.send(event);
+    },
+    chunk(conn, bytes, fill = 0, id = "resp_old") {
+        conn.send({ ...script("reply-old", 1), response_id: id, delta: Buffer.alloc(bytes, fill).toString("base64") });
+    },
+    said(conn, text, id = "resp_old") { conn.send({ ...script("reply-old", -1), response_id: id, delta: text }); },
+    end(conn, id = "resp_old") {
+        const event = script("done-old");
+        event.response.id = id;
+        conn.send(event);
+    },
     client: value => pinned(CLIENT[value.type], value, "client"), server: value => pinned(SERVER[value.type], value, "raw"),
     words: event => quoted(event.response.instructions),
     async open(conn) {
@@ -99,11 +139,7 @@ const REALTIME = { setting: "realtime", row: "openai-realtime", keyProvider: "op
     },
     voice: update => update.session.audio.output.voice,
     noTools: update => Array.isArray(update.session.tools) && update.session.tools.length === 0,
-    turn: (conn, text) => {
-        const event = script("turn", -1);
-        Object.assign(event, { item_id: "item_" + text.length + "_" + conn.events.length, transcript: text });
-        conn.send(event);
-    },
+    turn: (conn, text) => REALTIME.heard(conn, "item_" + text.length + "_" + conn.events.length, text),
     reply(conn) {
         const id = "resp_auto_" + conn.auto++;
         const created = script("reply-old"), audio = script("reply-old", 1), done = script("done-old");
@@ -114,7 +150,38 @@ const REALTIME = { setting: "realtime", row: "openai-realtime", keyProvider: "op
         conn.send(done);
     } };
 const GEMINI = { setting: "gemini", row: "gemini-live", keyProvider: "gemini", file: "GeminiLive.js", previewVoice: "Puck",
-    scripts: geminiFixtures.scripts, kind: geminiKind, SPEAK: "clientContent",
+    scripts: geminiFixtures.scripts, kind: geminiKind, SPEAK: "clientContent", APPEND: "realtimeInput", rate: 2 / 3,
+    start: conn => conn.event("setup"),
+    go: conn => conn.play("setup-complete"),
+    // The Live API reports no start of speech: the first words start the turn.
+    started() {},
+    sent: conn => Buffer.concat(conn.events.filter(event => geminiKind(event) === "realtimeInput")
+        .map(event => Buffer.from(event.realtimeInput.audio.data, "base64"))),
+    // The Live API sends a user turn's words in pieces, and a turn ends at
+    // the voice's own turnComplete, here a silent one after its finished
+    // transcription. heard sends the words part has not.
+    part(conn, item, text) {
+        conn.parts[item] = (conn.parts[item] ?? "") + text;
+        conn.send({ serverContent: { inputTranscription: { text } } });
+    },
+    heard(conn, item, text) {
+        const sent = conn.parts[item] ?? "";
+        const rest = text.startsWith(sent) ? text.slice(sent.length) : text;
+        delete conn.parts[item];
+        if (rest !== "") conn.send({ serverContent: { inputTranscription: { text: rest } } });
+        conn.send({ serverContent: { inputTranscription: { finished: true } } });
+        conn.send({ serverContent: { turnComplete: true } });
+    },
+    // The provider names no model turn: order is the identity, so the
+    // identities the Realtime rows give are not sent.
+    begin() {},
+    chunk(conn, bytes, fill = 0) {
+        const event = gscript("reply-old");
+        event.serverContent.modelTurn.parts[0].inlineData.data = Buffer.alloc(bytes, fill).toString("base64");
+        conn.send(event);
+    },
+    said: (conn, text) => conn.send({ serverContent: { outputTranscription: { text } } }),
+    end: conn => conn.play("done-old"),
     client: value => pinned(GEMINI_CLIENT[geminiKind(value)], value, "client", geminiExcerpt),
     server: value => pinned(GEMINI_SERVER[geminiKind(value)], value, "raw", geminiExcerpt),
     words: event => quoted(event.clientContent.turns[0].parts[0].text),
@@ -125,10 +192,7 @@ const GEMINI = { setting: "gemini", row: "gemini-live", keyProvider: "gemini", f
     },
     voice: setup => setup.setup.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName,
     noTools: setup => !Object.hasOwn(setup.setup, "tools"),
-    turn: (conn, text) => {
-        conn.send({ serverContent: { inputTranscription: { text } } });
-        conn.send({ serverContent: { inputTranscription: { finished: true } } });
-    },
+    turn: (conn, text) => GEMINI.heard(conn, "turn", text),
     reply(conn) {
         conn.auto++;
         const audio = gscript("reply-old");
@@ -185,9 +249,8 @@ function same(event, expected, label) {
     const actual = Buffer.from(event.audio, "base64");
     assert.ok(actual.equals(expected), label + ": " + actual.length + " bytes");
 }
-const appended = conn => Buffer.concat(conn.events.filter(event => event.type === APPEND).map(event => Buffer.from(event.audio, "base64")));
 // The words one spoken response carries, after the voice's own guidance.
-const words = event => JSON.parse(event.response.instructions.split("\n\n").at(-1));
+const words = event => event.response !== undefined ? REALTIME.words(event) : GEMINI.words(event);
 
 world(async () => {
     const childEnv = {};
@@ -210,22 +273,35 @@ world(async () => {
             }
             // The adapter by its endpoint's path.
             const P = request.url.startsWith(GEMINI_PATH) ? GEMINI : REALTIME;
+            // The rows written for both adapters name the spoken frame and the
+            // audio frame by Realtime's types; each stands for this adapter's.
+            const kindOf = type => type === SPEAK ? P.SPEAK : type === APPEND ? P.APPEND : type;
             const conn = { url: request.url, rig: query.get("rig"), protocol: P, taken: false, auto: 0, voice: [],
-                headers: request.headers, events: [], cursor: 0, socket, ended: false,
+                headers: request.headers, events: [], cursor: 0, socket, ended: false, parts: {}, pings: 0, pongs: [],
                 play(name) { for (const event of P.scripts[name]) this.raw(JSON.stringify(event)); },
                 send(event) { P.server(event); this.raw(JSON.stringify(event)); },
                 raw(data, opcode = 1) { socket.write(Ws.frame(opcode, data)); },
-                count: type => conn.events.filter(event => P.kind(event) === type).length,
+                count: type => conn.events.filter(event => P.kind(event) === kindOf(type)).length,
                 async event(type) {
-                    await until(() => conn.events.slice(conn.cursor).some(event => P.kind(event) === type), "client sends " + type);
-                    const index = conn.events.findIndex((event, at) => at >= conn.cursor && P.kind(event) === type);
+                    const kind = kindOf(type);
+                    await until(() => conn.events.slice(conn.cursor).some(event => P.kind(event) === kind), "client sends " + kind);
+                    const index = conn.events.findIndex((event, at) => at >= conn.cursor && P.kind(event) === kind);
                     conn.cursor = index + 1;
                     return conn.events[index];
+                },
+                // A barrier: the client answers a ping once it has read every
+                // text frame before it, since its WebSocket hands each text
+                // message over as the frame is parsed, before the next frame.
+                async sync() {
+                    const id = String(++conn.pings);
+                    socket.write(Ws.frame(9, id));
+                    await until(() => conn.pongs.includes(id) || conn.ended, "the engine reads every message before ping " + id);
                 } };
             conns.push(conn);
             Ws.accept(request, socket);
             socket.on("data", Ws.decoder(({ opcode, payload }) => {
                 if (opcode === 8) { socket.end(Ws.frame(8, payload)); return; }
+                if (opcode === 10) { conn.pongs.push(payload.toString()); return; }
                 assert.equal(opcode, 1, "client events are text frames");
                 const value = JSON.parse(payload.toString());
                 P.client(value);
@@ -274,13 +350,15 @@ world(async () => {
             Secrets: load("Secrets.js"), Runner: load("session-runner.js"), Guidance: load("Guidance.js"), Session: Protocol.Session };
     }
 
-    // thinking keeps each brain turn open: its port never reports done.
-    // protocol is the adapter: REALTIME or GEMINI.
-    function rig(kit, { key = "own", mode = "hold", synchronousClose = false, redirect = false, thinking = false, voice, protocol = REALTIME } = {}) {
+    // thinking keeps each brain turn open: its port never reports done. ack
+    // is a line the brain speaks inside the delegation, as the engine's
+    // acknowledgement does. protocol is the adapter: REALTIME or GEMINI.
+    function rig(kit, { key = "own", mode = "hold", synchronousClose = false, redirect = false, thinking = false, voice, protocol = REALTIME,
+        ack } = {}) {
         const clock = manual();
         const w = { id: ++conversations, kit, clock, played: [], flushes: 0, transcripts: [], logs: [], collected: [], sink: null,
             source: null, handed: [], backlog: null, delegations: [], tools: 0, starts: 0, judged: [], approvals: [],
-            stall: false, read: null, dues: [], urls: [] };
+            stall: false, read: null, dues: [], urls: [], protocol };
         const Adapter = protocol === GEMINI ? kit.Gemini : kit.Live;
         voice ??= Adapter.VOICES[0].value;
         const store = new kit.Secrets.Secrets(path.join(childEnv.XDG_STATE_HOME, "vgshell/jarvis"), childEnv);
@@ -352,6 +430,7 @@ world(async () => {
             { ...events, due: value => { w.dues.push(value); events.due(value); } }) };
         ports.brain = { ...ports.brain, send: (e, done) => {
             w.delegations.push(e);
+            if (ack !== undefined) w.engine.commentary(e.delegation, kit.Policy.item(ack, ["speech"]), { line: true });
             if (!thinking) done("brain-done");
         } };
         ports.approval = { ...ports.approval, show: () => {}, end: e => w.approvals.push(e.reason) };
@@ -363,24 +442,18 @@ world(async () => {
         w.dispatch("indicator", { shown: true });
         return w;
     }
-    // One finished user turn, built from the scripted one.
-    function heard(conn, item, text) {
-        const event = script("turn", -1);
-        Object.assign(event, { item_id: item, transcript: text });
-        conn.send(event);
-    }
-    // Partial text of one user turn.
-    function part(conn, item, text) {
-        const event = script("turn", 1);
-        Object.assign(event, { item_id: item, delta: text });
-        conn.send(event);
-    }
+    // One finished user turn, and partial text of one, as the connection's adapter hears them.
+    const heard = (conn, item, text) => conn.protocol.heard(conn, item, text);
+    const part = (conn, item, text) => conn.protocol.part(conn, item, text);
     // The engine read the frame, or took the call, that restarts its idle wait.
     const restarted = (w, label) => until(() => w.clock.due(w.clock.now() + IDLE), label);
     // The newest delegation's words, as the engine's brain turn releases them.
     const say = (w, text) => w.engine.commentary(w.delegations.at(-1).delegation, w.kit.Policy.item(text, ["speech"]));
     // A caption that reaches the wire proves every frame before it was read.
+    // A Gemini Live user word would open a turn and hold the voice, so that
+    // adapter's rows use the ping barrier.
     async function mark(w, conn, text) {
+        if (conn.protocol === GEMINI) { await conn.sync(); return; }
         part(conn, "item_" + text, text);
         await until(() => w.state.fault.kind === "error" || w.transcripts.some(item => item.text === text), text + " is read");
     }
@@ -390,17 +463,16 @@ world(async () => {
         w.dispatch("talk-down");
         return { w, conn: await main.accept(w) };
     }
-    // The session is configured and waits for session.updated.
+    // The session is configured and waits for the provider to start it.
     async function starting(kit, options) {
         const { w, conn } = await connecting(kit, options);
-        conn.play("created");
-        await conn.event("session.update");
+        await conn.protocol.start(conn);
         return { w, conn };
     }
     // Release leaves the started session running on paced silence.
     async function running(kit, options) {
         const { w, conn } = await starting(kit, options);
-        conn.play("updated");
+        conn.protocol.go(conn);
         w.sink.write(Buffer.alloc(960, 5));
         await conn.event(APPEND);
         w.dispatch("talk-up");
@@ -422,7 +494,7 @@ world(async () => {
         const { w, conn } = await conversing(kit, options);
         assert.equal(say(w, "It is noon."), true);
         await conn.event(SPEAK);
-        conn.send(script("reply-old"));
+        conn.protocol.begin(conn);
         return { w, conn };
     }
     // Session state comes from the QML library realm; compare its JSON.
@@ -538,15 +610,15 @@ world(async () => {
 
     // Idle is 60 s with no user speech or transcript, no words for the voice,
     // no reply and no new capture.
-    async function idle(kit) {
-        const { w, conn } = await roundTrip(kit);
+    async function idle(kit, P = REALTIME) {
+        const { w, conn } = await (P === GEMINI ? groundTrip(kit) : roundTrip(kit));
         await elapse(w, 59000);
         assert.equal(w.state.fault.kind, "none", "an ended response leaves no wait behind it");
-        conn.send(script("turn-next"));
+        conn.send(structuredClone(P.scripts["turn-next"][0]));
         await restarted(w, "the start of user speech restarts the idle wait");
         await elapse(w, 59000);
         assert.equal(conn.ended, false, "user speech restarts the idle wait");
-        for (const event of fixtures.scripts["turn-next"].slice(1)) conn.send(structuredClone(event));
+        for (const event of P.scripts["turn-next"].slice(1)) conn.send(structuredClone(event));
         await until(() => w.delegations.length === 2, "a second turn arrives");
         await elapse(w, 59000);
         assert.equal(say(w, "Nothing changed."), true);
@@ -588,8 +660,8 @@ world(async () => {
 
     // Each restart of the idle wait alone, [name, stage, act]: the stage ends
     // 59 s after the restart before it, and the act is the restart under test.
-    const stalled = async kit => {
-        const { w, conn } = await conversing(kit);
+    const stalled = async (kit, P) => {
+        const { w, conn } = await conversing(kit, { protocol: P });
         w.stall = true;
         assert.equal(say(w, "It is noon."), true);
         await conn.event(SPEAK);
@@ -604,26 +676,26 @@ world(async () => {
     };
     const restarts = [
         // The indicator's return opens a capture with no interruption and no speech event.
-        ["capture", async kit => {
-            const { w, conn } = await starting(kit);
-            conn.play("updated");
+        ["capture", async (kit, P) => {
+            const { w, conn } = await starting(kit, { protocol: P });
+            P.go(conn);
             w.sink.write(Buffer.alloc(960, 5));
             await conn.event(APPEND);
             return { w, conn };
         }, w => { w.dispatch("indicator", { shown: false }); w.dispatch("indicator", { shown: true }); }],
-        ["response-end", conversing, async (w, conn) => {
+        ["response-end", (kit, P) => conversing(kit, { protocol: P }), async (w, conn) => {
             assert.equal(say(w, "It is noon."), true);
             await conn.event(SPEAK);
-            conn.send(script("reply-old"));
+            conn.protocol.begin(conn);
             conn.play("done-old");
         }],
         ["interrupt", stalled, w => w.dispatch("interrupt")]
     ];
-    async function idleRestarts(kit, only = null) {
+    async function idleRestarts(kit, P = REALTIME, only = null) {
         const selected = restarts.filter(([name]) => only === null || name === only);
         assert.ok(selected.length > 0, "idle restart " + only);
         for (const [name, stage, act] of selected) {
-            const { w, conn } = await stage(kit);
+            const { w, conn } = await stage(kit, P);
             await elapse(w, 59000);
             assert.equal(conn.ended, false, name + " starts inside the wait before it");
             await act(w, conn);
@@ -640,10 +712,10 @@ world(async () => {
 
     // The idle wait counts from the user's last word, not the first: partial
     // text and the finished transcript each restart it.
-    async function idleTurn(kit) {
-        const { w, conn } = await running(kit);
+    async function idleTurn(kit, P = REALTIME) {
+        const { w, conn } = await running(kit, { protocol: P });
         await elapse(w, 29900);
-        conn.send(script("turn"));
+        P.started(conn);
         part(conn, "item_slow", "Open");
         await until(() => w.transcripts.some(item => item.text === "Open"), "the request starts");
         await elapse(w, 30000);
@@ -664,9 +736,9 @@ world(async () => {
 
     // A request 30 s long leaves the brain its whole wait: the turn ends by
     // Session's thinking limit, with its fault, never by the idle wait.
-    async function idleThinking(kit) {
-        const { w, conn } = await running(kit, { thinking: true });
-        conn.send(script("turn"));
+    async function idleThinking(kit, P = REALTIME) {
+        const { w, conn } = await running(kit, { thinking: true, protocol: P });
+        P.started(conn);
         part(conn, "item_user_1", "What is");
         await until(() => w.transcripts.some(item => item.text === "What is"), "the request starts");
         await elapse(w, 30000);
@@ -682,8 +754,8 @@ world(async () => {
 
     // A held approval outlives the idle wait and ends by its own deadline.
     // The wait runs again, so the socket still closes after the turn's end.
-    async function idleApproval(kit) {
-        const { w, conn } = await conversing(kit, { thinking: true });
+    async function idleApproval(kit, P = REALTIME) {
+        const { w, conn } = await conversing(kit, { thinking: true, protocol: P });
         await elapse(w, 5000);
         w.dispatch("approval", { gen: w.state.turn.gen, op: w.state.turn.op, id: "approval-fixture", digest: "a".repeat(64),
             text: "Delete the file?", physical: true, tool: "files_delete", timeoutMs: 1000, cancellable: false });
@@ -707,16 +779,14 @@ world(async () => {
 
     // A new request empties the words a playing reply waited for. The reply
     // then has nothing left to wait for and ends after its gap.
-    async function replacedReply(kit) {
-        const { w, conn } = await conversing(kit);
+    async function replacedReply(kit, P = REALTIME) {
+        const { w, conn } = await conversing(kit, { protocol: P });
         w.stall = true;
         assert.equal(say(w, "It is noon."), true);
         assert.equal(say(w, "It was noon before."), true);
         await conn.event(SPEAK);
-        conn.send(script("reply-old"));
-        const chunk = script("reply-old", 1);
-        chunk.delta = Buffer.alloc(65536).toString("base64");
-        for (let index = 0; index < 2; index++) conn.send(chunk);
+        P.begin(conn);
+        for (let index = 0; index < 2; index++) P.chunk(conn, 65536);
         w.clock.advance(100);
         conn.play("done-old");
         await restarted(w, "the first response ends");
@@ -733,8 +803,8 @@ world(async () => {
     // Each spoken frame is judged under its sentence's source labels.
     // The brain's words wait at the voice for their first audio: the reply
     // shows as speaking from the words on, and an open reply carries more.
-    async function replyDue(kit) {
-        const { w, conn } = await conversing(kit);
+    async function replyDue(kit, P = REALTIME) {
+        const { w, conn } = await conversing(kit, { protocol: P });
         assert.deepEqual([w.state.turn.kind, w.phase], ["none", "idle"], "the brain's turn has ended with no words");
         assert.equal(say(w, "It is noon."), true);
         assert.deepEqual([w.state.speech.reply.kind, w.state.playback.kind, w.phase], ["due", "idle", "speaking"],
@@ -750,8 +820,8 @@ world(async () => {
 
     // A reply Audio still plays after it ended at the engine carries no new
     // words, and a reply the provider has started before Audio takes it does.
-    async function replyDueCarried(kit) {
-        const { w, conn } = await conversing(kit);
+    async function replyDueCarried(kit, P = REALTIME) {
+        const { w, conn } = await conversing(kit, { protocol: P });
         w.stall = true;
         assert.equal(say(w, "It is noon."), true);
         await conn.event(SPEAK);
@@ -773,41 +843,41 @@ world(async () => {
 
     // A failover releases the session and opens it again under the same
     // identity: the words it dropped leave no reply due.
-    async function releaseDue(kit) {
-        const { w } = await conversing(kit);
+    async function releaseDue(kit, P = REALTIME) {
+        const { w } = await conversing(kit, { protocol: P });
         assert.equal(say(w, "It is noon."), true);
         assert.equal(w.state.speech.reply.kind, "due");
         w.engine.port.release();
         assert.deepEqual([w.dues, w.state.speech.kind, w.state.speech.reply.kind, w.phase], [[true, false], "open", "none", "idle"]);
     }
 
-    async function labels(kit) {
-        const { w, conn } = await conversing(kit);
+    async function labels(kit, P = REALTIME) {
+        const { w, conn } = await conversing(kit, { protocol: P });
         const before = w.judged.length;
         assert.equal(w.engine.commentary(w.delegations[0].delegation, kit.Policy.item("The file says noon.", ["speech", "file"])), true);
         const frame = await conn.event(SPEAK);
-        const judged = w.judged.slice(before).filter(item => JSON.parse(item.content).type === SPEAK);
+        const judged = w.judged.slice(before).filter(item => P.kind(JSON.parse(item.content)) === P.SPEAK);
         assert.deepEqual(judged.map(item => [JSON.parse(item.content), [...item.labels].sort()]), [[frame, ["file", "speech"]]],
             "words read from a file leave under the file label");
     }
 
-    async function lineQueue(kit) {
-        const { w, conn } = await conversing(kit);
+    async function lineQueue(kit, P = REALTIME) {
+        const { w, conn } = await conversing(kit, { protocol: P });
         const request = w.delegations[0].delegation;
         const line = text => w.engine.commentary(request, kit.Policy.item(text, ["speech"]), { line: true });
         assert.equal(line("First line."), true);
         assert.equal(words(await conn.event(SPEAK)), "First line.", "an asked line is spoken");
         assert.equal(line("Second line."), true);
         assert.equal(line("Third line."), true);
-        conn.send(script("reply-old"));
+        P.begin(conn);
         conn.play("done-old");
         assert.equal(words(await conn.event(SPEAK)), "Third line.", "a newer waiting line replaces an older one");
         assert.equal(line("Fourth line."), true);
         assert.equal(w.engine.commentary(request, kit.Policy.item("Answer words.", ["speech"])), true);
-        conn.send(script("reply-new"));
+        P.begin(conn, "resp_new");
         conn.play("done-new");
         assert.equal(words(await conn.event(SPEAK)), "Answer words.", "reply words drop a waiting line");
-        assert.deepEqual(conn.events.filter(event => event.type === SPEAK).map(words), ["First line.", "Third line.", "Answer words."]);
+        assert.deepEqual(conn.events.filter(event => P.kind(event) === P.SPEAK).map(words), ["First line.", "Third line.", "Answer words."]);
         w.dispatch("interrupt");
         heard(conn, "item_next", "Next?");
         await until(() => w.delegations.length === 2, "a new turn follows line-only speech");
@@ -816,18 +886,16 @@ world(async () => {
 
     // The account of an interrupted reply: the responses the user heard to
     // their end. Audio's flush report credits frames of the reply at the speaker.
-    async function heardAccount(kit) {
-        const { w, conn } = await conversing(kit);
+    async function heardAccount(kit, P = REALTIME) {
+        const { w, conn } = await conversing(kit, { protocol: P });
         const request = w.delegations[0].delegation;
         const report = frames => ({ source: w.state.speech.op, heardFrames: frames });
         // One spoken response of 1440 PCM bytes, ended or left in flight.
         const respond = async (id, ended) => {
             await conn.event(SPEAK);
-            const created = script("reply-old"), audio = script("reply-old", 1), done = script("done-old");
-            created.response.id = done.response.id = id;
-            conn.send(created);
-            conn.send({ ...audio, response_id: id, delta: Buffer.alloc(1440, 0x11).toString("base64") });
-            if (ended) conn.send(done);
+            P.begin(conn, id);
+            P.chunk(conn, 1440, 0x11, id);
+            if (ended) P.end(conn, id);
             await mark(w, conn, id);
         };
         for (const sentence of ["It is noon.", "It was noon before.", "Nothing changed."]) assert.equal(say(w, sentence), true);
@@ -841,9 +909,7 @@ world(async () => {
             "a response counts once the heard frames reach its end; one still in flight never does");
         assert.equal(playing.text({ source: w.state.speech.op + 1, heardFrames: 48000 }), "", "another playback's report credits nothing");
         assert.equal(w.engine.heard("item_other"), null, "another request has no account");
-        const done = script("done-old");
-        done.response.id = "resp_third";
-        conn.send(done);
+        P.end(conn, "resp_third");
         await mark(w, conn, "third-done");
         w.clock.advance(500);
         await until(() => w.state.playback.kind === "idle", "the reply plays out");
@@ -858,38 +924,38 @@ world(async () => {
             "a later reply of the same request adds to what played out");
         heard(conn, "item_user_2", "And now?");
         await until(() => w.delegations.length === 2, "a new request arrives while the old reply plays");
+        const second = w.delegations[1].delegation;
         assert.equal(w.engine.heard(request), null, "the replaced request has no account");
-        assert.equal(w.engine.heard("item_user_2").text(report(48000)), "", "the old request's responses are not the new one's");
+        assert.equal(w.engine.heard(second).text(report(48000)), "", "the old request's responses are not the new one's");
         w.dispatch("interrupt");
-        assert.equal(w.engine.heard("item_user_2"), null, "an interruption drops the account it read");
+        assert.equal(w.engine.heard(second), null, "an interruption drops the account it read");
         heard(conn, "item_user_3", "Next.");
         await until(() => w.delegations.length === 3, "a request follows the interruption");
-        assert.equal(w.engine.heard("item_user_3").pending, false, "a flushed reply is no longer at the speaker");
+        assert.equal(w.engine.heard(w.delegations[2].delegation).pending, false, "a flushed reply is no longer at the speaker");
         assert.equal(w.state.fault.kind, "none");
     }
 
     // The session has no close event: stop and lease loss close the socket,
     // and the next Talk opens a new session at once.
-    async function closing(kit) {
-        const { w, conn } = await running(kit);
+    async function closing(kit, P = REALTIME) {
+        const { w, conn } = await running(kit, { protocol: P });
         w.dispatch("stop");
         await until(() => conn.ended, "stop closes the socket");
         assert.deepEqual([w.state.speech.kind, w.state.fault.kind], ["closed", "none"]);
-        const lease = await running(kit);
+        const lease = await running(kit, { protocol: P });
         lease.w.runner.close();
         await until(() => lease.conn.ended, "lease loss closes the socket");
         // The engine releases the port itself when it ends a conversation.
-        const ended = await running(kit);
+        const ended = await running(kit, { protocol: P });
         ended.w.engine.port.release();
         await until(() => ended.conn.ended, "the conversation's end closes the socket");
-        const again = rig(kit, { mode: "toggle" });
+        const again = rig(kit, { mode: "toggle", protocol: P });
         for (let index = 0; index < 2; index++) {
             again.clock.advance(300);
             again.dispatch("talk-down");
             const opened = await main.accept(again);
-            opened.play("created");
-            await opened.event("session.update");
-            opened.play("updated");
+            await P.start(opened);
+            P.go(opened);
             again.sink.write(Buffer.alloc(960));
             await opened.event(APPEND);
             again.clock.advance(300);
@@ -954,8 +1020,8 @@ world(async () => {
 
     // An interrupted reply already playing: the words not yet asked for are
     // dropped, and the rest of the interrupted response never plays.
-    async function interruptPlaying(kit) {
-        const { w, conn } = await conversing(kit);
+    async function interruptPlaying(kit, P = REALTIME) {
+        const { w, conn } = await conversing(kit, { protocol: P });
         const stale = w.delegations[0].delegation;
         assert.equal(say(w, "It is noon."), true);
         assert.equal(say(w, "It was noon before."), true);
@@ -983,8 +1049,8 @@ world(async () => {
     }
 
     // A reply still queued behind a held talk key is dropped whole.
-    async function interruptQueued(kit) {
-        const { w, conn } = await running(kit);
+    async function interruptQueued(kit, P = REALTIME) {
+        const { w, conn } = await running(kit, { protocol: P });
         w.dispatch("talk-down");
         conn.play("turn");
         await until(() => w.delegations.length === 1, "the held turn arrives");
@@ -1113,8 +1179,8 @@ world(async () => {
     }
 
     // A response that never ends would hold every later word.
-    async function responseTimeout(kit) {
-        const { w, conn } = await speaking(kit);
+    async function responseTimeout(kit, P = REALTIME) {
+        const { w, conn } = await speaking(kit, { protocol: P });
         await elapse(w, 29999);
         assert.equal(w.state.fault.kind, "none");
         w.clock.advance(1);
@@ -1158,32 +1224,34 @@ world(async () => {
 
     // The full opening fits; it leaves after session.updated in order, ahead
     // of later words, without meeting the send backlog.
-    async function opening(kit) {
-        const { w: early } = await starting(kit);
+    async function opening(kit, P = REALTIME) {
+        const { w: early } = await starting(kit, { protocol: P });
         for (let sent = 0; sent < OPENING; sent += 48000) early.sink.write(Buffer.alloc(48000));
         assert.equal(early.state.fault.kind, "none", "20 s of opening words fit");
         early.sink.write(Buffer.alloc(2));
         fault(early, "live=input-overflow");
-        const { w, conn } = await starting(kit);
+        const { w, conn } = await starting(kit, { protocol: P });
         const opened = Buffer.concat(Array.from({ length: 20 }, (_, index) => Buffer.alloc(48000, index + 1)));
         for (let offset = 0; offset < opened.length; offset += 48000) w.sink.write(opened.subarray(offset, offset + 48000));
-        conn.play("updated");
+        P.go(conn);
         await conn.event(APPEND);
         assert.equal(w.state.fault.kind, "none", "the opening leaves behind the socket's backpressure");
         w.sink.write(Buffer.alloc(960, 0x7f));
-        const all = Buffer.concat([opened, Buffer.alloc(960, 0x7f)]);
+        // A frame of one value resamples to the same value: the bytes the
+        // provider takes, in order.
+        const all = Buffer.concat([...Array.from({ length: 20 }, (_, index) => Buffer.alloc(48000 * P.rate, index + 1)), Buffer.alloc(960 * P.rate, 0x7f)]);
         const deadline = Date.now() + 2000;
-        while (appended(conn).length < all.length && w.state.fault.kind === "none") {
+        while (P.sent(conn).length < all.length && w.state.fault.kind === "none") {
             assert.ok(Date.now() < deadline, "the opening drains");
             w.clock.advance(100);
             await new Promise(resolve => setTimeout(resolve, 2));
         }
         assert.equal(w.state.fault.kind, "none", "the full opening never meets the send backlog");
-        assert.ok(appended(conn).equals(all), "every opening byte leaves once, in order, before later words");
+        assert.ok(P.sent(conn).equals(all), "every opening byte leaves once, in order, before later words");
     }
 
-    async function releaseLifetime(kit) {
-        const { w, conn } = await starting(kit, { synchronousClose: true });
+    async function releaseLifetime(kit, P = REALTIME) {
+        const { w, conn } = await starting(kit, { synchronousClose: true, protocol: P });
         w.sink.write(Buffer.alloc(OPENING + 2));
         fault(w, "live=input-overflow");
         assert.equal(w.state.speech.kind, "closed", "released speech closes once");
@@ -1195,8 +1263,8 @@ world(async () => {
 
     // One response at a time, each bounded, and the next only once playback
     // has drained the reply: a response's audio cannot be paused.
-    async function pacing(kit) {
-        const { w, conn } = await running(kit);
+    async function pacing(kit, P = REALTIME) {
+        const { w, conn } = await running(kit, { protocol: P });
         w.dispatch("talk-down");
         conn.play("turn");
         await until(() => w.delegations.length === 1, "the held turn arrives");
@@ -1207,10 +1275,8 @@ world(async () => {
         await turn();
         assert.equal(conn.count(SPEAK), 1, "the next words wait for the response in flight");
         assert.ok([...words(first)].length <= 240 && long.startsWith(words(first)), "one response carries a bounded part of a long sentence");
-        conn.send(script("reply-old"));
-        const chunk = script("reply-old", 1);
-        chunk.delta = Buffer.alloc(65536).toString("base64");
-        for (let index = 0; index < 2; index++) conn.send(chunk);
+        P.begin(conn);
+        for (let index = 0; index < 2; index++) P.chunk(conn, 65536);
         conn.play("done-old");
         await mark(w, conn, "full");
         await elapse(w, 1000);
@@ -1225,26 +1291,24 @@ world(async () => {
             "words past the queue's bound are refused");
     }
 
-    async function replyQueue(kit) {
-        const { w, conn } = await running(kit);
+    async function replyQueue(kit, P = REALTIME) {
+        const { w, conn } = await running(kit, { protocol: P });
         w.dispatch("talk-down");
         conn.play("turn");
         await until(() => w.delegations.length === 1, "the held turn arrives");
         assert.equal(say(w, "It is noon."), true);
         await conn.event(SPEAK);
-        conn.send(script("reply-old"));
-        const chunk = script("reply-old", 1);
-        chunk.delta = Buffer.alloc(65536).toString("base64");
-        for (let index = 0; index < 19; index++) conn.send(chunk);
+        P.begin(conn);
+        for (let index = 0; index < 19; index++) P.chunk(conn, 65536);
         await mark(w, conn, "kept");
         assert.equal(w.state.fault.kind, "none", "a queue under the playback allowance is kept");
-        for (let index = 0; index < 2; index++) conn.send(chunk);
+        for (let index = 0; index < 2; index++) P.chunk(conn, 65536);
         await until(() => w.state.fault.kind === "error", "past the allowance the reply faults");
         fault(w, "live=output-overflow");
     }
 
-    async function backlog(kit) {
-        const { w, conn } = await running(kit);
+    async function backlog(kit, P = REALTIME) {
+        const { w, conn } = await running(kit, { protocol: P });
         const count = conn.count(APPEND);
         w.backlog = BACKLOG;
         w.clock.advance(100);
@@ -1283,14 +1347,14 @@ world(async () => {
         assert.equal(w.tools, 0);
     }
 
-    async function violations(kit) {
-        const { w, conn } = await conversing(kit);
+    async function violations(kit, P = REALTIME) {
+        const { w, conn } = await conversing(kit, { protocol: P });
         const counts = () => w.logs.filter(line => line.startsWith("jarvis: live=violations counts="))
             .map(line => JSON.parse(line.split("counts=")[1]));
-        const reply = text => { const event = script("reply-old", -1); event.delta = text; conn.send(event); };
+        const reply = text => P.said(conn, text);
         assert.equal(say(w, "It is noon."), true);
         await conn.event(SPEAK);
-        conn.send(script("reply-old"));
+        P.begin(conn);
         reply("Visit https://example.com.");
         conn.play("done-old");
         conn.play("turn-next");
@@ -1299,7 +1363,7 @@ world(async () => {
         assert.equal(counts()[0].url, 1);
         assert.equal(say(w, "Nothing changed."), true);
         await conn.event(SPEAK);
-        conn.send(script("reply-old"));
+        P.begin(conn);
         reply("Use **bold**.");
         await until(() => w.transcripts.some(item => item.text.includes("bold")), "the second reply's words arrive");
         w.dispatch("stop");
@@ -1357,13 +1421,16 @@ world(async () => {
             fs.appendFileSync(${JSON.stringify(frameAudits)}, JSON.stringify({ frame: value, records: auditRows().slice(before) }) + "\\n");
             return session.channel.send(frame, session.grants());
         });`));
-        fs.writeFileSync(path.join(directories.state, "keys.json"), JSON.stringify([kit.Secrets.ownReference(P.keyProvider, "fixture", main.origin)]));
+        // "wrong-key" stores the other cloud voice's key, at the same origin,
+        // so only the engine's provider rule can refuse it.
+        const keyProvider = only === "wrong-key" ? (P === GEMINI ? REALTIME : GEMINI).keyProvider : P.keyProvider;
+        fs.writeFileSync(path.join(directories.state, "keys.json"), JSON.stringify([kit.Secrets.ownReference(keyProvider, "fixture", main.origin)]));
         require(path.join(plugin, "backend/Core.js")).use(tree);
         const { Accounts } = require(path.join(plugin, "backend/Accounts.js"));
         const { PROVIDERS } = require(path.join(plugin, "AccountProviders.js"));
         const accounts = new Accounts(directories.state, childEnv);
-        const live = accounts.account(PROVIDERS.find(row => row.id === P.keyProvider), "fixture", { kind: "found" },
-            { kind: "keyring", reference: kit.Secrets.ownReference(P.keyProvider, "fixture", main.origin) }).id;
+        const live = accounts.account(PROVIDERS.find(row => row.id === keyProvider), "fixture", { kind: "found" },
+            { kind: "keyring", reference: kit.Secrets.ownReference(keyProvider, "fixture", main.origin) }).id;
         const local = PROVIDERS.find(row => row.id === "ollama");
         const brain = accounts.account(local, "local", { kind: "found" }, { kind: "local", origin: local.origin }).id;
         const victim = path.join(process.env.HOME, "delegated-file-" + path.basename(root));
@@ -1397,6 +1464,16 @@ world(async () => {
             send({ type: "hello", settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain, model: "", effort: "", fallbacks: [], taskTerminal: "auto",
                 cloudVision: "ask", privateWindows: "", voiceProvider: P.setting, voiceAccount: live, voice: only === "preview" ? P.previewVoice : "", clonedVoice: false, dictation: "" }, directories, locked: false,
                 keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } });
+            if (only === "wrong-key") {
+                const looked = lookups(), connected = main.conns.length;
+                await wait(() => messages.some(value => value.type === "status" && value.causes.includes("speech=live-key-required")),
+                    "the other cloud voice's key is refused");
+                assert.deepEqual([last()?.gate.kind === "up", lookups() - looked, main.conns.length - connected], [false, 0, 0],
+                    "no gate, no keyring lookup and no connection");
+                child.stdin.end();
+                assert.equal((await closed)[0], 0, stderr);
+                return;
+            }
             await wait(() => last()?.gate.kind === "up", "the configured cloud voice raises the daemon gate");
             assert.equal(last().engine.kind, "duplex");
             // The Voice setting's offers: the selected cloud voice's voices.
@@ -1573,8 +1650,9 @@ world(async () => {
         }
     }
 
-    // Gemini Live: the same rig, the Live API's message shapes. The adapter
-    // names each user turn itself, so the rows read delegations by order.
+    // Gemini Live's own rows: the same rig, the Live API's message shapes.
+    // The adapter names each user turn itself, so the rows read delegations
+    // by order. The session rules both adapters share run above, once for each.
     const INPUT = "realtimeInput";
     const GSPEAK = GEMINI.SPEAK;
     const gaudio = event => Buffer.from(event.realtimeInput.audio.data, "base64");
@@ -1587,42 +1665,15 @@ world(async () => {
     // Partial words of the user's turn, and its end as the server marks it.
     const gpart = (conn, text) => conn.send({ serverContent: { inputTranscription: { text } } });
     const gfinished = conn => conn.send({ serverContent: { inputTranscription: { finished: true } } });
-    // A caption that reaches the wire proves every message before it was read.
-    async function gmark(w, conn, text) {
-        gpart(conn, " " + text);
-        await until(() => w.state.fault.kind === "error" || w.transcripts.some(item => item.text.endsWith(text)), text + " is read");
-    }
+    // The engine has read every message sent before.
+    const gmark = (w, conn) => conn.sync();
     // PCM samples as 16-bit little-endian bytes.
     const samples = values => Buffer.from(Int16Array.from(values).buffer);
-    async function gconnecting(kit, options = {}) {
-        const w = rig(kit, { ...options, protocol: GEMINI });
-        w.dispatch("talk-down");
-        return { w, conn: await main.accept(w) };
-    }
     // The socket is open and setup has left; the server has not answered.
-    async function gstarting(kit, options) {
-        const { w, conn } = await gconnecting(kit, options);
-        await conn.event("setup");
-        return { w, conn };
-    }
-    async function grunning(kit, options) {
-        const { w, conn } = await gstarting(kit, options);
-        conn.play("setup-complete");
-        w.sink.write(Buffer.alloc(960, 5));
-        await conn.event(INPUT);
-        w.dispatch("talk-up");
-        await turn();
-        w.clock.advance(100);
-        await conn.event(INPUT);
-        return { w, conn };
-    }
-    async function gconversing(kit, options) {
-        const { w, conn } = await grunning(kit, options);
-        conn.play("turn");
-        await until(() => w.delegations.length === 1 || w.state.fault.kind === "error", "the turn reaches the brain");
-        assert.equal(w.delegations.length, 1);
-        return { w, conn };
-    }
+    const gstarting = (kit, options = {}) => starting(kit, { ...options, protocol: GEMINI });
+    const grunning = (kit, options = {}) => running(kit, { ...options, protocol: GEMINI });
+    const gconversing = (kit, options = {}) => conversing(kit, { ...options, protocol: GEMINI });
+    // The words' model turn has started speaking.
     async function gspeaking(kit, options) {
         const { w, conn } = await gconversing(kit, options);
         assert.equal(say(w, "It is noon."), true);
@@ -1702,6 +1753,7 @@ world(async () => {
         assert.equal(w.tools, 0, "the voice starts no action");
         assert.equal(w.state.fault.kind, "none");
         quiet(w, conn);
+        return { w, conn };
     }
 
     async function gpreview(kit) {
@@ -1728,30 +1780,6 @@ world(async () => {
         assert.equal(main.conns.length, opened, "it opens no connection");
     }
 
-    // The voice answers each user turn on its own. Words wait while that
-    // turn runs, since the next model turn's audio would be taken for
-    // theirs; its audio never plays, and its end ends the user's turn.
-    async function gunbidden(kit) {
-        const { w, conn } = await grunning(kit);
-        gpart(conn, "What is the time?");
-        for (const index of [0, 1, 2]) conn.send(gscript("unbidden", index));
-        await until(() => w.delegations.length === 1, "the generation's end ends the user's turn");
-        const asked = () => w.judged.filter(item => item.content.startsWith('{"clientContent"')).length;
-        assert.equal(say(w, "It is noon."), true);
-        assert.equal(asked(), 0, "no words leave while the voice's own turn runs");
-        conn.send(gscript("unbidden", 3));
-        assert.equal(GEMINI.words(await conn.event(GSPEAK)), "It is noon.", "the words leave once that turn completes");
-        conn.play("reply-old");
-        conn.play("done-old");
-        await until(() => bytes(w, 0x11) === 1440, "the asked words play");
-        gpart(conn, " Then?");
-        conn.send(gscript("unbidden"));
-        conn.send({ serverContent: { turnComplete: true } });
-        await until(() => w.delegations.length === 2, "an unasked turnComplete alone ends the user's turn");
-        assert.equal(w.delegations[1].text.trim(), "Then?");
-        assert.deepEqual([bytes(w, 0x33), w.state.fault.kind], [0, "none"], "the voice's own answers never play");
-    }
-
     // A JSON message in a binary frame and the text message after it keep their order.
     async function gbinary(kit) {
         const { w, conn } = await gconversing(kit);
@@ -1765,9 +1793,11 @@ world(async () => {
 
     // An unasked turn that never ends holds every later word: it faults.
     async function gunbiddenTimeout(kit) {
-        const { w, conn } = await grunning(kit);
+        const { w, conn } = await gconversing(kit);
         conn.send(gscript("unbidden"));
-        await gmark(w, conn, "unasked");
+        await gmark(w, conn);
+        assert.equal(say(w, "It is noon."), true);
+        assert.equal(w.judged.filter(item => item.content.startsWith('{"clientContent"')).length, 0, "the words wait for that turn's end");
         await elapse(w, 29000);
         assert.equal(w.state.fault.kind, "none");
         await elapse(w, 1000);
@@ -1789,6 +1819,8 @@ world(async () => {
         assert.equal(w.state.fault.kind, "none");
     }
 
+    // The user's caption closes with the voice's own turn; the reply's
+    // caption closes at the user's next words, and at the wire's bound.
     async function gcaptions(kit) {
         const { w, conn } = await gconversing(kit);
         assert.equal(say(w, "It is noon."), true);
@@ -1798,155 +1830,118 @@ world(async () => {
         assert.equal(say(w, "Nothing changed."), true);
         await conn.event(GSPEAK);
         conn.play("reply-new");
+        GEMINI.said(conn, "x\u0007".repeat(2500));
         conn.play("done-new");
         conn.play("turn-next");
-        await until(() => w.delegations.length === 2, "captions reach the wire");
+        await conn.sync();
+        const reply = "It is noon. Nothing changed." + "x ".repeat(2500);
         assert.deepEqual(w.transcripts, [
             { role: "user", text: "What is", stage: "partial", rev: 1 },
             { role: "user", text: "What is the time?", stage: "partial", rev: 2 },
             { role: "user", text: "What is the time?", stage: "final", rev: 3 },
             { role: "assistant", text: "It is noon.", stage: "partial", rev: 4 },
             { role: "assistant", text: "It is noon. Nothing changed.", stage: "partial", rev: 5 },
-            { role: "assistant", text: "It is noon. Nothing changed.", stage: "final", rev: 6 },
-            { role: "user", text: "Stop.", stage: "partial", rev: 7 },
-            { role: "user", text: "Stop. What changed?", stage: "partial", rev: 8 },
-            { role: "user", text: "Stop. What changed?", stage: "final", rev: 9 }
+            { role: "assistant", text: reply.slice(0, 4096), stage: "partial", rev: 6 },
+            { role: "assistant", text: reply.slice(0, 4096), stage: "final", rev: 7 },
+            { role: "assistant", text: reply.slice(4096), stage: "partial", rev: 8 },
+            { role: "assistant", text: reply.slice(4096), stage: "final", rev: 9 },
+            { role: "user", text: "Stop.", stage: "partial", rev: 10 },
+            { role: "user", text: "Stop. What changed?", stage: "partial", rev: 11 },
+            { role: "user", text: "Stop. What changed?", stage: "final", rev: 12 }
         ], "the voice's own answer is never captioned");
         assert.equal(w.delegations[1].text, "Stop. What changed?", "a finished transcription ends the user's turn");
         quiet(w, conn);
-    }
-
-    // A flush drops the words not yet asked for and the rest of the cut turn.
-    async function ginterruptPlaying(kit) {
-        const { w, conn } = await gconversing(kit);
-        const stale = w.delegations[0].delegation;
-        assert.equal(say(w, "It is noon."), true);
-        assert.equal(say(w, "It was noon before."), true);
-        await conn.event(GSPEAK);
-        conn.play("reply-old");
-        await until(() => bytes(w, 0x11) === 1440, "the old reply plays");
-        w.dispatch("talk-down");
-        assert.equal(w.flushes, 1);
-        assert.equal(w.engine.commentary(stale, kit.Policy.item("Late words.", ["speech"])), false, "an interrupted request takes no more words");
-        conn.play("late-old");
-        conn.play("done-old");
-        conn.play("turn-next");
-        await until(() => w.delegations.length === 2, "the new turn arrives");
-        assert.equal(conn.count(GSPEAK), 1, "the words waiting behind the cut turn never leave");
-        assert.equal(w.played.filter(item => item.flush === 1).length, 0, "no audio of the cut turn after the flush");
-        assert.equal(say(w, "Nothing changed."), true);
-        assert.equal(GEMINI.words(await conn.event(GSPEAK)), "Nothing changed.");
-        conn.play("reply-new");
-        w.dispatch("talk-up");
-        await until(() => bytes(w, 0x22) === 1440, "the reply to the new turn plays");
-        assert.equal(bytes(w, 0x11), 1440, "no audio of the cut turn plays later");
-        assert.equal(w.state.fault.kind, "none");
-    }
-
-    // The sentences of a played reply are what the user heard.
-    async function gheardAccount(kit) {
-        const { w, conn } = await gconversing(kit);
-        const request = w.delegations[0].delegation;
-        for (const sentence of ["It is noon.", "It was noon before."]) {
-            assert.equal(say(w, sentence), true);
-            await conn.event(GSPEAK);
-            conn.play("reply-old");
-            conn.play("done-old");
-        }
-        await until(() => bytes(w, 0x11) === 2880, "both sentences reach playback");
-        const playing = w.engine.heard(request);
-        assert.deepEqual([playing.pending, playing.text({ source: w.state.speech.op, heardFrames: 720 })], [true, "It is noon."],
-            "a sentence counts once the heard frames reach its end");
-        w.clock.advance(500);
-        await until(() => w.state.playback.kind === "idle", "the reply plays out");
-        assert.equal(w.engine.heard(request).text(null), "It is noon. It was noon before.", "a reply played out was heard whole");
-    }
-
-    async function glabels(kit) {
-        const { w, conn } = await gconversing(kit);
-        const before = w.judged.length;
-        assert.equal(w.engine.commentary(w.delegations[0].delegation, kit.Policy.item("The file says noon.", ["speech", "file"])), true);
-        const frame = await conn.event(GSPEAK);
-        const judged = w.judged.slice(before).filter(item => geminiKind(JSON.parse(item.content)) === GSPEAK);
-        assert.deepEqual(judged.map(item => [JSON.parse(item.content), [...item.labels].sort()]), [[frame, ["file", "speech"]]],
-            "words read from a file leave under the file label");
-    }
-
-    // One model turn at a time, each bounded, the next once playback has
-    // drained the reply.
-    async function gpacing(kit) {
-        const { w, conn } = await grunning(kit);
-        w.dispatch("talk-down");
-        conn.play("turn");
-        await until(() => w.delegations.length === 1, "the held turn arrives");
-        const long = "word ".repeat(119) + "end.";
-        assert.equal(say(w, long), true);
-        assert.equal(say(w, "It is noon."), true);
-        const first = await conn.event(GSPEAK);
-        await turn();
-        assert.equal(conn.count(GSPEAK), 1, "the next words wait for the turn in flight");
-        assert.ok([...GEMINI.words(first)].length <= 240 && long.startsWith(GEMINI.words(first)), "one turn carries a bounded part of a long sentence");
-        const chunk = gscript("reply-old");
-        chunk.serverContent.modelTurn.parts[0].inlineData.data = Buffer.alloc(65536).toString("base64");
-        for (let index = 0; index < 2; index++) conn.send(chunk);
-        conn.play("done-old");
-        await gmark(w, conn, "full");
-        await elapse(w, 1000);
-        assert.equal(conn.count(GSPEAK), 1, "the next words wait while the reply still holds its audio");
-        w.dispatch("talk-up");
-        await until(() => w.played.length > 0, "the waiting reply plays");
-        w.clock.advance(100);
-        const second = await conn.event(GSPEAK);
-        assert.equal(GEMINI.words(first) + GEMINI.words(second), long.slice(0, (GEMINI.words(first) + GEMINI.words(second)).length),
-            "the sentence continues in order");
-    }
-
-    async function greplyQueue(kit) {
-        const { w, conn } = await grunning(kit);
-        w.dispatch("talk-down");
-        conn.play("turn");
-        await until(() => w.delegations.length === 1, "the held turn arrives");
-        assert.equal(say(w, "It is noon."), true);
-        await conn.event(GSPEAK);
-        const chunk = gscript("reply-old");
-        chunk.serverContent.modelTurn.parts[0].inlineData.data = Buffer.alloc(65536).toString("base64");
-        for (let index = 0; index < 19; index++) conn.send(chunk);
-        await gmark(w, conn, "kept");
-        assert.equal(w.state.fault.kind, "none", "a queue under the playback allowance is kept");
-        for (let index = 0; index < 2; index++) conn.send(chunk);
-        await until(() => w.state.fault.kind === "error", "past the allowance the reply faults");
-        fault(w, "live=output-overflow");
     }
 
     // Each finished turn reaches the brain once; words after it start the next.
     async function gdelegation(kit) {
         const { w, conn } = await gconversing(kit);
         const task = w.delegations[0];
-        gpart(conn, " ");
-        gfinished(conn);
         const before = w.transcripts.length;
-        await gmark(w, conn, "blank");
-        assert.deepEqual([w.delegations.length, w.transcripts.length], [1, before + 1], "a blank turn reaches no brain and no caption");
+        GEMINI.heard(conn, "blank", " ");
+        await gmark(w, conn);
+        assert.deepEqual([w.delegations.length, w.transcripts.length], [1, before], "a blank turn reaches no brain and no caption");
+        // Words after the finished transcription, before the voice's own turn
+        // ends, finish the delegated turn's caption and make no request.
+        gpart(conn, "Later");
         gfinished(conn);
-        await until(() => w.delegations.length === 2, "the probe's turn ends");
-        gpart(conn, "later");
-        gfinished(conn);
-        await until(() => w.delegations.length === 3, "trailing words start the next turn");
-        assert.deepEqual(w.delegations.map(item => item.text.trim()), ["What is the time?", "blank", "later"], "no words reach the brain twice");
-        assert.equal(new Set(w.delegations.map(item => item.delegation)).size, 3, "each turn has its own identity");
+        await until(() => w.delegations.length === 2, "the finished words reach the brain");
+        gpart(conn, " words");
+        conn.send({ serverContent: { turnComplete: true } });
+        await gmark(w, conn);
+        assert.deepEqual(w.delegations.map(item => item.text), ["What is the time?", "Later"], "no words reach the brain twice, or on their own");
+        assert.deepEqual(w.transcripts.at(-1), { role: "user", text: "Later words", stage: "final", rev: w.transcripts.at(-1).rev },
+            "the late words close the turn's caption");
+        assert.equal(new Set(w.delegations.map(item => item.delegation)).size, 2, "each turn has its own identity");
         assert.equal(w.engine.commentary(task.delegation, kit.Policy.item("Stale words.", ["speech"])), false, "a replaced request takes no more words");
         assert.equal(say(w, "It is noon."), true);
         assert.equal(say(w, "It was noon before."), true);
         await conn.event(GSPEAK);
         conn.send(gscript("reply-old"));
-        conn.play("turn-next");
-        await until(() => w.delegations.length === 4, "a new turn replaces the request");
+        // The user speaks while the words' turn runs; the server ends that
+        // turn, then the voice's own.
+        gpart(conn, "Stop.");
+        gfinished(conn);
+        await until(() => w.delegations.length === 3, "a new turn replaces the request");
         conn.play("done-old");
-        await gmark(w, conn, "replaced");
+        conn.send({ serverContent: { turnComplete: true } });
+        await gmark(w, conn);
         assert.equal(w.judged.filter(item => item.content.startsWith('{"clientContent"')).length, 1, "words waiting for a replaced request never leave");
         w.dispatch("stop");
         assert.equal(say(w, "Late words."), false, "an ended conversation speaks no words");
         assert.equal(w.tools, 0);
+    }
+
+    // The hold: each user turn's words arm it, and the voice's own turn ends
+    // it at its turnComplete. A line the brain speaks inside the delegation,
+    // as the engine's acknowledgement does, waits for it, whatever that turn
+    // carries and whenever the finished words come. [name, the voice's own
+    // turn after the user's finished words].
+    const ACK = "One moment.";
+    const OWN = [
+        ["silent", [{ serverContent: { turnComplete: true } }]],
+        ["thinking first", [{ serverContent: { modelTurn: { parts: [{ text: "Fixture thinking.", thought: true }] } } },
+            ...geminiFixtures.scripts.unbidden]],
+        ["audio after the finished words", geminiFixtures.scripts.unbidden]
+    ];
+    async function gheld(kit) {
+        for (const [name, own] of OWN) {
+            const { w, conn } = await grunning(kit, { ack: ACK });
+            const asked = () => w.judged.filter(item => item.content.startsWith('{"clientContent"')).length;
+            gpart(conn, "What is the time?");
+            gfinished(conn);
+            await until(() => w.delegations.length === 1, name + ": the finished words reach the brain");
+            for (const message of own.slice(0, -1)) conn.send(structuredClone(message));
+            await gmark(w, conn);
+            assert.equal(asked(), 0, name + ": no words leave while the voice's own turn runs");
+            conn.send(structuredClone(own.at(-1)));
+            assert.equal(GEMINI.words(await conn.event(GSPEAK)), ACK, name + ": the acknowledgement leaves once that turn ends");
+            assert.equal(say(w, "It is noon."), true);
+            conn.play("reply-old");
+            conn.play("done-old");
+            assert.equal(GEMINI.words(await conn.event(GSPEAK)), "It is noon.", name + ": the brain's sentence leaves next");
+            conn.play("reply-new");
+            conn.play("done-new");
+            await until(() => bytes(w, 0x22) === 1440, name + ": the brain's sentence plays");
+            assert.deepEqual([bytes(w, 0x11), bytes(w, 0x33)], [1440, 0], name + ": each asked turn plays as its own; the voice's own never");
+            w.clock.advance(500);
+            await until(() => w.state.playback.kind === "idle", name + ": the reply plays out");
+            assert.equal(w.engine.heard(w.delegations[0].delegation).text(null), "It is noon.", name + ": the brain's sentence is what was heard");
+            await elapse(w, 31000);
+            assert.equal(w.state.fault.kind, "none", name + ": no wait outlives the voice's turn");
+        }
+    }
+
+    // A model turn while no words are asked for holds the voice, even one
+    // that opens with thinking and no user words before it.
+    async function gthought(kit) {
+        const { w, conn } = await gconversing(kit);
+        conn.send({ serverContent: { modelTurn: { parts: [{ text: "Fixture thinking.", thought: true }] } } });
+        await gmark(w, conn);
+        assert.equal(say(w, "It is noon."), true);
+        assert.equal(w.judged.filter(item => item.content.startsWith('{"clientContent"')).length, 0, "no words leave while that turn runs");
+        conn.send({ serverContent: { turnComplete: true } });
+        assert.equal(GEMINI.words(await conn.event(GSPEAK)), "It is noon.", "the words leave once it ends");
     }
 
     // Every message the session causes and does not read, a 1 MiB frame and a turn at its bound.
@@ -1986,6 +1981,9 @@ world(async () => {
         ["json", grunning, conn => conn.raw("{"), "live=frame-json"],
         ["binary", grunning, conn => conn.raw(Buffer.from([0xff, 0xfe]), 2), "live=frame-binary"],
         ["frame-size", grunning, conn => conn.raw("x".repeat(FRAME + 1)), "live=frame-size"],
+        // Bytes over the bound that decode to fewer characters than it.
+        ["binary-size", grunning, conn => conn.raw(Buffer.from("\u00e9".repeat(FRAME / 2 + 1)), 2), "live=frame-size"],
+        ["kind-text", grunning, conn => conn.raw(JSON.stringify({ [PRIVATE + " kind"]: {} })), "live=message type=unrecognized"],
         ["shape", grunning, conn => conn.raw("[1]"), "live=frame-shape"],
         ["setup-twice", grunning, conn => conn.play("setup-complete"), "live=event-order"],
         ["early-turn", gstarting, conn => conn.play("turn"), "live=event-order"],
@@ -2029,15 +2027,6 @@ world(async () => {
         await until(() => conn.ended, "start timeout closes the socket");
     }
 
-    async function gresponseTimeout(kit) {
-        const { w, conn } = await gspeaking(kit);
-        await elapse(w, 29999);
-        assert.equal(w.state.fault.kind, "none");
-        w.clock.advance(1);
-        fault(w, "live=response-timeout");
-        await until(() => conn.ended, "a model turn that never ends closes the socket");
-    }
-
     async function gkeys(kit) {
         const looked = lookups();
         const elsewhere = rig(kit, { protocol: GEMINI, key: "elsewhere" });
@@ -2071,75 +2060,26 @@ world(async () => {
         assert.equal(main.conns.filter(conn => conn.rig === String(w.id)).length, 0, "a withheld connection opens no socket");
     }
 
-    // The full opening fits and leaves after setupComplete, in order.
-    async function gopening(kit) {
-        const { w: early } = await gstarting(kit);
-        for (let sent = 0; sent < OPENING; sent += 48000) early.sink.write(Buffer.alloc(48000));
-        assert.equal(early.state.fault.kind, "none", "20 s of opening words fit");
-        early.sink.write(Buffer.alloc(2));
-        fault(early, "live=input-overflow");
-        const { w, conn } = await gstarting(kit);
-        for (let index = 0; index < 20; index++) w.sink.write(Buffer.alloc(48000, index + 1));
-        conn.play("setup-complete");
-        const all = Buffer.concat(Array.from({ length: 20 }, (_, index) => Buffer.alloc(32000, index + 1)));
-        const deadline = Date.now() + 2000;
-        while (gsent(conn).length < all.length && w.state.fault.kind === "none") {
-            assert.ok(Date.now() < deadline, "the opening drains");
-            w.clock.advance(100);
-            await new Promise(resolve => setTimeout(resolve, 2));
-        }
-        assert.equal(w.state.fault.kind, "none", "the full opening never meets the send backlog");
-        assert.ok(gsent(conn).subarray(0, all.length).equals(all), "every opening byte leaves once, in order");
-    }
-
-    async function gbacklog(kit) {
-        const { w, conn } = await grunning(kit);
-        const count = conn.count(INPUT);
-        w.backlog = BACKLOG;
-        w.clock.advance(100);
-        await until(() => conn.count(INPUT) === count + 1, "a frame leaves with the socket at the bound");
-        assert.equal(w.state.fault.kind, "none", "a backlog at the bound is kept");
-        w.backlog = BACKLOG + 1;
-        w.clock.advance(100);
-        fault(w, "live=send-backlog");
-    }
-
-    async function gclosing(kit) {
-        const { w, conn } = await grunning(kit);
-        w.dispatch("stop");
-        await until(() => conn.ended, "stop closes the socket");
-        assert.deepEqual([w.state.speech.kind, w.state.fault.kind], ["closed", "none"]);
-        const lease = await grunning(kit);
-        lease.w.runner.close();
-        await until(() => lease.conn.ended, "lease loss closes the socket");
-    }
-
-    // Idle is 60 s with no user words, no words for the voice and no reply.
-    async function gidle(kit) {
-        const { w, conn } = await grunning(kit);
-        await elapse(w, 59000);
-        gpart(conn, "Hello");
-        await restarted(w, "the user's words restart the idle wait");
-        await elapse(w, 59000);
-        assert.equal(conn.ended, false, "words restart the idle wait");
-        await elapse(w, 999);
-        assert.equal(conn.ended, false, "no close before 60 s");
-        w.clock.advance(1);
-        await until(() => conn.ended, "idle closes the socket");
-        assert.deepEqual([w.state.conversation.kind, w.state.fault.kind], ["ended", "none"]);
-    }
-
     const cases = { roundTrip, preview, idle, idleRestarts, idleTurn, idleThinking, idleApproval, closing, captions, interruptPlaying,
         interruptQueued, replacedReply, heardAccount, replyDue, replyDueCarried, releaseDue, labels, failures, unread, redirect,
         startTimeout, responseTimeout, keys, opening, releaseLifetime, pacing, replyQueue, backlog, delegation, lineQueue, violations,
         daemonDelegation, daemonStale: kit => daemonDelegation(kit, "stale"), daemonRelease: kit => daemonDelegation(kit, "release"),
         daemonReplacement: kit => daemonDelegation(kit, "replacement"), daemonInterrupt: kit => daemonDelegation(kit, "interrupt"),
         daemonHeard: kit => daemonDelegation(kit, "heard"), daemonPreview: kit => daemonDelegation(kit, "preview"),
-        groundTrip, gpreview, gunbidden, gunbiddenTimeout, gbinary, ginterrupted, gcaptions, ginterruptPlaying, gheardAccount, glabels,
-        gpacing, greplyQueue, gdelegation, gunread, gfailures, gredirect, gstartTimeout, gresponseTimeout, gkeys, gopening, gbacklog,
-        gclosing, gidle,
-        ...Object.fromEntries(["action", "stale", "release", "replacement", "interrupt", "heard", "preview"]
+        daemonWrongKey: kit => daemonDelegation(kit, "wrong-key"),
+        groundTrip, gpreview, gheld, gthought, gunbiddenTimeout, gbinary, ginterrupted, gcaptions, gdelegation, gunread, gfailures,
+        gredirect, gstartTimeout, gkeys,
+        ...Object.fromEntries(["action", "stale", "release", "replacement", "interrupt", "heard", "preview", "wrong-key"]
             .map(only => ["geminiDaemon-" + only, kit => daemonDelegation(kit, only, GEMINI)])) };
+    // The session rules both adapters keep, which run once for each: the
+    // Realtime rows above take the adapter as their second argument.
+    const SHARED = ["idle", "idleRestarts", "idleTurn", "idleThinking", "idleApproval", "closing", "interruptPlaying", "interruptQueued",
+        "replacedReply", "heardAccount", "replyDue", "replyDueCarried", "releaseDue", "labels", "responseTimeout", "opening",
+        "releaseLifetime", "pacing", "replyQueue", "backlog", "lineQueue", "violations"];
+    // Realtime's own rows and the Gemini Live rows that hold the same rule
+    // for that adapter's messages.
+    const GEMINI_CASE = { roundTrip: "groundTrip", preview: "gpreview", captions: "gcaptions", delegation: "gdelegation", unread: "gunread",
+        redirect: "gredirect", startTimeout: "gstartTimeout", keys: "gkeys" };
     const withheld = ["Policy.js", "const current = item(value.content, value.labels);",
         'const current = item(value.content, value.labels);\n    if (String(current.content).includes("input_audio_buffer.append")) return { kind: "withhold", content: "[withheld]", labels: current.labels };'];
     const withheldConnect = ["Policy.js", "const current = item(value.content, value.labels);",
@@ -2156,6 +2096,7 @@ world(async () => {
     }
     try {
         for (const check of Object.values(cases)) await check(kitFrom(backend));
+        for (const name of SHARED) await cases[name](kitFrom(backend), GEMINI);
         await release(kitFrom(backend, [withheld]));
         // The shipped engine hands the chosen voice and the preview to the session.
         for (const P of [REALTIME, GEMINI])
@@ -2169,9 +2110,23 @@ world(async () => {
         await releaseConnect(kitFrom(backend, [withheldConnect]));
         await grelease(kitFrom(backend, [geminiWithheld]));
         await greleaseConnect(kitFrom(backend, [geminiWithheldConnect]));
-        const as = name => folder => cases[name](kitFrom(folder));
-        const row = name => folder => failures(kitFrom(folder), name);
-        const restart = name => folder => idleRestarts(kitFrom(folder), name);
+        // A control's check by the row it runs: a case, a fault row or an
+        // idle restart, for either adapter, or null where that adapter has
+        // no such row.
+        const as = name => ({ case: name });
+        const row = name => ({ row: name });
+        const restart = name => ({ restart: name });
+        const checkFor = (spec, P) => {
+            if (typeof spec === "function") return P === REALTIME ? spec : null;
+            if (spec.restart !== undefined) return folder => idleRestarts(kitFrom(folder), P, spec.restart);
+            if (spec.row !== undefined) {
+                if (P === REALTIME) return folder => failures(kitFrom(folder), spec.row);
+                return growsList.some(([name]) => name === spec.row) ? folder => gfailures(kitFrom(folder), spec.row) : null;
+            }
+            if (P === REALTIME) return folder => cases[spec.case](kitFrom(folder));
+            if (SHARED.includes(spec.case)) return folder => cases[spec.case](kitFrom(folder), GEMINI);
+            return Object.hasOwn(GEMINI_CASE, spec.case) ? folder => cases[GEMINI_CASE[spec.case]](kitFrom(folder)) : null;
+        };
         const disconnected = 'answer.events.addEventListener("close", event => failed(session, "live=disconnected code=" + event.code));';
         const mutations = [
             ["no-tools", "output_modalities: [\"audio\"], tools: [],", 'output_modalities: ["audio"], tools: [{ type: "function", name: "files_delete" }],', as("roundTrip")],
@@ -2303,103 +2258,110 @@ world(async () => {
             ["release-connect", 'if (answer.kind !== "channel") fail("release-" + answer.kind);', 'if (answer.kind !== "channel") return;',
                 folder => releaseConnect(kitFrom(folder, [withheldConnect]))]
         ];
-        for (const [name, needle, replacement, check] of mutations) await control(name, needle, replacement, check);
-        const gas = name => folder => cases[name](kitFrom(folder));
-        const grow = name => folder => gfailures(kitFrom(folder), name);
-        const unasked = "                session.unbidden = true;\n            } else if";
+        for (const [name, needle, replacement, spec] of mutations) await control(name, needle, replacement, checkFor(spec, REALTIME));
+        const grow = row;
+        // Gemini Live's own rules: [name, needle, replacement, check, the
+        // Realtime rule it stands for where Gemini Live words that rule its own way].
+        const unasked = "            if (active === null) session.hold = true;\n            else if";
         const geminiMutations = [
-            ["key-header", 'header: "x-goog-api-key", prefix: ""', 'header: "authorization", prefix: "Bearer "', gas("groundTrip")],
-            ["key-first", "Net.assertKeyTarget(provider.base, key.reference.origin);", "", gas("gkeys")],
-            ["key-zero", "} finally { secret.fill(0); }", "} finally { void secret; }", gas("groundTrip")],
+            ["key-header", 'header: "x-goog-api-key", prefix: ""', 'header: "authorization", prefix: "Bearer "', as("groundTrip")],
             ["no-tools", "inputAudioTranscription: {}, outputAudioTranscription: {},",
-                'inputAudioTranscription: {}, outputAudioTranscription: {}, tools: [{ functionDeclarations: [{ name: "files_delete" }] }],', gas("groundTrip")],
-            ["no-interruption", '{ activityHandling: "NO_INTERRUPTION" }', "{}", gas("groundTrip")],
-            ["transcripts", "inputAudioTranscription: {}, ", "", gas("groundTrip")],
-            ["model", '"models/" + provider.model', '"models/gemini-live"', gas("groundTrip")],
-            ["unasked-rule", 'session.reader + "\\n\\n" + UNASKED', "session.reader", gas("groundTrip")],
-            ["voice", "prebuiltVoiceConfig: { voiceName: voice }", 'prebuiltVoiceConfig: { voiceName: "Zephyr" }', gas("gpreview")],
-            ["voice-unjudged", 'if (!VOICES.some(row => row.value === voice)) fail("voice");', "", gas("gpreview")],
-            ["no-preview", 'commentary(PREVIEW, Policy.item(session.preview, ["desktop"]));', "", gas("gpreview")],
-            ["preview-unended", "session.timers.preview = clock.set(() => { session.timers.preview = null; session.events.idle(); }, 0);", "void session;", gas("gpreview")],
-            ["setup-first", 'answer.events.addEventListener("open", () => opened(session));', "", gas("groundTrip")],
-            ["input-24k", 'data: out.toString("base64")', 'data: pcm.toString("base64")', gas("groundTrip")],
-            ["input-rate", 'const INPUT_MIME = "audio/pcm;rate=16000";', 'const INPUT_MIME = "audio/pcm;rate=24000";', gas("groundTrip")],
-            ["resample-mean", "(all.readInt16LE(group * 6 + 2) + all.readInt16LE(group * 6 + 4)) >> 1", "all.readInt16LE(group * 6 + 2)", gas("groundTrip")],
-            ["resample-carry", "session.carry = Buffer.from(all.subarray(groups * 6));", "session.carry = Buffer.alloc(0);", gas("groundTrip")],
-            ["pending", "session.pending.push(Buffer.from(pcm));", "", gas("groundTrip")],
-            ["silence", "if (samples > 0 && !input(session, Buffer.alloc(samples * 2))) return;", "", gas("groundTrip")],
-            ["silence-cap", "Math.min(now - session.inputAt, SILENCE_MAX_MS)", "(now - session.inputAt)", gas("groundTrip")],
-            ["exact-words", '+ "\\n\\n" + JSON.stringify(words.text) }] }]', '+ "\\n\\n" + JSON.stringify("") }] }]', gas("groundTrip")],
-            ["turn-complete", "turnComplete: true } }, [words.item]);", "turnComplete: false } }, [words.item]);", gas("groundTrip")],
-            ["frame-labels", "}, [words.item]);", "});", gas("glabels")],
-            ["unasked-plays", unasked, "                session.unbidden = true;\n                for (const pcm of event.audio) output(session, { reply: null }, pcm);\n            } else if",
-                gas("groundTrip")],
-            ["unasked-captioned", unasked, '                session.unbidden = true;\n                if (event.said !== "") caption(session, "assistant", null, event.said);\n            } else if',
-                gas("gcaptions")],
-            ["unasked-wait", "speech.active !== null || session.unbidden || ", "speech.active !== null || ", gas("gunbidden")],
-            ["unasked-end", "session.unbidden = false;\n            clear(session, \"words\");", "clear(session, \"words\");", gas("gunbidden")],
-            ["unasked-ends-turn", "clear(session, \"words\");\n            heard(session);", "clear(session, \"words\");", gas("gunbidden")],
-            ["generation-ends-turn", "if (event.generated && active === null) heard(session);", "", gas("gunbidden")],
-            ["unasked-timeout", 'if (!session.unbidden) session.timers.words = clock.set(() => failed(session, "live=response-timeout"), RESPONSE_WAIT_MS);', "",
-                gas("gunbiddenTimeout")],
-            ["finished-ends-turn", "if (event.finished) heard(session);", "", gas("gcaptions")],
-            ["turn-once", "session.turn = null;\n        conclude(session, \"user\");", "conclude(session, \"user\");", gas("gdelegation")],
-            ["blank-turn", 'if (turn.text.trim() === "") return;', "", gas("gdelegation")],
-            ["delegation-dispatch", "session.events.delegation({ id: turn.id, text: clean(turn.text) });", "void turn;", gas("gdelegation")],
-            ["replaced-words", "// Words still waiting answer the request this one replaces.\n        session.speech.queue = [];\n        session.speech.chars = 0;", "",
-                gas("gdelegation")],
-            ["stale-delegation", " || session.delegation !== id) return false;", ") return false;", gas("gdelegation")],
-            ["one-turn", "speech.active !== null || session.unbidden", "session.unbidden", gas("gpacing")],
-            ["drained-reply", " || waiting > REPLY_LOW_BYTES)", ")", gas("gpacing")],
-            ["speech-bound", "slice(0, SPEECH_CHARS)", "slice(0)", gas("gpacing")],
-            ["cut-discards", "if (event.interrupted && active !== null) active.discarded = true;", "", gas("ginterrupted")],
-            ["flush-discards", "if (session.speech.active !== null) session.speech.active.discarded = true;", "", gas("ginterruptPlaying")],
-            ["flush-words", "session.speech.queue = [];\n            session.speech.chars = 0;\n            if (session.speech.active", "if (session.speech.active",
-                gas("ginterruptPlaying")],
-            ["heard-marks", "active.reply.marks.push({ request: active.request, end: active.reply.bytes, text: active.text, line: active.line });", "void active;",
-                gas("gheardAccount")],
+                'inputAudioTranscription: {}, outputAudioTranscription: {}, tools: [{ functionDeclarations: [{ name: "files_delete" }] }],', as("groundTrip")],
+            ["no-interruption", '{ activityHandling: "NO_INTERRUPTION" }', "{}", as("groundTrip")],
+            ["transcripts", "inputAudioTranscription: {}, ", "", as("groundTrip")],
+            ["model", '"models/" + provider.model', '"models/gemini-live"', as("groundTrip")],
+            ["unasked-rule", 'session.reader + "\\n\\n" + UNASKED', "session.reader", as("groundTrip")],
+            ["voice", "prebuiltVoiceConfig: { voiceName: voice }", 'prebuiltVoiceConfig: { voiceName: "Zephyr" }', as("gpreview")],
+            ["setup-first", 'answer.events.addEventListener("open", () => opened(session));', "", as("groundTrip")],
+            ["input-24k", 'data: out.toString("base64")', 'data: pcm.toString("base64")', as("groundTrip")],
+            ["input-rate", 'const INPUT_MIME = "audio/pcm;rate=16000";', 'const INPUT_MIME = "audio/pcm;rate=24000";', as("groundTrip")],
+            ["resample-mean", "(all.readInt16LE(group * 6 + 2) + all.readInt16LE(group * 6 + 4)) >> 1", "all.readInt16LE(group * 6 + 2)", as("groundTrip")],
+            ["resample-carry", "session.carry = Buffer.from(all.subarray(groups * 6));", "session.carry = Buffer.alloc(0);", as("groundTrip")],
+            ["turn-complete", "turnComplete: true } }, [words.item]);", "turnComplete: false } }, [words.item]);", as("groundTrip")],
+            ["hold-words", "turns, text: \"\", delegated: false };\n            session.hold = true;", "turns, text: \"\", delegated: false };", as("gheld")],
+            ["hold-model", unasked, "            if (active === null) void 0;\n            else if", as("gthought")],
+            ["hold-model-timeout", unasked, "            if (active === null) void 0;\n            else if", as("gunbiddenTimeout")],
+            ["hold-wait", "if (session.hold) {", "if (false) {", as("gheld")],
+            ["hold-lift", "session.hold = false;\n            clear(session, \"hold\");", "clear(session, \"hold\");", as("gheld")],
+            ["hold-timeout", 'session.timers.hold = clock.set(() => failed(session, "live=response-timeout"), RESPONSE_WAIT_MS);', "void 0;",
+                as("gunbiddenTimeout")],
+            ["hold-timer-end", 'session.hold = false;\n            clear(session, "hold");', "session.hold = false;", as("gheld")],
+            ["unasked-plays", unasked, "            if (active === null) for (const pcm of event.audio) output(session, { reply: null }, pcm);\n            else if",
+                as("groundTrip")],
+            ["unasked-captioned", unasked, '            if (active === null) { session.hold = true; if (event.said !== "") caption(session, "assistant", event.said); }\n            else if',
+                as("gcaptions")],
+            ["turn-ends-at-turn-complete", "            delegate(session);\n            if (session.state.kind === \"ended\") return;\n            if (session.turn !== null)",
+                "            if (session.state.kind === \"ended\") return;\n            if (session.turn !== null)", as("gcaptions")],
+            ["turn-closes", "session.turn = null;\n            session.hold = false;", "session.hold = false;", as("gdelegation")],
+            ["finished-ends-turn", "if (event.finished) {\n            delegate(session);", "if (event.finished) {\n            void session;", as("gheld")],
+            ["late-words", "if (session.turn === null) {", "if (session.turn === null || session.turn.delegated) {", as("gdelegation")],
+            ["delegate-once", "if (turn === null || turn.delegated) return;", "if (turn === null) return;", as("gdelegation")],
+            ["blank-turn", 'if (turn.text.trim() === "") return;', "", as("gdelegation"), "blank-turn"],
+            ["delegation-dispatch", "session.events.delegation({ id: turn.id, text: clean(turn.text) });", "void turn;", as("gdelegation"), "delegation-dispatch"],
+            ["replaced-words", "        session.speech.queue = [];\n        session.speech.chars = 0;\n        // Heard sentences", "        // Heard sentences",
+                as("gdelegation"), "replaced-words"],
+            ["replaced-reply-end", "if (speak(session)) settle(session);\n    }\n    function receive", "speak(session);\n    }\n    function receive", as("replacedReply"),
+                "replaced-reply-end"],
+            ["turn-end-activity", "        activity(session);\n        if (speak(session)) settle(session);\n    }", "        if (speak(session)) settle(session);\n    }",
+                restart("response-end"), "spoken-activity"],
+            ["user-words-activity", "    function hearing(session, text) {\n        activity(session);", "    function hearing(session, text) {", as("idleTurn"),
+                "hearing-activity"],
+            ["caption-reply-end", 'activity(session);\n        conclude(session, "assistant");\n        if (session.turn === null) {',
+                'activity(session);\n        if (session.turn === null) {', as("gcaptions"), "caption-reply-end"],
+            ["cut-discards", "if (event.interrupted && active !== null) active.discarded = true;", "", as("ginterrupted")],
+            ["flush-discards", "if (session.speech.active !== null) session.speech.active.discarded = true;", "", as("interruptPlaying"), "discard"],
             ["go-away", 'return fail("go-away");', 'return { kind: "ignored" };', grow("go-away")],
-            ["tool-call", 'return fail("message type=" + token(kinds[0]));', 'return { kind: "ignored" };', grow("tool-call")],
+            ["tool-call", 'return fail("message type=" + token(kinds[0]));', 'return { kind: "ignored" };', grow("tool-call"), "function-call"],
             ["tool-cancel", 'return fail("message type=" + token(kinds[0]));', 'return { kind: "ignored" };', grow("tool-cancel")],
-            ["unknown", 'return fail("message type=" + token(kinds[0]));', 'return { kind: "ignored" };', grow("unknown")],
+            ["unknown", 'return fail("message type=" + token(kinds[0]));', 'return { kind: "ignored" };', grow("unknown"), "unrequested"],
+            ["kind-text", "/^[A-Za-z0-9_.-]{1,64}$/.test(value) ? value", "true ? value", grow("kind-text"), "token-text"],
             ["two-kinds", 'if (kinds.length > 1) fail("frame-shape");', "", grow("two-kinds")],
+            ["voice-activity", 'const BESIDE = new Set(["usageMetadata", "voiceActivity"]);', 'const BESIDE = new Set(["usageMetadata"]);', as("gunread")],
             ["content-field", 'if (!CONTENT_FIELDS.has(field)) fail("content field=" + token(field));', "void field;", grow("grounding")],
             ["part", 'else if (typeof part.text !== "string") fail("part");', "", grow("function-part")],
-            ["format-rate", 'rate !== undefined && rate !== "rate=" + OUTPUT_RATE', "false", grow("rate")],
+            ["format-rate", 'rate !== undefined && rate !== "rate=" + OUTPUT_RATE', "false", grow("rate"), "format"],
             ["format-type", 'type !== "audio/pcm" || ', "", grow("wav")],
-            ["output-odd", 'if (pcm.length % 2 !== 0) fail("output-audio");', "", grow("odd-audio")],
-            ["output-base64", 'if (!BASE64.test(data.data)) fail("output-audio");', "", grow("not-base64")],
+            ["output-base64", 'if (!BASE64.test(data.data)) fail("output-audio");', "", grow("not-base64"), "output-base64"],
             ["flag", 'if (value !== undefined && typeof value !== "boolean") fail("frame-shape");', "", grow("flag")],
-            ["transcript-shape", 'if (!plain(value) || value.text !== undefined && typeof value.text !== "string") fail("frame-shape");', "", grow("transcript-shape")],
-            ["turn-size", 'if (turn.text.length + text.length > TURN_CHARS) fail("turn-size");', "", grow("turn-size")],
-            ["frame-json", 'catch { fail("frame-json"); }', 'catch { return { kind: "ignored" }; }', grow("json")],
+            ["transcript-shape", 'if (!plain(value) || value.text !== undefined && typeof value.text !== "string") fail("frame-shape");', "",
+                grow("transcript-shape"), "partial-shape"],
+            ["turn-size", 'if (turn.text.length + text.length > TURN_CHARS) fail("turn-size");', "", grow("turn-size"), "turn-size"],
             ["frame-binary", 'try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }', 'try { text = new TextDecoder("utf-8").decode(bytes); }',
-                grow("binary")],
+                grow("binary"), "frame-binary"],
             ["binary-read", 'if (!(data instanceof Blob)) { failed(session, "live=frame-binary"); return; }', 'failed(session, "live=frame-binary"); return;',
-                gas("groundTrip")],
-            ["binary-order", "session.reading = true;", "", gas("gbinary")],
-            ["frame-size", 'if (data.length > FRAME_CHARS) fail("frame-size");', "", grow("frame-size")],
-            ["frame-shape", 'if (!plain(value)) fail("frame-shape");', 'if (!plain(value)) return { kind: "ignored" };', grow("shape")],
-            ["setup-order", 'if (kind !== "starting") fail("event-order");', "", grow("setup-twice")],
-            ["early-turn", 'if (kind !== "running" && !["started", "ignored"].includes(event.kind)) fail("event-order");', "", grow("early-turn")],
-            ["input-frame", 'if (pcm.length % 2 !== 0) { failed(session, "live=input-frame"); return; }', "", grow("input-frame")],
-            ["disconnected", 'answer.events.addEventListener("close", event => failed(session, "live=disconnected code=" + event.code));', "", grow("reset")],
-            ["redirect", 'answer.events.addEventListener("close", event => failed(session, "live=disconnected code=" + event.code));', "", gas("gredirect")],
-            ["start-timeout", 'clock.set(() => failed(session, "live=start-timeout"), START_WAIT_MS)', "null", gas("gstartTimeout")],
+                as("groundTrip")],
+            ["binary-order", "session.reading = true;", "", as("gbinary")],
+            ["binary-size", 'if (data.size > FRAME_CHARS) { failed(session, "live=frame-size"); return; }', "", grow("binary-size")],
+            ["frame-shape", 'if (!plain(value)) fail("frame-shape");', 'if (!plain(value)) return { kind: "ignored" };', grow("shape"), "frame-shape"],
+            ["setup-order", 'if (kind !== "starting") fail("event-order");', "", grow("setup-twice"), "updated-order"],
+            ["early-turn", 'if (kind !== "running" && !["started", "ignored"].includes(event.kind)) fail("event-order");', "", grow("early-turn"), "early-turn"],
             ["response-timeout", 'session.timers.words = clock.set(() => failed(session, "live=response-timeout"), RESPONSE_WAIT_MS);\n        try {', "try {",
-                gas("gresponseTimeout")],
-            ["input-overflow", 'if (session.pendingBytes > PENDING_BYTES) { failed(session, "live=input-overflow"); return false; }', "", gas("gopening")],
-            ["drain", " && session.channel.bufferedAmount === 0) {", ") {", gas("gopening")],
-            ["output-overflow", 'if (!reply.stream.push(pcm)) failed(session, "live=output-overflow");', "reply.stream.push(pcm);", gas("greplyQueue")],
-            ["backlog", 'if (session.channel.bufferedAmount > SEND_BACKLOG_BYTES) fail("send-backlog");', "", gas("gbacklog")],
-            ["close", "if (live !== null && live.op === e.target) release(live);", "", gas("gclosing")],
-            ["idle-rule", "}, IDLE_MS);", "}, IDLE_MS + 1);", gas("gidle")],
+                as("responseTimeout"), "response-timeout"],
             ["release", 'if (answer.kind !== "send") fail("release-" + answer.kind);\n        if (session.channel', "if (session.channel",
-                folder => grelease(kitFrom(folder, [geminiWithheld]))],
+                folder => grelease(kitFrom(folder, [geminiWithheld])), "release"],
             ["release-connect", 'if (answer.kind !== "channel") fail("release-" + answer.kind);', 'if (answer.kind !== "channel") return;',
-                folder => greleaseConnect(kitFrom(folder, [geminiWithheldConnect]))]
+                folder => greleaseConnect(kitFrom(folder, [geminiWithheldConnect])), "release-connect"]
         ];
-        for (const [name, needle, replacement, check] of geminiMutations) await control("gemini-" + name, needle, replacement, check, GEMINI);
+        const geminiCheck = spec => typeof spec === "function" ? spec
+            : spec.row !== undefined ? folder => gfailures(kitFrom(folder), spec.row)
+            : spec.restart !== undefined ? folder => idleRestarts(kitFrom(folder), GEMINI, spec.restart)
+            : SHARED.includes(spec.case) ? folder => cases[spec.case](kitFrom(folder), GEMINI) : folder => cases[spec.case](kitFrom(folder));
+        for (const [name, needle, replacement, spec] of geminiMutations) await control("gemini-" + name, needle, replacement, geminiCheck(spec), GEMINI);
+        // Each Realtime rule whose text Gemini Live copies runs against
+        // Gemini Live's copy too, by the same row for that adapter. A copied
+        // rule with no such row, or one Gemini Live words its own way with no
+        // row of its own above, fails the suite.
+        const geminiSource = fs.readFileSync(path.join(backend, "GeminiLive.js"), "utf8");
+        const own = new Set(geminiMutations.flatMap(([name, needle, , , standsFor]) => [needle, ...(standsFor === undefined ? [] : [standsFor])]));
+        const uncovered = [];
+        for (const [name, needle, replacement, spec] of mutations) {
+            const copies = geminiSource.split(needle).length - 1;
+            if (copies === 0 || own.has(needle) || own.has(name)) continue;
+            const check = checkFor(spec, GEMINI);
+            if (copies !== 1 || check === null) { uncovered.push(name); continue; }
+            await control("gemini-copy-" + name, needle, replacement, check, GEMINI);
+        }
+        assert.deepEqual(uncovered, [], "every Realtime rule Gemini Live copies has a Gemini Live control");
         // Session's own rule, in a disposable copy of the reducer.
         await assert.rejects(() => qmlCopy(sessionFile, [['if (s.turn.kind === "thinking" || s.approval.kind === "held"\n', "if (false\n"]],
             logic => idleApproval({ ...kitFrom(backend), Session: logic })), assert.AssertionError, "session-idle-in-flight must turn red");
@@ -2410,6 +2372,8 @@ world(async () => {
             ["daemon-gemini-selection", "if (Object.hasOwn(DUPLEX, settings.voiceProvider)) {", "if (false) {", "action", GEMINI],
             ["daemon-gemini-row", '    gemini: Object.freeze({ id: "gemini-live", account: "gemini", adapter: GeminiLive })\n', "", "action", GEMINI],
             ["daemon-gemini-key", "account.provider !== duplex.account", 'account.provider !== "openai"', "action", GEMINI],
+            ["daemon-provider-key", "account.provider !== duplex.account", "false", "wrong-key"],
+            ["daemon-gemini-provider-key", "account.provider !== duplex.account", "false", "wrong-key", GEMINI],
             ["daemon-gemini-voices", "            voices, voice: voices[voiceIndex(voices, settings.voice)].value,",
                 "            voices: Realtime.VOICES, voice: voices[voiceIndex(voices, settings.voice)].value,", "preview", GEMINI],
             ["daemon-gemini-commentary", "c.live.commentary(turn.delegation, item);", "void item;", "action", GEMINI],
@@ -2446,7 +2410,7 @@ world(async () => {
             controls++;
             console.log("control=" + name + " detected");
         }
-        console.log("test-jarvis-live: ok cases=" + (Object.keys(cases).length + 4) + " controls=" + controls
+        console.log("test-jarvis-live: ok cases=" + (Object.keys(cases).length + SHARED.length + 4) + " controls=" + controls
             + " connections=" + main.conns.length);
     } finally {
         for (const net of nets) net.close();

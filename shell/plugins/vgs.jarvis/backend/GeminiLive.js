@@ -28,7 +28,7 @@ if (PCM_RATE !== OUTPUT_RATE) throw new Error("jarvis: live=audio-rate");
 // Recovery bounds and grouping rules, not measured latency budgets.
 const IDLE_MS = 60000;            // plan § 3.5
 const START_WAIT_MS = 20000;      // connect, open and setupComplete
-const RESPONSE_WAIT_MS = 30000;   // a model turn to its turnComplete
+const RESPONSE_WAIT_MS = 30000;   // asked words, or words held for the voice's own turn, to that turn's turnComplete
 const REPLY_GAP_MS = 500;         // no words waiting for this long ends a playing reply
 const SILENCE_TICK_MS = 100;
 const SILENCE_MAX_MS = 1000;      // no catch-up past this after a stalled event loop
@@ -59,10 +59,13 @@ const VOICES = Object.freeze(["Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Led
 const UNASKED = "You hear the user only so that their words can be written down. Never answer them and never speak on your own. Speak only when a request gives you a text.";
 // The delegation a preview's words answer: no user request exists.
 const PREVIEW = "preview";
-// The fields of serverContent this session reads or knowingly leaves.
+// The fields of serverContent this session reads or knowingly leaves (the
+// reference's BidiGenerateContentServerContent, read 2026-10-12).
 // groundingMetadata and urlContextMetadata answer tools it never offers.
 const CONTENT_FIELDS = new Set(["modelTurn", "turnComplete", "interrupted", "generationComplete", "inputTranscription",
-    "outputTranscription", "turnCompleteReason", "waitingForInput"]);
+    "interimInputTranscription", "outputTranscription", "waitingForInput", "interactionStatus"]);
+// The server message's members outside its one kind, which the session leaves.
+const BESIDE = new Set(["usageMetadata", "voiceActivity"]);
 
 function fail(code) { throw new Error("jarvis: live=" + code); }
 function plain(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
@@ -70,14 +73,17 @@ function flag(value) {
     if (value !== undefined && typeof value !== "boolean") fail("frame-shape");
     return value === true;
 }
-// A transcription's {text, finished}; text may be absent on its last message.
+// A transcription's {text, finished}. The reference documents text and its
+// language and offsets; python-genai's Transcription adds finished, which
+// may close the user's turn early. text may be absent on its last message.
 function transcription(value) {
     if (value === undefined) return { text: "", finished: false };
     if (!plain(value) || value.text !== undefined && typeof value.text !== "string") fail("frame-shape");
     return { text: value.text ?? "", finished: flag(value.finished) };
 }
-// Provider names are reported; provider message text is not.
-function token(value) { return typeof value === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(value) ? value : "unrecognized"; }
+// Provider names are reported; provider message text is not. Every name
+// reported is a member name, so a string.
+function token(value) { return /^[A-Za-z0-9_.-]{1,64}$/.test(value) ? value : "unrecognized"; }
 function reasonOf(error) { return String(error.message).replace(/^jarvis: /, "").slice(0, 160); }
 function clean(text) { return text.replace(/[\x00-\x1f\x7f]/g, " "); }
 
@@ -96,15 +102,15 @@ function audioOf(part) {
 
 /**
  * The one narrowing door for a server message's text. Returns a tagged
- * event or throws a keyed error. A message names one kind beside an
- * optional usageMetadata.
+ * event or throws a keyed error. A message names one kind beside optional
+ * usageMetadata and voiceActivity.
  */
 function eventOf(data) {
     if (data.length > FRAME_CHARS) fail("frame-size");
     let value;
     try { value = JSON.parse(data); } catch { fail("frame-json"); }
     if (!plain(value)) fail("frame-shape");
-    const kinds = Object.keys(value).filter(key => key !== "usageMetadata");
+    const kinds = Object.keys(value).filter(key => !BESIDE.has(key));
     if (kinds.length > 1) fail("frame-shape");
     switch (kinds[0]) {
     case undefined:
@@ -117,7 +123,10 @@ function eventOf(data) {
         if (!plain(content)) fail("frame-shape");
         for (const field of Object.keys(content)) if (!CONTENT_FIELDS.has(field)) fail("content field=" + token(field));
         const audio = [];
+        // Any part of a model turn, spoken or not, shows that turn has started.
+        let model = content.outputTranscription !== undefined;
         if (content.modelTurn !== undefined) {
+            model = true;
             const turn = content.modelTurn;
             if (!plain(turn) || turn.parts !== undefined && !Array.isArray(turn.parts)) fail("frame-shape");
             for (const part of turn.parts ?? []) {
@@ -130,11 +139,13 @@ function eventOf(data) {
             }
         }
         flag(content.waitingForInput);
-        if (content.turnCompleteReason !== undefined && typeof content.turnCompleteReason !== "string") fail("frame-shape");
+        flag(content.generationComplete);
+        if (content.interactionStatus !== undefined && typeof content.interactionStatus !== "string") fail("frame-shape");
+        transcription(content.interimInputTranscription);
         const heard = transcription(content.inputTranscription);
         const said = transcription(content.outputTranscription);
-        return { kind: "content", heard: heard.text, finished: heard.finished, audio, said: said.text,
-            interrupted: flag(content.interrupted), generated: flag(content.generationComplete), complete: flag(content.turnComplete) };
+        return { kind: "content", heard: heard.text, finished: heard.finished, model, audio, said: said.text,
+            interrupted: flag(content.interrupted), complete: flag(content.turnComplete) };
     }
     // The session ends at the server's notice: no resumption is set up.
     case "goAway":
@@ -181,7 +192,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         session.carry = Buffer.alloc(0);
         session.inbox = [];
         session.speech = { queue: [], chars: 0, active: null };
-        session.unbidden = false;
+        session.hold = false;
         session.turn = null;
         session.delegation = null;
         session.said = [];
@@ -292,16 +303,20 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             reply.stream.push(null);
         }, REPLY_GAP_MS);
     }
-    // One model turn at a time, and none while a turn the voice took on its
-    // own still runs: the provider names no turn, so the order of turns is
-    // their identity, and a request sent then would take that turn's audio
-    // as its own. Returns false once the session has failed.
+    // One model turn at a time, and none under the hold: the provider names
+    // no turn, so the order of turns is their identity, and a request sent
+    // while the voice's own turn runs would take that turn's audio or end as
+    // its own. Returns false once the session has failed.
     function speak(session) {
         const speech = session.speech;
         const waiting = [session.playing, session.next].reduce((sum, reply) => sum + (reply === null ? 0 : reply.stream.readableLength), 0);
-        if (session.state.kind !== "running" || speech.active !== null || session.unbidden || speech.queue.length === 0
-                || waiting > REPLY_LOW_BYTES)
+        if (session.state.kind !== "running" || speech.active !== null || speech.queue.length === 0 || waiting > REPLY_LOW_BYTES)
             return true;
+        // A voice's own turn that never ends would hold these words for ever.
+        if (session.hold) {
+            if (session.timers.hold === null) session.timers.hold = clock.set(() => failed(session, "live=response-timeout"), RESPONSE_WAIT_MS);
+            return true;
+        }
         const words = speech.queue.shift();
         speech.chars -= words.text.length;
         speech.active = { discarded: false, said: false, text: words.text, request: session.delegation, reply: null,
@@ -332,19 +347,19 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         session.rev++;
         session.events.transcript({ role, text, stage, rev: session.rev });
     }
-    // One open caption per speaker: a user turn's, or the reply's words so
-    // far. A caption at the wire's bound closes and the rest starts the next.
-    function caption(session, role, source, delta) {
+    // One open caption per speaker: the user turn's, which closes with the
+    // turn, or the reply's words so far. A caption at the wire's bound
+    // closes and the rest starts the next.
+    function caption(session, role, delta) {
         let text = clean(delta);
         let segment = session.segments[role];
-        if (segment !== null && segment.source !== source) segment = session.segments[role] = null;
         if (segment === null && text.trim() === "") return;
         while (text !== "") {
             if (segment !== null && segment.text.length === captionLimit) {
                 conclude(session, role);
                 segment = null;
             }
-            if (segment === null) segment = session.segments[role] = { source, text: "" };
+            if (segment === null) segment = session.segments[role] = { text: "" };
             const room = captionLimit - segment.text.length;
             segment.text += text.slice(0, room);
             text = text.slice(room);
@@ -370,69 +385,83 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             log("jarvis: live=violation-overflow");
         }
     }
-    // The user's words of the turn in hand. The provider names no user
-    // turn: words after a delegated turn start the next one.
+    // The user's words of the turn in hand. The provider names no user turn:
+    // the turn runs from its first words to the voice's own turnComplete.
+    // Words that come after the turn went to the brain belong to it: they
+    // finish its caption and never make a request of their own. The Live API
+    // answers each user turn with a model turn of the voice's own and has no
+    // setting that stops it, so the first words set the hold, as does the
+    // first part of a model turn while no words are asked for: no words leave
+    // (speak) until a turnComplete arrives while none are asked for, that
+    // turn's end.
     function hearing(session, text) {
         activity(session);
         conclude(session, "assistant");
-        if (session.turn === null) session.turn = { id: "turn-" + ++session.turns, text: "" };
+        if (session.turn === null) {
+            session.turn = { id: "turn-" + ++session.turns, text: "", delegated: false };
+            session.hold = true;
+        }
         const turn = session.turn;
         if (turn.text.length + text.length > TURN_CHARS) fail("turn-size");
         turn.text += text;
-        caption(session, "user", turn.id, text);
+        caption(session, "user", text);
     }
-    // The user's turn ends: its words go to the brain once.
-    function heard(session) {
+    // The user's words go to the brain once.
+    function delegate(session) {
         const turn = session.turn;
-        if (turn === null) return;
-        session.turn = null;
-        conclude(session, "user");
+        if (turn === null || turn.delegated) return;
+        turn.delegated = true;
         if (turn.text.trim() === "") return;
-        // Words still waiting answer the request this one replaces.
+        // Words still waiting answer the request this one replaces. A
+        // playing reply left with none to wait for ends after its gap, which
+        // the voice's own turn's end starts.
         session.speech.queue = [];
         session.speech.chars = 0;
-        // A playing reply with no words left to wait for ends after its gap.
-        settle(session);
         // Heard sentences are kept for the request in hand only.
         session.said = [];
         session.delegation = turn.id;
         session.events.delegation({ id: turn.id, text: clean(turn.text) });
     }
     // One serverContent message, its fields in the order they happen: the
-    // user's words, the model turn's audio and transcript, then its ends.
-    // A model turn while no words are asked for is the voice's own answer:
-    // its audio and transcript are dropped, and its end ends the user's turn.
+    // user's words, the model turn's parts, then its end. A model turn while
+    // no words are asked for is the voice's own: its parts are dropped. Its
+    // turnComplete ends the user's turn and lifts the hold. generationComplete
+    // ends nothing: the turn is over only at its turnComplete. A delegation
+    // can end the session, as a brain that fails at once does.
     function content(session, event) {
-        if (event.heard !== "") hearing(session, event.heard);
-        if (event.finished) heard(session);
         const active = session.speech.active;
-        if (event.audio.length > 0 || event.said !== "") {
-            if (active === null) {
-                if (!session.unbidden) session.timers.words = clock.set(() => failed(session, "live=response-timeout"), RESPONSE_WAIT_MS);
-                session.unbidden = true;
-            } else if (!active.discarded) {
+        if (event.heard !== "") hearing(session, event.heard);
+        if (event.finished) {
+            delegate(session);
+            if (session.state.kind === "ended") return;
+        }
+        if (event.model) {
+            if (active === null) session.hold = true;
+            else if (!active.discarded) {
                 for (const pcm of event.audio) {
                     output(session, active, pcm);
                     if (session.state.kind === "ended") return;
                 }
                 if (event.said !== "") {
-                    caption(session, "assistant", null, (active.said || session.segments.assistant === null ? "" : " ") + event.said);
+                    caption(session, "assistant", (active.said || session.segments.assistant === null ? "" : " ") + event.said);
                     active.said = true;
                 }
             }
         }
         // With NO_INTERRUPTION the user's speech never cuts a model turn,
-        // and only a client message does (reference, interrupted). This
-        // session sends its one request while no turn runs that it knows of,
-        // so a cut while words are asked for is a turn the voice had started
-        // unseen: whatever came since is not those words' audio.
+        // and only a client message does (reference, interrupted). The hold
+        // keeps the one request from leaving while a turn runs that it knows
+        // of, so a cut while words are asked for is a turn it could not see:
+        // whatever came since is not those words' audio.
         if (event.interrupted && active !== null) active.discarded = true;
-        if (event.generated && active === null) heard(session);
         if (!event.complete) return;
         if (active === null) {
-            session.unbidden = false;
-            clear(session, "words");
-            heard(session);
+            delegate(session);
+            if (session.state.kind === "ended") return;
+            if (session.turn !== null) conclude(session, "user");
+            session.turn = null;
+            session.hold = false;
+            clear(session, "hold");
         } else {
             // Whole words mark where their audio ends in the reply that carries them.
             if (!active.discarded && active.reply !== null)
@@ -541,9 +570,9 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         open(e, events) {
             if (live !== null) throw new Error("jarvis: live=session-live");
             const session = { op: e.op, events, state: { kind: "connecting" }, channel: null, setup: null, reader: "",
-                timers: { start: null, silence: null, idle: null, gap: null, words: null, preview: null },
+                timers: { start: null, silence: null, idle: null, gap: null, words: null, hold: null, preview: null },
                 pending: [], pendingBytes: 0, carry: Buffer.alloc(0), inbox: [], reading: false, inputAt: clock.now(), capture: null,
-                playing: null, next: null, speech: { queue: [], chars: 0, active: null }, unbidden: false, turn: null, turns: 0,
+                playing: null, next: null, speech: { queue: [], chars: 0, active: null }, hold: false, turn: null, turns: 0,
                 delegation: null, said: [], taken: null, segments: { user: null, assistant: null }, rev: 0, language: "", preview: null };
             live = session;
             session.timers.start = clock.set(() => failed(session, "live=start-timeout"), START_WAIT_MS);

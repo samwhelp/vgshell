@@ -55,9 +55,11 @@ Item {
     readonly property string voiceProvider: shell === null ? "" : Gate.voiceProvider(shell.settings, voiceKeys)
     onVoiceProviderChanged: publishRequirements()
     // The Voice key choices are the keys of the selected cloud voice's
-    // provider, so a change of Voice provider reads them again.
+    // provider, so a change of Voice provider publishes them again from the
+    // last read. configure.set replaces `shell`, which this binding reads,
+    // so the publication waits for the event loop (see save()).
     readonly property string voiceKeyProvider: shell === null ? "" : Gate.voiceKeyProvider(shell.settings)
-    onVoiceKeyProviderChanged: if (voiceKeys !== undefined) refresh()
+    onVoiceKeyProviderChanged: Qt.callLater(republishVoice)
     readonly property string program: String(Qt.resolvedUrl("backend/accounts.js")).replace(/^file:\/\//, "")
     onShellChanged: refresh()
     onEndedAtChanged: if (endedAt !== null) refresh()
@@ -138,6 +140,22 @@ Item {
         probe.command = ["node", program, "--tree", Quickshell.shellDir + "/..", "presence", JSON.stringify(Providers.keyPresence(name => Quickshell.env(name)))];
         probe.running = true;
     }
+    // The Voice key choices and the key row for KEYS, the last read's cloud
+    // voice keys, under the Voice provider the settings name now, and the
+    // key Jarvis selects for the user. KEYS holds only present references.
+    // configure.set writes the plugin's row through the core writer. A
+    // queued refresh can publish status, but cannot select a stale key.
+    function publishVoice(keys) {
+        const voiceChoices = Gate.voiceKeys(keys, shell.settings);
+        if (shell.status.set("voiceAccounts", voiceChoices) !== "ok"
+            || shell.status.set("voiceKey", Gate.voiceKey(voiceChoices, shell.settings)) !== "ok") throw new Error("jarvis-accounts: status=refused");
+        const chosen = pending ? null : Gate.voiceChoice(keys, shell.settings);
+        if (chosen !== null && shell.configure.set("voiceAccount", chosen) !== "ok")
+            console.warn("jarvis-accounts: voice-selection=refused");
+    }
+    function republishVoice() {
+        if (shell !== null && voiceKeys !== undefined) publishVoice(voiceKeys);
+    }
     function publish() {
         const code = completion.kind === "exited" ? completion.code : -1;
         try {
@@ -149,19 +167,11 @@ Item {
             const accounts = value.accounts.map(item => Words.accountHint(item) === "" ? { label: item.label, value: item.value }
                 : { label: item.label, value: item.value, hint: Words.accountHint(item) });
             const search = Words.searchValue({ kind: "found", found: value.search.found, partial: value.search.partial });
-            const voiceChoices = Gate.voiceKeys(value.voiceAccounts, shell.settings);
             if (shell.status.set("accounts", accounts) !== "ok" || shell.status.set("brains", value.brains) !== "ok"
-                || shell.status.set("voiceAccounts", voiceChoices) !== "ok"
-                || shell.status.set("voiceKey", Gate.voiceKey(voiceChoices, shell.settings)) !== "ok"
                 || shell.status.set("accountSearch", search) !== "ok"
                 || shell.status.set("copilotMemory", Gate.copilotMemory(value.accounts)) !== "ok"
                 || shell.status.set("setupSignIn", { tone: "info", text: "Optional", action: true }) !== "ok") throw new Error("status");
-            // voiceAccounts already contains only present cloud voice key references.
-            // configure.set writes the plugin's row through the core writer.
-            // A queued refresh can publish status, but cannot select a stale key.
-            const chosen = pending ? null : Gate.voiceChoice(value.voiceAccounts, shell.settings);
-            if (chosen !== null && shell.configure.set("voiceAccount", chosen) !== "ok")
-                console.warn("jarvis-accounts: voice-selection=refused");
+            publishVoice(value.voiceAccounts);
         } catch (error) {
             modelAccess = { kind: "checking" };
             voiceKeys = undefined;
