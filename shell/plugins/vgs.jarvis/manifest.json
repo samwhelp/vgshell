@@ -176,7 +176,7 @@
     "tasks": { "type": "count", "label": "Coding tasks", "hint": "Coding tasks whose agent is starting or running." },
     "taskList": { "type": "data", "label": "Coding task list" },
     "auditFailures": { "type": "data", "label": "Recent audit failures" },
-    "input": {"type": "state", "label": "Desktop input", "hint": "Protected layer rectangles include pass-through gaps. Unrecognized applications refuse input.", "action": {"label": "Check input", "tui": "setup-input"}},
+    "input": {"type": "state", "label": "Desktop input", "hint": "Jarvis does not click or type on VGS panels, the lock screen or password prompts, including the empty space around them, and it acts only in apps that the app launcher lists.", "action": {"label": "Check input", "tui": "setup-input"}},
     "setup": { "type": "state", "label": "Setup", "group": "Setup", "hint": "Jarvis needs an AI model and the selected voice provider. The browser and input are optional." },
     "setupHome": { "type": "state", "label": "Home folder", "group": "Setup", "hint": "Jarvis reads your instructions and skills from the home folder." },
     "setupSignIn": { "type": "state", "label": "Sign in", "group": "Setup", "hint": "Use a Claude Code, Codex, GitHub Copilot or Pi account, then select it in Settings > AI model.", "action": { "label": "Sign in", "tui": "sign-in" } },
