@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # The core presents this script from a private copy of the whole plugin.
 # It refuses before the header unless the Large local voice tier can host
-# the clone, then asks consent, downloads the model, records ten seconds
-# and publishes the checked recording.
+# the clone, then asks consent. A No explains what was kept and waits for a
+# key, then it downloads the model, records ten seconds and publishes the
+# checked recording.
 set -euo pipefail
 # The recording log and state directory hold a user's voice setup evidence.
 umask 077
@@ -22,7 +23,7 @@ fi
 # The recording's length, inside setup-local's bounds of 5 to 15 s.
 seconds=10
 declined() {
-  printf 'Nothing was downloaded or stored.\n'
+  vgs_tui_cancelled "Nothing was downloaded or stored."
   exit 130
 }
 vgs_tui_header "Set up cloned voice" \
@@ -39,7 +40,7 @@ fi
 vgs_tui_step "Recording"
 printf 'Recording runs for %s seconds. Read this aloud in your normal voice:\n\n' "$seconds"
 printf '  "The quick brown fox jumps over the lazy dog. I am recording my voice so that Jarvis can speak with it on this computer."\n'
-vgs_tui_confirm "Start recording?" || { printf 'The model stays for a later setup. No recording was stored.\n'; exit 130; }
+vgs_tui_confirm "Start recording?" || { vgs_tui_cancelled "The model stays for a later setup. No recording was stored."; exit 130; }
 capture() {
   local status=0
   timeout --signal=INT "$seconds" pw-record --raw --rate 24000 --channels 1 --format s16 - || status=$?

@@ -13,7 +13,10 @@ import io
 import json
 import os
 from pathlib import Path
+import pty
 import re
+import select
+import shlex
 import shutil
 import signal
 import stat
@@ -1177,6 +1180,7 @@ esac
         library, answered = self.root / "clone-lib.sh", self.root / "answers"
         library.write_text('vgs_tui_header() { :; }\nvgs_tui_step() { :; }\nvgs_tui_success() { :; }\n'
                            'vgs_tui_error() { :; }\nvgs_tui_split() { shift 2; "$@"; }\n'
+                           'vgs_tui_cancelled() { printf "%s\\n" "$*"; }\n'
                            'vgs_tui_confirm() { local answers; mapfile -t answers <"$ANSWERS"; '
                            'printf "%s\\n" "${answers[@]:1}" >"$ANSWERS"; [[ ${answers[0]:-yes} == yes ]]; }\n')
         answered.write_text("".join(answer + "\n" for answer in answers))
@@ -1198,6 +1202,67 @@ esac
             env.update(extra)
         return subprocess.run(["bash", "-c", "umask \"${UMASK:-077}\"; exec \"$1\"", "clone-tui", str(path)],
                               env=env, capture_output=True, text=True, check=False, timeout=60)
+
+    def clone_tui_pty(self, source, gum_exit="1"):
+        path = self.plugin / "tui/clone-voice.sh"
+        path.write_text(source)
+        env = dict(self.env, VGS_TUI_LIB=str(REPO / "bin/lib/tui.sh"), VGS_PLUGIN_DIR=str(self.plugin),
+                   UV_CACHE_DIR=str(self.data / "cache"), GUM_CONFIRM_EXIT=gum_exit)
+        master, slave = pty.openpty()
+        cmd = shlex.join(["bash", str(path)])
+        script_bin = shutil.which("script", path="/usr/bin:/bin")
+        self.assertIsNotNone(script_bin)
+        proc = subprocess.Popen([script_bin, "-qec", cmd, "/dev/null"], env=env, stdin=slave, stdout=slave, stderr=slave,
+                                text=False, close_fds=True)
+        os.close(slave)
+        return proc, master
+
+    def read_pty_until(self, proc, master, needle, timeout=5):
+        out = b""
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            ready, _, _ = select.select([master], [], [], 0.05)
+            if ready:
+                try:
+                    chunk = os.read(master, 4096)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                out += chunk
+                if needle.encode() in out:
+                    return out.decode(errors="replace")
+            if proc.poll() is not None:
+                break
+        return out.decode(errors="replace")
+
+    def read_pty_rest(self, proc, master, timeout=5):
+        out = b""
+        end = time.monotonic() + timeout
+        while proc.poll() is None and time.monotonic() < end:
+            ready, _, _ = select.select([master], [], [], 0.05)
+            if ready:
+                try:
+                    out += os.read(master, 4096)
+                except OSError:
+                    break
+        try:
+            proc.wait(timeout=max(0.1, end - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        while True:
+            ready, _, _ = select.select([master], [], [], 0)
+            if not ready:
+                break
+            try:
+                chunk = os.read(master, 4096)
+            except OSError:
+                break
+            if not chunk:
+                break
+            out += chunk
+        return out.decode(errors="replace")
 
     # One row per consent question: a No there, a planted Yes on the other.
     CONSENT = [
@@ -1229,6 +1294,42 @@ esac
                 (self.state / "clone-setup.lock").unlink(missing_ok=True)
                 self.reset_calls()
         (self.plugin / "tui/clone-voice.sh").write_text(source)
+
+    def test_clone_consent_no_waits_for_a_key_and_control(self):
+        self.large()
+        self.reset_calls()
+        source = (PLUGIN / "tui/clone-voice.sh").read_text()
+        before = self.tree_without_clone_log()
+        proc, master = self.clone_tui_pty(source)
+        try:
+            output = self.read_pty_until(proc, master, "Press any key to close")
+            self.assertIn("Nothing was downloaded or stored.", output)
+            self.assertIn("Press any key to close", output)
+            self.assertIsNone(proc.poll(), "the TUI exited before the user could read the No sentence")
+            os.write(master, b"x")
+            output += self.read_pty_rest(proc, master)
+            self.assertEqual(proc.returncode, 130, output)
+        finally:
+            os.close(master)
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+        self.assertEqual([call[0] for call in self.calls() if call[0] == "curl"], [])
+        self.assertEqual(self.tree_without_clone_log(), before, "a No writes no model or recording")
+
+        control = source.replace('vgs_tui_cancelled "Nothing was downloaded or stored."', 'printf "Nothing was downloaded or stored.\\n"')
+        self.assertNotEqual(control, source)
+        proc, master = self.clone_tui_pty(control)
+        try:
+            output = self.read_pty_until(proc, master, "Press any key to close", timeout=1)
+            output += self.read_pty_rest(proc, master)
+            self.assertNotIn("Press any key to close", output)
+            self.assertEqual(proc.returncode, 130)
+        finally:
+            os.close(master)
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
 
     def test_clone_tui_terminal_text_and_controls(self):
         source = (PLUGIN / "tui/clone-voice.sh").read_text()

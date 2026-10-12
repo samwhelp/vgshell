@@ -385,6 +385,38 @@ failed_row() {
   grep -qF '~/state/setup.log' "$tmp/err" && ! grep -qF "$tmp/home" "$tmp/err"
 }
 check "a failure names its log under ~" failed_row
+# A cancellation line says what happened, then waits only when a terminal
+# can hold the window open for the user.
+run 'vgs_tui_cancelled "Nothing changed."'
+check "a cancellation without a terminal prints only its sentence" test "$(cat "$tmp/out")" == "Nothing changed."
+check "a cancellation without a terminal exits 0" test "$status" == 0
+check "a cancellation without a terminal prints no prompt" test ! -s "$tmp/err"
+cancelled_wait_row() {
+  rm -f -- "$tmp/cancel-out" "$tmp/cancel-in"
+  mkfifo "$tmp/cancel-in"
+  exec {cancel_fd}<>"$tmp/cancel-in"
+  (
+    while ! grep -qF "Press any key to close..." "$tmp/cancel-out" 2>/dev/null; do :; done
+    printf x >"$tmp/cancel-in"
+  ) &
+  local writer=$!
+  status=0
+  "${lib_env[@]}" timeout 5 script -qec "$(printf '%q ' "$BASH" -c "set -euo pipefail; source $(printf '%q' "$LIB"); vgs_tui_cancelled 'Nothing changed.'")" /dev/null \
+    <"$tmp/cancel-in" {cancel_fd}>&- >"$tmp/cancel-out" 2>&1 || status=$?
+  wait "$writer" || :
+  exec {cancel_fd}>&-
+  [[ $status == 0 ]] && grep -qF "Nothing changed." "$tmp/cancel-out" &&
+    grep -qF "● " "$tmp/cancel-out" && grep -qF "Press any key to close..." "$tmp/cancel-out"
+}
+check "a cancellation on a terminal waits until a key" cancelled_wait_row
+cancelled_blocks_row() { # LIB_PATH
+  local row_lib="$1"
+  status=0
+  "${lib_env[@]}" LIB="$row_lib" timeout 1 script -qec "$(printf '%q ' "$BASH" -c "set -euo pipefail; source \"\$LIB\"; vgs_tui_cancelled 'Nothing changed.'")" /dev/null \
+    </dev/null >"$tmp/out" 2>&1 || status=$?
+  [[ $status == 124 ]] && grep -qF "Press any key to close..." "$tmp/out"
+}
+check "a cancellation on a terminal blocks with no key" cancelled_blocks_row "$LIB"
 # The width: a sized terminal's columns, 80 for one that reports none.
 columns_row() {
   on_tty_capture '{ vgs_tui_columns; stty cols 132 </dev/tty; vgs_tui_columns; }'
@@ -568,6 +600,8 @@ control refuse-one-sentence '  vgs_tui_failed "$file" "$@"' '  vgs_tui_failed "$
 check "the refuse-one-sentence mutant fails the refusal row" test "$(refuse_row && echo green || echo red)" == red
 control no-home '"The details are in ${file/#"$HOME"/\~}."' '"The details are in $file."'
 check "the no-home mutant fails the failure row" test "$(failed_row && echo green || echo red)" == red
+control cancelled-no-wait 'read -rsn 1 _ </dev/tty || return 0' ':'
+check "the cancelled-no-wait mutant fails the cancelled wait row" test "$(cancelled_blocks_row "$copy" && echo green || echo red)" == red
 control zero-width '[[ $size =~ ^[123456789][0123456789]*$ ]] || size=80' '[[ $size =~ ^[0123456789]+$ ]] || size=80'
 check "the zero-width mutant fails the width row" test "$(columns_row && echo green || echo red)" == red
 control gum-base-colours '|FOREGROUND|BACKGROUND|BORDER_FOREGROUND"' '"'

@@ -17,6 +17,8 @@
 #   vgs_tui_success TEXT             a success line after a blank line
 #   vgs_tui_warn TEXT                a warning line on stderr
 #   vgs_tui_error TEXT               an error line on stderr
+#   vgs_tui_cancelled TEXT           print TEXT and, when there is a terminal,
+#                                    wait for one key to close
 #   vgs_tui_confirm QUESTION [GUM_FLAG...]
 #                                    gum confirm; yes under VGS_TUI_UNATTENDED=1
 #   vgs_tui_choose|input|filter [GUM_ARG...]
@@ -135,6 +137,15 @@ vgs_tui_warn() { # TEXT
 
 vgs_tui_error() { # TEXT
   printf '%s%s\033[0m\n' "$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" "$*" >&2
+}
+
+vgs_tui_cancelled() { # TEXT
+  printf '%s\n' "$*"
+  _vgs_tui_has_terminal || return 0
+  _vgs_tui_drain_terminal
+  printf '\n%s● \033[0mPress any key to close...' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 36)" >/dev/tty
+  read -rsn 1 _ </dev/tty || return 0
+  printf '\n' >/dev/tty
 }
 
 # Answers yes without asking under VGS_TUI_UNATTENDED=1 and prints the
@@ -387,7 +398,7 @@ vgs_tui_close_prompt() { # CODE [MARKER]
   local code="$1" marker="${2:-}" status
   [[ $code != 130 ]] || return 0
   _vgs_tui_has_terminal || return 0
-  while read -rsn 1 -t 0.1 _ </dev/tty; do :; done
+  _vgs_tui_drain_terminal
   if [[ $code == 0 ]]; then
     printf '\n%s● \033[0mDone! Press any key to close...' "$(vgs_tui_sgr "${VGS_TUI_SUCCESS:-}" 32)" >/dev/tty
   else
@@ -405,6 +416,10 @@ vgs_tui_close_prompt() { # CODE [MARKER]
     read -rsn 1 _ </dev/tty || :
   fi
   printf '\n' >/dev/tty
+}
+
+_vgs_tui_drain_terminal() {
+  while read -rsn 1 -t 0.1 _ </dev/tty; do :; done
 }
 
 # Prints one `reboot=<reason>` line per reason and returns 0 when a reboot
