@@ -393,7 +393,7 @@ Singleton {
         const shown = view;
         if (shown === null || shown.run === null || installing) return "refused: install=none";
         const id = shown.id;
-        const ran = { action: shown.run.action, args: shown.run.args };
+        const ran = shown.run;
         failure = null;
         const answer = Capabilities.tuis.openCore("requirements-" + ran.action, ran.args, result => root.installEnded(id, ran, result));
         if (answer === "ok") installingId = id;
@@ -404,11 +404,11 @@ Singleton {
         return answer;
     }
 
-    // The run of RAN, accept's { action, args }, for ID's notice ended with
+    // The run of RAN, the PluginLogic.noticeView `run` accept pressed, for ID's notice ended with
     // RESULT. A run that did not end with code 0 says why at once. One
     // rescan follows, and its version read settles the notice, since only
     // that read says whether an update reached the floor; a run that ended
-    // with code 0 and left its own step owed is judged then
+    // with code 0 and left a package of its own step owed is judged then
     // (PluginLogic.noticeUnchanged), so the notice that comes back says why.
     function installEnded(id, ran, result) {
         const ended = result.code === 0;

@@ -7,8 +7,8 @@
 # window closed throughout. Rows: `vgshell plugin add` raises the notice
 # through pluginInstalled, which maps one surface on the focused monitor
 # holding the keyboard and drawing one chip per package its step handles,
-# with its state beside it and the purposes under it, and counting the
-# rest in its message; the surface fills the monitor less the bar's reserved space less
+# with its state beside it and the purposes under it, and counting in its
+# message the required packages a later step installs; the surface fills the monitor less the bar's reserved space less
 # `dialog.margin`, clears the bar by that margin and centres the dialog; a
 # click on the bar's acme.tick widget reaches it while the notice shows; a
 # click beside the dialog lands on the scrim, which fills the surface in
@@ -144,6 +144,9 @@ install_words() {
 group_shape() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.dumps([[g[0], len(g[1])] for g in json.load(sys.stdin)["groups"]]))'; }
 group_states() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.dumps([g[2] for g in json.load(sys.stdin)["groups"]]))'; }
 needs_groups='[["vgs-smoke-needs-pkg", 1]]'
+# The number of packages the drawn message counts for a later step: its
+# number before "more", "One" as 1, and 0 when it counts none.
+message_later() { ipc smoke noticeDrawn | py_reply 'import json,re,sys; m=re.search(r"(One|\d+) more ", json.load(sys.stdin)["message"]); print(0 if m is None else 1 if m.group(1) == "One" else int(m.group(1)))'; }
 rows_hold() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(str(any(sys.argv[1] in r for r in json.load(sys.stdin)["rows"])).lower())' "$1"; }
 row_drawn() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(str(sys.argv[1] in json.load(sys.stdin)["rows"]).lower())' "$1"; }
 all_needs='["vgs-smoke-needs", "vgs-smoke-extra", "vgs-smoke-unmapped"]'
@@ -210,7 +213,7 @@ expect_poll "the notice holds the keyboard after the clicks" true ipc smoke noti
 expect "the notice draws one chip per package its step handles" "$needs_groups" group_shape
 expect "the chip's package reads missing" '[["Missing"]]' group_states
 expect "the title counts the package the step handles" '"Acme Sync needs one package"' drawn title
-expect "the message counts the two requirements left for later" '"Install opens a terminal. The package manager asks for your password there. 2 more remain after this step."' drawn message
+expect "the message counts nothing for later: the notice closes once its one required command is found" 0 message_later
 expect "no line names a command whose package is known" false row_drawn "vgs-smoke-needs"
 expect "control: the same reading finds the package's chip" true row_drawn "vgs-smoke-needs-pkg"
 expect "no line marks a requirement optional" false rows_hold "optional"
@@ -251,6 +254,7 @@ expect "an offer of a present command is satisfied" satisfied needs offer "sh"
 expect "an offer of a command the manifest does not declare is refused" "refused: requirement=pacman reason=undeclared" needs offer "vgs-smoke-needs|pacman"
 expect "an offer that is not a list is refused" "refused: requirements=malformed" needs offer-json '"vgs-smoke-needs"'
 expect "the merged notice is still the one notice" "[\"acme.needs\", $all_needs, [\"vgs-smoke-needs\", \"vgs-smoke-extra\"], false]" notice_shown
+expect_poll "the merged notice counts the required AUR package for a later step, and not the command no manager provides" 1 message_later
 expect_poll "the notice holds the keyboard again" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes the enabled notice" null notice_shown
