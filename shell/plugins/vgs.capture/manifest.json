@@ -82,12 +82,12 @@
     { "shortcut": "text", "key": "SUPER+CTRL+PRINT", "info": "Lets you drag over an area, reads the text in it and copies that text." }
   ] },
   "status": {
-    "sharing": { "type": "state", "label": "Screen sharing", "group": "Sharing", "hint": "Setup applies the VGS picker. A running screen share stops.", "action": { "label": "Set up screen sharing", "tui": "setup-sharing" } },
+    "sharing": { "type": "state", "label": "Screen sharing", "group": "Setup", "hint": "Setup applies the VGS picker. A running screen share stops.", "action": { "label": "Set up screen sharing", "tui": "setup-sharing" } },
     "capture": { "type": "data", "label": "Capture state" },
     "recording": { "type": "state", "label": "Recording" },
     "audioSources": { "type": "choices", "label": "Audio sources" },
     "cameras": { "type": "choices", "label": "Cameras" },
-    "languages": { "type": "state", "label": "Text languages", "hint": "English is installed with Capture. Install languages adds the data for the other chosen text languages.", "action": { "label": "Install languages", "tui": "install-languages" } }
+    "languages": { "type": "state", "label": "Text languages", "group": "Setup", "hint": "English is installed with Capture. Install languages adds the data for the other chosen text languages.", "action": { "label": "Install languages", "tui": "install-languages" } }
   },
   "tui": {
     "setup-sharing": { "script": "tui/setup-sharing.sh", "title": "Set up screen sharing", "requires": ["systemctl", "busctl"] },
