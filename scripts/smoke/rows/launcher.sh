@@ -755,7 +755,7 @@ hover 10 "$((mon_h - 10))" || fail "moving the pointer off the card failed"
 click 10 "$((mon_h - 10))" || fail "the click outside the card failed"
 expect_poll "a click outside the card closed it" 0 layer_count vgs:overlay
 # A right click on the bar entry opens the widget frame's menu: Hide, as on
-# every bar widget, then the launcher's Open terminal. The right click
+# every bar widget, then the launcher's Open terminal and Readme. The right click
 # itself opens neither a terminal nor the launcher; Escape closes the menu.
 # Open terminal runs the stand-in xdg-terminal-exec, which records a run
 # with no words. The left click above is the control for the record: it
@@ -772,7 +772,7 @@ launcher_right_click() {
 launcher_pointer="$pointer_at"
 if launcher_right_click; then
   expect_poll "a right click on the bar entry opens its menu" true launcher_menu frameMenuOpen
-  expect "the menu holds Hide, then Open terminal, then Settings" '["Hide","Open terminal","Settings"]' launcher_menu frameMenuEntries
+  expect "the menu holds Hide, Open terminal, Readme and Settings" '["Hide","Open terminal","Readme","Settings"]' launcher_menu frameMenuEntries
   expect "a right click on the bar entry opens no terminal" absent recorded
   expect "a right click on the bar entry opens no launcher" 0 layer_count vgs:overlay
   type_keys -k Escape || fail "Escape to the bar entry's menu failed"

@@ -104,7 +104,7 @@
 # display presented after the typed toggle key, then the same three after
 # a pointer click on the widget, which opens no Configure; a second click
 # stops the dictation. A right click opens the widget menu, which reads
-# Hide, Voxtype Settings, Settings, and Voxtype Settings hands the terminal
+# Hide, Voxtype Settings, Readme, Settings, and Voxtype Settings hands the terminal
 # Configure.
 # Without voxtype, a click on the widget starts no recording and raises
 # the notice the setup entry's install step raises; Not now closes it, and
@@ -878,14 +878,14 @@ expect_poll "the second click's stop reaches the bar widget as idle" '"idle"' vo
 expect_poll "the second click's stop unmaps the display" unmapped voice_osd
 expect_poll "the daemon reads idle after the widget's dictation" "ready idle -" voice_state
 # The widget menu: Voxtype Settings sits between the bar's own Hide and
-# Settings, and opens Configure. The stand-in terminal records the run and
+# Readme, and opens Configure. The stand-in terminal records the run and
 # runs none of voxtype's own screen; the run's end with code 0 has the
 # core start its daemon again, which is all the daemon notes.
 voice_menu() { ipc smoke readInstance "$(bar_key)" vgs.voice "$1"; }
 voice_forget
 hover "$((voice_widget_x - 1))" "$voice_widget_y" && right_click "$voice_widget_x" "$voice_widget_y" || fail "the right click on the Voice widget failed"
 expect_poll "a right click on the Voice widget opens its menu" true voice_menu frameMenuOpen
-expect "the menu holds Hide, then Voxtype Settings, then Settings" '["Hide","Voxtype Settings","Settings"]' voice_menu frameMenuEntries
+expect "the menu holds Hide, Voxtype Settings, Readme and Settings" '["Hide","Voxtype Settings","Readme","Settings"]' voice_menu frameMenuEntries
 expect "a right click on the Voice widget opens no Configure" absent recorded
 voice_menu_index="$(voice_menu frameMenuEntries | py_reply 'import json,sys; rows=json.load(sys.stdin); print(rows.index("Voxtype Settings") if "Voxtype Settings" in rows else "absent")')" || voice_menu_index=unreadable
 if [[ $voice_menu_index =~ ^[0-9]+$ ]]; then
