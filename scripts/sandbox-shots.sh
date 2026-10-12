@@ -3365,7 +3365,7 @@ scene_voice-setup() { # MODE
   voice_setup_key=vgs.voice/setup
   if voice_dictates; then
     voice_setup_key=core/dictation-setup
-    missing_chip="Set up needed"
+    missing_chip="Setup needed"
   fi
   voice_found="$(plugin_enabled vgs.voice)" || voice_found=unread
   settings_found="$(plugin_enabled vgs.settings)" || settings_found=unread
@@ -3451,7 +3451,7 @@ EOF
   if voice_dictates; then
     expect_poll "the core starts its daemon once voxtype is found" "ready idle" voice_daemon
     expect_poll "Voice offers Set up while the model is missing" setup voice_setup_wanted
-    voice_setup_page "Voice's page with Set up offered" "voice-setup-$1-page-needed" "Set up needed"
+    voice_setup_page "Voice's page with Set up offered" "voice-setup-$1-page-needed" "Setup needed"
   fi
   terminal_stand_in
   voice_setup_launcher_ready
@@ -3667,7 +3667,7 @@ scene_voice-elsewhere() { # MODE
   expect "enabling vgs.voice beside the other voxtype is allowed" ok ipc shell setPluginEnabled vgs.voice true
   expect_poll "vgs.voice is built beside the other voxtype" True record_exists vgs.voice
   expect_poll "the core reads the other voxtype's daemon elsewhere" "elsewhere idle" voice_daemon
-  voice_setup_page "Voice's page beside another voxtype" "voice-elsewhere-$1-page" "Set up needed"
+  voice_setup_page "Voice's page beside another voxtype" "voice-elsewhere-$1-page" "Setup needed"
   [[ $stops == false ]] || expect_poll "Voice offers Stop the other voxtype" stop voice_setup_wanted
 
   voice_elsewhere_end
@@ -3685,7 +3685,7 @@ scene_voice-elsewhere() { # MODE
     # A tree from before the step: a short bounded wait, 2 s, for a probe
     # it never makes.
     for _ in $(seq 1 10); do [[ $(voice_daemon) == "elsewhere idle" ]] || break; sleep 0.2; done
-    voice_setup_page "Voice's page after the other voxtype stopped" "voice-elsewhere-$1-page-after" "Set up needed"
+    voice_setup_page "Voice's page after the other voxtype stopped" "voice-elsewhere-$1-page-after" "Setup needed"
   fi
 
   # Disabling Voice ends the core's daemon; Voice is enabled again without
