@@ -181,6 +181,8 @@ mutations=(
   "an undo reads no line the removal printed|../Core/KeyCapture.qml|undo: JSON.parse(m[1]) };|undo: null };|tst_keycapture.qml"
   "an undo moves no later line|../Core/KeyCapture.qml|root.shiftRemoved(row.file, m === null ? row.line : Number(m[1]), 1);|{}|tst_keycapture.qml"
   "a configure write from a change handler is told in place|../Core/Config.qml|        if (publishing) {|        if (false) {|tst_config_writes.qml"
+  "a writer that never settles holds the shell in one publish|../Core/Config.qml|while (republish && ++writes < 16);|while (republish);|tst_config_writes.qml"
+  "a writer that never settles is logged on every turn|../Core/Config.qml|if (!unsettled) console.warn(|console.warn(|tst_config_writes.qml"
   "a removal moves no later line|../Core/KeyCapture.qml|root.shiftRemoved(row.file, row.line + 1, -1);|{}|tst_keycapture.qml"
   "an undo runs twice|../Core/KeyCapture.qml|root.releaseUserBind(token);|;|tst_keycapture.qml"
   "a released undo is kept|../Core/KeyCapture.qml|delete removedBinds.rows[token];|;|tst_keycapture.qml"

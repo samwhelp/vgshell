@@ -7,11 +7,11 @@ import "PluginLogic.js" as Logic
 
 // Shell configuration: the shipped defaults under config/ merged with the
 // user's file. Both files are watched; a change re-derives `effective`
-// once. Each file's state is one tagged value. A read or a write commits
-// the file's text, state and value before `effective` or `notReady`
-// changes, and those change only through publish(), so a write made from a
-// handler of either builds on it, and its own change is told after the one
-// in flight.
+// once. Each file's state is one tagged value. `effective` and `notReady`
+// are assigned by publish() alone; a read or a write commits `shipped`,
+// `user`, the file's text and state first, visible at once, so a write
+// made from a handler of either builds on them, and its own change is told
+// after the one in flight.
 // A file that does not parse or fails PluginLogic.configError keeps the
 // last good value and logs the error, so a typo never blanks the desktop;
 // a user file in that state
@@ -65,6 +65,12 @@ Singleton {
     property var mergedUser: null
     property bool publishing: false
     property bool republish: false
+    // True from a publish that stopped at the bound until one settles, so
+    // a writer that never settles is logged once, not on every turn.
+    property bool unsettled: false
+    // The call stack, outside this file, of the last publish asked during
+    // one: a handler's write.
+    property string nestedWriter: ""
 
     // Tell readers the committed state: `effective` when the shipped or the
     // user value changed, then `notReady`, so the configuration turns ready
@@ -75,13 +81,26 @@ Singleton {
     // tst_config_writes.qml showed under qmltestrunner 6.11.2 with
     // `effective` a binding over `user`. A publish asked meanwhile, by a
     // write from such a handler, is therefore marked and runs once the
-    // assignment returns.
+    // assignment returns. Each of those writes blocks on the disk, so one
+    // publish takes at most 16 of them and the rest are told on a later
+    // turn of the event loop, where the shell has answered its events:
+    // shipped writers settle in two or three, as the Updates service's
+    // clear takes two, and a handler that writes a fresh value on every
+    // change never settles. `user` already holds every write, so the later
+    // publish drops none.
     function publish() {
         if (publishing) {
             republish = true;
+            // QV4's Error.stack holds one `name@url:line` frame a line,
+            // this function's first, under qmltestrunner 6.11.2; the frames
+            // of this file are dropped, which leaves the handler's.
+            const frames = new Error().stack.split("\n");
+            const here = frames[0].slice(frames[0].indexOf("@"), frames[0].lastIndexOf(":") + 1);
+            nestedWriter = frames.filter(frame => !frame.includes(here)).join(" < ");
             return;
         }
         publishing = true;
+        let writes = 0;
         do {
             republish = false;
             if (mergedShipped !== shipped || mergedUser !== user) {
@@ -92,8 +111,15 @@ Singleton {
             }
             const notReadyNow = shipped === null ? shippedState : (userState === "pending" ? "pending" : "");
             if (publishedNotReady !== notReadyNow) publishedNotReady = notReadyNow;
-        } while (republish);
+        } while (republish && ++writes < 16);
         publishing = false;
+        if (!republish) {
+            unsettled = false;
+            return;
+        }
+        if (!unsettled) console.warn("config: publish did not settle: writes=" + writes + " file=" + userPath + " writer=" + nestedWriter);
+        unsettled = true;
+        Qt.callLater(publish);
     }
 
     // Judge one file's text: { state, value, migrated } with `value` only
@@ -197,8 +223,8 @@ Singleton {
     // overwritten unread, and after a write the disk refused until the file
     // is read again. `ok` means the file holds the value. A write from a
     // handler publish() runs is on the file before it answers, and its
-    // change is told after the one in flight. Returns `ok` or the keyed
-    // refusal.
+    // change is told after the one in flight, or on a later turn of the
+    // event loop past publish()'s bound. Returns `ok` or the keyed refusal.
     function writeUser(value) {
         if (userState !== "loaded" && userState !== "absent") return "refused: user-config=" + userState + " path=" + userPath;
         if (saveError !== "") return "refused: user-config=unwritable path=" + userPath + " error=" + saveError;

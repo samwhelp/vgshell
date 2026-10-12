@@ -56,6 +56,30 @@ Item {
         }
     }
 
+    // Writes the next count on every change of `count`, a writer that
+    // never settles, up to `cap`, far past publish()'s bound, so a publish
+    // with no bound ends rather than hangs the run.
+    Component {
+        id: countsComponent
+        QtObject {
+            readonly property int cap: 200
+            property int writes: 0
+            readonly property var count: Config.effective.count
+            onCountChanged: {
+                if (count === undefined || writes === cap) return;
+                writes += 1;
+                Config.writeUser(Object.assign({}, Config.user, { count: writes }));
+            }
+        }
+    }
+
+    // Records how far the writer got when the event loop next ran a timer.
+    Timer {
+        id: turn
+        property int writesSeen: -1
+        interval: 0
+    }
+
     TestCase {
         name: "config-writes"
 
@@ -128,6 +152,25 @@ Item {
             fileHolds({ version: 2, read: 1, nested: 2 });
             compare(Config.user, { version: 2, read: 1, nested: 2 });
             compare(Config.effective, { version: 2, read: 1, nested: 2 });
+        }
+
+        // The warning is taken by ignoreWarning, which fails the case when
+        // it is not logged; a second one is a line no declaration covers.
+        function test_writer_that_never_settles_yields_to_the_event_loop() {
+            const counts = createTemporaryObject(countsComponent, root);
+            const seen = () => { turn.writesSeen = counts.writes; };
+            turn.triggered.connect(seen);
+            ignoreWarning(/^config: publish did not settle: writes=16 file=.* writer=expression for onCountChanged@.*tst_config_writes\.qml:/);
+            turn.start();
+            compare(Config.writeUser({ version: 2, count: 0 }), "ok");
+            verify(counts.writes > 1 && counts.writes < counts.cap, "writes=" + counts.writes);
+            tryVerify(() => turn.writesSeen >= 0, 5000);
+            verify(turn.writesSeen < counts.cap, "writes=" + turn.writesSeen);
+            tryCompare(counts, "writes", counts.cap, 5000);
+            fileHolds({ version: 2, count: counts.cap });
+            compare(Config.user, { version: 2, count: counts.cap });
+            compare(Config.effective, { version: 2, count: counts.cap });
+            turn.triggered.disconnect(seen);
         }
     }
 }
