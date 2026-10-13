@@ -45,7 +45,8 @@ expected_errors+=('WARN qml: voice: start refused: dictation=busy holder=vgs[.]j
 # until it finds exactly one daemon, for jarvis_daemon_bound_ms at most:
 # the service's hello deadline (Service.qml helloDeadline), past which the
 # service ends that launcher. It prints the PID, or exits 1 with a named
-# cause on stderr: daemon-wait=launcher-ended or daemon-wait=timeout.
+# cause on stderr: daemon-wait=launcher-ended (gone or a zombie) or
+# daemon-wait=timeout.
 jarvis_daemon_bound_ms=5000
 jarvis_descendants() { # LAUNCHER_PID
   python3 - "$1" "$jarvis_daemon_bound_ms" <<'PY'
@@ -67,12 +68,18 @@ def daemons():
         if executable == "node" and any(arg.endswith(b"/backend/jarvisd.js") for arg in args):
             found.append(pid)
     return found
+def running():
+    try:
+        stat = pathlib.Path(f"/proc/{launcher}/stat").read_text()
+    except FileNotFoundError:
+        return False
+    return stat[stat.rindex(")") + 2] != "Z"
 while True:
     found = daemons()
     if len(found) == 1:
         print(found[0])
         break
-    if not pathlib.Path(f"/proc/{launcher}").exists():
+    if not running():
         sys.exit(f"jarvis-row: daemon-wait=launcher-ended daemon-count={len(found)} launcher={launcher}")
     if time.monotonic() >= deadline:
         sys.exit(f"jarvis-row: daemon-wait=timeout daemon-count={len(found)} bound_ms={bound_ms} launcher={launcher}")
@@ -188,19 +195,39 @@ jarvis_no_pid() { # PID
   echo present
 }
 
+# The service's launcher PID. Between a retry's backoff and its start the
+# service reports none, so the read polls every 50 ms for
+# jarvis_daemon_bound_ms at most, longer than the longest backoff
+# (Service.qml retry.interval, 4000 ms). On the bound it prints
+# launcher-wait=timeout with the last reading and returns 1.
+jarvis_launcher_wait() {
+  local deadline launcher
+  deadline=$(( $(now_ms) + jarvis_daemon_bound_ms ))
+  while :; do
+    launcher="$(ipc smoke jarvisProcess | py_reply 'import json,sys; print(json.load(sys.stdin)["pid"])')" || true
+    if [[ $launcher =~ ^[1-9][0-9]*$ ]]; then printf '%s\n' "$launcher"; return 0; fi
+    if (( $(now_ms) >= deadline )); then
+      printf 'jarvis-row: launcher-wait=timeout last=%s bound_ms=%s\n' "$launcher" "$jarvis_daemon_bound_ms"
+      return 1
+    fi
+    sleep 0.05
+  done
+}
+
+# A launcher or daemon that does not start fails the row, not the run:
+# Jarvis still disables, so the rows after this one start with it off.
 jarvis_disable() {
-  local answer launcher daemon_pid
-  answer="$(ipc smoke jarvisProcess)"
-  launcher="$(jarvis_launcher_pid <<<"$answer")" || return 1
-  # A daemon that does not start fails the row, not the run: Jarvis still
-  # disables, so the rows after this one start with it off.
-  if ! daemon_pid="$(jarvis_descendants "$launcher" 2>&1)"; then
+  local launcher daemon_pid=""
+  if ! launcher="$(jarvis_launcher_wait)"; then
+    fail "the Jarvis launcher is unreadable before disable: $launcher"
+    launcher=""
+  elif ! daemon_pid="$(jarvis_descendants "$launcher" 2>&1)"; then
     fail "the Jarvis daemon is unreadable before disable: $daemon_pid"
     daemon_pid=""
   fi
   expect "Jarvis disables" ok ipc shell setPluginEnabled vgs.jarvis false
   [[ -z $daemon_pid ]] || expect "disable releases the real daemon" absent jarvis_no_pid "$daemon_pid"
-  expect "disable releases the namespace launcher" absent jarvis_no_pid "$launcher"
+  [[ -z $launcher ]] || expect "disable releases the namespace launcher" absent jarvis_no_pid "$launcher"
   expect "disable drops the service" absent ipc smoke jarvisProcess
 }
 
@@ -1730,7 +1757,7 @@ jarvis_intent() { ipc smoke invokeInstance service vgs.jarvis intent "$1"; }
 jarvis_kill_daemon() {
   local launcher daemon
   launcher="$(ipc smoke jarvisProcess | jarvis_launcher_pid)" || return 1
-  daemon="$(jarvis_descendants "$launcher")" || { fail "the Jarvis daemon is unreadable: $daemon"; return 1; }
+  daemon="$(jarvis_descendants "$launcher" 2>&1)" || { fail "the Jarvis daemon is unreadable: $daemon"; return 1; }
   kill -KILL "$daemon"
 }
 # A held Talk recording through the core, from a fresh note log.
