@@ -186,7 +186,7 @@ var TOKENS = {
         text: color("{palette.foreground}"),
         textHeading: color("mix({palette.foreground}, contrast({palette.background}), 0.55)"),
         textMuted: faded(0.21),
-        textFaint: faded(0.42),
+        textFaint: faded(0.40),
         textDisabled: faded(0.6),
         accent: color("{palette.accent}"),
         accentHover: color("mix({palette.accent}, {palette.foreground}, 0.18)"),

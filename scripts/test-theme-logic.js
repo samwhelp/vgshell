@@ -372,9 +372,8 @@ const DEFAULTS = [
     // The typed filter rests there too, in the heading colour #ededee.
     ["carousel.typed", "#ededeeff"],
     // The search hint rests there in the faint text, mix(#d7d7d9, #000000,
-    // 0.42): 215 * 0.58 = 124.7, 217 * 0.58 = 125.86; its luminance 0.205
-    // reads 4.79:1 on the plate, (0.205 + 0.05) / (0.0033 + 0.05).
-    ["carousel.searchHint", "#7d7d7eff"],
+    // 0.40): 215 * 0.60 = 129, 217 * 0.60 = 130.2.
+    ["carousel.searchHint", "#818182ff"],
     // The accent #ff5a36, luminance 0.288, reads 6.76:1 on black.
     ["carousel.tabIndicator", "#ff5a36ff"],
     // A slice's name: h2, space.xxl 24 up the slice from its bottom edge,
@@ -1362,6 +1361,27 @@ function verifyAppearance(judge) {
     assert.equal(fallback.appearance.sources.controlRadius, "theme", "and shows the value as Set by theme");
 }
 verify(load(judgeFile));
+
+// Rendering-margin model, not a rendered-text test. Pillow's native-pixel
+// Tray Settings capture on b6500021 (2026-10-13) gave median stem ink
+// #79797a on #101010 and #6f6d69 on #edeadf. A 0.96 ink coverage bounds
+// both readings below the token colour. Landed captures verify real ink.
+{
+    const judge = load(judgeFile);
+    const holdsHint = values => {
+        const fill = judge.parseColor(values.color.surfaceRaised);
+        const ink = judge.parseColor(values.text.hint.color);
+        ink.a = 0.96;
+        const core = judge.parseColor(judge.formatColor(judge.overlay(ink, fill)));
+        assert.ok(judge.contrastRatio(core, fill) >= 4.5, "hint stroke-core margin");
+    };
+    for (const [name, oldInk] of [["vgs", "#7d7d7e"], ["catalog/flexoki-light", "#6b6965"]]) {
+        const source = JSON.parse(fs.readFileSync(path.join(repo, "themes", name, "theme.json"), "utf8"));
+        holdsHint(judge.accept(TOKENS, JSON.stringify(source)).values);
+        source.tokens.color = { ...source.tokens.color, textFaint: oldInk };
+        assert.throws(() => holdsHint(judge.accept(TOKENS, JSON.stringify(source)).values), { code: "ERR_ASSERTION" }, name + " old hint control");
+    }
+}
 
 // Catalog packages lift status fills independently of their palette. Helix
 // mode labels consume onSuccess/success and onInfo/info from these tokens.
