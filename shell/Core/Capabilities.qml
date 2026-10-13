@@ -183,10 +183,18 @@ Singleton {
             register: (name, item) => Plugins.recordBuiltin(ctx, name, item),
             add: (family, x) => Plugins.addBuiltin(ctx, family, x)
         }),
+        // `openPage` opens the manager's window on a plugin's page, never
+        // another plugin's surface; the caller leaves a refused reference's
+        // words as words, so the reply is logged here once.
         surfaces: ctx => ({
             summon: (kind, payloadJson, anchor) => root.surfaceRoute(ctx, "summon", kind, payloadJson, anchor),
             hide: kind => root.surfaceRoute(ctx, "hide", kind, "", null),
-            toggle: (kind, payloadJson, anchor) => root.surfaceRoute(ctx, "toggle", kind, payloadJson, anchor)
+            toggle: (kind, payloadJson, anchor) => root.surfaceRoute(ctx, "toggle", kind, payloadJson, anchor),
+            openPage: (page, tab) => {
+                const reply = Plugins.openSettingsPage(page, tab);
+                if (reply !== "ok") console.warn("surfaces: openPage " + reply);
+                return reply;
+            }
         }),
         // The sender's name on the notification is the plugin's manifest
         // name, read at each send.

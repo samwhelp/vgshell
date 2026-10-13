@@ -125,6 +125,7 @@ f share/vgshell/shell/Commons/Duration.js
 f share/vgshell/shell/Commons/Glass.js
 f share/vgshell/shell/Commons/Inset.js
 f share/vgshell/shell/Commons/Nmcli.js
+f share/vgshell/shell/Commons/PageReference.js
 f share/vgshell/shell/Commons/Paths.qml
 f share/vgshell/shell/Commons/Reply.js
 f share/vgshell/shell/Commons/SessionLockState.js

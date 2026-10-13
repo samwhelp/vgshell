@@ -7,7 +7,7 @@
 # wires the Hyprland layer, so every later row starts with the notice
 # layer gone and the layer's options loaded.
 # leaves: layers options
-# inputs: shell/Core/HyprlandLayer.* shell/Core/Notices.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js config/shell.json bin/vgshell shell/Hosts/NoticeHost.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/LinkText.qml shell/Ui/feedback/KeyCaps.qml shell/Ui/feedback/Kbd.qml shell/Ui/layout/Pane.qml scripts/smoke/Probe.qml
+# inputs: shell/Core/HyprlandLayer.* shell/Core/Notices.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js config/shell.json bin/vgshell shell/Hosts/NoticeHost.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Ui/feedback/KeyCaps.qml shell/Ui/feedback/Kbd.qml shell/Ui/layout/Pane.qml scripts/smoke/Probe.qml
 set -euo pipefail
 
 hypr_lua="$home/.config/hypr/hyprland.lua"

@@ -22,6 +22,7 @@ const IMPORTS = [
     [path.join(CORE, "MonitorLogic.js"), path.join("shell", "Core", "MonitorLogic.js")],
     [path.join(CORE, "Pads.js"), path.join("shell", "Core", "Pads.js")],
     [path.join(__dirname, "..", "shell", "Commons", "SettingValues.js"), path.join("shell", "Commons", "SettingValues.js")],
+    [path.join(__dirname, "..", "shell", "Commons", "PageReference.js"), path.join("shell", "Commons", "PageReference.js")],
 ];
 
 let failures = 0;

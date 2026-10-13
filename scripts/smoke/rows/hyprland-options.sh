@@ -46,7 +46,7 @@
 # HyprlandLayer.js calls Hyprland's hl.bind from the layer's own wrapper:
 # it failed "the broken bind's configuration error names the user's file
 # and line", reading the layer's vgs.lua at line 142.
-# inputs: scripts/smoke/fixtures/plugins/acme.hyprland/* scripts/smoke/fixtures/plugins/acme.hyprland-other/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandState.* shell/Core/KeyCapture.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/plugins/vgs.settings/* shell/Ui/controls/BindField.qml shell/Ui/controls/ShortcutField.qml shell/Ui/feedback/LinkText.qml bin/vgshell bin/vgshell-hypr-judge scripts/smoke/rows/hyprland-consent.sh shell/Ui/controls/RowAction.qml
+# inputs: scripts/smoke/fixtures/plugins/acme.hyprland/* scripts/smoke/fixtures/plugins/acme.hyprland-other/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandState.* shell/Core/KeyCapture.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/plugins/vgs.settings/* shell/Ui/controls/BindField.qml shell/Ui/controls/ShortcutField.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js bin/vgshell bin/vgshell-hypr-judge scripts/smoke/rows/hyprland-consent.sh shell/Ui/controls/RowAction.qml
 set -euo pipefail
 hypr_lua="$home/.config/hypr/hyprland.lua"
 hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"

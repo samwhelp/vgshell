@@ -99,6 +99,7 @@ run_rows "$repo/bin/vgshell" loud || true
 tree="$tmp/tree"; mkdir -p "$tree/shell/Core" "$tree/shell/Commons" "$tree/shell/Ui/icons"
 cp -R -- "$repo/bin" "$tree/"
 ln -s -- "$repo/shell/Commons/SettingValues.js" "$tree/shell/Commons/SettingValues.js"
+ln -s -- "$repo/shell/Commons/PageReference.js" "$tree/shell/Commons/PageReference.js"
 ln -s -- "$repo/shell/Core/PluginLogic.js" "$tree/shell/Core/PluginLogic.js"
 ln -s -- "$repo/shell/Core/ConfigLogic.js" "$tree/shell/Core/ConfigLogic.js"
 ln -s -- "$repo/shell/Core/PackageManagers.js" "$tree/shell/Core/PackageManagers.js"

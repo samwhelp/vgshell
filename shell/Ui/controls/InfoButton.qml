@@ -7,7 +7,10 @@ import qs.Ui
 // A small info icon for one explanation. Hover or keyboard focus shows the
 // explanation in the icon's tooltip; pointer, Space, Enter or Return opens
 // it in a modal dialog centred over the icon's window. Close, Escape or a
-// press outside the dialog closes it and returns focus to the icon.
+// press outside the dialog closes it and returns focus to the icon. A page
+// reference in `info` (LinkText) is a link in the dialog: activating it
+// closes the dialog and emits `infoPageActivated` with the page and tab,
+// for the owner to open.
 IconButton {
     id: root
 
@@ -15,6 +18,7 @@ IconButton {
     property string info: ""
     property var popup: null
     readonly property bool infoOpen: popup !== null && popup.opened
+    signal infoPageActivated(string page, string tab)
 
     iconName: "info"
     label: title === "" ? "More information" : "About " + title
@@ -133,6 +137,10 @@ IconButton {
                         message: root.info
                         actions: [{ label: "Close", role: "cancel", focused: true }]
                         onRejected: root.closeInfo()
+                        onMessagePageActivated: (page, tab) => {
+                            root.closeInfo();
+                            root.infoPageActivated(page, tab);
+                        }
                     }
                 }
             }

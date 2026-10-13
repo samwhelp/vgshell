@@ -34,7 +34,10 @@ import qs.Ui
 // column, `field.gap` below the row box and
 // wrapped to the column, in the colour `warningTone` names, `warning`,
 // `danger` or `muted`. `warningLink`, when set, names the substring of
-// `warning` that opens a cited file through `warningLinkActivated`. The
+// `warning` that opens a cited file through `warningLinkActivated`. A page
+// reference in `warning` (LinkText) is its link, activated through
+// `warningPageActivated`, and one in the `info` dialog's text through
+// `infoPageActivated`, each with the page and tab. The
 // row grows by the gap and the message's height, and the label and the
 // control stay centred on the row box, so a message takes no room from its
 // control. Light feedback in a form is this line, plain sentence-case text
@@ -115,6 +118,8 @@ Item {
         return boxHeight;
     }
     signal warningLinkActivated()
+    signal warningPageActivated(string page, string tab)
+    signal infoPageActivated(string page, string tab)
 
     function inkBelow() {
         let bottom = labelColumn && label !== "" ? labelText.y + labelText.height - labelText.inkBelow() : 0;
@@ -183,6 +188,7 @@ Item {
         sourceComponent: InfoButton {
             title: root.label
             info: root.info
+            onInfoPageActivated: (page, tab) => root.infoPageActivated(page, tab)
         }
     }
 
@@ -206,6 +212,7 @@ Item {
         width: root.valueRoom - root.actionRoom
         wrapMode: Text.Wrap
         onActivated: root.warningLinkActivated()
+        onPageActivated: (page, tab) => root.warningPageActivated(page, tab)
     }
 
     Item {

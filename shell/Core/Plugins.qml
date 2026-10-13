@@ -831,11 +831,17 @@ Singleton {
         return hosts[kind][verb](id, payloadJson, origin || null);
     }
 
-    // Summon the manager's window on plugin `page`'s Settings page; answers
-    // the route's reply. The panes' gear and a bar widget's Settings entry
-    // both open Settings here.
-    function openSettingsPage(page) {
-        return route("summon", "window", Registry.managerId, JSON.stringify({ plugin: page }), null);
+    // Summon the manager's window on plugin `page`'s page, on `tab` when
+    // one is named; answers the route's reply, `unknown: <page>` for a page
+    // no plugin has, or `refused: manager=none` while no manager window is
+    // enabled. The panes' gear, a bar widget's Settings entry and capability
+    // `surfaces`' openPage all open a page here.
+    function openSettingsPage(page, tab) {
+        if (!Registry.has(page)) return "unknown: " + page;
+        if (!Registry.isEnabled(Registry.managerId)) return "refused: manager=none";
+        const payload = { plugin: page };
+        if (tab) payload.tab = tab;
+        return route("summon", "window", Registry.managerId, JSON.stringify(payload), null);
     }
 
     function navigateOverlay(direction) {

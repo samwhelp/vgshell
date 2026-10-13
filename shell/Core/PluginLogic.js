@@ -6,6 +6,7 @@
 .import "HyprlandLayer.js" as HyprlandLayer
 .import "Pads.js" as Pads
 .import "MonitorLogic.js" as MonitorLogic
+.import "../Commons/PageReference.js" as PageReference
 
 // Pure decisions about plugins and configuration. No QML objects, no I/O, so
 // scripts/test-plugin-logic.js runs every function under node. The icon set
@@ -4845,15 +4846,21 @@ function notifyOptions(raw) {
 // The notify-send argv for JUDGED, notifyOptions' value, sent as APP_NAME
 // by plugin PLUGIN_ID. A plugin's message opens no window and offers no
 // action, so a click only dismisses it. The x-vgs-plugin hint names the
-// sender, so a critical plugin message shows under Silence. The
-// notification server reads a body as markup, so the message's `&`, `<`
-// and `>` are escaped and plain text shows as typed.
+// sender, so a critical plugin message shows under Silence. The body holds
+// a page reference's words in its place (PageReference.plain), so every
+// server shows the words; a reference that names a page also goes whole
+// in the x-vgs-page hint, from which a server that draws links reads the
+// words, the page and the tab. The notification server reads a body as
+// markup, so the body's `&`, `<` and `>` are escaped and plain text shows
+// as typed.
 function notifyArgv(pluginId, appName, judged) {
     var argv = ["notify-send", "--app-name=" + appName, "--urgency=" + judged.urgency, "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-plugin:" + pluginId];
     if (judged.tone !== "") argv.push("--hint=string:x-vgs-tone:" + judged.tone);
     if (judged.icon !== "") argv.push("--hint=string:x-vgs-icon:" + judged.icon);
+    var reference = PageReference.parse(judged.message);
+    if (reference.page !== "") argv.push("--hint=string:x-vgs-page:" + reference.reference);
     if (judged.transient) argv.push("--transient");
-    var message = judged.message.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    var message = reference.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     return argv.concat(["--", judged.title, message]);
 }
 

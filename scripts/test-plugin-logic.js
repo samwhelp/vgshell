@@ -16,6 +16,7 @@ const LUCIDE = path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js");
 const MANAGERS = path.join(__dirname, "..", "shell", "Core", "PackageManagers.js");
 const LAYER = path.join(__dirname, "..", "shell", "Core", "HyprlandLayer.js");
 const SETTING_VALUES = path.join(__dirname, "..", "shell", "Commons", "SettingValues.js");
+const PAGE_REFERENCE = path.join(__dirname, "..", "shell", "Commons", "PageReference.js");
 // The core's own requirements, judged by the function a manifest's are.
 const CORE_REQUIREMENTS = path.join(__dirname, "..", "config", "requirements.json");
 // The sounds the core ships, which PluginLogic.SOUNDS names.
@@ -1190,14 +1191,24 @@ function suite(ctx, configLogic, check) {
         else check("notifyOptions: " + name, got, want);
     }
     // notifyArgv: [name, options, argv]. The message is a body the server
-    // reads as markup, so its `&`, `<` and `>` arrive escaped.
+    // reads as markup, so its `&`, `<` and `>` arrive escaped. A page
+    // reference reads as its words, and one that names a page also rides
+    // whole in x-vgs-page.
     const notifyArgvRows = [
         ["the defaults", { title: "Saved" }, ["notify-send", "--app-name=Acme", "--urgency=normal", "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-plugin:acme.probe", "--", "Saved", ""]],
         ["every key", { title: "Saved", message: "to disk", tone: "danger", icon: "camera", urgency: "critical", transient: true },
             ["notify-send", "--app-name=Acme", "--urgency=critical", "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-plugin:acme.probe", "--hint=string:x-vgs-tone:danger", "--hint=string:x-vgs-icon:camera", "--transient", "--", "Saved", "to disk"]],
         ["markup in the message", { title: "<b>a</b> & b", message: "<b>bold</b> & a>b" },
             ["notify-send", "--app-name=Acme", "--urgency=normal", "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-plugin:acme.probe", "--", "<b>a</b> & b", "&lt;b&gt;bold&lt;/b&gt; &amp; a&gt;b"]],
-        ["a title that starts like an option", { title: "--urgency=low" }, ["notify-send", "--app-name=Acme", "--urgency=normal", "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-plugin:acme.probe", "--", "--urgency=low", ""]]
+        ["a title that starts like an option", { title: "--urgency=low" }, ["notify-send", "--app-name=Acme", "--urgency=normal", "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-plugin:acme.probe", "--", "--urgency=low", ""]],
+        ["a page reference in the message", { title: "Voice", message: "Set it up on the [Voice page](page:vgs.voice/Setup)." },
+            ["notify-send", "--app-name=Acme", "--urgency=normal", "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-plugin:acme.probe", "--hint=string:x-vgs-page:[Voice page](page:vgs.voice/Setup)", "--", "Voice", "Set it up on the Voice page."]],
+        ["a page reference with no tab", { title: "Voice", message: "[Voice](page:vgs.voice) is off." },
+            ["notify-send", "--app-name=Acme", "--urgency=normal", "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-plugin:acme.probe", "--hint=string:x-vgs-page:[Voice](page:vgs.voice)", "--", "Voice", "Voice is off."]],
+        ["a reference to no page", { title: "Voice", message: "Turn it on in [Plugins](page:)." },
+            ["notify-send", "--app-name=Acme", "--urgency=normal", "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-plugin:acme.probe", "--", "Voice", "Turn it on in Plugins."]],
+        ["a page reference beside markup", { title: "Voice", message: "<b>[Voice](page:vgs.voice)</b> & a>b" },
+            ["notify-send", "--app-name=Acme", "--urgency=normal", "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-plugin:acme.probe", "--hint=string:x-vgs-page:[Voice](page:vgs.voice)", "--", "Voice", "&lt;b&gt;Voice&lt;/b&gt; &amp; a&gt;b"]]
     ];
     for (const [name, raw, want] of notifyArgvRows) {
         const judged = ctx.notifyOptions(raw);
@@ -2177,6 +2188,9 @@ const CONTROLS = [
     ["notify is a capability", '"panes", "notify", "theme"', '"panes", "theme"'],
     ["notify options are an object", "if (!isPlainObject(raw))\n        return { ok: false, error: \"options want=object\" };", "if (false)\n        return { ok: false, error: \"options want=object\" };"],
     ["notify refuses an unknown key", "if (NOTIFY_KEYS.indexOf(keys[i]) === -1)", "if (false)"],
+    ["a notice body holds a page reference's words", "var message = reference.text.replace(", "var message = judged.message.replace("],
+    ["a page reference rides in x-vgs-page", 'if (reference.page !== "") argv.push(', 'if (false) argv.push('],
+    ["a reference to no page adds no hint", 'if (reference.page !== "") argv.push(', 'if (reference.reference !== "") argv.push('],
     ["a notify title is a string", 'if (typeof raw.title !== "string" || raw.title.trim()', 'if (typeof raw.title === "planted" || raw.title.trim'],
     ["a notify title is not blank", 'raw.title.trim() === "" || raw.title.length > NOTIFY_TITLE_MAX', 'raw.title.length > NOTIFY_TITLE_MAX'],
     ["a notify title has a ceiling", '|| raw.title.length > NOTIFY_TITLE_MAX)', ')'],
@@ -2293,6 +2307,7 @@ try {
     fs.mkdirSync(path.join(temp, "shell", "Commons"), { recursive: true });
     fs.mkdirSync(path.join(temp, "shell", "Ui", "icons"), { recursive: true });
     fs.symlinkSync(SETTING_VALUES, path.join(temp, "shell", "Commons", "SettingValues.js"));
+    fs.symlinkSync(PAGE_REFERENCE, path.join(temp, "shell", "Commons", "PageReference.js"));
     fs.symlinkSync(LUCIDE, path.join(temp, "shell", "Ui", "icons", "Lucide.js"));
     fs.symlinkSync(MANAGERS, path.join(temp, "shell", "Core", "PackageManagers.js"));
     fs.symlinkSync(LAYER, path.join(temp, "shell", "Core", "HyprlandLayer.js"));

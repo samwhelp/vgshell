@@ -10,6 +10,10 @@ import qs.Unit
 // press outside, and focus returns to the icon. The open dialog draws one
 // frame, centred inside the window's dialog margin over a scrim that washes
 // every row of the window. A Field draws the icon only when `info` is set.
+// A page reference in the explanation is a link in the dialog: activating
+// it closes the dialog and asks for its page and tab through
+// `infoPageActivated`, which a Field forwards whether its label stands
+// beside or above its control.
 Item {
     id: root
     width: 520
@@ -37,6 +41,15 @@ Item {
         y: 20
     }
 
+    InfoButton {
+        id: paged
+        title: "Voice"
+        info: "Set it up on the [Voice page](page:acme.voice/Setup)."
+        x: 140
+        y: 20
+    }
+    SignalSpy { id: pagedPages; target: paged; signalName: "infoPageActivated" }
+
     Field {
         id: explained
         label: "Explained"
@@ -57,6 +70,30 @@ Item {
 
         Label { role: "value"; text: "Value" }
     }
+
+    Field {
+        id: pagedBeside
+        label: "Beside"
+        info: "Keys are on the [Models page](page:acme.models)."
+        inline: true
+        width: 360
+        y: 190
+
+        Label { role: "value"; text: "Value" }
+    }
+    SignalSpy { id: besidePages; target: pagedBeside; signalName: "infoPageActivated" }
+
+    Field {
+        id: pagedAbove
+        label: "Above"
+        info: "Keys are on the [Models page](page:acme.models/Setup)."
+        inline: false
+        width: 360
+        y: 240
+
+        Label { role: "value"; text: "Value" }
+    }
+    SignalSpy { id: abovePages; target: pagedAbove; signalName: "infoPageActivated" }
 
     TestCase {
         name: "infobutton"
@@ -268,6 +305,47 @@ Item {
             info.closeInfo();
             tryCompare(info, "activeFocus", true);
             info.destroyPopup();
+        }
+
+        function pageLink(of) {
+            return descendants(popup(of).contentItem).find(child => typeName(child) === "LinkText" && child.visible && child.linked);
+        }
+
+        function test_a_page_reference_closes_the_help_and_asks_for_its_page() {
+            pagedPages.clear();
+            mouseClick(paged);
+            tryCompare(paged, "infoOpen", true);
+            const link = pageLink(paged);
+            verify(link !== undefined, "the help draws the reference as a link");
+            link.clicked();
+            tryCompare(paged, "infoOpen", false);
+            compare(pagedPages.count, 1);
+            compare(pagedPages.signalArguments[0][0], "acme.voice");
+            compare(pagedPages.signalArguments[0][1], "Setup");
+            tryCompare(paged, "activeFocus", true);
+            paged.destroyPopup();
+        }
+
+        function test_a_field_forwards_its_help_page_data() {
+            return [
+                { tag: "label beside", field: pagedBeside, spy: besidePages, tab: "" },
+                { tag: "label above", field: pagedAbove, spy: abovePages, tab: "Setup" }
+            ];
+        }
+
+        function test_a_field_forwards_its_help_page(data) {
+            data.spy.clear();
+            const buttons = infoButtons(data.field);
+            compare(buttons.length, 1);
+            mouseClick(buttons[0]);
+            tryCompare(buttons[0], "infoOpen", true);
+            pageLink(buttons[0]).clicked();
+            tryCompare(buttons[0], "infoOpen", false);
+            compare(data.spy.count, 1);
+            compare(data.spy.signalArguments[0][0], "acme.models");
+            compare(data.spy.signalArguments[0][1], data.tab);
+            tryCompare(buttons[0], "activeFocus", true);
+            buttons[0].destroyPopup();
         }
 
         function test_field_draws_icon_only_with_info() {

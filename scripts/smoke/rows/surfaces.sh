@@ -9,7 +9,11 @@
 # into hyprland.lua, whose application-window rule floats a shell window
 # at the size it asks. Without it the window tiles and its size and
 # keyboard checks fail.
-# inputs: scripts/smoke/fixtures/plugins/acme.surfaces/* shell/plugins/vgs.launcher/* shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/SummonPopup.qml shell/Commons/AnchorTracker.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Hosts/PluginSlot.qml shell/Hosts/BackgroundHost.qml shell/Hosts/AppWindow.qml scripts/smoke/toplevel/* scripts/smoke/rows/sources.sh shell/Ui/foundation/FocusRing.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/layout/Pane.qml shell/Commons/Tokens.js shell/Ui/foundation/KeyNavLogic.js scripts/smoke/rows/hyprland-consent.sh shell/Core/HyprlandLayer.js
+# A panel opens another plugin's page through shell.surfaces.openPage: a
+# page reference in a FormRow's message opens the Settings window on that
+# page, by a click and by Tab then Enter. A page no plugin has and a shell
+# with the manager window off each answer a refusal.
+# inputs: shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml scripts/smoke/fixtures/plugins/acme.surfaces/* shell/plugins/vgs.launcher/* shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/SummonPopup.qml shell/Commons/AnchorTracker.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Hosts/PluginSlot.qml shell/Hosts/BackgroundHost.qml shell/Hosts/AppWindow.qml scripts/smoke/toplevel/* scripts/smoke/rows/sources.sh shell/Ui/foundation/FocusRing.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/layout/Pane.qml shell/Commons/Tokens.js shell/Ui/foundation/KeyNavLogic.js scripts/smoke/rows/hyprland-consent.sh shell/Core/HyprlandLayer.js
 set -euo pipefail
 surf="$home/.config/vgshell/plugins/acme.surfaces"
 mkdir -p "$surf"
@@ -97,6 +101,28 @@ text = text.replace(marker, insert + marker, 1)
 marker = "    function smokeButtonGeometry() {"
 assert text.count(marker) == 1, "smokeButtonGeometry must occur once"
 text = text.replace(marker, "    function smokeSwatchGeometry() { const p = smokeSwatch.mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, smokeSwatch.width, smokeSwatch.height]); }\n" + marker, 1)
+# The page reference line is drawn only while a payload asks for it, so
+# every other check reads the card and its Tab chain without it. It sits
+# after the Next button, the next Tab stop, and its reply is kept for the
+# row to read.
+marker = "        sizing = payload.sizing === true;\n"
+assert text.count(marker) == 1, "the sizing read must occur once"
+text = text.replace(marker, marker + "        smokePageLink = payload.pageLink === true;\n", 1)
+marker = "    function geometry() {"
+assert text.count(marker) == 1, "geometry must occur once"
+text = text.replace(marker, '    property bool smokePageLink: false\n    property string smokePageReply: ""\n    function smokeOpenPage(page) { return shell.surfaces.openPage(page, ""); }\n' + marker, 1)
+marker = "    Item {\n        id: container\n"
+insert = '''    FormRow {
+        visible: root.smokePageLink
+        width: parent.width
+        labelColumn: false
+        warning: "[Probe page](page:acme.probe) holds the probe."
+        warningTone: "muted"
+        onWarningPageActivated: (page, tab) => { root.smokePageReply = root.shell.surfaces.openPage(page, tab); }
+    }
+'''
+assert text.count(marker) == 1, "the menu anchor container must occur once"
+text = text.replace(marker, insert + marker, 1)
 path.write_text(text)
 PYEDIT
 respaced() { "$@" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
@@ -1258,6 +1284,57 @@ expect_poll "ModalDialog leaves the title-space after a bare title" True modal_t
 expect "the actual ModalDialog fixture closes" ok ipc smoke popupDrop focus-title-modal
 expect_poll "the actual ModalDialog surface closes" 0 layer_count vgs:dialog
 
+# A page reference in the panel's FormRow message opens the Settings window
+# on the page it names through shell.surfaces.openPage, by a click on its
+# words and by Tab then Enter, the Tab after the Next button. The reply
+# the fixture keeps is read beside the window's page. A page no plugin has
+# answers unknown and logs one line. The control, at the row's end, is a
+# shell whose FormRow forwards no page reference.
+page_ref_text='[Probe page](page:acme.probe) holds the probe.'
+page_ref_reply() { ipc smoke readInstance panel acme.surfaces smokePageReply; }
+page_ref_page() { ipc smoke readInstance window vgs.settings page; }
+# page_ref_click: a press on the reference's words, 8 px into the message
+# line, once the link reads the pointer on them.
+page_ref_click() {
+  local box layer x y
+  box="$(ipc smoke windowGeometry panel acme.surfaces LinkText "$page_ref_text")" || return 1
+  [[ $box == \[* ]] || { echo "page_ref_click: no message line: $box" >&2; return 1; }
+  layer="$(surface_box vgs:panel)" || return 1
+  read -r x y < <(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); l=json.loads(sys.argv[2]); print(int(l[0] + b[0] + 8), int(l[1] + b[1] + b[3] / 2))' "$box" "$layer") || return 1
+  hover "$x" "$y" || return 1
+  expect_poll "the pointer on the page reference reaches its words" true ipc smoke readMatchingDescendant panel acme.surfaces LinkText text "$page_ref_text" hoveredLink
+  click "$x" "$y"
+}
+page_ref_opened() {
+  expect_poll "the page reference's openPage answers ok" '"ok"' page_ref_reply
+  expect_poll "the Settings window shows the referenced page" '"acme.probe"' page_ref_page
+}
+# page_ref_summon: the panel built afresh with its page reference line.
+page_ref_summon() {
+  expect "the panel is hidden before the page reference" ok ipc shell hide panel acme.surfaces
+  expect_poll "the panel is gone before the page reference" absent ipc smoke readInstance panel acme.surfaces opened
+  expect "the Settings window is hidden before the page reference" ok ipc shell hide window vgs.settings
+  expect_poll "the Settings window is gone before the page reference" 0 window_count Plugins
+  expect "the panel summons with its page reference line" ok ipc shell summon panel acme.surfaces '{"pageLink":true}'
+  expect_poll "the panel is mapped before the page reference" 1 layer_count vgs:panel
+  summon_drawn panel acme.surfaces || fail "the panel never drew before the page reference"
+}
+expected_errors+=('surfaces: openPage unknown: acme\.nothing' 'surfaces: openPage refused: manager=none')
+page_ref_summon
+page_ref_click || fail "the click on the page reference failed"
+page_ref_opened
+page_ref_summon
+expect "openPage answers unknown for a page no plugin has" "unknown: acme.nothing" ipc smoke invokeInstance panel acme.surfaces smokeOpenPage acme.nothing
+expect_log "the unknown page logs its reply" 1 'surfaces: openPage unknown: acme\.nothing'
+expect "the unknown page logs one line" 1 log_lines 'surfaces: openPage unknown: acme\.nothing'
+expect_poll "the page reference panel focuses its primary control" '["Control", "Initial focus", false, false, true]' surface_focused panel
+type_keys -k Tab -k Tab || fail "tabbing to the page reference failed"
+expect_poll "the page reference is the Tab stop after the Next button" "[\"Control\", \"$page_ref_text\", true, true, true]" surface_focused panel
+type_keys -k Return || fail "pressing Return on the page reference failed"
+page_ref_opened
+expect "the Settings window hides after the page reference" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone after the page reference" 0 window_count Plugins
+
 expect "the panel opens again for the disable check" ok ipc smoke invokeInstance "bar:$screen_name" acme.surfaces summonHere ''
 
 expect "a background is not summonable" "refused: not-summonable=background" ipc shell summon background acme.surfaces '{}'
@@ -1365,3 +1442,36 @@ expect "the clipped-row control closes" ok ipc shell hide window acme.surfaces
 expect "the clipped-row control disables its fixture" ok ipc shell setPluginEnabled acme.surfaces false
 stop_shell
 start_shell "$repo" "$sandbox/window-pane-request-restored.log" || fail "the clipped-row control restores the shipped shell"
+
+# The page reference control: a tree whose FormRow drops its message's
+# page reference, so the same click opens no page, and whose Settings
+# plugin is not always on, so the manager window can be turned off and
+# openPage then answers refused: manager=none.
+copy_tree page-reference-control
+edit_tree page-reference-control shell/Ui/controls/FormRow.qml \
+  'onPageActivated: (page, tab) => root.warningPageActivated(page, tab)' \
+  'onPageActivated: (page, tab) => {}'
+edit_tree page-reference-control shell/plugins/vgs.settings/manifest.json '"alwaysOn": true,' ''
+stop_shell
+start_shell "$sandbox/tree-page-reference-control" "$sandbox/page-reference-control.log" || fail "the page reference control starts"
+expect "the page reference control enables its fixture" ok ipc shell setPluginEnabled acme.surfaces true
+expect "the page reference control summons its panel" ok ipc shell summon panel acme.surfaces '{"pageLink":true}'
+expect_poll "the page reference control panel is mapped" 1 layer_count vgs:panel
+summon_drawn panel acme.surfaces || fail "the page reference control panel never drew"
+page_ref_click || fail "control: the click on the page reference failed"
+page_ref_opened_control() { (failures=0 behaviour_failures=0; page_ref_opened >"$sandbox/page-reference-control.out"; echo "$failures"); }
+expect "control: a row that forwards no page reference fails both page checks" 2 page_ref_opened_control
+sed 's/^/  CONTROL  /' "$sandbox/page-reference-control.out"
+expect "control: the page stays closed" 0 window_count Plugins
+page_ref_manager() { # on|off: the Settings plugin enabled or not, `ok` for any ok reply
+  local reply
+  reply="$(ipc shell setPluginEnabled vgs.settings "$([[ $1 == on ]] && echo true || echo false)")" || return 1
+  [[ $reply == ok || $reply == "ok "* ]] && echo ok || echo "$reply"
+}
+expect "the page reference control turns the manager window off" ok page_ref_manager off
+expect_poll "with the manager window off, openPage answers refused: manager=none" "refused: manager=none" ipc smoke invokeInstance panel acme.surfaces smokeOpenPage acme.probe
+expect "the page reference control turns the manager window on again" ok page_ref_manager on
+expect "the page reference control hides its panel" ok ipc shell hide panel acme.surfaces
+expect "the page reference control disables its fixture" ok ipc shell setPluginEnabled acme.surfaces false
+stop_shell
+start_shell "$repo" "$sandbox/page-reference-restored.log" || fail "the page reference control restores the shipped shell"

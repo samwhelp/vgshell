@@ -26,7 +26,9 @@ import qs.Unit
 // `fieldRow` hook names the row. A row with a message is followed by a group
 // space, `stack.group`, unless it is the last row of its column; the rows
 // of the first column sit 0 apart, so each with a message there grows by
-// the group space under its message.
+// the group space under its message. A page reference in the message or in
+// the info dialog's text asks for its page and tab through
+// `warningPageActivated` or `infoPageActivated`.
 Item {
     id: root
     width: 480
@@ -132,6 +134,17 @@ Item {
         hint: "Some video editors need it"
         Switch { size: "sm" }
     }
+    FormRow {
+        id: paged
+        y: 1540
+        width: 420
+        label: "Voice"
+        warning: "Set it up on the [Voice page](page:acme.voice/Setup)."
+        info: "Keys are on the [Models page](page:acme.models)."
+        Switch { size: "sm" }
+    }
+    SignalSpy { id: warningPages; target: paged; signalName: "warningPageActivated" }
+    SignalSpy { id: infoPages; target: paged; signalName: "infoPageActivated" }
 
     TestCase {
         name: "formrow"
@@ -458,6 +471,35 @@ Item {
             tryVerify(() => afterWarning.mapToItem(spaced, 0, 0).y - messageBottom(warnedFirst, spaced) === Theme.stack.group, 1000, "the row after a message");
             compare(plainNext.y - afterWarning.y, Theme.row.height + Theme.stack.row, "the row after a row without a message");
             compare(spaced.height, messageBottom(warnedLast, spaced), "the column's end after its last row");
+        }
+
+        function test_a_message_page_reference_asks_for_its_page() {
+            warningPages.clear();
+            const message = messageOf(paged);
+            compare(message.linked, true, "the reference's words are a link");
+            message.clicked();
+            compare(warningPages.count, 1);
+            compare(warningPages.signalArguments[0][0], "acme.voice");
+            compare(warningPages.signalArguments[0][1], "Setup");
+        }
+
+        // The help dialog lives in its own popup window, under the icon.
+        function test_an_info_page_reference_asks_for_its_page() {
+            infoPages.clear();
+            const button = infoOf(paged).item;
+            button.openInfo();
+            tryCompare(button, "infoOpen", true);
+            const found = [button.popup.tracker.popup.contentItem];
+            for (let i = 0; i < found.length; i++)
+                for (const child of found[i].children) found.push(child);
+            const link = found.find(child => child instanceof LinkText && child.linked);
+            verify(link !== undefined, "the help draws the reference as a link");
+            link.clicked();
+            tryCompare(button, "infoOpen", false);
+            compare(infoPages.count, 1);
+            compare(infoPages.signalArguments[0][0], "acme.models");
+            compare(infoPages.signalArguments[0][1], "");
+            button.destroyPopup();
         }
 
         function test_the_smoke_hook_names_the_row() {
