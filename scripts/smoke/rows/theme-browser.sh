@@ -48,7 +48,7 @@ offer_name() { view_value offer | py_reply 'import json,sys; o=json.load(sys.std
 # rest_texts: every text the browser draws outside its rail and its tabs,
 # sorted and once each; rest_has TEXT: whether TEXT is one of them. At rest
 # the theme view draws the selected name and its search hint, and
-# the wallpaper view that hint beside its source line and, with two
+# the wallpaper view that hint beside its divider and source line and, with two
 # screens, its scope words. A typed filter shows in place of the hint.
 rest_texts() {
   ipc smoke descendantGeometry overlay vgs.themes | py_reply '
@@ -1099,18 +1099,19 @@ expect "the view starts on every monitor" '"every"' wall_value scope
 expect "two screens show the scope control" true wall_value scoped
 expect_poll "the selection starts on the image every screen shows" "$nord_a" wall_selected
 expect "the wallpaper card decodes at card size times screen scale" True card_source_size_matches "$nord_a"
-expect_poll "the resting wallpaper view draws its hint line and scope words alone" '["All monitors", "Show all", "This monitor", "Type a wallpaper or image file name to search |"]' rest_texts
+expect_poll "the resting wallpaper view draws its hint line and scope words alone" '["All monitors", "Show all", "This monitor", "Type a wallpaper or image file name to search", "|"]' rest_texts
 expect "the wallpaper view draws no search field" absent search_field
 
 # The wallpaper filter: text reaches the filter, filters the rail, Space
 # stays text, Ctrl+U clears, Clear filter works from the empty state, and
 # Escape clears before it closes.
 wall_rail="$(rail_top)" || fail "the wallpaper rail's top before the filter is unreadable"
-wall_plate="$(text_plate "Type a wallpaper or image file name to search |")" || fail "the wallpaper hint's plate is unreadable"
+wall_plate="$(text_plate "Type a wallpaper or image file name to search")" || fail "the wallpaper hint's plate is unreadable"
 type_keys "b." || fail "typing the wallpaper filter failed"
 expect_poll "typing reaches the wallpaper filter" '"b."' wall_value filterText
 expect_poll "the wallpaper filter keeps b.jpg alone" "[\"$nord_b\"]" wall_keys
-expect_poll "the wallpaper footer shows the typed filter in place of the hint" '["All monitors", "Show all", "This monitor", "b."]' rest_texts
+# The divider before Show all belongs to the source line and stays.
+expect_poll "the wallpaper footer shows the typed filter in place of the hint" '["All monitors", "Show all", "This monitor", "b.", "|"]' rest_texts
 expect "the typed wallpaper filter rests on the hint's plate, at its top and height" "$wall_plate" text_plate b.
 expect "a typed wallpaper filter leaves the rail where it was" held rail_held "$wall_rail"
 type_keys -k space || fail "sending Space to the wallpaper filter failed"
@@ -1123,7 +1124,7 @@ expect "the wallpaper footer shows the filter no card matches" True rest_has zzq
 expect "a wallpaper filter no card matches leaves the rail where it was" held rail_held "$wall_rail"
 click_in vgs:overlay overlay vgs.themes Button "Clear filter" || fail "the wallpaper Clear filter click failed"
 expect_poll "Clear filter clears the wallpaper filter" '""' wall_value filterText
-expect_poll "Clear filter puts the wallpaper hint back" True rest_has "Type a wallpaper or image file name to search |"
+expect_poll "Clear filter puts the wallpaper hint back" True rest_has "Type a wallpaper or image file name to search"
 type_keys "b." || fail "typing the wallpaper filter before Escape failed"
 expect_poll "the wallpaper filter is set before Escape" '"b."' wall_value filterText
 type_keys -k Escape || fail "sending Escape with a wallpaper filter failed"

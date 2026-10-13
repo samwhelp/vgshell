@@ -478,7 +478,7 @@ FocusScope {
                             anchors.verticalCenter: parent.verticalCenter
                             visible: root.filterText !== ""
                             role: "h3"
-                            width: Math.min(implicitWidth, caption.width - 2 * searchInset.inset - sourceLine.width - searchLine.spacing)
+                            width: Math.min(implicitWidth, caption.width - 2 * searchInset.inset - searchDivider.width - sourceLine.width - 2 * searchLine.spacing)
                             elide: Text.ElideMiddle
                             color: Theme.carousel.typed
                             text: root.filterText
@@ -488,7 +488,16 @@ FocusScope {
                             anchors.verticalCenter: parent.verticalCenter
                             visible: root.filterText === ""
                             role: "itemHint"
-                            text: "Type a wallpaper or image file name to search |"
+                            text: "Type a wallpaper or image file name to search"
+                            color: Theme.carousel.searchHint
+                        }
+                        // The divider belongs to the source line: it stays
+                        // between the typed filter and Show all too.
+                        Label {
+                            id: searchDivider
+                            anchors.verticalCenter: parent.verticalCenter
+                            role: "itemHint"
+                            text: "|"
                             color: Theme.carousel.searchHint
                         }
 
