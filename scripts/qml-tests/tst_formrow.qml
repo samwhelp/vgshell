@@ -151,6 +151,23 @@ Item {
     // A label of two lines beside a one-line control: its ring ends under
     // the row box.
     FormRow { id: explainedLong; y: 1700; width: 420; label: "Hide or show the top bar"; labelTooltip: "Hides the top bar."; Select { width: parent.width; model: ["None"] } }
+    // A hinted row whose label has two lines, and the row under it: the
+    // room under the hint's top holds a band of one line.
+    Column {
+        id: hintedColumn
+        y: 1780
+        width: 570
+        Field {
+            id: hintedAbove
+            width: parent.width
+            inline: true
+            label: "Constant frame rate"
+            labelTooltip: "Records frames at a fixed interval, even when nothing moves."
+            hint: "Some video editors need a constant frame rate"
+            Switch { size: "sm" }
+        }
+        FormRow { id: underHinted; width: parent.width; label: "Include pointer"; Switch { size: "sm" } }
+    }
     FormRow {
         id: paged
         y: 1540
@@ -316,6 +333,22 @@ Item {
                     verify(data.row.besideHeight <= data.row.labelBox + 2 * Theme.stack.row, "the tooltip fits the row gap beside the switch: " + data.row.besideHeight);
                     compare(start.y <= data.hint.mapToItem(data.row, 0, 0).y, true, "the tooltip covers the hint from its top: " + start.y);
                 }
+            });
+        }
+
+        // Beside a ring that reaches the hint the band takes the whole
+        // value column, so an explainer of one line there stays on one line
+        // and ends at or above the next row's top.
+        function test_a_label_tooltip_over_the_hint_ends_above_the_next_row() {
+            const hinted = hintedRow(hintedAbove);
+            compare(labelOf(hinted.row).lineCount, 2);
+            const tip = tipOf(hinted.row);
+            showStill(hinted.row, tip, popup => {
+                const anchor = popup.anchor;
+                const top = tip.anchorItem.mapToItem(hintedColumn, anchor.rect.x, anchor.rect.y + anchor.rect.height - anchor.margins.bottom);
+                compare(top.x, hinted.row.valueX, "the band starts beside the ring");
+                compare(top.y <= hinted.hint.mapToItem(hintedColumn, 0, 0).y, true, "the band covers the hint from its top: " + top.y);
+                compare(top.y + popup.implicitHeight <= underHinted.y, true, "the band reaches the next row: " + (top.y + popup.implicitHeight) + " next " + underHinted.y);
             });
         }
 

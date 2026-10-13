@@ -191,6 +191,8 @@ Item {
         SettingField { id: explainedChoice; key: "mode"; spec: ({ type: "enum", label: "Result", tooltip: "What a capture does.", options: [{ value: "both", label: "Save and copy" }, { value: "copy", label: "Copy" }] }); value: "both" }
     }
 
+    Component { id: shippedField; SettingField { pluginId: "vgs.capture" } }
+
     TestCase {
         name: "settingfield"
         when: windowShown
@@ -440,6 +442,41 @@ Item {
 
         function labelOf(owner) {
             return descendants(owner).find(child => child.objectName === "fieldLabel" && child.visible);
+        }
+
+        // Whether the setting's explainer, opened under its row over the
+        // description, takes more than one line. The room under a
+        // description's top holds a band of one line and no more. The row
+        // is as wide as a Settings page: the window less its panel inset.
+        function explainerWraps(key, spec) {
+            const made = createTemporaryObject(shippedField, root, { width: Theme.size.window.width - 2 * Theme.surface.padding, key: key, spec: spec, value: spec.default });
+            const row = descendants(made).find(child => child.objectName === "fieldRow");
+            if (row.explainBeside) return false;
+            const tip = descendants(labelOf(made)).find(child => String(child).indexOf("Tooltip") === 0);
+            compare(tip.text, spec.tooltip);
+            tip.shown = true;
+            try {
+                verify(tip.opened, "the explainer opens its own surface");
+                const title = descendants(tip.tracker.popup.contentItem).find(child => child.objectName === "tooltipTitle");
+                return title.lineCount > 1;
+            } finally {
+                tip.shown = false;
+            }
+        }
+
+        // Capture ships the settings that carry both an explainer and a
+        // description; a plugin that adds one adds its manifest here.
+        function test_a_shipped_explainer_over_a_description_keeps_one_line() {
+            const request = new XMLHttpRequest();
+            request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.capture/manifest.json"), false);
+            request.send();
+            const schema = JSON.parse(request.responseText).schema;
+            const keys = Object.keys(schema).filter(key => schema[key].tooltip !== undefined && schema[key].description !== undefined);
+            verify(keys.length > 0, "the manifest holds no explained setting with a description");
+            for (const key of keys)
+                verify(!explainerWraps(key, schema[key]), key + ": the explainer wraps over its description: " + schema[key].tooltip);
+            const planted = Object.assign({}, schema[keys[0]], { tooltip: "Records every frame at the same interval, even when nothing on the screen moves, for as long as the recording runs." });
+            verify(explainerWraps(keys[0], planted), "control: a planted long explainer wraps");
         }
 
         function test_a_label_tooltip_opens_on_hover_and_keyboard_focus() {

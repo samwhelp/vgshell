@@ -369,6 +369,7 @@ mutations=(
   "a label tooltip under the row clips the hint's top|controls/FormRow.qml|+ Theme.tooltip.gap : underText|+ Theme.tooltip.gap : underText + Theme.row.height|tst_formrow.qml"
   "a label tooltip under the row touches the focused label's ring|controls/FormRow.qml|underText < 0 ? Math.max(ringBottom, boxHeight) + Theme.tooltip.gap|underText < 0 ? boxHeight + Theme.tooltip.gap|tst_formrow.qml"
   "a label tooltip over the hint runs under the focused label's ring|controls/FormRow.qml|underX: ringAtUnderText ? valueX : 0|underX: 0|tst_formrow.qml"
+  "a label tooltip over the hint wraps short of the row's end and reaches the next row|controls/FormRow.qml|: root.width - root.underX - 2 * Theme.tooltip.paddingX|: root.besideWrap|tst_formrow.qml"
   "a label tooltip under the row draws the input's fill|overlay/Tooltip.qml|band: ({ background: Theme.color.surfaceHover, border: Theme.color.surfaceHover,|band: ({ background: Theme.textField.background, border: Theme.textField.background,|tst_formrow.qml"
   "a label tooltip under the row draws the tooltip's outlined box|overlay/Tooltip.qml|standard: root.side === \"belowStart\" ? root.band : Theme.tooltip|standard: Theme.tooltip|tst_formrow.qml"
   "a field keeps its hint from its row's tooltip|controls/Field.qml|textBelow: root.inline && root.subText|textBelow: false|tst_formrow.qml"

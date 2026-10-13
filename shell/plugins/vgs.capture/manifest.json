@@ -41,7 +41,7 @@
     "quality": { "type": "enum", "label": "Quality", "options": [{ "value": "medium", "label": "Medium" }, { "value": "high", "label": "High" }, { "value": "very_high", "label": "Very high" }, { "value": "ultra", "label": "Ultra" }], "group": "Recording" },
     "frameRate": { "type": "number", "label": "Frames per second", "min": 1, "max": 240, "step": 1, "group": "Recording" },
     "codec": { "type": "enum", "label": "Video codec", "options": [{ "value": "auto", "label": "Auto" }, { "value": "h264", "label": "H.264" }, { "value": "hevc", "label": "HEVC" }, { "value": "av1", "label": "AV1" }, { "value": "vp9", "label": "VP9" }], "group": "Recording" },
-    "constantFrameRate": { "type": "boolean", "label": "Constant frame rate", "tooltip": "Records every frame at the same interval, even when nothing on the screen moves.", "description": "Some video editors need it", "group": "Recording" },
+    "constantFrameRate": { "type": "boolean", "label": "Constant frame rate", "tooltip": "Records frames at a fixed interval, even when nothing moves.", "description": "Some video editors need it", "group": "Recording" },
     "recordCursor": { "type": "boolean", "label": "Include pointer", "group": "Recording" },
     "audioSources": { "type": "list", "label": "Extra audio sources", "description": "Each source records as its own audio track", "group": "Recording",
       "items": { "source": { "type": "string", "label": "Source", "optionsFrom": "audioSources" } }, "defaults": { "source": "" } },
