@@ -755,6 +755,7 @@ FocusScope {
                                 // their own label, with the last refusal
                                 // of each open under them.
                                 Column {
+                                    id: moreSetup
                                     width: statusGroups.width
                                     spacing: Theme.field.gap
                                     visible: statusPart.modelData.buttons.length > 0
@@ -765,6 +766,7 @@ FocusScope {
                                         width: parent.width
                                         label: "More setup"
                                         inline: true
+                                        hint: Steps.withheldHint(statusPart.modelData.buttons)
                                         Flow {
                                             width: parent.width
                                             spacing: Theme.rowAction.gap
@@ -775,12 +777,10 @@ FocusScope {
                                                 }
                                                 // A withheld screen's action
                                                 // takes no press and no Tab
-                                                // stop; its reason opens on
+                                                // stop; its reason reads in
+                                                // the row's hint and opens on
                                                 // hover, which reaches a
-                                                // disabled item in Qt Quick,
-                                                // and the Status section names
-                                                // what is missing for a
-                                                // keyboard user.
+                                                // disabled item in Qt Quick.
                                                 Loader {
                                                     id: setupScreen
                                                     required property var modelData
@@ -824,7 +824,10 @@ FocusScope {
                                             color: Theme.color.danger
                                             text: page.row === null || page.panel === null ? "" : page.panel.replyOf(page.row.id, modelData)
                                             visible: text !== ""
-                                            width: parent.width
+                                            // A Repeater's delegate has no
+                                            // parent while it is made or torn
+                                            // down; the Column does.
+                                            width: moreSetup.width
                                             wrapMode: Text.Wrap
                                         }
                                     }
@@ -916,31 +919,49 @@ FocusScope {
                         }
 
                         // Each screen opens through the manager, and the
-                        // last refusal of one reads under the row. A
+                        // last refusal of each reads under the row in its
+                        // own line, so it never takes the hint's place. A
                         // withheld screen takes no press and no Tab stop;
-                        // its reason opens on hover, as on Setup.
-                        Field {
+                        // its reason reads in the row's hint and opens on
+                        // hover, as on Setup.
+                        Column {
+                            id: detailActions
                             width: parent.width
-                            label: "Actions"
-                            inline: true
+                            spacing: Theme.field.gap
                             visible: page.detailScreens.length > 0
-                            error: page.row === null || page.panel === null ? ""
-                                : page.detailScreens.map(screen => page.panel.replyOf(page.row.id, page.panel.tuiKey(screen.name))).find(reply => reply !== "") || ""
-                            RowActions {
+                            Field {
                                 width: parent.width
-                                Repeater {
-                                    model: ScriptModel {
-                                        values: page.detailScreens
-                                        objectProp: "key"
+                                label: "Actions"
+                                inline: true
+                                hint: Steps.withheldHint(page.detailScreens)
+                                RowActions {
+                                    width: parent.width
+                                    Repeater {
+                                        model: ScriptModel {
+                                            values: page.detailScreens
+                                            objectProp: "key"
+                                        }
+                                        RowAction {
+                                            id: detailScreen
+                                            required property var modelData
+                                            text: modelData.label
+                                            enabled: page.editable && modelData.enabled
+                                            onClicked: page.panel.openTui(page.row.id, modelData.name)
+                                            Tooltip { text: detailScreen.modelData.reason }
+                                        }
                                     }
-                                    RowAction {
-                                        id: detailScreen
-                                        required property var modelData
-                                        text: modelData.label
-                                        enabled: page.editable && modelData.enabled
-                                        onClicked: page.panel.openTui(page.row.id, modelData.name)
-                                        Tooltip { text: detailScreen.modelData.reason }
-                                    }
+                                }
+                            }
+                            Repeater {
+                                model: page.panel === null ? [] : page.detailScreens.map(screen => page.panel.tuiKey(screen.name))
+                                Label {
+                                    required property string modelData
+                                    role: "hint"
+                                    color: Theme.color.danger
+                                    text: page.row === null || page.panel === null ? "" : page.panel.replyOf(page.row.id, modelData)
+                                    visible: text !== ""
+                                    width: detailActions.width
+                                    wrapMode: Text.Wrap
                                 }
                             }
                         }

@@ -590,6 +590,27 @@ function verify(logic) {
         [["tools", false, "Needs acme-other. Install all missing first."]], "Details: a withheld screen draws disabled with the core's reason");
     same(new Set([true, false].map(held => logic.freeScreens(MIXED.map(tui => Object.assign({}, tui, { withheld: held ? "Needs acme-other." : "" })), mixedStatus, false)[0].key)).size, 2,
         "Details: a screen that turns withheld is drawn anew");
+    // A withheld screen's reason reads under its row, not on hover alone:
+    // [label, the screens as [label, enabled, reason], the line].
+    for (const [label, buttons, want] of [
+        ["every screen takes a press", [["Configure", true, ""], ["Manage tools", true, ""]], ""],
+        ["one reason names each screen it withholds", [["Configure", false, "Needs acme-tool. Install all missing first."], ["Choose model", false, "Needs acme-tool. Install all missing first."]],
+            "Configure, Choose model: Needs acme-tool. Install all missing first."],
+        ["a screen that takes a press is not named", [["Configure", false, "Needs acme-tool. Install all missing first."], ["Manage tools", true, ""]],
+            "Configure: Needs acme-tool. Install all missing first."],
+        ["each reason reads once, in drawn order", [["Configure", false, "Needs acme-tool. Install all missing first."], ["Accounts", false, "Needs acme-other. Install all missing first."], ["Choose model", false, "Needs acme-tool. Install all missing first."]],
+            "Configure, Choose model: Needs acme-tool. Install all missing first. Accounts: Needs acme-other. Install all missing first."],
+    ]) same(logic.withheldHint(buttons.map(([name, enabled, reason]) => ({ label: name, enabled, reason }))), want, "withheldHint: " + label);
+    // The More setup row's hint over the Flow the page draws: a setup
+    // screen no step owns, which needs a command the scan did not find.
+    const screened = {
+        requirements: [{ name: "acme-other", bus: null, packages: {}, optional: false, purpose: "Another tool", floor: null }],
+        tui: { configure: { script: "tui/configure.sh", title: "Configure", size: "default", presentation: "full", entry: { label: "Configure", icon: "sliders-horizontal", group: "Acme", setup: true }, requires: ["acme-other"] } },
+        status: {}
+    };
+    const flowHint = missing => logic.withheldHint(logic.flowButtons(producer.listedTuiRows(screened, missing), producer.statusRows(screened, {}, missing), null));
+    same(flowHint(["acme-other"]), "Configure: Needs acme-other. Install all missing first.", "More setup: a withheld setup screen's row says why");
+    same(flowHint([]), "", "More setup: a screen that lacks nothing gives no reason line");
     // Two acts of one headline under two labels, each opening no screen.
     const twoActs = Object.assign({}, HEADED, { status: { setup: Object.assign({}, HEADED.status.setup, { actions: Object.assign({ enable: { label: "Enable tool", system: "apple-displays" } }, HEADED.status.setup.actions) }) } });
     same(new Set(["allow", "enable"].map(action => flowOf(logic, HEADED_TUIS, producer.statusRows(twoActs, { setup: { tone: "warning", text: "To do", action: action } }, []))[0])
@@ -743,7 +764,10 @@ const CONTROLS = [
     ["setup material gives no Setup tab", "return sections.length > 0 || requirements.some(requirementApplies);", "return requirements.some(requirementApplies);"],
     ["no step holds the primary", "return item.button !== null && item.button.primary; });", "return false; });"],
     ["every step action holds the primary", "return item.button !== null && item.button.primary; });", "return item.button !== null; });"],
-    ["a step's slot ignores its rank", 'return row(entry, true, entry.key + ":" + stepRank(entry)); })', "return row(entry, true, entry.key); })", "slot: an open step that is done moves"]
+    ["a step's slot ignores its rank", 'return row(entry, true, entry.key + ":" + stepRank(entry)); })', "return row(entry, true, entry.key); })", "slot: an open step that is done moves"],
+    ["a withheld screen's reason is dropped from the Flow", 'reason: enabled ? "" : tui.withheld', 'reason: ""'],
+    ["a withheld screen gives no reason line", "        if (button.enabled) return;\n", "        return;\n"],
+    ["a screen that takes a press is named in the reason line", "        if (button.enabled) return;\n", ""]
 ];
 
 const source = fs.readFileSync(file, "utf8");

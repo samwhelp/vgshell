@@ -351,6 +351,25 @@ function freeScreens(tuis, status, setup) {
     });
 }
 
+// The line a row of screens BUTTONS, flowButtons' or freeScreens', draws
+// under itself while one takes no press: for each reason, in drawn order,
+// the labels of the screens it withholds and that reason, the core's
+// `withheld`, so a reader sees why without the tooltip; "" while every
+// screen takes a press.
+function withheldHint(buttons) {
+    var reasons = [];
+    var labels = Object.create(null);
+    buttons.forEach(function (button) {
+        if (button.enabled) return;
+        if (labels[button.reason] === undefined) {
+            reasons.push(button.reason);
+            labels[button.reason] = [];
+        }
+        labels[button.reason].push(button.label);
+    });
+    return reasons.map(function (reason) { return labels[reason].join(", ") + ": " + reason; }).join(" ");
+}
+
 // Choose the first open required step of SECTIONS before inspecting its
 // action, for KEYED, the page's keyedGroups. An actionless step that asks
 // (stepAsks) cannot hand its primary to a later step or Flow screen; one

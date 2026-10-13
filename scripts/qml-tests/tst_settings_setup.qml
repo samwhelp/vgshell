@@ -304,6 +304,16 @@ Item {
             compare(screens().map(rowOf), ["Actions"], "Details draws the withheld screen");
             compare(screens()[0].enabled, false, "a withheld screen takes no press");
             compare(descendants(screens()[0]).find(item => item instanceof Tooltip).text, "Needs acme-tool. Install all missing first.", "its hover names the core's reason");
+            const actionsRow = descendants(pageOf(window)).find(item => item instanceof Field && item.visible && descendants(item).indexOf(screens()[0]) !== -1);
+            compare(actionsRow.hint, "Manage tools: Needs acme-tool. Install all missing first.", "the row's hint names the reason without a hover");
+            // A refusal kept from an earlier open reads on its own line and
+            // leaves the hint in place. The window logs the refusal it keeps.
+            ignoreWarning(/^settings: acme\.held\/tui:tools refused: tui=tools reason=busy$/);
+            window.keep(window.stepKey("acme.held", window.tuiKey("tools")), "refused: tui=tools reason=busy");
+            const refusal = window.replyOf("acme.held", window.tuiKey("tools"));
+            verify(refusal !== "", "the planted refusal is kept");
+            compare(actionsRow.error, "", "a refusal does not take the hint's place");
+            tryVerify(() => descendants(pageOf(window)).some(item => item instanceof Label && item.visible && item.text === refusal && descendants(actionsRow).indexOf(item) === -1), 2000, "the refusal reads under the row on its own line");
         }
 
         // Details is the strip's third page beside a Setup tab and draws
