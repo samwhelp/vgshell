@@ -47,7 +47,8 @@ expect "a plugin's call with an argument that is not text is refused" "refused: 
 expect "configure writes a declared setting" ok probe set 'label="via-configure"'
 expect_poll "the running service received the setting it wrote" '"via-configure"' read_service label
 expect "configure refuses a value of the wrong type" "refused: setting=label want=string" probe set 'label=3'
-expect "configure refuses an undeclared setting" "refused: setting=tags undeclared" probe set 'tags="x"'
+expect "configure refuses a setting the manifest does not declare" "refused: setting=absent undeclared" probe set 'absent="x"'
+expect "configure refuses another type for a setting with no schema entry" "refused: setting=tags want=list" probe set 'tags="x"'
 expect "configure refuses to unset an undeclared setting" "refused: setting=id undeclared" probe unset id
 
 # A widget placed twice writes its plugins row, which its service and both

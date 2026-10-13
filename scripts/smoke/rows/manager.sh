@@ -1115,7 +1115,7 @@ expect "the window toggles the fixture off" ok ipc smoke invokeInstance window v
 expect_poll "listPlugins reads the fixture disabled" False plugin_enabled acme.probe
 expect_poll "the window shows the fixture disabled" '{"acme.bare": true, "acme.probe": false, "vgs.bar": true}' manager_rows
 # The window logs each refusal it shows on a page.
-expected_errors+=('settings: acme\.probe refused: disabled=acme\.probe' 'settings: acme\.probe refused: setting=tags undeclared' 'settings: acme\.probe refused: setting=size want=at-most:40')
+expected_errors+=('settings: acme\.probe refused: disabled=acme\.probe' 'settings: acme\.probe refused: setting=absent undeclared' 'settings: acme\.probe refused: setting=tags want=list' 'settings: acme\.probe refused: setting=size want=at-most:40')
 expect "the window refuses a setting for a disabled plugin" "refused: disabled=acme.probe" ipc smoke invokeInstance window vgs.settings applySetting '{"id":"acme.probe","key":"label","value":"x"}'
 expect "the page shows the refusal" '{"acme.probe":"Turn on this plugin before you change it."}' ipc smoke readInstance window vgs.settings replies
 expect "the window toggles the fixture back on" ok ipc smoke invokeInstance window vgs.settings toggle acme.probe
@@ -1131,7 +1131,8 @@ manager_size() { settings_rows | py_reply 'import json,sys; print(json.dumps([r[
 expect "the fixture's drawn slider applies a value" applied ipc smoke invokeInstance window vgs.settings applyField '{"id":"acme.probe","key":"size","value":20}'
 expect_poll "the window reads back the slider's value" 20 manager_size
 expect "a number past its max is refused" "refused: setting=size want=at-most:40" ipc smoke invokeInstance window vgs.settings applySetting '{"id":"acme.probe","key":"size","value":41}'
-expect "the window refuses a setting outside the schema" "refused: setting=tags undeclared" ipc smoke invokeInstance window vgs.settings applySetting '{"id":"acme.probe","key":"tags","value":"x"}'
+expect "the window refuses a setting the manifest does not declare" "refused: setting=absent undeclared" ipc smoke invokeInstance window vgs.settings applySetting '{"id":"acme.probe","key":"absent","value":"x"}'
+expect "the window refuses another type for a setting with no schema entry" "refused: setting=tags want=list" ipc smoke invokeInstance window vgs.settings applySetting '{"id":"acme.probe","key":"tags","value":"x"}'
 expect "a later write clears the refusal" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"acme.probe","key":"size","value":12}'
 
 # Plugins is always on (its manifest's `alwaysOn`): its own page draws no
