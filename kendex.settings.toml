@@ -195,3 +195,9 @@ COMMAND_SAFETY_DENY_PATTERN = "(^|[^[:alnum:]_-])systemd-run[[:space:]][^;|&]*Me
 # A machine with no master never has the file, so nothing is held there.
 SLACK_MASTER_FILE = "~/.fleet/master-live"
 SLACK_MASTER_MAX_AGE = "1800"
+
+# Both Copilot homes stay out of every lane pick until GitHub's monthly reset
+# on 2026-11-01 or the owner's word: the 1copilot seat is past its monthly
+# credits and further requests bill as overage (Jarvis note 1791932492,
+# VG-547). A process environment value of this key wins over this line.
+ORCH_LANE_RETIRE = "1copilot=2026-10-13,copilot=2026-10-13"
