@@ -58,7 +58,7 @@
       "type": "presenceList",
       "label": "Keys",
       "group": "Google Drive",
-      "hint": "Get one OAuth client ID of type Desktop app from Google Cloud credentials.",
+      "hint": "Get one OAuth client ID of type Desktop app from Google Cloud credentials",
       "link": { "text": "Google Cloud credentials", "url": "https://console.cloud.google.com/apis/credentials" },
       "info": "Add the client ID and secret. Then select Connect. VGS stores every key in your keyring."
     },

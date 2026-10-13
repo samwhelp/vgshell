@@ -35,7 +35,7 @@
         "command": {
           "type": "string",
           "label": "App",
-          "description": "The command that starts the app.",
+          "description": "The command that starts the app",
           "presets": [
             { "value": "xdg-terminal-exec --app-id=org.vgs.pad", "label": "Terminal" },
             { "value": "xdg-terminal-exec --app-id=org.vgs.pad.2", "label": "Second terminal" },
@@ -65,7 +65,7 @@
         "entry": { "type": "enum", "label": "Comes in from", "options": [{ "value": "top", "label": "Top" }, { "value": "bottom", "label": "Bottom" }, { "value": "left", "label": "Left" }, { "value": "right", "label": "Right" }] },
         "motion": { "type": "enum", "label": "Motion", "options": [{ "value": "slide", "label": "Slide" }, { "value": "fade", "label": "Fade" }, { "value": "none", "label": "None" }] },
         "screen": { "type": "string", "label": "Screen", "optionsFrom": "screens" },
-        "preload": { "type": "boolean", "label": "Start at login", "description": "The first press shows the app at once." }
+        "preload": { "type": "boolean", "label": "Start at login", "description": "The first press shows the app at once" }
       },
       "defaults": {
         "command": "xdg-terminal-exec --app-id=org.vgs.pad",

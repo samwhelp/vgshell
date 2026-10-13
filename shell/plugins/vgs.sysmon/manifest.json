@@ -88,7 +88,7 @@
         { "value": "Stacked", "label": "Stacked" },
         { "value": "One line", "label": "One line" }
       ],
-      "description": "Stacked shows two readings on two short lines.",
+      "description": "Stacked shows two readings on two short lines",
       "group": "Readings"
     },
     "labelStyle": {
@@ -98,7 +98,7 @@
         { "value": "icons", "label": "Icons" },
         { "value": "text", "label": "Text" }
       ],
-      "description": "Shows an icon or a short name before each reading.",
+      "description": "Shows an icon or a short name before each reading",
       "group": "Readings"
     },
     "refreshSeconds": {
@@ -117,7 +117,7 @@
         { "value": "Celsius", "label": "Celsius" },
         { "value": "Fahrenheit", "label": "Fahrenheit" }
       ],
-      "description": "Sets the unit for CPU and GPU temperatures.",
+      "description": "Sets the unit for CPU and GPU temperatures",
       "group": "Readings"
     },
     "showCpu": {
@@ -134,7 +134,7 @@
       "type": "string",
       "label": "CPU temperature sensor",
       "optionsFrom": "cpuSensors",
-      "description": "Automatic keeps the CPU sensor selected by the system.",
+      "description": "Automatic keeps the CPU sensor selected by the system",
       "group": "CPU"
     },
     "showMemory": {

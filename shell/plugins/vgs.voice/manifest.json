@@ -185,7 +185,7 @@
   "sounds": {
     "feedback": {
       "label": "Dictation sounds",
-      "description": "A tone tells you when dictation starts, stops or fails.",
+      "description": "A tone tells you when dictation starts, stops or fails",
       "own": "Dictation tones",
       "held": true
     }

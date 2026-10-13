@@ -72,7 +72,7 @@ Scope {
     function leftLine(shown, entry) {
         switch (entry.kind) {
         case "missing":
-            return entry.optional ? entry.name + " is optional. The install skipped it." : entry.name + " is still missing after the install.";
+            return entry.optional ? entry.name + " is optional. " + step(shown) + " left it out, and " + shown.name + " works without it." : entry.name + " is still missing after the install.";
         case "outdated":
             return entry.name + " is still version " + entry.version + " after the update. " + shown.name + " needs version " + entry.floor + " or later.";
         }

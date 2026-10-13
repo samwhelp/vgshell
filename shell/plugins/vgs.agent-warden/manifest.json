@@ -69,7 +69,7 @@
     "setup": {
       "type": "state",
       "label": "Warden setup",
-      "hint": "Set up starts the Agent Warden checks in a floating terminal.",
+      "hint": "Set up starts the Agent Warden checks in a floating terminal",
       "action": { "label": "Set up", "tui": "setup" }
     },
     "agents": {

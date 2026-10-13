@@ -376,6 +376,8 @@ function schemaError(schema, settings, status) {
             return at + ".label must be a non-empty string";
         if (entry.description !== undefined && typeof entry.description !== "string")
             return at + ".description must be a string when present";
+        if (entry.description !== undefined && !hintFits(entry.description))
+            return at + ".description" + HINT_RULE;
         // A field reads the existing manager status row's live hint (D037).
         // An unreported state has no hint; a fixed description cannot mask it.
         if (entry.hintFrom !== undefined) {
@@ -539,6 +541,32 @@ function isPrintableLine(text, max) {
     return typeof text === "string" && text.length > 0 && text.length <= max && !SettingValues.CONTROL_OR_SEPARATOR.test(text);
 }
 
+// The refusal of a text hintFits refuses, after the text's key.
+var HINT_RULE = " must end with no full stop when it is one sentence, and end each sentence with one when it is longer";
+
+// The sentences of hint `text`: each ends where a full stop, a question
+// mark or an exclamation mark meets a space, and keeps its mark, which the
+// split's capture group hands back.
+function hintSentences(text) {
+    var parts = text.split(/([.?!]) +/);
+    var sentences = [];
+    for (var i = 0; i < parts.length; i += 2)
+        sentences.push(i + 1 < parts.length ? parts[i] + parts[i + 1] : parts[i]);
+    return sentences;
+}
+
+// Whether hint `text` keeps the copy rule (docs/architecture/design-system.md
+// § Copy): a hint of one sentence ends with no full stop, and each sentence
+// of a longer hint ends with one. It judges every declared text a Settings
+// page draws as a hint: a schema entry's description, a status entry's
+// hint, a sound event's description and a requirement's purpose.
+function hintFits(text) {
+    var sentences = hintSentences(text);
+    if (sentences.length === 1)
+        return !/\.$/.test(text);
+    return sentences.every(function (sentence) { return /[.?!]$/.test(sentence); });
+}
+
 // How many lines of `perLine` characters `text` wraps to, or Infinity when
 // a word is longer than a line. Like Qt's line breaking (Unicode UAX #14),
 // a line breaks after a run of spaces, which takes no room at the line's
@@ -634,6 +662,8 @@ function statusError(status, capabilities, tui, system) {
             return at + ".group must be a printable line of 1 to " + STATUS_LABEL_MAX + " characters when present";
         if (entry.hint !== undefined && !isPrintableLine(entry.hint, STATUS_HINT_MAX))
             return at + ".hint must be a printable line of 1 to " + STATUS_HINT_MAX + " characters when present";
+        if (entry.hint !== undefined && !hintFits(entry.hint))
+            return at + ".hint" + HINT_RULE;
         var statusInfo = infoError(entry.info, at);
         if (statusInfo !== "")
             return statusInfo;
@@ -958,6 +988,8 @@ function soundsError(sounds, capabilities) {
             return at + ".label must be a printable line of 1 to " + STATUS_LABEL_MAX + " characters";
         if (event.description !== undefined && !isPrintableLine(event.description, STATUS_HINT_MAX))
             return at + ".description must be a printable line of 1 to " + STATUS_HINT_MAX + " characters when present";
+        if (event.description !== undefined && !hintFits(event.description))
+            return at + ".description" + HINT_RULE;
         if (event.own !== undefined && !isPrintableLine(event.own, STATUS_LABEL_MAX))
             return at + ".own must be a printable line of 1 to " + STATUS_LABEL_MAX + " characters when present";
         if (event.held !== undefined) {
@@ -1899,13 +1931,13 @@ function requirementIdentity(requirement, at) {
 // is an object whose keys are manager ids of PackageManagers.MANAGERS and
 // whose values are package names PackageManagers.validName accepts;
 // `optional`, when present, is a boolean; `purpose` is one printable line
-// of 1 to REQUIREMENT_PURPOSE_MAX characters; `floor`, when present, is a
-// version REQUIREMENT_FLOOR accepts, on a `command` alone, since a bus name
-// prints none. `install`, when present, is REQUIREMENT_ON_REQUEST, on a
-// required entry with `packages` and no `floor`: an optional entry's
-// package is an optional dependency already, an entry with no package has
-// none to carry, and a floor is checked at start, before any Requirements
-// section can install the package.
+// of 1 to REQUIREMENT_PURPOSE_MAX characters that hintFits accepts;
+// `floor`, when present, is a version REQUIREMENT_FLOOR accepts, on a
+// `command` alone, since a bus name prints none. `install`, when present,
+// is REQUIREMENT_ON_REQUEST, on a required entry with `packages` and no
+// `floor`: an optional entry's package is an optional dependency already,
+// an entry with no package has none to carry, and a floor is checked at
+// start, before any Requirements section can install the package.
 function requirementsError(requirements) {
     if (!Array.isArray(requirements))
         return "requirements must be a list";
@@ -1941,6 +1973,8 @@ function requirementsError(requirements) {
             return at + ".optional must be a boolean when present";
         if (typeof requirement.purpose !== "string" || requirement.purpose.trim().length === 0 || Array.from(requirement.purpose).length > REQUIREMENT_PURPOSE_MAX || CONTROL_CHARACTER.test(requirement.purpose))
             return at + ".purpose must be one printable line of 1 to " + REQUIREMENT_PURPOSE_MAX + " characters";
+        if (!hintFits(requirement.purpose))
+            return at + ".purpose" + HINT_RULE;
         if (requirement.floor !== undefined && requirement.command === undefined)
             return at + ".floor needs a command, whose version the scan reads";
         if (requirement.floor !== undefined && (typeof requirement.floor !== "string" || !REQUIREMENT_FLOOR.test(requirement.floor)))

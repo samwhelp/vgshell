@@ -243,7 +243,7 @@ expect_poll "the Ping row shows Chime again" 1 sfx_row Ping chosen
 expect "the plugin's own sound offers Off and that sound alone" '[["", "Off"], ["own", "Acme tone"]]' sfx_row_offers Tone
 expect "the held event's row shows the stated value, Off" 0 sfx_row Relay chosen
 expect "the held event's row shows the holder's line in the warning tone" '["The relay is stuck.","warning"]' sfx_row_note Relay
-expect "a row with no line shows its description, muted" '["Plays when the row pings.","muted"]' sfx_row_note Ping
+expect "a row with no line shows its description, muted" '["Plays when the row pings","muted"]' sfx_row_note Ping
 expect "no picker is without a choice while every value is read" absent sfx_unread_picker
 expect "the holder states that it cannot read the value" ok sfx_report '{"event":"relay","value":null,"problem":"The relay is gone."}'
 expect_poll "the held event's row shows no choice" -1 sfx_row Relay chosen

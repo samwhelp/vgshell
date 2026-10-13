@@ -34,12 +34,12 @@
     "showInLauncher": {
       "type": "boolean",
       "label": "Show full catalog in launcher",
-      "description": "Show each Dev Tools catalog row in the launcher."
+      "description": "Show each Dev Tools catalog row in the launcher"
     },
     "writeLaunchers": {
       "type": "boolean",
       "label": "Add tool commands to the terminal",
-      "description": "Write commands into ~/.local/bin and install a tool the first time you run one."
+      "description": "Write commands into ~/.local/bin and install a tool the first time you run one"
     }
   },
   "requirements": [

@@ -36,7 +36,7 @@
         "url": {
           "type": "string",
           "label": "Address",
-          "description": "The web address of the site.",
+          "description": "The web address of the site",
           "presets": [
             { "value": "", "label": "No address" },
             { "value": "https://mail.google.com/", "label": "Gmail" },
@@ -52,7 +52,7 @@
         "title": {
           "type": "string",
           "label": "Name",
-          "description": "The name the launcher shows.",
+          "description": "The name the launcher shows",
           "presets": [
             { "value": "", "label": "The site's own name" }
           ],
@@ -61,7 +61,7 @@
         "icon": {
           "type": "string",
           "label": "Icon",
-          "description": "The site's own icon, or the full path or web address of an image.",
+          "description": "The site's own icon, or the full path or web address of an image",
           "presets": [
             { "value": "", "label": "The site's own icon" }
           ],
@@ -76,7 +76,7 @@
     }
   },
   "status": {
-    "browser": { "type": "state", "label": "Browser", "hint": "Each web app opens in its own window of this browser." },
+    "browser": { "type": "state", "label": "Browser", "hint": "Each web app opens in its own window of this browser" },
     "apps": { "type": "state", "label": "Web apps" }
   }
 }

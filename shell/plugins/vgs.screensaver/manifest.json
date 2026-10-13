@@ -27,7 +27,7 @@
     "idleSeconds": {
       "type": "number",
       "label": "Start after",
-      "description": "This time and the lock time both count from the start of inactivity.",
+      "description": "This time and the lock time both count from the start of inactivity",
       "min": 1,
       "max": 86400,
       "step": 30,
@@ -48,7 +48,7 @@
     "art": {
       "type": "string",
       "label": "Art",
-      "description": "The VGS logo shows until you choose Custom… and type the full path of a PNG or SVG image or a text file.",
+      "description": "The VGS logo shows until you choose Custom… and type the full path of a PNG or SVG image or a text file",
       "presets": [{ "value": "", "label": "VGS logo" }],
       "allowCustom": true,
       "group": "Screensaver"

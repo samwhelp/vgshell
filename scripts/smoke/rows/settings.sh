@@ -1066,7 +1066,7 @@ expect_poll "a disabled plugin's step reads not reported and draws no action" '[
 expect "the window opens the notifications' page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.notifications
 expect_poll "the notifications' page opens on its Settings tab" 0 settings_tab
 settings_setup
-slack_tokens_hint="Connect each workspace to show sender photos."
+slack_tokens_hint="Connect each workspace to show sender photos"
 # The Slack token rows stay in the Setup section when photos are off.
 # A disabled plugin reports no account state and offers no token edit.
 expect_poll "with Slack photos off the disabled notifications list the Slack tokens row unreported" '[["Slack tokens", "unreported", null, ""]]' status_of vgs.notifications

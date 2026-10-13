@@ -75,7 +75,7 @@ vsys_drawn() { ipc smoke itemTexts window vgs.settings RequirementRow | py_reply
 install_drawn() { ipc smoke itemTexts window vgs.settings Button | py_reply 'import json,sys; print(sum(1 for b in json.load(sys.stdin) if b == ["Install all missing"]))'; }
 warden_hint="Checks whether AI agents stay within their memory and process limits"
 warden_info="Shows whether the vsys warden is set up, checking agents and reporting problems."
-warden_setup_hint="Set up starts the Agent Warden checks in a floating terminal."
+warden_setup_hint="Set up starts the Agent Warden checks in a floating terminal"
 # info_label TEXT: whether an open info dialog draws TEXT.
 info_label() { ipc smoke popupItemGeometry window vgs.settings "" "" Label "$1" | py_reply 'import sys; print("shown" if sys.stdin.read().strip().startswith("[") else "absent")'; }
 warden_info_dialog() { printf '%s|%s\n' "$(info_label Warden)" "$(info_label "$warden_info")"; }

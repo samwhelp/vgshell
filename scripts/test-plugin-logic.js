@@ -79,6 +79,8 @@ function suite(ctx, configLogic, check) {
         ["requirements declaring a command", { requirements: [{ command: "gum", packages: { pacman: "gum", aur: "gum-bin", dnf: "gum" }, optional: true, purpose: "Draws the update dialogs" }] }, null],
         ["requirements declaring a D-Bus name", { requirements: [{ dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles" }, packages: { dnf: "ppd-service" }, purpose: "Switches the power profile" }] }, null],
         ["requirements with only a command and a purpose", { requirements: [{ command: "notify-send", purpose: "Sends notices" }] }, null],
+        ["a requirement purpose of one sentence with a full stop is refused", { requirements: [{ command: "gum", purpose: "Draws the update dialogs." }] }, "requirements.0.purpose must end with no full stop"],
+        ["a requirement purpose of two sentences, each with its full stop", { requirements: [{ command: "gum", purpose: "Draws the update dialogs. It needs a terminal." }] }, null],
         ["requirements not a list", { requirements: { command: "gum" } }, "requirements must be a list"],
         ["a requirement that is a plugin id string", { requirements: ["vgs.settings"] }, "requirements.0 must be an object"],
         ["a requirement with an unknown key", { requirements: [{ command: "gum", purpose: "p", plugin: "vgs.settings" }] }, "requirements.0 has unknown key \"plugin\""],
@@ -196,6 +198,11 @@ function suite(ctx, configLogic, check) {
         ["schema entry with an unknown type", { settings: { a: "x" }, schema: { a: { type: "color", label: "A" } } }, "schema.a.type must be one of"],
         ["schema entry without a label", { settings: { a: "x" }, schema: { a: { type: "string", presets: [{ value: "x" }] } } }, "schema.a.label must be a non-empty string"],
         ["schema entry with a non-string description", { settings: { a: "x" }, schema: { a: { type: "string", label: "A", presets: [{ value: "x" }], description: 1 } } }, "schema.a.description must be a string"],
+        ["a one-sentence description with a full stop is refused", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Shows the clock." } } }, "schema.a.description must end with no full stop"],
+        ["a one-sentence description without a full stop", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Shows the clock" } } }, null],
+        ["a two-sentence description whose last sentence lacks its full stop is refused", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Shows the clock. A press opens the calendar" } } }, "schema.a.description must end with no full stop"],
+        ["a two-sentence description with both full stops", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Shows the clock. A press opens the calendar." } } }, null],
+        ["a list item's description is judged", { settings: { a: [] }, schema: { a: { type: "list", label: "A", items: { enabled: { type: "boolean", label: "Enabled", description: "Uses this item." } }, defaults: { enabled: true } } } }, "schema.a.items: schema.enabled.description must end with no full stop"],
         ["a field reads a live state hint", { capabilities: ["status"], status: { health: { type: "state", label: "Health" } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", hintFrom: "health" } } }, null],
         ["hintFrom is a status key", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", hintFrom: 3 } } }, "schema.a.hintFrom must name a status key"],
         ["hintFrom rejects malformed keys", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", hintFrom: "a b" } } }, "schema.a.hintFrom must name a status key"],
@@ -204,31 +211,31 @@ function suite(ctx, configLogic, check) {
         ["hintFrom needs a displayed state", { capabilities: ["status"], status: { health: { type: "state", label: "Health", hidden: true } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", hintFrom: "health" } } }, "schema.a.hintFrom must name a displayed state status entry"],
         ["hintFrom has no fixed description", { capabilities: ["status"], status: { health: { type: "state", label: "Health" } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", hintFrom: "health", description: "Fixed" } } }, "schema.a must not declare both description and hintFrom"],
         ["hintFrom belongs to a flat field", { capabilities: ["status"], status: { health: { type: "state", label: "Health" } }, settings: { a: [] }, schema: { a: { type: "list", label: "A", hintFrom: "health", items: { enabled: { type: "boolean", label: "Enabled" } }, defaults: { enabled: true } } } }, "schema.a.hintFrom needs a flat setting"],
-        ["a description link to an https address", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI.", link: { text: "OpenAI", url: "https://platform.openai.com/api-keys" } } } }, null],
-        ["a description link to an https address with a port, query and fragment", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI.", link: { text: "OpenAI", url: "https://example.org:8443/keys?tab=new#create" } } } }, null],
-        ["a description link that is not an object", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI.", link: "https://platform.openai.com/api-keys" } } }, "schema.a.link must be an object"],
-        ["a description link with an unknown key", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI.", link: { text: "OpenAI", url: "https://platform.openai.com/", label: "x" } } } }, "schema.a.link has unknown key \"label\""],
-        ["a description link without text", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI.", link: { url: "https://platform.openai.com/" } } } }, "schema.a.link.text must be a printable line of 1 to 60 characters"],
-        ["a description link text with a control character", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI.", link: { text: "Open\u001bAI", url: "https://platform.openai.com/" } } } }, "schema.a.link.text must be a printable line"],
-        ["a description link text of 61 characters", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI.", link: { text: "x".repeat(61), url: "https://platform.openai.com/" } } } }, "schema.a.link.text must be a printable line"],
-        ["a description link text its description lacks", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI.", link: { text: "Anthropic", url: "https://platform.openai.com/" } } } }, "schema.a.link.text must be words of its description"],
-        ["a description link with an http address", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI.", link: { text: "OpenAI", url: "http://platform.openai.com/" } } } }, "schema.a.link.url must be an https address of at most 2048 characters"],
-        ["a description link with a file address", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI.", link: { text: "OpenAI", url: "file:///etc/passwd" } } } }, "schema.a.link.url must be an https address"],
-        ["a description link with a javascript address", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI.", link: { text: "OpenAI", url: "javascript:alert(1)" } } } }, "schema.a.link.url must be an https address"],
-        ["a description link with an upper-case scheme", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI.", link: { text: "OpenAI", url: "HTTPS://platform.openai.com/" } } } }, "schema.a.link.url must be an https address"],
-        ["a description link with no host", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI.", link: { text: "OpenAI", url: "https:///keys" } } } }, "schema.a.link.url must be an https address"],
-        ["a description link with a user part", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI.", link: { text: "OpenAI", url: "https://me@platform.openai.com/" } } } }, "schema.a.link.url must be an https address"],
-        ["a description link with a space", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI.", link: { text: "OpenAI", url: "https://platform.openai.com/api keys" } } } }, "schema.a.link.url must be an https address"],
-        ["a description link with an option-like address", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI.", link: { text: "OpenAI", url: "--help" } } } }, "schema.a.link.url must be an https address"],
-        ["a description link address that is not a string", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI.", link: { text: "OpenAI", url: ["https://platform.openai.com/"] } } } }, "schema.a.link.url must be an https address"],
-        ["a description link address of 2049 characters", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI.", link: { text: "OpenAI", url: "https://a.org/" + "x".repeat(2035) } } } }, "schema.a.link.url must be an https address of at most 2048 characters"],
-        ["a description link address of 2048 characters", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI.", link: { text: "OpenAI", url: "https://a.org/" + "x".repeat(2034) } } } }, null],
+        ["a description link to an https address", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { text: "OpenAI", url: "https://platform.openai.com/api-keys" } } } }, null],
+        ["a description link to an https address with a port, query and fragment", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { text: "OpenAI", url: "https://example.org:8443/keys?tab=new#create" } } } }, null],
+        ["a description link that is not an object", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: "https://platform.openai.com/api-keys" } } }, "schema.a.link must be an object"],
+        ["a description link with an unknown key", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { text: "OpenAI", url: "https://platform.openai.com/", label: "x" } } } }, "schema.a.link has unknown key \"label\""],
+        ["a description link without text", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { url: "https://platform.openai.com/" } } } }, "schema.a.link.text must be a printable line of 1 to 60 characters"],
+        ["a description link text with a control character", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { text: "Open\u001bAI", url: "https://platform.openai.com/" } } } }, "schema.a.link.text must be a printable line"],
+        ["a description link text of 61 characters", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { text: "x".repeat(61), url: "https://platform.openai.com/" } } } }, "schema.a.link.text must be a printable line"],
+        ["a description link text its description lacks", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { text: "Anthropic", url: "https://platform.openai.com/" } } } }, "schema.a.link.text must be words of its description"],
+        ["a description link with an http address", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { text: "OpenAI", url: "http://platform.openai.com/" } } } }, "schema.a.link.url must be an https address of at most 2048 characters"],
+        ["a description link with a file address", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { text: "OpenAI", url: "file:///etc/passwd" } } } }, "schema.a.link.url must be an https address"],
+        ["a description link with a javascript address", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { text: "OpenAI", url: "javascript:alert(1)" } } } }, "schema.a.link.url must be an https address"],
+        ["a description link with an upper-case scheme", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { text: "OpenAI", url: "HTTPS://platform.openai.com/" } } } }, "schema.a.link.url must be an https address"],
+        ["a description link with no host", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { text: "OpenAI", url: "https:///keys" } } } }, "schema.a.link.url must be an https address"],
+        ["a description link with a user part", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { text: "OpenAI", url: "https://me@platform.openai.com/" } } } }, "schema.a.link.url must be an https address"],
+        ["a description link with a space", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { text: "OpenAI", url: "https://platform.openai.com/api keys" } } } }, "schema.a.link.url must be an https address"],
+        ["a description link with an option-like address", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { text: "OpenAI", url: "--help" } } } }, "schema.a.link.url must be an https address"],
+        ["a description link address that is not a string", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { text: "OpenAI", url: ["https://platform.openai.com/"] } } } }, "schema.a.link.url must be an https address"],
+        ["a description link address of 2049 characters", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { text: "OpenAI", url: "https://a.org/" + "x".repeat(2035) } } } }, "schema.a.link.url must be an https address of at most 2048 characters"],
+        ["a description link address of 2048 characters", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { text: "OpenAI", url: "https://a.org/" + "x".repeat(2034) } } } }, null],
         ["a description link needs its description", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", link: { text: "OpenAI", url: "https://platform.openai.com/" } } } }, "schema.a.link.text must be words of its description"],
-        ["a description link belongs to a flat field", { settings: { a: [] }, schema: { a: { type: "list", label: "A", description: "Get a key at OpenAI.", link: { text: "OpenAI", url: "https://platform.openai.com/" }, items: { enabled: { type: "boolean", label: "Enabled" } }, defaults: { enabled: true } } } }, "schema.a.link needs a flat setting"],
-        ["a description link refuses the old pane key", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Tones are set in Appearance → Sounds.", link: { text: "Appearance → Sounds", pane: "vgs.sounds" } } } }, "schema.a.link has unknown key \"pane\""],
-        ["a description link refuses the old pane key beside an address", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Tones are set in Appearance → Sounds.", link: { text: "Appearance → Sounds", url: "https://example.org/", pane: "vgs.sounds" } } } }, "schema.a.link has unknown key \"pane\""],
-        ["a description link needs an address", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Tones are set in Appearance → Sounds.", link: { text: "Appearance → Sounds" } } } }, "schema.a.link.url must be an https address"],
-        ["a list item's description link is judged", { settings: { a: [] }, schema: { a: { type: "list", label: "A", items: { enabled: { type: "boolean", label: "Enabled", description: "Get a key at OpenAI.", link: { text: "OpenAI", url: "http://platform.openai.com/" } } }, defaults: { enabled: true } } } }, "schema.a.items: schema.enabled.link.url must be an https address"],
+        ["a description link belongs to a flat field", { settings: { a: [] }, schema: { a: { type: "list", label: "A", description: "Get a key at OpenAI", link: { text: "OpenAI", url: "https://platform.openai.com/" }, items: { enabled: { type: "boolean", label: "Enabled" } }, defaults: { enabled: true } } } }, "schema.a.link needs a flat setting"],
+        ["a description link refuses the old pane key", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Tones are set in Appearance → Sounds", link: { text: "Appearance → Sounds", pane: "vgs.sounds" } } } }, "schema.a.link has unknown key \"pane\""],
+        ["a description link refuses the old pane key beside an address", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Tones are set in Appearance → Sounds", link: { text: "Appearance → Sounds", url: "https://example.org/", pane: "vgs.sounds" } } } }, "schema.a.link has unknown key \"pane\""],
+        ["a description link needs an address", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Tones are set in Appearance → Sounds", link: { text: "Appearance → Sounds" } } } }, "schema.a.link.url must be an https address"],
+        ["a list item's description link is judged", { settings: { a: [] }, schema: { a: { type: "list", label: "A", items: { enabled: { type: "boolean", label: "Enabled", description: "Get a key at OpenAI", link: { text: "OpenAI", url: "http://platform.openai.com/" } } }, defaults: { enabled: true } } } }, "schema.a.items: schema.enabled.link.url must be an https address"],
         ["enum entry without options", { settings: { a: "x" }, schema: { a: { type: "enum", label: "A" } } }, "schema.a.options must be a non-empty array"],
         ["enum entry with a repeated option", { settings: { a: "x" }, schema: { a: { type: "enum", label: "A", options: [{ value: "x", label: "X" }, { value: "x", label: "Y" }] } } }, "schema.a.options must hold distinct values"],
         ["an enum option that is a plain string", { settings: { a: "x" }, schema: { a: { type: "enum", label: "A", options: ["x"] } } }, "schema.a.options.0 must be an object"],
@@ -307,14 +314,16 @@ function suite(ctx, configLogic, check) {
         ["an empty status group", { capabilities: ["status"], status: { a: { type: "text", label: "A", group: "" } } }, "status.a.group must be a printable line of 1 to 60"],
         ["a status hint of 201 characters", { capabilities: ["status"], status: { a: { type: "text", label: "A", hint: "x".repeat(201) } } }, "status.a.hint must be a printable line of 1 to 200"],
         ["a status hint of 200 characters", { capabilities: ["status"], status: { a: { type: "text", label: "A", hint: "x".repeat(200) } } }, null],
+        ["a status hint of one sentence with a full stop is refused", { capabilities: ["status"], status: { a: { type: "text", label: "A", hint: "Connect the account." } } }, "status.a.hint must end with no full stop"],
+        ["a status hint of one sentence without a full stop", { capabilities: ["status"], status: { a: { type: "text", label: "A", hint: "Connect the account" } } }, null],
         ["a status entry with info", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "What this status means." } } }, null],
         ["a status info that is not a string", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: 1 } } }, "status.a.info must be a printable line"],
         ["an empty status info", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "" } } }, "status.a.info must be a printable line"],
-        ["a status hint link to an https address", { capabilities: ["status"], status: { a: { type: "state", label: "A", hint: "Open GitHub settings.", link: { text: "GitHub settings", url: "https://github.com/settings" } } } }, null],
-        ["a status hint link text its hint lacks", { capabilities: ["status"], status: { a: { type: "state", label: "A", hint: "Open the settings.", link: { text: "GitHub settings", url: "https://github.com/settings" } } } }, "status.a.link.text must be words of its hint"],
+        ["a status hint link to an https address", { capabilities: ["status"], status: { a: { type: "state", label: "A", hint: "Open GitHub settings", link: { text: "GitHub settings", url: "https://github.com/settings" } } } }, null],
+        ["a status hint link text its hint lacks", { capabilities: ["status"], status: { a: { type: "state", label: "A", hint: "Open the settings", link: { text: "GitHub settings", url: "https://github.com/settings" } } } }, "status.a.link.text must be words of its hint"],
         ["a status hint link needs its hint", { capabilities: ["status"], status: { a: { type: "state", label: "A", link: { text: "GitHub settings", url: "https://github.com/settings" } } } }, "status.a.link.text must be words of its hint"],
-        ["a status hint link refuses the old pane key", { capabilities: ["status"], status: { a: { type: "state", label: "A", hint: "Open the Sounds page.", link: { text: "Sounds page", pane: "vgs.sounds" } } } }, "status.a.link has unknown key \"pane\""],
-        ["a status hint link with an http address", { capabilities: ["status"], status: { a: { type: "state", label: "A", hint: "Open GitHub settings.", link: { text: "GitHub settings", url: "http://github.com/settings" } } } }, "status.a.link.url must be an https address"],
+        ["a status hint link refuses the old pane key", { capabilities: ["status"], status: { a: { type: "state", label: "A", hint: "Open the Sounds page", link: { text: "Sounds page", pane: "vgs.sounds" } } } }, "status.a.link has unknown key \"pane\""],
+        ["a status hint link with an http address", { capabilities: ["status"], status: { a: { type: "state", label: "A", hint: "Open GitHub settings", link: { text: "GitHub settings", url: "http://github.com/settings" } } } }, "status.a.link.url must be an https address"],
         ["a status info with a control character", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "A\u001bB" } } }, "status.a.info must be a printable line"],
         ["a status info of 401 characters", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "x".repeat(401) } } }, "status.a.info must be a printable line"],
         ["a status info of 400 characters", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "x".repeat(400) } } }, null],
@@ -397,6 +406,15 @@ function suite(ctx, configLogic, check) {
         const r = ctx.validateManifest(raw, "/p");
         check("validateManifest: " + name, r.ok ? null : r.error.slice(0, want === null ? 0 : want.length), want === null ? null : want);
     }
+    // A shipped manifest the judge accepts is refused once a full stop is
+    // planted on one of its one-sentence hints, a list item's description.
+    const trayFile = path.join(__dirname, "..", "shell", "plugins", "vgs.tray", "manifest.json");
+    const trayPlanted = JSON.parse(fs.readFileSync(trayFile, "utf8"));
+    trayPlanted.schema.hidden.items.item.description += ".";
+    const trayRefusal = ctx.validateManifest(trayPlanted, "/p");
+    const trayWant = "schema.hidden.items: schema.item.description must end with no full stop";
+    check("validateManifest: a shipped manifest with a full stop planted on a one-sentence hint is refused",
+        [ctx.validateManifest(JSON.parse(fs.readFileSync(trayFile, "utf8")), "/p").ok, trayRefusal.ok ? "" : trayRefusal.error.slice(0, trayWant.length)], [true, trayWant]);
     // No status action installs a requirement, a declared one included: the
     // page's Requirements section holds the one install action. The whole
     // refusal names the keys an action takes.
@@ -1505,7 +1523,7 @@ function suite(ctx, configLogic, check) {
     // [name, manifest, want]: null passes, else the start of the refusal.
     const soundManifestRows = [
         ["a sound event passes", sounding({ ping: ping }), null],
-        ["an event that is off by default passes", sounding({ ping: { label: "Ping", description: "Plays on a ping.", default: "" } }), null],
+        ["an event that is off by default passes", sounding({ ping: { label: "Ping", description: "Plays on a ping", default: "" } }), null],
         ["an event the plugin sounds itself passes", sounding({ tone: { label: "Tone", own: "Acme tone", default: "own" } }), null],
         ["an own event that is off by default passes", sounding({ tone: { label: "Tone", own: "Acme tone", default: "" } }), null],
         ["sounds not an object", sounding([ping]), "sounds must be a non-empty object"],
@@ -1517,6 +1535,8 @@ function suite(ctx, configLogic, check) {
         ["an event with an unknown key", sounding({ ping: Object.assign({ file: "x.wav" }, ping) }), "sounds.ping has unknown key \"file\""],
         ["an event without a label", sounding({ ping: { default: "chime" } }), "sounds.ping.label must be a printable line"],
         ["an event with a two-line description", sounding({ ping: Object.assign({ description: "a\nb" }, ping) }), "sounds.ping.description must be a printable line"],
+        ["an event description of one sentence with a full stop is refused", sounding({ ping: Object.assign({ description: "Plays on a ping." }, ping) }), "sounds.ping.description must end with no full stop"],
+        ["an event description of two sentences, each with its full stop", sounding({ ping: Object.assign({ description: "Plays on a ping. It is short." }, ping) }), null],
         ["an own name that is empty", sounding({ tone: { label: "Tone", own: "", default: "own" } }), "sounds.tone.own must be a printable line"],
         ["an event without a default", sounding({ ping: { label: "Ping" } }), "sounds.ping.default must be a sound of the core's set or \"\", got undefined"],
         ["a default the core's set lacks", sounding({ ping: { label: "Ping", default: "gong" } }), "sounds.ping.default must be a sound of the core's set or \"\", got \"gong\""],
@@ -1554,7 +1574,7 @@ function suite(ctx, configLogic, check) {
     ];
     for (const [name, config, want] of soundConfigRows) check("configError: " + name, configLogic.configError(config), want);
 
-    const noisy = ctx.validateManifest(sounding({ ping: ping, quiet: { label: "Quiet", description: "Plays rarely.", default: "" }, tone: { label: "Tone", own: "Acme tone", default: "own" }, relay: relay }), "/p").manifest;
+    const noisy = ctx.validateManifest(sounding({ ping: ping, quiet: { label: "Quiet", description: "Plays rarely", default: "" }, tone: { label: "Tone", own: "Acme tone", default: "own" }, relay: relay }), "/p").manifest;
     // What each kind of event takes, as the page offers it.
     const coreOffers = [{ value: "", label: "Off", playable: false }, { value: "chime", label: "Chime", playable: true }, { value: "ping", label: "Ping", playable: true }, { value: "pop", label: "Pop", playable: true }];
     const ownOffers = name => [{ value: "", label: "Off", playable: false }, { value: "own", label: name, playable: false }];
@@ -1641,7 +1661,7 @@ function suite(ctx, configLogic, check) {
     check("soundRows: enabled plugins by name, each event in manifest order, with what it sounds and takes", soundRowsWith({}), [
         { id: "acme.zed", plugin: "Alpha", event: "beep", label: "Beep", description: "", value: "pop", offers: coreOffers, testable: true, problem: "" },
         { id: "acme.svc", plugin: "S", event: "ping", label: "Ping", description: "", value: "", offers: coreOffers, testable: true, problem: "" },
-        { id: "acme.svc", plugin: "S", event: "quiet", label: "Quiet", description: "Plays rarely.", value: "", offers: coreOffers, testable: true, problem: "" },
+        { id: "acme.svc", plugin: "S", event: "quiet", label: "Quiet", description: "Plays rarely", value: "", offers: coreOffers, testable: true, problem: "" },
         { id: "acme.svc", plugin: "S", event: "tone", label: "Tone", description: "", value: "own", offers: ownOffers("Acme tone"), testable: false, problem: "" },
         heldRow(null, ""),
     ]);
@@ -1845,6 +1865,13 @@ suite(load(LOGIC), load(CONFIG), report);
 // judge's own place in a temporary tree, beside the other judge, the icon
 // set, the package-manager table and the Hyprland layer's table they import.
 const CONTROLS = [
+    ["a hint's sentences end where a mark meets a space", "var parts = text.split(/([.?!]) +/);", "var parts = [text];"],
+    ["a one-sentence hint ends with no full stop", "return !/\\.$/.test(text);", "return true;"],
+    ["each sentence of a longer hint ends with one", "return sentences.every(function (sentence) { return /[.?!]$/.test(sentence); });", "return true;"],
+    ["a schema description keeps the hint rule", "if (entry.description !== undefined && !hintFits(entry.description))", "if (false)"],
+    ["a status hint keeps the hint rule", "if (entry.hint !== undefined && !hintFits(entry.hint))", "if (false)"],
+    ["a sound event description keeps the hint rule", "if (event.description !== undefined && !hintFits(event.description))", "if (false)"],
+    ["a requirement purpose keeps the hint rule", "if (!hintFits(requirement.purpose))", "if (false)"],
     ["sudo is a capability", '"monitors", "sudo", ', '"monitors", '],
     ["a grant longer than a day is refused", "Number(duration) <= SUDO_MINUTES_MAX", "true"],
     ["a sudo read that fails is unknown", 'completion.code !== 0)\n        return failed("sudo: read=failed', 'completion.code !== 0 && false)\n        return failed("sudo: read=failed'],

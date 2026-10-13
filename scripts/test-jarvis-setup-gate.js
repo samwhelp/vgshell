@@ -248,20 +248,10 @@ const CLONED = [
         "local", "info", "setup", true, "clone-voice", null],
     ["a setup in progress offers nothing", { ...CLONE_ANSWER, text: "Setting up", action: false }, "local", "info", undefined, false, null, null],
 ];
-// The sentences of a hint: each ends where a full stop, a question mark or
-// an exclamation mark meets a space.
-function sentences(text) {
-    return text.split(/(?<=[.?!]) +/);
-}
-// Whether hint TEXT keeps the copy rule (docs/architecture/design-system.md § Copy): a hint
-// of one sentence ends with no full stop, and each sentence of a longer
-// hint ends with one.
-function hintFits(text) {
-    const parts = sentences(text);
-    return parts.length === 1 ? !text.endsWith(".") : parts.every(part => /[.?!]$/.test(part));
-}
+// A hint's sentences and the copy rule are the manifest judge's
+// (judge.hintSentences, judge.hintFits).
 function oneSentence(text) {
-    return sentences(text).length === 1 && hintFits(text);
+    return judge.hintSentences(text).length === 1 && judge.hintFits(text);
 }
 function verifyClonedVoice(gate, judged) {
     for (const [label, answer, provider, tone, action, reasoned, tui, reason] of CLONED) {
@@ -1410,7 +1400,7 @@ function verifyOneSessionJudgement(gate, only) {
 }
 
 // Every hint the Jarvis page draws on its Setup, Settings and Details tabs
-// keeps the copy rule (hintFits): the manifest's status hints and setting
+// keeps the copy rule (judge.hintFits): the manifest's status hints and setting
 // descriptions, a description being its field's hint, and each hint
 // SetupGate.js and AccountStatus.js word over the cases this suite builds.
 // The control: one real hint of each length with its full stop put back on
@@ -1463,12 +1453,12 @@ function verifyHintStops(gate) {
                 hints.push(["accountHint " + [state, source, value, mismatch, update].join(" "),
                     words.accountHint({ state, source, value, plan: "pro", email: "team@example.invalid", mismatch, update })]);
     const drawn = hints.filter(([, hint]) => hint !== "");
-    assert.ok(drawn.length >= 100 && drawn.some(([, hint]) => sentences(hint).length === 1) && drawn.some(([, hint]) => sentences(hint).length > 1),
+    assert.ok(drawn.length >= 100 && drawn.some(([, hint]) => judge.hintSentences(hint).length === 1) && drawn.some(([, hint]) => judge.hintSentences(hint).length > 1),
         "the Jarvis hints of one sentence and of several are read");
-    for (const [where, hint] of drawn) assert.equal(hintFits(hint), true, where + ": " + JSON.stringify(hint) + " ends as the copy rule says");
-    const one = drawn.find(([, hint]) => sentences(hint).length === 1)[1];
-    const longer = drawn.find(([, hint]) => sentences(hint).length > 1)[1];
-    assert.deepEqual([hintFits(one + "."), hintFits(longer.slice(0, -1))], [false, false], "a hint that breaks the copy rule fails the check");
+    for (const [where, hint] of drawn) assert.equal(judge.hintFits(hint), true, where + ": " + JSON.stringify(hint) + " ends as the copy rule says");
+    const one = drawn.find(([, hint]) => judge.hintSentences(hint).length === 1)[1];
+    const longer = drawn.find(([, hint]) => judge.hintSentences(hint).length > 1)[1];
+    assert.deepEqual([judge.hintFits(one + "."), judge.hintFits(longer.slice(0, -1))], [false, false], "a hint that breaks the copy rule fails the check");
 }
 
 function verify(gate) {
@@ -1930,7 +1920,7 @@ try {
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), ', { "value": "elevenlabs", "label": "ElevenLabs" }]', "]"],
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '"url": "https://platform.openai.com/api-keys" } },\n    "voice":', '"url": "https://aistudio.google.com/apikey" } },\n    "voice":'],
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), "or an ElevenLabs key for ElevenLabs\"", "or an ElevenLabs key for ElevenLabs, as ElevenLabs voices says\""],
-        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), "for Realtime, a Gemini key for Gemini Live or", "for Realtime. A Gemini key for Gemini Live or"],
+        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), "for Realtime, a Gemini key for Gemini Live or an ElevenLabs key for ElevenLabs\"", "for Realtime. A Gemini key for Gemini Live or an ElevenLabs key for ElevenLabs.\""],
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '      "info": "With one stored key for the chosen voice, Jarvis picks it. Add key, on Setup, stores a new key.",\n', ""],
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '      "info": "Design or clone a voice on ElevenLabs\'s site, under Voices. Jarvis reads the voices of your key again each time you open this page.",\n', ""]
     ]) {

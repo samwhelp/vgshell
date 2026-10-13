@@ -44,7 +44,7 @@ function suite(ctx, check) {
             note: { type: "text", label: "Note" },
             pending: { type: "count", label: "Pending" },
             lastCheck: { type: "time", label: "Last check" },
-            health: { type: "state", label: "Health", hint: "Open the vendor page.", link: { text: "vendor page", url: "https://vendor.example/health" } },
+            health: { type: "state", label: "Health", hint: "Open the vendor page", link: { text: "vendor page", url: "https://vendor.example/health" } },
             detail: { type: "data", label: "Detail" },
             secretCount: { type: "count", label: "Hidden count", hidden: true }
         }

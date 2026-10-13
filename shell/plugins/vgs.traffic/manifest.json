@@ -110,7 +110,7 @@
         { "value": "Stacked", "label": "Stacked" },
         { "value": "One line", "label": "One line" }
       ],
-      "description": "Stacked shows two readings on two short lines.",
+      "description": "Stacked shows two readings on two short lines",
       "group": "Readings"
     },
     "labelStyle": {
@@ -120,7 +120,7 @@
         { "value": "icons", "label": "Icons" },
         { "value": "text", "label": "Text" }
       ],
-      "description": "Shows an icon or a short name before each reading.",
+      "description": "Shows an icon or a short name before each reading",
       "group": "Readings"
     },
     "refreshSeconds": {
@@ -169,7 +169,7 @@
     "capture": {
       "type": "state",
       "label": "Traffic capture",
-      "hint": "See all shows every app and protocol.",
+      "hint": "See all shows every app and protocol",
       "info": "See all shows every app and protocol. Allowing it lets every account on this computer see network traffic through bandwhich.",
       "action": {
         "label": "Allow traffic capture",

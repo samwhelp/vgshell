@@ -3135,7 +3135,7 @@ expect_poll "the last toast's exit has played" 0 layer_count vgs:layer
 # section of its Setup tab, and none on Details. The probe runs
 # when the service starts, so each set of states is read after a disable
 # and an enable. No state here makes the photo helper call Slack.
-token_hint="Connect each workspace to show sender photos."
+token_hint="Connect each workspace to show sender photos"
 token_row() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin) if p["id"] == "vgs.notifications"][0]["status"]; print(json.dumps([[s["label"], s["report"], s["tone"], s["value"]] for s in r]))'; }
 drawn_token_row() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
 # want_rows rows|drawn ITEMS: the manager row, or the texts the page draws,
