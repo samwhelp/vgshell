@@ -30,7 +30,8 @@
 # needs travels in its argv, never in the environment: a single-instance
 # terminal opens the window from a process that was already running.
 #
-# present clears the screen, prints bin/lib/logo.txt in the theme accent,
+# present clears the screen, prints bin/lib/logo.txt in the theme accent at
+# the library's content edge, the column its text starts at,
 # runs argv as a list, never through a shell, and keeps its exit code.
 # Unless the code is 130, a Ctrl-C, it shows the library's closing prompt,
 # vgs_tui_close_prompt: `● Done! Press any key to close...`, `● Press any
@@ -465,8 +466,11 @@ present() {
     unset VGS_PLUGIN_ID VGS_PLUGIN_DIR
   fi
   if [[ $presentation == full ]]; then
+    local logo_lines=() edge
     printf '\033[H\033[2J\033[3J%s' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 33)"
-    cat -- "$logo" || :
+    mapfile -t logo_lines <"$logo" || :
+    printf -v edge '%*s' "$_vgs_tui_edge" ''
+    (( ${#logo_lines[@]} == 0 )) || printf '%s\n' "${logo_lines[@]/#/$edge}"
     printf '\033[0m\n'
   fi
   if [[ -n $refusal ]]; then

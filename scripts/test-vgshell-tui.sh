@@ -3,7 +3,7 @@
 # present`, which hands it a command. present runs on a pseudo-terminal
 # script(1) opens, with a key typed every 0.2 s, and runs stub commands: the
 # Done and Failed prompts, the skip on 130, a typed Ctrl-C, the exit code,
-# the logo, every line of bin/lib/logo.txt, the plain presentation, the gum.env parse, the argv list, the exported paths and
+# the logo, every line of bin/lib/logo.txt at the content edge, the plain presentation, the gum.env parse, the argv list, the exported paths and
 # the plugin copy, and the exit record: its running and ended files, the
 # key's lock, a busy key, a termination and reap, and the failure marker
 # through which a later run of a plugin closes that plugin's older failed
@@ -71,6 +71,16 @@ logo_drawn_count() {
   printf '%s\n' "$n"
 }
 logo_drawn() { test "$(logo_drawn_count "$@")" == "${#logo_lines[@]}"; }
+# logo_at_edge [FILE]: every logo line in $tmp/out, or FILE, starts a row,
+# or follows an escape, after exactly the library's content edge of spaces.
+logo_edge="$(bash -c 'source "$1"; printf %s "$_vgs_tui_edge"' _ "$repo/bin/lib/tui.sh")"
+check "the library's content edge is a column count" test "$logo_edge" -gt 0
+logo_at_edge() {
+  python3 -c 'import re, sys
+o = open(sys.argv[1], encoding="utf-8").read()
+edge = " " * int(sys.argv[2])
+sys.exit(0 if all(re.search(r"(?:^|[\nA-Za-z])" + edge + re.escape(l) + r"\r?$", o, re.M) for l in open(sys.argv[3], encoding="utf-8").read().splitlines()) else 1)' "${1:-$tmp/out}" "$logo_edge" "$logo"
+}
 done_text="Done! Press any key to close..."
 failed_text() { printf 'Failed! Press any key to close...'; }
 
@@ -100,7 +110,9 @@ for row in "${rows[@]}"; do
       ;;
     none) check "$name prompts nothing" test "$(grep -c -e 'Done!' -e 'Failed!' "$tmp/out")" == 0 ;;
   esac
-  if [[ $want_logo == yes ]]; then check "$name draws every line of the logo" logo_drawn
+  if [[ $want_logo == yes ]]; then
+    check "$name draws every line of the logo" logo_drawn
+    check "$name draws the logo at the content edge" logo_at_edge
   else check "$name draws no logo" test "$(logo_drawn_count)" == 0; fi
 done
 
@@ -174,7 +186,7 @@ on_tty "$subject" present -- exits 0
 # The accent wraps the logo: the clear, the accent's truecolor escape and the
 # first line run together, and the reset follows the last line.
 logo_accent() { python3 -c 'import re,sys; o = open(sys.argv[1], encoding="utf-8").read()
-sys.exit(0 if "\033[3J\033[38;2;255;90;54m" + sys.argv[2] in o and re.search(re.escape(sys.argv[3]) + "\r?\n\033\\[0m", o) else 1)' "$tmp/out" "${logo_lines[0]}" "${logo_lines[-1]}"; }
+sys.exit(0 if "\033[3J\033[38;2;255;90;54m" + " " * int(sys.argv[4]) + sys.argv[2] in o and re.search(re.escape(sys.argv[3]) + "\r?\n\033\\[0m", o) else 1)' "$tmp/out" "${logo_lines[0]}" "${logo_lines[-1]}" "$logo_edge"; }
 check "the logo is drawn in the theme accent" logo_accent
 bad_lines=(
   "PATH=#000000"
@@ -919,15 +931,20 @@ printf '%s\n' "VGS_TUI_ACCENT=#FF5A36" >"$gum_env"
 control plain-logo vgshell-tui $'    printf \'\\033[H\\033[2J\\033[3J%s\' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 33)"\n' $'    printf \'\\033[H\\033[2J\\033[3J\'\n'
 on_tty "$control_bin" present -- exits 0
 check "the plain-logo mutant fails the accent check" test "$(logo_accent && echo accent || echo plain)" == plain
-control unreset-logo vgshell-tui $'    cat -- "$logo" || :\n    printf \'\\033[0m\\n\'\n' $'    cat -- "$logo" || :\n    printf \'\\n\'\n'
+control unreset-logo vgshell-tui $'    (( ${#logo_lines[@]} == 0 )) || printf \'%s\\n\' "${logo_lines[@]/#/$edge}"\n    printf \'\\033[0m\\n\'\n' $'    (( ${#logo_lines[@]} == 0 )) || printf \'%s\\n\' "${logo_lines[@]/#/$edge}"\n    printf \'\\n\'\n'
 on_tty "$control_bin" present -- exits 0
 check "the unreset-logo mutant fails the accent check" test "$(logo_accent && echo accent || echo unreset)" == unreset
 rm -f -- "$gum_env"
 
-control first-logo-line vgshell-tui '    cat -- "$logo" || :' '    head -n 1 -- "$logo" || :'
+control first-logo-line vgshell-tui '    mapfile -t logo_lines <"$logo" || :' '    mapfile -t -n 1 logo_lines <"$logo" || :'
 on_tty "$control_bin" present -- exits 0
 check "the first-logo-line mutant draws the logo's first line" test "$(logo_drawn_count)" -gt 0
 check "the first-logo-line mutant fails the whole-logo check" test "$(logo_drawn && echo drawn || echo short)" == short
+
+control frame-edge-logo vgshell-tui $'printf -v edge \'%*s\' "$_vgs_tui_edge" \'\'' "edge=''"
+on_tty "$control_bin" present -- exits 0
+check "the frame-edge-logo mutant draws the whole logo" logo_drawn
+check "the frame-edge-logo mutant fails the content-edge check" test "$(logo_at_edge && echo edge || echo frame)" == frame
 
 # A presenter that draws another drawing: its tree's copy of bin/lib holds
 # a logo.txt whose last line differs from the checkout's.
