@@ -171,14 +171,14 @@ var FEEDBACK_ON = "own";
 var FEEDBACK_OFF = "";
 var FEEDBACK_STAGES = ["read", "kind", "write", "restart", "verify"];
 
-// What each problem of a feedback run tells the user on the event's row;
-// the key is the log's.
+// What each problem of a feedback run tells the user on the event's row,
+// whose page reference the Sounds pane opens; the key is the log's.
 var FEEDBACK_PROBLEMS = {
     "": "",
-    "missing": "Voice records speech with voxtype. Install it on the Voice Settings page.",
+    "missing": "Voice records speech with voxtype. Install it on the [Voice page](page:vgs.voice/Setup).",
     "unread": "VGS could not read the voxtype settings.",
-    "no-config": "Voice is not set up. Use Set up on the Voice Settings page.",
-    "link": "Your voxtype config is a link to another file, so VGS did not change it. Use Configure on the Voice Settings page.",
+    "no-config": "Voice is not set up. Use Set up on the [Voice page](page:vgs.voice/Setup).",
+    "link": "Your voxtype config is a link to another file, so VGS did not change it. Use Configure on the [Voice page](page:vgs.voice/Details).",
     "write": "VGS could not change the voxtype settings.",
     "restart": "The change is saved. It applies when voxtype starts again.",
     "mismatch": "voxtype did not keep the change."

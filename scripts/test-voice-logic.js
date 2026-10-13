@@ -175,11 +175,19 @@ function verify(logic) {
   for (const problem of problems) assert.equal(typeof logic.FEEDBACK_PROBLEMS[problem], "string", `FEEDBACK_PROBLEMS has ${JSON.stringify(problem)}`);
   same(Object.keys(logic.FEEDBACK_PROBLEMS).sort(), [...problems].sort(), "FEEDBACK_PROBLEMS holds no line a run cannot end with");
   same(Object.keys(logic.FEEDBACK_PROBLEMS).filter(problem => (logic.FEEDBACK_PROBLEMS[problem] === "") !== (problem === "")), [], "each problem but none has a line");
+  // The lines that send the user to the Voice page link to the tab that
+  // holds the step: Setup holds Install all missing and Set up, Details
+  // holds Configure.
+  assert.equal(logic.FEEDBACK_PROBLEMS.missing, "Voice records speech with voxtype. Install it on the [Voice page](page:vgs.voice/Setup).", "voxtype missing links to the Setup tab");
+  assert.equal(logic.FEEDBACK_PROBLEMS["no-config"], "Voice is not set up. Use Set up on the [Voice page](page:vgs.voice/Setup).", "no config links to the Setup tab");
+  assert.equal(logic.FEEDBACK_PROBLEMS.link, "Your voxtype config is a link to another file, so VGS did not change it. Use Configure on the [Voice page](page:vgs.voice/Details).", "a linked config links to the Details tab");
 }
 
 verify(load(file));
 
 const controls = [
+  ["voxtype missing names the page in plain words", "Install it on the [Voice page](page:vgs.voice/Setup).", "Install it on the Voice Settings page."],
+  ["a linked config links to the Setup tab", "Use Configure on the [Voice page](page:vgs.voice/Details).", "Use Configure on the [Voice page](page:vgs.voice/Setup)."],
   ["the phase is read whatever the holder", "if (state.holder === HOLDER) return { own: true, phase: state.phase };", "if (state.holder !== \"\") return { own: true, phase: state.phase };"],
   ["Voice's own recording reads idle", "if (state.holder === HOLDER) return { own: true, phase: state.phase };", ""],
   ["the transcription after any stop shows", "var after = own && state.holder === \"\"", "var after = state.holder === \"\""],

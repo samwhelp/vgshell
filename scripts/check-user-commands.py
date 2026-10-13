@@ -114,7 +114,7 @@ PAGE_TARGET = re.compile(PAGE_LINK.pattern + r"([^\s()/$]+)(?:/[^\s()/$]+)?\)")
 # plugin (VGS-1507). The check lists theirs; every other plugin's and the
 # core's are refused.
 PAGE_PENDING = ("vgs.ai-usage", "vgs.capture", "vgs.devtools", "vgs.greeter", "vgs.jarvis", "vgs.launcher", "vgs.mouse", "vgs.network",
-                "vgs.notifications", "vgs.scratchpads", "vgs.sound", "vgs.updates", "vgs.voice", "vgs.vpn")
+                "vgs.notifications", "vgs.scratchpads", "vgs.sound", "vgs.updates", "vgs.vpn")
 HEADS_FLOOR = 20
 # Members the head extractors must yield: the core's own command and an
 # elevator. A set without them came from a broken extractor.

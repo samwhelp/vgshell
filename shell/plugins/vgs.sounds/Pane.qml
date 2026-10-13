@@ -11,8 +11,10 @@ import qs.Ui
 // its plugin sounds itself offers Off and that plugin's own sound. An event
 // whose value another program holds shows what its plugin read there, and
 // that plugin's line when the value is unread or a choice did not take
-// effect. The events, the values each takes and the one write are the
-// `soundSettings` capability's; the pane holds the layout alone.
+// effect. A page reference in that line is a link that opens its page in
+// Settings, over this window. The events, the values each takes and the
+// one write are the `soundSettings` capability's; the pane holds the
+// layout alone.
 FocusScope {
     id: root
 
@@ -104,6 +106,7 @@ FocusScope {
                         label: modelData.label
                         warning: modelData.problem !== "" ? modelData.problem : modelData.description
                         warningTone: modelData.problem !== "" ? "warning" : "muted"
+                        onWarningPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
 
                         // A value its plugin could not read is no offer:
                         // the picker says so and takes no choice, and the

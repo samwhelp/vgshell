@@ -9,6 +9,6 @@
   "icon": "music",
   "kinds": ["pane"],
   "entryPoints": { "pane": "Pane.qml" },
-  "capabilities": ["soundSettings"],
+  "capabilities": ["soundSettings", "surfaces"],
   "pane": { "group": "Appearance", "order": 50 }
 }

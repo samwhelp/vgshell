@@ -46,7 +46,9 @@
 # Chime and hidden once the row is turned off; no Test for the plugin's own sound, whose picker offers Off and that sound alone;
 # the held event's row with the stated value, the holder's line in the
 # warning tone, and a picker that takes no choice while the value is
-# unread.
+# unread. Voice's Dictation sounds row without voxtype draws its line's
+# page reference as a link, and a click on it opens Settings on Voice's
+# Setup tab; a click on the line's first word opens nothing.
 #
 # Control run on 2026-10-09, host cachy, through this row after
 # hyprland-consent on a source_tree copy of the shell whose
@@ -63,7 +65,7 @@
 # No latency is budgeted: each reading polls through expect_poll every
 # 0.2 s for up to the harness's poll bound. The row leaves the user file,
 # the plugins directory and every enablement as it found them.
-# inputs: shell/Core/Sounds.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/assets/sounds/* shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* scripts/smoke/fixtures/plugins/acme.sounds/* shell/Hosts/PaneHost.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Select.qml shell/Ui/controls/RowAction.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml scripts/smoke/Probe.qml scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/Core/Sounds.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/assets/sounds/* shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* scripts/smoke/fixtures/plugins/acme.sounds/* shell/Hosts/PaneHost.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/plugins/vgs.voice/Service.qml shell/plugins/vgs.voice/VoiceLogic.js shell/plugins/vgs.voice/manifest.json shell/plugins/vgs.settings/Window.qml shell/Ui/controls/Select.qml shell/Ui/controls/RowAction.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml scripts/smoke/Probe.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 sfx_file="$home/.config/vgshell/shell.json"
@@ -285,6 +287,77 @@ expect "the off event offers no Test to press" absent ipc smoke scopedWindowGeom
 expect "the plugin's own sound offers no Test" absent ipc smoke scopedWindowGeometry window vgs.sounds FormRow Tone RowAction Test
 expect_poll "the page's plays leave no player" '[]' sfx_playing
 
+# Voice's Dictation sounds row without voxtype, which no smoke shell finds:
+# its line names the Voice page as a link. Enabling Voice raises its
+# requirement notice for voxtype and its bridge, which Escape closes. The
+# line is brought into view and its box read until two reads 100 ms apart
+# agree. The control: a click on the line's first word, which the link
+# does not hold, opens no page. The pointer then steps along the first
+# line of the link's words box (LinkText.linkBox) until the link reads it,
+# and a click opens Settings on Voice's Setup tab over the System window.
+expected_errors+=("${dictation_absent_errors[@]}")
+sfx_voice_was="$(plugin_enabled vgs.voice)" || fail "vgs.voice's enabled state is unreadable"
+sfx_voice_line='Voice records speech with voxtype. Install it on the [Voice page](page:vgs.voice/Setup).'
+sfx_voice_link() { ipc smoke readMatchingDescendant window vgs.sounds LinkText words "Voice page" "$1"; }
+# The still box of the Dictation sounds line in the System window, or 1.
+sfx_voice_rect() {
+  local shown rect last=""
+  shown="$(ipc smoke revealText window vgs.sounds LinkText "$sfx_voice_line")" || return 1
+  [[ $shown =~ ^[0-9.]+$ ]] || { echo "sfx_voice_rect: no line to reveal: $shown" >&2; return 1; }
+  for _ in $(seq 1 50); do
+    rect="$(ipc smoke windowGeometry window vgs.sounds LinkText "$sfx_voice_line")" || return 1
+    [[ $rect == \[* && $rect == "$last" ]] && { printf '%s\n' "$rect"; return; }
+    last="$rect"
+    sleep 0.1
+  done
+  echo "sfx_voice_rect: no still line: $rect" >&2
+  return 1
+}
+# The layout point DX px into the line and DY px below its top.
+sfx_voice_point() { # RECT DX DY
+  at_centre "window:System Settings" "$(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); print(json.dumps([r[0] + float(sys.argv[2]), r[1] + float(sys.argv[3]), 2, 16]))' "$1" "$2" "$3")"
+}
+sfx_voice_link_click() {
+  local rect box x y step steps
+  rect="$(sfx_voice_rect)" || return 1
+  box="$(sfx_voice_link linkBox)" || return 1
+  [[ $box == \{* ]] || { echo "sfx_voice_link_click: no link box: $box" >&2; return 1; }
+  steps="$(python3 -c 'import json,sys; print(max(1, int(json.loads(sys.argv[1])["width"] // 8)))' "$box")" || return 1
+  for step in $(seq 0 "$steps"); do
+    read -r x y < <(sfx_voice_point "$rect" "$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["x"] + 8 * int(sys.argv[2]))' "$box" "$step")" "$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["y"])' "$box")") || return 1
+    hover "$x" "$y" || return 1
+    sleep 0.1
+    [[ $(sfx_voice_link hoveredLink) == true ]] && { click "$x" "$y"; return; }
+  done
+  echo "sfx_voice_link_click: the pointer found no link words in line=$rect box=$box" >&2
+  return 1
+}
+expect "enabling Voice is allowed" ok ipc shell setPluginEnabled vgs.voice true
+expect_poll "Voice builds" True record_exists vgs.voice
+expect_poll "enabling Voice without voxtype raises the notice for voxtype and its bridge" '["vgs.voice", ["voxtype", "voxtype-audio-bridge"], ["voxtype", "voxtype-audio-bridge"], false]' notice_shown
+expect_poll "Voice's notice holds the keyboard" true ipc smoke noticeFocused
+type_keys -k Escape || fail "sending Escape to Voice's notice failed"
+expect_poll "Escape closes Voice's notice" null notice_shown
+expect_poll "the Dictation sounds row links its voxtype missing line to the Voice page, in the warning tone" "[\"$sfx_voice_line\",\"warning\"]" sfx_row_note "Dictation sounds"
+expect "the line draws the reference's words as its link" '"Voice page"' sfx_voice_link words
+expect "no Settings window is open before the link's click" 0 window_count Plugins
+if sfx_voice_at="$(sfx_voice_rect)" && read -r tx ty < <(sfx_voice_point "$sfx_voice_at" 4 0); then
+  hover "$tx" "$ty" || fail "hovering the line's first word failed"
+  expect "control: the line's first word reads no link under the pointer" false sfx_voice_link hoveredLink
+  click "$tx" "$ty" || fail "clicking the line's first word failed"
+  sleep 0.5
+  expect "control: a click on the line's first word opens no page" 0 window_count Plugins
+else
+  fail "the Dictation sounds line has no box for the control"
+fi
+sfx_voice_link_click || fail "the click on the Voice page link failed"
+expect_poll "the link opens the Settings window" 1 window_count Plugins
+expect_poll "the link opens Voice's page" '"vgs.voice"' ipc smoke readInstance window vgs.settings page
+expect_poll "the link opens Voice's page on its Setup tab" Setup settings_tab_text
+expect "the System window stays open under Settings" 1 window_count 'System Settings'
+expect "the Settings window hides after the link" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone after the link" 0 window_count Plugins
+
 expect "the System window hides after the Sounds section" ok ipc shell hide window vgs.system
 expect_poll "the System window is gone after the Sounds section" 0 window_count 'System Settings'
 expect "disabling the sounds fixture is allowed" ok ipc shell setPluginEnabled acme.sounds false
@@ -295,4 +368,5 @@ cp -- "$sandbox/shell-before-sounds-row.json" "$sfx_file.next" && mv -T -- "$sfx
 expect "the configuration reloads as the row found it" ok ipc shell reloadConfig
 expect_poll "vgs.system's enablement is as the row found it" "$sfx_system_was" plugin_enabled vgs.system
 expect_poll "vgs.sounds's enablement is as the row found it" "$sfx_page_was" plugin_enabled vgs.sounds
+expect_poll "vgs.voice's enablement is as the row found it" "$sfx_voice_was" plugin_enabled vgs.voice
 expect_poll "the fixture holds the sounds capability no more" False sfx_holds sounds
