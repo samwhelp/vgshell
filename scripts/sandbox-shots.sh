@@ -21,7 +21,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, cloudsync, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, traffic, ai-usage, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -142,7 +142,11 @@
 # the acme.surfaces panel with a FormRow message holding a page reference
 # to the probe fixture, then, where the tree's FormRow forwards the
 # reference, the Settings window a click on its words opens on that page
-# through shell.surfaces.openPage, taken only when named; focus is
+# through shell.surfaces.openPage, taken only when named; tooltip-link is
+# a bar item whose tooltip names another plugin's page, with the pointer on
+# the link's words and then with the keyboard's focus ring on them, where
+# the tree ships the acme.tiplink fixture, and else the same tooltip under
+# the pointer on its item, taken only when named; focus is
 # the keyboard focus proof set; dialog is the core's requirement notice;
 # lock is the vgs.lock screen, locked and after wrong attempts; polkit is
 # the vgs.polkit prompt, asking and after a failed attempt; greeter is the
@@ -351,7 +355,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice) scenes+=("$1"); shift ;;
+    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -493,6 +497,7 @@ scene_ships() {
     dictation-setup) ships_plugin vgs.settings && { [[ -x $tree/bin/vgshell-dictation ]] || { [[ -n $rev ]] && ships_plugin vgs.voice; }; } ;;
     plugin-messages) ships_plugin vgs.clipboard vgs.lock vgs.notifications ;;
     page-links) [[ $manager_scene == settings ]] && tree_has shell/Ui/feedback/LinkText.qml '(page:' ;;
+    tooltip-link) scene_ships bar ;;
     voice-keys) [[ $manager_scene == settings ]] && ships_plugin vgs.voice ;;
     elevenlabs-voices) [[ $manager_scene == settings && $has_tab_pages == true ]] && tree_has shell/plugins/vgs.jarvis/backend/ElevenLabs.js 'async function voices(' && ships_plugin vgs.jarvis ;;
     jarvis-setup|jarvis-fleet|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
@@ -5927,6 +5932,48 @@ scene_page-links() { # MODE
   ipc shell hide panel acme.surfaces >/dev/null || true
   expect_poll "the page link panel is gone" 0 layer_count vgs:panel
 }
+# A bar item's tooltip that names another plugin's page. A tree that ships
+# the acme.tiplink fixture draws the reference as a link: the pointer
+# crosses from the item onto the link's words, and then, with the bar's
+# window holding the keyboard as the fixture has it take it, Tab puts the
+# focus ring on those words. An older tree gets a widget with the same
+# item and tooltip, and its one shot is that tooltip under the pointer on
+# the item, since the pointer cannot leave the item there.
+tooltip_link_call() { ipc smoke invokeInstance "$(bar_key)" acme.tiplink "$1" "${2:-}"; }
+scene_tooltip-link() { # MODE
+  local at x y step
+  hover_widget "the pointer rests on the tooltip link item" acme.tiplink || return
+  expect_poll "the tooltip link item's tooltip opens" true tooltip_opened acme.tiplink
+  if [[ ! -f $fixtures/acme.tiplink/Widget.qml ]]; then
+    take_posed "tooltip-link-$1-pointer"
+    park_pointer
+    expect_poll "the tooltip link item's tooltip closes" false tooltip_opened acme.tiplink
+    return
+  fi
+  at="$(centre_of "$(tooltip_link_call linkGeometry)")" || at=none
+  if [[ $at == none ]]; then fail "the tooltip's link has no box"; return; fi
+  read -r x y <<<"$at"
+  hover "$x" "$y" || fail "the pointer did not reach the tooltip's link"
+  expect_poll "the pointer is on the tooltip" true ipc smoke readInstance "$(bar_key)" acme.tiplink tooltipHovered
+  take_posed "tooltip-link-$1-pointer"
+  park_pointer
+  expect_poll "the tooltip closes after the pointer leaves it" false tooltip_opened acme.tiplink
+  expect "the bar window takes the keyboard for the ring" ok tooltip_link_call holdKeyboard true
+  for step in 2 3; do
+    at="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(x+int(sys.argv[1])), int(y+h/2))' "$step")" || at=none
+    read -r x y <<<"$at"
+    [[ $x =~ ^[0-9]+$ ]] && hover "$x" "$y" || fail "moving the pointer onto the bar failed"
+  done
+  expect_poll "the tooltip link item holds the focus a Tab gives" true tooltip_link_call focusItem
+  expect_poll "keyboard focus opens the item's tooltip" true tooltip_opened acme.tiplink
+  type_keys -k Tab || fail "sending Tab to the bar failed"
+  expect_poll "Tab makes the tooltip's link current" 1 ipc smoke readInstance "$(bar_key)" acme.tiplink currentLine
+  take_posed "tooltip-link-$1-ring"
+  type_keys -k Escape || fail "sending Escape to the bar failed"
+  expect_poll "Escape closes the tooltip" false tooltip_opened acme.tiplink
+  expect "the bar window gives the keyboard back" ok tooltip_link_call holdKeyboard false
+  park_pointer
+}
 scene_plugin-messages() { # MODE
   local probe silence_found=false
   if ! "$messages_toasts"; then
@@ -6684,6 +6731,37 @@ PYEDIT
         expect "enabling $id for the page link is allowed" ok ipc shell setPluginEnabled "$id" true
         expect_poll "$id is built for the page link" True record_exists "$id"
       done ;;
+    tooltip-link)
+      # The fixture where the tree ships it; else a widget with the same
+      # item and tooltip, which an older tree draws as it drew every line.
+      mkdir -p "$home/.config/vgshell/plugins/acme.tiplink"
+      if [[ -f $fixtures/acme.tiplink/Widget.qml ]]; then
+        cp -R -- "$fixtures/acme.tiplink/." "$home/.config/vgshell/plugins/acme.tiplink/"
+      else
+        cat >"$home/.config/vgshell/plugins/acme.tiplink/manifest.json" <<'TIPLINK'
+{ "schemaVersion": 1, "id": "acme.tiplink", "name": "Tip link", "version": "0.1.0", "author": "acme", "description": "a bar tooltip that names another plugin's page",
+  "kinds": ["bar-widget"], "entryPoints": { "bar-widget": "Widget.qml" }, "defaultSection": "right" }
+TIPLINK
+        cat >"$home/.config/vgshell/plugins/acme.tiplink/Widget.qml" <<'TIPLINK'
+import QtQuick
+import qs.Ui
+BarWidget {
+    implicitWidth: item.implicitWidth
+    implicitHeight: barSize
+    BarItem {
+        id: item
+        anchors.verticalCenter: parent.verticalCenter
+        iconName: "flask-conical"
+        label: "Tip link"
+        tooltip: "Idle is not set up"
+        tooltipDetails: ["Finish on its [Details](page:acme.idle/Details)."]
+    }
+}
+TIPLINK
+      fi
+      tree_rescan "the tooltip link widget is scanned"
+      expect_poll "the tooltip link widget is listed" True plugin_known acme.tiplink
+      expect_poll "the tooltip link widget is built in the bar" True record_exists acme.tiplink ;;
     plugin-messages)
       # The clipboard's store needs the nested clipboard's tools, as the
       # clipboard scene does.
