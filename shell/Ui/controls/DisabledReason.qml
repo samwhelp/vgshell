@@ -45,8 +45,12 @@ Item {
 
     // pointer-cursor-exempt: it takes the presses of a locked control, which a press cannot change; the control's PointerCursor stands down while locked, so the arrow shows
     // keyboard-path: the control keeps its focus and its keys, which takeKey refuses while locked
+    // Hidden while unlocked too: Qt takes a cursor from the topmost item
+    // under the pointer, and the shield's arrow would hide the control's
+    // hand (a gallery smoke run, 2026-10-13).
     MouseArea {
         anchors.fill: parent
+        visible: root.locked
         enabled: root.locked
         acceptedButtons: Qt.AllButtons
     }
