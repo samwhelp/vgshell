@@ -243,15 +243,6 @@ marker = "    function finishDismiss() {\n"
 assert text.count(marker) == 1, "the SummonPopup finishDismiss function must occur once"
 target.write_text(text.replace(marker, "    function disableCommit() { tracker.skipCommit = true; }\n\n" + marker, 1))
 PYEDIT
-python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_input_copy" <<'PYEDIT'
-import pathlib, sys
-source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-text = source.read_text()
-for old, new in (("            visible: popup.closing\n", "            visible: false\n"), ("            focus: popup.closing\n", "            focus: false\n")):
-    assert text.count(old) == 1, "the SummonPopup closing input guard must occur once: " + old
-    text = text.replace(old, new)
-target.write_text(text)
-PYEDIT
 python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_mask_copy" <<'PYEDIT'
 import pathlib, sys
 source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
@@ -260,12 +251,11 @@ old = "    mask: Region { x: sized.x; y: sized.y; width: Math.ceil(sized.width);
 assert text.count(old) == 1, "the SummonPopup card mask must occur once"
 target.write_text(text.replace(old, "    mask: Region { item: sized }\n"))
 PYEDIT
-# The fade copies stop a real close half way, so a frame reads the card at
-# one known progress. The control fades the card item by item, as before
-# the layer.
-python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_fade_copy" "$summon_fade_control" <<'PYEDIT'
+# The held copies stop a real close half way, so frame and input checks
+# keep the card closing until they finish, regardless of host speed.
+python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_fade_copy" "$summon_fade_control" "$summon_input_copy" <<'PYEDIT'
 import pathlib, sys
-source, held, control = (pathlib.Path(arg) for arg in sys.argv[1:4])
+source, held, control, input_control = (pathlib.Path(arg) for arg in sys.argv[1:5])
 text = source.read_text()
 marker = "    function finishDismiss() {\n"
 assert text.count(marker) == 1, "the SummonPopup finishDismiss function must occur once"
@@ -274,6 +264,10 @@ held.write_text(text)
 old = "        layer.enabled: popup.motionProgress < 1\n"
 assert text.count(old) == 1, "the SummonPopup card layer must occur once"
 control.write_text(text.replace(old, ""))
+for old, new in (("            visible: popup.closing\n", "            visible: false\n"), ("            focus: popup.closing\n", "            focus: false\n")):
+    assert text.count(old) == 1, "the SummonPopup closing input guard must occur once: " + old
+    text = text.replace(old, new)
+input_control.write_text(text)
 PYEDIT
 python3 - "$repo/shell/Hosts/SummonLayer.qml" "$layer_copy" <<'PYEDIT'
 import pathlib, sys
@@ -787,7 +781,9 @@ print("followed" if same else "marker=%s expected=%s widget=%s" % (actual, expec
 PY
 }
 popup_motion_state() {
-  local value
+  local value visible
+  visible="$(ipc smoke popupRead "$1" visible)" || return 1
+  case $visible in false) echo closed; return ;; true) ;; *) echo "$visible"; return ;; esac
   value="$(ipc smoke popupRead "$1" motionProgress)" || return 1
   python3 - "$value" <<'PY'
 import sys
@@ -804,6 +800,7 @@ else:
     print("rest")
 PY
 }
+popup_closing_press_check() { expect "the press landed while the card was closing" moving popup_motion_state "$1"; }
 popup_fade_slide_state() {
   local progress opacity y
   progress="$(ipc smoke popupRead "$1" motionProgress)" || return 1
@@ -1076,7 +1073,7 @@ expect "toggle during Escape close reopens the panel" ok ipc smoke invokeInstanc
 expect_poll "toggle during Escape close keeps the panel open" 3 ipc smoke readInstance panel acme.surfaces opened
 expect "the panel closes before popup copy checks" ok ipc shell hide panel acme.surfaces
 expect_poll "the panel is gone before popup copy checks" absent ipc smoke readInstance panel acme.surfaces opened
-expect "the probe builds the SummonPopup copy for motion" ok ipc smoke popupLoad summon-motion "$repo/shell/Hosts/SummonPopup.qml" "bar:$screen_name" acme.surfaces '{"pluginId":"acme.surfaces","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}'
+expect "the probe builds the SummonPopup copy for motion" ok ipc smoke popupLoad summon-motion "$summon_fade_copy" "bar:$screen_name" acme.surfaces '{"pluginId":"acme.surfaces","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}'
 expect "the motion copy's panel takes a payload" '' ipc smoke invokeInstance panel acme.surfaces open '{}'
 expect_poll "the motion copy is shown before its motion is read" true ipc smoke popupRead summon-motion visible
 expect "the motion copy opens with a fade and slide in progress" moving popup_fade_slide_state summon-motion
@@ -1088,33 +1085,38 @@ expect "a plugin MouseArea on the open card's bottom edge takes the press" 1 smo
 expect "a press on the open card's bottom edge leaves it shown" true ipc smoke popupRead summon-motion visible
 expect "the open card's Templates button press is sent" ok popup_marker_press smokeButtonGeometry
 expect "a Templates control on the open card takes the press" 1 smoke_button_marks
-expect "the motion copy starts closing" ok ipc smoke popupCall summon-motion requestDismiss
+expect "the motion copy holds its close half way" ok ipc smoke popupCall summon-motion holdHalfway
 expect "the motion copy closes with a fade and slide in progress" moving popup_fade_slide_state summon-motion
 expect "the closing card's plugin holds no keyboard focus" no-focus plugin_focus
 type_keys -k Tab || fail "sending Tab to the closing card failed"
 expect "a Tab during the close focuses nothing in the plugin" no-focus plugin_focus
 expect "pressing the closing motion copy marker is sent" ok popup_marker_press
 expect "the closing card's plugin MouseArea takes no press" 1 smoke_marks
-expect "the marker press landed while the card was closing" moving popup_motion_state summon-motion
+popup_closing_press_check summon-motion
 expect "a reopen during the close is allowed" ok ipc smoke popupCall summon-motion reopenFromHost
 expect_poll "the reopened card's plugin takes its keyboard focus back" held plugin_focus
 expect_poll "the reopened motion copy reaches rest" rest popup_motion_state summon-motion
-expect "the motion copy starts closing again" ok ipc smoke popupCall summon-motion requestDismiss
+expect "the motion copy holds its next close half way" ok ipc smoke popupCall summon-motion holdHalfway
 expect "pressing the closing card's Templates button is sent" ok popup_marker_press smokeButtonGeometry
 expect "the closing card's Templates control takes no press" 1 smoke_button_marks
-expect "the button press landed while the card was closing" moving popup_motion_state summon-motion
+popup_closing_press_check summon-motion
+expect "the motion copy finishes its held close" ok ipc smoke popupCall summon-motion finishDismiss
 expect_poll "the motion copy releases its popup after closing" false ipc smoke popupRead summon-motion visible
+popup_closed_press_control() { (failures=0 behaviour_failures=0; layer_press "the press after the close ended" "$layer_desktop_point"; popup_closing_press_check summon-motion >"$sandbox/popup-closed-press-control.log"; echo "$failures"); }
+expect "control: a press after the close ended fails the closing-press assertion" 1 popup_closed_press_control
+sed 's/^/  CONTROL  /' "$sandbox/popup-closed-press-control.log"
 expect "the probe drops the motion copy" ok ipc smoke popupDrop summon-motion
 expect_poll "the motion copy's panel leaves the build records" absent ipc smoke readInstance panel acme.surfaces opened
 expect "the probe builds the input-control popup copy" ok ipc smoke popupLoad summon-input-control "$summon_input_copy" "bar:$screen_name" acme.surfaces '{"pluginId":"acme.surfaces","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}'
 expect "the input-control copy's panel takes a payload" '' ipc smoke invokeInstance panel acme.surfaces open '{}'
 expect_poll "the input-control copy is shown" true ipc smoke popupRead summon-input-control visible
-expect "the input-control copy starts closing" ok ipc smoke popupCall summon-input-control requestDismiss
+expect "the input-control copy holds its close half way" ok ipc smoke popupCall summon-input-control holdHalfway
 type_keys -k Tab || fail "sending Tab to the unguarded closing card failed"
 expect "control: without the key sink a Tab during the close focuses the plugin" held plugin_focus
 expect "control: without the input guard the closing marker press reaches the plugin" ok popup_marker_press
 expect "control: the unguarded closing marker press increments the marker" 1 smoke_marks
-expect "control: the unguarded press landed while the card was closing" moving popup_motion_state summon-input-control
+popup_closing_press_check summon-input-control
+expect "the input-control copy finishes its held close" ok ipc smoke popupCall summon-input-control finishDismiss
 expect "the probe drops the input-control copy" ok ipc smoke popupDrop summon-input-control
 expect_poll "the input-control copy's panel leaves the build records" absent ipc smoke readInstance panel acme.surfaces opened
 expect "the probe builds the item-mask popup copy" ok ipc smoke popupLoad summon-mask-control "$summon_mask_copy" "bar:$screen_name" acme.surfaces '{"pluginId":"acme.surfaces","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}'
