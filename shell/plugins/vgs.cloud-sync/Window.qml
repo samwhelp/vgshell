@@ -218,7 +218,7 @@ FocusScope {
                                             spacing: Theme.listItem.iconGap
                                             Icon {
                                                 id: conflictIcon
-                                                y: Math.round(conflictName.capCentre - height / 2)
+                                                y: conflictName.topForLeadingIcon(height)
                                                 name: "file-exclamation-point"
                                                 size: Theme.icon.size.md
                                                 color: Theme.color.textMuted
@@ -256,7 +256,7 @@ FocusScope {
                                         }
                                         RowAction {
                                             id: openFolders
-                                            y: Math.round(conflictName.capCentre - height / 2)
+                                            y: conflictName.topForLeadingIcon(height)
                                             text: "Open folders"
                                             visible: conflictRow.modelData.dirs.length > 0
                                             onClicked: root.review(conflictRow.modelData.dirs)

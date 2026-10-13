@@ -16,8 +16,8 @@ Column {
     Row {
         width: parent.width
         spacing: Theme.stack.inline
-        Icon { name: root.iconName; size: Theme.icon.size.sm; anchors.verticalCenter: parent.verticalCenter }
-        Label { role: "bodyStrong"; text: root.title; width: parent.width - x - readingLabel.implicitWidth - parent.spacing; elide: Text.ElideRight }
+        Icon { name: root.iconName; size: Theme.icon.size.sm; y: titleLabel.topForLeadingIcon(height) }
+        Label { id: titleLabel; role: "bodyStrong"; text: root.title; width: parent.width - x - readingLabel.implicitWidth - parent.spacing; elide: Text.ElideRight }
         Label { id: readingLabel; role: "value"; text: root.reading }
     }
     Label { visible: text !== ""; width: parent.width; role: "hint"; text: root.description; wrapMode: Text.WordWrap }

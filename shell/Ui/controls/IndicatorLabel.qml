@@ -14,7 +14,7 @@ Label {
     readonly property real lineTop: Math.round((control.height - lineBox) / 2)
 
     function indicatorY(height) {
-        return control.text !== "" ? Math.round(lineTop + capCentre - height / 2) : Math.round((control.height - height) / 2);
+        return control.text !== "" ? lineTop + topForLeadingIcon(height) : Math.round((control.height - height) / 2);
     }
 
     role: "item"

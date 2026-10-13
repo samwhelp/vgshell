@@ -1479,6 +1479,26 @@ for (const view of ["ThemeView.qml", "WallpaperView.qml"]) {
     assert.doesNotMatch(viewSource.replace("failureText.topForLeadingIcon(height)", "Math.round((failureText.lineBox - height) / 2)"), FAILURE_MARK_TOP, `control: ${view} with the mark on the line box must fail the check`);
 }
 
+// An icon that leads a line of text takes its top from that line's label.
+// This reads each site's source: the icon the row names holds the call
+// and no centre anchor. The control is the same source with the icon on
+// the row centre.
+const LED_LINES = [
+    { file: "shell/Ui/feedback/SaveBar.qml", label: "savedText", icon: 'name: "check"' },
+    { file: "shell/plugins/vgs.sysmon/Reading.qml", label: "titleLabel", icon: "name: root.iconName" },
+    { file: "shell/plugins/vgs.themes/WallpaperView.qml", label: "sourceText", icon: "color: sourceText.color" }
+];
+for (const site of LED_LINES) {
+    const call = `${site.label}.topForLeadingIcon(height)`;
+    const ledIcon = source => (source.match(/Icon \{[^{}]*\}/g) || []).filter(block => block.includes(site.icon));
+    const levelled = source => ledIcon(source).length === 1 && ledIcon(source)[0].includes(call) && !ledIcon(source)[0].includes("verticalCenter");
+    const siteSource = fs.readFileSync(path.join(repo, site.file), "utf8");
+    assert.equal(levelled(siteSource), true, `${site.file} centres its leading icon on its line's capitals`);
+    const centred = siteSource.replace(new RegExp(`y: [^\\n;{}]*${call.replace(/[.()]/g, "\\$&")}`), "anchors.verticalCenter: parent.verticalCenter");
+    assert.notEqual(centred, siteSource, `control: ${site.file} holds the call to replace`);
+    assert.equal(levelled(centred), false, `control: ${site.file} with the icon on the row centre must fail the check`);
+}
+
 // Each token control edits a copy of the shipped table, and the verifier
 // it names must fail on that copy.
 const tokenSource = fs.readFileSync(path.join(repo, "shell/Commons/Tokens.js"), "utf8");

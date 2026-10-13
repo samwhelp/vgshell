@@ -89,7 +89,7 @@ T.AbstractButton {
             size: Theme.icon.size.sm
             color: root.hovered || root.menuOpen ? root.foreground : Theme.titleButton.caret
             x: label.width + root.spacing
-            y: Math.round(label.capCentre - height / 2)
+            y: label.topForLeadingIcon(height)
         }
     }
 

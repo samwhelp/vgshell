@@ -66,13 +66,14 @@ FocusScope {
         spacing: Theme.control.gap
 
         Icon {
-            anchors.verticalCenter: parent.verticalCenter
+            y: Math.round(savedText.y) + savedText.topForLeadingIcon(height)
             visible: root.saved
             name: "check"
             size: Theme.icon.size.md
             color: Theme.saveBar.saved
         }
         Label {
+            id: savedText
             anchors.verticalCenter: parent.verticalCenter
             role: "item"
             text: root.saved ? "Saved" : "Unsaved changes"
