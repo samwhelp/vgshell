@@ -438,6 +438,7 @@ SH
   expect_poll "the window holds Sync now off while a sync runs" '["sync", false]' cs_window_primary
   cs_let_go
   expect_poll "the window offers Sync now again once the sync ends" '["sync", true]' cs_window_primary
+  mv -- "$shim/notify-send" "$cs_stub/notify-send.link-test"
   notes_on cloudsync-links
   rm -- "${cs_stub:?}/secrets/client-id"
   expect "a run without the download client ID waits for it" "pair=docs result=authorization-required exit=1" cs_answer run
@@ -480,6 +481,7 @@ SH
     fail "cloudsync: the page-reference control edit failed"
   fi
   rm -r -- "$link_copy"
+  mv -- "$cs_stub/notify-send.link-test" "$shim/notify-send"
   rescan "the shipped page reference is scanned again"
   expect "the shipped window is summoned again" ok ipc shell summon window vgs.cloud-sync '{}'
   printf 'fixture-client' >"$cs_stub/secrets/client-id"
