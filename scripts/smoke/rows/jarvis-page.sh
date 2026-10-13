@@ -253,14 +253,14 @@ page_link_click() {
   # A rect value lists x, y, width and height as own keys, so the probe's
   # JSON carries them (Qt 6.11 qqmlvaluetypewrapper_p.h,
   # virtualOwnPropertyKeys).
-  box="$(ipc smoke readMatchingDescendant window vgs.settings LinkText link "$page_link" linkBox)" || return 1
+  box="$(ipc smoke readMatchingDescendant window vgs.settings LinkText words "$page_link" linkBox)" || return 1
   [[ $box == \{* ]] || { echo "page_link_click: no link box: $box" >&2; return 1; }
   steps="$(python3 -c 'import json,sys; print(max(1, int(json.loads(sys.argv[1])["width"] // 8)))' "$box")" || return 1
   for step in $(seq 0 "$steps"); do
     read -r x y < <(at_centre window:Plugins "$(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); b=json.loads(sys.argv[2]); print(json.dumps([r[0] + b["x"] + 8 * int(sys.argv[3]), r[1] + b["y"], 2, 16]))' "$rect" "$box" "$step")") || return 1
     hover "$x" "$y" || return 1
     sleep 0.1
-    [[ "$(ipc smoke readMatchingDescendant window vgs.settings LinkText link "$page_link" hoveredLink)" == true ]] && { click "$x" "$y"; return; }
+    [[ "$(ipc smoke readMatchingDescendant window vgs.settings LinkText words "$page_link" hoveredLink)" == true ]] && { click "$x" "$y"; return; }
   done
   echo "page_link_click: the pointer found no link words in line=$rect box=$box" >&2
   return 1
