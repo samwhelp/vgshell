@@ -5,8 +5,10 @@
 # No latency budget is measured. Polls use expect_poll's IPC round trip.
 # The production reprompt control suppresses the password prompt in a
 # sandbox plugin copy. The secret reader's control plants a synthetic log.
-# The password prompt's control plants the field in the list and drops the
-# prompt's reading of its scrolled view, in a sandbox plugin copy.
+# The password prompt's control plants the field in the body, outside the
+# dialog, and drops the prompt's reading of its scrolled view, in a sandbox
+# plugin copy. Its focus controls, in another copy, drop the hand-off to the
+# dialog when it shows and leave the page enabled behind it.
 # inputs: scripts/smoke/user-config.sh shell/plugins/vgs.network/* shell/Commons/Nmcli.js shell/Commons/qmldir shell/plugins/vgs.system/* shell/Core/* shell/Hosts/* shell/Ui/* shell/Commons/* shell/shell.qml config/shell.json bin/vgshell-scan bin/vgshell-plugin-judge bin/lib/check-manifests.js bin/lib/qml-library.js scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/overlay-capture.sh
 set -euo pipefail
 devices_ready network || return 0
@@ -110,6 +112,9 @@ net_widget_click() { rest_pointer && click_centre "$(bar_key)" vgs.network; }
 # whether the dialog names the prompted network, and its top in the body.
 net_dialog() { ipc smoke readMatchingDescendant "$1" vgs.network Dialog objectName network-prompt visible; }
 net_dialog_names() { ipc smoke readMatchingDescendant "$1" vgs.network Label objectName network-prompt-name text | py_reply 'import json,sys; print("VGS Smoke Wi-Fi" in json.load(sys.stdin))'; }
+# net_dialog_focus HOST: [whether the dialog holds the focus, whether the
+# body holds it].
+net_dialog_focus() { printf '[%s, %s]\n' "$(ipc smoke activeFocusWithin "$1" vgs.network Dialog)" "$(ipc smoke activeFocusIn "$1" vgs.network)"; }
 net_dialog_y() { ipc smoke itemValues "$1" vgs.network Dialog objectName,y | py_reply 'import json,sys; print(next(r["y"] for r in json.load(sys.stdin) if r["objectName"]=="network-prompt"))'; }
 net_dropdown_button() { # TEXT: one real click on the dropdown's button
   local rect x y
@@ -127,13 +132,54 @@ net_reprompt() {
   expect_poll "$1: the service prompts" prompt net_prompt
   net_expect_fixture "$1: the failed activation is removed" drop-active || return 1
 }
+# net_share_prompt LABEL: in the dropdown, whose list holds the keyboard,
+# Share QR code opens, the saved profile's password fails behind it, and
+# Close QR code closes Share over the prompt that waited.
+net_share_prompt() {
+  type_keys -k Menu
+  expect_poll "$1: the sharing menu opens" true ipc smoke readDescendant panel vgs.network Menu opened
+  expect_poll "$1: the sharing menu selects Share QR code" '["Share QR code"]' net_menu_end
+  type_keys -k Return
+  expect_poll "$1: Share opens" ready net_qr_state panel
+  net_reprompt "$1" || return 1
+  expect "$1: the prompt waits behind Share" false net_dialog panel
+  type_keys -k Return
+  expect_poll "$1: Close QR code closes Share" closed ipc smoke networkShare panel
+  expect_poll "$1: the prompt that waited opens its dialog" true net_dialog panel
+}
+# net_search_click: one real click on the System sidebar's search, found by
+# the query it holds. The password field holds typed text first, so no
+# empty field reads as an empty query.
+net_search_click() {
+  local query
+  query="$(ipc smoke readDescendant window vgs.system Sidebar query | py_reply 'import json,sys; print(json.load(sys.stdin))')" || return 1
+  click_in 'window:System Settings' window vgs.system TextField "$query"
+}
+# net_tab_to_body: Tab from the focused System search, one stop at a time,
+# until a stop inside the network body holds the focus. Each Tab waits up
+# to 2 s, polled every 0.2 s, for the body to take the focus before the
+# next one, over at most six stops; 1 when none reaches the body. The
+# System window's scroll areas take Tab stops before the pane.
+net_tab_to_body() {
+  local stop poll
+  for ((stop = 0; stop < 6; stop++)); do
+    type_keys -k Tab || return 1
+    for ((poll = 0; poll < 10; poll++)); do
+      [[ $(ipc smoke activeFocusIn window vgs.network) == true ]] && return 0
+      sleep 0.2
+    done
+  done
+  return 1
+}
 # net_dialog_follows HOST: `follows` when the dialog moves down with its
-# page scrolled to the end, else the readings. The System page overflows
-# its window, so its scroll moves.
+# page scrolled down, else the readings. The System page overflows its
+# window, so its scroll moves. revealText finds enabled items, and the
+# page behind the dialog is disabled, so it scrolls the dialog's Cancel,
+# below the view's top third, up to that third.
 net_dialog_follows() {
   local before after scrolled
   before="$(net_dialog_y "$1")" || return 1
-  scrolled="$(ipc smoke revealText "$1" vgs.system Field 'Show disconnected icon')" || return 1
+  scrolled="$(ipc smoke revealText "$1" vgs.system Button Cancel)" || return 1
   after="$(net_dialog_y "$1")" || return 1
   python3 -c 'import sys; b,a,s=sys.argv[1:]; print("follows" if s.replace(".","",1).isdigit() and float(s) > 0 and float(a) > float(b) else "fixed before=%s after=%s scrolled=%s" % (b,a,s))' "$before" "$after" "$scrolled"
 }
@@ -431,7 +477,6 @@ net_expect_fixture "the added network leaves the list" unenterprise || return 0
 # to the field. With the field empty Join is disabled, so one Tab rests on
 # Cancel, where Delete would forget the profile if the list behind took the
 # key. The text typed after Delete shows the shell has handled Delete.
-net_dialog_focus() { printf '[%s, %s]\n' "$(ipc smoke activeFocusWithin panel vgs.network Dialog)" "$(ipc smoke activeFocusIn panel vgs.network)"; }
 type_keys -k Tab
 expect_poll "Tab moves the focus off the field" '{"masked":true,"length":7,"focused":false}' ipc smoke networkField panel
 type_keys -k Tab -k Tab
@@ -440,7 +485,7 @@ type_keys -M ctrl -k a -m ctrl -k BackSpace
 expect_poll "the field empties before the list check" '{"masked":true,"length":0,"focused":true}' ipc smoke networkField panel
 type_keys -k Tab
 expect_poll "Tab rests on the dialog's Cancel" '{"masked":true,"length":0,"focused":false}' ipc smoke networkField panel
-expect "the focus on Cancel is inside the dialog" '[true, true]' net_dialog_focus
+expect "the focus on Cancel is inside the dialog" '[true, true]' net_dialog_focus panel
 type_keys -k Delete -M shift -k Tab -m shift
 type_keys partial
 expect_poll "Shift+Tab returns to the field" '{"masked":true,"length":7,"focused":true}' ipc smoke networkField panel
@@ -451,7 +496,7 @@ expect_poll "Escape cancels the prompt" none net_prompt
 expect_poll "Escape closes the dialog" false net_dialog panel
 expect "Escape clears the typed text" '{"masked":true,"length":0,"focused":false}' ipc smoke networkField panel
 expect "Escape keeps the dropdown open" shown net_shown panel
-expect_poll "the focus returns to the dropdown, outside the dialog" '[false, true]' net_dialog_focus
+expect_poll "the focus returns to the dropdown, outside the dialog" '[false, true]' net_dialog_focus panel
 net_reprompt "Cancel" || return 0
 expect_poll "the prompt opens the dialog again" true net_dialog panel
 expect_poll "the reopened dialog focuses its field" '{"masked":true,"length":0,"focused":true}' ipc smoke networkField panel
@@ -472,6 +517,18 @@ expect "a vanished network clears the typed text" '{"masked":true,"length":0,"fo
 net_expect_fixture "the prompted network's device returns" restore || return 0
 expect_poll "the returned device is scanned for the dropdown" '{"leases":1,"device":"wlan0","scanning":true}' ipc smoke networkScan
 expect_poll "the returned network is listed" '[["VGS Smoke Wi-Fi", 82, true, false]]' net_rows panel
+# A prompt that arrives while Share shows opens once Share closes, and
+# takes the keys there.
+net_share_prompt "Share" || return 0
+expect_poll "the dialog that waited behind Share holds the keyboard" '[true, true]' net_dialog_focus panel
+expect_poll "the dialog that waited behind Share focuses its field" '{"masked":true,"length":0,"focused":true}' ipc smoke networkField panel
+type_keys partial
+expect_poll "the field takes the text typed after Share" '{"masked":true,"length":7,"focused":true}' ipc smoke networkField panel
+expect "the profile stays saved under the dialog after Share" True net_known
+type_keys -k Escape
+expect_poll "Escape cancels the prompt that waited behind Share" none net_prompt
+expect_poll "Escape closes the dialog that waited behind Share" false net_dialog panel
+expect "Escape clears the text typed after Share" '{"masked":true,"length":0,"focused":false}' ipc smoke networkField panel
 net_reprompt "Close" || return 0
 expect_poll "the dialog opens before the dropdown closes" '{"masked":true,"length":0,"focused":true}' ipc smoke networkField panel
 type_keys partial
@@ -508,6 +565,16 @@ net_expect_fixture "the failed activation is removed before retry" drop-active |
 type_keys partial
 expect "an idle background failure is ignored" ok ipc smoke networkBackgroundFailure false
 expect "the password prompt keeps its typed value" '{"masked":true,"length":7,"focused":true}' ipc smoke networkField window
+# A click on the System search takes the keyboard off the dialog, and Tab
+# from there enters the dialog, never the page behind its scrim.
+net_search_click || fail "the click on the System search failed"
+expect_poll "a click takes the keyboard to the System search" '[false, false]' net_dialog_focus window
+net_tab_to_body || fail "Tab from the System search never reached the network body"
+expect_poll "Tab from the search enters the dialog, not the page behind it" '[true, true]' net_dialog_focus window
+type_keys -k Delete
+expect "the page behind the dialog takes no Delete" True net_known
+type_keys -M shift -k Tab -m shift
+expect_poll "Shift+Tab returns to the dialog's field" '{"masked":true,"length":7,"focused":true}' ipc smoke networkField window
 type_keys -M ctrl -k a -m ctrl -k BackSpace
 net_expect_fixture "the PSK update refusal is installed" refuse-psk || return 0
 type_keys network-smoke-joined-secret
@@ -891,14 +958,14 @@ net_expect_fixture "the empty-PSK control removes the activation" drop-active ||
 expect "the empty-PSK control cancels its prompt" ok ipc vgs.network invoke action '{"kind":"cancel"}'
 expect "the empty-PSK control closes" ok ipc shell hide panel vgs.network
 # The prompt's controls, in one copy: the password field planted in the
-# list, outside the dialog, and a prompt that reads no scrolled view.
+# body, outside the dialog, and a prompt that reads no scrolled view.
 cp -- "$repo/shell/plugins/vgs.network/NetworkBody.qml" "$net_copy/NetworkBody.qml"
 python3 - "$net_copy/NetworkBody.qml" <<'PYPROMPT'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1]);s=p.read_text()
 field=s[s.index('        TextField {\n            id: password\n'):]
 field=field[:field.index('        }\n')+len('        }\n')]
-slot='        Button {\n            objectName: "network-other"\n'
+slot='    Scrim {\n        visible: root.prompting\n'
 view='                promptView = at;\n'
 assert s.count(field)==1 and s.count(slot)==1 and s.count(view)==1
 s=s.replace(field,'').replace(slot,field+slot).replace(view,'                break;\n')
@@ -910,13 +977,49 @@ expect "System opens the prompt controls" ok ipc shell summon window vgs.system 
 expect_poll "the prompt controls' pane is mounted" shown net_shown window
 net_reprompt "Prompt controls" || return 0
 expect_poll "the prompt controls focus the planted field" '{"masked":true,"length":0,"focused":true}' ipc smoke networkField window
-expect "control: a field in the list is not the dialog's own" false ipc smoke activeFocusWithin window vgs.network Dialog
+expect "control: a field outside the dialog is not the dialog's own" false ipc smoke activeFocusWithin window vgs.network Dialog
 net_follows_control="$(net_dialog_follows window)" || net_follows_control=unread
 expect "control: a prompt that reads no view stays put on a scrolled page" fixed printf '%s\n' "${net_follows_control%% *}"
 expect "the prompt controls cancel their prompt" ok ipc vgs.network invoke action '{"kind":"cancel"}'
 expect_poll "the prompt controls hold no prompt" none net_prompt
 expect "System closes the prompt controls" ok ipc shell hide window vgs.system
 expect_poll "the prompt controls' pane is gone" hidden net_shown window
+# The focus controls, in one copy: no hand-off to the dialog when it shows,
+# and the page left enabled behind it.
+cp -- "$repo/shell/plugins/vgs.network/NetworkBody.qml" "$net_copy/NetworkBody.qml"
+python3 - "$net_copy/NetworkBody.qml" <<'PYFOCUS'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]);s=p.read_text()
+handoff='    onShownPromptChanged: if (shownPrompt !== "") Qt.callLater(() => { if (root.prompting) prompt.takeFocus(); })\n'
+page='        enabled: !root.prompting\n'
+assert s.count(handoff)==1 and s.count(page)==1
+p.write_text(s.replace(handoff,'').replace(page,''))
+PYFOCUS
+rescan "the focus controls are discovered"
+expect_poll "the focus controls finish their backend probes" '"offline"' net_state
+expect "the focus controls' dropdown opens" ok ipc shell summon panel vgs.network '{}'
+expect_poll "the focus controls' list takes the keyboard" true ipc smoke activeFocusWithin panel vgs.network NetworkBody
+net_share_prompt "Focus controls" || return 0
+type_keys partial
+expect "control: with no hand-off the text typed after Share misses the field" '{"masked":true,"length":0,"focused":false}' ipc smoke networkField panel
+expect "the focus controls cancel the dropdown's prompt" ok ipc vgs.network invoke action '{"kind":"cancel"}'
+expect_poll "the focus controls' dropdown holds no prompt" none net_prompt
+expect "the focus controls' dropdown closes" ok ipc shell hide panel vgs.network
+expect "System opens the focus controls" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
+expect_poll "the focus controls' pane is mounted" shown net_shown window
+net_reprompt "Focus controls in System" || return 0
+expect_poll "the focus controls' System dialog shows" true net_dialog window
+click_in 'window:System Settings' window vgs.network TextField "" || fail "the click on the focus controls' field failed"
+type_keys partial
+expect_poll "the focus controls' field takes the typed text" '{"masked":true,"length":7,"focused":true}' ipc smoke networkField window
+net_search_click || fail "the click on the focus controls' System search failed"
+expect_poll "the focus controls' search takes the keyboard" '[false, false]' net_dialog_focus window
+net_tab_to_body || fail "Tab from the focus controls' System search never reached the network body"
+expect_poll "control: Tab from the search reaches a page left enabled behind the dialog" '[false, true]' net_dialog_focus window
+expect "the focus controls cancel the System prompt" ok ipc vgs.network invoke action '{"kind":"cancel"}'
+expect_poll "the focus controls hold no prompt" none net_prompt
+expect "System closes the focus controls" ok ipc shell hide window vgs.system
+expect_poll "the focus controls' pane is gone" hidden net_shown window
 cp -- "$repo/shell/plugins/vgs.network/NetworkBody.qml" "$net_copy/NetworkBody.qml"
 # These mutations make the production scanner and keyboard checks red.
 python3 - "$net_copy/Service.qml" "$net_copy/NetworkBody.qml" <<'PYCONTROL'

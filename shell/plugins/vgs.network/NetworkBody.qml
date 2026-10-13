@@ -41,6 +41,13 @@ FocusScope {
     readonly property string permissionNotice: network.access === "unavailable" ? "Network permissions could not be checked. NetworkManager still handles each change." : ""
     readonly property bool busy: network.action.kind !== "idle"
     readonly property bool prompting: promptKey !== "" && content.visible
+    // The prompted network while its dialog shows, else "". Its change is
+    // the one place the dialog takes the focus: when it shows, a prompt
+    // that waited behind Share or the join form included, and when its
+    // network changes. Qt.callLater runs after the dialog's own `visible`
+    // binding has followed `prompting`.
+    readonly property string shownPrompt: prompting ? promptKey : ""
+    onShownPromptChanged: if (shownPrompt !== "") Qt.callLater(() => { if (root.prompting) prompt.takeFocus(); })
     readonly property Item initialFocus: prompting ? password : list
     readonly property string promptName: network.prompt === null || !network.prompt ? "" : network.prompt.name
     // The view that scrolls the body, read when a prompt opens, and the
@@ -105,12 +112,11 @@ FocusScope {
                 promptView = at;
             }
         }
-        Qt.callLater(() => { if (root.prompting) prompt.takeFocus(); });
     }
-    // Whether the focus left the open prompt for `item` by Tab, or for an
-    // item of the body behind the scrim. A Qt Quick Control records how it
-    // took the focus in focusReason (Qt 6 Control reference); the list is no
-    // Control. A host that moves the focus off the body keeps it.
+    // Whether the focus left the open prompt for `item` by Tab, or for the
+    // body itself, which holds it once Qt takes it from the disabled page.
+    // A Qt Quick Control records how it took the focus in focusReason (Qt 6
+    // Control reference). A host that moves the focus off the body keeps it.
     function strayed(item) {
         if (item === null) return false;
         if (item.focusReason === Qt.TabFocusReason || item.focusReason === Qt.BacktabFocusReason) return true;
@@ -272,7 +278,7 @@ FocusScope {
             shell: root.shell
             target: root.joinTarget === undefined ? null : root.joinTarget
             interfaceName: root.joinInterface
-            onDismissed: { root.closeJoin(); list.forceActiveFocus(Qt.ShortcutFocusReason); }
+            onDismissed: { root.closeJoin(); if (!root.prompting) list.forceActiveFocus(Qt.ShortcutFocusReason); }
         }
     }
     Loader {
@@ -283,14 +289,20 @@ FocusScope {
         sourceComponent: NetworkShare {
             width: root.width
             target: root.shareTarget
-            onDismissed: { root.closeShare(); list.forceActiveFocus(Qt.ShortcutFocusReason); }
+            onDismissed: { root.closeShare(); if (!root.prompting) list.forceActiveFocus(Qt.ShortcutFocusReason); }
         }
     }
 
+    // The page is disabled while the prompt shows over it. A disabled item
+    // loses the active focus and takes no keyboard events (Qt 6 Item.enabled
+    // reference), and Tab passes over it (network smoke row, Tab from the
+    // System search, 2026-10-13), so a focus from outside the body reaches
+    // the dialog and never the list behind the scrim.
     Column {
         id: content
         width: root.width
         visible: root.shareTarget === null && root.joinTarget === undefined
+        enabled: !root.prompting
         spacing: Theme.stack.group
         Label {
             width: parent.width
@@ -482,9 +494,8 @@ FocusScope {
         }
     }
 
-    // The scrim takes each press, hover and wheel over the body, and the
-    // dialog keeps the focus, so the list takes no input while the prompt
-    // is open. A press on the scrim keeps the typed text.
+    // The scrim takes each press, hover and wheel over the body. A press on
+    // it keeps the typed text.
     Scrim {
         visible: root.prompting
         onClicked: prompt.takeFocus()
