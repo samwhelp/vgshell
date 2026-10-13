@@ -252,7 +252,10 @@ doctor_holds() { # PACKAGE
   [[ $status -eq 0 ]] || refuse "doctor=failed package=$1" "$(cat /tmp/doctor.err)"
   python -c 'import json,sys
 report=json.loads(sys.argv[1])
-missing=[row["name"] for rows in [report["core"], *report["plugins"].values()] for row in rows if not row["optional"] and row["state"] == "missing"]
+# A required command installed on request is an optdepends entry the
+# Requirements section of its plugin installs, so the package leaves it
+# missing.
+missing=[row["name"] for rows in [report["core"], *report["plugins"].values()] for row in rows if not row["optional"] and not row["onRequest"] and row["state"] == "missing"]
 if missing: sys.exit("missing required: " + ",".join(missing))
 if not report["plugins"]: sys.exit("doctor plugin discovery is empty")' "$report" || refuse "doctor=required-missing package=$1"
 }

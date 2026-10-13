@@ -129,7 +129,8 @@ Item {
         ["acme.settled", settled, settledValues, [], {}],
         ["acme.tasks", plain, {}, [], listed(false, "")],
         ["acme.held", plain, {}, [], listed(false, "Needs acme-tool. Install all missing first.")],
-        ["acme.screen", plain, {}, [], listed(true, "")]
+        ["acme.screen", plain, {}, [], listed(true, "")],
+        ["acme.heldsetup", plain, {}, [], listed(true, "Needs acme-tool. Install all missing first.")]
     ]
     function rows(change) {
         return fixtures.map(f => change !== undefined && change[f[0]] !== undefined ? pluginRow(f[0], f[1], f[2], change[f[0]], f[4]) : pluginRow(f[0], f[1], f[2], f[3], f[4]));
@@ -287,6 +288,15 @@ Item {
             const rowOf = action => descendants(pageOf(window)).find(item => item instanceof Field && item.visible && descendants(item).indexOf(action) !== -1).label;
             window.openPlugin("acme.screen", Qt.OtherFocusReason, "Setup");
             compare(screens().map(rowOf), ["More setup"], "Setup draws the setup screen");
+            const moreSetupRow = () => descendants(pageOf(window)).find(item => item instanceof Field && item.visible && descendants(item).indexOf(screens()[0]) !== -1);
+            compare(moreSetupRow().hint, "", "a setup screen that lacks nothing gives More setup no hint");
+            window.openPlugin("acme.heldsetup", Qt.OtherFocusReason, "Setup");
+            tryCompare(pageOf(window), "tab", "Setup");
+            compare(screens().map(rowOf), ["More setup"], "Setup draws the withheld setup screen");
+            compare(screens()[0].enabled, false, "a withheld setup screen takes no press");
+            compare(moreSetupRow().hint, "Manage tools: Needs acme-tool. Install all missing first.", "More setup's hint names the withheld screen and its reason");
+            window.openPlugin("acme.screen", Qt.OtherFocusReason, "Setup");
+            tryCompare(pageOf(window), "tab", "Setup");
             tabsOf(window).currentIndex = 2;
             tryCompare(pageOf(window), "tab", "Details");
             compare(screens(), [], "Details draws no setup screen");
