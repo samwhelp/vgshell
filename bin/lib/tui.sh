@@ -11,6 +11,11 @@
 # `vgs-tui: refused: <key>=<value>`. A function that refuses returns 2 for a
 # missing terminal or a bad argument, 75 for a held lock, 1 otherwise.
 #
+# Every line the library draws outside the header's box, the question and
+# its buttons included, starts at the box's content edge and wraps at
+# spaces before the same edge on the right; vgs_tui_split passes a redrawn
+# progress line as it is.
+#
 #   vgs_tui_header TITLE [LINE...]   one blank line, then a bordered box:
 #                                    TITLE, then each LINE, wrapped to fit
 #                                    the terminal
@@ -108,6 +113,80 @@ _vgs_tui_terminal() { # KEY
 _vgs_tui_prompt_gap() { printf '\n' >&2; }
 _vgs_tui_header_gap() { printf '\n'; }
 
+# The header's content edge: its border and left padding, in columns. Every
+# line the library draws outside the box starts there and ends that far
+# from the right edge, so text and the question's buttons line up with the
+# text inside the box.
+_vgs_tui_edge=3
+_vgs_tui_sgr_rule=$'\e''\[[0123456789;:]*m'
+
+# The width a line has between the content edges, 1 at least.
+_vgs_tui_width() {
+  local width=$(( $(vgs_tui_columns) - 2 * _vgs_tui_edge ))
+  (( width > 0 )) || width=1
+  printf '%s\n' "$width"
+}
+
+_vgs_tui_visible() { # VAR TEXT: TEXT's columns, its SGR escapes taking none
+  local -n _vgs_tui_count="$1"
+  local text="$2"
+  while [[ $text =~ $_vgs_tui_sgr_rule ]]; do text="${text/"${BASH_REMATCH[0]}"/}"; done
+  _vgs_tui_count=${#text}
+}
+
+# ARRAY gets TEXT's lines broken to WIDTH columns at the last space that
+# fits. The spaces at a break are dropped, so no continuation starts with
+# one; a line's own leading spaces stay, and a word wider than WIDTH breaks
+# inside it.
+_vgs_tui_lines() { # ARRAY WIDTH TEXT
+  local -n _vgs_tui_out="$1"
+  local width="$2" text="$3" line rest lead word gap cur cur_n word_n started more=1
+  _vgs_tui_out=()
+  while (( more )); do
+    line="${text%%$'\n'*}"
+    if [[ $text == *$'\n'* ]]; then text="${text#*$'\n'}"; else more=0; fi
+    lead="${line%%[! ]*}"
+    rest="${line#"$lead"}"
+    cur="$lead" cur_n=${#lead} started="" gap=""
+    while [[ -n $rest ]]; do
+      word="${rest%% *}"
+      rest="${rest#"$word"}"
+      _vgs_tui_visible word_n "$word"
+      if [[ -n $started ]] && (( cur_n + ${#gap} + word_n <= width )); then
+        cur+="$gap$word" cur_n=$(( cur_n + ${#gap} + word_n ))
+      else
+        if [[ -n $started ]]; then _vgs_tui_out+=("$cur"); cur="" cur_n=0; fi
+        while (( cur_n + word_n > width )); do
+          if [[ $word =~ ^$_vgs_tui_sgr_rule ]]; then
+            cur+="${BASH_REMATCH[0]}" word="${word#"${BASH_REMATCH[0]}"}"
+          elif (( cur_n == width )); then
+            _vgs_tui_out+=("$cur"); cur="" cur_n=0
+          else
+            cur+="${word:0:1}" word="${word:1}" cur_n=$(( cur_n + 1 )) word_n=$(( word_n - 1 ))
+          fi
+        done
+        cur+="$word" cur_n=$(( cur_n + word_n ))
+      fi
+      started=1
+      gap="${rest%%[! ]*}"
+      rest="${rest#"$gap"}"
+    done
+    _vgs_tui_out+=("$cur")
+  done
+}
+
+# Each line of TEXT, wrapped to WIDTH or the terminal's, at the content
+# edge in the SGR escape; an empty line has no indent.
+_vgs_tui_print() { # SGR TEXT [WIDTH]
+  local lines=() line pad
+  _vgs_tui_lines lines "${3:-$(_vgs_tui_width)}" "$2"
+  for line in "${lines[@]}"; do
+    pad=""
+    [[ -z $line ]] || printf -v pad '%*s' "$_vgs_tui_edge" ''
+    if [[ -n $1 ]]; then printf '%s%s%s\033[0m\n' "$pad" "$1" "$line"; else printf '%s%s\n' "$pad" "$line"; fi
+  done
+}
+
 # gum sizes the box to its longest line, and the terminal wraps a row wider
 # than itself, which breaks the border on every row. A line that does not fit
 # beside the border and padding, 6 columns, gives the box the terminal's
@@ -127,26 +206,28 @@ vgs_tui_header() { # TITLE [LINE...]
 }
 
 vgs_tui_step() { # TEXT
-  printf '\n%s\033[1m%s\033[0m\n' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 32)" "$*"
+  printf '\n'
+  _vgs_tui_print "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 32)"$'\033[1m' "$*"
 }
 
 vgs_tui_success() { # TEXT
-  printf '\n%s%s\033[0m\n' "$(vgs_tui_sgr "${VGS_TUI_SUCCESS:-}" 32)" "$*"
+  printf '\n'
+  _vgs_tui_print "$(vgs_tui_sgr "${VGS_TUI_SUCCESS:-}" 32)" "$*"
 }
 
 vgs_tui_warn() { # TEXT
-  printf '%s%s\033[0m\n' "$(vgs_tui_sgr "${VGS_TUI_WARNING:-}" 33)" "$*" >&2
+  _vgs_tui_print "$(vgs_tui_sgr "${VGS_TUI_WARNING:-}" 33)" "$*" >&2
 }
 
 vgs_tui_error() { # TEXT
-  printf '%s%s\033[0m\n' "$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" "$*" >&2
+  _vgs_tui_print "$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" "$*" >&2
 }
 
 vgs_tui_cancelled() { # TEXT
-  printf '%s\n' "$*"
+  _vgs_tui_print "" "$*"
   _vgs_tui_has_terminal || return 0
   _vgs_tui_drain_terminal
-  printf '\n%s● \033[0mPress any key to close...' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 36)" >/dev/tty
+  printf '\n%*s%s● \033[0mPress any key to close...' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 36)" >/dev/tty
   read -rsn 1 _ </dev/tty || return 0
   printf '\n' >/dev/tty
 }
@@ -165,10 +246,11 @@ vgs_tui_cancelled() { # TEXT
 # erases the screen from the cursor down. Checked in private tmux runs of
 # gum 2.0.2 for VGS-1492 on 2026-10-12.
 vgs_tui_confirm() { # QUESTION [GUM_FLAG...]
-  local question="$1" flag previous="" yes=Yes no=No help
+  local question="$1" flag previous="" yes=Yes no=No help lines=() margin
   shift
   if [[ ${VGS_TUI_UNATTENDED:-} == 1 ]]; then
-    printf '\n%s yes (unattended)\n' "$question"
+    printf '\n'
+    _vgs_tui_print "" "$question yes (unattended)"
     return 0
   fi
   _vgs_tui_terminal confirm || return
@@ -179,10 +261,18 @@ vgs_tui_confirm() { # QUESTION [GUM_FLAG...]
   done
   printf -v help '\033[22m%s←→ toggle • enter submit • y %s • n %s\033[0m' \
     "$(vgs_tui_sgr "${GUM_PAGER_HELP_FOREGROUND:-}" 39)" "$yes" "$no"
+  # gum 2.0.2 cuts a question wider than the terminal at its last column,
+  # seen in a script(1) run for VGS-1521 on 2026-10-12, so it is wrapped
+  # here to the content edges.
+  _vgs_tui_lines lines "$(_vgs_tui_width)" "$question"
+  printf -v question '%s\n' "${lines[@]}"
+  margin="0 0 0 $_vgs_tui_edge"
   _vgs_tui_prompt_gap
   # gum 2.0.2 accepts these margin keys though `gum confirm --help` omits
-  # them; checked in a private tmux run for VGS-1475 on 2026-10-12.
-  GUM_CONFIRM_SHOW_HELP=false gum confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" "$@" -- "$question"$'\n\n'"$help"
+  # them; checked in a private tmux run for VGS-1475 on 2026-10-12. The
+  # same left margin on both buttons puts Yes at the edge and keeps No
+  # that far from it.
+  GUM_CONFIRM_SHOW_HELP=false gum confirm --prompt.margin "$margin" --selected.margin "$margin" --unselected.margin "$margin" "$@" -- "$question"$'\n'"$help"
 }
 
 vgs_tui_choose() { _vgs_tui_terminal choose || return; _vgs_tui_prompt_gap; gum choose "$@"; }
@@ -339,8 +429,12 @@ vgs_tui_logged() { # FILE COMMAND [ARG...]
   "$@" 2>>"$file"
 }
 
+# A line ended by a newline that no carriage return came before is shown
+# through _vgs_tui_print; a carriage-return segment, as a progress line
+# redraws, and the newline that ends it pass as they are, since a wrap
+# would break the redraw.
 vgs_tui_split() { # FILE KEY COMMAND [ARG...]
-  local file="${1:-}" key="${2:-}" fd status had_errexit="" segment="" char terminator
+  local file="${1:-}" key="${2:-}" fd status had_errexit="" segment="" char terminator redrawn="" width
   [[ -n $file && -n $key && $# -ge 3 ]] || _vgs_tui_refuse 2 "split=missing" || return
   shift 2
   { mkdir -p -- "$(dirname -- "$file")" && : >>"$file"; } 2>/dev/null ||
@@ -348,6 +442,7 @@ vgs_tui_split() { # FILE KEY COMMAND [ARG...]
   exec {fd}>>"$file" || _vgs_tui_refuse 1 "split=$file reason=open-failed" || return
   [[ $- == *e* ]] && had_errexit=1
   set +e
+  width="$(_vgs_tui_width)"
   ( exec {fd}>&-; "$@" ) 2>&1 | {
     while LC_ALL=C IFS= read -r -N 1 char; do
       case "$char" in
@@ -355,9 +450,12 @@ vgs_tui_split() { # FILE KEY COMMAND [ARG...]
           terminator="$char"
           if [[ $terminator == $'\n' && $segment == "$key":\ * ]]; then
             printf '%s\n' "$segment" >&"$fd" || exit 1
-          else
+          elif [[ $terminator == $'\r' || -n $redrawn ]]; then
             printf '%s%s' "$segment" "$terminator" || exit 1
+          else
+            _vgs_tui_print "" "$segment" "$width" || exit 1
           fi
+          [[ $terminator == $'\n' ]] && redrawn="" || redrawn=1
           segment=""
           ;;
         *) segment+="$char" ;;
@@ -423,11 +521,11 @@ vgs_tui_close_prompt() { # CODE [MARKER]
   _vgs_tui_has_terminal || return 0
   _vgs_tui_drain_terminal
   if [[ $code == 0 ]]; then
-    printf '\n%s● \033[0mDone! Press any key to close...' "$(vgs_tui_sgr "${VGS_TUI_SUCCESS:-}" 32)" >/dev/tty
+    printf '\n%*s%s● \033[0mDone! Press any key to close...' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_SUCCESS:-}" 32)" >/dev/tty
   elif [[ $code == 69 ]]; then
-    printf '\n%s● \033[0mPress any key to close...' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 36)" >/dev/tty
+    printf '\n%*s%s● \033[0mPress any key to close...' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 36)" >/dev/tty
   else
-    printf '\n%s● \033[0mFailed! Press any key to close...' "$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" >/dev/tty
+    printf '\n%*s%s● \033[0mFailed! Press any key to close...' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" >/dev/tty
   fi
   if [[ -n $marker ]]; then
     while [[ -e $marker ]]; do

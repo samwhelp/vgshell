@@ -60,6 +60,8 @@ sys.exit(0 if text.startswith("\n") and not text.startswith("\n\n") else 1)
 PY
 }
 esc=$'\033'
+# The content edge: the header's border and left padding.
+edge="   "
 
 # Colours: a #rrggbb value becomes a truecolor escape, anything else the
 # ANSI fallback.
@@ -80,17 +82,17 @@ for row in "${rows[@]}"; do
   check "colour [$value] is ESC[$want" test "$(cat "$tmp/out")" == "${esc}[$want"
 done
 run 'vgs_tui_step "Updating"' VGS_TUI_ACCENT='#010203'
-check "a step is an accent bold line after a blank line" test "$(cat "$tmp/out")" == $'\n'"${esc}[38;2;1;2;3m${esc}[1mUpdating${esc}[0m"
+check "a step is an accent bold line after a blank line" test "$(cat "$tmp/out")" == $'\n'"$edge${esc}[38;2;1;2;3m${esc}[1mUpdating${esc}[0m"
 run 'vgs_tui_success "Ready."' VGS_TUI_SUCCESS='#070809'
-check "a success line is in the success colour after a blank line" test "$(cat "$tmp/out")" == $'\n'"${esc}[38;2;7;8;9mReady.${esc}[0m"
+check "a success line is in the success colour after a blank line" test "$(cat "$tmp/out")" == $'\n'"$edge${esc}[38;2;7;8;9mReady.${esc}[0m"
 run 'vgs_tui_success "Ready."'
-check "a success line without a theme is ANSI green" test "$(cat "$tmp/out")" == $'\n'"${esc}[32mReady.${esc}[0m"
+check "a success line without a theme is ANSI green" test "$(cat "$tmp/out")" == $'\n'"$edge${esc}[32mReady.${esc}[0m"
 run 'vgs_tui_warn "careful"' VGS_TUI_WARNING='#040506'
 check "a warning is on stderr alone" test ! -s "$tmp/out"
-check "a warning is in the warning colour" test "$(cat "$tmp/err")" == "${esc}[38;2;4;5;6mcareful${esc}[0m"
+check "a warning is in the warning colour" test "$(cat "$tmp/err")" == "$edge${esc}[38;2;4;5;6mcareful${esc}[0m"
 run 'vgs_tui_error "broken"'
 check "an error is on stderr alone" test ! -s "$tmp/out"
-check "an error without a theme is ANSI red" test "$(cat "$tmp/err")" == "${esc}[31mbroken${esc}[0m"
+check "an error without a theme is ANSI red" test "$(cat "$tmp/err")" == "$edge${esc}[31mbroken${esc}[0m"
 
 run 'vgs_tui_header "-Title" "a line"'
 check "a header is one bordered gum style with a bold title" test "$(cat "$tmp/gum")" == "$(printf '%s\n' style --border normal --padding "1 2" -- $'\033[1m-Title\033[0m' "a line")"
@@ -111,12 +113,12 @@ for fn in confirm choose input filter; do
   check "$fn with no terminal runs no gum" test ! -e "$tmp/gum"
 done
 on_tty 'vgs_tui_confirm "Remove it?" --default=false'
-check "a confirm on a terminal asks gum" test "$(cat "$tmp/gum")" == "$(printf '%s\n' confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" --default=false -- "$(confirm_prompt "Remove it?")")"
+check "a confirm on a terminal asks gum" test "$(cat "$tmp/gum")" == "$(printf '%s\n' confirm --prompt.margin "0 0 0 3" --selected.margin "0 0 0 3" --unselected.margin "0 0 0 3" --default=false -- "$(confirm_prompt "Remove it?")")"
 check "a confirm answers gum's yes" test "$status" == 0
 check "a confirm on a terminal starts with one blank line" starts_one_blank "$tmp/out"
 echo 1 >"$tmp/gum-exit"
 on_tty 'vgs_tui_confirm "Remove it?"'
-check "a confirm without caller flags still aligns gum" test "$(cat "$tmp/gum")" == "$(printf '%s\n' confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" -- "$(confirm_prompt "Remove it?")")"
+check "a confirm without caller flags still aligns gum" test "$(cat "$tmp/gum")" == "$(printf '%s\n' confirm --prompt.margin "0 0 0 3" --selected.margin "0 0 0 3" --unselected.margin "0 0 0 3" -- "$(confirm_prompt "Remove it?")")"
 check "a confirm answers gum's no" test "$status" == 1
 rm -f -- "$tmp/gum-exit"
 # Every colour a yes-or-no question draws, against the colour under it,
@@ -284,6 +286,94 @@ for row in "${contrast_themes[@]}"; do
   else fail "a colour of a question is under 4.5 to 1 on ${row%%|*}: $(paste -sd' ' "$tmp/contrast")"; fi
   if grep -qx 'layout=adjacent' "$tmp/contrast"; then ok "the key help sits right above the choices on ${row%%|*}"
   else fail "the key help is apart from the choices on ${row%%|*}: $(grep '^layout=' "$tmp/contrast")"; fi
+done
+# The content edge, column 3, read as an 80-column terminal shows the
+# drawing, its wrap at the last column included: every row of a question
+# longer than the terminal and the Yes button's fill start there, and so
+# does every row of a pass-through line and an error longer than the
+# terminal. A row that starts with a space starts past it, and gum cuts a
+# question wider than the terminal, so the whole text must be drawn. The
+# line is built so the terminal's own wrap would put a space first on its
+# second row.
+cat >"$tmp/edge.py" <<'PY'
+import re
+import sys
+
+drawn = open(sys.argv[1], "rb").read().decode("utf-8", "replace")
+mode, edge, cols = sys.argv[2], int(sys.argv[3]), 80
+whole = "".join(sys.argv[4].split())
+PROMPT, FILL = "#ff0000", "#00ff00"
+CSI = re.compile(r"\x1b\[([0-?]*)([ -/]*)([@-~])")
+OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+fg = bg = None
+row = col = 0
+text, fill, chars = {}, {}, []
+at = 0
+while at < len(drawn):
+    char = drawn[at]
+    if char == "\x1b":
+        match = CSI.match(drawn, at) or OSC.match(drawn, at)
+        if match is None:
+            at += 2
+            continue
+        at = match.end()
+        if match.re is not CSI or match.group(2) or match.group(1)[:1] in "<=>?":
+            continue
+        params, final = match.group(1), match.group(3)
+        if final == "m":
+            codes = params.replace(":", ";").split(";") if params else ["0"]
+            i = 0
+            while i < len(codes):
+                code = int(codes[i] or 0)
+                if code == 0:
+                    fg = bg = None
+                elif code in (38, 48) and codes[i + 1] == "2":
+                    value = "#%02x%02x%02x" % tuple(int(c) for c in codes[i + 2:i + 5])
+                    fg, bg = (value, bg) if code == 38 else (fg, value)
+                    i += 4
+                elif code in (39, 49):
+                    fg, bg = (None, bg) if code == 39 else (fg, None)
+                i += 1
+        elif final == "C":
+            col += int(params or 1)
+        elif final in "AFH" and (text or fill):
+            break  # gum redraws: the first frame is complete
+        continue
+    at += 1
+    if char == "\r":
+        col = 0
+    elif char == "\n":
+        row, col = row + 1, 0
+    else:
+        if col >= cols:
+            row, col = row + 1, 0
+        if not char.isspace() and (mode == "lines" or fg == PROMPT):
+            text.setdefault(row, col)
+            chars.append(char)
+        if bg == FILL:
+            fill.setdefault(row, col)
+        col += 1
+starts = sorted(set(text.values()))
+fills = sorted(set(fill.values()))
+complete = whole in "".join(chars)
+print(f"edge mode={mode} rows={len(text)} starts={starts} fills={fills} complete={complete}")
+wanted_fills = [edge] if mode == "confirm" else []
+sys.exit(0 if complete and starts == [edge] and fills == wanted_fills else 1)
+PY
+edge_long="$(printf 'ab %.0s' {1..40})end"
+edge_row() { # LIB_PATH confirm|lines
+  local snippet='vgs_tui_confirm "$LONG" --timeout=1s'
+  [[ $2 == lines ]] && snippet='cmd() { printf "%s\n" "$LONG"; }; vgs_tui_split "$TMP/edge.log" jarvis-setup cmd; vgs_tui_error "$LONG"'
+  "${lib_env[@]}" PATH="$tmp/real-gum:$base_path" TERM=xterm-256color COLORTERM=truecolor LONG="$edge_long" TMP="$tmp" \
+    GUM_CONFIRM_PROMPT_FOREGROUND='#ff0000' GUM_CONFIRM_SELECTED_FOREGROUND='#0000ff' \
+    GUM_CONFIRM_UNSELECTED_FOREGROUND='#0000fe' GUM_CONFIRM_SELECTED_BACKGROUND='#00ff00' \
+    timeout 20 script -qec "$(printf '%q ' "$BASH" -c "stty cols 80 rows 24; source $(printf '%q' "$1"); $snippet")" /dev/null \
+    </dev/null >"$tmp/edge-drawn" 2>&1 || :
+  python3 "$tmp/edge.py" "$tmp/edge-drawn" "$2" 3 "$edge_long" >"$tmp/edge"
+}
+for mode in confirm lines; do
+  if edge_row "$LIB" "$mode"; then ok "every $mode row starts at the content edge"
+  else fail "a $mode row is off the content edge: $(cat "$tmp/edge")"; fi
 done
 on_tty 'printf "a\nb\n" | vgs_tui_choose --header Pick'
 check "a choose on a terminal hands gum its arguments" test "$(cat "$tmp/gum")" == "$(printf '%s\n' choose --header Pick)"
@@ -476,7 +566,7 @@ check "an unopenable log is refused" test "$status:$(err_first)" == "1:vgs-tui: 
 split_row() {
   rm -rf -- "${tmp:?}/split"
   run "cmd() { IFS= read -r word; echo 'jarvis-setup: step=runtime'; echo \"plain \$word\"; echo 'jarvis-setup: failed=cause' >&2; echo 'plain error' >&2; return 6; }; printf input | vgs_tui_split $(printf %q "$tmp/split/clone.log") jarvis-setup cmd || echo st=\$?"
-  [[ $(cat "$tmp/out") == $'plain input\nplain error\nst=6' ]] &&
+  [[ $(cat "$tmp/out") == "${edge}plain input"$'\n'"${edge}plain error"$'\n'st=6 ]] &&
     [[ $(cat "$tmp/split/clone.log" 2>/dev/null) == $'jarvis-setup: step=runtime\njarvis-setup: failed=cause' ]] && [[ ! -s $tmp/err ]]
 }
 check "a split command logs keyed lines, shows plain lines and keeps status" split_row
@@ -518,22 +608,24 @@ split_segment_row() { # LIB_PATH
     [[ $(cat "$tmp/split/clone.log") == 'jarvis-setup: hidden' && ! -s $tmp/err ]]
 }
 check "a split command streams carriage-return segments and logs keyed lines" split_segment_row "$LIB"
-split_closed_row() { # LIB_PATH
-  local row_lib="$1"
+split_closed_row() { # LIB_PATH [LINE_END]: a newline unless LINE_END is r
+  local row_lib="$1" end='\n'
+  [[ ${2:-} == r ]] && end='\r'
   rm -rf -- "${tmp:?}/split"
   mkdir -p -- "$tmp/split"
   status=0
-  "${lib_env[@]}" LIB="$row_lib" TMP="$tmp" timeout 3 "$BASH" -c '
+  "${lib_env[@]}" LIB="$row_lib" TMP="$tmp" END="$end" timeout 3 "$BASH" -c '
     set -o pipefail
     trap "" PIPE
     source "$LIB"
-    cmd() { while :; do printf "plain\n" || exit 7; done; }
+    cmd() { while :; do printf "plain$END" || exit 7; done; }
     vgs_tui_split "$TMP/split/closed.log" jarvis-setup cmd | :
     exit "${PIPESTATUS[0]}"
   ' >"$tmp/out" 2>"$tmp/err" || status=$?
   [[ $status != 0 && $status != 124 ]]
 }
 check "a split command stops when terminal output closes" split_closed_row "$LIB"
+check "a split command of redrawn lines stops when terminal output closes" split_closed_row "$LIB" r
 run "vgs_tui_split /proc/version/clone.log jarvis-setup true"
 check "an unopenable split log is refused before the command" test "$status:$(err_first)" == "1:vgs-tui: refused: split=/proc/version/clone.log reason=open-failed"
 # A refusal: the keyed line to the log, each sentence and the log's name on
@@ -542,7 +634,7 @@ refuse_row() {
   rm -rf -- "${tmp:?}/causes"
   run "vgs_tui_refuse $(printf %q "$causes") 3 'jarvis: key=value' 'One.' 'Two.' || echo st=\$?"
   [[ $(cat "$tmp/out") == st=3 && $(cat "$causes" 2>/dev/null) == 'jarvis: key=value' ]] &&
-    [[ $(wc -l <"$tmp/err") == 3 ]] && ! grep -qF 'key=value' "$tmp/err"
+    grep -qF 'One.' "$tmp/err" && grep -qF 'Two.' "$tmp/err" && ! grep -qF 'key=value' "$tmp/err"
 }
 check "a refusal logs its key, shows each sentence and keeps its status" refuse_row
 # The failure lines name the log, $HOME as ~.
@@ -554,7 +646,7 @@ check "a failure names its log under ~" failed_row
 # A cancellation line says what happened, then waits only when a terminal
 # can hold the window open for the user.
 run 'vgs_tui_cancelled "Nothing changed."'
-check "a cancellation without a terminal prints only its sentence" test "$(cat "$tmp/out")" == "Nothing changed."
+check "a cancellation without a terminal prints only its sentence" test "$(cat "$tmp/out")" == "${edge}Nothing changed."
 check "a cancellation without a terminal exits 0" test "$status" == 0
 check "a cancellation without a terminal prints no prompt" test ! -s "$tmp/err"
 cancelled_wait_row() {
@@ -749,16 +841,21 @@ check "the header-always-fills mutant fails the fitting header row" test "$(head
 control no-prompt-blank "_vgs_tui_prompt_gap() { printf '\\n' >&2; }" "_vgs_tui_prompt_gap() { :; }"
 on_tty 'vgs_tui_confirm "Remove it?"'
 check "the no-prompt-blank mutant fails the prompt blank row" test "$(starts_one_blank "$tmp/out" && echo green || echo red)" == red
-control no-confirm-margins 'gum confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" "$@" --' 'gum confirm "$@" --'
-on_tty 'vgs_tui_confirm "Remove it?"'
-check "the no-confirm-margins mutant fails the confirm argv row" test "$(cat "$tmp/gum")" != "$(printf '%s\n' confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" -- "$(confirm_prompt "Remove it?")")"
+control confirm-margins-at-zero 'margin="0 0 0 $_vgs_tui_edge"' 'margin="0 0 0 0"'
+check "the confirm-margins-at-zero mutant fails the confirm edge row" test "$(edge_row "$copy" confirm && echo green || echo red)" == red
+control question-unwrapped '_vgs_tui_lines lines "$(_vgs_tui_width)" "$question"' 'lines=("$question")'
+check "the question-unwrapped mutant fails the confirm edge row" test "$(edge_row "$copy" confirm && echo green || echo red)" == red
+control split-passes-through '_vgs_tui_print "" "$segment" "$width" || exit 1' 'printf '\''%s\n'\'' "$segment" || exit 1'
+check "the split-passes-through mutant fails the lines edge row" test "$(edge_row "$copy" lines && echo green || echo red)" == red
+control break-keeps-space 'then _vgs_tui_out+=("$cur"); cur="" cur_n=0; fi' 'then _vgs_tui_out+=("$cur"); cur="$gap" cur_n=${#gap}; fi'
+check "the break-keeps-space mutant fails the lines edge row" test "$(edge_row "$copy" lines && echo green || echo red)" == red
 control gum-help-shown 'GUM_CONFIRM_SHOW_HELP=false gum confirm' 'gum confirm'
 check "the gum-help-shown mutant fails the vgs-dark contrast row" test "$(contrast_row "${contrast_themes[0]}" && echo green || echo red)" == red
 control help-low-colour '"$(vgs_tui_sgr "${GUM_PAGER_HELP_FOREGROUND:-}" 39)"' '"$(vgs_tui_sgr "#3a3a3a" 39)"'
 check "the help-low-colour mutant fails the vgs-dark contrast row" test "$(contrast_row "${contrast_themes[0]}" && echo green || echo red)" == red
 # The layout's control: the help printed on its own line above the
 # question, gum's prompt the question alone.
-copy_with help-above-question-1 "$lib" '"$@" -- "$question"$'"'"'\n\n'"'"'"$help"' '"$@" -- "$question"'
+copy_with help-above-question-1 "$lib" '"$@" -- "$question"$'"'"'\n'"'"'"$help"' '"$@" -- "$question"'
 copy_with help-above-question "$copy" '  _vgs_tui_prompt_gap' '  _vgs_tui_prompt_gap; printf '"'"'%s\n'"'"' "$help" >/dev/tty'
 LIB="$copy"
 check "the help-above-question mutant fails the layout row" test "$(layout_row "${contrast_themes[0]}" && echo green || echo red)" == red
@@ -775,8 +872,10 @@ control split-fd-inherited '( exec {fd}>&-; "$@" ) 2>&1' '( "$@" ) 2>&1'
 check "the split-fd-inherited mutant fails the split descriptor row" test "$(split_fd_row && echo green || echo red)" == red
 control split-line-buffered 'while LC_ALL=C IFS= read -r -N 1 char; do' 'while IFS= read -r char; do'
 check "the split-line-buffered mutant fails the segment row" test "$(split_segment_row "$copy" && echo green || echo red)" == red
-control split-terminal-ignored 'printf '\''%s%s'\'' "$segment" "$terminator" || exit 1' 'printf '\''%s%s'\'' "$segment" "$terminator"'
+control split-terminal-ignored '_vgs_tui_print "" "$segment" "$width" || exit 1' '_vgs_tui_print "" "$segment" "$width"'
 check "the split-terminal-ignored mutant fails the closed terminal row" test "$(split_closed_row "$copy" && echo green || echo red)" == red
+control split-redraw-terminal-ignored 'printf '\''%s%s'\'' "$segment" "$terminator" || exit 1' 'printf '\''%s%s'\'' "$segment" "$terminator"'
+check "the split-redraw-terminal-ignored mutant fails the redrawn closed terminal row" test "$(split_closed_row "$copy" r && echo green || echo red)" == red
 control refuse-status 'return "$refused"' 'return 0'
 check "the refuse-status mutant fails the refusal row" test "$(refuse_row && echo green || echo red)" == red
 control refuse-one-sentence '  vgs_tui_failed "$file" "$@"' '  vgs_tui_failed "$file" "$1"'
