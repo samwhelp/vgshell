@@ -60,10 +60,8 @@ Item {
     property string step: "installing"
     readonly property string phase: running ? "running" : step
     property string version: ""
-    // The version the rule's metadata reports, "" while none does, and the
-    // id of that metadata, 0 while none is known.
+    // The version the rule's metadata reports, "" while none does.
     property string observed: ""
-    property int metadataId: 0
     readonly property bool running: version !== "" && observed === version
     // The shipped script's text, null until read.
     property var shipped: null
@@ -135,8 +133,7 @@ Item {
     function metadataLine(text) {
         const line = Logic.metadataLine(text);
         if (line === null) return;
-        if (line.kind === "found") metadataId = line.id;
-        else if (line.subject === 0 && line.key === "version") observed = line.kind === "update" ? line.value : "";
+        if (line.subject === 0 && line.key === "version") observed = line.kind === "update" ? line.value : "";
         else if (line.kind === "remove" && line.subject === 0 && line.key === null) observed = "";
     }
 
@@ -342,15 +339,13 @@ Item {
         label: "sound rule: metadata watch"
         argv: ["pw-metadata", "-m", "-n", Logic.SOUND_RULE_METADATA]
         onLine: text => rule.metadataLine(text)
-        onStarted: {
-            rule.observed = "";
-            rule.metadataId = 0;
-        }
+        onStarted: rule.observed = ""
         onEnded: rule.observed = ""
     }
 
-    // A removal of the metadata pw-metadata is bound to starts pw-metadata
-    // again, so it waits for the one the next WirePlumber creates.
+    // pw-dump filters removals by the rule's name. Its removal can arrive
+    // before pw-metadata reports the object's id, so it must not wait for
+    // that other process's line before starting pw-metadata again.
     Supervised {
         id: removalWatch
         property int last: 0
@@ -359,9 +354,8 @@ Item {
         onLine: text => {
             const read = Logic.dumpLine(last, text);
             last = read.last;
-            if (read.removed === 0 || read.removed !== rule.metadataId) return;
+            if (read.removed === 0) return;
             rule.observed = "";
-            rule.metadataId = 0;
             metadataWatch.relaunch();
         }
         onStarted: last = 0

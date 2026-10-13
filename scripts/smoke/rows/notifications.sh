@@ -4811,6 +4811,39 @@ except (OSError, TypeError, StopIteration):
 print(json.dumps([sys.argv[1] in (h.get("apps") or []), comm, ppid == sys.argv[2], h.get("roles")]))' "$1" "$shell_qs_pid"
   }
   rule_phase() { note_status soundRule.phase; }
+  # Replay both stdout delivery orders through the shipped removal handler.
+  # This checks its dispatch decision; the restart below checks the real hold.
+  node - "$repo/shell/plugins/vgs.notifications" <<'JS'
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const dir = process.argv[2];
+const logic = {};
+vm.createContext(logic);
+vm.runInContext(fs.readFileSync(dir + '/NotificationLogic.js', 'utf8').replace(/^\.pragma library\s*/, ''), logic);
+const qml = fs.readFileSync(dir + '/SoundRule.qml', 'utf8');
+const match = qml.match(/id: removalWatch[\s\S]*?onLine: text => \{([\s\S]*?)\n        \}/);
+assert.ok(match, 'removal callback must be exercised');
+function check(body) {
+    for (const metadataId of [71, 0, 72]) {
+        const context = { Logic: logic, last: 0, rule: { observed: 'current', metadataId }, starts: 0 };
+        context.metadataWatch = { relaunch() { context.starts++; } };
+        vm.createContext(context);
+        vm.runInContext('function deliver(text) {' + body + '\n}', context);
+        vm.runInContext('deliver(\'    "id": 71,\')', context);
+        assert.equal(context.starts, 0);
+        vm.runInContext('deliver(\'    "info": null\')', context);
+        assert.equal(context.rule.observed, '');
+        assert.equal(context.starts, 1);
+    }
+}
+check(match[1]);
+const guard = 'if (read.removed === 0) return;';
+assert.equal(match[1].split(guard).length, 2);
+const old = match[1].replace(guard, 'if (read.removed === 0 || read.removed !== rule.metadataId) return;');
+assert.throws(() => check(old), assert.AssertionError);
+console.log('notifications: removal-order=pass control=old-id-guard-rejected');
+JS
   # The restarts of WirePlumber the shell asked of the systemctl stand-in.
   rule_restarts() { device_calls systemctl | py_reply 'import json,sys; print(sum(1 for c in json.load(sys.stdin) if c == ["--user", "restart", "wireplumber.service"]))'; }
   # rule_wireplumber_restart: the sandbox's private WirePlumber stopped and
