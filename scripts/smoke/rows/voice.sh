@@ -1536,8 +1536,41 @@ assert s[start:end] != signal0
 Path(sys.argv[2]).write_text(s[:start] + signal0 + s[end:])
 PY
 chmod 755 "$voice_signal0/bin/voxtype"
+# Hold the old Bash form before exec. A gone child while that Bash still
+# runs proves its SIGCHLD handler reaped the child, before any adoption.
+voice_zombie_old="$(timeout 20 python3 - "$BASH" <<'PY'
+import os, pathlib, select, subprocess, sys, time
+parent = subprocess.Popen([sys.argv[1], "-c", 'true & printf "%s\\n" "$!"; read -r gate; exec sleep 600'], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+try:
+    child = int(parent.stdout.readline())
+    stat = pathlib.Path(f"/proc/{child}/stat")
+    deadline = time.monotonic() + 5
+    while stat.exists() and time.monotonic() < deadline:
+        select.select([], [], [], 0.01)
+    state = "present" if stat.exists() else "gone"
+    executable = pathlib.Path(os.readlink(f"/proc/{parent.pid}/exe")).name
+    print(f"{state} parent={executable}" if parent.poll() is None else "parent=ended")
+finally:
+    parent.terminate()
+    parent.communicate(timeout=5)
+PY
+)"
+expect "control: the old holder is reaped by Bash before exec" "gone parent=bash" echo "$voice_zombie_old"
 rm -f -- "${voice_zombie_file:?}"
-bash -c 'true & printf "%s\n" "$!" >"$1"; exec sleep 600' _ "$voice_zombie_file" &
+# The child cannot end until exec closes the parent's pipe writer. The
+# replacement parent waits for a signal and never reaps the ended child.
+python3 - "$voice_zombie_file" <<'PY' &
+import os, pathlib, sys
+reader, writer = os.pipe2(os.O_CLOEXEC)
+child = os.fork()
+if child == 0:
+    os.close(writer)
+    os.read(reader, 1)
+    os._exit(0)
+os.close(reader)
+pathlib.Path(sys.argv[1]).write_text(f"{child}\n")
+os.execl(sys.executable, sys.executable, "-c", "import signal; signal.pause()")
+PY
 voice_zombie_parent=$!
 expect_poll "the planted lock holder has ended and is not reaped" Z voice_zombie_state
 expect "the planted lock holder still takes signal 0" taken voice_zombie_signal
