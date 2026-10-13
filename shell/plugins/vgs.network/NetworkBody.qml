@@ -533,7 +533,7 @@ FocusScope {
             objectName: "network-prompt-reason"
             width: parent.width
             visible: text !== ""
-            role: "hint"
+            role: "bodyStrong"
             color: Theme.color.danger
             textFormat: Text.PlainText
             wrapMode: Text.Wrap
