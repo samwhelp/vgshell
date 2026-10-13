@@ -167,6 +167,24 @@ try {
         assert.match(proc.stdout, /^short    catalog\/white: carousel\.hintDanger on color\.scrim over #000000 ratio=3\.80 floor=4\.5$/m);
     });
 
+    // The typed filter as it drew before its plate, the theme's heading
+    // colour on the scrim, in a disposable copy judged on the shipped
+    // tree over a white wallpaper: a dark theme's light heading falls
+    // short there, where the plate pair passes it.
+    row("control: a typed filter judged on the scrim over a white wallpaper is a shortfall", dir => {
+        const copy = path.join(dir, "copy");
+        copyCheck(copy);
+        plant(path.join(copy, "shell", "Commons", "ThemeLogic.js"), [
+            ["    pairs.push([TYPED_FILTER, FAILURE_PLATE, READABILITY_FLOOR]);\n", '    pairs.push(["color.textHeading", MODAL_SCRIM, READABILITY_FLOOR, "#ffffff"]);\n'],
+            ["under === RAIL_WALLPAPER ? under", 'under[0] === "#" ? under']
+        ]);
+        const proc = spawnSync(NODE, [path.join(copy, "scripts", "check-theme-contrast.js"), path.join(repo, "themes")],
+            { encoding: "utf8", env: env(path.join(dir, "env")) });
+        assertStatus(proc, 1);
+        assert.match(proc.stdout, /^short    catalog\/nord: color\.textHeading on color\.scrim over #ffffff ratio=3\.41 floor=4\.5$/m);
+        assert.match(proc.stdout, /^short    catalog\/moon-orbit: color\.textHeading on color\.scrim over #ffffff ratio=2\.71 floor=4\.5$/m);
+    });
+
     // The tooltip's text as it drew before VGS-1628, the theme's text and
     // faint text, in a disposable copy judged on the shipped tree: on the
     // fill its glass draws solid, the faint detail line and one theme's

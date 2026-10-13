@@ -340,8 +340,7 @@ FocusScope {
     Keys.onPressed: event => root.handleKey(event)
 
     // One inset box centred on the output: the tabs in the header, the rail
-    // in the body, and the typed filter or its hint and the failures in the
-    // footer.
+    // in the body, and the typed filter or its hint in the footer.
     Pane {
         id: layout
         anchors.centerIn: parent
@@ -432,13 +431,37 @@ FocusScope {
                     text: root.selected === null ? "" : root.selected.label
                 }
 
-                Label {
-                    role: "h3"
-                    width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    elide: Text.ElideMiddle
+                // The typed filter rests on a solid plate of the theme's
+                // surface, as a failure does: no one colour reads 4.5:1 on
+                // the scrim over both a light and a dark wallpaper.
+                Rectangle {
+                    id: typedPlate
+                    anchors.horizontalCenter: parent.horizontalCenter
                     visible: root.filterText !== ""
-                    text: root.filterText
+                    width: typed.width + 2 * typedInset.inset
+                    height: typed.height + 2 * Theme.surface.padding
+                    radius: Theme.surface.radius
+                    color: Theme.carousel.failurePlate
+
+                    Label {
+                        id: typed
+                        x: typedInset.inset
+                        y: BrowserLogic.inkCentredTop(typedPlate.height, capTop(), lastBaseline())
+                        role: "h3"
+                        width: Math.min(implicitWidth, caption.width - 2 * typedInset.inset)
+                        elide: Text.ElideMiddle
+                        color: Theme.carousel.typed
+                        text: root.filterText
+                    }
+
+                    ClearingInset {
+                        id: typedInset
+                        pad: Theme.surface.padding
+                        radius: typedPlate.radius
+                        width: caption.width
+                        height: typedPlate.height
+                        top: Theme.surface.padding
+                    }
                 }
 
                 // The wallpaper view's hint without its source line, hidden
@@ -450,69 +473,81 @@ FocusScope {
                     text: "Type a theme name to search"
                     color: Theme.carousel.hint
                 }
-
-                Repeater {
-                    model: [
-                        root.problem,
-                        root.listReason === "" ? "" : "The theme list is unavailable. " + BrowserLogic.reasonText(root.listReason),
-                        root.catalogReason === "" ? "" : "The catalog is unavailable. " + BrowserLogic.reasonText(root.catalogReason),
-                        root.imagesReason === "" ? "" : "The image list is unavailable. " + BrowserLogic.reasonText(root.imagesReason)
-                    ].filter(line => line !== "")
-                    // A failure reads by its mark, not by its colour, on a
-                    // solid plate of the theme's surface that no wallpaper
-                    // reaches, so `hintDanger` reads 4.5:1 over any
-                    // wallpaper. The plate hugs the line, never wider than
-                    // the caption; under a rounded theme the line sits in
-                    // from its sides until it clears the drawn corner.
-                    Rectangle {
-                        id: plate
-                        required property string modelData
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        width: failure.width + 2 * plateInset.inset
-                        height: failure.height + 2 * Theme.surface.padding
-                        radius: Theme.surface.radius
-                        color: Theme.carousel.failurePlate
-
-                        Row {
-                            id: failure
-                            x: plateInset.inset
-                            y: Theme.surface.padding
-                            spacing: Theme.stack.inline
-
-                            Icon {
-                                id: failureMark
-                                y: failureText.topForLeadingIcon(height)
-                                name: "circle-alert"
-                                size: Theme.icon.size.md
-                                color: failureText.color
-                            }
-                            Label {
-                                id: failureText
-                                role: "body"
-                                width: Math.min(implicitWidth, caption.width - 2 * plateInset.inset - failureMark.width - failure.spacing)
-                                wrapMode: Text.Wrap
-                                color: Theme.carousel.hintDanger
-                                text: plate.modelData
-                            }
-                        }
-
-                        // The caption's width bounds the plate's, and a wider
-                        // bound only rounds the corner more (Inset.clearing),
-                        // so the inset never falls short; the plate's own
-                        // width depends on the inset and would feed back.
-                        ClearingInset {
-                            id: plateInset
-                            pad: Theme.surface.padding
-                            radius: plate.radius
-                            width: caption.width
-                            height: plate.height
-                            top: Theme.surface.padding
-                        }
-                    }
-                }
             }
 
         ]
+    }
+
+    // The failures lie under the pane, in the room it leaves on the output,
+    // and outside its footer: a centred pane that grew with a failure would
+    // move the rail and the caption under the pointer. On an output with no
+    // room under the pane they lie over its foot.
+    Column {
+        id: failures
+        x: (root.width - width) / 2
+        y: Math.min(layout.y + layout.height - layout.contentInset + Theme.stack.group, root.height - height)
+        width: caption.width
+        spacing: Theme.stack.group
+
+        Repeater {
+            model: [
+                root.problem,
+                root.listReason === "" ? "" : "The theme list is unavailable. " + BrowserLogic.reasonText(root.listReason),
+                root.catalogReason === "" ? "" : "The catalog is unavailable. " + BrowserLogic.reasonText(root.catalogReason),
+                root.imagesReason === "" ? "" : "The image list is unavailable. " + BrowserLogic.reasonText(root.imagesReason)
+            ].filter(line => line !== "")
+            // A failure reads by its mark, not by its colour, on a solid
+            // plate of the theme's surface that no wallpaper reaches, so
+            // `hintDanger` reads 4.5:1 over any wallpaper. The plate hugs
+            // the line, never wider than the caption, and centres it by
+            // its ink; under a rounded theme the line sits in from its
+            // sides until it clears the drawn corner.
+            Rectangle {
+                id: plate
+                required property string modelData
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: failure.width + 2 * plateInset.inset
+                height: failure.height + 2 * Theme.surface.padding
+                radius: Theme.surface.radius
+                color: Theme.carousel.failurePlate
+
+                Row {
+                    id: failure
+                    x: plateInset.inset
+                    y: BrowserLogic.inkCentredTop(plate.height, failureText.capTop(), failureText.lastBaseline())
+                    spacing: Theme.stack.inline
+
+                    Icon {
+                        id: failureMark
+                        y: failureText.topForLeadingIcon(height)
+                        name: "circle-alert"
+                        size: Theme.icon.size.md
+                        color: failureText.color
+                    }
+                    Label {
+                        id: failureText
+                        role: "body"
+                        width: Math.min(implicitWidth, caption.width - 2 * plateInset.inset - failureMark.width - failure.spacing)
+                        wrapMode: Text.Wrap
+                        color: Theme.carousel.hintDanger
+                        text: plate.modelData
+                    }
+                }
+
+                // The caption's width bounds the plate's, and a wider
+                // bound only rounds the corner more (Inset.clearing), so
+                // the inset never falls short; the plate's own width
+                // depends on the inset and would feed back.
+                ClearingInset {
+                    id: plateInset
+                    pad: Theme.surface.padding
+                    radius: plate.radius
+                    width: caption.width
+                    height: plate.height
+                    top: Theme.surface.padding
+                }
+            }
+        }
     }
 
     Scrim {

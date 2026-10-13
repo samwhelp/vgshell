@@ -994,7 +994,12 @@ var TOKENS = {
     // no wallpaper reaches it. Its words and its leading danger mark draw
     // `hintDanger`: the theme's danger where it reads 4.5:1 on the plate,
     // as in every catalog theme, 4.68:1 or more (the same reading), and the
-    // theme's text colour where it does not. The open tab's
+    // theme's text colour where it does not. The filter a user typed
+    // rests on a plate of that surface too, since no one colour reads
+    // 4.5:1 on the scrim over both a white and a black wallpaper: nord's
+    // `hintActive` reads 3.91:1 over white (the same reading). It draws
+    // `typed`: the theme's heading colour where it reads 4.5:1 on the
+    // plate, and the theme's text colour where it does not. The open tab's
     // indicator draws `tabIndicator`: the theme's accent where it reads
     // 3:1 on that backdrop, and `hintActive` where it does not.
     carousel: {
@@ -1015,6 +1020,7 @@ var TOKENS = {
         hintActive: color("contrast({carousel.backdrop})"),
         failurePlate: color("alpha({color.surface}, 1)"),
         hintDanger: color("readable({color.danger}, {carousel.failurePlate}, {color.text})"),
+        typed: color("readable({color.textHeading}, {carousel.failurePlate}, {color.text})"),
         tabIndicator: color("discernible({color.accent}, {carousel.backdrop}, {carousel.hintActive})"),
         sliceName: {
             role: textRole("h2"),

@@ -193,6 +193,14 @@ function railKey(key, generation) {
     return JSON.stringify([generation, key]);
 }
 
+// The top, from a plate's top, of a line whose ink is centred on a plate
+// BOX high: its ink runs from the first line's capital top, CAPTOP under
+// the line's top, to the last line's baseline, BASELINE under it. A line
+// box holds the descent too, so its own centre is under the capitals.
+function inkCentredTop(box, capTop, baseline) {
+    return Math.round((box - capTop - baseline) / 2);
+}
+
 // The index to select in LIST: the card named NAME, else the first.
 function selection(list, name) {
     for (var i = 0; i < list.length; i++)

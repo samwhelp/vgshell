@@ -295,6 +295,8 @@ var RAIL_WALLPAPER = "#000000";
 // plate alone, which must be solid.
 var FAILURE_LINE = "carousel.hintDanger";
 var FAILURE_PLATE = "carousel.failurePlate";
+// The filter a user typed rests on a plate of the same fill, judged there.
+var TYPED_FILTER = "carousel.typed";
 // A tooltip's title and detail lines, on its fill without glass and on
 // the fill solid glass draws under it (Theme.glassSolid), which VGlass
 // lifts toward white: that lifted fill is named GLASS_SOLID.
@@ -318,9 +320,9 @@ function valueAt(values, path) {
 // the scrim laid over each resting surface, a fill at least as light as
 // that dimmed surface passing at any ratio, then the rail text at 4.5 and
 // the rail's marks at 3 on the scrim laid over a black wallpaper, then the
-// failure line at 4.5 on its plate, then the tooltip's text at 4.5 on its
-// fill and on GLASS, the VGlass look resolved for VALUES
-// (acceptAppearance of Glass.js), as its glass draws solid. Any other
+// failure line and the typed filter at 4.5 on their plate, then the
+// tooltip's text at 4.5 on its fill and on GLASS, the VGlass look resolved
+// for VALUES (acceptAppearance of Glass.js), as its glass draws solid. Any other
 // translucent colour, a translucent failure plate included, has no ratio
 // and is a shortfall.
 function readabilityShortfalls(values, glass) {
@@ -350,6 +352,7 @@ function readabilityShortfalls(values, glass) {
     for (var x = 0; x < RAIL_MARK_ROLES.length; x++)
         pairs.push([RAIL_MARK_ROLES[x], MODAL_SCRIM, BOUNDARY_FLOOR, RAIL_WALLPAPER]);
     pairs.push([FAILURE_LINE, FAILURE_PLATE, READABILITY_FLOOR]);
+    pairs.push([TYPED_FILTER, FAILURE_PLATE, READABILITY_FLOOR]);
     for (var t = 0; t < TOOLTIP_TEXT_ROLES.length; t++) {
         pairs.push([TOOLTIP_TEXT_ROLES[t], TOOLTIP_FILL, READABILITY_FLOOR]);
         pairs.push([TOOLTIP_TEXT_ROLES[t], GLASS_SOLID, READABILITY_FLOOR]);

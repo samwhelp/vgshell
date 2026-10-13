@@ -163,6 +163,11 @@ function verify(logic, files) {
     assert.equal(logic.railKey("/t/a.jpg", 7), logic.railKey("/t/a.jpg", 7), "one key in one generation is one card");
     assert.notEqual(logic.railKey("/t/a.jpg", 8), logic.railKey("/t/a.jpg", 7), "a new generation rebuilds the card");
     assert.notEqual(logic.railKey("/t/b.jpg", 7), logic.railKey("/t/a.jpg", 7), "another key is another card");
+    // A plate 48 high holds a line whose capitals run from 4 to 15 under
+    // its top: the ink's centre, 9.5, sits on the plate's, 24, from 15,
+    // rounded up from 14.5; the line box's centre would put it at 12.
+    assert.equal(logic.inkCentredTop(48, 4, 15), 15, "a plate centres its line by the ink");
+    assert.equal(logic.inkCentredTop(72, 4, 39), 15, "a wrapped line's ink ends at its last baseline");
     assert.equal(logic.selection(built, "nord"), 4);
     assert.equal(logic.selection(built, "gone"), 0);
     assert.equal(logic.selection([], "nord"), 0);
@@ -416,6 +421,7 @@ verify(load(logicCopy), files);
 // Each control removes one rule from a copy of the logic and keeps the
 // text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["a plate centres its line by the line box", "return Math.round((box - capTop - baseline) / 2);", "return Math.round((box - 24) / 2);"],
     ["insecure URLs are not connection failures", '/(?:redirect-)?not-https/', '/^$/'],
     ["a missing terminal is not a missing theme", '/launcher-missing/', '/^$/'],
     ["diagnostics stay out of display text", 'function reasonText(reason) {', 'function reasonText(reason) { return String(reason);'],

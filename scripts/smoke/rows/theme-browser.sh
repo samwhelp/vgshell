@@ -9,7 +9,9 @@
 # entry, and answer the wallpaper offer both ways. Holding SUPER+D, the
 # user's focus bind, steps the rail as holding Right does; a layer whose
 # captured focus bind does not repeat is its control. akane's card draws its
-# package preview. The old keys, SUPER+T
+# package preview. A failed apply shows its line under the pane and leaves
+# the rail in place; a copy of the theme view whose caption grows with the
+# failures is its control. The old keys, SUPER+T
 # and SUPER+W, open nothing, and each view's key moves an open browser to
 # that view; a manifest copy still bound to SUPER+T is their control. The sandbox copy's
 # catalog pins nord's wallpapers to an archive this row builds, served from
@@ -705,15 +707,31 @@ expect "a payload naming no view is refused" "refused: open-failed=vgs.themes" i
 expect "a payload with an unknown key is refused" "refused: open-failed=vgs.themes" ipc shell summon overlay vgs.themes '{"view":"themes","source":"all"}'
 expect_poll "a refused summon leaves no browser" 0 layer_count vgs:overlay
 
+# rail_top: the top of the rail on the output, to a hundredth of a pixel.
+# rail_held TOP: `held` while the rail's top is TOP, else `moved` with both.
+rail_top() {
+  ipc smoke descendantGeometry overlay vgs.themes | py_reply '
+import json, sys
+rails = [r["box"] for r in json.load(sys.stdin) if r["type"] == "CardCarousel" and r["box"][2] > 0 and r["box"][3] > 0]
+print("%.2f" % rails[0][1] if len(rails) == 1 else "rails=%d" % len(rails))'
+}
+rail_held() { # TOP
+  local now
+  now="$(rail_top)" || return
+  if [[ $now == "$1" ]]; then echo held; else echo "moved from=$1 to=$now"; fi
+}
 # An install whose apply fails leaves the theme installed: the cards are
-# read again, so Enter retries the apply and not the install.
+# read again, so Enter retries the apply and not the install. The failure
+# line lies under the pane, so the rail keeps its place when it shows.
 press_themes || fail "typing SUPER+SHIFT+T for akane failed"
 expect_poll "SUPER+SHIFT+T opens the browser for akane" 1 layer_count vgs:overlay
 browser_focused
 type_keys "akane" || fail "typing akane failed"
 expect_poll "the filter selects akane" '"akane"' view_value selectedName
+akane_rail="$(rail_top)" || fail "the rail's top before akane's failure is unreadable"
 type_keys -k Return || fail "sending Return for akane failed"
 expect_poll "the apply after the install fails with the runner's reason" '"Could not apply Akane. Another theme action is running. Wait for it to finish."' view_value problem
+expect "a failure line leaves the rail where it was" held rail_held "$akane_rail"
 expect "the install before the failed apply landed" True bash -c '[[ -f $1/akane/.vgs-catalog.json ]] && echo True' _ "$installed"
 expect_poll "the cards read akane installed after the failed apply" True selected_installed
 type_keys -k Return || fail "sending Return to retry akane failed"
@@ -936,6 +954,24 @@ expect "control: a band that takes the press leaves the browser open" 1 layer_co
 expect "the rail band control browser hides" ok ipc shell hide overlay vgs.themes
 expect_poll "the rail band control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeView.qml "rail band"
+# Control for the rail's place under a failure: a copy of the theme view
+# whose caption grows with the failures, as a failure line in the pane's
+# footer grew it. akane's apply answers busy once more, and the centred
+# pane moves the rail up when the line shows.
+plugin_control ThemeView.qml "growing column" $'                id: caption\n' $'                id: caption\n                bottomPadding: failures.height\n'
+rm -- "$akane_refused" || fail "the growing column control's busy answer is not armed"
+press_themes || fail "typing SUPER+SHIFT+T for the growing column control failed"
+expect_poll "SUPER+SHIFT+T opens the growing column control browser" 1 layer_count vgs:overlay
+expect_poll "the growing column control read its cards" true view_value loaded
+type_keys "akane" || fail "typing akane for the growing column control failed"
+expect_poll "the growing column control's filter selects akane" '"akane"' view_value selectedName
+grown_rail="$(rail_top)" || fail "the rail's top before the growing column control's failure is unreadable"
+type_keys -k Return || fail "sending Return for the growing column control failed"
+expect_poll "the growing column control's apply fails" '"Could not apply Akane. Another theme action is running. Wait for it to finish."' view_value problem
+expect "control: a caption that grows with the failures moves the rail" moved bash -c 'echo "${1%% *}"' _ "$(rail_held "$grown_rail")"
+expect "the growing column control browser hides" ok ipc shell hide overlay vgs.themes
+expect_poll "the growing column control browser closes" 0 layer_count vgs:overlay
+plugin_restore ThemeView.qml "growing column"
 # Control for the resting texts: a copy of the theme view that draws a key
 # hint under the rail.
 plugin_control ThemeView.qml "resting text" $'                id: caption\n' $'                id: caption\n                Label { role: "hint"; text: "Enter" }\n'
