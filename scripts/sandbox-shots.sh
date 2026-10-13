@@ -5599,7 +5599,9 @@ PY
 # its daemon answers: sounds-<mode>-list, every event with the sound it
 # plays; sounds-<mode>-picker, the New notification picker's list open on
 # Off and the core's sounds; and sounds-<mode>-off, Jarvis's tones turned
-# off and the notification set to Chime in shell.json. Voice reads its
+# off and the notification set to Chime in shell.json; and
+# sounds-<mode>-voxtype-missing, the Dictation sounds row's line once the
+# stand-in is gone, which names the Voice page. Voice reads its
 # dictation sounds from a voxtype stand-in that answers the value alone,
 # tones on; no shot chooses a dictation value, so nothing is written and
 # no service restarts. The player is the harness's pw-play stand-in and no
@@ -5669,6 +5671,12 @@ PY
   expect_poll "the New notification row shows Chime" 1 sounds_row "New notification" chosen
   expect "the System window's root takes the focus for the off event" focused ipc smoke invokeInstance window vgs.system focusInstance ""
   take "sounds-$1-off"
+  voice_stand_ins_removed
+  rescan "the Sounds shots' voxtype stand-in is removed for the missing line"
+  close_notices
+  expect_poll "the Dictation sounds row states voxtype missing in the warning tone" '"warning"' sounds_row "Dictation sounds" warningTone
+  expect "the System window's root takes the focus for the missing line" focused ipc smoke invokeInstance window vgs.system focusInstance ""
+  take "sounds-$1-voxtype-missing"
   expect "the System window hides after the Sounds shots" ok ipc shell hide window vgs.system
   expect_poll "the System window is gone after the Sounds shots" hidden system_shown
   expect "disabling vgs.jarvis after the Sounds shots is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
