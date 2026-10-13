@@ -166,6 +166,9 @@ Item {
             compare(linked.tip.currentLine, 1);
             compare(ring.visible, true);
             verify(ring.parent.width < link.width, "the ring goes round the words, not the line: " + ring.parent.width + " of " + link.width);
+            const popup = linked.tip.tracker.popup;
+            const ringBottom = ring.mapToItem(popup.contentItem, 0, ring.height).y;
+            compare(popup.height - ringBottom, Theme.focusRing.offset + Theme.surface.border, "the last line's ring stands clear of the tooltip's border");
             keyClick(Qt.Key_Return);
             compare(activations.count, 1);
             compare(activations.signalArguments[0][0], "acme.probe");

@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import qs.Commons
 import qs.Ui
 
 Item {
@@ -59,7 +60,7 @@ Item {
         text: "Read the notes in hyprland.lua today."
         link: "hyprland.lua"
     }
-    // A link the full stop closes, so its box runs on to the stop.
+    // A link the full stop closes: the stop stands outside its ring.
     LinkText {
         id: closing
         y: 240
@@ -70,8 +71,6 @@ Item {
     TextMetrics { id: before; font: labelOf(inline).font; text: "Read the notes in" }
     TextMetrics { id: prefix; font: labelOf(inline).font; text: "Read the notes in " }
     TextMetrics { id: words; font: labelOf(inline).font; text: "hyprland.lua" }
-    TextMetrics { id: wordsStop; font: labelOf(inline).font; text: "hyprland.lua." }
-    TextMetrics { id: wordsSpace; font: labelOf(inline).font; text: "hyprland.lua " }
     SignalSpy { id: activated; target: linked; signalName: "activated" }
     SignalSpy { id: inlineActivated; target: inline; signalName: "activated" }
     // A page reference inside prose, one at the text's start with no tab,
@@ -237,35 +236,58 @@ Item {
             return descendants(item).find(child => child.target === item && child.border !== undefined);
         }
 
-        // Each case: the item, the line its link is on, the run's start and
-        // width, and where the words beside it end and start, null where
-        // the line starts or the text ends.
-        function test_focus_ring_goes_round_the_link_words() {
+        // Each case: the item and the line its link is on.
+        function test_focus_ring_stands_clear_of_the_link_words_on_every_side() {
             const cases = [
-                [inline, 0, prefix.advanceWidth, words.advanceWidth, before.advanceWidth, prefix.advanceWidth + wordsSpace.advanceWidth],
-                [wrapped, 1, 0, words.advanceWidth, null, wordsSpace.advanceWidth],
-                [closing, 0, prefix.advanceWidth, wordsStop.advanceWidth, before.advanceWidth, null]
+                [inline, 0],
+                [wrapped, 1],
+                [closing, 0]
             ];
-            for (const [item, line, x, width, leftEnd, rightStart] of cases) {
+            const clear = Theme.focusRing.offset;
+            for (const [item, line] of cases) {
+                const label = labelOf(item);
                 const box = item.linkBox;
-                const lineBox = labelOf(item).lineBox;
-                compare(box.y, line * lineBox, "the words' line");
-                compare(box.height, lineBox, "one line box tall");
-                fuzzyCompare(box.x, x, 1, "the words' start");
-                fuzzyCompare(box.width, width, 1, "the words' width, punctuation against them included");
+                const baseline = line * label.lineBox + label.baselineOffset;
+                const x = line === 0 ? font.advanceWidth(item.drawn.slice(0, item.run[0])) : 0;
+                fuzzyCompare(box.x, x, 0.5, "the box starts at the words");
+                fuzzyCompare(box.width, words.advanceWidth, 1, "the box is as wide as the words, no mark beside them in it");
+                compare(box.y, Math.floor(baseline + font.tightBoundingRect("hyprland.lua").y), "the box starts at the words' highest ink");
+                compare(box.y + box.height, Math.ceil(baseline + label.underlineOffset + item.underlineThickness), "the box ends at the underline's bottom");
+                verify(box.y > line * label.lineBox, "the box starts at the words' ink, not their line box: " + box.y);
                 item.forceActiveFocus(Qt.TabFocusReason);
                 const ring = ringOf(item);
                 verify(ring !== undefined && ring.visible, "the focused link draws its ring");
-                const left = ring.mapToItem(item, 0, 0).x;
-                const right = left + ring.width;
-                verify(left + ring.border.width <= box.x, "the ring clears the words' start");
-                verify(right - ring.border.width >= box.x + box.width, "the ring clears the words' end");
-                if (leftEnd !== null)
-                    verify(left >= leftEnd + 1, "1 px clear of the word before: ring " + left + ", word end " + leftEnd);
-                if (rightStart !== null)
-                    verify(right <= rightStart - 1, "1 px clear of the word after: ring " + right + ", word start " + rightStart);
+                const at = ring.mapToItem(item, 0, 0);
+                const stroke = ring.border.width;
+                compare(box.x - (at.x + stroke), clear, "clear of the words' start");
+                compare(at.x + ring.width - stroke - (box.x + box.width), clear, "clear of the words' end");
+                compare(box.y - (at.y + stroke), clear, "clear of the words' top");
+                compare(at.y + ring.height - stroke - (box.y + box.height), clear, "clear of the underline");
                 verify(ring.width < item.width, "the ring leaves the prose outside it");
             }
+            // The glyph beside the words stands a pixel past the ring's outer
+            // edge, and no further than one gap space more.
+            const reach = Theme.focusRing.offset + Theme.focusRing.width + 1;
+            const glue = font.advanceWidth("\u202f");
+            for (const item of [inline, wrapped, closing]) {
+                const start = item.drawn.indexOf("hyprland.lua");
+                const before = item.drawn.slice(0, start).match(/[ \u202f]*$/)[0];
+                const after = item.drawn.slice(start + "hyprland.lua".length).match(/^[ \u202f]*/)[0];
+                for (const room of [before, after]) {
+                    verify(font.advanceWidth(room) >= reach, "room for the ring: " + font.advanceWidth(room));
+                    if (room.indexOf("\u202f") !== -1)
+                        verify(font.advanceWidth(room) - glue < reach, "no wider than the ring needs: " + font.advanceWidth(room));
+                }
+                verify(!before.endsWith("\u202f"), "no line starts with a gap before the words");
+                verify(!/^ \u202f/.test(after), "no line starts with a gap after the words");
+                compare(item.drawn.replace(/\u202f/g, ""), item.plain, "the gaps are all the drawn text adds");
+            }
+            verify(/hyprland\.lua\u202f+\.$/.test(closing.drawn), "a mark against the words stands off by the gap");
+            const ring = ringOf(closing);
+            verify(ring.mapToItem(closing, 0, 0).x + ring.width + 1 <= font.advanceWidth(closing.drawn.slice(0, -1)), "the mark stands outside the ring, a pixel clear");
+            verify(labelOf(closing).text.indexOf("</font>&#x202f;") !== -1, "styled text keeps the gap only as its entity");
+            compare(closing.plain, "Read the notes in hyprland.lua.", "the gap is drawn, not read out");
+            compare(closing.Accessible.name, closing.plain);
         }
 
         // A message that changes to a shorter one, as a row's does when
@@ -309,7 +331,8 @@ Item {
         function test_the_underline_runs_under_the_words() {
             const runs = underlines(inline);
             compare(runs.length, 1);
-            verify(Math.abs(runs[0].x - prefix.advanceWidth) <= 1, "the underline starts at the words: " + runs[0].x + ", not " + prefix.advanceWidth);
+            const start = font.advanceWidth(inline.drawn.slice(0, inline.run[0]));
+            verify(Math.abs(runs[0].x - start) <= 1, "the underline starts at the words: " + runs[0].x + ", not " + start);
             verify(Math.abs(runs[0].width - words.advanceWidth) <= 1, "the underline is the words' width: " + runs[0].width + ", not " + words.advanceWidth);
             compare(underlines(linked).length, 2, "each occurrence is underlined");
             compare(underlines(plain).length, 0);
@@ -323,7 +346,7 @@ Item {
             compare(activated.count, 1);
             mouseClick(inline, before.advanceWidth / 2, inline.height / 2);
             compare(inlineActivated.count, 0, "the words before the link do not activate it");
-            mouseClick(inline, prefix.advanceWidth + words.advanceWidth / 2, inline.height / 2);
+            mouseClick(inline, inline.linkBox.x + inline.linkBox.width / 2, inline.height / 2);
             compare(inlineActivated.count, 1, "the link's words activate it");
         }
     }

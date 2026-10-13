@@ -32,7 +32,9 @@ import qs.Ui
 // to the next link and draws its focus ring, and past the last one goes
 // on to the next item; Shift+Tab moves back; Escape closes the tooltip,
 // which opens again only after the pointer and the focus have both left
-// the item. A tooltip with no link takes no key. The declaring item is an
+// the item. A tooltip with no link takes no key. Under a last line that
+// is a link, the tooltip is as much taller as keeps that link's ring
+// `focusRing.offset` clear of its border. The declaring item is an
 // invisible, sizeless member of its parent.
 Item {
     id: root
@@ -102,6 +104,8 @@ Item {
         property color tint
         property int wrapMode: Text.Wrap
         property bool current: false
+        // How far the link's ring reaches under this line.
+        readonly property real ringBelow: item !== null ? item.ringBelow : 0
         signal pageActivated(string page, string tab)
 
         width: parent.width
@@ -248,8 +252,11 @@ Item {
             // One line up to `maxWidth`, then title and plain details
             // wrap; never wider than the output less its gutters.
             readonly property real paddedWidth: Math.min(Math.max(root.minWidth, content.implicitWidth + 2 * Theme.tooltip.paddingX), OverlayState.widthFor(root.anchorItem, root.maxWidth + 2 * Theme.tooltip.paddingX))
+            // The room under the content: the padding, or what the last
+            // line's link ring needs to stand clear of the border.
+            readonly property real paddingBelow: Math.max(Theme.tooltip.paddingY, content.ringBelow + Theme.focusRing.offset + Theme.surface.border)
             implicitWidth: Math.max(1, paddedWidth)
-            implicitHeight: Math.max(1, content.implicitHeight + 2 * Theme.tooltip.paddingY)
+            implicitHeight: Math.max(1, content.implicitHeight + Theme.tooltip.paddingY + paddingBelow)
 
             // Under a rounded theme the text sits in from the sides until it
             // clears the drawn corner.
@@ -258,7 +265,7 @@ Item {
                 pad: Theme.tooltip.paddingX
                 radius: Theme.tooltip.radius
                 width: window.paddedWidth
-                height: content.implicitHeight + 2 * Theme.tooltip.paddingY
+                height: content.implicitHeight + Theme.tooltip.paddingY + window.paddingBelow
                 top: Theme.tooltip.paddingY
             }
 
@@ -296,6 +303,7 @@ Item {
                 // The role's faint text unless it falls short on the fill
                 // the tooltip's glass draws (Tokens.js tooltip.detail).
                 readonly property color detailColor: Theme.tooltip.detail
+                readonly property real ringBelow: detailColumn.visible ? detailColumn.lastRingBelow() : titleLink.ringBelow
                 readonly property int lineWrapMode: Text.Wrap
 
                 function detailModel() {
@@ -368,6 +376,13 @@ Item {
                             return max;
                         }
 
+                        // The last drawn row's, 0 where it holds no link.
+                        function lastRingBelow() {
+                            for (var i = children.length - 1; i >= 0; i--)
+                                if (children[i].visible && children[i].ringBelow !== undefined) return children[i].ringBelow;
+                            return 0;
+                        }
+
                         Repeater {
                             model: content.detailModel()
                             delegate: Item {
@@ -376,6 +391,7 @@ Item {
                                 readonly property string kind: content.detailKind(entry, index)
                                 readonly property bool zeroRow: content.detailHidden(entry)
                                 readonly property bool isCountDetail: kind === "count"
+                                readonly property real ringBelow: plainLink.ringBelow
                                 readonly property real labelImplicitWidth: countLabel.implicitWidth
                                 readonly property real valueImplicitWidth: valueLabel.implicitWidth
                                 readonly property real detailWidth: kind === "plain" ? Math.min(Math.ceil(plainLink.active ? plainLink.implicitWidth : plainLabel.implicitWidth), root.maxWidth) : labelImplicitWidth + Theme.tooltip.gap + valueImplicitWidth
