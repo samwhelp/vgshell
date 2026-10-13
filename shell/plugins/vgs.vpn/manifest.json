@@ -120,7 +120,7 @@
           "system": "service-tailscaled"
         },
         "allow": {
-          "label": "Allow",
+          "label": "Let my account control Tailscale",
           "system": "tailscale-operator"
         }
       }

@@ -188,6 +188,9 @@ function suite(logic, service = serviceSource) {
     const live = { accounts: accounts, action: "", login: "idle", problem: "" };
     const ready = logic.setup({ missing: false, state: "running", service: "ready", operator: "ready" });
     const denied = logic.setup({ missing: false, state: "running", service: "ready", operator: "needed" });
+    // The action names its result for the user, and the sentence before it holds none of its words.
+    assert.equal(denied.hint, "Your account cannot change Tailscale.");
+    assert.equal(manifest.status.setup.actions.allow.label, "Let my account control Tailscale");
     const shown = plain(logic.published(false, running, ready, live));
     assert.deepEqual([shown.state, shown.tone, shown.writable], ["running", "ok", true]);
     assert.equal(logic.published(false, running, denied, live).writable, false);
@@ -407,7 +410,7 @@ try {
         ["the watchdog kills a poll in flight", 'effects: state.flight ? ["kill"] : [] };', "effects: [] };"],
         ["an open view polls fast", "return open ? OPEN_POLL_MS : idleSeconds * 1000;", "return idleSeconds * 1000;"],
         ["access denied is told apart", '{ kind: "access-denied", pattern: /access denied/i }', '{ kind: "access-denied", pattern: /prefs denied/i }'],
-        ["a needed operator offers Allow", 'gives it access.", "allow");', 'gives it access.", "");'],
+        ["a needed operator offers Allow", 'cannot change Tailscale.", "allow");', 'cannot change Tailscale.", "");'],
         ["a missing optional tool reads info", 'if (context.missing) return setupState("info"', 'if (context.missing) return setupState("warning"'],
         ["an offered service step reads warning", 'return setupState("warning", "Off"', 'return setupState("info", "Off"'],
         ["a service the user cannot turn on reads info", 'return setupState("info", unoffered.text', 'return setupState("warning", unoffered.text'],

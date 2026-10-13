@@ -327,7 +327,7 @@ expect "the VPN section opens in System" ok ipc shell summon window vgs.system '
 expect_poll "VPN's pane is mounted" shown vpn_shown window
 expect "the pane receives its payload" '{"source":"smoke"}' ipc smoke readInstance window vgs.vpn payload
 expect_poll "the pane reads the shared record" running vpn_body_state window
-expect_poll "the pane draws the core's offered step" '{"label":"Allow"}' vpn_body window setupAction
+expect_poll "the pane draws the core's offered step" '{"label":"Let my account control Tailscale"}' vpn_body window setupAction
 expect_poll "an open pane makes the poll fast" 3000 vpn_interval
 expect "System closes before the keyboard path" ok ipc shell hide window vgs.system
 expect_poll "the closed pane is gone" hidden vpn_shown window
@@ -341,7 +341,7 @@ terminal_ready "vpn"
 vpn_enter_pane "Allow"
 expect "the section opens on its body while the switch waits for Allow" '["VpnBody",null]' ipc smoke activeFocusItem window vgs.vpn
 type_keys -k Tab
-expect_poll "Tab reaches Allow" '["RowAction","Allow"]' ipc smoke activeFocusItem window vgs.vpn
+expect_poll "Tab reaches Allow" '["RowAction","Let my account control Tailscale"]' ipc smoke activeFocusItem window vgs.vpn
 forget_record
 type_keys -k Return
 expect_poll "Allow hands the terminal vgshell system apply tailscale-operator" \
