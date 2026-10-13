@@ -1270,7 +1270,7 @@ const KITTY_ORDERED_SETS = [
     ["amberbyte", ["#6d4141", "#bc5e5f", "#beb4b4"]],
     ["solitude", ["#464c4f", "#71787c", "#c3c5c5"]],
     ["x-1632", ["#656a73", "#8d96a5", "#b49c9c"]],
-    ["lumon", ["#4e7388", "#cfd5db", "#8895a0"]]
+    ["lumon", ["#4e7388", "#cfd5db", "#8e9ba5"]]
 ];
 for (const [theme, expected] of KITTY_ORDERED_SETS) {
     const metric = kittyBaseline.metrics.find(metric => metric.theme === theme);
