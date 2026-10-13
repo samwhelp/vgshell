@@ -970,7 +970,10 @@ var TOKENS = {
     // that colour moved 0.06 toward the theme's text, at least 4.66:1 in
     // every catalog theme, where the theme's own text read 1.80:1 in
     // rose-pine (ThemeLogic.contrastRatio on the resolved catalog themes,
-    // node, 2026-10-13).
+    // node, 2026-10-13). A failure line draws `hintDanger`, that colour
+    // moved 0.06 toward the theme's danger, at least 4.63:1 in every
+    // catalog theme, where the theme's own danger read 1.36:1 in rose-pine
+    // (the same reading).
     carousel: {
         expandedWidth: length(768),
         expandedHeight: length(476),
@@ -986,6 +989,7 @@ var TOKENS = {
         duration: duration("{motion.duration.normal}"),
         hint: color("mix({carousel.hintActive}, {color.text}, 0.06)"),
         hintActive: color("contrast(alpha(mix({color.scrim}, #000000, 0.4), 1))"),
+        hintDanger: color("mix({carousel.hintActive}, {color.danger}, 0.06)"),
         sliceName: {
             role: textRole("h2"),
             inset: length("{space.xxl}"),

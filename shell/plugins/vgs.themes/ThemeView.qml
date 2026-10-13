@@ -461,7 +461,7 @@ FocusScope {
                         width: caption.width
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.Wrap
-                        color: Theme.color.danger
+                        color: Theme.carousel.hintDanger
                         text: modelData
                     }
                 }

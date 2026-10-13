@@ -284,7 +284,7 @@ var MODAL_BORDER = "dialog.border";
 var MODAL_FILL = "dialog.background";
 // Text beside the theme browser's rail sits on the scrim over the
 // wallpaper; a black wallpaper leaves it the darkest backdrop.
-var RAIL_TEXT_ROLES = ["carousel.hint", "carousel.hintActive"];
+var RAIL_TEXT_ROLES = ["carousel.hint", "carousel.hintActive", "carousel.hintDanger"];
 var RAIL_WALLPAPER = "#000000";
 
 function valueAt(values, path) {
