@@ -387,8 +387,10 @@ Item {
             }
             UnitTheme.reset();
             Theme.appearanceInput = JSON.stringify({ glass: "off" });
-            for (const surface of [menuOver, dialogOver])
-                compare(look(surface), ["#101010", 0, 1, "#3a3a3b", 0, false, false], "without glass");
+            // A dialog's border is borderControl, the raised surface halfway
+            // to white: (16.125 + 255) / 2 = 135.6, 0x88.
+            compare(look(menuOver), ["#101010", 0, 1, "#3a3a3b", 0, false, false], "a menu without glass");
+            compare(look(dialogOver), ["#101010", 0, 1, "#888888", 0, false, false], "a dialog without glass");
         }
 
         function test_the_default_fill_and_elevation() {

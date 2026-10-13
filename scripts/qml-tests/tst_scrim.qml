@@ -56,7 +56,8 @@ Item {
 
         function test_a_theme_moves_the_colour() {
             compare(UnitTheme.override({ palette: { background: "#ffffff" } }), "ok");
-            compare(String(scrim.color), "#99ffffff");
+            // mix(#ffffff, #000000, 0.14): 255 * 0.86 = 219.3, 0xdb.
+            compare(String(scrim.color), "#99dbdbdb");
             compare(UnitTheme.override({ color: { scrim: "#11223344" } }), "ok");
             compare(String(scrim.color), "#44112233");
         }
