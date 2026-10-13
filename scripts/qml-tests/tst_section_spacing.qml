@@ -15,7 +15,9 @@ import "../../shell/plugins/vgs.settings"
 // tab of a Jarvis-like plugin with its steps open and with them done,
 // where a step with no hint whose primary button overhangs its row ends a
 // section, and after a status hint whose link's underline, not its
-// glyphs, ends the ink. The settings of no group draw no heading: they follow the
+// glyphs, ends the ink, and exactly under a row action's resting
+// underline or danger mark, not its box. The settings of no group draw no
+// heading: they follow the
 // Enabled switch at the space rows of one list leave. A
 // section spaced by its box, as before `stack.heading`, is the control the
 // reading must refuse.
@@ -152,6 +154,39 @@ Item {
             }
             Section {
                 title: "Setup"
+                Field { label: "One"; inline: true; width: parent.width; Label { role: "item"; text: "Ready" } }
+            }
+        }
+    }
+
+    // A section ending in a row action, as a list setting's Add row and
+    // Jarvis's key rows draw, then the next section. `boxed` wraps the
+    // action in a plain Item, whose ink the spacing reads as its box.
+    Component {
+        id: actionThenSection
+        Column {
+            id: actionPage
+            property string tone: "accent"
+            property bool boxed: false
+            width: 400
+            spacing: 0
+            Section {
+                title: "Sources"
+                Field {
+                    label: "None yet"
+                    inline: true
+                    width: parent.width
+                    RowAction { visible: !actionPage.boxed; text: "Add"; tone: actionPage.tone }
+                    Item {
+                        visible: actionPage.boxed
+                        implicitWidth: boxedAction.implicitWidth
+                        implicitHeight: boxedAction.implicitHeight
+                        RowAction { id: boxedAction; text: "Add"; tone: actionPage.tone }
+                    }
+                }
+            }
+            Section {
+                title: "Text"
                 Field { label: "One"; inline: true; width: parent.width; Label { role: "item"; text: "Ready" } }
             }
         }
@@ -401,6 +436,29 @@ Item {
             verify(waitForRendering(page));
             const gap = gapAbove(grabImage(root), headings(page)[1]);
             verify(Math.abs(gap - Theme.stack.heading) <= root.tolerance, "the heading sits " + gap + " px under the link, not " + Theme.stack.heading);
+        }
+
+        // The space under a row action is read from its drawn ink, so it
+        // holds exactly, not within the glyph tolerance. With the action
+        // read as its box, as before RowAction.inkBelow(), the heading
+        // sat 33 blank rows under the resting underline; "boxed" is that
+        // control and must not read `stack.heading`.
+        function test_heading_space_after_a_row_action_data() {
+            return [
+                { tag: "accent", tone: "accent", boxed: false },
+                { tag: "danger", tone: "danger", boxed: false },
+                { tag: "boxed", tone: "accent", boxed: true }
+            ];
+        }
+
+        function test_heading_space_after_a_row_action(data) {
+            const page = createTemporaryObject(actionThenSection, root, { tone: data.tone, boxed: data.boxed });
+            verify(page !== null);
+            tryVerify(() => headings(page).length === 2, 2000, "the page heads two groups");
+            verify(waitForRendering(page));
+            const gap = gapAbove(grabImage(root), headings(page)[1]);
+            if (data.boxed) verify(gap !== Theme.stack.heading, "the reading tells an action's box from its ink: " + gap);
+            else compare(gap, Theme.stack.heading, "the heading sits " + gap + " px under the action, not " + Theme.stack.heading);
         }
 
         // The control: a section spaced by its box under a switch row.

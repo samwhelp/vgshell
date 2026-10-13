@@ -330,7 +330,7 @@ Item {
             compare(labelOf(lined).y, labelOf(single).y, "the label leaves a one-line row's place");
             verify(infoOf(lined).height > 0, "the row draws no info button");
             compare(infoOf(lined).y, infoOf(single).y, "the info button leaves a one-line row's place");
-            compare(lined.inkBelow(), lined.height - stepThree.mapToItem(lined, 0, stepThree.height).y);
+            compare(lined.inkBelow(), lined.height - stepThree.mapToItem(lined, 0, stepThree.height).y + stepThree.inkBelow());
             compare(lined.inkAbove(), Math.min(labelOf(lined).y + labelOf(lined).inkAbove(), stepOne.mapToItem(lined, 0, 0).y + stepOne.inkAbove()));
         }
 

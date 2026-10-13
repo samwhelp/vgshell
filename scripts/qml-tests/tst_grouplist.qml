@@ -11,7 +11,8 @@ import "../../shell/plugins/vgs.settings"
 // image: a hint's leading, a chip or a label centred in a taller row and a
 // button that fills its row move it no closer to either group, and the ink
 // it reads of a line, a link drawn as the value or a text value, is that
-// line's first drawn row. A hidden
+// line's first drawn row, and a wrapped label's last line without a
+// descender ends its ink at the glyphs, not the font's descent. A hidden
 // group takes neither, a group list inside another divides its own groups
 // alike, and a theme moves both. The groups are the Settings page's own Status lines
 // and Requirements rows, so the page's rhythm is read where it is drawn:
@@ -112,7 +113,8 @@ Item {
     // Groups that are a Row of an icon and its lines, on a solid surface.
     // The icon is centred on the name's capitals and taller than them, so
     // it starts above the text, and under a single line with no descender it
-    // ends below it.
+    // ends below it. The last group's folder wraps, as Cloud Sync's does,
+    // and its last line, a timestamp path, draws no descender.
     Rectangle {
         id: iconInkFrame
         x: 460
@@ -124,7 +126,7 @@ Item {
             id: iconInkList
             width: iconInkFrame.width
             Repeater {
-                model: [["Taxes", "Kept the older copy"], ["Rent"], ["Notes", "Restored the removed file"]]
+                model: [["Taxes", "Kept the older copy"], ["Rent"], ["Notes", "Restored the removed file"], ["Report", "The copy is kept in this folder: home/method/state/conflicts/20261013T094545Z-9829"]]
                 Row {
                     id: iconGroup
                     required property var modelData
@@ -133,11 +135,43 @@ Item {
                     Icon { y: Math.round(iconName.capCentre - height / 2); name: "file-exclamation-point"; size: Theme.icon.size.lg }
                     Column {
                         id: iconLines
+                        width: 240
                         spacing: Theme.row.lineGap
                         Label { id: iconName; role: "item"; text: iconGroup.modelData[0] }
-                        Label { visible: iconGroup.modelData.length > 1; role: "itemHint"; text: iconGroup.modelData[1] ?? "" }
+                        Label { width: parent.width; visible: iconGroup.modelData.length > 1; role: "itemHint"; textFormat: Text.PlainText; wrapMode: Text.Wrap; text: iconGroup.modelData[1] ?? "" }
                     }
                 }
+            }
+        }
+    }
+
+    // A group that ends in a wrapped label whose last line has no
+    // descender, as Cloud Sync's folder line, or with `descent` the same
+    // label read by a descender's ink, as Label.inkBelow() read every
+    // wrapped label by the font's descent: the control the centring must
+    // refuse. Built after the theme sets its size, so the list lays out
+    // once.
+    Component {
+        id: wrapFrame
+        Rectangle {
+            property bool descent: false
+            readonly property alias list: wrapList
+            readonly property alias label: wrapped
+            x: 460
+            y: 900
+            width: 400
+            height: wrapList.height
+            color: Theme.color.surface
+            GroupList {
+                id: wrapList
+                width: parent.width
+                Item {
+                    width: wrapList.width
+                    implicitHeight: wrapped.implicitHeight
+                    function inkBelow() { return descent ? wrapped.inkBelow("gjpqy") : wrapped.inkBelow(); }
+                    Label { id: wrapped; width: parent.width; role: "hint"; textFormat: Text.PlainText; wrapMode: Text.Wrap; text: "Quietly gripping jumps, the older one sits in that folder and the rest is here" }
+                }
+                Label { width: wrapList.width; role: "hint"; text: "Next" }
             }
         }
     }
@@ -246,13 +280,20 @@ Item {
         // gap. The rows are read from the image, not from the list.
         function test_each_hairline_is_centred_between_the_drawn_groups() {
             checkDivided(inkList);
-            verify(inkFrame.y + inkFrame.height <= root.height, "the list fits the window, so its image is whole");
-            const img = grabImage(inkFrame);
-            const scale = img.width / inkFrame.width;
-            verify(Math.abs(img.height - inkFrame.height * scale) <= 1, "the image holds the whole list");
+            compare(offCentre(inkFrame, inkList, 8), [], "every hairline is centred between the drawn groups");
+        }
+
+        // The hairlines of OWNER, drawn on FRAME, that sit off the middle
+        // of the blank rows between the drawn groups; [] when each is
+        // centred.
+        function offCentre(frame, owner, count) {
+            verify(frame.y + frame.height <= root.height, "the list fits the window, so its image is whole");
+            const img = grabImage(frame);
+            const scale = img.width / frame.width;
+            verify(Math.abs(img.height - frame.height * scale) <= 1, "the image holds the whole list");
             const surface = Qt.color(Theme.color.surface);
-            const lines = hairlinesOf(inkList).map(line => line.y).sort((a, b) => a - b);
-            compare(lines.length, 8, "nine groups, eight hairlines");
+            const lines = hairlinesOf(owner).map(line => line.y).sort((a, b) => a - b);
+            compare(lines.length, count, "one hairline between each two groups");
             const out = [];
             for (const y of lines) {
                 const row = Math.round(y * scale);
@@ -264,7 +305,34 @@ Item {
                 const blankAbove = (row - above - 1) / scale, blankBelow = (below - row - Theme.divider.thickness * scale) / scale;
                 if (Math.abs(blankAbove - blankBelow) > 2) out.push("hairline@" + y + " blank above=" + blankAbove + " below=" + blankBelow);
             }
-            compare(out, [], "every hairline is centred between the drawn groups");
+            return out;
+        }
+
+        // At 40 px the font's descent lies 8 px or more under the
+        // baseline, past the pixel the centring allows. The first line
+        // has descenders and the last none, so the reading is the last
+        // line's glyphs, not the whole text's.
+        function test_a_hairline_under_a_wrapped_line_without_descenders_data() {
+            return [
+                { tag: "glyphs", control: false },
+                { tag: "descent", control: true }
+            ];
+        }
+
+        function test_a_hairline_under_a_wrapped_line_without_descenders(data) {
+            compare(UnitTheme.override({ text: { hint: { size: 40 } } }), "ok");
+            const frame = createTemporaryObject(wrapFrame, root, { descent: data.control });
+            verify(frame !== null);
+            const label = frame.label;
+            tryVerify(() => label.lineCount > 2 && label.lastLineText() !== null, 2000, "the label wraps and names its last line");
+            const last = label.lastLineText();
+            verify(last.length > 0 && label.text.endsWith(last) && !/[gjpqy]/.test(last) && /[gjpqy]/.test(label.text), "the last line \"" + last + "\" has no descender, the text has");
+            // At 40 px the label's leading holds the centred hairline, so
+            // the list's box gap is not read here, only the drawn rows.
+            tryVerify(() => shownGroups(frame.list).length === 2 && hairlinesOf(frame.list).length === 1, 1000, "the list lays out its two groups");
+            const out = offCentre(frame, frame.list, 1);
+            if (data.control) compare(out.length, 1, "the centring refuses a descent reading");
+            else compare(out, [], "the hairline is centred under the last line's glyphs");
         }
 
         // The ink a hairline reads of the group under it, the line's own
@@ -314,7 +382,10 @@ Item {
         function test_a_row_reports_the_ink_of_its_icon_and_its_lines() {
             checkDivided(iconInkList);
             const groups = shownGroups(iconInkList);
-            compare(groups.length, 3);
+            compare(groups.length, 4);
+            const folder = groups[3].lines.children[1];
+            verify(folder.lineCount > 1 && folder.lastLineText() !== null && !/[gjpqy,]/.test(folder.lastLineText()) && /[gjpqy]/.test(folder.text),
+                "the folder wraps to a last line with no descender: " + folder.lastLineText());
             const img = grabImage(iconInkFrame);
             const scale = img.width / iconInkFrame.width;
             const surface = Qt.color(Theme.color.surface);

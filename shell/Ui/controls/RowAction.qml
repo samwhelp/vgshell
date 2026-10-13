@@ -26,7 +26,10 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // centres it beside a chip sets the text level with the chip's; the box
 // holds the thicker hover underline, so a hover moves nothing.
 // `inkAbove()` is where its text's ink, or the danger mark, starts below
-// that box's top.
+// that box's top, and `inkBelow()` how far above the box's bottom the
+// lowest of the resting underline, the text's ink and the mark ends, so a
+// heading under the action stands `stack.heading` under what it draws at
+// rest; the hover underline's extra row reaches into that space.
 T.Button {
     id: root
 
@@ -47,6 +50,12 @@ T.Button {
     function inkAbove() {
         const text = label.y + label.inkAbove();
         return contentItem.y + (mark.visible ? Math.min(mark.y, text) : text);
+    }
+
+    function inkBelow() {
+        const text = Math.max(underline.y + Theme.rowAction.underline, label.y + label.height - label.inkBelow());
+        const lowest = mark.visible ? Math.max(mark.y + mark.height - Theme.inkBelow(mark), text) : text;
+        return height - contentItem.y - lowest;
     }
 
     implicitWidth: implicitContentWidth

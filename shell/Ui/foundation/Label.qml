@@ -20,11 +20,15 @@ import qs.Commons
 // wrapped one, whose first line's text it does not know, and
 // `inkBelow(lastLine)` how far above its bottom edge the last
 // line's ink ends: its glyphs' lowest ink (FontMetrics.tightBoundingRect,
-// whose origin is the baseline) for a one-line label or a caller that
-// names the last line's text, else the baseline in capitals and the
-// descent in mixed case. `lastBaseline()` is the last line's baseline from
-// the label top: lines of one label share one line box, so it is the first
-// one `baselineOffset` places, moved down by every line box but the last.
+// whose origin is the baseline) for a one-line label, a caller that
+// names the last line's text, or a wrapped label of plain text, whose
+// last line a hidden twin laid out alike names, as LinkText's does, else
+// the baseline in capitals and the descent in mixed case. The twin is
+// built at the first such reading, so only a label whose ink a layout
+// reads, such as the last of a group, lays its text out twice.
+// `lastBaseline()` is the last line's baseline from the label top: lines
+// of one label share one line box, so it is the first one
+// `baselineOffset` places, moved down by every line box but the last.
 Text {
     id: root
 
@@ -67,9 +71,24 @@ Text {
         return baselineOffset + contentHeight * (lines - 1) / lines;
     }
 
+    // The twin, made at the first reading. A plain object, so making it
+    // notifies no binding that reads the label's ink while it runs.
+    readonly property var twinHolder: ({ twin: null })
+
+    // The last drawn line's text of a wrapped label, or null for rich
+    // text, while the twin is not laid out at this text and width, or
+    // when the label elides.
+    function lastLineText() {
+        if (textFormat !== Text.PlainText && textFormat !== Text.AutoText) return null;
+        if (twinHolder.twin === null) twinHolder.twin = twinComponent.createObject(root);
+        const laid = twinHolder.twin;
+        if (truncated || laid.width !== width || laid.length !== text.length) return null;
+        return text.slice(laid.positionAt(0, laid.contentHeight - 1));
+    }
+
     function inkBelow(lastLine) {
         const lines = Math.max(1, lineCount);
-        const known = lastLine !== undefined ? lastLine : lines === 1 ? text : null;
+        const known = lastLine !== undefined ? lastLine : lines === 1 ? text : lastLineText();
         const ink = known === null ? null : metrics.tightBoundingRect(typography.uppercase ? known.toUpperCase() : known);
         const below = ink !== null ? Math.max(0, ink.y + ink.height) : typography.uppercase ? 0 : metrics.descent;
         return height - lastBaseline() - below;
@@ -82,5 +101,22 @@ Text {
     FontMetrics {
         id: metrics
         font: root.font
+    }
+
+    // Text reports no character position, so a TextEdit laid out at the
+    // same width and font gives the last line's first one. A Component is
+    // no item, so a label that is never read adds none to the scene.
+    Component {
+        id: twinComponent
+        TextEdit {
+            visible: false
+            readOnly: true
+            width: root.width
+            text: root.text
+            textFormat: root.textFormat === Text.PlainText ? TextEdit.PlainText : TextEdit.AutoText
+            font: root.font
+            wrapMode: root.wrapMode
+            horizontalAlignment: root.horizontalAlignment
+        }
     }
 }

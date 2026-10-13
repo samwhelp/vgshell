@@ -235,7 +235,8 @@ Item {
             fuzzyCompare(one.y + one.height / 2, Theme.row.height / 2, 0.5, "the first line's actions leave its centre");
             fuzzyCompare(three.y + three.height / 2, 1.5 * Theme.row.height + Theme.stack.row, 0.5, "the second line's action leaves its centre");
             compare(lines.inkAbove(), one.y + one.inkAbove());
-            compare(lines.inkBelow(), lines.height - (three.y + three.height));
+            compare(lines.inkBelow(), lines.height - (three.y + three.height) + three.inkBelow());
+            verify(three.inkBelow() >= Theme.rowAction.underlineHover - Theme.rowAction.underline, "the resting underline ends above the box that holds the hover one");
         }
 
         function test_given_the_room_wrapped_actions_return_to_one_line() {
