@@ -1516,19 +1516,20 @@ verifyTabIndicator(TOKENS);
 // line's label, whose placement `scripts/qml-tests/tst_label.qml` holds;
 // the control is the line-box placement. The typed filter rests on a
 // plate of the same fill in `carousel.typed`; its control is the same
-// source with the line in its role's own colour. The search hint rests
-// on a plate of that fill in `carousel.searchHint`, with the same control.
+// source with the line in its role's own colour. The search hint, which
+// the filter takes the place of, rests on that plate in
+// `carousel.searchHint`, with the same control.
 const FAILURE_LINE = /Rectangle \{[^{}]*color: Theme\.carousel\.failurePlate[^{}]*Row \{[^{}]*Icon \{[^{}]*name: "circle-alert"[^{}]*\}\s*Label \{[^{}]*color: Theme\.carousel\.hintDanger/;
 const FAILURE_MARK = /Icon \{[^{}]*name: "circle-alert"[^{}]*\}/;
 const FAILURE_MARK_TOP = /Icon \{[^{}]*y: failureText\.topForLeadingIcon\(height\)[^{}]*name: "circle-alert"/;
-const TYPED_FILTER = /Rectangle \{[^{}]*color: Theme\.carousel\.failurePlate[^{}]*Label \{[^{}]*color: Theme\.carousel\.typed[^{}]*text: root\.filterText/;
-const SEARCH_HINT = /Rectangle \{[^{}]*color: Theme\.carousel\.failurePlate[^{}]*(?:Row \{[^{}]*)?Label \{[^{}]*text: "Type a [^"]* to search[^"]*"[^{}]*color: Theme\.carousel\.searchHint/;
+const TYPED_FILTER = /Rectangle \{[^{}]*color: Theme\.carousel\.failurePlate[^{}]*(?:Row \{[^{}]*)?Label \{[^{}]*color: Theme\.carousel\.typed[^{}]*text: root\.filterText/;
+const SEARCH_HINT = /Rectangle \{[^{}]*color: Theme\.carousel\.failurePlate[^{}]*(?:Row \{[^{}]*)?(?:Label \{[^{}]*\}[^{}]*)?Label \{[^{}]*text: "Type a [^"]* to search[^"]*"[^{}]*color: Theme\.carousel\.searchHint/;
 for (const view of ["ThemeView.qml", "WallpaperView.qml"]) {
     const viewSource = fs.readFileSync(path.join(repo, "shell/plugins/vgs.themes", view), "utf8");
     assert.equal(viewSource.split("Theme.carousel.hintDanger").length, 2, `${view} draws one failure line`);
     assert.match(viewSource, FAILURE_LINE, `${view} leads its failure line with the danger mark`);
     assert.doesNotMatch(viewSource.replace(FAILURE_MARK, ""), FAILURE_LINE, `control: ${view} without the mark must fail the check`);
-    assert.equal(viewSource.split("color: Theme.carousel.failurePlate").length, 4, `${view} fills its hint's plate, its filter's plate and its failure plate`);
+    assert.equal(viewSource.split("color: Theme.carousel.failurePlate").length, 3, `${view} fills its search line's plate and its failure plate`);
     assert.doesNotMatch(viewSource.replaceAll("color: Theme.carousel.failurePlate", "color: Theme.carousel.backdrop"), FAILURE_LINE, `control: ${view} without the plate's fill must fail the check`);
     assert.match(viewSource, TYPED_FILTER, `${view} rests its typed filter on the plate`);
     assert.doesNotMatch(viewSource.replace("color: Theme.carousel.typed\n", ""), TYPED_FILTER, `control: ${view} with the filter in its role's colour must fail the check`);

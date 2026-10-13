@@ -330,8 +330,8 @@ FocusScope {
     }
 
     // One inset box centred on the output, as the theme view's: the tabs and
-    // the scope words in the header, the rail in the body, and the hint
-    // line and a download's progress in the footer.
+    // the scope words in the header, the rail in the body, and the typed
+    // filter or its hint line and a download's progress in the footer.
     Pane {
         id: layout
         anchors.centerIn: parent
@@ -451,25 +451,42 @@ FocusScope {
                 width: Math.min(layout.contentWidth, Theme.carousel.expandedWidth)
                 spacing: Theme.stack.group
 
-                // The search hint rests on the plate the typed filter and
-                // a failure rest on, so it reads 4.5:1 over any wallpaper.
+                // The search line, the hint while no filter is typed and the
+                // typed filter in its place, rests on a solid plate of the
+                // theme's surface, as a failure does: no one colour reads
+                // 4.5:1 on the scrim over both a light and a dark wallpaper.
+                // The plate is as tall for either line, so typing moves
+                // nothing above it.
                 Rectangle {
-                    id: hintPlate
+                    id: searchPlate
                     anchors.horizontalCenter: parent.horizontalCenter
-                    width: hintLine.width + 2 * hintInset.inset
-                    height: hintLine.height + 2 * Theme.surface.padding
+                    width: searchLine.width + 2 * searchInset.inset
+                    height: Math.max(searchText.height, typed.height, sourceLine.height) + 2 * Theme.surface.padding
                     radius: Theme.surface.radius
                     color: Theme.carousel.failurePlate
 
                     Row {
-                        id: hintLine
-                        x: hintInset.inset
-                        y: BrowserLogic.inkCentredTop(hintPlate.height, searchText.y + searchText.capTop(), searchText.y + searchText.lastBaseline())
+                        id: searchLine
+                        // The line whose ink the plate centres.
+                        readonly property Label lead: root.filterText === "" ? searchText : typed
+                        x: searchInset.inset
+                        y: BrowserLogic.inkCentredTop(searchPlate.height, lead.y + lead.capTop(), lead.y + lead.lastBaseline())
                         spacing: Theme.stack.inline
 
                         Label {
+                            id: typed
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: root.filterText !== ""
+                            role: "h3"
+                            width: Math.min(implicitWidth, caption.width - 2 * searchInset.inset - sourceLine.width - searchLine.spacing)
+                            elide: Text.ElideMiddle
+                            color: Theme.carousel.typed
+                            text: root.filterText
+                        }
+                        Label {
                             id: searchText
                             anchors.verticalCenter: parent.verticalCenter
+                            visible: root.filterText === ""
                             role: "itemHint"
                             text: "Type a wallpaper or image file name to search |"
                             color: Theme.carousel.searchHint
@@ -514,11 +531,11 @@ FocusScope {
                     }
 
                     ClearingInset {
-                        id: hintInset
+                        id: searchInset
                         pad: Theme.surface.padding
-                        radius: hintPlate.radius
+                        radius: searchPlate.radius
                         width: caption.width
-                        height: hintPlate.height
+                        height: searchPlate.height
                         top: Theme.surface.padding
                     }
                 }
@@ -545,50 +562,16 @@ FocusScope {
         ]
     }
 
-    // The typed filter and the failures lie under the pane, in the room it
-    // leaves on the output, and outside its footer: a centred pane that
-    // grew with a filter or a failure would move the rail and the caption
-    // under the pointer. On an output with no room under the pane they lie
-    // over its foot.
+    // The failures lie under the pane, in the room it leaves on the output,
+    // and outside its footer: a centred pane that grew with a failure would
+    // move the rail and the caption under the pointer. On an output with no
+    // room under the pane they lie over its foot.
     Column {
-        id: under
+        id: failures
         x: (root.width - width) / 2
         y: Math.min(layout.y + layout.height - layout.contentInset + Theme.stack.group, root.height - height)
         width: caption.width
         spacing: Theme.stack.group
-
-        // The typed filter rests on a solid plate of the theme's surface,
-        // as a failure does: no one colour reads 4.5:1 on the scrim over
-        // both a light and a dark wallpaper.
-        Rectangle {
-            id: typedPlate
-            anchors.horizontalCenter: parent.horizontalCenter
-            visible: root.filterText !== ""
-            width: typed.width + 2 * typedInset.inset
-            height: typed.height + 2 * Theme.surface.padding
-            radius: Theme.surface.radius
-            color: Theme.carousel.failurePlate
-
-            Label {
-                id: typed
-                x: typedInset.inset
-                y: BrowserLogic.inkCentredTop(typedPlate.height, capTop(), lastBaseline())
-                role: "h3"
-                width: Math.min(implicitWidth, caption.width - 2 * typedInset.inset)
-                elide: Text.ElideMiddle
-                color: Theme.carousel.typed
-                text: root.filterText
-            }
-
-            ClearingInset {
-                id: typedInset
-                pad: Theme.surface.padding
-                radius: typedPlate.radius
-                width: caption.width
-                height: typedPlate.height
-                top: Theme.surface.padding
-            }
-        }
 
         Repeater {
             model: [
