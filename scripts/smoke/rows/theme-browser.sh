@@ -15,7 +15,10 @@
 # the height of the line it shows is the filter's control, and one whose
 # caption grows with the failures the failure's. A typed wallpaper filter
 # leaves the divider and Show all on their rest rows; a copy of the
-# wallpaper view whose source line centres on its Row is that control. The old keys, SUPER+T
+# wallpaper view whose source line centres on its Row is that control.
+# Show all draws the same pixels at rest and with three typed filters of
+# different widths; a copy whose typed filter takes a fractional width,
+# which puts Show all at a fractional x, is that control. The old keys, SUPER+T
 # and SUPER+W, open nothing, and each view's key moves an open browser to
 # that view; a manifest copy still bound to SUPER+T is their control. The sandbox copy's
 # catalog pins nord's wallpapers to an archive this row builds, served from
@@ -98,6 +101,76 @@ text_top() {
 import json, sys
 tops = [r["box"][1] for r in json.load(sys.stdin) if r.get("text") == sys.argv[1] and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0]
 print("%.2f" % tops[0]) if len(tops) == 1 else sys.exit("texts=%d" % len(tops))' "$1"
+}
+# show_all_pixels: the pixels Show all draws on the nested output, its box
+# one pixel wider on every side, read through grim, as `WxH HEX`; no line
+# and a failure while the box is unreadable or the crop holds one colour.
+show_all_pixels() {
+  local rows surface socket geometry
+  rows="$(ipc smoke descendantGeometry overlay vgs.themes)" &&
+    surface="$(surface_box vgs:overlay)" &&
+    socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || return 1
+  # The probe answers boxes in the overlay window's coordinates; the
+  # layer's position on the layout places them for grim.
+  geometry="$(python3 -c '
+import json, math, sys
+boxes = [r["box"] for r in json.loads(sys.argv[1]) if r.get("text") == "Show all" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0]
+if len(boxes) != 1: sys.exit("show-all-boxes=%d" % len(boxes))
+l = json.loads(sys.argv[2])
+x, y, w, h = boxes[0]
+print("%d,%d %dx%d" % (round(l[0] + x) - 1, math.floor(l[1] + y) - 1, math.ceil(w) + 3, math.ceil(h) + 3))' "$rows" "$surface")" || return 1
+  shot_grim "$socket" "$rt_dir" -g "$geometry" -t ppm - | python3 -c '
+import sys
+d = sys.stdin.buffer.read().split(b"\n", 3)
+if len(d) != 4 or d[0] != b"P6" or d[2] != b"255": sys.exit("show-all-pixels=unreadable")
+w, h = map(int, d[1].split())
+px = d[3]
+if len(px) != w * h * 3: sys.exit("show-all-pixels=incomplete")
+if len({px[i:i + 3] for i in range(0, len(px), 3)}) < 2: sys.exit("show-all-pixels=blank")
+print("%dx%d %s" % (w, h, px.hex()))'
+}
+# pixels_near A B: `same` when two show_all_pixels readings are one size
+# and no channel of a pixel differs by more than 2, else `differs` with the
+# largest difference and how many pixels exceed it. The nested renderer
+# draws one unmoved text a level apart between frames (sandbox-shots on
+# f8dca8ce4: 3 of 1045 pixels, 1 level, two rest captures of Show all).
+pixels_near() {
+  python3 -c '
+import sys
+(sa, ha), (sb, hb) = (v.split() for v in sys.argv[1:3])
+if sa != sb: sys.exit(print("differs size=%s,%s" % (sa, sb)))
+a, b = bytes.fromhex(ha), bytes.fromhex(hb)
+gaps = [abs(p - q) for p, q in zip(a, b)]
+over = sum(1 for g in gaps if g > 2)
+print("same" if over == 0 else "differs max=%d channels=%d" % (max(gaps), over))' "$1" "$2"
+}
+# settled_show_all_pixels: show_all_pixels once two readings 0.2 s apart
+# are pixels_near; no line and a failure when none are within
+# smoke_poll_bound_ms.
+settled_show_all_pixels() {
+  local now last=""
+  for _ in $(seq 1 $((smoke_poll_bound_ms / 200))); do
+    now="$(show_all_pixels)" || return 1
+    [[ -n $last && $(pixels_near "$now" "$last") == same ]] && { echo "$now"; return 0; }
+    last="$now"
+    sleep 0.2
+  done
+  echo "show-all-pixels=unsettled" >&2
+  return 1
+}
+# show_all_against REST: pixels_near of Show all's pixels now and REST.
+show_all_against() {
+  local now
+  now="$(show_all_pixels)" || return 1
+  pixels_near "$now" "$1"
+}
+# pointer_off_plate: the pointer moved to the overlay's left edge, half way
+# down, off the search plate, so Show all draws no hover in its reading.
+pointer_off_plate() {
+  local surface x y
+  surface="$(surface_box vgs:overlay)" || return 1
+  read -r x y < <(python3 -c 'import json,sys; l=json.loads(sys.argv[1]); print(int(l[0]) + 8, int(l[1] + l[3] / 2))' "$surface") || return 1
+  hover "$x" "$y"
 }
 rest_has() { rest_texts | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }
 # search_field: whether the shown view draws a search field, `absent`
@@ -1119,6 +1192,15 @@ wall_rail="$(rail_top)" || fail "the wallpaper rail's top before the filter is u
 wall_plate="$(text_plate "Type a wallpaper or image file name to search")" || fail "the wallpaper hint's plate is unreadable"
 wall_show_all="$(text_top "Show all")" || fail "the resting Show all's top is unreadable"
 wall_divider="$(text_top "|")" || fail "the resting divider's top is unreadable"
+pointer_off_plate || fail "moving the pointer off the wallpaper search plate failed"
+wall_show_all_px="$(settled_show_all_pixels)" || fail "the resting Show all's pixels are unreadable"
+for wall_typed in a gyp Nord; do
+  type_keys "$wall_typed" || fail "typing $wall_typed for Show all's pixels failed"
+  expect_poll "the wallpaper filter reads $wall_typed" "\"$wall_typed\"" wall_value filterText
+  expect_poll "a typed $wall_typed leaves Show all's pixels as at rest" same show_all_against "$wall_show_all_px"
+  type_keys -M ctrl -k u -m ctrl || fail "clearing $wall_typed failed"
+  expect_poll "Ctrl+U clears $wall_typed" '""' wall_value filterText
+done
 type_keys "b." || fail "typing the wallpaper filter failed"
 expect_poll "typing reaches the wallpaper filter" '"b."' wall_value filterText
 expect_poll "the wallpaper filter keeps b.jpg alone" "[\"$nord_b\"]" wall_keys
@@ -1160,6 +1242,28 @@ type_keys -M ctrl -k u -m ctrl || fail "clearing the row-centred source line con
 expect "the row-centred source line control browser hides" ok ipc shell hide overlay vgs.themes
 expect_poll "the row-centred source line control browser closes" 0 layer_count vgs:overlay
 plugin_restore WallpaperView.qml "row-centred source line"
+
+# Control: a wallpaper view whose typed filter takes its fractional width,
+# so Show all after it starts at a fractional x for some filters.
+plugin_control WallpaperView.qml "fractional filter width" 'width: Math.ceil(Math.min(implicitWidth, ' 'width: (Math.min(implicitWidth, '
+press_wallpapers || fail "typing SUPER+SHIFT+W for the fractional filter width control failed"
+expect_poll "SUPER+SHIFT+W opens the fractional filter width control browser" 1 layer_count vgs:overlay
+expect_poll "the fractional filter width control view read its lists" true wall_value loaded
+pointer_off_plate || fail "moving the pointer off the fractional filter width control's plate failed"
+fractional_rest="$(settled_show_all_pixels)" || fail "the fractional filter width control's resting Show all is unreadable"
+fractional_moved=0
+for wall_typed in a gyp Nord; do
+  type_keys "$wall_typed" || fail "typing $wall_typed for the fractional filter width control failed"
+  expect_poll "the fractional filter width control's filter reads $wall_typed" "\"$wall_typed\"" wall_value filterText
+  fractional_now="$(settled_show_all_pixels)" || fail "the fractional filter width control's Show all with $wall_typed is unreadable"
+  [[ $(pixels_near "$fractional_now" "$fractional_rest") == same ]] || fractional_moved=$((fractional_moved + 1))
+  type_keys -M ctrl -k u -m ctrl || fail "clearing $wall_typed in the fractional filter width control failed"
+  expect_poll "Ctrl+U clears $wall_typed in the fractional filter width control" '""' wall_value filterText
+done
+expect "control: a fractional filter width changes Show all's pixels for some typed filter" True bash -c '[[ $1 -gt 0 ]] && echo True' _ "$fractional_moved"
+expect "the fractional filter width control browser hides" ok ipc shell hide overlay vgs.themes
+expect_poll "the fractional filter width control browser closes" 0 layer_count vgs:overlay
+plugin_restore WallpaperView.qml "fractional filter width"
 
 plugin_control WallpaperView.qml "search field" "$search_field_line" "$search_field_copy"
 press_wallpapers || fail "typing SUPER+SHIFT+W for the wallpaper search field control failed"

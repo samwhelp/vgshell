@@ -447,7 +447,7 @@ FocusScope {
         footer: [
             Column {
                 id: caption
-                x: (layout.contentWidth - width) / 2
+                x: Math.round((layout.contentWidth - width) / 2)
                 width: Math.min(layout.contentWidth, Theme.carousel.expandedWidth)
                 spacing: Theme.stack.group
 
@@ -456,10 +456,13 @@ FocusScope {
                 // theme's surface, as a failure does: no one colour reads
                 // 4.5:1 on the scrim over both a light and a dark wallpaper.
                 // The plate is as tall for either line, so typing moves
-                // nothing above it.
+                // nothing above it. The plate and each item of its line
+                // start on a whole pixel, every width whole: a text at a
+                // fractional x spreads each stem over two columns, so Show
+                // all would read fainter for some typed filters than others.
                 Rectangle {
                     id: searchPlate
-                    anchors.horizontalCenter: parent.horizontalCenter
+                    x: Math.round((parent.width - width) / 2)
                     width: searchLine.width + 2 * searchInset.inset
                     height: Math.max(searchText.height, typed.height, sourceLine.height) + 2 * Theme.surface.padding
                     radius: Theme.surface.radius
@@ -479,7 +482,7 @@ FocusScope {
                             y: BrowserLogic.inkCentredTop(searchPlate.height, capTop(), lastBaseline())
                             visible: root.filterText !== ""
                             role: "h3"
-                            width: Math.min(implicitWidth, caption.width - 2 * searchInset.inset - searchDivider.width - sourceLine.width - 2 * searchLine.spacing)
+                            width: Math.ceil(Math.min(implicitWidth, caption.width - 2 * searchInset.inset - searchDivider.width - sourceLine.width - 2 * searchLine.spacing))
                             elide: Text.ElideMiddle
                             color: Theme.carousel.typed
                             text: root.filterText
@@ -487,6 +490,7 @@ FocusScope {
                         Label {
                             id: searchText
                             y: BrowserLogic.inkCentredTop(searchPlate.height, capTop(), lastBaseline())
+                            width: Math.ceil(implicitWidth)
                             visible: root.filterText === ""
                             role: "itemHint"
                             text: "Type a wallpaper or image file name to search"
@@ -497,6 +501,7 @@ FocusScope {
                         Label {
                             id: searchDivider
                             y: BrowserLogic.inkCentredTop(searchPlate.height, capTop(), lastBaseline())
+                            width: Math.ceil(implicitWidth)
                             role: "itemHint"
                             text: "|"
                             color: Theme.carousel.searchHint
@@ -510,7 +515,7 @@ FocusScope {
                         MouseArea {
                             id: sourceLine
                             y: BrowserLogic.inkCentredTop(searchPlate.height, sourceText.y + sourceText.capTop(), sourceText.y + sourceText.lastBaseline())
-                            width: sourceRow.implicitWidth
+                            width: Math.ceil(sourceRow.implicitWidth)
                             height: sourceRow.implicitHeight
                             hoverEnabled: true
                             Accessible.role: Accessible.Button
