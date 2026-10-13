@@ -9,8 +9,8 @@
 # holding the keyboard and drawing one chip per package its step handles,
 # with its state beside it and the purposes under it, then one per
 # required package a later step installs, with a line naming its manager,
-# which its message names with that manager too, its title counting every
-# chip it draws; the surface fills the monitor less the bar's reserved space less
+# which its message does not repeat, its title counting every chip it draws
+# that is not optional, an optional chip reading Optional; the surface fills the monitor less the bar's reserved space less
 # `dialog.margin`, clears the bar by that margin and centres the dialog; a
 # click on the bar's acme.tick widget reaches it while the notice shows; a
 # click beside the dialog lands on the scrim, which fills the surface in
@@ -150,23 +150,25 @@ install_words() {
 group_shape() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.dumps([[g[0], len(g[1])] for g in json.load(sys.stdin)["groups"]]))'; }
 group_states() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.dumps([g[2] for g in json.load(sys.stdin)["groups"]]))'; }
 # `equal` when the number the drawn title counts is the number of name
-# chips the notice draws, else [the title's number, the chips]. `chip`
-# reads one chip fewer, the check's planted control.
+# chips the notice draws whose state is not Optional, else [the title's
+# number, the chips]. `chip` reads one chip fewer, the check's planted
+# control.
 title_counts_chips() { # [chip]
   ipc smoke noticeDrawn | py_reply 'import json,re,sys
 d = json.load(sys.stdin)
 m = re.search(r" needs (one|\d+) ", d["title"])
 counted = None if m is None else 1 if m.group(1) == "one" else int(m.group(1))
-chips = len(d["groups"]) - (1 if sys.argv[1] == "chip" else 0)
+chips = len([g for g in d["groups"] if g[2] != ["Optional"]]) - (1 if sys.argv[1] == "chip" else 0)
 print("equal" if counted == chips else json.dumps([counted, chips]))' "${1:-}"
 }
 needs_groups='[["vgs-smoke-needs-pkg", 1]]'
-# The packages the drawn message names for a later step, each as [package,
-# manager] from its "PACKAGE from MANAGER", in the order it names them; []
-# when it names none.
-message_later() { ipc smoke noticeDrawn | py_reply 'import json,re,sys
-m = re.search(r"After this step, VGS offers (.*)\.$", json.load(sys.stdin)["message"])
-print(json.dumps([] if m is None else [n.split(" from ") for n in re.split(r", | and ", m.group(1))]))'; }
+# The packages the notice draws for a later step, each as [package,
+# manager] from the line under its chip, in drawn order; [] when it draws
+# none.
+entry_later() { ipc smoke noticeDrawn | py_reply 'import json,re,sys
+later = [[g[0], m.group(1)] for g in json.load(sys.stdin)["groups"] for m in [re.fullmatch(r"Offered after this step, through (\S+)\.", line) for line in g[1]] if m]
+print(json.dumps(later))'; }
+notice_message_holds() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(str(sys.argv[1] in json.load(sys.stdin)["message"]).lower())' "$1"; }
 rows_hold() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(str(any(sys.argv[1] in r for r in json.load(sys.stdin)["rows"])).lower())' "$1"; }
 row_drawn() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(str(sys.argv[1] in json.load(sys.stdin)["rows"]).lower())' "$1"; }
 all_needs='["vgs-smoke-needs", "vgs-smoke-extra", "vgs-smoke-unmapped"]'
@@ -233,7 +235,7 @@ expect_poll "the notice holds the keyboard after the clicks" true ipc smoke noti
 expect "the notice draws one chip per package its step handles" "$needs_groups" group_shape
 expect "the chip's package reads missing" '[["Missing"]]' group_states
 expect "the title counts the package the step handles" '"Acme Sync needs one package"' drawn title
-expect "the message names nothing for later: the notice closes once its one required command is found" '[]' message_later
+expect "the notice draws nothing for later: it closes once its one required command is found" '[]' entry_later
 expect "no line names a command whose package is known" false row_drawn "vgs-smoke-needs"
 expect "control: the same reading finds the package's chip" true row_drawn "vgs-smoke-needs-pkg"
 expect "no line marks a requirement optional" false rows_hold "optional"
@@ -274,11 +276,13 @@ expect "an offer of a present command is satisfied" satisfied needs offer "sh"
 expect "an offer of a command the manifest does not declare is refused" "refused: requirement=pacman reason=undeclared" needs offer "vgs-smoke-needs|pacman"
 expect "an offer that is not a list is refused" "refused: requirements=malformed" needs offer-json '"vgs-smoke-needs"'
 expect "the merged notice is still the one notice" "[\"acme.needs\", $all_needs, [\"vgs-smoke-needs\", \"vgs-smoke-extra\"], false]" notice_shown
-expect_poll "the merged notice names the required AUR package for a later step, and not the command no manager provides" '[["vgs-smoke-extra-git", "aur"]]' message_later
-expect "the merged notice's title counts the step's package and the later one" '"Acme Sync needs 2 packages"' drawn title
+expect_poll "the merged notice names the AUR package for a later step under its chip, and not the command no manager provides" '[["vgs-smoke-extra-git", "aur"]]' entry_later
+expect "the merged notice's message does not name the later package again" false notice_message_holds "vgs-smoke-extra-git"
+expect "the merged notice marks the later optional package Optional" '[["Missing"], ["Optional"]]' group_states
+expect "the merged notice's title counts the step's package, not the optional later one" '"Acme Sync needs one package"' drawn title
 expect "the merged notice draws the step's package, then the later one with a line naming its manager" '[["vgs-smoke-needs-pkg", 1], ["vgs-smoke-extra-git", 2]]' group_shape
 expect "the merged notice's title counts every chip it draws" equal title_counts_chips
-expect "control: a reading of one chip fewer is refused" '[2, 1]' title_counts_chips chip
+expect "control: a reading of one chip fewer is refused" '[1, 0]' title_counts_chips chip
 expect_poll "the notice holds the keyboard again" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes the enabled notice" null notice_shown
@@ -530,8 +534,8 @@ expect "an offer of the outdated command and a missing extra raises the notice" 
 expect_poll "the mixed notice lists both commands" '["acme.floor", ["vgs-smoke-old", "vgs-smoke-extra"], ["vgs-smoke-old", "vgs-smoke-extra"], false]' notice_shown
 expect_poll "the mixed notice offers one step for both" '["Install and update", "Not now"]' drawn actions
 expect "the mixed notice draws both packages" '[["vgs-smoke-old-aur", 1], ["vgs-smoke-extra-git", 1]]' group_shape
-expect "the mixed notice marks one outdated and one missing" '[["Outdated"], ["Missing"]]' group_states
-expect "the mixed notice counts both packages" '"Acme Sync needs 2 packages"' drawn title
+expect "the mixed notice marks one outdated and one optional" '[["Outdated"], ["Optional"]]' group_states
+expect "the mixed notice counts the update, not the optional package" '"Acme Sync needs one update"' drawn title
 expect "the mixed notice's title counts every chip it draws" equal title_counts_chips
 # The mixed notice's two entries are groups of a GroupList with one shown
 # hairline in the gap between them, drawn within a pixel of the place

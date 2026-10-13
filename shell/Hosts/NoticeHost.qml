@@ -11,9 +11,10 @@ import qs.Ui
 // taking the keyboard on demand. It draws one Dialog at a time. A
 // requirement notice has priority: one entry per package its step installs
 // for a missing requirement or updates for an outdated one, its name as a
-// chip with Missing or Outdated beside it and each purpose under it, then
-// one per package a later step offers, drawn alike with a line naming the
-// manager that offers it, its title counting every entry it draws, then
+// chip with Missing, Optional or Outdated beside it and each purpose under
+// it, then one per package a later step offers, drawn alike with a line
+// naming the manager that offers it, its title counting the entries that
+// are not optional, then
 // Install, Update or Install and update, with Not now, or Close alone when
 // no manager here installs a listed package. The step runs Notices.accept, every other
 // answer Notices.dismiss. The consent slot draws its view's title, message,
@@ -76,17 +77,11 @@ Scope {
         throw new Error("notices: unchanged kind " + JSON.stringify(entry.kind) + " has no line");
     }
 
-    // ITEMS as one phrase: "a", "a and b" or "a, b and c".
-    function spoken(items) {
-        return items.length < 2 ? items.join("") : items.slice(0, -1).join(", ") + " and " + items[items.length - 1];
-    }
-
-    // The dialog's message for SHOWN: what its step does and each package a
-    // later step offers, named with its manager, or how to install its
-    // requirements when no manager here installs them.
+    // The dialog's message for SHOWN: what its step does, or how to install
+    // its requirements when no manager here installs them. The line under
+    // each later entry names its manager, so the message names none.
     function message(shown) {
-        const later = shown.drawn.filter(e => e.later);
-        if (step(shown) !== "") return step(shown) + " opens a terminal. The package manager asks for your password there." + (later.length === 0 ? "" : " After this step, VGS offers " + spoken(later.map(e => e.chip + " from " + e.manager)) + ".");
+        if (step(shown) !== "") return step(shown) + " opens a terminal. The package manager asks for your password there.";
         if (shown.byHand.length > 0) return "Add these packages to the system configuration: " + shown.byHand.map(g => g.manager + " " + g.names.join(" ")).join(", ") + ".";
         if (Notices.detection === "failed") return "VGS could not detect this system's package manager. Install these requirements by hand.";
         return "No package manager here provides these requirements. Install them by hand.";
@@ -230,8 +225,8 @@ Scope {
                                 }
                                 Badge {
                                     id: entryState
-                                    text: modelData.update ? "Outdated" : "Missing"
-                                    tone: "warning"
+                                    text: modelData.update ? "Outdated" : modelData.optional ? "Optional" : "Missing"
+                                    tone: !modelData.update && modelData.optional ? "info" : "warning"
                                     size: "sm"
                                 }
                             }

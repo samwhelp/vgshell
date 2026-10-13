@@ -2199,22 +2199,25 @@ function noticeView(manifest, missing, versions, notice, found) {
 }
 
 // The title of OWNER's notice over VIEW, noticeView's answer: "<OWNER>
-// needs one package" or "<OWNER> needs N packages", counting every entry
-// VIEW draws, so the count is the number of entries the user sees;
-// requirements when no entry has a package, and updates when every entry
-// is one.
+// needs one package" or "<OWNER> needs N packages", counting the entries
+// VIEW draws that are not optional, so an optional package is never called
+// needed; "<OWNER> can use N packages" when every entry is optional;
+// requirements when no counted entry has a package, and updates when every
+// counted entry is one.
 function noticeTitle(owner, view) {
-    var drawn = view.drawn;
-    var noun = drawn.every(function (e) { return e.update; }) ? "update" : drawn.some(function (e) { return e.packaged; }) ? "package" : "requirement";
-    return owner + " needs " + (drawn.length === 1 ? "one " + noun : drawn.length + " " + noun + "s");
+    var needed = view.drawn.filter(function (e) { return !e.optional; });
+    var counted = needed.length === 0 ? view.drawn : needed;
+    var noun = counted.every(function (e) { return e.update; }) ? "update" : counted.some(function (e) { return e.packaged; }) ? "package" : "requirement";
+    return owner + (needed.length === 0 ? " can use " : " needs ") + (counted.length === 1 ? "one " + noun : counted.length + " " + noun + "s");
 }
 
 // ROWS, noticeView's, as the user installs them: one entry per package,
 // keyed by its manager and name, or per requirement when no package is
 // known, keyed by the requirement's name, in first-appearance order, each
-// { chip, packaged, manager, update, purposes }, `manager` the package's or
-// null, and `update` while every requirement of the entry is
-// outdated, so its step is an update. Two requirements one package provides
+// { chip, packaged, manager, update, optional, purposes }, `manager` the
+// package's or null, `update` while every requirement of the entry is
+// outdated, so its step is an update, and `optional` while every one is
+// optional. Two requirements one package provides
 // read as one thing to install, and a package is never merged with a
 // requirement of its name.
 function noticeGroups(rows) {
@@ -2225,9 +2228,10 @@ function noticeGroups(rows) {
         var manager = packaged ? row.package.manager : null;
         var update = row.state === "outdated";
         var held = out.filter(function (g) { return g.manager === manager && g.chip === chip; })[0];
-        if (held === undefined) out.push({ chip: chip, packaged: packaged, manager: manager, update: update, purposes: [row.purpose] });
+        if (held === undefined) out.push({ chip: chip, packaged: packaged, manager: manager, update: update, optional: row.optional, purposes: [row.purpose] });
         else {
             held.update = held.update && update;
+            held.optional = held.optional && row.optional;
             held.purposes.push(row.purpose);
         }
     });

@@ -244,21 +244,27 @@ function suite(ctx, check) {
     const reachView = ctx.noticeView(reach, ["gum", "pi", "agent-browser"], {}, { commands: ["gum", "pi", "agent-browser"], required: ["gum", "agent-browser"] }, MISE_TOO);
     check("noticeView press: later stops at the last manager that holds a required package",
         [reachView.run.args, laterOf(reachView)], [["gum"], [["aur", "agent-browser-bin"]]]);
-    // noticeTitle: [name, view, want as the count and the noun the title
-    // reads]. The count is the number of entries the view draws, its later
-    // ones included.
-    const titleReads = t => { const m = / needs (one|\d+) (update|package|requirement)s?$/.exec(t); return m === null ? t : [m[1] === "one" ? 1 : Number(m[1]), m[2]]; };
+    // noticeTitle: [name, view, want as the verb, the count and the noun
+    // the title reads]. The count is the number of entries the view draws
+    // that are not optional, its later ones included; a view of optional
+    // entries alone counts them all under "can use".
+    const titleReads = t => { const m = / (needs|can use) (one|\d+) (update|package|requirement)s?$/.exec(t); return m === null ? t : [m[1], m[2] === "one" ? 1 : Number(m[2]), m[3]]; };
+    const optionalView = ctx.noticeView(needs, ["vgs-two"], {}, { id: "acme.needs", commands: ["vgs-two"], required: ["vgs-two"] }, ARCH);
     const titleRows = [
-        ["a notice with later entries counts them beside its step's", worldView, [3, "package"]],
-        ["a notice without later entries counts its step's", ctx.noticeView(floored, ["vgs-one"], below, three, ARCH), [2, "package"]],
-        ["a notice of updates alone counts updates", ctx.noticeView(floored, [], below, three, ARCH), [1, "update"]],
-        ["a notice with no package counts requirements", ctx.noticeView(needs, allMissing, {}, { id: "acme.needs", commands: allMissing, required: ["vgs-one"] }, null), [4, "requirement"]],
+        ["a notice with later entries counts them beside its step's", worldView, ["needs", 3, "package"]],
+        ["a notice without later entries counts its step's", ctx.noticeView(floored, ["vgs-one"], below, three, ARCH), ["needs", 2, "package"]],
+        ["a notice of updates alone counts updates", ctx.noticeView(floored, [], below, three, ARCH), ["needs", 1, "update"]],
+        ["a notice with no package counts requirements, its optional ones left out", ctx.noticeView(needs, allMissing, {}, { id: "acme.needs", commands: allMissing, required: ["vgs-one"] }, null), ["needs", 2, "requirement"]],
+        ["a notice of a required package and an optional one counts the required one", ctx.noticeView(needs, ["vgs-one", "vgs-two"], {}, { id: "acme.needs", commands: ["vgs-one", "vgs-two"], required: ["vgs-one", "vgs-two"] }, ARCH), ["needs", 1, "package"]],
+        ["a notice of an optional package alone needs nothing", optionalView, ["can use", 1, "package"]],
     ];
     for (const [name, view, want] of titleRows) {
         const read = titleReads(ctx.noticeTitle("Owner", view));
+        const needed = view.drawn.filter(e => !e.optional).length;
         check("noticeTitle: " + name, read, want);
-        check("noticeTitle counts the entries the view draws: " + name, read[0], view.drawn.length);
+        check("noticeTitle counts the entries the view draws that are not optional: " + name, read[1], needed === 0 ? view.drawn.length : needed);
     }
+    check("control: the optional-only notice draws its optional entry", optionalView.drawn.map(e => [e.chip, e.optional]), [["two-git", true]]);
 
     // The core's owner: the core's list, drawn under the name VGS, asked
     // for as a plugin's manifest is.
@@ -342,7 +348,8 @@ function suite(ctx, check) {
         check("noticeView lists every entry while no press runs, and offers none for later: " + name, v.run !== null || stepOf(v).length === v.rows.length, true);
     }
     // noticeGroups over noticeView's rows: [name, found, want as chip,
-    // packaged and purposes per group]. vgs-a and vgs-b come from one
+    // packaged, optional and purposes per group]. A group is optional only
+    // while every requirement in it is. vgs-a and vgs-b come from one
     // package, and the
     // command `shared`, with no package, carries that package's name.
     const sharing = ctx.validateManifest({
@@ -359,14 +366,17 @@ function suite(ctx, check) {
     const sharingMissing = ["vgs-a", "vgs-c", "vgs-b", "shared", "vgs-e"];
     const groupRows = [
         ["requirements one package provides are one group, in first-appearance order", ARCH,
-            [["shared", true, ["A", "B"]], ["vgs-c", false, ["C"]], ["shared", false, ["D"]], ["other-git", true, ["E"]]]],
+            [["shared", true, false, ["A", "B"]], ["vgs-c", false, false, ["C"]], ["shared", false, false, ["D"]], ["other-git", true, false, ["E"]]]],
         ["without packages each requirement is its own group", null,
-            [["vgs-a", false, ["A"]], ["vgs-c", false, ["C"]], ["vgs-b", false, ["B"]], ["shared", false, ["D"]], ["vgs-e", false, ["E"]]]],
+            [["vgs-a", false, false, ["A"]], ["vgs-c", false, false, ["C"]], ["vgs-b", false, true, ["B"]], ["shared", false, false, ["D"]], ["vgs-e", false, false, ["E"]]]],
     ];
     for (const [name, found, want] of groupRows) {
         const v = ctx.noticeView(sharing, sharingMissing, {}, n("acme.sharing", sharingMissing, ["vgs-a"]), found);
-        check("noticeGroups: " + name, ctx.noticeGroups(v.rows).map(g => [g.chip, g.packaged, g.purposes]), want);
+        check("noticeGroups: " + name, ctx.noticeGroups(v.rows).map(g => [g.chip, g.packaged, g.optional, g.purposes]), want);
     }
+    const pkgRow = (name, optional) => ({ name: name, purpose: name, optional: optional, state: "missing", package: { manager: "pacman", name: "shared" } });
+    check("noticeGroups: an optional requirement and a required one of one package are a required group",
+        ctx.noticeGroups([pkgRow("vgs-b", true), pkgRow("vgs-a", false)]).map(g => [g.chip, g.optional]), [["shared", false]]);
     const coreView = ctx.noticeView(core, ["gum"], {}, n("core", ["gum"], ["gum"]), ARCH);
     check("noticeView: the core's notice installs its package", [coreView.satisfied, coreView.rows.map(rowText), coreView.run.action, coreView.run.args], [false, ["gum (pacman/gum) optional: Dialogs"], "install", ["gum"]]);
 
@@ -538,7 +548,9 @@ const CONTROLS = [
     ["later follows the order of the presses", "reached.reduce(function (held, manager) { return held.concat(entries.filter(function (e) { return e.manager === manager; })); }, [])", "entries.filter(function (e) { return reached.indexOf(e.manager) !== -1; })"],
     ["a view draws its later entries", ".concat(waiting.map(function (e) { return Object.assign({}, e, { later: true }); }))", ""],
     ["a view marks the entries of later presses", "Object.assign({}, e, { later: true })", "Object.assign({}, e, { later: false })"],
-    ["the title counts every entry the view draws", "    var drawn = view.drawn;\n", "    var drawn = view.drawn.filter(function (e) { return !e.later; });\n"],
+    ["the title counts the later entries the view draws", "view.drawn.filter(function (e) { return !e.optional; })", "view.drawn.filter(function (e) { return !e.optional && !e.later; })"],
+    ["the title leaves optional entries out", "view.drawn.filter(function (e) { return !e.optional; })", "view.drawn"],
+    ["a group is optional only while each requirement is", "            held.optional = held.optional && row.optional;\n", ""],
     ["a view lists only the packages its press handles", "entries.filter(function (e) { return e.manager === pressed.manager; })", "entries"],
     ["a press updates only a package of its own manager", "e.manager === group.manager && e.chip === name && e.update", "e.chip === name && e.update"],
     ["an offer is a list", "if (!Array.isArray(commands) || commands.length === 0", "if (commands.length === 0"],

@@ -112,7 +112,7 @@
     { "command": "setpriv", "packages": { "pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux", "nix": "util-linux" }, "optional": false, "purpose": "Kills audio children when their parent ends" },
     { "command": "unshare", "packages": { "pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux-core", "nix": "util-linux" }, "optional": false, "purpose": "Owns audio process namespaces and isolates the local voice probe" },
     { "command": "python3", "packages": { "pacman": "python", "apt": "python3", "dnf": "python3", "nix": "python3" }, "optional": false, "purpose": "Owns audio pipe leases and verifies the private local voice runtime" },
-    { "command": "voxtype", "packages": { "aur": "voxtype-bin" }, "optional": true, "purpose": "Records what you say to the local voice, as dictation does" },
+    { "command": "voxtype", "packages": { "aur": "voxtype-bin" }, "optional": true, "purpose": "Turns what you say into text for the local voice" },
     { "command": "uv", "packages": { "pacman": "uv", "dnf": "uv", "mise": "uv", "nix": "uv" }, "optional": false, "purpose": "Installs the locked local voice runtime when setup is selected" },
     { "command": "curl", "packages": { "pacman": "curl", "apt": "curl", "dnf": "curl", "nix": "curl" }, "optional": false, "purpose": "Downloads pinned local voice models when setup is selected" },
     { "command": "nvidia-smi", "packages": { "pacman": "nvidia-utils", "apt": "nvidia-smi" }, "optional": true, "purpose": "Verifies CUDA execution only when a CUDA local tier is selected" },
