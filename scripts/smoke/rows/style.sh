@@ -74,6 +74,13 @@ services_released() {
     echo absent
   fi
 }
+# Whether the instance log holds ShortcutRegistry's line naming shortcut
+# NAME among those plugin ID registered.
+shortcut_logged() { # ID NAME
+  local count
+  count="$(log_lines "shortcuts: plugin=${1//./\\.} registered=([^ ,]+,)*$2(,|\$)")" || return
+  if [[ $count -gt 0 ]]; then echo true; else echo false; fi
+}
 services_ready() { local reason; reason="$(services_released)" || return; if [[ $reason == absent ]]; then echo false; else echo true; fi; }
 
 expect "enabling the launcher for the Style rows is allowed" ok ipc shell setPluginEnabled vgs.launcher true
@@ -81,6 +88,12 @@ expect_poll "the Style rows' launcher service is built" True record_exists vgs.l
 themes_were_enabled="$(plugin_enabled vgs.themes)" || themes_were_enabled=unread
 expect "enabling vgs.themes for the Style rows is allowed" ok ipc shell setPluginEnabled vgs.themes true
 expect_poll "vgs.themes' service is built for the Style rows" True record_exists vgs.themes
+
+# The shell's log names each shortcut a plugin registered, the bar's toggle
+# among them. The same reading of a name the bar does not register is the
+# control.
+expect_poll "the log names the bar's toggle shortcut" true shortcut_logged vgs.bar toggle
+expect "control: the log names no shortcut the bar did not register" false shortcut_logged vgs.bar unregistered
 
 # The list: Theme, Wallpaper and the two toggles, each naming what it does,
 # and no theme name. A user file relabelling a plugin row is the control:

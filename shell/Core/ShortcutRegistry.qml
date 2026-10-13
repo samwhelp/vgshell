@@ -19,6 +19,10 @@ Scope {
 
     KeyCapture { id: capture; bindsSource: root.bindsSource }
 
+    // The names registered since the last log line, by appid: mutated in
+    // place, so no binding follows it.
+    readonly property var unlogged: ({})
+
     Component.onCompleted: {
         const capture = Layer.OVERLAY_CAPTURE;
         for (const direction of Layer.overlayCaptureDirections())
@@ -101,7 +105,21 @@ Scope {
         const next = Object.assign({}, shortcuts);
         next[key] = shortcut;
         shortcuts = next;
+        (unlogged[appid] = unlogged[appid] || []).push(name);
+        // Qt.callLater calls logRegistered once however often one turn asks
+        // (https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method), so
+        // the names a plugin registers together share a line.
+        Qt.callLater(root.logRegistered);
         return shortcut;
+    }
+
+    // One line per appid, the core's `vgs` included, so a registration
+    // that is missing reads in the shell's log.
+    function logRegistered() {
+        for (const appid of Object.keys(unlogged)) {
+            console.info("shortcuts: plugin=" + appid + " registered=" + unlogged[appid].join(","));
+            delete unlogged[appid];
+        }
     }
 
     function releaseShortcut(key, shortcut) {
