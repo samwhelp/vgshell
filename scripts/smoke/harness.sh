@@ -1450,6 +1450,16 @@ ipc_oversize_check() { # ROW
   sed 's/^/        /' -- "$ipc_oversize_log"
   : >"$ipc_oversize_log"
 }
+py_dumps() { # DUMP...; Python program on stdin
+  local program
+  program="$(cat)" || return
+  # Bash's builtin printf sends each complete dump through stdin. Only
+  # the program crosses exec, so growing geometry never fills an argv word.
+  printf '%s\0' "$@" | python3 -c 'import sys
+program = sys.argv[1]
+sys.argv = ["-"] + sys.stdin.read().split("\0")[:-1]
+exec(compile(program, "<smoke-dumps>", "exec"))' "$program"
+}
 # py_reply PROGRAM [ARG...]: python3 -c PROGRAM ARG... over the reply on
 # stdin, or the reply itself when it is a state word such as `absent`,
 # which the smoke probe answers in place of JSON while the instance,
@@ -1464,16 +1474,6 @@ ipc_oversize_check() { # ROW
 # the raw reply. Every row reader that parses JSON from its stdin runs
 # through this: scripts/check-smoke-readers.py refuses one that python3
 # runs itself, in the forms its header names.
-py_dumps() { # DUMP...; Python program on stdin
-  local program
-  program="$(cat)" || return
-  # Bash's builtin printf sends each complete dump through stdin. Only
-  # the program crosses exec, so growing geometry never fills an argv word.
-  printf '%s\0' "$@" | python3 -c 'import sys
-program = sys.argv[1]
-sys.argv = ["-"] + sys.stdin.read().split("\0")[:-1]
-exec(compile(program, "<smoke-dumps>", "exec"))' "$program"
-}
 py_reply() { # PROGRAM [ARG...]
   local reply status
   reply="$(cat)" || return

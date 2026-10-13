@@ -379,11 +379,7 @@ PY
       geometry expect_poll "control: the masked modal remains mapped before its wheel" True disp_modal_matches "$disp_layout"
       wheel "$disp_wheel_x" "$disp_wheel_y" -2 || fail "the masked modal wheel control failed"
       disp_masked_page_moved() {
-        py_dumps "$disp_masked_before" "$(ipc smoke viewHolding window vgs.system 'Dimmed brightness')" <<'PY'
-import json,sys
-before,after=map(json.loads,sys.argv[1:])
-print(abs(before["contentY"]-after["contentY"])>=1)
-PY
+        ipc smoke viewHolding window vgs.system 'Dimmed brightness' | py_reply 'import json,sys; before=json.load(open(3)); after=json.load(sys.stdin); print(abs(before["contentY"]-after["contentY"])>=1)' 3<<<"$disp_masked_before"
       }
       expect_poll "control: a card-only input region lets the same wheel move the page" True disp_masked_page_moved
       ipc smoke revealText window vgs.system FormRow 'Dimmed brightness' >/dev/null
