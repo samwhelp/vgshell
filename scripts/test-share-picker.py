@@ -618,39 +618,55 @@ class PickerTests(unittest.TestCase):
                 directory.unlink(missing_ok=True)
                 plant()
                 result = self.run_picker("--configure")
-                self.assertEqual(result.returncode, 1)
-                self.assertIn("Your Hyprland config folder is not a folder VGS can write", result.stderr)
+                self.assertEqual(result.returncode, 73)
+                # setup-sharing.sh shows stdout, the refusal and its step, as it is.
+                self.assertEqual(len(result.stdout.splitlines()), 2)
+                self.assertEqual(result.stdout.count(str(directory)), 1)
+                self.assertNotIn("share-picker:", result.stdout)
+                self.assertRegex(result.stderr, r"^share-picker: refused: config-folder=E[A-Z]+ path=")
                 self.assertIn("error", json.loads(self.run_picker("--probe").stdout))
                 self.assertEqual(owned_file.read_text(), "")
                 self.assertEqual(self.restarts(), [])
 
-    def test_configure_names_the_owner_of_a_linked_folder_it_refuses(self):
-        # The fixture reports another owner for the link target, which the
-        # test owns, so a missing owner check would write into it.
+    def test_configure_trusts_a_linked_folder_as_an_unlinked_one(self):
+        # The fixture reports the link target's owner and mode, so no real
+        # root-owned folder is read. The test owns the target, so a missing
+        # check would write into it.
         target = self.home / "var-home"
         target.mkdir()
         real_fstat = os.fstat
-        cases = {"system": (0, self.home / "home", self.home / "home/config/hypr", "the system owns"),
-                 "user": (os.geteuid() + 1, self.home / "config/hypr", self.home / "config/hypr", "another user owns")}
-        for name, (owner, link, configured, words) in cases.items():
-            with self.subTest(owner=name):
+        ancestor = (self.home / "home", self.home / "home/config/hypr")
+        itself = (self.home / "config/hypr", self.home / "config/hypr")
+        cases = {"Fedora Atomic root link": (0, 0o755, ancestor, None),
+                 "root folder others can write": (0, 0o1777, ancestor, "config-folder=linked-shared"),
+                 "root folder its group can write": (0, 0o775, itself, "config-folder=linked-shared"),
+                 "another user's folder above": (os.geteuid() + 1, 0o755, ancestor, "config-folder=linked-other-user"),
+                 "another user's config folder": (os.geteuid() + 1, 0o700, itself, "config-folder=linked-other-user")}
+        for name, (owner, mode, (link, configured), cause) in cases.items():
+            with self.subTest(case=name):
                 link.parent.mkdir(exist_ok=True)
                 link.symlink_to(target)
 
-                def owned_by(descriptor):
+                def reported(descriptor):
                     value = list(real_fstat(descriptor))
-                    value[4] = owner
+                    if os.path.samestat(real_fstat(descriptor), target.stat()):
+                        value[0], value[4] = (value[0] & ~0o7777) | mode, owner
                     return os.stat_result(value)
                 with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(configured.parent)}), \
-                        patch.object(picker.os, "fstat", owned_by), \
-                        self.assertRaises(picker.PickerError) as refused:
-                    picker.config_directory()
-                self.assertEqual(str(refused.exception),
-                                 "Your Hyprland config folder is not a folder VGS can write: "
-                                 + str(configured) + " (" + str(link) + " is a link to a folder " + words + ")")
-                self.assertEqual(list(target.iterdir()), [])
+                        patch.object(picker.os, "fstat", reported):
+                    if cause is None:
+                        os.close(picker.config_directory())
+                    else:
+                        with self.assertRaises(picker.FolderRefused) as refused:
+                            picker.config_directory()
+                if cause is None:
+                    self.assertTrue((target / "config/hypr").is_dir())
+                    shutil.rmtree(target / "config")
+                else:
+                    self.assertEqual(refused.exception.cause, cause + " path=" + str(link))
+                    self.assertEqual(str(refused.exception).count(str(configured)), 1)
+                    self.assertEqual(list(target.iterdir()), [])
                 link.unlink()
-
 
 if __name__ == "__main__":
     unittest.main()

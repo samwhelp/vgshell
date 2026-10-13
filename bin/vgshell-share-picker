@@ -40,6 +40,14 @@ class ActivationNeeded(PickerError):
     pass
 
 
+class FolderRefused(PickerError):
+    # Setup shows the sentence and the step as they are; the keyed cause
+    # goes to its log.
+    def __init__(self, cause, sentence, step):
+        super().__init__(sentence)
+        self.cause, self.step = cause, step
+
+
 def decimal(value, maximum):
     if not isinstance(value, str) or not re.fullmatch(r"[0-9]+", value):
         raise PickerError("window-list=invalid-number")
@@ -228,9 +236,11 @@ def rewrite_config(text, executable):
 
 
 def open_folder(part, parent, configured, walked):
-    def refuse(reason):
-        return PickerError("Your Hyprland config folder is not a folder VGS can write: "
-                           + configured + " (" + reason + ")")
+    def refuse(cause, sentence):
+        return FolderRefused("config-folder=" + cause + " path=" + walked, sentence,
+                             "Replace it with a folder you own, then set up screen sharing again in Capture settings.")
+    where = ("your Hyprland config folder, " + configured if walked == configured
+             else walked + ", above your Hyprland config folder " + configured)
     linked = False
     try:
         linked = stat.S_ISLNK(os.stat(part, dir_fd=parent, follow_symlinks=False).st_mode)
@@ -241,14 +251,21 @@ def open_folder(part, parent, configured, walked):
         # A missing unlinked folder stays FileNotFoundError: probe reads it as needed.
         if (isinstance(error, (NotADirectoryError, PermissionError)) or error.errno == errno.ELOOP
                 or linked and isinstance(error, FileNotFoundError)):
-            raise refuse(error.strerror) from error
+            raise refuse(errno.errorcode.get(error.errno, str(error.errno)), "VGS cannot open " + where + ": "
+                         + error.strerror[:1].lower() + error.strerror[1:] + ".") from error
         raise
-    owner = os.fstat(child).st_uid if linked else os.geteuid()
-    if owner != os.geteuid():
-        os.close(child)
-        # A system link above the home, as Fedora Atomic's /home, is root's.
-        raise refuse(walked + " is a link to a folder "
-                     + ("the system owns" if owner == 0 else "another user owns"))
+    if linked:
+        target = os.fstat(child)
+        # A linked folder gets the trust an unlinked one on the path has: yours,
+        # or root's with no group or other write, as Fedora Atomic's /home links
+        # to var/home. A folder others can write, as /tmp, lets them swap files.
+        whose = ("" if target.st_uid == os.geteuid()
+                 or target.st_uid == 0 and not target.st_mode & 0o022
+                 else "other users can write" if target.st_uid == 0 else "another user owns")
+        if whose:
+            os.close(child)
+            raise refuse("linked-" + ("shared" if target.st_uid == 0 else "other-user"),
+                         where[:1].upper() + where[1:] + ", is a link to a folder " + whose + ".")
     return child
 
 
@@ -448,6 +465,11 @@ def main():
     except ActivationNeeded as error:
         print("share-picker: refused: " + str(error), file=sys.stderr)
         return 75
+    except FolderRefused as error:
+        # Setup shows stdout's sentence and step. 73 is sysexits' EX_CANTCREAT.
+        print(str(error) + "\n" + error.step)
+        print("share-picker: refused: " + error.cause, file=sys.stderr)
+        return 73
     except (OSError, UnicodeError, PickerError, ValueError) as error:
         print("share-picker: refused: " + str(error), file=sys.stderr)
         return 1
