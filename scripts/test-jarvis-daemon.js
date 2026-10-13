@@ -1296,6 +1296,8 @@ async function inside() {
     assert.equal(pollBound?.length, 1);
     const pollTries = harness.match(/^smoke_poll_tries\(\) \{[\s\S]*?^\}/gm);
     assert.equal(pollTries?.length, 1);
+    const onePending = keyRow.match(/^jarvis_key_one_pending\(\) \{[\s\S]*?^\}/gm);
+    assert.equal(onePending?.length, 1);
     const retryClock = path.join(root, "retry-clock");
     function retryOrdering(reads, helloTick) {
         fs.writeFileSync(retryClock, "0");
@@ -1332,6 +1334,7 @@ jarvis_key_pending() {
     if ((tick < 23)); then printf '%s\\n' '{"kind":"retry","pendingMute":"waiting"}'
     else printf '%s\\n' '{"kind":"starting","pendingMute":"waiting"}'; fi
 }
+${onePending[0]}
 jarvis_seen_hello() {
     local tick
     tick="$(<"$clock")"
