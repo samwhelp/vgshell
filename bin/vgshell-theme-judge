@@ -1728,9 +1728,12 @@ function writePending(stateDir, names, before, key) {
     else replaceFile(file, JSON.stringify({ schemaVersion: 1, targets: names }) + "\n", key);
 }
 
+// The order of two wiring records, by code unit: a process's first
+// localeCompare builds the collator, 3.9 ms in every theme command that
+// reads the records (node 26.10.0 on cachy, 2026-10-12).
 function wiredRecordCompare(a, b) {
-    return a.target.localeCompare(b.target) || a.file.localeCompare(b.file) ||
-        a.line.localeCompare(b.line) || (a.section || "").localeCompare(b.section || "");
+    const order = (x, y) => x < y ? -1 : x > y ? 1 : 0;
+    return order(a.target, b.target) || order(a.file, b.file) || order(a.line, b.line) || order(a.section || "", b.section || "");
 }
 
 function normalizeWiredRecords(records) {

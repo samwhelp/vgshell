@@ -198,7 +198,7 @@ try {
         ["a changed file is edited once more", 'first.reason === "changed" ? editOnce(key, file, create, edit) : first', 'false ? editOnce(key, file, create, edit) : first'],
         ["a file that appeared before the create is changed", 'e.code === "EEXIST" && fs.existsSync(file)', 'false'],
         ["a command is executable", "fs.accessSync(file, fs.constants.X_OK);", "fs.accessSync(file, fs.constants.F_OK);"],
-        ["a command is a file", "if (fs.statSync(file).isFile()) return file;", "return file;"],
+        ["a command is a file", "            if (fs.statSync(file, { throwIfNoEntry: false })?.isFile() !== true) continue;\n", ""],
         ["onPath answers by commandFile", "return commandFile(command) !== null;", "return commandFile(command) === null;"],
         ["a PATH entry is absolute", "        if (!path.isAbsolute(dir)) continue;\n", ""],
         ["a refusal's detail is printed", "e.first + \"\\n\" + detail)", "e.first + \"\\n\")"],
