@@ -97,7 +97,8 @@ Item {
     }
 
     // A label's explainer beside a short control, beside a control that
-    // fills the value column, and too tall for the room past a short one.
+    // fills the value column, too tall for the room past a short one, and
+    // beside a control taller than the box its label centres on.
     // The switch fills the column, as a Settings editor's Loader sizes it.
     FormRow { id: explainedSwitch; y: 1060; width: 420; label: "Click to select"; labelTooltip: "A click takes the window under it."; Switch { id: explainedToggle; width: parent.width; size: "sm" } }
     FormRow { id: explainedWide; y: 1120; width: 420; label: "Format"; labelTooltip: "The clock's format."; Select { id: wideChoice; width: parent.width; model: ["HH:mm", "hh:mm ap"] } }
@@ -111,6 +112,14 @@ Item {
         Switch { width: parent.width; size: "sm" }
     }
     FormRow { id: belowTall; y: 1180 + explainedTall.height; width: 700; label: "Camera"; Select { width: parent.width; model: ["None"] } }
+    FormRow {
+        id: explainedLines
+        y: 1300
+        width: 420
+        label: "Keys"
+        labelTooltip: "Hides the top bar."
+        Item { width: parent.width; height: 3 * Theme.row.height; readonly property real firstLineHeight: Theme.row.height }
+    }
 
     TestCase {
         name: "formrow"
@@ -209,19 +218,30 @@ Item {
         }
 
         // Where the room past the control cannot hold it, the tooltip opens
-        // over the row's own control, wrapped to the value column.
-        function test_a_label_tooltip_without_room_past_its_control_covers_only_that_control_data() {
+        // under the row box, from the value column's start edge, so it
+        // covers neither the row's label nor any part of its control.
+        function test_a_label_tooltip_without_room_past_its_control_opens_under_the_row_data() {
             return [
                 { tag: "full-width control", row: explainedWide },
-                { tag: "too tall past the control", row: explainedTall }
+                { tag: "too tall past the control", row: explainedTall },
+                { tag: "control taller than the label's box", row: explainedLines }
             ];
         }
-        function test_a_label_tooltip_without_room_past_its_control_covers_only_that_control(data) {
+        function test_a_label_tooltip_without_room_past_its_control_opens_under_the_row(data) {
             const tip = tipOf(data.row);
             showStill(data.row, tip, popup => {
-                const start = tipStart(data.row, tip);
+                const anchor = popup.anchor;
+                compare(anchor.edges, Edges.Bottom | Edges.Left);
+                compare(anchor.gravity, Edges.Bottom | Edges.Right);
+                const start = tip.anchorItem.mapToItem(data.row, anchor.rect.x, anchor.rect.y + anchor.rect.height - anchor.margins.bottom);
                 fuzzyCompare(start.x, data.row.valueX, 1, "the tooltip starts on the value column's start edge");
-                insideRow(data.row, popup, start);
+                verify(popup.implicitWidth <= data.row.width - start.x, "the tooltip ends inside the row: " + popup.implicitWidth);
+                const label = labelOf(data.row);
+                verify(start.y >= label.y + label.height, "the tooltip opens under the row's label: " + start.y);
+                const controls = data.row.children[2].children;
+                verify(controls.length > 0, "the row holds its control");
+                for (const control of controls)
+                    compare(start.y >= control.mapToItem(data.row, 0, control.height).y + Theme.tooltip.gap, true, "the tooltip opens a gap under the row's control: " + start.y);
             });
         }
 

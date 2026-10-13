@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import Quickshell
 import qs.Commons
 import qs.Ui
 import qs.Unit
@@ -144,6 +145,33 @@ Item {
             tryCompare(tip, "opened", false);
             const plain = descendant(later, item => item.objectName === "fieldLabel");
             verify(!plain.children.find(item => item.visualFocus !== undefined).activeFocusOnTab);
+        }
+
+        // The explanation opens under the field, its buttons and the
+        // caller's actions, so the help hides none of what it explains.
+        function test_the_bind_explanation_opens_under_the_field_and_its_buttons() {
+            const label = descendant(row, item => item.objectName === "fieldLabel");
+            const tip = descendant(label, item => String(item).indexOf("Tooltip") === 0);
+            tip.shown = true;
+            try {
+                const anchor = tip.tracker.popup.anchor;
+                compare(anchor.edges & Edges.Bottom, Edges.Bottom, "the explanation opens under its box");
+                compare(anchor.gravity & Edges.Bottom, Edges.Bottom);
+                const top = tip.anchorItem.mapToItem(row, 0, anchor.rect.y + anchor.rect.height - anchor.margins.bottom).y;
+                const field = input(row);
+                const parts = [field, extra];
+                const stack = [field];
+                while (stack.length > 0) {
+                    const item = stack.pop();
+                    if (item.visible && String(item).indexOf("IconButton") === 0) parts.push(item);
+                    for (const child of item.children) stack.push(child);
+                }
+                verify(parts.length > 2, "the field draws its own buttons: " + parts.length);
+                for (const part of parts)
+                    compare(top >= part.mapToItem(row, 0, part.height).y, true, "the explanation opens under " + part + ": " + top);
+            } finally {
+                tip.shown = false;
+            }
         }
 
         function test_the_field_holds_the_key_in_effect() {

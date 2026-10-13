@@ -108,7 +108,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 ### Copy
 
 - Do use an icon button's label as its tooltip: two or three words naming its action, with no explanation. Bar widget status readings keep their status text.
-- Never let a tooltip cover a sibling label. An item with a label under it opens its tooltip to the right (`Tooltip`'s `side: "right"`, `IconButton`'s `tooltipSide`). `scripts/qml-tests/tst_button.qml` pins both sides.
+- Never let a tooltip cover a sibling label, or the control and buttons of the row it explains. An item with a label under it opens its tooltip to the right (`Tooltip`'s `side: "right"`, `IconButton`'s `tooltipSide`). A form row's label tooltip with no room past its control opens under the row (`side: "belowStart"`). `scripts/qml-tests/tst_button.qml` pins both sides, and `scripts/qml-tests/tst_formrow.qml` and `tst_bindfield.qml` the row's.
 - Do write text a user reads in ASD-STE100 Simplified Technical English. Name the result of a check or the action the user takes, never the internal operation. Review holds it.
 - Do keep a plugin description to one or two short sentences with no feature list, and a hint to one sentence; longer help goes behind an `InfoButton`. Review holds it.
 - Do end a Settings hint of one sentence without a full stop, and end each sentence of a longer hint with one: "Jarvis decision (2026-10-13, delegated authority): a one-sentence hint ends without a full stop; a hint of two or more sentences ends each sentence with one." Review holds it.

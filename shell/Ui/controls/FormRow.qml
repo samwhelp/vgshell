@@ -18,14 +18,15 @@ import qs.Ui
 // line starts at the row box's top. A label too long for its
 // column wraps onto as many lines as it needs and never elides; the row
 // grows to hold them. `labelTooltip`, when set, is the label's tooltip on
-// hover and keyboard focus. It opens to the label's right, centred on the
-// label's box, ends on the row's end edge and moves no row. Past the
+// hover and keyboard focus. It ends on the row's end edge and moves no
+// row. It opens centred on the label's box, past the
 // control's drawn end (Theme.inkEnd), `tooltip.gap` after it, where its
 // text wrapped to the room left there reaches no further than `stack.row`
 // above or below that box, so it covers neither its own control nor a row
 // beside it. Otherwise, as beside a control that fills the value column,
-// it opens on the value column's start edge, wrapped to the whole column,
-// over its own control. `warning` is the row's message:
+// it opens under the row box, `tooltip.gap` below it, from the value
+// column's start edge and wrapped to the whole column, so it covers
+// neither the row's label nor its control. `warning` is the row's message:
 // text in the role `warningRole` names, `hint` unless set, under the value
 // column, `field.gap` below the row box and
 // wrapped to the column, in the colour `warningTone` names, `warning`,
@@ -147,9 +148,9 @@ Item {
             activeFocusOnTab: root.labelTooltip !== "" && visible
             Tooltip {
                 text: root.labelTooltip
-                side: "right"
-                // The side's gap from this box's end puts the tooltip at its start.
-                box: Qt.rect(0, -labelText.y, (root.explainBeside ? root.besideX : root.valueX) - Theme.tooltip.gap, root.labelBox)
+                side: root.explainBeside ? "right" : "belowStart"
+                // The side's gap from this box's end puts the tooltip at `besideX`.
+                box: root.explainBeside ? Qt.rect(0, -labelText.y, root.besideX - Theme.tooltip.gap, root.labelBox) : Qt.rect(root.valueX, -labelText.y, root.valueRoom, root.boxHeight)
                 maxWidth: root.explainBeside ? root.besideWrap : root.valueRoom - 2 * Theme.tooltip.paddingX
             }
         }

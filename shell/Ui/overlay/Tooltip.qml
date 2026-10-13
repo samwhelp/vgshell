@@ -8,8 +8,8 @@ import qs.Ui
 // value }` for a count row whose value column aligns with the other count
 // rows. After the theme's delay with the pointer resting on the item or
 // after keyboard focus reaches it, the tooltip opens in its own surface
-// on the item's `side`, "below" (the default) or "right", and takes no
-// focus. It closes when the pointer leaves and
+// on the item's `side`, "below" (the default), "right" or "belowStart",
+// under the item from its start edge, and takes no focus. It closes when the pointer leaves and
 // focus leaves, on a press on the item, when the item hides, and it does
 // not open while another overlay is open. After a press it stays closed
 // until the pointer leaves the item, so it never covers what the press
@@ -28,6 +28,11 @@ Item {
     property rect box: Qt.rect(0, 0, anchorItem === null ? 0 : anchorItem.width, anchorItem === null ? 0 : anchorItem.height)
     property real maxWidth: Theme.tooltip.maxWidth
     readonly property int edge: edgeFor(side)
+    // A corner of the box with the gravity of the opposite corner starts
+    // the popup on that corner; only opposing edges are refused.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell/PopupAnchor/
+    readonly property int anchorEdges: side === "belowStart" ? Edges.Bottom | Edges.Left : edge
+    readonly property int anchorGravity: side === "belowStart" ? Edges.Bottom | Edges.Right : edge
     property bool shown: false
     readonly property bool opened: popup.item !== null && popup.item.visible
     readonly property var tracker: popup.item === null ? null : popup.item.tracker
@@ -50,7 +55,7 @@ Item {
     visible: false
 
     function edgeFor(name) {
-        if (name === "below") return Edges.Bottom;
+        if (name === "below" || name === "belowStart") return Edges.Bottom;
         if (name === "right") return Edges.Right;
         throw new Error("Tooltip: side=" + JSON.stringify(name) + " unexpected");
     }
@@ -95,8 +100,8 @@ Item {
             anchor.rect.height: root.box.height
             // A negative margin grows the anchor rect past that edge, so the
             // popup opens the gap away from the item.
-            anchor.edges: root.edge
-            anchor.gravity: root.edge
+            anchor.edges: root.anchorEdges
+            anchor.gravity: root.anchorGravity
             anchor.adjustment: PopupAdjustment.Flip | PopupAdjustment.Slide
             anchor.margins.bottom: root.edge === Edges.Bottom ? -Theme.tooltip.gap : 0
             anchor.margins.right: root.edge === Edges.Right ? -Theme.tooltip.gap : 0
