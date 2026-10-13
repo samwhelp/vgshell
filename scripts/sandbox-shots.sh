@@ -20,7 +20,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, cloudsync, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-setup, jarvis-fleet, outdated, jarvis-causes, plugin-messages, traffic, ai-usage, sysmon, tui-edges, appearance, sounds, setup-tab, clone-voice or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-setup, jarvis-fleet, outdated, jarvis-causes, plugin-messages, traffic, ai-usage, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -93,7 +93,10 @@
 # needed beside the warning icon, one that shows the icon alone and one that shows neither, that
 # icon's tooltip, a page with no Setup tab, a Setup tab that holds only
 # Requirements, and Jarvis's Settings tab and its Setup tab with steps
-# open and with steps done, taken only when named; clone-voice is the
+# open and with steps done, taken only when named; updates is the Updates
+# page with every tool it requires found or stood in and no Setup tab: its
+# Settings tab, then Details with its Actions row, which holds Update
+# everything, taken only when named; clone-voice is the
 # Jarvis page's Settings tab at its Local voice section and its Setup tab
 # at its Input step, over a ready Large local voice, with the Cloned voice
 # off and not set up, with the clone setup's floating terminal at its first
@@ -295,7 +298,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-setup|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab|clone-voice) scenes+=("$1"); shift ;;
+    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-setup|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -439,6 +442,7 @@ scene_ships() {
     voice-keys) [[ $manager_scene == settings ]] && ships_plugin vgs.voice ;;
     jarvis-setup|jarvis-fleet|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
     clone-voice) [[ $manager_scene == settings && $has_setup_tab == true ]] && ships_plugin vgs.jarvis ;;
+    updates) [[ $manager_scene == settings ]] && ships_plugin vgs.updates && tree_has shell/plugins/vgs.settings/PluginPage.qml "detailScreens" ;;
     ai-usage) ships_plugin vgs.ai-usage ;;
     traffic) ships_plugin vgs.traffic vgs.settings ;;
     devtools) ships_plugin vgs.devtools ;;
@@ -1814,6 +1818,66 @@ open(sys.argv[1],"w").write(json.dumps(value))' "$config" "$brain"
   jarvis_restore_requirements
 }
 
+# The Updates page with every tool it requires found: its tab strip holds
+# Settings and Details alone, since the Update everything screen carries no
+# setup mark, and Details draws that screen in its Actions row. Each
+# requirement command the shell does not find, optional ones included,
+# since any tool not present gives the page its Setup tab, is stood in by
+# a stand-in no step runs: the service reads the planted snapshot
+# (updates_snapshot_plant), so it starts no check, and it only looks the
+# review agents up on the PATH. The smoke set starts Updates turned off
+# with no snapshot, and turning it on then would start a check.
+updates_requirement_standins=()
+updates_tabs() { ipc smoke itemValues "$settings_kind" vgs.settings TabPages model | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps(v[0]["model"]) if len(v) == 1 else "tabs=%d" % len(v))'; }
+# updates_action: `shown` while Details draws Update everything in its
+# Actions row inside the page's scroll area, `hidden` while it is out of
+# view, `absent` while no Actions row holds it.
+updates_action() {
+  local box area
+  box="$(ipc smoke scopedWindowGeometry "$settings_kind" vgs.settings Field Actions RowAction "Update everything")" || return 1
+  [[ $box == \[* ]] || { echo absent; return 0; }
+  area="$(settings_scroll)" && [[ $area == \{* ]] || { echo "area=${area:-unread}"; return 0; }
+  python3 -c 'import json,sys
+b, bar = json.loads(sys.argv[1]), json.loads(sys.argv[2])["bar"]
+print("shown" if b[1] >= bar[1] and b[1] + b[3] <= bar[1] + bar[3] else "hidden")' "$box" "$area"
+}
+scene_updates() { # MODE
+  local command commands at
+  updates_requirement_standins=()
+  commands="$(python3 -c 'import json,sys; print("\n".join(r["command"] for r in json.load(open(sys.argv[1]))["requirements"] if "command" in r))' "$repo/shell/plugins/vgs.updates/manifest.json")" ||
+    fail "the Updates requirements are unreadable"
+  while IFS= read -r command; do
+    [[ -n $command && $(shell_resolves "$command") == none ]] || continue
+    printf '#!/bin/sh\nexit 99\n' >"$shim/$command" && chmod 755 "$shim/$command" || fail "the $command stand-in is not written"
+    updates_requirement_standins+=("$command")
+  done <<<"$commands"
+  updates_snapshot_plant
+  tree_rescan "the Updates requirement stand-ins are scanned"
+  expect "enabling vgs.updates for its page shots is allowed" ok ipc shell setPluginEnabled vgs.updates true
+  expect_poll "the updates service reads the planted snapshot" 6 updates_pending
+  expect "the updates service runs no check" False updates_checking
+  close_notices
+  expect "the Settings window opens for the Updates page" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings window maps for the Updates page" 1 settings_count
+  setup_tab_page vgs.updates
+  park_pointer
+  expect_poll "the Updates page draws no Setup tab before its Settings shot" '["Settings", "Details"]' updates_tabs
+  take "updates-$1-settings"
+  page_details
+  at="$(ipc smoke scrollTo "$settings_kind" vgs.settings 0)" || at=""
+  [[ $at == "["* ]] || fail "the Updates Details tab did not scroll to its top: ${at:-no reply}"
+  park_pointer
+  expect_poll "the Updates page draws no Setup tab before its Details shot" '["Settings", "Details"]' updates_tabs
+  expect_poll "the Updates Actions row shows Update everything before its Details shot" shown updates_action
+  take "updates-$1-details"
+  settings_close
+  expect "the updates service ran no check" False updates_checking
+  for command in "${updates_requirement_standins[@]}"; do
+    rm -f -- "${shim:?}/$command"
+  done
+  tree_rescan "the Updates requirement stand-ins are removed"
+}
+
 scene_focus() { # MODE
   local start surfaces focus_box
   expect "the gallery summons for focus shots" ok ipc shell summon "$gallery_kind" vgs.gallery '{}'
@@ -2369,6 +2433,21 @@ warden_panel_lines() { warden_panel_texts | py_reply 'import json,sys; print(sys
 updates_window() { [[ $(ipc smoke readInstance window vgs.updates rows) != absent ]] && echo open || echo closed; }
 updates_pending() { ipc vgs.updates invoke status '' | py_reply 'import json,sys; print(json.load(sys.stdin).get("pending"))'; }
 updates_checking() { ipc vgs.updates invoke status '' | py_reply 'import json,sys; print(json.load(sys.stdin).get("checking"))'; }
+# updates_snapshot_plant: the updates snapshot fixture as the service's
+# status cache, checked now, so the service runs no check while it is
+# younger than the interval.
+updates_snapshot_plant() {
+  mkdir -p -- "$home/.local/state/vgshell/updates"
+  python3 - "$checkout/scripts/smoke/fixtures/updates-status.json" "$home/.local/state/vgshell/updates/status.json" <<'PY' || fail "planting the updates snapshot failed"
+import json, sys, time
+doc = json.load(open(sys.argv[1]))
+now = int(time.time() * 1000)
+doc["checkedAt"] = now
+for source in doc["sources"]:
+    source["checkedAt"] = now
+json.dump(doc, open(sys.argv[2], "w"))
+PY
+}
 scene_panels() { # MODE
   warden_status calm calm
   click_in vgs:bar "$(bar_key)" vgs.agent-warden BarItem "Agent Warden" || fail "the click on the shield failed"
@@ -6102,17 +6181,9 @@ PY
 printf '%s\n' '{"schema": "vsys.summary.v1", "time": 1, "verdict": [{"cause": "memory-high", "level": "warn", "subject": "/agents.slice"}], "meters": [], "errors": []}'
 SH
       chmod 755 "$shim/notify-send" "$shim/vsys"
-      mkdir -p -- "$warden_dir" "$home/.local/state/vgshell/updates"
+      mkdir -p -- "$warden_dir"
       warden_put calm 0 >/dev/null || fail "writing the warden's calm status failed"
-      python3 - "$checkout/scripts/smoke/fixtures/updates-status.json" "$home/.local/state/vgshell/updates/status.json" <<'PY2' || fail "planting the updates snapshot failed"
-import json, sys, time
-doc = json.load(open(sys.argv[1]))
-now = int(time.time() * 1000)
-doc["checkedAt"] = now
-for source in doc["sources"]:
-    source["checkedAt"] = now
-json.dump(doc, open(sys.argv[2], "w"))
-PY2
+      updates_snapshot_plant
       tree_rescan "the panels' stand-ins are scanned"
       for id in vgs.agent-warden vgs.updates; do
         expect "enabling $id is allowed" ok ipc shell setPluginEnabled "$id" true
