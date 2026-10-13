@@ -107,17 +107,30 @@ var ERROR_TEXT = [
     [/mise=|pkg=/, "The tool check failed.", "retry"]
 ];
 
+// How the user retries a failed check: at once for a local query, after
+// NETWORK_FRESH_MS for a network one, which an `open` skips until then.
+var RETRY_LOCAL = "Close Dev Tools and open it again to retry.";
+var RETRY_NETWORK = "Open Dev Tools again after 10 minutes to retry.";
+var RETRY_BOTH = "Close Dev Tools and open it again to retry the tool checks, and again after 10 minutes to retry the update checks.";
+
+function errorRule(reason) {
+    for (var i = 0; i < ERROR_TEXT.length; i++)
+        if (ERROR_TEXT[i][0].test(String(reason))) return ERROR_TEXT[i];
+    return null;
+}
+
+// What failed, with no retry instruction: for a row that the `checks`
+// row's instruction stands beside.
+function errorMessage(reason) {
+    var rule = errorRule(reason);
+    return rule === null ? "The check failed." : rule[1];
+}
+
+// What failed and how to retry it, for a line that stands alone.
 function errorText(reason, query) {
-    var message = "The check failed.";
-    for (var i = 0; i < ERROR_TEXT.length; i++) {
-        if (!ERROR_TEXT[i][0].test(String(reason))) continue;
-        message = ERROR_TEXT[i][1];
-        if (ERROR_TEXT[i][2] === "install") return message;
-        break;
-    }
-    return message + " " + (query === "vgs"
-        ? "Open Dev Tools again after 10 minutes to retry."
-        : "Close Dev Tools and open it again to retry.");
+    var rule = errorRule(reason);
+    if (rule !== null && rule[2] === "install") return rule[1];
+    return errorMessage(reason) + " " + (query === "vgs" ? RETRY_NETWORK : RETRY_LOCAL);
 }
 
 // Refusals from an install, update or removal in bin/devtools.
@@ -293,11 +306,14 @@ function answerError(name, answer) {
 
 // The `checks` status: whether every query that answered did so without a
 // failure. A published count keeps the value of its query's last answer
-// that succeeded, since a status key is never unset.
+// that succeeded, since a status key is never unset. A failure carries the
+// one retry instruction the Status section shows, for the failed queries.
 function checksValue(answers) {
     var failed = CHECK_QUERIES.filter(function (name) { return hasOwn(answers, name) && answerError(name, answers[name]) !== null; });
     if (failed.length === 0) return { tone: "ok", text: "All checks passed" };
-    return { tone: "warning", text: "Checks failed" };
+    var network = failed.some(function (name) { return QUERIES[name].network; });
+    var local = failed.some(function (name) { return !QUERIES[name].network; });
+    return { tone: "warning", text: "Checks failed", hint: network && local ? RETRY_BOTH : network ? RETRY_NETWORK : RETRY_LOCAL };
 }
 
 // The status values ANSWERS support now, by key, for Service.qml to
@@ -305,15 +321,16 @@ function checksValue(answers) {
 // `installed` and `outdated` from the list and the mise updates;
 // `missingRequirements` from the doctor report. A value no answer supports
 // yet is left out, so Settings reads it as not reported rather than as a
-// guess. A failed list draws a short chip and its sentence as the state's
-// hint: a chip elides at its column's width, and a hint wraps.
+// guess. A failed list draws a short chip and what failed as the state's
+// hint: a chip elides at its column's width, and a hint wraps. The retry
+// instruction is the `checks` hint alone.
 function statusValues(answers) {
     var out = { catalog: catalogValue(answers) };
     if (CHECK_QUERIES.some(function (name) { return hasOwn(answers, name); })) out.checks = checksValue(answers);
     var tools = answers.catalog;
     if (tools !== undefined) {
         if (tools.value === null) {
-            out.mise = { tone: "danger", text: "Check failed", hint: errorText(tools.error) };
+            out.mise = { tone: "danger", text: "Check failed", hint: errorMessage(tools.error) };
         } else {
             out.mise = tools.value.mise.present ? { tone: "ok", text: clip(tools.value.mise.version) } : { tone: "warning", text: "Not installed" };
             out.installed = listedRows(tools.value).filter(function (row) { return row.installed === true; }).length;

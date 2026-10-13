@@ -53,8 +53,7 @@
     },
     "checks": {
       "type": "state",
-      "label": "Checks",
-      "hint": "Open Dev Tools again after 10 minutes to retry all checks."
+      "label": "Checks"
     },
     "installed": {
       "type": "count",

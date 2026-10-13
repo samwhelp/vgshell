@@ -202,8 +202,18 @@ function verify(logic) {
     // Status values.
     same(logic.statusValues({}), { catalog: { tools: null, requirements: null, vgs: null, updates: null, latest: null, launchers: null } }, "nothing answered publishes the empty catalog alone");
     same(logic.statusValues({ vgs: ok(self({})) }).checks, { tone: "ok", text: "All checks passed" });
-    same(logic.statusValues({ vgs: ok(self({ error: "latest=timeout" })) }).checks, { tone: "warning", text: "Checks failed" },
+    same(logic.statusValues({ vgs: ok(self({ error: "latest=timeout" })) }).checks, { tone: "warning", text: "Checks failed", hint: "Open Dev Tools again after 10 minutes to retry." },
         "a self status that exited 0 with an error is a failed check");
+    // The Status section gives one retry instruction, the Checks row's,
+    // for the queries that failed, and none while every check passes.
+    const retries = values => Object.keys(values).filter(key => key !== "catalog" && values[key] !== null && typeof values[key] === "object" && /\bretry\b/.test(values[key].hint || ""));
+    const passing = logic.statusValues({ catalog: ok(list({}, [])), requirements: ok({ core: [], plugins: {} }), vgs: ok(self({})), updates: ok({ count: 0, packages: [] }), latest: ok({}) });
+    same([passing.checks, retries(passing)], [{ tone: "ok", text: "All checks passed" }, []], "a passing state gives no retry instruction");
+    const listFailed = logic.statusValues({ catalog: { value: null, error: "mise=failed" }, vgs: ok(self({})) });
+    same([retries(listFailed), listFailed.checks.hint, listFailed.mise.hint], [["checks"], "Close Dev Tools and open it again to retry.", "The tool check failed."],
+        "a failed list gives one retry instruction, at once, on the Checks row");
+    same(logic.statusValues({ catalog: { value: null, error: "mise=failed" }, updates: { value: null, error: "timeout=120" } }).checks.hint,
+        "Close Dev Tools and open it again to retry the tool checks, and again after 10 minutes to retry the update checks.", "a failed list and update check name both waits in one instruction");
     const listed = list({ agents: [row({ installed: true, origin: "mise", version: "2", actions: ["update", "remove"] }), row({ id: "codex" })], apps: [row({ id: "cmux", installed: null, error: "e" })] },
         [{ id: "github:o/x", installed: true, version: "1", actions: ["update", "remove"] }]);
     const values = logic.statusValues({ catalog: ok(listed), updates: ok({ count: 3, packages: [] }), requirements: ok({ core: [requirement({})], plugins: { "acme.y": [requirement({ state: "present" })] } }), launchers: ok(["launcher=written command=claude path=/h/.local/bin/claude", "launcher=foreign command=codex path=/h/.local/bin/codex"]) });
@@ -213,16 +223,17 @@ function verify(logic) {
     const failed = logic.statusValues({ catalog: { value: null, error: "mise=absent" }, updates: { value: null, error: "timeout=120" }, requirements: { value: null, error: "exit=1" } });
     same(failed.mise, { tone: "danger", text: "Check failed", hint: "A required tool is missing. Use Install to add it." });
     // A chip elides at its column's width and a hint wraps, so the chip
-    // holds a state word and the hint the whole sentence with what to do.
+    // holds a state word and the hint the whole sentence of what failed.
     for (const diagnostic of ["start=failed", "unparseable", "timeout=120", "mise=absent", "runtime=podman exit=1", "release=unreachable", "pkg=failed", "unexpected: key=value"]) {
         const state = logic.statusValues({ catalog: { value: null, error: diagnostic } }).mise;
         assert.doesNotMatch(state.text, /[.…]/, diagnostic + ": the chip holds no sentence");
         assert.ok(state.text.length <= 16, diagnostic + ": the chip is a state word");
-        assert.match(state.hint, /(to retry|to add it)\.$/, diagnostic + ": the hint ends with its whole instruction");
+        assert.match(state.hint, /\.$/, diagnostic + ": the hint holds its whole sentence");
+        assert.doesNotMatch(state.hint, /\bretry\b/, diagnostic + ": the Checks row alone gives the retry instruction");
         assert.ok(PluginLogic.statusValueFits("state", JSON.parse(JSON.stringify(state))), diagnostic + ": the status provider admits the value");
     }
     same(["installed", "outdated", "missingRequirements"].filter(k => k in failed), [], "a failed query publishes no count");
-    same(failed.checks, { tone: "warning", text: "Checks failed" },
+    same(failed.checks, { tone: "warning", text: "Checks failed", hint: "Close Dev Tools and open it again to retry the tool checks, and again after 10 minutes to retry the update checks." },
         "a failed query keeps the warning while withholding its count");
 
     // Launcher rows and catalog page additions.
@@ -421,8 +432,12 @@ const CONTROLS = [
     ["a missing launcher needs installation repair", 'if (/reason=launcher-missing/.test(reply))', 'if (false)'],
     ["a failed tool action has a message", 'function actionErrorText(reason) {', 'function actionErrorText(reason) { if (/step=failed/.test(String(reason))) return "";'],
     ["diagnostics stay out of display text", 'function errorText(reason, query) {', 'function errorText(reason, query) { return String(reason);'],
-    ["a failed list's chip holds no sentence", 'text: "Check failed", hint: errorText(tools.error) }', 'text: errorText(tools.error) }'],
-    ["a failed list's hint keeps its instruction", 'hint: errorText(tools.error) }', 'hint: errorText(tools.error).slice(0, 30) + "…" }'],
+    ["a failed list's chip holds no sentence", 'text: "Check failed", hint: errorMessage(tools.error) }', 'text: errorMessage(tools.error) }'],
+    ["a failed list's hint keeps its sentence", 'hint: errorMessage(tools.error) }', 'hint: errorMessage(tools.error).slice(0, 30) + "…" }'],
+    ["the tool manager row gives no retry instruction", 'hint: errorMessage(tools.error) }', 'hint: errorText(tools.error) }'],
+    ["passing checks give no retry instruction", 'text: "All checks passed" };', 'text: "All checks passed", hint: RETRY_LOCAL };'],
+    ["failed checks give the retry instruction", 'text: "Checks failed", hint: network && local ? RETRY_BOTH : network ? RETRY_NETWORK : RETRY_LOCAL };', 'text: "Checks failed" };'],
+    ["a failed update check waits", 'network && local ? RETRY_BOTH : network ? RETRY_NETWORK : RETRY_LOCAL', 'RETRY_LOCAL'],
     ["a missing mise offers no action", 'text: "Not installed" }', 'text: "Not installed", action: true }'],
     ["open skips a fresh remote", 'if (trigger !== "open" || !QUERIES[name].network) return true;', "return true;"],
     ["the list follows the launchers", 'return name === "launchers" ? "catalog" : "";', 'return "";'],
