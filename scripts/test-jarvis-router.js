@@ -546,7 +546,7 @@ esac
             w.confirm(identity);
             assert.equal(w.starts.length, 1, "confirmation remains valid after the earlier thinking deadline");
             assert.equal(w.runner.state.fault.kind, "none");
-            assert.equal(w.runner.state.turn.deadline, 120000);
+            assert.equal(w.runner.state.turn.deadline, 121000, "a full interval after the confirmed call's limit");
             w.confirm(identity);
             assert.equal(w.starts.length, 1, "a replay does not execute twice");
         }]),
