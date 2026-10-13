@@ -263,6 +263,10 @@ if (require.main === module) {
     const directory = path.join(env.XDG_STATE_HOME, "vgshell/jarvis");
     fs.mkdirSync(directory, { recursive: true });
     if (mode === "failed") fs.writeFileSync(path.join(directory, "accounts.json"), "broken");
+    // A keys.json a scene writes beside the mode file is this world's
+    // stored key list; the keyring stand-in reports each key present.
+    const keys = path.join(path.dirname(process.argv[3]), "keys.json");
+    if (fs.existsSync(keys)) fs.copyFileSync(keys, path.join(directory, "keys.json"));
     // More home names than bin/lib/account-folders.js MAX_PARENT_ENTRIES, and a
     // folder in the config home: a partial search. The labels of the folders
     // among the first 10000 home names fs.opendirSync hands out, and the

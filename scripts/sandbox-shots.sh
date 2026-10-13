@@ -20,7 +20,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, cloudsync, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-setup, jarvis-fleet, outdated, jarvis-causes, plugin-messages, traffic, ai-usage, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, traffic, ai-usage, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -89,7 +89,11 @@
 # anchor 12 px under the page's top; then, over a ready local voice, the
 # Setup section with voxtype missing, with the voxtype stand-in and after
 # a microphone check, and the Local voice field closed and open, listing
-# the tree's setup-local choices, taken only when named; setup-tab is the plugin list with a row that shows Setup
+# the tree's setup-local choices, taken only when named; elevenlabs-voices
+# is the Jarvis page with a stored ElevenLabs key whose voices a loopback
+# stand-in first refuses, then lists: the Settings tab's Voice section and
+# the Details tab's ElevenLabs voices line in each state, and the Voice
+# field's list open on the listed voices, taken only when named; setup-tab is the plugin list with a row that shows Setup
 # needed beside the warning icon, one that shows the icon alone and one that shows neither, that
 # icon's tooltip, a page with no Setup tab, a Setup tab that holds only
 # Requirements, and Jarvis's Settings tab and its Setup tab with steps
@@ -298,7 +302,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-setup|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice) scenes+=("$1"); shift ;;
+    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -440,7 +444,7 @@ scene_ships() {
     dictation-setup) ships_plugin vgs.settings && { [[ -x $tree/bin/vgshell-dictation ]] || { [[ -n $rev ]] && ships_plugin vgs.voice; }; } ;;
     plugin-messages) ships_plugin vgs.clipboard vgs.lock vgs.notifications ;;
     voice-keys) [[ $manager_scene == settings ]] && ships_plugin vgs.voice ;;
-    jarvis-setup|jarvis-fleet|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
+    jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
     clone-voice) [[ $manager_scene == settings && $has_setup_tab == true ]] && ships_plugin vgs.jarvis ;;
     updates) [[ $manager_scene == settings ]] && ships_plugin vgs.updates && tree_has shell/plugins/vgs.settings/PluginPage.qml "detailScreens" ;;
     ai-usage) ships_plugin vgs.ai-usage ;;
@@ -3089,6 +3093,121 @@ print(tier)' "$repo/shell/plugins/vgs.jarvis/artifacts.json" "$data/local" "$sta
   rm -f -- "${state:?}/local-ready.json" "${data:?}/local/scenario.json"
   cp -- "$sandbox/voice-states-local-mode" "$world/local-mode"
   cp -- "$sandbox/voice-states-local-tiers" "$world/local-tiers.json" || fail "the planted local tiers are not put back"
+  jarvis_restore_requirements
+}
+
+# The ElevenLabs voices (VGS-1202) read from a stored key, as a user with
+# network reads them: the daemon runs on the sandbox's backend copy, whose
+# elevenlabs row names the loopback stand-in
+# scripts/fixtures/jarvis/elevenlabs-voices.js, which that copy starts
+# inside the daemon's private network namespace. One stored ElevenLabs key
+# is planted for the daemon and for the account reader's world, the
+# keyring stand-ins answer it present, and Jarvis picks it as the sole key.
+# Hearing is the ready local voice of jarvis_voice_states with the
+# voxtype stand-in. First the stand-in refuses the key, as ElevenLabs
+# refuses a key that may not read voices: the Settings tab's Voice section
+# and the Details tab's ElevenLabs voices line. Then it lists the voices:
+# the Voice section, the Voice field's list open, and that Details line.
+elevenlabs_port=45127
+# elevenlabs_line_has TEXT: whether the Details tab's ElevenLabs voices
+# line reads TEXT.
+elevenlabs_line_has() { ipc smoke itemTexts "$settings_kind" vgs.settings StatusRow | py_reply 'import json,sys; print(any("ElevenLabs voices" in r and sys.argv[1] in r for r in json.load(sys.stdin)))' "$1"; }
+elevenlabs_page() { # LABEL
+  expect "enabling vgs.jarvis $1 is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect_poll "the Jarvis daemon answers hello $1" ready jarvis_started
+  for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
+  close_notices
+  expect "the Settings window opens $1" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings window maps $1" 1 settings_count
+  expect "the window opens the Jarvis page $1" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
+  expect_poll "the Jarvis page is shown $1" '"vgs.jarvis"' settings_page
+  page_details
+}
+elevenlabs_off() {
+  settings_close
+  expect "disabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "vgs.jarvis is gone" absent ipc smoke jarvisProcess
+}
+scene_elevenlabs-voices() { # MODE
+  local state="$home/.local/state/vgshell/jarvis" data="$home/.local/share/vgshell/jarvis" world="$sandbox/jarvis-world"
+  local backend="$repo/shell/plugins/vgs.jarvis/backend" config="$home/.config/vgshell/shell.json"
+  local origin="http://127.0.0.1:$elevenlabs_port" first="My voice (cloned)" field x y
+  local saved="$sandbox/elevenlabs-voices-before"
+  mkdir -p -- "$saved" "$state" "$data/local/venv/bin"
+  cp -- "$backend/Providers.js" "$backend/jarvisd.js" "$config" "$saved/" || fail "the ElevenLabs scene's files are not saved"
+  [[ ! -e $state/keys.json ]] || cp -- "$state/keys.json" "$saved/keys.json"
+  python3 - "$backend" "$checkout/scripts/fixtures/jarvis/elevenlabs-voices.js" "$elevenlabs_port" "$world/elevenlabs-mode" "$origin" "$state/keys.json" "$world/keys.json" "$config" <<'PY' || fail "the ElevenLabs stand-in is not planted"
+import json, os, sys
+backend, standin, port, mode, origin, keys, world_keys, config = sys.argv[1:]
+providers = os.path.join(backend, "Providers.js")
+text = open(providers).read()
+needle = 'base: "https://api.elevenlabs.io",'
+assert text.count(needle) == 1, "the elevenlabs row's base matches once"
+open(providers, "w").write(text.replace(needle, 'base: "%s",' % origin))
+with open(os.path.join(backend, "jarvisd.js"), "a") as daemon:
+    daemon.write("\nrequire(%s).serve(%s, %s);\n" % (json.dumps(standin), port, json.dumps(mode)))
+reference = {"provider": "elevenlabs", "account": "personal", "origin": origin,
+             "attributes": {"service": "vgs-jarvis", "provider": "elevenlabs", "account": "personal", "origin": origin}}
+for path in (keys, world_keys):
+    open(path, "w").write(json.dumps([reference]))
+value = json.load(open(config))
+row = next((r for r in value.setdefault("plugins", []) if r["id"] == "vgs.jarvis"), None)
+if row is None:
+    row = {"id": "vgs.jarvis"}; value["plugins"].append(row)
+row["voiceProvider"] = "elevenlabs"
+open(config + ".next", "w").write(json.dumps(value))
+os.replace(config + ".next", config)
+PY
+  expect "deliver the ElevenLabs voice provider" ok ipc shell reloadConfig
+  jarvis_setup_requirements || fail "the Jarvis requirement stand-ins are not written"
+  voice_stand_ins
+  tree_rescan "the Jarvis requirement and voxtype stand-ins are scanned for the ElevenLabs voices"
+  cp -- "$checkout/scripts/fixtures/jarvis-local-speech/standin.py" "$data/local/venv/bin/python"
+  chmod 700 -- "$data/local/venv/bin/python"
+  python3 -c 'import json,os,sys
+tier=next(iter(json.load(open(sys.argv[1]))["tiers"]))
+open(sys.argv[3],"w").write(json.dumps({"tier": tier, "data": os.path.realpath(sys.argv[2])}))
+open(os.path.join(sys.argv[2],"scenario.json"),"w").write(json.dumps({"start": "ready"}))' "$repo/shell/plugins/vgs.jarvis/artifacts.json" "$data/local" "$state/local-ready.json" || fail "the local voice marker is not written"
+  cp -- "$world/local-mode" "$saved/local-mode"
+  printf 'ready\n' >"$world/local-mode"
+  # The key refused.
+  printf 'refused\n' >"$world/elevenlabs-mode"
+  elevenlabs_page "with the ElevenLabs key refused"
+  expect_poll "the ElevenLabs voices line reads Could not read voices" True elevenlabs_line_has "Could not read voices"
+  jarvis_anchor_shot "elevenlabs-voices-details-$1-refused" Label "ElevenLabs voices"
+  settings_tab_click Settings || fail "the click on the Settings tab failed"
+  expect_poll "the Jarvis page shows Settings" 0 settings_tab
+  jarvis_anchor_shot "elevenlabs-voices-settings-$1-refused" SectionHeader Voice
+  elevenlabs_off
+  # The voices listed.
+  printf 'listed\n' >"$world/elevenlabs-mode"
+  elevenlabs_page "with the ElevenLabs voices listed"
+  expect_poll "the ElevenLabs voices line reads 6 voices" True elevenlabs_line_has "6 voices"
+  jarvis_anchor_shot "elevenlabs-voices-details-$1-listed" Label "ElevenLabs voices"
+  settings_tab_click Settings || fail "the click on the Settings tab failed"
+  expect_poll "the Jarvis page shows Settings" 0 settings_tab
+  expect_poll "the Voice field reads the account's first voice" false jarvis_tier_list_open "$first"
+  jarvis_anchor_shot "elevenlabs-voices-settings-$1-listed" SectionHeader Voice
+  if field="$(ipc smoke invokeInstance "$settings_kind" vgs.settings fieldGeometry '{"id":"vgs.jarvis","key":"voice"}')" && [[ $field == \[* ]] \
+    && read -r x y < <(at_centre "$settings_surface" "$(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); h=json.loads(sys.argv[2]); print(json.dumps([r[0] + r[2] - 40, r[1], 40, h]))' "$field" "$(ipc smoke themeValue row.height)")") \
+    && hover "$((x - 1))" "$y" && click "$x" "$y"; then
+    expect_poll "the Voice field opens its list" true jarvis_tier_list_open "$first"
+    take_posed "elevenlabs-voices-settings-$1-open"
+    type_keys -k Escape || fail "sending Escape to the Voice field failed"
+    expect_poll "the Voice field closes its list" false jarvis_tier_list_open "$first"
+  else
+    fail "the Voice field is unreadable: ${field:-}"
+  fi
+  park_pointer
+  elevenlabs_off
+  voice_stand_ins_removed
+  cp -- "$saved/Providers.js" "$saved/jarvisd.js" "$backend/"
+  cp -- "$saved/shell.json" "$config"
+  expect "deliver the settings from before the ElevenLabs voices" ok ipc shell reloadConfig
+  rm -f -- "${state:?}/keys.json" "${state:?}/local-ready.json" "${data:?}/local/scenario.json" "${world:?}/keys.json" "${world:?}/elevenlabs-mode"
+  [[ ! -e $saved/keys.json ]] || cp -- "$saved/keys.json" "$state/keys.json"
+  cp -- "$saved/local-mode" "$world/local-mode"
+  rm -rf -- "${saved:?}"
   jarvis_restore_requirements
 }
 
