@@ -1249,6 +1249,17 @@ Scope {
             const dialog = Plugins.hosts.notice === undefined ? null : Plugins.hosts.notice.dialog;
             return dialog !== null && root.descendants(dialog).some(child => child.activeFocus);
         }
+        // QsWindow.window gives an Item's shell window; keyboardFocus is
+        // WlrLayershell's attached mode (Quickshell v0.3.1 reference).
+        function noticeKeyboardMode(): string {
+            const dialog = Plugins.hosts.notice === undefined ? null : Plugins.hosts.notice.dialog;
+            const win = dialog === null ? null : dialog.QsWindow.window;
+            if (win === null) return "absent";
+            const mode = win.WlrLayershell.keyboardFocus;
+            if (mode === WlrKeyboardFocus.OnDemand) return "on-demand";
+            if (mode === WlrKeyboardFocus.Exclusive) return "exclusive";
+            return "none";
+        }
         // The dialog's box, its title's for `title` or the scrim's for
         // `scrim`, in the notice window's coordinates, or "absent" while no
         // notice shows.
