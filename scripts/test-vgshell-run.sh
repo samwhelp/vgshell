@@ -227,15 +227,28 @@ root = pathlib.Path(rt) / "vgshell-sources-1"
 root.mkdir()
 fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
 fcntl.flock(fd, fcntl.LOCK_EX)
-identity = os.fstat(fd)
-lock_key = f"{os.major(identity.st_dev):02x}:{os.minor(identity.st_dev):02x}:{identity.st_ino}"
 proc = subprocess.Popen([binary, "run"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=dict(os.environ))
 blocked = False
 try:
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline and proc.poll() is None:
-        with open("/proc/locks") as locks:
-            blocked = any(" -> " in line and f" {lock_key} " in line for line in locks)
+        # /proc/locks can hide waiters on this host (rows/reset.sh).
+        # The owned runner's flock has this root open on descriptor 8.
+        # The independent lock above prevents that call from completing.
+        pending = [proc.pid]
+        while pending and not blocked:
+            parent = pending.pop()
+            try:
+                children = pathlib.Path(f"/proc/{parent}/task/{parent}/children").read_text().split()
+                for child in children:
+                    folder = pathlib.Path(f"/proc/{child}")
+                    words = (folder / "cmdline").read_bytes().split(b"\0")
+                    if (folder / "comm").read_text().strip() == "flock" and words[1:3] == [b"-x", b"8"] and os.readlink(folder / "fd/8") == str(root):
+                        blocked = True
+                        break
+                    pending.append(int(child))
+            except OSError:
+                continue
         if blocked:
             break
         time.sleep(0.01)
