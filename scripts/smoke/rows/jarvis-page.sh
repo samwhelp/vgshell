@@ -9,15 +9,17 @@
 # field's link opens the Sounds page. With the fixture's key stored,
 # the Setup section of the Setup tab draws the key list, a line per key
 # with its chip, and Details draws none; a manifest copy that groups the
-# list outside Setup fails both Setup readings. With a Claude Code account
-# chosen, and only then, the page offers that account's models and effort
+# list outside Setup fails both Setup readings. Local servers appear beside
+# the signed-in Claude Code account. With that account chosen, and only
+# then, the page offers that account's models and effort
 # levels and saves the list's default, a choice is saved and reaches the
 # daemon, and a model that takes no effort draws no effort field. The list
 # is read only while the page is open: a reader that ignores the page fails
 # both closed-page readings. With nothing saved and no list read the daemon
 # gets Fable 5.1 at high for the Claude Code account. A list that is not
-# read leaves the saved model, marked, and with nothing saved the model the
-# daemon gets. The shell's log holds no unexpected line from these steps.
+# read leaves the saved model, marked. With nothing saved it offers the
+# daemon's default, marked but unselected. The shell's log holds no
+# unexpected line from these steps.
 # Two backup models added through the list's Add action sit the group
 # list's gap apart, with the hairline in that gap. A fresh profile saves
 # no Voice provider and reads Local; a saved Auto survives a shell
@@ -311,7 +313,7 @@ PY
 page_log_start="$(wc -c <"$instance_log")"
 printf 'signed-in\n' >"$sandbox/jarvis-world/account-mode"
 page_open accountSearch accounts "Jarvis accounts"
-expect_poll "the signed-in Claude Code account is offered as the AI model" '[["Claude Code"], "", ""]' page_choice_state brain
+expect_poll "the AI model list offers Claude Code and local servers" '[["Claude Code", "LM Studio / local", "Ollama / local", "llama-server / local"], "", ""]' page_choice_state brain
 expect "with no sign-in chosen the page draws no model field" absent page_choice model
 expect "with no sign-in chosen the page draws no effort field" absent page_choice effort
 page_reads_start="$(page_reads)"
@@ -412,7 +414,7 @@ settings_page_open vgs.jarvis
 expect_poll "opening the page saves the list's default" '["claude-fable-5-1", "high"]' page_saved
 expect "opening the page read the list once" "$((page_reads_closed + 1))" page_reads
 # A list its program does not give: the page shows the saved model, marked,
-# and with nothing saved the model the daemon gets, marked and not saved.
+# and with nothing saved offers the daemon's default, marked but unselected.
 # The reader logs the read's cause.
 settings_page_close vgs.jarvis
 printf 'list-failed\n' >"$sandbox/jarvis-world/account-mode"
@@ -422,8 +424,8 @@ expect_poll "a list that is not read leaves the saved model, marked" \
   '[["claude-fable-5-1 (list not read)"], "claude-fable-5-1 (list not read)", "claude-fable-5-1"]' page_choice_state model
 expect "the saved choice stays in the file" '["claude-fable-5-1", "high"]' page_saved
 page_settings_drop model effort
-expect_poll "with nothing saved a list that is not read shows the model the daemon gets, marked" \
-  '[["claude-fable-5-1 (list not read)"], "claude-fable-5-1 (list not read)", ""]' page_choice_state model
+expect_poll "with nothing saved a failed list offers the marked default without selecting it" \
+  '[["claude-fable-5-1 (list not read)"], "", ""]' page_choice_state model
 expect "a list that is not read saves nothing" '["", ""]' page_saved
 page_settings_drop brain
 expect_poll "with the sign-in unchosen the model field leaves the page" absent page_choice model
