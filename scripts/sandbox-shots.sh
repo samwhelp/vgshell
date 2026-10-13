@@ -1288,6 +1288,7 @@ esac
 EOF
       chmod 755 "$shim/voxtype"
     fi
+    voice_bridge_stand_in
     rescan "the Voice voxtype stand-in is scanned"
     expect "enabling vgs.voice is allowed" ok ipc shell setPluginEnabled vgs.voice true
     expect_poll "vgs.voice is built" True record_exists vgs.voice
@@ -1302,6 +1303,7 @@ EOF
     expect "disabling vgs.voice is allowed" ok ipc shell setPluginEnabled vgs.voice false
     expect_poll "vgs.voice is gone" False record_exists vgs.voice
     voice_stand_ins_removed
+    rm -f -- "${shim:?}/voxtype-audio-bridge"
     rescan "the Voice voxtype stand-in is removed"
   fi
   # The AI Usage page with its Sign in offered: the sandbox HOME holds no
@@ -2748,6 +2750,27 @@ voice_stand_ins() {
   chmod 755 "$shim/voxtype" "$shim/wtype"
 }
 voice_stand_ins_removed() { rm -f -- "${shim:?}/voxtype" "${shim:?}/wtype" "${voice_model_installed:?}"; }
+# voxtype-audio-bridge's stand-in: a status line, then a frame every 50 ms
+# until TERM. A tree whose Voice requires the bridge raises its requirement
+# notice on an enable without it.
+voice_bridge_stand_in() {
+  cat >"$shim/voxtype-audio-bridge" <<'EOF'
+#!/usr/bin/env bash
+printf '{"status":"connected"}\n'
+trap 'exit 0' TERM
+while :; do printf '{"peak":0.42,"rms":0.18,"vad":1,"ts_ms":0}\n'; sleep 0.05; done
+EOF
+  chmod 755 "$shim/voxtype-audio-bridge"
+}
+# voice_enable_notice_closed LABEL: on a tree whose Voice requires voxtype,
+# an enable that leaves voxtype or its bridge missing raises Voice's
+# requirement notice, read and closed with Not now; a tree from before
+# raises none, and closes nothing.
+voice_enable_notice_closed() {
+  tree_has shell/plugins/vgs.voice/manifest.json '"install": "on-request"' || return 0
+  expect_poll "$1 raises Voice's requirement notice" '"vgs.voice"' notice_plugin
+  close_notices
+}
 # The capability's state as Voice reads it: its daemon and what Voice
 # shows of its own dictation.
 voice_daemon() { ipc smoke readInstance service vgs.voice dictationState | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["daemon"], d["phase"])'; }
@@ -2767,13 +2790,8 @@ printf '{"state":"recording","backend":"ONNX CPU","device":"default","model":"pa
 exec sleep infinity
 EOF
   fi
-  cat >"$shim/voxtype-audio-bridge" <<'EOF'
-#!/usr/bin/env bash
-printf '{"status":"connected"}\n'
-trap 'exit 0' TERM
-while :; do printf '{"peak":0.42,"rms":0.18,"vad":1,"ts_ms":0}\n'; sleep 0.05; done
-EOF
-  chmod 755 "$shim/voxtype" "$shim/voxtype-audio-bridge"
+  voice_bridge_stand_in
+  chmod 755 "$shim/voxtype"
   rescan "the Voice stand-ins are scanned"
   expect "enabling vgs.voice for its display is allowed" ok ipc shell setPluginEnabled vgs.voice true
   if voice_dictates; then
@@ -4176,7 +4194,10 @@ EOF
   terminal_stand_in
 }
 
-# Voice's Set up as a first-time user meets it. Without voxtype, Set up on
+# Voice's Set up as a first-time user meets it. A tree whose Voice requires
+# voxtype and its bridge raises their requirement notice when the scene
+# enables Voice without them; that notice closes with Not now before the
+# shots. Without voxtype, Set up on
 # the Settings window raises the core's requirement notice, which a stand-in
 # bin/vgshell-pkg answers with pacman and paru, so voxtype's AUR package
 # shows whatever the host runs; Escape closes it and drops the Set up it
@@ -4232,8 +4253,9 @@ scene_voice-setup() { # MODE
     [[ $silence_found == true || $silence_found == false ]] || fail "Silence is unreadable before the Voice setup scene: $silence_found"
     [[ $silence_found == false ]] || expect "Silence goes off for the Voice setup scene" off notes silence off
   fi
-  # Voice's required commands stand in where the shell finds none, so
-  # enabling it raises no notice of its own.
+  # Voice's required commands but voxtype and its bridge stand in where the
+  # shell finds none; a tree whose Voice requires those two raises their
+  # notice on the enable, which closes before Set up.
   for command in wtype wl-copy; do
     [[ $(shell_resolves "$command") == none ]] || continue
     printf '#!/bin/sh\nexit 0\n' >"$shim/$command"
@@ -4262,6 +4284,7 @@ EOF_PKG
   fi
   expect "enabling vgs.voice without voxtype is allowed" ok ipc shell setPluginEnabled vgs.voice true
   expect_poll "vgs.voice is built without voxtype" True record_exists vgs.voice
+  voice_enable_notice_closed "enabling Voice without voxtype"
   expect "no notice shows before Set up" null notice_shown
 
   "$missing_press" "the Voice setup dialog"
@@ -4484,7 +4507,9 @@ voice_setup_launcher_ready() {
 # the core's daemon, started again on the run's code 0, reads ready; an
 # older tree is shot after a bounded wait, still reading elsewhere. The
 # model reads installed throughout, so the daemon's is the only Setup
-# line. Enablement and stand-ins are put back, and no daemon is left.
+# line; voxtype-audio-bridge stands in beside voxtype, so the enable raises
+# no requirement notice. Enablement and stand-ins are put back, the notice
+# an enable without them raises closed, and no daemon is left.
 voice_elsewhere_pid=""
 voice_elsewhere_state() { "${shell_env[@]}" PATH="$shell_start_path" "$shim/voxtype" status --format json | py_reply 'import json,sys; print(json.load(sys.stdin)["alt"])'; }
 voice_elsewhere_end() {
@@ -4499,9 +4524,10 @@ scene_voice-elsewhere() { # MODE
   [[ $voice_found == True || $voice_found == False ]] || fail "vgs.voice's enablement is unreadable before the Voice elsewhere scene: $voice_found"
   [[ $settings_found == True || $settings_found == False ]] || fail "vgs.settings' enablement is unreadable before the Voice elsewhere scene: $settings_found"
   voice_stand_ins
+  voice_bridge_stand_in
   : >"$voice_model_installed"
-  # Voice's required commands stand in where the shell finds none, so
-  # enabling it raises no notice of its own.
+  # Voice's required commands stand in where the shell finds none, the
+  # bridge with voxtype, so enabling it raises no notice of its own.
   for command in wtype wl-copy; do
     [[ $(shell_resolves "$command") == none ]] || continue
     printf '#!/bin/sh\nexit 0\n' >"$shim/$command"
@@ -4556,11 +4582,13 @@ scene_voice-elsewhere() { # MODE
   fi
   expect_poll "no voxtype daemon answers after the Voice elsewhere scene" stopped voice_elsewhere_state
   voice_stand_ins_removed
+  rm -f -- "${shim:?}/voxtype-audio-bridge"
   for command in "${stood[@]}"; do rm -f -- "${shim:?}/$command"; done
   rescan "the Voice elsewhere scene's stand-ins are removed"
   if [[ $voice_found == True ]]; then
     expect "enabling vgs.voice again after the Voice elsewhere scene is allowed" ok ipc shell setPluginEnabled vgs.voice true
     expect_poll "vgs.voice is built again after the Voice elsewhere scene" True record_exists vgs.voice
+    voice_enable_notice_closed "enabling Voice again without its stand-ins"
   fi
 }
 
