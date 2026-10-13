@@ -7,7 +7,11 @@ import qs.Unit
 // FormRow: the label column is `field.labelWidth` wide and the control
 // starts `field.labelGap` after it and ends on the row's end edge; the row
 // box is `row.height` tall unless its control is taller; the label sits by
-// capital height and the control by its box; a message draws as hint text
+// capital height and the control by its box; beside a control that wraps
+// into lines, a RowActions, a one-line label and its info button sit on
+// the first line, where they sit in a one-line row, and that line's
+// actions sit where a one-line row's do, while beside a control that is
+// one taller box they centre on the box; a message draws as hint text
 // under the value column, `field.gap` below the row box and wrapped to the
 // column, in its tone's colour, or in the role `warningRole` names, grows
 // the row by the gap and its own
@@ -25,7 +29,7 @@ import qs.Unit
 Item {
     id: root
     width: 480
-    height: 900
+    height: 1060
 
     Column {
         width: 420
@@ -64,11 +68,39 @@ Item {
         Label { role: "value"; text: "Available" }
     }
 
+    // Room for two of the three actions.
+    FormRow {
+        id: lined
+        y: 900
+        width: 420
+        label: "Actions"
+        info: "Each opens a screen."
+        RowActions {
+            id: steps
+            width: stepOne.width + Theme.rowAction.gap + stepTwo.width
+            RowAction { id: stepOne; text: "Install" }
+            RowAction { id: stepTwo; text: "Update" }
+            RowAction { id: stepThree; text: "Remove" }
+        }
+    }
+    FormRow {
+        id: single
+        y: 1000
+        width: 420
+        label: "Manage"
+        info: "Each opens a screen."
+        RowActions {
+            RowAction { id: lone; text: "Install" }
+            RowAction { text: "Update" }
+        }
+    }
+
     TestCase {
         name: "formrow"
         when: windowShown
 
         function labelOf(row) { return row.children[0]; }
+        function infoOf(row) { return row.children[1]; }
         function messageOf(row) { return row.children.find(child => child.role === "hint"); }
         function xIn(item, row) { return item.mapToItem(row, 0, 0).x; }
         function centreIn(item, row) { return item.mapToItem(row, 0, item.height / 2).y; }
@@ -126,6 +158,30 @@ Item {
         function test_a_taller_control_grows_the_row() {
             compare(tall.height, block.height);
             compare(block.mapToItem(tall, 0, 0).y, 0);
+        }
+
+        // A one-box control keeps the label and the info button on the
+        // centre of its box.
+        function test_a_taller_box_keeps_the_label_on_its_centre() {
+            verify(tall.height > Theme.row.height, "the control is no taller than a row");
+            compare(labelOf(tall).y, labelOf(tall).topForCapCenter(tall.height));
+        }
+
+        function test_a_wrapped_control_keeps_the_row_pitch_and_the_label_on_its_first_line() {
+            verify(steps.width <= lined.width - lined.valueX, "the actions' two lines pass the value column");
+            compare(lined.height, 2 * Theme.row.height);
+            compare(single.height, Theme.row.height);
+            const firstLine = stepOne.mapToItem(lined, 0, stepOne.height / 2).y;
+            fuzzyCompare(firstLine, Theme.row.height / 2, 0.5, "the first line leaves a row's centre");
+            compare(stepOne.mapToItem(lined, 0, 0).y, lone.mapToItem(single, 0, 0).y, "the first line leaves a one-line row's place");
+            compare(stepThree.mapToItem(lined, 0, 0).y - stepOne.mapToItem(lined, 0, 0).y, Theme.row.height);
+            // A RowAction's box centres on its text's capital centre.
+            fuzzyCompare(labelOf(lined).y + labelOf(lined).capCentre, firstLine, 1, "the label's capitals leave the first line's");
+            compare(labelOf(lined).y, labelOf(single).y, "the label leaves a one-line row's place");
+            verify(infoOf(lined).height > 0, "the row draws no info button");
+            compare(infoOf(lined).y, infoOf(single).y, "the info button leaves a one-line row's place");
+            compare(lined.inkBelow(), lined.height - stepThree.mapToItem(lined, 0, stepThree.height).y);
+            compare(lined.inkAbove(), Math.min(labelOf(lined).y + labelOf(lined).inkAbove(), stepOne.mapToItem(lined, 0, 0).y + stepOne.inkAbove()));
         }
 
         function test_a_message_sits_under_the_value_column() {

@@ -912,9 +912,8 @@ FocusScope {
                             visible: page.detailScreens.length > 0
                             error: page.row === null || page.panel === null ? ""
                                 : page.detailScreens.map(screen => page.panel.replyOf(page.row.id, page.panel.tuiKey(screen.name))).find(reply => reply !== "") || ""
-                            Flow {
+                            RowActions {
                                 width: parent.width
-                                spacing: Theme.rowAction.gap
                                 Repeater {
                                     model: ScriptModel {
                                         values: page.detailScreens

@@ -8,7 +8,14 @@ import qs.Ui
 // `control.maxWidth`. The control stays on the value column's start edge. The row box is `row.height` tall unless its label wraps or its
 // control is taller, so every key/value row of a page shares one height. A
 // one-line label is placed by capital height, a label of more lines is
-// centred, and the control is centred by its box. A label too long for its
+// centred, and the control is centred by its box. A control taller than the
+// row is one of two cases. One that is a single box, such as a text area,
+// grows the row box, and a one-line label and its info button centre on
+// that box. One that wraps into lines, such as a RowActions, declares
+// `firstLineHeight`, the height of its first line while it wraps, and a
+// one-line label and its info button centre on that line, as they do
+// beside a one-line control; such a control grows the row, so its first
+// line starts at the row box's top. A label too long for its
 // column wraps onto as many lines as it needs and never elides; the row
 // grows to hold them. `labelTooltip`, when set, is the label's tooltip on
 // hover and keyboard focus. `warning` is the row's message:
@@ -67,6 +74,14 @@ Item {
     // Where the message's line ends, above the room under it.
     readonly property real messageBottom: height - subTextRoom
     readonly property real boxHeight: messageBottom - messageRoom
+    // The box a one-line label and its info button centre on.
+    readonly property real labelBox: {
+        if (labelText.lineCount > 1) return boxHeight;
+        for (const child of slot.children) {
+            if (child.visible && child.firstLineHeight > 0) return child.firstLineHeight;
+        }
+        return boxHeight;
+    }
     signal warningLinkActivated()
 
     function inkBelow() {
@@ -118,14 +133,14 @@ Item {
         visible: root.labelColumn
         width: Theme.field.labelWidth - (infoButton.active ? infoButton.width + Theme.space.xs : 0)
         wrapMode: Text.Wrap
-        y: lineCount > 1 ? Math.round((root.boxHeight - implicitHeight) / 2) : topForCapCenter(root.boxHeight)
+        y: lineCount > 1 ? Math.round((root.boxHeight - implicitHeight) / 2) : topForCapCenter(root.labelBox)
     }
 
     Loader {
         id: infoButton
         active: root.info !== "" && root.labelColumn
         x: Theme.field.labelWidth - width
-        y: Math.round((root.boxHeight - implicitHeight) / 2)
+        y: Math.round((root.labelBox - implicitHeight) / 2)
         sourceComponent: InfoButton {
             title: root.label
             info: root.info

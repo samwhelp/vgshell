@@ -11,7 +11,11 @@ import qs.Unit
 // tone is logged and drawn as accent; a narrow action elides its text; a
 // danger action leads with its trash mark in every theme, and an accent
 // action never does; RowActions sets side-by-side actions `rowAction.gap`
-// apart.
+// apart, top-aligned on one line as tall as the tallest, and gives no room
+// to a hidden action or to the Repeater that makes its actions; given less
+// width than its actions, it continues them on a new line once the next
+// would pass that width, each line `row.height` under the last with its
+// actions centred in it, and answers for its highest and lowest ink.
 Item {
     id: root
     width: 400
@@ -27,6 +31,26 @@ Item {
         y: 220
         RowAction { id: update; text: "Update" }
         RowAction { id: remove; text: "Remove"; tone: "danger" }
+    }
+    // Room for two of its three actions and not a pixel more.
+    RowActions {
+        id: lines
+        x: 200
+        y: 20
+        width: one.width + Theme.rowAction.gap + two.width
+        RowAction { id: one; text: "Install" }
+        RowAction { id: two; text: "Update" }
+        RowAction { id: three; text: "Remove"; tone: "danger" }
+    }
+    RowActions {
+        id: made
+        x: 200
+        y: 220
+        Repeater {
+            id: maker
+            model: ["Install", "Update"]
+            RowAction { required property string modelData; text: modelData }
+        }
     }
     SignalSpy { id: clicks; target: action; signalName: "clicked" }
 
@@ -189,6 +213,56 @@ Item {
         function test_side_by_side_actions_stand_a_gap_apart() {
             compare(remove.x - (update.x + update.width), Theme.rowAction.gap);
             verify(Theme.rowAction.gap > Theme.stack.inline, "the gap is a step above the inline gap");
+        }
+
+        // One line keeps the height of its actions and sets them on its
+        // top, as wide as they are with their gap.
+        function test_one_line_is_as_tall_and_as_wide_as_its_actions() {
+            compare([update.y, remove.y], [0, 0]);
+            compare(pair.height, Math.max(update.height, remove.height));
+            compare(pair.width, update.width + Theme.rowAction.gap + remove.width);
+            verify(pair.height < Theme.row.height, "an action is as tall as a row, so the two cases read alike");
+        }
+
+        function test_actions_past_the_width_continue_a_row_height_down() {
+            compare([one.x, one.y], [0, one.y]);
+            compare(two.y, one.y, "an action that fits to the pixel leaves the first line");
+            compare(two.x - (one.x + one.width), Theme.rowAction.gap, "the gap on a wrapped line");
+            compare(three.x, 0, "the next line starts on the edge");
+            compare(three.y - one.y, Theme.row.height, "the line tops");
+            compare(lines.height, 2 * Theme.row.height);
+            fuzzyCompare(one.y + one.height / 2, Theme.row.height / 2, 0.5, "the first line's actions leave its centre");
+            fuzzyCompare(three.y + three.height / 2, 1.5 * Theme.row.height, 0.5, "the second line's action leaves its centre");
+            compare(lines.inkAbove(), one.y + one.inkAbove());
+            compare(lines.inkBelow(), lines.height - (three.y + three.height));
+        }
+
+        function test_given_the_room_wrapped_actions_return_to_one_line() {
+            const narrow = lines.width;
+            lines.width = lines.implicitWidth;
+            compare([one.y, two.y, three.y], [0, 0, 0]);
+            compare(three.x, two.x + two.width + Theme.rowAction.gap);
+            compare(lines.height, Math.max(one.height, two.height, three.height));
+            lines.width = narrow;
+            compare(three.y - one.y, Theme.row.height);
+        }
+
+        function test_a_hidden_action_takes_no_room() {
+            verify(remove.x > update.width, "the second action stands on the first");
+            update.visible = false;
+            compare(remove.x, 0);
+            compare(pair.width, remove.width);
+            update.visible = true;
+            compare(remove.x, update.width + Theme.rowAction.gap);
+        }
+
+        function test_the_repeater_that_makes_the_actions_takes_no_room() {
+            const first = maker.itemAt(0);
+            const second = maker.itemAt(1);
+            compare(first.x, 0, "the first action leaves the edge");
+            compare(second.x, first.width + Theme.rowAction.gap);
+            compare(made.width, first.width + Theme.rowAction.gap + second.width);
+            compare(made.height, Math.max(first.height, second.height));
         }
 
         function test_a_theme_change_moves_the_tokens() {
