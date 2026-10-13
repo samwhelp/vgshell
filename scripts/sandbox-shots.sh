@@ -444,7 +444,8 @@ scene_ships() {
     dictation-setup) ships_plugin vgs.settings && { [[ -x $tree/bin/vgshell-dictation ]] || { [[ -n $rev ]] && ships_plugin vgs.voice; }; } ;;
     plugin-messages) ships_plugin vgs.clipboard vgs.lock vgs.notifications ;;
     voice-keys) [[ $manager_scene == settings ]] && ships_plugin vgs.voice ;;
-    jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
+    elevenlabs-voices) [[ $manager_scene == settings && $has_tab_pages == true ]] && tree_has shell/plugins/vgs.jarvis/backend/ElevenLabs.js 'async function voices(' && ships_plugin vgs.jarvis ;;
+    jarvis-setup|jarvis-fleet|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
     clone-voice) [[ $manager_scene == settings && $has_setup_tab == true ]] && ships_plugin vgs.jarvis ;;
     updates) [[ $manager_scene == settings ]] && ships_plugin vgs.updates && tree_has shell/plugins/vgs.settings/PluginPage.qml "detailScreens" ;;
     ai-usage) ships_plugin vgs.ai-usage ;;
@@ -3168,7 +3169,7 @@ PY
 tier=next(iter(json.load(open(sys.argv[1]))["tiers"]))
 open(sys.argv[3],"w").write(json.dumps({"tier": tier, "data": os.path.realpath(sys.argv[2])}))
 open(os.path.join(sys.argv[2],"scenario.json"),"w").write(json.dumps({"start": "ready"}))' "$repo/shell/plugins/vgs.jarvis/artifacts.json" "$data/local" "$state/local-ready.json" || fail "the local voice marker is not written"
-  cp -- "$world/local-mode" "$saved/local-mode"
+  cp -- "$world/local-mode" "$saved/local-mode" 2>/dev/null || printf 'absent\n' >"$saved/local-mode"
   printf 'ready\n' >"$world/local-mode"
   # The key refused.
   printf 'refused\n' >"$world/elevenlabs-mode"
