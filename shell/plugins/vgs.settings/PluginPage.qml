@@ -422,7 +422,7 @@ FocusScope {
                             label: "Enabled"
                             inline: true
                             visible: page.row !== null && !page.row.alwaysOn
-                            hint: page.row !== null && !page.row.enabled && !page.bare ? "Turn on " + page.row.name + " to change its settings and shortcuts." : ""
+                            hint: page.row !== null && !page.row.enabled && !page.bare ? "Turn on " + page.row.name + " to change its settings and shortcuts" : ""
                             Switch {
                                 size: "sm"
                                 checked: page.row !== null && page.row.enabled
@@ -438,7 +438,7 @@ FocusScope {
                             label: "Show in bar"
                             inline: true
                             visible: page.row !== null && page.row.kinds.indexOf("bar-widget") !== -1 && page.row.kinds.some(kind => kind !== "bar" && kind !== "bar-widget")
-                            hint: page.row !== null && !page.row.enabled ? "Turn on " + page.row.name + " to show it in the bar." : ""
+                            hint: page.row !== null && !page.row.enabled ? "Turn on " + page.row.name + " to show it in the bar" : ""
                             Switch {
                                 size: "sm"
                                 checked: page.row !== null && page.row.placed
@@ -931,7 +931,7 @@ FocusScope {
                             label: "Manage"
                             inline: true
                             visible: page.row !== null && page.row.source === "installed"
-                            hint: "You can review changes before you apply them."
+                            hint: "You can review changes before you apply them"
                             RowActions {
                                 RowAction {
                                     text: "Update"

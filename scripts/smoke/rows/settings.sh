@@ -226,7 +226,7 @@ strip_focused='["Tabs","",true,true,true]'
 page_top() { scroll_value contentY; }
 # enabled_hint NAME: whether the page draws the Enabled switch's hint to
 # turn plugin NAME on.
-enabled_hint() { settings_label "Turn on $1 to change its settings and shortcuts."; }
+enabled_hint() { settings_label "Turn on $1 to change its settings and shortcuts"; }
 # page_scrolled Y: reject insufficient fixture content as a setup error
 # before judging scroll return. Probe.scrollTo reports the clamped position
 # and both heights from the same scroll operation.
