@@ -1266,10 +1266,10 @@ const kittyBaseline = verifyKittyStyles(kittyTemplate);
 // and palettes where a middle mark must leave a role for the later mark.
 const KITTY_ORDERED_SETS = [
     ["dracula", ["#705c94", "#d5dd80", "#4ef278"]],
-    ["flexoki-light", ["#94b0cc", "#947b2d", "#b94a40"]],
-    ["amberbyte", ["#6d4141", "#bc5e5f", "#beb4b4"]],
-    ["solitude", ["#464c4f", "#71787c", "#c3c5c5"]],
-    ["x-1632", ["#656a73", "#8d96a5", "#b49c9c"]],
+    ["flexoki-light", ["#94b0cc", "#8f772d", "#b3483e"]],
+    ["amberbyte", ["#6e4243", "#bd6262", "#beb4b4"]],
+    ["solitude", ["#484e50", "#757b80", "#c3c5c5"]],
+    ["x-1632", ["#666c74", "#909aa7", "#b79fa0"]],
     ["lumon", ["#4e7388", "#cfd5db", "#8e9ba5"]]
 ];
 for (const [theme, expected] of KITTY_ORDERED_SETS) {
@@ -1945,20 +1945,20 @@ const EDITOR_CAPPED = [
     ["arc-blueberry", "#3cec851e", "#3cec853c", "#1f5a42ff", 4.523595968058844],
     ["archwave", "#5ffbf118", "#5ffbf131", "#2d4d62ff", 4.533803398530332],
     ["catppuccin-frappe", "#a6d18918", "#a6d1892f", "#4f5d57ff", 4.527183928649377],
-    ["catppuccin-latte", "#2f751f18", "#2f751f2f", "#e6b6c3ff", 4.503366436583388],
+    ["catppuccin-latte", "#2d701e17", "#2d701e2f", "#e5b6c4ff", 4.507553602989163],
     ["catppuccin-macchiato", "#a6da951d", "#a6da953b", "#4d6057ff", 4.516611866783376],
     ["everforest", "#a7c08016", "#a7c0802c", "#4b574cff", 4.500550874143418],
     ["gruvbox", "#a9b6651b", "#a9b66535", "#4e513aff", 4.51870249791055],
     ["gruvy-glass", "#a9b6651b", "#a9b66535", "#4e513aff", 4.51870249791055],
     ["matte-black", "#ffc1071e", "#ffc1073c", "#5f4b0eff", 4.522322312647188],
-    ["moon-orbit", "#b791a809", "#b791a813", "#3c344bff", 4.500425103315417],
+    ["moon-orbit", "#ba95ac09", "#ba95ac12", "#3c344bff", 4.502684532044062],
     ["pmndrs", "#5de4c712", "#5de4c725", "#294749ff", 4.519121371926564],
     ["rose-pine", "#28698319", "#28698331", "#c1ced0ff", 4.513675057056383],
     ["tokyo-night", "#9ece6a17", "#9ece6a2f", "#3c4938ff", 4.509302303501117],
     ["tokyo-night-moon", "#c3e88d1c", "#c3e88d37", "#535f50ff", 4.512165401500568],
     ["tokyo-night-storm", "#9ece6a1c", "#9ece6a38", "#495b49ff", 4.535801280060513],
     ["vice-city", "#00ff881a", "#00ff8835", "#075135ff", 4.543039568109135],
-    ["x-1632", "#a6a8961a", "#a6a89635", "#515353ff", 4.503157426942376]
+    ["x-1632", "#a9ab9a19", "#a9ab9a33", "#575156ff", 4.524975957289451]
 ];
 
 function verifyEditorCaps(render, report = false) {

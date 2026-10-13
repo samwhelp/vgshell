@@ -137,7 +137,7 @@ const EXPECTED = [
     ["vgs", true, ["FOREGROUND=#d7d7d9", "BACKGROUND=#000000", "GUM_CHOOSE_CURSOR_FOREGROUND=#ff5a36",
         "VGS_TUI_ACCENT=#ff5a36", "VGS_TUI_SUCCESS=#b4c96f", "VGS_TUI_WARNING=#ffb000", "VGS_TUI_DANGER=#f43f5e"]],
     ["catalog/flexoki-light", false, ["FOREGROUND=#100f0f", "BACKGROUND=#fffcf0", "GUM_CHOOSE_CURSOR_FOREGROUND=#205ea6",
-        "VGS_TUI_ACCENT=#205ea6", "VGS_TUI_SUCCESS=#616f29", "VGS_TUI_WARNING=#83660d", "VGS_TUI_DANGER=#b64339"]]
+        "VGS_TUI_ACCENT=#205ea6", "VGS_TUI_SUCCESS=#5d6a27", "VGS_TUI_WARNING=#7d610d", "VGS_TUI_DANGER=#b04137"]]
 ];
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "theme-gum-")));

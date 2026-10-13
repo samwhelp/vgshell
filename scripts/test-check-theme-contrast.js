@@ -163,8 +163,8 @@ try {
         const proc = spawnSync(NODE, [path.join(copy, "scripts", "check-theme-contrast.js"), path.join(repo, "themes")],
             { encoding: "utf8", env: env(path.join(dir, "env")) });
         assertStatus(proc, 1);
-        assert.match(proc.stdout, /^short    catalog\/catppuccin-latte: carousel\.hintDanger on color\.scrim over #000000 ratio=1\.36 floor=4\.5$/m);
-        assert.match(proc.stdout, /^short    catalog\/white: carousel\.hintDanger on color\.scrim over #000000 ratio=3\.80 floor=4\.5$/m);
+        assert.match(proc.stdout, /^short    catalog\/catppuccin-latte: carousel\.hintDanger on color\.scrim over #000000 ratio=1\.41 floor=4\.5$/m);
+        assert.match(proc.stdout, /^short    catalog\/white: carousel\.hintDanger on color\.scrim over #000000 ratio=3\.65 floor=4\.5$/m);
     });
 
     // The typed filter as it drew before its plate, the theme's heading
@@ -199,8 +199,8 @@ try {
         const proc = spawnSync(NODE, [path.join(copy, "scripts", "check-theme-contrast.js"), path.join(repo, "themes")],
             { encoding: "utf8", env: env(path.join(dir, "env")) });
         assertStatus(proc, 1);
-        assert.match(proc.stdout, /^short    catalog\/nord: carousel\.hint on color\.scrim over #ffffff ratio=3\.84 floor=4\.5$/m);
-        assert.match(proc.stdout, /^short    catalog\/thegreek: carousel\.hint on color\.scrim over #ffffff ratio=1\.36 floor=4\.5$/m);
+        assert.match(proc.stdout, /^short    catalog\/nord: carousel\.hint on color\.scrim over #ffffff ratio=3\.71 floor=4\.5$/m);
+        assert.match(proc.stdout, /^short    catalog\/thegreek: carousel\.hint on color\.scrim over #ffffff ratio=1\.35 floor=4\.5$/m);
     });
 
     // The tooltip's text as it drew before VGS-1628, the theme's text and
@@ -219,8 +219,8 @@ try {
             { encoding: "utf8", env: env(path.join(dir, "env")) });
         const drawn = judge();
         assertStatus(drawn, 1);
-        assert.match(drawn.stdout, /^short    vgs: tooltip\.detail on glass\.fill solid ratio=4\.37 floor=4\.5$/m);
-        assert.match(drawn.stdout, /^short    catalog\/moon-orbit: tooltip\.foreground on glass\.fill solid ratio=4\.12 floor=4\.5$/m);
+        assert.match(drawn.stdout, /^short    vgs: tooltip\.detail on glass\.fill solid ratio=4\.20 floor=4\.5$/m);
+        assert.match(drawn.stdout, /^short    catalog\/moon-orbit: tooltip\.foreground on glass\.fill solid ratio=3\.96 floor=4\.5$/m);
         plant(path.join(copy, "shell", "Commons", "ThemeLogic.js"), [
             ["        pairs.push([TOOLTIP_TEXT_ROLES[t], GLASS_SOLID, READABILITY_FLOOR]);\n", ""]
         ]);
@@ -234,7 +234,7 @@ try {
         writeTheme(dir, "faint", { color: { textFaint: "#111111" } });
         const proc = run(dir, dir);
         assertStatus(proc, 1);
-        assert.match(proc.stdout, /short    faint: color\.textFaint on color\.background ratio=1\.11 floor=4\.5/);
+        assert.match(proc.stdout, /short    faint: color\.textFaint on color\.background ratio=1\.10 floor=4\.5/);
     });
 
     row("catalog package shortfall is named with catalog prefix", dir => {
@@ -242,7 +242,7 @@ try {
         writeCatalogTheme(dir, "faint", { color: { textFaint: "#111111" } });
         const proc = run(dir, dir);
         assertStatus(proc, 1);
-        assert.match(proc.stdout, /short    catalog\/faint: color\.textFaint on color\.background ratio=1\.11 floor=4\.5/);
+        assert.match(proc.stdout, /short    catalog\/faint: color\.textFaint on color\.background ratio=1\.10 floor=4\.5/);
     });
 
     row("accent matching background is a shortfall", dir => {

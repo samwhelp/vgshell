@@ -1408,16 +1408,72 @@ function verifyDrawnWeights(judge) {
     assert.ok(failed < 4.5, "control: one red unit lighter fails the drawn floor");
     // Isolate bodyStrong: other danger uses draw bold, then this actual
     // role moves to regular. Omitting it would silently skip the failure.
-    const text = Object.fromEntries(["body", "hint", "itemHint", "bodyStrong"].map(role => [role, { weight: 600 }]));
+    const text = Object.fromEntries(["body", "hint", "itemHint", "bodyStrong", "bar"].map(role => [role, { weight: 600 }]));
     const fixture = (weight, ink = "#b64339") => judge.accept(TOKENS, document({ color: { danger: ink, surfaceRaised: "#edeadf" }, text: { ...text, bodyStrong: { weight } } })).values;
     const dangerRows = (weight, ink) => readability(judge, fixture(weight, ink)).filter(row => row.text === "color.danger" && row.surface === "color.surfaceRaised");
     assert.equal(dangerRows(600).length, 0, "all drawn danger weights clear the floor");
     assert.equal(dangerRows(600, "#b74339").length, 1, "control: the judge rejects one red unit lighter at bodyStrong weight");
     assert.equal(dangerRows(400).length, 1, "the actual bodyStrong weight is judged");
+    verifyDrawingWeightSources(judge);
     // Every default typography colour has its drawing role represented.
     for (const [role, type] of Object.entries(TOKENS.text)) {
         const colour = /^\{(color\.[^}]+)\}$/.exec(type.color.value);
-        assert.ok(colour && judge.READABILITY_TYPOGRAPHY[colour[1]].includes(role), role + ": typography is judged at its own weight");
+        assert.ok(colour && judge.readabilityWeights(judge.defaults(TOKENS).values)[colour[1]].includes("text." + role + ".weight"), role + ": typography is judged at its own weight");
+    }
+}
+
+// Each real drawing source can fail alone while the other sources use
+// bold ink. The expectations name shipped sites independently of the table.
+function verifyDrawingWeightSources(judge) {
+    const cases = [
+        ["color.textMuted", "text.bodyStrong.weight"], // ThemeCard, WallpaperCard, Console
+        ["color.textMuted", "text.code.weight"], // Polkit Prompt
+        ["color.textMuted", "text.item.weight"], // SaveBar
+        ["color.textMuted", "text.button.weight"], // Tabs
+        ["color.textMuted", "text.kbd.weight"], // Kbd
+        ["color.textFaint", "text.item.weight"], // TextField and Select placeholders
+        ["color.textFaint", "text.body.weight"], // TextArea placeholder
+        ["color.textFaint", "text.kbd.weight"], // ShortcutField placeholder
+        ["color.accent", "text.label.weight"], // TileGroup's default caption
+        ...["secondary", "tertiary", "ghost"].map(variant => ["color.text", "button.variant." + variant + ".weight"]),
+        ...["primary", "secondary", "tertiary", "ghost", "danger"].map(variant => ["color.accent", "button.variant." + variant + ".weight"]), // checked Button
+        ["color.text", "keyHints.weight"],
+        ["color.text", "avatarGroup.weight"],
+        ["color.warning", "text.bar.weight"], // BarItem's warning reading
+        ["color.danger", "text.bar.weight"], // BarItem's danger reading
+        ["carousel.hintActive", "text.bodyStrong.weight"], // WallpaperView's chosen scope word
+        ["tooltip.detail", "text.itemHint.weight"],
+        ["color.accent", "text.itemCode.weight", "itemCode"],
+        ["color.textMuted", "text.itemCode.weight", "itemCode"]
+    ];
+    const assign = (tree, path, value) => {
+        const parts = path.split(".");
+        const leaf = parts.pop();
+        const parent = parts.reduce((node, part) => node[part] ??= {}, tree);
+        parent[leaf] = value;
+    };
+    for (const [colour, source, caption] of cases) {
+        const given = caption === undefined ? {} : { tileGroup: { captionRole: caption } };
+        const defaults = judge.accept(TOKENS, document(given)).values;
+        for (const path of judge.readabilityWeights(defaults)[colour]) assign(given, path, 600);
+        assign(given, colour, "#b64339");
+        let surface = "color.surfaceRaised";
+        if (colour === "tooltip.detail") surface = "tooltip.background";
+        else if (colour === "carousel.hintActive") {
+            surface = "color.scrim over #000000";
+            given.color = { ...given.color, scrim: "alpha(#edeadf, 1)" };
+        }
+        assign(given, surface === "color.scrim over #000000" ? "color.surfaceRaised" : surface, "#edeadf");
+        const rows = weight => {
+            assign(given, source, weight);
+            const accepted = judge.accept(TOKENS, document(given));
+            assert.equal(accepted.ok, true);
+            return readability(judge, accepted.values).filter(row => row.text === colour && row.surface === surface);
+        };
+        assert.equal(rows(600).length, 0, colour + ": bold drawing sources pass");
+        const regular = rows(400);
+        assert.equal(regular.length, 1, colour + ": " + source + " is judged independently");
+        assert.ok(Math.abs(regular[0].ratio - 4.291450265492549) < 1e-12, source + ": regular drawn ratio");
     }
 }
 
@@ -1737,7 +1793,11 @@ const CONTROLS = [
     ["regular drawn ink", "regular: 0.966", "regular: 1"],
     ["bold drawn ink", "bold: 1.000", "bold: 0.966"],
     ["drawn ink on every text pair", "pairs[q][2] === READABILITY_FLOOR", "false"],
-    ["danger bodyStrong drawn weight", '"color.danger": ["body", "hint", "itemHint", "bodyStrong"]', '"color.danger": ["body", "hint", "itemHint"]'],
+    ["danger bodyStrong drawn weight", '"color.danger": ["text.body.weight", "text.hint.weight", "text.itemHint.weight", "text.bodyStrong.weight", "text.bar.weight"]', '"color.danger": ["text.body.weight", "text.hint.weight", "text.itemHint.weight", "text.bar.weight"]'],
+    ["muted bodyStrong drawing weight", '"text.value.weight", "text.bodyStrong.weight", "text.code.weight"', '"text.value.weight", "text.code.weight"'],
+    ["button variant drawing weight", '"text.tooltip.weight", "button.variant.secondary.weight", "button.variant.tertiary.weight"', '"text.tooltip.weight", "button.variant.primary.weight", "button.variant.tertiary.weight"'],
+    ["tooltip detail drawing weight", '"tooltip.detail": ["text.itemHint.weight"]', '"tooltip.detail": ["text.hint.weight"]'],
+    ["selected TileGroup drawing weight", 'var tileWeight = "text." + valueAt(values, "tileGroup.captionRole") + ".weight";', 'var tileWeight = "text.label.weight";'],
     ["unknown top-level key", "if (DOCUMENT_KEYS.indexOf(keys[i]) === -1)", "if (false)"],
     ["schema version", "if (document.schemaVersion !== SCHEMA_VERSION)", "if (false)"],
     ["document name", 'if (typeof document.name !== "string" || document.name.trim() === "")', "if (false)"],

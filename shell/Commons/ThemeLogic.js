@@ -247,36 +247,39 @@ var READABILITY_FLOOR = 4.5;
 // flexoki-light fit these coverages without exceeding either capture.
 // Medium (500) uses the regular fit; bold (600/700) uses bodyStrong's.
 var TEXT_STROKE_COVERAGE = { regular: 0.966, bold: 1.000 };
-// Typography used by Label and colour overrides in the shared controls
-// and plugin views. Read their resolved weights, so a theme's weight
-// change cannot leave a colour judged at the old weight.
-var READABILITY_TYPOGRAPHY = {
-    "color.text": ["body", "bodyStrong", "item", "itemCode", "menuItem", "value", "button", "kbd", "code", "bar", "tooltip"],
-    "color.textHeading": ["display", "h1", "h2", "h3", "windowTitle"],
-    "color.textMuted": ["subheading", "label", "body", "hint", "bar", "value"],
-    "color.textFaint": ["hint", "itemHint", "menuItemHint"],
-    "color.accent": ["eyebrow", "body", "bar", "button"],
-    "color.success": ["body", "hint", "value"],
-    "color.warning": ["body", "hint", "value"],
-    "color.danger": ["body", "hint", "itemHint", "bodyStrong"],
-    "color.info": ["body", "hint", "value"],
-    "segmented.foreground": ["button"],
-    "segmented.selectedForeground": ["button"],
-    "listItem.selectedForeground": ["item", "itemHint"],
-    "badge.tone.neutral.foreground": ["label", "kbd"],
-    "badge.tone.accent.foreground": ["label", "kbd"],
-    "badge.tone.success.foreground": ["label", "kbd"],
-    "badge.tone.warning.foreground": ["label", "kbd"],
-    "badge.tone.danger.foreground": ["label", "kbd"],
-    "badge.tone.info.foreground": ["label", "kbd"],
-    "carousel.hint": ["itemHint", "h3"],
-    "carousel.hintActive": ["itemHint", "h3", "display"],
-    "carousel.hintDanger": ["body"],
-    "carousel.typed": ["h3", "itemHint"],
-    "carousel.searchHint": ["itemHint"],
-    "tooltip.foreground": ["tooltip"],
-    "tooltip.detail": ["hint", "body", "label", "value", "bodyStrong"]
-};
+// Each judged colour's actual weight sources: Label typography, Button's
+// variant override, KeyHints and AvatarGroup. TileGroup selects its role
+// from the theme, so both caption colours read the selected role's weight.
+function readabilityWeights(values) {
+    var tileWeight = "text." + valueAt(values, "tileGroup.captionRole") + ".weight";
+    return {
+        "color.text": ["text.body.weight", "text.bodyStrong.weight", "text.item.weight", "text.itemCode.weight", "text.menuItem.weight", "text.value.weight", "text.button.weight", "text.kbd.weight", "text.code.weight", "text.bar.weight", "text.tooltip.weight", "button.variant.secondary.weight", "button.variant.tertiary.weight", "button.variant.ghost.weight", "keyHints.weight", "avatarGroup.weight"],
+        "color.textHeading": ["text.display.weight", "text.h1.weight", "text.h2.weight", "text.h3.weight", "text.windowTitle.weight"],
+        "color.textMuted": ["text.subheading.weight", "text.label.weight", "text.body.weight", "text.hint.weight", "text.bar.weight", "text.value.weight", "text.bodyStrong.weight", "text.code.weight", "text.item.weight", "text.button.weight", "text.kbd.weight", tileWeight],
+        "color.textFaint": ["text.hint.weight", "text.itemHint.weight", "text.menuItemHint.weight", "text.item.weight", "text.body.weight", "text.kbd.weight"],
+        "color.accent": ["text.eyebrow.weight", "text.body.weight", "text.bar.weight", "text.button.weight", "text.label.weight", "button.variant.primary.weight", "button.variant.secondary.weight", "button.variant.tertiary.weight", "button.variant.ghost.weight", "button.variant.danger.weight", tileWeight],
+        "color.success": ["text.body.weight", "text.hint.weight", "text.value.weight"],
+        "color.warning": ["text.body.weight", "text.hint.weight", "text.value.weight", "text.bar.weight"],
+        "color.danger": ["text.body.weight", "text.hint.weight", "text.itemHint.weight", "text.bodyStrong.weight", "text.bar.weight"],
+        "color.info": ["text.body.weight", "text.hint.weight", "text.value.weight"],
+        "segmented.foreground": ["text.button.weight"],
+        "segmented.selectedForeground": ["text.button.weight"],
+        "listItem.selectedForeground": ["text.item.weight", "text.itemHint.weight"],
+        "badge.tone.neutral.foreground": ["text.label.weight", "text.kbd.weight"],
+        "badge.tone.accent.foreground": ["text.label.weight", "text.kbd.weight"],
+        "badge.tone.success.foreground": ["text.label.weight", "text.kbd.weight"],
+        "badge.tone.warning.foreground": ["text.label.weight", "text.kbd.weight"],
+        "badge.tone.danger.foreground": ["text.label.weight", "text.kbd.weight"],
+        "badge.tone.info.foreground": ["text.label.weight", "text.kbd.weight"],
+        "carousel.hint": ["text.itemHint.weight", "text.h3.weight"],
+        "carousel.hintActive": ["text.itemHint.weight", "text.h3.weight", "text.display.weight", "text.bodyStrong.weight"],
+        "carousel.hintDanger": ["text.body.weight"],
+        "carousel.typed": ["text.h3.weight", "text.itemHint.weight"],
+        "carousel.searchHint": ["text.itemHint.weight"],
+        "tooltip.foreground": ["text.tooltip.weight"],
+        "tooltip.detail": ["text.itemHint.weight"]
+    };
+}
 
 // The sampled ink model, rounded to display channels before contrast.
 function drawnTextRatio(text, surface, weight) {
@@ -370,6 +373,7 @@ function valueAt(values, path) {
 // glass draws solid. Any other translucent colour, a translucent failure plate included, has no ratio
 // and is a shortfall.
 function readabilityShortfalls(values, glass) {
+    var weights = readabilityWeights(values);
     var pairs = [];
     for (var i = 0; i < READABILITY_TEXT_ROLES.length; i++)
         for (var j = 0; j < READABILITY_SURFACES.length; j++)
@@ -416,9 +420,9 @@ function readabilityShortfalls(values, glass) {
             ? null
             : contrastRatio(text, surface);
         if (ratio !== null && pairs[q][2] === READABILITY_FLOOR) {
-            var roles = READABILITY_TYPOGRAPHY[pairs[q][0]];
-            for (var r = 0; r < roles.length; r++)
-                ratio = Math.min(ratio, drawnTextRatio(text, surface, valueAt(values, "text." + roles[r] + ".weight")));
+            var sources = weights[pairs[q][0]];
+            for (var r = 0; r < sources.length; r++)
+                ratio = Math.min(ratio, drawnTextRatio(text, surface, valueAt(values, sources[r])));
         }
         if (ratio !== null && pairs[q][4] === true && luminance(text) >= luminance(surface))
             continue;
