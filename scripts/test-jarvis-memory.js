@@ -153,6 +153,7 @@ world(() => {
     assert.deepEqual([conflict.outcome, conflict.content], ["failed", "memory-replace:conflict"]);
     assert.equal(fs.readFileSync(path.join(writes.folder, "memory/facts/proposed.md"), "utf8"), "# Proposed\nuser bytes\n");
     assert.equal(writes.read(["facts/proposed.md"]).body.notes[0].edited, true, "receipt no longer vouches for hand-edited bytes");
+    assert.equal(writes.search({ query: "user bytes" }).body.results[0].edited, true);
 
     const tainted = make();
     const pending = tainted.writeCall("memory.propose", { id: "facts/web.md", text: "# Web\nweb-pending-token\n" },
@@ -319,6 +320,25 @@ world(() => {
     routerWorld();
 
     let controls = 0;
+    const checkSearchReceipt = logic => {
+        const x = make(logic);
+        x.writeCall("memory.propose", { id: "facts/approved.md", text: "# Approved\r\napproved-token\r\n" },
+            { labels: ["home", "web"], tainted: true });
+        const pending = x.installed.pending()[0];
+        x.installed.confirm(pending.id, pending.hash);
+        const approved = x.search({ query: "approved-token" }).body.results[0];
+        assert.equal(approved.id, "facts/approved.md");
+        assert.equal(approved.edited, false);
+        x.write("facts/approved.md", "# Approved\nhand-edited-token\n");
+        const edited = x.search({ query: "hand-edited-token" }).body.results[0];
+        assert.equal(edited.id, "facts/approved.md");
+        assert.equal(edited.edited, true);
+        x.installed.close();
+    };
+    checkSearchReceipt(Memory);
+    mutant(memoryFile, "memory-search-receipt-hash", "SELECT notes.id, notes.hash, notes.title",
+        "SELECT notes.id, notes.title", checkSearchReceipt);
+    controls++;
     const checkInbox = logic => {
         const x = make(logic); populate(x);
         assert.deepEqual(x.search({ query: "needle-inbox" }).body.results, []);

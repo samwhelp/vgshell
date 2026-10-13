@@ -659,9 +659,10 @@ function install({ router, directory, home, sqlite = () => require("node:sqlite"
 
     function labelsOf(rows) { return uniqueLabels(rows.flatMap(row => parseJson(row.labels, ["home"]))); }
     function rowObject(row) {
+        const record = readReceipt(row.id);
         return { id: row.id, title: row.title, ...(row.date === null ? {} : { date: row.date }),
             sources: parseJson(row.labels, ["home"]), snippet: row.snippet,
-            ...(readReceipt(row.id) === null ? {} : { edited: readReceipt(row.id)?.approvedHash !== row.hash }) };
+            ...(record === null ? {} : { edited: record.note === row.id && record.approvedHash !== row.hash }) };
     }
 
     function searchStatement(args) {
@@ -674,7 +675,7 @@ function install({ router, directory, home, sqlite = () => require("node:sqlite"
         if (args.alias !== undefined) where.push("EXISTS (SELECT 1 FROM json_each(notes.aliases) WHERE lower(value)=lower(?))");
         if (args.since !== undefined) where.push("notes.date IS NOT NULL AND notes.date >= ?");
         if (args.until !== undefined) where.push("notes.date IS NOT NULL AND notes.date <= ?");
-        statement = open().prepare("SELECT notes.id, notes.title, notes.date, notes.labels, snippet(body, 3, '[', ']', '…', 12) AS snippet FROM body JOIN notes ON notes.rowid=body.rowid WHERE "
+        statement = open().prepare("SELECT notes.id, notes.hash, notes.title, notes.date, notes.labels, snippet(body, 3, '[', ']', '…', 12) AS snippet FROM body JOIN notes ON notes.rowid=body.rowid WHERE "
             + where.join(" AND ") + " ORDER BY bm25(body, 0, 10, 5, 1) LIMIT ?");
         searchSql.set(mask, statement);
         return statement;
