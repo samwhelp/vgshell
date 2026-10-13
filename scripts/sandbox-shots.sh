@@ -2512,21 +2512,30 @@ scene_notifications() { # MODE
   expect "the history clears" ok notes clear-history
   expect_poll "no toast is left" 0 on_screen
   # Icons: a card whose icon the theme lacks, sent as notify-send --icon
-  # sends it, and four VGS plugin notices with no icon of their own, with
-  # the hints the core's shell.notify.send adds: no tone, danger, success
-  # and warning, so the bell and each tone's icon show; then the same
-  # cards in the inbox.
+  # sends it, and five VGS plugin notices with no icon of their own, with
+  # the hints the core's shell.notify.send adds: no tone, info, danger,
+  # success and warning, so the bell and each tone's icon show; then the
+  # same cards in the inbox, over the black desktop and over a white one,
+  # the lightest wallpaper the glass cards sit on.
   ids=()
   ids+=("$(notify smoke-power "Battery caution" "15% left, plug in soon" '[]' '{"image-path": <"vgs-smoke-themeless">}')")
   ids+=("$(notify Updates "Updates are ready" "" '[]' '{"x-vgs-plugin": <"vgs.updates">, "x-vgs-click": <"none">}')")
+  ids+=("$(notify Updates "Restart to finish updating" "" '[]' '{"x-vgs-plugin": <"vgs.updates">, "x-vgs-tone": <"info">, "x-vgs-click": <"none">}')")
   ids+=("$(notify Power "Battery critical" "Suspending in 2 minutes" '[]' '{"x-vgs-plugin": <"vgs.power">, "x-vgs-tone": <"danger">, "x-vgs-click": <"none">}')")
   ids+=("$(notify Power "Charging resumed" "" '[]' '{"x-vgs-plugin": <"vgs.power">, "x-vgs-tone": <"success">, "x-vgs-click": <"none">}')")
   ids+=("$(notify Power "Battery saver is on" "Background sync pauses until you plug in" '[]' '{"x-vgs-plugin": <"vgs.power">, "x-vgs-tone": <"warning">, "x-vgs-click": <"none">}')")
-  expect_poll "five icon toasts are on screen" 5 on_screen
+  expect_poll "six icon toasts are on screen" 6 on_screen
   take "notifications-$1-icons"
   expect "the inbox opens on the icon cards" ok notes inbox
   expect_poll "the panel is the inbox for the icon cards" '"inbox"' ipc smoke readInstance service vgs.notifications panelMode
   take "notifications-$1-icons-inbox"
+  solid_png "$home/white.png" 640 360 255 255 255 || fail "the white desktop image was not written"
+  bg_state_names "$home/white.png" || fail "the white desktop's state file was not written"
+  expect_poll "the white desktop image is ready" "$home/white.png ready" background_image_on "$main_name"
+  expect_poll "the desktop draws white" ffffff pixel 100 100
+  take "notifications-$1-icons-inbox-white"
+  bg_state_names "$repo/themes/vgs/backgrounds/black.png" || fail "the black desktop's state file was not written"
+  expect_poll "the black desktop image is ready again" "$repo/themes/vgs/backgrounds/black.png ready" background_image_on "$main_name"
   expect "the inbox closes after the icon cards" ok notes close
   for id in "${ids[@]}"; do
     "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \

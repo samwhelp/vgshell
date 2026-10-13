@@ -1590,6 +1590,23 @@ const oldDark = JSON.parse(JSON.stringify(appearance.TOKENS));
 oldDark.tone.danger.value = "#f43f5e";
 same(toneShortfalls(lookIn(oldDark, appearance.LIGHT, "dark")), [["danger", "#ffffff"]], "control: the old dark danger falls short");
 
+// A light tone keeps its hue at icon size: an HSV saturation floor, which a
+// tone mixed toward the grey foreground drops under. The control restores
+// the grey-mixed success, which reads grey-olive beside the body text.
+const SATURATION_FLOOR = 0.6;
+function greyTones(look) {
+    return TONES.filter(tone => {
+        const c = themeLogic.parseColor(look.tone[tone]);
+        const high = Math.max(c.r, c.g, c.b);
+        return high === 0 || (high - Math.min(c.r, c.g, c.b)) / high < SATURATION_FLOOR;
+    });
+}
+same(greyTones(lookIn(appearance.TOKENS, appearance.LIGHT, "light")), [], "light tone icons keep their hue");
+const greySuccess = JSON.parse(JSON.stringify(appearance.LIGHT));
+greySuccess.tone.success = "mix(#b4c96f, #2a2a2a, 0.55)";
+same(toneShortfalls(lookIn(appearance.TOKENS, greySuccess, "light")), [], "the grey-mixed success meets 3:1, so only the saturation floor fails it");
+same(greyTones(lookIn(appearance.TOKENS, greySuccess, "light")), ["success"], "control: the grey-mixed success falls under the saturation floor");
+
 // CardSlot.qml plays the plain exit as toastMotion's fade, then its close,
 // one after the other, and the service's timers read toastMotion under the
 // state the slot reads: a source check of the two files, since the

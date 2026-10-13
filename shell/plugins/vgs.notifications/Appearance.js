@@ -344,10 +344,13 @@ var LIGHT = {
     edge: {
         neutral: "#ffffff"
     },
+    // Each dark tone darkened along its own hue, not mixed toward the grey
+    // foreground, which drains the hue at icon size; success turns from the
+    // dark tone's yellow-green to a green so it does not read olive.
     tone: {
-        success: "mix(#b4c96f, #2a2a2a, 0.55)",
-        warning: "mix(#ffb000, #2a2a2a, 0.55)",
-        danger: "mix(#f43f5e, #2a2a2a, 0.25)",
-        info: "mix(#74a7f7, #2a2a2a, 0.45)"
+        success: "#457a14",
+        warning: "#936500",
+        danger: "#c42a44",
+        info: "#2f6bc8"
     }
 };
