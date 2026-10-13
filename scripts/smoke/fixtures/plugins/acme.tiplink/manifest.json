@@ -1,0 +1,2 @@
+{ "schemaVersion": 1, "id": "acme.tiplink", "name": "Tip link", "version": "0.1.0", "author": "acme", "description": "smoke fixture whose bar tooltip names another plugin's page",
+  "kinds": ["bar-widget"], "entryPoints": { "bar-widget": "Widget.qml" }, "defaultSection": "right" }

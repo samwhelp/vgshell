@@ -40,7 +40,10 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // padding and what it draws, and reserves no room after it. The item is
 // never narrower than it is tall, and an item that draws an icon alone is
 // square, its icon centred. The tooltip reads `tooltip` as its title and
-// `tooltipDetails` as its quieter detail lines. `active` fills it with
+// `tooltipDetails` as its quieter detail lines. A page reference in either
+// draws as a link, which the pointer and the keyboard reach (Tooltip.qml),
+// and activating it emits `tooltipPageActivated` with its page and tab,
+// which a bar widget hands to `frame.openPage`. `active` fills it with
 // `bar.active`, as the focused workspace; otherwise a press fills it with
 // `bar.item.pressed`, and hover draws no fill, so the bar stays still
 // under a passing pointer. The template owns the click, hover and focus,
@@ -129,6 +132,7 @@ T.AbstractButton {
     property string tooltip: ""
     property var tooltipDetails: []
     property bool focusPreview: false
+    signal tooltipPageActivated(string page, string tab)
     // What a screen reader and a probe name the item: its text, or the
     // widget's name for an item that draws an icon alone.
     property string label: text
@@ -155,8 +159,14 @@ T.AbstractButton {
     PointerCursor {}
     opacity: enabled ? 1 : Theme.opacity.disabled
     Accessible.name: label
-    Keys.onReturnPressed: KeyNavLogic.activate(root)
-    Keys.onEnterPressed: KeyNavLogic.activate(root)
+    // The tooltip takes a key first, so a key on its current link opens the
+    // link's page and does not click the item. Keys emits `pressed` only
+    // for a key none of its own handlers took, and before the button reads
+    // Space (tst_baritem.qml test_a_tooltip_link_opens_its_page_from_the_keys
+    // under scripts/qml-unit.sh, Qt 6.11.2, on 2026-10-13).
+    Keys.onReturnPressed: event => { if (!tip.takeKey(event)) KeyNavLogic.activate(root); }
+    Keys.onEnterPressed: event => { if (!tip.takeKey(event)) KeyNavLogic.activate(root); }
+    Keys.onPressed: event => { event.accepted = tip.takeKey(event); }
 
     contentItem: Item {
         id: content
@@ -262,8 +272,11 @@ T.AbstractButton {
     }
 
     Tooltip {
+        id: tip
         text: root.tooltip !== "" ? root.tooltip
             : root.iconOnly || root.tooltipDetails.length > 0 || (root.label !== root.text && root.label !== root.count) ? root.label : ""
         details: root.tooltipDetails
+        pageLinks: true
+        onPageActivated: (page, tab) => root.tooltipPageActivated(page, tab)
     }
 }

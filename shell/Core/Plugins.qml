@@ -285,6 +285,7 @@ Singleton {
             describe: () => root.frameFacts(id, item),
             hide: () => root.setPlaced(id, false),
             openSettings: () => root.openSettingsPage(root.frameFacts(id, item).page),
+            openPage: (page, tab) => root.openSettingsPage(page, tab),
             openReadme: () => {
                 const url = root.frameFacts(id, item).readme;
                 return url === "" ? "refused: readme=none" : Capabilities.runDetached(DesktopLaunch.open(url));

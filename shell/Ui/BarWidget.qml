@@ -12,7 +12,9 @@ import qs.Ui
 // read and call: `describe()` answers { name, page, readme, keys, stops,
 // builtin, owner }, `hide()` takes the widget out of every bar section,
 // `openReadme()` opens `readme`, `openSettings()` opens Plugins on
-// `page`, `dragStart`, `dragMove` and `dragEnd` take the drag's points,
+// `page`, `openPage(page, tab)` opens Plugins on the page and tab a
+// BarItem's `tooltipPageActivated` names, `dragStart`, `dragMove` and
+// `dragEnd` take the drag's points,
 // and `dragCancel()` ends a remove
 // question, putting the widget back where the drag found it.
 //

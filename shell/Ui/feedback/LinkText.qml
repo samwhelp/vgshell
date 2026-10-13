@@ -24,12 +24,15 @@ import qs.Ui
 // The box runs on to the spaces around the occurrence, so punctuation
 // against it sits inside the ring, and the ring reaches sideways no
 // further than one space less a pixel, so it touches no neighbouring word.
+// `focusPreview` draws that ring for an owner that keeps the keyboard and
+// names this link as its current one, as a tooltip's item does.
 T.Control {
     id: root
 
     property string text: ""
     property string link: ""
     property string role: "body"
+    property bool focusPreview: false
     property alias color: label.color
     property alias wrapMode: label.wrapMode
     property alias horizontalAlignment: label.horizontalAlignment

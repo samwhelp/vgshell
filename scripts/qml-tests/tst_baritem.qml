@@ -25,7 +25,10 @@ import qs.Unit
 // one column so both readings start at one edge, and no single caption
 // stands before the block; a spinner stays the item gap before the
 // block; with one reading shown it stays one line; `active` fills it with `bar.active`; hover draws no fill and a
-// press fills it with `bar.item.pressed`; a click emits `clicked`.
+// press fills it with `bar.item.pressed`; a click emits `clicked`; a page
+// reference in its tooltip is a link its keys reach: Tab makes it
+// current, and Enter, Return or Space on it emits `tooltipPageActivated`
+// with the page and tab and clicks nothing.
 Item {
     id: root
     width: 300
@@ -36,6 +39,8 @@ Item {
     BarItem { id: pill; text: "1"; active: true; y: 80 }
     BarItem { id: spinner; iconName: "refresh-cw"; spinning: true; y: 120 }
     BarItem { id: tooltipItem; iconName: "settings"; label: "Settings"; tooltip: "Open settings"; tooltipDetails: ["Pinned in the bar"]; x: 80 }
+    BarItem { id: linkedItem; iconName: "settings"; label: "Probe"; tooltip: "Probe is not set up"; tooltipDetails: ["Finish in [Setup](page:acme.probe/Setup)."]; x: 120; y: 40; onClicked: root.clicks += 1 }
+    SignalSpy { id: pages; target: linkedItem; signalName: "tooltipPageActivated" }
     property int clicks: 0
     // The held readings draw red on black here, below every other item.
     Rectangle { id: canvas; y: 160; width: root.width; height: 100; color: "black" }
@@ -117,6 +122,35 @@ Item {
             const glyph = firstIcon(spinner);
             compare(glyph.visible, false);
             compare(spinner.width, spinner.height);
+        }
+
+        function test_a_tooltip_link_opens_its_page_from_the_keys_data() {
+            return [
+                { tag: "return", key: Qt.Key_Return },
+                { tag: "enter", key: Qt.Key_Enter },
+                { tag: "space", key: Qt.Key_Space }
+            ];
+        }
+
+        function test_a_tooltip_link_opens_its_page_from_the_keys(data) {
+            compare(UnitTheme.override({ tooltip: { delay: 20 } }), "ok");
+            pages.clear();
+            const tip = linkedItem.children.find(child => child.details !== undefined);
+            linkedItem.forceActiveFocus(Qt.TabFocusReason);
+            tryCompare(tip, "opened", true);
+            keyClick(Qt.Key_Tab);
+            compare(linkedItem.activeFocus, true, "Tab stays on the item and takes the link");
+            keyClick(data.key);
+            compare(pages.count, 1);
+            compare(pages.signalArguments[0][0], "acme.probe");
+            compare(pages.signalArguments[0][1], "Setup");
+            compare(root.clicks, 0, "the key on the link clicks nothing");
+            tryCompare(tip, "opened", false);
+            // With no link current the key is the item's own again.
+            keyClick(data.key);
+            compare(root.clicks, 1);
+            compare(pages.count, 1);
+            root.forceActiveFocus();
         }
 
         function test_tooltip_is_anchored_to_the_item() {

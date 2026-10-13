@@ -1,4 +1,4 @@
-# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* scripts/smoke/fixtures/devices/hid-world.json scripts/smoke/fixtures/devices/hid-fake.py config/shell.json shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.sudo/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json shell/Core/Capabilities.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Commons/Tokens.js shell/plugins/vgs.settings/* shell/plugins/vgs.agent-warden/* shell/plugins/vgs.ai-usage/* shell/plugins/vgs.capture/* shell/plugins/vgs.jarvis/* shell/plugins/vgs.power/* shell/plugins/vgs.traffic/* shell/plugins/vgs.updates/* shell/plugins/vgs.voice/* shell/plugins/vgs.sysmon/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/SummonPopup.qml shell/Commons/DesktopLaunch.js shell/Commons/AnchorTracker.qml
+# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* scripts/smoke/fixtures/devices/hid-world.json scripts/smoke/fixtures/devices/hid-fake.py config/shell.json shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.sudo/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json shell/Core/Capabilities.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Commons/Tokens.js shell/plugins/vgs.settings/* shell/plugins/vgs.agent-warden/* shell/plugins/vgs.ai-usage/* shell/plugins/vgs.capture/* shell/plugins/vgs.jarvis/* shell/plugins/vgs.power/* shell/plugins/vgs.traffic/* shell/plugins/vgs.updates/* shell/plugins/vgs.voice/* shell/plugins/vgs.sysmon/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/SummonPopup.qml shell/Commons/DesktopLaunch.js shell/Commons/AnchorTracker.qml scripts/smoke/fixtures/plugins/acme.tiplink/* shell/Ui/overlay/Tooltip.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js
 set -euo pipefail
 expect "instance guard accepts the runner's shell" true ipc shell guarded
 
@@ -1595,6 +1595,134 @@ cp -- "$spacer_saved" "$home/.config/vgshell/shell.json.tmp"
 mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
 start_shell "$repo" "$sandbox/bar-spacer-restored.log" || fail "the shell returns after the spacer checks"
 expect_poll "the restored profile holds no spacer" "$spacer_none" spacer_layout
+
+# A bar item's tooltip link, through the real pointer and the real keys.
+# Two row-time copies of the acme.tiplink fixture stand in the bar. Each
+# one's item tooltip names acme.idle's Details tab, the plugin this row
+# installed disabled above; the second copy, the control, has no
+# onTooltipPageActivated. The pointer rests on the item, crosses the gap
+# onto the link's words and stays there past the tooltip's grace, which
+# the copy's own timer counts, and a click on the words opens Settings on
+# that page and tab. No tooltip takes the keyboard: the welcome this shell
+# holds up keeps it while the tooltip is open under the pointer and after
+# it closes. The bar holds the keyboard only while a press holds a widget,
+# so the copy has its bar window take it, which is that reading's control:
+# the welcome then loses the keyboard. With the item focused as a Tab
+# focuses it, Tab takes the link and Enter opens the same page. A
+# tooltip with no link closes when the pointer leaves its item. The
+# control's tooltip draws the link and closes on the click, and Settings
+# stays closed.
+# These checks stand before the calendar's restarts, so the row ends on a
+# fresh shell: the bar window took the keyboard here, and a notice the
+# shell holds up does not take it back from a window that gave it up.
+tiplink_saved="$sandbox/bar-tiplink-saved.json"
+cp -- "$home/.config/vgshell/shell.json" "$tiplink_saved"
+tiplink_call() { ipc smoke invokeInstance "$(bar_key)" "$1" "$2" "${3:-}"; }
+tiplink_read() { ipc smoke readInstance "$(bar_key)" "$1" "$2"; }
+tiplink_shown() { ipc smoke readInstance window vgs.settings shownPage; }
+tiplink_unchanged() { if cmp -s -- "$home/.config/vgshell/shell.json" "$tiplink_saved"; then echo unchanged; else echo changed; fi; }
+# tiplink_at ID READER: the centre of the box READER answers, as `X Y`.
+tiplink_at() { tiplink_call "$1" "$2" | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(x+w/2), int(y+h/2))'; }
+tiplink_hover() { local x y; read -r x y < <(tiplink_at "$1" "$2") && [[ $x =~ ^[0-9]+$ && $y =~ ^[0-9]+$ ]] && hover "$x" "$y"; }
+tiplink_click() { local x y; read -r x y < <(tiplink_at "$1" "$2") && [[ $x =~ ^[0-9]+$ && $y =~ ^[0-9]+$ ]] && click "$x" "$y"; }
+# tiplink_bar_corner: a point on the bar's start edge, clear of both copies
+# in its right section.
+tiplink_bar_corner() { ipc smoke instanceGeometry "$(bar_key)" vgs.bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(x+2+int(sys.argv[1])), int(y+h/2))' "$1"; }
+tiplink_hide_settings() { # LABEL
+  expect "Settings is hidden after $1" ok ipc shell hide window vgs.settings
+  expect_poll "the Settings window is gone after $1" 0 window_count Plugins
+}
+expect "the page the tooltip names is a plugin the row installed" True plugin_known acme.idle
+install_plugin_copy acme.tiplink acme.tiplink "Tip link"
+install_plugin_copy acme.tiplink acme.tiplink-control "Tip link control"
+if python3 - "$home/.config/vgshell/plugins/acme.tiplink-control/Widget.qml" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+line = "        onTooltipPageActivated: (page, tab) => root.opened = root.frame.openPage(page, tab)\n"
+assert text.count(line) == 1, "the control's handler must occur once"
+path.write_text(text.replace(line, ""))
+PY
+then
+  rescan "rescan after installing the tooltip link fixtures answers ok"
+  expect_poll "the tooltip link widget is built in the bar" True record_exists acme.tiplink
+  expect_poll "the control's widget is built in the bar" True record_exists acme.tiplink-control
+  rest_pointer || fail "resting the pointer before the tooltip rows failed"
+
+  expect_poll "the welcome holds the keyboard before the tooltip rows" true ipc smoke noticeFocused
+  tiplink_hover acme.tiplink itemGeometry || fail "hovering the tooltip link item failed"
+  expect_poll "hovering the item opens its tooltip" true tiplink_read acme.tiplink tooltipOpen
+  tiplink_hover acme.tiplink linkGeometry || fail "moving the pointer onto the link failed"
+  expect_poll "the pointer reaches the link across the gap" true tiplink_read acme.tiplink tooltipHovered
+  if tiplink_waits="$(tiplink_read acme.tiplink waits)" && [[ $tiplink_waits =~ ^[0-9]+$ ]]; then
+    expect "the copy starts its wait past the grace" ok tiplink_call acme.tiplink startWait
+    expect_poll "the wait past the grace ran out" "$((tiplink_waits + 1))" tiplink_read acme.tiplink waits
+    expect "the tooltip stays open under the pointer past its grace" true tiplink_read acme.tiplink tooltipOpen
+  else
+    fail "the copy's wait count is unreadable: $tiplink_waits"
+  fi
+  expect "a tooltip with a link under the pointer leaves the keyboard with the welcome" true ipc smoke noticeFocused
+  rest_pointer || fail "moving the pointer off the link failed"
+  expect_poll "the tooltip closes after the pointer leaves it" false tiplink_read acme.tiplink tooltipOpen
+  expect "the closed tooltip leaves the keyboard with the welcome" true ipc smoke noticeFocused
+
+  expect "the bar window takes the keyboard" ok tiplink_call acme.tiplink holdKeyboard true
+  for tiplink_step in 0 1; do
+    read -r tiplink_x tiplink_y < <(tiplink_bar_corner "$tiplink_step") && [[ $tiplink_x =~ ^[0-9]+$ ]] && hover "$tiplink_x" "$tiplink_y" || fail "moving the pointer onto the bar failed"
+  done
+  expect_poll "the item holds the focus a Tab gives" true tiplink_call acme.tiplink focusItem
+  expect_poll "control: a bar window that holds the keyboard takes it from the welcome" false ipc smoke noticeFocused
+  expect_poll "keyboard focus opens the item's tooltip" true tiplink_read acme.tiplink tooltipOpen
+  expect "no link is current before Tab" -1 tiplink_read acme.tiplink currentLine
+  type_keys -k Tab || fail "sending Tab to the bar failed"
+  expect_poll "Tab makes the link current" 1 tiplink_read acme.tiplink currentLine
+  expect "Tab left the focus on the item" true tiplink_read acme.tiplink itemFocused
+  type_keys -k Return || fail "sending Enter to the bar failed"
+  expect_poll "Enter on the link opens Settings on the page and tab it names" '"acme.idle/Details"' tiplink_shown
+  expect_poll "Enter closes the tooltip" false tiplink_read acme.tiplink tooltipOpen
+  tiplink_hide_settings "the keyboard's link"
+  expect "the bar window gives the keyboard back" ok tiplink_call acme.tiplink holdKeyboard false
+  expect "the copy forgets the keyboard's answer" ok tiplink_call acme.tiplink forget
+  rest_pointer || fail "resting the pointer after the keys failed"
+
+  tiplink_hover acme.tiplink itemGeometry || fail "hovering the item for the click failed"
+  expect_poll "hovering the item opens its tooltip again" true tiplink_read acme.tiplink tooltipOpen
+  tiplink_hover acme.tiplink linkGeometry || fail "moving the pointer onto the link for the click failed"
+  expect_poll "the pointer reaches the link again" true tiplink_read acme.tiplink tooltipHovered
+  tiplink_click acme.tiplink linkGeometry || fail "the click on the link failed"
+  expect_poll "a click on the link opens Settings on the page and tab it names" '"acme.idle/Details"' tiplink_shown
+  expect "the frame answered the link ok" '"ok"' tiplink_read acme.tiplink opened
+  expect_poll "the click closes the tooltip" false tiplink_read acme.tiplink tooltipOpen
+  tiplink_hide_settings "the pointer's link"
+  rest_pointer || fail "resting the pointer after the link failed"
+
+  expect "the copy draws a tooltip with no link" ok tiplink_call acme.tiplink linkLine false
+  tiplink_hover acme.tiplink itemGeometry || fail "hovering the item with no link failed"
+  expect_poll "hovering the item opens its tooltip with no link" true tiplink_read acme.tiplink tooltipOpen
+  expect "the tooltip with no link draws none" absent tiplink_call acme.tiplink linkGeometry
+  rest_pointer || fail "moving the pointer off the item failed"
+  expect_poll "a tooltip with no link closes when the pointer leaves" false tiplink_read acme.tiplink tooltipOpen
+
+  tiplink_hover acme.tiplink-control itemGeometry || fail "control: hovering the item failed"
+  expect_poll "control: hovering the item opens its tooltip" true tiplink_read acme.tiplink-control tooltipOpen
+  tiplink_hover acme.tiplink-control linkGeometry || fail "control: moving the pointer onto the link failed"
+  expect_poll "control: the pointer reaches the link" true tiplink_read acme.tiplink-control tooltipHovered
+  tiplink_click acme.tiplink-control linkGeometry || fail "control: the click on the link failed"
+  expect_poll "control: the click closes the tooltip" false tiplink_read acme.tiplink-control tooltipOpen
+  expect "control: a widget without onTooltipPageActivated leaves Settings closed" absent tiplink_shown
+  expect "control: no Settings window opened" 0 window_count Plugins
+  rest_pointer || fail "resting the pointer after the control failed"
+else
+  fail "the tooltip link control's edit failed"
+fi
+rm -rf -- "${home:?}/.config/vgshell/plugins/acme.tiplink" "${home:?}/.config/vgshell/plugins/acme.tiplink-control"
+cp -- "$tiplink_saved" "$home/.config/vgshell/shell.json.tmp"
+mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
+rescan "rescan after removing the tooltip link fixtures answers ok"
+expect_poll "the tooltip link fixture is gone" False plugin_known acme.tiplink
+expect_poll "the tooltip link control is gone" False plugin_known acme.tiplink-control
+expect_poll "the tooltip rows leave the user file as they found it" unchanged tiplink_unchanged
+
 # The calendar's control: a calendar that marks no day fails the reading
 # that passed above.
 stop_shell
