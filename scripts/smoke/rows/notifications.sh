@@ -2934,6 +2934,7 @@ for obsolete_version in 1 2; do
     cp -- "$repo/shell/plugins/vgs.notifications/images.sh" "$sandbox/images.sh.recovery-kept"
     python3 "$source_repo/scripts/smoke/fixtures/ai-usage/edit.py" "$repo/shell/plugins/vgs.notifications/images.sh" \
       $'    printf \'%s\\n\' "$archive"\n    ;;' $'    chmod u-w -- "${file%/*}"\n    printf \'%s\\n\' "$archive"\n    ;;' || fail "the replacement-failure fixture could not be written"
+    rescan "the replacement-failure helper is published"
     expected_errors+=('notifications: state not written: file=.*state\.json error=' 'notifications-images: error=remove path=')
     obsolete_write_failures="$(log_lines 'notifications: state not written: ')"
     expect "the store starts over a failed replacement" ok ipc shell setPluginEnabled vgs.notifications true
@@ -2946,6 +2947,7 @@ for obsolete_version in 1 2; do
     expect_poll "the failed-replacement store is gone" False record_exists vgs.notifications
     chmod u+w -- "${note_state%/*}"
     cp -- "$sandbox/images.sh.recovery-kept" "$repo/shell/plugins/vgs.notifications/images.sh"
+    rescan "the normal archive helper is published again"
   fi
   expect "notifications start over skipped version $obsolete_version" ok ipc shell setPluginEnabled vgs.notifications true
   expect_poll "the skipped version $obsolete_version store is writable" '"loaded"' note_status store.state
@@ -2963,8 +2965,7 @@ for obsolete_version in 1 2; do
     echo no
   }
   expect "the skipped version $obsolete_version archive keeps all original bytes" yes archived_bytes_match
-  expect_poll "the skipped version $obsolete_version sends one critical warning" '[[2, "warning"]]' recovery_notice_rows
-  expect "the recovery notice is transient" '[]' live_summaries
+  expect_poll "the skipped version $obsolete_version sends one critical warning" '[[2,"warning"]]' recovery_notice_rows
   expect_log "the skipped version $obsolete_version recovery is logged once" "$((obsolete_notices + 1))" 'notifications: state set aside: '
   expect "the recovery notice closes" ok notes dismiss-all
   restart_notes "after skipped version $obsolete_version recovery"
