@@ -542,8 +542,9 @@ expect "the page draws the choices setting only" '[1, 0]' page_fields_of acme.st
 # The control comes first: a value that does not call for the action draws
 # no button, and the manager refuses the act and starts nothing. The
 # presses after it succeed, which clears each refusal from its line. The
-# Check, open with no action, holds the page's primary from the Token's
-# action; its own action then draws as the primary Button.
+# Check, a step of no group that offers no action, is no open step, so the
+# Token's action draws as the page's primary Button; the Check's own
+# action, once offered, takes the primary as the first open step.
 expected_errors+=('settings: acme\.status/(token|check) refused: action=(token|check) reason=not-offered')
 terminal_stand_in
 terminal_ready "the status actions"
@@ -559,7 +560,7 @@ expect_poll "the refusal reads under the Token line" '["Token", "Present", "This
 expect "the fixture publishes its token absent" ok ipc acme.status invoke set 'token="absent"'
 expect_poll "an absent token offers Set up token and the check offers nothing" '[["token", "Set up token", true], ["check", "Check again", false]]' offered_actions acme.status
 expect_poll "the Token row draws its Set up token action" '["Token", "Absent", "Set up token", "This setup step is not needed now."]' token_drawn
-settings_press --type RowAction "Set up token" || fail "the click on Set up token failed"
+settings_press "Set up token" || fail "the click on Set up token failed"
 expect_poll "Set up token hands the terminal the fixture's setup TUI" "$(words acme.status/setup tui/setup.sh)" recorded_tail
 expect_poll "the step that ran clears the Token line's refusal" '["Token", "Absent", "Set up token", "Needed for the fixture'"'"'s sync"]' token_drawn
 expect_run_end "the setup TUI's run ends" acme.status/setup
