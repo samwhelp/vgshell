@@ -13,7 +13,10 @@ import qs.Ui
 // focus leaves, on a press on the item, when the item hides, and it does
 // not open while another overlay is open. After a press it stays closed
 // until the pointer leaves the item, so it never covers what the press
-// opened. The declaring item is an invisible, sizeless member of its parent.
+// opened. It opens beside `box`, a rectangle in the item's coordinates,
+// the item's own box unless set, and wraps its text past `maxWidth`,
+// `tooltip.maxWidth` unless set. The declaring item is an invisible,
+// sizeless member of its parent.
 Item {
     id: root
 
@@ -22,6 +25,8 @@ Item {
     // An item with a label under it opens its tooltip to the right, so the
     // tooltip never covers that label.
     property string side: "below"
+    property rect box: Qt.rect(0, 0, anchorItem === null ? 0 : anchorItem.width, anchorItem === null ? 0 : anchorItem.height)
+    property real maxWidth: Theme.tooltip.maxWidth
     readonly property int edge: edgeFor(side)
     property bool shown: false
     readonly property bool opened: popup.item !== null && popup.item.visible
@@ -84,6 +89,10 @@ Item {
             id: window
 
             anchor.item: root.anchorItem
+            anchor.rect.x: root.box.x
+            anchor.rect.y: root.box.y
+            anchor.rect.width: root.box.width
+            anchor.rect.height: root.box.height
             // A negative margin grows the anchor rect past that edge, so the
             // popup opens the gap away from the item.
             anchor.edges: root.edge
@@ -98,9 +107,9 @@ Item {
             visible: root.shown
             readonly property AnchorTracker tracker: AnchorTracker { popup: window; anchor: root.anchorItem }
             color: "transparent"
-            // One line up to `tooltip.maxWidth`, then title and plain details
+            // One line up to `maxWidth`, then title and plain details
             // wrap; never wider than the output less its gutters.
-            readonly property real paddedWidth: Math.min(content.implicitWidth + 2 * Theme.tooltip.paddingX, OverlayState.widthFor(root.anchorItem, Theme.tooltip.maxWidth + 2 * Theme.tooltip.paddingX))
+            readonly property real paddedWidth: Math.min(content.implicitWidth + 2 * Theme.tooltip.paddingX, OverlayState.widthFor(root.anchorItem, root.maxWidth + 2 * Theme.tooltip.paddingX))
             implicitWidth: Math.max(1, paddedWidth)
             implicitHeight: Math.max(1, content.implicitHeight + 2 * Theme.tooltip.paddingY)
 
@@ -128,14 +137,14 @@ Item {
                 y: Theme.tooltip.paddingY
                 width: Math.max(0, window.width - 2 * sideInset.inset)
                 height: column.implicitHeight
-                implicitWidth: Math.min(Math.max(titleWidth, detailWidth), Theme.tooltip.maxWidth)
+                implicitWidth: Math.min(Math.max(titleWidth, detailWidth), root.maxWidth)
                 implicitHeight: column.implicitHeight
 
-                readonly property real titleWidth: Math.min(Math.ceil(titleLabel.implicitWidth), Theme.tooltip.maxWidth)
+                readonly property real titleWidth: Math.min(Math.ceil(titleLabel.implicitWidth), root.maxWidth)
                 readonly property real labelColumnWidth: detailColumn.maxColumn("labelImplicitWidth")
                 readonly property real valueColumnWidth: detailColumn.maxColumn("valueImplicitWidth")
                 readonly property real countWidth: labelColumnWidth > 0 || valueColumnWidth > 0 ? labelColumnWidth + Theme.tooltip.gap + valueColumnWidth : 0
-                readonly property real detailWidth: Math.min(Math.max(detailColumn.maxColumn("detailWidth"), countWidth), Theme.tooltip.maxWidth)
+                readonly property real detailWidth: Math.min(Math.max(detailColumn.maxColumn("detailWidth"), countWidth), root.maxWidth)
                 readonly property string detailRole: "itemHint"
                 readonly property int lineWrapMode: Text.Wrap
 
@@ -210,7 +219,7 @@ Item {
                                 Label {
                                     id: plainLabel
                                     objectName: "tooltipDetailLine"
-                                    property real detailWidth: Math.min(Math.ceil(implicitWidth), Theme.tooltip.maxWidth)
+                                    property real detailWidth: Math.min(Math.ceil(implicitWidth), root.maxWidth)
                                     visible: kind === "plain"
                                     role: content.detailRole
                                     text: kind === "plain" ? entry : ""

@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import Quickshell
 import qs.Commons
 import qs.Ui
 import qs.Unit
@@ -134,6 +135,31 @@ Item {
             keyClick(Qt.Key_Backtab);
             compare(control.activeFocus, true);
             compare(ring.visible, true);
+        }
+
+        // The stand-in window positions nothing; the anchor it is handed is
+        // what the compositor places the tooltip by. A tooltip under the
+        // label would cover the next row's label and control.
+        function test_a_label_tooltip_opens_beside_the_label_inside_the_row() {
+            const label = labelOf(explainedLabel);
+            const control = label.children.find(child => child.visualFocus !== undefined);
+            const tip = control.data.find(child => String(child).indexOf("Tooltip") === 0);
+            tip.text = "A tooltip long enough to wrap before it reaches the end edge of the row it explains.";
+            tip.shown = true;
+            try {
+                const popup = tip.tracker.popup;
+                const anchor = popup.anchor;
+                compare(anchor.item, control);
+                compare(anchor.edges, Edges.Right);
+                compare(anchor.gravity, Edges.Right);
+                const start = control.mapToItem(explainedLabel, anchor.rect.x + anchor.rect.width - anchor.margins.right, anchor.rect.y + anchor.rect.height / 2);
+                fuzzyCompare(start.x, explainedLabel.valueX, 1, "the tooltip starts on the value column's start edge");
+                fuzzyCompare(start.y, explainedLabel.labelBox / 2, 1, "the tooltip centres on the label's box");
+                verify(popup.implicitWidth <= explainedLabel.width - explainedLabel.valueX, "the tooltip ends inside the row: " + popup.implicitWidth);
+            } finally {
+                tip.shown = false;
+                tip.text = explainedLabel.labelTooltip;
+            }
         }
 
         function test_a_row_is_the_row_height_with_a_label_column() {

@@ -18,7 +18,10 @@ import qs.Ui
 // line starts at the row box's top. A label too long for its
 // column wraps onto as many lines as it needs and never elides; the row
 // grows to hold them. `labelTooltip`, when set, is the label's tooltip on
-// hover and keyboard focus. `warning` is the row's message:
+// hover and keyboard focus. It opens beside the label, on the value
+// column's start edge and centred on the label's box, and wraps to end
+// on the row's end edge, so it covers no other row's label or control and
+// stays inside the window. `warning` is the row's message:
 // text in the role `warningRole` names, `hint` unless set, under the value
 // column, `field.gap` below the row box and
 // wrapped to the column, in the colour `warningTone` names, `warning`,
@@ -125,7 +128,13 @@ Item {
             Accessible.role: Accessible.StaticText
             anchors.fill: parent
             activeFocusOnTab: root.labelTooltip !== "" && visible
-            Tooltip { text: root.labelTooltip }
+            Tooltip {
+                text: root.labelTooltip
+                side: "right"
+                // The side's gap from this box's end puts the tooltip on the value column's start edge.
+                box: Qt.rect(0, -labelText.y, root.valueX - Theme.tooltip.gap, root.labelBox)
+                maxWidth: Math.min(Theme.tooltip.maxWidth, root.valueRoom - 2 * Theme.tooltip.paddingX)
+            }
         }
         FocusRing { target: labelFocus; outside: true }
         role: "label"
