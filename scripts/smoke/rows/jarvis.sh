@@ -19,7 +19,7 @@
 # held. With Voice on too, Voice's toggle during a Jarvis recording answers
 # busy and changes neither recording. With both off, no voxtype process
 # runs. Each read polls once per nested IPC round trip.
-# inputs: scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/plugins/vgs.voice/* scripts/fixtures/jarvis-local-speech/standin.py shell/Core/Sounds.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
+# inputs: scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/plugins/vgs.voice/* scripts/fixtures/jarvis-local-speech/standin.py shell/Core/Sounds.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml
 set -euo pipefail
 expected_errors+=('WARN qml: jarvis: stderr=.*Killed.*')
 expected_errors+=('WARN qml: jarvis: stderr=jarvis: node=21[.]0[.]0 need=22')
@@ -1820,6 +1820,13 @@ expect_poll "the lock cancels Jarvis's recording" "- -" jarvis_dictation_recordi
 expect_poll "the lock reaches the stand-in as a cancel" "start cancel" jarvis_dictation_noted
 expect "the lock: the fixture unlocks without authentication" ok probe unlock
 expect "Voice enables beside Jarvis" ok ipc shell setPluginEnabled vgs.voice true
+# Voice's bridge is required and the row plants no stand-in of it, so
+# enabling Voice raises its requirement notice; Not now closes it, since a
+# notice outlives the plugin's disable.
+expect_poll "Voice beside Jarvis raises the notice for its bridge" '["vgs.voice", ["voxtype-audio-bridge"], ["voxtype-audio-bridge"], false]' notice_shown
+expect_poll "the Voice bridge notice holds the keyboard" true ipc smoke noticeFocused
+type_keys -k Escape || fail "sending Escape to the Voice bridge notice failed"
+expect_poll "Escape closes the Voice bridge notice" null notice_shown
 expect_poll "both holders are lent the one daemon" "ready running vgs.jarvis,vgs.voice" dictation_lent
 jarvis_dictation_talk "both on"
 expect "Voice's toggle during Jarvis's recording answers busy" "refused: dictation=busy holder=vgs.jarvis" ipc vgs.voice invoke toggle ""

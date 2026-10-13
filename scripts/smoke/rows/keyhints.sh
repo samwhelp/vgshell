@@ -56,7 +56,7 @@
 # the first frame's groups alone the build took 38 to 54 ms and the frame
 # was swapped 92 to 126 ms after the shortcut.
 # Hyprland consent wires the shortcuts before this row types its open key.
-# inputs: scripts/smoke/rows/hyprland-consent.sh shell/plugins/vgs.keyhints/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.voice/manifest.json shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/overlay/Tooltip.qml shell/Commons/AnchorTracker.qml shell/Hosts/AppWindow.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/HyprlandLayer.js bin/lib/qml-library.js
+# inputs: scripts/smoke/rows/hyprland-consent.sh shell/plugins/vgs.keyhints/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.voice/manifest.json shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/overlay/Tooltip.qml shell/Commons/AnchorTracker.qml shell/Hosts/AppWindow.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/HyprlandLayer.js bin/lib/qml-library.js shell/Core/Notices.qml shell/Hosts/NoticeHost.qml
 set -euo pipefail
 
 cp -p -- "$home/.config/vgshell/shell.json" "$sandbox/keyhints-initial-config.json"
@@ -173,8 +173,17 @@ expect "enabling Themes for its Key Hints row is allowed" ok ipc shell setPlugin
 expect_poll "the Themes shortcut reaches Hyprland before its row is read" True kh_bound_has vgs.themes:themes
 # Voice holds `dictation`, and no smoke shell finds voxtype.
 expected_errors+=("${dictation_absent_errors[@]}")
+# voxtype and its bridge are required, so enabling Voice raises their
+# requirement notice; Not now closes it before the Key Hints window opens.
+kh_voice_notice() { # LABEL
+  expect_poll "$1: enabling Voice raises the notice for voxtype and its bridge" '["vgs.voice", ["voxtype", "voxtype-audio-bridge"], ["voxtype", "voxtype-audio-bridge"], false]' notice_shown
+  expect_poll "$1: the Voice notice holds the keyboard" true ipc smoke noticeFocused
+  type_keys -k Escape || fail "$1: sending Escape to the Voice notice failed"
+  expect_poll "$1: Escape closes the Voice notice" null notice_shown
+}
 expect "enabling Voice is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "the Voice service is built" True record_exists vgs.voice
+kh_voice_notice "Voice on"
 expect "enabling Key Hints is allowed" ok ipc shell setPluginEnabled vgs.keyhints true
 expect_poll "the Key Hints service is built" True record_exists vgs.keyhints
 expect_poll "the Key Hints shortcut reaches Hyprland before its first key" True kh_bound_has vgs.keyhints:toggle
@@ -205,6 +214,7 @@ case "$kh_voice_before" in
   True)
     expect "Voice is enabled again as the row found it" ok ipc shell setPluginEnabled vgs.voice true
     expect_poll "the Voice service is built again" True record_exists vgs.voice
+    kh_voice_notice "Voice on again"
     ;;
   False) ;;
   *) fail "Voice's enabled state before the row: got $kh_voice_before" ;;

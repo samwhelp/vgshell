@@ -29,20 +29,23 @@
 # service's logic, one that shows the phase whatever the holder and one
 # whose toggle starts only while nobody records, each fail the reading
 # they break.
+# Enabling Voice without voxtype raises the requirement notice for voxtype
+# itself, which the row closes with Not now after each enable.
 # Without voxtype, the openTui IPC function, the launcher's route, raises
 # the Voice requirement notice in place of Configure and opens no script,
 # the notice drawing voxtype and its bridge under the one package of both;
-# its control is a disposable manifest copy whose Configure declares no
-# `requires`, which launches the script with no notice. The Plugins list
-# marks Voice with the warning icon of a missing optional tool, and no
-# Setup needed. The Voice page states voxtype missing once, in the
+# its control is a disposable manifest copy whose Configure requires
+# nothing, which launches the script with no notice. The Plugins list
+# marks Voice Setup needed, for voxtype and its bridge, with no warning
+# icon, since no optional tool is missing. The Voice page states voxtype missing once, in the
 # Requirements row on Setup: the tab draws no Setup section, no headline
 # and no step, since Install all missing installs it, and Details draws
 # Configure and Choose model, which are no setup screens and whose
-# `requires` name voxtype, disabled; Details states nothing of voxtype,
-# missing or found. Once set up, the section reads Ready with voxtype's
-# version and the model. Its control is a disposable manifest copy whose
-# Configure declares no `requires`, which draws Configure active. Install all missing raises the
+# `requires` name voxtype, disabled, with a hint that says why; Details
+# states no status of voxtype, missing or found. Once set up, the section
+# reads Ready with voxtype's version and the model. Its control is a
+# disposable manifest copy whose Configure requires nothing, which draws
+# Configure active. Install all missing raises the
 # notice for voxtype and its bridge, and its Install hands the terminal
 # voxtype-bin through the AUR helper, the row puts the stubs back as the
 # package step would, and the scan after the run closes the notice; Voice
@@ -1073,6 +1076,8 @@ voice_detail_screen() { # TEXT
   printf '%s %s\n' "$any" "$on"
 }
 voice_detail_screens() { printf '%s, %s\n' "$(voice_detail_screen Configure)" "$(voice_detail_screen "Choose model")"; }
+# Whether the Voice page's shown tab draws TEXT whole: `drawn` or `absent`.
+voice_page_text() { ipc smoke itemTexts window vgs.settings PluginPage | py_reply 'import json,sys; print("drawn" if sys.argv[1] in [t for texts in json.load(sys.stdin) for t in texts] else "absent")' "$1"; }
 voice_engine_installed() {
   cp -- "$sandbox/voice-voxtype.stub" "$voice_stub" && cp -- "$repo/scripts/smoke/fixtures/voxtype/wtype" "$voice_wtype" && cp -- "$sandbox/voice-bridge.stub" "$voice_bridge_stub" && chmod 755 "$voice_stub" "$voice_wtype" "$voice_bridge_stub"
 }
@@ -1083,6 +1088,13 @@ voice_notice_escape() { # LABEL
   expect_poll "$1: Escape closes the notice" null notice_shown
 }
 voice_asked='["vgs.voice", ["voxtype", "voxtype-audio-bridge"], ["voxtype", "voxtype-audio-bridge"], false]'
+# Enabling Voice without voxtype raises its notice by itself, since voxtype
+# and its bridge are required. Not now closes it, so each reading after an
+# enable starts with no notice shown.
+voice_enabled_notice() { # LABEL
+  expect_poll "$1: enabling Voice without voxtype raises the notice for voxtype and its bridge" "$voice_asked" notice_shown
+  voice_notice_escape "$1"
+}
 # How many items of the Voice page's shown tab state voxtype, once the tab
 # draws ANCHOR, else `unread`: the Requirements row named voxtype, each
 # status row and each line of the Setup tab's Status and Setup sections
@@ -1111,6 +1123,7 @@ expected_errors+=("${dictation_absent_errors[@]}")
 
 expect "enabling Voice without voxtype is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "Voice without voxtype is built" True record_exists vgs.voice
+voice_enabled_notice "enabling without voxtype"
 expect_poll "without voxtype Voice states no dictation sounds value and names voxtype" '[null,"missing"]' voice_feedback_state
 expect "without voxtype a dictation sounds choice is refused" 'refused: feedback="" reason=voxtype-missing' voice_feedback_choose ""
 expect "a choice refused without voxtype writes nothing" "$voice_feedback_sets_before" voice_feedback_sets_read
@@ -1148,9 +1161,9 @@ expect "no Configure run is asked for while the notice shows" idle key_idle vgs.
 expect "the terminal is handed no Configure script" absent recorded
 voice_notice_escape "the Configure notice"
 expect "Not now drops the Configure" '{}' voice_resumes
-# Control: a disposable manifest copy whose Configure declares no
-# `requires`, voxtype being optional, leaves the judge no command to find
-# missing, so the same open launches the script and raises no notice.
+# Control: a disposable manifest copy whose Configure requires nothing
+# leaves the judge no command to find missing, so the same open launches
+# the script and raises no notice.
 voice_manifest="$repo/shell/plugins/vgs.voice/manifest.json"
 cp -- "$voice_manifest" "$sandbox/voice-manifest-before"
 expect "disabling Voice for the requires control is allowed" ok ipc shell setPluginEnabled vgs.voice false
@@ -1160,13 +1173,13 @@ from pathlib import Path
 p = Path(sys.argv[1]); assert not p.is_symlink()
 manifest = json.loads(p.read_text())
 assert "voxtype" in manifest["tui"]["configure"]["requires"]
-assert next(r for r in manifest["requirements"] if r["command"] == "voxtype")["optional"] is True
-del manifest["tui"]["configure"]["requires"]
+manifest["tui"]["configure"]["requires"] = []
 p.write_text(json.dumps(manifest, indent=2) + "\n")
 PY
 rescan "the Voice requires control copy is scanned"
 expect "enabling Voice for the requires control is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "Voice builds for the requires control" True record_exists vgs.voice
+voice_enabled_notice "for the requires control"
 forget_record
 expect "control: openTui of the copy's Configure is answered" ok ipc shell openTui vgs.voice/configure
 expect_poll "control: a Configure without requires launches its script" "$(words vgs.voice/configure tui/configure.sh)" recorded_tail
@@ -1177,13 +1190,14 @@ cp -- "$sandbox/voice-manifest-before" "$voice_manifest"
 rescan "the shipped Voice manifest is scanned again"
 expect "enabling Voice after the requires control is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "Voice builds after the requires control" True record_exists vgs.voice
+voice_enabled_notice "after the requires control"
 
-# The Plugins list marks Voice with the warning icon of its missing
-# optional tools, voxtype and its bridge, and no Setup needed.
+# The Plugins list marks Voice Setup needed, for its missing required
+# voxtype and bridge, and draws no warning icon: no optional tool is missing.
 settings_page_open vgs.voice
 expect "the window shows its list for Voice's row" '' ipc smoke invokeInstance window vgs.settings showList ''
 expect_poll "the list is shown for Voice's row" '""' ipc smoke readInstance window vgs.settings page
-expect_poll "without voxtype Voice's row draws the optional icon and no Setup needed" "absent drawn" voice_list_marks
+expect_poll "without voxtype Voice's row draws Setup needed and no optional icon" "drawn absent" voice_list_marks
 settings_page_close vgs.voice
 settings_page_open vgs.voice
 settings_setup
@@ -1191,17 +1205,17 @@ settings_setup
 # draws no Setup section, no headline and no step, since the Requirements
 # section's Install all missing installs it. Configure and Choose model
 # are no setup screens: Details draws them, and they take no press while
-# voxtype, which both need, is missing. Details states nothing of voxtype.
-# The Setup tab's count is the reader's control.
+# voxtype, which both need, is missing; their row's hint says so. Details
+# states no status of voxtype. The Setup tab's count is the reader's control.
 expect_poll "the Setup tab draws no Setup section, so no headline, step or screen" absent voice_setup_section
 expect_poll "the Setup tab names voxtype once, in its Requirements row" 1 voice_page_voxtype Requirements
 settings_details
 expect_poll "the Details tab names nothing of voxtype" 0 voice_page_voxtype Readme
 expect_poll "Details draws the screens that need voxtype disabled" "drawn absent, drawn absent" voice_detail_screens
+expect_poll "Details says why the screens that need voxtype take no press" drawn voice_page_text "Configure, Choose model: Needs voxtype. Install all missing first."
 settings_setup
-# Control: a disposable manifest copy whose Configure declares no
-# `requires` draws Configure active: voxtype is optional, so Configure
-# then needs nothing missing.
+# Control: a disposable manifest copy whose Configure requires nothing
+# draws Configure active, and the hint names Choose model alone.
 cp -- "$voice_manifest" "$sandbox/voice-manifest-before"
 settings_page_close vgs.voice
 expect "disabling Voice for the Setup section control is allowed" ok ipc shell setPluginEnabled vgs.voice false
@@ -1211,21 +1225,24 @@ from pathlib import Path
 p = Path(sys.argv[1]); assert not p.is_symlink()
 manifest = json.loads(p.read_text())
 assert "voxtype" in manifest["tui"]["configure"]["requires"]
-del manifest["tui"]["configure"]["requires"]
+manifest["tui"]["configure"]["requires"] = []
 p.write_text(json.dumps(manifest, indent=2) + "\n")
 PY
 rescan "the Voice Setup section control copy is scanned"
 expect "enabling Voice for the Setup section control is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "Voice builds for the Setup section control" True record_exists vgs.voice
+voice_enabled_notice "for the Setup section control"
 settings_page_open vgs.voice
 settings_details
 expect_poll "control: a Configure with no requires draws active" "drawn enabled, drawn absent" voice_detail_screens
+expect_poll "control: the hint names only the screen that takes no press" drawn voice_page_text "Choose model: Needs voxtype. Install all missing first."
 settings_page_close vgs.voice
 expect "disabling Voice after the Setup section control is allowed" ok ipc shell setPluginEnabled vgs.voice false
 cp -- "$sandbox/voice-manifest-before" "$voice_manifest"
 rescan "the shipped Voice manifest is scanned again after the Setup section control"
 expect "enabling Voice after the Setup section control is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "Voice builds after the Setup section control" True record_exists vgs.voice
+voice_enabled_notice "after the Setup section control"
 settings_page_open vgs.voice
 settings_setup
 expect_poll "the Setup tab draws no Setup section again" absent voice_setup_section
@@ -1233,7 +1250,7 @@ expect_poll "the Setup tab draws no Setup section again" absent voice_setup_sect
 # Setup tab draws the Requirements row, whose Install all missing is the
 # page's one install.
 expect_poll "the Voice page offers no setup step without voxtype" '[]' offered_actions vgs.voice
-expect_poll "the Voice Requirements row says voxtype is optional" "$(words voxtype "Optional" "Captures speech and inserts dictated text")" voice_requirement_drawn
+expect_poll "the Voice Requirements row says voxtype is missing" "$(words voxtype Missing "Captures speech and inserts dictated text")" voice_requirement_drawn
 
 # Install all missing without voxtype: the notice installs voxtype and its
 # bridge, and the install opens no screen after it.
