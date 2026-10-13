@@ -13,8 +13,8 @@ import qs.Ui
 // occurrence reaches that line and the underline ends lower. Use it where a consumer
 // surface cites a file that the core can open through `vgshell edit`.
 // A page reference in the text, `[words](page:<plugin id>)` or
-// `[words](page:<plugin id>/<tab>)`, draws its words alone, as a link while
-// the text holds no `link` words and the reference names a page, so an
+// `[words](page:<plugin id>/<tab>)`, which PageReference.js reads, draws
+// its words alone, as a link while the text holds no `link` words and the reference names a page, so an
 // owner's fixed `link` gives way in a text that does not cite it, and activating it emits
 // `pageActivated` with that page and tab, "" for no tab, in place of
 // `activated`. The owner opens the page; a reference to no page, as
@@ -34,7 +34,7 @@ T.Control {
     property alias wrapMode: label.wrapMode
     property alias horizontalAlignment: label.horizontalAlignment
     readonly property alias lineCount: label.lineCount
-    readonly property var reference: pageReference(text)
+    readonly property var reference: PageReference.parse(text)
     // The text drawn and the words of it that are the link.
     readonly property string plain: reference.text
     // Whether the text cites `link`: a link it does not cite gives way to
@@ -59,13 +59,6 @@ T.Control {
     signal activated()
     signal pageActivated(string page, string tab)
     signal clicked()
-
-    function pageReference(value) {
-        const found = /\[([^\[\]]+)\]\(page:([^\s()\/]*)(?:\/([^\s()\/]+))?\)/.exec(value);
-        if (found === null) return { text: value, words: "", page: "", tab: "" };
-        return { text: value.slice(0, found.index) + found[1] + value.slice(found.index + found[0].length),
-            words: found[1], page: found[2], tab: found[3] === undefined ? "" : found[3] };
-    }
 
     function htmlEscaped(value) {
         return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
