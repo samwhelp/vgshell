@@ -23,6 +23,15 @@ import "ImageTextLogic.js" as Logic
 // Every image loads through ImagePool, which puts an asynchronous load in
 // Qt's pixmap cache before the text names the image, so no image decodes
 // on the GUI thread. An image whose load fails draws its alt text.
+//
+// `underlined` names plain words of the text whose first occurrence draws
+// over an underline in `underlineColor`, as LinkText's link does: its top
+// Inset.underlineTop under each line's baseline, not at the font's
+// underline position, where Qt draws a `<u>` and a descender meets it. A
+// hidden RichText twin of the drawn text gives the words' x and line,
+// since a Text reports no character position; it is made only while
+// there are words, and only for text with no image, which the twin would
+// load once more.
 Item {
     id: root
 
@@ -30,12 +39,18 @@ Item {
     property font font: Qt.font({ family: Theme.text.body.family, pixelSize: Theme.text.body.size, weight: Theme.text.body.weight })
     property color color: Theme.text.body.color
     property int maximumLineCount: 1
+    property string underlined: ""
+    property color underlineColor: color
     // Whether the text drawn is cut short, and the lines it draws.
     readonly property bool truncated: imageMode ? cutShort : drawn.truncated
     readonly property int lineCount: drawn.lineCount
     // The side of an image in pixels, and in device pixels.
     readonly property int imageSize: Math.floor(metrics.height)
     readonly property int deviceSize: Math.round(imageSize * Screen.devicePixelRatio)
+    // The underlined words' span on each drawn line, as { line, left,
+    // right }. The arguments name what the twin's layout depends on, since
+    // its positions are a function a binding cannot follow.
+    readonly property var underlineSpans: twinLoader.item !== null ? wordSpans(twinLoader.item.text, twinLoader.item.width, twinLoader.item.lineCount, drawn.lineCount) : []
 
     // url -> the pool's image, for every image the text names; the URLs
     // among them that failed, drawn as their alt text; whether the text
@@ -133,6 +148,31 @@ Item {
         failed = failing;
     }
 
+    function wordSpans(twinText, twinWidth, twinLines, drawnLines) {
+        const twin = twinLoader.item;
+        const plain = twin.getText(0, twin.length);
+        const at = plain.indexOf(underlined);
+        if (at === -1) return [];
+        const pitch = twin.contentHeight / Math.max(1, twinLines);
+        const lineOf = r => Math.floor((r.y + r.height / 2) / pitch);
+        const spans = [];
+        let span = null;
+        for (let i = at; i < at + underlined.length; i++) {
+            const glyph = twin.positionToRectangle(i);
+            const line = lineOf(glyph);
+            if (line >= drawnLines) break;
+            const next = twin.positionToRectangle(i + 1);
+            const right = lineOf(next) === line ? next.x : glyph.x + metrics.advanceWidth(plain.charAt(i));
+            if (span !== null && span.line === line) {
+                span.right = right;
+            } else {
+                span = { line: line, left: glyph.x, right: right };
+                spans.push(span);
+            }
+        }
+        return spans;
+    }
+
     FontMetrics {
         id: metrics
         font: root.font
@@ -156,5 +196,31 @@ Item {
         font: root.font
         color: root.color
         maximumLineCount: root.maximumLineCount
+    }
+
+    Repeater {
+        model: root.underlineSpans
+        Rectangle {
+            required property var modelData
+            x: modelData.left
+            y: drawn.baselineOffset + modelData.line * drawn.contentHeight / Math.max(1, drawn.lineCount) + Inset.underlineTop(metrics.descent)
+            width: modelData.right - modelData.left
+            height: Inset.underlineWidth(metrics.lineWidth)
+            color: root.underlineColor
+        }
+    }
+
+    Loader {
+        id: twinLoader
+        active: root.underlined !== "" && !root.imageMode
+        visible: false
+        sourceComponent: TextEdit {
+            readOnly: true
+            width: root.width
+            text: drawn.text
+            textFormat: TextEdit.RichText
+            font: root.font
+            wrapMode: drawn.wrapMode
+        }
     }
 }

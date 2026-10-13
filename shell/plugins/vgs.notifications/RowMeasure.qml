@@ -182,6 +182,9 @@ ColumnLayout {
         // body's fade is its colour's alpha, so an emoji draws at
         // full strength.
         segments: rowCard.bodySegments
+        // The page hint's words, underlined as a link; a measurer draws none.
+        underlined: root.measureOnly ? "" : rowCard.linkWords
+        underlineColor: rowCard.look.text.link
         color: rowCard.look.text.body.color
         font: Qt.font({ family: rowCard.look.font.family.sans, pixelSize: rowCard.look.text.body.size })
         maximumLineCount: Math.max(1, Math.floor(room / bodyMetrics.height))

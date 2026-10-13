@@ -67,9 +67,7 @@ T.Control {
     readonly property var underlined: linked && twin.length === plain.length ? wordSpans(twin.contentWidth, twin.contentHeight, twin.lineCount) : []
     // The label's distance from one line's baseline to the next.
     readonly property real linePitch: label.contentHeight / Math.max(1, label.lineCount)
-    // The font's own line thickness, as Qt draws an underline, kept to
-    // whole pixels.
-    readonly property real underlineThickness: Math.max(1, Math.round(underline.lineWidth))
+    readonly property real underlineThickness: Inset.underlineWidth(underline.lineWidth)
     // How far the ring's outer edge lies beside the run: the standard
     // offset and width, cut to one space less a pixel.
     readonly property real ringReach: Math.min(Theme.focusRing.offset + Theme.focusRing.width, spaceGlyph.advanceWidth - 1)

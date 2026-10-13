@@ -35,3 +35,18 @@ function controlPadding(pad, radius, height, contentHeight, step) {
 function listInset(radius, border, rowRadius) {
     return border + Math.max(0, radius - border - rowRadius);
 }
+
+// How far under a baseline a text's underline starts: one clear pixel row
+// under the font's descent, the depth its descenders keep to, so no glyph
+// meets the line. Qt Quick draws a link's or `<u>`'s underline at the
+// font's underline position, which a descender meets (Qt 6.11
+// qquicktextnodeengine.cpp, addTextDecorations).
+function underlineTop(descent) {
+    return Math.ceil(descent) + 1;
+}
+
+// An underline's thickness: the font's own line width, as Qt draws one,
+// kept to whole pixels.
+function underlineWidth(lineWidth) {
+    return Math.max(1, Math.round(lineWidth));
+}

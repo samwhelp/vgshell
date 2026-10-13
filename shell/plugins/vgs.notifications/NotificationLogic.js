@@ -142,12 +142,14 @@ function sanitizeBody(body, app, appIcon) {
 // kept tag may hold a `<` of its own, and inserting `<br/>` can split it
 // into a live image tag the input never held. With an x-vgs-page hint,
 // `page`, the first place its words stand whole in the text between tags
-// draws as LinkText draws a link, underlined in `linkColor`; a body without
+// draws in `linkColor`, as LinkText draws a link; the card draws the
+// words' underline under them (ImageText's `underlined`, pageWords), since
+// Qt draws a `<u>` underline where a descender meets it. A body without
 // them draws as it would with no hint. The words are read escaped, as the
 // core escapes the message (PluginLogic.notifyArgv) and not the hint.
 function styledBody(body, app, appIcon, page, linkColor) {
     var styled = stripImageTags(sanitizeBody(body, app, appIcon).replace(/\r\n|\r|\n/g, "<br/>"));
-    var words = page ? Commons.PageReference.parse(page).words.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : "";
+    var words = pageWords(page).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     if (words === "") return styled;
     var i = 0;
     while (i < styled.length) {
@@ -156,13 +158,18 @@ function styledBody(body, app, appIcon, page, linkColor) {
         var at = styled.slice(i, end).indexOf(words);
         if (at !== -1) {
             at += i;
-            return styled.slice(0, at) + "<font color=\"" + linkColor + "\"><u>" + words + "</u></font>" + styled.slice(at + words.length);
+            return styled.slice(0, at) + "<font color=\"" + linkColor + "\">" + words + "</font>" + styled.slice(at + words.length);
         }
         if (open === -1) break;
         var close = styled.indexOf(">", open);
         i = close === -1 ? styled.length : close + 1;
     }
     return styled;
+}
+
+// The plain words an x-vgs-page hint draws as the link, "" for no hint.
+function pageWords(page) {
+    return page ? Commons.PageReference.parse(page).words : "";
 }
 
 // A summary that opens with one glyph and two spaces already carries its

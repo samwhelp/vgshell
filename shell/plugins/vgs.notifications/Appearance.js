@@ -77,10 +77,14 @@ var TOKENS = {
     text: {
         // The hook's own neutral for a dark theme.
         foreground: color("#e8e8e8"),
-        // A 1 px shadow under a title lifts it off the glass: the header's,
-        // and the summary's, which the card draws a shade lighter.
-        shadow: color("alpha(#000000, 0.45)"),
-        summaryShadow: color("alpha(#000000, 0.4)"),
+        // A 1 px shadow under a title lifts light ink off dark glass: the
+        // header's, and the summary's, which the card draws a shade
+        // lighter. `lift` is black where black reads on the ink, so a light
+        // ink, and clear where the ink is dark, where a shadow would draw a
+        // second dark edge under every glyph.
+        lift: color("readable(#000000, {text.foreground}, alpha(#000000, 0))"),
+        shadow: color("mix(alpha(#000000, 0), {text.lift}, 0.45)"),
+        summaryShadow: color("mix(alpha(#000000, 0), {text.lift}, 0.4)"),
         title: { size: length(14), weight: weight(700) },
         // The subtitle is the inbox header's count and the label a
         // control's text, chrome at the 12 px floor
@@ -336,8 +340,7 @@ var TOKENS = {
 // Light mode: the hook's light toast, and the reference's light alphas.
 var LIGHT = {
     text: {
-        foreground: "#2a2a2a",
-        shadow: "alpha(#000000, 0.08)"
+        foreground: "#2a2a2a"
     },
     card: {
         base: "#f2f2f2",

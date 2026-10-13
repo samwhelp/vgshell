@@ -10,8 +10,9 @@ import qs.Ui
 // image that fails draws its alt text; and ImagePool shares one image per
 // URL and size between holders, keeps it for the next holder after the
 // last lets it go, up to its ceiling of idle images, and keeps no image
-// whose load failed. Pixels are read off grabs; the red of the fixture
-// image is never a colour of the text.
+// whose load failed; underlined words draw one underline run per line a
+// clear pixel row under the font's descent. Pixels are read off grabs; the
+// red of the fixture image is never a colour of the text.
 Item {
     id: root
     width: 420
@@ -26,6 +27,10 @@ Item {
         for (let i = 0; i < count; i++) out.push("word" + i);
         return out.join(" ");
     }
+
+    FontMetrics { id: faceMetrics; font: root.face }
+    TextMetrics { id: linkPrefix; font: root.face; text: "Open " }
+    TextMetrics { id: linkWords; font: root.face; text: "Keyring setup" }
 
     Component {
         id: textComponent
@@ -77,6 +82,49 @@ Item {
                 for (let x = 0; x < img.width; x++)
                     if (img.red(x, y) > 200 && img.green(x, y) < 60 && img.blue(x, y) < 60) best = Math.max(best, img.alpha(x, y));
             return best;
+        }
+
+        function underlines(item) {
+            const out = [];
+            for (const child of item.children)
+                if (child.modelData !== undefined) out.push(child);
+            return out;
+        }
+
+        // Each case: the text, the words, the line they are laid out on.
+        // The one run starts at the words and ends at their end, its top a
+        // clear pixel row under the descent, which the words' lowest ink
+        // stays above.
+        function test_underlined_words_keep_a_row_under_their_descenders() {
+            const link = "<font color=\"#ff5a36\">Keyring setup</font>";
+            const cases = [
+                ["Open " + link + " to finish.", 0],
+                [words(9) + " " + link + " to finish.", 1]
+            ];
+            for (const [markup, line] of cases) {
+                const item = make([{ markup: markup }], 3);
+                item.underlined = "Keyring setup";
+                const runs = underlines(item);
+                compare(runs.length, 1, markup + " draws one underline");
+                compare(runs[0].modelData.line, line);
+                const text = drawn(item);
+                const baseline = text.baselineOffset + line * text.contentHeight / text.lineCount;
+                const ink = faceMetrics.tightBoundingRect("Keyring setup");
+                verify(runs[0].y >= baseline + faceMetrics.descent + 1, "the underline starts " + (runs[0].y - baseline) + " px under the baseline, the descent is " + faceMetrics.descent);
+                verify(runs[0].y - (baseline + ink.y + ink.height) >= 1, "the words' ink ends " + (runs[0].y - baseline - ink.y - ink.height) + " px over the underline");
+                compare(runs[0].height, Math.max(1, Math.round(faceMetrics.lineWidth)));
+                verify(Math.abs(runs[0].width - linkWords.advanceWidth) <= 1, "the underline is the words' width: " + runs[0].width + ", not " + linkWords.advanceWidth);
+                if (line === 0) verify(Math.abs(runs[0].x - linkPrefix.advanceWidth) <= 1, "the underline starts at the words: " + runs[0].x + ", not " + linkPrefix.advanceWidth);
+            }
+        }
+
+        function test_text_without_the_words_or_with_an_image_draws_no_underline() {
+            const absent = make([{ markup: "Open Settings to finish." }], 1);
+            absent.underlined = "Keyring setup";
+            compare(underlines(absent).length, 0);
+            const imaged = make([{ markup: "Open Keyring setup " }, { image: root.red, alt: ":red:" }], 1);
+            imaged.underlined = "Keyring setup";
+            compare(underlines(imaged).length, 0);
         }
 
         function test_an_image_segment_draws_as_an_image_at_full_strength() {

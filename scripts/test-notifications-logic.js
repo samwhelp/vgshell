@@ -164,7 +164,7 @@ const AT_BOUND = "[" + "a".repeat(231) + "](page:acme.probe/Setup)";
 // A body drawing its x-vgs-page words as a link: [label, body, hint, what
 // the card renders].
 const LINK = "#ff5a36";
-const LINKED = words => '<font color="' + LINK + '"><u>' + words + "</u></font>";
+const LINKED = words => '<font color="' + LINK + '">' + words + "</font>";
 const LINKED_BODIES = [
     ["the words drawn as a link", "Open Setup to finish.", SETUP, "Open " + LINKED("Setup") + " to finish."],
     ["only the first place the words stand", "Setup, then Setup again.", SETUP, LINKED("Setup") + ", then Setup again."],
@@ -327,6 +327,8 @@ function verify(logic) {
         assert.equal(logic.styledBody(body, app, ""), want, "styled body: " + label);
     for (const [label, body, page, want] of LINKED_BODIES)
         assert.equal(logic.styledBody(body, "acme.probe", "", page, LINK), want, "linked body: " + label);
+    assert.equal(logic.pageWords(SETUP), "Setup", "the card underlines the hint's words");
+    assert.equal(logic.pageWords(""), "", "no hint underlines nothing");
     same(logic.pageTarget(SETUP), { page: "acme.probe", tab: "Setup" }, "a page hint opens its page on its tab");
     same(logic.pageTarget("[Cloud Sync](page:vgs.cloud-sync)"), { page: "vgs.cloud-sync", tab: "" }, "a page hint with no tab opens the page");
     assert.equal(logic.sanitizeBody("", "app", ""), "", "an empty body stays empty");
@@ -1481,7 +1483,8 @@ const CONTROLS = [
     ["a page click reaches its page", "if (route !== \"default\") return route !== \"dismiss\";", "if (route !== \"default\") return route === \"open\";"],
     ["a page hint opens its tab", "return { page: reference.page, tab: reference.tab };", "return { page: reference.page, tab: \"\" };"],
     ["a body draws the page words as a link", "return styled.slice(0, at) + \"<font", "return styled; (\"<font"],
-    ["the link words are read escaped", '.words.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : "";', '.words : "";'],
+    ["a link draws no underline of Qt's, which meets its descenders", "linkColor + \"\\\">\" + words + \"</font>\"", "linkColor + \"\\\"><u>\" + words + \"</u></font>\""],
+    ["the link words are read escaped", 'pageWords(page).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");', 'pageWords(page);'],
     ["the link words are read between tags", "var end = open === -1 ? styled.length : open;", "var end = styled.length;"],
     ["the state judge reads the hint values", "if (!hintValueFits(HINT_ROLES[h], hint)) return where + \".\" + HINT_ROLES[h] + \" refused\";", "if (false) return \"\";"],
     ["the state judge refuses a hint role that is no string", "if (typeof hint !== \"string\") return where + \".\" + HINT_ROLES[h] + \" want=string\";", "if (false) return \"\";"],
@@ -1619,6 +1622,20 @@ for (const mode of ["dark", "light"]) {
         same(textShortfalls(lookIn(faintTokens, faintLight, mode), role), mode === "dark" ? ["#ffffff"] : WALLPAPERS, "control: " + mode + " " + role + " at 0.5 fails the text floor");
     }
 }
+
+// A title's shadow lifts light ink off dark glass alone: the dark look
+// keeps the header's and the summary's, and the light look, dark ink on a
+// light card, resolves both clear. The control plants the fixed black
+// both looks drew, which the light look must refuse.
+function shadowAlphas(look) {
+    return [look.text.shadow, look.text.summaryShadow].map(value => Math.round(themeLogic.parseColor(value).a * 100) / 100);
+}
+same(shadowAlphas(lookIn(appearance.TOKENS, appearance.LIGHT, "dark")), [0.45, 0.4], "the dark titles keep their lift");
+same(shadowAlphas(lookIn(appearance.TOKENS, appearance.LIGHT, "light")), [0, 0], "the light titles draw no shadow");
+const fixedShadow = JSON.parse(JSON.stringify(appearance.TOKENS));
+fixedShadow.text.shadow.value = "alpha(#000000, 0.45)";
+fixedShadow.text.summaryShadow.value = "alpha(#000000, 0.4)";
+assert.throws(() => same(shadowAlphas(lookIn(fixedShadow, appearance.LIGHT, "light")), [0, 0]), { code: "ERR_ASSERTION" }, "control: a fixed black shadow under light titles fails");
 
 // A hinted icon's tone colour on the same glass, held to the non-text
 // floor (WCAG 2.2 SC 1.4.11) over both wallpapers. The controls restore the
