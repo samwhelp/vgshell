@@ -28,10 +28,10 @@ Capture takes PNG screenshots. It can save them, copy them, or do both. It also 
 
 | Setting | What it changes |
 | --- | --- |
-| Screenshot result | Save and copy, copy only, or save only. |
+| After capture | Save and copy, copy only, or save only. |
 | Screenshot folder | Empty uses Screenshots in your Pictures folder. A custom folder is an absolute path or starts with `~/`. |
 | Recording folder | Empty uses Screencasts in your Videos folder. |
-| Recording audio | None, desktop, microphone or both. |
+| Audio | None, desktop, microphone, or desktop and microphone. |
 | Text languages | Codes joined by +, such as eng+deu. English is installed with Capture. Install languages adds the data for the other chosen languages. |
 | Image viewer, Image editor, Video player | The command each notification button starts, with `%f` as the file. imv, Satty and mpv are the defaults. |
 

@@ -60,7 +60,7 @@
     },
     "snapshot": { "type": "enum", "label": "System snapshot", "description": "Save a system snapshot before updates when a snapshot tool is available", "options": [{ "value": "auto", "label": "Auto" }, { "value": "off", "label": "Off" }], "group": "Update options" },
     "trustPluginUpdates": { "type": "boolean", "label": "Trust plugin and theme updates", "description": "Show plugin and theme changes and apply them without confirmation", "group": "Update options" },
-    "reviewThirdParty": { "type": "boolean", "label": "Review third-party packages", "description": "An AI agent checks packages from outside your distribution's official repositories before they install.", "group": "Update options" },
+    "reviewThirdParty": { "type": "boolean", "label": "Review third-party packages", "description": "An AI agent checks packages from outside your distribution's official repositories before they install", "group": "Update options" },
     "reviewAgent": { "type": "string", "label": "AI agent", "description": "Choose the AI agent that checks the packages", "group": "Update options", "optionsFrom": "reviewAgents" },
     "reviewCommand": {
       "type": "string",

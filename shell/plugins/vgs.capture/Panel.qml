@@ -23,11 +23,10 @@ Item {
     readonly property bool languagesOffered: languagesRow !== null && languagesRow.action !== null && languagesRow.action.offered
     readonly property var modes: ["Screenshot", "Record", "Text"]
     readonly property int modeIndex: modes.indexOf(mode)
-    readonly property var processingChoices: [
-        { label: "Save and copy", value: "save-copy" },
-        { label: "Copy only", value: "copy" },
-        { label: "Save only", value: "save" }
-    ]
+    // Each option here names its setting and its choices as the Settings
+    // page does, from the manifest's schema entry.
+    readonly property var schema: shell === null ? ({}) : shell.manifest.schema
+    readonly property var processingChoices: choices("processing")
     // The usual delays, and the kept one when it is none of them. The
     // manifest gives `delay` no schema entry: the choice made here is kept
     // for the next open, and Settings draws no field for it.
@@ -38,25 +37,15 @@ Item {
         seconds.sort((a, b) => a - b);
         return seconds.map(value => ({ label: value === 0 ? "None" : value + " seconds", value: value }));
     }
-    readonly property var audioChoices: [
-        { label: "None", value: "none" },
-        { label: "Desktop", value: "desktop" },
-        { label: "Microphone", value: "microphone" },
-        { label: "Desktop and microphone", value: "both" }
-    ]
+    readonly property var audioChoices: choices("audio")
     // The language presets, and the saved value when Settings set codes no
     // preset names, such as eng+deu, so the select shows it.
     readonly property var languageChoices: {
-        const presets = shell === null ? [] : shell.manifest.schema.ocrLanguages.presets;
+        const presets = shell === null ? [] : schema.ocrLanguages.presets;
         const current = setting("ocrLanguages", "");
         return current === "" || presets.some(preset => preset.value === current) ? presets : presets.concat([{ label: current, value: current }]);
     }
-    readonly property var qualityChoices: [
-        { label: "Medium", value: "medium" },
-        { label: "High", value: "high" },
-        { label: "Very high", value: "very_high" },
-        { label: "Ultra", value: "ultra" }
-    ]
+    readonly property var qualityChoices: choices("quality")
     // Every target stays choosable and pressable while a tool it needs is
     // missing: the press reaches the service, which offers the install
     // notice, and the panel says why the action did not start.
@@ -92,6 +81,8 @@ Item {
         return reply;
     }
     function installLanguages() { return shell.status.act("languages"); }
+    function fieldLabel(key) { return schema[key] === undefined ? "" : schema[key].label; }
+    function choices(key) { return schema[key] === undefined ? [] : schema[key].options; }
     function setting(key, fallback) { return shell === null || shell.settings[key] === undefined ? fallback : shell.settings[key]; }
     function choiceIndex(choices, value) { return choices.findIndex(choice => choice.value === value); }
     function save(key, value) {
@@ -180,7 +171,7 @@ Item {
                     visible: root.mode === "Screenshot"
                     FormRow {
                         width: parent.width
-                        label: "After capture"
+                        label: root.fieldLabel("processing")
                         Select {
                             width: parent.width
                             model: root.processingChoices
@@ -208,7 +199,7 @@ Item {
                     }
                     FormRow {
                         width: parent.width
-                        label: "Show pointer"
+                        label: root.fieldLabel("cursor")
                         Switch {
                             checked: root.setting("cursor", false)
                             onClicked: { root.save("cursor", checked); checked = Qt.binding(() => root.setting("cursor", false)); }
@@ -222,7 +213,7 @@ Item {
                     visible: root.mode === "Record"
                     FormRow {
                         width: parent.width
-                        label: "Audio"
+                        label: root.fieldLabel("audio")
                         Select {
                             width: parent.width
                             model: root.audioChoices
@@ -236,7 +227,7 @@ Item {
                     }
                     FormRow {
                         width: parent.width
-                        label: "Quality"
+                        label: root.fieldLabel("quality")
                         Select {
                             width: parent.width
                             model: root.qualityChoices
@@ -250,7 +241,7 @@ Item {
                     }
                     FormRow {
                         width: parent.width
-                        label: "Show pointer"
+                        label: root.fieldLabel("recordCursor")
                         Switch {
                             checked: root.setting("recordCursor", false)
                             onClicked: { root.save("recordCursor", checked); checked = Qt.binding(() => root.setting("recordCursor", false)); }
@@ -258,7 +249,7 @@ Item {
                     }
                     FormRow {
                         width: parent.width
-                        label: "Camera"
+                        label: root.fieldLabel("webcam")
                         Switch {
                             checked: root.setting("webcam", false)
                             onClicked: { root.save("webcam", checked); checked = Qt.binding(() => root.setting("webcam", false)); }
@@ -272,7 +263,7 @@ Item {
                     visible: root.mode === "Text"
                     FormRow {
                         width: parent.width
-                        label: "Language"
+                        label: root.fieldLabel("ocrLanguages")
                         Select {
                             width: parent.width
                             model: root.languageChoices
