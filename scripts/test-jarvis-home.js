@@ -121,15 +121,15 @@ function shipped(folder, own = []) {
             harness + " holds the render alone");
     }
     assert.equal(fs.readFileSync(path.join(folder, RENDER, "SKILL.md"), "utf8").includes(PROJECT_INSTRUCTIONS), false, NO_PROJECT_INSTRUCTIONS);
-    for (const name of RENDERED) same(folder, name);
+    for (const name of RENDERED.filter(name => !own.includes(name))) same(folder, name);
 }
 // The paths VGS's record in a home names.
 const recordOf = folder => JSON.parse(fs.readFileSync(path.join(folder, RECORD), "utf8")).files;
 // Each named entry of a home with its inode and change time.
 function stamps(folder, names) {
     return names.map(name => {
-        const stat = fs.lstatSync(path.join(folder, name), { bigint: true });
-        return name + ":" + stat.ino + ":" + stat.mtimeNs;
+        const stat = fs.lstatSync(path.join(folder, name), { bigint: true, throwIfNoEntry: false });
+        return name + ":" + (stat === undefined ? "absent" : stat.ino + ":" + stat.mtimeNs);
     });
 }
 const keyed = (run, cause, label) => assert.throws(run, { message: "jarvis: home=" + cause }, label);
@@ -137,6 +137,22 @@ const write = (folder, name, text, mode) => {
     fs.mkdirSync(path.dirname(path.join(folder, name)), { recursive: true });
     fs.writeFileSync(path.join(folder, name), text, mode === undefined ? undefined : { mode });
 };
+// kendex's lock in a home, the record of what kendex installed there. A
+// kendex home's lock is cut from the shipped render's, whose entries are
+// the lock kendex writes for the package; LOCK_ENTRY makes one more.
+const LOCK = ".kendex-lock.json";
+const SHIPPED_LOCK = JSON.parse(fs.readFileSync(path.join(SHIPPED, LOCK), "utf8"));
+const SHIPPED_ENTRIES = Object.entries(SHIPPED_LOCK.entries);
+const lockEntry = (kind, name, harness, paths) =>
+    [kind + ":" + name + ":" + harness, { name, kind, harness, source: "kendex", enabled: true, emitted: { kind, name, paths } }];
+const writeLock = (folder, rows) => write(folder, LOCK, JSON.stringify({ version: SHIPPED_LOCK.version, entries: Object.fromEntries(rows) }, null, 2) + "\n");
+// Every entry kendex wrote in a home, the lock among them, with its inode
+// and change time.
+function kendexStamps(folder) {
+    const names = HARNESS.filter(harness => fs.lstatSync(path.join(folder, harness), { throwIfNoEntry: false })?.isDirectory())
+        .flatMap(harness => listing(path.join(folder, harness)).map(name => harness + "/" + name));
+    return stamps(folder, [LOCK, ...names]);
+}
 // The kendex mail tool in a home, where kendex's orch skill installs it.
 const TOOL = ".agents/skills/orch/scripts/lane-mail";
 // The package's declaration in the two release forms kendex shipped: v1.18,
@@ -255,23 +271,36 @@ world(() => {
         // What a VGS update with a changed render finds: a recorded file the
         // render no longer names goes, with each folder it leaves empty; a
         // recorded file changed by hand, or gone, is written again with its
-        // execute bit; a package path the user wrote before the first open is
-        // the package's. A file of the user's outside the record, beside a
-        // removed one among them, keeps every byte.
+        // execute bit. A file the user wrote at a package path before the
+        // first open stays the user's, unrecorded, where it differs from the
+        // render's in its bytes or its execute bit, and joins the record,
+        // unwritten, where it is the same. A file of the user's outside the
+        // record, beside a removed one among them, keeps every byte.
         update(Home) {
             const folder = fresh();
-            write(folder, ".claude/agents/cpa.md", "# Mine at a package path\n");
+            const lane = ".claude/skills/mailbox/scripts/lane-mail";
             const own = { "AGENTS.md": "# Mine\nMARKER\n", "skills/own/mine.md": "# Mine\n", ".claude/agents/mine.md": "# My agent\n",
-                ".agents/skills/kept/notes.md": "mine\n" };
-            for (const [name, text] of Object.entries(own)) write(folder, name, text);
+                ".agents/skills/kept/notes.md": "mine\n", ".claude/agents/cpa.md": "# Mine at a package path\n",
+                [lane]: fs.readFileSync(path.join(SHIPPED, lane), "utf8") };
+            for (const [name, text] of Object.entries(own)) write(folder, name, text, 0o644);
+            assert.equal(executable(path.join(SHIPPED, lane)), true, "the render's tool runs, the user's copy does not");
+            const equal = ".codex/agents/cpa.toml";
+            fs.mkdirSync(path.join(folder, ".codex/agents"), { recursive: true });
+            fs.copyFileSync(path.join(SHIPPED, equal), path.join(folder, equal));
+            fs.chmodSync(path.join(folder, equal), 0o644);
+            const joined = stamps(folder, [equal]);
+            assert.deepEqual(fs.readFileSync(path.join(folder, lane)), fs.readFileSync(path.join(SHIPPED, lane)), "the user's tool differs in its execute bit alone");
+            const users = [".claude/agents/cpa.md", lane];
+            const ours = RENDERED.filter(name => !users.includes(name));
             assert.doesNotThrow(() => Home.layout(folder));
             shipped(folder, Object.keys(own));
-            assert.deepEqual(recordOf(folder), RENDERED);
+            assert.deepEqual(stamps(folder, [equal]), joined, "a file the same as the render's is not written again");
+            assert.deepEqual(recordOf(folder), ours, "the user's differing files stay out of the record");
             // An older render named these, and VGS wrote them.
             const retired = [".agents/skills/retired/SKILL.md", ".agents/skills/retired/references/one.md", ".agents/skills/kept/SKILL.md",
                 ".claude/agents/retired.md"];
             for (const name of retired) write(folder, name, "# Retired\n");
-            fs.writeFileSync(path.join(folder, RECORD), JSON.stringify({ files: [...RENDERED, ...retired].sort() }) + "\n");
+            fs.writeFileSync(path.join(folder, RECORD), JSON.stringify({ files: [...ours, ...retired].sort() }) + "\n");
             // The user changed and removed recorded files by hand.
             fs.appendFileSync(path.join(folder, RENDER, "persona.md"), "my line\n");
             fs.chmodSync(path.join(folder, ".agents/skills/mailbox/scripts/lane-mail"), 0o644);
@@ -280,18 +309,18 @@ world(() => {
             assert.doesNotThrow(() => Home.layout(folder));
             for (const name of retired) assert.equal(fs.existsSync(path.join(folder, name)), false, name + " goes");
             shipped(folder, Object.keys(own));
-            for (const name of retired) assert.equal(fs.existsSync(path.join(folder, name)), false, name + " goes");
             assert.equal(fs.existsSync(path.join(folder, ".agents/skills/retired")), false, "a folder the removal leaves empty goes");
             assert.equal(fs.lstatSync(path.join(folder, ".agents/skills/kept")).isDirectory(), true, "a folder that holds a file of the user's stays");
             for (const [name, text] of Object.entries(own)) assert.equal(fs.readFileSync(path.join(folder, name), "utf8"), text, name + " keeps every byte");
             assert.deepEqual(stamps(folder, Object.keys(own)), before, "the update writes no file of the user's");
-            assert.deepEqual(recordOf(folder), RENDERED, "the record names the render's files alone");
+            assert.deepEqual(recordOf(folder), ours, "the record names the render's files alone");
             assert.deepEqual(listing(folder), laidOut(Object.keys(own)), "no scratch file is left");
         },
-        // A write cut short leaves every package file VGS wrote named in its
-        // record, so the next open finishes the work rather than taking the
-        // home for kendex's.
-        interrupted(Home) {
+        // A write cut short leaves no scratch file, and every package file
+        // VGS wrote named in its record, so the next open, by another process
+        // and with a render changed meanwhile, finishes the work: a file the
+        // cut open wrote is VGS's, never the user's.
+        interrupted(Home, backend = backendFolder) {
             const folder = fresh();
             let cut = false;
             fsFault("renameSync", (original, from, to) => {
@@ -303,8 +332,16 @@ world(() => {
             }, () => keyed(() => Home.layout(folder), "unwritable", "the cut write"));
             assert.equal(cut, true, "the fault reached a package write");
             assert.equal(fs.existsSync(path.join(folder, ".codex/agents/scout.toml")), false, "the cut file is not there");
-            assert.doesNotThrow(() => Home.layout(folder));
-            shipped(folder);
+            assert.deepEqual(listing(folder).filter(name => name.endsWith(".new")), [], "the cut write leaves no scratch file");
+            assert.equal(fs.existsSync(path.join(folder, RENDER, "persona.md")), true, "the cut open wrote the persona");
+            withRender(backend, render => fs.appendFileSync(path.join(render, RENDER, "persona.md"), "A newer line.\n"), (Newer, copy) => {
+                const opened = cp.spawnSync(process.execPath, ["-e", "require(process.argv[1]).use(process.argv[2]);"
+                    + " require(process.argv[3]).layout(process.argv[4]);", path.join(copy.backend, "Core.js"), copy.root,
+                    path.join(copy.backend, "Home.js"), folder], { env: { PATH: process.env.PATH }, encoding: "utf8", timeout: 30000 });
+                assert.equal(opened.status, 0, "another process opens the home: " + opened.stderr);
+                for (const name of RENDERED)
+                    assert.deepEqual(fs.readFileSync(path.join(folder, name)), fs.readFileSync(path.join(copy.root, "packaging/jarvis-home", name)), name);
+            });
             assert.deepEqual(recordOf(folder), RENDERED);
             assert.deepEqual(listing(folder), laidOut(), "no scratch file is left");
         },
@@ -345,6 +382,14 @@ world(() => {
             keyed(() => Home.skill(folder, "base/jarvis"), "absent", "the skill");
             assert.doesNotThrow(() => Home.layout(folder));
             shipped(folder);
+            // A home kendex installed the package in is kendex's to restore.
+            const kendexHome = kendex();
+            fs.rmSync(path.join(kendexHome, ".agents"), { recursive: true });
+            const before = kendexStamps(kendexHome);
+            keyed(() => Home.layout(kendexHome), "absent", "kendex's home");
+            keyed(() => Home.skills(kendexHome), "absent", "kendex's index");
+            assert.deepEqual(kendexStamps(kendexHome), before, "VGS writes no package file in kendex's home");
+            assert.deepEqual([RECORD, ".agents"].filter(name => fs.existsSync(path.join(kendexHome, name))), [], "nor a record");
         },
         // The CLAUDE.md VGS wrote before, a regular file of exactly its one
         // import line, goes, since Claude Code reads AGENTS.md itself and a
@@ -488,6 +533,8 @@ world(() => {
                 ["no persona", render => fs.rmSync(path.join(render, RENDER, "persona.md"))],
                 ["declared agent unlisted", render => unlist(render, wants.agents.at(-1))],
                 ["required skill unlisted", render => unlist(render, wants.skills[0])],
+                ["entry without paths", render => relock(render, value => { delete value.entries["agent:" + wants.agents.at(-1) + ":codex"].emitted; })],
+                ["paths no array", render => relock(render, value => { value.entries["agent:" + wants.agents.at(-1) + ":codex"].emitted.paths = ""; })],
                 ["lock version", render => relock(render, value => { value.version -= 1; })],
                 ["lock unreadable", render => fs.writeFileSync(path.join(render, ".kendex-lock.json"), "{")],
                 ["path outside", render => {
@@ -606,6 +653,7 @@ world(() => {
             // kendex's other skills and a flat file beside the package are no Jarvis skill.
             write(".agents/skills/mailbox/SKILL.md", "# Mailbox\n");
             write(".agents/skills/stray.md", "# Stray\n");
+            writeLock(folder, [lockEntry("skill", "jarvis", "codex", [RENDER]), lockEntry("skill", "mailbox", "codex", [".agents/skills/mailbox"])]);
             Home.layout(folder);
             write("skills/own/alpha.md", "\n# Alpha skill\nbody\n");
             write("skills/own/beta/SKILL.md", "---\nname: beta\ndescription: \"Load for beta work.\"\n---\n# Beta\n");
@@ -837,9 +885,10 @@ world(() => {
             assert.equal(Home.mailbox(folder), true, "the Jarvis session's mailbox folder");
             assert.deepEqual(fs.readdirSync(path.join(folder, "tmp/lane-mail/overseer")), [], "nothing is made in it");
         },
-        // A home kendex installed the package in, in a version other than
-        // the shipped one: no open writes a package file or a record there,
-        // its render keeps every byte, the open still removes an older
+        // A home kendex installed the package in, as its lock names the
+        // package's skill, in a version other than the shipped one: no open
+        // writes a package file or a record there, every file kendex wrote
+        // keeps every byte, the open still removes an older
         // skills/base, whatever stands there, and every read of the base
         // package is kendex's render. kendex's other skills and a flat
         // jarvis.md beside the render are no Jarvis skill.
@@ -853,14 +902,12 @@ world(() => {
                     fs.mkdirSync(path.join(folder, "skills"));
                     fs.symlinkSync(outside, path.join(folder, "skills/base"));
                 }
-                const before = stamps(folder, listing(path.join(folder, ".agents")).map(name => ".agents/" + name));
+                const before = kendexStamps(folder);
                 for (let update = 0; update < 2; update++) {
                     assert.doesNotThrow(() => Home.layout(folder), standing);
                     assert.equal(fs.lstatSync(path.join(folder, "skills/base"), { throwIfNoEntry: false }), undefined, standing + ": no skills/base");
-                    assert.deepEqual(stamps(folder, listing(path.join(folder, ".agents")).map(name => ".agents/" + name)), before,
-                        standing + ": the render keeps every byte");
-                    assert.deepEqual([RECORD, ".claude/agents", ".claude/skills", ".codex/agents"].filter(name => fs.existsSync(path.join(folder, name))), [],
-                        standing + ": no package file and no record of VGS's");
+                    assert.deepEqual(kendexStamps(folder), before, standing + ": every file kendex wrote keeps every byte");
+                    assert.equal(fs.existsSync(path.join(folder, RECORD)), false, standing + ": no record of VGS's");
                     assert.deepEqual([fs.readdirSync(outside), fs.readFileSync(path.join(outside, "SKILL.md"), "utf8")], [["SKILL.md"], "OUTSIDE\n"], standing);
                     assert.equal(Home.baseSet(folder), ".agents/skills");
                     assert.equal(Home.skill(folder, "base/jarvis"), fs.readFileSync(path.join(folder, RENDER, "SKILL.md"), "utf8"), "the brain's skill text is the render's");
@@ -871,6 +918,140 @@ world(() => {
                     keyed(() => Home.skill(folder, "base/orch"), "absent", "kendex's other skill");
                 }
             }
+        },
+        // kendex installed the package for Claude Code alone: its lock names
+        // the package's skill in that harness, so the home is kendex's in
+        // every harness. VGS writes nothing there, and the home, without the
+        // package where every brain reads it, answers absent.
+        claudeOnly(Home) {
+            const folder = fresh();
+            const claude = SHIPPED_ENTRIES.filter(([, entry]) => entry.harness === "claude");
+            assert.ok(claude.some(([, entry]) => entry.kind === "skill" && entry.name === "jarvis"), "the lock names the package for Claude Code");
+            for (const [, entry] of claude) for (const at of entry.emitted.paths) fs.cpSync(path.join(SHIPPED, at), path.join(folder, at), { recursive: true });
+            writeLock(folder, claude);
+            const before = kendexStamps(folder);
+            keyed(() => Home.layout(folder), "absent", "a home kendex installed for Claude Code alone");
+            assert.deepEqual(kendexStamps(folder), before, "every file kendex wrote keeps every byte");
+            assert.deepEqual([RECORD, ".agents", ".codex/agents"].filter(name => fs.existsSync(path.join(folder, name))), [], "VGS writes nothing");
+        },
+        // kendex installed the package in a home VGS laid out: its lock now
+        // names the package's skill, so VGS's record goes and every file,
+        // kendex's edits among them, stays as it is.
+        adopted(Home) {
+            const folder = fresh();
+            Home.layout(folder);
+            writeLock(folder, SHIPPED_ENTRIES);
+            fs.writeFileSync(path.join(folder, RENDER, "persona.md"), "# kendex's persona\n");
+            fs.writeFileSync(path.join(folder, ".claude/agents/cpa.md"), "---\nname: cpa\n---\n# kendex's cpa\n");
+            fs.rmSync(path.join(folder, ".codex/agents/scout.toml"));
+            const before = kendexStamps(folder);
+            for (let round = 0; round < 2; round++) {
+                assert.doesNotThrow(() => Home.layout(folder));
+                assert.equal(fs.existsSync(path.join(folder, RECORD)), false, "VGS's record goes");
+                assert.deepEqual(kendexStamps(folder), before, "kendex's edits survive, and nothing is written again");
+                assert.equal(fs.existsSync(path.join(folder, ".codex/agents/scout.toml")), false, "a file kendex removed stays removed");
+            }
+        },
+        // A home that holds kendex's orch and mailbox, as fleet setup leaves
+        // it, mailbox delivered for Claude Code as a copy or as a link to its
+        // .agents folder: the package is VGS's to write, the paths kendex's
+        // lock names are kendex's, never walked, written, recorded or
+        // dropped, and a mailbox VGS wrote before kendex took it leaves the
+        // record with kendex's bytes.
+        fleet(Home) {
+            const mailbox = [".agents/skills/mailbox", ".claude/skills/mailbox"];
+            for (const [delivery, vgsFirst] of [["copy", false], ["link", false], ["copy", true], ["link", true]]) {
+                const label = delivery + (vgsFirst ? " over VGS's copy" : "");
+                const folder = fresh();
+                if (vgsFirst) {
+                    Home.layout(folder);
+                    assert.deepEqual(recordOf(folder), RENDERED, label + ": VGS wrote the mailbox");
+                    for (const at of mailbox) fs.rmSync(path.join(folder, at), { recursive: true });
+                }
+                fs.cpSync(path.join(SHIPPED, mailbox[0]), path.join(folder, mailbox[0]), { recursive: true });
+                fs.writeFileSync(path.join(folder, mailbox[0], "README.md"), "# kendex's newer mailbox\n");
+                write(folder, ".agents/skills/orch/SKILL.md", "# Orch\n");
+                if (delivery === "copy") fs.cpSync(path.join(folder, mailbox[0]), path.join(folder, mailbox[1]), { recursive: true });
+                else {
+                    fs.mkdirSync(path.join(folder, ".claude/skills"), { recursive: true });
+                    fs.symlinkSync("../../.agents/skills/mailbox", path.join(folder, mailbox[1]));
+                }
+                writeLock(folder, ["codex", "claude"].flatMap(harness => [
+                    lockEntry("skill", "orch", harness, [(harness === "codex" ? ".agents" : ".claude") + "/skills/orch"]),
+                    lockEntry("skill", "mailbox", harness, [harness === "codex" ? mailbox[0] : mailbox[1]])]));
+                // Every entry kendex wrote: the lock, each skill folder or the
+                // link in its place, and each file below a folder.
+                const kendexOwn = () => stamps(folder, [LOCK, ...[...mailbox, ".agents/skills/orch"].flatMap(at =>
+                    [at, ...(fs.lstatSync(path.join(folder, at), { throwIfNoEntry: false })?.isDirectory() ? listing(path.join(folder, at)).map(name => at + "/" + name) : [])])]);
+                const before = kendexOwn();
+                assert.doesNotThrow(() => Home.layout(folder), label);
+                assert.deepEqual(kendexOwn(), before, label + ": every file kendex wrote keeps every byte");
+                if (delivery === "link") assert.equal(fs.lstatSync(path.join(folder, mailbox[1])).isSymbolicLink(), true, label + ": kendex's link stays");
+                const ours = RENDERED.filter(name => !mailbox.some(at => name.startsWith(at + "/")));
+                assert.ok(ours.length < RENDERED.length, "the render holds the mailbox");
+                for (const name of ours) same(folder, name);
+                assert.deepEqual(recordOf(folder), ours, label + ": the record names VGS's files alone");
+                assert.equal(Home.baseSet(folder), ".agents/skills");
+            }
+        },
+        // A kendex lock VGS cannot read refuses the home by its cause, and the
+        // open writes nothing: VGS cannot tell which files are kendex's.
+        kendexLock(Home) {
+            for (const [label, cause, plant] of [
+                ["link", "link", (at, outside) => { fs.writeFileSync(outside, JSON.stringify({ entries: {} })); fs.symlinkSync(outside, at); }],
+                ["folder", "kind", at => fs.mkdirSync(at)],
+                ["malformed", "kendex-lock", at => fs.writeFileSync(at, "{")],
+                ["no entries", "kendex-lock", at => fs.writeFileSync(at, "{\"version\": 11}\n")],
+                ["null entries", "kendex-lock", at => fs.writeFileSync(at, "{\"entries\": null}\n")],
+                ["text entries", "kendex-lock", at => fs.writeFileSync(at, "{\"entries\": \"skill:jarvis\"}\n")]
+            ]) {
+                const folder = fresh();
+                Home.layout(folder);
+                fs.appendFileSync(path.join(folder, RENDER, "persona.md"), "mine\n");
+                const outside = path.join(path.dirname(folder), "outside");
+                plant(path.join(folder, LOCK), outside);
+                const before = stamps(folder, [...RENDERED, RECORD]);
+                keyed(() => Home.layout(folder), cause, label);
+                assert.deepEqual(stamps(folder, [...RENDERED, RECORD]), before, label + ": nothing is written");
+                keyed(() => Home.release(folder), cause, label + ": release");
+                assert.deepEqual(stamps(folder, [...RENDERED, RECORD]), before, label + ": nothing is removed");
+            }
+        },
+        // Release, before kendex installs over a home VGS laid out: every
+        // file VGS recorded goes, with each folder that leaves empty, and the
+        // record, but a file at a path kendex's lock names and every file of
+        // the user's; a home without a record is left as it is. The next
+        // layout writes the package again.
+        release(Home) {
+            const folder = fresh();
+            Home.layout(folder);
+            const own = { "AGENTS.md": "# Mine\n", ".claude/agents/mine.md": "# My agent\n", "skills/own/mine.md": "# Mine\n" };
+            for (const [name, text] of Object.entries(own)) write(folder, name, text);
+            const before = stamps(folder, Object.keys(own));
+            assert.doesNotThrow(() => Home.release(folder));
+            assert.deepEqual(RENDERED.filter(name => fs.existsSync(path.join(folder, name))), [], "every file VGS wrote goes");
+            // The home's own top-level entries stay, an emptied .agents among them.
+            assert.deepEqual(listing(folder), [...new Set([...FILES, ...FOLDERS, ".agents", ...withFolders(Object.keys(own))])].sort(),
+                "the record and every folder below them the removal left empty go");
+            assert.deepEqual(stamps(folder, Object.keys(own)), before, "the user's files keep every byte");
+            assert.doesNotThrow(() => Home.release(folder), "a home without a record");
+            assert.deepEqual(stamps(folder, Object.keys(own)), before);
+            assert.doesNotThrow(() => Home.layout(folder));
+            shipped(folder, Object.keys(own));
+            // kendex took the mailbox meanwhile: its files stay.
+            const mailbox = ".agents/skills/mailbox";
+            writeLock(folder, [lockEntry("skill", "mailbox", "codex", [mailbox])]);
+            const kept = RENDERED.filter(name => name.startsWith(mailbox + "/"));
+            const held = stamps(folder, kept);
+            assert.doesNotThrow(() => Home.release(folder));
+            assert.deepEqual(stamps(folder, kept), held, "a file at a path kendex's lock names stays");
+            assert.deepEqual(RENDERED.filter(name => !kept.includes(name) && fs.existsSync(path.join(folder, name))), [], "the rest goes");
+            assert.equal(fs.existsSync(path.join(folder, RECORD)), false, "and the record");
+            // A kendex home holds no record of VGS's: nothing goes.
+            const kendexHome = kendex();
+            const untouched = kendexStamps(kendexHome);
+            assert.doesNotThrow(() => Home.release(kendexHome));
+            assert.deepEqual(kendexStamps(kendexHome), untouched, "a home without a record is left as it is");
         },
         // A kendex render that is partial, a link, or no tree of folders and
         // regular files refuses the home with its cause, at the open and at
@@ -893,22 +1074,25 @@ world(() => {
             ]) {
                 const folder = kendex();
                 spoil(folder);
+                const before = kendexStamps(folder);
                 keyed(() => Home.layout(folder), cause, label);
-                assert.deepEqual([RECORD, ".claude/agents", ".claude/skills", ".codex/agents"].filter(name => fs.existsSync(path.join(folder, name))), [],
-                    label + ": the refused open writes no package file");
+                assert.deepEqual(kendexStamps(folder), before, label + ": the refused open writes no package file");
+                assert.equal(fs.existsSync(path.join(folder, RECORD)), false, label + ": nor a record");
                 keyed(() => Home.skills(folder), cause, label + ": the index");
                 keyed(() => Home.skill(folder, "base/jarvis"), cause, label + ": the skill");
             }
         }
     };
     // A home kendex installed the package in, never opened by VGS: kendex's
-    // render of the jarvis skill in another version than the shipped one,
-    // with one more workflow, beside another kendex skill and a flat
-    // jarvis.md that is no part of the render.
+    // render of the package in both harnesses with its lock, the jarvis
+    // skill in another version than the shipped one, with one more
+    // workflow, beside another kendex skill and a flat jarvis.md that is no
+    // part of the render.
     function kendex() {
         const folder = fresh();
+        for (const harness of HARNESS) fs.cpSync(path.join(SHIPPED, harness), path.join(folder, harness), { recursive: true });
+        writeLock(folder, [...SHIPPED_ENTRIES, lockEntry("skill", "orch", "codex", [".agents/skills/orch"])]);
         const render = path.join(folder, RENDER);
-        fs.cpSync(path.join(SHIPPED, RENDER), render, { recursive: true });
         fs.writeFileSync(path.join(render, "SKILL.md"), "---\nname: jarvis\ndescription: Render.\n---\nRENDER-MARKER\n");
         fs.writeFileSync(path.join(render, "persona.md"), "# Render persona\n");
         fs.writeFileSync(path.join(render, "workflows/run.md"), "# Run\n");
@@ -921,7 +1105,8 @@ world(() => {
         fs.symlinkSync(target, path.join(folder, entry));
     }
     // CHECK on the Home.js of a copy of the backend in BACKEND whose tree
-    // holds a copy of the shipped render SPOIL changed.
+    // holds a copy of the shipped render SPOIL changed, and on the copy's
+    // {backend, root}.
     function withRender(backend, spoil, check) {
         const outer = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "render-"));
         try {
@@ -934,7 +1119,7 @@ world(() => {
             fs.cpSync(SHIPPED, render, { recursive: true });
             spoil(render);
             useTree(path.join(plugin, "backend"), root);
-            return check(require(path.join(plugin, "backend/Home.js")));
+            return check(require(path.join(plugin, "backend/Home.js")), { backend: path.join(plugin, "backend"), root });
         } finally { fs.rmSync(outer, { recursive: true, force: true }); }
     }
     // The gate keeps every model out of the render as out of the rest of the
@@ -1026,23 +1211,41 @@ world(() => {
         // The record and the sync.
         ["sync-record-first", "    record(fd, [...new Set([...kept, ...names])]);\n", "", "interrupted"],
         ["record-final", "    record(fd, names);\n", "", "update"],
-        ["drop-stale", "    for (const name of kept) if (!names.includes(name)) drop(fd, name);\n", "", "update"],
+        ["drop-stale", "    for (const name of kept) if (!names.includes(name) && !under(name, claimed)) drop(fd, name);\n", "", "update"],
         ["drop-empty-folders", "for (let depth = chain.length - 1; depth > 1; depth--) {", "for (let depth = chain.length - 1; depth > chain.length; depth--) {", "update"],
-        ["rewrite-changed", "return bytes(held, content.length).equals(content) && ((fs.fstatSync(held).mode & S_IXUSR) !== 0) === executable;",
-            "return true;", "update"],
+        ["rewrite-changed", 'return same ? "same" : "differs";', 'return "same";', "update"],
         ["rewrite-mode", " && ((fs.fstatSync(held).mode & S_IXUSR) !== 0) === executable;", ";", "update"],
         ["unchanged-no-write", "    if (before !== null && same && stale.length === 0) return;\n", "", "keeps"],
-        ["unchanged-compare", "!holds(fd, name, content, executable)", "true", "keeps"],
+        ["unchanged-compare", 'found.filter(([, state]) => state !== "same")', "found", "keeps"],
+        ["user-file-kept", 'state !== "differs" || kept.includes(name)', "true", "update"],
+        ["recorded-differs-rewritten", 'state !== "differs" || kept.includes(name)', 'state !== "differs"', "update"],
+        ["replace-scratch-cleanup", "        fs.rmSync(child(fd, scratch), { force: true });\n        throw error;", "        throw error;", "interrupted"],
         ["claude-shim-removed", '            fs.unlinkSync(Core.anchored().child(held.get("."), claude));\n', "            void claude;\n", "claudeShim"],
-        ["claude-shim-bytes", 'holds(held.get("."), claude, Buffer.from(shim), false)', "true", "claudeShim"],
+        ["claude-shim-bytes", 'compare(held.get("."), claude, Buffer.from(shim), false) === "same"', "true", "claudeShim"],
         ["claude-shim-mode", 'Buffer.from(shim), false)', "Buffer.from(shim), true)", "claudeShim"],
         ["claude-shim-file", 'kindOf(held.get("."), claude) === "file" && ', "", "claudeShim"],
-        ["kendex-home-untouched", 'if (before !== null || !rendersPackage(held.get("."))) sync(', "if (true) sync(", "render"],
+        ["kendex-home-untouched", "if (kendex?.jarvis) {", "if (false) {", "render"],
+        ["kendex-home-not-restored", "if (kendex?.jarvis) {", "if (false) {", "removed"],
+        ["kendex-any-harness", 'row?.kind === "skill" && row.name === PACKAGE', 'row?.kind === "skill" && row.name === PACKAGE && row.harness === "codex"', "claudeOnly"],
+        ["kendex-record-dropped", '            if (before !== null) fs.unlinkSync(Core.anchored().child(held.get("."), RECORD));\n', "            void before;\n", "adopted"],
+        ["claimed-skipped", "rendered().filter(([name]) => !under(name, claimed))", "rendered()", "fleet"],
+        ["claimed-not-dropped", "if (!names.includes(name) && !under(name, claimed)) drop(fd, name);", "if (!names.includes(name)) drop(fd, name);", "fleet"],
+        ["claimed-below", 'name === at || name.startsWith(at + "/")', "name === at", "fleet"],
+        ["kendex-lock-link", '    if (kind === "link") fail("link");\n    if (kind !== "file") fail("kind");\n    const held = fs.openSync(Core.anchored().child(fd, LOCK)',
+            '    if (kind !== "file") fail("kind");\n    const held = fs.openSync(Core.anchored().child(fd, LOCK)', "kendexLock"],
+        ["kendex-lock-entries", '    if (entries === null || typeof entries !== "object") fail("kendex-lock");\n', "", "kendexLock"],
+        ["kendex-lock-parse", "    catch {}\n    finally { fs.closeSync(held); }", "    catch (error) { throw error; }\n    finally { fs.closeSync(held); }", "kendexLock"],
+        ["release-drop", "        for (const name of before) if (!under(name, kendex === null ? [] : kendex.paths)) drop(fd, name);\n", "", "release"],
+        ["release-kendex-kept", "if (!under(name, kendex === null ? [] : kendex.paths)) drop(fd, name);", "drop(fd, name);", "release"],
+        ["release-record", "        fs.unlinkSync(Core.anchored().child(fd, RECORD));\n", "", "release"],
+        ["release-no-record", "        if (before === null) return;\n", "", "release"],
+        ["emitted-paths-array", '            if (!Array.isArray(entry.emitted?.paths)) fail("package");\n', "", "renderBroken"],
         ["migration-removes-skills-base", '        fs.rmSync(Core.anchored().child(held.get("skills"), path.basename(OLD_COPY)), { recursive: true, force: true });\n',
             "        void OLD_COPY;\n", "migration"],
         ["package-link", '            if (kind === "link") fail("link");\n            if (kind === "absent") {', '            if (kind === "absent") {', "packageLinks"],
         ["package-file-link", '        if (kind === "link") fail("link");\n        if (kind !== "file") fail("kind");', '        if (kind !== "file") fail("kind");', "packageLinks"],
-        ["record-link", '    if (kind === "absent") return null;\n    if (kind === "link") fail("link");\n', '    if (kind === "absent") return null;\n', "records"],
+        ["record-link", '    if (kind === "link") fail("link");\n    if (kind !== "file") fail("kind");\n    const held = fs.openSync(Core.anchored().child(fd, RECORD)',
+            '    if (kind !== "file") fail("kind");\n    const held = fs.openSync(Core.anchored().child(fd, RECORD)', "records"],
         ["record-shape", "!Array.isArray(files) || ", "", "records"],
         ["record-plain", " || !files.every(name => plainParts(name) !== null)", "", "records"],
         ["source-absent", 'if (kind === "absent") return fail("absent");', 'if (kind === "absent") return fail("package");', "removed"],

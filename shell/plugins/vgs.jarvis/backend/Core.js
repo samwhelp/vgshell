@@ -1,6 +1,6 @@
 // The core files the Jarvis backend reads: the account rule, the account
 // discovery, the anchored walk, the Codex account reader and the render of
-// the Jarvis package every Jarvis home holds. Plugin files
+// the Jarvis package VGS ships. Plugin files
 // run from a published snapshot (D014), so no path relative to this file
 // reaches the core; each entry point hands use() the VGS tree it is given
 // as --tree before it loads Accounts.js, Denied.js or Files.js, and those

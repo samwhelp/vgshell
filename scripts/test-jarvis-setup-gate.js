@@ -1887,8 +1887,10 @@ try {
     }
     // The Agent fleet row's reader, backend/fleet-setup.js, run as the
     // service and the setup terminal run it, over a scratch HOME: no home,
-    // a home without the mail tool, then the same home with it. Its control
-    // is a copy whose status reads no tool.
+    // a home without the mail tool, then the same home with it; and its
+    // release of the package files VGS recorded, before kendex installs over
+    // them. Its controls are a copy whose status reads no tool and a copy
+    // whose release removes nothing.
     const backendDir = path.join(path.dirname(file), "backend");
     const fleetReader = helperFile => {
         const scratch = fs.mkdtempSync(path.join(temp, "fleet-home-"));
@@ -1920,6 +1922,24 @@ try {
         assert.equal(status("~/Jarvis"), "hidden", "a home with the mail tool needs no setup");
         assert.deepEqual(answer("tool", "~/Jarvis"), [0, tool + "\n"]);
         assert.deepEqual(answer("bogus", "~/Jarvis"), [2, "jarvis: fleet-setup=arguments\n"]);
+        // The release: the files VGS's record names go, with the record; the
+        // user's file beside them and the kendex mail tool stay.
+        const record = path.join(folder, ".vgs-package.json");
+        const recorded = path.join(folder, ".claude/agents/cpa.md");
+        const mine = path.join(folder, ".claude/agents/mine.md");
+        fs.mkdirSync(path.dirname(recorded), { recursive: true });
+        fs.writeFileSync(recorded, "# cpa\n");
+        fs.writeFileSync(mine, "# Mine\n");
+        for (const setting of ["", "Jarvis"]) assert.deepEqual(answer("release", setting), [1, "jarvis: fleet-setup=home-unchosen\n"]);
+        fs.writeFileSync(record, "{");
+        assert.deepEqual(answer("release", "~/Jarvis"), [1, "jarvis: fleet-setup=release-failed jarvis: home=record\n"], "a record VGS cannot read");
+        assert.equal(fs.existsSync(recorded), true, "a refused release removes nothing");
+        fs.writeFileSync(record, JSON.stringify({ files: [".claude/agents/cpa.md"] }) + "\n");
+        assert.deepEqual(answer("release", "~/Jarvis"), [0, ""]);
+        assert.deepEqual([record, recorded, mine, tool].map(at => fs.existsSync(at)), [false, false, true, true],
+            "the recorded file and the record go; the user's file and kendex's tool stay");
+        assert.deepEqual(answer("release", "~/Jarvis"), [0, ""], "a home without a record");
+        assert.equal(fs.readFileSync(mine, "utf8"), "# Mine\n");
     };
     fleetReader(path.join(backendDir, "fleet-setup.js"));
     {
@@ -1933,6 +1953,11 @@ try {
         fs.writeFileSync(path.join(plugin, "backend/fleet-setup.js"), reader.replace(needle, "const tool = null;"));
         assert.throws(() => fleetReader(path.join(plugin, "backend/fleet-setup.js")), assert.AssertionError, "a reader that finds no tool turns red");
         console.log("test-jarvis-setup-gate: control=fleet-reader-tool rejected=true");
+        const releases = "        try { Home.release(folder); }\n";
+        assert.equal(reader.split(releases).length, 2, "the fleet release control's text occurs once");
+        fs.writeFileSync(path.join(plugin, "backend/fleet-setup.js"), reader.replace(releases, "        try { void Home; }\n"));
+        assert.throws(() => fleetReader(path.join(plugin, "backend/fleet-setup.js")), assert.AssertionError, "a release that removes nothing turns red");
+        console.log("test-jarvis-setup-gate: control=fleet-reader-release rejected=true");
     }
     {
         // The no-home row as main shipped it before VGS-1520: Cannot start in

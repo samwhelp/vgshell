@@ -6,13 +6,16 @@
 // prints the home folder SETTING names, and tool the path of the kendex mail
 // tool in it (Home.mailTool); either exits 1 with a keyed line,
 // `jarvis: fleet-setup=home-unchosen` or `jarvis: fleet-setup=tool-absent`,
-// where there is none.
+// where there is none. release removes the Jarvis package files VGS wrote
+// in that folder (Home.release), so kendex can install over them, and exits
+// 1 with `jarvis: fleet-setup=home-unchosen`, or `release-failed` and the
+// home's own key, where it cannot.
 "use strict";
 const path = require("node:path");
 
 function main() {
     const [flag, tree, verb, setting, ...rest] = process.argv.slice(2);
-    if (flag !== "--tree" || !path.isAbsolute(tree || "") || !["status", "folder", "tool"].includes(verb)
+    if (flag !== "--tree" || !path.isAbsolute(tree || "") || !["status", "folder", "tool", "release"].includes(verb)
             || typeof setting !== "string" || rest.length > 0) {
         process.stderr.write("jarvis: fleet-setup=arguments\n");
         return 2;
@@ -24,6 +27,19 @@ function main() {
     catch (error) {
         // A setting the daemon refuses is the home row's to show.
         if (!/^jarvis: home=/.test(error.message)) throw error;
+    }
+    if (verb === "release") {
+        if (folder === null) {
+            process.stderr.write("jarvis: fleet-setup=home-unchosen\n");
+            return 1;
+        }
+        try { Home.release(folder); }
+        catch (error) {
+            if (!/^jarvis: home=/.test(error.message)) throw error;
+            process.stderr.write("jarvis: fleet-setup=release-failed " + error.message + "\n");
+            return 1;
+        }
+        return 0;
     }
     const tool = folder === null ? null : Home.mailTool(folder);
     if (verb === "status") {

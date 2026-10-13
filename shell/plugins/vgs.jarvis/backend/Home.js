@@ -46,8 +46,7 @@ const LOCK_VERSION = 11;
 // harness's settings as well, which nothing here writes yet.
 const COPIED_KINDS = Object.freeze(["skill", "agent"]);
 // VGS's record of the package files it wrote in a home, {files: [path]}, so
-// it replaces and removes those files only. A home that holds RENDER/PACKAGE
-// without it is kendex's, and VGS writes no package file there.
+// it replaces and removes those files only.
 const RECORD = ".vgs-package.json";
 const RECORD_BYTES = 1 << 20;
 // VGS's copy of the package before the home took kendex's layout.
@@ -356,28 +355,35 @@ function replace(fd, file, content, executable) {
     const mode = executable ? 0o755 : 0o644;
     const held = fs.openSync(child(fd, scratch), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, mode);
     try {
-        fs.writeFileSync(held, content);
-        // The process umask can clear bits the open asked for.
-        fs.fchmodSync(held, mode);
-    } finally { fs.closeSync(held); }
-    fs.renameSync(child(fd, scratch), child(fd, file));
+        try {
+            fs.writeFileSync(held, content);
+            // The process umask can clear bits the open asked for.
+            fs.fchmodSync(held, mode);
+        } finally { fs.closeSync(held); }
+        fs.renameSync(child(fd, scratch), child(fd, file));
+    } catch (error) {
+        fs.rmSync(child(fd, scratch), { force: true });
+        throw error;
+    }
 }
 
-// Whether the home held as FD holds NAME, a plain path, as a regular file
-// with CONTENT and the EXECUTABLE bit. A link on the way or in its place
-// throws home=link, and an entry of another kind home=kind.
-function holds(fd, name, content, executable) {
+// What the home held as FD holds at NAME, a plain path, beside a file of
+// CONTENT and the EXECUTABLE bit: "absent", "same" or "differs". A link on
+// the way or in its place throws home=link, and an entry of another kind
+// home=kind.
+function compare(fd, name, content, executable) {
     const parts = name.split("/");
     return along(fd, parts.slice(0, -1), false, chain => {
-        if (chain === null) return false;
+        if (chain === null) return "absent";
         const parent = chain[chain.length - 1];
         const kind = kindOf(parent, parts[parts.length - 1]);
-        if (kind === "absent") return false;
+        if (kind === "absent") return "absent";
         if (kind === "link") fail("link");
         if (kind !== "file") fail("kind");
         const held = fs.openSync(Core.anchored().child(parent, parts[parts.length - 1]), O_RDONLY | O_NONBLOCK | O_NOFOLLOW);
         try {
-            return bytes(held, content.length).equals(content) && ((fs.fstatSync(held).mode & S_IXUSR) !== 0) === executable;
+            const same = bytes(held, content.length).equals(content) && ((fs.fstatSync(held).mode & S_IXUSR) !== 0) === executable;
+            return same ? "same" : "differs";
         } finally { fs.closeSync(held); }
     });
 }
@@ -403,24 +409,33 @@ function drop(fd, name) {
     });
 }
 
+// Whether NAME, a plain path, is one of PATHS or lies below one.
+function under(name, paths) {
+    return paths.some(at => name === at || name.startsWith(at + "/"));
+}
+
 // Make the home held as FD, whose record named BEFORE (null for none), hold
-// the render's package files, and none of BEFORE's the render dropped; a
-// file of the home's own under a package path is replaced. The record names
-// every file before it is written, so a write cut short leaves no file of
-// VGS's out of it, and the next open finishes the work.
-function sync(fd, before) {
-    const files = rendered();
-    const names = files.map(([name]) => name);
+// the render's package files but at a path below CLAIMED, kendex's, and
+// none of BEFORE's the render dropped. A file VGS did not write that differs
+// from the render's stays the user's, unrecorded; one already equal joins
+// the record. A path kendex took leaves the record and keeps its file. The
+// record names every file before it is written, so a write cut short leaves
+// no file of VGS's out of it, and the next open finishes the work.
+function sync(fd, before, claimed) {
     const kept = before === null ? [] : before;
+    const found = rendered().filter(([name]) => !under(name, claimed))
+        .map(file => [file, compare(fd, ...file)])
+        .filter(([[name], state]) => state !== "differs" || kept.includes(name));
+    const names = found.map(([[name]]) => name);
+    const stale = found.filter(([, state]) => state !== "same").map(([file]) => file);
     const same = kept.length === names.length && [...kept].sort().every((name, index) => name === names[index]);
-    const stale = files.filter(([name, content, executable]) => !holds(fd, name, content, executable));
     if (before !== null && same && stale.length === 0) return;
     record(fd, [...new Set([...kept, ...names])]);
     for (const [name, content, executable] of stale) {
         const parts = name.split("/");
         along(fd, parts.slice(0, -1), true, chain => replace(chain[chain.length - 1], parts[parts.length - 1], content, executable));
     }
-    for (const name of kept) if (!names.includes(name)) drop(fd, name);
+    for (const name of kept) if (!names.includes(name) && !under(name, claimed)) drop(fd, name);
     record(fd, names);
 }
 
@@ -429,29 +444,46 @@ function record(fd, files) {
     replace(fd, RECORD, JSON.stringify({ files: [...files].sort() }) + "\n", false);
 }
 
-// Whether the home held as FD holds RENDER/PACKAGE, reached through no link:
-// a link on the way throws home=link.
-function rendersPackage(fd) {
-    const parts = [...RENDER.split("/"), PACKAGE];
-    return along(fd, parts.slice(0, -1), false, chain => {
-        if (chain === null) return false;
-        const kind = kindOf(chain[chain.length - 1], PACKAGE);
-        if (kind === "link") fail("link");
-        return kind !== "absent";
-    });
+// kendex's own record of what it installed in the home held as FD, its
+// lock, read for the entries' kinds, names and paths alone, whatever lock
+// version kendex wrote: {jarvis, paths}, whether it installed the package's
+// skill and every path it wrote, or null where the home holds no lock. A
+// lock in a link's place throws home=link, one of another kind home=kind,
+// and one VGS cannot read home=kendex-lock: VGS could not tell which files
+// are kendex's.
+function installed(fd) {
+    const kind = kindOf(fd, LOCK);
+    if (kind === "absent") return null;
+    if (kind === "link") fail("link");
+    if (kind !== "file") fail("kind");
+    const held = fs.openSync(Core.anchored().child(fd, LOCK), O_RDONLY | O_NONBLOCK | O_NOFOLLOW);
+    let entries = null;
+    try { entries = JSON.parse(bytes(held, null).toString("utf8"))?.entries; }
+    catch {}
+    finally { fs.closeSync(held); }
+    if (entries === null || typeof entries !== "object") fail("kendex-lock");
+    const rows = Object.values(entries);
+    return {
+        jarvis: rows.some(row => row?.kind === "skill" && row.name === PACKAGE),
+        paths: rows.flatMap(row => Array.isArray(row?.emitted?.paths) ? row.emitted.paths.filter(at => plainParts(at) !== null) : [])
+    };
 }
 
 /**
- * Create the entries of LAYOUT the home lacks, and the home itself, and,
- * unless kendex installed the package there (RENDER/PACKAGE without VGS's
- * record), make the home hold the package files of the render VGS ships,
- * at their paths in it, and none of those VGS wrote that the render
- * dropped. The open removes skills/base, VGS's copy of the package before
- * this layout, and the CLAUDE.md VGS wrote before, byte for byte. Any other entry already there is kept byte for byte. A link
- * at the home, at any layout or package path throws jarvis: home=link and is
- * never followed; an entry of the other kind throws home=kind, a render that
- * cannot be read or is partial home=package, a record VGS cannot read
- * home=record, a package in the home that source refuses as it says, and a
+ * Create the entries of LAYOUT the home lacks, and the home itself. Where
+ * kendex's lock in the home names the package's skill, kendex is the
+ * package's one writer there: VGS writes no package file and drops its own
+ * record. Elsewhere make the home hold the package files of the render VGS
+ * ships, at their paths in it, but those at a path kendex's lock names and
+ * a file VGS did not write that differs, and none of those VGS wrote that
+ * the render dropped (sync). The open removes skills/base, VGS's copy of
+ * the package before this layout, and the CLAUDE.md VGS wrote before, byte
+ * for byte. Any other entry already there is kept byte for byte. A link at
+ * the home, at a layout path or on the way to a package file VGS writes
+ * throws jarvis: home=link and is never followed; an entry of the other kind
+ * throws home=kind, a render that cannot be read or is partial home=package,
+ * a record VGS cannot read home=record, a kendex lock it cannot read
+ * home=kendex-lock, a package skill that source refuses as it says, and a
  * failed write home=unwritable.
  */
 function layout(home) {
@@ -472,15 +504,39 @@ function layout(home) {
         // Whatever entry stands there goes; a link goes, never followed.
         fs.rmSync(Core.anchored().child(held.get("skills"), path.basename(OLD_COPY)), { recursive: true, force: true });
         const [claude, shim] = OLD_CLAUDE;
-        if (kindOf(held.get("."), claude) === "file" && holds(held.get("."), claude, Buffer.from(shim), false))
+        if (kindOf(held.get("."), claude) === "file" && compare(held.get("."), claude, Buffer.from(shim), false) === "same")
             fs.unlinkSync(Core.anchored().child(held.get("."), claude));
         const before = recorded(held.get("."));
-        if (before !== null || !rendersPackage(held.get("."))) sync(held.get("."), before);
+        const kendex = installed(held.get("."));
+        if (kendex?.jarvis) {
+            if (before !== null) fs.unlinkSync(Core.anchored().child(held.get("."), RECORD));
+        } else sync(held.get("."), before, kendex === null ? [] : kendex.paths);
         source(held.get("."));
     } catch (error) {
         if (/^jarvis: home=/.test(error.message)) throw error;
         fail("unwritable");
     } finally { for (const fd of held.values()) fs.closeSync(fd); }
+}
+
+/**
+ * Remove the package files VGS wrote in the home, but those at a path
+ * kendex's lock there names, and VGS's record, so that kendex can install
+ * its packages over them: kendex treats a file it did not write as the
+ * user's. The next layout writes again what kendex did not take. Throws
+ * as layout does.
+ */
+function release(home) {
+    const fd = hold(home, false);
+    try {
+        const before = recorded(fd);
+        if (before === null) return;
+        const kendex = installed(fd);
+        for (const name of before) if (!under(name, kendex === null ? [] : kendex.paths)) drop(fd, name);
+        fs.unlinkSync(Core.anchored().child(fd, RECORD));
+    } catch (error) {
+        if (/^jarvis: home=/.test(error.message)) throw error;
+        fail("unwritable");
+    } finally { fs.closeSync(fd); }
 }
 
 // The set of the home held as FD that the base package is read from:
@@ -935,4 +991,4 @@ function mailbox(home) {
     return held(home, MAILBOX, O_RDONLY | O_DIRECTORY, () => true) === true;
 }
 
-module.exports = { PACKAGE, resolve, relativeHome, remembered, remember, offers, layout, guard, baseSet, read, declaration, skills, skill, note, notes, mailTool, mailbox, sessionCommand, directory };
+module.exports = { PACKAGE, resolve, relativeHome, remembered, remember, offers, layout, release, guard, baseSet, read, declaration, skills, skill, note, notes, mailTool, mailbox, sessionCommand, directory };

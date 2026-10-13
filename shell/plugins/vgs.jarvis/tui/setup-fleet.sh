@@ -56,6 +56,11 @@ if [[ -z $top || "$(cd -- "$top" && pwd -P)" != "$real" ]]; then
       "VGS could not make the home folder a git repository." || exit
 fi
 vgs_tui_confirm "Install the kendex mail tool in the home folder?" || exit 130
+# kendex installs no file over one it did not write, so the Jarvis package
+# files VGS wrote leave first; Jarvis writes again what kendex does not take.
+helper release ||
+  vgs_tui_refuse "$log" 1 "jarvis: fleet-setup=release-failed" \
+    "VGS could not make room for kendex in the home folder." || exit
 # --yes asks nothing more after the confirm above; --leave keeps the files
 # kendex writes uncommitted, for the user to review.
 (cd -- "$folder" && vgs_tui_logged "$log" kendex add vanillagreencom/kendex --skill orch --yes --leave) ||

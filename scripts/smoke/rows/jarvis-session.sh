@@ -17,7 +17,9 @@
 # for one shell start, and a tree whose service follows a refused selection
 # holds the new home.
 # No latency ceiling. Reads poll once per nested IPC round trip.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/* scripts/fixtures/jarvis/session-package.py shell/Core/Plugins.qml shell/Commons/AccountDirectories.js bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Core/PluginStatus.qml scripts/smoke/rows/jarvis.sh
+# The home's Jarvis package is the copy VGS writes there; the row adds only
+# the stand-in command beside it.
+# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/* packaging/jarvis-home/* scripts/fixtures/jarvis/session-package.py shell/Core/Plugins.qml shell/Commons/AccountDirectories.js bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Core/PluginStatus.qml scripts/smoke/rows/jarvis.sh
 set -euo pipefail
 session_config="$home/.config/vgshell/shell.json"
 session_home="$home/SmokeJarvis"
@@ -112,8 +114,6 @@ expect_poll "a home without the package's command reads that no session can star
   '["Cannot start", "Install or update the Jarvis package in this home folder."]' session_row
 
 mkdir -p -- "$session_package/scripts"
-printf '# Jarvis\n' >"$session_package/SKILL.md"
-printf 'Smoke persona.\n' >"$session_package/persona.md"
 cp -- "$source_repo/scripts/fixtures/jarvis/session-package.py" "$session_package/scripts/jarvis-session"
 chmod 755 "$session_package/scripts/jarvis-session"
 session_answers "stopped never-started" "running existing" "stopping stop-requested"
@@ -193,8 +193,7 @@ expect_poll "disabling Jarvis asks for one stop, with the app's Off, in the home
 
 session_set '{"startAtBoot": null, "bootSession": null, "brain": null, "home": null}'
 expect "the configuration reloads with the manifest's settings" ok ipc shell reloadConfig
-rm -f -- "${session_package:?}/scripts/jarvis-session" "${session_package:?}/scripts/answers.json" "${session_package:?}/scripts/calls.log" \
-  "${session_package:?}/SKILL.md" "${session_package:?}/persona.md"
-rmdir -- "$session_package/scripts" "$session_package" "$session_home/.agents/skills" "$session_home/.agents"
+rm -f -- "${session_package:?}/scripts/jarvis-session" "${session_package:?}/scripts/answers.json" "${session_package:?}/scripts/calls.log"
+rmdir -- "$session_package/scripts"
 [[ $session_account_made == false ]] || rmdir -- "$session_account"
 jarvis_restore_requirements

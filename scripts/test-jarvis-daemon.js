@@ -1192,11 +1192,13 @@ async function inside() {
         controls++;
         console.log("test-jarvis-daemon: control=bubble-chained-caption killed");
     }
-    // A home kendex installed the package in is judged ready as it stands:
-    // VGS writes none of the package there. The user removes kendex's
-    // render while the service runs, and no hello follows: the first request
-    // after it gets the scripted reply, the home is judged once, and the home
-    // then holds the render VGS ships, at its own paths.
+    // The user removes the package from a home while the service runs, and
+    // no hello follows: the first request after it judges the home once. A
+    // home VGS laid out gets the render VGS ships again, at its own paths,
+    // and the request gets the scripted reply. A home kendex installed the
+    // package in, as its lock names the package's skill, is kendex's to
+    // restore: VGS writes nothing there and the request fails on the
+    // home's absent package.
     const renderGates = path.join(root, "render-gates");
     const renderHome = path.join(fs.realpathSync(process.env.HOME), "home-render");
     const shipped = path.join(tree, "packaging/jarvis-home");
@@ -1204,18 +1206,36 @@ async function inside() {
     const HARNESS = [".agents", ".claude/skills", ".claude/agents", ".codex/agents"];
     const tracked = folder => fs.readdirSync(folder, { recursive: true }).sort()
         .map(name => [name, fs.statSync(path.join(folder, name)).isFile() ? fs.readFileSync(path.join(folder, name), "utf8") : null]);
-    const renderRemoved = file => conversation(file, async w => {
+    const vgsFiles = () => [".vgs-package.json", ...HARNESS].filter(name => fs.existsSync(path.join(renderHome, name)));
+    const renderRemoved = (file, owner) => conversation(file, async w => {
         fs.rmSync(renderHome, { recursive: true, force: true });
-        fs.cpSync(path.join(shipped, ".agents/skills/jarvis"), path.join(renderHome, ".agents/skills/jarvis"), { recursive: true });
+        fs.mkdirSync(renderHome);
+        if (owner === "kendex") {
+            fs.cpSync(path.join(shipped, ".agents/skills/jarvis"), path.join(renderHome, ".agents/skills/jarvis"), { recursive: true });
+            fs.writeFileSync(path.join(renderHome, ".kendex-lock.json"), JSON.stringify({ version: 11, entries: { "skill:jarvis:codex":
+                { kind: "skill", name: "jarvis", harness: "codex", emitted: { kind: "skill", name: "jarvis", paths: [".agents/skills/jarvis"] } } } }) + "\n");
+        }
         w.raw({ ...hello, settings: { ...hello.settings, home: "~/home-render" } });
         await w.wait(m => m.state.settings.home === "~/home-render" && m.state.gate.kind === "up");
-        assert.deepEqual(HARNESS.slice(1).filter(name => fs.existsSync(path.join(renderHome, name))), [],
-            "the hello reads kendex's render and writes none of VGS's copy");
+        if (owner === "kendex") assert.deepEqual(vgsFiles(), [".agents"], "the hello reads kendex's render and writes none of VGS's copy");
+        else for (const folder of HARNESS)
+            assert.deepEqual(tracked(path.join(renderHome, folder)), tracked(path.join(shipped, folder)), folder + ": the hello lays the render out");
         const judged = w.messages.filter(m => m.type === "status").length;
         fs.rmSync(path.join(renderHome, ".agents"), { recursive: true });
         w.send("talk-down");
         await w.wait(m => m.phase === "listening");
         w.send("talk-up");
+        if (owner === "kendex") {
+            const down = await w.wait(m => m.state.gate.kind === "down" || m.state.fault.kind !== "none");
+            assert.deepEqual([down.state.gate, down.state.fault], [{ kind: "down", reason: "unconfigured" }, { kind: "none" }],
+                "the request after kendex's render is removed holds the engine");
+            await w.wait(m => m.state.conversation.kind === "ended" && m.state.brain.kind === "closed");
+            const statuses = w.messages.filter(m => m.type === "status");
+            assert.equal(statuses.length, judged + 1, "the request judges the home once");
+            assert.equal(statuses.at(-1).causes[0], "home=absent", "the home is refused for its absent package");
+            assert.deepEqual(vgsFiles(), [], "VGS writes nothing in kendex's home");
+            return;
+        }
         await w.wait(m => m.phase === "thinking" || m.state.fault.kind !== "none");
         fs.writeFileSync(path.join(renderGates, "reply"), "");
         const ended = await w.wait(m => m.state.fault.kind !== "none" || m.phase === "speaking" && m.state.turn.kind === "none");
@@ -1227,19 +1247,19 @@ async function inside() {
             assert.deepEqual(tracked(path.join(renderHome, folder)), tracked(path.join(shipped, folder)), folder + " holds the shipped render");
         w.send("stop");
         await w.wait(m => m.state.conversation.kind === "ended" && m.state.brain.kind === "closed");
-    });
-    for (const [name, needle, replacement] of [["render-removed", null, null],
+    }, "hold", 0, owner === "kendex" ? "jarvis: home=absent" : "");
+    for (const [name, needle, replacement, owner = "vgs"] of [["render-removed", null, null], ["render-removed-kendex", null, null, "kendex"],
         ["render-removed-unjudged", "        rejudge();\n", ""]]) {
         fs.rmSync(renderGates, { recursive: true, force: true });
         const file = daemonCopy(name);
         instrument(file, renderGates);
         const engineFile = path.join(path.dirname(file), "ChainedEngine.js");
         chainedEngine(engineFile);
-        if (needle === null) { await renderRemoved(file); continue; }
+        if (needle === null) { await renderRemoved(file, owner); continue; }
         const engineSource = fs.readFileSync(engineFile, "utf8");
         assert.equal(engineSource.split(needle).length - 1, 1, name + " mutation match");
         fs.writeFileSync(engineFile, engineSource.replace(needle, replacement));
-        await assert.rejects(() => renderRemoved(file), error => error instanceof assert.AssertionError
+        await assert.rejects(() => renderRemoved(file, owner), error => error instanceof assert.AssertionError
             && error.message.startsWith("the first request after the removal gets an answer"), name + " must turn red");
         controls++;
         console.log("test-jarvis-daemon: control=" + name + " killed");

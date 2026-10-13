@@ -11,7 +11,8 @@
 # The installed shell tree drops developer Markdown under shell/.
 # Jarvis's backend/skills Markdown is runtime guidance and ships, and so
 # are the Updates review's instructions, vgs.updates/review/*.md, and
-# packaging/jarvis-home, the Jarvis package's render Jarvis copies into each home.
+# packaging/jarvis-home, the Jarvis package's render Jarvis copies into each
+# home kendex did not install it in.
 # SYSCONFDIR, set by a system package alone, also installs the browser
 # theme writer, a copy of bin/vgshell-browser-policy at
 # $DESTDIR$PREFIX/bin/vgshell-browser-policy, 0755, and the sudoers rule it
