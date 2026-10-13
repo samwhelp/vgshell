@@ -77,7 +77,7 @@ function probe(over) {
 // The bar's tone for each headline tone, stated here apart from the logic.
 const BAR = { ok: "calm", info: "calm", warning: "warning", danger: "danger" };
 
-const SIGNED_OUT = "Google Drive is not connected. Select Connect on the Cloud Sync page in Settings.";
+const SIGNED_OUT = "Google Drive is not connected. [Select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup).";
 const SIGNED_OUT_PAGE = "Google Drive is not connected. Select Connect below.";
 const REFUSED_PAGE = "Google Drive did not accept Connect. Select Connect again below.";
 const INVALID = "The folder pair list is not valid, so Cloud Sync copies nothing.";
@@ -327,7 +327,7 @@ function verify(L) {
     same(subtitle(L.windowStatus(cloud, NOW, Timestamp.text)), [
         ["Last complete sync " + Timestamp.text(NOW - HOUR, NOW), ""],
         ["First file to review: taxes/2025.xlsx", ""],
-        ["Google Drive did not accept Connect. Select Connect again on the Cloud Sync page in Settings.", "danger"]
+        ["Google Drive did not accept Connect. [Select Connect again on the Cloud Sync page](page:vgs.cloud-sync/Setup).", "danger"]
     ]);
     same(subtitle(L.windowStatus(L.cloudValue(well({ state: "paused", paused: true, lastSuccess: null, staleAfter: null }), "VGS could not pause Cloud Sync."), NOW, Timestamp.text)), [
         ["No complete sync yet", ""], ["The hourly sync copies nothing until you resume it.", ""], ["VGS could not pause Cloud Sync.", "danger"]
@@ -397,18 +397,20 @@ function verify(L) {
     same(L.conflictRow(L.cloudValue(well({ conflicts: [Object.assign({}, CONFLICTS[0], { storedPath: undefined })] }), "").conflicts[0]).folder, "");
 
     // The notification: one per reason in order of need.
-    same(L.notification(good.record), { title: "Cloud Sync needs Connect", message: "Google Drive did not accept Connect. Select Connect again on the Cloud Sync page in Settings.", tone: "danger" });
+    same(L.notification(good.record), { title: "Cloud Sync needs Connect", message: "Google Drive did not accept Connect. [Select Connect again on the Cloud Sync page](page:vgs.cloud-sync/Setup).", tone: "danger" });
     same(L.notification(record({ attention: { reasons: ["conflicts"], key: "k", notified: false } })), { title: "Cloud Sync kept files for review", message: "4 files to review. Open Cloud Sync to see them.", tone: "warning" });
     same(L.notification(record({ lastError: { kind: "offline" }, attention: { reasons: ["error"], key: "k", notified: false } })).tone, "danger");
-    same(L.notification(record({ attention: { reasons: ["units-stale"], key: "k", notified: false } })), { title: "Cloud Sync needs setup", message: "Select Set up hourly sync on the Cloud Sync page in Settings.", tone: "warning" });
+    same(L.notification(record({ attention: { reasons: ["units-stale"], key: "k", notified: false } })), { title: "Cloud Sync needs setup", message: "[Select Set up hourly sync on the Cloud Sync page](page:vgs.cloud-sync/Setup).", tone: "warning" });
     assert.equal(L.notification(record({ attention: null })), null);
     same(L.notification(record({ lastError: Object.assign({ pair: "docs" }, signedOut) })).message, SIGNED_OUT, "a missing token is a connection");
-    assert.equal(L.errorText({ kind: "credential-absent", account: "token" }), "Google Drive is not connected. Select Connect on the Cloud Sync page in Settings.");
-    assert.equal(L.errorText({ kind: "credential-absent", account: "client-id" }), "A Google Drive key or connection is missing. Add the client ID and secret, then select Connect on the Cloud Sync page in Settings.");
+    assert.equal(L.errorText({ kind: "credential-absent", account: "token" }), "Google Drive is not connected. [Select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup).");
+    assert.equal(L.errorText({ kind: "credential-absent", account: "client-id" }), "A Google Drive key or connection is missing. Add the client ID and secret, then [select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup).");
     // The Settings page names its own fields instead of sending the user to itself.
     assert.equal(L.errorText({ kind: "credential-absent", account: "token" }, true), "Google Drive is not connected. Select Connect below.");
     assert.equal(L.errorText({ kind: "credential-absent", account: "client-id" }, true), "A Google Drive key or connection is missing. Add the client ID and secret, then select Connect below.");
     assert.equal(L.errorText({ kind: "authorization-refused" }, true), REFUSED_PAGE);
+    for (const error of [signedOut, { kind: "credential-absent", account: "client-id" }, { kind: "authorization-refused" }])
+        assert.ok(!L.errorText(error, true).includes("page:"), "the on-page text holds no page reference");
     assert.equal(L.errorText({ kind: "offline" }, true), L.errorText({ kind: "offline" }), "a sentence that names no place reads the same on the page");
 
     // A failed request reads as a sentence.
@@ -424,6 +426,7 @@ function verify(L) {
 verify(load(file));
 
 const controls = [
+    ["the missing-key text links to Setup", "then [select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup).", "then select Connect on the Cloud Sync page."],
     ["the judge refuses an unknown state", "if (STATES.indexOf(doc.state) === -1) return", "if (false) return"],
     ["the judge needs attention.notified", "\n        && typeof doc.attention.notified === \"boolean\")", ")"],
     ["a both-changed stored path is absolute", "&& (c.kind !== \"both-changed\" || !hasOwn(c, \"storedPath\") || (isText(c.storedPath) && c.storedPath.charAt(0) === \"/\"))", ""],

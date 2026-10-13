@@ -40,7 +40,7 @@
 # read of the record leaves a pause the runner writes unpublished. The row
 # ends with the pair removed, the units gone and the plugin disabled, as
 # it found it, and its stand-ins removed. No latency reading.
-# inputs: shell/plugins/vgs.cloud-sync/* shell/plugins/vgs.settings/* shell/Commons/WatchedFile.qml shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui
+# inputs: shell/plugins/vgs.cloud-sync/* shell/plugins/vgs.settings/* shell/plugins/vgs.notifications/* shell/Commons/PageReference.js shell/Ui/feedback/LinkText.qml shell/Commons/WatchedFile.qml shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui
 set -euo pipefail
 cs_dir="$sandbox/cloudsync"
 cs_stub="$cs_dir/stub"
@@ -122,6 +122,23 @@ cs_record_notified() { cs status | py_reply 'import json,sys; a=json.load(sys.st
 cs_widget_shown() { ipc smoke readInstance "$(bar_key)" vgs.cloud-sync visible; }
 cs_widget() { ipc smoke readInstance "$(bar_key)" vgs.cloud-sync tip | py_reply 'import json,sys; t=json.load(sys.stdin); print(json.dumps([t["title"], t["details"].split("\n")[:1]]))'; }
 cs_widget_names_files() { ipc smoke readInstance "$(bar_key)" vgs.cloud-sync tip | py_reply 'import json,sys; t=json.load(sys.stdin); print(any(n in t["title"] + t["details"] for n in sys.argv[1:]))' a.txt b.txt; }
+cs_link_text='A Google Drive key or connection is missing. Add the client ID and secret, then [select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup).'
+cs_linked() { ipc smoke readMatchingDescendant window vgs.cloud-sync LinkText text "$cs_link_text" linked; }
+cs_page() { ipc smoke readInstance window vgs.settings shownPage; }
+cs_notice() {
+  ipc smoke modelRows vgs.notifications rows app,summary,hintPage,leaving | py_reply 'import json,sys; print(json.dumps(next((r[2] for r in json.load(sys.stdin) if r[0] == "Cloud Sync" and r[1] == "Cloud Sync needs Connect" and r[3] == ""), "none")))'
+}
+cs_click_link() {
+  local box spans pitch rect x y
+  box="$(ipc smoke windowGeometry window vgs.cloud-sync LinkText "$cs_link_text")" || return 1
+  spans="$(ipc smoke readMatchingDescendant window vgs.cloud-sync LinkText text "$cs_link_text" underlined)" || return 1
+  pitch="$(ipc smoke readMatchingDescendant window vgs.cloud-sync LinkText text "$cs_link_text" linePitch)" || return 1
+  rect="$(py_reply 'import json,sys; b=json.loads(sys.argv[1]); p=float(sys.argv[2]); s=json.load(sys.stdin)[0]; print(json.dumps([b[0]+s["left"], b[1]+s["line"]*p, s["right"]-s["left"], p]))' "$box" "$pitch" <<<"$spans")" || return 1
+  read -r x y < <(at_centre "window:Cloud Sync" "$rect") || return 1
+  hover "$x" "$y" || return 1
+  expect_poll "the pointer reaches the Cloud Sync page link" true ipc smoke readMatchingDescendant window vgs.cloud-sync LinkText text "$cs_link_text" hoveredLink
+  click "$x" "$y"
+}
 
 # The checks the controls replay against a broken runner: each runs in the
 # world cs_use set and fails through expect.
@@ -421,9 +438,50 @@ SH
   expect_poll "the window holds Sync now off while a sync runs" '["sync", false]' cs_window_primary
   cs_let_go
   expect_poll "the window offers Sync now again once the sync ends" '["sync", true]' cs_window_primary
+  notes_on cloudsync-links
   rm -- "${cs_stub:?}/secrets/client-id"
   expect "a run without the download client ID waits for it" "pair=docs result=authorization-required exit=1" cs_answer run
   expect_poll "the window holds Sync now off while a key is missing" '["sync", false]' cs_window_primary
+  expect_poll "the missing-key window draws its page link" true cs_linked
+  expect_poll "the needs-Connect notice holds its page link" '"[select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup)"' cs_notice
+  cs_click_link || fail "cloudsync: the window page link click failed"
+  expect_poll "the window page link opens Cloud Sync Setup" '"vgs.cloud-sync/Setup"' cs_page
+  settings_page_close vgs.cloud-sync
+  click_item vgs:layer vgs.notifications NotificationCard summary "Cloud Sync needs Connect" 24 - || fail "cloudsync: the notice page link click failed"
+  expect_poll "the needs-Connect notice opens Cloud Sync Setup" '"vgs.cloud-sync/Setup"' cs_page
+  settings_page_close vgs.cloud-sync
+  notes_off cloudsync-links
+
+  # The same missing-key state with its page reference removed must fail
+  # both link readers. The control preserves the drawn words.
+  local link_copy="$home/.config/vgshell/plugins/vgs.cloud-sync"
+  mkdir -p -- "$link_copy"
+  cp -R -- "$repo/shell/plugins/vgs.cloud-sync/." "$link_copy/"
+  expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.cloud-sync')
+  if edit_file_once "$link_copy/CloudSyncLogic.js" '[select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup)' 'select Connect on the Cloud Sync page'; then
+    expect "the window hides before the link control" ok ipc shell hide window vgs.cloud-sync
+    notes_on cloudsync-link-control
+    rescan "the copy without the page reference is scanned"
+    expect "the control window is summoned" ok ipc shell summon window vgs.cloud-sync '{}'
+    expect_poll "the control window maps" 1 window_count "Cloud Sync"
+    expect_poll "control: the window without a reference fails the link reader" absent cs_linked
+    printf 'fixture-client' >"$cs_stub/secrets/client-id"
+    expect "a good run clears the control attention" "pair=docs result=idle exit=0" cs_answer run
+    expect_poll "the control service reads the cleared error" null cs_value cloud.lastError
+    rm -- "${cs_stub:?}/secrets/client-id"
+    expect "a missing-key run renews attention for the notice control" "pair=docs result=authorization-required exit=1" cs_answer run
+    expect_poll "control: the notice without a reference fails the link reader" '""' cs_notice
+    click_item vgs:layer vgs.notifications NotificationCard summary "Cloud Sync needs Connect" 24 - || fail "cloudsync: the control notice click failed"
+    expect_poll "control: the notice without a reference leaves" '"none"' cs_notice
+    expect "control: the notice without a reference leaves Settings closed" absent cs_page
+    notes_off cloudsync-link-control
+    expect "the control window hides" ok ipc shell hide window vgs.cloud-sync
+  else
+    fail "cloudsync: the page-reference control edit failed"
+  fi
+  rm -r -- "$link_copy"
+  rescan "the shipped page reference is scanned again"
+  expect "the shipped window is summoned again" ok ipc shell summon window vgs.cloud-sync '{}'
   printf 'fixture-client' >"$cs_stub/secrets/client-id"
   expect "a run with the client ID back copies again" "pair=docs result=idle exit=0" cs_answer run
   expect_poll "the window offers Sync now again with the key back" '["sync", true]' cs_window_primary

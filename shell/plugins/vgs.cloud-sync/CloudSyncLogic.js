@@ -56,8 +56,8 @@ var BADGE_TONES = { ok: "success", info: "info", warning: "warning", danger: "da
 // a sync error.
 var ERROR_TEXT = {
     offline: "Google Drive cannot be reached. Cloud Sync tries again at the next sync.",
-    "authorization-refused": "Google Drive did not accept Connect. Select Connect again on the Cloud Sync page in Settings.",
-    "credential-absent": "A Google Drive key or connection is missing. Add the client ID and secret, then select Connect on the Cloud Sync page in Settings.",
+    "authorization-refused": "Google Drive did not accept Connect. [Select Connect again on the Cloud Sync page](page:vgs.cloud-sync/Setup).",
+    "credential-absent": "A Google Drive key or connection is missing. Add the client ID and secret, then [select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup).",
     "credential-locked": "Your keyring is locked. Unlock it to sync.",
     "source-missing": "A Google Drive folder of a folder pair does not exist.",
     "rclone-missing": "rclone is not installed.",
@@ -250,7 +250,7 @@ function badgeTone(tone) {
 function errorText(error, onPage) {
     if (error === null) return "";
     if (error.kind === "credential-absent" && error.account === "token")
-        return "Google Drive is not connected. Select Connect " + (onPage === true ? "below." : "on the Cloud Sync page in Settings.");
+        return "Google Drive is not connected. " + (onPage === true ? "Select Connect below." : "[Select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup).");
     if (onPage === true && hasOwn(PAGE_ERROR_TEXT, error.kind)) return PAGE_ERROR_TEXT[error.kind];
     return hasOwn(ERROR_TEXT, error.kind) ? ERROR_TEXT[error.kind] : ERROR_DEFAULT;
 }
@@ -637,7 +637,7 @@ function notification(record) {
     if (reasons.indexOf("conflicts") !== -1)
         return { title: "Cloud Sync kept files for review", message: reviewLine(record.conflicts.length) + ". Open Cloud Sync to see them.", tone: "warning" };
     if (reasons.indexOf("units-stale") !== -1)
-        return { title: "Cloud Sync needs setup", message: "Select Set up hourly sync on the Cloud Sync page in Settings.", tone: "warning" };
+        return { title: "Cloud Sync needs setup", message: "[Select Set up hourly sync on the Cloud Sync page](page:vgs.cloud-sync/Setup).", tone: "warning" };
     return null;
 }
 

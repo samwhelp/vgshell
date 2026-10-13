@@ -103,11 +103,12 @@ FocusScope {
                 }
                 Repeater {
                     model: root.known ? root.standing.lines : []
-                    Label {
+                    LinkText {
                         required property var modelData
                         width: layout.contentWidth
                         role: "hint"
                         text: modelData.text
+                        onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
                         color: modelData.tone === "danger" ? Theme.color.danger : Theme.color.textFaint
                         wrapMode: Text.Wrap
                     }
