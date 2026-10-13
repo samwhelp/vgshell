@@ -202,6 +202,7 @@ f share/vgshell/shell/Ui/controls/BindField.qml
 f share/vgshell/shell/Ui/controls/Button.qml
 f share/vgshell/shell/Ui/controls/Checkbox.qml
 f share/vgshell/shell/Ui/controls/DateField.qml
+f share/vgshell/shell/Ui/controls/DisabledReason.qml
 f share/vgshell/shell/Ui/controls/Field.qml
 f share/vgshell/shell/Ui/controls/FormRow.qml
 f share/vgshell/shell/Ui/controls/IconButton.qml
@@ -226,6 +227,7 @@ f share/vgshell/shell/Ui/controls/TimeChipList.qml
 f share/vgshell/shell/Ui/controls/TimeField.qml
 f share/vgshell/shell/Ui/controls/TitleButton.qml
 f share/vgshell/shell/Ui/controls/ToggleButton.qml
+f share/vgshell/shell/Ui/controls/UnlockMark.qml
 f share/vgshell/shell/Ui/controls/ValueSourceRow.qml
 f share/vgshell/shell/Ui/controls/WeekdayChipGroup.qml
 f share/vgshell/shell/Ui/feedback/AvatarFace.qml
