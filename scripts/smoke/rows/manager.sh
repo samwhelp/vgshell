@@ -870,11 +870,12 @@ expect_run_end "the add's run ends" core/plugin-add
 expect_poll "the add's terminal closes" 0 tui_windows
 
 # Requirements: one row per requirement with its state from the scan and
-# its purpose, and Install all missing, while one is missing, shows the core's
+# its purpose, and its install action, while one is missing, shows the core's
 # requirement notice for the plugin with every missing command, the
 # optional one included, over the window, which stays open; Escape closes
-# the notice. The fixture misses its optional tool, so its page draws them
-# on its Setup tab.
+# the notice. The fixture misses only its optional tool, so its page draws
+# them on its Setup tab with Install optional tools, a RowAction, and no
+# Install all missing Button.
 settings_show acme.bare
 settings_setup
 # The Requirements section's rows are groups (GroupList): two shown groups
@@ -939,7 +940,7 @@ expect "control: a hairline inside the next group is refused" True group_planted
 click_install() {
   local area bx by
   for _ in $(seq 1 6); do
-    if install_visible; then settings_click Button "Install all missing" && return 0; fi
+    if install_visible; then settings_click RowAction "Install optional tools" && return 0; fi
     area="$(page_scroll)" || return 1
     [[ $area == \{* ]] || return 1
     [[ $(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["barVisible"])' "$area") == True ]] || return 1
@@ -952,14 +953,16 @@ click_install() {
 install_visible() {
   local area rect
   area="$(page_scroll)" || return 1
-  rect="$(ipc smoke windowGeometry window vgs.settings Button "Install all missing")" || return 1
+  rect="$(ipc smoke windowGeometry window vgs.settings RowAction "Install optional tools")" || return 1
   [[ $area == \{* && $rect == \[* ]] || return 1
   python3 -c 'import json,sys
 a=json.loads(sys.argv[1]); x,y,w,h=json.loads(sys.argv[2]); top=a["bar"][1]; bottom=top+a["height"]; print(top <= y and y+h <= bottom)' "$area" "$rect" | grep -Fx True >/dev/null
 }
-click_install || fail "the click on Install all missing failed"
-expect_poll "Install all missing shows the requirement notice with the optional command" '["acme.bare", ["vgs-smoke-absent"], ["vgs-smoke-absent"], false]' notice_shown
-expect "Install all missing leaves the Settings window open under the notice" 1 window_count Plugins
+install_buttons() { ipc smoke itemTexts window vgs.settings Button | py_reply 'import json,sys; print(sum(1 for b in json.load(sys.stdin) if b == ["Install all missing"]))'; }
+expect "an optional tool alone draws no Install all missing Button" 0 install_buttons
+click_install || fail "the click on Install optional tools failed"
+expect_poll "Install optional tools shows the requirement notice with the optional command" '["acme.bare", ["vgs-smoke-absent"], ["vgs-smoke-absent"], false]' notice_shown
+expect "Install optional tools leaves the Settings window open under the notice" 1 window_count Plugins
 expect_poll "the Settings request's notice holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape to the notice failed"
 expect_poll "Escape closes the Settings request's notice" null notice_shown
