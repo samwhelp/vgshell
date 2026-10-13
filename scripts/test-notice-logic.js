@@ -121,7 +121,7 @@ function suite(ctx, check) {
     const farBelow = { "vgs-old": "2.0.0", "vgs-far": "far 1.1.9 (linux)" };
     const atFloor = { "vgs-old": "2.0.0", "vgs-far": "1.2.0" };
     const oldLeft = { kind: "outdated", name: "old", version: "1.9.0", floor: "2.0.0" };
-    const oneLeft = { kind: "missing", name: "one" };
+    const oneLeft = { kind: "missing", name: "one", optional: false };
     const unchanged = (...left) => ({ kind: "unchanged", left });
     const unchangedRows = [
         ["an update that left the version it read is named with that version and the floor", [], below, "pacman", [], ["old"], unchanged(oldLeft)],
@@ -246,10 +246,23 @@ function suite(ctx, check) {
         [reachView.run.args, laterOf(reachView)], [["gum"], [["aur", "agent-browser-bin"]]]);
     // noticeTitle: [name, view, want as the verb, the count and the noun
     // the title reads]. The count is the number of entries the view draws
-    // that are not optional, its later ones included; a view of optional
-    // entries alone counts them all under "can use".
+    // whose chip reads Missing or Outdated, its later ones included, so an
+    // outdated optional entry counts and a missing optional one does not; a
+    // view of missing optional entries alone counts them all under "can
+    // use".
     const titleReads = t => { const m = / (needs|can use) (one|\d+) (update|package|requirement)s?$/.exec(t); return m === null ? t : [m[1], m[2] === "one" ? 1 : Number(m[2]), m[3]]; };
     const optionalView = ctx.noticeView(needs, ["vgs-two"], {}, { id: "acme.needs", commands: ["vgs-two"], required: ["vgs-two"] }, ARCH);
+    const mixed = ctx.validateManifest({
+        schemaVersion: 1, id: "acme.mixed", name: "Mixed", version: "1", author: "a", description: "d",
+        kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["requirements"],
+        requirements: [
+            { command: "vgs-old", packages: { pacman: "old" }, floor: "2.0.0", purpose: "Old" },
+            { command: "vgs-pi", packages: { pacman: "pi" }, floor: "1.1.0", optional: true, purpose: "Pi" },
+            { command: "vgs-vox", packages: { pacman: "vox" }, optional: true, purpose: "Vox" },
+        ],
+    }, "/p").manifest;
+    const mixedNames = ["vgs-old", "vgs-pi", "vgs-vox"];
+    const mixedView = ctx.noticeView(mixed, ["vgs-vox"], { "vgs-old": "1.9.0", "vgs-pi": "1.0.2" }, { id: "acme.mixed", commands: mixedNames, required: mixedNames }, ARCH);
     const titleRows = [
         ["a notice with later entries counts them beside its step's", worldView, ["needs", 3, "package"]],
         ["a notice without later entries counts its step's", ctx.noticeView(floored, ["vgs-one"], below, three, ARCH), ["needs", 2, "package"]],
@@ -257,14 +270,21 @@ function suite(ctx, check) {
         ["a notice with no package counts requirements, its optional ones left out", ctx.noticeView(needs, allMissing, {}, { id: "acme.needs", commands: allMissing, required: ["vgs-one"] }, null), ["needs", 2, "requirement"]],
         ["a notice of a required package and an optional one counts the required one", ctx.noticeView(needs, ["vgs-one", "vgs-two"], {}, { id: "acme.needs", commands: ["vgs-one", "vgs-two"], required: ["vgs-one", "vgs-two"] }, ARCH), ["needs", 1, "package"]],
         ["a notice of an optional package alone needs nothing", optionalView, ["can use", 1, "package"]],
+        ["a notice counts an outdated optional package, drawn Outdated, and leaves out a missing optional one", mixedView, ["needs", 2, "update"]],
     ];
     for (const [name, view, want] of titleRows) {
         const read = titleReads(ctx.noticeTitle("Owner", view));
-        const needed = view.drawn.filter(e => !e.optional).length;
+        const needed = view.drawn.filter(e => e.update || !e.optional).length;
         check("noticeTitle: " + name, read, want);
-        check("noticeTitle counts the entries the view draws that are not optional: " + name, read[1], needed === 0 ? view.drawn.length : needed);
+        check("noticeTitle counts the entries the view draws as needed: " + name, read[1], needed === 0 ? view.drawn.length : needed);
     }
     check("control: the optional-only notice draws its optional entry", optionalView.drawn.map(e => [e.chip, e.optional]), [["two-git", true]]);
+    check("control: the mixed notice draws an outdated optional entry and a missing optional one", mixedView.drawn.map(e => [e.chip, e.update, e.optional]), [["old", true, false], ["pi", true, true], ["vox", false, true]]);
+    // noticeUnchanged names an optional package the install left missing
+    // as optional, so the notice says so rather than reporting a failure.
+    check("noticeUnchanged: an install that left an optional package missing names it optional",
+        ctx.noticeUnchanged(needs, ["vgs-two"], {}, { id: "acme.needs", commands: ["vgs-two"], required: ["vgs-two"] }, ARCH, { manager: "aur", installs: ["two-git"], updates: [] }),
+        unchanged({ kind: "missing", name: "two-git", optional: true }));
 
     // The core's owner: the core's list, drawn under the name VGS, asked
     // for as a plugin's manifest is.
@@ -548,8 +568,10 @@ const CONTROLS = [
     ["later follows the order of the presses", "reached.reduce(function (held, manager) { return held.concat(entries.filter(function (e) { return e.manager === manager; })); }, [])", "entries.filter(function (e) { return reached.indexOf(e.manager) !== -1; })"],
     ["a view draws its later entries", ".concat(waiting.map(function (e) { return Object.assign({}, e, { later: true }); }))", ""],
     ["a view marks the entries of later presses", "Object.assign({}, e, { later: true })", "Object.assign({}, e, { later: false })"],
-    ["the title counts the later entries the view draws", "view.drawn.filter(function (e) { return !e.optional; })", "view.drawn.filter(function (e) { return !e.optional && !e.later; })"],
-    ["the title leaves optional entries out", "view.drawn.filter(function (e) { return !e.optional; })", "view.drawn"],
+    ["the title counts the later entries the view draws", "view.drawn.filter(function (e) { return e.update || !e.optional; })", "view.drawn.filter(function (e) { return (e.update || !e.optional) && !e.later; })"],
+    ["the title leaves missing optional entries out", "view.drawn.filter(function (e) { return e.update || !e.optional; })", "view.drawn"],
+    ["the title counts an outdated optional entry", "view.drawn.filter(function (e) { return e.update || !e.optional; })", "view.drawn.filter(function (e) { return !e.optional; })"],
+    ["a missing package left by an install says whether it is optional", "return r.package.name !== row.package.name || r.optional;", "return false;"],
     ["a group is optional only while each requirement is", "            held.optional = held.optional && row.optional;\n", ""],
     ["a view lists only the packages its press handles", "entries.filter(function (e) { return e.manager === pressed.manager; })", "entries"],
     ["a press updates only a package of its own manager", "e.manager === group.manager && e.chip === name && e.update", "e.chip === name && e.update"],

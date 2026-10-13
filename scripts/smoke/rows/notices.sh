@@ -330,7 +330,7 @@ release_runs
 expect_run_end "the install run ends" core/requirements-install
 expect_within "the scan after the install run settles the notice" install_settle settled "$install_settle_ceiling_ms" install_settled
 expect "the rescan after an install that left the command missing keeps the notice" "[\"acme.needs\", $all_needs, [\"vgs-smoke-needs\"], false]" notice_shown
-expect "the kept notice names the package the install left missing" '{"kind": "unchanged", "left": [{"kind": "missing", "name": "vgs-smoke-needs-pkg"}]}' notice_failure
+expect "the kept notice names the package the install left missing" '{"kind": "unchanged", "left": [{"kind": "missing", "name": "vgs-smoke-needs-pkg", "optional": false}]}' notice_failure
 expect_poll "the kept notice maps its surface again" 1 layer_count vgs:notice
 expect_poll "the kept notice holds the keyboard after the install" true ipc smoke noticeFocused
 expect "the notice still offers Install" '["Install", "Not now"]' drawn actions
@@ -579,8 +579,10 @@ expect_poll "one press hands the terminal the update and the install" "$(update_
 release_runs
 expect_run_end "the mixed run ends" core/requirements-update
 expect_poll "the read after the mixed run settles the notice" settled install_settled
-expect "a mixed run that changed nothing names both packages" '{"kind": "unchanged", "left": [{"kind": "outdated", "name": "vgs-smoke-old-aur", "version": "1.9.0", "floor": "2.0.0"}, {"kind": "missing", "name": "vgs-smoke-extra-git"}]}' notice_failure
+expect "a mixed run that changed nothing names both packages" '{"kind": "unchanged", "left": [{"kind": "outdated", "name": "vgs-smoke-old-aur", "version": "1.9.0", "floor": "2.0.0"}, {"kind": "missing", "name": "vgs-smoke-extra-git", "optional": true}]}' notice_failure
 expect "one line of the kept mixed notice names the missing package beside the outdated one" true line_holds vgs-smoke-old-aur 1.9.0 vgs-smoke-extra-git
+expect "the kept mixed notice says the optional package is optional and was not installed" true line_holds "vgs-smoke-extra-git is optional and was not installed."
+expect "control: the kept mixed notice does not call the optional package still missing" false line_holds "vgs-smoke-extra-git is still missing"
 expect_poll "the kept mixed notice maps its surface again" 1 layer_count vgs:notice
 expect_poll "the kept mixed notice holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape to the mixed notice failed"

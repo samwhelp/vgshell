@@ -2200,12 +2200,13 @@ function noticeView(manifest, missing, versions, notice, found) {
 
 // The title of OWNER's notice over VIEW, noticeView's answer: "<OWNER>
 // needs one package" or "<OWNER> needs N packages", counting the entries
-// VIEW draws that are not optional, so an optional package is never called
-// needed; "<OWNER> can use N packages" when every entry is optional;
-// requirements when no counted entry has a package, and updates when every
-// counted entry is one.
+// VIEW draws whose chip reads Missing or Outdated, so the count is the
+// number of needed entries the user sees and a missing optional package,
+// drawn Optional, is never called needed; "<OWNER> can use N packages"
+// when every entry reads Optional; requirements when no counted entry has
+// a package, and updates when every counted entry is one.
 function noticeTitle(owner, view) {
-    var needed = view.drawn.filter(function (e) { return !e.optional; });
+    var needed = view.drawn.filter(function (e) { return e.update || !e.optional; });
     var counted = needed.length === 0 ? view.drawn : needed;
     var noun = counted.every(function (e) { return e.update; }) ? "update" : counted.some(function (e) { return e.packaged; }) ? "package" : "requirement";
     return owner + (needed.length === 0 ? " can use " : " needs ") + (counted.length === 1 ? "one " + noun : counted.length + " " + noun + "s");
@@ -2248,9 +2249,10 @@ function noticeGroups(rows) {
 // `left` every package of RAN's manager that RAN's `updates` still leave
 // outdated or its `installs` still leave missing, once each by its package
 // name, the name its chip draws, in the order its first listed requirement
-// is declared: { kind: "missing", name }, or { kind: "outdated", name,
-// version, floor }, `version` the three numbers the command of that first
-// requirement printed and `floor` the one its owner needs. A package the
+// is declared: { kind: "missing", name, optional }, `optional` while every
+// requirement the package provides is optional, or { kind: "outdated",
+// name, version, floor }, `version` the three numbers the command of that
+// first requirement printed and `floor` the one its owner needs. A package the
 // press installed below its floor changed, and is not named.
 function noticeUnchanged(manifest, missing, versions, notice, found, ran) {
     var judged = function (names, state) {
@@ -2261,7 +2263,7 @@ function noticeUnchanged(manifest, missing, versions, notice, found, ran) {
     var owed = noticeView(manifest, missing, versions, notice, found).rows.filter(function (r) { return r.package !== null && r.package.manager === ran.manager && (stillOutdated(r) || stillMissing(r)); });
     var left = owed.filter(function (row, i) { return !owed.slice(0, i).some(function (r) { return r.package.name === row.package.name; }); }).map(function (row) {
         var named = { kind: row.state, name: row.package.name };
-        if (row.state === "missing") return named;
+        if (row.state === "missing") return Object.assign(named, { optional: owed.every(function (r) { return r.package.name !== row.package.name || r.optional; }) });
         var floor = manifest.requirements.filter(function (entry) { return entry.name === row.name; })[0].floor;
         return Object.assign(named, { version: VERSION_IN_LINE.exec(versions[row.name]).slice(1, 4).join("."), floor: floor });
     });

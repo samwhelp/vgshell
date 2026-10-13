@@ -13,8 +13,8 @@ import qs.Ui
 // for a missing requirement or updates for an outdated one, its name as a
 // chip with Missing, Optional or Outdated beside it and each purpose under
 // it, then one per package a later step offers, drawn alike with a line
-// naming the manager that offers it, its title counting the entries that
-// are not optional, then
+// naming the manager that offers it, its title counting the entries whose
+// chip reads Missing or Outdated, then
 // Install, Update or Install and update, with Not now, or Close alone when
 // no manager here installs a listed package. The step runs Notices.accept, every other
 // answer Notices.dismiss. The consent slot draws its view's title, message,
@@ -66,11 +66,12 @@ Scope {
     }
 
     // What a run left of one package, ENTRY of PluginLogic.noticeUnchanged:
-    // still missing, or still below the floor SHOWN's owner needs.
+    // still missing, an optional one said to be optional, or still below
+    // the floor SHOWN's owner needs.
     function leftLine(shown, entry) {
         switch (entry.kind) {
         case "missing":
-            return entry.name + " is still missing after the install.";
+            return entry.optional ? entry.name + " is optional and was not installed." : entry.name + " is still missing after the install.";
         case "outdated":
             return entry.name + " is still version " + entry.version + " after the update. " + shown.name + " needs version " + entry.floor + " or later.";
         }
