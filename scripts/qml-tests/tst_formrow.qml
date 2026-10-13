@@ -120,6 +120,18 @@ Item {
         labelTooltip: "Hides the top bar."
         Item { width: parent.width; height: 3 * Theme.row.height; readonly property real firstLineHeight: Theme.row.height }
     }
+    // A hint under a switch: an explainer of two lines beside the switch
+    // fits the row gap above and below the label's box and reaches the hint.
+    Field {
+        id: hintedField
+        y: 1440
+        width: 570
+        inline: true
+        label: "Constant frame rate"
+        labelTooltip: "Records every frame at the same interval, even when nothing on the screen moves."
+        hint: "Some video editors need it"
+        Switch { size: "sm" }
+    }
 
     TestCase {
         name: "formrow"
@@ -217,14 +229,22 @@ Item {
             });
         }
 
-        // Where the room past the control cannot hold it, the tooltip opens
-        // under the row box, from the value column's start edge, so it
-        // covers neither the row's label nor any part of its control.
+        // Where the room past the control cannot hold it, or it would
+        // reach the hint under the value there, the tooltip opens under the
+        // row's label and control, from the row's start edge. It covers
+        // neither the label nor any part of the control, and it covers a
+        // hint from the hint's top, so it clips no line of it.
         function test_a_label_tooltip_without_room_past_its_control_opens_under_the_row_data() {
+            const hinted = hintedField.children.find(child => child.objectName === "fieldRow");
+            const found = [hintedField];
+            for (let i = 0; i < found.length; i++)
+                for (const child of found[i].children) found.push(child);
+            const hint = found.find(child => child.role === "hint" && child.text === hintedField.hint);
             return [
                 { tag: "full-width control", row: explainedWide },
                 { tag: "too tall past the control", row: explainedTall },
-                { tag: "control taller than the label's box", row: explainedLines }
+                { tag: "control taller than the label's box", row: explainedLines },
+                { tag: "hint under a switch", row: hinted, hint: hint }
             ];
         }
         function test_a_label_tooltip_without_room_past_its_control_opens_under_the_row(data) {
@@ -234,14 +254,21 @@ Item {
                 compare(anchor.edges, Edges.Bottom | Edges.Left);
                 compare(anchor.gravity, Edges.Bottom | Edges.Right);
                 const start = tip.anchorItem.mapToItem(data.row, anchor.rect.x, anchor.rect.y + anchor.rect.height - anchor.margins.bottom);
-                fuzzyCompare(start.x, data.row.valueX, 1, "the tooltip starts on the value column's start edge");
-                verify(popup.implicitWidth <= data.row.width - start.x, "the tooltip ends inside the row: " + popup.implicitWidth);
+                fuzzyCompare(start.x, 0, 1, "the tooltip starts on the row's start edge");
+                compare(popup.implicitWidth, data.row.width, "the tooltip spans the row, so it covers the whole of a line under it");
                 const label = labelOf(data.row);
-                verify(start.y >= label.y + label.height, "the tooltip opens under the row's label: " + start.y);
+                verify(start.y >= label.y + label.height - label.inkBelow(), "the tooltip opens under the row's label: " + start.y);
                 const controls = data.row.children[2].children;
                 verify(controls.length > 0, "the row holds its control");
                 for (const control of controls)
-                    compare(start.y >= control.mapToItem(data.row, 0, control.height).y + Theme.tooltip.gap, true, "the tooltip opens a gap under the row's control: " + start.y);
+                    compare(start.y >= control.mapToItem(data.row, 0, control.height).y, true, "the tooltip opens under the row's control: " + start.y);
+                if (data.hint === undefined) {
+                    compare(start.y, data.row.boxHeight + Theme.tooltip.gap, "the tooltip opens a gap under the row box");
+                } else {
+                    verify(data.hint.visible && data.hint.height > 0, "the row draws its hint");
+                    verify(data.row.besideHeight <= data.row.labelBox + 2 * Theme.stack.row, "the tooltip fits the row gap beside the switch: " + data.row.besideHeight);
+                    compare(start.y <= data.hint.mapToItem(data.row, 0, 0).y, true, "the tooltip covers the hint from its top: " + start.y);
+                }
             });
         }
 

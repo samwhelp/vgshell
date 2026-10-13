@@ -102,6 +102,7 @@ Column {
         info: root.info
         labelTooltip: root.labelTooltip
         labelColumn: root.inline
+        textBelow: root.inline && root.subText
     }
 
     Item {

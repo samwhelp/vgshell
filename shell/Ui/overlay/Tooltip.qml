@@ -15,7 +15,8 @@ import qs.Ui
 // until the pointer leaves the item, so it never covers what the press
 // opened. It opens beside `box`, a rectangle in the item's coordinates,
 // the item's own box unless set, and wraps its text past `maxWidth`,
-// `tooltip.maxWidth` unless set. The declaring item is an invisible,
+// `tooltip.maxWidth` unless set, and is no narrower than `minWidth`, so a
+// caller can have it span a row. The declaring item is an invisible,
 // sizeless member of its parent.
 Item {
     id: root
@@ -27,6 +28,7 @@ Item {
     property string side: "below"
     property rect box: Qt.rect(0, 0, anchorItem === null ? 0 : anchorItem.width, anchorItem === null ? 0 : anchorItem.height)
     property real maxWidth: Theme.tooltip.maxWidth
+    property real minWidth: 0
     readonly property int edge: edgeFor(side)
     // A corner of the box with the gravity of the opposite corner starts
     // the popup on that corner; only opposing edges are refused.
@@ -114,7 +116,7 @@ Item {
             color: "transparent"
             // One line up to `maxWidth`, then title and plain details
             // wrap; never wider than the output less its gutters.
-            readonly property real paddedWidth: Math.min(content.implicitWidth + 2 * Theme.tooltip.paddingX, OverlayState.widthFor(root.anchorItem, root.maxWidth + 2 * Theme.tooltip.paddingX))
+            readonly property real paddedWidth: Math.min(Math.max(root.minWidth, content.implicitWidth + 2 * Theme.tooltip.paddingX), OverlayState.widthFor(root.anchorItem, root.maxWidth + 2 * Theme.tooltip.paddingX))
             implicitWidth: Math.max(1, paddedWidth)
             implicitHeight: Math.max(1, content.implicitHeight + 2 * Theme.tooltip.paddingY)
 

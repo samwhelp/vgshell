@@ -22,11 +22,14 @@ import qs.Ui
 // row. It opens centred on the label's box, past the
 // control's drawn end (Theme.inkEnd), `tooltip.gap` after it, where its
 // text wrapped to the room left there reaches no further than `stack.row`
-// above or below that box, so it covers neither its own control nor a row
-// beside it. Otherwise, as beside a control that fills the value column,
-// it opens under the row box, `tooltip.gap` below it, from the value
-// column's start edge and wrapped to the whole column, so it covers
-// neither the row's label nor its control. `warning` is the row's message:
+// above or below that box and stops short of the first line under the
+// value, so it covers neither its own control nor a row beside it and
+// clips no hint. Otherwise, as beside a control that fills the value
+// column, it opens under the row's label and control, as wide as the
+// row, so it covers the whole of a line it lies on: on the first line under the
+// value, the row's message or text its owner draws there while
+// `textBelow` holds, which it covers from that line's top, else
+// `tooltip.gap` under the row box. `warning` is the row's message:
 // text in the role `warningRole` names, `hint` unless set, under the value
 // column, `field.gap` below the row box and
 // wrapped to the column, in the colour `warningTone` names, `warning`,
@@ -71,6 +74,7 @@ Item {
     property string info: ""
     property string labelTooltip: ""
     property bool labelColumn: true
+    property bool textBelow: false
     default property alias control: slot.data
     property alias action: actionSlot.data
     readonly property Item actionItem: actionSlot.visibleChildren.length > 0 ? actionSlot.visibleChildren[0] : null
@@ -90,7 +94,14 @@ Item {
     }
     readonly property real besideX: controlEnd + Theme.tooltip.gap
     readonly property real besideWrap: Math.min(Theme.tooltip.maxWidth, width - besideX - 2 * Theme.tooltip.paddingX)
-    readonly property bool explainBeside: besideWrap > 0 && besideMeasure.implicitHeight + 2 * Theme.tooltip.paddingY <= labelBox + 2 * Theme.stack.row
+    readonly property real besideHeight: besideMeasure.implicitHeight + 2 * Theme.tooltip.paddingY
+    // Where the first line under the value starts, -1 with no such line.
+    readonly property real underText: textBelow ? valueBottom + Theme.field.gap : warning !== "" ? boxHeight + Theme.field.gap : -1
+    // Whether the explainer, centred on the label's box, ends above that line.
+    readonly property bool besideClear: underText < 0 ? true : (labelBox + besideHeight) / 2 <= underText
+    readonly property bool explainBeside: besideWrap > 0 && besideHeight <= labelBox + 2 * Theme.stack.row && besideClear
+    // Where the explainer starts under the row.
+    readonly property real underTop: Math.max(labelText.y + labelText.height - labelText.inkBelow(), underText < 0 ? boxHeight + Theme.tooltip.gap : underText)
     readonly property real subTextRoom: Theme.subTextRoom(warning !== "", Positioner.index, Positioner.isLastItem, parent)
     // Where the message's line ends, above the room under it.
     readonly property real messageBottom: height - subTextRoom
@@ -150,8 +161,9 @@ Item {
                 text: root.labelTooltip
                 side: root.explainBeside ? "right" : "belowStart"
                 // The side's gap from this box's end puts the tooltip at `besideX`.
-                box: root.explainBeside ? Qt.rect(0, -labelText.y, root.besideX - Theme.tooltip.gap, root.labelBox) : Qt.rect(root.valueX, -labelText.y, root.valueRoom, root.boxHeight)
-                maxWidth: root.explainBeside ? root.besideWrap : root.valueRoom - 2 * Theme.tooltip.paddingX
+                box: root.explainBeside ? Qt.rect(0, -labelText.y, root.besideX - Theme.tooltip.gap, root.labelBox) : Qt.rect(0, -labelText.y, root.width, root.underTop - Theme.tooltip.gap)
+                maxWidth: root.explainBeside ? root.besideWrap : root.width - 2 * Theme.tooltip.paddingX
+                minWidth: root.explainBeside ? 0 : root.width
             }
         }
         FocusRing { target: labelFocus; outside: true }
