@@ -151,7 +151,7 @@ Scope {
         for (const key of Object.keys(Plugins.built))
             for (const row of Plugins.built[key])
                 if (row.kind === "background" && visibleInTree(row.instance)
-                    && descendants(row.instance).some(child => child instanceof Image && child.status === Image.Ready && String(child.source).split("?")[0] === source)) return true;
+                    && showsWallpaper(row.instance, source)) return true;
         return false;
     }
 
@@ -220,21 +220,35 @@ Scope {
 
     // A frame's start on the GUI thread. A theme reading keeps the start of
     // the bar's first frame after the theme has published and the browser's
-    // window has hidden (`barStart`), and whether the wallpaper's frame was
-    // already stamped by then (`barStartWallpaper`): that frame is the
-    // first to show the changed desktop, and the render thread swaps it 0 to
-    // 1 ms after its start, while the frameSwapped handler that completes
-    // the reading waits on the GUI thread behind the teardown of the
-    // browser's window (18 to 34 ms later over five readings, theme-latency
-    // row with a render-thread swap stamp on cachy, 2026-10-11).
-    function frameStarted(kind) {
+    // window has hidden (`barStart`), and the start of the background's
+    // first frame that shows the theme's wallpaper (`wallStart`). The render
+    // thread swaps a frame 0 to 1 ms after its start, while the frameSwapped
+    // handler that completes the reading waits on the GUI thread behind the
+    // teardown of the browser's window (18 to 34 ms later over five
+    // readings, theme-latency row with a render-thread swap stamp on cachy,
+    // 2026-10-11). Quickshell deletes a layer surface's window on the turn
+    // after its hide (v0.3.1 WlrLayershell::deleteOnInvisible,
+    // ProxyWindowBase::setVisibleDirect), so a wallpaper that becomes ready
+    // after the hide starts its frame before that teardown and is handled
+    // after it.
+    function frameStarted(kind, item) {
         frameLog(kind + ".started");
         const reading = root.themeLatency;
-        if (reading === null || reading.kind !== "theme" || kind !== "bar" || reading.drawn !== undefined) return;
+        if (reading === null || reading.kind !== "theme" || reading.drawn !== undefined) return;
+        if (kind === "background") {
+            if (reading.wallStart === undefined && reading.background !== "" && showsWallpaper(item, reading.background)) reading.wallStart = Date.now() - reading.started;
+            return;
+        }
+        if (kind !== "bar") return;
         if (reading.barStart !== undefined) return;
         if (Theme.name !== reading.want || !desktopExposed()) return;
         reading.barStart = Date.now() - reading.started;
-        reading.barStartWallpaper = reading.background === "" || reading.backgroundFrame !== undefined;
+    }
+
+    // Whether ITEM holds an Image ready with SOURCE, the wallpaper a reading
+    // waits for.
+    function showsWallpaper(item, source) {
+        return descendants(item).some(child => child instanceof Image && child.status === Image.Ready && String(child.source).split("?")[0] === source);
     }
 
     // A frame's reader, with the GUI-thread ms it took while its reading
@@ -298,13 +312,13 @@ Scope {
             // The wallpaper covers the background's window, so its frame
             // counts from the reading's start; the bar draws the theme, so
             // its frame counts once the theme has published.
-            if (kind === "background" && descendants(item).some(child => child instanceof Image && child.status === Image.Ready && String(child.source).split("?")[0] === reading.background)) reading.backgroundFrame = frameTime - reading.started;
+            if (kind === "background" && showsWallpaper(item, reading.background)) reading.backgroundFrame = frameTime - reading.started;
             if (Theme.name !== reading.want) return;
             if (kind === "bar") reading.barFrame = frameTime - reading.started;
             // The empty background is an explicit theme without wallpaper.
             if (reading.barFrame === undefined || (reading.background !== "" && reading.backgroundFrame === undefined)) return;
         } else if (reading.kind === "wallpaper") {
-            if (kind === "background" && descendants(item).some(child => child instanceof Image && child.status === Image.Ready && String(child.source).split("?")[0] === reading.want)) reading.backgroundFrame = frameTime - reading.started;
+            if (kind === "background" && showsWallpaper(item, reading.want)) reading.backgroundFrame = frameTime - reading.started;
             if (reading.backgroundFrame === undefined) return;
         }
         if (["theme", "wallpaper"].indexOf(reading.kind) !== -1) {
@@ -317,12 +331,13 @@ Scope {
             reading.drawn = stamped;
             return;
         }
-        // `stamped` is this handler's time, the reading before `barStart`
-        // was kept. `drawn` is the bar frame's start when the wallpaper was
-        // already on the screen at it, else this later stamp, which is the
-        // wallpaper's frame. Both appear together: `drawn` ends the reading.
+        // `stamped` is this handler's time. `drawn` is the later of the bar
+        // frame's start and the wallpaper frame's start, the first frame
+        // that shows both; this stamp stands in for a start the reading did
+        // not keep. Both appear together: `drawn` ends the reading.
         reading.stamped = stamped;
-        reading.drawn = reading.barStartWallpaper === true ? reading.barStart : stamped;
+        const wallpaper = reading.background === "" ? 0 : reading.wallStart === undefined ? stamped : reading.wallStart;
+        reading.drawn = reading.barStart === undefined ? stamped : Math.max(reading.barStart, wallpaper);
     }
 
     Variants {
@@ -337,7 +352,7 @@ Scope {
             required property var modelData
             target: modelData.instance.Window.window
             function onFrameSwapped() { root.latencyFrame(modelData.instance, modelData.kind); }
-            function onAfterAnimating() { root.frameStarted(modelData.kind); }
+            function onAfterAnimating() { root.frameStarted(modelData.kind, modelData.instance); }
         }
     }
     function wallpaperWanted(image) {

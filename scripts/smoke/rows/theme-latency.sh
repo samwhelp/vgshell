@@ -17,13 +17,12 @@
 # 2026-10-04, twelve readings at load 3.2 to 3.5 had min/median/max
 # 89/108/132 ms. Six at load 8.6: 171, 93, 158, 116, 108, 121 ms,
 # CPU pressure 0.3 to 0.8%, compositor logs on.
-# The median reads `drawn`, the GUI thread's start of the bar's first frame
-# after the publish and the hide of the browser's window, once the
-# wallpaper's frame is stamped; a reading whose wallpaper frame comes later
-# keeps that frame's stamp. The ceiling reads `stamped`, the GUI thread's
-# handling of the completing frame's swap, which was `drawn` until the
-# browser closed at the publish: the teardown of its window now runs ahead
-# of that handler. Five readings of one run with a render-thread swap stamp
+# The median reads `drawn`, the later of two GUI-thread frame starts: the
+# bar's first frame after the publish and the hide of the browser's window,
+# and the wallpaper's first frame. The ceiling reads `stamped`, the GUI
+# thread's handling of the completing frame's swap, which was `drawn` until
+# the browser closed at the publish: the teardown of its window now runs
+# ahead of that handler. Five readings of one run with a render-thread swap stamp
 # on cachy, 2026-10-11, load 10.3, CPU pressure 0.7 to 1.1%: published
 # 113, 111, 122, 106, 112 ms; bar frame start 117, 115, 139, 111, 124 ms;
 # its swap 116, 116, 140, 112, 125 ms; `stamped` 137, 134, 163, 138, 159 ms.
@@ -67,7 +66,7 @@ function item(type, children = []) {
 function reader(text) {
     let clock = 10;
     const context = vm.createContext({ root: { themeLatency: null, browserWindow: null }, Theme: { name: 'latency' }, Plugins: { built: { overlay: [] } }, Image, Date: { now: () => clock++ } });
-    for (const name of ['typeName', 'descendants', 'browserParts', 'catalogWaiting', 'visibleInTree', 'desktopExposed', 'coverChanged', 'latencyMark', 'requestDesktopFrame', 'backgroundReady', 'selectedCard', 'cardPicture', 'selectedPictureReady', 'frameStarted', 'latencyFrame', 'readFrame', 'frameLog']) vm.runInContext(declaration(text, name), context);
+    for (const name of ['typeName', 'descendants', 'browserParts', 'catalogWaiting', 'visibleInTree', 'desktopExposed', 'coverChanged', 'latencyMark', 'requestDesktopFrame', 'showsWallpaper', 'backgroundReady', 'selectedCard', 'cardPicture', 'selectedPictureReady', 'frameStarted', 'latencyFrame', 'readFrame', 'frameLog']) vm.runInContext(declaration(text, name), context);
     context.root.selectedPictureReady = context.selectedPictureReady;
     context.begin = (kind, want, background = '') => { context.root.themeLatency = { kind, want, background, started: 0, jobs: [] }; };
     return context;
@@ -125,9 +124,10 @@ function verify(text) {
     assert.equal(c.root.themeLatency.drawn, undefined, 'a bar frame before the theme publishes must not complete it');
     c.Theme.name = 'latency'; c.latencyFrame(bar, 'bar');
     assert.equal(typeof c.root.themeLatency.drawn, 'number', 'a wallpaper frame drawn before the theme publishes must count');
-    // A theme reading is drawn at the start of the bar's first frame after
-    // the publish and the hide, once the wallpaper's frame is stamped.
-    c.begin('theme', 'latency', 'file:///a.jpg'); c.latencyFrame(background, 'background');
+    // A theme reading is drawn at the later of the start of the bar's first
+    // frame after the publish and the hide, and the start of the
+    // wallpaper's first frame.
+    c.begin('theme', 'latency', 'file:///a.jpg'); c.frameStarted('background', background); c.latencyFrame(background, 'background');
     c.frameStarted('bar');
     const barStart = c.root.themeLatency.barStart;
     assert.equal(typeof barStart, 'number', 'a bar frame after the publish and the hide must be kept');
@@ -139,15 +139,27 @@ function verify(text) {
     assert.equal(c.root.themeLatency.stamped, undefined, 'stamped must appear only with drawn');
     c.latencyFrame(background, 'background');
     assert.equal(typeof c.root.themeLatency.stamped, 'number');
-    assert.equal(c.root.themeLatency.drawn, c.root.themeLatency.stamped, 'drawn must be the stamp when the wallpaper frame came after the bar frame start');
+    assert.equal(c.root.themeLatency.drawn, c.root.themeLatency.stamped, 'a wallpaper frame whose start the reading did not keep must count at its stamp');
+    // The first theme change after the default theme: the wallpaper is
+    // ready after the hide, and its frame starts after the bar's.
+    c.begin('theme', 'latency', 'file:///a.jpg'); image.status = Image.Loading;
+    c.frameStarted('background', background);
+    assert.equal(c.root.themeLatency.wallStart, undefined, 'a background frame without the ready wallpaper must not be the wallpaper start');
+    image.status = Image.Ready; c.frameStarted('bar');
+    c.frameStarted('background', background);
+    const wallStart = c.root.themeLatency.wallStart;
+    c.frameStarted('background', background); c.latencyFrame(bar, 'bar'); c.latencyFrame(background, 'background');
+    assert.ok(wallStart > c.root.themeLatency.barStart, 'the wallpaper frame must start after the bar frame here');
+    assert.equal(c.root.themeLatency.drawn, wallStart, 'drawn must be the first wallpaper frame start when it came after the bar frame start');
+    assert.ok(c.root.themeLatency.stamped > wallStart, 'stamped must stay the later handler time');
     c.begin('theme', 'latency', ''); c.frameStarted('bar'); c.latencyFrame(bar, 'bar');
     assert.equal(c.root.themeLatency.drawn, c.root.themeLatency.barStart, 'a theme without wallpaper is drawn at its bar frame start');
     c.Theme.name = 'before';
-    c.begin('theme', 'latency', 'file:///a.jpg'); c.latencyFrame(background, 'background'); c.frameStarted('bar');
+    c.begin('theme', 'latency', 'file:///a.jpg'); c.frameStarted('background', background); c.latencyFrame(background, 'background'); c.frameStarted('bar');
     c.Theme.name = 'latency'; c.latencyFrame(bar, 'bar');
     assert.equal(c.root.themeLatency.drawn, c.root.themeLatency.stamped, 'a bar frame started before the publish must not be the drawn frame');
     browserWindow.visible = true; c.root.browserWindow = browserWindow;
-    c.begin('theme', 'latency', 'file:///a.jpg'); c.latencyFrame(background, 'background'); c.frameStarted('bar');
+    c.begin('theme', 'latency', 'file:///a.jpg'); c.frameStarted('background', background); c.latencyFrame(background, 'background'); c.frameStarted('bar');
     browserWindow.visible = false; c.latencyFrame(bar, 'bar');
     assert.equal(c.root.themeLatency.drawn, c.root.themeLatency.stamped, 'a bar frame started under the mapped browser must not be the drawn frame');
     c.root.browserWindow = null;
@@ -203,18 +215,21 @@ const controls = [
     ['bar waits for the published theme', '            if (Theme.name !== reading.want) return;\n            if (kind === "bar")', '            if (kind === "bar")'],
     ['warm open waits for pictures', 'if (!shown.some(image => image.status === Image.Ready)) pending++;', 'if (!shown.some(image => image.status === Image.Ready)) ;'],
     ['warm open waits for every card', 'if (view.shownCards.length !== Object.keys(names).length) return "cards";', ''],
-    ['wallpaper frame before the publish', '            if (kind === "background" && descendants(item).some(child => child instanceof Image && child.status === Image.Ready && String(child.source).split("?")[0] === reading.background)) reading.backgroundFrame = frameTime - reading.started;\n            if (Theme.name !== reading.want) return;\n', '            if (Theme.name !== reading.want) return;\n            if (kind === "background" && descendants(item).some(child => child instanceof Image && child.status === Image.Ready && String(child.source).split("?")[0] === reading.background)) reading.backgroundFrame = frameTime - reading.started;\n'],
+    ['wallpaper frame before the publish', '            if (kind === "background" && showsWallpaper(item, reading.background)) reading.backgroundFrame = frameTime - reading.started;\n            if (Theme.name !== reading.want) return;\n', '            if (Theme.name !== reading.want) return;\n            if (kind === "background" && showsWallpaper(item, reading.background)) reading.backgroundFrame = frameTime - reading.started;\n'],
     ['bar start waits for the publish', 'if (Theme.name !== reading.want || !desktopExposed()) return;\n        reading.barStart', 'if (!desktopExposed()) return;\n        reading.barStart'],
     ['bar start waits for the hide', 'reading.want || !desktopExposed()) return;\n        reading.barStart', 'reading.want) return;\n        reading.barStart'],
     ['first bar start is kept', 'if (reading.barStart !== undefined) return;', ''],
-    ['drawn keeps a later wallpaper stamp', 'reading.barStartWallpaper = reading.background === "" || reading.backgroundFrame !== undefined;', 'reading.barStartWallpaper = true;'],
+    ['drawn waits for the wallpaper start', 'Math.max(reading.barStart, wallpaper)', 'reading.barStart'],
+    ['wallpaper start needs the wallpaper', ' && showsWallpaper(item, reading.background)) reading.wallStart', ') reading.wallStart'],
+    ['first wallpaper start is kept', 'reading.wallStart === undefined && ', ''],
+    ['an unkept wallpaper start reads the stamp', 'reading.wallStart === undefined ? stamped : ', 'reading.wallStart === undefined ? 0 : '],
     ['stamped is the handler time', 'reading.stamped = stamped;', 'reading.stamped = reading.barStart;']
 ];
 for (const [label, needle, replacement] of controls) {
     assert.equal(source.split(needle).length, 2, label + ': exact control match');
     assert.throws(() => verify(source.replace(needle, replacement)), { name: 'AssertionError' }, label + ': reader without this rule must fail');
 }
-console.log('theme-latency-reader: ok controls=18 browser-held=refused window-mapped=refused uncovered-mapped=refused wallpaper-loading=refused retained-live=refused selected-missing=refused selected-low=refused low-full=refused unmeasured-low=refused bar-unpublished=refused wallpaper-before-publish=refused open-pictures=refused open-cards=refused bar-start-unpublished=refused bar-start-mapped=refused bar-start-later=refused wallpaper-after-start=refused stamp-early=refused');
+console.log('theme-latency-reader: ok controls=21 browser-held=refused window-mapped=refused uncovered-mapped=refused wallpaper-loading=refused retained-live=refused selected-missing=refused selected-low=refused low-full=refused unmeasured-low=refused bar-unpublished=refused wallpaper-before-publish=refused open-pictures=refused open-cards=refused bar-start-unpublished=refused bar-start-mapped=refused bar-start-later=refused wallpaper-start=refused wallpaper-start-ready=refused wallpaper-start-first=refused wallpaper-start-unkept=refused stamp-early=refused');
 JS
 
 cp -- "$repo/scripts/smoke/ThemeLatencyProbe.qml" "$repo/shell/ThemeLatencyProbe.qml"
@@ -254,7 +269,7 @@ expect "contention keeps unavailable pressure distinct from zero" '{"cpu_some_pc
 # close: the revision to the hide of the browser's window, when the browser
 # is off the screen; frame: the hide to `drawn`; teardown: `drawn` to
 # `stamped`, the wait of the swap's handler behind the teardown of that
-# window, 0 when the wallpaper's frame set both.
+# window, 0 when the reading kept no frame start for `drawn`.
 # Off the drawn path: hooks: applied.json and the reload hooks, which run
 # after the theme file, to the process's exit; reply: the exit to the
 # answer; answer: the hide to the answer, positive when the answer came
