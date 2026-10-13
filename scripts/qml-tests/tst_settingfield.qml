@@ -188,6 +188,7 @@ Item {
         SettingField { id: unexplained; key: "cursor"; spec: ({ type: "boolean", label: "Include pointer" }); value: true }
         SettingField { id: longLabel; key: "long"; spec: ({ type: "boolean", label: "A label that is far too long for two lines of its column" }); value: true }
         SettingField { id: probe; key: "probe"; spec: ({ type: "boolean", label: "Probe" }); value: true }
+        SettingField { id: explainedChoice; key: "mode"; spec: ({ type: "enum", label: "Result", tooltip: "What a capture does.", options: [{ value: "both", label: "Save and copy" }, { value: "copy", label: "Copy" }] }); value: "both" }
     }
 
     TestCase {
@@ -467,6 +468,16 @@ Item {
             compare(shown[0], explained.spec.tooltip);
             const plain = labelOf(unexplained).children.find(child => child.visualFocus !== undefined);
             verify(!plain.activeFocusOnTab, "a label without a tooltip is no Tab stop");
+        }
+
+        // A short segmented editor draws less than its row's value column,
+        // so the label's explainer opens past its last segment.
+        function test_a_segmented_editor_ends_where_its_segments_end() {
+            const row = descendants(explainedChoice).find(child => child.objectName === "fieldRow");
+            const segmented = descendants(explainedChoice).find(child => String(child).indexOf("SegmentedControl") === 0);
+            const end = segmented.mapToItem(row, segmented.width, 0).x;
+            verify(end < row.width, "the segments stop short of the row's end edge");
+            fuzzyCompare(row.controlEnd, end, 1, "the row reads the segments' end");
         }
 
         function test_a_long_label_wraps_and_never_elides() {

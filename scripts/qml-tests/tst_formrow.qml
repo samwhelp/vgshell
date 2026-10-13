@@ -30,7 +30,7 @@ import qs.Unit
 Item {
     id: root
     width: 480
-    height: 1060
+    height: 1300
 
     Column {
         width: 420
@@ -96,6 +96,20 @@ Item {
         }
     }
 
+    // A label's explainer beside a short control, beside a control that
+    // fills the value column, and too tall for the room beside a short one.
+    // The switch fills the column, as a Settings editor's Loader sizes it.
+    FormRow { id: explainedSwitch; y: 1060; width: 420; label: "Click to select"; labelTooltip: "A click takes the window under it."; Switch { id: explainedToggle; width: parent.width; size: "sm" } }
+    FormRow { id: explainedWide; y: 1120; width: 420; label: "Format"; labelTooltip: "The clock's format."; Select { id: wideChoice; width: parent.width; model: ["HH:mm", "hh:mm ap"] } }
+    FormRow {
+        id: explainedTall
+        y: 1180
+        width: 420
+        label: "Pointer"
+        labelTooltip: "Draws the pointer into every screenshot and recording, where it stands at the moment the capture starts, and over every window."
+        Switch { size: "sm" }
+    }
+
     TestCase {
         name: "formrow"
         when: windowShown
@@ -137,29 +151,69 @@ Item {
             compare(ring.visible, true);
         }
 
+        function tipOf(row) {
+            const control = labelOf(row).children.find(child => child.visualFocus !== undefined);
+            return control.data.find(child => String(child).indexOf("Tooltip") === 0);
+        }
+        function explainerOf(row) { return row.children.find(child => child.objectName === "labelExplainer"); }
+
         // The stand-in window positions nothing; the anchor it is handed is
-        // what the compositor places the tooltip by. A tooltip under the
-        // label would cover the next row's label and control.
-        function test_a_label_tooltip_opens_beside_the_label_inside_the_row() {
-            const label = labelOf(explainedLabel);
-            const control = label.children.find(child => child.visualFocus !== undefined);
-            const tip = control.data.find(child => String(child).indexOf("Tooltip") === 0);
-            tip.text = "A tooltip long enough to wrap before it reaches the end edge of the row it explains.";
+        // what the compositor places the tooltip by.
+        function test_a_label_tooltip_opens_past_its_control_data() {
+            return [
+                { tag: "switch", row: explainedSwitch, end: () => explainedToggle.indicator.mapToItem(explainedSwitch, explainedToggle.indicator.width, 0).x },
+                { tag: "value", row: explainedLabel, end: () => { const value = explainedLabel.children.find(child => child.x === explainedLabel.valueX).children[0]; return value.mapToItem(explainedLabel, value.implicitWidth, 0).x; } }
+            ];
+        }
+        function test_a_label_tooltip_opens_past_its_control(data) {
+            const tip = tipOf(data.row);
             tip.shown = true;
             try {
+                verify(tip.opened, "the tooltip opens its own surface");
                 const popup = tip.tracker.popup;
                 const anchor = popup.anchor;
-                compare(anchor.item, control);
                 compare(anchor.edges, Edges.Right);
                 compare(anchor.gravity, Edges.Right);
-                const start = control.mapToItem(explainedLabel, anchor.rect.x + anchor.rect.width - anchor.margins.right, anchor.rect.y + anchor.rect.height / 2);
-                fuzzyCompare(start.x, explainedLabel.valueX, 1, "the tooltip starts on the value column's start edge");
-                fuzzyCompare(start.y, explainedLabel.labelBox / 2, 1, "the tooltip centres on the label's box");
-                verify(popup.implicitWidth <= explainedLabel.width - explainedLabel.valueX, "the tooltip ends inside the row: " + popup.implicitWidth);
+                const start = tip.anchorItem.mapToItem(data.row, anchor.rect.x + anchor.rect.width - anchor.margins.right, anchor.rect.y + anchor.rect.height / 2);
+                fuzzyCompare(start.x, data.end() + Theme.tooltip.gap, 1, "the tooltip starts a gap past the control's drawn end");
+                fuzzyCompare(start.y, data.row.labelBox / 2, 1, "the tooltip centres on the label's box");
+                verify(popup.implicitWidth <= data.row.width - start.x, "the tooltip ends inside the row: " + popup.implicitWidth);
+                verify(popup.implicitHeight <= data.row.labelBox + 2 * Theme.stack.row, "the tooltip stops short of the rows beside it: " + popup.implicitHeight);
+                compare(explainerOf(data.row).visible, false);
             } finally {
                 tip.shown = false;
-                tip.text = explainedLabel.labelTooltip;
             }
+        }
+
+        // Where the room past the control cannot hold it, the row draws the
+        // explainer under its box and grows, and the control stays put.
+        function test_a_label_tooltip_without_room_beside_draws_under_the_row_data() {
+            return [
+                { tag: "full-width control", row: explainedWide },
+                { tag: "too tall beside", row: explainedTall }
+            ];
+        }
+        function test_a_label_tooltip_without_room_beside_draws_under_the_row(data) {
+            const tip = tipOf(data.row);
+            const explainer = explainerOf(data.row);
+            const control = data.row.children.find(child => child.x === data.row.valueX && child !== explainer).children[0];
+            const height = data.row.height;
+            const controlBottom = control.mapToItem(data.row, 0, control.height).y;
+            const controlCentre = centreIn(control, data.row);
+            tip.shown = true;
+            try {
+                compare(tip.opened, false, "no tooltip surface opens over the rows");
+                verify(explainer.visible, "the row draws the explainer");
+                compare(explainer.x, data.row.valueX);
+                verify(explainer.y >= controlBottom, "the explainer starts under the control: " + explainer.y + " < " + controlBottom);
+                verify(explainer.x + explainer.width <= data.row.width, "the explainer ends inside the row");
+                compare(data.row.height, height + Theme.field.gap + explainer.height, "the row grows by the explainer's room");
+                compare(centreIn(control, data.row), controlCentre, "the control stays put");
+            } finally {
+                tip.shown = false;
+            }
+            compare(explainer.visible, false);
+            compare(data.row.height, height);
         }
 
         function test_a_row_is_the_row_height_with_a_label_column() {

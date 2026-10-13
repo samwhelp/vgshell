@@ -18,10 +18,15 @@ import qs.Ui
 // line starts at the row box's top. A label too long for its
 // column wraps onto as many lines as it needs and never elides; the row
 // grows to hold them. `labelTooltip`, when set, is the label's tooltip on
-// hover and keyboard focus. It opens beside the label, on the value
-// column's start edge and centred on the label's box, and wraps to end
-// on the row's end edge, so it covers no other row's label or control and
-// stays inside the window. `warning` is the row's message:
+// hover and keyboard focus, and it covers no label or control and stays
+// inside the row. It opens past the control's drawn end (Theme.inkEnd),
+// `tooltip.gap` after it, centred on the label's box and wrapped to end on
+// the row's end edge, where it fits there and reaches no further than
+// `stack.row` above or below that box, so it stops short of the rows
+// beside it. Otherwise, as beside a control that fills the value column,
+// the row draws it `field.gap` under its box, on the value column, and
+// grows by that gap and its height while it shows, so the rows below
+// move down. `warning` is the row's message:
 // text in the role `warningRole` names, `hint` unless set, under the value
 // column, `field.gap` below the row box and
 // wrapped to the column, in the colour `warningTone` names, `warning`,
@@ -73,17 +78,31 @@ Item {
     readonly property real valueX: labelColumn ? Theme.field.labelWidth + Theme.field.labelGap : 0
     readonly property real valueRoom: Math.max(0, width - valueX)
     readonly property real messageRoom: warning === "" ? 0 : Theme.field.gap + messageLine
+    // The row box as its label and control size it.
+    readonly property real contentBox: labelColumn ? Math.max(Theme.row.height, labelText.implicitHeight, slot.childrenRect.height) : slot.childrenRect.height
+    readonly property real controlEnd: {
+        let end = 0;
+        for (const child of slot.children) {
+            if (child.visible) end = Math.max(end, child.x + Theme.inkEnd(child));
+        }
+        return slot.x + end;
+    }
+    readonly property real besideX: controlEnd + Theme.tooltip.gap
+    readonly property real besideWrap: Math.min(Theme.tooltip.maxWidth, width - besideX - 2 * Theme.tooltip.paddingX)
+    readonly property bool explainBeside: besideWrap > 0 && besideMeasure.implicitHeight + 2 * Theme.tooltip.paddingY <= labelBoxIn(contentBox) + 2 * Theme.stack.row
+    readonly property real explainRoom: explainer.visible ? Theme.field.gap + explainer.height : 0
     readonly property real subTextRoom: Theme.subTextRoom(warning !== "", Positioner.index, Positioner.isLastItem, parent)
     // Where the message's line ends, above the room under it.
     readonly property real messageBottom: height - subTextRoom
-    readonly property real boxHeight: messageBottom - messageRoom
+    readonly property real boxHeight: messageBottom - messageRoom - explainRoom
     // The box a one-line label and its info button centre on.
-    readonly property real labelBox: {
-        if (labelText.lineCount > 1) return boxHeight;
+    readonly property real labelBox: labelBoxIn(boxHeight)
+    function labelBoxIn(box) {
+        if (labelText.lineCount > 1) return box;
         for (const child of slot.children) {
             if (child.visible && child.firstLineHeight > 0) return child.firstLineHeight;
         }
-        return boxHeight;
+        return box;
     }
     signal warningLinkActivated()
 
@@ -92,6 +111,7 @@ Item {
         for (const child of slot.children) {
             if (child.visible) bottom = Math.max(bottom, slot.y + child.y + child.height - Theme.inkBelow(child));
         }
+        if (explainer.visible) bottom = Math.max(bottom, explainer.y + explainer.height);
         if (message.visible) bottom = Math.max(bottom, message.y + message.height - message.inkBelow());
         if (actionSlot.visible && root.actionBelow) bottom = Math.max(bottom, actionSlot.y + actionSlot.height);
         return height - bottom;
@@ -117,7 +137,7 @@ Item {
     // height without depending on the private tree shape.
     objectName: "fieldRow"
     implicitWidth: slot.x + Math.max(Theme.field.minWidth, Math.min(Theme.control.maxWidth, slot.childrenRect.width))
-    implicitHeight: (labelColumn ? Math.max(Theme.row.height, labelText.implicitHeight, slot.childrenRect.height) : slot.childrenRect.height) + messageRoom + subTextRoom
+    implicitHeight: contentBox + explainRoom + messageRoom + subTextRoom
 
     Label {
         id: labelText
@@ -129,11 +149,13 @@ Item {
             anchors.fill: parent
             activeFocusOnTab: root.labelTooltip !== "" && visible
             Tooltip {
+                id: labelTip
                 text: root.labelTooltip
                 side: "right"
-                // The side's gap from this box's end puts the tooltip on the value column's start edge.
-                box: Qt.rect(0, -labelText.y, root.valueX - Theme.tooltip.gap, root.labelBox)
-                maxWidth: Math.min(Theme.tooltip.maxWidth, root.valueRoom - 2 * Theme.tooltip.paddingX)
+                inPlace: !root.explainBeside
+                // The side's gap from this box's end puts the tooltip at `besideX`.
+                box: Qt.rect(0, -labelText.y, root.besideX - Theme.tooltip.gap, root.labelBox)
+                maxWidth: root.besideWrap
             }
         }
         FocusRing { target: labelFocus; outside: true }
@@ -172,7 +194,7 @@ Item {
         color: root.toneColor(root.warningTone)
         visible: root.warning !== ""
         x: slot.x
-        y: root.boxHeight + Theme.field.gap
+        y: root.boxHeight + root.explainRoom + Theme.field.gap
         width: root.valueRoom - root.actionRoom
         wrapMode: Text.Wrap
         onActivated: root.warningLinkActivated()
@@ -185,5 +207,38 @@ Item {
         y: root.actionBelow ? root.messageBottom - height : root.messageBottom - root.messageLine + Math.round((root.messageLine - height) / 2)
         width: root.actionItem === null ? 0 : root.actionItem.width
         height: root.actionItem === null ? 0 : root.actionItem.height
+    }
+
+    // The explainer's text at the width it wraps to beside the control.
+    Label {
+        id: besideMeasure
+        visible: false
+        role: "tooltip"
+        text: root.labelTooltip
+        width: Math.max(1, root.besideWrap)
+        wrapMode: Text.Wrap
+    }
+
+    GlassSurface {
+        id: explainer
+        objectName: "labelExplainer"
+        visible: labelTip.shown && labelTip.inPlace && root.labelColumn
+        standard: Theme.tooltip
+        elevation: "tight"
+        x: root.valueX
+        y: root.boxHeight + Theme.field.gap
+        width: Math.min(root.valueRoom, Math.min(Math.ceil(explainerText.implicitWidth), Theme.tooltip.maxWidth) + 2 * Theme.tooltip.paddingX)
+        height: explainerText.height + 2 * Theme.tooltip.paddingY
+
+        Label {
+            id: explainerText
+            role: "tooltip"
+            color: Theme.tooltip.foreground
+            text: root.labelTooltip
+            x: Theme.tooltip.paddingX
+            y: Theme.tooltip.paddingY
+            width: Math.max(0, explainer.width - 2 * Theme.tooltip.paddingX)
+            wrapMode: Text.Wrap
+        }
     }
 }

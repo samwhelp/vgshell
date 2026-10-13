@@ -15,8 +15,9 @@ import qs.Ui
 // until the pointer leaves the item, so it never covers what the press
 // opened. It opens beside `box`, a rectangle in the item's coordinates,
 // the item's own box unless set, and wraps its text past `maxWidth`,
-// `tooltip.maxWidth` unless set. The declaring item is an invisible,
-// sizeless member of its parent.
+// `tooltip.maxWidth` unless set. While `inPlace` it opens no surface: it
+// only says through `shown` when it would show, and its owner draws the
+// text. The declaring item is an invisible, sizeless member of its parent.
 Item {
     id: root
 
@@ -27,6 +28,7 @@ Item {
     property string side: "below"
     property rect box: Qt.rect(0, 0, anchorItem === null ? 0 : anchorItem.width, anchorItem === null ? 0 : anchorItem.height)
     property real maxWidth: Theme.tooltip.maxWidth
+    property bool inPlace: false
     readonly property int edge: edgeFor(side)
     property bool shown: false
     readonly property bool opened: popup.item !== null && popup.item.visible
@@ -83,7 +85,7 @@ Item {
     // https://quickshell.org/docs/v0.3.1/types/Quickshell/LazyLoader/
     LazyLoader {
         id: popup
-        active: root.shown
+        active: root.shown && !root.inPlace
 
         PopupWindow {
             id: window

@@ -15,7 +15,8 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // whole pixel, and the control is never shorter than `size.control.sm`,
 // so a compact track keeps a larger input area. `inkBelow()` is how far
 // above its bottom edge the track or the text ends, for the space a
-// `Section` measures from what it draws.
+// `Section` measures from what it draws. `inkEnd()` is where the track,
+// or the text after it, ends.
 // Its tokens are `Theme.toggle`, since `switch` is a JavaScript keyword.
 T.Switch {
     id: root
@@ -45,6 +46,9 @@ T.Switch {
     function inkBelow() {
         const text = root.text === "" ? 0 : contentItem.y + contentItem.height - Theme.inkBelow(contentItem);
         return height - Math.max(indicator.y + indicator.height, text);
+    }
+    function inkEnd() {
+        return root.text === "" ? indicator.x + indicator.width : Math.min(root.width, root.implicitWidth);
     }
     spacing: Theme.toggle.gap
     hoverEnabled: true

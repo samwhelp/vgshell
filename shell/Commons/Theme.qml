@@ -202,6 +202,18 @@ Singleton {
         return 0;
     }
 
+    // How far right of its left edge an item's drawn content ends, so a
+    // FormRow opens its label's explainer past the control it draws. An
+    // item that declares `inkEnd()`, such as a `Switch`, answers for
+    // itself, and a Loader where its item does; any other item draws to
+    // its right edge.
+    function inkEnd(item) {
+        if (item === null || item === undefined) return 0;
+        if (typeof item.inkEnd === "function") return item.inkEnd();
+        if (item instanceof Loader) return item.item instanceof Item ? item.item.x + inkEnd(item.item) : 0;
+        return item.width;
+    }
+
     // How far below its top edge an item's drawn content starts, the
     // counterpart of inkBelow, so a GroupList centres its hairline between
     // what the eye sees of two groups. An item that declares `inkAbove()`,

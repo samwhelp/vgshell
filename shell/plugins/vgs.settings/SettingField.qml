@@ -332,6 +332,7 @@ Column {
         Item {
             width: parent.width
             implicitHeight: seg.implicitHeight
+            function inkEnd() { return seg.x + seg.width; }
 
             SegmentedControl {
                 id: seg

@@ -120,15 +120,15 @@ Item {
             const labelControl = label.children.find(item => item.visualFocus !== undefined);
             verify(labelControl.activeFocusOnTab);
             mouseMove(label, label.width / 2, label.height / 2);
-            tryCompare(tip, "opened", true);
+            tryCompare(tip, "shown", true);
             mouseMove(root, root.width - 1, root.height - 1);
-            tryCompare(tip, "opened", false);
+            tryCompare(tip, "shown", false);
             root.Window.window.requestActivate();
             tryCompare(root.Window.window, "active", true);
             wait(0);
             const focused = [];
-            const record = () => { if (tip.opened) focused.push(tip.text); };
-            tip.openedChanged.connect(record);
+            const record = () => { if (tip.shown) focused.push(tip.text); };
+            tip.shownChanged.connect(record);
             try {
                 labelControl.forceActiveFocus(Qt.OtherFocusReason);
                 keyClick(Qt.Key_Tab);
@@ -137,11 +137,11 @@ Item {
                 compare(labelControl.visualFocus, true);
                 tryVerify(() => focused.length > 0, 2000);
             } finally {
-                tip.openedChanged.disconnect(record);
+                tip.shownChanged.disconnect(record);
             }
             compare(focused[0], tip.text);
             input(row).forceActiveFocus(Qt.TabFocusReason);
-            tryCompare(tip, "opened", false);
+            tryCompare(tip, "shown", false);
             const plain = descendant(later, item => item.objectName === "fieldLabel");
             verify(!plain.children.find(item => item.visualFocus !== undefined).activeFocusOnTab);
         }
