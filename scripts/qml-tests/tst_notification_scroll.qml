@@ -276,7 +276,7 @@ Item {
                 // The top band grows in across the gutter as the view
                 // leaves its start, so a view that has just left it has
                 // barely begun to fade.
-                { tag: "just left the top", offset: 2, height: 300, growing: true }
+                { tag: "just left the top", offset: 1, height: 300, growing: true }
             ];
         }
 

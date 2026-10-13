@@ -1459,8 +1459,8 @@ tier_fits_person="[acme] from Edsger Dijkstra"
 tier_wraps_image="Tier wrapping title: a screenshot saved to the clipboard and to the pictures folder"
 tier_wraps_person="[acme] from Barbara Liskov, Frances Allen and Margaret Hamilton at the design review"
 tier_break_image=$'Tier break\nsecond line'
-expect "clearing the screen before the media tiers is allowed" ok notes dismiss-all
-expect_poll "the screen is clear before the media tiers" 0 note_status onScreen
+expect "clearing the screen before the media slot cards is allowed" ok notes dismiss-all
+expect_poll "the screen is clear before the media slot cards" 0 note_status onScreen
 tier_one_line=("Tier image" "[acme] from Grace Hopper" "[acme] in edsger, barbara" "$tier_fits_person")
 tier_more_lines=("$tier_wraps_image" "$tier_wraps_person" "$tier_break_image" "Tier image saved" "[acme] from Alan Turing" "[acme] in ada, grace" "[acme] in ada, grace, alan" "[acme] in ada, grace, alan, edsger" "[acme] in ada, grace, alan, edsger, barbara, ken, linus" "New message in tier-room")
 notify smoke-shot 0 "Tier image" "" '[]' "{\"image-path\": <\"$tier_image\">, \"urgency\": <byte 2>}" 0 >/dev/null
@@ -5385,7 +5385,7 @@ Scope {
         const template = Object.assign({}, store.history[0]);
         const media = store.history.find(entry => entry.image.length > 0).image;
         const cases = [
-            { summary: "Wrapped summary with enough words to cross the compact media width and continue on the second line", body: "Wrapped body text with enough words to occupy more than one full line in the notification card.", appIcon: "" },
+            { summary: "Wrapped summary with enough words to cross the text width and continue on the second line", body: "Wrapped body text with enough words to occupy more than one full line in the notification card.", appIcon: "" },
             { summary: "First summary line\nSecond summary line", body: "First body line\nSecond body line\nThird body line", appIcon: "" },
             { summary: "Long body", body: Array(30).fill("A notification body that wraps into the available width.").join(" "), appIcon: "" },
             { summary: "A wrapped image summary with enough words to fill two lines", body: "Image body", image: media },

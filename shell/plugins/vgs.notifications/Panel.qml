@@ -435,7 +435,7 @@ FocusScope {
         if (selectedHoverKey !== "") setHover(selectedHoverKey, true);
     }
 
-    // The Pane keeps the header and its gutter; the list lies outside the
+    // The Pane keeps the header; the list lies outside the
     // Pane's body, whose clip stops at the ring room above it, so the list's
     // view starts at the header's bottom edge and its cards fade out as
     // they pass behind the header.
