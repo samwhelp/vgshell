@@ -44,6 +44,7 @@ probe_page() {
 click_probe_card() { click_item vgs:layer vgs.notifications NotificationCard summary "$1" 24 -; }
 settings_shown() { ipc smoke readInstance window vgs.settings shownPage; }
 probe_heard() { ipc smoke readInstance service acme.probe lastSummary; }
+probe_notified() { ipc smoke readInstance service acme.probe notified; }
 notify_server() { ipc shell lent | py_reply 'import json,sys; print(json.load(sys.stdin)["notificationServer"])'; }
 # in_probe_history SUMMARY: whether History holds the fixture's SUMMARY;
 # False before the store's first save.
@@ -119,8 +120,13 @@ expect "a transient that is no boolean is refused" transient notify_refused_key 
 
 # A burst in one call: no run can end while the call runs, so at most
 # PluginLogic.NOTIFY_RUNS_MAX are in flight and the rest answer busy.
+notify_before="$(probe_notified)" || notify_before="unread"
 burst="$(ipc acme.probe invoke notify-burst '9 {"title": "Probe burst", "urgency": "low", "transient": true}')" || burst="unread"
 expect "a burst past the run ceiling ends in busy" busy-last burst_shape "$burst" 8
+# The hub fans out each delivery in one turn. Once the fixture has heard
+# every accepted message, its card exists and dismiss-all cannot pass it.
+notify_total="$(py_reply 'import sys; print(int(sys.argv[1]) + sys.argv[2].split(",").count("ok"))' "$notify_before" "$burst")" || notify_total="unread"
+expect_poll "every accepted burst message arrived before cleanup" "$notify_total" probe_notified
 
 # A dismissed transient card goes to History as a lasting one does. The
 # lasting one goes second, so the History read after it is a save that
