@@ -24,8 +24,6 @@ Rules, each a finding key:
   image-format        an image file is not WebP by its magic bytes and
                       its `.webp` name.
   image-size          an image file is over BUDGET_BYTES.
-  command-unnamed     a README that shows an image does not name
-                      scripts/readme-shots.sh, the command that makes it.
   table-row           a table row is not four well-formed fields, names an
                       unknown crop, or repeats an image; or the header
                       differs, which leaves the table unjudged and ends
@@ -56,7 +54,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLUGINS = "shell/plugins"
 IMAGES = "docs/images/plugins"
 TABLE = IMAGES + "/shots.tsv"
-COMMAND = "scripts/readme-shots.sh"
 HEADER = "image\tscene\tshot\tcrop"
 CROPS = ("full", "bar", "content", "item", "backdrop")
 # The largest image scripts/readme-shots.sh made from the table on host
@@ -216,8 +213,6 @@ def check():
             if not reference:
                 findings.append(("no-image", readme))
             continue
-        if COMMAND not in text:
-            findings.append(("command-unnamed", readme))
         own = False
         for target in paths:
             where = "%s:%s" % (readme, target)

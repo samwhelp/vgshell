@@ -4,8 +4,6 @@ Plugins is the window where you manage your plugins, their settings and their sh
 
 ![The Settings plugin list window](../../../docs/images/plugins/vgs.settings-window.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - Search for a plugin and open its page.

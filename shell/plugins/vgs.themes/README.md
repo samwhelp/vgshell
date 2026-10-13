@@ -4,8 +4,6 @@ Themes changes your desktop colours and wallpaper. Select a theme to apply it to
 
 ![The theme browser showing an installed theme](../../../docs/images/plugins/vgs.themes-browser.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - A full-screen theme browser on `SUPER+SHIFT+T`. It shows shipped, installed and catalog themes as cards in one list, with the selected theme's name under the cards and each side card's name along its edge. The selection opens on the applied theme. Type to filter, and Enter applies the selected theme. A catalog theme installs first.

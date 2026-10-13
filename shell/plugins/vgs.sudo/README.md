@@ -4,8 +4,6 @@ Passwordless Sudo puts a lock in the bar. Click it to turn passwordless sudo on 
 
 ![The Passwordless Sudo page in Plugins](../../../docs/images/plugins/vgs.sudo-page.webp)
 
-Images come from `scripts/readme-shots.sh` in the nested sandbox.
-
 While it is on, any program running as you can run anything as root without a password.
 
 ## Features

@@ -4,8 +4,6 @@ System Monitor shows CPU, memory and graphics card use in the bar. Its flyout sh
 
 ![System Monitor bar readings and flyout](../../../docs/images/plugins/vgs.sysmon-panel.webp)
 
-Image: `scripts/readme-shots.sh`.
-
 ## Features
 
 - Choose the readings in the bar.

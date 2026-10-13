@@ -4,8 +4,6 @@ Displays sets each screen's mode, scale, orientation and brightness. Apple Pro D
 
 ![System Settings → Displays: one row per display with its brightness, and the screen each display shows on](../../../docs/images/plugins/vgs.displays-pane.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2, over the sandbox's fake Pro Display XDR and two Studio Displays.
-
 ## Features
 
 - A brightness item in each bar. It controls the display on its own screen: scroll to change the brightness, click to open the flyout. It hides while no display it can control lights that screen.

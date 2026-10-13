@@ -6,7 +6,7 @@ Notifications shows application notifications on each screen and keeps them in a
 
 ![The inbox with three notifications](../../../docs/images/plugins/vgs.notifications-inbox.webp)
 
-Screenshots come from `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2. VGS uses a summoned panel to give the list keyboard focus.
+VGS uses a summoned panel to give the list keyboard focus.
 
 ## Features
 

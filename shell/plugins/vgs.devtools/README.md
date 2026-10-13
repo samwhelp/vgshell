@@ -4,8 +4,6 @@ Dev Tools installs, updates, pins and removes developer tools: coding agents, ap
 
 ![The Dev Tools window listing coding agents](../../../docs/images/plugins/vgs.devtools-window.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - A Catalog page with search, Installed, Updates and Not installed filters, and one row per tool.

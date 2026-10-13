@@ -4,8 +4,6 @@ Screensaver shows animated text art on each screen when the desktop is inactive.
 
 ![Screensaver cover with text art](../../../docs/images/plugins/vgs.screensaver-cover.webp)
 
-Screenshot made with `scripts/readme-shots.sh`.
-
 ## Features
 
 - Starts after the inactive time you choose, with one cover on each screen.

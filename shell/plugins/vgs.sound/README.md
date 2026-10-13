@@ -4,8 +4,6 @@ Sound sets the volume, the output and input device, and the volume of each app t
 
 ![The System Settings window on its Sound section: the output, the input with its level meter, and an app that plays](../../../docs/images/plugins/vgs.sound-pane.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2, over the sandbox's own PipeWire and its null devices.
-
 ## Features
 
 - A bar icon that shows the output level. A click opens the flyout, the mouse wheel changes the volume and a middle click mutes the output. The tooltip names the output and its level.

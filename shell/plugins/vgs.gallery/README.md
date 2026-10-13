@@ -4,8 +4,6 @@ VGS Components previews the controls and states of the current theme. It is for 
 
 ![VGS Components with background and text samples](../../../docs/images/plugins/vgs.gallery-window.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - One section per group of components: surfaces, typography, buttons, choices, inputs, groups, feedback, dialogs, cards, the carousel, titles and scrolling, and lists.

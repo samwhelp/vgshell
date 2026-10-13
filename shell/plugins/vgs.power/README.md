@@ -4,8 +4,6 @@ Power shows the battery level and the power profile in the bar, and switches the
 
 ![The Power flyout with battery level and profile choices](../../../docs/images/plugins/vgs.power-panel.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2, over the sandbox's fake battery.
-
 ## Features
 
 - A bar icon with the battery level and the active power profile. On a desktop it shows the profile alone, and it hides when profile control is unavailable too.

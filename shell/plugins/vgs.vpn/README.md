@@ -4,8 +4,6 @@ VPN shows your saved VPN profiles and your Tailscale connection. It turns it on 
 
 ![The VPN section of the System Settings window, with the connection switch and the exit nodes](../../../docs/images/plugins/vgs.vpn-pane.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2, over a stand-in `tailscale`.
-
 ## Features
 
 - A bar icon that shows connected, off, or the exit node in use. It hides when neither VPN backend is available.

@@ -4,8 +4,6 @@ Scratchpads shows and hides an app with one key, over whatever you work on. Each
 
 ![The Scratchpads page in Plugins](../../../docs/images/plugins/vgs.scratchpads-page.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - Add, change and remove pads on the Scratchpads page in Plugins. No file to edit.

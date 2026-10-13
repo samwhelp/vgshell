@@ -39,18 +39,9 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 ### Appearance values
 
 - Do resolve the user's Appearance values only in `ThemeLogic.withAppearance`, once, and read the result through `Theme`; a value the user has not set is the theme's. `scripts/test-theme-logic.js` pins that no value draws every package as before.
-- Do set every token of a control from its one base by the fixed ratio, `ThemeLogic.APPEARANCE_RATIOS`, and apply a ratio to a user's value only. `scripts/test-theme-logic.js` pins each ratio:
+- Do set every token of a control from its one base by the fixed ratio in `ThemeLogic.APPEARANCE_RATIOS`, which holds every ratio, and apply a ratio to a user's value only. `scripts/test-theme-logic.js` pins each ratio.
 
-  | Base | Tokens | Ratio |
-  | --- | --- | --- |
-  | Corner radius | `hyprland.window.radius` | 1 |
-  | | `surface`, `popover`, `menu`, `dialog` and `osd` radius; a menu entry follows its menu | 0.75 |
-  | | `hyprland.window.groupRadius`, grouped window tabs | 0.5 |
-  | Border width | `hyprland.border.size` | 1 |
-  | Control radius | `button`, `textField` and `segmented` radius | 1 |
-  | Glass on | `popover`, `menu`, `dialog` and `osd` radius, each only where it would be 0 | none: `radius.glass` |
-
-- Do apply the Glass on row only while the user's `glass` is on, and keep a radius the theme or the user's Corner radius sets above 0. Never set `surface.radius` from it: a panel attached to the bar keeps the bar's square edge. `scripts/test-theme-logic.js` pins each case.
+- Do give a popover, a menu, a dialog or the OSD the radius `radius.glass` only while the user's `glass` is on and only where its radius would be 0, and keep a radius the theme or the user's Corner radius sets above 0. Never set `surface.radius` from it: a panel attached to the bar keeps the bar's square edge. `scripts/test-theme-logic.js` pins each case.
 
 - Do set the interface font on `font.family.sans` and `font.family.caps` alone, so code and key names keep `font.family.mono`, and set no token from the terminal font, which the theme targets write ([themes.md](themes.md)). `scripts/test-theme-logic.js` pins both.
 

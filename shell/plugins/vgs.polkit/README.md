@@ -4,8 +4,6 @@ Polkit asks for your password when an application needs administrator access. Th
 
 ![The password prompt for a program run with pkexec](../../../docs/images/plugins/vgs.polkit-prompt.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - A dialog over a dimmed screen with the request's message, its polkit action, the account it authenticates as and the password field.

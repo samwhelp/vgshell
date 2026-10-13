@@ -4,8 +4,6 @@ Windows sets the corner radius and the border width of windows and flyouts, and 
 
 ![The Windows section of the System Settings window, with the Corner radius and Border width rows](../../../docs/images/plugins/vgs.windows-pane.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - A Windows section under Appearance in the System Settings window.

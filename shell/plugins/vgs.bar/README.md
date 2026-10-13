@@ -4,8 +4,6 @@ The bar shows workspaces, the clock and plugin buttons at the top of each screen
 
 ![The bar with its workspaces, its clock and plugin widgets](../../../docs/images/plugins/vgs.bar-bar.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - One bar per screen, above windows, with space reserved so windows never sit under it.

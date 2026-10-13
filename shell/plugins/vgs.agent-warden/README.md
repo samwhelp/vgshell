@@ -4,8 +4,6 @@ Agent Warden shows whether your AI coding agents stay within their memory and pr
 
 ![The Agent Warden panel, open from its shield, reporting two problems](../../../docs/images/plugins/vgs.agent-warden-panel.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - A shield in the bar. Its colour and icon follow the agents' state, with the number of running agents or problems beside it.

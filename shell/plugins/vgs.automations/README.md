@@ -4,8 +4,6 @@ Automations runs your commands on a schedule. It keeps each run's output and sen
 
 ![The Automations window with scheduled jobs](../../../docs/images/plugins/vgs.automations-window.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - A window with the list of automations, an editor, a preview of the next runs and the history.

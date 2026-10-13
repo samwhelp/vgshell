@@ -4,8 +4,6 @@ Tray shows the tray icons of your apps in the bar, such as chat, sync, VPN and m
 
 ![The Tray page in Plugins](../../../docs/images/plugins/vgs.tray-page.webp)
 
-Images come from `scripts/readme-shots.sh` in the nested sandbox.
-
 ## Features
 
 - Every app that shows a tray icon, in the bar.

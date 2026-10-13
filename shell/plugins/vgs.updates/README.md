@@ -4,8 +4,6 @@ Updates checks your system, VGS, plugins, themes and developer tools for updates
 
 ![The Updates window with its System row open](../../../docs/images/plugins/vgs.updates-window.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - Checks system packages, AUR packages, Flatpak apps, mise tools, VGS itself, installed plugins and installed themes.

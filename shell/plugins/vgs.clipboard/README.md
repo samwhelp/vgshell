@@ -4,8 +4,6 @@ Clipboard keeps what you copy. Open the history with `SUPER+CTRL+V`, find an ear
 
 ![The clipboard history](../../../docs/images/plugins/vgs.clipboard-history.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - A history of your last 500 text and image copies. It stays after a restart.

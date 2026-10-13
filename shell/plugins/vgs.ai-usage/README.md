@@ -4,8 +4,6 @@ AI Usage shows how much of your Claude Code, Codex and Copilot plan limits you h
 
 ![AI Usage dropdown with three signed-in accounts](../../../docs/images/plugins/vgs.ai-usage-panel.webp)
 
-Images come from `scripts/readme-shots.sh` in the nested sandbox.
-
 ## Features
 
 - One number for your visible accounts in the bar: by default the highest share of a plan limit used. It turns to the warning colour at 80 % used.

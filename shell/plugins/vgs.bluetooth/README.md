@@ -4,8 +4,6 @@ Bluetooth turns Bluetooth on and off, and pairs, connects, renames and forgets y
 
 ![The Bluetooth section of the System Settings window, with the power switch, Discoverable and the connected headphones](../../../docs/images/plugins/vgs.bluetooth-pane.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2, over the sandbox's Bluetooth fakes.
-
 ## Features
 
 - A bar icon that shows off, on, or the count of connected devices. It hides when the computer has no Bluetooth adapter.

@@ -4,8 +4,6 @@ Network joins Wi-Fi and shows your Wi-Fi and Ethernet connections. It has a bar 
 
 ![Network in System Settings](../../../docs/images/plugins/vgs.network-pane.webp)
 
-Image: `scripts/readme-shots.sh`.
-
 ## Features
 
 - A dropdown under the bar icon with the Wi-Fi switch, the current connection, the Wi-Fi networks to join and each Ethernet device with its state. Network settings opens the System Settings section.

@@ -6,8 +6,6 @@ Capture takes PNG screenshots. It can save them, copy them, or do both. It also 
 
 ![Capture panel](../../../docs/images/plugins/vgs.capture-panel.webp)
 
-Images come from `scripts/readme-shots.sh` in the nested sandbox.
-
 ## Features
 
 - Screenshot of the focused output, of an area, of a window, of a chosen display, or one image of all displays.

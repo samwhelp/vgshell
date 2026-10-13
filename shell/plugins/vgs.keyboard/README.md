@@ -7,8 +7,6 @@ Choose keyboard layouts, set their order, and adjust how a held key repeats.
 <details>
 <summary>Show command details</summary>
 
-Screenshot made with `scripts/readme-shots.sh` from the System scene in the nested sandbox.
-
 </details>
 
 ## Features

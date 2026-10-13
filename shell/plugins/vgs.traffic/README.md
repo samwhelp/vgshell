@@ -23,8 +23,6 @@ A package update can remove capture access. Close Settings, then open Settings >
 <details>
 <summary>Show command</summary>
 
-The image comes from `scripts/readme-shots.sh` in the nested sandbox.
-
 The core system step grants capture access to the trusted installed binary:
 
 ```sh

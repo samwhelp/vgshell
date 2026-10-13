@@ -4,8 +4,6 @@ Sounds sets the sound of each event a plugin has, such as a new notification or 
 
 ![The Sounds section of the System Settings window, with each plugin's events and the sound each one plays](../../../docs/images/plugins/vgs.sounds-pane.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - A Sounds section under Appearance in the System Settings window.

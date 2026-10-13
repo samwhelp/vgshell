@@ -4,8 +4,6 @@ Jarvis is a voice assistant for your desktop. You talk to it, and it answers wit
 
 ![The Jarvis page in Settings](../../../docs/images/plugins/vgs.jarvis-page.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - Talk with a key, or say Hey Jarvis.
@@ -144,13 +142,12 @@ Mute closes only the microphone. Show in bar puts the bar icon back after Hide.
 
 ## Jarvis session
 
-With Start Jarvis at boot on, a Jarvis session starts each time VGS starts after you sign in. The session runs the app of the Account you chose under AI model, in tmux, in your home folder. A restart of VGS does not start a second session.
+Start Jarvis at boot, under [Settings](#settings), states when the session starts and what it runs. The app is the Account you chose under AI model. A restart of VGS does not start a second session. [Turn Jarvis on](#turn-jarvis-on) states what the Enabled switch does to the session.
 
 The Jarvis package in the home folder starts and owns the session. The Jarvis session row on Details shows what the package reports: for example Running, Starting, Off or Cannot start, with a sentence that tells you what to do. Start shows while no session runs. Retry shows after a start failed. While tmux is missing, Install all missing on the Setup tab installs it.
 
 - No session can start with an API key or a local model as the Account. Under AI model, choose an app as the Account.
 - When you change the home folder or the Account, Jarvis checks the new choice, then restarts the session.
-- When you turn Jarvis off with Enabled, its session stops and does not start again at boot.
 
 <details>
 <summary>Show command</summary>

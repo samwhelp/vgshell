@@ -4,8 +4,6 @@ Motion sets how the shell and your windows move. It is for anyone who wants fast
 
 ![The Motion section of the System Settings window, with the Motion, Style, Speed and Window animations rows](../../../docs/images/plugins/vgs.motion-pane.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - A Motion section under Appearance in the System Settings window.

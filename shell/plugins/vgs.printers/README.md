@@ -4,8 +4,6 @@ Printers adds, chooses and removes your printers. It has a Printers section in t
 
 ![The Printers section of the System Settings window, with two printers, the default one marked, and Add a printer](../../../docs/images/plugins/vgs.printers-pane.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2, over the sandbox's printing stand-ins.
-
 ## Features
 
 - The list of your printers, with each printer's state, its queued jobs and the default printer marked.

@@ -4,8 +4,6 @@ Launcher finds and opens apps, files and system actions from one search field. I
 
 ![The launcher showing its categories](../../../docs/images/plugins/vgs.launcher-list.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - Opens with `SUPER+SPACE`, or with a click on the magnifier in the bar.

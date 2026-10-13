@@ -34,15 +34,13 @@ ROWS = (
 README_ONE = (
     "# One\n\nThe first plugin.\n\n"
     "![The panel](" + LINK + "vgs.one-panel.webp)\n\n"
-    "Screenshots from `scripts/readme-shots.sh`.\n\n"
     "```markdown\n![remote](https://example.com/in-a-fence.webp)\n```\n\n"
     "Write `![remote](https://example.com/in-a-span.webp)` inline.\n"
 )
 README_TWO = (
     "# One Two\n\n"
     "![The bar](" + LINK + "vgs.one-two-shot.webp)\n"
-    "<img src=\"" + LINK + "vgs.one-two-extra.webp\" alt=\"The lock\">\n\n"
-    "Screenshots from scripts/readme-shots.sh.\n"
+    "<img src=\"" + LINK + "vgs.one-two-extra.webp\" alt=\"The lock\">\n"
 )
 
 
@@ -113,13 +111,13 @@ CASES = [
      ["check-readme-images: no-image=shell/plugins/vgs.three/README.md"]),
     ("a README whose only picture sits in a fence", lambda r: plugin(r, "vgs.three", "# Three\n\n```\n![x](" + LINK + "vgs.one-panel.webp)\n```\n"), 1,
      ["check-readme-images: no-image=shell/plugins/vgs.three/README.md"]),
-    ("a README that shows only another plugin's image", lambda r: plugin(r, "vgs.three", "# Three\n\n![One's panel](" + LINK + "vgs.one-panel.webp)\n\nScreenshots from scripts/readme-shots.sh.\n"), 1,
+    ("a README that shows only another plugin's image", lambda r: plugin(r, "vgs.three", "# Three\n\n![One's panel](" + LINK + "vgs.one-panel.webp)\n"), 1,
      ["check-readme-images: no-own-image=shell/plugins/vgs.three/README.md"]),
     ("a README that shows only the image of the plugin whose id it prefixes",
      lambda r: replace(r, ONE, "![The panel](" + LINK + "vgs.one-panel.webp)", "![The bar](" + LINK + "vgs.one-two-shot.webp)"), 1,
      ["check-readme-images: no-own-image=" + ONE, "check-readme-images: row-unreferenced=" + IMAGES + "/vgs.one-panel.webp"]),
     ("a README whose only own image has no row",
-     lambda r: (write(r, IMAGES + "/vgs.three-x.webp", WEBP), plugin(r, "vgs.three", "# Three\n\n![Three](" + LINK + "vgs.three-x.webp)\n\nScreenshots from scripts/readme-shots.sh.\n")), 1,
+     lambda r: (write(r, IMAGES + "/vgs.three-x.webp", WEBP), plugin(r, "vgs.three", "# Three\n\n![Three](" + LINK + "vgs.three-x.webp)\n")), 1,
      ["check-readme-images: no-own-image=shell/plugins/vgs.three/README.md", "check-readme-images: orphan=" + IMAGES + "/vgs.three-x.webp"]),
     ("a reference-style image", lambda r: append(r, ONE, "\n![The panel][panel]\n\n[panel]: " + LINK + "vgs.one-panel.webp\n"), 1,
      ["check-readme-images: image-form=" + ONE]),
@@ -135,8 +133,6 @@ CASES = [
      ["check-readme-images: image-outside=" + ONE + ":" + LINK + "deep/a.webp"]),
     ("an image path that names no file", lambda r: append(r, ONE, "\n![Gone](" + LINK + "vgs.one-gone.webp)\n"), 1,
      ["check-readme-images: image-missing=" + ONE + ":" + LINK + "vgs.one-gone.webp"]),
-    ("a README with an image that names no command", lambda r: replace(r, ONE, "Screenshots from `scripts/readme-shots.sh`.\n", ""), 1,
-     ["check-readme-images: command-unnamed=" + ONE]),
     ("an image that is PNG under a .webp name", lambda r: write(r, IMAGES + "/vgs.one-panel.webp", PNG), 1,
      ["check-readme-images: image-format=" + IMAGES + "/vgs.one-panel.webp"]),
     ("an image at the budget", lambda r: write(r, IMAGES + "/vgs.one-panel.webp", WEBP + b"\x00" * (BUDGET - len(WEBP))), 0,

@@ -4,8 +4,6 @@ Key Hints shows every shortcut VGS adds in one window and lets you change its ke
 
 ![The Key Hints window](../../../docs/images/plugins/vgs.keyhints-window.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - Opens with `SUPER+/` on the focused monitor and fits on it.

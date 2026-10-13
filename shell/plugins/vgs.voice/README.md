@@ -4,8 +4,6 @@ Voice types what you say into the focused field. It uses voxtype to record and r
 
 ![The Voice Settings page with setup needed](../../../docs/images/plugins/vgs.voice-page.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ![The plasma orb at the bottom of the screen while Voice records](../../../docs/images/plugins/vgs.voice-osd.webp)
 
 ## Features

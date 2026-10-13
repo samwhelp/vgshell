@@ -4,7 +4,7 @@ System Settings is one window for every system section, such as sound, displays 
 
 ![System Settings with the Sound section open](../../../docs/images/plugins/vgs.system-window.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2. The [Displays](../vgs.displays/README.md) and [Sound](../vgs.sound/README.md) READMEs show their sections.
+The [Displays](../vgs.displays/README.md) and [Sound](../vgs.sound/README.md) READMEs show their sections.
 
 ## Features
 

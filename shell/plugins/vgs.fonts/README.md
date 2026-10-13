@@ -4,8 +4,6 @@ Fonts sets the font of the shell and the font of your terminals. It is for anyon
 
 ![The Fonts section of the System Settings window, with the Interface and Terminal rows](../../../docs/images/plugins/vgs.fonts-pane.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - A Fonts section under Appearance in the System Settings window.

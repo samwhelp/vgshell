@@ -4,8 +4,6 @@ UI sets the corner radius of buttons, text fields and segmented controls. It is 
 
 ![The UI section of the System Settings window, with the Corner radius row and a preview of a button, a text field and a segmented control](../../../docs/images/plugins/vgs.ui-pane.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - A UI section under Appearance in the System Settings window.

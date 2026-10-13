@@ -4,8 +4,6 @@
 
 ![The login screen: the time, the account, the password field and the session picker](../../../docs/images/plugins/vgs.greeter-screen.webp)
 
-Screenshot of the `greeter` scene of `scripts/sandbox-shots.sh` in the nested sandbox, with the default theme at scale 2, over fixture sessions and one fixture account, cut and encoded the way `scripts/readme-shots.sh` does for its row.
-
 ## Features
 
 - Shows the time, your accounts and a password field on every screen, in your theme over your background.

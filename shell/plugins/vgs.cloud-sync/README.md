@@ -4,8 +4,6 @@ Cloud Sync keeps Google Drive folders on this computer and in Google Drive. It r
 
 ![The Cloud Sync page in Settings](../../../docs/images/plugins/vgs.cloud-sync-page.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - Folder pairs: each pair joins one Google Drive folder and one folder on this computer. Cloud Sync copies both ways. The newer file wins.
@@ -36,4 +34,4 @@ If the folder pair list cannot be read, select Start the folder pair list again.
 
 When the Google Drive line reads Connect refused, select Connect again. Sign out removes the connection from your keyring and deletes no file.
 
-[developer.md](developer.md) states how a sync works, the files and the runner's commands.
+[developer.md](developer.md) states the sync contract, the conflict records, the credential rules, the files and the runner's commands.

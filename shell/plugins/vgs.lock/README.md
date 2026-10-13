@@ -4,8 +4,6 @@ Lock protects your session with your password. The lock screen uses your theme a
 
 ![The lock screen after a wrong password](../../../docs/images/plugins/vgs.lock-screen.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - Locks with `SUPER+DELETE` or the launcher's Lock row. `vgshell lock` locks the session from a script or an idle daemon.

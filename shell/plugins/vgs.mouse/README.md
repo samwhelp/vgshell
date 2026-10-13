@@ -4,8 +4,6 @@ Mouse sets pointer speed, scrolling and touchpad options. It is for anyone who w
 
 ![The Mouse section of the System Settings window, with pointer controls, devices and a try-it area](../../../docs/images/plugins/vgs.mouse-pane.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
-
 ## Features
 
 - A bar icon that opens the Mouse flyout.
