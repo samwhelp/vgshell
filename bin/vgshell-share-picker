@@ -227,7 +227,7 @@ def rewrite_config(text, executable):
     return result
 
 
-def open_folder(part, parent, configured):
+def open_folder(part, parent, configured, walked):
     def refuse(reason):
         return PickerError("Your Hyprland config folder is not a folder VGS can write: "
                            + configured + " (" + reason + ")")
@@ -243,9 +243,12 @@ def open_folder(part, parent, configured):
                 or linked and isinstance(error, FileNotFoundError)):
             raise refuse(error.strerror) from error
         raise
-    if linked and os.fstat(child).st_uid != os.geteuid():
+    owner = os.fstat(child).st_uid if linked else os.geteuid()
+    if owner != os.geteuid():
         os.close(child)
-        raise refuse("a link to a folder another user owns")
+        # A system link above the home, as Fedora Atomic's /home, is root's.
+        raise refuse(walked + " is a link to a folder "
+                     + ("the system owns" if owner == 0 else "another user owns"))
     return child
 
 
@@ -259,8 +262,10 @@ def config_directory(create=True):
     if not directory.is_absolute():
         raise PickerError("configure=config-home-relative")
     descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    walked = Path("/")
     try:
         for part in directory.parts[1:]:
+            walked /= part
             if part == "..":
                 raise PickerError("configure=config-home-parent")
             if create:
@@ -268,7 +273,7 @@ def config_directory(create=True):
                     os.mkdir(part, mode=0o700, dir_fd=descriptor)
                 except FileExistsError:
                     pass
-            child = open_folder(part, descriptor, str(directory))
+            child = open_folder(part, descriptor, str(directory), str(walked))
             os.close(descriptor)
             descriptor = child
         return descriptor

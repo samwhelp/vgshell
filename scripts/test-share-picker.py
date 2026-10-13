@@ -605,14 +605,11 @@ class PickerTests(unittest.TestCase):
     def test_configure_refuses_a_config_folder_it_cannot_write(self):
         if os.geteuid() == 0:
             self.skipTest("root owns every folder")
-        foreign = Path("/usr")
-        self.assertNotEqual(foreign.stat().st_uid, os.geteuid())
         owned_file = self.home / "owned-file"
         owned_file.write_text("")
         directory = self.home / "config/hypr"
         directory.parent.mkdir()
-        plants = {"link to a folder another user owns": lambda: directory.symlink_to(foreign),
-                  "file where the folder belongs": lambda: directory.write_text(""),
+        plants = {"file where the folder belongs": lambda: directory.write_text(""),
                   "link to a file": lambda: directory.symlink_to(owned_file),
                   "broken link": lambda: directory.symlink_to("../missing"),
                   "looping link": lambda: directory.symlink_to("hypr")}
@@ -624,9 +621,35 @@ class PickerTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 1)
                 self.assertIn("Your Hyprland config folder is not a folder VGS can write", result.stderr)
                 self.assertIn("error", json.loads(self.run_picker("--probe").stdout))
-                self.assertFalse((foreign / "xdph.conf").exists())
                 self.assertEqual(owned_file.read_text(), "")
                 self.assertEqual(self.restarts(), [])
+
+    def test_configure_names_the_owner_of_a_linked_folder_it_refuses(self):
+        # The fixture reports another owner for the link target, which the
+        # test owns, so a missing owner check would write into it.
+        target = self.home / "var-home"
+        target.mkdir()
+        real_fstat = os.fstat
+        cases = {"system": (0, self.home / "home", self.home / "home/config/hypr", "the system owns"),
+                 "user": (os.geteuid() + 1, self.home / "config/hypr", self.home / "config/hypr", "another user owns")}
+        for name, (owner, link, configured, words) in cases.items():
+            with self.subTest(owner=name):
+                link.parent.mkdir(exist_ok=True)
+                link.symlink_to(target)
+
+                def owned_by(descriptor):
+                    value = list(real_fstat(descriptor))
+                    value[4] = owner
+                    return os.stat_result(value)
+                with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(configured.parent)}), \
+                        patch.object(picker.os, "fstat", owned_by), \
+                        self.assertRaises(picker.PickerError) as refused:
+                    picker.config_directory()
+                self.assertEqual(str(refused.exception),
+                                 "Your Hyprland config folder is not a folder VGS can write: "
+                                 + str(configured) + " (" + str(link) + " is a link to a folder " + words + ")")
+                self.assertEqual(list(target.iterdir()), [])
+                link.unlink()
 
 
 if __name__ == "__main__":
