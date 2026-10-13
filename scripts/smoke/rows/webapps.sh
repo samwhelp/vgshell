@@ -170,11 +170,29 @@ wa_mime_before=absent
 if [[ -e $wa_mime ]]; then cp -p -- "$wa_mime" "$wa_dir/mimeapps.list.before"; wa_mime_before=kept; fi
 printf '[Default Applications]\nx-scheme-handler/https=vgs-smoke-browser.desktop\nx-scheme-handler/http=vgs-smoke-browser.desktop\n' >"$wa_mime"
 cp -p -- "$wa_user" "$wa_dir/shell.json.before"
+# wa_log_port LOG: the port the site's server names in LOG, or nothing yet.
+wa_log_port() { sed -n 's/^Serving HTTP on 127\.0\.0\.1 port \([0-9]*\).*/\1/p' "$1"; }
+# The control: a log that only the background child opens is not there for
+# the read that follows the start, so that read fails. The child is held on
+# a FIFO until the read is over, which fixes the order a loaded host only
+# makes likely. spawn makes its log before the fork, so the first read of
+# server.log below cannot meet that state.
+mkfifo -- "$wa_dir/child-release"
+{ cat -- "$wa_dir/child-release" >/dev/null; : >"$wa_dir/child-opened.log"; } &
+wa_control_pid=$!
+if wa_log_port "$wa_dir/child-opened.log" 2>/dev/null; then
+  fail "the first read of a log only the child opens fails (control)"
+else
+  ok "the first read of a log only the child opens fails (control)"
+fi
+: >"$wa_dir/child-release"
+wait "$wa_control_pid"
+expect "the held child opens its log once released (control)" present bash -c '[[ -e $1 ]] && echo present' _ "$wa_dir/child-opened.log"
 spawn "$wa_dir/server.log" python3 -u -m http.server --bind 127.0.0.1 --directory "$wa_dir/site" 0
 wa_server_pid="$spawn_pid"
 wa_port=""
 for _ in $(seq 1 25); do
-  wa_port="$(sed -n 's/^Serving HTTP on 127\.0\.0\.1 port \([0-9]*\).*/\1/p' "$wa_dir/server.log")"
+  wa_port="$(wa_log_port "$wa_dir/server.log")"
   [[ -n $wa_port ]] && break
   sleep 0.2
 done

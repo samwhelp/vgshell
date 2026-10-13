@@ -545,10 +545,13 @@ in_harness_tree() { # PID
 
 # Start a command in its own session and process group; the pid doubles as
 # the pgid for teardown and is left in spawn_pid. Not a command substitution,
-# because a subshell could not append to pgids.
+# because a subshell could not append to pgids. LOG is made here, before the
+# fork: the background child opens its own redirect after spawn returns, so
+# a caller's first read would find no file (the control is in rows/webapps.sh).
 spawn_pid=""
 spawn() { # LOG CMD...
   local log="$1"; shift
+  : >"$log"
   setsid "$@" >"$log" 2>&1 &
   spawn_pid=$!
   pgids+=("$spawn_pid")
