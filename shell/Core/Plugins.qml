@@ -383,11 +383,11 @@ Singleton {
         const bar = mount.row.instance;
         const origin = item.mapToItem(bar, 0, 0);
         const gap = gapComponent.createObject(bar, { width: item.width, height: item.height });
-        // A grab or a wait this press replaces hands its notice on and
-        // asks for nothing itself: a layer that turns exclusive releases
-        // every held button (LayerSurface.cpp onCommit,
-        // releaseAllMouseButtons).
-        const fromNotice = (barPressGrab !== null && barPressGrab.fromNotice) || keyboardReturn !== null || (Logic.hasOwn(hosts, "notice") && hosts.notice.keyboardHeld);
+        // A grab this press replaces hands its notice on and asks for
+        // nothing itself, and a wait still pending ends: a layer that
+        // turns exclusive releases every held button (LayerSurface.cpp
+        // onCommit, releaseAllMouseButtons).
+        const fromNotice = (barPressGrab !== null && barPressGrab.fromNotice) || (Logic.hasOwn(hosts, "notice") && hosts.notice.keyboardHeld);
         if (barPressGrab !== null) barPressGrab.fromNotice = false;
         keyboardReturn = null;
         endPressGrab();
