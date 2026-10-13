@@ -14,7 +14,9 @@ import "../../shell/plugins/vgs.settings"
 // line's first drawn row, and a wrapped label's last line without a
 // descender ends its ink at the glyphs, not the font's descent. A hidden
 // group takes neither, a group list inside another divides its own groups
-// alike, and a theme moves both. The groups are the Settings page's own Status lines
+// alike, and a theme moves both. A heading over a group list of files,
+// as a Cloud Sync folder pair, stands as far in drawn rows from the file
+// above it as one file from the next. The groups are the Settings page's own Status lines
 // and Requirements rows, so the page's rhythm is read where it is drawn:
 // a line's own lines, its value and its hint sit `field.gap` apart, less
 // than the gap between groups. A state too long for the value column
@@ -145,6 +147,51 @@ Item {
         }
     }
 
+    // Groups that are a heading over a group list of files, as Cloud
+    // Sync's folder pairs: the first holds two files, the second one, so
+    // the image draws a gap between two files and a gap between a file and
+    // the next pair's heading.
+    Rectangle {
+        id: pairFrame
+        x: 460
+        y: 1900
+        width: 400
+        height: pairList.height
+        color: Theme.color.surface
+        GroupList {
+            id: pairList
+            width: pairFrame.width
+            Repeater {
+                model: [["Documents", ["Taxes", "Rent"]], ["Agent uploads", ["Report"]]]
+                Column {
+                    id: pair
+                    required property var modelData
+                    readonly property Item files: pairFiles
+                    width: pairList.width
+                    spacing: Theme.stack.row
+                    Label { width: parent.width; role: "bodyStrong"; text: pair.modelData[0] }
+                    GroupList {
+                        id: pairFiles
+                        Repeater {
+                            model: pair.modelData[1]
+                            Row {
+                                required property string modelData
+                                spacing: Theme.listItem.iconGap
+                                Icon { y: Math.round(fileName.capCentre - height / 2); name: "file-exclamation-point"; size: Theme.icon.size.md }
+                                Column {
+                                    width: 300
+                                    spacing: Theme.row.lineGap
+                                    Label { id: fileName; role: "item"; text: modelData }
+                                    Label { role: "itemHint"; text: "Kept the older copy in home/method/state" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // A group that ends in a wrapped label whose last line has no
     // descender, as Cloud Sync's folder line, or with `descent` the same
     // label read by a descender's ink, as Label.inkBelow() read every
@@ -209,8 +256,7 @@ Item {
         }
 
         function shownGroups(owner) {
-            const column = owner.children.find(child => child.spacing !== undefined);
-            return column.children.filter(child => child.visible && child.width > 0 && child.height > 0);
+            return owner.children.find(child => child.tops !== undefined).shown;
         }
 
         // What breaks the rule that each gap between two shown groups is
@@ -306,6 +352,42 @@ Item {
                 if (Math.abs(blankAbove - blankBelow) > 2) out.push("hairline@" + y + " blank above=" + blankAbove + " below=" + blankBelow);
             }
             return out;
+        }
+
+        // The drawn rows from the last ink above each hairline of LISTS,
+        // drawn on FRAME, to the first ink under it, the hairline included,
+        // in the order LISTS names them.
+        function inkSpans(frame, lists) {
+            const img = grabImage(frame);
+            const scale = img.width / frame.width;
+            const surface = Qt.color(Theme.color.surface);
+            const out = [];
+            for (const owner of lists) {
+                for (const line of hairlinesOf(owner)) {
+                    const row = Math.round(line.mapToItem(frame, 0, 0).y * scale);
+                    let above = row - 1;
+                    while (above >= 0 && !rowDrawn(img, above, surface)) above--;
+                    let below = row + Theme.divider.thickness * scale;
+                    while (below < img.height && !rowDrawn(img, below, surface)) below++;
+                    out.push((below - above - 1) / scale);
+                }
+            }
+            return out;
+        }
+
+        // The span from a file's ink to the next pair's heading is the span
+        // from one file's ink to the next's, within a pixel, and the
+        // hairline stays centred in it. With the gap set by the groups'
+        // boxes, the heading's leading puts it farther.
+        function test_a_heading_over_its_files_stands_a_file_gap_under_the_file_above() {
+            const pairs = shownGroups(pairList);
+            compare(pairs.length, 2);
+            tryVerify(() => shownGroups(pairs[0].files).length === 2 && hairlinesOf(pairs[0].files).length === 1 && hairlinesOf(pairList).length === 1, 1000, "the pairs lay out their files");
+            verify(Theme.inkAbove(pairs[1]) - Theme.inkAbove(pairs[1].files) > 1, "the heading's ink starts more than a pixel below where a file's does");
+            const spans = inkSpans(pairFrame, [pairs[0].files, pairList]);
+            compare(spans.length, 2);
+            verify(Math.abs(spans[1] - spans[0]) <= 1, "file to heading " + spans[1] + " rows, file to file " + spans[0]);
+            compare(offCentre(pairFrame, pairList, 1), [], "the hairline over the heading is centred");
         }
 
         // At 40 px the font's descent lies 8 px or more under the

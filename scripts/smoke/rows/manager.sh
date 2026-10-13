@@ -909,9 +909,9 @@ lists = [i for i, r in enumerate(rows) if r["type"] == "GroupList" and shown(i) 
 if not lists: print(json.dumps(["group-lists=0"])); sys.exit()
 checked = 0
 for n, i in enumerate(lists):
-    # The probe names a plain Column by its C++ type; the list's other
-    # children are its hairlines and their Repeater.
-    columns = [j for j in kids(i) if rows[j]["type"] == "QQuickColumn"]
+    # The probe names the plain Item that holds the groups by its C++
+    # type; the list's other children are its hairlines and their Repeater.
+    columns = [j for j in kids(i) if rows[j]["type"] == "QQuickItem"]
     if len(columns) != 1: out.append("list%d.columns=%d" % (n, len(columns))); continue
     groups = [dict(rows[j]) for j in kids(columns[0]) if shown(j) and sized(j)]
     groups.sort(key=lambda g: g["box"][1])

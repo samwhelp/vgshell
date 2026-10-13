@@ -1294,9 +1294,9 @@ Scope {
             if (dialog === null) return "absent";
             const list = root.descendants(dialog).find(child => root.typeName(child) === "GroupList" && child.visible);
             if (list === undefined) return "absent";
-            // The list's own column holds the entries; its other children
-            // are the hairlines and their Repeater.
-            const column = list.children.find(child => root.typeName(child) === "QQuickColumn");
+            // The list's own plain Item holds the entries; its other
+            // children are the hairlines and their Repeater.
+            const column = list.children.find(child => root.typeName(child) === "QQuickItem");
             if (column === undefined) return "absent";
             const byY = (a, b) => a.y - b.y;
             const entries = column.children.filter(child => child.visible && child.width > 0 && child.height > 0).map(child => {

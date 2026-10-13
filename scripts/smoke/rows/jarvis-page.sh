@@ -523,8 +523,8 @@ def kids(i, sized=True): return [j for j, r in enumerate(rows) if r["parent"] ==
 fields = [i for i, r in enumerate(rows) if r["type"] == "ListField" and shown(i)]
 if len(fields) != 1: print(json.dumps(["list-fields=%d" % len(fields)])); sys.exit()
 lists = [j for j in kids(fields[0]) if rows[j]["type"] == "GroupList"]
-# The probe names a plain Column by its C++ type.
-columns = [j for j in kids(lists[0]) if rows[j]["type"] == "QQuickColumn"] if len(lists) == 1 else []
+# The probe names the plain Item that holds the groups by its C++ type.
+columns = [j for j in kids(lists[0]) if rows[j]["type"] == "QQuickItem"] if len(lists) == 1 else []
 if len(columns) != 1: print(json.dumps(["group-lists=%d columns=%d" % (len(lists), len(columns))])); sys.exit()
 entries = sorted(kids(columns[0]), key=lambda j: rows[j]["box"][1])
 lines = sorted((rows[j]["box"][1], rows[j]["box"][3]) for j in kids(lists[0], False) if rows[j]["type"] == "Divider")
