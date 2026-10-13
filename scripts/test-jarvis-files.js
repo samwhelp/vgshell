@@ -925,6 +925,9 @@ world(async () => {
     // unless the producer protects it. EDITS are [backend file, needle,
     // replacement]; HOME_SETTING is the hello's home and REFUSED the cause
     // the daemon logs for it.
+    // The driver publishes results.jsonl whole, so every line parses.
+    const driverRows = file => fs.existsSync(file)
+        ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
     async function daemon(name, edits = [], homeSetting = "~/daemon-home", refused = null) {
         const folder = path.join(process.env.JARVIS_TEST_ROOT, "plugin-" + name);
         fs.mkdirSync(folder);
@@ -978,9 +981,7 @@ world(async () => {
                     assert.ok(wait < 1000 && child.exitCode === null, name + " " + id + " answers: " + stderr);
                     // Polls the driver's result file; the driver polls every 10 ms.
                     await new Promise(resolve => setTimeout(resolve, 10));
-                    const rows = fs.existsSync(path.join(driver, "results.jsonl"))
-                        ? fs.readFileSync(path.join(driver, "results.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
-                    outcomes[id] = rows.find(row => row.id === id && row.outcome !== undefined);
+                    outcomes[id] = driverRows(path.join(driver, "results.jsonl")).find(row => row.id === id && row.outcome !== undefined);
                 }
             }
             child.stdin.end();
@@ -1033,6 +1034,14 @@ world(async () => {
         ["jarvisd.js", 'return { path: folder, state: { kind: "refused", cause } };', 'return { path: null, state: { kind: "refused", cause } };']], "~/daemon-linked", "home=link");
     assert.equal(unguardedRefusal["home-agents"].outcome, "completed", "refused home-agents control turns red");
     controls++;
+    // A row appended in place is read half written: the reader skips no
+    // line, so the parse throws.
+    const partial = path.join(process.env.JARVIS_TEST_ROOT, "partial-results.jsonl");
+    const row = JSON.stringify({ id: "ordinary", outcome: "completed", content: "alpha" });
+    fs.writeFileSync(partial, row + "\n" + row.slice(0, row.length >> 1));
+    assert.throws(() => driverRows(partial), SyntaxError, "a results.jsonl row seen half written must fail the reader");
+    controls++;
+    console.log("test-jarvis-files: control=driver-partial-row killed");
     // Each control drops the home on one line of its way to the help tool.
     for (const [control, edit] of [
         ["help-home-daemon", ["jarvisd.js", 'home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null });', "home: () => null });"]],

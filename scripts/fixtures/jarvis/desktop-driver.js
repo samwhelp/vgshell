@@ -20,7 +20,14 @@ const path = require("node:path");
  */
 function drive(root, runner, router) {
     fs.mkdirSync(root, { recursive: true });
-    const record = value => fs.appendFileSync(path.join(root, "results.jsonl"), JSON.stringify(value) + "\n");
+    // A reader polls results.jsonl and parses every line, so a row appears
+    // with the file whole: written under another name, then renamed into place.
+    const record = value => {
+        const file = path.join(root, "results.jsonl");
+        const pending = path.join(root, ".results.jsonl-" + process.pid);
+        fs.writeFileSync(pending, (fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "") + JSON.stringify(value) + "\n");
+        fs.renameSync(pending, file);
+    };
     runner.ports.brain.outcome = value => {
         for (const result of value.results) record({ id: result.id, outcome: value.outcome, content: result.item.content });
     };
