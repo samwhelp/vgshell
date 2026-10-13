@@ -109,6 +109,39 @@ Item {
         }
     }
 
+    // Groups that are a Row of an icon and its lines, on a solid surface.
+    // The icon is centred on the name's capitals and taller than them, so
+    // it starts above the text, and under a single line with no descender it
+    // ends below it.
+    Rectangle {
+        id: iconInkFrame
+        x: 460
+        y: 400
+        width: 400
+        height: iconInkList.height
+        color: Theme.color.surface
+        GroupList {
+            id: iconInkList
+            width: iconInkFrame.width
+            Repeater {
+                model: [["Taxes", "Kept the older copy"], ["Rent"], ["Notes", "Restored the removed file"]]
+                Row {
+                    id: iconGroup
+                    required property var modelData
+                    readonly property Item lines: iconLines
+                    spacing: Theme.listItem.iconGap
+                    Icon { y: Math.round(iconName.capCentre - height / 2); name: "file-exclamation-point"; size: Theme.icon.size.lg }
+                    Column {
+                        id: iconLines
+                        spacing: Theme.row.lineGap
+                        Label { id: iconName; role: "item"; text: iconGroup.modelData[0] }
+                        Label { visible: iconGroup.modelData.length > 1; role: "itemHint"; text: iconGroup.modelData[1] ?? "" }
+                    }
+                }
+            }
+        }
+    }
+
     // Status lines with a step: a short chip keeps the step beside it, a
     // chip too long for both puts the step under it.
     StatusLine { id: shortStep; x: 0; y: 760; width: 400; label: "Token"; tone: "warning"; text: "Absent"; actionLabel: "Set up token"; actionOffered: true }
@@ -269,6 +302,38 @@ Item {
                 if ((line === linkInk || line === textInk) && !(row / scale - valueTop(line) > 1.5)) out.push(line.label + " drawn=" + row / scale + " within 1.5 of its value's box top " + valueTop(line));
             }
             compare(out, [], "each line's ink starts at its first drawn row");
+        }
+
+        // A group that is a Row of an icon and its lines reports the ink of
+        // both: where it starts is its first drawn row in the image and
+        // where it ends its last, within a pixel, so the hairlines between
+        // such groups are centred. The lines alone are the control: their
+        // ink starts more than the pixel allowed below every group's first
+        // drawn row, and ends as far above the last drawn row of the group
+        // with a single line.
+        function test_a_row_reports_the_ink_of_its_icon_and_its_lines() {
+            checkDivided(iconInkList);
+            const groups = shownGroups(iconInkList);
+            compare(groups.length, 3);
+            const img = grabImage(iconInkFrame);
+            const scale = img.width / iconInkFrame.width;
+            const surface = Qt.color(Theme.color.surface);
+            const hairlines = hairlinesOf(iconInkList).map(line => Math.round(line.y * scale));
+            const out = [];
+            groups.forEach((group, i) => {
+                const top = group.mapToItem(iconInkFrame, 0, 0).y;
+                let first = i === 0 ? 0 : hairlines[i - 1] + Theme.divider.thickness * scale;
+                while (first < img.height && !rowDrawn(img, first, surface)) first++;
+                let last = i === groups.length - 1 ? img.height - 1 : hairlines[i] - 1;
+                while (last >= 0 && !rowDrawn(img, last, surface)) last--;
+                const drawn = { top: first / scale, bottom: (last + 1) / scale };
+                const row = { top: top + Theme.inkAbove(group), bottom: top + group.height - Theme.inkBelow(group) };
+                const lines = { top: top + Theme.inkAbove(group.lines), bottom: top + group.lines.height - Theme.inkBelow(group.lines) };
+                if (Math.abs(row.top - drawn.top) > 1 || Math.abs(row.bottom - drawn.bottom) > 1) out.push(group.modelData[0] + " ink=" + JSON.stringify(row) + " drawn=" + JSON.stringify(drawn));
+                if (!(lines.top - drawn.top > 1)) out.push(group.modelData[0] + " lines start at " + lines.top + ", within a pixel of the drawn " + drawn.top);
+                if (group.modelData.length === 1 && !(drawn.bottom - lines.bottom > 1)) out.push(group.modelData[0] + " line ends at " + lines.bottom + ", within a pixel of the drawn " + drawn.bottom);
+            });
+            compare(out, [], "each group's ink is what the image draws, and its lines alone are not");
         }
 
         function test_a_theme_moves_the_gap_and_the_hairline() {

@@ -184,8 +184,9 @@ FocusScope {
                 // keeps the button's room, so every row's text has one width.
                 // Each pair is one group of a GroupList and each file one
                 // group of its pair's own, which space them and draw the
-                // hairline between them, so a row is as tall as its lines
-                // and answers for their ink.
+                // hairline between them. A file's row is a Row, which sets
+                // no child's y (Qt Row), so the hairline is centred on what
+                // the row draws, the icon included (Theme.inkAbove).
                 GroupList {
                     id: pairList
                     Repeater {
@@ -205,57 +206,57 @@ FocusScope {
                                 id: conflictList
                                 Repeater {
                                     model: conflictGroup.modelData.rows
-                                    Item {
+                                    Row {
                                         id: conflictRow
                                         required property var modelData
-                                        function inkAbove() { return Theme.inkAbove(conflictLines); }
-                                        function inkBelow() { return Theme.inkBelow(conflictLines); }
                                         width: conflictList.width
-                                        implicitHeight: conflictLines.implicitHeight
+                                        leftPadding: Theme.listItem.paddingX
+                                        rightPadding: Theme.listItem.paddingX
+                                        spacing: Theme.listItem.gap
 
-                                        Icon {
-                                            id: conflictIcon
-                                            x: Theme.listItem.paddingX
-                                            y: Math.round(conflictLines.y + conflictName.capCentre - height / 2)
-                                            name: "file-exclamation-point"
-                                            size: Theme.icon.size.md
-                                            color: Theme.color.textMuted
-                                        }
-                                        Column {
-                                            id: conflictLines
-                                            x: conflictIcon.x + conflictIcon.width + Theme.listItem.iconGap
-                                            width: Math.max(0, openFolders.x - Theme.listItem.gap - x)
-                                            spacing: Theme.row.lineGap
-                                            // Text.Wrap breaks a long name with no
-                                            // space inside a word (Qt Text.wrapMode).
-                                            Label {
-                                                id: conflictName
-                                                width: parent.width
-                                                role: "item"
-                                                textFormat: Text.PlainText
-                                                text: conflictRow.modelData.label
-                                                wrapMode: Text.Wrap
+                                        Row {
+                                            spacing: Theme.listItem.iconGap
+                                            Icon {
+                                                id: conflictIcon
+                                                y: Math.round(conflictName.capCentre - height / 2)
+                                                name: "file-exclamation-point"
+                                                size: Theme.icon.size.md
+                                                color: Theme.color.textMuted
                                             }
-                                            Label {
-                                                width: parent.width
-                                                role: "itemHint"
-                                                textFormat: Text.PlainText
-                                                text: conflictRow.modelData.detail
-                                                wrapMode: Text.Wrap
-                                            }
-                                            Label {
-                                                width: parent.width
-                                                visible: text !== ""
-                                                role: "itemHint"
-                                                textFormat: Text.PlainText
-                                                text: conflictRow.modelData.folder
-                                                wrapMode: Text.Wrap
+                                            Column {
+                                                id: conflictLines
+                                                width: Math.max(0, conflictRow.width - 2 * Theme.listItem.paddingX - conflictIcon.width - Theme.listItem.iconGap - Theme.listItem.gap - openFolders.width)
+                                                spacing: Theme.row.lineGap
+                                                // Text.Wrap breaks a long name with no
+                                                // space inside a word (Qt Text.wrapMode).
+                                                Label {
+                                                    id: conflictName
+                                                    width: parent.width
+                                                    role: "item"
+                                                    textFormat: Text.PlainText
+                                                    text: conflictRow.modelData.label
+                                                    wrapMode: Text.Wrap
+                                                }
+                                                Label {
+                                                    width: parent.width
+                                                    role: "itemHint"
+                                                    textFormat: Text.PlainText
+                                                    text: conflictRow.modelData.detail
+                                                    wrapMode: Text.Wrap
+                                                }
+                                                Label {
+                                                    width: parent.width
+                                                    visible: text !== ""
+                                                    role: "itemHint"
+                                                    textFormat: Text.PlainText
+                                                    text: conflictRow.modelData.folder
+                                                    wrapMode: Text.Wrap
+                                                }
                                             }
                                         }
                                         RowAction {
                                             id: openFolders
-                                            x: parent.width - Theme.listItem.paddingX - width
-                                            y: Math.round(conflictLines.y + conflictName.capCentre - height / 2)
+                                            y: Math.round(conflictName.capCentre - height / 2)
                                             text: "Open folders"
                                             visible: conflictRow.modelData.dirs.length > 0
                                             onClicked: root.review(conflictRow.modelData.dirs)
