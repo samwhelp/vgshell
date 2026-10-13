@@ -153,7 +153,7 @@ Item {
             // What the dialog asks: "hide" from the menu, "remove" from a drop.
             property string question: "hide"
             // What the open dialog says, read from `frame` when it opens.
-            property var facts: ({ name: "", keys: [], stops: false, builtin: false, owner: "" })
+            property var facts: ({ name: "", page: "", keys: [], stops: false, builtin: false, owner: "" })
             property string settingsPage: ""
             property string readme: ""
 
@@ -261,11 +261,7 @@ Item {
                         id: dialog
                         anchors.fill: parent
                         title: ui.question === "remove" ? "Remove " + ui.facts.name + " from the bar?" : "Hide " + ui.facts.name + "?"
-                        message: ui.facts.builtin
-                            ? ui.facts.name + " leaves the bar. To show it again, turn on Show on the bar under " + ui.facts.name + " on the " + ui.facts.owner + " page in Plugins."
-                            : ui.facts.stops
-                            ? ui.facts.name + " leaves the bar. To show it again, turn on Enabled on its page in Plugins. Hiding it also turns it off."
-                            : ui.facts.name + " leaves the bar. To show it again, turn on Show in bar on its page in Plugins."
+                        message: ui.facts.name + " leaves the bar." + (ui.facts.stops ? " Hiding it also turns it off." : "")
                         actions: [{ label: "Cancel", role: "cancel", focused: true }, { label: ui.question === "remove" ? "Remove" : "Hide", role: "accept", variant: "danger" }]
                         onAccepted: {
                             dialogWindow.visible = false;
@@ -273,6 +269,23 @@ Item {
                             if (reply !== "ok") console.warn("bar widget: hide " + root.moduleName + " " + reply);
                         }
                         onRejected: dialogWindow.visible = false
+
+                        // The words that name the page open it, as the
+                        // menu's Settings entry does; with no manager
+                        // window `page` is "" and they read as words.
+                        LinkText {
+                            width: parent.width
+                            role: Theme.dialog.bodyRole
+                            wrapMode: Text.Wrap
+                            text: "To show it again, turn on "
+                                + (ui.facts.builtin ? "Show on the bar under " + ui.facts.name + " on the " + ui.facts.owner : (ui.facts.stops ? "Enabled" : "Show in bar") + " on its")
+                                + " [page in Plugins](page:" + ui.facts.page + ")."
+                            onPageActivated: {
+                                dialogWindow.visible = false;
+                                const reply = root.frame.openSettings();
+                                if (reply !== "ok") console.warn("bar widget: settings of " + root.moduleName + " " + reply);
+                            }
+                        }
 
                         Label {
                             text: "Its shortcuts still work."

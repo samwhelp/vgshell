@@ -11,6 +11,12 @@ import qs.Ui
 // label's over the last line's text, which the plain twin
 // lays out at the same width. Use it where a consumer
 // surface cites a file that the core can open through `vgshell edit`.
+// A page reference in the text, `[words](page:<plugin id>)` or
+// `[words](page:<plugin id>/<tab>)`, draws its words alone, as a link while
+// `link` is unset and the reference names a page, and activating it emits
+// `pageActivated` with that page and tab, "" for no tab, in place of
+// `activated`. The owner opens the page; a reference to no page, as
+// `[words](page:)`, reads as its words.
 // The focus ring goes round the first occurrence's words, `linkBox`, not
 // the whole text, so a ring on a line of prose shows which words act.
 // The box runs on to the spaces around the occurrence, so punctuation
@@ -26,23 +32,35 @@ T.Control {
     property alias wrapMode: label.wrapMode
     property alias horizontalAlignment: label.horizontalAlignment
     readonly property alias lineCount: label.lineCount
-    readonly property bool linked: link !== "" && text.indexOf(link) !== -1
+    readonly property var reference: pageReference(text)
+    // The text drawn and the words of it that are the link.
+    readonly property string plain: reference.text
+    readonly property string words: link !== "" ? link : reference.page !== "" ? reference.words : ""
+    readonly property bool linked: words !== "" && plain.indexOf(words) !== -1
     readonly property bool hoveredLink: linked && pointer.containsMouse && label.linkAt(pointer.mouseX, pointer.mouseY) !== ""
     // The first occurrence widened to the spaces around it, as the
     // [start, end) indices of `text`.
-    readonly property var run: linked ? wordRun(text.indexOf(link), text.indexOf(link) + link.length) : [0, 0]
+    readonly property var run: linked ? wordRun(plain.indexOf(words), plain.indexOf(words) + words.length) : [0, 0]
     // That run's box in this item: its x span on the line it is laid out
     // on, one label line box tall, once the twin holds the text. The
     // arguments name what the twin's layout depends on, since its
     // positions are a function a binding cannot follow. A new text
     // reaches the twin before `run` follows it, so the box waits for a run
     // that lies inside the text; the twin has no position past its end.
-    readonly property rect linkBox: linked && twin.length === text.length && run[1] <= text.length ? wordsBox(twin.contentWidth, twin.contentHeight, twin.lineCount, label.lineBox) : Qt.rect(0, 0, width, height)
+    readonly property rect linkBox: linked && twin.length === plain.length && run[1] <= plain.length ? wordsBox(twin.contentWidth, twin.contentHeight, twin.lineCount, label.lineBox) : Qt.rect(0, 0, width, height)
     // How far the ring's outer edge lies beside the run: the standard
     // offset and width, cut to one space less a pixel.
     readonly property real ringReach: Math.min(Theme.focusRing.offset + Theme.focusRing.width, spaceGlyph.advanceWidth - 1)
     signal activated()
+    signal pageActivated(string page, string tab)
     signal clicked()
+
+    function pageReference(value) {
+        const found = /\[([^\[\]]+)\]\(page:([^\s()\/]*)(?:\/([^\s()\/]+))?\)/.exec(value);
+        if (found === null) return { text: value, words: "", page: "", tab: "" };
+        return { text: value.slice(0, found.index) + found[1] + value.slice(found.index + found[0].length),
+            words: found[1], page: found[2], tab: found[3] === undefined ? "" : found[3] };
+    }
 
     function htmlEscaped(value) {
         return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -58,8 +76,8 @@ T.Control {
     }
 
     function wordRun(start, end) {
-        while (start > 0 && !/\s/.test(text.charAt(start - 1))) start--;
-        while (end < text.length && !/\s/.test(text.charAt(end))) end++;
+        while (start > 0 && !/\s/.test(plain.charAt(start - 1))) start--;
+        while (end < plain.length && !/\s/.test(plain.charAt(end))) end++;
         return [start, end];
     }
 
@@ -86,12 +104,15 @@ T.Control {
         return Qt.rect(from.x, lineOf(from) * lineBox, right - from.x, lineBox);
     }
 
-    onClicked: activated()
+    onClicked: {
+        if (link === "" && reference.page !== "") pageActivated(reference.page, reference.tab);
+        else activated();
+    }
 
     function inkAbove() { return label.y + label.inkAbove(); }
 
     function inkBelow() {
-        const lastLine = twin.length === text.length ? text.slice(twin.positionAt(0, twin.contentHeight - 1)) : undefined;
+        const lastLine = twin.length === plain.length ? plain.slice(twin.positionAt(0, twin.contentHeight - 1)) : undefined;
         return height - label.y - label.height + label.inkBelow(lastLine);
     }
 
@@ -99,7 +120,7 @@ T.Control {
     implicitHeight: label.implicitHeight
     height: implicitHeight
     activeFocusOnTab: linked
-    Accessible.name: text
+    Accessible.name: plain
     Accessible.role: linked ? Accessible.Link : Accessible.StaticText
 
     Keys.onReturnPressed: event => { if (root.linked) root.clicked(); else event.accepted = false; }
@@ -110,7 +131,7 @@ T.Control {
         id: label
         role: root.role
         width: root.width
-        text: root.markup(root.text, root.link)
+        text: root.markup(root.plain, root.words)
         textFormat: Text.StyledText
         linkColor: Theme.color.accent
     }
@@ -120,7 +141,7 @@ T.Control {
         visible: false
         readOnly: true
         width: label.width
-        text: root.text
+        text: root.plain
         textFormat: TextEdit.PlainText
         font: label.font
         wrapMode: label.wrapMode
@@ -130,7 +151,7 @@ T.Control {
     TextMetrics {
         id: lastGlyph
         font: label.font
-        text: root.text.charAt(root.run[1] - 1)
+        text: root.plain.charAt(root.run[1] - 1)
     }
 
     TextMetrics {

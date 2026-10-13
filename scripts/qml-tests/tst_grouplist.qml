@@ -123,6 +123,11 @@ Item {
     StatusLine { id: absentKey; x: 0; y: 1480; width: 400; label: "Globex"; access: "connect"; secretLabel: "Acme key" }
     StatusLine { id: linkedHint; x: 0; y: 1740; width: 400; label: "Keys"; hint: "Get a client ID and secret for each direction from Google Cloud credentials."; hintLink: "Google Cloud credentials" }
     SignalSpy { id: linkPresses; target: linkedHint; signalName: "hintLinkActivated" }
+    // A page reference in a hint drawn as the value, and in one under a value.
+    StatusLine { id: pagedHint; x: 420; y: 1740; width: 400; label: "Keys"; hint: "Add a key on the [Models page](page:acme.models/Setup)." }
+    StatusLine { id: pagedState; x: 420; y: 1800; width: 400; label: "Model"; text: "None"; hint: "Choose one on the [Models page](page:acme.models)." }
+    SignalSpy { id: pagedHintPages; target: pagedHint; signalName: "hintPageActivated" }
+    SignalSpy { id: pagedStatePages; target: pagedState; signalName: "hintPageActivated" }
     StatusLine { id: dangerStep; x: 0; y: 1540; width: 400; label: "Sign-in"; tone: "success"; text: "Signed in"; actionLabel: "Sign out"; actionOffered: true; actionTone: "danger" }
     SignalSpy { id: stores; target: storedKey; signalName: "storeSecret" }
 
@@ -423,6 +428,26 @@ Item {
             compare(box(links[0], linkedHint).x, field.valueX, "the hint starts on the value column");
             links[0].clicked();
             compare(linkPresses.count, 1, "a press on the link emits hintLinkActivated");
+        }
+
+        // A page reference in a line's hint, drawn as the value or under
+        // one, emits the line's hintPageActivated with its page and tab.
+        function test_a_hint_page_reference_asks_for_its_page() {
+            for (const [line, spy, tab] of [[pagedHint, pagedHintPages, "Setup"], [pagedState, pagedStatePages, ""]]) {
+                spy.clear();
+                const links = [];
+                const stack = [line];
+                while (stack.length > 0) {
+                    const at = stack.pop();
+                    if (at instanceof LinkText && at.visible && at.text === line.hint) links.push(at);
+                    for (const child of at.children) stack.push(child);
+                }
+                compare(links.length, 1, "the hint is drawn once, as one LinkText");
+                links[0].clicked();
+                compare(spy.count, 1, "a press on the reference emits hintPageActivated");
+                compare(spy.signalArguments[0][0], "acme.models");
+                compare(spy.signalArguments[0][1], tab);
+            }
         }
 
         // A step declared danger draws in the danger tone.

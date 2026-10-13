@@ -8,7 +8,8 @@ import qs.Ui
 // `error` in the hint's place in the error colour while it is set.
 // `hintLink`, when set, names words of the hint drawn as a link, which
 // the pointer, Return, Enter and Space activate through
-// `hintLinkActivated`; the error line carries none.
+// `hintLinkActivated`; the error line carries none. A page reference in
+// the hint (LinkText) is its link, activated through `hintPageActivated`.
 // `lines` are further lines of the value, each in the value role, between
 // the control and the hint, such as what a setup step still needs. Form
 // feedback is this plain sentence-case line; a chip, a fill or capitals
@@ -40,6 +41,7 @@ Column {
     readonly property real valueX: leftPadding + controlRow.valueX
     readonly property bool subText: lines.length > 0 || hintLine.text !== ""
     signal hintLinkActivated()
+    signal hintPageActivated(string page, string tab)
 
     leftPadding: Theme.field.paddingX
     rightPadding: Theme.field.paddingX
@@ -112,6 +114,7 @@ Column {
             width: parent.width - x
             wrapMode: Text.Wrap
             onActivated: root.hintLinkActivated()
+            onPageActivated: (page, tab) => root.hintPageActivated(page, tab)
         }
 
         Column {

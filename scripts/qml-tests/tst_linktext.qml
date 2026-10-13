@@ -5,7 +5,7 @@ import qs.Ui
 Item {
     id: root
     width: 420
-    height: 320
+    height: 440
 
     function labelOf(item) { return item.children[0]; }
 
@@ -73,6 +73,29 @@ Item {
     TextMetrics { id: wordsStop; font: labelOf(inline).font; text: "hyprland.lua." }
     TextMetrics { id: wordsSpace; font: labelOf(inline).font; text: "hyprland.lua " }
     SignalSpy { id: activated; target: linked; signalName: "activated" }
+    // A page reference inside prose, one at the text's start with no tab,
+    // and one that names no page.
+    LinkText {
+        id: paged
+        y: 320
+        width: 360
+        text: "Add a key on the [Models page](page:acme.models/Setup) first."
+    }
+    LinkText {
+        id: tabless
+        y: 360
+        width: 360
+        text: "[Models](page:acme.models) holds the keys."
+    }
+    LinkText {
+        id: pageless
+        y: 400
+        width: 360
+        text: "Turn it on in [Plugins](page:)."
+    }
+    SignalSpy { id: pagedPages; target: paged; signalName: "pageActivated" }
+    SignalSpy { id: pagedActivated; target: paged; signalName: "activated" }
+    SignalSpy { id: tablessPages; target: tabless; signalName: "pageActivated" }
 
     TestCase {
         name: "linktext"
@@ -124,6 +147,38 @@ Item {
             compare(linked.visualFocus, true);
             verify(waitForRendering(linked));
             compare(ring.visible, true);
+        }
+
+        function test_a_page_reference_draws_its_words_as_the_link() {
+            compare(paged.plain, "Add a key on the Models page first.");
+            compare(paged.Accessible.name, "Add a key on the Models page first.");
+            const html = labelOf(paged).text;
+            compare((html.match(/<a href=/g) || []).length, 1);
+            verify(html.indexOf("<u>Models page</u>") !== -1, "the reference's words are the link");
+            compare(html.indexOf("page:"), -1, "the target is not drawn");
+            compare(paged.activeFocusOnTab, true);
+        }
+
+        function test_a_page_reference_activates_its_page_and_tab() {
+            pagedPages.clear();
+            pagedActivated.clear();
+            tablessPages.clear();
+            paged.forceActiveFocus();
+            keyClick(Qt.Key_Return);
+            compare(pagedPages.count, 1);
+            compare(pagedPages.signalArguments[0][0], "acme.models");
+            compare(pagedPages.signalArguments[0][1], "Setup");
+            compare(pagedActivated.count, 0, "a page reference emits no plain activation");
+            mouseClick(tabless, 4, tabless.height / 2);
+            compare(tablessPages.count, 1);
+            compare(tablessPages.signalArguments[0][0], "acme.models");
+            compare(tablessPages.signalArguments[0][1], "", "a reference without a tab names none");
+        }
+
+        function test_a_reference_to_no_page_reads_as_its_words() {
+            compare(pageless.plain, "Turn it on in Plugins.");
+            compare(pageless.linked, false);
+            compare(pageless.activeFocusOnTab, false);
         }
 
         function test_clicked_signal_activates() {

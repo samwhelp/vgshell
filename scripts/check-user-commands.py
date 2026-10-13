@@ -32,6 +32,20 @@ command:
                 `instruction` alone. A binding reaches back over the lines its statement
                 wraps across, so `text: ready` then `? "..."` on the next
                 line is bound to `text`.
+  page-reference  prose that names a VGS page, tab or section in plain words
+                (PAGE_REFERENCE), as "in Settings > AI model", "under
+                Requirements" or "Open Capture settings" does, in a manifest
+                string, a string literal or a TUI's drawn text. Such words
+                are a link that opens the page: the words of LinkText's
+                page reference, `[words](page:<plugin id>)`, or of a
+                manifest entry's `link`. A TUI line cannot link and names
+                the button that opens the page instead. Markdown is not
+                read for it. The references of a plugin PAGE_PENDING names
+                are listed and not refused, one line each,
+                `page-reference-pending <plugin> <file>:<line> <excerpt>`,
+                then `check-user-commands: page-references-pending=<n>
+                plugins=<ids>`; a plugin named there with none left is
+                refused, so the tuple only shrinks.
 A string literal is a quoted one or a template literal, whose `${...}`
 parts read as the argument $ARG.
 The text read is every Markdown file and every manifest.json of each plugin
@@ -81,6 +95,19 @@ VERBS = ("run", "type", "paste", "execute", "enter", "use", "call", r"install\s+
 # again", is not one.
 SUBJECT_VERBS = ("brings", "fixes", "installs", "enables", "restores", "repairs", "sets", "turns", "adds", "connects", "stores")
 SHELL_FENCES = ("", "bash", "sh", "shell", "console", "zsh", "fish")
+# Prose that names a page of VGS: the Settings window by a path or as a
+# place, a tab or standard section of a plugin's page, a page or tab by
+# its name, or a plugin's settings to open.
+PAGE_REFERENCE = re.compile(r"\bSettings >|\b(?:in|from) (?:Settings|Plugins)\b|\b[Uu]nder (?:Setup|Details|Requirements|Keys)\b"
+                            r"|\bthe (?:[A-Z][\w-]* )+(?:page|tab)\b|\bOpen (?:[A-Z][\w-]* )+settings\b")
+# The words of the page reference LinkText draws as a link. In a string
+# literal its target may come from the next literal a concatenation adds.
+PAGE_LINK = re.compile(r"\[[^\[\]\n]+\]\(page:")
+# The plugins whose page references are not links yet, one conversion a
+# plugin (VGS-1507). The check lists theirs; every other plugin's and the
+# core's are refused.
+PAGE_PENDING = ("vgs.ai-usage", "vgs.capture", "vgs.cloud-sync", "vgs.devtools", "vgs.greeter", "vgs.jarvis", "vgs.launcher", "vgs.mouse", "vgs.network",
+                "vgs.notifications", "vgs.scratchpads", "vgs.sound", "vgs.updates", "vgs.voice", "vgs.vpn")
 HEADS_FLOOR = 20
 # Members the head extractors must yield: the core's own command and an
 # elevator. A set without them came from a broken extractor.
@@ -297,6 +324,35 @@ def instructions(text, heads, bare):
     return sorted(out)
 
 
+def page_references(text, linked=""):
+    """TEXT's excerpt, in a list, when it holds a plain page reference
+    outside the words of a page reference and outside LINKED, the words
+    its manifest entry's `link` draws as a link; else no excerpt."""
+    plain = blank(text, PAGE_LINK)
+    if linked:
+        plain = plain.replace(linked, " " * len(linked))
+    return [text.strip()[:120]] if PAGE_REFERENCE.search(plain) else []
+
+
+def link_words(doc, where):
+    """The words of the string of DOC at WHERE, a dotted path, that a
+    manifest `link` draws as a link, or "": the `link.text` of the entry
+    that holds the string, which is that text itself."""
+    node = doc
+    for key in where.split(".")[:-1]:
+        node = node[int(key)] if isinstance(node, list) else node.get(key, {})
+    link = node if where.endswith(".link.text") else node.get("link") if isinstance(node, dict) else None
+    return link["text"] if isinstance(link, dict) and isinstance(link.get("text"), str) else ""
+
+
+def plugin_of(path, dirs):
+    """The name of the plugin directory of DIRS that holds PATH, or "core"."""
+    for d in dirs:
+        if path.startswith(d + os.sep):
+            return os.path.basename(d)
+    return "core"
+
+
 def check_markdown(path, heads, findings):
     text = blank(read(path), DETAILS)
     for fence in FENCE.finditer(text):
@@ -331,9 +387,9 @@ def tui_scripts(root, dirs, core):
     return out
 
 
-def check_tui_script(path, heads, findings):
+def check_tui_script(path, heads, findings, pages):
     """Each quoted argument of a TUI_DRAW call in the script at PATH, read
-    as instruction; the count of words read."""
+    as instruction and for a page reference; the count of words read."""
     code = blank(read(path), SH_COMMENT)
     words = 0
     for call in TUI_DRAW.finditer(code):
@@ -341,6 +397,8 @@ def check_tui_script(path, heads, findings):
             words += 1
             for _index, excerpt in instructions(word.group(0)[1:-1], heads, True):
                 findings.append(("instruction", path, line_of(code, call.start()), excerpt))
+            for excerpt in page_references(word.group(0)[1:-1]):
+                pages.append((path, line_of(code, call.start()), excerpt))
     return words
 
 
@@ -388,17 +446,20 @@ def main(argv):
             markdown.extend(os.path.join(current, f) for f in sorted(files) if f.endswith(".md"))
     heads = command_heads(root, manifests)
     findings = []
+    pages = []
     strings = 0
     for path in markdown:
         check_markdown(path, heads, findings)
     scripts = tui_scripts(root, dirs, core)
     for path in scripts:
-        strings += check_tui_script(path, heads, findings)
+        strings += check_tui_script(path, heads, findings, pages)
     for path, doc in manifests:
         for where, text in manifest_strings(doc):
             strings += 1
             for _index, excerpt in instructions(text, heads, True):
                 findings.append(("instruction", path, where, excerpt))
+            for excerpt in page_references(text, link_words(doc, where)):
+                pages.append((path, where, excerpt))
     code_files = 0
     try:
         for path, text in source_texts(root):
@@ -412,6 +473,8 @@ def main(argv):
                 line = line_of(code, literal.start())
                 for _index, excerpt in instructions(value, heads, True):
                     findings.append(("instruction", path, line, excerpt))
+                for excerpt in page_references(value):
+                    pages.append((path, line, excerpt))
                 start = statement_start(masked, literal.start())
                 if DRAWN_BEFORE.search(masked, start, literal.start()) is None:
                     continue
@@ -423,6 +486,21 @@ def main(argv):
     files = len(markdown) + len(manifests) + len(scripts) + code_files
     if files == 0:
         unreadable(root, "no file to read: an empty walk certifies nothing")
+    pending = {}
+    for path, where, excerpt in pages:
+        plugin = plugin_of(path, dirs)
+        if plugin in PAGE_PENDING:
+            pending.setdefault(plugin, []).append((path, where, excerpt))
+        else:
+            findings.append(("page-reference", path, where, excerpt))
+    for d in dirs:
+        if os.path.basename(d) in PAGE_PENDING and os.path.basename(d) not in pending:
+            findings.append(("page-reference", d, "PAGE_PENDING", "no plain page reference is left: take this plugin out of PAGE_PENDING"))
+    for plugin in sorted(pending):
+        for path, where, excerpt in pending[plugin]:
+            print(f"page-reference-pending {plugin} {os.path.relpath(path, REPO)}:{where} {excerpt}")
+    if pending:
+        print(f"check-user-commands: page-references-pending={sum(len(v) for v in pending.values())} plugins={','.join(sorted(pending))}")
     for rule, path, where, excerpt in findings:
         print(f"{rule} {os.path.relpath(path, REPO)}:{where} {excerpt}")
     if findings:

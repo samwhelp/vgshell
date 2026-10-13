@@ -7,7 +7,8 @@ import "Steps.js" as Steps
 // One Status row of a plugin's page, drawn from one entry of its manager
 // row's `status` (PluginLogic.statusRows) as StatusLines: the entry's label
 // beside its value and the entry's hint; the words of the hint the entry's
-// `link` names open that address through `openLink`. The row draws no
+// `link` names open that address through `openLink`, and a page reference
+// in a hint (LinkText) asks for its page through `openPage`. The row draws no
 // action of its entry: an entry that declares one is a step of the Setup
 // tab (Steps.declaresStep). A presence
 // or a state draws as a Badge in the tone the entry carries, a state's
@@ -37,6 +38,7 @@ GroupList {
     property string secretLabel: ""
 
     signal openLink(var link)
+    signal openPage(string page, string tab)
 
     // The panel's last refusal or failure of this row's entry, or of
     // ACCOUNT's secret in it, "" for none and while the page is torn down,
@@ -58,6 +60,7 @@ GroupList {
         hint: row.view.hint
         hintLink: row.view.link === null ? "" : row.view.link.text
         onHintLinkActivated: row.openLink(row.view.link)
+        onHintPageActivated: (page, tab) => row.openPage(page, tab)
         info: row.view.info
         tone: row.view.tone
         text: row.view.text
@@ -77,6 +80,7 @@ GroupList {
             width: row.width
             label: modelData.label
             hint: modelData.hint
+            onHintPageActivated: (page, tab) => row.openPage(page, tab)
             tone: presence.tone
             text: presence.text
             access: modelData.access

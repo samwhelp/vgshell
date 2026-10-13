@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """One planted violation per rule of check-user-commands.py, the text each
 rule must pass, the README "Show command" details exemption, the unreadable
-trees, and the repository's own shell/ against a coverage floor. Each row builds a
+trees, the listing of a pending plugin's page references, and the repository's own shell/ against a coverage floor. Each row builds a
 throwaway shell/ holding one plugin, runs the check on it and asserts the
 rule key, the location and the exit status. Each control runs its own copy
 of the check with one rule removed, and a row or classification check must
@@ -99,6 +99,14 @@ ROWS = [
     ("a TUI script's comment and other output are not read", {"tui/setup.sh": "#!/usr/bin/env bash\nsource \"$VGS_TUI_LIB\"\n# vgs_tui_warn \"Run vgshell doctor first.\"\nprintf 'Run vgshell doctor first.\\n'\nvgs_tui_step \"Checking the token\"\n"}, None, None),
     ("a core TUI script's drawn line", {"../../../bin/vgshell-acme": "#!/usr/bin/env bash\nsource \"lib/tui.sh\"\nvgs_tui_warn \"Run vgshell doctor to check it.\"\n"}, "instruction", "bin/vgshell-acme:3"),
     ("a secrets label telling the user to run a command", {"manifest.json": manifest(capabilities='["secrets"]', secrets='{ "service": "acme", "label": "Run `vgshell doctor` first" }')}, "instruction", "manifest.json:secrets.label"),
+    ("a manifest hint naming a Settings path", {"manifest.json": manifest(capabilities='["status"]', status='{ "a": { "type": "text", "label": "A", "hint": "Choose a model in Settings > Model." } }')}, "page-reference", "manifest.json:status.a.hint"),
+    ("a string naming a section of a page", {"Logic.js": '.pragma library\nvar NOTE = "Install it under Requirements to use it.";\n'}, "page-reference", "Logic.js:2"),
+    ("a string naming the Plugins window as a place", {"Logic.js": '.pragma library\nvar NOTE = "Turn it on in Plugins.";\n'}, "page-reference", "Logic.js:2"),
+    ("a string naming a page by its name", {"Service.qml": qml('    Label { text: "Select Connect on the Token Store page." }')}, "page-reference", "Service.qml:3"),
+    ("a TUI line naming a plugin's settings", {"tui/setup.sh": "#!/usr/bin/env bash\nsource \"$VGS_TUI_LIB\"\nvgs_tui_error \"Setup failed. Open Setup settings to try again.\"\n"}, "page-reference", "tui/setup.sh:3"),
+    ("a page named by the words of a page reference", {"manifest.json": manifest(capabilities='["status"]', status='{ "a": { "type": "text", "label": "A", "hint": "Choose a model on the [Setup page in Settings](page:acme.setup)." } }')}, None, None),
+    ("a page reference whose target the next literal adds", {"Service.qml": qml('    Label { text: "Turn it on [in Plugins](page:" + id + ")." }')}, None, None),
+    ("a page named by the words of a manifest link", {"manifest.json": manifest(schema='{ "a": { "type": "boolean", "label": "A", "description": "Tones are set in Settings > Sounds.", "link": { "text": "in Settings > Sounds", "pane": "acme.sounds" } } }')}, None, None),
 ]
 
 
@@ -268,6 +276,28 @@ def plugin_argument_failures():
         return [f"--plugin: want the README's instruction and exit 1, got exit {done.returncode}: {done.stdout.strip()}"]
     return []
 
+def pending_failures(check):
+    """What CHECK does for a plugin its PAGE_PENDING names, as lines: one
+    page reference of it is listed and passes, and none left is refused.
+    The row plants its plugin under the tuple's first id."""
+    named = re.search(r'^PAGE_PENDING = \("([^"]+)"', open(check, encoding="utf-8").read(), re.M)
+    if named is None:
+        return ["PAGE_PENDING names no plugin: take the pending listing out of the check"]
+    failures = []
+    for label, files, status, line in (
+        ("a pending plugin's page reference", {"Logic.js": '.pragma library\nvar NOTE = "Install it under Requirements to use it.";\n'}, 0, "page-reference-pending " + named.group(1) + " "),
+        ("a pending plugin with no page reference left", {}, 1, "page-reference "),
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build(tmp, files)
+            os.rename(os.path.join(root, "plugins", "acme.setup"), os.path.join(root, "plugins", named.group(1)))
+            done = run(check, root)
+        found = [text for text in done.stdout.splitlines() if text.startswith(line)]
+        if done.returncode != status or len(found) != 1:
+            failures.append(f"{label}: want one line opening {line!r} and exit {status}, got exit {done.returncode}: {done.stdout.strip()} {done.stderr.strip()}")
+    return failures
+
+
 # Controls: a copy of the check with one rule removed, beside a copy of the
 # modules it loads, must fail the rows. The copy reads the heads from this
 # repository, as the check does.
@@ -301,6 +331,14 @@ CONTROLS = [
     ("a whole-line comment is not read", "    code = blank(read(path), SH_COMMENT)", "    code = read(path)"),
     ("a command the verb takes after or", "            named = any(first_word(word) in heads for word in ALTERNATIVE.findall(rest))", "            named = False"),
     ("the heads floor", "if len(heads) < HEADS_FLOOR or any(h not in heads for h in REQUIRED_HEADS):", "if False:"),
+    ("the page-reference rule", "            findings.append((\"page-reference\", path, where, excerpt))", "            pass"),
+    ("a manifest string's page reference", "                pages.append((path, where, excerpt))", "                pass"),
+    ("a string literal's page reference", "                    pages.append((path, line, excerpt))", "                    pass"),
+    ("a TUI line's page reference", "                pages.append((path, line_of(code, call.start()), excerpt))", "                pass"),
+    ("a page reference's words are a link", "    plain = blank(text, PAGE_LINK)", "    plain = text"),
+    ("a manifest link's words are a link", "        plain = plain.replace(linked, \" \" * len(linked))", "        pass"),
+    ("a pending plugin's page references are listed", "        if plugin in PAGE_PENDING:", "        if False:"),
+    ("a pending plugin with none left is refused", "        if os.path.basename(d) in PAGE_PENDING and os.path.basename(d) not in pending:", "        if False:"),
 ]
 
 
@@ -328,7 +366,7 @@ def write_check_copy(tmp, text):
 def mutant_is_caught(mutant):
     if fields_unclassified(mutant):
         return True
-    return first_row_failure(mutant) is not None
+    return first_row_failure(mutant) is not None or bool(pending_failures(mutant))
 
 
 def control_failure(rooted, control):
@@ -393,6 +431,7 @@ def main():
         unreadable_json_failures,
         missing_root_failures,
         plugin_argument_failures,
+        lambda: pending_failures(CHECK),
     ] + rooted_tasks
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = [executor.submit(task) for task in tasks]

@@ -9,12 +9,14 @@ import "../../shell/plugins/vgs.settings"
 Item {
     id: root
     width: 960
-    height: 960
+    height: 1040
 
     property var applied: []
     // The private opener: the addresses the fields' description links
     // asked the page to open, in order. No browser starts.
     property var opened: []
+    // The pages the fields' page references asked for, as "page/tab".
+    property var pages: []
 
     SettingField {
         id: field
@@ -94,6 +96,17 @@ Item {
             hintLink: "key page"
             error: "The key page refused that key."
         }
+    }
+
+    // A field whose description opens with a page reference.
+    SettingField {
+        id: pageLinked
+        y: 960
+        width: 420
+        key: "model"
+        spec: ({ type: "boolean", label: "Model", description: "[Models page](page:acme.models/Setup) holds the keys." })
+        value: true
+        onOpenPage: (page, tab) => root.pages.push(page + "/" + tab)
     }
 
     // A status-fed choice that takes a custom value: Custom… follows the
@@ -239,6 +252,15 @@ Item {
             keyClick(Qt.Key_Return);
             keyClick(Qt.Key_Enter);
             compare(root.opened, ["https://platform.openai.com/api-keys", "https://platform.openai.com/api-keys"], "Return and Enter open the address");
+        }
+
+        function test_a_description_page_reference_asks_for_its_page() {
+            root.pages = [];
+            const link = linkOf(pageLinked);
+            verify(link !== undefined && link.linked, "the reference's words are a link");
+            mouseClick(link, 4, link.height / 2);
+            compare(root.pages, ["acme.models/Setup"], "a click asks for the page and tab");
+            compare(root.opened, [], "and opens no address");
         }
 
         function test_a_custom_field_description_link_opens_its_address() {

@@ -479,6 +479,7 @@ FocusScope {
                                     edits: unsaved
                                     onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
                                     onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
+                                    onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
                                     onChoicesWanted: if (page !== null && page.row !== null) page.panel.refreshChoices(pluginId, spec.optionsFrom)
                                 }
                             }
@@ -507,6 +508,7 @@ FocusScope {
                                         edits: unsaved
                                         onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
                                         onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
+                                        onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
                                     }
                                 }
                             }
@@ -537,6 +539,7 @@ FocusScope {
                                 edits: unsaved
                                 onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
                                 onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
+                                onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
                             }
                         }
                     }
@@ -644,6 +647,7 @@ FocusScope {
                                                 pluginId: page.row === null ? "" : page.row.id
                                                 secretLabel: page.row === null ? "" : page.row.secretLabel
                                                 onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(page.row.id, link); }
+                                                onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
                                             }
                                         }
 
@@ -677,6 +681,7 @@ FocusScope {
                                                 hint: view.hint
                                                 hintLink: view.link === null ? "" : view.link.text
                                                 onHintLinkActivated: page.panel.openLink(page.row.id, view.link)
+                                                onHintPageActivated: (id, tab) => page.panel.openPage(id, tab)
                                                 // The last refusal of the route its
                                                 // press takes.
                                                 error: page.row === null || page.panel === null ? ""
@@ -968,6 +973,7 @@ FocusScope {
                                         entry: page.statusEntry(modelData)
                                         panel: page.panel
                                         onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(page.row.id, link); }
+                                        onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
                                         pluginId: page.row === null ? "" : page.row.id
                                         secretLabel: page.row === null ? "" : page.row.secretLabel
                                     }

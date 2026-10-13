@@ -44,7 +44,7 @@ var MESSAGES = [
     [/^refused: secret write failed exit=-?\d+$/, "VGS could not change the saved account. Try again."],
     [/^build failed: [^:]+: refused: capability=\S+ held-by=\S+$/, "Another plugin uses this feature. Turn off that plugin before you turn on this one."],
     [/^build failed: [^:]+: /, "This plugin could not start. Check for an update."],
-    [/^hyprland: .+ for \S+:\S+ skipped: already bound by .+$/, "Another plugin uses this shortcut. Change the shortcut under Keys."],
+    [/^hyprland: .+ for \S+:\S+ skipped: already bound by .+$/, "Another plugin uses this shortcut. Give this shortcut other keys."],
     [/^hyprland: appearance declaration ignored for \S+: already owned by .+$/, "Another plugin controls the window appearance. Turn off that plugin to use this one."],
     [/^hyprland: .+ for \S+:\S+ skipped: already set by .+$/, "Another plugin controls this setting. Turn off that plugin to use this one."],
     [/^hyprland: \S+ for \S+:\S+ skipped: want=(?:number|string|boolean|whole-number|one-of-presets|one-of:.+|at-(?:least|most):-?\d+(?:\.\d+)?(?:e[+-]?\d+)?|characters:.+|datetime-format reason=(?:empty|multiline|too-long|unclosed-quote|no-field))$/, "A saved setting is invalid. Choose another value."],

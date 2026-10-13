@@ -466,6 +466,15 @@ FocusScope {
         return keep(id, link.pane !== undefined ? shell.manager.openPane(link.pane) : shell.run.detached(DesktopLaunch.open(link.url)));
     }
 
+    // Open the page a hint's page reference names (LinkText): plugin
+    // `id`'s page on `tab`, Settings for "", as openPlugin does; answers
+    // its reply. A reference to a plugin that is not listed opens nothing.
+    function openPage(id, tab) {
+        const reply = openPlugin(id, Qt.OtherFocusReason, tab === "" ? undefined : tab);
+        if (reply.startsWith("unknown: ")) console.warn("settings: page link " + reply);
+        return reply;
+    }
+
     // Open the plugin's page in the panes holder over this window, as
     // Open does its surface.
     function openPane(id) {

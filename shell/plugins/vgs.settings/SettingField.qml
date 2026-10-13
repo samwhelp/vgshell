@@ -27,8 +27,9 @@ import "Steps.js" as Steps
 // an error line takes the room a Field takes under it, as its own last row
 // is last in this column and takes none. A description's `link`, which
 // the manager judged (PluginLogic.linkError), draws as a link in it and
-// asks the page to open it through `openLink`. A `tooltip` shows on hover
-// and keyboard focus of the label.
+// asks the page to open it through `openLink`, and a page reference in
+// the description (LinkText) asks for its page through `openPage`. A
+// `tooltip` shows on hover and keyboard focus of the label.
 Column {
     id: root
 
@@ -63,6 +64,7 @@ Column {
     readonly property bool edited: editing(loader.item) || editing(customLoader.item)
     signal apply(var value)
     signal openLink(var link)
+    signal openPage(string page, string tab)
     // The select of a status-fed string opened: the page asks the plugin
     // to read its choices again.
     signal choicesWanted()
@@ -135,6 +137,7 @@ Column {
     function displayNumber(v) { return spec.unit === undefined ? String(v) : SettingValues.quantityText(v, spec.unit); }
 
     function openDescriptionLink() { openLink(spec.link); }
+    function openDescriptionPage(page, tab) { openPage(page, tab); }
     // The nearest enclosing ScrollArea scrolls the least distance that
     // shows the custom editor; a field outside one has nothing to scroll.
     function revealCustom() {
@@ -175,6 +178,7 @@ Column {
         hintLink: root.customVisible ? "" : root.linkText
         inline: true
         onHintLinkActivated: root.openDescriptionLink()
+        onHintPageActivated: (page, tab) => root.openDescriptionPage(page, tab)
 
         Loader {
             id: loader
@@ -196,6 +200,7 @@ Column {
         hint: root.hintText
         hintLink: root.linkText
         onHintLinkActivated: root.openDescriptionLink()
+        onHintPageActivated: (page, tab) => root.openDescriptionPage(page, tab)
         error: customLoader.item === null || customLoader.item.problemText === undefined ? "" : customLoader.item.problemText
         inline: true
 

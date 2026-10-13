@@ -12,7 +12,7 @@ import qs.Ui
 // sees each change and a refused one leaves the drawn list as it was.
 // `edits` is the page's set of unsaved edits, which each item field joins
 // while its text editor holds one. A field's description link reaches
-// the page through `openLink`.
+// the page through `openLink`, and its page reference through `openPage`.
 Column {
     id: root
 
@@ -28,6 +28,7 @@ Column {
     property var edits: null
     signal apply(var value)
     signal openLink(var link)
+    signal openPage(string page, string tab)
 
     readonly property var items: Array.isArray(value) ? value : []
     readonly property var fields: spec.items === undefined ? [] : Object.keys(spec.items)
@@ -108,6 +109,7 @@ Column {
                         edits: root.edits
                         onApply: v => root.setField(itemGroup.modelData.name, modelData, v)
                         onOpenLink: link => root.openLink(link)
+                        onOpenPage: (page, tab) => root.openPage(page, tab)
                     }
                 }
             }

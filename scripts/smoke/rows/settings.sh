@@ -21,6 +21,8 @@
 # stop the queue.
 # A setting description's link opens its address through the desktop open
 # route, by the pointer and by Return, into a stand-in that records it.
+# A page reference in a description opens the page and tab it names; a
+# Settings copy whose window opens no page for one is the control.
 # The Bar's Open with select reads the browser profiles when it opens, and
 # a calendar day opens in the profile chosen.
 # The disabled Jarvis page's Home folder field, fed by the homes Jarvis
@@ -156,6 +158,40 @@ type_keys -k Tab -k Tab || fail "tabbing from the Gap field to the Compact guide
 expect_poll "the Compact guide link is the Tab stop after the Compact switch" '["LinkText", "Compact guide"]' link_focus
 type_keys -k Return || fail "pressing Return on the Compact guide link failed"
 expect_poll "Return on a description link opens its address" '["open https://example.invalid/compact", "open https://example.invalid/compact"]' link_opens
+
+# A page reference in a setting's description (LinkText) opens the page it
+# names on the tab it names. A disposable fixture's one field carries the
+# reference at its description's start, to the bare fixture's Details, so
+# link_click reaches its words. The control, at the row's end, is the
+# Settings copy whose window opens no page for a reference: the same click
+# leaves the fixture's page shown. It is read after the pointer has left
+# the link, a motion the window takes after the click.
+page_link_fixture="$home/.config/vgshell/plugins/acme.page-link"
+page_link_text='[Bare page](page:acme.bare/Details) holds the rest.'
+page_link_add() {
+  mkdir -- "$page_link_fixture" || return 1
+  cp -- "$repo/scripts/smoke/fixtures/plugins/acme.bare/Service.qml" "$page_link_fixture/Service.qml" || return 1
+  python3 - "$repo/scripts/smoke/fixtures/plugins/acme.bare/manifest.json" "$page_link_fixture/manifest.json" "$page_link_text" <<'PYLINK'
+import json,sys
+from pathlib import Path
+manifest=json.loads(Path(sys.argv[1]).read_text())
+manifest.update(id="acme.page-link",name="Page link fixture",requirements=[],settings={"on":False},
+    schema={"on":{"type":"boolean","label":"On","description":sys.argv[3]}})
+with Path(sys.argv[2]).open("x") as file:
+    json.dump(manifest,file)
+PYLINK
+}
+page_link_add || fail "the page link fixture could not be written"
+rescan "a rescan picks the page link fixture"
+expect "the window opens the page link fixture" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.page-link
+expect_poll "the page link fixture's page shows" '"acme.page-link"' settings_page
+link_click "$page_link_text" || fail "the click on the page reference failed"
+expect_poll "a click on a page reference opens the page it names" '"acme.bare"' settings_page
+expect_poll "a page reference opens the tab it names" Details settings_tab_text
+rm -rf -- "${page_link_fixture:?}"
+rescan "a rescan drops the page link fixture"
+expect "the window opens the fixture's page after the page reference" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
+expect_poll "the fixture's page shows after the page reference" '"acme.probe"' settings_page
 
 # The plugin page's two pages (TabPages): an opened page shows Settings and
 # draws nothing of Details. A click on the Details tab shows Details alone
@@ -1169,6 +1205,17 @@ for old, new in (("        tabs.currentIndex = Math.max(0, tabs.model.indexOf(ta
 open(path, "w").write(text)
 PYCOPY
 then ok "the page control opens on Details, drops the return to the top and forwards no key"; else fail "the page control could not be written"; fi
+if python3 - "$page_copy/Window.qml" <<'PYCOPY'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+old = '        const reply = openPlugin(id, Qt.OtherFocusReason, tab === "" ? undefined : tab);\n'
+if text.count(old) != 1:
+    sys.exit("%r occurs %d times" % (old, text.count(old)))
+open(path, "w").write(text.replace(old, '        const reply = "ok";\n'))
+PYCOPY
+then ok "the page control's window opens no page for a page reference"; else fail "the page reference control could not be written"; fi
+page_link_add || fail "the page link fixture could not be written for the control"
 rescan "a rescan picks the page control"
 settings_page_open acme.probe
 expect_poll "control: a page copy that opens on Details reads Details" "1 absent drawn" page_shown
@@ -1184,8 +1231,18 @@ type_keys -k Left || fail "control: sending Left to the copy's strip failed"
 expect_poll "control: Left shows the copy's Settings" 0 settings_tab
 expect_poll "control: the copy's Settings content is ready" True page_scroll_ready 300
 expect "control: a page that drops the return keeps its scroll across the page change" '[300]' page_top
+expect "control: the copy opens the page link fixture" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.page-link
+expect_poll "control: the copy shows the page link fixture's page" '"acme.page-link"' settings_page
+settings_tab_click Settings || fail "control: the click on the page link fixture's Settings tab failed"
+expect_poll "control: the copy shows the page link fixture's Settings" 0 settings_tab
+link_click "$page_link_text" || fail "control: the click on the page reference failed"
+read -r page_link_x page_link_y <<<"$pointer_at"
+hover "$page_link_x" "$((page_link_y - 60))" || fail "control: moving the pointer off the page reference failed"
+expect_poll "control: the pointer has left the page reference" false ipc smoke readMatchingDescendant window vgs.settings LinkText text "$page_link_text" hoveredLink
+expect "control: a window that opens no page for a page reference keeps its page" '"acme.page-link"' settings_page
 settings_page_close acme.probe
 rm -rf -- "${page_copy:?}"
+rm -rf -- "${page_link_fixture:?}"
 rm -rf -- "${scroll_fixture:?}"
 rescan "a rescan drops the page control and scroll fixture"
 
