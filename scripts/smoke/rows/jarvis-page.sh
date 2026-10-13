@@ -326,6 +326,7 @@ jarvis_disable
 cp -- "$sandbox/page-gate-original" "$page_gate"
 jarvis_rescan
 jarvis_enable
+jarvis_notice_close
 settings_tab_click Settings || fail "the page did not return to Settings after the hint control"
 
 # The model and effort of the chosen sign-in. The world's claude stand-in

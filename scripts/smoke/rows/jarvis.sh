@@ -287,7 +287,7 @@ d = json.loads(sys.argv[1])
 widget = json.loads(sys.argv[2])
 daemon = d["status"].get("daemon", {})
 setup = d["status"].get("setup", {})
-action = "Turn Jarvis off and on again in Settings > Jarvis"
+action = "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)"
 ok = d["lifetime"]["kind"] == "problem" and d["pid"] is None
 ok = ok and daemon.get("tone") == "danger" and daemon.get("text") == "Jarvis did not answer in time"
 ok = ok and daemon.get("lines") == ["jarvis: hello=timeout"] and daemon.get("hint") == action

@@ -847,7 +847,7 @@ expect_poll "Voice gives not-heard guidance and keeps the check action" '["warni
 : >"${setup_check_home:?}/capture-silent"
 expect "Check microphone can check a silent source" ok ipc vgs.jarvis invoke check-microphone ''
 expect_poll "an all-zero stand-in source is silent" silent setup_check_result
-expect_poll "Voice gives the default microphone's Settings path in full" '["warning", "Muted or silent", "The default microphone is muted or sends silence. Check it in System > Sound.", "check-microphone"]' setup_check_row
+expect_poll "Voice gives the default microphone's Settings path in full" '["warning", "Muted or silent", "The default microphone is muted or sends silence: [check it in System > Sound](page:vgs.sound)", "check-microphone"]' setup_check_row
 rm -f -- "${setup_check_home:?}/capture-silent"
 settings_page_close vgs.jarvis
 jarvis_disable
