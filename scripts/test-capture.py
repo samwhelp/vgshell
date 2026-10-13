@@ -1243,7 +1243,11 @@ elif args == ["plugin", "requirements", "--json", "vgs.capture"]:
     print(json.dumps([{{"name": "tesseract", "package": {{"manager": {manager!r}, "name": "tesseract"}}}}]))
 elif args[:3] == ["pkg", "run", "install"]:
     config = json.loads((root / "config.json").read_text())
-    config["languages"] += [package.rsplit("-", 1)[1] for package in args[5:]]
+    # Each distribution's name for a language's data; Debian writes the
+    # code's underscore as a hyphen.
+    prefix = {{"pacman": "tesseract-data-", "dnf": "tesseract-langpack-", "apt": "tesseract-ocr-"}}[args[4]]
+    codes = [package.removeprefix(prefix) for package in args[5:]]
+    config["languages"] += [code.replace("-", "_") if args[4] == "apt" else code for code in codes]
     (root / "config.json").write_text(json.dumps(config))
 else:
     sys.exit("vgshell stand-in: " + " ".join(args))
@@ -1264,7 +1268,7 @@ def language_tui_holds(base, script, suffix=""):
     cases = [
         ("pacman", "pacman", "deu+eng", ["eng", "osd"], 0, [["pkg", "run", "install", "--manager", "pacman", "tesseract-data-deu"]]),
         ("dnf", "dnf", "deu+chi_sim+eng", ["eng", "osd"], 0, [["pkg", "run", "install", "--manager", "dnf", "tesseract-langpack-deu", "tesseract-langpack-chi_sim"]]),
-        ("apt", "apt", "deu+eng", ["eng", "osd"], 0, [["pkg", "run", "install", "--manager", "apt", "tesseract-ocr-deu"]]),
+        ("apt", "apt", "deu+chi_sim+eng", ["eng", "osd"], 0, [["pkg", "run", "install", "--manager", "apt", "tesseract-ocr-deu", "tesseract-ocr-chi-sim"]]),
         ("installed", "pacman", "eng", ["eng", "osd"], 0, []),
         ("nix", "nix", "deu+eng", ["eng", "osd"], 1, []),
     ]
@@ -1394,9 +1398,14 @@ def recording_functions(base, source):
     control = base / "tui-no-missing-check.sh"
     control.write_text(script.replace(before, 'print("eng", *report["missing"])'))
     assert not language_tui_holds(base, control, "-control"), "control did not fail: tui-installs-installed"
+    before = 'tesseract-ocr-${code//_/-}'
+    assert script.count(before) == 1, "language TUI apt control match"
+    control = base / "tui-apt-underscore.sh"
+    control.write_text(script.replace(before, 'tesseract-ocr-$code'))
+    assert not language_tui_holds(base, control, "-apt-control"), "control did not fail: tui-apt-underscore"
     return ("record-no-snap,record-no-output-match,record-window-boxes,record-no-camera,no-recorder-options,fixed-pointer,fractional-rate-accepted,"
             "no-audio-sources,no-missing-check,absent-camera,picker-ignores-cancel,raw-replaced,kept-processing-output,stopped-after-processing,"
-            "no-uri-copy,recorder-log-to-stderr,no-log-tail,invalid-languages-accepted,no-interword-spaces,english-only,tui-installs-installed,"
+            "no-uri-copy,recorder-log-to-stderr,no-log-tail,invalid-languages-accepted,no-interword-spaces,english-only,tui-installs-installed,tui-apt-underscore,"
             "unlocked-processing-output,untimed-processing-wait,shared-log,portal-cancel-failure,notice-processing-ignored,notice-detail-dropped,notice-reason-renamed,"
             "notice-unstyled,notice-imageless,notice-buttonless,notice-unseparated,notice-pathless")
 

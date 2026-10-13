@@ -11,9 +11,11 @@
 # root.
 #
 # The drift rows hold the script's floor and package tables to their
-# sources, bin/vgshell's preflight_floor and config/requirements.json, read by
-# node below, and its package-manager choice and install command to
-# `vgshell pkg detect` and `vgshell pkg plan` under the same os-release.
+# sources, bin/vgshell's preflight_floor and config/requirements.json, and
+# the match columns of its package-manager table to the primary rows of
+# shell/Core/PackageManagers.js, read by node below, and its
+# package-manager choice and install command to `vgshell pkg detect` and
+# `vgshell pkg plan` under the same os-release.
 #
 # install.sh reads /usr/bin/vgshell under VGS_SYSTEM_ROOT in a test run, so
 # every row hands it an empty fixture root and the host's package stays
@@ -36,6 +38,10 @@ command -v gpgconf >/dev/null || not_measured gpgconf
 uid="$(id -u)" gid="$(id -g)"
 
 installer="$repo/install.sh"
+# The sentence install.sh's `supported` assignment holds, which a refusal
+# on a system no primary row serves prints.
+supported_sentence="$(sed -nE "s/^  supported='(.+)'\$/\1/p" "$installer")" || { echo "$suite: extractor=failed variable=supported" >&2; exit 1; }
+[[ -n $supported_sentence && $supported_sentence != *$'\n'* ]] || { echo "$suite: extractor=broken variable=supported" >&2; exit 1; }
 
 # The rows' PATH: floor stubs, then the tools install.sh, the release's
 # installer and the namespace wrapper call. $tools_nogit lacks git, the tool
@@ -737,21 +743,29 @@ unreadable_row() { # BIN: an installed Hyprland whose version cannot be read is 
     ! grep -q -e '^Install them' -e '^No supported package manager' "$tmp/err" &&
     [[ ! -e $h/.local ]] && scratch_empty
 }
-# The distributions: os-release text and the package managers on PATH. Each
-# row leaves git missing and compares the command install.sh names with the
-# one `vgshell pkg detect` and `vgshell pkg plan install` give on the same system.
+# The distributions: os-release text, the package managers on PATH and the
+# primary manager the system has, `-` for none. Each row leaves git missing
+# and compares the command install.sh names with the one `vgshell pkg detect`
+# and `vgshell pkg plan install` give on the same system. Debian 14's text is
+# what docker.io/library/debian:forky holds.
+debian14_text='PRETTY_NAME="Debian GNU/Linux forky/sid"\nNAME="Debian GNU/Linux"\nVERSION_CODENAME=forky\nID=debian'
+debian13_text='ID=debian\nVERSION_ID="13"\nVERSION_CODENAME=trixie'
+ubuntu_text='ID=ubuntu\nID_LIKE=debian\nVERSION_ID="26.04"\nVERSION_CODENAME=resolute'
+derivative_text='ID="acme"\nID_LIKE="other debian"\nVERSION_CODENAME=forky'
 pm_dnf4="$tmp/pm-dnf4"; mkdir -p "$pm_dnf4"; stub "$pm_dnf4" dnf "" 1
 pm_none="$tmp/pm-none"; mkdir -p "$pm_none"
 distros=(
-  "arch|ID=arch|$pm_all"
-  "cachyos|ID=cachyos\nID_LIKE=arch|$pm_all"
-  "fedora with dnf5|ID=fedora|$pm_all"
-  "fedora with dnf 4|ID=fedora|$pm_dnf4"
-  "debian|ID=debian|$pm_all"
-  "a distribution like debian|ID=\"acme\"\nID_LIKE=\"other debian\"|$pm_all"
-  "nixos|ID=nixos|$pm_all"
-  "an unknown distribution|ID=plan9|$pm_all"
-  "arch without pacman|ID=arch|$pm_none"
+  "arch|ID=arch|$pm_all|pacman"
+  "cachyos|ID=cachyos\nID_LIKE=arch|$pm_all|pacman"
+  "fedora with dnf5|ID=fedora|$pm_all|dnf"
+  "fedora with dnf 4|ID=fedora|$pm_dnf4|dnf"
+  "Debian 14|$debian14_text|$pm_all|apt"
+  "Debian 13|$debian13_text|$pm_all|-"
+  "Ubuntu|$ubuntu_text|$pm_all|-"
+  "a derivative of Debian 14|$derivative_text|$pm_all|-"
+  "nixos|ID=nixos|$pm_all|nix"
+  "an unknown distribution|ID=plan9|$pm_all|-"
+  "arch without pacman|ID=arch|$pm_none|-"
 )
 # The package config/requirements.json names for COMMAND on MANAGER.
 requirement_package() { # COMMAND MANAGER
@@ -759,7 +773,9 @@ requirement_package() { # COMMAND MANAGER
 rows = [r for r in json.load(open(sys.argv[1])) if r["command"] == sys.argv[2]]
 print(rows[0]["packages"][sys.argv[3]])' "$repo/config/requirements.json" "$1" "$2"
 }
-distro_row() { # BIN NAME OS_TEXT PM_DIR: install.sh names the command vgshell pkg plans
+# A system with no primary gets the supported sentence and no install
+# command.
+distro_row() { # BIN NAME OS_TEXT PM_DIR WANT_ID: install.sh names the command vgshell pkg plans for WANT_ID
   local os="$tmp/os-row" want detect id plan
   printf '%b\n' "$3" >"$os"
   detect="$("$unshare_bin" -rm sh -c 'mount --bind "$1" /etc/os-release && shift && exec "$@"' sh "$os" \
@@ -767,6 +783,10 @@ distro_row() { # BIN NAME OS_TEXT PM_DIR: install.sh names the command vgshell p
   id="$(python3 -c 'import json, sys
 p = json.loads(sys.argv[1])["primary"]
 print(p["id"] if p else "-")' "$detect")"
+  if [[ $id != "$5" ]]; then
+    printf '    vgshell pkg detect: primary=%s want=%s\n' "$id" "$5"
+    return 1
+  fi
   if [[ $id == - ]]; then
     want="No supported package manager found: install git with your distribution's package manager."
   elif plan="$("${base_env[@]}" PATH="$4:$tools" "$repo/bin/vgshell" pkg plan install "$id" "$(requirement_package git "$id")" 2>/dev/null)"; then
@@ -780,17 +800,29 @@ print(("Install them as root: " if p["elevate"] else "Install them: ") + " ".joi
   with_os "$os"
   RUN_PATH="$stubs:$4:$tools_nogit" run "$1" --version 0.1.0
   RUN_WRAP=()
-  if [[ $status == 78 ]] && err_has "$want"; then return 0; fi
+  if [[ $status == 78 ]] && err_has "$want" &&
+    { [[ $id != - ]] || { err_has "$supported_sentence" && ! grep -q '^Install them' "$tmp/err"; }; }; then return 0; fi
   printf '    want [%s]\n' "$want"
   sed 's/^/    got  /' "$tmp/err"
   return 1
 }
+manager_missing_row() { # BIN: a system that meets the floor and has no primary is refused before any package runs or anything is published
+  local os="$tmp/os-manager-missing"
+  printf '%b\n' "$ubuntu_text" >"$os"
+  new_home manager-missing
+  : >"$install_log"
+  with_os "$os"
+  RUN_PATH="$stubs:$pm_all:$tools" run "$1" --version 0.1.0
+  RUN_WRAP=()
+  refused 78 "install.sh: refused: requirements=manager-missing" && err_has "$supported_sentence" &&
+    [[ ! -s $install_log && ! -e $d/current && ! -e $d/0.1.0 && ! -e $h/.local/bin/vgshell ]] && no_stage
+}
 # The tables against their sources, read by node from the files themselves.
 drift_row() { # BIN: prints each drift, fails on any
-  node - "$1" "$repo/bin/vgshell" "$repo/config/requirements.json" <<'JS'
+  node - "$1" "$repo/bin/vgshell" "$repo/config/requirements.json" "$repo/bin/lib/qml-library.js" "$repo/shell/Core/PackageManagers.js" <<'JS'
 "use strict";
 const fs = require("fs");
-const [installer, vgshell, requirementsFile] = process.argv.slice(2);
+const [installer, vgshell, requirementsFile, library, tableFile] = process.argv.slice(2);
 const block = (text, name, file) => {
     const m = new RegExp("\\n\\s*" + name + "='\\n([\\s\\S]*?)\\n'\\n").exec(text);
     if (m === null) { console.log("extractor=broken block=" + name + " file=" + file); process.exit(1); }
@@ -829,6 +861,21 @@ for (const r of required) {
     if (want !== have) drift.push("packages=" + r.command + " have=" + have + " want=" + want);
 }
 for (const tool of floorRow.keys()) if (!packageRow.has(tool)) drift.push("packages=" + tool + " reason=no-row");
+// The match columns: id, family, release and binaries of each primary row.
+const managers = new Map(block(script, "managers", installer).map(r => [r[0], r.slice(1, 4).join(" ")]));
+const primaries = require(library).load(tableFile).MANAGERS.filter(row => row.role === "primary");
+// A broken reader of either table holds no row with a release.
+if (!primaries.some(row => row.release !== null) || ![...managers.values()].some(columns => columns.split(" ")[1] !== "-")) {
+    console.log("extractor=broken managers=" + managers.size + " primaries=" + primaries.length + " reason=no-release");
+    process.exit(1);
+}
+for (const row of primaries) {
+    const want = [row.family.join(","), row.release === null ? "-" : row.release.key + "=" + row.release.value, row.binaries.join(",")].join(" ");
+    const have = managers.get(row.id);
+    if (have === undefined) drift.push("managers=" + row.id + " reason=missing");
+    else if (have !== want) drift.push("managers=" + row.id + " have=" + have + " want=" + want);
+}
+for (const id of managers.keys()) if (!primaries.some(row => row.id === id)) drift.push("managers=" + id + " reason=no-primary-row");
 for (const d of drift) console.log(d);
 process.exit(drift.length === 0 ? 0 : 1);
 JS
@@ -839,10 +886,11 @@ row_job check "on Debian a floor miss names apt's Quickshell and Hyprland packag
 row_job check "a Hyprland that needs a runtime directory meets the floor from a shell with none" runtime_row "$installer"
 row_job check "an installed Hyprland whose version cannot be read is named with its exit and error, not an install command" unreadable_row "$installer"
 for row in "${distros[@]}"; do
-  IFS='|' read -r name os_text pm_dir <<<"$row"
-  row_job check "on $name install.sh names vgshell pkg's install command" distro_row "$installer" "$name" "$os_text" "$pm_dir"
+  IFS='|' read -r name os_text pm_dir want_id <<<"$row"
+  row_job check "on $name install.sh names vgshell pkg's install command" distro_row "$installer" "$name" "$os_text" "$pm_dir" "$want_id"
 done
-row_job check "the floor and package tables match bin/vgshell and config/requirements.json" drift_row "$installer"
+row_job check "a system with no primary manager that meets the floor is refused with the supported sentence" manager_missing_row "$installer"
+row_job check "the floor, package and manager tables match bin/vgshell, config/requirements.json and PackageManagers.js" drift_row "$installer"
 rows_join
 
 git_rows() {
@@ -1022,8 +1070,18 @@ row_job rule nix-optional nix_present_row '!row.optional && !row.onRequest && ro
 row_job rule nix-on-request nix_present_row '!row.optional && !row.onRequest && row.state' '!row.optional && row.state'
 row_job rule probe-runtime runtime_row 'XDG_RUNTIME_DIR="$tmp/runtime" "${argv[@]}"' 'XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" "${argv[@]}"'
 row_job rule unknown-not-installable unreadable_row '[[ $have == unknown ]] || names+=' '[[ $have == nothing ]] || names+='
-copy_with manager-order "$installer" 'fedora        dnf5,dnf' 'fedora        dnf,dnf5'
-row_job control "a copy that prefers dnf 4 over dnf5" distro_row "fedora with dnf5" "ID=fedora" "$pm_all"
+row_job rule manager-release-drift drift_row 'debian        VERSION_CODENAME=forky' 'debian        VERSION_CODENAME=trixie'
+row_job rule supported-manager-missing manager_missing_row '"The required packages need a supported package manager." "$supported"' '"The required packages need a supported package manager."'
+copy_with manager-order "$installer" 'fedora        -                      dnf5,dnf' 'fedora        -                      dnf,dnf5'
+row_job control "a copy that prefers dnf 4 over dnf5" distro_row "fedora with dnf5" "ID=fedora" "$pm_all" dnf
+copy_with every-release "$installer" 'debian        VERSION_CODENAME=forky apt-get' 'debian        -                      apt-get'
+row_job control "a copy whose apt row serves every release" distro_row "Ubuntu" "$ubuntu_text" "$pm_all" -
+copy_with release-through-like "$installer" '[[ $token == "$id" ]] || continue' '[[ $token == "$token" ]] || continue'
+row_job control "a copy whose release row serves through ID_LIKE" distro_row "a derivative of Debian 14" "$derivative_text" "$pm_all" -
+copy_with release-value "$installer" '[[ $have == "${release#*=}" ]] || continue' '[[ $have == "$have" ]] || continue'
+row_job control "a copy whose release row ignores the release's value" distro_row "Debian 13" "$debian13_text" "$pm_all" -
+copy_with supported-floor "$installer" 'printf '"'"'%s\n'"'"' "$supported" >&2' 'printf '"'"'%s\n'"'"' "" >&2'
+row_job control "a copy whose floor refusal drops the supported sentence" distro_row "an unknown distribution" "ID=plan9" "$pm_all" -
 copy_with any-key "$signing" '[[ ${field[2]} == "$release_key" ||' '[[ -n ${field[2]} ||'
 row_job control "a copy that accepts a signature by any key in the keyring" signature_other_row
 rows_join

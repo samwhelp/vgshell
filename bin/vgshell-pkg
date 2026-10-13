@@ -370,7 +370,7 @@ function detectHolders(found, commands) {
 // The detected primary's id; refuses `manager=none` when no row serves the
 // system.
 function primaryId() {
-    const found = table.detect(table.osReleaseIds(osRelease()), onPath);
+    const found = table.detect(osRelease(), onPath);
     if (found.primary === null) refuse("manager=none");
     return found.primary.id;
 }
@@ -503,7 +503,7 @@ function listed(list) {
 // fzf answers: the detected primary and each overlay whose row offers one,
 // asked in fzf when more than one does.
 function pickerManager(action) {
-    const found = table.detect(table.osReleaseIds(osRelease()), onPath);
+    const found = table.detect(osRelease(), onPath);
     if (found.primary === null) refuse("manager=none");
     const offered = [found.primary].concat(found.overlays).map(entry => entry.id).filter(id => table.managerRow(id).picker[action] !== null);
     if (offered.length === 0) refuse("manager=" + found.primary.id + " picker=" + action + " reason=unsupported");
@@ -548,7 +548,7 @@ main(() => {
         if (holders !== null && holders.length === 0) usage("option=--holders value=missing");
         if (holders !== null) for (const command of holders)
             if (!table.validCommand(command)) usage("command=" + JSON.stringify(command));
-        const found = table.detect(table.osReleaseIds(osRelease()), onPath);
+        const found = table.detect(osRelease(), onPath);
         const output = holders === null ? found : Object.assign({}, found, { holders: detectHolders(found, holders) });
         if (json) {
             process.stdout.write(JSON.stringify(output) + "\n");
@@ -634,7 +634,7 @@ main(() => {
             if (!found.ok) refuse(found.error);
             entries = [{ id: source, binary: found.binary }];
         } else {
-            const found = table.detect(table.osReleaseIds(osRelease()), onPath);
+            const found = table.detect(osRelease(), onPath);
             entries = (found.primary === null ? [] : [found.primary]).concat(found.overlays, found.sources);
         }
         if (!process.env.XDG_RUNTIME_DIR) refuse("runtime-dir=unset");
@@ -659,7 +659,7 @@ main(() => {
     case "owner": {
         if (args.length === 0) usage("path=missing");
         if (args.length > 1) usage("argument=" + args[1]);
-        const found = table.detect(table.osReleaseIds(osRelease()), onPath);
+        const found = table.detect(osRelease(), onPath);
         if (found.primary === null) refuse("manager=none");
         const id = found.primary.id;
         const pkg = query(id, "owner", args[0], "path=" + args[0] + " reason=unowned");

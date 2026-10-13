@@ -140,14 +140,15 @@ xdg-terminal-exec pacman=xdg-terminal-exec apt=xdg-terminal-exec dnf=xdg-termina
 '
   # The primary package managers, as the primary rows of
   # shell/Core/PackageManagers.js state them: id, the os-release identifiers
-  # it serves, its binaries (preferred first), whether an install needs
-  # root, and the install arguments before the package names, `-` where VGS
-  # plans no install.
+  # it serves, the one release it serves as that release's os-release
+  # assignment (`-` for every release), its binaries (preferred first),
+  # whether an install needs root, and the install arguments before the
+  # package names, `-` where VGS plans no install.
   managers='
-pacman arch          pacman       root -S --needed --
-apt    debian        apt-get      root install
-dnf    fedora        dnf5,dnf     root install
-nix    nixos         nix          user -
+pacman arch          -                      pacman       root -S --needed --
+apt    debian        VERSION_CODENAME=forky apt-get      root install
+dnf    fedora        -                      dnf5,dnf     root install
+nix    nixos         -                      nix          user -
 '
 
   # The distributions whose curl install completes: one per primary row.
@@ -211,9 +212,11 @@ EOF
   # Prints `<manager> <binary>` for this system's primary package manager,
   # as PackageManagers.detect picks it: the first os-release identifier, ID
   # then each ID_LIKE token, that a row's family holds while one of the
-  # row's binaries is on PATH. Prints nothing when no row serves.
+  # row's binaries is on PATH. A row with a release serves through ID
+  # alone, on a system that makes the release's assignment. Prints nothing
+  # when no row serves.
   primary_manager() {
-    local file="" candidate token id like m family bins rest b
+    local file="" candidate token id like m family release have bins rest b
     local -a tokens binaries
     for candidate in /etc/os-release /usr/lib/os-release; do
       if [[ -r $candidate ]]; then file="$candidate"; break; fi
@@ -223,8 +226,13 @@ EOF
     like="$(os_release_value "$file" ID_LIKE)"
     read -ra tokens <<<"$id $like"
     for token in "${tokens[@]}"; do
-      while read -r m family bins rest; do
+      while read -r m family release bins rest; do
         [[ -n $m && ",$family," == *",$token,"* ]] || continue
+        if [[ $release != - ]]; then
+          [[ $token == "$id" ]] || continue
+          have="$(os_release_value "$file" "${release%%=*}")"
+          [[ $have == "${release#*=}" ]] || continue
+        fi
         IFS=, read -ra binaries <<<"$bins"
         for b in "${binaries[@]}"; do
           if command -v -- "$b" >/dev/null; then
@@ -263,7 +271,7 @@ EOF
   # systemd-logind, a container) would otherwise read an installed Hyprland
   # as unreadable.
   floor_check() { # EXTRA_TOOL...
-    local tool need pattern probe out line have status start manager="" binary="" m family bins elevate args pkg
+    local tool need pattern probe out line have status start manager="" binary="" m family release bins elevate args pkg
     local -a argv lines misses=() names=() unread=() unpackaged=()
     mkdir -m 700 -- "$tmp/runtime" || refuse 1 "runtime=failed path=$tmp/runtime"
     while read -r tool need pattern probe; do
@@ -313,7 +321,7 @@ EOF
     for tool in "${names[@]}"; do
       if pkg="$(package_for "$tool" "$manager")"; then wanted+=("$pkg"); else unpackaged+=("$tool"); fi
     done
-    while read -r m family bins elevate args; do
+    while read -r m family release bins elevate args; do
       [[ $m == "$manager" ]] || continue
       if ((${#wanted[@]} == 0)); then
         :

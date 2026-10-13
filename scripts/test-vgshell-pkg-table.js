@@ -98,6 +98,9 @@ function tableErrors(t) {
     return errors;
 }
 
+// Debian 14's os-release, as docker.io/library/debian:forky holds it.
+const DEBIAN_14 = "PRETTY_NAME=\"Debian GNU/Linux forky/sid\"\nNAME=\"Debian GNU/Linux\"\nVERSION_CODENAME=forky\nID=debian\n";
+
 // Detection rows: name, os-release text, the commands on PATH, the answer.
 const pacman = { id: "pacman", binary: "pacman" };
 const DETECT_ROWS = [
@@ -107,10 +110,13 @@ const DETECT_ROWS = [
         { primary: pacman, overlays: [{ id: "aur", binary: "yay" }], sources: [] }],
     ["paru is preferred to yay", "ID=endeavouros\nID_LIKE=arch\n", ["pacman", "yay", "paru"],
         { primary: pacman, overlays: [{ id: "aur", binary: "paru" }], sources: [] }],
-    ["Debian through its own ID", "ID=debian\n", ["apt-get", "flatpak"],
+    ["Debian 14", DEBIAN_14, ["apt-get", "flatpak"],
         { primary: { id: "apt", binary: "apt-get" }, overlays: [{ id: "flatpak", binary: "flatpak" }], sources: [] }],
-    ["a Debian derivative through a quoted ID_LIKE list", "ID=acme\nID_LIKE=\"other debian\"\n", ["apt-get"],
-        { primary: { id: "apt", binary: "apt-get" }, overlays: [], sources: [] }],
+    ["Debian 13 has no primary", "ID=debian\nVERSION_ID=\"13\"\nVERSION_CODENAME=trixie\n", ["apt-get", "flatpak"],
+        { primary: null, overlays: [{ id: "flatpak", binary: "flatpak" }], sources: [] }],
+    ["Debian with no release field has no primary", "ID=debian\n", ["apt-get"], { primary: null, overlays: [], sources: [] }],
+    ["Ubuntu has no primary", "ID=ubuntu\nID_LIKE=debian\nVERSION_ID=\"26.04\"\nVERSION_CODENAME=resolute\n", ["apt-get"], { primary: null, overlays: [], sources: [] }],
+    ["a derivative of Debian 14 has no primary", "ID=acme\nID_LIKE=\"other debian\"\nVERSION_CODENAME=forky\n", ["apt-get"], { primary: null, overlays: [], sources: [] }],
     ["Fedora prefers dnf5; an AUR helper without pacman is no overlay", "ID=fedora\n", ["dnf5", "dnf", "paru"],
         { primary: { id: "dnf", binary: "dnf5" }, overlays: [], sources: [] }],
     ["a Fedora derivative with dnf alone", "ID=\"rocky\"\nID_LIKE=\"rhel centos fedora\"\n", ["dnf"],
@@ -404,7 +410,7 @@ function verifyTable(t) {
     const failures = tableErrors(t);
     const onPathOf = list => command => list.includes(command);
     for (const [name, text, commands, want] of DETECT_ROWS) {
-        const got = t.detect(t.osReleaseIds(text), onPathOf(commands));
+        const got = t.detect(text, onPathOf(commands));
         if (!same(got, want)) failures.push("detect: " + name + ": got " + JSON.stringify(got));
     }
     for (const [name, text, want] of ID_ROWS) {
@@ -532,6 +538,10 @@ const CONTROLS = [
     ["table", "the elevation order changes", TABLE, "var ELEVATORS = [\"sudo\", \"doas\", \"run0\"];", "var ELEVATORS = [\"doas\", \"sudo\", \"run0\"];"],
     ["table", "a configured elevation command is ignored", TABLE, "        if (onPath(configured)) return { ok: true, command: configured };\n", ""],
     ["table", "ID_LIKE is ignored", TABLE, "    if (like !== null) {", "    if (false) {"],
+    ["table", "a row with a release serves every release", TABLE, "    if (row.release === null) return true;", "    return true;"],
+    ["table", "a row with a release serves through ID_LIKE", TABLE, "return token === osReleaseValue(text, \"ID\") && osReleaseValue(", "return osReleaseValue("],
+    ["table", "a row with a release ignores the release's value", TABLE, " && osReleaseValue(text, row.release.key) === row.release.value;", ";"],
+    ["table", "apt serves another Debian release", TABLE, "release: { key: \"VERSION_CODENAME\", value: \"forky\" }", "release: { key: \"VERSION_CODENAME\", value: \"trixie\" }"],
     ["table", "an overlay ignores the primary it requires", TABLE, "if (other.requires !== null && (primary === null || primary.id !== other.requires)) continue;", ""],
     ["table", "a name may start with a dash", TABLE, " && name.charAt(0) !== \"-\"", ""],
     ["table", "the first binary wins even when absent", TABLE, "if (onPath(row.binaries[i])) return row.binaries[i];", "return row.binaries[i];"],

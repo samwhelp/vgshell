@@ -32,6 +32,9 @@
 //                          or `vgshell/bin/vgshell <vgshell args>`
 //              <vgshell args> start with a command `vgshell --help` lists.
 //              § Install holds at least one command.
+//   supported  one line of § Install is the sentence install.sh assigns
+//              `supported`, the distributions its refusal on any other
+//              system names.
 //   autostart  § Setup holds one ```lua fence of one line. The line equals
 //              the autostart line docs/architecture/runtime.md states, the
 //              line install.sh prints with `vgshell` for its absolute path.
@@ -159,6 +162,13 @@ const installAutostart = (() => {
     const m = /^\s*printf '\s*(hl\.on\([^'\n]*%s start[^'\n]*\))\\n' "\$link"$/m.exec(installText);
     if (m === null) unreadable("install.sh", "no printf of the hl.on autostart line");
     return m[1].replace("%s", "vgshell");
+})();
+
+// The sentence install.sh prints when it refuses a system it does not serve.
+const installSupported = (() => {
+    const m = /^\s*supported='([^'\n]+)'$/m.exec(installText);
+    if (m === null) unreadable("install.sh", "no `supported='...'` assignment");
+    return m[1];
 })();
 
 const runtimeAutostart = (() => {
@@ -373,6 +383,11 @@ function checkCommands(install) {
     return commands;
 }
 
+function checkSupported(install) {
+    const lines = install.lines.filter(line => line.text === installSupported);
+    if (lines.length !== 1) finding("supported", install.n, "lines=" + lines.length + " want=1 differs=install.sh want=" + installSupported);
+}
+
 function checkAutostart(setup) {
     const lua = fences(setup).filter(f => f.lang === "lua");
     if (lua.length !== 1) {
@@ -444,6 +459,7 @@ const pluginSection = section("Plugins");
 const setup = section("Setup");
 checkHeadings();
 const commands = install !== null ? checkCommands(install) : [];
+if (install !== null) checkSupported(install);
 if (setup !== null) checkAutostart(setup);
 if (pluginSection !== null) checkPlugins(pluginSection);
 

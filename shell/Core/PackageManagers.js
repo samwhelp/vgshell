@@ -16,6 +16,11 @@
 //             "source": a user-level tool source
 //   family    the os-release ID values a primary serves, matched against ID
 //             and then each ID_LIKE token
+//   release   null when the row serves every release of its family, else
+//             { key, value }: the one release it serves, the os-release
+//             assignment that release makes. Such a row matches ID alone,
+//             never an ID_LIKE token, since a derivative's release field
+//             names the derivative's own release.
 //   requires  the primary an overlay only exists beside, or null
 //   binaries  the commands that run the manager, preferred first; the first
 //             one on PATH is the row's binary
@@ -65,7 +70,7 @@
 // `-Syu`, never `-Sy` alone.
 var MANAGERS = [
     {
-        id: "pacman", role: "primary", family: ["arch"], requires: null, binaries: ["pacman"], elevate: true,
+        id: "pacman", role: "primary", family: ["arch"], release: null, requires: null, binaries: ["pacman"], elevate: true,
         check: [{ binary: null, argv: ["checkupdates"], exits: { "0": "updates", "2": "none" }, parser: "arrow", timeout: 120 }],
         install: [["{bin}", "-S", "--needed", "--", "{names}"]],
         // pacman(8): --needed skips only a target that is up to date, so
@@ -84,7 +89,7 @@ var MANAGERS = [
         }
     },
     {
-        id: "aur", role: "overlay", family: [], requires: "pacman", binaries: ["paru", "yay"], elevate: false,
+        id: "aur", role: "overlay", family: [], release: null, requires: "pacman", binaries: ["paru", "yay"], elevate: false,
         check: [{ binary: null, argv: ["{bin}", "-Qua"], exits: { "0": "updates", "1": "none" }, parser: "arrow", timeout: 120 }],
         install: [["{bin}", "-S", "--needed", "--", "{names}"]],
         update: [["{bin}", "-S", "--needed", "--", "{names}"]],
@@ -100,9 +105,12 @@ var MANAGERS = [
         picker: { install: { list: ["{bin}", "-Slqa"], preview: ["{bin}", "-Siia", "{name}"] }, remove: null }
     },
     // apt lists what the package lists held at the last `apt update`, which
-    // needs root, so the check never refreshes them.
+    // needs root, so the check never refreshes them. Debian 14 is the one
+    // Debian release whose repositories meet the floor; its os-release and
+    // sid's both set VERSION_CODENAME=forky and no VERSION_ID (podman,
+    // docker.io/library/debian:forky and :sid, 2026-10-13).
     {
-        id: "apt", role: "primary", family: ["debian"], requires: null, binaries: ["apt-get"], elevate: true,
+        id: "apt", role: "primary", family: ["debian"], release: { key: "VERSION_CODENAME", value: "forky" }, requires: null, binaries: ["apt-get"], elevate: true,
         check: [{ binary: null, argv: ["apt", "list", "--upgradable"], exits: { "0": "rows" }, parser: "apt", timeout: 120 }],
         install: [["{bin}", "install", "{names}"]],
         // apt-get(8): install is also the target that upgrades an installed
@@ -120,7 +128,7 @@ var MANAGERS = [
         }
     },
     {
-        id: "dnf", role: "primary", family: ["fedora"], requires: null, binaries: ["dnf5", "dnf"], elevate: true,
+        id: "dnf", role: "primary", family: ["fedora"], release: null, requires: null, binaries: ["dnf5", "dnf"], elevate: true,
         check: [
             { binary: "dnf5", argv: ["{bin}", "check-upgrade", "--json"], exits: { "0": "rows" }, parser: "dnf5", timeout: 120 },
             { binary: "dnf", argv: ["{bin}", "-q", "check-update"], exits: { "0": "none", "100": "updates" }, parser: "dnf", timeout: 120 }
@@ -147,12 +155,12 @@ var MANAGERS = [
     // A NixOS system changes through its own configuration, so VGS plans no
     // step and has no read-only update query for it.
     {
-        id: "nix", role: "primary", family: ["nixos"], requires: null, binaries: ["nix"], elevate: false,
+        id: "nix", role: "primary", family: ["nixos"], release: null, requires: null, binaries: ["nix"], elevate: false,
         check: null, install: null, update: null, remove: null, upgrade: null, ignore: null, owner: null, installed: null, removable: null,
         picker: { install: null, remove: null }
     },
     {
-        id: "flatpak", role: "overlay", family: [], requires: null, binaries: ["flatpak"], elevate: false,
+        id: "flatpak", role: "overlay", family: [], release: null, requires: null, binaries: ["flatpak"], elevate: false,
         check: [{ binary: null, argv: ["{bin}", "remote-ls", "--updates", "--columns=application,branch"], exits: { "0": "rows" }, parser: "flatpak", timeout: 120 }],
         install: [["{bin}", "install", "{names}"]],
         // flatpak-update(1): update with a ref updates that ref alone.
@@ -174,7 +182,7 @@ var MANAGERS = [
     // current one (`mise use --global --dry-run`, mise 2026.9.17 on host
     // cachy, 2026-10-10).
     {
-        id: "mise", role: "source", family: [], requires: null, binaries: ["mise"], elevate: false,
+        id: "mise", role: "source", family: [], release: null, requires: null, binaries: ["mise"], elevate: false,
         check: [{ binary: null, argv: ["env", "MISE_MINIMUM_RELEASE_AGE=0", "{bin}", "outdated", "--json"], exits: { "0": "rows" }, parser: "mise", timeout: 120 }],
         install: [["{bin}", "use", "--global", "{names}"]],
         update: [["env", "MISE_MINIMUM_RELEASE_AGE=0", "{bin}", "use", "--global", "{names@latest}"]],
@@ -259,17 +267,29 @@ function binaryOf(row, onPath) {
     return null;
 }
 
+// Whether primary ROW serves the system whose os-release text is TEXT
+// through TOKEN, one of its identifiers: the row's family holds TOKEN, and
+// a row with a release needs TOKEN to be the system's ID and the system to
+// make the release's assignment.
+function serves(row, text, token) {
+    if (row.family.indexOf(token) < 0) return false;
+    if (row.release === null) return true;
+    return token === osReleaseValue(text, "ID") && osReleaseValue(text, row.release.key) === row.release.value;
+}
+
 // The system's managers: `{ primary, overlays, sources }`, each entry
-// `{ id, binary }`. The primary is the first row, taking the os-release
-// identifiers OS_IDS in order, whose family holds one and whose binary is
-// on PATH; null when none is. An overlay or source is present when its
-// binary is, and an overlay that requires a primary only beside it.
-function detect(osIds, onPath) {
+// `{ id, binary }`, for the system whose os-release text is TEXT. The
+// primary is the first row, taking the os-release identifiers in order,
+// that serves one and whose binary is on PATH; null when none is. An
+// overlay or source is present when its binary is, and an overlay that
+// requires a primary only beside it.
+function detect(text, onPath) {
+    var osIds = osReleaseIds(text);
     var primary = null;
     for (var i = 0; i < osIds.length && primary === null; i++) {
         for (var j = 0; j < MANAGERS.length; j++) {
             var row = MANAGERS[j];
-            if (row.role !== "primary" || row.family.indexOf(osIds[i]) < 0) continue;
+            if (row.role !== "primary" || !serves(row, text, osIds[i])) continue;
             var binary = binaryOf(row, onPath);
             if (binary !== null) {
                 primary = { id: row.id, binary: binary };

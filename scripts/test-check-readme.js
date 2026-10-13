@@ -80,6 +80,8 @@ function commandLineOf(tree, command) {
 const curlLine = (tree, args) => lineOf(tree, "curl -fsSL https://raw.githubusercontent.com/vanillagreencom/vgshell/main/install.sh | bash" + args);
 const NIX = "nix run github:vanillagreencom/vgshell";
 const autostart = tree => /^```lua\n(.*)\n```$/m.exec(read(tree, "README.md"))[1];
+// The sentence TREE's install.sh assigns `supported`.
+const supported = tree => /^ *supported='(.*)'$/m.exec(read(tree, "install.sh"))[1];
 
 const ok = tree => `check-readme: ok commands=${commandLines(tree).length} plugins=${plugins.length}`;
 const CURL = "curl -fsSL https://raw.githubusercontent.com/vanillagreencom/vgshell/main/install.sh | bash";
@@ -186,6 +188,13 @@ const ROWS = [
         const install = text.slice(text.indexOf("## Install\n"), text.indexOf("\n## ", text.indexOf("## Install\n")));
         replaceIn(t, "README.md", install, install.replace(/^```bash$/gm, "```text"));
     }, 1, tree => [`command README.md:${lineOf(tree, "## Install")} count=0`]],
+    // supported
+    ["a README supported sentence that drifted is refused", t => replaceIn(t, "README.md", "\n" + supported(t) + "\n", "\n" + supported(t) + " Planted.\n"),
+        1, tree => [`supported README.md:${lineOf(tree, "## Install")} lines=0 want=1 differs=install.sh want=${supported(pristine)}`]],
+    ["an install.sh supported sentence the README does not follow is refused", t => replaceIn(t, "install.sh", "supported='" + supported(t) + "'", "supported='" + supported(t) + " Planted.'"),
+        1, tree => [`supported README.md:${lineOf(tree, "## Install")} lines=0 want=1 differs=install.sh want=${supported(pristine)} Planted.`]],
+    ["an install.sh without its supported sentence is unreadable", t => replaceIn(t, "install.sh", "\n  supported='", "\n  served='"),
+        2, () => ["check-readme: unreadable: install.sh: no `supported='...'` assignment"]],
     // autostart
     ["a README autostart line that drifted is refused", t => replaceIn(t, "README.md", 'hl.exec_cmd("vgshell start")', 'hl.exec_cmd("vgshell start --planted")'),
         1, tree => {
