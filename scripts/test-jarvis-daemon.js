@@ -1952,7 +1952,8 @@ exit "$failures"
         }
         await engineConversation(engineCopy("engine-identical-hello"), "What time is it?", "What time is it?", true);
         await assert.rejects(() => engineConversation(engineCopy("engine-clears-identical-hello", "What time is it?", null,
-            [["if (identity !== modelsFor || modelsHeld()) cancelModels();", "cancelModels();"]]),
+            [["if (identity !== modelsFor || modelsHeld()) cancelModels();",
+                "if (identity !== modelsFor || modelsHeld() || conversation !== null) cancelModels();"]]),
             "What time is it?", "What time is it?", true),
         error => error instanceof assert.AssertionError && error.message.startsWith("an unchanged hello keeps the active local conversation"),
         "an unnecessary invalidation must fail the active conversation assertion");
