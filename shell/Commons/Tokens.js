@@ -195,7 +195,10 @@ var TOKENS = {
         onAccent: color("contrast({palette.accent})"),
         focus: color("{palette.accent}"),
         selection: color("alpha({palette.accent}, 0.35)"),
-        scrim: color("alpha({palette.background}, 0.6)")
+        // The wash a modal surface dims the page under it with: the
+        // background moved toward black, so the page darkens in a light
+        // theme too and a raised card over it is never the darker layer.
+        scrim: color("alpha(mix({palette.background}, #000000, 0.14), 0.6)")
     }, status("success"), status("warning"), status("danger"), status("info")),
 
     space: {
@@ -907,7 +910,8 @@ var TOKENS = {
     // row of actions, `actionGap` the actions; `titleRole` and `bodyRole`
     // name the roles of `text` its title and message draw in. `margin` is
     // the gap between the surface a host centres the card in and the edges
-    // of the area other layers leave free.
+    // of the area other layers leave free. The card shows over the scrim:
+    // its border is an input's boundary, 3:1 on every dimmed surface.
     dialog: {
         width: length("{size.panel.md}"),
         margin: length("{space.lg}"),
@@ -917,7 +921,7 @@ var TOKENS = {
         maxHeightShare: share(0.8),
         radius: length("{radius.md}"),
         background: color("{color.surfaceRaised}"),
-        border: color("{color.borderStrong}"),
+        border: color("{color.borderControl}"),
         titleRole: textRole("h3"),
         bodyRole: textRole("body")
     },
@@ -959,8 +963,9 @@ var TOKENS = {
     // the same in every mode. Text beside the rail sits on the scrim over
     // any wallpaper, not on a resting surface, so it draws `hint`, the text
     // colour, and a chosen word `hintActive`, further from the backdrop:
-    // over the light scrim on a black wallpaper textFaint reads 1.9:1 and
-    // text 6.5:1 (the VGS-1398 sheet read, tmp/vgs-1398-hint-contrast.py).
+    // over flexoki-light's scrim on a black wallpaper textFaint reads
+    // 1.4:1 and text 4.9:1 (ThemeLogic.contrastRatio on the resolved
+    // catalog theme, node, 2026-10-13).
     carousel: {
         expandedWidth: length(768),
         expandedHeight: length(476),

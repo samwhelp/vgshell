@@ -275,6 +275,13 @@ var BOUNDARY_PAIRS = [
     ["segmented.indicatorColor", "segmented.background"]
 ];
 var BOUNDARY_FLOOR = 3;
+// A modal card shows over the scrim, which dims the page under it. On each
+// dimmed resting surface its border meets the boundary floor, and its fill
+// is at least as light as that surface or meets the floor too, so the card
+// reads as the layer above the page in every mode.
+var MODAL_SCRIM = "color.scrim";
+var MODAL_BORDER = "dialog.border";
+var MODAL_FILL = "dialog.background";
 
 function valueAt(values, path) {
     var node = values;
@@ -288,8 +295,10 @@ function valueAt(values, path) {
 // surface, ratio, floor }: text roles on resting surfaces and text on a
 // control's fill at 4.5, a translucent fill laid over each resting surface
 // and named `<fill> over <surface>`, then input boundaries, selected
-// indicators and knobs at 3. Any other translucent colour has no ratio and
-// is a shortfall.
+// indicators and knobs at 3, then the modal card's border and fill at 3 on
+// the scrim laid over each resting surface, a fill at least as light as
+// that dimmed surface passing at any ratio. Any other translucent colour
+// has no ratio and is a shortfall.
 function readabilityShortfalls(values) {
     var pairs = [];
     for (var i = 0; i < READABILITY_TEXT_ROLES.length; i++)
@@ -308,6 +317,10 @@ function readabilityShortfalls(values) {
             pairs.push([BOUNDARY_ROLES[k], READABILITY_SURFACES[m], BOUNDARY_FLOOR]);
     for (var n = 0; n < BOUNDARY_PAIRS.length; n++)
         pairs.push([BOUNDARY_PAIRS[n][0], BOUNDARY_PAIRS[n][1], BOUNDARY_FLOOR]);
+    for (var s = 0; s < READABILITY_SURFACES.length; s++) {
+        pairs.push([MODAL_BORDER, MODAL_SCRIM, BOUNDARY_FLOOR, READABILITY_SURFACES[s]]);
+        pairs.push([MODAL_FILL, MODAL_SCRIM, BOUNDARY_FLOOR, READABILITY_SURFACES[s], true]);
+    }
     var out = [];
     for (var q = 0; q < pairs.length; q++) {
         var under = pairs[q][3];
@@ -318,6 +331,8 @@ function readabilityShortfalls(values) {
         var ratio = text === null || surface === null || text.a < 1 || surface.a < 1
             ? null
             : contrastRatio(text, surface);
+        if (ratio !== null && pairs[q][4] === true && luminance(text) >= luminance(surface))
+            continue;
         if (ratio === null || ratio < pairs[q][2])
             out.push({ text: pairs[q][0], surface: under === undefined ? pairs[q][1] : pairs[q][1] + " over " + under, ratio: ratio, floor: pairs[q][2] });
     }
@@ -325,14 +340,15 @@ function readabilityShortfalls(values) {
 }
 
 // FILL laid over the opaque colour BASE, as the screen shows it, or null
-// while BASE is missing or translucent itself.
+// while either is missing or BASE is translucent itself. A fill the colour
+// of its base answers that colour exactly.
 function overlay(fill, base) {
-    if (base === null || base.a < 1)
+    if (fill === null || base === null || base.a < 1)
         return null;
     return {
-        r: fill.r * fill.a + base.r * (1 - fill.a),
-        g: fill.g * fill.a + base.g * (1 - fill.a),
-        b: fill.b * fill.a + base.b * (1 - fill.a),
+        r: base.r + (fill.r - base.r) * fill.a,
+        g: base.g + (fill.g - base.g) * fill.a,
+        b: base.b + (fill.b - base.b) * fill.a,
         a: 1
     };
 }

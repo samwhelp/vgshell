@@ -730,6 +730,23 @@ function verify(judge) {
     const knobFailure = judge.accept(TOKENS, document({ toggle: { knobOff: "{toggle.off}" } }));
     assert.equal(knobFailure.ok, true, knobFailure.ok ? "" : judge.refusalLine(knobFailure));
     assert.deepEqual(plain(judge.readabilityShortfalls(knobFailure.values)), [{ text: "toggle.knobOff", surface: "toggle.off", ratio: 1, floor: 3 }]);
+    // A modal card over a scrim the colour of the background, with a
+    // strong border: in a light theme that scrim lightens the page past
+    // the card's fill, so fill and border fall under the 3:1 floor on
+    // every dimmed surface; in the dark defaults the fill stays lighter
+    // than the dimmed page and only the border falls. The table's own
+    // values hold in both.
+    const modalRows = tokens => {
+        const accepted = judge.accept(TOKENS, document(tokens));
+        assert.equal(accepted.ok, true, accepted.ok ? "" : judge.refusalLine(accepted));
+        return plain(judge.readabilityShortfalls(accepted.values).filter(row => row.surface.startsWith("color.scrim over ")).map(row => [row.text, row.surface, row.floor]));
+    };
+    const LIGHT_PAGE = { scheme: { mode: "light" }, palette: { background: "#fffcf0", foreground: "#100f0f" } };
+    const OLD_MODAL = { color: { scrim: "alpha({palette.background}, 0.6)" }, dialog: { border: "{color.borderStrong}" } };
+    assert.deepEqual(modalRows(LIGHT_PAGE), []);
+    assert.deepEqual(modalRows(Object.assign({}, LIGHT_PAGE, OLD_MODAL)),
+        READABILITY_SURFACES.flatMap(surface => [["dialog.border", "color.scrim over " + surface, 3], ["dialog.background", "color.scrim over " + surface, 3]]));
+    assert.deepEqual(modalRows(OLD_MODAL), READABILITY_SURFACES.map(surface => ["dialog.border", "color.scrim over " + surface, 3]));
     // A segmented control's text the colour of the fill it sits on falls
     // under the 4.5:1 floor, and a chosen segment's mark the colour of its
     // segment or of the track under the 3:1 floor.
@@ -1554,13 +1571,18 @@ const CONTROLS = [
     ["readability pairs", "    [\"segmented.foreground\", \"segmented.background\"],\n", ""],
     ["readability badge pairs", "    [\"badge.tone.success.foreground\", \"badge.tone.success.background\"],\n", ""],
     ["readability translucent fill over a surface", "if (fill === null || fill.a === 1)", "if (true)"],
-    ["readability fill blend", "r: fill.r * fill.a + base.r * (1 - fill.a),", "r: fill.r,"],
+    ["readability fill blend", "r: base.r + (fill.r - base.r) * fill.a,", "r: fill.r,"],
     ["readability fill named with its surface", 'pairs[q][1] + " over " + under', "pairs[q][1]"],
     ["readability pair floor", "pairs.push([READABILITY_PAIRS[p][0], READABILITY_PAIRS[p][1], READABILITY_FLOOR]);", "pairs.push([READABILITY_PAIRS[p][0], READABILITY_PAIRS[p][1], BOUNDARY_FLOOR]);"],
     ["readability translucency", "var ratio = text === null || surface === null || text.a < 1 || surface.a < 1\n            ? null\n            : contrastRatio(text, surface);", "var ratio = contrastRatio(text, surface);"],
     ["boundary roles", "    \"checkbox.borderColor\",\n", ""],
     ["boundary pairs", "    [\"toggle.knobOff\", \"toggle.off\"],\n", ""],
     ["boundary floor", "var BOUNDARY_FLOOR = 3;", "var BOUNDARY_FLOOR = 1;"],
+    ["modal border on the dimmed page", "        pairs.push([MODAL_BORDER, MODAL_SCRIM, BOUNDARY_FLOOR, READABILITY_SURFACES[s]]);\n", ""],
+    ["modal fill on the dimmed page", "        pairs.push([MODAL_FILL, MODAL_SCRIM, BOUNDARY_FLOOR, READABILITY_SURFACES[s], true]);\n", ""],
+    ["a modal fill as light as the dimmed page passes", "if (ratio !== null && pairs[q][4] === true && luminance(text) >= luminance(surface))", "if (false)"],
+    ["a modal fill darker than the dimmed page is judged", "pairs[q][4] === true && luminance(text) >= luminance(surface)", "pairs[q][4] === true"],
+    ["only the modal fill passes by its lightness", "if (ratio !== null && pairs[q][4] === true && luminance(text)", "if (ratio !== null && pairs[q][3] !== undefined && luminance(text)"],
     ["title space below body line", '"body-lines": [1, 4096]', '"body-lines": [0, 4096]'],
     ["appearance flyout ratio", "flyout: 0.75,", "flyout: 1,"],
     ["appearance group tab ratio", "groupTab: 0.5,", "groupTab: 1,"],
