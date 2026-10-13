@@ -84,6 +84,26 @@ const TERMINAL_SLOT_ROWS = [
     ["color15", null]
 ];
 
+// The check and every file it loads, copied to COPY, where a control
+// plants its defect.
+function copyCheck(copy) {
+    for (const file of ["scripts/check-theme-contrast.js", "bin/lib/qml-library.js", "shell/Commons/ThemeLogic.js",
+        "shell/Commons/Tokens.js", "shell/Commons/Glass.js", "shell/plugins/vgs.notifications/Appearance.js"]) {
+        fs.mkdirSync(path.dirname(path.join(copy, file)), { recursive: true });
+        fs.copyFileSync(path.join(repo, file), path.join(copy, file));
+    }
+}
+
+// Replace each [needle, replacement] in FILE, each needle found once.
+function plant(file, edits) {
+    let source = fs.readFileSync(file, "utf8");
+    for (const [needle, replacement] of edits) {
+        assert.equal(source.split(needle).length, 2, `the planted text ${JSON.stringify(needle)} matches once`);
+        source = source.replace(needle, () => replacement);
+    }
+    fs.writeFileSync(file, source);
+}
+
 function assertStatus(proc, status) {
     assert.equal(proc.status, status, proc.stdout + proc.stderr);
 }
@@ -116,11 +136,7 @@ try {
     // a light theme's on its light card over black fall short.
     row("control: a notice link in the accent alone is a shortfall", dir => {
         const copy = path.join(dir, "copy");
-        for (const file of ["scripts/check-theme-contrast.js", "bin/lib/qml-library.js", "shell/Commons/ThemeLogic.js",
-            "shell/Commons/Tokens.js", "shell/plugins/vgs.notifications/Appearance.js"]) {
-            fs.mkdirSync(path.dirname(path.join(copy, file)), { recursive: true });
-            fs.copyFileSync(path.join(repo, file), path.join(copy, file));
-        }
+        copyCheck(copy);
         const look = path.join(copy, "shell", "plugins", "vgs.notifications", "Appearance.js");
         const source = fs.readFileSync(look, "utf8");
         const link = /link: color\("readable\(.*\)"\),/g;
@@ -139,26 +155,42 @@ try {
     // falls short on the scrim over a black wallpaper.
     row("control: a failure line judged on the scrim is a shortfall", dir => {
         const copy = path.join(dir, "copy");
-        for (const file of ["scripts/check-theme-contrast.js", "bin/lib/qml-library.js", "shell/Commons/ThemeLogic.js",
-            "shell/Commons/Tokens.js", "shell/plugins/vgs.notifications/Appearance.js"]) {
-            fs.mkdirSync(path.dirname(path.join(copy, file)), { recursive: true });
-            fs.copyFileSync(path.join(repo, file), path.join(copy, file));
-        }
-        const judge = path.join(copy, "shell", "Commons", "ThemeLogic.js");
-        let source = fs.readFileSync(judge, "utf8");
-        for (const [needle, replacement] of [
+        copyCheck(copy);
+        plant(path.join(copy, "shell", "Commons", "ThemeLogic.js"), [
             ['var RAIL_TEXT_ROLES = ["carousel.hint", "carousel.hintActive"];', 'var RAIL_TEXT_ROLES = ["carousel.hint", "carousel.hintActive", "carousel.hintDanger"];'],
             ["    pairs.push([FAILURE_LINE, FAILURE_PLATE, READABILITY_FLOOR]);\n", ""]
-        ]) {
-            assert.equal(source.split(needle).length, 2, `the planted text ${JSON.stringify(needle)} matches once`);
-            source = source.replace(needle, () => replacement);
-        }
-        fs.writeFileSync(judge, source);
+        ]);
         const proc = spawnSync(NODE, [path.join(copy, "scripts", "check-theme-contrast.js"), path.join(repo, "themes")],
             { encoding: "utf8", env: env(path.join(dir, "env")) });
         assertStatus(proc, 1);
         assert.match(proc.stdout, /^short    catalog\/catppuccin-latte: carousel\.hintDanger on color\.scrim over #000000 ratio=1\.36 floor=4\.5$/m);
         assert.match(proc.stdout, /^short    catalog\/white: carousel\.hintDanger on color\.scrim over #000000 ratio=3\.80 floor=4\.5$/m);
+    });
+
+    // The tooltip's text as it drew before VGS-1628, the theme's text and
+    // faint text, in a disposable copy judged on the shipped tree: on the
+    // fill its glass draws solid, the faint detail line and one theme's
+    // title fall short. The same text judged on the opaque raised surface
+    // alone, with the solid glass pair taken out, misses both.
+    row("control: tooltip text judged on the solid glass fill is a shortfall the opaque pair misses", dir => {
+        const copy = path.join(dir, "copy");
+        copyCheck(copy);
+        plant(path.join(copy, "shell", "Commons", "Tokens.js"), [
+            ['foreground: color("readable({color.text}, {tooltip.glass}, contrast({tooltip.glass}))"),', 'foreground: color("{color.text}"),'],
+            ['detail: color("readable({color.textFaint}, {tooltip.glass}, readable({color.textMuted}, {tooltip.glass}, {tooltip.foreground}))")', 'detail: color("{color.textFaint}")']
+        ]);
+        const judge = () => spawnSync(NODE, [path.join(copy, "scripts", "check-theme-contrast.js"), path.join(repo, "themes")],
+            { encoding: "utf8", env: env(path.join(dir, "env")) });
+        const drawn = judge();
+        assertStatus(drawn, 1);
+        assert.match(drawn.stdout, /^short    vgs: tooltip\.detail on glass\.fill solid ratio=4\.14 floor=4\.5$/m);
+        assert.match(drawn.stdout, /^short    catalog\/moon-orbit: tooltip\.foreground on glass\.fill solid ratio=4\.12 floor=4\.5$/m);
+        plant(path.join(copy, "shell", "Commons", "ThemeLogic.js"), [
+            ["        pairs.push([TOOLTIP_TEXT_ROLES[t], GLASS_SOLID, READABILITY_FLOOR]);\n", ""]
+        ]);
+        const opaque = judge();
+        assertStatus(opaque, 0);
+        assert.doesNotMatch(opaque.stdout, /tooltip\./);
     });
 
     row("direct package shortfall exits one", dir => {

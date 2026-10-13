@@ -715,33 +715,33 @@ function verify(judge) {
     assert.deepEqual(plain(judge.BOUNDARY_PAIRS), BOUNDARY_PAIRS);
     assert.equal(judge.BOUNDARY_FLOOR, 3);
     assert.equal(judge.contrastRatio(judge.parseColor("#000000"), judge.parseColor("#ffffff")), 21);
-    assert.deepEqual(plain(judge.readabilityShortfalls(defaults.values)), [], "default vgs readability");
+    assert.deepEqual(plain(readability(judge, defaults.values)), [], "default vgs readability");
     const faintFailure = judge.accept(TOKENS, document({ color: { textFaint: "#111111" } }));
     assert.equal(faintFailure.ok, true, faintFailure.ok ? "" : judge.refusalLine(faintFailure));
-    const faintShortfalls = judge.readabilityShortfalls(faintFailure.values);
+    const faintShortfalls = readability(judge, faintFailure.values);
     assert.deepEqual(
         Object.assign({}, faintShortfalls[0], { ratio: truncateRatio(faintShortfalls[0].ratio) }),
         { text: "color.textFaint", surface: "color.background", ratio: 1.11, floor: 4.5 }
     );
     const accentFailure = judge.accept(TOKENS, document({ palette: { accent: "#111111" } }));
     assert.equal(accentFailure.ok, true, accentFailure.ok ? "" : judge.refusalLine(accentFailure));
-    assert.equal(judge.readabilityShortfalls(accentFailure.values).some(row => row.text === "color.accent" && row.surface === "color.background"), true);
+    assert.equal(readability(judge, accentFailure.values).some(row => row.text === "color.accent" && row.surface === "color.background"), true);
     const statusFailure = judge.accept(TOKENS, document({ color: { success: "#111111" } }));
     assert.equal(statusFailure.ok, true, statusFailure.ok ? "" : judge.refusalLine(statusFailure));
-    assert.equal(judge.readabilityShortfalls(statusFailure.values).some(row => row.text === "color.success" && row.surface === "color.background"), true);
+    assert.equal(readability(judge, statusFailure.values).some(row => row.text === "color.success" && row.surface === "color.background"), true);
     const translucentFailure = judge.accept(TOKENS, document({ color: { textFaint: "alpha({palette.foreground}, 0.5)" } }));
     assert.equal(translucentFailure.ok, true, translucentFailure.ok ? "" : judge.refusalLine(translucentFailure));
-    assert.deepEqual(plain(judge.readabilityShortfalls(translucentFailure.values)[0]), { text: "color.textFaint", surface: "color.background", ratio: null, floor: 4.5 });
+    assert.deepEqual(plain(readability(judge, translucentFailure.values)[0]), { text: "color.textFaint", surface: "color.background", ratio: null, floor: 4.5 });
     // An input boundary as faint as the surface it sits on, and a switch
     // knob the colour of its track, each fall under the 3:1 floor; a 3.63
     // boundary holds.
     const boundaryFailure = judge.accept(TOKENS, document({ checkbox: { borderColor: "{color.surface}" } }));
     assert.equal(boundaryFailure.ok, true, boundaryFailure.ok ? "" : judge.refusalLine(boundaryFailure));
-    const boundaryRows = judge.readabilityShortfalls(boundaryFailure.values);
+    const boundaryRows = readability(judge, boundaryFailure.values);
     assert.deepEqual(plain(boundaryRows.map(row => [row.text, row.surface, row.floor])), READABILITY_SURFACES.map(surface => ["checkbox.borderColor", surface, 3]));
     const knobFailure = judge.accept(TOKENS, document({ toggle: { knobOff: "{toggle.off}" } }));
     assert.equal(knobFailure.ok, true, knobFailure.ok ? "" : judge.refusalLine(knobFailure));
-    assert.deepEqual(plain(judge.readabilityShortfalls(knobFailure.values)), [{ text: "toggle.knobOff", surface: "toggle.off", ratio: 1, floor: 3 }]);
+    assert.deepEqual(plain(readability(judge, knobFailure.values)), [{ text: "toggle.knobOff", surface: "toggle.off", ratio: 1, floor: 3 }]);
     // A modal card over a scrim the colour of the background, with a
     // strong border: in a light theme that scrim lightens the page past
     // the card's fill, so fill and border fall under the 3:1 floor on
@@ -751,7 +751,7 @@ function verify(judge) {
     const modalRows = tokens => {
         const accepted = judge.accept(TOKENS, document(tokens));
         assert.equal(accepted.ok, true, accepted.ok ? "" : judge.refusalLine(accepted));
-        return plain(judge.readabilityShortfalls(accepted.values).filter(row => row.surface.startsWith("color.scrim over ")).map(row => [row.text, row.surface, row.floor]));
+        return plain(readability(judge, accepted.values).filter(row => row.surface.startsWith("color.scrim over ")).map(row => [row.text, row.surface, row.floor]));
     };
     const LIGHT_PAGE = { scheme: { mode: "light" }, palette: { background: "#fffcf0", foreground: "#100f0f" } };
     const OLD_MODAL = { color: { scrim: "alpha({palette.background}, 0.6)" }, dialog: { border: "{color.borderStrong}" } };
@@ -774,7 +774,7 @@ function verify(judge) {
     const plateRows = tokens => {
         const accepted = judge.accept(TOKENS, document(tokens));
         assert.equal(accepted.ok, true, accepted.ok ? "" : judge.refusalLine(accepted));
-        return plain(judge.readabilityShortfalls(accepted.values).filter(row => row.text === "carousel.hintDanger"));
+        return plain(readability(judge, accepted.values).filter(row => row.text === "carousel.hintDanger"));
     };
     assert.deepEqual(plateRows(LATTE), []);
     assert.deepEqual(plateRows(Object.assign({}, LATTE, { carousel: { hintDanger: "{color.danger}" } })).map(row => [row.text, row.surface, truncateRatio(row.ratio), row.floor]),
@@ -808,13 +808,13 @@ function verify(judge) {
     ]) {
         const segmentedFailure = judge.accept(TOKENS, document({ segmented }));
         assert.equal(segmentedFailure.ok, true, segmentedFailure.ok ? "" : judge.refusalLine(segmentedFailure));
-        assert.deepEqual(plain(judge.readabilityShortfalls(segmentedFailure.values).map(row => [row.text, row.surface, row.floor])), rows, JSON.stringify(segmented));
+        assert.deepEqual(plain(readability(judge, segmentedFailure.values).map(row => [row.text, row.surface, row.floor])), rows, JSON.stringify(segmented));
     }
     // A selected list row's text is judged on its translucent plate laid
     // over each resting surface.
     const rowFailure = judge.accept(TOKENS, document({ listItem: { selectedForeground: "#3a3a3a" } }));
     assert.equal(rowFailure.ok, true, rowFailure.ok ? "" : judge.refusalLine(rowFailure));
-    assert.deepEqual(plain(judge.readabilityShortfalls(rowFailure.values).map(row => [row.text, row.surface, row.floor])),
+    assert.deepEqual(plain(readability(judge, rowFailure.values).map(row => [row.text, row.surface, row.floor])),
         READABILITY_SURFACES.map(surface => ["listItem.selectedForeground", "listItem.selected over " + surface, 4.5]));
 
     // A badge's text on its translucent fill is judged on the fill laid
@@ -828,12 +828,12 @@ function verify(judge) {
         const mixed = channel => fill[channel] * fill.a + base[channel] * (1 - fill.a);
         return { r: mixed("r"), g: mixed("g"), b: mixed("b"), a: 1 };
     };
-    assert.deepEqual(plain(judge.readabilityShortfalls(badgeFailure.values).map(row => [row.text, row.surface, truncateRatio(row.ratio), row.floor])),
+    assert.deepEqual(plain(readability(judge, badgeFailure.values).map(row => [row.text, row.surface, truncateRatio(row.ratio), row.floor])),
         READABILITY_SURFACES.map(surface => ["badge.tone.success.foreground", "badge.tone.success.background over " + surface,
             truncateRatio(judge.contrastRatio(judge.parseColor("#3a3a3a"), blend(surface))), 4.5]));
     const opaqueFill = judge.accept(TOKENS, document({ badge: { tone: { success: { background: "#c9d897" } } } }));
     assert.equal(opaqueFill.ok, true, opaqueFill.ok ? "" : judge.refusalLine(opaqueFill));
-    assert.deepEqual(plain(judge.readabilityShortfalls(opaqueFill.values)), [{ text: "badge.tone.success.foreground", surface: "badge.tone.success.background", ratio: 1, floor: 4.5 }]);
+    assert.deepEqual(plain(readability(judge, opaqueFill.values)), [{ text: "badge.tone.success.foreground", surface: "badge.tone.success.background", ratio: 1, floor: 4.5 }]);
 
     // The resolved tree holds exactly the table's tokens, each with a value
     // of its type's portable form.
@@ -1057,6 +1057,10 @@ function verify(judge) {
 // 0xd9, lifted by 0.1: 242 + 13 * 0.1 = 243.3, #f3f3f3; a cream #e8e4d8
 // gives 234.3, 230.7 and 219.9, #eae7dc.
 const GLASS = load(path.join(repo, "shell", "Commons", "Glass.js"));
+// The readability judge on VALUES with the VGlass look they resolve.
+function readability(judge, values) {
+    return judge.readabilityShortfalls(values, judge.acceptAppearance(GLASS.TOKENS, GLASS.LIGHT, values).values);
+}
 const LAUNCHER = load(path.join(repo, "shell", "plugins", "vgs.launcher", "Appearance.js"));
 const NOTIFICATIONS = load(path.join(repo, "shell", "plugins", "vgs.notifications", "Appearance.js"));
 function verifyGlass(judge, glass = GLASS) {

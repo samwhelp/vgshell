@@ -12,6 +12,7 @@
 //   ok       catalog/<name>
 //   short    catalog/<name>: <text> on <surface> ratio=<r> floor=4.5
 //   short    <name>: notifications.text.link on notifications.card.fill over <wallpaper> ratio=<r> floor=4.5
+//   short    <name>: tooltip.detail on glass.fill solid ratio=<r> floor=4.5
 //   order    catalog/<name>: <stronger> ratio=<r> below <weaker> ratio=<r>
 //   refused  catalog/<name>: <refusal>
 // The text hierarchy, each against color.background: color.textHeading is
@@ -24,6 +25,8 @@
 // A notice's page link is text on the notifications' glass card, whose look
 // the theme's accent and mode reach: judged over black and white, the
 // darkest and lightest wallpaper pixels the card can lie over.
+// A tooltip's text is judged on the fill its glass draws solid, VGlass's
+// fill made opaque and lifted, which the theme's raised surface reaches.
 // Exit 0: every theme is readable. Exit 1: a shortfall, a hierarchy break
 // or a refusal was reported. Exit 2: bad invocation or a file cannot be read.
 "use strict";
@@ -36,6 +39,7 @@ const repo = path.join(__dirname, "..");
 const logic = load(path.join(repo, "shell", "Commons", "ThemeLogic.js"));
 const tokens = load(path.join(repo, "shell", "Commons", "Tokens.js")).TOKENS;
 const notifications = load(path.join(repo, "shell", "plugins", "vgs.notifications", "Appearance.js"));
+const glass = load(path.join(repo, "shell", "Commons", "Glass.js"));
 
 function unreadable(file, cause) {
     console.error(`check-theme-contrast: unreadable: path=${file} error=${cause}`);
@@ -146,7 +150,12 @@ function checkPackage(label, dir) {
         console.log(`refused  ${label}: notifications ${logic.refusalLine(look)}`);
         return 1;
     }
-    const shortfalls = logic.readabilityShortfalls(accepted.values);
+    const vglass = logic.acceptAppearance(glass.TOKENS, glass.LIGHT, accepted.values);
+    if (!vglass.ok) {
+        console.log(`refused  ${label}: glass ${logic.refusalLine(vglass)}`);
+        return 1;
+    }
+    const shortfalls = logic.readabilityShortfalls(accepted.values, vglass.values);
     if (terminal.slots !== null)
         shortfalls.push(...terminalShortfalls(accepted.values, terminal.slots));
     shortfalls.push(...noticeLinkShortfalls(look.values));
@@ -183,7 +192,7 @@ function checkCatalog(themesDir) {
 function main() {
     const args = process.argv.slice(2);
     if (args.includes("--help")) {
-        process.stdout.write(fs.readFileSync(__filename, "utf8").split("\n").slice(0, 28).join("\n") + "\n");
+        process.stdout.write(fs.readFileSync(__filename, "utf8").split("\n").slice(0, 31).join("\n") + "\n");
         return 0;
     }
     if (args.length > 1) usage("arguments=too-many");

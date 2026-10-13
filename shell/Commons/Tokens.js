@@ -835,7 +835,22 @@ var TOKENS = {
         // A raised surface, as a popover, a menu and an OSD are.
         background: color("{color.surfaceRaised}"),
         border: color("{color.borderStrong}"),
-        foreground: color("{color.text}")
+        // The fill solid glass draws under a tooltip (Theme.glassSolid): the
+        // raised surface lifted toward white by VGlass's dark lift, 0.05
+        // (Glass.js glass.solidLift). The text below must read on it as
+        // on `background`; the light lift of 0.1 only lightens a light
+        // theme's fill under its dark text. ThemeLogic.readabilityShortfalls
+        // judges the text on the lift VGlass draws, not on this copy.
+        glass: color("mix({tooltip.background}, #ffffff, 0.05)"),
+        // The title draws the theme's text where it reads 4.5:1 on that
+        // fill, else black or white. A detail line draws the faint text,
+        // else the muted text, else the title's colour: on solid glass the
+        // faint text read 4.14:1 in vgs and 3.84:1 in mechanoonna, the
+        // muted 3.86:1 in pmndrs, and moon-orbit's text 4.12:1
+        // (scripts/check-theme-contrast.js on the catalog with the
+        // theme's own text in both lines, 2026-10-13).
+        foreground: color("readable({color.text}, {tooltip.glass}, contrast({tooltip.glass}))"),
+        detail: color("readable({color.textFaint}, {tooltip.glass}, readable({color.textMuted}, {tooltip.glass}, {tooltip.foreground}))")
     },
 
     // `maxHeight` is the height the entries take before the menu scrolls,

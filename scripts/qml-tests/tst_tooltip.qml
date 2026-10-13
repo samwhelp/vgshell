@@ -114,6 +114,10 @@ Item {
             compare(lines.length, 1);
             compare(lines[0].text, "Finish in Setup.");
             compare(lines[0].visible, true);
+            // The defaults' faint text falls short on the solid glass fill,
+            // so the line draws the tooltip's detail colour, not its role's.
+            verify(!Qt.colorEqual(Theme.tooltip.detail, Theme.text.itemHint.color), "the defaults' detail colour is not the role's");
+            verify(Qt.colorEqual(lines[0].color, Theme.tooltip.detail), "the detail line draws tooltip.detail: " + lines[0].color);
             away();
             compare(unrouted.tip.opened, false, "it closes on leave as a tooltip with no link does");
             hoverOpen(linked);

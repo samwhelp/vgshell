@@ -288,6 +288,9 @@ Item {
                 readonly property real countWidth: labelColumnWidth > 0 || valueColumnWidth > 0 ? labelColumnWidth + Theme.tooltip.gap + valueColumnWidth : 0
                 readonly property real detailWidth: Math.min(Math.max(detailColumn.maxColumn("detailWidth"), countWidth), root.maxWidth)
                 readonly property string detailRole: "itemHint"
+                // The role's faint text unless it falls short on the fill
+                // the tooltip's glass draws (Tokens.js tooltip.detail).
+                readonly property color detailColor: Theme.tooltip.detail
                 readonly property int lineWrapMode: Text.Wrap
 
                 function detailModel() {
@@ -380,6 +383,7 @@ Item {
                                     objectName: "tooltipDetailLine"
                                     visible: kind === "plain" && !plainLink.active
                                     role: content.detailRole
+                                    color: content.detailColor
                                     text: kind === "plain" ? PageReference.plain(entry) : ""
                                     width: parent.width
                                     wrapMode: content.lineWrapMode
@@ -401,6 +405,7 @@ Item {
                                     objectName: "tooltipCountLabel"
                                     visible: kind === "count"
                                     role: content.detailRole
+                                    color: content.detailColor
                                     text: kind === "count" ? String(entry.label) : ""
                                     width: Math.max(0, parent.width - content.valueColumnWidth - Theme.tooltip.gap)
                                     elide: Text.ElideRight
@@ -411,6 +416,7 @@ Item {
                                     objectName: "tooltipCountValue"
                                     visible: kind === "count"
                                     role: content.detailRole
+                                    color: content.detailColor
                                     text: kind === "count" ? String(entry.value) : ""
                                     x: parent.width - width
                                     width: content.valueColumnWidth

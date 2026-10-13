@@ -295,6 +295,12 @@ var RAIL_WALLPAPER = "#000000";
 // plate alone, which must be solid.
 var FAILURE_LINE = "carousel.hintDanger";
 var FAILURE_PLATE = "carousel.failurePlate";
+// A tooltip's title and detail lines, on its fill without glass and on
+// the fill solid glass draws under it (Theme.glassSolid), which VGlass
+// lifts toward white: that lifted fill is named GLASS_SOLID.
+var TOOLTIP_TEXT_ROLES = ["tooltip.foreground", "tooltip.detail"];
+var TOOLTIP_FILL = "tooltip.background";
+var GLASS_SOLID = "glass.fill solid";
 
 function valueAt(values, path) {
     var node = values;
@@ -312,9 +318,12 @@ function valueAt(values, path) {
 // the scrim laid over each resting surface, a fill at least as light as
 // that dimmed surface passing at any ratio, then the rail text at 4.5 and
 // the rail's marks at 3 on the scrim laid over a black wallpaper, then the
-// failure line at 4.5 on its plate. Any other translucent colour, a
-// translucent failure plate included, has no ratio and is a shortfall.
-function readabilityShortfalls(values) {
+// failure line at 4.5 on its plate, then the tooltip's text at 4.5 on its
+// fill and on GLASS, the VGlass look resolved for VALUES
+// (acceptAppearance of Glass.js), as its glass draws solid. Any other
+// translucent colour, a translucent failure plate included, has no ratio
+// and is a shortfall.
+function readabilityShortfalls(values, glass) {
     var pairs = [];
     for (var i = 0; i < READABILITY_TEXT_ROLES.length; i++)
         for (var j = 0; j < READABILITY_SURFACES.length; j++)
@@ -341,11 +350,17 @@ function readabilityShortfalls(values) {
     for (var x = 0; x < RAIL_MARK_ROLES.length; x++)
         pairs.push([RAIL_MARK_ROLES[x], MODAL_SCRIM, BOUNDARY_FLOOR, RAIL_WALLPAPER]);
     pairs.push([FAILURE_LINE, FAILURE_PLATE, READABILITY_FLOOR]);
+    for (var t = 0; t < TOOLTIP_TEXT_ROLES.length; t++) {
+        pairs.push([TOOLTIP_TEXT_ROLES[t], TOOLTIP_FILL, READABILITY_FLOOR]);
+        pairs.push([TOOLTIP_TEXT_ROLES[t], GLASS_SOLID, READABILITY_FLOOR]);
+    }
+    // As Theme.glassSolid draws it: formatted, so rounded to whole channels.
+    var solid = parseColor(formatColor(liftedOpaque(parseColor(glass.glass.fill), glass.glass.solidLift)));
     var out = [];
     for (var q = 0; q < pairs.length; q++) {
         var under = pairs[q][3];
         var text = parseColor(valueAt(values, pairs[q][0]));
-        var surface = parseColor(valueAt(values, pairs[q][1]));
+        var surface = pairs[q][1] === GLASS_SOLID ? solid : parseColor(valueAt(values, pairs[q][1]));
         // UNDER names a role, or is the literal wallpaper colour.
         if (under !== undefined)
             surface = overlay(surface, parseColor(under === RAIL_WALLPAPER ? under : valueAt(values, under)));
