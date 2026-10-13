@@ -90,25 +90,25 @@ function flooredValue(command, missing, outdated) {
 var REQUIRED = { home: "setupHome", guidance: "setupHome", speech: "setupVoice", brain: "setupModel" };
 // What the Voice step and the ElevenLabs voices row say after a failed read
 // of the key's voices (ChainedEngine voicesHeld).
-var ELEVENLABS_UNREAD = "Jarvis could not read the voices of your ElevenLabs key: check under ElevenLabs API keys that it may read voices, then press Talk.";
+var ELEVENLABS_UNREAD = "Jarvis could not read the voices of your ElevenLabs key: check under ElevenLabs API keys that it may read voices, then press Talk";
 // The hint a required step still to do shows in place of its declared one,
 // by its cause: what the step's own action does not already say. A cause
 // named nowhere here takes its step's hint below; a step with none there,
 // such as local voice not set up, keeps the declared hint, which says what
 // the step gives, since its action already says to set it up.
 var TODO = {
-    "brain=unselected": "Choose an AI model in Settings > Jarvis > AI model.",
+    "brain=unselected": "Choose an AI model in Settings > Jarvis > AI model",
     "brain=account-unavailable": "The chosen AI model cannot be used. Add a key or sign in, then choose it in Settings > Jarvis > AI model.",
-    "brain=model-required": "Choose a model in Settings > Jarvis > AI model.",
-    "brain=models-reading": "Jarvis is reading the local server model list.",
+    "brain=model-required": "Choose a model in Settings > Jarvis > AI model",
+    "brain=models-reading": "Jarvis is reading the local server model list",
     "brain=models-unavailable": "The local server model list cannot be read. Check the server, then press Talk to try again. Choose a model in Settings > Jarvis > AI model.",
     "brain=model-unavailable": "The local server does not offer the chosen model. Choose a model in Settings > Jarvis > AI model.",
     "brain=signed-out": "The chosen AI model is not signed in. Sign in, then choose it in Settings > Jarvis > AI model.",
     "brain=pi-update": "Jarvis needs Pi 1.1.0 or later. Update it under Requirements, or choose another AI model in Settings > Jarvis > AI model.",
     "brain=accounts-unreadable": "Jarvis could not read your accounts. Open Accounts to check them.",
-    "speech=live-account-unselected": "Add a key for the cloud voice under Setup at the top of this page: an OpenAI key for Realtime, a Gemini key for Gemini Live, an ElevenLabs key for ElevenLabs.",
+    "speech=live-account-unselected": "Add a key for the cloud voice under Setup at the top of this page: an OpenAI key for Realtime, a Gemini key for Gemini Live, an ElevenLabs key for ElevenLabs",
     "speech=live-account-unreadable": "Jarvis could not read your voice key. Use Accounts in Setup to check it.",
-    "speech=live-key-required": "Choose a key for the cloud voice under Voice key, or add one under Setup at the top of this page: an OpenAI key for Realtime, a Gemini key for Gemini Live, an ElevenLabs key for ElevenLabs.",
+    "speech=live-key-required": "Choose a key for the cloud voice under Voice key, or add one under Setup at the top of this page: an OpenAI key for Realtime, a Gemini key for Gemini Live, an ElevenLabs key for ElevenLabs",
     "speech=elevenlabs-voice": ELEVENLABS_UNREAD,
     "speech=local-not-ready": "Local voice did not start. Set it up again.",
     "speech=local-ready-timeout": "Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis.",
@@ -125,7 +125,7 @@ var TIMED_OUT = "Timed out";
 // hint says what the cause means beside Ready and asks for nothing: the
 // check runs again after each setup run and requirement scan.
 var CAUTION = {
-    "setup=probe-timeout": "Jarvis answers, but its check of the local voice did not finish."
+    "setup=probe-timeout": "Jarvis answers, but its check of the local voice did not finish"
 };
 // The dictation causes (dictationCause), by the Voice step's value. The
 // core's dictation setup copies voxtype's defaults and downloads its model;
@@ -133,7 +133,7 @@ var CAUTION = {
 var DICTATION = {
     "speech=dictation-absent": { tone: "warning", text: "To do", hint: "The local voice hears your words through dictation. Set up dictation gets it ready.", action: "dictation" },
     "speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready.", action: "dictation" },
-    "speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under Setup in Settings > Voice." },
+    "speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under Setup in Settings > Voice" },
     "speech=dictation-device": { tone: "warning", text: "Dictation uses another microphone", hint: "The local voice hears the system default microphone. Choose it with Configure in Settings > Voice." }
 };
 // Causes whose step the voice setup action cannot complete: the user
@@ -165,17 +165,17 @@ function voiceCheck(value, check) {
     if (value.tone !== "ok" || check === null || check.kind === "unavailable") return value.action === true
         ? Object.assign({}, value, { action: "setup" }) : typeof value.action === "string" ? value : noAction(value);
     if (check.kind === "waiting" || check.kind === "recording")
-        return { tone: "info", text: "Say Hey Jarvis", hint: "The microphone is open for three seconds." };
+        return { tone: "info", text: "Say Hey Jarvis", hint: "The microphone is open for three seconds" };
     if (check.kind === "finishing") return { tone: "info", text: "Checking" };
     if (check.kind === "failed") return { tone: "danger", text: "Check failed",
-        hint: "Jarvis could not check the microphone: press Check microphone to try again.", action: "check" };
+        hint: "Jarvis could not check the microphone: press Check microphone to try again", action: "check" };
     if (check.kind === "done") {
         if (check.result === "ready") return { tone: "ok", text: "Ready", action: "check" };
         // Only the local voice checks, and it hears the system default.
         if (check.result === "silent") return { tone: "warning", text: "Muted or silent", hint: "The default microphone is muted or sends silence. Check it in System > Sound.", action: "check" };
-        return { tone: "warning", text: "Not heard", hint: "Jarvis did not hear Hey Jarvis: try again closer or in a quieter room.", action: "check" };
+        return { tone: "warning", text: "Not heard", hint: "Jarvis did not hear Hey Jarvis: try again closer or in a quieter room", action: "check" };
     }
-    return { tone: "info", text: "Not checked", hint: "Press Check microphone, then say Hey Jarvis.", action: "check" };
+    return { tone: "info", text: "Not checked", hint: "Press Check microphone, then say Hey Jarvis", action: "check" };
 }
 var CHECKING = { tone: "info", text: "Checking", action: false };
 var LOADING = { tone: "info", text: "Loading", action: false };
@@ -184,16 +184,27 @@ var LOADING = { tone: "info", text: "Loading", action: false };
 var CHECKING_SUMMARY = { tone: "info", text: "Checking" };
 var LOADING_SUMMARY = { tone: "info", text: "Loading" };
 var STATUS_TEXT_MAX = 200;
-var START_RESTART = "Turn Jarvis off and on again in Settings > Jarvis.";
+// A hint of one sentence ends with no full stop, and each sentence of a
+// longer one ends with one (design-system.md § Copy). TEXT, such a hint,
+// as one sentence of a longer text or of a notice: ending with a full stop.
+function sentence(text) {
+    return /\.$/.test(text) ? text : text + ".";
+}
+// HINTS, each a hint of its own, as one hint: one as it is, several with a
+// full stop after each sentence.
+function joinedHint(hints) {
+    return hints.length === 1 ? hints[0] : hints.map(sentence).join(" ");
+}
+var START_RESTART = "Turn Jarvis off and on again in Settings > Jarvis";
 var START_CAUSES = [
     [/^jarvis: hello=timeout$/, { kind: "hello-timeout", title: "Jarvis did not answer in time", action: START_RESTART }],
-    [/^jarvis: node=[^ ]+ need=22$/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", action: "Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis." }],
-    [/^jarvis: daemon=exit code=78 status=/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", action: "Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis." }],
+    [/^jarvis: node=[^ ]+ need=22$/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", action: "Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis" }],
+    [/^jarvis: daemon=exit code=78 status=/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", action: "Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis" }],
     [/^jarvis: daemon=(exit|ended)/, { kind: "daemon-exit", title: "Jarvis daemon stopped", action: START_RESTART }],
     [/^jarvis: protocol=/, { kind: "wire-defect", title: "Jarvis message error", action: START_RESTART }]
 ];
 var DAEMON_EXIT = { kind: "daemon-exit", title: "Jarvis daemon stopped", action: START_RESTART };
-var RETRYING_START = "Jarvis is trying again by itself.";
+var RETRYING_START = "Jarvis is trying again by itself";
 
 function statusCauseLine(cause) {
     return String(cause).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ").slice(0, STATUS_TEXT_MAX);
@@ -223,7 +234,7 @@ function startStatus(cause, retrying) {
 // refused a mute press: the cause's title and action, never its key.
 function stoppedNotice(cause) {
     var problem = startCause(cause);
-    return { title: problem.title, message: problem.action, tone: "danger", icon: "mic" };
+    return { title: problem.title, message: sentence(problem.action), tone: "danger", icon: "mic" };
 }
 function muteRefusedNotice(cause) {
     return { title: "Jarvis mute not saved", message: "Mute request could not be saved: " + startCause(cause).title + ".",
@@ -232,9 +243,9 @@ function muteRefusedNotice(cause) {
 // The installed voice stays verified. Reinstalling it cannot free memory.
 var MEMORY = {
     "speech=local-memory-insufficient": { tone: "warning", text: "Not enough memory",
-        hint: "Close other apps, then turn Jarvis off and on.", action: false },
+        hint: "Close other apps, then turn Jarvis off and on", action: false },
     "speech=local-memory-unavailable": { tone: "warning", text: "Memory check failed",
-        hint: "Turn Jarvis off and on.", action: false }
+        hint: "Turn Jarvis off and on", action: false }
 };
 // A required step once the daemon stopped: no check runs, none is offered.
 var UNCHECKED = { tone: "warning", text: "Not checked", action: false };
@@ -294,7 +305,7 @@ function readiness(answer) {
         // causes, and a caution's hint is its words.
         var blocking = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });
         var out = { setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" }
-                : blocking.length === 0 ? { tone: "ok", text: "Ready", hint: answer.causes.map(function (cause) { return CAUTION[cause]; }).join(" ") }
+                : blocking.length === 0 ? { tone: "ok", text: "Ready", hint: joinedHint(answer.causes.map(function (cause) { return CAUTION[cause]; })) }
                     : { tone: "warning", text: "Not ready" },
             setupHome: HOME_READY, setupVoice: DONE, setupModel: noAction(DONE) };
         blocking.forEach(function (cause) {
@@ -408,12 +419,12 @@ function voiceChoice(keys, settings) {
 // ready reads info, so it never makes Jarvis read Setup needed nor takes the
 // page's primary action from a required step (Steps.js stepOpen).
 var CLONE_WITHHELD = {
-    provider: { text: "Needs the Local voice", hint: "Choose Local as the Voice provider to use a cloned voice." },
-    tier: { text: "Needs the Large model", hint: "Set up the Large local voice model, which needs an NVIDIA graphics card." }
+    provider: { text: "Needs the Local voice", hint: "Choose Local as the Voice provider to use a cloned voice" },
+    tier: { text: "Needs the Large model", hint: "Set up the Large local voice model, which needs an NVIDIA graphics card" }
 };
 // The hint of a ready row: what the recording gives now. The declared hint
 // says how to set the step up, which a done step no longer asks.
-var CLONE_READY_HINT = "Jarvis speaks in this voice while Settings > Jarvis > Cloned voice is on.";
+var CLONE_READY_HINT = "Jarvis speaks in this voice while Settings > Jarvis > Cloned voice is on";
 function clonedVoiceStep(value, provider) {
     var action = value.action === true ? "setup" : value.action;
     var reason = provider !== "local" ? CLONE_WITHHELD.provider : value.tierReady === false ? CLONE_WITHHELD.tier : null;
@@ -433,10 +444,10 @@ function clonedVoiceStep(value, provider) {
 // draws where the hint names it; another page is named in words alone.
 // `other` is the declared hint.
 var VOICE_KEY_HINTS = {
-    realtime: "Get an OpenAI key from OpenAI API keys to use the Realtime voice.",
-    gemini: "Get a Gemini key from Google AI Studio to use the Gemini Live voice.",
-    elevenlabs: "Get an ElevenLabs key from ElevenLabs API keys to speak in your ElevenLabs voices.",
-    other: "Get an OpenAI key from OpenAI API keys for the Realtime voice, or a Gemini key from Google AI Studio for Gemini Live."
+    realtime: "Get an OpenAI key from OpenAI API keys to use the Realtime voice",
+    gemini: "Get a Gemini key from Google AI Studio to use the Gemini Live voice",
+    elevenlabs: "Get an ElevenLabs key from ElevenLabs API keys to speak in your ElevenLabs voices",
+    other: "Get an OpenAI key from OpenAI API keys for the Realtime voice, or a Gemini key from Google AI Studio for Gemini Live"
 };
 // The hint of a row with a key stored, by the provider of the offered keys
 // (voiceKeyProvider): what the key gives, and how to use another. Jarvis
@@ -445,7 +456,7 @@ var VOICE_KEY_HINTS = {
 // Remove: a new key goes in through Add key on the API keys row, which
 // stays offered on this Setup tab, and the Voice key field, on the
 // Settings tab, chooses it: the hint's one page reference.
-var VOICE_KEY_CHANGE = "; to use another key, press Add key on the API keys row, then choose it in [Settings > Jarvis > Voice key](page:vgs.jarvis/Settings).";
+var VOICE_KEY_CHANGE = "; to use another key, press Add key on the API keys row, then choose it in [Settings > Jarvis > Voice key](page:vgs.jarvis/Settings)";
 var VOICE_KEY_STORED = {
     openai: "Jarvis can use the Realtime voice with your OpenAI key" + VOICE_KEY_CHANGE,
     gemini: "Jarvis can use the Gemini Live voice with your Gemini key" + VOICE_KEY_CHANGE,
@@ -472,9 +483,9 @@ function voiceKey(offered, settings) {
 // or waiting while another cause holds the Voice step. Only the hints
 // that send the user to ElevenLabs API keys name it, the declared one and
 // the failed read's, so the row's link draws in those two states alone.
-var ELEVENLABS_READY = "Choose one in Settings > Jarvis > Voice.";
-var ELEVENLABS_READING = "Jarvis is reading the voices of your ElevenLabs key.";
-var ELEVENLABS_WAITING = "Jarvis reads the voices of your ElevenLabs key when the Voice step on Setup is done.";
+var ELEVENLABS_READY = "Choose one in Settings > Jarvis > Voice";
+var ELEVENLABS_READING = "Jarvis is reading the voices of your ElevenLabs key";
+var ELEVENLABS_WAITING = "Jarvis reads the voices of your ElevenLabs key when the Voice step on Setup is done";
 function elevenLabsStep(facts) {
     if (facts.provider !== "elevenlabs") return { hidden: true };
     var named = facts.account;
@@ -493,11 +504,11 @@ function elevenLabsStep(facts) {
 // field's hintFrom names) for SETTING, the provider the user chose: what
 // leaves the computer, to whom, and with which key.
 var VOICE_ROUTES = {
-    auto: { text: "Auto", hint: "Auto runs Realtime, sending your voice to OpenAI, while your Voice key is an OpenAI key; else Local, which keeps speech on this computer." },
-    local: { text: "Local", hint: "Local keeps your voice and the replies on this computer, and answers fastest." },
-    realtime: { text: "Realtime", hint: "Realtime sends your voice and the replies Jarvis lets out to OpenAI, with your OpenAI key." },
-    gemini: { text: "Gemini Live", hint: "Gemini Live sends your voice and the replies Jarvis lets out to Google, with your Gemini key." },
-    elevenlabs: { text: "ElevenLabs", hint: "ElevenLabs keeps your voice on this computer and sends the replies Jarvis lets out to ElevenLabs, with your ElevenLabs key." }
+    auto: { text: "Auto", hint: "Auto runs Realtime, sending your voice to OpenAI, while your Voice key is an OpenAI key; else Local, which keeps speech on this computer" },
+    local: { text: "Local", hint: "Local keeps your voice and the replies on this computer, and answers fastest" },
+    realtime: { text: "Realtime", hint: "Realtime sends your voice and the replies Jarvis lets out to OpenAI, with your OpenAI key" },
+    gemini: { text: "Gemini Live", hint: "Gemini Live sends your voice and the replies Jarvis lets out to Google, with your Gemini key" },
+    elevenlabs: { text: "ElevenLabs", hint: "ElevenLabs keeps your voice on this computer and sends the replies Jarvis lets out to ElevenLabs, with your ElevenLabs key" }
 };
 function voiceRoute(setting) {
     if (!Object.prototype.hasOwnProperty.call(VOICE_ROUTES, setting)) throw new Error("jarvis-setup: voice-provider=" + setting);
@@ -508,9 +519,9 @@ function voiceRoute(setting) {
 // The Voice preview row's words for a cloud voice PROVIDER (voiceProvider):
 // whose key the preview uses, and that it may cost money.
 var PREVIEW_COSTS = {
-    realtime: { tone: "info", text: "Uses your OpenAI key", hint: "A preview of the Realtime voice may cost money.", action: true },
-    gemini: { tone: "info", text: "Uses your Gemini key", hint: "A preview of the Gemini Live voice may cost money.", action: true },
-    elevenlabs: { tone: "info", text: "Uses your ElevenLabs key", hint: "A preview in an ElevenLabs voice uses credits of your ElevenLabs account.", action: true }
+    realtime: { tone: "info", text: "Uses your OpenAI key", hint: "A preview of the Realtime voice may cost money", action: true },
+    gemini: { tone: "info", text: "Uses your Gemini key", hint: "A preview of the Gemini Live voice may cost money", action: true },
+    elevenlabs: { tone: "info", text: "Uses your ElevenLabs key", hint: "A preview in an ElevenLabs voice uses credits of your ElevenLabs account", action: true }
 };
 function previewCost(provider) {
     if (!cloudSpeech(provider)) throw new Error("jarvis-setup: preview-provider=" + provider);
@@ -531,18 +542,18 @@ function fleetStep(home, tool) {
 // package's session command answers, in the page's words. Each sentence is
 // the owner's (VGS-1439, 2026-10-12; the no-home one, which names its
 // Settings path, VGS-1511).
-var SESSION_BOOT = "When VGS starts after you sign in, a tmux session starts Jarvis in your selected home folder.";
+var SESSION_BOOT = "When VGS starts after you sign in, a tmux session starts Jarvis in your selected home folder";
 var SESSION_BLOCKS = {
-    "no-account": "No session can start without an account: under AI model, choose an app as the Account.",
-    "not-app": "No session can start with an API key or a local model: under AI model, choose an app as the Account.",
-    "no-home": "No session can start without a home folder: choose one in Settings > Jarvis > Home folder.",
-    "package": "Install or update the Jarvis package in this home folder."
+    "no-account": "No session can start without an account: under AI model, choose an app as the Account",
+    "not-app": "No session can start with an API key or a local model: under AI model, choose an app as the Account",
+    "no-home": "No session can start without a home folder: choose one in Settings > Jarvis > Home folder",
+    "package": "Install or update the Jarvis package in this home folder"
 };
 // The blocks that wait only on a choice the user has not made yet. The
 // session is optional (Start Jarvis at boot is off at first), so these read
 // as an optional step; the other blocks are faults to fix.
 var SESSION_CHOICES = ["no-account", "not-app", "no-home"];
-var SESSION_FAILED = "Jarvis did not start.";
+var SESSION_FAILED = "Jarvis did not start";
 // PluginLogic STATUS_HINT_MAX, the longest hint a status row takes.
 var SESSION_HINT_MAX = 200;
 // The states of a session that lives, which a status read may find.
@@ -555,26 +566,26 @@ function sessionLive(state) {
 // account, `wanted` the row of the boot setting, and `action` names the
 // manifest action the row offers.
 var SESSION_ROWS = {
-    "off app-off": { tone: "info", text: "Off", hint: "Jarvis is off." },
-    "blocked app-off": { tone: "info", text: "Off", hint: "Jarvis is off." },
+    "off app-off": { tone: "info", text: "Off", hint: "Jarvis is off" },
+    "blocked app-off": { tone: "info", text: "Off", hint: "Jarvis is off" },
     "stopped never-started": { wanted: true },
     "stopped stopped": { wanted: true },
     "stopped ended": { wanted: true },
-    "starting launching": { tone: "info", text: "Starting", hint: "Jarvis is starting in your selected home folder." },
+    "starting launching": { tone: "info", text: "Starting", hint: "Jarvis is starting in your selected home folder" },
     "running new-no-record": { tone: "ok", text: "Running", hint: "No previous Jarvis session was saved. Started a new session." },
     "running new-history-gone": { tone: "ok", text: "Running", hint: "The saved conversation is unavailable. A new session continued your saved work." },
-    "running new-selection-changed": { tone: "ok", text: "Running", hint: "A new session continued your saved work on the selected account." },
+    "running new-selection-changed": { tone: "ok", text: "Running", hint: "A new session continued your saved work on the selected account" },
     "running resumed": { tone: "ok", text: "Running", names: true },
     "running new-requested": { tone: "ok", text: "Running", names: true },
     "running existing": { tone: "ok", text: "Running", names: true },
-    "handing-over succession": { tone: "info", text: "Handing over", hint: "Jarvis is moving its saved work to a new session." },
-    "stopping stop-requested": { tone: "info", text: "Stopping", hint: "Jarvis is saving its state and stopping." },
+    "handing-over succession": { tone: "info", text: "Handing over", hint: "Jarvis is moving its saved work to a new session" },
+    "stopping stop-requested": { tone: "info", text: "Stopping", hint: "Jarvis is saving its state and stopping" },
     "blocked name-conflict": { tone: "warning", text: "Cannot start", hint: "A different session uses the Jarvis terminal. Close it or select the home it belongs to." },
-    "blocked record-unreadable": { tone: "warning", text: "Cannot start", hint: "Jarvis cannot read its saved session record." },
+    "blocked record-unreadable": { tone: "warning", text: "Cannot start", hint: "Jarvis cannot read its saved session record" },
     "blocked sign-in-required": { tone: "warning", text: "Cannot start", detail: true },
-    "blocked selection-conflict": { tone: "warning", text: "Cannot start", hint: "Changing the home or account restarts Jarvis after the new selection is checked." },
+    "blocked selection-conflict": { tone: "warning", text: "Cannot start", hint: "Changing the home or account restarts Jarvis after the new selection is checked" },
     "blocked tmux-missing": { tone: "warning", text: "Cannot start", hint: "No session can start without tmux. Install all missing installs it." },
-    "blocked app-missing": { tone: "warning", text: "Cannot start", hint: "No session can start, because the app of the selected account is not installed." },
+    "blocked app-missing": { tone: "warning", text: "Cannot start", hint: "No session can start, because the app of the selected account is not installed" },
     "failed launch-failed": { tone: "danger", text: "Not started", detail: true, action: "retry" },
     "failed handover-failed": { tone: "danger", text: "Not started", detail: true, action: "retry" }
 };
@@ -601,7 +612,7 @@ function sessionStart(wanted, result) {
         : { tone: "info", text: "Not started", hint: "Start Jarvis to continue your work. Automatic start is off.", action: "start" };
     else {
         var hint = row.detail ? (result.detail !== "" ? result.detail : SESSION_FAILED)
-            : row.names ? (result.names === null ? "" : "Jarvis runs in " + result.names.home + " with " + result.names.account + ".") : row.hint;
+            : row.names ? (result.names === null ? "" : "Jarvis runs in " + result.names.home + " with " + result.names.account) : row.hint;
         // The status judge takes a hint of 1 to SESSION_HINT_MAX
         // characters: a recorded session with no names, or with names too
         // long for one, reads by its row text alone.
@@ -618,13 +629,13 @@ function sessionStart(wanted, result) {
 // ready, but a Ready summary names a session the user must fix: the page
 // gives one judgement.
 var SESSION_FAULTS = {
-    warning: "The Jarvis session cannot start: see Jarvis session under Home.",
-    danger: "The Jarvis session did not start: see Jarvis session under Home."
+    warning: "The Jarvis session cannot start: see Jarvis session under Home",
+    danger: "The Jarvis session did not start: see Jarvis session under Home"
 };
 function sessionSummary(setup, session) {
     if (setup.tone !== "ok" || !Object.prototype.hasOwnProperty.call(SESSION_FAULTS, session.tone)) return setup;
     var fault = SESSION_FAULTS[session.tone];
-    return Object.assign({}, setup, { hint: setup.hint === undefined ? fault : setup.hint + " " + fault });
+    return Object.assign({}, setup, { hint: setup.hint === undefined ? fault : joinedHint([setup.hint, fault]) });
 }
 
 // The session choices the page offers: none while the setting is off, so
@@ -678,7 +689,7 @@ var CHECK_FAILURES = {
     unreadable: { text: "Setup check returned invalid status", reason: "Jarvis could not read the answer of the setup check." }
 };
 function checkFailure(kind, entry) {
-    if (kind === "timeout") return { tone: "info", text: "Check did not finish", hint: "Jarvis does not need this check to answer and runs it again after the next setup.", action: false };
+    if (kind === "timeout") return { tone: "info", text: "Check did not finish", hint: "Jarvis does not need this check to answer and runs it again after the next setup", action: false };
     if (!Object.prototype.hasOwnProperty.call(CHECK_FAILURES, kind)) throw new Error("jarvis-setup: check-failure=" + kind + " unexpected");
     var label = entry.action !== undefined ? entry.action.label : entry.actions.setup.label;
     return { tone: "warning", text: CHECK_FAILURES[kind].text,

@@ -325,9 +325,15 @@ function clickLine(muteOn, keys) {
         : "Click or press " + keys.mute + " to " + verb + ".";
 }
 
+// A tooltip line is a sentence: one taken from a status hint, which ends
+// with no full stop while it is one sentence, takes one here.
+function line(text) {
+    return /\.$/.test(text) ? text : text + ".";
+}
+
 function look(state, title, details, muteOn, keys) {
     var out = LOOKS[state];
-    var lines = details.slice();
+    var lines = details.map(line);
     if (state !== "muted") lines.push(clickLine(muteOn, keys));
     return { state: state, icon: out.icon, tone: out.tone,
         tooltip: title, tooltipDetails: lines };

@@ -244,12 +244,24 @@ const CLONED = [
     ["a recording keeps Remove under the Realtime voice", CLONE_READY, "realtime", "ok", "remove", true, "clone-voice-remove", "provider"],
     ["a recording keeps Remove beside another tier", { ...CLONE_READY, tone: "warning", tierReady: false }, "local", "info", "remove", true, "clone-voice-remove", "tier"],
     ["a failed read offers setup", { tone: "warning", text: "Setup check failed", action: true }, "local", "info", "setup", false, "clone-voice", null],
-    ["a timed-out read words its state", { tone: "warning", text: "Setup check timed out", hint: "Try again.", action: true, lines: ["setup=probe-timeout"] },
+    ["a timed-out read words its state", { tone: "warning", text: "Setup check timed out", hint: "Try again", action: true, lines: ["setup=probe-timeout"] },
         "local", "info", "setup", true, "clone-voice", null],
     ["a setup in progress offers nothing", { ...CLONE_ANSWER, text: "Setting up", action: false }, "local", "info", undefined, false, null, null],
 ];
+// The sentences of a hint: each ends where a full stop, a question mark or
+// an exclamation mark meets a space.
+function sentences(text) {
+    return text.split(/(?<=[.?!]) +/);
+}
+// Whether hint TEXT keeps the copy rule (design-system.md § Copy): a hint
+// of one sentence ends with no full stop, and each sentence of a longer
+// hint ends with one.
+function hintFits(text) {
+    const parts = sentences(text);
+    return parts.length === 1 ? !text.endsWith(".") : parts.every(part => /[.?!]$/.test(part));
+}
 function oneSentence(text) {
-    return (text.match(/\. /g) || []).length === 0 && text.endsWith(".");
+    return sentences(text).length === 1 && hintFits(text);
 }
 function verifyClonedVoice(gate, judged) {
     for (const [label, answer, provider, tone, action, reasoned, tui, reason] of CLONED) {
@@ -669,6 +681,37 @@ const accountsFile = path.join(path.dirname(file), "Accounts.qml");
 const localRuntimeFile = path.join(path.dirname(file), "LocalRuntime.qml");
 const providersFile = path.join(path.dirname(file), "AccountProviders.js");
 const words = require(path.join(path.dirname(file), "AccountStatus.js"));
+// Remove key draws on the API keys row beside Add key, in the danger tone
+// that leads with the trash mark, while a key is stored, and never on a
+// More setup row: [where it draws on the page, its tone] for MANIFEST, a
+// judged manifest, and the keyStore value of WORDS.keysValue's OUTCOME.
+function removeKeyPlacement(judged, outcome) {
+    const status = judge.statusRows(judged, { keyStore: plain(words.keysValue(outcome)) }, []);
+    const sections = Array.from(settings.setupSections(judge.listedTuiRows(judged, []), status));
+    const rows = sections.flatMap(section => Array.from(section.items)).filter(item => item.aside !== null && item.aside.name === "remove-key")
+        .map(item => ["row " + item.key + " beside " + item.button.label, item.aside.label, item.aside.tone]);
+    const flow = sections.flatMap(section => Array.from(section.buttons)).filter(button => button.name === "remove-key")
+        .map(button => ["More setup", button.label, button.tone]);
+    return rows.concat(flow);
+}
+{
+    const key = { label: "OpenAI / fixture", value: "present" };
+    for (const [label, outcome, want] of [
+        ["two keys stored", { kind: "listed", rows: [key, Object.assign({}, key, { label: "Gemini / fixture" })] }, [["row keyStore beside Add key", "Remove key", "danger"]]],
+        ["one key stored", { kind: "listed", rows: [key] }, [["row keyStore beside Add key", "Remove key", "danger"]]],
+        ["no key stored", { kind: "listed", rows: [] }, []],
+        ["the keyring unread", { kind: "failed" }, []]])
+        assert.deepEqual(removeKeyPlacement(manifest, outcome), want, label + ": Remove key draws on the API keys row alone");
+    // Its control: the remove-key screen marked as a setup screen again and
+    // the API keys row with no aside, which draws it on More setup.
+    const raw = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
+    raw.tui["remove-key"].entry.setup = true;
+    delete raw.status.keyStore.aside;
+    const unaside = judge.validateManifest(raw, path.dirname(file));
+    assert.equal(unaside.ok, true, "the control's manifest is judged");
+    assert.deepEqual(removeKeyPlacement(unaside.manifest, { kind: "listed", rows: [key] }), [["More setup", "Remove key", ""]],
+        "control: with no aside Remove key draws on More setup and not on the API keys row");
+}
 const UNSELECTED = { kind: "answered", causes: ["brain=unselected"] };
 const SIGNED_OUT = { kind: "answered", causes: ["brain=signed-out"] };
 
@@ -766,7 +809,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
                 const unselected = gate.readiness(UNSELECTED).setupModel.hint;
                 const hint = settings.statusView(setupRow.entry, String).hint;
                 if (row.want[1] !== "signIn")
-                    assert.equal(hint, "Choose an AI model in Settings > Jarvis > AI model.", row.name + ": Setup AI model hint");
+                    assert.equal(hint, "Choose an AI model in Settings > Jarvis > AI model", row.name + ": Setup AI model hint");
                 else assert.deepEqual([typeof hint, hint === unselected], ["string", false],
                     row.name + ": Setup signed-out hint replaces the unselected one");
             }
@@ -1361,9 +1404,71 @@ function verifyOneSessionJudgement(gate, only) {
                 assert.equal(summary.tone !== "ok" || !fault || String(summary.hint).includes(label), true, name + ": one judgement of the session");
                 if (!fault || setup.tone !== "ok") assert.deepEqual(summary, setup, name + ": the summary is readiness's own");
                 else assert.equal([summary.tone, summary.text].join(" ") === [setup.tone, setup.text].join(" ")
-                    && (setup.hint === undefined || String(summary.hint).startsWith(setup.hint + " ")), true, name + ": the session keeps the summary and its caution");
+                    && (setup.hint === undefined || String(summary.hint).startsWith(setup.hint.replace(/\.?$/, ". "))), true, name + ": the session keeps the summary and its caution, a sentence of its own");
             }
     }
+}
+
+// Every hint the Jarvis page draws on its Setup, Settings and Details tabs
+// keeps the copy rule (hintFits): the manifest's status hints and setting
+// descriptions, a description being its field's hint, and each hint
+// SetupGate.js and AccountStatus.js word over the cases this suite builds.
+// The control: one real hint of each length with its full stop put back on
+// one sentence or taken off a longer one fails the rule.
+function verifyHintStops(gate) {
+    const hints = [];
+    const take = (where, value) => {
+        if (value !== null && typeof value === "object" && typeof value.hint === "string") hints.push([where, value.hint]);
+    };
+    for (const [key, entry] of Object.entries(manifest.status)) if (entry.hint !== undefined) hints.push(["status." + key, entry.hint]);
+    for (const [key, entry] of Object.entries(manifest.schema)) {
+        if (entry.description !== undefined) hints.push(["schema." + key, entry.description]);
+        for (const [item, field] of Object.entries(entry.items ?? {})) if (field.description !== undefined) hints.push(["schema." + key + "." + item, field.description]);
+    }
+    const causes = [...Object.keys(gate.TODO), ...Object.keys(gate.DICTATION), ...Object.keys(gate.MEMORY), ...Object.keys(gate.HOME_TODO), ...Object.keys(gate.CAUTION),
+        ...HOME_CAUSES, ...BRAIN_CAUSES, "brain=unnamed", "speech=local-not-set-up"];
+    const answers = [...READINESS.map(([, answer]) => answer), ...causes.map(cause => ({ kind: "answered", causes: [cause] })),
+        { kind: "answered", causes: ["setup=probe-timeout", "brain=unselected"] }, { kind: "stopped" }, { kind: "checking" },
+        ...START_CAUSES.flatMap(([, cause]) => [{ kind: "problem", cause }, { kind: "problem", cause, action: gate.RETRYING_START }])];
+    for (const answer of answers)
+        for (const [key, value] of Object.entries(plain(gate.readiness(answer)))) {
+            take(JSON.stringify(answer) + " " + key, value);
+            take(JSON.stringify(answer) + " voiceCheck", gate.voiceCheck(value, null));
+        }
+    for (const check of [{ kind: "waiting" }, { kind: "finishing" }, { kind: "failed", reason: "check-timeout" }, { kind: "done", result: "ready" },
+        { kind: "done", result: "silent" }, { kind: "done", result: "not-heard" }, { kind: "ready" }])
+        take("voiceCheck " + JSON.stringify(check), gate.voiceCheck(gate.DONE, check));
+    for (const [, cause] of START_CAUSES) for (const retrying of [true, false]) take("startStatus " + cause, gate.startStatus(cause, retrying));
+    take("modelStep signed out", gate.modelStep({ tone: "warning", text: "To do", action: "key" }, [], { kind: "signed-out" }));
+    for (const [label, answer, provider] of CLONED) take("clonedVoiceStep " + label, gate.clonedVoiceStep(answer, provider));
+    for (const [label, offered, provider] of VOICE_KEY) take("voiceKey " + label, gate.voiceKey(offered === null ? null : gate.voiceKeys(offered, { voiceProvider: provider }), { voiceProvider: provider }));
+    for (const [label, facts] of ELEVEN_ROWS) take("elevenLabsStep " + label, gate.elevenLabsStep(facts));
+    for (const option of manifest.schema.voiceProvider.options) take("voiceRoute " + option.value, gate.voiceRoute(option.value));
+    for (const provider of ["realtime", "gemini", "elevenlabs"]) take("previewCost " + provider, gate.previewCost(provider));
+    for (const kind of ["failed", "unreadable", "timeout"]) take("checkFailure " + kind, gate.checkFailure(kind, manifest.status.localRuntime));
+    const results = [{ kind: "failed" }, ...Object.keys(gate.SESSION_BLOCKS).map(block => ({ kind: "blocked", block })),
+        ...Object.keys(gate.SESSION_ROWS).flatMap(key => ["", "The package's line"].map(detail => ({ kind: "answer", state: key.split(" ")[0], reason: key.split(" ")[1], detail,
+            names: { home: "~/Jarvis", account: "Claude / personal" } })))];
+    for (const result of results)
+        for (const wanted of [true, false]) {
+            const session = gate.sessionStart(wanted, result);
+            take("sessionStart " + JSON.stringify(result), session);
+            for (const answer of [{ kind: "answered", causes: [] }, { kind: "answered", causes: ["setup=probe-timeout"] }])
+                take("sessionSummary " + JSON.stringify(result), gate.sessionSummary(gate.readiness(answer).setup, session));
+        }
+    for (const value of ["present", "absent", "locked", "unavailable"]) hints.push(["keyHint " + value, words.keyHint({ label: "fixture / test", value })]);
+    for (const state of ["signed-in", "found", "unchecked", "verifying", "verified", "locked", "unavailable"])
+        for (const source of ["cli", "variable", "keyring", "local"])
+            for (const [value, mismatch, update] of [["present", false, false], ["present", true, false], ["signed-out", true, false], ["present", false, true]])
+                hints.push(["accountHint " + [state, source, value, mismatch, update].join(" "),
+                    words.accountHint({ state, source, value, plan: "pro", email: "team@example.invalid", mismatch, update })]);
+    const drawn = hints.filter(([, hint]) => hint !== "");
+    assert.ok(drawn.length >= 100 && drawn.some(([, hint]) => sentences(hint).length === 1) && drawn.some(([, hint]) => sentences(hint).length > 1),
+        "the Jarvis hints of one sentence and of several are read");
+    for (const [where, hint] of drawn) assert.equal(hintFits(hint), true, where + ": " + JSON.stringify(hint) + " ends as the copy rule says");
+    const one = drawn.find(([, hint]) => sentences(hint).length === 1)[1];
+    const longer = drawn.find(([, hint]) => sentences(hint).length > 1)[1];
+    assert.deepEqual([hintFits(one + "."), hintFits(longer.slice(0, -1))], [false, false], "a hint that breaks the copy rule fails the check");
 }
 
 function verify(gate) {
@@ -1482,23 +1587,24 @@ function verify(gate) {
         assert.equal(words.lines[0].length <= 200 && !/[\u0000-\u001f]/.test(words.lines[0]), true, "cause line is bounded and printable");
     }
     verifyWordedText(gate);
+    verifyHintStops(gate);
 }
 
 verify(load(file));
 verifyVoiceConsumers(load(file));
-console.log("test-jarvis-setup-gate: consumer=Setup hint=Choose an AI model in Settings > Jarvis > AI model.");
+console.log("test-jarvis-setup-gate: consumer=Setup hint=Choose an AI model in Settings > Jarvis > AI model");
 
 // Each control removes one rule from a copy and keeps the text around it:
 // [label, needle, replacement].
 const CONTROLS = [
     ["a failed start's tooltip draws its keyed cause", 'hint: retrying ? RETRYING_START : problem.action,', 'hint: retrying ? RETRYING_START : problem.lines[0],', "the bar tooltip draws no keyed cause"],
-    ["the stopped notice draws its keyed cause", 'message: problem.action, tone: "danger"', 'message: problem.lines[0], tone: "danger"', "the stopped notice draws no keyed cause"],
+    ["the stopped notice draws its keyed cause", 'message: sentence(problem.action), tone: "danger"', 'message: sentence(problem.lines[0]), tone: "danger"', "the stopped notice draws no keyed cause"],
     ["the mute notice draws its keyed cause", '"Mute request could not be saved: " + startCause(cause).title', '"Mute request could not be saved: " + statusCauseLine(cause)', "the mute refused notice draws no keyed cause"],
     ["the Daemon row loses its cause", 'hint: retrying ? RETRYING_START : problem.action, lines: problem.lines };', 'hint: retrying ? RETRYING_START : problem.action };', "the Daemon row keeps the cause"],
     ["check failure hidden", 'if (check.kind === "failed") return', 'if (false) return'],
     ["microphone check hides a setup cause", 'value.tone !== "ok" || ', "", "voice setup cause survives microphone check"],
     ["silent check is ready", 'if (check.result === "silent") return { tone: "warning"', 'if (check.result === "silent") return { tone: "ok"'],
-    ["the AI model hint names the Settings field", '"brain=unselected": "Choose an AI model in Settings > Jarvis > AI model."', '"brain=unselected": "Choose an AI model in Settings."', "Setup AI model hint"],
+    ["the AI model hint names the Settings field", '"brain=unselected": "Choose an AI model in Settings > Jarvis > AI model"', '"brain=unselected": "Choose an AI model in Settings"', "Setup AI model hint"],
     ["present keys still offer Add key", 'var absent = keys !== undefined && keys.every(function (key) { return key.value === "absent"; });', 'var absent = keys !== undefined;'],
     ["a signed-in app still offers Add key", 'access.kind === "absent"', 'access.kind !== "checking"'],
     ["a signed-out cause offers Add key", 'cause === "brain=signed-out" ? "signIn" : ', "", "a signed-out AI model: setupModel"],
@@ -1518,15 +1624,15 @@ const CONTROLS = [
     ["Local voice says where its setup is while it runs", "value.action === true && value.hint === undefined ? [VOICE_STEP_SETS_UP] : []", "[VOICE_STEP_SETS_UP]", "setting up: its line count"],
     ["a Voice step with any action takes the local setup", 'if (voice.action === "setup") {', "if (voice.action) {", "one row offers Set up local voice"],
     ["a timed-out check is an open step", 'if (kind === "timeout") return { tone: "info",', 'if (kind === "timeout") return { tone: "warning",', "timeout: the row is no open step"],
-    ["a timed-out check offers setup", 'runs it again after the next setup.", action: false };', 'runs it again after the next setup.", action: true };',
+    ["a timed-out check offers setup", 'runs it again after the next setup", action: false };', 'runs it again after the next setup", action: true };',
         "the row offers its setup only while setup mends it"],
-    ["a timed-out check draws its keyed cause", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup.", action: false };', 'hint: "setup=probe-timeout", action: false };',
+    ["a timed-out check draws its keyed cause", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup", action: false };', 'hint: "setup=probe-timeout", action: false };',
         "timeout: the row draws no keyed cause"],
     ["the Local voice row names a setup the Voice step does not offer", 'if (voice.action === "setup") {', 'if (voice.action === "setup" || voice.tone === "warning") {',
         "the Local voice row names no Voice step setup"],
     ["a home hint names a path with no page", '"home=path": "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Jarvis > Home folder."',
         '"home=path": "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Home."', "the Settings path has the one form"],
-    ["the voices hint names the Voice plugin page", 'var ELEVENLABS_READY = "Choose one in Settings > Jarvis > Voice.";', 'var ELEVENLABS_READY = "Choose one in Settings > Voice.";',
+    ["the voices hint names the Voice plugin page", 'var ELEVENLABS_READY = "Choose one in Settings > Jarvis > Voice";', 'var ELEVENLABS_READY = "Choose one in Settings > Voice";',
         "the voices hint names Jarvis's own field"],
     ["a failed check names another reader's action", "var label = entry.action !== undefined ? entry.action.label : entry.actions.setup.label;", 'var label = "Set up local voice";', "the hint names"],
     ["memory refusal offers reinstall", 'if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {', 'if (false) {'],
@@ -1536,21 +1642,21 @@ const CONTROLS = [
     ["a voice list being read reads as a failed one", 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting" || cause === "speech=elevenlabs-voices-reading") {', 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting") {', "ElevenLabs voices being read"],
     ["missing voxtype is not named", 'var ACTION_REQUIRES = { dictation: ["voxtype"] };', "var ACTION_REQUIRES = {};", "voxtype missing"],
     ["missing voxtype withholds Set up dictation", 'if (value.action === "dictation") withheld.action = "dictation";', 'if (false) withheld.action = "dictation";', "voxtype missing"],
-    ["another voxtype offers setup", '"speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under Setup in Settings > Voice." },',
-        '"speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under Setup in Settings > Voice.", action: "dictation" },', "another voxtype"],
+    ["another voxtype offers setup", '"speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under Setup in Settings > Voice" },',
+        '"speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under Setup in Settings > Voice", action: "dictation" },', "another voxtype"],
     ["a failed daemon offers no setup", '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready.", action: "dictation" },',
         '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready." },', "the Voice step"],
     ["the voxtype row shows for any voice", 'return hearsLocally(provider) ? requirementValue("voxtype", missing) : { hidden: true };', 'return requirementValue("voxtype", missing);', "Realtime voice"],
     ["the ElevenLabs voices row never shows", 'if (facts.provider !== "elevenlabs") return { hidden: true };', "return { hidden: true };", "the ElevenLabs voices row"],
     ["a stored ElevenLabs key still reads as the user's step", 'if (!chosen) return { tone: "info", text: "Your step" };', 'return { tone: "info", text: "Your step" };', "the ElevenLabs voices row"],
     ["a failed voice read reads as being read", 'if (causes.indexOf("speech=elevenlabs-voice") !== -1) return', "if (false) return", "the ElevenLabs voices row"],
-    ["listed voices still link the key page", 'var ELEVENLABS_READY = "Choose one in Settings > Jarvis > Voice.";', 'var ELEVENLABS_READY = "Choose one in Settings > Jarvis > Voice, or open ElevenLabs API keys.";',
+    ["listed voices still link the key page", 'var ELEVENLABS_READY = "Choose one in Settings > Jarvis > Voice";', 'var ELEVENLABS_READY = "Choose one in Settings > Jarvis > Voice, or open ElevenLabs API keys";',
         "draws its link only where the user needs the key page"],
     ["a failed voice read names no key page", "check under ElevenLabs API keys that it may read voices", "check that it may read voices",
         "draws its link only where the user needs the key page"],
-    ["an ElevenLabs voices hint has more than one sentence", 'var ELEVENLABS_READING = "Jarvis is reading the voices of your ElevenLabs key.";',
+    ["an ElevenLabs voices hint has more than one sentence", 'var ELEVENLABS_READING = "Jarvis is reading the voices of your ElevenLabs key";',
         'var ELEVENLABS_READING = "Jarvis is reading the voices of your ElevenLabs key. It takes a moment.";', "hint is one sentence"],
-    ["a key row hint has more than one sentence", 'gemini: "Get a Gemini key from Google AI Studio to use the Gemini Live voice."',
+    ["a key row hint has more than one sentence", 'gemini: "Get a Gemini key from Google AI Studio to use the Gemini Live voice"',
         'gemini: "Get a Gemini key from Google AI Studio. It serves the Gemini Live voice."', "the key row's hint is one sentence"],
     ["the ElevenLabs key row names no key page", "Get an ElevenLabs key from ElevenLabs API keys to speak", "Get an ElevenLabs key to speak",
         "the key row names the page of each key its hint asks for"],
@@ -1575,10 +1681,10 @@ const CONTROLS = [
     ["a stored key still offers Add key", 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: false }', 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: true }'],
     ["a stored key's row says to get a key", 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: false }', 'hint: hint, action: false }'],
     ["a stored key's row names one voice", 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: false }', 'hint: VOICE_KEY_STORED.openai, action: false }'],
-    ["a stored key's row names no field", 'then choose it in [Settings > Jarvis > Voice key](page:vgs.jarvis/Settings)."', 'then choose it."',
+    ["a stored key's row names no field", 'then choose it in [Settings > Jarvis > Voice key](page:vgs.jarvis/Settings)"', 'then choose it"',
         "links where it is chosen"],
-    ["a stored key's row names its field in plain words", 'then choose it in [Settings > Jarvis > Voice key](page:vgs.jarvis/Settings)."',
-        'then choose it in Settings > Jarvis > Voice key."', "links where it is chosen"],
+    ["a stored key's row names its field in plain words", 'then choose it in [Settings > Jarvis > Voice key](page:vgs.jarvis/Settings)"',
+        'then choose it in Settings > Jarvis > Voice key"', "links where it is chosen"],
     ["a failed key read offers no Add key", 'text: "Could not check", hint: hint, action: true }', 'text: "Could not check", hint: hint, action: false }'],
     ["the Realtime voice offers clone setup", 'var reason = provider !== "local" ? CLONE_WITHHELD.provider : ', "var reason = ", "the Realtime voice withholds setup"],
     ["a tier off the graphics card offers clone setup", 'value.tierReady === false ? CLONE_WITHHELD.tier : null', "null", "a tier off the graphics card withholds setup"],
@@ -1591,7 +1697,7 @@ const CONTROLS = [
         "    else if (row.tone === \"ok\") row.hint = CLONE_READY_HINT;\n    if (value.lines !== undefined) row.lines = value.lines;\n    return row;",
         "a timed-out read words its state: the row draws no keyed cause"],
     ["a ready clone row keeps the setup instruction", '    else if (row.tone === "ok") row.hint = CLONE_READY_HINT;\n', "", "a ready cloned voice offers Remove and says what the recording gives"],
-    ["a ready clone hint has more than one sentence", 'var CLONE_READY_HINT = "Jarvis speaks in this voice while Settings > Jarvis > Cloned voice is on.";',
+    ["a ready clone hint has more than one sentence", 'var CLONE_READY_HINT = "Jarvis speaks in this voice while Settings > Jarvis > Cloned voice is on";',
         'var CLONE_READY_HINT = "The recording is ready. Jarvis speaks in this voice while Settings > Jarvis > Cloned voice is on.";'],
     ["a failed clone read offers a boolean", 'var action = value.action === true ? "setup" : value.action;', "var action = value.action;", "a failed read offers setup"],
     ["the fleet row shows with no home", "if (home === null || tool !== null)", "if (tool !== null)", "no home chosen: the row shows"],
@@ -1612,9 +1718,9 @@ const CONTROLS = [
     ["a caution reads not ready", 'blocking.length === 0 ? { tone: "ok", text: "Ready", hint:', 'false ? { tone: "ok", text: "Ready", hint:', "the bar and the Setup status state one readiness"],
     ["a caution turns its step to do", 'var blocking = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });\n        var out',
         'var blocking = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });\n        REQUIRED.setup = "setupVoice"; TODO["setup=probe-timeout"] = CAUTION["setup=probe-timeout"]; blocking = answer.causes;\n        var out'],
-    ["the timed-out Local voice row asks for a restart", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup.", action: false };',
+    ["the timed-out Local voice row asks for a restart", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup", action: false };',
         "hint: START_RESTART, action: false };", "probe timeout: the Local voice row asks for no restart beside Ready"],
-    ["the probe timeout caution asks for a restart", '"setup=probe-timeout": "Jarvis answers, but its check of the local voice did not finish."',
+    ["the probe timeout caution asks for a restart", '"setup=probe-timeout": "Jarvis answers, but its check of the local voice did not finish"',
         '"setup=probe-timeout": "Jarvis setup check timed out. Turn Jarvis off and on again in Settings > Jarvis."', "probe timeout: the caution asks for no restart beside Ready"],
     ["a wire-defect title overflows the chip", 'title: "Jarvis message error"', 'title: "Jarvis and its daemon could not understand each other"', "fits the Setup status chip"],
     ["a home cause marks no step", 'if (REQUIRED[step] === "setupHome") {', 'if (false) {'],
@@ -1639,7 +1745,7 @@ const CONTROLS = [
         "hello timeout: the start failure summary draws no keyed cause"],
     ["a stopped summary draws its reason as a line", 'hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." }', 'lines: ["Jarvis stopped after a problem. Turn Jarvis off and on again."] }'],
     ["the not-ready summary draws its causes", ': { tone: "warning", text: "Not ready" },', ': { tone: "warning", text: "Not ready", lines: answer.causes.map(statusCauseLine) },', "nothing set up: the summary draws no keyed cause"],
-    ["a caution summary draws its cause", '.join(" ") }', '.join(" "), lines: answer.causes.map(statusCauseLine) }', "probe timeout: the summary draws no keyed cause"],
+    ["a caution summary draws its cause", 'return CAUTION[cause]; })) }', 'return CAUTION[cause]; })), lines: answer.causes.map(statusCauseLine) }', "probe timeout: the summary draws no keyed cause"],
     ["causes leave the summary ready", 'setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" }', 'setup: true ? { tone: "ok", text: "Ready" }'],
     ["checking reads done", 'return { setup: CHECKING_SUMMARY, setupHome: HOME_READY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };', 'return { setup: CHECKING_SUMMARY, setupHome: HOME_READY, setupVoice: DONE, setupModel: noAction(DONE) };'],
     ["an optional step reads open when ok", 'return value.tone === "ok" ? value :', "return false ? value :", "done under Local: the browser and input read optional"],
@@ -1667,14 +1773,22 @@ const CONTROLS = [
     ["names too long for a hint are published", "hint === \"\" || hint.length > SESSION_HINT_MAX ?", "hint === \"\" ?", "the manifest judge accepts the row"],
     ["a starting session is not live", 'var SESSION_LIVE = ["running", "starting", "handing-over"];', 'var SESSION_LIVE = ["running", "handing-over"];', "the states of a session that lives"],
     ["the session field draws while the setting is off", "return wanted ? SESSION_MODES : [];", "return SESSION_MODES;", "the session field while the setting is false"],
-    ["the no-home hint names no Settings path", "choose one in Settings > Jarvis > Home folder.", "choose a Home folder.", "no-home: the hint is one sentence that names its Settings path"],
+    ["the no-home hint names no Settings path", "choose one in Settings > Jarvis > Home folder", "choose a Home folder", "no-home: the hint is one sentence that names its Settings path"],
     ["the no-home hint has more than one sentence", "without a home folder: choose one in", "without a home folder. Choose one in", "no-home: the hint is one sentence that names its Settings path"],
     ["a choice not made reads as a fault", 'var SESSION_CHOICES = ["no-account", "not-app", "no-home"];', "var SESSION_CHOICES = [];", "a block's tone"],
     ["a missing package reads optional", 'var SESSION_CHOICES = ["no-account", "not-app", "no-home"];', 'var SESSION_CHOICES = ["no-account", "not-app", "no-home", "package"];', "package: a block's tone"],
     ["a Ready summary ignores the session", "    if (setup.tone !== \"ok\" || !Object.prototype.hasOwnProperty.call(SESSION_FAULTS, session.tone)) return setup;",
         "    return setup;", "one judgement of the session"],
-    ["the session drops the summary's caution", 'hint: setup.hint === undefined ? fault : setup.hint + " " + fault', "hint: fault", "keeps the summary and its caution"],
-    ["a summary that is not ready names the session", 'if (setup.tone !== "ok" || !', "if (!", "the summary is readiness's own"]
+    ["the session drops the summary's caution", 'hint: setup.hint === undefined ? fault : joinedHint([setup.hint, fault])', "hint: fault",
+        "keeps the summary and its caution"],
+    ["the session's fault runs on from the summary's caution", 'hint: setup.hint === undefined ? fault : joinedHint([setup.hint, fault])', 'hint: setup.hint === undefined ? fault : setup.hint + " " + fault', "keeps the summary and its caution"],
+    ["a summary that is not ready names the session", 'if (setup.tone !== "ok" || !', "if (!", "the summary is readiness's own"],
+    ["a one-sentence hint ends with a full stop", 'hint: "A preview of the Realtime voice may cost money", action: true }', 'hint: "A preview of the Realtime voice may cost money.", action: true }',
+        "ends as the copy rule says"],
+    ["a longer hint leaves its last full stop off", 'Sign in, then choose it in Settings > Jarvis > AI model.";', 'Sign in, then choose it in Settings > Jarvis > AI model";',
+        "ends as the copy rule says"],
+    ["the stopped notice takes the hint's one sentence as it is", "message: sentence(problem.action),", "message: problem.action,", "notice's message ends as a sentence"],
+    ["joined hints run on with no full stop between them", "hints.map(sentence).join", "hints.join", "keeps the summary and its caution, a sentence of its own"]
 ];
 
 const source = fs.readFileSync(file, "utf8");
@@ -1815,7 +1929,7 @@ try {
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), ',\n        { "value": "gemini", "label": "Gemini Live" }', ""],
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), ', { "value": "elevenlabs", "label": "ElevenLabs" }]', "]"],
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '"url": "https://platform.openai.com/api-keys" } },\n    "voice":', '"url": "https://aistudio.google.com/apikey" } },\n    "voice":'],
-        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), "or an ElevenLabs key for ElevenLabs.\"", "or an ElevenLabs key for ElevenLabs, as ElevenLabs voices says.\""],
+        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), "or an ElevenLabs key for ElevenLabs\"", "or an ElevenLabs key for ElevenLabs, as ElevenLabs voices says\""],
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), "for Realtime, a Gemini key for Gemini Live or", "for Realtime. A Gemini key for Gemini Live or"],
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '      "info": "With one stored key for the chosen voice, Jarvis picks it. Add key, on Setup, stores a new key.",\n', ""],
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '      "info": "Design or clone a voice on ElevenLabs\'s site, under Voices. Jarvis reads the voices of your key again each time you open this page.",\n', ""]
@@ -2267,7 +2381,7 @@ function verifyOneReadiness(gate) {
             detail: { phase: session.phaseOf(state), seq: 1, state } }, status), keys, "hold");
         assert.equal(bar.state === "ready", status.setup.tone === "ok", causes.join(",") + ": the bar and the Setup status state one readiness");
         if (causes.includes(shellCause) && bar.state === "ready")
-            assert.equal(bar.tooltipDetails.includes(status.setup.hint), true, causes.join(",") + ": the bar shows the caution");
+            assert.equal(bar.tooltipDetails.includes(String(status.setup.hint).replace(/\.?$/, ".")), true, causes.join(",") + ": the bar shows the caution as a sentence");
     }
 }
 
@@ -2295,8 +2409,10 @@ function verifyWordedText(gate) {
             assert.equal(bar.state, "problem", label + ": the bar reads a problem");
             assert.deepEqual(keyedCauses(bar, ["tooltip", "tooltipDetails"]), [], label + " retrying=" + retrying + ": the bar tooltip draws no keyed cause");
         }
-        for (const [name, notice] of [["stopped", gate.stoppedNotice(cause)], ["mute refused", gate.muteRefusedNotice(cause)]])
+        for (const [name, notice] of [["stopped", gate.stoppedNotice(cause)], ["mute refused", gate.muteRefusedNotice(cause)]]) {
             assert.deepEqual(keyedCauses(notice, ["title", "message"]), [], label + ": the " + name + " notice draws no keyed cause");
+            assert.equal(notice.message.endsWith("."), true, label + ": the " + name + " notice's message ends as a sentence");
+        }
     }
 }
 

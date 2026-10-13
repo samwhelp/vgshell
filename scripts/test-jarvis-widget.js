@@ -100,7 +100,7 @@ const CASES = [
     ["starting before the first state", { daemon: { tone: "info", text: "Starting" }, detail: null, audio: { tone: "info", text: "Reading devices" } },
         ["loading", "loader", "info", tip("Jarvis is starting", ["Wait for Jarvis to start.", MUTE])]],
     ["restarting", { daemon: DAEMON_HELLO, detail: null },
-        ["problem", "circle-alert", "danger", tip(HELLO_EXPECTED.title, [SetupGate.RETRYING_START, MUTE])]],
+        ["problem", "circle-alert", "danger", tip(HELLO_EXPECTED.title, ["Jarvis is trying again by itself.", MUTE])]],
     ["mute pending", { daemon: { tone: "warning", text: "Mute pending; disabling Jarvis cancels the request" }, detail: null },
         ["loading", "loader", "info", tip("Jarvis is starting", ["Wait for Jarvis to start.", MUTE])]],
     ["ready", up({}), ["ready", "mic", "calm", tip("Jarvis is ready", [HOLD, MUTE])]],
@@ -324,7 +324,7 @@ function verify(view) {
     }
     // A failed start, retrying and stopped: its title and hint, never its key.
     for (const [cause, title, action] of START_CAUSES) {
-        for (const [retrying, hint] of [[true, SetupGate.RETRYING_START], [false, action]]) {
+        for (const [retrying, hint] of [[true, "Jarvis is trying again by itself."], [false, action]]) {
             const got = callView(view, { daemon: SetupGate.startStatus(cause, retrying), detail: null });
             assert.deepEqual(copy([got.state, got.icon, got.tone, got.tooltip, got.tooltipDetails]),
                 ["problem", "circle-alert", "danger", title, [hint, MUTE]], cause + " retrying=" + retrying);
@@ -412,6 +412,7 @@ const CONTROLS = [
     ["unbound talk key names no setting", 'if (mode === "hold") return keys.talk === null ? keySetting("Talk") : "Hold " + keys.talk + " and speak.";', 'if (mode === "hold") return keys.talk === null ? "Hold Talk and speak." : "Hold " + keys.talk + " and speak.";'],
     ["unbound stop key names no setting", 'return keys.stop === null ? keySetting("Stop") : "Press " + keys.stop + " to stop.";', 'return keys.stop === null ? "Press Stop to stop." : "Press " + keys.stop + " to stop.";'],
     ["unbound confirm key names no setting", 'return keys.confirm === null ? "Confirm on screen, or set Confirm key in Settings > Jarvis."', 'return keys.confirm === null ? "Confirm on screen, or press Confirm."'],
+    ["a hint becomes a tooltip line with no full stop", "var lines = details.map(line);", "var lines = details.slice();"],
     ["unbound mute key names no setting", 'return keys.mute === null ? "Click, or set Mute key in Settings > Jarvis, to " + verb + "."', 'return keys.mute === null ? "Click or press Mute to " + verb + "."']
 ];
 

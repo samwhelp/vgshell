@@ -287,13 +287,13 @@ d = json.loads(sys.argv[1])
 widget = json.loads(sys.argv[2])
 daemon = d["status"].get("daemon", {})
 setup = d["status"].get("setup", {})
-action = "Turn Jarvis off and on again in Settings > Jarvis."
+action = "Turn Jarvis off and on again in Settings > Jarvis"
 ok = d["lifetime"]["kind"] == "problem" and d["pid"] is None
 ok = ok and daemon.get("tone") == "danger" and daemon.get("text") == "Jarvis did not answer in time"
 ok = ok and daemon.get("lines") == ["jarvis: hello=timeout"] and daemon.get("hint") == action
 ok = ok and setup.get("text") == "Jarvis did not answer in time"
 ok = ok and setup.get("hint") == action and "lines" not in setup
-ok = ok and widget.get("tooltip") == "Jarvis did not answer in time" and widget.get("tooltipDetails", [])[:1] == [action]
+ok = ok and widget.get("tooltip") == "Jarvis did not answer in time" and widget.get("tooltipDetails", [])[:1] == [action + "."]
 ok = ok and not any("hello=timeout" in line for line in widget.get("tooltipDetails", []))
 print("problem-words" if ok else "pending")
 PY
@@ -307,9 +307,9 @@ daemon = d["status"].get("daemon", {})
 setup = d["status"].get("setup", {})
 ok = d["lifetime"]["kind"] == "retry"
 ok = ok and daemon.get("tone") == "warning" and daemon.get("text") == "Jarvis did not answer in time"
-ok = ok and daemon.get("lines") == ["jarvis: hello=timeout"] and daemon.get("hint") == "Jarvis is trying again by itself."
+ok = ok and daemon.get("lines") == ["jarvis: hello=timeout"] and daemon.get("hint") == "Jarvis is trying again by itself"
 ok = ok and setup.get("text") == "Jarvis did not answer in time"
-ok = ok and setup.get("hint") == "Jarvis is trying again by itself."
+ok = ok and setup.get("hint") == "Jarvis is trying again by itself"
 ok = ok and "lines" not in setup
 print("retry-words" if ok else "pending")
 '
@@ -336,7 +336,7 @@ ok = ok and row.get("action") is False and "lines" not in row
 ready = widget.get("state") == "ready"
 ok = ok and ready == (setup.get("tone") == "ok") and "lines" not in setup
 ok = ok and "jarvis: setup=probe-timeout" not in voice.get("lines", []) and "Check did not finish" not in voice.get("hint", "")
-ok = ok and (not ready or setup.get("hint", "") in widget.get("tooltipDetails", []))
+ok = ok and (not ready or setup.get("hint", "").rstrip(".") + "." in widget.get("tooltipDetails", []))
 print("probe-timeout" if ok else "pending")
 PY
 }

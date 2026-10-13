@@ -1295,15 +1295,18 @@ world(async () => {
             plain(value);
         }
         const keyRow = value => ({ label: "fixture / test", value });
-        for (const [outcome, tone] of [
-            [{ kind: "listed", rows: [keyRow("present"), keyRow("present")] }, "ok"],
-            [{ kind: "listed", rows: [] }, "info"],
-            [{ kind: "listed", rows: [keyRow("present"), keyRow("locked")] }, "warning"],
-            [{ kind: "listed", rows: [keyRow("unavailable")] }, "warning"],
-            [{ kind: "failed" }, "warning"]
+        // Add key is offered in each; Remove key, the aside, while a key is
+        // listed to remove.
+        for (const [outcome, tone, aside] of [
+            [{ kind: "listed", rows: [keyRow("present"), keyRow("present")] }, "ok", true],
+            [{ kind: "listed", rows: [keyRow("present")] }, "ok", true],
+            [{ kind: "listed", rows: [] }, "info", false],
+            [{ kind: "listed", rows: [keyRow("present"), keyRow("locked")] }, "warning", true],
+            [{ kind: "listed", rows: [keyRow("unavailable")] }, "warning", true],
+            [{ kind: "failed" }, "warning", false]
         ]) {
             const value = Words.keysValue(outcome);
-            assert.deepEqual([value.tone, value.action], [tone, true], JSON.stringify(outcome));
+            assert.deepEqual([value.tone, value.action, value.aside], [tone, true, aside], JSON.stringify(outcome));
             plain(value);
         }
         for (const value of ["present", "absent", "locked"]) assert.equal(Words.keyHint(keyRow(value)), "", value);
@@ -1343,6 +1346,10 @@ world(async () => {
         'return { tone: "danger", text: "Could not read your saved accounts", action: true };', pageWords);
     controls++;
     await mutant("AccountStatus.js", "signed-out-hint-repeats-badge", 'if (account.value === "signed-out") return mismatch;', "", pageWords);
+    controls++;
+    await mutant("AccountStatus.js", "empty-keyring-offers-remove-key",
+        'return { tone: "info", text: "No key stored yet", action: true, aside: false };',
+        'return { tone: "info", text: "No key stored yet", action: true, aside: true };', pageWords);
     controls++;
     await mutant("AccountStatus.js", "partial-reads-complete", 'if (outcome.partial === "entry-limit")', "if (false)", pageWords);
     controls++;

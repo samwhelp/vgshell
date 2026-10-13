@@ -111,7 +111,7 @@ jarvis_setup_requirements
 session_set "$(python3 -c 'import json,sys; print(json.dumps({"brain": sys.argv[1], "home": "~/SmokeJarvis"}))' "$session_brain")"
 session_shell_start "$repo" no-package
 expect_poll "a home without the package's command reads that no session can start" \
-  '["Cannot start", "Install or update the Jarvis package in this home folder."]' session_row
+  '["Cannot start", "Install or update the Jarvis package in this home folder"]' session_row
 
 mkdir -p -- "$session_package/scripts"
 cp -- "$source_repo/scripts/fixtures/jarvis/session-package.py" "$session_package/scripts/jarvis-session"

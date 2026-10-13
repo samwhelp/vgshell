@@ -124,7 +124,7 @@ r = None if t == "absent" else json.loads(t)
 d = None if p in ("absent", "missing") else json.loads(p)
 ok = (r is not None and d is not None and r[:2] == ["circle-alert", "danger"]
       and d["lifetime"]["kind"] == "retry" and d["status"]["daemon"]["tone"] == "warning"
-      and d["status"]["daemon"].get("hint") == "Jarvis is trying again by itself.")
+      and d["status"]["daemon"].get("hint") == "Jarvis is trying again by itself")
 print("restarting" if ok else t)
 PY
 }

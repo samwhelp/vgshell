@@ -41,16 +41,17 @@ function searchValue(outcome) {
 /**
  * The `keyStore` state for { kind: "listed", rows }, rows the key presence
  * reader's, or { kind: "failed" }. Add key is offered in each: it opens the
- * keyring itself.
+ * keyring itself. Remove key, the entry's aside, is offered while a key is
+ * listed, since it has one to remove.
  */
 function keysValue(outcome) {
-    if (outcome.kind !== "listed") return { tone: "warning", text: "Could not check your keyring", action: true };
+    if (outcome.kind !== "listed") return { tone: "warning", text: "Could not check your keyring", action: true, aside: false };
     var rows = outcome.rows;
-    if (rows.length === 0) return { tone: "info", text: "No key stored yet", action: true };
+    if (rows.length === 0) return { tone: "info", text: "No key stored yet", action: true, aside: false };
     var stored = counted(rows.length, "key stored", "keys stored");
     for (var i = 0; i < rows.length; i++)
-        if (rows[i].value !== "present") return { tone: "warning", text: stored + ". Some are not ready to use.", action: true };
-    return { tone: "ok", text: stored, action: true };
+        if (rows[i].value !== "present") return { tone: "warning", text: stored + ". Some are not ready to use.", action: true, aside: true };
+    return { tone: "ok", text: stored, action: true, aside: true };
 }
 
 /**
@@ -58,7 +59,7 @@ function keysValue(outcome) {
  * says so, in place of the reader's diagnostic key.
  */
 function keyHint(row) {
-    return row.value === "unavailable" ? "Could not check this key." : "";
+    return row.value === "unavailable" ? "Could not check this key" : "";
 }
 
 /**
@@ -83,17 +84,17 @@ function stateLabel(state, source) {
  * The hint of one account item from Accounts.status(), "" for none: its
  * state, source, plan, email, whether its Pi needs an update and whether
  * the email disagrees with the folder name. A signed-out row's badge already says so, so its hint names only a
- * mismatch.
+ * mismatch. A hint of one sentence ends with no full stop, and each
+ * sentence of a longer one ends with one (design-system.md § Copy).
  */
 function accountHint(account) {
-    var mismatch = account.mismatch === true ? "The email does not match the folder name." : "";
+    var mismatch = account.mismatch === true ? "The email does not match the folder name" : "";
     if (account.value === "signed-out") return mismatch;
     if (account.update === true) return "Jarvis needs Pi 1.1.0 or later. Update it under Requirements to use this setup.";
     var text = stateLabel(account.state, account.source);
     if (account.state === "signed-in")
         text += (account.plan !== "" ? ", " + account.plan + " plan" : "") + (account.email !== "" ? ", " + account.email : "");
-    text += ".";
-    if (mismatch !== "") text += " " + mismatch;
+    if (mismatch !== "") text += ". " + mismatch + ".";
     return text.slice(0, 200);
 }
 
