@@ -119,6 +119,10 @@ account_id() { # KIND LABEL
 saved_keys openai/selftest anthropic/other
 sign_in="$(account_id cli default)"
 saved_key="$(account_id keyring selftest)"
+mkdir -p "$world/.copilot"
+copilot_id="$(env -i PATH="$tmp/empty" HOME="$world" "$node_bin" "$repo/shell/plugins/vgs.jarvis/backend/accounts.js" --tree "$repo" list |
+  python3 -c 'import json,sys; print(next(r["id"] for r in json.load(sys.stdin) if r["provider"] == "copilot"))')"
+local_id="$(account_id local local)"
 
 # The prepared local voice, and one whose interpreter is another setup's.
 prepared() { # HOME
@@ -161,6 +165,7 @@ ln -s -- "$repo/shell" "$tree/shell"
 ln -s -- "$repo/bin" "$tree/bin"
 ln -s -- "$repo/config" "$tree/config"
 ln -s -- "$repo/.agents" "$tree/.agents"
+ln -s -- "$repo/scripts/jarvis-selftest-cases" "$tree/scripts/jarvis-selftest-cases"
 cat >"$tree/scripts/smoke/gpu-fence.sh" <<SH
 #!/usr/bin/env bash
 if [[ \${1:-} == --check ]]; then echo check >>"$tmp/fence.log"; exit "\$(<"$tmp/fence-answer")"; fi
@@ -358,6 +363,8 @@ refused() { # WANT_FIRST_STDERR_LINE ARGS...
 holds "an id no account has is refused" refused "jarvis-selftest: refused: argument=--brain value=cli:none reason=unknown-account" --type hello --brain cli:none
 holds "a second input is refused" refused "jarvis-selftest: refused: argument=--tts reason=one-input" --type hello --tts hello --brain "$sign_in"
 holds "no input is refused" refused "jarvis-selftest: refused: argument=input reason=missing want=--wav|--tts|--type" --brain "$sign_in"
+holds "a local server without a model is refused before the sandbox starts" refused "jarvis-selftest: refused: argument=--model reason=missing-local-model" --type hello --brain "$local_id"
+holds "an empty model argument is refused" refused "jarvis-selftest: refused: argument=--model value=" --type hello --brain "$local_id" --model ""
 holds "a WAV that is not there is refused" refused "jarvis-selftest: refused: argument=--wav value=$tmp/absent.wav reason=unreadable" --wav "$tmp/absent.wav" --brain "$sign_in"
 bad_wav_refused() {
   python3 - "$tmp/bad.wav" <<'PY'
@@ -458,6 +465,30 @@ default_refused() {
 holds "the sandbox's Jarvis plugin is the checkout's, byte for byte" plugin_restored
 holds "the shell starts with two extra words: the account's directory variable and the run's own trace path" account_alone
 holds "Jarvis's settings name the brain, the feed's source and the null speakers, with Jarvis still disabled" settings_named
+local_model_named() {
+  run --type hello --brain "$local_id" --model 'selftest-model:small'
+  [[ $status -eq 0 ]] && python3 - "$sandbox/home/.config/vgshell/shell.json" "$local_id" <<'PY'
+import json, sys
+config = json.load(open(sys.argv[1]))
+row = next(r for r in config["plugins"] if r["id"] == "vgs.jarvis")
+sys.exit(row.get("model") != "selftest-model:small" or row["brain"] != sys.argv[2] or "vgs.jarvis" not in config["disabledPlugins"])
+PY
+}
+holds "the local server model is written while Jarvis is disabled" local_model_named
+control plant "a runner that drops the local server model" '    row["model"] = model' '    pass' local_model_named
+suite_model_named() {
+  mkdir -p "$tmp/model-voices"
+  python3 - "$tmp/model-voices/volume.wav" <<'PY'
+import sys, wave
+with wave.open(sys.argv[1], "wb") as file:
+    file.setnchannels(1); file.setsampwidth(2); file.setframerate(16000); file.writeframes(b"\0\0" * 160)
+PY
+  run --suite volume --voices "$tmp/model-voices" --brain "$local_id" --model 'selftest-model:small'
+  [[ $status -eq 1 ]] && grep -qxF 'case=volume source=local verdict=failed status=0' "$tmp/out" &&
+    python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); sys.exit(next(r for r in c["plugins"] if r["id"] == "vgs.jarvis").get("model") != "selftest-model:small")' "$sandbox/home/.config/vgshell/shell.json"
+}
+holds "a suite passes the model argument to its sandbox child" suite_model_named
+control plant "a suite that drops its child model argument" '    [[ -z $model ]] || child_args+=(--model "$model")' '    :' suite_model_named
 holds "the prepared setup is linked as the sandbox's local voice, with its marker" voice_linked
 holds "the sandbox HOME holds voxtype config with the prepared model path and feedback sounds" voxtype_configured
 holds "the sandbox shell resolves voxtype to the CPU wrapper" voxtype_cpu_shim
@@ -522,7 +553,7 @@ make_folder() {
 # the checkout's kendex orch skill, as the Install kendex setup leaves a
 # Jarvis home.
 kendex_home() { # DIR
-  mkdir -p "$1/.agents/skills" && git -C "$1" init -q && cp -a -- "$repo/.agents/skills/orch" "$1/.agents/skills/orch"
+  mkdir -p "$1/.agents/skills" && git -C "$1" init -q && cp -a -- "$repo/.agents/skills/orch" "$repo/.agents/skills/mailbox" "$1/.agents/skills/"
 }
 # workflow_get DIR EXPR: EXPR of DIR's own fleet state, read by DIR's own
 # workflow-state.
@@ -889,10 +920,26 @@ class Other(dbus.service.Object):
         note("Ping")
         return "pong"
 
+class Item(dbus.service.Object):
+    @dbus.service.method(dbus.PROPERTIES_IFACE, in_signature="ss", out_signature="v")
+    def Get(self, interface, property):
+        note("Get " + property)
+        return dbus.Boolean(open(mode_file).read().strip() == "locked", variant_level=1)
+    @dbus.service.method("org.freedesktop.Secret.Item", in_signature="o", out_signature="(oayays)")
+    def GetSecret(self, session):
+        note("GetSecret")
+        if open(mode_file).read().strip() != "present":
+            raise dbus.exceptions.DBusException("locked", name="org.freedesktop.Secret.Error.IsLocked")
+        return (dbus.ObjectPath(SESSION), dbus.ByteArray(b""), dbus.ByteArray(b"stand-in-key"), "text/plain")
+    @dbus.service.method("org.freedesktop.Secret.Item", out_signature="o")
+    def Delete(self):
+        note("Delete")
+        return dbus.ObjectPath("/")
+
 DBusGMainLoop(set_as_default=True)
 session = dbus.SessionBus()
 names = [dbus.service.BusName(name, session) for name in ("org.freedesktop.secrets", "org.vgshell.SelftestOther")]
-objects = [Service(session, "/org/freedesktop/secrets"), Other(session, "/org/vgshell/SelftestOther")]
+objects = [Service(session, "/org/freedesktop/secrets"), Other(session, "/org/vgshell/SelftestOther"), Item(session, ITEM)]
 note("ready")
 GLib.MainLoop().run()
 PY
@@ -1000,6 +1047,7 @@ PY
   }
   holds "the realtime voice names the one saved OpenAI key as its account and takes no prepared local voice" voice_named
 
+
   control plant "a runner that starts Jarvis with no key stored" '      absent) unavailable keyring-no-key key=absent ;;' '      absent) ;;' key_refused "${key_rows[0]}"
   control plant "a runner that starts Jarvis over a locked keyring" '      locked) unavailable keyring-locked ;;' '      locked) ;;' key_refused "${key_rows[1]}"
   control plant "a runner that starts Jarvis with no keyring to read" '      unavailable) unavailable keyring-unavailable ;;' '      unavailable) ;;' key_refused "${key_rows[2]}"
@@ -1011,6 +1059,41 @@ PY
   control plant "a runner that hands the sandbox every saved reference" '>"$sandbox/selftest-lookups" || stopped keys-not-saved' \
     '>"$sandbox/selftest-lookups" && cp -- "$HOME/.local/state/vgshell/jarvis/keys.json" "$home/.local/state/vgshell/jarvis/keys.json" || stopped keys-not-saved' key_alone
   control plant "a runner that names no account for the realtime voice" '    row["voiceAccount"] = voice_account' '    pass' voice_named
+  # Copilot's native store uses Item.GetSecret and Properties.Get rather
+  # than libsecret's Service.GetSecrets. Read these through the bus passed
+  # to the shell, not a socket constructed independently of that word.
+  cat >"$tmp/at-start.sh" <<SH
+address=""
+for word in "\${@:4}"; do [[ \$word != DBUS_SESSION_BUS_ADDRESS=* ]] || address="\${word#*=}"; done
+filtered=(env -i PATH="\$PATH" DBUS_SESSION_BUS_ADDRESS="\$address" busctl --user --auto-start=no --timeout=5 --json=short call)
+"\${filtered[@]}" org.freedesktop.secrets /org/freedesktop/secrets org.freedesktop.Secret.Service SearchItems 'a{ss}' 1 service vgs-jarvis >"$tmp/native.search"
+"\${filtered[@]}" org.freedesktop.secrets /org/freedesktop/secrets/collection/selftest/1 org.freedesktop.DBus.Properties Get ss org.freedesktop.Secret.Item Locked >"$tmp/native.locked"
+native_status=0
+"\${filtered[@]}" org.freedesktop.secrets /org/freedesktop/secrets/collection/selftest/1 org.freedesktop.Secret.Item GetSecret o /org/freedesktop/secrets/session/1 >/dev/null 2>&1 || native_status=\$?
+printf '%s\n' "\$native_status" >"$tmp/native.status"
+"\${filtered[@]}" ${unlock[*]} >/dev/null 2>&1 || true
+"\${filtered[@]}" org.freedesktop.secrets /org/freedesktop/secrets/collection/selftest/1 org.freedesktop.Secret.Item Delete >/dev/null 2>&1 || true
+SH
+  copilot_reads() {
+    key_run "$1" --type hello --brain "$copilot_id"
+    [[ $status -eq 0 && ! -e $sandbox/home/.local/state/vgshell/jarvis/keys.json ]] &&
+      grep -q -F -- "start_shell COPILOT_HOME=$world/.copilot DBUS_SESSION_BUS_ADDRESS=unix:path=$tmp/rt/secrets-bus $trace_word" "$tmp/harness.log" &&
+      got 'Get Locked' && got GetSecret && ! got Unlock && ! got Delete || return 1
+    python3 - "$tmp/native.search" "$tmp/native.locked" "$1" <<'PY'
+import json, sys
+search, locked = (json.load(open(p))["data"] for p in sys.argv[1:3])
+mode = sys.argv[3]
+sys.exit(bool(search[0]) != (mode == "present") or bool(search[1]) != (mode == "locked") or locked["data"] != (mode == "locked"))
+PY
+    [[ $? -eq 0 ]] || return 1
+    if [[ $1 == present ]]; then [[ $(<"$tmp/native.status") == 0 ]]; else [[ $(<"$tmp/native.status") != 0 ]]; fi
+  }
+  for key_mode in present locked absent; do holds "Copilot's filtered bus allows native reads with $key_mode credentials and refuses unlocks and deletes" copilot_reads "$key_mode"; done
+  control plant "a Copilot runner that hands no filtered bus to its native store" '  [[ $copilot_keyring == false ]] || account_word+=("DBUS_SESSION_BUS_ADDRESS=unix:path=$secrets_bus")' '  :' copilot_reads present
+  control plant "a Copilot filter that drops the native item read" "        '--call=org.freedesktop.secrets=org.freedesktop.Secret.Item.GetSecret@/org/freedesktop/secrets/collection/*'" '' copilot_reads present
+  control plant "a Copilot filter that drops its native lock-state read" "        '--call=org.freedesktop.secrets=org.freedesktop.DBus.Properties.Get@/org/freedesktop/secrets/collection/*'" '' copilot_reads present
+  control plant "a Copilot filter that permits item writes" "        '--call=org.freedesktop.secrets=org.freedesktop.Secret.Item.GetSecret@/org/freedesktop/secrets/collection/*'" "        '--call=org.freedesktop.secrets=org.freedesktop.Secret.Item.*@/org/freedesktop/secrets/collection/*'" copilot_reads present
+
   session_bus=()
   rm -f -- "$tmp/at-start.sh"
 }

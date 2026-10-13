@@ -5,9 +5,9 @@
 #        scripts/jarvis-selftest.sh --suite NAME|all --brain ID
 #                                   [--voice local|realtime|gemini|elevenlabs]
 #                                   [--voices DIR]
-#                                   [--home PATH] [--out DIR]
+#                                   [--home PATH] [--model NAME] [--out DIR]
 #        scripts/jarvis-selftest.sh (--wav FILE | --tts TEXT | --type TEXT)
-#                                   --brain ID [--home PATH]
+#                                   --brain ID [--home PATH] [--model NAME]
 #                                   [--voice local|realtime|gemini|elevenlabs]
 #                                   [--mode toggle|always]
 #                                   [--follow-up-tts TEXT|--follow-up-wav FILE]
@@ -39,6 +39,10 @@
 # --brain ID is an account id the Jarvis AI model list offers. A sign-in
 # account's own directory variable is the one value of the caller's
 # environment that enters the sandbox.
+# Copilot also receives a filtered session bus for its native keyring read.
+# The filter refuses unlocks and writes. No token enters a file or log.
+# --model NAME sets the sandbox's model before the turn. A local server
+# brain requires it: the account reader offers no local-server model list.
 # --voice realtime listens and speaks through OpenAI's Realtime session with
 # the caller's one saved OpenAI key, the key the plugin's Accounts page
 # chooses by itself; --voice gemini does the same through Google's Gemini
@@ -1144,6 +1148,7 @@ PY
       continue
     fi
     child_args=("${case_args[@]}" --brain "$brain" --voice "$voice")
+    [[ -z $model ]] || child_args+=(--model "$model")
     [[ -z $home_source ]] || child_args+=(--home "$home_source")
     child_args+=(--out "$record")
     "$self" "${child_args[@]}" || status=$?
@@ -1183,6 +1188,7 @@ follow_tail=0
 suite_name=""
 cold_count=0
 brain=""
+model=""
 home_source=""
 voice=local
 voices_dir=""
@@ -1283,9 +1289,9 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 && -n $2 ]] || refuse "argument=$1 value=${2-}"
       [[ -z $follow_kind ]] || refuse "argument=$1 reason=one-follow-up"
       follow_kind="${1#--follow-up-}"; follow_value="$2"; shift 2 ;;
-    --brain|--home|--out|--voices)
+    --brain|--home|--out|--voices|--model)
       [[ $# -ge 2 && -n $2 ]] || refuse "argument=$1 value=${2-}"
-      case "$1" in --brain) brain="$2" ;; --home) home_source="$2" ;; --out) out="$2" ;; --voices) voices_dir="$2" ;; esac
+      case "$1" in --brain) brain="$2" ;; --home) home_source="$2" ;; --out) out="$2" ;; --voices) voices_dir="$2" ;; --model) model="$2" ;; esac
       shift 2 ;;
     --voice)
       [[ $# -ge 2 && $2 =~ ^(local|realtime|gemini|elevenlabs)$ ]] || refuse "argument=--voice value=${2-}"
@@ -1322,6 +1328,7 @@ elif ((cold_count > 0)); then
   [[ -z $input_kind ]] || refuse "argument=--cold reason=exclusive-with-input"
   [[ -z $follow_kind ]] || refuse "argument=--cold reason=exclusive-with-follow-up"
   [[ -z $brain ]] || refuse "argument=--cold reason=exclusive-with-brain"
+  [[ -z $model ]] || refuse "argument=--cold reason=exclusive-with-model"
   [[ -z $home_source ]] || refuse "argument=--cold reason=exclusive-with-home"
   [[ $voice == local ]] || refuse "argument=--cold reason=exclusive-with-voice"
   [[ $mode_seen == false ]] || refuse "argument=--mode reason=exclusive-with-cold"
@@ -1436,10 +1443,24 @@ accounts="$(selftest_accounts "$repo" "$brain" "$voice")" || stopped account-unr
 { IFS=$'\t' read -r brain_kind brain_first brain_second; IFS=$'\t' read -r voice_kind voice_account voice_reference; } <<<"$accounts"
 account_word=()
 key_references=()
+copilot_keyring=false
+copilot_rules=()
 case "$brain_kind" in
   unknown) refuse "argument=--brain value=$brain reason=unknown-account" ;;
-  cli) account_word=("$brain_first=$brain_second") ;;
+  cli)
+    account_word=("$brain_first=$brain_second")
+    if [[ $brain_first == COPILOT_HOME ]]; then
+      copilot_keyring=true
+      # Copilot 1.0.91's runtime uses secret-service 5.2.0's Item.get_secret
+      # and ensure_unlocked, via zbus-secret-service-keyring-store 1.0.1.
+      # Item proxies disable property caching. Only these read calls enter.
+      copilot_rules=(
+        '--call=org.freedesktop.secrets=org.freedesktop.Secret.Item.GetSecret@/org/freedesktop/secrets/collection/*'
+        '--call=org.freedesktop.secrets=org.freedesktop.DBus.Properties.Get@/org/freedesktop/secrets/collection/*'
+      )
+    fi ;;
   keyring) key_references+=("$brain_first") ;;
+  local) [[ -n $model ]] || refuse "argument=--model reason=missing-local-model" ;;
 esac
 case "$voice_kind" in
   none) unavailable keyring-no-key key=unsaved ;;
@@ -1448,7 +1469,7 @@ case "$voice_kind" in
   keyring) [[ ${key_references[*]:-} == "$voice_reference" ]] || key_references+=("$voice_reference") ;;
 esac
 # What a key read needs, asked before anything starts.
-if [[ ${#key_references[@]} -gt 0 ]]; then
+if [[ ${#key_references[@]} -gt 0 || $copilot_keyring == true ]]; then
   [[ -n ${DBUS_SESSION_BUS_ADDRESS:-} ]] || unavailable keyring-unavailable missing=session-bus
   for tool in xdg-dbus-proxy secret-tool busctl; do
     command -v -- "$tool" >/dev/null || unavailable keyring-unavailable "missing=$tool"
@@ -1545,13 +1566,16 @@ if [[ $hears_here == true ]]; then
     "$home/.local/state/vgshell/jarvis/"
   selftest_voxtype_prepare "$source_repo" "$voxtype_models" "$voxtype_cpu"
 fi
-if [[ ${#key_references[@]} -gt 0 ]]; then
+if [[ ${#key_references[@]} -gt 0 || $copilot_keyring == true ]]; then
   # The filter runs with no environment and ends with the harness's other
   # children. Its socket is there once it listens.
   secrets_bus="$rt_dir/secrets-bus"
-  spawn "$sandbox/secrets-bus.log" env -i "$(command -v -- xdg-dbus-proxy)" "$DBUS_SESSION_BUS_ADDRESS" "$secrets_bus" --filter "${selftest_secrets_rules[@]}"
+  spawn "$sandbox/secrets-bus.log" env -i "$(command -v -- xdg-dbus-proxy)" "$DBUS_SESSION_BUS_ADDRESS" "$secrets_bus" --filter "${selftest_secrets_rules[@]}" "${copilot_rules[@]}"
   secrets_bus_state() { if [[ -S $secrets_bus ]]; then echo listening; else echo absent; fi; }
   selftest_wait 10 listening secrets_bus_state || stopped secrets-bus-not-started "$sandbox/secrets-bus.log"
+  [[ $copilot_keyring == false ]] || account_word+=("DBUS_SESSION_BUS_ADDRESS=unix:path=$secrets_bus")
+fi
+if [[ ${#key_references[@]} -gt 0 ]]; then
   for reference in "${key_references[@]}"; do
     presence="$(selftest_key_presence "$source_repo" "unix:path=$secrets_bus" "$reference")" || stopped key-unread
     case "$presence" in
@@ -1591,11 +1615,13 @@ fi
 # The settings Jarvis starts with, written while it is still disabled.
 # Speech plays to a null sink and never into the feed, and the microphone is
 # the feed's source by name, whatever WirePlumber's defaults are.
-settings="$(python3 - "$home/.config/vgshell/shell.json" "$brain" "$devices_voice_feed_source" "$home_copy" "$voice" "$mode" "${voice_account:-}" "$cloned" <<'PY'
+settings="$(python3 - "$home/.config/vgshell/shell.json" "$brain" "$devices_voice_feed_source" "$home_copy" "$voice" "$mode" "${voice_account:-}" "$cloned" "$model" <<'PY'
 import json, sys
-path, brain, microphone, home, voice, mode, voice_account, cloned = sys.argv[1:]
+path, brain, microphone, home, voice, mode, voice_account, cloned, model = sys.argv[1:]
 config = json.load(open(path))
 row = {"mode": mode, "brain": brain, "voiceProvider": voice, "microphone": microphone, "speaker": "vgs-smoke-speakers"}
+if model:
+    row["model"] = model
 if cloned == "true":
     row["clonedVoice"] = True
 if voice_account:
