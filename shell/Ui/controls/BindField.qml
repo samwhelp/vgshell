@@ -3,8 +3,9 @@ import qs.Ui
 
 // One plugin bind as an inline form row, from one bind the manager lists:
 // the description the plugin registered (its shortcut name while it has
-// registered none), with its explanation on label hover and keyboard
-// focus, beside a ShortcutField holding the keys in effect, one key or
+// registered none), with its explanation over the row's hint on label
+// hover and keyboard focus, or in the row's info button where the row has
+// no hint (FormRow), beside a ShortcutField holding the keys in effect, one key or
 // the alternatives of a list. Each edit changes one alternative and emits
 // `applyKey(key)`: `key` is what the manager writes, one key, a list of two
 // or more, or null once none is left, which unbinds the shortcut. While

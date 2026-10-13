@@ -14,8 +14,9 @@ import qs.Unit
 // keys that is the list with the one alternative set or removed, one key
 // once one is left and a key twice once; a caller's actions draw in the
 // field's tool row, and its hint actions on a line under the hint, taking
-// no room while none shows. A bind's explanation is the label tooltip
-// on pointer hover and keyboard focus, with no info icon. The capture here answers every conflict question with
+// no room while none shows. The explanation of a bind with no hint is
+// in its info icon's dialog: the label opens no tooltip, which would lie
+// on the bind under it. The capture here answers every conflict question with
 // one hint and records each question as "KEY ID SHORTCUT".
 Item {
     id: root
@@ -112,66 +113,19 @@ Item {
             compare(unbound.label, "lock");
         }
 
-        function test_the_bind_explanation_is_on_label_hover_and_focus() {
-            compare(UnitTheme.override({ tooltip: { delay: 20 } }), "ok");
+        // A bind row with no hint has no line of its own under it, so its
+        // explanation opens in the info icon's dialog and neither the label
+        // nor the icon opens a tooltip over the bind under it.
+        function test_the_bind_explanation_is_in_the_info_dialog() {
             const label = descendant(row, item => item.objectName === "fieldLabel");
             const tip = descendant(label, item => String(item).indexOf("Tooltip") === 0);
-            compare(descendant(row, item => String(item).indexOf("InfoButton") === 0), null);
-            compare(tip.text, "Locks the screen at once.");
-            const labelControl = label.children.find(item => item.visualFocus !== undefined);
-            verify(labelControl.activeFocusOnTab);
-            mouseMove(label, label.width / 2, label.height / 2);
-            tryCompare(tip, "opened", true);
-            mouseMove(root, root.width - 1, root.height - 1);
-            tryCompare(tip, "opened", false);
-            root.Window.window.requestActivate();
-            tryCompare(root.Window.window, "active", true);
-            wait(0);
-            const focused = [];
-            const record = () => { if (tip.opened) focused.push(tip.text); };
-            tip.openedChanged.connect(record);
-            try {
-                labelControl.forceActiveFocus(Qt.OtherFocusReason);
-                keyClick(Qt.Key_Tab);
-                keyClick(Qt.Key_Backtab);
-                compare(labelControl.activeFocus, true);
-                compare(labelControl.visualFocus, true);
-                tryVerify(() => focused.length > 0, 2000);
-            } finally {
-                tip.openedChanged.disconnect(record);
-            }
-            compare(focused[0], tip.text);
-            input(row).forceActiveFocus(Qt.TabFocusReason);
-            tryCompare(tip, "opened", false);
-            const plain = descendant(later, item => item.objectName === "fieldLabel");
-            verify(!plain.children.find(item => item.visualFocus !== undefined).activeFocusOnTab);
-        }
-
-        // The explanation opens under the field, its buttons and the
-        // caller's actions, so the help hides none of what it explains.
-        function test_the_bind_explanation_opens_under_the_field_and_its_buttons() {
-            const label = descendant(row, item => item.objectName === "fieldLabel");
-            const tip = descendant(label, item => String(item).indexOf("Tooltip") === 0);
-            tip.shown = true;
-            try {
-                const anchor = tip.tracker.popup.anchor;
-                compare(anchor.edges & Edges.Bottom, Edges.Bottom, "the explanation opens under its box");
-                compare(anchor.gravity & Edges.Bottom, Edges.Bottom);
-                const top = tip.anchorItem.mapToItem(row, 0, anchor.rect.y + anchor.rect.height - anchor.margins.bottom).y;
-                const field = input(row);
-                const parts = [field, extra];
-                const stack = [field];
-                while (stack.length > 0) {
-                    const item = stack.pop();
-                    if (item.visible && String(item).indexOf("IconButton") === 0) parts.push(item);
-                    for (const child of item.children) stack.push(child);
-                }
-                verify(parts.length > 2, "the field draws its own buttons: " + parts.length);
-                for (const part of parts)
-                    compare(top >= part.mapToItem(row, 0, part.height).y, true, "the explanation opens under " + part + ": " + top);
-            } finally {
-                tip.shown = false;
-            }
+            compare(tip.text, "", "the label opens the explanation over the next bind");
+            verify(!label.children.find(item => item.visualFocus !== undefined).activeFocusOnTab);
+            const mark = descendant(row, item => String(item).indexOf("InfoButton") === 0);
+            verify(mark !== null, "the bind draws its info icon");
+            compare(mark.info, "Locks the screen at once.");
+            compare(mark.tooltip, "");
+            compare(descendant(later, item => String(item).indexOf("InfoButton") === 0), null, "a bind with no explanation draws an info icon");
         }
 
         function test_the_field_holds_the_key_in_effect() {

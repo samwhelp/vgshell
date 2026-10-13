@@ -26,15 +26,16 @@ import qs.Ui
 // value, so it covers neither its own control nor a row beside it and
 // clips no hint. Otherwise, as beside a control that fills the value
 // column, it opens under the row's label and control, as wide as the
-// row, so it covers the whole of a line it lies on: on the first line under the
-// value, the row's message or text its owner draws there while
-// `textBelow` holds, which it covers from that line's top, else
-// `tooltip.gap` under the row box. It stays clear of the label's focus
-// ring, which draws outside the label's box: under a row with no such
-// line it starts `tooltip.gap` under the ring where the ring ends lower
-// than the row box, and where the ring reaches that line, as under a
-// label of two lines, it starts on the value column, beside the ring, and
-// still covers the line from its top. `warning` is the row's message:
+// row, so it covers the whole of the line it lies on: the first line under
+// the value, the row's message or text its owner draws there while
+// `textBelow` holds, which it covers from that line's top. It stays clear
+// of the label's focus ring, which draws outside the label's box: where
+// the ring reaches that line, as under a label of two lines, it starts on
+// the value column, beside the ring, and still covers the line from its
+// top. A row with no such line has no room of its own under it, so there
+// the label opens no tooltip and is no Tab stop: the row's info button
+// holds the explanation and opens it in its dialog, before `info` where
+// the row has both. `warning` is the row's message:
 // text in the role `warningRole` names, `hint` unless set, under the value
 // column, `field.gap` below the row box and
 // wrapped to the column, in the colour `warningTone` names, `warning`,
@@ -114,18 +115,26 @@ Item {
     readonly property bool ringAtUnderText: underText >= 0 && ringBottom + Theme.tooltip.gap > underText
     // Where the explainer starts under the row, clear of that ring.
     readonly property real underX: ringAtUnderText ? valueX : 0
-    readonly property real underTop: underText < 0 ? Math.max(ringBottom, boxHeight) + Theme.tooltip.gap : underText
+    // The box a one-line label centres on, whatever the label's own lines.
+    readonly property real oneLineBox: controlFirstLine > 0 ? controlFirstLine : Math.max(Theme.row.height, slot.childrenRect.height)
+    // Whether the info button holds the explainer: under a row with no line
+    // under its value, a tooltip would cover the next row. The button
+    // narrows the label, so this reads no line count of the label.
+    readonly property bool explainInDialog: labelTooltip !== "" && labelColumn && underText < 0 && !(besideWrap > 0 && besideHeight <= oneLineBox + 2 * Theme.stack.row)
+    readonly property string tipText: explainInDialog ? "" : labelTooltip
+    readonly property string dialogText: !explainInDialog ? info : info === "" ? labelTooltip : labelTooltip + "\n\n" + info
     readonly property real subTextRoom: Theme.subTextRoom(warning !== "", Positioner.index, Positioner.isLastItem, parent)
     // Where the message's line ends, above the room under it.
     readonly property real messageBottom: height - subTextRoom
     readonly property real boxHeight: messageBottom - messageRoom
     // The box a one-line label and its info button centre on.
-    readonly property real labelBox: {
-        if (labelText.lineCount > 1) return boxHeight;
+    readonly property real labelBox: labelText.lineCount > 1 || controlFirstLine === 0 ? boxHeight : controlFirstLine
+    // The first line of a control that wraps into lines, 0 beside a control of one box.
+    readonly property real controlFirstLine: {
         for (const child of slot.children) {
             if (child.visible && child.firstLineHeight > 0) return child.firstLineHeight;
         }
-        return boxHeight;
+        return 0;
     }
     signal warningLinkActivated()
     signal warningPageActivated(string page, string tab)
@@ -171,12 +180,12 @@ Item {
             Accessible.name: labelText.text
             Accessible.role: Accessible.StaticText
             anchors.fill: parent
-            activeFocusOnTab: root.labelTooltip !== "" && visible
+            activeFocusOnTab: root.tipText !== "" && visible
             Tooltip {
-                text: root.labelTooltip
+                text: root.tipText
                 side: root.explainBeside ? "right" : "belowStart"
                 // The side's gap from this box's end puts the tooltip at `besideX`.
-                box: root.explainBeside ? Qt.rect(0, -labelText.y, root.besideX - Theme.tooltip.gap, root.labelBox) : Qt.rect(root.underX, -labelText.y, root.width - root.underX, root.underTop - Theme.tooltip.gap)
+                box: root.explainBeside ? Qt.rect(0, -labelText.y, root.besideX - Theme.tooltip.gap, root.labelBox) : Qt.rect(root.underX, -labelText.y, root.width - root.underX, root.underText - Theme.tooltip.gap)
                 maxWidth: root.explainBeside ? root.besideWrap : root.width - root.underX - 2 * Theme.tooltip.paddingX
                 minWidth: root.explainBeside ? 0 : root.width - root.underX
             }
@@ -192,12 +201,14 @@ Item {
 
     Loader {
         id: infoButton
-        active: root.info !== "" && root.labelColumn
+        active: root.dialogText !== "" && root.labelColumn
         x: Theme.field.labelWidth - width
         y: Math.round((root.labelBox - implicitHeight) / 2)
         sourceComponent: InfoButton {
             title: root.label
-            info: root.info
+            info: root.dialogText
+            // Under the button a tooltip of the explainer would cover the next row.
+            tooltip: root.explainInDialog ? "" : info
             onInfoPageActivated: (page, tab) => root.infoPageActivated(page, tab)
         }
     }

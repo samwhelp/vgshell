@@ -295,7 +295,7 @@ Item {
         restore();
         shell.status.set("panelRevision", panelRevision);
         shell.shortcut.register("inbox", "Notification inbox", () => root.togglePanel());
-        shell.shortcut.register("act", "Act on the last notification", () => root.actOnLast());
+        shell.shortcut.register("act", "Act on last notification", () => root.actOnLast());
         shell.ipc.handle("inbox", () => root.togglePanel());
         shell.ipc.handle("panel", () => root.showPanel("inbox"));
         shell.ipc.handle("history", () => root.showPanel("history"));

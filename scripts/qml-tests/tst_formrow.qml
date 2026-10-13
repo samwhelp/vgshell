@@ -29,9 +29,11 @@ import qs.Unit
 // the group space under its message. A page reference in the message or in
 // the info dialog's text asks for its page and tab through
 // `warningPageActivated` or `infoPageActivated`. A label's explainer
-// under its row stands clear of the label's focus ring, under it or, where
-// the ring reaches the hint, beside it on the value column, and draws a
-// lifted fill with no outline, unlike an input.
+// under its row lies on the row's hint, clear of the label's focus ring,
+// beside it on the value column where the ring reaches the hint, and draws
+// a lifted fill with no outline, unlike an input. A row with no hint and no
+// room past its control opens no explainer: its info button holds the text
+// for its dialog, the label is no Tab stop, and neither opens a tooltip.
 Item {
     id: root
     width: 480
@@ -150,6 +152,7 @@ Item {
     }
     // A label of two lines beside a one-line control: its ring ends under
     // the row box.
+    FormRow { id: explainedInfo; y: 1960; width: 420; label: "Format"; labelTooltip: "The clock's format."; info: "It follows the locale."; Select { width: parent.width; model: ["HH:mm", "hh:mm ap"] } }
     FormRow { id: explainedLong; y: 1700; width: 420; label: "Hide or show the top bar"; labelTooltip: "Hides the top bar."; Select { width: parent.width; model: ["None"] } }
     // A hinted row whose label has two lines, and the row under it: the
     // room under the hint's top holds a band of one line.
@@ -295,10 +298,6 @@ Item {
             const hinted = hintedRow(hintedField);
             const short = hintedRow(hintedShort);
             return [
-                { tag: "full-width control", row: explainedWide, lines: 1, beside: false },
-                { tag: "too tall past the control", row: explainedTall, lines: 1, beside: false },
-                { tag: "control taller than the label's box", row: explainedLines, lines: 1, beside: false },
-                { tag: "label of two lines", row: explainedLong, lines: 2, beside: false },
                 { tag: "hint under a switch", row: hinted.row, hint: hinted.hint, lines: 2, beside: true },
                 { tag: "hint under a switch, label of one line", row: short.row, hint: short.hint, lines: 1, beside: false }
             ];
@@ -326,14 +325,58 @@ Item {
                 verify(controls.length > 0, "the row holds its control");
                 for (const control of controls)
                     compare(start.y >= control.mapToItem(data.row, 0, control.height).y, true, "the tooltip opens under the row's control: " + start.y);
-                if (data.hint === undefined) {
-                    compare(start.y, Math.max(data.row.boxHeight, ringEnd.y) + Theme.tooltip.gap, "the tooltip opens a gap under the row box and the ring");
-                } else {
-                    verify(data.hint.visible && data.hint.height > 0, "the row draws its hint");
-                    verify(data.row.besideHeight <= data.row.labelBox + 2 * Theme.stack.row, "the tooltip fits the row gap beside the switch: " + data.row.besideHeight);
-                    compare(start.y <= data.hint.mapToItem(data.row, 0, 0).y, true, "the tooltip covers the hint from its top: " + start.y);
-                }
+                verify(data.hint.visible && data.hint.height > 0, "the row draws its hint");
+                verify(data.row.besideHeight <= data.row.labelBox + 2 * Theme.stack.row, "the tooltip fits the row gap beside the switch: " + data.row.besideHeight);
+                compare(start.y <= data.hint.mapToItem(data.row, 0, 0).y, true, "the tooltip covers the hint from its top: " + start.y);
             });
+        }
+
+        // A row with no hint has no line of its own under it, so a band
+        // there would lie on the next row. Its label opens nothing on hover
+        // or keyboard focus, and its info button holds the explainer for
+        // its dialog and opens no tooltip under itself either.
+        function test_a_label_tooltip_with_no_hint_and_no_room_goes_to_the_info_dialog_data() {
+            return [
+                { tag: "full-width control", row: explainedWide },
+                { tag: "too tall past the control", row: explainedTall },
+                { tag: "control taller than the label's box", row: explainedLines },
+                { tag: "label of two lines", row: explainedLong },
+                { tag: "with info of its own", row: explainedInfo, text: "The clock's format.\n\nIt follows the locale." }
+            ];
+        }
+        function test_a_label_tooltip_with_no_hint_and_no_room_goes_to_the_info_dialog(data) {
+            compare(UnitTheme.override({ tooltip: { delay: 20 } }), "ok");
+            const label = labelOf(data.row);
+            const control = label.children.find(child => child.visualFocus !== undefined);
+            const tip = tipOf(data.row);
+            verify(!control.activeFocusOnTab, "a label that opens nothing is a Tab stop");
+            const opened = [];
+            const record = () => { if (tip.opened) opened.push(tip.text); };
+            tip.openedChanged.connect(record);
+            try {
+                mouseMove(label, label.width / 2, label.height / 2);
+                control.forceActiveFocus(Qt.TabFocusReason);
+                compare(control.visualFocus, true);
+                wait(4 * Theme.tooltip.delay);
+                compare(opened.length, 0, "the label opens a band over the next row: " + opened);
+            } finally {
+                tip.openedChanged.disconnect(record);
+                mouseMove(root, root.width - 1, root.height - 1);
+            }
+            const mark = infoOf(data.row).item;
+            verify(mark !== null, "the row draws its info button");
+            compare(mark.info, data.text === undefined ? data.row.labelTooltip : data.text);
+            compare(mark.tooltip, "", "the info button opens the explainer under itself");
+            compare(mark.title, data.row.label);
+        }
+
+        // A row whose explainer opens beside its control, or over its hint,
+        // keeps it there: no info button takes it.
+        function test_a_label_tooltip_with_room_stays_on_the_label() {
+            for (const row of [explainedSwitch, explainedLabel, hintedRow(hintedField).row, hintedRow(hintedAbove).row]) {
+                compare(tipOf(row).text, row.labelTooltip);
+                compare(infoOf(row).item, null, "a row with room for its explainer draws an info button: " + row.label);
+            }
         }
 
         // Beside a ring that reaches the hint the band takes the whole
@@ -363,7 +406,8 @@ Item {
         function test_a_label_tooltip_under_the_row_draws_no_input() {
             const panel = Theme.surface.level.raised.background;
             verify(!Qt.colorEqual(Theme.textField.background, panel) && !Qt.colorEqual(Theme.textField.borderColor, Theme.textField.background), "an input draws no outlined sunken box");
-            showStill(explainedWide, tipOf(explainedWide), popup => {
+            const hinted = hintedRow(hintedShort).row;
+            showStill(hinted, tipOf(hinted), popup => {
                 const drawn = surfaceOf(popup);
                 verify(!Qt.colorEqual(drawn.fill, Theme.textField.background), "the band draws the input's fill: " + drawn.fill);
                 verify(!Qt.colorEqual(drawn.fill, panel), "the band draws the fill of the surface under it: " + drawn.fill);

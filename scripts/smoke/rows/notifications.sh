@@ -4481,7 +4481,7 @@ expect_poll "the pixel probe notifications leave" 0 on_screen
 
 # The act shortcut, vgs.notifications:act. The manifest binds it to
 # SUPER+SHIFT+N; the notifications' Settings page draws it in its Keys row
-# as "Act on the last notification", whose edits go to the plugin's `keys`
+# as "Act on last notification", whose edits go to the plugin's `keys`
 # in shell.json beside its inbox key, and the nested compositor holds the
 # bind each edit leaves. The row presses it as the bind does, through the
 # compositor's global dispatcher. It runs what a click on the newest
@@ -4514,7 +4514,7 @@ for s, r, v in json.load(sys.stdin):
 l=list(c.values())
 print(json.dumps(l[0] if l and all(x == l[0] for x in l) else (c if l else [])))'; }
 expect "the notifications' Settings page opens for its keys" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
-expect_poll "the page reads the act shortcut with its default key" '["Act on the last notification", "SUPER+SHIFT+N"]' act_row
+expect_poll "the page reads the act shortcut with its default key" '["Act on last notification", "SUPER+SHIFT+N"]' act_row
 expect_poll "the Keys row draws the act shortcut's default key" '"SUPER+SHIFT+N"' key_field vgs.notifications act key
 expect_poll "the compositor binds SUPER+SHIFT+N to the act shortcut" '[[65, "N", "vgs.notifications:act"]]' act_binds
 expect "the Keys row rebinds the act shortcut" applied act_apply '"SUPER+ALT+N"'
