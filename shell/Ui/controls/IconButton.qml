@@ -11,7 +11,9 @@ import qs.Ui
 // foreground, which its fill is chosen to carry. The rest colour is
 // opaque, not a faded foreground: an icon's stroke overlaps itself at its
 // joins, so an icon drawn translucent shows each overlap brighter. A
-// disabled button fades once on the whole control. The icon is
+// disabled button fades once on the whole control; one a `disabledReason`
+// locks (Button) fades its fill and icon, and shows the reason in place
+// of its action tooltip, so one tooltip shows. The icon is
 // the size's own, `button.size.<size>.icon`, centred on whole pixels.
 // `glyphStart` and `glyphEnd` are the distances from the box's edges to
 // the glyph's painted ink: a header that puts a glyph, not a box, on its
@@ -39,6 +41,7 @@ Button {
     background: Rectangle {
         implicitHeight: root.controlHeight
         radius: Theme.button.radius
+        opacity: root.lock.fade
         color: root.down ? (root.checked ? Theme.button.checked.pressed : root.tokens.pressed)
             : root.checked ? Theme.button.checked.background : root.tokens.background
         border.width: Theme.button.border
@@ -52,13 +55,13 @@ Button {
     contentItem: Icon {
         name: root.iconName
         size: root.sizeTokens.icon
-        opacity: root.down ? Theme.opacity.disabled : 1
+        opacity: (root.down ? Theme.opacity.disabled : 1) * root.lock.fade
         color: root.tone !== "" ? Theme.color[root.tone] : root.variant === "ghost" && root.enabled && !(root.hovered || root.visualFocus || root.down || root.checked) ? Theme.color.textMuted : root.foreground
         Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
     }
 
     Tooltip {
-        text: root.tooltip
+        text: root.lock.locked ? "" : root.tooltip
         side: root.tooltipSide
     }
 }

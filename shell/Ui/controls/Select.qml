@@ -35,7 +35,11 @@ import qs.Ui
 // With entries to choose,
 // none chosen (`currentIndex` outside the model) and `placeholderText` set,
 // the control reads that text dimmed, and the list opens with no entry
-// highlighted; Down then moves to the first entry.
+// highlighted; Down then moves to the first entry. A set `disabledReason`
+// disables the control: it stays a Tab stop, its list never opens, as with
+// nothing to choose, a key moves no choice, it draws faded with no hover
+// outline, and it shows the reason on hover and keyboard focus
+// (DisabledReason).
 T.AbstractButton {
     id: root
 
@@ -49,8 +53,10 @@ T.AbstractButton {
     property var model: []
     property int currentIndex: 0
     property string textRole: ""
+    property string disabledReason: ""
+    readonly property DisabledReason lock: lockState
     readonly property int count: Array.isArray(model) ? model.length : 0
-    readonly property bool opens: count > 0
+    readonly property bool opens: count > 0 && !lockState.locked
     readonly property string currentText: textAt(currentIndex)
     readonly property bool listOpen: list.visible
     property bool counted: false
@@ -117,7 +123,7 @@ T.AbstractButton {
     implicitHeight: Theme.textField.height
     leftPadding: sidePadding
     rightPadding: sidePadding + Theme.icon.size.sm + Theme.textField.gap
-    hoverEnabled: true
+    hoverEnabled: !lockState.locked
     // A disabled HoverHandler is never hovered, so Qt takes no cursor from
     // it and the arrow of the surface under the control shows.
     PointerCursor { enabled: root.opens }
@@ -125,7 +131,7 @@ T.AbstractButton {
     opacity: enabled ? 1 : Theme.opacity.disabled
     Accessible.name: showsEmpty ? emptyText : showsPlaceholder ? placeholderText : currentText
     onClicked: if (list.visible) list.visible = false; else openList()
-    Keys.onPressed: event => { event.accepted = closedNav.handle(event); }
+    Keys.onPressed: event => { event.accepted = lockState.locked ? lockState.takeKey(event) : closedNav.handle(event); }
 
     property KeyNav closedNav: KeyNav {
         focusTarget: root
@@ -142,6 +148,7 @@ T.AbstractButton {
         role: "item"
         text: root.showsEmpty ? root.emptyText : root.showsPlaceholder ? root.placeholderText : root.currentText
         color: root.showsEmpty || root.showsPlaceholder ? Theme.textField.placeholder : shown.typography.color
+        opacity: lockState.fade
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
     }
@@ -152,10 +159,12 @@ T.AbstractButton {
         color: root.opens ? Theme.textField.icon : Theme.color.textDisabled
         x: root.width - width - root.sidePadding
         y: (root.height - height) / 2
+        opacity: lockState.fade
     }
 
     background: Rectangle {
         radius: Theme.textField.radius
+        opacity: lockState.fade
         color: Theme.textField.background
         border.width: Theme.textField.border
         border.color: root.outline
@@ -299,4 +308,6 @@ T.AbstractButton {
     }
 
     readonly property AnchorTracker tracker: AnchorTracker { popup: list; anchor: root }
+
+    DisabledReason { id: lockState; control: root }
 }

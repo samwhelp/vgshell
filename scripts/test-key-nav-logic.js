@@ -85,6 +85,8 @@ function verify(logic) {
     assert.equal(check.checked, true, "activation toggles a checkable");
     assert.equal(check.toggledValue, true, "activation emits toggled with the new value");
     assert.equal(logic.activate({ enabled: false, clicked() { throw new Error("disabled clicked"); } }), false, "disabled controls do not activate");
+    assert.equal(logic.activate({ enabled: true, lock: { locked: true }, clicked() { throw new Error("locked clicked"); } }), false, "locked controls do not activate");
+    assert.equal(logic.activate({ enabled: true, lock: { locked: false }, clicked() {} }), true, "an unlocked control activates");
     assert.equal(logic.opener({ visualFocus: true }), "key", "a click on a control showing keyboard focus came from a key");
     assert.equal(logic.opener({ visualFocus: false }), "pointer", "a click on a control without keyboard focus came from the pointer");
 
@@ -122,6 +124,7 @@ const CONTROLS = [
     ["type-ahead fallback", "wanted = lower;\n        found = findPrefix(wanted, labels, reachable, from, false);", "wanted = lower;\n        found = -1;"],
     ["type-ahead current prefix", "var found = findPrefix(wanted, labels, reachable, from, typed !== \"\");", "var found = findPrefix(wanted, labels, reachable, from, false);"],
     ["disabled activation", "if (control === null || control === undefined || control.enabled === false) return false;", "if (control === null || control === undefined) return false;"],
+    ["locked activation", "if (control.lock !== undefined && control.lock !== null && control.lock.locked === true) return false;", ""],
     ["key opener", "return control.visualFocus === true ? \"key\" : \"pointer\";", "return \"pointer\";"],
     ["pointer opener", "return control.visualFocus === true ? \"key\" : \"pointer\";", "return \"key\";"],
     ["keycap modifier display", "\"SUPER\": \"Super\",", "\"SUPER\": \"SUPER\","],

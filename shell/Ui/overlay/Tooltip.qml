@@ -3,7 +3,8 @@ import Quickshell
 import qs.Commons
 import qs.Ui
 
-// A tooltip for the item it is declared in: it draws one title line and
+// A tooltip for `anchorItem`, the item it is declared in unless set, as a
+// control's helper sets it on the control: it draws one title line and
 // optional quieter detail lines. A detail is a string line, or `{ label,
 // value }` for a count row whose value column aligns with the other count
 // rows. After the theme's delay with the pointer resting on the item or
@@ -35,7 +36,9 @@ import qs.Ui
 // the item. A tooltip with no link takes no key. Under a last line that
 // is a link, the tooltip is as much taller as keeps that link's ring
 // `focusRing.offset` clear of its border. The declaring item is an
-// invisible, sizeless member of its parent.
+// invisible, sizeless member of its parent. Its hover and press handlers
+// are made on the anchor once, when it completes, so a later anchor is
+// not followed.
 Item {
     id: root
 
@@ -61,7 +64,7 @@ Item {
     property bool shown: false
     readonly property bool opened: popup.item !== null && popup.item.visible
     readonly property var tracker: popup.item === null ? null : popup.item.tracker
-    readonly property Item anchorItem: parent
+    property Item anchorItem: parent
 
     // The handlers live on the anchor, made once it is known: a handler
     // declared with a parent binding crashes the engine while the parent

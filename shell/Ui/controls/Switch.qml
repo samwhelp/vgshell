@@ -16,7 +16,12 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // so a compact track keeps a larger input area. `inkBelow()` is how far
 // above its bottom edge the track or the text ends, for the space a
 // `Section` measures from what it draws. `inkEnd()` is where the track,
-// or the text after it, ends.
+// or the text after it, ends, or the unlock mark after them.
+// A set `disabledReason` disables the switch: it stays a Tab stop, takes
+// no click or key, draws faded with no hover or press, and shows the
+// reason on hover and keyboard focus (DisabledReason). With `unlock` set,
+// `{ label, run }`, a lock-open mark after the track, or after the text,
+// runs that step (UnlockMark); the switch is that much wider.
 // Its tokens are `Theme.toggle`, since `switch` is a JavaScript keyword.
 T.Switch {
     id: root
@@ -30,6 +35,9 @@ T.Switch {
 
     property string size: "md"
     property bool focusPreview: false
+    property string disabledReason: ""
+    property var unlock: null
+    readonly property DisabledReason lock: lockState
     readonly property var sizeTokens: sizeOf(size)
 
     function sizeOf(name) {
@@ -39,8 +47,10 @@ T.Switch {
         return Theme.toggle.size.md;
     }
 
-    // The content's left padding already holds the indicator and the gap.
-    implicitWidth: text !== "" ? implicitContentWidth : implicitIndicatorWidth
+    // The content's left padding already holds the indicator and the gap;
+    // the right padding holds the unlock mark.
+    implicitWidth: (text !== "" ? implicitContentWidth : implicitIndicatorWidth) + rightPadding
+    rightPadding: mark.room
     implicitHeight: Math.max(Theme.size.control.sm, implicitIndicatorHeight, implicitContentHeight)
 
     function inkBelow() {
@@ -48,21 +58,23 @@ T.Switch {
         return height - Math.max(indicator.y + indicator.height, text);
     }
     function inkEnd() {
-        return root.text === "" ? indicator.x + indicator.width : Math.min(root.width, root.implicitWidth);
+        return root.text === "" ? indicator.x + indicator.width + root.rightPadding : Math.min(root.width, root.implicitWidth);
     }
     spacing: Theme.toggle.gap
-    hoverEnabled: true
-    PointerCursor {}
+    hoverEnabled: !lockState.locked
+    PointerCursor { enabled: !lockState.locked }
     opacity: enabled ? 1 : Theme.opacity.disabled
     Accessible.name: text
     Keys.onReturnPressed: KeyNavLogic.activate(root)
     Keys.onEnterPressed: KeyNavLogic.activate(root)
+    Keys.onPressed: event => { event.accepted = lockState.takeKey(event); }
 
     indicator: Rectangle {
         implicitWidth: root.sizeTokens.width
         implicitHeight: root.sizeTokens.height
         y: root.contentItem.indicatorY(height)
         radius: Theme.toggle.radius
+        opacity: lockState.fade
         color: root.checked ? (root.down ? Theme.toggle.onPressed : root.hovered ? Theme.toggle.onHover : Theme.toggle.on) : root.down ? Theme.toggle.offPressed : root.hovered ? Theme.toggle.offHover : Theme.toggle.off
         Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
 
@@ -80,5 +92,8 @@ T.Switch {
         FocusRing { target: root; outside: true }
     }
 
-    contentItem: IndicatorLabel { control: root }
+    contentItem: IndicatorLabel { control: root; opacity: lockState.fade }
+
+    DisabledReason { id: lockState; control: root }
+    UnlockMark { id: mark; control: root; bodyEnd: root.inkEnd() - mark.room; centreY: root.indicator.y + root.indicator.height / 2 }
 }

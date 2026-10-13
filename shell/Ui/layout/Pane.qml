@@ -9,7 +9,10 @@ import qs.Ui
 // and action, and the switch stays beside the Settings gear when one
 // shows. A switch that controls less than the title names, such as Wi-Fi
 // under Network, carries its `switchName` as a hint label at its left, so
-// it does not read as switching off the whole feature. The header slot stays below that row, so a plugin can add a
+// it does not read as switching off the whole feature. A set
+// `switchDisabledReason` disables the switch as it disables a Switch, and
+// `switchUnlock` draws its unlock mark, between the switch and the gear.
+// The header slot stays below that row, so a plugin can add a
 // sentence without owning the dropdown title pattern. `titleContent` holds
 // a title with inline controls; `subtitle` stays with that title before the
 // shared title space. The scroll bar lives
@@ -51,6 +54,8 @@ Item {
     property bool switchShown: false
     property bool switchChecked: false
     property bool switchEnabled: true
+    property string switchDisabledReason: ""
+    property var switchUnlock: null
     property string switchName: title
     property bool settingsGear: true
     // The width of a divider under the header while the body is scrolled,
@@ -235,6 +240,8 @@ Item {
                 Accessible.name: root.switchName
                 checked: root.switchChecked
                 enabled: root.switchEnabled
+                disabledReason: root.switchDisabledReason
+                unlock: root.switchUnlock
                 onToggled: {
                     const wanted = checked;
                     checked = Qt.binding(() => root.switchChecked);

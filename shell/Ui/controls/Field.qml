@@ -27,7 +27,9 @@ import qs.Ui
 // where the value column starts, for content that belongs under it.
 // `subText` holds while the lines, the hint or the error line show; the
 // field then takes room under them so the next row of its column starts
-// `stack.group` below the last line (Theme.subTextRoom).
+// `stack.group` below the last line (Theme.subTextRoom). A set
+// `disabledReason` goes to the control that takes one (DisabledReason); a
+// reason no control takes is logged.
 Column {
     id: root
 
@@ -39,7 +41,14 @@ Column {
     property string hintLink: ""
     property var lines: []
     property bool inline: Theme.field.inline
+    property string disabledReason: ""
     default property alias control: controlRow.control
+    // The control that takes the reason, or null.
+    readonly property Item reasonTarget: {
+        for (const child of controlRow.control)
+            if (child.disabledReason !== undefined) return child;
+        return null;
+    }
     // The width the label, the control's row and the hint share: the
     // column's own, less its padding, since a positioner does not narrow
     // its children.
@@ -49,6 +58,19 @@ Column {
     signal hintLinkActivated()
     signal hintPageActivated(string page, string tab)
     signal infoPageActivated(string page, string tab)
+
+    Binding {
+        target: root.reasonTarget
+        property: "disabledReason"
+        value: root.disabledReason
+        when: root.reasonTarget !== null && root.disabledReason !== ""
+    }
+    function judgeReason() {
+        if (disabledReason !== "" && reasonTarget === null)
+            console.error("Field: disabledReason=" + JSON.stringify(disabledReason) + " no control takes it, label=" + JSON.stringify(label));
+    }
+    onDisabledReasonChanged: judgeReason()
+    Component.onCompleted: judgeReason()
 
     leftPadding: Theme.field.paddingX
     rightPadding: Theme.field.paddingX

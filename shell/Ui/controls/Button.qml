@@ -17,7 +17,11 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // `Theme.button.checked` while checked, with its own hover and press. The
 // fill animates between states on `motion.duration.fast`. Under a rounded
 // theme the side padding grows until the content clears the drawn corner
-// (Theme.controlPadding).
+// (Theme.controlPadding). A set `disabledReason` disables the button: it
+// stays a Tab stop, takes no click or key, draws its fill and content
+// faded with no hover or press, and shows the reason on hover and
+// keyboard focus. `lock` is that state (DisabledReason), which a button
+// built on this one reads.
 T.Button {
     id: root
 
@@ -32,6 +36,8 @@ T.Button {
     property string size: "md"
     property string iconName: ""
     property bool focusPreview: false
+    property string disabledReason: ""
+    readonly property DisabledReason lock: lockState
     readonly property var tokens: variantOf(variant)
     readonly property int controlHeight: sizeOf(size)
     readonly property var sizeTokens: Theme.button.size[size] !== undefined ? Theme.button.size[size] : Theme.button.size.md
@@ -57,15 +63,17 @@ T.Button {
     leftPadding: Theme.controlPadding(sizeTokens.paddingX, Theme.button.radius, controlHeight, implicitContentHeight)
     rightPadding: leftPadding
     spacing: sizeTokens.gap
-    hoverEnabled: true
-    PointerCursor {}
+    hoverEnabled: !lockState.locked
+    PointerCursor { enabled: !lockState.locked }
     opacity: enabled ? 1 : Theme.opacity.disabled
     Accessible.name: text
     Keys.onReturnPressed: KeyNavLogic.activate(root)
     Keys.onEnterPressed: KeyNavLogic.activate(root)
+    Keys.onPressed: event => { event.accepted = lockState.takeKey(event); }
 
     contentItem: Row {
         spacing: root.spacing
+        opacity: lockState.fade
         Icon {
             visible: root.iconName !== ""
             name: root.iconName
@@ -87,10 +95,13 @@ T.Button {
     background: Rectangle {
         implicitHeight: root.controlHeight
         radius: Theme.button.radius
+        opacity: lockState.fade
         color: root.fill
         border.width: Theme.button.border
         border.color: root.checked ? Theme.button.checked.border : root.tokens.border
         Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
         FocusRing { target: root }
     }
+
+    DisabledReason { id: lockState; control: root }
 }

@@ -232,9 +232,12 @@ function focusNavigation(target) {
 }
 
 // Activate a button-like object without click() or animateClick(), because
-// those re-focus with the mouse focus reason and hide the focus ring.
+// those re-focus with the mouse focus reason and hide the focus ring. A
+// control its `disabledReason` locks (DisabledReason) stays enabled and
+// takes no activation either.
 function activate(control) {
     if (control === null || control === undefined || control.enabled === false) return false;
+    if (control.lock !== undefined && control.lock !== null && control.lock.locked === true) return false;
     if (control.checkable === true || control.autoExclusive === true) {
         if (control.autoExclusive === true) {
             control.checked = true;

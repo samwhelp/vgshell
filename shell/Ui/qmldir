@@ -83,6 +83,8 @@ internal ListMask overlay/ListMask.qml
 internal ScrollBar layout/ScrollBar.qml
 internal InputWidth controls/InputWidth.qml
 internal IndicatorLabel controls/IndicatorLabel.qml
+internal DisabledReason controls/DisabledReason.qml
+internal UnlockMark controls/UnlockMark.qml
 internal ListAnimation layout/ListAnimation.qml
 internal ListCursorRow layout/ListCursorRow.qml
 internal AvatarFace feedback/AvatarFace.qml

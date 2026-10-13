@@ -205,6 +205,10 @@ Item {
                     Field { label: "Medium off"; inline: true; width: parent.width; Switch { size: "md"; text: "Off" } }
                     Field { label: "Medium on"; inline: true; width: parent.width; Switch { size: "md"; text: "On"; checked: true } }
                     Field { label: "Medium disabled"; inline: true; width: parent.width; Switch { size: "md"; text: "Disabled"; checked: true; enabled: false } }
+                    // A locked switch says why and carries the step that
+                    // unlocks it; a preview runs no step.
+                    Field { label: "Small locked"; inline: true; width: parent.width; Switch { size: "sm"; text: "Locked"; disabledReason: "Sign in to your VPN account to turn on this switch"; unlock: ({ label: "Sign in", run: () => {} }) } }
+                    Field { label: "Medium locked"; inline: true; width: parent.width; Switch { size: "md"; text: "Locked"; disabledReason: "Sign in to your VPN account to turn on this switch"; unlock: ({ label: "Sign in", run: () => {} }) } }
                 }
                 Flow {
                     width: parent.width
