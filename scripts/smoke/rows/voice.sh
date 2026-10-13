@@ -1233,7 +1233,7 @@ expect_poll "the Setup tab draws no Setup section again" absent voice_setup_sect
 # Setup tab draws the Requirements row, whose Install all missing is the
 # page's one install.
 expect_poll "the Voice page offers no setup step without voxtype" '[]' offered_actions vgs.voice
-expect_poll "the Voice Requirements row says voxtype is missing" "$(words voxtype "Missing, optional" "Captures speech and inserts dictated text")" voice_requirement_drawn
+expect_poll "the Voice Requirements row says voxtype is optional" "$(words voxtype "Optional" "Captures speech and inserts dictated text")" voice_requirement_drawn
 
 # Install all missing without voxtype: the notice installs voxtype and its
 # bridge, and the install opens no screen after it.

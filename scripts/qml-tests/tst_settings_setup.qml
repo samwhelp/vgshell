@@ -448,5 +448,40 @@ Item {
             mouseClick(install);
             compare(fakeManager.installs, [data.id], "a press asks the manager to install the plugin's tools");
         }
+
+        // A Requirements row's chip holds one state: a missing optional
+        // tool reads Optional in the info tone, a missing required one
+        // Missing in the danger tone, and an outdated one Outdated in the
+        // warning tone, optional or not.
+        function test_a_requirement_chip_reads_one_state_data() {
+            return [
+                { tag: "a missing optional tool", id: "acme.optional", tool: "acme-tool", chip: ["Optional", "info"] },
+                { tag: "a missing required tool", id: "acme.required", tool: "acme-other", chip: ["Missing", "danger"] }
+            ];
+        }
+        function test_a_requirement_chip_reads_one_state(data) {
+            const window = opened();
+            window.openPlugin(data.id, Qt.OtherFocusReason, "Setup");
+            compare(pageOf(window).tab, "Setup");
+            const row = descendants(pageOf(window)).find(item => item instanceof RequirementRow && item.visible && item.requirement.name === data.tool);
+            verify(row !== undefined, "the Setup tab draws the tool's row");
+            const chip = descendants(row).find(item => item instanceof Badge);
+            compare([chip.text, chip.tone], data.chip);
+        }
+        function test_an_outdated_requirement_reads_one_state_data() {
+            return [
+                { tag: "optional", optional: true },
+                { tag: "required", optional: false }
+            ];
+        }
+        function test_an_outdated_requirement_reads_one_state(data) {
+            const row = createTemporaryObject(requirementComponent, root, { requirement: { name: "acme-tool", purpose: "A tool", optional: data.optional, state: "outdated" } });
+            compare([row.view.text, row.view.tone], ["Outdated", "warning"]);
+        }
+    }
+
+    Component {
+        id: requirementComponent
+        RequirementRow { width: 400 }
     }
 }
