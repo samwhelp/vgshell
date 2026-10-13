@@ -5818,6 +5818,24 @@ scene_network() { # MODE
   expect_poll "the network widget opens its panel" shown network_shot_panel
   park_pointer
   take "network-$1-dropdown"
+  # The saved profile's activation fails on its password, so the service
+  # prompts, as the network row's net_reprompt drives it. A tree from
+  # before the prompt's Dialog draws the password field in the list.
+  expect "the network shot starts the saved profile" ok ipc vgs.network invoke action '{"kind":"connect","key":"[\"wlan0\",\"VGS Smoke Wi-Fi\"]"}'
+  expect_poll "the network shot's activation is pending" connect network_shot_action
+  expect "the network shot's mock refuses the saved password" ok python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" fail
+  expect_poll "the network shot's service prompts" True network_shot_prompt
+  expect "the network shot's failed activation is removed" ok python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" drop-active
+  if tree_has shell/plugins/vgs.network/NetworkBody.qml 'objectName: "network-prompt"'; then
+    expect_poll "the password dialog shows in the dropdown" true ipc smoke readMatchingDescendant panel vgs.network Dialog objectName network-prompt visible
+    expect_poll "the password dialog focuses its empty masked field" '{"masked":true,"length":0,"focused":true}' ipc smoke networkField panel
+  else
+    expect_poll "the password field shows in the dropdown's list" true ipc smoke readMatchingDescendant panel vgs.network TextField objectName network-password visible
+  fi
+  park_pointer
+  take_posed "network-$1-dropdown-password"
+  expect "the network shot cancels its prompt" ok ipc vgs.network invoke action '{"kind":"cancel"}'
+  expect_poll "the network shot's prompt ends" False network_shot_prompt
   expect "the network panel hides" ok ipc shell hide panel vgs.network
   expect "the network shot forgets its saved fake profile" ok ipc vgs.network invoke action '{"kind":"forget","key":"[\"wlan0\",\"VGS Smoke Wi-Fi\"]"}'
   expect_poll "the network shot releases its saved fake profile" False network_shot_known
@@ -5870,6 +5888,8 @@ network_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.network) != abs
 network_shot_details() { ipc smoke networkDetails window | py_reply 'import json,sys; s=sys.stdin.read(); print(s.startswith("{") and len(json.loads(s)["rows"]) > 0)'; }
 network_shot_names() { ipc smoke readDescendant window vgs.network NetworkBody rows | py_reply 'import json,sys; print(json.dumps([[r["name"],r["security"],r["known"]] for r in json.load(sys.stdin)]))'; }
 network_shot_known() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; print(any(r["known"] for r in json.load(sys.stdin)["network"]["wifi"]))'; }
+network_shot_action() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; print(json.load(sys.stdin)["network"]["action"]["kind"])'; }
+network_shot_prompt() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; print(bool(json.load(sys.stdin)["network"]["prompt"]))'; }
 
 scene_dialog() { # MODE
   expect "enabling acme.needs is allowed" ok ipc shell setPluginEnabled acme.needs true
