@@ -162,10 +162,10 @@ run_bg() { # BIN RT [NAME=VALUE...]
   done
   return 1
 }
-# Sets status to the runner's exit status once it ended within 5 s, or to
-# `running`.
-runner_end() {
-  for _ in $(seq 1 100); do
+# Sets status to the runner's exit status once it ended within SECONDS,
+# 5 by default, or to `running`.
+runner_end() { # [SECONDS]
+  for _ in $(seq 1 $((${1:-5} * 20))); do
     if ! proc_live "$runner"; then
       status=0
       wait "$runner" || status=$?
@@ -422,12 +422,15 @@ kept_on() { # BIN locked|unknown|unlocked
 # Three quick exits, a run of 2 s and quick exits after it, while Hyprland
 # answers with the session unlocked: the runner's status, the shells it
 # started and its give-up line. The row runs a copy whose delays are 0.1 s
-# and whose healthy run is 1 s, so the long run starts a new streak.
+# and whose healthy run is 1 s, so the long run starts a new streak. Its
+# delays and long run alone sleep 4.1 s, and nine session reads start node,
+# so the row waits up to 20 s for the runner's end: under host load the
+# default 5 s ends the wait before the give-up.
 healthy_reset() { # BIN
   local status
   new_rt
   run_bg "$1" "$rt" STUB_PLAN="0:3 0:3 0:3 2:3 0:3" STUB_MONITORS="$monitors_unlocked" || { echo "no-shell"; return; }
-  runner_end
+  runner_end 20
   printf 'status=%s launches=%s gave_up=[%s]\n' "$status" "$(launches "$rt")" "$(runner_lines "$rt" gave-up)"
   stop_runner
 }
