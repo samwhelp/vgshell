@@ -14,8 +14,8 @@ import qs.Unit
 // apart, top-aligned on one line as tall as the tallest, and gives no room
 // to a hidden action or to the Repeater that makes its actions; given less
 // width than its actions, it continues them on a new line once the next
-// would pass that width, each line `row.height` under the last with its
-// actions centred in it, and answers for its highest and lowest ink.
+// would pass that width, each line `row.height` tall with its actions
+// centred in it and `stack.row` under the last, the pitch of a page's rows, and answers for its highest and lowest ink.
 Item {
     id: root
     width: 400
@@ -229,10 +229,11 @@ Item {
             compare(two.y, one.y, "an action that fits to the pixel leaves the first line");
             compare(two.x - (one.x + one.width), Theme.rowAction.gap, "the gap on a wrapped line");
             compare(three.x, 0, "the next line starts on the edge");
-            compare(three.y - one.y, Theme.row.height, "the line tops");
-            compare(lines.height, 2 * Theme.row.height);
+            verify(Theme.stack.row > 0, "the rows of a page stand no gap apart, so a dropped line gap reads alike");
+            compare(three.y - one.y, Theme.row.height + Theme.stack.row, "the line tops");
+            compare(lines.height, 2 * Theme.row.height + Theme.stack.row);
             fuzzyCompare(one.y + one.height / 2, Theme.row.height / 2, 0.5, "the first line's actions leave its centre");
-            fuzzyCompare(three.y + three.height / 2, 1.5 * Theme.row.height, 0.5, "the second line's action leaves its centre");
+            fuzzyCompare(three.y + three.height / 2, 1.5 * Theme.row.height + Theme.stack.row, 0.5, "the second line's action leaves its centre");
             compare(lines.inkAbove(), one.y + one.inkAbove());
             compare(lines.inkBelow(), lines.height - (three.y + three.height));
         }
@@ -244,7 +245,7 @@ Item {
             compare(three.x, two.x + two.width + Theme.rowAction.gap);
             compare(lines.height, Math.max(one.height, two.height, three.height));
             lines.width = narrow;
-            compare(three.y - one.y, Theme.row.height);
+            compare(three.y - one.y, Theme.row.height + Theme.stack.row);
         }
 
         function test_a_hidden_action_takes_no_room() {

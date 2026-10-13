@@ -9,9 +9,10 @@ import qs.Commons
 // so the gap is one rule. With no width set it is as wide as its actions
 // and stands on one line. Given less width, the actions continue on a new
 // line once the next one would pass that width; each line then takes
-// `row.height` with its actions centred in it, so the lines stand as far
-// apart as the rows of a page do and the first sits where a one-line row's
-// action does. `firstLineHeight` is that first line's height while the
+// `row.height` with its actions centred in it, and the lines stand
+// `stack.row` apart, as the rows of a page stack do, so a line starts
+// where the next row of the page would and the first sits where a
+// one-line row's action does. `firstLineHeight` is that first line's height while the
 // actions wrap and 0 while they stand on one line; FormRow reads it to set
 // its label beside the first line. `inkAbove()` and `inkBelow()` are how
 // far inside its top and bottom edges the highest and the lowest action
@@ -56,12 +57,12 @@ Item {
     }
 
     implicitWidth: lineWidth
-    implicitHeight: placed.lines > 1 ? placed.lines * Theme.row.height : shown.reduce((tallest, child) => Math.max(tallest, child.height), 0)
+    implicitHeight: placed.lines > 1 ? placed.lines * Theme.row.height + (placed.lines - 1) * Theme.stack.row : shown.reduce((tallest, child) => Math.max(tallest, child.height), 0)
     onPlacedChanged: {
         const wrapped = placed.lines > 1;
         for (const spot of placed.spots) {
             spot.item.x = spot.x;
-            spot.item.y = wrapped ? spot.line * Theme.row.height + Math.round((Theme.row.height - spot.item.height) / 2) : 0;
+            spot.item.y = wrapped ? spot.line * (Theme.row.height + Theme.stack.row) + Math.round((Theme.row.height - spot.item.height) / 2) : 0;
         }
     }
 }

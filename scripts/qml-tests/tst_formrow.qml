@@ -169,12 +169,13 @@ Item {
 
         function test_a_wrapped_control_keeps_the_row_pitch_and_the_label_on_its_first_line() {
             verify(steps.width <= lined.width - lined.valueX, "the actions' two lines pass the value column");
-            compare(lined.height, 2 * Theme.row.height);
+            verify(Theme.stack.row > 0, "the rows of a page stand no gap apart, so a dropped line gap reads alike");
+            compare(lined.height, 2 * Theme.row.height + Theme.stack.row);
             compare(single.height, Theme.row.height);
             const firstLine = stepOne.mapToItem(lined, 0, stepOne.height / 2).y;
             fuzzyCompare(firstLine, Theme.row.height / 2, 0.5, "the first line leaves a row's centre");
             compare(stepOne.mapToItem(lined, 0, 0).y, lone.mapToItem(single, 0, 0).y, "the first line leaves a one-line row's place");
-            compare(stepThree.mapToItem(lined, 0, 0).y - stepOne.mapToItem(lined, 0, 0).y, Theme.row.height);
+            compare(stepThree.mapToItem(lined, 0, 0).y - stepOne.mapToItem(lined, 0, 0).y, Theme.row.height + Theme.stack.row, "the lines leave the pitch of a page's rows");
             // A RowAction's box centres on its text's capital centre.
             fuzzyCompare(labelOf(lined).y + labelOf(lined).capCentre, firstLine, 1, "the label's capitals leave the first line's");
             compare(labelOf(lined).y, labelOf(single).y, "the label leaves a one-line row's place");
