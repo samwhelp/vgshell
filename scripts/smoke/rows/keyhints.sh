@@ -175,12 +175,30 @@ expect_poll "the Themes shortcut reaches Hyprland before its row is read" True k
 expected_errors+=("${dictation_absent_errors[@]}")
 # voxtype and its bridge are required, so enabling Voice raises their
 # requirement notice; Not now closes it before the Key Hints window opens.
+# Voice's notice is read by plugin, shown or waiting behind another, and the
+# queue is closed in order until Voice's has been shown and closed.
+kh_voice_asked='["vgs.voice", ["voxtype", "voxtype-audio-bridge"], ["voxtype", "voxtype-audio-bridge"], false]'
+kh_voice_queued() { ipc shell lent | py_reply 'import json,sys; n=json.load(sys.stdin)["notices"]; s=n["shown"]; print(str((s is not None and s["plugin"] == "vgs.voice") or "vgs.voice" in n["waiting"]).lower())'; }
+# The notice at the queue's front, else none.
+kh_shown_plugin() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["notices"]["shown"]; print("none" if s is None else s["plugin"])'; }
 kh_voice_notice() { # LABEL
-  expect_poll "$1: enabling Voice raises the notice for voxtype and its bridge" '["vgs.voice", ["voxtype", "voxtype-audio-bridge"], ["voxtype", "voxtype-audio-bridge"], false]' notice_shown
-  expect_poll "$1: the Voice notice holds the keyboard" true ipc smoke noticeFocused
-  type_keys -k Escape || fail "$1: sending Escape to the Voice notice failed"
-  expect_poll "$1: Escape closes the Voice notice" null notice_shown
+  local shown seen=false
+  expect_poll "$1: enabling Voice queues its notice" true kh_voice_queued
+  for _ in 1 2 3 4; do
+    shown="$(kh_shown_plugin)" || shown=unread
+    [[ $shown == none ]] && break
+    if [[ $shown == vgs.voice ]]; then
+      expect_poll "$1: Voice's notice asks for voxtype and its bridge" "$kh_voice_asked" notice_shown
+      seen=true
+    fi
+    expect_poll "$1: the notice of $shown holds the keyboard" true ipc smoke noticeFocused
+    type_keys -k Escape || fail "$1: sending Escape to the notice of $shown failed"
+    expect_poll "$1: Escape closes the notice of $shown" true kh_shown_moved "$shown"
+  done
+  [[ $seen == true ]] || fail "$1: Voice's notice never showed"
+  expect_poll "$1: no notice is left" null notice_shown
 }
+kh_shown_moved() { [[ $(kh_shown_plugin) != "$1" ]] && echo true || echo false; }
 expect "enabling Voice is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "the Voice service is built" True record_exists vgs.voice
 kh_voice_notice "Voice on"
