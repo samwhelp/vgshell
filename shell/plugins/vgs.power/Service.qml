@@ -1,19 +1,27 @@
 import QtQuick
-import Quickshell
 import Quickshell.Io
 import Quickshell.Services.UPower
 import qs.Commons
 import "PowerLogic.js" as Logic
 
-// The Power service is the only reader of Quickshell's UPower and
-// PowerProfiles services, the only writer of the power profile, and the
-// only sender of low-battery notices. Widgets and panels read the status
-// value and ask this service through IPC. Quickshell 0.3.1 documents
-// UPower.displayDevice, UPower.onBattery, PowerProfiles.profile and
-// PowerProfiles.hasPerformanceProfile. In the source, UPowerService and
-// PowerProfileService call tryLaunchService and init when the singleton is
-// first created; powerprofiles.cpp exposes no daemon-present property, and
-// powerprofiles.hpp makes profile writable.
+// The Power service is the only reader of Quickshell's UPower service and
+// of the power profiles daemon, the only writer of the power profile, and
+// the only sender of low-battery notices. Widgets and panels read the
+// status value and ask this service through IPC. Quickshell 0.3.1 documents
+// UPower.displayDevice and UPower.onBattery.
+//
+// The profiles come from the daemon through gdbus, never from Quickshell's
+// PowerProfiles singleton: in Quickshell 0.3.1 its constructor
+// (src/services/upower/powerprofiles.cpp) connects its properties only when
+// the daemon answers then or starts on its one launch request, so it never
+// reads a daemon that appears later. One `gdbus monitor` child stays up and
+// prints a line when the daemon's name gains or loses its owner and on each
+// of its signals; every line starts one Properties.GetAll read, which is
+// also the first read. gdbus's --system takes its address from
+// DBUS_SYSTEM_BUS_ADDRESS when that is set and the standard socket when it
+// is not, and monitor writes each line to a pipe as it happens (runs on
+// GLib 2.88.3 against a mock daemon on a private bus), so the argv names no
+// address.
 Item {
     id: root
 
@@ -22,10 +30,13 @@ Item {
     property var sourceState: ({ ready: false, onBattery: false })
     property var noticeLatch: Logic.latchInitial()
 
-    property bool profileAvailable: false
+    property var profile: Logic.profileView("")
+    // A daemon line that arrived while a read ran: one more read follows.
+    property bool profileReadStale: false
+    // The newest profile asked for while a write ran: it is written next.
+    property string profileWanted: ""
     readonly property bool upowerReady: UPower.displayDevice !== null && UPower.displayDevice.ready === true
     readonly property var battery: Logic.batteryView(UPower.displayDevice, UPower.onBattery)
-    readonly property var profile: Logic.profileView(profileAvailable, PowerProfiles.profile, PowerProfiles.hasPerformanceProfile)
     readonly property var view: ({ battery: battery, profile: profile })
     readonly property string viewKey: JSON.stringify(view)
     readonly property string noticeKey: JSON.stringify({
@@ -35,11 +46,8 @@ Item {
         critical: shell === null ? 10 : shell.settings.criticalThreshold
     })
     readonly property string sourceKey: JSON.stringify({ ready: upowerReady, onBattery: UPower.onBattery })
-    readonly property var profileProbeCommand: Quickshell.env("DBUS_SYSTEM_BUS_ADDRESS") === "" ? [
-        "gdbus", "call", "--system", "--dest", "org.freedesktop.UPower.PowerProfiles", "--object-path", "/org/freedesktop/UPower/PowerProfiles", "--method", "org.freedesktop.DBus.Properties.Get", "org.freedesktop.UPower.PowerProfiles", "ActiveProfile"
-    ] : [
-        "gdbus", "call", "--address", Quickshell.env("DBUS_SYSTEM_BUS_ADDRESS"), "--dest", "org.freedesktop.UPower.PowerProfiles", "--object-path", "/org/freedesktop/UPower/PowerProfiles", "--method", "org.freedesktop.DBus.Properties.Get", "org.freedesktop.UPower.PowerProfiles", "ActiveProfile"
-    ]
+    readonly property string profilesInterface: "org.freedesktop.UPower.PowerProfiles"
+    readonly property var profilesBus: ["--system", "--dest", profilesInterface, "--object-path", "/org/freedesktop/UPower/PowerProfiles"]
 
     onShellChanged: {
         if (shell === null || registered) return;
@@ -48,7 +56,7 @@ Item {
         shell.shortcut.register("power-saver", "Use the power saver profile", () => root.setProfile("power-saver", true));
         shell.shortcut.register("balanced", "Use the balanced profile", () => root.setProfile("balanced", true));
         shell.shortcut.register("performance", "Use the performance profile", () => root.setProfile("performance", true));
-        profileProbe.running = true;
+        profileWatch.running = true;
         publish();
         checkNotices();
     }
@@ -77,23 +85,43 @@ Item {
     }
 
     function setProfile(name, remember) {
-        if (!profileAvailable) return "refused: profile=unavailable";
+        if (!profile.available) return "refused: profile=unavailable";
         if (!Logic.validProfile(name)) return "refused: profile=" + name + " want=power-saver|balanced|performance";
-        if (name === "performance" && !PowerProfiles.hasPerformanceProfile) return "refused: profile=performance reason=unavailable";
-        PowerProfiles.profile = Logic.profileEnum(name);
-        if (Logic.profileName(PowerProfiles.profile) !== name) return "refused: profile=" + name + " reason=not-applied";
+        if (profile.choices.indexOf(name) === -1) return "refused: profile=" + name + " reason=unavailable";
+        writeProfile(name);
         if (remember === true && shell !== null) {
             const key = UPower.onBattery ? "batteryProfile" : "chargerProfile";
             const saved = shell.configure.set(key, name);
             if (saved !== "ok") console.warn("power: configure " + saved);
         }
-        publish();
         return name;
     }
 
+    // The mark moves at once; the daemon's signal, or the read after a
+    // refused write, then states what the daemon holds.
+    function writeProfile(name) {
+        profile = Logic.profileMarked(profile, name);
+        if (profileWriter.running) {
+            profileWanted = name;
+            return;
+        }
+        profileWanted = "";
+        profileWriter.command = ["gdbus", "call"].concat(profilesBus, ["--method", "org.freedesktop.DBus.Properties.Set", profilesInterface, "ActiveProfile", "<'" + name + "'>"]);
+        profileWriter.running = true;
+    }
+
+    function readProfiles() {
+        if (profileReader.running) {
+            profileReadStale = true;
+            return;
+        }
+        profileReadStale = false;
+        profileReader.running = true;
+    }
+
     function applySourceProfile() {
-        if (shell === null || !profileAvailable) return;
-        setProfile(Logic.profileForSource(UPower.onBattery, shell.settings, PowerProfiles.hasPerformanceProfile), false);
+        if (shell === null || !profile.available) return;
+        setProfile(Logic.profileForSource(UPower.onBattery, shell.settings, profile.choices), false);
     }
 
     function observeSource() {
@@ -111,26 +139,47 @@ Item {
     }
 
     function sendNotice(notice) {
-        const argv = [
-            "notify-send",
-            "--urgency=" + notice.urgency,
-            "--expire-time=30000",
-            "--icon=battery-caution",
-            "--",
-            "Time to recharge!",
-            "Battery is down to " + notice.level + "%"
-        ];
-        const reply = shell.run.detached(argv);
+        const reply = shell.notify.send({
+            title: "Time to recharge!",
+            message: "Battery is down to " + notice.level + "%",
+            icon: notice.threshold === "critical" ? "battery-warning" : "battery-low",
+            urgency: notice.urgency
+        });
         if (reply !== "ok") console.warn("power: notify " + reply);
     }
 
+    // The watch ends with the shell: setpriv hands gdbus the parent-death
+    // signal. It ends early when gdbus cannot connect to the system bus or
+    // that bus closes; neither leaves a daemon to read, so it is not started
+    // again.
     Process {
-        id: profileProbe
-        command: root.profileProbeCommand
-        stdout: StdioCollector { id: profileProbeOut; waitForEnd: true }
+        id: profileWatch
+        command: ["setpriv", "--pdeathsig", "TERM", "--", "gdbus", "monitor"].concat(root.profilesBus)
+        stdout: SplitParser { onRead: () => root.readProfiles() }
         onExited: code => {
-            root.profileAvailable = code === 0 && profileProbeOut.text.trim() !== "";
-            root.publish();
+            console.warn("power: profile watch ended exit=" + code);
+            root.profile = Logic.profileView("");
+        }
+    }
+
+    Process {
+        id: profileReader
+        command: ["gdbus", "call"].concat(root.profilesBus, ["--method", "org.freedesktop.DBus.Properties.GetAll", root.profilesInterface])
+        stdout: StdioCollector { id: profileReaderOut; waitForEnd: true }
+        onExited: code => {
+            root.profile = Logic.profileView(code === 0 ? profileReaderOut.text : "");
+            if (root.profileReadStale) root.readProfiles();
+        }
+    }
+
+    Process {
+        id: profileWriter
+        onExited: code => {
+            if (code !== 0) {
+                console.warn("power: profile write exit=" + code);
+                root.readProfiles();
+            }
+            if (root.profileWanted !== "") root.writeProfile(root.profileWanted);
         }
     }
 }

@@ -32,16 +32,19 @@ power_display() {
 power_no_battery() { power_display 0 0 0.0 0 0 false; }
 power_discharging() { power_on_battery true; power_display 2 2 "$1" "$2" 0 true; }
 power_charging() { power_on_battery false; power_display 2 1 "$1" 0 "$2" true; }
+power_start_profiles() { # LOG_PREFIX ACTIVE_PROFILE
+  spawn "$sandbox/$1-profiles.log" "${shell_env[@]}" python3 -m dbusmock --system --template upower_power_profiles_daemon
+  power_profiles_pid="$spawn_pid"
+  expect_poll "the sandbox PowerProfiles mock owns its bus name" true power_bus_has org.freedesktop.UPower.PowerProfiles
+  power_profile_set_mock "$2"
+}
 power_start_mocks() { # LOG_PREFIX [ACTIVE_PROFILE]
   local prefix="$1" active="${2:-balanced}"
   power_supply_added=false
   spawn "$sandbox/$prefix-upower.log" "${shell_env[@]}" python3 -m dbusmock --system --template upower
   power_upower_pid="$spawn_pid"
-  spawn "$sandbox/$prefix-profiles.log" "${shell_env[@]}" python3 -m dbusmock --system --template upower_power_profiles_daemon
-  power_profiles_pid="$spawn_pid"
   expect_poll "the sandbox UPower mock owns its bus name" true power_bus_has org.freedesktop.UPower
-  expect_poll "the sandbox PowerProfiles mock owns its bus name" true power_bus_has org.freedesktop.UPower.PowerProfiles
-  power_profile_set_mock "$active"
+  power_start_profiles "$prefix" "$active"
 }
 power_stop_mock() { python3 - "$1" <<'PY_STOP'
 import os, signal, sys

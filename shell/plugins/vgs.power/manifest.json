@@ -20,8 +20,8 @@
   "capabilities": [
     "configure",
     "ipc",
+    "notify",
     "requirements",
-    "run",
     "shortcut",
     "status",
     "surfaces"
@@ -43,17 +43,6 @@
       "purpose": "The power profiles service, which switches the power profile"
     },
     {
-      "command": "notify-send",
-      "packages": {
-        "pacman": "libnotify",
-        "apt": "libnotify-bin",
-        "dnf": "libnotify",
-        "nix": "libnotify"
-      },
-      "optional": false,
-      "purpose": "Sends low-battery alerts"
-    },
-    {
       "command": "gdbus",
       "packages": {
         "pacman": "glib2",
@@ -62,7 +51,7 @@
         "nix": "glib"
       },
       "optional": false,
-      "purpose": "Checks if power profiles are available"
+      "purpose": "Reads and sets the power profile"
     }
   ],
   "settings": {

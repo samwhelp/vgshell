@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Table-driven checks for vgs.power's pure decisions, PowerLogic.js:
 // battery presence, battery and profile views, icon bands, time text,
-// profile mapping, source-change profile choice and low-battery latches.
+// the profile view read from the daemon's reply, source-change profile
+// choice and low-battery latches.
 // Controls edit one rule at a time in a copy of the logic under repo tmp
 // and require this suite to fail on each copy.
 "use strict";
@@ -71,26 +72,29 @@ function verify(logic) {
     for (const [level, charging, want] of icons)
         assert.equal(logic.batteryIcon(level, charging), want, `batteryIcon ${level} ${charging}`);
 
-    same(logic.profileView(true, 0, true), { available: true, active: "power-saver", choices: ["power-saver", "balanced", "performance"] }, "profileView: saver with performance");
-    same(logic.profileView(true, 2, false), { available: true, active: "performance", choices: ["power-saver", "balanced"] }, "profileView: active keeps what daemon reports");
-    same(logic.profileView(false, 1, true), { available: false, active: "balanced", choices: ["power-saver", "balanced", "performance"] }, "profileView: unavailable profile control");
-    assert.equal(logic.profileEnum("power-saver"), 0, "profileEnum: saver");
-    assert.equal(logic.profileEnum("balanced"), 1, "profileEnum: balanced");
-    assert.equal(logic.profileEnum("performance"), 2, "profileEnum: performance");
-    assert.equal(logic.profileName(0), "power-saver", "profileName: saver");
-    assert.equal(logic.profileName(1), "balanced", "profileName: balanced");
-    assert.equal(logic.profileName(2), "performance", "profileName: performance");
-    assert.equal(logic.profileFromBusctl('{"type":"s","data":"balanced"}'), "balanced", "profileFromBusctl: reads active profile");
-    assert.equal(logic.profileFromBusctl(""), "", "profileFromBusctl: refuses empty output");
-    assert.equal(logic.profileFromBusctl("(<'performance'>,)") , "performance", "profileFromBusctl: reads gdbus output");
-    assert.equal(logic.availableProfile("performance", false), "balanced", "automatic performance falls back when unavailable");
-    assert.equal(logic.availableProfile("power-saver", false), "power-saver", "power saver stays available");
-    assert.equal(logic.availableProfile("turbo", true), "balanced", "unknown profile falls back");
+    // The mock daemon's reply as gdbus 2.88.3 printed it, then one with a
+    // hold on a profile, a profile outside the interface's three and no
+    // performance profile.
+    const three = "({'ActiveProfile': <'balanced'>, 'PerformanceDegraded': <''>, 'Profiles': <[{'Profile': <'power-saver'>, 'Driver': <'dbusmock'>}, {'Profile': <'balanced'>, 'Driver': <'dbusmock'>}, {'Profile': <'performance'>, 'Driver': <'dbusmock'>}]>, 'Actions': <@as []>, 'ActiveProfileHolds': <@a(aa{sv}) []>},)";
+    const held = "({'ActiveProfileHolds': <[{'ApplicationId': <'acme'>, 'Profile': <'performance'>, 'Reason': <'r'>}]>, 'ActiveProfile': <'power-saver'>, 'Profiles': <[{'Profile': <'power-saver'>, 'Driver': <'x'>}, {'Profile': <'turbo'>, 'Driver': <'x'>}, {'Profile': <'balanced'>, 'Driver': <'x'>}]>},)";
+    const unavailable = { available: false, active: "balanced", choices: [] };
+    const views = [
+        ["the daemon's three profiles in its order", three, { available: true, active: "balanced", choices: ["power-saver", "balanced", "performance"] }],
+        ["a held profile is no offered profile", held, { available: true, active: "power-saver", choices: ["power-saver", "balanced"] }],
+        ["a failed read", "", unavailable],
+        ["a reply with no profile list", "({'ActiveProfile': <'balanced'>, 'Profiles': <@aa{sv} []>},)", unavailable],
+        ["an active profile the daemon does not offer", held.replace("'ActiveProfile': <'power-saver'>", "'ActiveProfile': <'performance'>"), unavailable]
+    ];
+    for (const [label, text, want] of views) same(logic.profileView(text), want, "profileView: " + label);
+    same(logic.profileMarked(logic.profileView(three), "performance"), { available: true, active: "performance", choices: ["power-saver", "balanced", "performance"] }, "profileMarked: marks the asked profile");
+    assert.equal(logic.availableProfile("performance", ["power-saver", "balanced"]), "balanced", "automatic performance falls back when unavailable");
+    assert.equal(logic.availableProfile("power-saver", ["power-saver", "balanced"]), "power-saver", "power saver stays available");
+    assert.equal(logic.availableProfile("turbo", ["power-saver", "balanced", "performance"]), "balanced", "unknown profile falls back");
 
     const settings = { chargerProfile: "performance", batteryProfile: "power-saver" };
-    assert.equal(logic.profileForSource(false, settings, true), "performance", "source change applies the charger profile");
-    assert.equal(logic.profileForSource(true, settings, true), "power-saver", "source change applies the battery profile");
-    assert.equal(logic.profileForSource(false, settings, false), "balanced", "source change falls back from performance");
+    assert.equal(logic.profileForSource(false, settings, ["power-saver", "balanced", "performance"]), "performance", "source change applies the charger profile");
+    assert.equal(logic.profileForSource(true, settings, ["power-saver", "balanced", "performance"]), "power-saver", "source change applies the battery profile");
+    assert.equal(logic.profileForSource(false, settings, ["power-saver", "balanced"]), "balanced", "source change falls back from performance");
 
     assert.equal(logic.stateLabel({ present: true, charging: true, state: "charging" }), "Charging", "stateLabel: charging");
     assert.equal(logic.stateLabel({ present: true, charging: false, state: "discharging" }), "On battery", "stateLabel: discharging");
@@ -158,7 +162,9 @@ const CONTROLS = [
     ["source change applies the new source", "var key = onBattery === true ? \"batteryProfile\" : \"chargerProfile\";", "var key = onBattery === true ? \"chargerProfile\" : \"chargerProfile\";"],
     ["charging reads the device state", "return onBattery !== true && device.state === STATE.Charging;", "return onBattery !== true;"],
     ["battery present needs a laptop battery", "return !!(device && device.isPresent === true && device.isLaptopBattery === true);", "return !!(device && device.isPresent === true);"],
-    ["performance falls back when unavailable", "if (name === PROFILE.performance && hasPerformance !== true) return PROFILE.balanced;", "if (false) return PROFILE.balanced;"],
+    ["a profile the daemon does not offer falls back", "return choices.indexOf(name) === -1 ? PROFILE.balanced : name;", "return name;"],
+    ["the choices are the daemon's Profiles alone", "var list = /'Profiles': <\\[(.*?)\\]>/.exec(source);", "var list = [source, source];"],
+    ["an active profile outside the choices is unavailable", "if (active === null || choices.indexOf(active[1]) === -1)", "if (active === null)"],
     ["critical at start latches low", "        next.critical = true;\n        next.low = true;\n    } else if (n <= low) {", "        next.critical = true;\n        next.low = false;\n    } else if (n <= low) {"],
     ["a level bounce does not rearm low", "    if (discharging !== true) return { notices: out, latch: latchInitial() };\n    if (n <= critical) {", "    if (discharging !== true) return { notices: out, latch: latchInitial() };\n    if (n > low) next.low = false;\n    if (n <= critical) {"],
     ["first ready source reading does not apply", "if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: false };", "if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: true };"]

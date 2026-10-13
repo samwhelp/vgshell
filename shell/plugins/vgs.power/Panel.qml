@@ -4,9 +4,10 @@ import qs.Ui
 import "PowerLogic.js" as Logic
 
 // The Power flyout under the bar widget. It shows the service's published
-// battery view and one SegmentedControl for the available power profiles.
-// A user choice goes to the service through IPC, which owns the
-// PowerProfiles write and the remembered profile for this power source.
+// battery view and one SegmentedControl that lists the profiles the daemon
+// offers, with the active one marked.
+// A user choice goes to the service through IPC, which owns the profile
+// write and the remembered profile for this power source.
 FocusScope {
     id: root
 
@@ -68,25 +69,19 @@ FocusScope {
                 width: parent.width
                 spacing: Theme.stack.row
 
-                FormRow {
+                Field {
                     width: parent.width
+                    inline: true
                     label: "Battery"
+                    lines: [Logic.stateLabel(root.battery)]
+                    hint: Logic.timeText(root.battery)
                     Label { role: "value"; text: root.battery.level + "%" }
-                }
-                Label {
-                    role: "body"
-                    text: Logic.stateLabel(root.battery)
                 }
                 ProgressBar {
                     width: parent.width
                     from: 0
                     to: 100
                     value: root.battery.level
-                }
-                Label {
-                    visible: text !== ""
-                    role: "hint"
-                    text: Logic.timeText(root.battery)
                 }
             }
 

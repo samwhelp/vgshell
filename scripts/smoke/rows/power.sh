@@ -1,14 +1,27 @@
 # vgs.power over the sandbox's device fakes: python-dbusmock's upower
 # template and upower_power_profiles_daemon template run on the sandbox
-# system bus. The row starts them before it restarts the shell, because
-# Quickshell's UPower and PowerProfiles singletons connect once when first
-# read. The smoke set disables vgs.power, so the row starts the mocks and
-# then enables the plugin for the first time in this shell. The row drives
-# the mocks through their D-Bus interfaces with
-# shell_env, so no call reaches the host's UPower, power-profiles-daemon,
-# battery, charger or system bus. A notify-send stand-in records battery
-# notices. The power profile service's D-Bus name satisfies the requirement
+# system bus. The row starts the UPower mock before it restarts the shell,
+# because Quickshell's UPower singleton connects once when first read. The
+# smoke set disables vgs.power, so the row starts the mocks and then
+# enables the plugin for the first time in this shell. The row drives the
+# mocks through their D-Bus interfaces with shell_env, so no call reaches
+# the host's UPower, power-profiles-daemon, battery, charger or system
+# bus. The power profile service's D-Bus name satisfies the requirement
 # probe.
+#
+# Two stand-ins record the argv the shell runs. notify-send records each
+# notice the core's `notify` capability sends for the plugin. gdbus
+# records each run of the service and hands it to the real gdbus with the
+# sandbox system bus as its address, whatever the argv names.
+#
+# The bus variable: every sandbox shell runs with DBUS_SYSTEM_BUS_ADDRESS
+# set, and the row never starts one without it, since Quickshell's UPower
+# singleton would then read the host's bus. The check is therefore on the
+# argv: the service's runs name `--system` and no address, so they are the
+# same runs with the variable unset. The control restores the test of the
+# variable against "" on a name no sandbox shell sets, which is what the
+# shell read on a machine with the variable unset; its runs name
+# `--address`, and the stand-in still lands them on the sandbox bus.
 #
 # Rows: before the mocks start, the first enable raises a requirement
 # notice for org.freedesktop.UPower.PowerProfiles; after the mocks own that
@@ -18,22 +31,30 @@
 # applying the remembered battery profile; the widget draws the 51 % text
 # and a non-charging icon; with a charging display battery,
 # it draws the charging icon; one discharge sends one low and one critical
-# alert, no repeats below the same thresholds; keyboard selection in the
-# panel chooses Performance and writes the current source setting; a plug
-# change applies the remembered charger profile; and removing the display
-# battery hides the widget's battery part again. Controls build fixture
-# copies at run time: acme.power-relatch sends low twice in one discharge,
-# and acme.power-nocharge draws no charging icon while the service
-# publishes charging. Polls use expect_poll's 25 reads 0.2 s apart.
+# alert through `notify`, each with its icon, no repeats below the same
+# thresholds; the panel draws the battery level, state and time left in
+# one Field, lists the profiles the daemon offers with the active one
+# marked, and follows the daemon to a shorter list; keyboard selection in
+# the panel chooses Performance and writes the current source setting; a
+# plug change applies the remembered charger profile; removing the display
+# battery hides the widget's battery part again; and a profile service
+# that starts after the plugin is read. Controls build fixture
+# copies at run time: acme.power-relatch sends low twice in one discharge
+# and sends its notices without an icon, acme.power-nocharge draws no
+# charging icon while the service publishes charging, acme.power-busenv is
+# the address control above, and acme.power-once reads the service only on
+# the watch's first line, so it never reads one that starts later; that
+# reading is taken power_never_tries reads 0.2 s apart after the mock owns
+# its name. Polls use expect_poll's reads 0.2 s apart.
 # The row disables vgs.power, starts the mocks, then restarts the shell
-# before the first enable, so Quickshell's connect-once UPower and
-# PowerProfiles singletons bind to the mocks no matter what earlier rows
-# left. The row restores notify-send, vgs.power's
+# before the first enable, so Quickshell's connect-once UPower singleton
+# binds to the mock no matter what earlier rows left. The row restores
+# notify-send and gdbus, vgs.power's
 # enablement and placement, moves fixture copies out of the plugin
 # directory, stops the mock process groups it spawned, and restarts the
-# shell because Quickshell keeps those singletons in the process after the
+# shell because Quickshell keeps that singleton in the process after the
 # plugin is disabled.
-# inputs: shell/plugins/vgs.power/* shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh
+# inputs: shell/plugins/vgs.power/* shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh
 set -euo pipefail
 source "$repo/scripts/smoke/power-fakes.sh"
 
@@ -45,7 +66,11 @@ power_was_enabled=""
 power_was_placed=""
 power_relatch_dir="$home/.config/vgshell/plugins/acme.power-relatch"
 power_nocharge_dir="$home/.config/vgshell/plugins/acme.power-nocharge"
+power_busenv_dir="$home/.config/vgshell/plugins/acme.power-busenv"
+power_once_dir="$home/.config/vgshell/plugins/acme.power-once"
 power_notify_calls="$sandbox/power-notify-send.calls"
+power_gdbus_calls="$sandbox/power-gdbus.calls"
+power_never_tries=10
 power_moved_count=0
 power_notify_base=0
 
@@ -93,6 +118,32 @@ power_notify_count() { [[ -f $power_notify_calls ]] && wc -l <"$power_notify_cal
 power_notify_delta() { local n; n="$(power_notify_count)" || return; echo $((n - power_notify_base)); }
 power_notify_delta_over_one() { local n; n="$(power_notify_delta)" || return; [[ $n -gt 1 ]] && echo yes || echo "no $n"; }
 power_notify_urgencies() { [[ -f $power_notify_calls ]] && py_reply 'import json,sys; print(json.dumps([a for line in sys.stdin for a in json.loads(line) if a.startswith("--urgency=")]))' <"$power_notify_calls" || echo '[]'; }
+power_notify_icons() { [[ -s $power_notify_calls ]] && py_reply 'import json,sys; print(json.dumps([a.rsplit(":", 1)[1] for line in sys.stdin for a in json.loads(line) if a.startswith("--hint=string:x-vgs-icon:")]))' <"$power_notify_calls" || echo '[]'; }
+# A record file with no line holds no run; py_reply answers an empty input
+# as a failed read, so each reader of one answers that state itself.
+# power_service_buses: the bus words of the service's own gdbus runs, its
+# watch and its reads, sorted and once each.
+power_service_buses() { [[ -s $power_gdbus_calls ]] && py_reply 'import json,sys
+runs = [json.loads(line) for line in sys.stdin]
+print(json.dumps(sorted({a for run in runs if run[:1] == ["monitor"] or "org.freedesktop.DBus.Properties.GetAll" in run for a in run if a in ("--system", "--session", "--address")})))' <"$power_gdbus_calls" || echo '[]'; }
+power_reads() { [[ -s $power_gdbus_calls ]] && py_reply 'import json,sys; print(sum("org.freedesktop.DBus.Properties.GetAll" in json.loads(line) for line in sys.stdin))' <"$power_gdbus_calls" || echo 0; }
+power_has_read() { local n; n="$(power_reads)" || return; [[ $n -gt 0 ]] && echo yes || echo no; }
+power_status_active() { power_status | py_reply 'import json,sys; print(json.load(sys.stdin)["profile"]["active"])'; }
+power_profile_list() { ipc smoke itemValues panel vgs.power SegmentedControl model,currentIndex | py_reply 'import json,sys; print(json.dumps([[r["model"], r["currentIndex"]] for r in json.load(sys.stdin)]))'; }
+power_profiles_set_mock() { power_call --dest org.freedesktop.UPower.PowerProfiles --object-path /org/freedesktop/UPower/PowerProfiles --method org.freedesktop.DBus.Properties.Set org.freedesktop.UPower.PowerProfiles Profiles "<[$1]>" >/dev/null; }
+# power_battery_field: the texts of the panel Field that draws the battery, sorted.
+power_battery_field() { ipc smoke itemTexts panel vgs.power Field | py_reply 'import json,sys; print(json.dumps(sorted(next((row for row in json.load(sys.stdin) if "Battery" in row), []))))'; }
+# power_never_available: `never` when the profiles stay unavailable over
+# power_never_tries reads 0.2 s apart, else the read that found them.
+power_never_available() {
+  local i got
+  for i in $(seq 1 "$power_never_tries"); do
+    got="$(power_profile_available)" || return
+    [[ $got == False ]] || { echo "available read=$i"; return; }
+    sleep 0.2
+  done
+  echo never
+}
 power_label_has() { ipc smoke itemTexts panel vgs.power Label | py_reply 'import json,sys; print(any(sys.argv[1] in row for row in json.load(sys.stdin)))' "$1"; }
 power_level() { power_status | py_reply 'import json,sys; print(json.load(sys.stdin)["battery"]["level"])'; }
 power_profile_available() { power_status | py_reply 'import json,sys; print(json.load(sys.stdin)["profile"]["available"])'; }
@@ -104,27 +155,30 @@ rows = [r for r in json.load(open(sys.argv[1])).get("plugins", []) if r.get("id"
 print(json.dumps(rows[0].get(sys.argv[2])) if rows and sys.argv[2] in rows[0] else "null")
 PY_SET
 }
-power_install_fixture() { # ID DIR FILE OLD NEW
+power_install_fixture() { # ID DIR FILE OLD NEW [FILE OLD NEW]...
   local id="$1" dir="$2"
   shift 2
   power_move_away "$dir"
   cp -R -- "$repo/shell/plugins/vgs.power" "$dir"
   python3 - "$id" "$dir" "$@" <<'PY_MUTANT'
 import json, os, sys
-plugin, root, file_name, old, new = sys.argv[1:]
+plugin, root, edits = sys.argv[1], sys.argv[2], sys.argv[3:]
+if not edits or len(edits) % 3:
+    raise SystemExit(f"edit-words={len(edits)} want=FILE OLD NEW triples")
 manifest = os.path.join(root, "manifest.json")
 doc = json.load(open(manifest))
 doc["id"] = plugin
 doc["name"] = plugin
 json.dump(doc, open(manifest, "w"), indent=2)
-path = os.path.join(root, file_name)
-text = open(path).read()
-if text.count(old) != 1:
-    raise SystemExit(f"replace-count={text.count(old)} file={file_name}")
-changed = text.replace(old, new)
-if changed == text:
-    raise SystemExit(f"unchanged file={file_name}")
-open(path, "w").write(changed)
+for file_name, old, new in zip(edits[0::3], edits[1::3], edits[2::3]):
+    path = os.path.join(root, file_name)
+    text = open(path).read()
+    if text.count(old) != 1:
+        raise SystemExit(f"replace-count={text.count(old)} file={file_name}")
+    changed = text.replace(old, new)
+    if changed == text:
+        raise SystemExit(f"unchanged file={file_name}")
+    open(path, "w").write(changed)
 PY_MUTANT
 }
 
@@ -139,9 +193,11 @@ power_main() {
 #!/usr/bin/env bash
 python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$power_notify_calls"
 EOF_STAND
+  : >"$power_gdbus_calls"
   power_stand gdbus <<EOF_STAND
 #!/usr/bin/env bash
-exec env DBUS_SYSTEM_BUS_ADDRESS="$rt_dir/system-bus" $(command -v gdbus) "\$@"
+python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$power_gdbus_calls"
+exec env DBUS_SYSTEM_BUS_ADDRESS="unix:path=$rt_dir/system-bus" $(command -v gdbus) "\$@"
 EOF_STAND
 
   expect "disabling vgs.power before the UPower restart is allowed" ok ipc shell setPluginEnabled vgs.power false
@@ -165,6 +221,7 @@ EOF_STAND
   expect "placing vgs.power in the bar is allowed" ok ipc shell setPluginPlaced vgs.power true
   expect_poll "the Power service publishes the initial discharging battery" 51 power_level
   expect_poll "the Power service reports profiles available" True power_profile_available
+  expect "the service's watch and reads name the system bus and no address" '["--system"]' power_service_buses
   expect "the first enable does not apply the remembered battery profile" power-saver power_profile_get
   expect_poll "the widget draws the 51 percent battery text" '[["51%"], []]' power_texts
   expect_poll "the widget draws the medium battery and power saver icons" '["battery-medium", "leaf"]' power_icons
@@ -186,11 +243,19 @@ EOF_STAND
   expect_poll "the service reads the next critical level before alert count" 8 power_level
   expect "staying below critical sends no second critical alert" 2 power_notify_count
   expect "the low and critical alerts use their urgencies" '["--urgency=normal", "--urgency=critical"]' power_notify_urgencies
+  expect "the low and critical alerts carry their icons" '["battery-low", "battery-warning"]' power_notify_icons
 
   expect "the Power panel opens" ok ipc shell summon panel vgs.power '{}'
   expect_poll "the Power panel focuses the profile control" true ipc smoke activeFocusIn panel vgs.power
+  expect_poll "the panel draws the level, the state and the time left in the Battery field" '["17 min left", "8%", "Battery", "On battery"]' power_battery_field
+  expect_poll "the panel lists the daemon's profiles with the active one marked" '[[["Power saver", "Balanced", "Performance"], 1]]' power_profile_list
+  power_profiles_set_mock "{'Profile': <'power-saver'>, 'Driver': <'dbusmock'>}, {'Profile': <'balanced'>, 'Driver': <'dbusmock'>}"
+  expect_poll "the panel follows the daemon to a list without Performance" '[[["Power saver", "Balanced"], 1]]' power_profile_list
+  power_profiles_set_mock "{'Profile': <'power-saver'>, 'Driver': <'dbusmock'>}, {'Profile': <'balanced'>, 'Driver': <'dbusmock'>}, {'Profile': <'performance'>, 'Driver': <'dbusmock'>}"
+  expect_poll "the panel lists Performance again" '[[["Power saver", "Balanced", "Performance"], 1]]' power_profile_list
   type_keys -k Right || fail "typing Right in the Power panel failed"
   expect_poll "the panel keyboard path chooses Performance" performance power_profile_get
+  expect_poll "the panel marks Performance" '[[["Power saver", "Balanced", "Performance"], 2]]' power_profile_list
   expect_poll "choosing Performance remembers the battery profile" '"performance"' power_setting batteryProfile
   power_profile_set_mock balanced
   expect_poll "the mock profile was reset to balanced" balanced power_profile_get
@@ -207,7 +272,11 @@ EOF_STAND
     'if (!next.low) out.push({ threshold: "low", urgency: "normal", level: n });
         next.low = true;' \
     'if (!next.low) out.push({ threshold: "low", urgency: "normal", level: n });
-        next.low = false;'
+        next.low = false;' \
+    Service.qml \
+    '            icon: notice.threshold === "critical" ? "battery-warning" : "battery-low",
+' \
+    ''
   rescan "rescan after adding the relatch fixture answers ok"
   expect "enabling the relatch fixture is allowed" ok ipc shell setPluginEnabled acme.power-relatch true
   power_id=acme.power-relatch
@@ -219,6 +288,7 @@ EOF_STAND
   expect_poll "control: relatch sends more than one low alert" yes power_notify_delta_over_one
   power_discharging 18.0 2900
   expect_poll "control: relatch keeps sending low in one discharge" yes power_notify_delta_over_one
+  expect "control: a notice sent without the icon carries none" '[]' power_notify_icons
   unset power_id
   expect "disabling the relatch fixture is allowed" ok ipc shell setPluginEnabled acme.power-relatch false
   power_move_away "$power_relatch_dir"
@@ -237,6 +307,29 @@ EOF_STAND
   expect "unplacing the nocharge fixture is allowed" ok ipc shell setPluginPlaced acme.power-nocharge false
   expect "disabling the nocharge fixture is allowed" ok ipc shell setPluginEnabled acme.power-nocharge false
   power_move_away "$power_nocharge_dir"
+
+
+  power_install_fixture acme.power-busenv "$power_busenv_dir" Service.qml \
+    'import Quickshell.Io
+' \
+    'import Quickshell
+import Quickshell.Io
+' \
+    Service.qml \
+    '    readonly property var profilesBus: ["--system", "--dest", profilesInterface, "--object-path", "/org/freedesktop/UPower/PowerProfiles"]' \
+    '    readonly property var profilesBus: (Quickshell.env("VGS_SMOKE_UNSET_BUS_ADDRESS") === "" ? ["--system"] : ["--address", Quickshell.env("VGS_SMOKE_UNSET_BUS_ADDRESS")]).concat(["--dest", profilesInterface, "--object-path", "/org/freedesktop/UPower/PowerProfiles"])'
+  expected_errors+=('power: profile watch ended exit=')
+  # A scan builds a plugin it meets for the first time, so the record is
+  # emptied before the scan that meets the fixture.
+  : >"$power_gdbus_calls"
+  rescan "rescan after adding the busenv fixture answers ok"
+  expect "enabling the busenv fixture is allowed" ok ipc shell setPluginEnabled acme.power-busenv true
+  power_id=acme.power-busenv
+  expect_poll "control: the test of an unset variable against the empty text names an address" '["--address"]' power_service_buses
+  expect "control: with that address the profiles read unavailable while the service runs" False power_profile_available
+  unset power_id
+  expect "disabling the busenv fixture is allowed" ok ipc shell setPluginEnabled acme.power-busenv false
+  power_move_away "$power_busenv_dir"
   rescan "rescan after removing the power fixtures answers ok"
 
   if [[ $power_was_placed != True ]]; then
@@ -249,12 +342,36 @@ EOF_STAND
   power_stop_mock "$power_profiles_pid"
   power_profiles_pid=""
   expect_poll "the profile mock releases its bus name" false power_bus_has org.freedesktop.UPower.PowerProfiles
+  : >"$power_gdbus_calls"
   expect "re-enabling vgs.power without the profile daemon starts clean" ok ipc shell setPluginEnabled vgs.power true
-  expect_poll "without the profile daemon the service reports profiles unavailable" False power_profile_available
+  expect_poll "the service reads the absent profile daemon" yes power_has_read
+  expect "without the profile daemon the service reports profiles unavailable" False power_profile_available
   expect "the unavailable profile panel opens" ok ipc shell summon panel vgs.power '{}'
   expect_poll "the unavailable profile panel says profiles are unavailable" True power_label_has "Power profiles are not available."
-  expect "the unavailable profile panel closes" ok ipc shell hide panel vgs.power
-  expect "disabling vgs.power after the unavailable check is allowed" ok ipc shell setPluginEnabled vgs.power false
+  power_start_profiles power-later performance
+  expect_poll "a profile service that starts after the plugin is read" True power_profile_available
+  expect_poll "the later service's active profile is read" performance power_status_active
+  expect_poll "the open panel lists the later service's profiles" '[[["Power saver", "Balanced", "Performance"], 2]]' power_profile_list
+  expect "the Power panel closes after the later service" ok ipc shell hide panel vgs.power
+  expect "disabling vgs.power after the later service check is allowed" ok ipc shell setPluginEnabled vgs.power false
+
+  power_stop_mock "$power_profiles_pid"
+  power_profiles_pid=""
+  expect_poll "the later profile mock releases its bus name" false power_bus_has org.freedesktop.UPower.PowerProfiles
+  power_install_fixture acme.power-once "$power_once_dir" Service.qml \
+    'stdout: SplitParser { onRead: () => root.readProfiles() }' \
+    'stdout: SplitParser { onRead: line => { if (line.indexOf("Monitoring signals") === 0) root.readProfiles(); } }'
+  : >"$power_gdbus_calls"
+  rescan "rescan after adding the once fixture answers ok"
+  expect "enabling the once fixture is allowed" ok ipc shell setPluginEnabled acme.power-once true
+  power_id=acme.power-once
+  expect_poll "control: the once fixture reads the absent service" yes power_has_read
+  power_start_profiles power-once balanced
+  expect "control: a service read once is never read after it starts" never power_never_available
+  unset power_id
+  expect "disabling the once fixture is allowed" ok ipc shell setPluginEnabled acme.power-once false
+  power_move_away "$power_once_dir"
+  rescan "rescan after removing the once fixture answers ok"
 
   power_restore_stand notify-send "$power_notify_stood"
   power_restore_stand gdbus "$power_gdbus_stood"

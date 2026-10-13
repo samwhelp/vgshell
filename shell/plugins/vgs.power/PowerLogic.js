@@ -3,8 +3,8 @@
 // Pure decisions for vgs.power: whether the display device is a laptop
 // battery, the battery and profile view published as plugin status, icon
 // bands, time text, profile mapping, low-battery latches and the profile
-// to apply when the power source changes. QML owns UPower, PowerProfiles,
-// settings writes, IPC and notify-send.
+// to apply when the power source changes. QML owns UPower, the gdbus runs
+// that reach the power profiles daemon, settings writes, IPC and notices.
 
 var PROFILE = {
     saver: "power-saver",
@@ -64,49 +64,38 @@ function batteryView(device, onBattery) {
     };
 }
 
-function profileName(value) {
-    if (value === 0 || value === PROFILE.saver) return PROFILE.saver;
-    if (value === 2 || value === PROFILE.performance) return PROFILE.performance;
-    return PROFILE.balanced;
-}
-
-function profileFromBusctl(text) {
-    try {
-        return profileName(JSON.parse(String(text || "")).data);
-    } catch (e) {
-        var match = /'([^']+)'/.exec(String(text || ""));
-        return match === null ? "" : profileName(match[1]);
-    }
-}
-
-function profileEnum(name) {
-    if (name === PROFILE.saver) return 0;
-    if (name === PROFILE.performance) return 2;
-    return 1;
-}
-
-function choices(hasPerformance) {
-    var out = [PROFILE.saver, PROFILE.balanced];
-    if (hasPerformance === true) out.push(PROFILE.performance);
-    return out;
-}
-
 function validProfile(name) {
     return name === PROFILE.saver || name === PROFILE.balanced || name === PROFILE.performance;
 }
 
-function availableProfile(name, hasPerformance) {
-    if (!validProfile(name)) return PROFILE.balanced;
-    if (name === PROFILE.performance && hasPerformance !== true) return PROFILE.balanced;
-    return name;
+function availableProfile(name, choices) {
+    return choices.indexOf(name) === -1 ? PROFILE.balanced : name;
 }
 
-function profileView(available, active, hasPerformance) {
-    return {
-        available: available === true,
-        active: profileName(active),
-        choices: choices(hasPerformance)
-    };
+// The profile view from TEXT, the daemon's reply to Properties.GetAll as
+// gdbus prints it, GVariant text such as
+// ({'ActiveProfile': <'balanced'>, 'Profiles': <[{'Profile': <'power-saver'>, 'Driver': <'x'>}, ...]>, ...},).
+// The choices are the daemon's Profiles in its order, less a name outside
+// the three its interface defines. Profiles are available while the active
+// one is among them; any other text, an empty one for a failed read
+// included, is the unavailable view.
+function profileView(text) {
+    var source = String(text || "");
+    var active = /'ActiveProfile': <'([^']*)'>/.exec(source);
+    var list = /'Profiles': <\[(.*?)\]>/.exec(source);
+    var choices = [];
+    var entry = /'Profile': <'([^']*)'>/g;
+    var found;
+    while (list !== null && (found = entry.exec(list[1])) !== null)
+        if (validProfile(found[1]) && choices.indexOf(found[1]) === -1) choices.push(found[1]);
+    if (active === null || choices.indexOf(active[1]) === -1)
+        return { available: false, active: PROFILE.balanced, choices: [] };
+    return { available: true, active: active[1], choices: choices };
+}
+
+// VIEW with NAME as its active profile.
+function profileMarked(view, name) {
+    return { available: view.available, active: name, choices: view.choices };
 }
 
 function batteryIcon(level, isCharging) {
@@ -196,10 +185,10 @@ function notices(previous, level, discharging, lowThreshold, criticalThreshold) 
     return { notices: out, latch: next };
 }
 
-function profileForSource(onBattery, settings, hasPerformance) {
+function profileForSource(onBattery, settings, choices) {
     var key = onBattery === true ? "batteryProfile" : "chargerProfile";
     var wanted = settings && hasOwn(settings, key) ? settings[key] : PROFILE.balanced;
-    return availableProfile(wanted, hasPerformance);
+    return availableProfile(wanted, choices);
 }
 
 function sourceObserved(previous, ready, onBattery) {
