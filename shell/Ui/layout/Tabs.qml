@@ -9,9 +9,12 @@ import qs.Ui
 // side, and the indicator under the open one. Hover lifts a closed tab's
 // label, a press fills the tab, and a disabled row fades. A view that
 // draws the row on something other than a resting surface hands it
-// `foreground`, `hover` and `active` label colours. While the row
-// holds the keyboard, Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageDown and
-// Ctrl+PageUp step the open tab, round the ends.
+// `foreground`, `hover` and `active` label colours, and sets
+// `hoverMark` where those colours are too near one another to tell
+// apart: a closed tab under the pointer then draws an indicator in its
+// label's colour. While the row holds the keyboard, Ctrl+Tab,
+// Ctrl+Shift+Tab, Ctrl+PageDown and Ctrl+PageUp step the open tab, round
+// the ends.
 T.TabBar {
     id: root
 
@@ -19,6 +22,7 @@ T.TabBar {
     property color foreground: Theme.tabs.foreground
     property color hover: Theme.tabs.hover
     property color active: Theme.tabs.active
+    property bool hoverMark: false
 
     implicitWidth: contentItem.implicitWidth
     implicitHeight: Theme.tabs.height
@@ -71,12 +75,14 @@ T.TabBar {
             id: tab
             required property var modelData
             readonly property bool selectedFocus: root.visualFocus && checked
-            // The label reads the row's colours here, never through `root`:
-            // its colour follows hover and the open tab, which change while
-            // the row is destroyed, when `root` already reads null.
+            // The label and the hover mark read the row's values here,
+            // never through `root`: they follow hover and the open tab,
+            // which change while the row is destroyed, when `root` already
+            // reads null.
             readonly property color foreground: root.foreground
             readonly property color hover: root.hover
             readonly property color active: root.active
+            readonly property bool hoverMark: root.hoverMark
             text: String(modelData)
             implicitWidth: implicitContentWidth + leftPadding + rightPadding
             implicitHeight: Theme.tabs.height
@@ -110,6 +116,15 @@ T.TabBar {
                     visible: tab.checked
                 }
                 FocusRing { target: tab; visible: tab.selectedFocus }
+                Rectangle {
+                    objectName: "hoverMark"
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: Theme.tabs.indicator
+                    color: tab.hover
+                    visible: tab.hoverMark && !tab.checked && (tab.hovered || tab.down)
+                }
             }
         }
     }

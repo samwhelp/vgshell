@@ -1128,6 +1128,8 @@ mutations=(
   "the slider keeps no input area|controls/Slider.qml|implicitHeight: Math.max(Theme.size.control.sm, |implicitHeight: Math.max(|tst_slider.qml"
   "the tab label hugs its left edge|layout/Tabs.qml|horizontalAlignment: Text.AlignHCenter|horizontalAlignment: Text.AlignLeft|tst_layout.qml"
   "tab hover reads as the open tab|layout/Tabs.qml|tab.hover : tab.foreground|tab.active : tab.foreground|tst_layout.qml"
+  "a hovered closed tab draws no mark|layout/Tabs.qml|visible: tab.hoverMark && !tab.checked|visible: false && !tab.checked|tst_layout.qml"
+  "every row draws the hover mark|layout/Tabs.qml|visible: tab.hoverMark && !tab.checked|visible: !tab.checked|tst_layout.qml"
   "the tabs ignore disabled|layout/Tabs.qml|    opacity: enabled ? 1 : Theme.opacity.disabled|    opacity: 1|tst_layout.qml"
   "the tab strip ignores its arrow keys|layout/Tabs.qml|onMoved: index => root.currentIndex = index|onMoved: index => {}|tst_tabpages.qml"
   "tab pages show every page|layout/TabPages.qml|stack.children[i].visible = i === currentIndex;|stack.children[i].visible = true;|tst_tabpages.qml"

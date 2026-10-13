@@ -13,10 +13,11 @@ import qs.Unit
 Item {
     id: root
     width: 400
-    height: 620
+    height: 664
 
     ScrollArea { id: scroll; width: 100; height: 50; Column { Repeater { model: 10; Rectangle { width: 80; height: 20; color: "transparent" } } } }
     Tabs { id: tabs; model: ["Installed", "Available"]; y: 60 }
+    Tabs { id: markedTabs; model: ["Themes", "Wallpapers"]; y: 624; hoverMark: true }
     Tabs { id: handedTabs; model: ["Themes", "Wallpapers"]; y: 580; foreground: "#204060"; hover: "#406080"; active: "#6080a0" }
     KeyHints { id: hints; y: 90; hints: [{ key: "Left/Right", text: "Move" }, { key: "Ctrl+Tab", text: "Tabs" }] }
     ListItem { id: row; text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; width: 300; y: 100 }
@@ -105,6 +106,28 @@ Item {
             handedTabs.currentIndex = 0;
             compare(handedTabs.itemAt(0).contentItem.color, Qt.color("#6080a0"));
             tryCompare(handedTabs.itemAt(1).contentItem, "color", Qt.color("#204060"));
+        }
+
+        // A row with `hoverMark` draws the mark under a closed tab while
+        // the pointer is on it, and never under the open tab or in a row
+        // without it.
+        function test_hover_mark_shows_under_a_hovered_closed_tab() {
+            markedTabs.currentIndex = 0;
+            const closed = markedTabs.itemAt(1);
+            const mark = findChild(closed.background, "hoverMark");
+            compare(mark.visible, false);
+            mouseMove(closed, closed.width / 2, closed.height / 2);
+            tryCompare(mark, "visible", true);
+            compare(mark.color, markedTabs.hover);
+            const open = markedTabs.itemAt(0);
+            mouseMove(open, open.width / 2, open.height / 2);
+            tryCompare(open, "hovered", true);
+            compare(findChild(open.background, "hoverMark").visible, false);
+            const plain = handedTabs.itemAt(handedTabs.currentIndex === 0 ? 1 : 0);
+            mouseMove(plain, plain.width / 2, plain.height / 2);
+            tryCompare(plain, "hovered", true);
+            compare(findChild(plain.background, "hoverMark").visible, false);
+            mouseMove(root, root.width - 1, root.height - 1);
         }
 
         function test_list_item_highlights_and_clicks() {

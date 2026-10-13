@@ -8,8 +8,12 @@ import "Files.js" as Files
 // generation, so a file replaced under its name is read again. An image
 // card while its image loads or when it cannot be read fills with the
 // surface colour under an image icon. The download or update card fills
-// the same way and names itself under its icon, the name keeping the
-// card's lean from each side, as the theme card's does. A Spinner turns
+// the same way and names itself: the centre card under its icon, the
+// name keeping the card's lean from each side, as the theme card's does,
+// and a side card up the slice's slanted axis from
+// `carousel.sliceName.inset` above its bottom edge, where the whole line
+// fits, in the card's layer over its dim wash, so the wash does not fade
+// the name. A Spinner turns
 // over the card while the browser sets its image or runs its download.
 Item {
     id: root
@@ -21,6 +25,10 @@ Item {
     // Whether the browser is setting this image or running this card's
     // download.
     property bool busy: false
+    // Whether this is the centre card, and the card's layer over its dim
+    // wash. The carousel sets each only for delegates that declare it.
+    property bool current: false
+    property Item foreground: null
 
     readonly property bool offer: modelData.kind !== "image"
     readonly property bool named: !offer && typeof modelData.name === "string" && modelData.name !== ""
@@ -34,6 +42,8 @@ Item {
 
         Column {
             anchors.centerIn: parent
+            // A side card's icon stands above its name's run.
+            anchors.verticalCenterOffset: root.offer && !root.current ? -parent.height / 4 : 0
             width: parent.width - 2 * Theme.angledCard.skew
             spacing: Theme.stack.group
 
@@ -46,7 +56,7 @@ Item {
 
             Label {
                 role: "bodyStrong"
-                visible: root.offer
+                visible: root.offer && root.current
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
                 elide: Text.ElideMiddle
@@ -54,6 +64,25 @@ Item {
                 color: Theme.color.textMuted
             }
         }
+    }
+
+    // The side card's name turns about its start, as ThemeCard's slice
+    // name does: the start stands the inset up the axis from the bottom
+    // edge's centre.
+    Label {
+        readonly property real inset: Theme.carousel.sliceName.inset
+        readonly property real lean: Math.atan2(Theme.angledCard.skew, Theme.carousel.sliceHeight)
+        objectName: "offerName"
+        parent: root.foreground ?? root
+        role: "bodyStrong"
+        x: (parent.width - parent.height * Math.tan(lean)) / 2 + inset * Math.sin(lean)
+        y: parent.height - inset * Math.cos(lean) - height / 2
+        width: Math.min(implicitWidth, parent.height / Math.cos(lean) - 2 * inset)
+        transformOrigin: Item.Left
+        rotation: lean * 180 / Math.PI - 90
+        visible: root.offer && !root.current
+        elide: Text.ElideRight
+        text: root.offer ? root.modelData.label : ""
     }
 
     Image {

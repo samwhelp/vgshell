@@ -352,6 +352,7 @@ FocusScope {
                     foreground: Theme.carousel.hint
                     hover: Theme.carousel.hintActive
                     active: Theme.carousel.hintActive
+                    hoverMark: true
                     model: BrowserLogic.VIEWS.map(v => v.label)
                     currentIndex: 1
                     onActiveFocusChanged: if (activeFocus) Qt.callLater(root.takeKeys)
@@ -377,11 +378,13 @@ FocusScope {
                             Accessible.role: Accessible.RadioButton
                             Accessible.name: modelData.label
                             Accessible.checked: index === root.scopeIndex
+                            hoverEnabled: true
                             onClicked: root.chooseScope(index)
                             PointerCursor {}
 
-                            // The chosen word also draws at bodyStrong's weight:
-                            // hintActive and hint are both near the same black or white.
+                            // The chosen word also draws at bodyStrong's weight, and
+                            // the other word under the pointer underlined: hintActive
+                            // and hint are both near the same black or white.
                             Label {
                                 id: scopeText
                                 readonly property bool chosen: scopeWord.index === root.scopeIndex
@@ -391,6 +394,7 @@ FocusScope {
                                 color: chosen ? Theme.carousel.hintActive : Theme.carousel.hint
                                 font.weight: weight
                                 font.variableAxes: ({ wght: weight })
+                                font.underline: scopeWord.containsMouse && !chosen
                             }
                         }
                     }
@@ -501,6 +505,7 @@ FocusScope {
                                 role: "itemHint"
                                 text: BrowserLogic.WALLPAPER_SOURCES[root.sourceIndex].switchLabel
                                 color: sourceLine.containsMouse ? Theme.carousel.hintActive : Theme.carousel.hint
+                                font.underline: sourceLine.containsMouse
                             }
                         }
                     }

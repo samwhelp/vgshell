@@ -360,6 +360,7 @@ FocusScope {
                     foreground: Theme.carousel.hint
                     hover: Theme.carousel.hintActive
                     active: Theme.carousel.hintActive
+                    hoverMark: true
                     model: BrowserLogic.VIEWS.map(v => v.label)
                     currentIndex: 0
                     onActiveFocusChanged: if (activeFocus) Qt.callLater(root.focusRail)
@@ -425,6 +426,7 @@ FocusScope {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     elide: Text.ElideRight
+                    color: Theme.carousel.hintActive
                     visible: root.selected !== null
                     text: root.selected === null ? "" : root.selected.label
                 }
