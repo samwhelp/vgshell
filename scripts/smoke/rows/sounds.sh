@@ -290,20 +290,22 @@ expect_poll "the page's plays leave no player" '[]' sfx_playing
 # Voice's Dictation sounds row without voxtype, which no smoke shell finds:
 # its line names the Voice page as a link. Enabling Voice raises its
 # requirement notice for voxtype and its bridge, which Escape closes. The
-# line is brought into view and its box read until two reads 100 ms apart
-# agree. The control: a click on the line's first word, which the link
-# does not hold, opens no page. The pointer then steps along the first
-# line of the link's words box (LinkText.linkBox) until the link reads it,
-# and a click opens Settings on Voice's Setup tab over the System window.
+# System window brings the line into view, and its box is read until two
+# reads 100 ms apart agree. The pointer steps along the first line of the
+# link's words box (LinkText.linkBox) until the link reads it, which shows
+# the line is under the pointer. The control: a click on the line's first
+# word, which the link does not hold, opens no page. A click back on the
+# link opens Settings on Voice's Setup tab over the System window.
 expected_errors+=("${dictation_absent_errors[@]}")
 sfx_voice_was="$(plugin_enabled vgs.voice)" || fail "vgs.voice's enabled state is unreadable"
 sfx_voice_line='Voice records speech with voxtype. Install it on the [Voice page](page:vgs.voice/Setup).'
 sfx_voice_link() { ipc smoke readMatchingDescendant window vgs.sounds LinkText words "Voice page" "$1"; }
 # The still box of the Dictation sounds line in the System window, or 1.
+# The window's scroll area holds the pane, so the window reveals the line.
 sfx_voice_rect() {
   local shown rect last=""
-  shown="$(ipc smoke revealText window vgs.sounds LinkText "$sfx_voice_line")" || return 1
-  [[ $shown =~ ^[0-9.]+$ ]] || { echo "sfx_voice_rect: no line to reveal: $shown" >&2; return 1; }
+  shown="$(ipc smoke revealText window vgs.system LinkText "$sfx_voice_line")" || return 1
+  [[ $shown =~ ^[0-9.]+$ || $shown == unscrolled ]] || { echo "sfx_voice_rect: no line to reveal: $shown" >&2; return 1; }
   for _ in $(seq 1 50); do
     rect="$(ipc smoke windowGeometry window vgs.sounds LinkText "$sfx_voice_line")" || return 1
     [[ $rect == \[* && $rect == "$last" ]] && { printf '%s\n' "$rect"; return; }
@@ -313,23 +315,24 @@ sfx_voice_rect() {
   echo "sfx_voice_rect: no still line: $rect" >&2
   return 1
 }
-# The layout point DX px into the line and DY px below its top.
+# The layout point DX px into the line RECT and DY px below its top.
 sfx_voice_point() { # RECT DX DY
   at_centre "window:System Settings" "$(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); print(json.dumps([r[0] + float(sys.argv[2]), r[1] + float(sys.argv[3]), 2, 16]))' "$1" "$2" "$3")"
 }
-sfx_voice_link_click() {
-  local rect box x y step steps
-  rect="$(sfx_voice_rect)" || return 1
+# The layout point on the line RECT where the link reads the pointer,
+# which is left there, or 1.
+sfx_voice_link_at() { # RECT
+  local box x y step steps
   box="$(sfx_voice_link linkBox)" || return 1
-  [[ $box == \{* ]] || { echo "sfx_voice_link_click: no link box: $box" >&2; return 1; }
+  [[ $box == \{* ]] || { echo "sfx_voice_link_at: no link box: $box" >&2; return 1; }
   steps="$(python3 -c 'import json,sys; print(max(1, int(json.loads(sys.argv[1])["width"] // 8)))' "$box")" || return 1
   for step in $(seq 0 "$steps"); do
-    read -r x y < <(sfx_voice_point "$rect" "$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["x"] + 8 * int(sys.argv[2]))' "$box" "$step")" "$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["y"])' "$box")") || return 1
+    read -r x y < <(sfx_voice_point "$1" "$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["x"] + 8 * int(sys.argv[2]))' "$box" "$step")" "$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["y"])' "$box")") || return 1
     hover "$x" "$y" || return 1
     sleep 0.1
-    [[ $(sfx_voice_link hoveredLink) == true ]] && { click "$x" "$y"; return; }
+    [[ $(sfx_voice_link hoveredLink) == true ]] && { printf '%s %s\n' "$x" "$y"; return; }
   done
-  echo "sfx_voice_link_click: the pointer found no link words in line=$rect box=$box" >&2
+  echo "sfx_voice_link_at: the pointer found no link words in line=$1 box=$box" >&2
   return 1
 }
 expect "enabling Voice is allowed" ok ipc shell setPluginEnabled vgs.voice true
@@ -341,16 +344,18 @@ expect_poll "Escape closes Voice's notice" null notice_shown
 expect_poll "the Dictation sounds row links its voxtype missing line to the Voice page, in the warning tone" "[\"$sfx_voice_line\",\"warning\"]" sfx_row_note "Dictation sounds"
 expect "the line draws the reference's words as its link" '"Voice page"' sfx_voice_link words
 expect "no Settings window is open before the link's click" 0 window_count Plugins
-if sfx_voice_at="$(sfx_voice_rect)" && read -r tx ty < <(sfx_voice_point "$sfx_voice_at" 4 0); then
+if sfx_voice_at="$(sfx_voice_rect)" && read -r lx ly < <(sfx_voice_link_at "$sfx_voice_at") && read -r tx ty < <(sfx_voice_point "$sfx_voice_at" 4 0); then
   hover "$tx" "$ty" || fail "hovering the line's first word failed"
   expect "control: the line's first word reads no link under the pointer" false sfx_voice_link hoveredLink
   click "$tx" "$ty" || fail "clicking the line's first word failed"
   sleep 0.5
   expect "control: a click on the line's first word opens no page" 0 window_count Plugins
+  hover "$lx" "$ly" || fail "hovering the Voice page link again failed"
+  expect_poll "the link reads the pointer again" true sfx_voice_link hoveredLink
+  click "$lx" "$ly" || fail "clicking the Voice page link failed"
 else
-  fail "the Dictation sounds line has no box for the control"
+  fail "the pointer did not reach the Dictation sounds line's link"
 fi
-sfx_voice_link_click || fail "the click on the Voice page link failed"
 expect_poll "the link opens the Settings window" 1 window_count Plugins
 expect_poll "the link opens Voice's page" '"vgs.voice"' ipc smoke readInstance window vgs.settings page
 expect_poll "the link opens Voice's page on its Setup tab" Setup settings_tab_text
