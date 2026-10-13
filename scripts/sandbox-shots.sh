@@ -21,7 +21,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, cloudsync, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-audit, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, or with --pages
@@ -60,7 +60,9 @@
 # beside it and planted sign-ins, with no host claude or codex on the
 # shell's PATH; jarvis-console is the Jarvis console window over the
 # scripted daemon fixture in each conversation state, taken only when
-# named; clipboard is the clipboard history over copies made on the
+# named; jarvis-audit draws the Audit tab over three entries from that
+# fixture, at the default and narrow window sizes, and checks that an
+# empty log fails its entry check; clipboard is the clipboard history over copies made on the
 # nested instance's own clipboard, taken only when named; capture is
 # Capture's widget, panel and Settings page at the Recording section, taken
 # only when named; voice is Voice's
@@ -359,7 +361,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice) scenes+=("$1"); shift ;;
+    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -494,7 +496,7 @@ scene_ships() {
     capture) ships_plugin vgs.capture ;;
     keyhints) ships_plugin vgs.keyhints vgs.launcher vgs.settings vgs.themes ;;
     clipboard) ships_plugin vgs.clipboard ;;
-    jarvis-console) ships_plugin vgs.jarvis ;;
+    jarvis-console|jarvis-audit) ships_plugin vgs.jarvis ;;
     voice) ships_plugin vgs.voice ;;
     voice-setup) ships_plugin vgs.voice vgs.settings ;;
     voice-elsewhere) ships_plugin vgs.voice vgs.settings && tree_has shell/plugins/vgs.voice/manifest.json '"dictation"' ;;
@@ -2918,6 +2920,83 @@ print("true" if any(row.get("activeFocus") is True for row in json.load(sys.stdi
   jarvis_restore_requirements
   jarvis_console_restore
   tree_rescan "the stock Jarvis files are scanned after console images"
+  jarvis_notice_close
+}
+
+scene_jarvis-audit() { # MODE
+  local backend="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
+  local engine="$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
+  local saved="$sandbox/jarvis-audit-$1" control size rejected
+  cp -- "$backend" "$saved-backend"
+  cp -- "$engine" "$saved-engine"
+  jarvis_audit_tabs() { ipc smoke itemValues window vgs.jarvis Tabs currentIndex | py_reply 'import json,sys; print(json.dumps([r.get("currentIndex") for r in json.load(sys.stdin)]))'; }
+  jarvis_audit_entries() {
+    ipc smoke itemValues window vgs.jarvis Label text,visible | py_reply '
+import json,sys
+rows=json.load(sys.stdin)
+tools=[r.get("text") for r in rows if r.get("visible") and r.get("text") in ["files.delete", "release"]]
+print(json.dumps(sorted(tools)))
+'
+  }
+  jarvis_audit_check() {
+    local before="$failures"
+    expect_poll "Audit is the current tab" '[2]' jarvis_audit_tabs
+    expect_poll "Audit draws all three planted entries" '["files.delete", "files.delete", "release"]' jarvis_audit_entries
+    [[ $failures == "$before" ]]
+  }
+  jarvis_setup_requirements
+  "$node_bin" "$checkout/scripts/fixtures/jarvis/scripted.js" "$backend" "$saved-gates" --mapped-indicator
+  # The console fixture has two records. Repeat its first record to exercise
+  # a list with more than one separator without building another audit log.
+  python3 - "$repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); s=p.read_text()
+needle='function consoleAudit() { return consoleFailures; }'
+assert s.count(needle)==1
+p.write_text(s.replace(needle, 'function consoleAudit() { return consoleFailures.concat(consoleFailures.slice(0, 1)); }'))
+PY
+  for control in empty planted; do
+    if [[ $control == planted ]]; then
+      "$node_bin" "$checkout/scripts/fixtures/jarvis/scripted.js" --console-data "$backend"
+    fi
+    tree_rescan "the Audit $control fixture is scanned"
+    expect "Jarvis enables for Audit $control" ok ipc shell setPluginEnabled vgs.jarvis true
+    expect_poll "the Audit daemon answers hello" ready jarvis_started
+    close_notices
+    for size in default narrow; do
+      [[ $size != narrow ]] || narrow_begin
+      expect "the Audit console summons" ok ipc shell summon window vgs.jarvis '{}'
+      expect_poll "the Audit console maps" 1 window_count Jarvis
+      expect_poll "the Audit console composer has focus" true ipc smoke activeFocusWithin window vgs.jarvis TextField
+      type_keys -M ctrl -k Tab -k Tab -m ctrl || fail "selecting Audit failed"
+      expect_poll "Audit is the current tab" '[2]' jarvis_audit_tabs
+      if [[ $control == empty ]]; then
+        rejected="$(
+          failures=0 behaviour_failures=0
+          jarvis_audit_check >"$saved-control.log" || true
+          echo "$failures"
+        )"
+        expect "control: no planted log fails the Audit scene" 1 echo "$rejected"
+        sed 's/^/  CONTROL  /' "$saved-control.log"
+      else
+        if jarvis_audit_check; then
+          park_pointer
+          take_posed "jarvis-audit-$1-$size"
+        fi
+      fi
+      expect "the Audit console hides" ok ipc shell hide window vgs.jarvis
+      [[ $size != narrow ]] || narrow_end
+      [[ $control != empty ]] || break
+    done
+    expect "Jarvis disables after Audit $control" ok ipc shell setPluginEnabled vgs.jarvis false
+    expect_poll "the Audit daemon is gone" absent ipc smoke jarvisProcess
+  done
+  cp -- "$saved-backend" "$backend"
+  cp -- "$saved-engine" "$engine"
+  rm -f -- "$repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js"
+  jarvis_restore_requirements
+  tree_rescan "the stock Jarvis files are scanned after Audit images"
   jarvis_notice_close
 }
 
