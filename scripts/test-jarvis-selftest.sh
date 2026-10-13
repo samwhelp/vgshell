@@ -381,6 +381,7 @@ holds "an id no account has is refused" refused "jarvis-selftest: refused: argum
 holds "a second input is refused" refused "jarvis-selftest: refused: argument=--tts reason=one-input" --type hello --tts hello --brain "$sign_in"
 holds "no input is refused" refused "jarvis-selftest: refused: argument=input reason=missing want=--wav|--tts|--type" --brain "$sign_in"
 holds "a local server without a model is refused before the sandbox starts" refused "jarvis-selftest: refused: argument=--model reason=missing-local-model" --type hello --brain "$local_id"
+control plant "a local server that starts without a model" '  local) [[ -n $model ]] || refuse "argument=--model reason=missing-local-model" ;;' '  local) true || refuse "argument=--model reason=missing-local-model" ;;' refused "jarvis-selftest: refused: argument=--model reason=missing-local-model" --type hello --brain "$local_id"
 holds "an empty model argument is refused" refused "jarvis-selftest: refused: argument=--model value=" --type hello --brain "$local_id" --model ""
 brain_lookup_refused() {
   touch "$tmp/brain-lookup-fails"
@@ -403,6 +404,8 @@ PY
 holds "a WAV that is not 16-bit PCM is refused" bad_wav_refused
 holds "cold start mode rejects a turn input" refused "jarvis-selftest: refused: argument=--cold reason=exclusive-with-input" --cold 1 --type hello
 holds "cold start mode rejects a brain" refused "jarvis-selftest: refused: argument=--cold reason=exclusive-with-brain" --cold 1 --brain "$sign_in"
+holds "cold start mode rejects a model" refused "jarvis-selftest: refused: argument=--cold reason=exclusive-with-model" --cold 1 --model 'selftest-model:small'
+control plant "cold start mode that accepts a model" '  [[ -z $model ]] || refuse "argument=--cold reason=exclusive-with-model"' '  true || refuse "argument=--cold reason=exclusive-with-model"' refused "jarvis-selftest: refused: argument=--cold reason=exclusive-with-model" --cold 1 --model 'selftest-model:small'
 # What a key read ends on with nothing started. Each case saves its own
 # references and leaves the one OpenAI key and the Anthropic key behind.
 unsaved_voice() {
