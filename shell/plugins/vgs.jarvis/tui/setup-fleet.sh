@@ -36,7 +36,7 @@ process.stdout.write(home);
 helper() { vgs_tui_logged "$log" node "$VGS_PLUGIN_DIR/backend/fleet-setup.js" --tree "$tree" "$@" "$setting"; }
 folder="$(helper folder)" ||
   vgs_tui_refuse "$log" 1 "jarvis: fleet-setup=home-unchosen" \
-    "Choose a home folder in Settings > Home, then try again." || exit
+    "Choose a home folder in Settings > Jarvis > Home folder, then try again." || exit
 if helper tool >/dev/null; then
   vgs_tui_step "The kendex mail tool is already in the home folder"
   exit 0

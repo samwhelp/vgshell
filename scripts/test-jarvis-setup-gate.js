@@ -743,7 +743,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
                 const unselected = gate.readiness(UNSELECTED).setupModel.hint;
                 const hint = settings.statusView(setupRow.entry, String).hint;
                 if (row.want[1] !== "signIn")
-                    assert.equal(hint, "Choose an AI model in Settings > AI model.", row.name + ": Setup AI model hint");
+                    assert.equal(hint, "Choose an AI model in Settings > Jarvis > AI model.", row.name + ": Setup AI model hint");
                 else assert.deepEqual([typeof hint, hint === unselected], ["string", false],
                     row.name + ": Setup signed-out hint replaces the unselected one");
             }
@@ -1412,6 +1412,7 @@ function verify(gate) {
     verifyVoiceStepRepublish(gate, fs.readFileSync(serviceFile, "utf8"));
     verifyCheckFailures(gate);
     verifyOneLocalVoiceTask(gate, gate.localVoiceStep);
+    verifyPathForm(gate);
     for (const [label, cause, kind] of START_CAUSES) {
         const words = gate.startCause(cause);
         assert.equal(words.kind, kind, label + ": classified");
@@ -1438,7 +1439,7 @@ function verify(gate) {
 
 verify(load(file));
 verifyVoiceConsumers(load(file));
-console.log("test-jarvis-setup-gate: consumer=Setup hint=Choose an AI model in Settings > AI model.");
+console.log("test-jarvis-setup-gate: consumer=Setup hint=Choose an AI model in Settings > Jarvis > AI model.");
 
 // Each control removes one rule from a copy and keeps the text around it:
 // [label, needle, replacement].
@@ -1450,7 +1451,7 @@ const CONTROLS = [
     ["check failure hidden", 'if (check.kind === "failed") return', 'if (false) return'],
     ["microphone check hides a setup cause", 'value.tone !== "ok" || ', "", "voice setup cause survives microphone check"],
     ["silent check is ready", 'if (check.result === "silent") return { tone: "warning"', 'if (check.result === "silent") return { tone: "ok"'],
-    ["the AI model hint names the Settings field", '"brain=unselected": "Choose an AI model in Settings > AI model."', '"brain=unselected": "Choose an AI model in Settings."', "Setup AI model hint"],
+    ["the AI model hint names the Settings field", '"brain=unselected": "Choose an AI model in Settings > Jarvis > AI model."', '"brain=unselected": "Choose an AI model in Settings."', "Setup AI model hint"],
     ["present keys still offer Add key", 'var absent = keys !== undefined && keys.every(function (key) { return key.value === "absent"; });', 'var absent = keys !== undefined;'],
     ["a signed-in app still offers Add key", 'access.kind === "absent"', 'access.kind !== "checking"'],
     ["a signed-out cause offers Add key", 'cause === "brain=signed-out" ? "signIn" : ', "", "a signed-out AI model: setupModel"],
@@ -1477,6 +1478,10 @@ const CONTROLS = [
         'return { tone: "info", text: problem.title, hint: problem.lines[0], action: false };', "timeout: the row draws no keyed cause"],
     ["the Local voice row names a setup the Voice step does not offer", 'if (voice.action === "setup") {', 'if (voice.action === "setup" || voice.tone === "warning") {',
         "the Local voice row names no Voice step setup"],
+    ["a home hint names a path with no page", '"home=path": "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Jarvis > Home folder."',
+        '"home=path": "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Home."', "the Settings path has the one form"],
+    ["the voices hint names the Voice plugin page", 'var ELEVENLABS_READY = "Choose one in Settings > Jarvis > Voice.";', 'var ELEVENLABS_READY = "Choose one in Settings > Voice.";',
+        "the voices hint names Jarvis's own field"],
     ["a failed check names another reader's action", "var label = entry.action !== undefined ? entry.action.label : entry.actions.setup.label;", 'var label = "Set up local voice";', "the hint names"],
     ["memory refusal offers reinstall", 'if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {', 'if (false) {'],
     ["loading is initial checking", "out.setupVoice = LOADING;", "out.setupVoice = CHECKING;"],
@@ -1493,7 +1498,7 @@ const CONTROLS = [
     ["the ElevenLabs voices row never shows", 'if (facts.provider !== "elevenlabs") return { hidden: true };', "return { hidden: true };", "the ElevenLabs voices row"],
     ["a stored ElevenLabs key still reads as the user's step", 'if (!chosen) return { tone: "info", text: "Your step" };', 'return { tone: "info", text: "Your step" };', "the ElevenLabs voices row"],
     ["a failed voice read reads as being read", 'if (causes.indexOf("speech=elevenlabs-voice") !== -1) return', "if (false) return", "the ElevenLabs voices row"],
-    ["listed voices still link the key page", 'var ELEVENLABS_READY = "Choose one in Settings > Voice.";', 'var ELEVENLABS_READY = "Choose one in Settings > Voice, or open ElevenLabs API keys.";',
+    ["listed voices still link the key page", 'var ELEVENLABS_READY = "Choose one in Settings > Jarvis > Voice.";', 'var ELEVENLABS_READY = "Choose one in Settings > Jarvis > Voice, or open ElevenLabs API keys.";',
         "draws its link only where the user needs the key page"],
     ["a failed voice read names no key page", "check under ElevenLabs API keys that it may read voices", "check that it may read voices",
         "draws its link only where the user needs the key page"],
@@ -1534,8 +1539,8 @@ const CONTROLS = [
         "    else if (row.tone === \"ok\") row.hint = CLONE_READY_HINT;\n    if (value.lines !== undefined) row.lines = value.lines;\n    return row;",
         "a timed-out read words its state: the row draws no keyed cause"],
     ["a ready clone row keeps the setup instruction", '    else if (row.tone === "ok") row.hint = CLONE_READY_HINT;\n', "", "a ready cloned voice offers Remove and says what the recording gives"],
-    ["a ready clone hint has more than one sentence", 'var CLONE_READY_HINT = "Jarvis speaks in this voice while Cloned voice is on in Settings > Local voice.";',
-        'var CLONE_READY_HINT = "The recording is ready. Jarvis speaks in this voice while Cloned voice is on in Settings > Local voice.";'],
+    ["a ready clone hint has more than one sentence", 'var CLONE_READY_HINT = "Jarvis speaks in this voice while Settings > Jarvis > Cloned voice is on.";',
+        'var CLONE_READY_HINT = "The recording is ready. Jarvis speaks in this voice while Settings > Jarvis > Cloned voice is on.";'],
     ["a failed clone read offers a boolean", 'var action = value.action === true ? "setup" : value.action;', "var action = value.action;", "a failed read offers setup"],
     ["the fleet row shows with no home", "if (home === null || tool !== null)", "if (tool !== null)", "no home chosen: the row shows"],
     ["the fleet row shows once the tool is found", "if (home === null || tool !== null)", "if (home === null)", "a home with the mail tool: the row shows"],
@@ -2203,6 +2208,22 @@ function verifyWordedText(gate) {
         for (const [name, notice] of [["stopped", gate.stoppedNotice(cause)], ["mute refused", gate.muteRefusedNotice(cause)]])
             assert.deepEqual(keyedCauses(notice, ["title", "message"]), [], label + ": the " + name + " notice draws no keyed cause");
     }
+}
+
+// Every Settings path a gate text names has one form: the page, Jarvis's
+// own or the Voice plugin's, then for Jarvis's the field or group. The
+// voices hint names Jarvis's Voice field, never the Voice plugin's page.
+function verifyPathForm(gate) {
+    const texts = [];
+    (function walk(value) {
+        if (typeof value === "string") texts.push(value);
+        else if (value !== null && typeof value === "object") Object.values(value).forEach(walk);
+    })(plain(Object.fromEntries(Object.entries(gate).filter(([, value]) => typeof value !== "function"))));
+    const paths = texts.flatMap(text => text.match(/Settings > [^.,:]*/g) ?? []);
+    assert.equal(paths.length >= 10, true, "the gate's Settings paths are read");
+    for (const found of paths)
+        assert.match(found, /^Settings > (Voice$|Jarvis( > [A-Z][A-Za-z ]*)?)/, JSON.stringify(found) + ": the Settings path has the one form");
+    assert.equal(gate.ELEVENLABS_READY.includes("Settings > Jarvis > "), true, "the voices hint names Jarvis's own field");
 }
 
 function verifyChipTitles(gate) {

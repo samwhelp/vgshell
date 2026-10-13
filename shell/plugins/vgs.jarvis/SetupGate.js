@@ -97,11 +97,11 @@ var ELEVENLABS_UNREAD = "Jarvis could not read the voices of your ElevenLabs key
 // such as local voice not set up, keeps the declared hint, which says what
 // the step gives, since its action already says to set it up.
 var TODO = {
-    "brain=unselected": "Choose an AI model in Settings > AI model.",
-    "brain=account-unavailable": "The chosen AI model cannot be used. Add a key or sign in, then choose it in Settings > AI model.",
-    "brain=model-required": "The chosen AI model cannot be used. Choose another AI model in Settings > AI model.",
-    "brain=signed-out": "The chosen AI model is not signed in. Sign in, then choose it in Settings > AI model.",
-    "brain=pi-update": "Jarvis needs Pi 1.1.0 or later. Update it under Requirements, or choose another AI model in Settings > AI model.",
+    "brain=unselected": "Choose an AI model in Settings > Jarvis > AI model.",
+    "brain=account-unavailable": "The chosen AI model cannot be used. Add a key or sign in, then choose it in Settings > Jarvis > AI model.",
+    "brain=model-required": "The chosen AI model cannot be used. Choose another AI model in Settings > Jarvis > AI model.",
+    "brain=signed-out": "The chosen AI model is not signed in. Sign in, then choose it in Settings > Jarvis > AI model.",
+    "brain=pi-update": "Jarvis needs Pi 1.1.0 or later. Update it under Requirements, or choose another AI model in Settings > Jarvis > AI model.",
     "brain=accounts-unreadable": "Jarvis could not read your accounts. Open Accounts to check them.",
     "speech=live-account-unselected": "Add a key for the cloud voice under Setup at the top of this page: an OpenAI key for Realtime, a Gemini key for Gemini Live, an ElevenLabs key for ElevenLabs.",
     "speech=live-account-unreadable": "Jarvis could not read your voice key. Use Accounts in Setup to check it.",
@@ -109,7 +109,7 @@ var TODO = {
     "speech=elevenlabs-voice": ELEVENLABS_UNREAD,
     "speech=local-not-ready": "Local voice did not start. Set it up again.",
     "speech=local-ready-timeout": "Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis.",
-    "speech=always-local-voice": "Always talk mode listens for Hey Jarvis on this computer. Choose Local in Settings > Voice, or Hold or Toggle in Settings > Listening."
+    "speech=always-local-voice": "Always talk mode listens for Hey Jarvis on this computer. Choose Local in Settings > Jarvis > Voice provider, or Hold or Toggle in Settings > Jarvis > Talk mode."
 };
 // Local voice that did not get ready in time is set up: its step states
 // that result in place of To do, and the bar shows the step's hint for it
@@ -136,7 +136,7 @@ var DICTATION = {
 function setupActs(cause) {
     return cause.indexOf("speech=live-") !== 0 && cause.indexOf("speech=elevenlabs-") !== 0 && cause !== "speech=always-local-voice";
 }
-var STEP_TODO = { brain: "The chosen AI model cannot be used. Add a key or sign in, then choose it in Settings > AI model." };
+var STEP_TODO = { brain: "The chosen AI model cannot be used. Add a key or sign in, then choose it in Settings > Jarvis > AI model." };
 // The home folder step shows only while the daemon refuses the folder the
 // user chose, with what to change, by its cause; any other cause of the
 // folder or its text takes HOME_STEP_TODO. Its entry declares no action:
@@ -145,13 +145,13 @@ var STEP_TODO = { brain: "The chosen AI model cannot be used. Add a key or sign 
 // (jarvisd.js judgeSetup), which HOME_AGAIN says.
 var HOME_AGAIN = " Jarvis checks the folder again when you press Talk.";
 var HOME_TODO = {
-    "home=link": "The home folder has a link where Jarvis keeps a file or a folder. Remove the link, or choose another folder in Settings > Home." + HOME_AGAIN,
-    "home=path": "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Home.",
+    "home=link": "The home folder has a link where Jarvis keeps a file or a folder. Remove the link, or choose another folder in Settings > Jarvis > Home folder." + HOME_AGAIN,
+    "home=path": "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Jarvis > Home folder.",
     "guidance=home-too-large": "AGENTS.md in the home folder is too long. Make it shorter than 8 KB." + HOME_AGAIN,
     "guidance=home-skills-too-large": "The home folder has more skills than Jarvis can list. Remove the skills you do not use." + HOME_AGAIN,
     "guidance=home-memory-too-large": "memory/MEMORY.md in the home folder is too long. Make it shorter than 4 KB." + HOME_AGAIN
 };
-var HOME_STEP_TODO = "Jarvis cannot use the home folder. Check that you can open and change it, or choose another folder in Settings > Home." + HOME_AGAIN;
+var HOME_STEP_TODO = "Jarvis cannot use the home folder. Check that you can open and change it, or choose another folder in Settings > Jarvis > Home folder." + HOME_AGAIN;
 var HOME_READY = { hidden: true };
 var DONE = { tone: "ok", text: "Done", action: false };
 // Voice setup uses Session's check result, which only the local wake detector
@@ -243,7 +243,7 @@ function noAction(value) {
     delete out.action;
     return out;
 }
-var SIGNED_OUT_HINT = "Your Claude Code or Codex account is not signed in. Sign in, then choose it in Settings > AI model.";
+var SIGNED_OUT_HINT = "Your Claude Code or Codex account is not signed in. Sign in, then choose it in Settings > Jarvis > AI model.";
 
 // Account discovery supplies typed states even before it offers a model:
 // present while an app is signed in, signed-out while an app Sign in serves
@@ -409,7 +409,7 @@ var CLONE_WITHHELD = {
 };
 // The hint of a ready row: what the recording gives now. The declared hint
 // says how to set the step up, which a done step no longer asks.
-var CLONE_READY_HINT = "Jarvis speaks in this voice while Cloned voice is on in Settings > Local voice.";
+var CLONE_READY_HINT = "Jarvis speaks in this voice while Settings > Jarvis > Cloned voice is on.";
 function clonedVoiceStep(value, provider) {
     var action = value.action === true ? "setup" : value.action;
     var reason = provider !== "local" ? CLONE_WITHHELD.provider : value.tierReady === false ? CLONE_WITHHELD.tier : null;
@@ -455,7 +455,7 @@ function voiceKey(offered, settings) {
 // or waiting while another cause holds the Voice step. Only the hints
 // that send the user to ElevenLabs API keys name it, the declared one and
 // the failed read's, so the row's link draws in those two states alone.
-var ELEVENLABS_READY = "Choose one in Settings > Voice.";
+var ELEVENLABS_READY = "Choose one in Settings > Jarvis > Voice.";
 var ELEVENLABS_READING = "Jarvis is reading the voices of your ElevenLabs key.";
 var ELEVENLABS_WAITING = "Jarvis reads the voices of your ElevenLabs key when the Voice step on Setup is done.";
 function elevenLabsStep(facts) {
