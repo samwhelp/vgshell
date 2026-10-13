@@ -8,7 +8,7 @@ The core renders one Lua file from judged manifest data and theme tokens, `shell
 
 Every Hyprland request at run time leaves the shell through one queue, `Compositor`, and `Dispatch.js` is the one judge of its arguments. Only a state read after the reply proves a dispatcher acted. Hyprland is the only compositor ([D001](../decisions/D001-hyprland-only.md)).
 
-A key is normalised once, by `PluginLogic.hyprlandKey` ([D059](../decisions/D059-keycodes-and-effective-shortcut-keys.md)). One conflict decision, `HyprlandLayer.resolveBinds`, is shared by every reader of a key, so a plugin reads the key it actually holds. A hold shortcut gets a release companion bind ([D071](../decisions/D071-hold-shortcuts-use-a-release-companion.md)). Full-screen overlays and key fields capture through the submaps [D067](../decisions/D067-overlay-keyboard-capture.md) governs; `shell/Core/KeyCapture.qml` is the one key-field capture owner.
+A key is normalised once, by `ConfigLogic.hyprlandKey` ([D059](../decisions/D059-keycodes-and-effective-shortcut-keys.md)). One conflict decision, `HyprlandLayer.resolveBinds`, is shared by every reader of a key, so a plugin reads the key it actually holds. A hold shortcut gets a release companion bind ([D071](../decisions/D071-hold-shortcuts-use-a-release-companion.md)). Full-screen overlays and key fields capture through the submaps [D067](../decisions/D067-overlay-keyboard-capture.md) governs; `shell/Core/KeyCapture.qml` is the one key-field capture owner.
 
 ## Why
 
@@ -47,7 +47,7 @@ Hyprland runs a global bind before the focused layer or window sees the key, so 
 
 ### Keys
 
-- Do write a key in the grammar `PluginLogic.hyprlandKey` accepts. `scripts/test-hyprland-layer.js` pins it.
+- Do write a key in the grammar `ConfigLogic.hyprlandKey` accepts. `scripts/test-hyprland-layer.js` pins it.
 - Do take the key from the `plugins[].keys` entry, then the manifest; a list writes one bind per key, and `null` unbinds. `scripts/smoke/rows/hyprland.sh` reads it back.
 - Do resolve conflicts through `HyprlandLayer.resolveBinds` everywhere; the first plugin by id keeps the key, and a lost conflict reads as null so a label never advertises a key the shell skipped. `scripts/test-hyprland-layer.js` and `scripts/qml-tests/tst_shortcutregistry.qml` pin both.
 - Do start a hold only from a press on a registration with a live key; a release bind authenticates nothing, since a virtual keyboard can send one. `scripts/smoke/rows/hold-shortcuts.sh` and `tst_shortcutregistry.qml` pin it.

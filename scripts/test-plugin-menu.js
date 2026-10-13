@@ -227,7 +227,7 @@ const CONTROLS = [
     ["a row icon is shipped", "if (typeof item.icon !== \"string\" || !hasOwn(Lucide.ICONS, item.icon))", "if (false)"],
     ["aliases are printable", "if (item.aliases !== undefined && (!Array.isArray(item.aliases) || !item.aliases.every(", "if (false && (!Array.isArray(item.aliases) || !item.aliases.every("],
     ["a description is printable", "if (item.description !== undefined && !isPrintableLine(item.description, MENU_DESCRIPTION_MAX))", "if (false)"],
-    ["a shortcut is a name", "if (typeof item.shortcut !== \"string\" || !NAME_PATTERN.test(item.shortcut))", "if (false)"],
+    ["a shortcut is a name", "if (typeof item.shortcut !== \"string\" || !ConfigLogic.NAME_PATTERN.test(item.shortcut))", "if (false)"],
     ["a shortcut needs the capability", "if (capabilities.indexOf(\"shortcut\") === -1)\n                return at + \".shortcut", "if (false)\n                return at + \".shortcut"],
     ["a tui key is valid", "if (item.tui !== undefined && !tuiKeyValid(item.tui))", "if (false)"],
     ["a tui group is printable", "if (item.tuiGroup !== undefined && !isPrintableLine(item.tuiGroup, MENU_TEXT_MAX))", "if (false)"],
@@ -270,6 +270,7 @@ try {
     fs.mkdirSync(path.join(temp, "shell", "Commons"), { recursive: true });
     fs.symlinkSync(LUCIDE, path.join(temp, "shell", "Ui", "icons", "Lucide.js"));
     fs.symlinkSync(MANAGERS, path.join(temp, "shell", "Core", "PackageManagers.js"));
+    fs.symlinkSync(path.join(path.dirname(MANAGERS), "ConfigLogic.js"), path.join(temp, "shell", "Core", "ConfigLogic.js"));
     fs.symlinkSync(LAYER, path.join(temp, "shell", "Core", "HyprlandLayer.js"));
     fs.symlinkSync(path.join(path.dirname(LAYER), "MonitorLogic.js"), path.join(temp, "shell", "Core", "MonitorLogic.js"));
     fs.symlinkSync(path.join(path.dirname(LAYER), "Pads.js"), path.join(temp, "shell", "Core", "Pads.js"));

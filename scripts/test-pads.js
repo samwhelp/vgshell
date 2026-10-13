@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Table-driven checks for shell/Core/Pads.js, the schema's `list` type and
 // the pads of a manifest's `hyprland.pads`, loaded under node through
-// bin/lib/qml-library.js. The judges Pads.js takes from PluginLogic.js,
-// schemaError, settingError, hyprlandKey and NAME_PATTERN, come from the
-// shipped PluginLogic.js, so a row judges an item field as the core does;
+// bin/lib/qml-library.js. The judges PluginLogic.js hands Pads.js,
+// schemaError and settingError of its own and hyprlandKey and NAME_PATTERN
+// of the ConfigLogic.js it imports, come from the shipped PluginLogic.js,
+// so a row judges an item field as the core does;
 // PluginLogic's own use of Pads.js is scripts/test-plugin-logic.js's.
 // The controls at the end edit a copy of Pads.js, one rule at a time, and
 // the suite must fail on every copy. Exit 1 when a row or a control fails.
@@ -81,7 +82,7 @@ function suite(pads, check) {
         ["an item field outside its enum", [pad("1", { motion: "spin" })], "item=0 field=motion want=one-of:slide|fade|none"]
     ];
     for (const [name, value, want] of valueRows)
-        check("listValueError: " + name, pads.listValueError(entry, value, logic.settingError, logic.NAME_PATTERN), want);
+        check("listValueError: " + name, pads.listValueError(entry, value, logic.settingError, logic.ConfigLogic.NAME_PATTERN), want);
 
     // listChoices: one model per item for each optionsFrom field.
     const model = (field, configured) => [field === entry.items.screen, configured];
@@ -123,12 +124,12 @@ function suite(pads, check) {
         ["no hyprland key", undefined, "pad-term", false]
     ];
     for (const [name, declared, shortcut, want] of shortcutRows)
-        check("isPadShortcut: " + name, pads.isPadShortcut(declared, shortcut, logic.NAME_PATTERN), want);
+        check("isPadShortcut: " + name, pads.isPadShortcut(declared, shortcut, logic.ConfigLogic.NAME_PATTERN), want);
 
     // expand: what the pads ask of the layer.
     const schema = { pads: entry };
-    const expand = (value, keys) => plain(pads.expand("pads", schema, { pads: value }, keys || {}, logic.hyprlandKey, logic.settingError));
-    check("expand: a manifest without pads asks nothing", plain(pads.expand(undefined, schema, {}, {}, logic.hyprlandKey, logic.settingError)), { binds: [], pads: null, refusals: [] });
+    const expand = (value, keys) => plain(pads.expand("pads", schema, { pads: value }, keys || {}, logic.ConfigLogic.hyprlandKey, logic.settingError));
+    check("expand: a manifest without pads asks nothing", plain(pads.expand(undefined, schema, {}, {}, logic.ConfigLogic.hyprlandKey, logic.settingError)), { binds: [], pads: null, refusals: [] });
     check("expand: no pads ask an empty list", expand([]), { binds: [], pads: [], refusals: [] });
     check("expand: a pad's bind takes its key, normalised, and its anchors come from its position", expand([pad("1", { position: "bottom-right" })], { "pad-1": "alt+super+p" }), {
         binds: [{ shortcut: "pad-1", key: "SUPER+ALT+P" }],
@@ -157,7 +158,7 @@ function suite(pads, check) {
     ];
     const allPositions = withItems({ position: { type: "enum", label: "Position", options: positionRows.map(r => ({ value: r[0], label: r[0] })) } });
     for (const [position, x, y] of positionRows) {
-        const got = plain(pads.expand("pads", { pads: allPositions }, { pads: [pad("1", { position: position })] }, {}, logic.hyprlandKey, logic.settingError)).pads.map(p => [p.x, p.y]);
+        const got = plain(pads.expand("pads", { pads: allPositions }, { pads: [pad("1", { position: position })] }, {}, logic.ConfigLogic.hyprlandKey, logic.settingError)).pads.map(p => [p.x, p.y]);
         check("expand: a " + position + " pad's anchors", got, [[x, y]]);
     }
 }

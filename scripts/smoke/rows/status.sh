@@ -13,7 +13,7 @@
 # The row ends with the fixture disabled and its screen removed, so the
 # later rows' bars and lending records hold nothing of it. rows/settings.sh
 # enables it again to read its Status rows.
-# inputs: scripts/smoke/fixtures/plugins/acme.status/* shell/Core/PluginStatus.qml shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/plugins.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.status/* shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/plugins.sh
 set -euo pipefail
 status_dir="$home/.config/vgshell/plugins/acme.status"
 mkdir -p "$status_dir"

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Table-driven checks for shell/Core/PluginLogic.js, loaded under node through
-// bin/lib/qml-library.js. The controls at the end edit a copy of the judge,
-// one rule at a time, and the suite must fail on every copy. Exit 1 when any
+// Table-driven checks for shell/Core/PluginLogic.js and the configuration
+// judge it imports, shell/Core/ConfigLogic.js, loaded under node through
+// bin/lib/qml-library.js. The controls at the end edit a copy of either
+// judge, one rule at a time, and the suite must fail on every copy. Exit 1 when any
 // row or control fails.
 "use strict";
 const fs = require("fs");
@@ -10,6 +11,7 @@ const path = require("path");
 const { load } = require("../bin/lib/qml-library.js");
 
 const LOGIC = path.join(__dirname, "..", "shell", "Core", "PluginLogic.js");
+const CONFIG = path.join(__dirname, "..", "shell", "Core", "ConfigLogic.js");
 const LUCIDE = path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js");
 const MANAGERS = path.join(__dirname, "..", "shell", "Core", "PackageManagers.js");
 const LAYER = path.join(__dirname, "..", "shell", "Core", "HyprlandLayer.js");
@@ -27,8 +29,9 @@ function report(name, got, want) {
     console.log("  FAIL  " + name + "\n        got  " + g + "\n        want " + w);
 }
 
-// Every row against one loaded judge, `ctx`, each result handed to `check`.
-function suite(ctx, check) {
+// Every row against one loaded judge, `ctx`, and the configuration judge it
+// imports, `configLogic`, each result handed to `check`.
+function suite(ctx, configLogic, check) {
     const dictationRaw = { schemaVersion: 1, id: "acme.dictation", name: "D", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "Service.qml" }, capabilities: ["dictation", "status"], status: { setup: { type: "presence", label: "Setup", action: { label: "Set up", dictation: "setup" } } } };
     for (const [capability, value, accepted] of [[true, "setup", true], [false, "setup", false], [true, "restart", false], [true, null, false], [true, 1, false]]) {
         const raw = JSON.parse(JSON.stringify(dictationRaw));
@@ -591,12 +594,12 @@ function suite(ctx, check) {
         ["appearance null", { appearance: null }, "appearance must be an object"],
     ];
     for (const [name, config, want] of configRows) {
-        const got = ctx.configError(config);
+        const got = configLogic.configError(config);
         check("configError: " + name, got.slice(0, want === "" ? got.length : want.length), want);
     }
     // The shipped file itself: Config.ready waits for a shipped file this judge
     // passes, so a refused config/shell.json leaves every screen without a bar.
-    check("configError: the repository's config/shell.json passes", ctx.configError(JSON.parse(require("fs").readFileSync(path.join(__dirname, "..", "config", "shell.json"), "utf8"))), "");
+    check("configError: the repository's config/shell.json passes", configLogic.configError(JSON.parse(require("fs").readFileSync(path.join(__dirname, "..", "config", "shell.json"), "utf8"))), "");
 
     // migrateConfig rows: [name, user file, want file, want migrated, the
     // judge's verdict on the result]. A version 1 file's layout entries
@@ -655,10 +658,10 @@ function suite(ctx, check) {
     ];
     for (const [name, user, want, migrated, verdict] of migrateRows) {
         const before = JSON.stringify(user);
-        const got = ctx.migrateConfig(user);
+        const got = configLogic.migrateConfig(user);
         check("migrateConfig: " + name, got, { config: want, migrated: migrated });
         check("migrateConfig leaves its input: " + name, JSON.stringify(user), before);
-        check("migrateConfig result judged: " + name, ctx.configError(got.config), verdict);
+        check("migrateConfig result judged: " + name, configLogic.configError(got.config), verdict);
     }
 
     const shipped = { version: 2, bar: { id: "vgs.bar", layout: { left: [{ id: "vgs.workspaces" }], center: [{ id: "vgs.clock" }], right: [] } }, plugins: [{ id: "acme.svc", x: 1 }], disabledPlugins: [] };
@@ -674,10 +677,10 @@ function suite(ctx, check) {
     ];
     function dig(obj, p) { return p.split(".").reduce((o, k) => (o === undefined ? undefined : o[k]), obj); }
     for (const [name, user, p, want] of mergeRows) {
-        check("effectiveConfig: " + name, dig(ctx.effectiveConfig(shipped, user), p), want);
+        check("effectiveConfig: " + name, dig(configLogic.effectiveConfig(shipped, user), p), want);
     }
-    check("effectiveConfig does not alias shipped", (() => { const c = ctx.effectiveConfig(shipped, null); c.bar.id = "x"; return shipped.bar.id; })(), "vgs.bar");
-    check("effectiveConfig does not alias the user file", (() => { const user = { bar: { id: "u.bar" } }; const c = ctx.effectiveConfig(shipped, user); c.bar.id = "x"; return user.bar.id; })(), "u.bar");
+    check("effectiveConfig does not alias shipped", (() => { const c = configLogic.effectiveConfig(shipped, null); c.bar.id = "x"; return shipped.bar.id; })(), "vgs.bar");
+    check("effectiveConfig does not alias the user file", (() => { const user = { bar: { id: "u.bar" } }; const c = configLogic.effectiveConfig(shipped, user); c.bar.id = "x"; return user.bar.id; })(), "u.bar");
     check("managerId reads the manager's id", ctx.managerId({ manager: { id: "a.b" } }), "a.b");
     check("managerId is empty for a file that names none", ctx.managerId({}), "");
     check("managerId is empty for an id that is not a string", ctx.managerId({ manager: { id: 3 } }), "");
@@ -703,20 +706,20 @@ function suite(ctx, check) {
         ["active bar enabled", shipped, "vgs.bar", true],
         ["placed widget enabled", shipped, "vgs.clock", true],
         ["listed third-party service enabled", shipped, "acme.svc", true],
-        ["unplaced widget disabled", ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [] } } }), "vgs.clock", false],
-        ["unlisted third-party disabled", ctx.effectiveConfig(Object.assign({}, shipped, { plugins: [] }), null), "acme.svc", false],
-        ["shipped listing survives an empty user list", ctx.effectiveConfig(shipped, { plugins: [] }), "acme.svc", true],
-        ["disabledPlugins wins over placement", ctx.effectiveConfig(shipped, { disabledPlugins: ["vgs.clock"] }), "vgs.clock", false],
-        ["bar id absent falls to default", ctx.effectiveConfig(shipped, { bar: {} }), "vgs.bar", true],
-        ["other active bar disables default bar", ctx.effectiveConfig(shipped, { bar: { id: "other.bar" } }), "vgs.bar", false],
+        ["unplaced widget disabled", configLogic.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [] } } }), "vgs.clock", false],
+        ["unlisted third-party disabled", configLogic.effectiveConfig(Object.assign({}, shipped, { plugins: [] }), null), "acme.svc", false],
+        ["shipped listing survives an empty user list", configLogic.effectiveConfig(shipped, { plugins: [] }), "acme.svc", true],
+        ["disabledPlugins wins over placement", configLogic.effectiveConfig(shipped, { disabledPlugins: ["vgs.clock"] }), "vgs.clock", false],
+        ["bar id absent falls to default", configLogic.effectiveConfig(shipped, { bar: {} }), "vgs.bar", true],
+        ["other active bar disables default bar", configLogic.effectiveConfig(shipped, { bar: { id: "other.bar" } }), "vgs.bar", false],
         ["first-party service enabled unlisted", shipped, "vgs.svc", true],
-        ["first-party service disabled when listed", ctx.effectiveConfig(shipped, { disabledPlugins: ["vgs.svc"] }), "vgs.svc", false],
+        ["first-party service disabled when listed", configLogic.effectiveConfig(shipped, { disabledPlugins: ["vgs.svc"] }), "vgs.svc", false],
         ["first-party widget is not enabled unplaced", shipped, "acme.widget", false],
-        ["a placed widget listed in disabledPlugins is disabled", ctx.effectiveConfig(shipped, { disabledPlugins: ["vgs.workspaces"] }), "vgs.workspaces", false],
-        ["an inactive bar listed for its settings is not enabled", ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.bar", x: 1 }] }), "acme.bar", false],
-        ["an unplaced widget listed for its settings is not enabled", ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.widget", size: 1 }] }), "acme.widget", false],
-        ["an inactive first-party bar with a panel kind is not enabled", ctx.effectiveConfig(shipped, { bar: { id: "acme.bar" } }), "vgs.barpanel", false],
-        ["the active first-party bar with a panel kind is enabled", ctx.effectiveConfig(shipped, { bar: { id: "vgs.barpanel" } }), "vgs.barpanel", true],
+        ["a placed widget listed in disabledPlugins is disabled", configLogic.effectiveConfig(shipped, { disabledPlugins: ["vgs.workspaces"] }), "vgs.workspaces", false],
+        ["an inactive bar listed for its settings is not enabled", configLogic.effectiveConfig(shipped, { plugins: [{ id: "acme.bar", x: 1 }] }), "acme.bar", false],
+        ["an unplaced widget listed for its settings is not enabled", configLogic.effectiveConfig(shipped, { plugins: [{ id: "acme.widget", size: 1 }] }), "acme.widget", false],
+        ["an inactive first-party bar with a panel kind is not enabled", configLogic.effectiveConfig(shipped, { bar: { id: "acme.bar" } }), "vgs.barpanel", false],
+        ["the active first-party bar with a panel kind is enabled", configLogic.effectiveConfig(shipped, { bar: { id: "vgs.barpanel" } }), "vgs.barpanel", true],
         ["a first-party widget with a panel kind is enabled unplaced", shipped, "vgs.widgetpanel", true],
     ];
     for (const [name, config, id, want] of enabledRows) {
@@ -724,28 +727,28 @@ function suite(ctx, check) {
     }
 
     check("hiddenByDisabling the active bar names its enabled widgets", ctx.hiddenByDisabling(manifests, shipped, "vgs.bar", "vgs.bar"), ["vgs.clock", "vgs.workspaces"]);
-    check("hiddenByDisabling ignores disabled widgets", ctx.hiddenByDisabling(manifests, ctx.effectiveConfig(shipped, { disabledPlugins: ["vgs.clock"] }), "vgs.bar", "vgs.bar"), ["vgs.workspaces"]);
-    check("hiddenByDisabling an inactive bar is empty", ctx.hiddenByDisabling(manifests, ctx.effectiveConfig(shipped, { bar: { id: "other.bar" } }), "vgs.bar", "vgs.bar"), []);
+    check("hiddenByDisabling ignores disabled widgets", ctx.hiddenByDisabling(manifests, configLogic.effectiveConfig(shipped, { disabledPlugins: ["vgs.clock"] }), "vgs.bar", "vgs.bar"), ["vgs.workspaces"]);
+    check("hiddenByDisabling an inactive bar is empty", ctx.hiddenByDisabling(manifests, configLogic.effectiveConfig(shipped, { bar: { id: "other.bar" } }), "vgs.bar", "vgs.bar"), []);
     check("hiddenByDisabling a widget is empty", ctx.hiddenByDisabling(manifests, shipped, "vgs.clock", "vgs.bar"), []);
     check("hiddenByDisabling leaves out an enabled widget the layout does not place", ctx.hiddenByDisabling(manifests, shipped, "vgs.bar", "vgs.bar").indexOf("vgs.widgetpanel"), -1);
-    check("hiddenByDisabling names a placed first-party widget with a panel kind", ctx.hiddenByDisabling(manifests, ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "vgs.widgetpanel" }] } } }), "vgs.bar", "vgs.bar"), ["vgs.widgetpanel"]);
-    check("hiddenByDisabling sorts ids", ctx.hiddenByDisabling(manifests, ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [{ id: "vgs.workspaces" }], center: [{ id: "vgs.clock" }], right: [{ id: "acme.widget" }] } } }), "vgs.bar", "vgs.bar"), ["acme.widget", "vgs.clock", "vgs.workspaces"]);
+    check("hiddenByDisabling names a placed first-party widget with a panel kind", ctx.hiddenByDisabling(manifests, configLogic.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "vgs.widgetpanel" }] } } }), "vgs.bar", "vgs.bar"), ["vgs.widgetpanel"]);
+    check("hiddenByDisabling sorts ids", ctx.hiddenByDisabling(manifests, configLogic.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [{ id: "vgs.workspaces" }], center: [{ id: "vgs.clock" }], right: [{ id: "acme.widget" }] } } }), "vgs.bar", "vgs.bar"), ["acme.widget", "vgs.clock", "vgs.workspaces"]);
     check("hiddenByDisabling ignores a prototype name", ctx.hiddenByDisabling(manifests, shipped, "constructor", "vgs.bar"), []);
     check("hasOwn rejects a prototype name", ctx.hasOwn(manifests, "toString"), false);
 
     // effectiveLayout: placement filtered by enablement, entries copied.
     const layoutRows = [
         ["shipped layout shows both widgets", shipped, { left: [{ id: "vgs.workspaces" }], center: [{ id: "vgs.clock" }], right: [] }],
-        ["a disabled widget leaves its section and its entry stays in the file", ctx.effectiveConfig(shipped, { disabledPlugins: ["vgs.clock"] }), { left: [{ id: "vgs.workspaces" }], center: [], right: [] }],
-        ["an unknown id is not shown", ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [{ id: "nope.x" }, { id: "vgs.workspaces" }], center: [], right: [] } } }), { left: [{ id: "vgs.workspaces" }], center: [], right: [] }],
-        ["a plugin without the widget kind is not shown", ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [{ id: "acme.svc" }], center: [], right: [] } } }), { left: [], center: [], right: [] }],
-        ["entries keep their settings keys", ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [{ id: "vgs.clock", format: "HH:mm" }], right: [] } } }), { left: [], center: [{ id: "vgs.clock", format: "HH:mm" }], right: [] }],
-        ["a missing section reads as empty", ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [{ id: "vgs.workspaces" }] } } }), { left: [{ id: "vgs.workspaces" }], center: [], right: [] }],
+        ["a disabled widget leaves its section and its entry stays in the file", configLogic.effectiveConfig(shipped, { disabledPlugins: ["vgs.clock"] }), { left: [{ id: "vgs.workspaces" }], center: [], right: [] }],
+        ["an unknown id is not shown", configLogic.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [{ id: "nope.x" }, { id: "vgs.workspaces" }], center: [], right: [] } } }), { left: [{ id: "vgs.workspaces" }], center: [], right: [] }],
+        ["a plugin without the widget kind is not shown", configLogic.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [{ id: "acme.svc" }], center: [], right: [] } } }), { left: [], center: [], right: [] }],
+        ["entries keep their settings keys", configLogic.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [{ id: "vgs.clock", format: "HH:mm" }], right: [] } } }), { left: [], center: [{ id: "vgs.clock", format: "HH:mm" }], right: [] }],
+        ["a missing section reads as empty", configLogic.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [{ id: "vgs.workspaces" }] } } }), { left: [{ id: "vgs.workspaces" }], center: [], right: [] }],
     ];
     for (const [name, config, want] of layoutRows) {
         check("effectiveLayout: " + name, ctx.effectiveLayout(config, manifests, "vgs.bar"), want);
     }
-    check("effectiveLayout does not alias the configuration", (() => { const c = ctx.effectiveConfig(shipped, null); ctx.effectiveLayout(c, manifests, "vgs.bar").left[0].x = 1; return c.bar.layout.left[0].x; })(), undefined);
+    check("effectiveLayout does not alias the configuration", (() => { const c = configLogic.effectiveConfig(shipped, null); ctx.effectiveLayout(c, manifests, "vgs.bar").left[0].x = 1; return c.bar.layout.left[0].x; })(), undefined);
 
     const builtinNames = ["left-workspaces", "center-clock"];
     const builtinConfig = { bar: { id: "vgs.bar", layout: {
@@ -777,9 +780,9 @@ function suite(ctx, check) {
     check("builtin Hide removes its ordinary entry", hiddenBuiltin.bar.layout,
         { left: builtinConfig.bar.layout.left, center: [], right: [] });
     check("builtin Hide creates no independent settings row", hiddenBuiltin.plugins, undefined);
-    check("builtin Hide keeps owner enablement", ctx.isEnabled(ctx.effectiveConfig(builtinConfig, hiddenBuiltin), manifests["vgs.bar"], "vgs.bar"), true);
+    check("builtin Hide keeps owner enablement", ctx.isEnabled(configLogic.effectiveConfig(builtinConfig, hiddenBuiltin), manifests["vgs.bar"], "vgs.bar"), true);
     check("builtin placement restores only an ordinary entry", ctx.withPlaced(hiddenBuiltin, manifests["vgs.bar"], true,
-        ctx.effectiveConfig(builtinConfig, hiddenBuiltin), "vgs.bar/center-clock").bar.layout.center, [{ id: "vgs.bar/center-clock" }]);
+        configLogic.effectiveConfig(builtinConfig, hiddenBuiltin), "vgs.bar/center-clock").bar.layout.center, [{ id: "vgs.bar/center-clock" }]);
     // Builtin families: one registration per placed `<family>-<n>`.
     const families = ["gap", "separator"];
     const familyConfig = { bar: { id: "vgs.bar", layout: {
@@ -842,14 +845,14 @@ function suite(ctx, check) {
         { left: [], center: [], right: [{ id: "vgs.bar/left-workspaces" }] });
 
     // settingsFor: manifest defaults under the plugins row, for every kind.
-    check("settingsFor merges the plugins row over defaults", ctx.settingsFor(ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.widget", size: 9 }] }), manifests["acme.widget"]), { size: 9, tags: ["a"] });
-    check("settingsFor drops the id key", ctx.settingsFor(ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.widget" }] }), manifests["acme.widget"]).id, undefined);
-    check("settingsFor reads the plugins entry for a service", ctx.settingsFor(ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.svc", x: 2 }] }), manifests["acme.svc"]), { x: 2 });
+    check("settingsFor merges the plugins row over defaults", ctx.settingsFor(configLogic.effectiveConfig(shipped, { plugins: [{ id: "acme.widget", size: 9 }] }), manifests["acme.widget"]), { size: 9, tags: ["a"] });
+    check("settingsFor drops the id key", ctx.settingsFor(configLogic.effectiveConfig(shipped, { plugins: [{ id: "acme.widget" }] }), manifests["acme.widget"]).id, undefined);
+    check("settingsFor reads the plugins entry for a service", ctx.settingsFor(configLogic.effectiveConfig(shipped, { plugins: [{ id: "acme.svc", x: 2 }] }), manifests["acme.svc"]), { x: 2 });
     check("settingsFor is empty with no entry and no defaults", ctx.settingsFor(shipped, manifests["vgs.svc"]), {});
     check("settingsFor gives a widget the manifest defaults with no row", ctx.settingsFor(shipped, manifests["acme.both"]), { label: "probe" });
     // The manager's page, the service and the widget of a placed
     // widget-plus-service read one value: the row's.
-    const placedRow = ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [{ id: "acme.both" }], right: [] } }, plugins: [{ id: "acme.both", label: "row" }] });
+    const placedRow = configLogic.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [{ id: "acme.both" }], right: [] } }, plugins: [{ id: "acme.both", label: "row" }] });
     check("settingsFor gives a placed widget-plus-service its plugins row", ctx.settingsFor(placedRow, manifests["acme.both"]), { label: "row" });
     check("settingsFor does not alias the row", (() => { const c = { plugins: [{ id: "acme.widget", tags: ["z"] }] }; const s2 = ctx.settingsFor(c, manifests["acme.widget"]); s2.tags.push("y"); return c.plugins[0].tags; })(), ["z"]);
     check("settingsFor ignores undeclared and reserved keys", ctx.settingsFor({ plugins: [{ id: "acme.widget", size: 0, retired: "unused", keys: { toggle: "SUPER+A" } }] }, manifests["acme.widget"]), { size: 0, tags: ["a"] });
@@ -872,26 +875,26 @@ function suite(ctx, check) {
     const withRows = [
         ["disable preserves inherited disabled plugins", null, Object.assign({}, shipped, { disabledPlugins: ["vgs.clock"] }), "acme.svc", false, "disabledPlugins", ["vgs.clock", "acme.svc"]],
         ["enable removes only its inherited disabled entry", null, Object.assign({}, shipped, { disabledPlugins: ["vgs.clock", "acme.svc"] }), "acme.svc", true, "disabledPlugins", ["vgs.clock"]],
-        ["an explicit empty disabled list overrides shipped entries", { disabledPlugins: [] }, ctx.effectiveConfig(Object.assign({}, shipped, { disabledPlugins: ["vgs.clock"] }), { disabledPlugins: [] }), "acme.svc", false, "disabledPlugins", ["acme.svc"]],
+        ["an explicit empty disabled list overrides shipped entries", { disabledPlugins: [] }, configLogic.effectiveConfig(Object.assign({}, shipped, { disabledPlugins: ["vgs.clock"] }), { disabledPlugins: [] }), "acme.svc", false, "disabledPlugins", ["acme.svc"]],
         ["disable bar lists it", null, shipped, "vgs.bar", false, "disabledPlugins", ["vgs.bar"]],
         ["disable twice lists it once", { disabledPlugins: ["vgs.bar"] }, shipped, "vgs.bar", false, "disabledPlugins", ["vgs.bar"]],
         ["enable bar unlists it", { disabledPlugins: ["vgs.bar"] }, shipped, "vgs.bar", true, "disabledPlugins", []],
         ["disable bar leaves the bar key alone", null, shipped, "vgs.bar", false, "bar", undefined],
-        ["disable widget keeps its placement", placedClock, ctx.effectiveConfig(shipped, placedClock), "vgs.clock", false, "bar.layout.center", [{ id: "vgs.clock" }]],
-        ["disable widget keeps its settings row", placedClock, ctx.effectiveConfig(shipped, placedClock), "vgs.clock", false, "plugins", [{ id: "vgs.clock", format: "HH:mm:ss" }]],
-        ["disable widget only lists it", placedClock, ctx.effectiveConfig(shipped, placedClock), "vgs.clock", false, "disabledPlugins", ["vgs.clock"]],
-        ["re-enable a placed widget changes only the disabled list", Object.assign({ disabledPlugins: ["vgs.clock"] }, placedClock), ctx.effectiveConfig(shipped, Object.assign({ disabledPlugins: ["vgs.clock"] }, placedClock)), "vgs.clock", true, "bar", placedClock.bar],
-        ["enable a placed widget is idempotent", placedClock, ctx.effectiveConfig(shipped, placedClock), "vgs.clock", true, "bar", placedClock.bar],
-        ["enable an unplaced widget places it in its default section", null, ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [] } } }), "vgs.workspaces", true, "bar.layout.left.0.id", "vgs.workspaces"],
+        ["disable widget keeps its placement", placedClock, configLogic.effectiveConfig(shipped, placedClock), "vgs.clock", false, "bar.layout.center", [{ id: "vgs.clock" }]],
+        ["disable widget keeps its settings row", placedClock, configLogic.effectiveConfig(shipped, placedClock), "vgs.clock", false, "plugins", [{ id: "vgs.clock", format: "HH:mm:ss" }]],
+        ["disable widget only lists it", placedClock, configLogic.effectiveConfig(shipped, placedClock), "vgs.clock", false, "disabledPlugins", ["vgs.clock"]],
+        ["re-enable a placed widget changes only the disabled list", Object.assign({ disabledPlugins: ["vgs.clock"] }, placedClock), configLogic.effectiveConfig(shipped, Object.assign({ disabledPlugins: ["vgs.clock"] }, placedClock)), "vgs.clock", true, "bar", placedClock.bar],
+        ["enable a placed widget is idempotent", placedClock, configLogic.effectiveConfig(shipped, placedClock), "vgs.clock", true, "bar", placedClock.bar],
+        ["enable an unplaced widget places it in its default section", null, configLogic.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [] } } }), "vgs.workspaces", true, "bar.layout.left.0.id", "vgs.workspaces"],
         ["enable an unplaced widget seeds the user bar from the effective bar", null, shipped, "acme.widget", true, "bar.layout.left", [{ id: "vgs.workspaces" }]],
         ["enable an unplaced widget keeps the effective bar id", null, shipped, "acme.widget", true, "bar.id", "vgs.bar"],
-        ["a user bar key is not reseeded", { bar: { layout: { left: [], center: [], right: [] } } }, ctx.effectiveConfig(shipped, { bar: { layout: { left: [], center: [], right: [] } } }), "acme.widget", true, "bar.layout.left", []],
+        ["a user bar key is not reseeded", { bar: { layout: { left: [], center: [], right: [] } } }, configLogic.effectiveConfig(shipped, { bar: { layout: { left: [], center: [], right: [] } } }), "acme.widget", true, "bar.layout.left", []],
         ["no default section places in center", null, shipped, "acme.widget", true, "bar.layout.center.1.id", "acme.widget"],
-        ["a manifest default section is used", null, ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [] } } }), "acme.both", true, "bar.layout.right.0.id", "acme.both"],
-        ["enable third-party service lists it", null, ctx.effectiveConfig(Object.assign({}, shipped, { plugins: [] }), null), "acme.svc", true, "plugins", [{ id: "acme.svc" }]],
-        ["enable a listed third-party service keeps its row", listedSvc, ctx.effectiveConfig(shipped, listedSvc), "acme.svc", true, "plugins", [{ id: "acme.svc", x: 1 }]],
-        ["disable third-party service keeps its row", listedSvc, ctx.effectiveConfig(shipped, listedSvc), "acme.svc", false, "plugins", [{ id: "acme.svc", x: 1 }]],
-        ["disable third-party service lists it", listedSvc, ctx.effectiveConfig(shipped, listedSvc), "acme.svc", false, "disabledPlugins", ["acme.svc"]],
+        ["a manifest default section is used", null, configLogic.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [] } } }), "acme.both", true, "bar.layout.right.0.id", "acme.both"],
+        ["enable third-party service lists it", null, configLogic.effectiveConfig(Object.assign({}, shipped, { plugins: [] }), null), "acme.svc", true, "plugins", [{ id: "acme.svc" }]],
+        ["enable a listed third-party service keeps its row", listedSvc, configLogic.effectiveConfig(shipped, listedSvc), "acme.svc", true, "plugins", [{ id: "acme.svc", x: 1 }]],
+        ["disable third-party service keeps its row", listedSvc, configLogic.effectiveConfig(shipped, listedSvc), "acme.svc", false, "plugins", [{ id: "acme.svc", x: 1 }]],
+        ["disable third-party service lists it", listedSvc, configLogic.effectiveConfig(shipped, listedSvc), "acme.svc", false, "disabledPlugins", ["acme.svc"]],
         ["enable first-party service does not list it in plugins", { disabledPlugins: ["vgs.svc"] }, shipped, "vgs.svc", true, "plugins", undefined],
         ["writes version 2", null, shipped, "acme.svc", true, "version", 2],
         ["enable bar sets it active", null, shipped, "acme.bar", true, "bar.id", "acme.bar"],
@@ -900,20 +903,20 @@ function suite(ctx, check) {
         ["enable bar does not list it in plugins", null, shipped, "acme.bar", true, "plugins", undefined],
         ["enable widget does not list it in plugins", null, shipped, "acme.widget", true, "plugins", undefined],
         ["enable a widget-plus-service plugin places it and does not list it", null, shipped, "acme.both", true, "plugins", undefined],
-        ["enable an unplaced widget places an entry holding its id alone", null, ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.both", label: "row", keys: {} }] }), "acme.both", true, "bar.layout.right", [{ id: "acme.both" }]],
+        ["enable an unplaced widget places an entry holding its id alone", null, configLogic.effectiveConfig(shipped, { plugins: [{ id: "acme.both", label: "row", keys: {} }] }), "acme.both", true, "bar.layout.right", [{ id: "acme.both" }]],
     ];
     for (const [name, user, effective, id, enabled, p, want] of withRows) {
         check("withEnabled: " + name, dig(ctx.withEnabled(user, manifests[id], enabled, effective), p), want);
     }
-    check("withEnabled does not alias the user file", (() => { const u = { bar: { layout: { left: [], center: [], right: [] } } }; ctx.withEnabled(u, manifests["acme.widget"], true, ctx.effectiveConfig(shipped, u)); return u.bar.layout.center; })(), []);
+    check("withEnabled does not alias the user file", (() => { const u = { bar: { layout: { left: [], center: [], right: [] } } }; ctx.withEnabled(u, manifests["acme.widget"], true, configLogic.effectiveConfig(shipped, u)); return u.bar.layout.center; })(), []);
 
     // isPlaced rows: [name, config, id, want]. Placement reads apart from
     // enablement.
     const placedRows = [
         ["a widget in a section is placed", shipped, "vgs.clock", true],
         ["a widget in no section is unplaced", shipped, "acme.widget", false],
-        ["a disabled widget's entry still reads placed", ctx.effectiveConfig(shipped, { disabledPlugins: ["vgs.clock"] }), "vgs.clock", true],
-        ["an entry of a plugin without the widget kind is no placement", ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [{ id: "acme.svc" }], center: [], right: [] } } }), "acme.svc", false],
+        ["a disabled widget's entry still reads placed", configLogic.effectiveConfig(shipped, { disabledPlugins: ["vgs.clock"] }), "vgs.clock", true],
+        ["an entry of a plugin without the widget kind is no placement", configLogic.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [{ id: "acme.svc" }], center: [], right: [] } } }), "acme.svc", false],
     ];
     for (const [name, config, id, want] of placedRows) check("isPlaced: " + name, ctx.isPlaced(config, manifests[id]), want);
 
@@ -923,7 +926,7 @@ function suite(ctx, check) {
         ["an enabled unplaced widget-plus-panel may be placed", shipped, "vgs.widgetpanel", ""],
         ["a service has no widget", shipped, "acme.svc", "refused: placed=acme.svc reason=no-bar-widget"],
         ["a bar has no widget", shipped, "vgs.bar", "refused: placed=vgs.bar reason=no-bar-widget"],
-        ["a disabled widget is refused", ctx.effectiveConfig(shipped, { disabledPlugins: ["vgs.clock"] }), "vgs.clock", "refused: placed=vgs.clock reason=disabled"],
+        ["a disabled widget is refused", configLogic.effectiveConfig(shipped, { disabledPlugins: ["vgs.clock"] }), "vgs.clock", "refused: placed=vgs.clock reason=disabled"],
         ["an unplaced widget-only plugin is disabled", shipped, "acme.widget", "refused: placed=acme.widget reason=disabled"],
     ];
     for (const [name, config, id, want] of placedRefusalRows) check("placedRefusal: " + name, ctx.placedRefusal(config, manifests[id], "vgs.bar"), want);
@@ -936,53 +939,53 @@ function suite(ctx, check) {
         ["place puts the widget in its default section", null, shipped, "acme.both", true, "bar.layout.right", [{ id: "acme.both" }]],
         ["place puts a widget with no default section in center", null, shipped, "acme.widget", true, "bar.layout.center", [{ id: "vgs.clock" }, { id: "acme.widget" }]],
         ["place seeds the user bar from the effective bar", null, shipped, "acme.both", true, "bar.layout.left", [{ id: "vgs.workspaces" }]],
-        ["place puts an entry holding its id alone", null, ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.both", label: "row", keys: {} }] }), "acme.both", true, "bar.layout.right", [{ id: "acme.both" }]],
+        ["place puts an entry holding its id alone", null, configLogic.effectiveConfig(shipped, { plugins: [{ id: "acme.both", label: "row", keys: {} }] }), "acme.both", true, "bar.layout.right", [{ id: "acme.both" }]],
         ["place lists nothing in plugins", null, shipped, "acme.both", true, "plugins", undefined],
-        ["place a placed widget changes nothing", placedBoth, ctx.effectiveConfig(shipped, placedBoth), "acme.both", true, "bar", placedBoth.bar],
-        ["place keeps the user's disabled list", { disabledPlugins: ["vgs.svc"] }, ctx.effectiveConfig(shipped, { disabledPlugins: ["vgs.svc"] }), "acme.both", true, "disabledPlugins", ["vgs.svc"]],
+        ["place a placed widget changes nothing", placedBoth, configLogic.effectiveConfig(shipped, placedBoth), "acme.both", true, "bar", placedBoth.bar],
+        ["place keeps the user's disabled list", { disabledPlugins: ["vgs.svc"] }, configLogic.effectiveConfig(shipped, { disabledPlugins: ["vgs.svc"] }), "acme.both", true, "disabledPlugins", ["vgs.svc"]],
         ["place writes no inherited disabled list", null, inheritedDisabled, "acme.both", true, "disabledPlugins", undefined],
         ["place writes version 2", null, shipped, "acme.both", true, "version", 2],
-        ["unplace removes every entry in every section and keeps other widgets", placedBoth, ctx.effectiveConfig(shipped, placedBoth), "acme.both", false, "bar.layout", { left: [], center: [{ id: "vgs.clock" }], right: [] }],
-        ["unplace keeps the bar id", placedBoth, ctx.effectiveConfig(shipped, placedBoth), "acme.both", false, "bar.id", "vgs.bar"],
+        ["unplace removes every entry in every section and keeps other widgets", placedBoth, configLogic.effectiveConfig(shipped, placedBoth), "acme.both", false, "bar.layout", { left: [], center: [{ id: "vgs.clock" }], right: [] }],
+        ["unplace keeps the bar id", placedBoth, configLogic.effectiveConfig(shipped, placedBoth), "acme.both", false, "bar.id", "vgs.bar"],
         ["unplace seeds the user bar from the effective bar", null, shipped, "vgs.clock", false, "bar.layout", { left: [{ id: "vgs.workspaces" }], center: [], right: [] }],
-        ["unplace a third-party widget-plus-service lists it", placedBoth, ctx.effectiveConfig(shipped, placedBoth), "acme.both", false, "plugins", [{ id: "acme.both" }]],
-        ["unplace a listed third-party widget-plus-service keeps its row", Object.assign({ plugins: [{ id: "acme.both", label: "row" }] }, placedBoth), ctx.effectiveConfig(shipped, Object.assign({ plugins: [{ id: "acme.both", label: "row" }] }, placedBoth)), "acme.both", false, "plugins", [{ id: "acme.both", label: "row" }]],
-        ["unplace a first-party widget-plus-panel lists it", placedPanel, ctx.effectiveConfig(shipped, placedPanel), "vgs.widgetpanel", false, "plugins", [{ id: "vgs.widgetpanel" }]],
+        ["unplace a third-party widget-plus-service lists it", placedBoth, configLogic.effectiveConfig(shipped, placedBoth), "acme.both", false, "plugins", [{ id: "acme.both" }]],
+        ["unplace a listed third-party widget-plus-service keeps its row", Object.assign({ plugins: [{ id: "acme.both", label: "row" }] }, placedBoth), configLogic.effectiveConfig(shipped, Object.assign({ plugins: [{ id: "acme.both", label: "row" }] }, placedBoth)), "acme.both", false, "plugins", [{ id: "acme.both", label: "row" }]],
+        ["unplace a first-party widget-plus-panel lists it", placedPanel, configLogic.effectiveConfig(shipped, placedPanel), "vgs.widgetpanel", false, "plugins", [{ id: "vgs.widgetpanel" }]],
         ["unplace a widget-only plugin lists it", null, shipped, "vgs.clock", false, "plugins", [{ id: "vgs.clock" }]],
         ["unplace an unplaced widget changes nothing", null, shipped, "acme.both", false, "bar", undefined],
-        ["unplace keeps the user's disabled list", Object.assign({ disabledPlugins: ["vgs.svc"] }, placedBoth), ctx.effectiveConfig(shipped, Object.assign({ disabledPlugins: ["vgs.svc"] }, placedBoth)), "acme.both", false, "disabledPlugins", ["vgs.svc"]],
+        ["unplace keeps the user's disabled list", Object.assign({ disabledPlugins: ["vgs.svc"] }, placedBoth), configLogic.effectiveConfig(shipped, Object.assign({ disabledPlugins: ["vgs.svc"] }, placedBoth)), "acme.both", false, "disabledPlugins", ["vgs.svc"]],
         ["unplace writes no inherited disabled list", null, inheritedDisabled, "vgs.clock", false, "disabledPlugins", undefined],
     ];
     for (const [name, user, effective, id, placed, p, want] of placeRows) {
         check("withPlaced: " + name, dig(ctx.withPlaced(user, manifests[id], placed, effective), p), want);
     }
     // Enablement after an unplace, read from the merged result.
-    const unplacedEnabled = (user, id) => ctx.isEnabled(ctx.effectiveConfig(shipped, ctx.withPlaced(user, manifests[id], false, ctx.effectiveConfig(shipped, user))), manifests[id], "vgs.bar");
+    const unplacedEnabled = (user, id) => ctx.isEnabled(configLogic.effectiveConfig(shipped, ctx.withPlaced(user, manifests[id], false, configLogic.effectiveConfig(shipped, user))), manifests[id], "vgs.bar");
     check("withPlaced: a third-party widget-plus-service stays enabled once unplaced", unplacedEnabled(placedBoth, "acme.both"), true);
     check("withPlaced: a first-party widget-plus-panel stays enabled once unplaced", unplacedEnabled(placedPanel, "vgs.widgetpanel"), true);
     check("withPlaced: a widget-only plugin reads disabled once unplaced", unplacedEnabled(null, "vgs.clock"), false);
     // Applying an edit twice gives the file applying it once gives.
     const twice = (user, id, placed) => {
-        const once = ctx.withPlaced(user, manifests[id], placed, ctx.effectiveConfig(shipped, user));
-        return JSON.stringify(ctx.withPlaced(once, manifests[id], placed, ctx.effectiveConfig(shipped, once))) === JSON.stringify(once);
+        const once = ctx.withPlaced(user, manifests[id], placed, configLogic.effectiveConfig(shipped, user));
+        return JSON.stringify(ctx.withPlaced(once, manifests[id], placed, configLogic.effectiveConfig(shipped, once))) === JSON.stringify(once);
     };
     check("withPlaced: placing twice is placing once", twice(null, "acme.both", true), true);
     check("withPlaced: unplacing twice is unplacing once", twice(placedBoth, "acme.both", false), true);
-    check("withPlaced does not alias the user file on place", (() => { const u = { bar: { layout: { left: [], center: [], right: [] } } }; ctx.withPlaced(u, manifests["acme.both"], true, ctx.effectiveConfig(shipped, u)); return u.bar.layout.right; })(), []);
+    check("withPlaced does not alias the user file on place", (() => { const u = { bar: { layout: { left: [], center: [], right: [] } } }; ctx.withPlaced(u, manifests["acme.both"], true, configLogic.effectiveConfig(shipped, u)); return u.bar.layout.right; })(), []);
     // A third-party plugin whose only kind is bar-widget: unplacing lists a
     // row, it still reads disabled, and the disabled list stays the user's.
     const placedWidget = { version: 2, disabledPlugins: ["vgs.svc"], bar: { id: "vgs.bar", layout: { left: [], center: [{ id: "vgs.clock" }], right: [{ id: "acme.widget" }] } } };
-    const unplacedWidget = ctx.withPlaced(placedWidget, manifests["acme.widget"], false, ctx.effectiveConfig(shipped, placedWidget));
+    const unplacedWidget = ctx.withPlaced(placedWidget, manifests["acme.widget"], false, configLogic.effectiveConfig(shipped, placedWidget));
     check("withPlaced: unplace a third-party widget-only plugin lists it", unplacedWidget.plugins, [{ id: "acme.widget" }]);
     check("withPlaced: unplace a third-party widget-only plugin keeps the user's disabled list", unplacedWidget.disabledPlugins, ["vgs.svc"]);
-    check("withPlaced: a third-party widget-only plugin reads disabled once unplaced", ctx.isEnabled(ctx.effectiveConfig(shipped, unplacedWidget), manifests["acme.widget"], "vgs.bar"), false);
+    check("withPlaced: a third-party widget-only plugin reads disabled once unplaced", ctx.isEnabled(configLogic.effectiveConfig(shipped, unplacedWidget), manifests["acme.widget"], "vgs.bar"), false);
 
     // moveRefusal rows: [name, config, id, section, index, want].
     const movedConfig = { version: 2, bar: { id: "vgs.bar", layout: { left: [{ id: "acme.both" }], center: [{ id: "vgs.clock" }], right: [] } } };
     const moveRefusalRows = [
         ["a placed widget may move", movedConfig, "acme.both", "right", 0, ""],
         ["a service has no widget", movedConfig, "acme.svc", "right", 0, "refused: moved=acme.svc reason=no-bar-widget"],
-        ["a disabled widget is refused", ctx.effectiveConfig(shipped, Object.assign({ disabledPlugins: ["acme.both"] }, movedConfig)), "acme.both", "right", 0, "refused: moved=acme.both reason=disabled"],
+        ["a disabled widget is refused", configLogic.effectiveConfig(shipped, Object.assign({ disabledPlugins: ["acme.both"] }, movedConfig)), "acme.both", "right", 0, "refused: moved=acme.both reason=disabled"],
         ["an unplaced widget is refused", shipped, "acme.both", "right", 0, "refused: moved=acme.both reason=unplaced"],
         ["an unknown section is refused", movedConfig, "acme.both", "top", 0, "refused: section=\"top\" want=left|center|right"],
         ["a negative index is refused", movedConfig, "acme.both", "right", -1, "refused: index=-1 want=integer>=0"],
@@ -998,7 +1001,7 @@ function suite(ctx, check) {
         center: [{ id: "vgs.clock" }, { id: "acme.both" }],
         right: []
     } }, plugins: [{ id: "acme.both", label: "row" }] };
-    const moveEffective = ctx.effectiveConfig(shipped, moveUser);
+    const moveEffective = configLogic.effectiveConfig(shipped, moveUser);
     const ws = { id: "vgs.workspaces" }, both = { id: "acme.both" }, widget = { id: "acme.widget" }, clockEntry = { id: "vgs.clock" };
     const moveRows = [
         ["within a section forward", moveUser, moveEffective, { section: "left", nth: 0 }, "left", 2, { left: [ws, widget, both], center: [clockEntry, both], right: [] }],
@@ -1013,7 +1016,7 @@ function suite(ctx, check) {
         check("withMoved: " + name, ctx.withMoved(user, manifests["acme.both"], from, section, index, effective).bar.layout, want);
     check("withMoved: a move keeps the plugins row", ctx.withMoved(moveUser, manifests["acme.both"], { section: "left", nth: 0 }, "right", 0, moveEffective).plugins, [{ id: "acme.both", label: "row" }]);
     const duplicateMoveUser = { version: 2, bar: { id: "vgs.bar", layout: { left: [{ id: "acme.both" }, { id: "vgs.workspaces" }, { id: "acme.both" }], center: [], right: [] } } };
-    check("withMoved: from nth 1 moves the second copy", ctx.withMoved(duplicateMoveUser, manifests["acme.both"], { section: "left", nth: 1 }, "right", 0, ctx.effectiveConfig(shipped, duplicateMoveUser)).bar.layout,
+    check("withMoved: from nth 1 moves the second copy", ctx.withMoved(duplicateMoveUser, manifests["acme.both"], { section: "left", nth: 1 }, "right", 0, configLogic.effectiveConfig(shipped, duplicateMoveUser)).bar.layout,
         { left: [both, ws], center: [], right: [both] });
     check("withMoved: seeds the user bar from the effective bar", ctx.withMoved(null, manifests["vgs.clock"], null, "right", 0, shipped).bar.layout.right, [{ id: "vgs.clock" }]);
     check("withMoved does not alias the user file", (() => { const u = ctx.clone(moveUser); const out = ctx.withMoved(u, manifests["acme.both"], { section: "left", nth: 0 }, "right", 0, moveEffective); out.bar.layout.right[0].id = "moved"; return u.bar.layout.left[1].id; })(), "acme.both");
@@ -1066,9 +1069,9 @@ function suite(ctx, check) {
     // disabled, hid (its row), already placed or without a widget is not.
     const presenceRows = [
         ["every unnamed widget, sorted", shipped, ["acme.both", "acme.pane", "acme.widget", "vgs.widgetpanel"]],
-        ["a widget with a plugins row keeps no presence", ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.both" }] }), ["acme.pane", "acme.widget", "vgs.widgetpanel"]],
-        ["a disabled widget keeps no presence", ctx.effectiveConfig(shipped, { disabledPlugins: ["acme.widget"] }), ["acme.both", "acme.pane", "vgs.widgetpanel"]],
-        ["a placed widget is not placed again", ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "acme.pane" }] } } }), ["acme.both", "acme.widget", "vgs.clock", "vgs.widgetpanel", "vgs.workspaces"]],
+        ["a widget with a plugins row keeps no presence", configLogic.effectiveConfig(shipped, { plugins: [{ id: "acme.both" }] }), ["acme.pane", "acme.widget", "vgs.widgetpanel"]],
+        ["a disabled widget keeps no presence", configLogic.effectiveConfig(shipped, { disabledPlugins: ["acme.widget"] }), ["acme.both", "acme.pane", "vgs.widgetpanel"]],
+        ["a placed widget is not placed again", configLogic.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "acme.pane" }] } } }), ["acme.both", "acme.widget", "vgs.clock", "vgs.widgetpanel", "vgs.workspaces"]],
     ];
     for (const [name, config, want] of presenceRows) check("firstPresence: " + name, ctx.firstPresence(manifests, config), want);
     check("firstPresence: a plugin with no widget is never placed", ctx.firstPresence({ "vgs.svc": manifests["vgs.svc"] }, shipped), []);
@@ -1078,18 +1081,18 @@ function suite(ctx, check) {
     const given = ctx.withFirstPresence(null, manifests, shipped);
     check("withFirstPresence: places each widget at the end of its default section", given.bar.layout, { left: [{ id: "vgs.workspaces" }], center: [{ id: "vgs.clock" }, { id: "acme.widget" }], right: [{ id: "acme.both" }, { id: "acme.pane" }, { id: "vgs.widgetpanel" }] });
     check("withFirstPresence: lists nothing and disables nothing", [given.plugins, given.disabledPlugins], [undefined, undefined]);
-    check("withFirstPresence: every placed widget reads enabled", ["acme.both", "acme.widget", "vgs.widgetpanel"].map(id => ctx.isEnabled(ctx.effectiveConfig(shipped, given), manifests[id], "vgs.bar")), [true, true, true]);
-    check("withFirstPresence: a second pass names nothing", ctx.firstPresence(manifests, ctx.effectiveConfig(shipped, given)), []);
+    check("withFirstPresence: every placed widget reads enabled", ["acme.both", "acme.widget", "vgs.widgetpanel"].map(id => ctx.isEnabled(configLogic.effectiveConfig(shipped, given), manifests[id], "vgs.bar")), [true, true, true]);
+    check("withFirstPresence: a second pass names nothing", ctx.firstPresence(manifests, configLogic.effectiveConfig(shipped, given)), []);
     // A widget the user hid stays out when an update brings a new widget:
     // only the new one is placed, and a restart, which reads the same file,
     // names nothing.
-    const hidden = ctx.withPlaced(given, manifests["vgs.widgetpanel"], false, ctx.effectiveConfig(shipped, given));
+    const hidden = ctx.withPlaced(given, manifests["vgs.widgetpanel"], false, configLogic.effectiveConfig(shipped, given));
     const fresh = ctx.validateManifest(Object.assign({}, clock, { id: "vgs.fresh", defaultSection: "right" }), "/p").manifest;
     const updated = Object.assign({}, manifests, { "vgs.fresh": fresh });
-    check("firstPresence: after a hide and an update only the new widget is named", ctx.firstPresence(updated, ctx.effectiveConfig(shipped, hidden)), ["vgs.fresh"]);
-    const afterUpdate = ctx.withFirstPresence(hidden, updated, ctx.effectiveConfig(shipped, hidden));
-    check("withFirstPresence: after a hide and an update the new widget is placed and the hidden one is not", ["vgs.fresh", "vgs.widgetpanel"].map(id => ctx.isPlaced(ctx.effectiveConfig(shipped, afterUpdate), updated[id])), [true, false]);
-    check("firstPresence: a restart over the written file names nothing", ctx.firstPresence(updated, ctx.effectiveConfig(shipped, afterUpdate)), []);
+    check("firstPresence: after a hide and an update only the new widget is named", ctx.firstPresence(updated, configLogic.effectiveConfig(shipped, hidden)), ["vgs.fresh"]);
+    const afterUpdate = ctx.withFirstPresence(hidden, updated, configLogic.effectiveConfig(shipped, hidden));
+    check("withFirstPresence: after a hide and an update the new widget is placed and the hidden one is not", ["vgs.fresh", "vgs.widgetpanel"].map(id => ctx.isPlaced(configLogic.effectiveConfig(shipped, afterUpdate), updated[id])), [true, false]);
+    check("firstPresence: a restart over the written file names nothing", ctx.firstPresence(updated, configLogic.effectiveConfig(shipped, afterUpdate)), []);
 
     // enablementRule rows: [id, want].
     for (const [id, want] of [["vgs.bar", "bar"], ["vgs.barpanel", "bar"], ["vgs.clock", "widget"], ["acme.widget", "widget"], ["vgs.svc", "first-party"], ["vgs.widgetpanel", "first-party"], ["acme.svc", "row"], ["acme.both", "row"]])
@@ -1097,13 +1100,13 @@ function suite(ctx, check) {
     // A plugin whose manifest sets `alwaysOn` stays on whatever the
     // configuration lists, and the core refuses to disable it.
     const alwaysOn = ctx.validateManifest(Object.assign({}, svc, { id: "vgs.always", alwaysOn: true }), "/p").manifest;
-    check("isEnabled: an alwaysOn plugin listed in disabledPlugins is on", ctx.isEnabled(ctx.effectiveConfig(shipped, { disabledPlugins: ["vgs.always"] }), alwaysOn, "vgs.bar"), true);
-    check("isEnabled: a plugin without alwaysOn listed in disabledPlugins is off", ctx.isEnabled(ctx.effectiveConfig(shipped, { disabledPlugins: ["vgs.svc"] }), manifests["vgs.svc"], "vgs.bar"), false);
+    check("isEnabled: an alwaysOn plugin listed in disabledPlugins is on", ctx.isEnabled(configLogic.effectiveConfig(shipped, { disabledPlugins: ["vgs.always"] }), alwaysOn, "vgs.bar"), true);
+    check("isEnabled: a plugin without alwaysOn listed in disabledPlugins is off", ctx.isEnabled(configLogic.effectiveConfig(shipped, { disabledPlugins: ["vgs.svc"] }), manifests["vgs.svc"], "vgs.bar"), false);
     check("enabledRefusal: an alwaysOn plugin refuses a disable", ctx.enabledRefusal(alwaysOn, false), "refused: enabled=vgs.always reason=always-on");
     check("enabledRefusal: an alwaysOn plugin takes an enable", ctx.enabledRefusal(alwaysOn, true), "");
     check("enabledRefusal: a plugin without alwaysOn takes a disable", ctx.enabledRefusal(manifests["vgs.svc"], false), "");
     const alwaysWidget = ctx.validateManifest(Object.assign({}, svc, { id: "vgs.alwayswidget", kinds: ["service", "bar-widget"], entryPoints: { service: "S.qml", "bar-widget": "W.qml" }, alwaysOn: true }), "/p").manifest;
-    const alwaysPlaced = ctx.effectiveConfig(shipped, { disabledPlugins: ["vgs.alwayswidget"], bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "vgs.alwayswidget" }] } } });
+    const alwaysPlaced = configLogic.effectiveConfig(shipped, { disabledPlugins: ["vgs.alwayswidget"], bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "vgs.alwayswidget" }] } } });
     check("moveRefusal: an alwaysOn widget a disabledPlugins row names still moves", ctx.moveRefusal(alwaysPlaced, alwaysWidget, "left", 0, "vgs.bar"), "");
     // Plugins, the manager, is the plugin the owner made always on.
     const shippedSettings = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.settings", "manifest.json"), "utf8")), "/p");
@@ -1300,7 +1303,7 @@ function suite(ctx, check) {
     paneRowsManifests["acme.widgetpane"] = paneManifest("acme.widgetpane", "Widget Pane", "System", 1, { kinds: ["bar-widget", "pane"], entryPoints: { "bar-widget": "Widget.qml", pane: "Pane.qml" }, defaultSection: "right", icon: "settings" });
     paneRowsManifests["acme.disabled"] = paneManifest("acme.disabled", "Disabled", "System", 0);
     paneRowsManifests["acme.svc"] = manifests["acme.svc"];
-    const paneConfig = ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "acme.widgetpane" }] } }, plugins: [{ id: "acme.beta" }, { id: "acme.alpha" }, { id: "acme.zed" }, { id: "acme.user" }, { id: "acme.disabled" }], disabledPlugins: ["acme.disabled"] });
+    const paneConfig = configLogic.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "acme.widgetpane" }] } }, plugins: [{ id: "acme.beta" }, { id: "acme.alpha" }, { id: "acme.zed" }, { id: "acme.user" }, { id: "acme.disabled" }], disabledPlugins: ["acme.disabled"] });
     check("paneRows: enabled panes are grouped, ordered, named and tied by id", ctx.paneRows(paneConfig, paneRowsManifests, "vgs.bar").map(r => [r.id, r.group, r.order, r.placed, r.hasWidget, r.icon]),
         [["acme.widgetpane", "System", 1, true, true, "settings"], ["acme.alpha", "System", 2, false, false, "package"], ["acme.zed", "System", 2, false, false, "package"], ["acme.beta", "System", 2, false, false, "package"], ["acme.user", "User", 1, false, false, "package"]]);
     const holderManifests = {
@@ -1314,7 +1317,7 @@ function suite(ctx, check) {
 
     // withSetting rows: [name, user, effective, path, want]. The row is the
     // one place a setting lives, a placed widget's included.
-    const tunePlaced = ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "acme.tune" }] } } });
+    const tunePlaced = configLogic.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "acme.tune" }] } } });
     const shippedTune = Object.assign({}, tunePlaced, { plugins: [{ id: "acme.tune", size: 9 }] });
     const settingRows = [
         ["adds a row with the id", null, tunePlaced, "plugins", [{ id: "acme.tune", label: "new" }]],
@@ -1531,7 +1534,7 @@ function suite(ctx, check) {
         ["a plugin's choices not an object", { sounds: { "acme.svc": "pop" } }, "sounds.acme.svc must be an object"],
         ["a choice that is no string", { sounds: { "acme.svc": { ping: false } } }, "sounds.acme.svc.ping must be a string"],
     ];
-    for (const [name, config, want] of soundConfigRows) check("configError: " + name, ctx.configError(config), want);
+    for (const [name, config, want] of soundConfigRows) check("configError: " + name, configLogic.configError(config), want);
 
     const noisy = ctx.validateManifest(sounding({ ping: ping, quiet: { label: "Quiet", description: "Plays rarely.", default: "" }, tone: { label: "Tone", own: "Acme tone", default: "own" }, relay: relay }), "/p").manifest;
     // What each kind of event takes, as the page offers it.
@@ -1798,14 +1801,31 @@ function suite(ctx, check) {
     ];
     for (const [name, completion, stdout, stderr, want] of sudoRows)
         check("sudoReport: " + name, ctx.sudoReport(completion, stdout, stderr), want);
+
+    // The configuration judgement lives in ConfigLogic.js alone: PluginLogic
+    // holds no copy of a moved name and no alias of a ConfigLogic member, and
+    // calls through the ConfigLogic it imports.
+    const moved = ["SECTIONS", "NAME_PATTERN", "HYPRLAND_MODIFIERS", "HYPRLAND_KEY_NAME", "CONFIG_VERSION", "configError", "migrateConfig", "effectiveConfig", "hyprlandKey", "keyValueError", "keysError", "keyHasModifiers"];
+    check("ConfigLogic holds every moved name", moved.filter(name => !(name in configLogic)), []);
+    check("PluginLogic holds no moved name", moved.filter(name => name in ctx), []);
+    const shared = Object.values(ctx.ConfigLogic).filter(value => value !== null && (typeof value === "object" || typeof value === "function"));
+    check("PluginLogic aliases no ConfigLogic member", Object.keys(ctx).filter(name => name !== "ConfigLogic" && shared.includes(ctx[name])), []);
+    check("PluginLogic imports the ConfigLogic library", Object.keys(ctx.ConfigLogic).sort(), Object.keys(configLogic).sort());
+    const sections = ctx.ConfigLogic.SECTIONS;
+    ctx.ConfigLogic.SECTIONS = ["right"];
+    try {
+        check("PluginLogic reads the sections through ConfigLogic", ctx.layoutIds({ bar: { layout: { left: [{ id: "a" }], right: [{ id: "b" }] } } }), ["b"]);
+    } finally {
+        ctx.ConfigLogic.SECTIONS = sections;
+    }
 }
 
-suite(load(LOGIC), report);
+suite(load(LOGIC), load(CONFIG), report);
 
-// Each control removes one rule from a copy of the judge and keeps the text
+// Each control removes one rule from a copy of a judge and keeps the text
 // around it; the suite must fail on every copy. The copy sits at the
-// judge's own place in a temporary tree, beside the icon set, the
-// package-manager table and the Hyprland layer's table it imports.
+// judge's own place in a temporary tree, beside the other judge, the icon
+// set, the package-manager table and the Hyprland layer's table they import.
 const CONTROLS = [
     ["sudo is a capability", '"monitors", "sudo", ', '"monitors", '],
     ["a grant longer than a day is refused", "Number(duration) <= SUDO_MINUTES_MAX", "true"],
@@ -1858,7 +1878,6 @@ const CONTROLS = [
     ["panes is exclusive", 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];', 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent"];'],
     ["monitors is a capability", "\"hyprland\", \"bluetoothAgent\", \"monitors\", ", "\"hyprland\", \"bluetoothAgent\", "],
     ["appearance is a capability", "\"sudo\", \"appearance\", \"sounds\"", "\"sudo\", \"sounds\""],
-    ["appearance is an object", "if (config.appearance !== undefined && !isPlainObject(config.appearance))", "if (false)"],
     ["an appearance value is set", "else appearance[key] = clone(value);", "else appearance[key] = undefined;"],
     ["an appearance unset removes the member", "if (value === undefined) delete appearance[key];", "if (false) delete appearance[key];"],
     ["an empty appearance is removed", "if (Object.keys(appearance).length > 0) out.appearance = appearance;\n    else delete out.appearance;", "out.appearance = appearance;"],
@@ -1894,11 +1913,6 @@ const CONTROLS = [
     ["unit names a known unit", "if (SettingValues.UNITS.indexOf(entry.unit) === -1)", "if (false)"],
     ["datetime settings are judged", "if (entry.format === \"datetime\") {\n            var problem = SettingValues.datetimeFormatProblem(value);", "if (false) {\n            var problem = SettingValues.datetimeFormatProblem(value);"],
     ["preset settings without custom accept only presets", "return entry.presets !== undefined && entry.allowCustom !== true && presetValues(entry).indexOf(value) === -1 ? \"want=one-of-presets\" : \"\";", "return \"\";"],
-    ["packages is an object", "if (!isPlainObject(config.packages))\n            return \"packages must be an object\";", "if (false)\n            return \"packages must be an object\";"],
-    ["welcome is an object", "        if (!isPlainObject(config.welcome))\n            return \"welcome must be an object\";\n", ""],
-    ["welcome key lines are rows with ids", "        if ((bad = rows(config.welcome.keys, \"welcome.keys\")) !== \"\")\n            return bad;\n", ""],
-    ["a welcome key line holds a shortcut and text", "typeof line.shortcut !== \"string\" || typeof line.text !== \"string\" || line.text === \"\"", "false"],
-    ["packages.elevate is an elevation command", "config.packages.elevate !== undefined && PackageManagers.ELEVATORS.indexOf(config.packages.elevate) === -1", "false"],
     ["icon is a manifest key", "\"license\", \"icon\", \"kinds\"", "\"license\", \"kinds\""],
     ["icon names a shipped icon", "!hasOwn(Lucide.ICONS, raw.icon)", "false"],
     ["bounds need a number entry", "if (entry.type !== \"number\")\n                return at + \".\" + bound + \" needs type number\";", "if (false)\n                return at + \".\" + bound + \" needs type number\";"],
@@ -1909,12 +1923,8 @@ const CONTROLS = [
     ["schema info is judged", "        var schemaInfo = infoError(entry.info, at);\n        if (schemaInfo !== \"\")\n            return schemaInfo;\n", ""],
     ["a number under min does not fit", "if (entry.min !== undefined && value < entry.min) return", "if (false) return"],
     ["a number over max does not fit", "if (entry.max !== undefined && value > entry.max) return", "if (false) return"],
-    ["a key needs a declared bind", "if (bind === undefined && !Pads.isPadShortcut(manifest.hyprland, shortcut, NAME_PATTERN))", "if (false)"],
+    ["a key needs a declared bind", "if (bind === undefined && !Pads.isPadShortcut(manifest.hyprland, shortcut, ConfigLogic.NAME_PATTERN))", "if (false)"],
     ["a key is a string, list or null", "if (typeof key !== \"string\" && !Array.isArray(key))\n        return \"refused: key=\" + shortcut + \" want=string-list-or-null\";", "if (false)\n        return \"refused: key=\" + shortcut + \" want=string-list-or-null\";"],
-    ["a key string is judged", "if (!key.ok)\n            return itemAt + \" \" + key.error;", "if (false)\n            return itemAt + \" \" + key.error;"],
-    ["an empty key list is refused", "if (Array.isArray(value) && value.length === 0)\n        return at + \" must not be an empty list\";", "if (false)\n        return at + \" must not be an empty list\";"],
-    ["a key list entry is not repeated", "if (seen[key.key] !== undefined)\n            return itemAt + \" repeats \" + key.key;", "if (false)\n            return itemAt + \" repeats \" + key.key;"],
-    ["a tap key from settings is lone", "if (tap === true && keyHasModifiers(key.key))", "if (false)"],
     ["a written key is normalised", "row.keys[shortcut] = keyRowValue(key);", "row.keys[shortcut] = key;"],
     ["null unbinds", "return value === null ? null : keyWriteValue(value);", "return keyWriteValue(value);"],
     ["an unset removes the key from the plugins row", "        delete row[key];", ""],
@@ -2100,7 +2110,7 @@ const CONTROLS = [
     ["moving refuses a plugin without a widget", "if (!builtin && manifest.kinds.indexOf(\"bar-widget\") === -1)\n        return \"refused: moved=\" + id + \" reason=no-bar-widget\";", "if (false)\n        return \"refused: moved=\" + id + \" reason=no-bar-widget\";"],
     ["moving refuses a disabled widget", "if (placed && !isEnabled(config, manifest, defaultBarId))\n        return \"refused: moved=\" + id + \" reason=disabled\";", "if (false)\n        return \"refused: moved=\" + id + \" reason=disabled\";"],
     ["moving refuses an unplaced widget", "if (!placed)\n        return \"refused: moved=\"", "if (false)\n        return \"refused: moved=\""],
-    ["moving refuses an unknown section", "if (SECTIONS.indexOf(section) === -1)\n        return \"refused: section=\" + JSON.stringify(section) + \" want=left|center|right\";", "if (false)\n        return \"refused: section=\" + JSON.stringify(section) + \" want=left|center|right\";"],
+    ["moving refuses an unknown section", "if (ConfigLogic.SECTIONS.indexOf(section) === -1)\n        return \"refused: section=\" + JSON.stringify(section) + \" want=left|center|right\";", "if (false)\n        return \"refused: section=\" + JSON.stringify(section) + \" want=left|center|right\";"],
     ["moving refuses a bad index", "if (typeof index !== \"number\" || !Number.isInteger(index) || index < 0)\n        return \"refused: index=\" + JSON.stringify(index) + \" want=integer>=0\";", "if (false)\n        return \"refused: index=\" + JSON.stringify(index) + \" want=integer>=0\";"],
     ["moving uses the locator nth", "if (seen === locator.nth) return { section: locator.section, index: i, nth: locator.nth, entry: entries[i] };", "if (seen === 0) return { section: locator.section, index: i, nth: locator.nth, entry: entries[i] };"],
     ["moving uses the requested index", "target.splice(at, 0, entry);", "target.push(entry);"],
@@ -2132,7 +2142,7 @@ const CONTROLS = [
     ["a hidden bar maps no surface", "return instance === null || instance.shown !== false;", "return true;"],
     ["a bar being built maps its surface", "return instance === null || instance.shown !== false;", "return instance !== null && instance.shown !== false;"],
     ["a list entry's keys are judged", "var listBad = Pads.listEntryError(entry, at, status, schemaError);", "var listBad = \"\";"],
-    ["a list value is judged", "if (entry.type === \"list\") return Pads.listValueError(entry, value, settingError, NAME_PATTERN);", "if (entry.type === \"list\") return \"\";"],
+    ["a list value is judged", "if (entry.type === \"list\") return Pads.listValueError(entry, value, settingError, ConfigLogic.NAME_PATTERN);", "if (entry.type === \"list\") return \"\";"],
     ["list is a setting type", "\"enum\", \"list\"];", "\"enum\"];"],
     ["items and defaults are schema entry keys", ", \"items\", \"defaults\", \"placeholder\", \"hideEmpty\"];", ", \"placeholder\", \"hideEmpty\"];"],
     ["placeholder is a schema entry key", ", \"defaults\", \"placeholder\", \"hideEmpty\"];", ", \"defaults\", \"hideEmpty\"];"],
@@ -2155,11 +2165,11 @@ const CONTROLS = [
     ["pads are a hyprland key", 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors"];', 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "monitors"];'],
     ["pads are judged", "var padsBad = Pads.manifestError(hyprland.pads, capabilities, schema);", "var padsBad = \"\";"],
     ["a manifest carries its pads", "            pads: raw.hyprland.pads,\n", "            pads: undefined,\n"],
-    ["pads are expanded", "var pads = Pads.expand(declared.pads, manifest.schema, settings, keys, hyprlandKey, settingError);", "var pads = Pads.expand(undefined, manifest.schema, settings, keys, hyprlandKey, settingError);"],
+    ["pads are expanded", "var pads = Pads.expand(declared.pads, manifest.schema, settings, keys, ConfigLogic.hyprlandKey, settingError);", "var pads = Pads.expand(undefined, manifest.schema, settings, keys, ConfigLogic.hyprlandKey, settingError);"],
     ["pad binds end the binds", "binds: binds.concat(pads.binds),", "binds: binds,"],
     ["pad refusals are handed on", "padRefusals: pads.refusals,", "padRefusals: [],"],
-    ["a pad's key is no unknown key", " && !Pads.isPadShortcut(declared, name, NAME_PATTERN); }).sort()", "; }).sort()"],
-    ["a pad's key is declared", " && !Pads.isPadShortcut(manifest.hyprland, shortcut, NAME_PATTERN))\n        return \"refused: key=", ")\n        return \"refused: key="],
+    ["a pad's key is no unknown key", " && !Pads.isPadShortcut(declared, name, ConfigLogic.NAME_PATTERN); }).sort()", "; }).sort()"],
+    ["a pad's key is declared", " && !Pads.isPadShortcut(manifest.hyprland, shortcut, ConfigLogic.NAME_PATTERN))\n        return \"refused: key=", ")\n        return \"refused: key="],
     ["placement needs the widget kind", "return manifest.kinds.indexOf(\"bar-widget\") !== -1 && layoutIds(config).indexOf(manifest.id) !== -1;", "return layoutIds(config).indexOf(manifest.id) !== -1;"],
     ["a bind explanation must be text", "if (bind.info !== undefined && (typeof bind.info !== \"string\" || bind.info.length === 0))", "if (false)"],
     ["a bind keeps its explanation", "if (bind.info !== undefined) result.info = bind.info;", ""],
@@ -2196,7 +2206,7 @@ const CONTROLS = [
     ["sounds holds an event", "if (!isPlainObject(sounds) || Object.keys(sounds).length === 0)", "if (!isPlainObject(sounds))"],
     ["sounds needs its capability", 'if (capabilities.indexOf("sounds") === -1)\n        return "sounds needs capability sounds";', ""],
     ["the sounds capability needs the key", '} else if (capabilities.indexOf("sounds") !== -1) {', "} else if (false) {"],
-    ["a sound event name is judged", 'if (!NAME_PATTERN.test(name))\n            return "sounds has malformed event name "', 'if (false)\n            return "sounds has malformed event name "'],
+    ["a sound event name is judged", 'if (!ConfigLogic.NAME_PATTERN.test(name))\n            return "sounds has malformed event name "', 'if (false)\n            return "sounds has malformed event name "'],
     ["a sound event is an object", 'if (!isPlainObject(event))\n            return at + " must be an object";', ""],
     ["a sound event's keys are known", "if (SOUND_EVENT_KEYS.indexOf(keys[k]) === -1)", "if (false)"],
     ["a sound event has a label", "if (!isPrintableLine(event.label, STATUS_LABEL_MAX))", "if (false)"],
@@ -2224,9 +2234,6 @@ const CONTROLS = [
     ["a statement's value is judged", "if (value !== null && !soundValueFits(manifest.sounds[event], value))", "if (false)"],
     ["a statement's problem is one printable line", "if (problem !== \"\" && !isPrintableLine(problem, STATUS_HINT_MAX))", "if (false)"],
     ["a manifest carries its sounds", "manifest.sounds = raw.sounds === undefined ? {} : clone(raw.sounds);", ""],
-    ["config sounds is an object", 'if (!isPlainObject(config.sounds))\n            return "sounds must be an object";', ""],
-    ["a plugin's sound choices are an object", 'if (!isPlainObject(chosen))\n                return "sounds." + soundIds[d] + " must be an object";', ""],
-    ["a sound choice is a string", 'if (typeof chosen[events[v]] !== "string")', "if (false)"],
     ["a sound choice that fits replaces the default", 'return soundValueFits(entry, chosen) ? chosen : entry["default"];', 'return entry["default"];'],
     ["a sound choice that does not fit reads as the default", 'return soundValueFits(entry, chosen) ? chosen : entry["default"];', 'return chosen !== undefined ? chosen : entry["default"];'],
     ["a sound choice is the plugin's own", "? config.sounds[manifest.id][event] : undefined;", "? config.sounds[Object.keys(config.sounds)[0]][event] : undefined;"],
@@ -2237,7 +2244,7 @@ const CONTROLS = [
     ["an undeclared sound event is not played", "if (typeof event !== \"string\" || !hasOwn(manifest.sounds, event))\n        return { ok: false, answer: soundRefusal(event, \"undeclared\") };\n    if (manifest.sounds[event].own !== undefined)", "if (typeof event !== \"string\" || manifest.sounds[event] === undefined)\n        return { ok: false, answer: soundRefusal(event, \"undeclared\") };\n    if (manifest.sounds[event].own !== undefined)"],
     ["an own sound event is not played by the core", "if (manifest.sounds[event].own !== undefined)\n        return { ok: false, answer: soundRefusal(event, \"own\") };", ""],
     ["an event that is off plays nothing", "return value === SOUND_OFF ? { ok: false, answer: \"off\" } : { ok: true, sound: value };", "return { ok: true, sound: value };"],
-    ["a sound refusal stays one line", "(typeof event === \"string\" && NAME_PATTERN.test(event) ? event : JSON.stringify(event)) + \" reason=\" + reason;", "event + \" reason=\" + reason;"],
+    ["a sound refusal stays one line", "(typeof event === \"string\" && ConfigLogic.NAME_PATTERN.test(event) ? event : JSON.stringify(event)) + \" reason=\" + reason;", "event + \" reason=\" + reason;"],
     ["a sound edit of an unknown plugin is refused", "if (manifest === null)\n        return { ok: false, answer: \"unknown: \" + id };\n    if (typeof event !== \"string\" || !hasOwn(manifest.sounds, event))\n        return { ok: false, answer: soundRefusal(event, \"undeclared\") };\n    if (!soundValueFits", "if (typeof event !== \"string\" || !hasOwn(manifest.sounds, event))\n        return { ok: false, answer: soundRefusal(event, \"undeclared\") };\n    if (!soundValueFits"],
     ["a sound edit judges its value", "if (!soundValueFits(manifest.sounds[event], value))\n        return { ok: false, answer: soundRefusal(event, \"value\") };", ""],
     ["a sound edit equal to the default removes the choice", "if (value === manifest.sounds[event][\"default\"]) delete own[event];\n    else own[event] = value;", "own[event] = value;"],
@@ -2249,6 +2256,26 @@ const CONTROLS = [
     ["a side view takes the drop over it", "x >= view.x && x < view.x + view.width) section = side;", "false) section = side;"],
     ["a scrolled section slots among its shown widgets", "widgets = widgets.filter(function (widget) { return widget.x >= low && widget.x + widget.width <= high; });", ""],
     ["a drop past the shown widgets lands before the hidden next", "var target = slot < widgets.length ? widgets[slot] : next;", "var target = slot < widgets.length ? widgets[slot] : null;"],
+    ["PluginLogic keeps no copy of a moved name", "var KINDS = [", "var SECTIONS = [\"left\", \"center\", \"right\"];\nvar KINDS = ["],
+    ["PluginLogic keeps no alias of ConfigLogic", "var KINDS = [", "var judgeConfig = ConfigLogic.configError;\nvar KINDS = ["],
+    ["PluginLogic reads the sections through ConfigLogic", "    ConfigLogic.SECTIONS.forEach(function (section) {\n        sectionEntries(config, section)", "    [\"left\", \"center\", \"right\"].forEach(function (section) {\n        sectionEntries(config, section)"],
+];
+
+// The controls on ConfigLogic.js, the configuration judge PluginLogic.js imports.
+const CONFIG_CONTROLS = [
+    ["appearance is an object", "if (config.appearance !== undefined && !isPlainObject(config.appearance))", "if (false)"],
+    ["packages is an object", "if (!isPlainObject(config.packages))\n            return \"packages must be an object\";", "if (false)\n            return \"packages must be an object\";"],
+    ["welcome is an object", "        if (!isPlainObject(config.welcome))\n            return \"welcome must be an object\";\n", ""],
+    ["welcome key lines are rows with ids", "        if ((bad = rows(config.welcome.keys, \"welcome.keys\")) !== \"\")\n            return bad;\n", ""],
+    ["a welcome key line holds a shortcut and text", "typeof line.shortcut !== \"string\" || typeof line.text !== \"string\" || line.text === \"\"", "false"],
+    ["packages.elevate is an elevation command", "config.packages.elevate !== undefined && PackageManagers.ELEVATORS.indexOf(config.packages.elevate) === -1", "false"],
+    ["a key string is judged", "if (!key.ok)\n            return itemAt + \" \" + key.error;", "if (false)\n            return itemAt + \" \" + key.error;"],
+    ["an empty key list is refused", "if (Array.isArray(value) && value.length === 0)\n        return at + \" must not be an empty list\";", "if (false)\n        return at + \" must not be an empty list\";"],
+    ["a key list entry is not repeated", "if (seen[key.key] !== undefined)\n            return itemAt + \" repeats \" + key.key;", "if (false)\n            return itemAt + \" repeats \" + key.key;"],
+    ["a tap key from settings is lone", "if (tap === true && keyHasModifiers(key.key))", "if (false)"],
+    ["config sounds is an object", 'if (!isPlainObject(config.sounds))\n            return "sounds must be an object";', ""],
+    ["a plugin's sound choices are an object", 'if (!isPlainObject(chosen))\n                return "sounds." + soundIds[d] + " must be an object";', ""],
+    ["a sound choice is a string", 'if (typeof chosen[events[v]] !== "string")', "if (false)"],
     ["a layout entry holds its id alone", "if (extra.length > 0)\n                        return", "if (false)\n                        return"],
     ["a migration lets the row's value win", "if (!hasOwn(row, k)) row[k] = entry[k];", "row[k] = entry[k];"],
     ["a migrated entry keeps its id alone", "            return { id: entry.id };\n        });", "            return entry;\n        });"],
@@ -2271,22 +2298,26 @@ try {
     fs.symlinkSync(LAYER, path.join(temp, "shell", "Core", "HyprlandLayer.js"));
     fs.symlinkSync(path.join(path.dirname(LAYER), "MonitorLogic.js"), path.join(temp, "shell", "Core", "MonitorLogic.js"));
     fs.symlinkSync(path.join(path.dirname(LAYER), "Pads.js"), path.join(temp, "shell", "Core", "Pads.js"));
-    const source = fs.readFileSync(LOGIC, "utf8");
-    for (const [label, needle, replacement] of CONTROLS) {
-        const count = source.split(needle).length - 1;
-        if (count !== 1) { report("control: " + label + ": the text to replace occurs once", count, 1); continue; }
-        const mutant = path.join(temp, "shell", "Core", "PluginLogic.js");
-        fs.writeFileSync(mutant, source.replace(needle, () => replacement));
-        // Loaded outside the try, so a copy that does not evaluate fails the
-        // suite instead of passing for a control.
-        const ctx = load(mutant);
-        let red = 0;
-        try {
-            suite(ctx, (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
-        } catch (e) {
-            red += 1;
+    const sources = { [LOGIC]: fs.readFileSync(LOGIC, "utf8"), [CONFIG]: fs.readFileSync(CONFIG, "utf8") };
+    const copyOf = file => path.join(temp, "shell", "Core", path.basename(file));
+    for (const [file, controls] of [[LOGIC, CONTROLS], [CONFIG, CONFIG_CONTROLS]]) {
+        for (const [label, needle, replacement] of controls) {
+            const count = sources[file].split(needle).length - 1;
+            if (count !== 1) { report("control: " + label + ": the text to replace occurs once", count, 1); continue; }
+            for (const [other, text] of Object.entries(sources)) fs.writeFileSync(copyOf(other), text);
+            fs.writeFileSync(copyOf(file), sources[file].replace(needle, () => replacement));
+            // Loaded outside the try, so a copy that does not evaluate fails the
+            // suite instead of passing for a control.
+            const ctx = load(copyOf(LOGIC));
+            const configLogic = load(copyOf(CONFIG));
+            let red = 0;
+            try {
+                suite(ctx, configLogic, (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
+            } catch (e) {
+                red += 1;
+            }
+            report("control: the suite fails without the rule: " + label, red > 0, true);
         }
-        report("control: the suite fails without the rule: " + label, red > 0, true);
     }
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });

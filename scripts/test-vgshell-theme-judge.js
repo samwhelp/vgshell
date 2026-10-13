@@ -188,8 +188,9 @@ const CATALOG_CONTROLS = [
 // Applying one package must not parse unrelated packages or initialize
 // the downloader, and an apply of a package with terminal slots must not
 // read the shipped defaults, which are judged afresh by each apply that
-// takes their slots. The list command still judges the full package set,
-// and reads no shell.json, so it must not load PluginLogic.
+// takes their slots. An apply reads shell.json through ConfigLogic alone,
+// never PluginLogic. The list command still judges the full package set,
+// and reads no shell.json, so it loads neither.
 function applyRows(root, mutation) {
     const tree = path.join(root, "tree");
     fs.mkdirSync(path.join(tree, "bin"), { recursive: true });
@@ -236,6 +237,11 @@ Module._load = function(file, ...args) { log(['module', file]); return load.call
     assert.ok(observed.some(([kind, file]) => kind === "read" && file === path.join(shipped, "vgs", "terminal.json")), "observer reached fallback package");
     assert.ok(!observed.some(([kind, file]) => kind === "read" && (file.startsWith(path.join(shipped, "unrelated") + path.sep) || file.startsWith(path.join(installed, "broken") + path.sep))), "apply read an unrelated package");
     assert.ok(!observed.some(([kind, file]) => kind === "module" && file.endsWith("theme-download.js")), "apply initialized the downloader");
+    const configLogic = path.join(tree, "shell", "Core", "ConfigLogic.js");
+    const pluginLogic = path.join(tree, "shell", "Core", "PluginLogic.js");
+    const applied = observed.filter(([kind]) => kind === "read").map(([, file]) => file);
+    assert.ok(applied.includes(configLogic), "apply did not load ConfigLogic");
+    assert.ok(!applied.includes(pluginLogic), "apply loaded PluginLogic");
     // The files one run of the judge read, the run having exited 0.
     const reads = (...args) => {
         fs.rmSync(trace);
@@ -243,13 +249,14 @@ Module._load = function(file, ...args) { log(['module', file]); return load.call
         assert.equal(proc.status, 0, proc.stdout + proc.stderr);
         return fs.readFileSync(trace, "utf8").trim().split("\n").map(line => JSON.parse(line)).filter(([kind]) => kind === "read").map(([, file]) => file);
     };
-    const pluginLogic = path.join(tree, "shell", "Core", "PluginLogic.js");
     const slotted = reads("apply", "json", config, state, "held", "slotted");
     assert.ok(slotted.includes(path.join(shipped, "slotted", "terminal.json")), "observer reached the package with slots");
-    assert.ok(slotted.includes(pluginLogic), "observer reached PluginLogic");
+    assert.ok(slotted.includes(configLogic), "apply of a package with slots did not load ConfigLogic");
+    assert.ok(!slotted.includes(pluginLogic), "apply of a package with slots loaded PluginLogic");
     assert.ok(!slotted.some(file => file.startsWith(path.join(shipped, "vgs") + path.sep)), "apply of a package with slots read the shipped defaults");
     const listed = reads("list", "json", config, state);
     assert.match(proc.stdout, /name-mismatch/, "list still judges unrelated packages");
+    assert.ok(!listed.includes(configLogic), "list loaded ConfigLogic");
     assert.ok(!listed.includes(pluginLogic), "list loaded PluginLogic");
     writePackage(shipped, "vgs", "vgs", Object.assign({}, slots, { color1: "#ffffff" }));
     proc = apply();
@@ -385,14 +392,16 @@ try {
     catalogRows(CHECK, path.join(root, "catalog"));
     backgroundNameRows(CHECK, path.join(root, "background-names"));
     applyRows(path.join(root, "apply"));
-    for (const [label, needle, replacement] of [
-        ["whole catalogue", "requested === undefined || requested.includes(name)", "true"],
-        ["eager defaults", "let source = render.terminalSource(row, null);", 'packageRow(SHIPPED, logic.DEFAULT_NAME, "shipped");\n    let source = render.terminalSource(row, null);'],
-        ["eager PluginLogic", "let pluginLogic;", 'let pluginLogic = load(path.join(repo, "shell", "Core", "PluginLogic.js"));'],
-        ["eager downloader", 'const catalog = require(path.join(__dirname, "lib", "theme-catalog.js"));', 'const catalog = require(path.join(__dirname, "lib", "theme-catalog.js"));\nrequire(path.join(__dirname, "lib", "theme-download.js"));']
+    // Each control names the row it must turn red.
+    for (const [label, needle, replacement, row] of [
+        ["whole catalogue", "requested === undefined || requested.includes(name)", "true", "apply read an unrelated package"],
+        ["eager defaults", "let source = render.terminalSource(row, null);", 'packageRow(SHIPPED, logic.DEFAULT_NAME, "shipped");\n    let source = render.terminalSource(row, null);', "apply of a package with slots read the shipped defaults"],
+        ["eager ConfigLogic", "let configLogic;", 'let configLogic = load(path.join(repo, "shell", "Core", "ConfigLogic.js"));', "list loaded ConfigLogic"],
+        ["PluginLogic again", 'configLogic ??= load(path.join(repo, "shell", "Core", "ConfigLogic.js"));', 'configLogic ??= load(path.join(repo, "shell", "Core", "ConfigLogic.js"));\n    load(path.join(repo, "shell", "Core", "PluginLogic.js"));', "apply loaded PluginLogic"],
+        ["eager downloader", 'const catalog = require(path.join(__dirname, "lib", "theme-catalog.js"));', 'const catalog = require(path.join(__dirname, "lib", "theme-catalog.js"));\nrequire(path.join(__dirname, "lib", "theme-download.js"));', "apply initialized the downloader"]
     ]) {
         assert.equal(fs.readFileSync(CHECK, "utf8").split(needle).length, 2, label + " control must match once before its failure check");
-        assert.throws(() => applyRows(path.join(root, "apply-control-" + label.replace(/ /g, "-")), [needle, replacement]), { code: "ERR_ASSERTION" }, label + " control must fail");
+        assert.throws(() => applyRows(path.join(root, "apply-control-" + label.replace(/ /g, "-")), [needle, replacement]), { code: "ERR_ASSERTION", message: row }, label + " control must fail its row");
     }
     for (const [label, needle, replacement] of CATALOG_CONTROLS) {
         const copy = judgeCopy(path.join(root, "control-" + label.replace(/ /g, "-")), needle, replacement);

@@ -4,7 +4,8 @@
 // the key the text entry stores for the same keys; keyConflicts, which
 // names who else holds a key; and conflictHint, the hint line every key
 // field draws from that answer. Every expected key
-// is written out by hand and also passes hyprlandKey unchanged, so a capture
+// is written out by hand and also passes ConfigLogic.hyprlandKey, which
+// PluginLogic.js imports, unchanged, so a capture
 // stores what typing it stores. The controls at the end edit a copy of the
 // judge, one rule at a time, and the suite must fail on every copy. Exit 1
 // when any row or control fails.
@@ -101,7 +102,7 @@ function suite(ctx, check) {
     for (const [name, key, modifiers, want] of captures) {
         const got = ctx.capturedKey(key, modifiers);
         check("capturedKey: " + name, got, want);
-        if (want.kind === "key") check("capturedKey: " + name + " is the key the text entry stores", ctx.hyprlandKey(got.key === undefined ? "" : got.key), { ok: true, key: want.key });
+        if (want.kind === "key") check("capturedKey: " + name + " is the key the text entry stores", ctx.ConfigLogic.hyprlandKey(got.key === undefined ? "" : got.key), { ok: true, key: want.key });
     }
 
     const sections = [
@@ -161,7 +162,7 @@ suite(load(LOGIC), report);
 // Each control removes one rule from a copy of the judge and keeps the text
 // around it. The suite must fail on every copy.
 const CONTROLS = [
-    ["capture writes modifiers in the judge's order", "return { kind: \"key\", key: hyprlandKey(held.concat([names[key]]).join(\"+\")).key };", "return { kind: \"key\", key: held.reverse().concat([names[key]]).join(\"+\") };"],
+    ["capture writes modifiers in the judge's order", "return { kind: \"key\", key: ConfigLogic.hyprlandKey(held.concat([names[key]]).join(\"+\")).key };", "return { kind: \"key\", key: held.reverse().concat([names[key]]).join(\"+\") };"],
     ["capture reads the modifier flags", "return (modifiers & CAPTURE_MODIFIER_FLAGS[mod]) !== 0 || CAPTURE_MODIFIER_KEYS[key] === mod;", "return CAPTURE_MODIFIER_KEYS[key] === mod;"],
     ["a modifier key holds its own modifier", " || CAPTURE_MODIFIER_KEYS[key] === mod;", ";"],
     ["Super is the Meta flag", "SUPER: 0x10000000, CTRL: 0x04000000", "SUPER: 0x40000000, CTRL: 0x04000000"],
@@ -196,6 +197,7 @@ try {
     fs.mkdirSync(path.join(temp, "shell", "Commons"), { recursive: true });
     fs.symlinkSync(LUCIDE, path.join(temp, "shell", "Ui", "icons", "Lucide.js"));
     fs.symlinkSync(MANAGERS, path.join(temp, "shell", "Core", "PackageManagers.js"));
+    fs.symlinkSync(path.join(path.dirname(MANAGERS), "ConfigLogic.js"), path.join(temp, "shell", "Core", "ConfigLogic.js"));
     fs.symlinkSync(LAYER, path.join(temp, "shell", "Core", "HyprlandLayer.js"));
     fs.symlinkSync(path.join(path.dirname(LAYER), "MonitorLogic.js"), path.join(temp, "shell", "Core", "MonitorLogic.js"));
     fs.symlinkSync(path.join(path.dirname(LAYER), "Pads.js"), path.join(temp, "shell", "Core", "Pads.js"));

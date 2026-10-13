@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import "PluginLogic.js" as Logic
+import "ConfigLogic.js" as ConfigLogic
 
 // Shell configuration: the shipped defaults under config/ merged with the
 // user's file. Both files are watched; a change re-derives `effective`
@@ -12,7 +13,7 @@ import "PluginLogic.js" as Logic
 // `user`, the file's text and state first, visible at once, so a write
 // made from a handler of either builds on them, and its own change is told
 // after the one in flight.
-// A file that does not parse or fails PluginLogic.configError keeps the
+// A file that does not parse or fails ConfigLogic.configError keeps the
 // last good value and logs the error, so a typo never blanks the desktop;
 // a user file in that state
 // blocks writes until it passes again, so a manager edit never overwrites
@@ -21,7 +22,7 @@ import "PluginLogic.js" as Logic
 // user file alone. Each file is a WatchedFile, so an edit that lands during
 // a read is read again. An edit of the user file is on the disk before its
 // write answers. A user file of the previous format version is rewritten as
-// this one when it is read (PluginLogic.migrateConfig), through the same
+// this one when it is read (ConfigLogic.migrateConfig), through the same
 // judge, and written once; one the judge refuses is never overwritten.
 Singleton {
     id: root
@@ -106,7 +107,7 @@ Singleton {
             if (mergedShipped !== shipped || mergedUser !== user) {
                 mergedShipped = shipped;
                 mergedUser = user;
-                publishedEffective = shipped === null ? ({}) : Logic.effectiveConfig(shipped, user);
+                publishedEffective = shipped === null ? ({}) : ConfigLogic.effectiveConfig(shipped, user);
                 if (republish) continue;
             }
             const notReadyNow = shipped === null ? shippedState : (userState === "pending" ? "pending" : "");
@@ -133,8 +134,8 @@ Singleton {
             console.error("config: " + label + " does not parse: " + e.message);
             return { state: "unparseable" };
         }
-        const moved = migrate ? Logic.migrateConfig(value) : { config: value, migrated: false };
-        const bad = Logic.configError(moved.config);
+        const moved = migrate ? ConfigLogic.migrateConfig(value) : { config: value, migrated: false };
+        const bad = ConfigLogic.configError(moved.config);
         if (bad !== "") {
             console.error("config: " + label + " malformed: " + bad);
             return { state: "malformed" };
@@ -184,10 +185,10 @@ Singleton {
             if (r.migrated) {
                 const written = root.writeUser(r.value);
                 if (written === "ok") {
-                    console.info("config: user file migrated: file=" + path + " version=" + Logic.CONFIG_VERSION);
+                    console.info("config: user file migrated: file=" + path + " version=" + ConfigLogic.CONFIG_VERSION);
                     return;
                 }
-                console.error("config: user file migrated in memory, not written: file=" + path + " version=" + Logic.CONFIG_VERSION + " refusal=" + written);
+                console.error("config: user file migrated in memory, not written: file=" + path + " version=" + ConfigLogic.CONFIG_VERSION + " refusal=" + written);
             }
             if (r.state === "loaded") root.user = r.value;
             root.publish();

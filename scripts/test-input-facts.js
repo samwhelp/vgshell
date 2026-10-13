@@ -232,7 +232,7 @@ const controls = [
     [stateFile, stateChecks, "resolver success", "read.value.ok !== true", "false"],
     [stateFile, stateChecks, "resolver key list", "!Array.isArray(read.value.keys)", "false"],
     [stateFile, stateChecks, "complete resolver reply", " || read.value.keys.length !== count", ""],
-    [stateFile, stateChecks, "named modifiers", "return Logic.HYPRLAND_MODIFIERS.indexOf(m) !== -1;", "return true;"],
+    [stateFile, stateChecks, "named modifiers", "return ConfigLogic.HYPRLAND_MODIFIERS.indexOf(m) !== -1;", "return true;"],
     [stateFile, stateChecks, "modifier list", "!Array.isArray(key.modifiers)", "false"],
     [stateFile, stateChecks, "integer native code", "!Number.isInteger(key.keycode)", "false"],
     [stateFile, stateChecks, "XKB code floor", " || key.keycode < 8", ""],

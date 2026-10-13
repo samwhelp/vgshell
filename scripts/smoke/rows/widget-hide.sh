@@ -27,7 +27,7 @@
 # the two shipped plugins stay off and vgs.tray comes on. The row
 # restores the user file, removes its copies and puts the pointer back
 # where it found it.
-# inputs: shell/Ui/BarWidget.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/overlay/DismissScope.qml shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Config.qml shell/Commons/DesktopLaunch.js scripts/smoke/fixtures/plugins/acme.pane/* shell/plugins/vgs.settings/* shell/plugins/vgs.voice/manifest.json shell/plugins/vgs.webapps/manifest.json shell/plugins/vgs.tray/manifest.json
+# inputs: shell/Ui/BarWidget.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/overlay/DismissScope.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Config.qml shell/Commons/DesktopLaunch.js scripts/smoke/fixtures/plugins/acme.pane/* shell/plugins/vgs.settings/* shell/plugins/vgs.voice/manifest.json shell/plugins/vgs.webapps/manifest.json shell/plugins/vgs.tray/manifest.json
 set -euo pipefail
 hide_file="$home/.config/vgshell/shell.json"
 hide_saved="$sandbox/shell-before-widget-hide.json"

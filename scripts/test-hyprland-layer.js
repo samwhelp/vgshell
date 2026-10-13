@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // Checks for the Hyprland layer's decisions: the manifest's `hyprland` key
-// and the key grammar in shell/Core/PluginLogic.js, a plugins row's `keys`
-// under PluginLogic.configError, PluginLogic.hyprlandSection with the input
-// options a plugins row sets, the text
-// shell/Core/HyprlandLayer.js renders, and the writer's sequence,
-// HyprlandLayer.step. Both files load under node through
-// bin/lib/qml-library.js, as the shell loads them.
+// in shell/Core/PluginLogic.js, the key grammar in shell/Core/ConfigLogic.js,
+// a plugins row's `keys` under ConfigLogic.configError,
+// PluginLogic.hyprlandSection with the input options a plugins row sets, the
+// text shell/Core/HyprlandLayer.js renders, and the writer's sequence,
+// HyprlandLayer.step. Each file loads under node through
+// bin/lib/qml-library.js, as the shell loads it.
 //
 // The controls at the end edit a copy of one file, one rule at a time, and
 // the suite must fail on every copy. Exit 1 when a row or a control fails.
@@ -22,6 +22,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const same = (got, want, message) => assert.deepStrictEqual(JSON.parse(JSON.stringify(got === undefined ? null : got)), JSON.parse(JSON.stringify(want === undefined ? null : want)), message);
 
 const logicFile = path.join(__dirname, "..", "shell", "Core", "PluginLogic.js");
+const configFile = path.join(__dirname, "..", "shell", "Core", "ConfigLogic.js");
 const layerFile = path.join(__dirname, "..", "shell", "Core", "HyprlandLayer.js");
 const shellFile = path.join(__dirname, "..", "shell", "shell.qml");
 
@@ -602,10 +603,10 @@ function padsFixture(logic, id, pads) {
     return logic.hyprlandSection({ plugins: [{ id: id, pads: value, keys: { "pad-1": "SUPER+ALT+P" } }] }, judged.manifest);
 }
 
-function verify(logic, layer, shellText) {
+function verify(logic, configLogic, layer, shellText) {
     const lines = out => out.text.split("\n");
     for (const [text, want] of KEYS) {
-        const got = logic.hyprlandKey(text);
+        const got = configLogic.hyprlandKey(text);
         if (want.key !== undefined) same(got, { ok: true, key: want.key }, "hyprlandKey " + JSON.stringify(text));
         else assert.ok(!got.ok && got.error.startsWith(want.error), "hyprlandKey " + JSON.stringify(text) + " refused with " + JSON.stringify(want.error) + ", got " + JSON.stringify(got));
     }
@@ -718,7 +719,7 @@ function verify(logic, layer, shellText) {
     assert.strictEqual(manifestOf(logic, {}).hyprland, undefined, "a manifest declaring no hyprland key carries none");
 
     for (const [name, keys, want] of CONFIG_KEYS) {
-        const got = logic.configError({ plugins: [{ id: "acme.keys", keys: keys }] });
+        const got = configLogic.configError({ plugins: [{ id: "acme.keys", keys: keys }] });
         assert.ok(want === "" ? got === "" : got.startsWith(want), "configError " + name + ": want " + JSON.stringify(want) + ", got " + JSON.stringify(got));
     }
     const config = { plugins: [{ id: "acme.keys", keys: { toggle: "ctrl+super+t", inbox: null, later: "SUPER+L", early: null }, size: 3 }] };
@@ -1345,7 +1346,7 @@ const SEQUENCES = [
 ];
 
 const shellText = fs.readFileSync(shellFile, "utf8");
-verify(load(logicFile), load(layerFile), shellText);
+verify(load(logicFile), load(configFile), load(layerFile), shellText);
 
 // HyprlandLayer.qml supplies the locked group's fill and caption to the
 // Lua renderer. Catalog themes can lift the fill above or below its palette.
@@ -1579,14 +1580,14 @@ assert.throws(() => verifyStatusAppearance(appearanceSource.replace(statusNeedle
 // around it. The suite must fail on every copy.
 const CONTROLS = [
     [logicFile, "hyprland is a manifest key", "\"appearance\", \"hyprland\", ", "\"appearance\", "],
-    [logicFile, "key parts upper case", "return part.trim().toUpperCase();", "return part.trim();"],
-    [logicFile, "modifier order", "var ordered = HYPRLAND_MODIFIERS.filter(function (mod) { return mods.indexOf(mod) !== -1; });", "var ordered = mods;"],
-    [logicFile, "key string", "if (typeof text !== \"string\")\n        return { ok: false, error: \"must be a string", "if (false)\n        return { ok: false, error: \"must be a string"],
-    [logicFile, "key empty part", "if (parts.some(function (part) { return part.length === 0; }))", "if (false)"],
-    [logicFile, "key not a modifier", "if (HYPRLAND_MODIFIERS.indexOf(name) !== -1)\n        return", "if (false)\n        return"],
-    [logicFile, "key name", "if (!HYPRLAND_KEY_NAME.test(name))", "if (false)"],
-    [logicFile, "known modifier", "if (HYPRLAND_MODIFIERS.indexOf(mods[i]) === -1)", "if (false)"],
-    [logicFile, "modifier once", "if (mods.indexOf(mods[i]) !== i)", "if (false)"],
+    [configFile, "key parts upper case", "return part.trim().toUpperCase();", "return part.trim();"],
+    [configFile, "modifier order", "var ordered = HYPRLAND_MODIFIERS.filter(function (mod) { return mods.indexOf(mod) !== -1; });", "var ordered = mods;"],
+    [configFile, "key string", "if (typeof text !== \"string\")\n        return { ok: false, error: \"must be a string", "if (false)\n        return { ok: false, error: \"must be a string"],
+    [configFile, "key empty part", "if (parts.some(function (part) { return part.length === 0; }))", "if (false)"],
+    [configFile, "key not a modifier", "if (HYPRLAND_MODIFIERS.indexOf(name) !== -1)\n        return", "if (false)\n        return"],
+    [configFile, "key name", "if (!HYPRLAND_KEY_NAME.test(name))", "if (false)"],
+    [configFile, "known modifier", "if (HYPRLAND_MODIFIERS.indexOf(mods[i]) === -1)", "if (false)"],
+    [configFile, "modifier once", "if (mods.indexOf(mods[i]) !== i)", "if (false)"],
     [logicFile, "hyprland object", "if (!isPlainObject(hyprland))", "if (false)"],
     [logicFile, "hyprland keys", "if (HYPRLAND_KEYS.indexOf(keys[u]) === -1)", "if (false)"],
     [logicFile, "binds list", "if (!Array.isArray(binds))", "if (false)"],
@@ -1595,12 +1596,12 @@ const CONTROLS = [
     [logicFile, "binds need shortcut", "if (binds.length > 0 && capabilities.indexOf(\"shortcut\") === -1)", "if (false)"],
     [logicFile, "bind object", "if (!isPlainObject(bind))", "if (false)"],
     [logicFile, "bind keys", "if (HYPRLAND_BIND_KEYS.indexOf(bindKeys[k]) === -1)", "if (false)"],
-    [logicFile, "shortcut name", "if (typeof bind.shortcut !== \"string\" || !NAME_PATTERN.test(bind.shortcut))", "if (typeof bind.shortcut !== \"string\")"],
+    [logicFile, "shortcut name", "if (typeof bind.shortcut !== \"string\" || !ConfigLogic.NAME_PATTERN.test(bind.shortcut))", "if (typeof bind.shortcut !== \"string\")"],
     [logicFile, "shortcut once", "if (shortcuts.indexOf(bind.shortcut) !== -1)", "if (false)"],
     [logicFile, "hold boolean", "if (bind.hold !== undefined && typeof bind.hold !== \"boolean\")", "if (false)"],
     [logicFile, "tap boolean", "if (bind.tap !== undefined && typeof bind.tap !== \"boolean\")", "if (false)"],
     [logicFile, "tap excludes hold", "if (bind.tap === true && bind.hold === true)", "if (false)"],
-    [logicFile, "tap manifest key is lone", "if (bind.tap === true && keyHasModifiers(values[v]))\n                return keyAt + \" \" + values[v] + \" must be a lone key for tap\";", "if (false)\n                return keyAt + \" \" + values[v] + \" must be a lone key for tap\";"],
+    [logicFile, "tap manifest key is lone", "if (bind.tap === true && ConfigLogic.keyHasModifiers(values[v]))\n                return keyAt + \" \" + values[v] + \" must be a lone key for tap\";", "if (false)\n                return keyAt + \" \" + values[v] + \" must be a lone key for tap\";"],
     [logicFile, "hold retained", "if (bind.hold === true) result.hold = true;", "if (false) result.hold = true;"],
     [logicFile, "tap retained", "if (bind.tap === true) result.tap = true;", "if (false) result.tap = true;"],
     [layerFile, "hold release emitted", "return entry.bind.hold === true ? releaseShortcutName", "return false ? releaseShortcutName"],
@@ -1626,29 +1627,29 @@ const CONTROLS = [
     [logicFile, "keys setting reserved", "if (hasOwn(settings, \"keys\"))", "if (false)"],
     [logicFile, "manifest keys normalised", "var result = { shortcut: bind.shortcut, key: keyRowValue(bind.key) };", "var result = { shortcut: bind.shortcut, key: bind.key };"],
     [logicFile, "a one-key default list is one key", "var result = { shortcut: bind.shortcut, key: keyRowValue(bind.key) };", "var result = { shortcut: bind.shortcut, key: Array.isArray(bind.key) ? keyValues(bind.key) : keyRowValue(bind.key) };"],
-    [logicFile, "config keys judged", "if (config.plugins[p].keys !== undefined && (bad = keysError(", "if (false && (bad = keysError("],
-    [logicFile, "keys object", "if (!isPlainObject(keys))\n        return at + \" must be an object\";", "if (false)\n        return at + \" must be an object\";"],
-    [logicFile, "keys names", "if (!NAME_PATTERN.test(names[i]))", "if (false)"],
-    [logicFile, "keys null unbinds", "if (keys[names[i]] === null)\n            continue;", "if (false)\n            continue;"],
-    [logicFile, "keys values", "if (!key.ok)\n            return itemAt + \" \" + key.error;", "if (false)\n            return itemAt + \" \" + key.error;"],
-    [logicFile, "keys empty lists", "if (Array.isArray(value) && value.length === 0)\n        return at + \" must not be an empty list\";", "if (false)\n        return at + \" must not be an empty list\";"],
+    [configFile, "config keys judged", "if (config.plugins[p].keys !== undefined && (bad = keysError(", "if (false && (bad = keysError("],
+    [configFile, "keys object", "if (!isPlainObject(keys))\n        return at + \" must be an object\";", "if (false)\n        return at + \" must be an object\";"],
+    [configFile, "keys names", "if (!NAME_PATTERN.test(names[i]))", "if (false)"],
+    [configFile, "keys null unbinds", "if (keys[names[i]] === null)\n            continue;", "if (false)\n            continue;"],
+    [configFile, "keys values", "if (!key.ok)\n            return itemAt + \" \" + key.error;", "if (false)\n            return itemAt + \" \" + key.error;"],
+    [configFile, "keys empty lists", "if (Array.isArray(value) && value.length === 0)\n        return at + \" must not be an empty list\";", "if (false)\n        return at + \" must not be an empty list\";"],
     [logicFile, "keys no setting", "return copyEntrySettings(clone(out), pluginRow(config, manifest.id), manifest, false);", "return copyEntrySettings(clone(out), pluginRow(config, manifest.id), manifest, true);"],
     [logicFile, "row key wins", "var given = hasOwn(keys, bind.shortcut) ? keys[bind.shortcut] : bind.key;", "var given = bind.key;"],
     [logicFile, "null unbinds", "var given = hasOwn(keys, bind.shortcut) ? keys[bind.shortcut] : bind.key;", "var given = hasOwn(keys, bind.shortcut) && keys[bind.shortcut] !== null ? keys[bind.shortcut] : bind.key;"],
     [logicFile, "key lists expand to binds", "keyValues(given).forEach(function (value) {", "[keyValues(given)[0]].forEach(function (value) {"],
     [logicFile, "row key normalised", "var result = Object.assign({}, bind, { key: key.key });", "var result = Object.assign({}, bind, { key: keys[bind.shortcut] });"],
-    [logicFile, "tap override key is refused", "if (bind.tap === true && keyHasModifiers(key.key))\n                result.error = \"tap key must be a lone key with no modifiers\";", "if (false)\n                result.error = \"tap key must be a lone key with no modifiers\";"],
-    [logicFile, "unknown keys", "return names.indexOf(name) === -1 && !Pads.isPadShortcut(declared, name, NAME_PATTERN); }).sort()", "return false; }).sort()"],
+    [logicFile, "tap override key is refused", "if (bind.tap === true && ConfigLogic.keyHasModifiers(key.key))\n                result.error = \"tap key must be a lone key with no modifiers\";", "if (false)\n                result.error = \"tap key must be a lone key with no modifiers\";"],
+    [logicFile, "unknown keys", "return names.indexOf(name) === -1 && !Pads.isPadShortcut(declared, name, ConfigLogic.NAME_PATTERN); }).sort()", "return false; }).sort()"],
     [logicFile, "appearance setting resolved", "appearance[group] = { setting: setting, enabled: settings[setting] === true };", "appearance[group] = { setting: setting, enabled: true };"],
     [layerFile, "sections by id", "var rows = sections.slice().sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; }).map(", "var rows = sections.slice().map("],
     [layerFile, "empty section unwritten", "if (section.binds.length === 0 && section.layerRules.length === 0 && !Array.isArray(section.pads)) return;", ""],
     [layerFile, "first id keeps a key", "if (held[bind.key] !== undefined) {", "if (false) {"],
     [layerFile, "unbound bind", "if (bind.key === null) return { kind: \"unbound\"", "if (false) return { kind: \"unbound\""],
     [layerFile, "refused bind", "if (bind.error !== undefined) return { kind: \"refused\"", "if (false) return { kind: \"refused\""],
-    [logicFile, "keycode grammar", "/^CODE:[0-9]+$/", "/^CODE:.+$/"],
-    [logicFile, "keycode uint32", " && Number(name.slice(5)) <= 4294967295", ""],
-    [logicFile, "keycode lower-case prefix", 'name = "code:" + String(Number(name.slice(5)));', 'name = "CODE:" + String(Number(name.slice(5)));'],
-    [logicFile, "keycode leading zeros", 'String(Number(name.slice(5)))', 'name.slice(5)'],
+    [configFile, "keycode grammar", "/^CODE:[0-9]+$/", "/^CODE:.+$/"],
+    [configFile, "keycode uint32", " && Number(name.slice(5)) <= 4294967295", ""],
+    [configFile, "keycode lower-case prefix", 'name = "code:" + String(Number(name.slice(5)));', 'name = "CODE:" + String(Number(name.slice(5)));'],
+    [configFile, "keycode leading zeros", 'String(Number(name.slice(5)))', 'name.slice(5)'],
     [layerFile, "shortcut read respects conflicts", 'if (held[bind.key] !== undefined) {\n                conflicts.push', 'if (held[bind.key] !== undefined) {\n                keys[section.id][bind.shortcut] = bind.key;\n                conflicts.push'],
     [layerFile, "shortcut read keeps the first key", "if (keys[section.id][bind.shortcut] === null)\n                keys[section.id][bind.shortcut] = bind.key;", "keys[section.id][bind.shortcut] = bind.key;"],
     [layerFile, "shortcut map has no inherited names", 'keys[section.id] = Object.create(null);', 'keys[section.id] = {};'],
@@ -1859,7 +1860,8 @@ const CONTROLS = [
 ];
 
 // A copy sits at its file's own place in a temporary tree, beside the icon
-// set, the package-manager table and the layer PluginLogic.js imports.
+// set, the package-manager table, the configuration judge and the layer
+// PluginLogic.js imports.
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "hyprland-layer-control-"));
 try {
     fs.mkdirSync(path.join(temp, "shell", "Core"), { recursive: true });
@@ -1868,6 +1870,7 @@ try {
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Commons", "SettingValues.js"), path.join(temp, "shell", "Commons", "SettingValues.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js"), path.join(temp, "shell", "Ui", "icons", "Lucide.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "PackageManagers.js"), path.join(temp, "shell", "Core", "PackageManagers.js"));
+    fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "ConfigLogic.js"), path.join(temp, "shell", "Core", "ConfigLogic.js"));
     fs.symlinkSync(layerFile, path.join(temp, "shell", "Core", "HyprlandLayer.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "MonitorLogic.js"), path.join(temp, "shell", "Core", "MonitorLogic.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "Pads.js"), path.join(temp, "shell", "Core", "Pads.js"));
@@ -1886,10 +1889,11 @@ try {
         // Loaded outside the try, so a copy that does not evaluate fails the
         // suite instead of passing for a control.
         const logic = load(file === logicFile ? mutant : logicFile);
+        const configLogic = load(file === configFile ? mutant : configFile);
         const layer = load(file === layerFile ? mutant : layerFile);
         let failed = false;
         try {
-            verify(logic, layer, file === shellFile ? fs.readFileSync(mutant, "utf8") : shellText);
+            verify(logic, configLogic, layer, file === shellFile ? fs.readFileSync(mutant, "utf8") : shellText);
             verifyAppearanceLayer(layer);
         } catch (e) {
             failed = true;

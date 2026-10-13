@@ -71,9 +71,9 @@ function rows() {
         ["an import after the header is refused with its key", loader => { const r = loadIn(loader, lateImport, "l => l.X"); return [r.status === 2 && r.stderr.startsWith("qml-library: refused: import="), said(r)]; }],
         ["the closure lists the library and every library its imports reach", loader => { const r = closureIn(loader, top); return [r.status === 0 && r.stdout === JSON.stringify(chain), said(r)]; }],
     ];
-    for (const lib of ["PluginLogic.js", "Dispatch.js"]) {
+    for (const [lib, member] of [["PluginLogic.js", "validateManifest"], ["ConfigLogic.js", "configError"], ["Dispatch.js", "request"]]) {
         const file = path.join(__dirname, "..", "shell", "Core", lib);
-        out.push(["the shell's " + lib + " loads", loader => { const r = loadIn(loader, file, "l => typeof l." + (lib === "Dispatch.js" ? "request" : "validateManifest")); return [r.status === 0 && r.stdout === '"function"', said(r)]; }]);
+        out.push(["the shell's " + lib + " loads", loader => { const r = loadIn(loader, file, "l => typeof l." + member); return [r.status === 0 && r.stdout === '"function"', said(r)]; }]);
     }
     return out;
 }

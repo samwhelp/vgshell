@@ -17,7 +17,7 @@
 # tail, since it restarts the shell, and leaves the launcher disabled,
 # vgs.themes enabled only when it found it so, the gaps and the bar as they
 # were and hyprland.lua as it found it.
-# inputs: shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.themes/Service.qml shell/plugins/vgs.bar/* shell/plugins/vgs.launcher/* shell/Core/ShortcutRegistry.qml shell/Core/Registry.qml shell/Core/PluginLogic.js shell/Core/HyprlandLayer.js shell/Core/ServiceGate.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml shell/Hosts/BarHost.qml scripts/smoke/toplevel/* scripts/smoke/rows/launcher.sh scripts/smoke/rows/hyprland.sh scripts/smoke/rows/themes.sh themes/catalog/flexoki-light/*
+# inputs: shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.themes/Service.qml shell/plugins/vgs.bar/* shell/plugins/vgs.launcher/* shell/Core/ShortcutRegistry.qml shell/Core/Registry.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/HyprlandLayer.js shell/Core/ServiceGate.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml shell/Hosts/BarHost.qml scripts/smoke/toplevel/* scripts/smoke/rows/launcher.sh scripts/smoke/rows/hyprland.sh scripts/smoke/rows/themes.sh themes/catalog/flexoki-light/*
 set -euo pipefail
 user_config="$home/.config/vgshell/shell.json"
 # The value of setting KEY in plugin ID's `plugins` row of the user file,

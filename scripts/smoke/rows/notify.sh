@@ -14,7 +14,7 @@
 # fixture's own subscription keeps the core's server up and the fixture
 # receives the message; with no plugin holding the `notifications` role,
 # acme.notifier's message is dropped and the shell logs one unsent line.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.notifier/* shell/Core/Notifier.qml shell/Core/PluginLogic.js shell/Core/Capabilities.qml shell/Core/NotificationHub.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/plugins.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.notifier/* shell/Core/Notifier.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Capabilities.qml shell/Core/NotificationHub.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/plugins.sh
 set -euo pipefail
 notify_send() { ipc acme.probe invoke notify "$1"; }
 # notify_refused_key OPTIONS_JSON: the key a refusal names, the word after

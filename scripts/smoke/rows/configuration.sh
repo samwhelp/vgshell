@@ -4,7 +4,7 @@
 # user file is written as version 2 once the shell reads it, its layout
 # entry's settings moved into the plugin's row; a copy whose read migrates
 # nothing is its control, and refuses the file.
-# inputs: shell/Core/Config.qml shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/Bar.qml shell/plugins/vgs.bar/Service.qml bin/vgshell shell/Commons/WatchedFile.qml bin/vgshell-plugin-judge scripts/smoke/rows/capability-release.sh
+# inputs: shell/Core/Config.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/Bar.qml shell/plugins/vgs.bar/Service.qml bin/vgshell shell/Commons/WatchedFile.qml bin/vgshell-plugin-judge scripts/smoke/rows/capability-release.sh
 set -euo pipefail
 config_user_state() { ipc shell listPlugins | py_reply 'import json,sys; print(json.load(sys.stdin)["config"]["user"])'; }
 expected_errors+=('config: user file unreadable at ')
@@ -41,7 +41,7 @@ expect "enabling the plugin again answers ok" ok ipc shell setPluginEnabled acme
 expect "the user file holds the plugin enabled again" False file_disables acme.tick
 expect_widgets "the widget is back after the unwritable rows" '["acme.tick"]'
 
-# A user file that parses but fails PluginLogic.configError is malformed: the
+# A user file that parses but fails ConfigLogic.configError is malformed: the
 # defect is logged, the last good value keeps the bar, and writes are refused
 # until the file passes again.
 user_good="$(cat "$home/.config/vgshell/shell.json")"

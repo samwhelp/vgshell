@@ -20,7 +20,7 @@
 # change and a shell stop call it never. Its control is a copy of the tree
 # whose core calls it for every destroyed instance: the rebuild then leaves
 # the fixture's mark.
-# inputs: shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.bar/* shell/shell.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Hosts/ServiceHost.qml shell/Hosts/PluginSlot.qml bin/vgshell bin/vgshell-scan bin/vgshell-plugin-judge
+# inputs: shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.bar/* shell/shell.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Hosts/ServiceHost.qml shell/Hosts/PluginSlot.qml bin/vgshell bin/vgshell-scan bin/vgshell-plugin-judge
 set -euo pipefail
 fixture="$sandbox/src/acme.probe"
 mkdir -p "$fixture"

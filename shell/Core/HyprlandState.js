@@ -1,5 +1,5 @@
 .pragma library
-.import "PluginLogic.js" as Logic
+.import "ConfigLogic.js" as ConfigLogic
 .import "HyprlandLayer.js" as Layer
 .import "Dispatch.js" as Dispatch
 
@@ -28,7 +28,7 @@ function keyRequest(devices, keys) {
         return { ok: false, error: "refused: keymap=main-keyboard" };
     var normalized = [];
     for (var key of keys) {
-        var read = Logic.hyprlandKey(key);
+        var read = ConfigLogic.hyprlandKey(key);
         if (!read.ok) return { ok: false, error: "refused: keymap=key " + read.error };
         normalized.push(read.key);
     }
@@ -89,7 +89,7 @@ function resolvedKeys(text, count, requireTranslation) {
     }
     for (var list of lists) {
         for (var key of list) {
-            if (!key || !Array.isArray(key.modifiers) || !key.modifiers.every(function (m) { return Logic.HYPRLAND_MODIFIERS.indexOf(m) !== -1; })
+            if (!key || !Array.isArray(key.modifiers) || !key.modifiers.every(function (m) { return ConfigLogic.HYPRLAND_MODIFIERS.indexOf(m) !== -1; })
                     || !Number.isInteger(key.keycode) || key.keycode < 8 || typeof key.keysym !== "string" || key.keysym.length === 0
                     || !Number.isInteger(key.codepoint) || key.codepoint < 0 || key.codepoint > 0x10ffff
                     || key.codepoint >= 0xd800 && key.codepoint <= 0xdfff)
@@ -105,7 +105,7 @@ var TOUCHPAD = /touchpad|trackpad/i;
 
 // The modifier bits of a bind's `modmask` a Hyprland key can name, in
 // src/devices/IKeyboard.hpp; Caps Lock, Num Lock (MOD2), MOD3 and MOD5 have
-// no name in PluginLogic.hyprlandKey.
+// no name in ConfigLogic.hyprlandKey.
 var MODIFIER_BITS = [["SHIFT", 1], ["CTRL", 4], ["ALT", 8], ["SUPER", 64]];
 var NAMED_BITS = 1 | 4 | 8 | 64;
 
@@ -272,7 +272,7 @@ function userValues(written, text) {
     return { ok: true, values: out };
 }
 
-// The key PluginLogic.hyprlandKey writes for a bind of MODMASK on KEY, the
+// The key ConfigLogic.hyprlandKey writes for a bind of MODMASK on KEY, the
 // keysym name Hyprland prints, or on KEYCODE where KEY is empty, as a
 // keycode bind has it; null where no such key names it: a modifier outside
 // SHIFT, CTRL, ALT and SUPER, or a name the key judge does not take.
@@ -280,7 +280,7 @@ function boundKey(modmask, key, keycode) {
     if ((modmask & ~NAMED_BITS) !== 0) return null;
     var mods = MODIFIER_BITS.filter(function (row) { return (modmask & row[1]) !== 0; }).map(function (row) { return row[0]; });
     var name = key !== "" ? key : keycode > 0 ? "code:" + keycode : "";
-    var read = Logic.hyprlandKey(mods.concat([name]).join("+"));
+    var read = ConfigLogic.hyprlandKey(mods.concat([name]).join("+"));
     return read.ok ? read.key : null;
 }
 
@@ -353,7 +353,7 @@ function bindPlace(file, home) {
 // other statements as they were.
 var BIND_CALL = /^\s*hl\.bind\s*\(\s*(?:"([^"\\]*)"|'([^'\\]*)')/;
 
-// The key, as PluginLogic.hyprlandKey writes it, that TEXT, one line with
+// The key, as ConfigLogic.hyprlandKey writes it, that TEXT, one line with
 // no line break, binds when it is one whole `hl.bind` call; else null. A
 // long bracket or a comment inside the call, which could hide its end, is
 // no whole call.
@@ -379,7 +379,7 @@ function bindCall(text) {
         }
     }
     if (depth !== 0 || !/^\s*;?\s*(?:--(?!\[=*\[).*)?\r?$/.test(text.slice(i))) return null;
-    var key = Logic.hyprlandKey(head[1] !== undefined ? head[1] : head[2]);
+    var key = ConfigLogic.hyprlandKey(head[1] !== undefined ? head[1] : head[2]);
     return key.ok ? key.key : null;
 }
 

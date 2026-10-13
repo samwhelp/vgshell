@@ -30,9 +30,9 @@ function shellSingle(text) {
 // shipped shell.json with the configuration judge a plan that elevates
 // reads: `{ pkg, vgshell }`.
 function makeTree(dir, texts) {
-    for (const sub of ["bin", "config", path.join("shell", "Core"), path.join("shell", "Commons"), path.join("shell", "Ui", "icons")]) fs.mkdirSync(path.join(dir, sub), { recursive: true });
+    for (const sub of ["bin", "config", path.join("shell", "Core")]) fs.mkdirSync(path.join(dir, sub), { recursive: true });
     fs.symlinkSync(path.join(repo, "bin", "lib"), path.join(dir, "bin", "lib"));
-    for (const file of ["config/shell.json", "shell/Core/PluginLogic.js", "shell/Core/Pads.js", "shell/Core/HyprlandLayer.js", "shell/Core/MonitorLogic.js", "shell/Commons/SettingValues.js", "shell/Ui/icons/Lucide.js"])
+    for (const file of ["config/shell.json", "shell/Core/ConfigLogic.js"])
         fs.symlinkSync(path.join(repo, file), path.join(dir, file));
     fs.writeFileSync(path.join(dir, "shell", "Core", "PackageManagers.js"), texts.table);
     fs.writeFileSync(path.join(dir, "bin", "vgshell-pkg"), texts.pkg, { mode: 0o755 });

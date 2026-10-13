@@ -42,7 +42,7 @@
 # acme.capture exercises the bandwhich-capture state, scoped Allow, the
 # core/system launch and re-probe after run completion and plugin scans.
 # Its getcap and setcap stand-ins read and write fixture text only.
-# inputs: scripts/smoke/fixtures/plugins/acme.system/* scripts/smoke/fixtures/plugins/acme.capture/* scripts/smoke/fixtures/system/capture/* shell/Core/SystemSteps.qml bin/vgshell-system bin/vgshell config/system/* scripts/smoke/fixtures/devices/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.status/* bin/vgshell-tui bin/lib/tui.sh shell/Core/PluginLogic.js scripts/smoke/rows/device-fakes.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.system/* scripts/smoke/fixtures/plugins/acme.capture/* scripts/smoke/fixtures/system/capture/* shell/Core/SystemSteps.qml bin/vgshell-system bin/vgshell config/system/* scripts/smoke/fixtures/devices/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.status/* bin/vgshell-tui bin/lib/tui.sh shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
 devices_ready system-steps || return 0
 if ! command -v unshare >/dev/null 2>&1 || ! unshare -r true 2>/dev/null; then

@@ -70,7 +70,7 @@ function readJson(file, key, optional = false) {
     }
 }
 
-// A shell.json layer read and judged by PluginLogic.configError, LOGIC here,
+// A shell.json layer read and judged by ConfigLogic.configError, LOGIC here,
 // the judge Config.qml runs on every parse, so a judge and the shell agree on
 // which files hold a configuration and which are malformed: the refusal
 // `KEY=malformed path=<file> error=<defect>`.
@@ -79,7 +79,7 @@ function readConfig(logic, file, key) {
 }
 
 // The user's shell.json layer as readConfig reads it, migrated first by
-// PluginLogic.migrateConfig as Config.qml migrates it, so a file of the
+// ConfigLogic.migrateConfig as Config.qml migrates it, so a file of the
 // previous format version reads as this version's. The migrated file
 // reaches the disk only through a caller that writes the value. An absent
 // file answers null.

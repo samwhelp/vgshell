@@ -1853,7 +1853,7 @@ Scope {
         }
         function instanceGeometry(hostKey: string, id: string): string { return root.geometry(root.instance(hostKey, id)); }
         function barSectionGeometry(hostKey: string, section: string): string {
-            if (PluginLogic.SECTIONS.indexOf(section) === -1) return "unknown";
+            if (ConfigLogic.SECTIONS.indexOf(section) === -1) return "unknown";
             const mount = Plugins.mounts[hostKey];
             return root.geometry(mount === undefined ? null : mount.row.instance[section + "Section"]);
         }
@@ -1867,7 +1867,7 @@ Scope {
             // The mounted Items remain alive. Effective visibility and
             // section geometry return when BarHost maps the window again.
             return root.json({ shown: PluginLogic.barShown(bar), windowVisible: bar.Window.window !== null && bar.Window.window.visible,
-                sections: PluginLogic.SECTIONS.map(section => {
+                sections: ConfigLogic.SECTIONS.map(section => {
                     const container = bar[section + "Section"];
                     return { section: section, width: container.width, gap: container.spacing,
                         drop: Plugins.barDragSectionGeometry(hostKey, section),

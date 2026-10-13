@@ -387,9 +387,9 @@ const SHELL_CALLER = "the shell never changes a package; run this in a terminal 
 
 // The effective shell.json's `packages.elevate`, or undefined: the shipped
 // layer merged with the user's as the shell merges them, each judged by
-// PluginLogic.configError, which accepts only one of the table's ELEVATORS.
+// ConfigLogic.configError, which accepts only one of the table's ELEVATORS.
 function configuredElevator() {
-    const logic = require(path.join(__dirname, "lib", "qml-library.js")).load(path.join(repo, "shell", "Core", "PluginLogic.js"));
+    const logic = require(path.join(__dirname, "lib", "qml-library.js")).load(path.join(repo, "shell", "Core", "ConfigLogic.js"));
     const configHome = process.env.XDG_CONFIG_HOME || path.join(process.env.HOME || os.homedir(), ".config");
     const shipped = readConfig(logic, SHIPPED_CONFIG, "shipped-config");
     const user = readUserConfig(logic, path.join(configHome, "vgshell", "shell.json"), "user-config");

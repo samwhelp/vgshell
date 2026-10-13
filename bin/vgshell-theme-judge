@@ -860,17 +860,19 @@ function previewTokens(values, includePalette) {
 const PARTIAL_STATUS = 3;
 
 // The effective shell.json: the shipped layer merged with the user's by
-// PluginLogic.effectiveConfig, each judged by configError first. A layer
+// ConfigLogic.effectiveConfig, each judged by configError first. A layer
 // the judge refuses refuses the apply, since no target's enablement can
-// then be known. PluginLogic is loaded here, once, by the commands that
-// read shell.json, and by no other: the load is the 14 ms that `read` in
-// bin/lib/qml-library.js states with its run.
-let pluginLogic;
+// then be known. ConfigLogic is loaded here, once, by the commands that
+// read shell.json, and by no other: its load() took 3.14, 3.12 and 3.19 ms
+// against 14.47, 14.11 and 14.32 ms for PluginLogic.js (the median of 40
+// loads, each in a new node 26.10.0 process, the two libraries taking
+// turns, three rounds, cachy at load 26.3 to 34.2, 2026-10-12).
+let configLogic;
 function shellConfig(configDir, key) {
-    pluginLogic ??= load(path.join(repo, "shell", "Core", "PluginLogic.js"));
-    const shipped = readConfig(pluginLogic, SHIPPED_CONFIG, key);
-    const user = readUserConfig(pluginLogic, path.join(configDir, "shell.json"), key);
-    return pluginLogic.effectiveConfig(shipped, user);
+    configLogic ??= load(path.join(repo, "shell", "Core", "ConfigLogic.js"));
+    const shipped = readConfig(configLogic, SHIPPED_CONFIG, key);
+    const user = readUserConfig(configLogic, path.join(configDir, "shell.json"), key);
+    return configLogic.effectiveConfig(shipped, user);
 }
 
 // The target names EFFECTIVE, shellConfig's answer, lists in

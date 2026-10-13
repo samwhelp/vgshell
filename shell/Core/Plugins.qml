@@ -5,6 +5,7 @@ import Quickshell.Hyprland
 import Quickshell.Wayland
 import qs.Commons
 import "PluginLogic.js" as Logic
+import "ConfigLogic.js" as ConfigLogic
 import "Lifetime.js" as Lifetime
 
 // Every live plugin instance. Builds each instance the hosts ask for from
@@ -443,7 +444,7 @@ Singleton {
         if (barDrag === null || barDrag.hostKey !== hostKey || !barDrag.held || !Logic.hasOwn(mounts, hostKey)) return;
         const mount = mounts[hostKey];
         const sections = {};
-        for (const section of Logic.SECTIONS)
+        for (const section of ConfigLogic.SECTIONS)
             sections[section] = barDragSectionGeometry(hostKey, section);
         const target = Logic.barDropTarget(mount.row.instance.width, point.x, sections);
         const index = Logic.barDropIndex(Config.effective, target.section, target.before, barDrag.from, barDrag.id);
@@ -592,7 +593,7 @@ Singleton {
 
     function mountBar(hostKey, row) {
         const sections = {};
-        for (const section of Logic.SECTIONS) sections[section] = { entries: [], placed: [] };
+        for (const section of ConfigLogic.SECTIONS) sections[section] = { entries: [], placed: [] };
         const next = Object.assign(Object.create(null), mounts);
         next[hostKey] = { row: row, sections: sections };
         mounts = next;
@@ -602,7 +603,7 @@ Singleton {
     function unmountBar(hostKey) {
         if (barDrag !== null && barDrag.hostKey === hostKey) cancelBarDrag();
         const mount = mounts[hostKey];
-        for (const section of Logic.SECTIONS)
+        for (const section of ConfigLogic.SECTIONS)
             for (const entry of mount.sections[section].entries)
                 if (entry.widget !== null && entry.origin === "core") destroyBuilt(hostKey, entry.widget);
         const next = Object.assign(Object.create(null), mounts);
@@ -620,8 +621,8 @@ Singleton {
         if (mount.row.instance.widgetLayout !== undefined)
             mount.row.instance.widgetLayout = layout;
         const holders = Capabilities.exclusiveHolders();
-        const pool = Logic.SECTIONS.reduce((entries, section) => entries.concat(mount.sections[section].entries), []);
-        for (const section of Logic.SECTIONS) {
+        const pool = ConfigLogic.SECTIONS.reduce((entries, section) => entries.concat(mount.sections[section].entries), []);
+        for (const section of ConfigLogic.SECTIONS) {
             const wanted = layout[section].filter(e => !Logic.hasOwn(manifests, e.id) || Logic.lendRefusal(holders, manifests[e.id]) === "");
             const container = sectionContainer(mount.row, section);
             const entries = [];
@@ -688,7 +689,7 @@ Singleton {
     // cold-transition control in smoke/rows/bar.sh observes.
     function positionBar(hostKey, drag) {
         const mount = mounts[hostKey];
-        for (const section of Logic.SECTIONS) {
+        for (const section of ConfigLogic.SECTIONS) {
             const container = sectionContainer(mount.row, section);
             if (container === null) continue;
             const entries = mount.sections[section].entries.filter(entry => entry.widget !== null && (drag === null || entry.widget !== drag.item));
@@ -919,7 +920,7 @@ Singleton {
         const refusal = Logic.placedRefusal(Config.effective, Registry.manifests[ctx.id], Registry.defaultBarId, barBuiltinNames(mount.row).concat([name]), id);
         if (refusal !== "") return refusal;
         const sections = {};
-        for (const section of Logic.SECTIONS)
+        for (const section of ConfigLogic.SECTIONS)
             sections[section] = barDragSectionGeometry(ctx.hostKey, section);
         const target = Logic.barDropTarget(mount.row.instance.width, x, sections);
         const index = Logic.barDropIndex(Config.effective, target.section, target.before, null, id);

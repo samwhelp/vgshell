@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Hyprland
 import "PluginLogic.js" as Logic
+import "ConfigLogic.js" as ConfigLogic
 import "HyprlandLayer.js" as Layer
 
 // The one owner of key capture: which control holds the keyboard for a key
@@ -81,7 +82,7 @@ Scope {
     }
 
     function conflictId(key, id, shortcut) {
-        return JSON.stringify([Logic.hyprlandKey(key).key, id, shortcut]);
+        return JSON.stringify([ConfigLogic.hyprlandKey(key).key, id, shortcut]);
     }
     // The lines removeUserBind took out, by the token it answered, each {
     // file, line, undo } with the undo the edit printed, so an undo puts
@@ -235,7 +236,7 @@ Scope {
         const names = {};
         for (const p of found.plugins)
             if (Logic.hasOwn(Registry.manifests, p.id)) names[p.id] = Registry.manifests[p.id].name;
-        const userBinds = found.user ? source.userBindsFor(Logic.hyprlandKey(key).key) : [];
+        const userBinds = found.user ? source.userBindsFor(ConfigLogic.hyprlandKey(key).key) : [];
         const answer = { plugins: found.plugins, user: found.user, binds: state, userBinds: userBinds };
         answer.hint = Logic.conflictHint(answer, names);
         return Object.freeze(answer);
@@ -246,7 +247,7 @@ Scope {
     // line } or { ok: false, error }. The core finds the line itself; the
     // caller names only the key.
     function removeUserBind(key, done) {
-        const read = Logic.hyprlandKey(key);
+        const read = ConfigLogic.hyprlandKey(key);
         const asked = read.ok && Registry.hyprlandSections.some(section => section.binds.some(bind => bind.key === read.key));
         const rows = read.ok && bindsSource !== null ? bindsSource.userBindsFor(read.key).filter(row => row.removable) : [];
         if (!asked) { done({ ok: false, error: "refused: user-bind=no-plugin-key key=" + key }); return; }

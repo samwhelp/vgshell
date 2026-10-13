@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Services.Polkit
 import qs.Commons
 import "PluginLogic.js" as Logic
+import "ConfigLogic.js" as ConfigLogic
 import "Dispatch.js" as Dispatch
 import "HyprlandLayer.js" as Layer
 import "../Commons/ThemeLogic.js" as ThemeLogic
@@ -110,7 +111,7 @@ Singleton {
 
     // Registration names a plugin chooses: lower case, digits and dashes.
     function checkName(kind, name) {
-        if (typeof name !== "string" || !Logic.NAME_PATTERN.test(name))
+        if (typeof name !== "string" || !ConfigLogic.NAME_PATTERN.test(name))
             throw new Error("refused: " + kind + "=" + JSON.stringify(name) + " malformed");
     }
 

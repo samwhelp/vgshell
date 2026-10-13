@@ -16,7 +16,7 @@
 # leave that plugin either way, so the row enables it for those starts. The
 # row leaves hyprland.lua wired, the welcome seen, vgs.themes disabled only
 # when it found it so and the real shell running.
-# inputs: shell/Core/HyprlandLayer.* shell/Core/Notices.qml bin/vgshell bin/vgshell-hypr-judge shell/Hosts/NoticeHost.qml shell/Core/PluginLogic.js config/shell.json shell/plugins/vgs.themes/manifest.json shell/Ui/feedback/LinkText.qml shell/Ui/feedback/KeyCaps.qml shell/Ui/feedback/Kbd.qml scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/Core/HyprlandLayer.* shell/Core/Notices.qml bin/vgshell bin/vgshell-hypr-judge shell/Hosts/NoticeHost.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js config/shell.json shell/plugins/vgs.themes/manifest.json shell/Ui/feedback/LinkText.qml shell/Ui/feedback/KeyCaps.qml shell/Ui/feedback/Kbd.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 hypr_lua="$home/.config/hypr/hyprland.lua"

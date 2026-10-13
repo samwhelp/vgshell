@@ -47,7 +47,7 @@
 # back at its end.
 # No latency is measured; each reading polls every 200 ms for up to 5 s,
 # the notification reading every 200 ms for up to 25 s.
-# inputs: shell/plugins/vgs.scratchpads/* shell/plugins/vgs.settings/* shell/Core/Pads.js shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Core/PluginLogic.js shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Capabilities.qml shell/Hosts/BackgroundHost.qml bin/lib/qml-library.js shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
+# inputs: shell/plugins/vgs.scratchpads/* shell/plugins/vgs.settings/* shell/Core/Pads.js shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Capabilities.qml shell/Hosts/BackgroundHost.qml bin/lib/qml-library.js shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
 set -euo pipefail
 
 sp_id=vgs.scratchpads

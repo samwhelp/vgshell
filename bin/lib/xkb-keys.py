@@ -9,7 +9,7 @@ Both requests must resolve before the helper writes a success response.
 Codes use the XKB convention
 that Hyprland uses for code: binds. A symbol names its canonical keysym;
 a code names the symbol at the active layout's base level. No input is sent.
-The caller owns key normalization in PluginLogic.hyprlandKey.
+The caller owns key normalization in ConfigLogic.hyprlandKey.
 
 API sources: https://xkbcommon.org/doc/current/group__context.html,
 https://xkbcommon.org/doc/current/group__include-path.html,

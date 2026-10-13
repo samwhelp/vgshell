@@ -3,7 +3,7 @@
 # expect_poll's 0.2 s cadence. Measured row runtime on host cachy on
 # 2026-10-05 under the nested sandbox: under 20 s. The conversion
 # deadline checks add an unmeasured wait.
-# inputs: shell/plugins/vgs.screensaver/* shell/plugins/vgs.screensaver/bin/transcode-ascii shell/Core/PluginLogic.js shell/Hosts/BackgroundHost.qml scripts/smoke/fixtures/screensaver-ttfx scripts/smoke/rows/capability-release.sh scripts/smoke/rows/lock.sh
+# inputs: shell/plugins/vgs.screensaver/* shell/plugins/vgs.screensaver/bin/transcode-ascii shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/BackgroundHost.qml scripts/smoke/fixtures/screensaver-ttfx scripts/smoke/rows/capability-release.sh scripts/smoke/rows/lock.sh
 set -euo pipefail
 # lock is exclusive: acme.probe can hold it and block vgs.lock from building.
 # Free it for this row, then restore acme.probe and vgs.lock to their starting

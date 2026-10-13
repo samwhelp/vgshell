@@ -100,6 +100,7 @@ tree="$tmp/tree"; mkdir -p "$tree/shell/Core" "$tree/shell/Commons" "$tree/shell
 cp -R -- "$repo/bin" "$tree/"
 ln -s -- "$repo/shell/Commons/SettingValues.js" "$tree/shell/Commons/SettingValues.js"
 ln -s -- "$repo/shell/Core/PluginLogic.js" "$tree/shell/Core/PluginLogic.js"
+ln -s -- "$repo/shell/Core/ConfigLogic.js" "$tree/shell/Core/ConfigLogic.js"
 ln -s -- "$repo/shell/Core/PackageManagers.js" "$tree/shell/Core/PackageManagers.js"
 ln -s -- "$repo/shell/Core/HyprlandLayer.js" "$tree/shell/Core/HyprlandLayer.js"
 ln -s -- "$repo/shell/Core/MonitorLogic.js" "$tree/shell/Core/MonitorLogic.js"

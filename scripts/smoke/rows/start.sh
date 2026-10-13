@@ -6,7 +6,7 @@
 # dispatches nothing. Controls use copies of the tree: one runs the runner
 # in the foreground and does not return inside the ceiling; one skips the
 # running-shell check and does not answer `ok running` on the second start.
-# inputs: bin/vgshell shell/Core/Notices.qml shell/Core/PluginLogic.js
+# inputs: bin/vgshell shell/Core/Notices.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js
 set -euo pipefail
 
 # Ceiling on latency_start_ms, the wall time from `vgshell start` to its

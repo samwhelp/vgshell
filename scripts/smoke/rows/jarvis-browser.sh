@@ -1,6 +1,6 @@
 # No latency budget. Poll once per nested IPC round trip.
 # Only J09's process double and the allow-listed TUI fixture run here.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis/browser-status.js scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js
+# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis/browser-status.js scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js
 set -euo pipefail
 browser_reader="$repo/shell/plugins/vgs.jarvis/LocalRuntime.qml"
 browser_tui="$repo/shell/plugins/vgs.jarvis/tui/setup-browser.sh"

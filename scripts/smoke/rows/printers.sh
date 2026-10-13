@@ -46,7 +46,7 @@
 # pr_stays's: 10 reads 0.2 s apart. The row leaves vgs.printers and
 # vgs.system enabled or disabled as it found them, the world empty and no
 # planted systemctl answer.
-# inputs: shell/plugins/vgs.printers/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* scripts/smoke/devices.sh shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh
+# inputs: shell/plugins/vgs.printers/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* scripts/smoke/devices.sh shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
 
 pr_helper=org.opensuse.CupsPkHelper.Mechanism

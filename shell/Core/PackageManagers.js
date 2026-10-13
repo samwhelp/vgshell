@@ -226,7 +226,7 @@ var ACTIONS = ["install", "update", "remove", "upgrade"];
 // The commands `vgshell pkg run` may put before a step of a row whose elevate
 // is true, in the order it looks for them on PATH. They live outside the
 // rows, so the table's steps stay free of any elevation command, and
-// PluginLogic.configError judges shell.json's `packages.elevate` against
+// ConfigLogic.configError judges shell.json's `packages.elevate` against
 // this list.
 var ELEVATORS = ["sudo", "doas", "run0"];
 

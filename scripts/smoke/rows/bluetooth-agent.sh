@@ -23,7 +23,7 @@
 # child is left. Every poll is expect_poll's: 25 reads 0.2 s apart. The
 # rival's absence is rival_absent's: 10 reads 0.2 s apart, after its
 # enabled flag reads True.
-# inputs: scripts/smoke/fixtures/plugins/acme.pairing/* shell/Core/BluetoothAgent* scripts/smoke/fixtures/devices/* shell/Core/PluginLogic.js scripts/smoke/rows/device-fakes.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.pairing/* shell/Core/BluetoothAgent* scripts/smoke/fixtures/devices/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
 devices_ready bluetooth-agent || return 0
 pairing_dir="$home/.config/vgshell/plugins/acme.pairing"

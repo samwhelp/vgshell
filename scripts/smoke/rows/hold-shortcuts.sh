@@ -3,7 +3,7 @@
 # key stays down. The client records actual evdev edges. No latency budget:
 # fixture and client readings poll through IPC or the harness's 200 ms log
 # reader. The unit runner controls registration, guards and teardown.
-# inputs: scripts/smoke/user-config.sh scripts/smoke/fixtures/plugins/acme.hold/* shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginLogic.js scripts/smoke/keyboard/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/hyprland.sh
+# inputs: scripts/smoke/user-config.sh scripts/smoke/fixtures/plugins/acme.hold/* shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/keyboard/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/hyprland.sh
 set -euo pipefail
 
 hold_dir="$home/.config/vgshell/plugins/acme.hold"

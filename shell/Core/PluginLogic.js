@@ -1,4 +1,5 @@
 .pragma library
+.import "ConfigLogic.js" as ConfigLogic
 .import "../Commons/SettingValues.js" as SettingValues
 .import "../Ui/icons/Lucide.js" as Lucide
 .import "PackageManagers.js" as PackageManagers
@@ -74,8 +75,6 @@ var LINK_URL_PATTERN = /^https:\/\/[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*(:[0-9]{1,5})?
 // The icon a plugin without a manifest `icon` is listed with.
 var DEFAULT_ICON = "package";
 
-var SECTIONS = ["left", "center", "right"];
-
 // Kinds a host shows on demand: `summon`, `hide` and `toggle` reach them.
 // Every other kind is shown for as long as it is enabled.
 var SUMMONABLE_KINDS = ["panel", "overlay", "menu", "window"];
@@ -91,7 +90,7 @@ var PANE_KEYS = ["group", "order"];
 var PANE_GROUP_MAX = 60;
 
 // A manifest's `sounds` key: the events the plugin has a sound for, each a
-// NAME_PATTERN name over SOUND_EVENT_KEYS. `label` names the event on the
+// ConfigLogic.NAME_PATTERN name over SOUND_EVENT_KEYS. `label` names the event on the
 // Sounds page and `description` says when it sounds. `default` is what the
 // event plays until the user chooses: an id of SOUNDS, or SOUND_OFF for
 // none. An event with `own` is one the plugin sounds itself, through an
@@ -268,12 +267,6 @@ var SECRET_ACCESS = { absent: "connect", present: "disconnect", locked: "disconn
 var SECRET_VERBS = { store: ["connect", "disconnect"], clear: ["disconnect"] };
 var SECRET_REASONS = ["undeclared", "disabled", "unlisted", "not-offered", "value", "busy"];
 
-// A name a plugin registers a shortcut, an IPC target or a built-in widget
-// under, the name a manifest's Hyprland bind gives its shortcut, and the name
-// a manifest's `tui` key declares a script under.
-// Capabilities.checkName refuses any other.
-var NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
-
 // What a manifest's `hyprland` key may hold: binds of the plugin's own
 // shortcuts, blur rules for the core's layer namespaces, the theme
 // appearance switches, the input options its settings set and one monitor
@@ -283,11 +276,6 @@ var NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors"];
 var HYPRLAND_BIND_KEYS = ["shortcut", "key", "hold", "tap", "info"];
 var HYPRLAND_RULE_KEYS = ["namespace", "blur", "ignoreAlpha"];
-// The modifiers a Hyprland key may hold, in the order a normalised key
-// writes them, and the key name after them: a keysym name, which Hyprland
-// looks up without regard to case.
-var HYPRLAND_MODIFIERS = ["SUPER", "CTRL", "ALT", "SHIFT"];
-var HYPRLAND_KEY_NAME = /^[A-Za-z0-9_]+$/;
 // A layer rule matches one core host's namespace, anchored: `^vgs:<name>$`.
 var HYPRLAND_NAMESPACE = /^\^vgs:[a-z][a-z0-9-]*\$$/;
 var HYPRLAND_APPEARANCE_GROUPS = HyprlandLayer.APPEARANCE_GROUPS;
@@ -308,178 +296,6 @@ function isPlainObject(value) {
 
 function clone(value) {
     return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
-}
-
-// The version a configuration file declares. Each user-file edit here
-// (`withEnabled`, `withPlaced`, `withSetting`, `withKey`, `withAppearance`)
-// writes it into a user file that has none. Version 2 keeps every setting
-// of a plugin in its plugins[] row; migrateConfig rewrites a version 1 file.
-var CONFIG_VERSION = 2;
-
-// The first defect of a configuration file (shipped or user), or "". The
-// file is an object; `version`, when present, is CONFIG_VERSION; `plugins`
-// is a list of objects each with a string `id`, and a row's `keys`, when
-// present, passes keysError; `disabledPlugins` and
-// `disabledTargets` are lists of strings; `bar` is an object whose `id` is
-// a string and whose `layout` holds, per section in SECTIONS, a list of
-// objects each with a string `id` and no other key, since a layout entry
-// places a widget and its settings live in the plugins[] row; `packages` is an object whose `elevate`,
-// when present, is one of PackageManagers.ELEVATORS, the command
-// `vgshell pkg run` elevates through; `welcome` is an object whose `keys` is
-// a list of objects each with a string `id`, a string `shortcut` and a
-// non-empty string `text`, the welcome's key lines (consentSlotView);
-// `manager` is an object whose `id` is a string (managerId); `appearance`
-// is an object, whose members ThemeLogic.appearanceRefusal judges where
-// the theme resolves them, so one bad member shows as Set by theme and
-// blocks no other key; `sounds` is an object of plugin ids, each an object
-// of event names to strings, the user's sound choices, each judged where
-// it is read (soundValue). A key outside that set is carried untouched. Config.qml runs this judge
-// on every parsed file and reports a defect as the file's state, so no
-// malformed row is dropped on the way to the screen.
-function configError(config) {
-    if (!isPlainObject(config))
-        return "config must be an object";
-    if (config.version !== undefined && config.version !== CONFIG_VERSION)
-        return "version must be " + CONFIG_VERSION + ", got " + JSON.stringify(config.version);
-    var rows = function (list, at) {
-        if (!Array.isArray(list))
-            return at + " must be a list";
-        for (var i = 0; i < list.length; i++) {
-            if (!isPlainObject(list[i]) || typeof list[i].id !== "string")
-                return at + "." + i + " must be an object with a string id";
-        }
-        return "";
-    };
-    var bad;
-    if (config.plugins !== undefined && (bad = rows(config.plugins, "plugins")) !== "")
-        return bad;
-    if (config.plugins !== undefined) {
-        for (var p = 0; p < config.plugins.length; p++) {
-            if (config.plugins[p].keys !== undefined && (bad = keysError(config.plugins[p].keys, "plugins." + p + ".keys")) !== "")
-                return bad;
-        }
-    }
-    var names = function (list, at) {
-        if (!Array.isArray(list))
-            return at + " must be a list";
-        for (var i = 0; i < list.length; i++) {
-            if (typeof list[i] !== "string")
-                return at + "." + i + " must be a string";
-        }
-        return "";
-    };
-    if (config.disabledPlugins !== undefined && (bad = names(config.disabledPlugins, "disabledPlugins")) !== "")
-        return bad;
-    if (config.disabledTargets !== undefined && (bad = names(config.disabledTargets, "disabledTargets")) !== "")
-        return bad;
-    if (config.packages !== undefined) {
-        if (!isPlainObject(config.packages))
-            return "packages must be an object";
-        if (config.packages.elevate !== undefined && PackageManagers.ELEVATORS.indexOf(config.packages.elevate) === -1)
-            return "packages.elevate must be one of " + PackageManagers.ELEVATORS.join(", ") + ", got " + JSON.stringify(config.packages.elevate);
-    }
-    if (config.bar !== undefined) {
-        if (!isPlainObject(config.bar))
-            return "bar must be an object";
-        if (config.bar.id !== undefined && typeof config.bar.id !== "string")
-            return "bar.id must be a string";
-        if (config.bar.layout !== undefined) {
-            if (!isPlainObject(config.bar.layout))
-                return "bar.layout must be an object";
-            for (var s = 0; s < SECTIONS.length; s++) {
-                var section = SECTIONS[s];
-                if (config.bar.layout[section] === undefined)
-                    continue;
-                if ((bad = rows(config.bar.layout[section], "bar.layout." + section)) !== "")
-                    return bad;
-                for (var e = 0; e < config.bar.layout[section].length; e++) {
-                    var extra = Object.keys(config.bar.layout[section][e]).filter(function (k) { return k !== "id"; });
-                    if (extra.length > 0)
-                        return "bar.layout." + section + "." + e + " has key " + JSON.stringify(extra[0]) + " beside its id; a setting belongs in its plugins[] row";
-                }
-            }
-        }
-    }
-    if (config.manager !== undefined) {
-        if (!isPlainObject(config.manager))
-            return "manager must be an object";
-        if (typeof config.manager.id !== "string")
-            return "manager.id must be a string";
-    }
-    if (config.appearance !== undefined && !isPlainObject(config.appearance))
-        return "appearance must be an object";
-    if (config.sounds !== undefined) {
-        if (!isPlainObject(config.sounds))
-            return "sounds must be an object";
-        var soundIds = Object.keys(config.sounds);
-        for (var d = 0; d < soundIds.length; d++) {
-            var chosen = config.sounds[soundIds[d]];
-            if (!isPlainObject(chosen))
-                return "sounds." + soundIds[d] + " must be an object";
-            var events = Object.keys(chosen);
-            for (var v = 0; v < events.length; v++) {
-                if (typeof chosen[events[v]] !== "string")
-                    return "sounds." + soundIds[d] + "." + events[v] + " must be a string";
-            }
-        }
-    }
-    if (config.welcome !== undefined) {
-        if (!isPlainObject(config.welcome))
-            return "welcome must be an object";
-        if ((bad = rows(config.welcome.keys, "welcome.keys")) !== "")
-            return bad;
-        for (var w = 0; w < config.welcome.keys.length; w++) {
-            var line = config.welcome.keys[w];
-            if (typeof line.shortcut !== "string" || typeof line.text !== "string" || line.text === "")
-                return "welcome.keys." + w + " must hold a string shortcut and a non-empty string text";
-        }
-    }
-    return "";
-}
-
-// The user file CONFIG as this version stores it: { config, migrated }.
-// Version 1 let a layout entry carry a widget's settings beside its id.
-// Each such key, in every section of SECTIONS, moves into the plugins[]
-// row with the entry's id, appended as { id } when the file has none: the
-// row's value wins where the row sets the key, and of two entries with one
-// id the first in section order wins. The entry keeps its id alone. No
-// manifest is read, so the key of a plugin that is not installed moves the
-// same way. A version 1 file takes this version; a file with no version,
-// which configError reads as this version, is migrated only when an entry
-// carries a key to move. Any other value comes back as it is, and a shape
-// the move cannot read is left for configError to name. CONFIG is not
-// changed.
-function migrateConfig(config) {
-    var same = { config: config, migrated: false };
-    if (!isPlainObject(config) || (config.version !== 1 && config.version !== undefined))
-        return same;
-    var out = clone(config);
-    var layout = isPlainObject(out.bar) && isPlainObject(out.bar.layout) ? out.bar.layout : {};
-    var moved = false;
-    SECTIONS.forEach(function (section) {
-        if (!Array.isArray(layout[section])) return;
-        layout[section] = layout[section].map(function (entry) {
-            if (!isPlainObject(entry) || typeof entry.id !== "string") return entry;
-            var keys = Object.keys(entry).filter(function (k) { return k !== "id"; });
-            if (keys.length === 0) return entry;
-            if (out.plugins === undefined) out.plugins = [];
-            if (!Array.isArray(out.plugins)) return entry;
-            var row = out.plugins.filter(function (r) { return isPlainObject(r) && r.id === entry.id; })[0];
-            if (row === undefined) {
-                row = { id: entry.id };
-                out.plugins.push(row);
-            }
-            keys.forEach(function (k) {
-                if (!hasOwn(row, k)) row[k] = entry[k];
-            });
-            moved = true;
-            return { id: entry.id };
-        });
-    });
-    if (config.version === undefined && !moved)
-        return same;
-    out.version = CONFIG_VERSION;
-    return { config: out, migrated: true };
 }
 
 function presetValues(entry) {
@@ -515,7 +331,7 @@ function settingError(entry, value) {
     }
     if (entry.type === "boolean") return typeof value === "boolean" ? "" : "want=boolean";
     if (entry.type === "enum") return optionValues(entry).indexOf(value) !== -1 ? "" : "want=one-of:" + optionValues(entry).join("|");
-    if (entry.type === "list") return Pads.listValueError(entry, value, settingError, NAME_PATTERN);
+    if (entry.type === "list") return Pads.listValueError(entry, value, settingError, ConfigLogic.NAME_PATTERN);
     throw new Error("settingError: schema entry type " + JSON.stringify(entry.type) + " passed validation but has no rule");
 }
 
@@ -1090,7 +906,7 @@ function soundHeld(manifest, event) {
 }
 
 // The first defect of a manifest's `sounds` key, or "": a non-empty object
-// of events, each named by NAME_PATTERN and holding only SOUND_EVENT_KEYS,
+// of events, each named by ConfigLogic.NAME_PATTERN and holding only SOUND_EVENT_KEYS,
 // with a printable `label`, an optional printable `description` and `own`,
 // and a `default` the event takes (soundValueFits). `held` is `true` when
 // present, needs `own` and takes no `default`. The key needs capability
@@ -1106,7 +922,7 @@ function soundsError(sounds, capabilities) {
         var name = names[i];
         var at = "sounds." + name;
         var event = sounds[name];
-        if (!NAME_PATTERN.test(name))
+        if (!ConfigLogic.NAME_PATTERN.test(name))
             return "sounds has malformed event name " + JSON.stringify(name);
         if (!isPlainObject(event))
             return at + " must be an object";
@@ -1680,38 +1496,8 @@ function secretRequest(manifest, id, enabled, values, key, account, verb, secret
     return { ok: true, argv: ["secret-tool", "store", "--label=" + manifest.secrets.label + " " + account].concat(attributes), input: secret };
 }
 
-// A Hyprland key written `MOD+MOD+KEY`, such as `SUPER+SPACE`, normalised:
-// { ok: true, key } with keysyms upper case, `code:<uint32>` lower case,
-// the modifiers in
-// HYPRLAND_MODIFIERS order, each once, and the key name last, joined by
-// `+`; or { ok: false, error }. A manifest's bind and a shell.json `keys`
-// entry both pass through here, so two spellings of one key compare equal.
-function hyprlandKey(text) {
-    if (typeof text !== "string")
-        return { ok: false, error: "must be a string such as SUPER+SPACE" };
-    var parts = text.split("+").map(function (part) { return part.trim().toUpperCase(); });
-    if (parts.some(function (part) { return part.length === 0; }))
-        return { ok: false, error: "has an empty part: " + JSON.stringify(text) };
-    var name = parts[parts.length - 1];
-    if (HYPRLAND_MODIFIERS.indexOf(name) !== -1)
-        return { ok: false, error: "ends in the modifier " + name + " and names no key" };
-    if (/^CODE:[0-9]+$/.test(name) && Number(name.slice(5)) <= 4294967295)
-        name = "code:" + String(Number(name.slice(5)));
-    else if (!HYPRLAND_KEY_NAME.test(name))
-        return { ok: false, error: "names no key: " + JSON.stringify(name) };
-    var mods = parts.slice(0, -1);
-    for (var i = 0; i < mods.length; i++) {
-        if (HYPRLAND_MODIFIERS.indexOf(mods[i]) === -1)
-            return { ok: false, error: "has the unknown modifier " + JSON.stringify(mods[i]) + ", want one of " + HYPRLAND_MODIFIERS.join(", ") };
-        if (mods.indexOf(mods[i]) !== i)
-            return { ok: false, error: "repeats the modifier " + mods[i] };
-    }
-    var ordered = HYPRLAND_MODIFIERS.filter(function (mod) { return mods.indexOf(mod) !== -1; });
-    return { ok: true, key: ordered.concat([name]).join("+") };
-}
-
 // The key capture control's key table: a Qt 6 `Qt::Key` value
-// (qnamespace.h) and the keysym name hyprlandKey writes for it. A key
+// (qnamespace.h) and the keysym name ConfigLogic.hyprlandKey writes for it. A key
 // outside the table, such as a shifted symbol Qt reports by its glyph, is
 // unnamed, and the user types it into the text entry instead.
 var CAPTURE_KEY_NAMES = (function () {
@@ -1739,7 +1525,7 @@ var CAPTURE_MODIFIER_KEYS = {
     0x01000020: "SHIFT", 0x01000021: "CTRL", 0x01000022: "SUPER", 0x01000023: "ALT",
     0x01000053: "SUPER", 0x01000054: "SUPER", 0x01001103: "", 0x01000024: "", 0x01000025: "", 0x01000026: ""
 };
-// Each of HYPRLAND_MODIFIERS as a `Qt::KeyboardModifier` flag. Qt reports
+// Each of ConfigLogic.HYPRLAND_MODIFIERS as a `Qt::KeyboardModifier` flag. Qt reports
 // the Super key as the Meta modifier on Linux.
 var CAPTURE_MODIFIER_FLAGS = { SUPER: 0x10000000, CTRL: 0x04000000, ALT: 0x08000000, SHIFT: 0x02000000 };
 var CAPTURE_KEYPAD_FLAG = 0x20000000;
@@ -1763,14 +1549,14 @@ var CAPTURE_TEXT_BELOW = 0x01000000;
 
 // What one key press the key capture control receives names, from a QML
 // KeyEvent's `key` and `modifiers`: { kind: "key", key } with the key
-// hyprlandKey writes, so a captured combo is the string the text entry
+// ConfigLogic.hyprlandKey writes, so a captured combo is the string the text entry
 // stores for the same keys; { kind: "held", modifiers } while only
-// modifiers are down, in HYPRLAND_MODIFIERS order; { kind: "text" } for a
+// modifiers are down, in ConfigLogic.HYPRLAND_MODIFIERS order; { kind: "text" } for a
 // key that types or edits text with no modifier but SHIFT, which a global
 // bind would take from every text field; or { kind: "unnamed" } for a key
 // neither table names.
 function capturedKey(key, modifiers) {
-    var held = HYPRLAND_MODIFIERS.filter(function (mod) {
+    var held = ConfigLogic.HYPRLAND_MODIFIERS.filter(function (mod) {
         return (modifiers & CAPTURE_MODIFIER_FLAGS[mod]) !== 0 || CAPTURE_MODIFIER_KEYS[key] === mod;
     });
     if (hasOwn(CAPTURE_MODIFIER_KEYS, key))
@@ -1781,7 +1567,7 @@ function capturedKey(key, modifiers) {
     var typesText = key < CAPTURE_TEXT_BELOW || CAPTURE_EDIT_KEYS.indexOf(names[key]) !== -1;
     if (typesText && held.every(function (mod) { return mod === "SHIFT"; }))
         return { kind: "text" };
-    return { kind: "key", key: hyprlandKey(held.concat([names[key]]).join("+")).key };
+    return { kind: "key", key: ConfigLogic.hyprlandKey(held.concat([names[key]]).join("+")).key };
 }
 
 // Who else asks for KEY, the key a capture or the text entry gives
@@ -1792,7 +1578,7 @@ function capturedKey(key, modifiers) {
 // whether FOREIGN, the keys something other than the layer binds
 // (HyprlandState.foreignBinds), holds it. A hint: nothing refuses the key.
 function keyConflicts(key, sections, foreign, id, shortcut) {
-    var parsed = hyprlandKey(key);
+    var parsed = ConfigLogic.hyprlandKey(key);
     var plugins = [];
     sections.slice().sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; }).forEach(function (section) {
         section.binds.forEach(function (bind) {
@@ -1822,27 +1608,8 @@ function conflictHint(found, names) {
     return "Also used by " + holders.join(", ") + (unread ? " (VGS could not check other shortcuts)." : ".");
 }
 
-function keyValueError(value, at, tap) {
-    var values = Array.isArray(value) ? value : [value];
-    if (Array.isArray(value) && value.length === 0)
-        return at + " must not be an empty list";
-    var seen = Object.create(null);
-    for (var i = 0; i < values.length; i++) {
-        var itemAt = Array.isArray(value) ? at + "." + i : at;
-        var key = hyprlandKey(values[i]);
-        if (!key.ok)
-            return itemAt + " " + key.error;
-        if (seen[key.key] !== undefined)
-            return itemAt + " repeats " + key.key;
-        if (tap === true && keyHasModifiers(key.key))
-            return itemAt + " tap-lone-key";
-        seen[key.key] = true;
-    }
-    return "";
-}
-
 function keyValues(value) {
-    return (Array.isArray(value) ? value : [value]).map(function (item) { return hyprlandKey(item).key; });
+    return (Array.isArray(value) ? value : [value]).map(function (item) { return ConfigLogic.hyprlandKey(item).key; });
 }
 
 function keyWriteValue(value) {
@@ -1852,31 +1619,6 @@ function keyWriteValue(value) {
 
 function keyRowValue(value) {
     return value === null ? null : keyWriteValue(value);
-}
-
-// The first defect of a plugins row's `keys`, or "": an object whose names
-// are shortcut names and whose values are keys hyprlandKey accepts, a
-// non-empty list of those keys, or null for a shortcut the user unbinds. A
-// name the plugin binds nothing under is no defect here; the Hyprland layer
-// reports it (hyprlandSection).
-function keysError(keys, at) {
-    if (!isPlainObject(keys))
-        return at + " must be an object";
-    var names = Object.keys(keys);
-    for (var i = 0; i < names.length; i++) {
-        if (!NAME_PATTERN.test(names[i]))
-            return at + "." + names[i] + " is not a shortcut name";
-        if (keys[names[i]] === null)
-            continue;
-        var bad = keyValueError(keys[names[i]], at + "." + names[i], false);
-        if (bad !== "")
-            return bad;
-    }
-    return "";
-}
-
-function keyHasModifiers(key) {
-    return typeof key === "string" && key.indexOf("+") !== -1;
 }
 
 // The first defect of a manifest's `hyprland` key, or "". It holds `binds`,
@@ -1926,7 +1668,7 @@ function hyprlandError(hyprland, capabilities, schema) {
             if (HYPRLAND_BIND_KEYS.indexOf(bindKeys[k]) === -1)
                 return at + " has unknown key " + JSON.stringify(bindKeys[k]);
         }
-        if (typeof bind.shortcut !== "string" || !NAME_PATTERN.test(bind.shortcut))
+        if (typeof bind.shortcut !== "string" || !ConfigLogic.NAME_PATTERN.test(bind.shortcut))
             return at + ".shortcut must be a shortcut name, got " + JSON.stringify(bind.shortcut);
         if (shortcuts.indexOf(bind.shortcut) !== -1)
             return at + ".shortcut " + bind.shortcut + " is bound twice";
@@ -1941,13 +1683,13 @@ function hyprlandError(hyprland, capabilities, schema) {
             return at + ".info must be a non-empty string";
         if (bind.key === null)
             continue;
-        var keyBad = keyValueError(bind.key, at + ".key", false);
+        var keyBad = ConfigLogic.keyValueError(bind.key, at + ".key", false);
         if (keyBad !== "")
             return keyBad;
         var values = keyValues(bind.key);
         for (var v = 0; v < values.length; v++) {
             var keyAt = Array.isArray(bind.key) ? at + ".key." + v : at + ".key";
-            if (bind.tap === true && keyHasModifiers(values[v]))
+            if (bind.tap === true && ConfigLogic.keyHasModifiers(values[v]))
                 return keyAt + " " + values[v] + " must be a lone key for tap";
             if (boundKeys.indexOf(values[v]) !== -1)
                 return keyAt + " " + values[v] + " is bound twice";
@@ -2605,7 +2347,7 @@ var KEY_GLYPHS = (function () {
     return glyphs;
 })();
 
-// KEY, a key as hyprlandKey writes it, as people read it: each modifier and
+// KEY, a key as ConfigLogic.hyprlandKey writes it, as people read it: each modifier and
 // a named key with only its first letter upper case, a key that types a
 // character as that character, and a `code:` key as written, joined by
 // `+`. SUPER+SLASH reads Super+/.
@@ -2699,7 +2441,7 @@ function welcomeStep(welcomeState, event) {
 }
 
 // What one entry of a manifest's `tui` key may carry, keyed by a
-// NAME_PATTERN name: the script, the window's title, its size class and
+// ConfigLogic.NAME_PATTERN name: the script, the window's title, its size class and
 // presentation, and, when present, the row shell.tui.entries lists it with.
 // `script` is a path under the plugin's `tui/` directory, the one
 // bin/vgshell-tui copies out of the published snapshot and runs from; each
@@ -2910,7 +2652,7 @@ function tuiText(value) {
 }
 
 // The first defect of a manifest's `tui` key, or "": an object of at least
-// one script, each named by NAME_PATTERN and holding only TUI_KEYS; `script`
+// one script, each named by ConfigLogic.NAME_PATTERN and holding only TUI_KEYS; `script`
 // matches TUI_SCRIPT; `title` passes tuiText; `size` and `presentation`,
 // when present, come from TUI_SIZES and TUI_PRESENTATIONS; `requires`, when
 // present, names the REQUIREMENTS the script needs; `entry`, when
@@ -2929,7 +2671,7 @@ function tuiError(tui, capabilities, requirements) {
     for (var i = 0; i < names.length; i++) {
         var name = names[i];
         var at = "tui." + name;
-        if (!NAME_PATTERN.test(name))
+        if (!ConfigLogic.NAME_PATTERN.test(name))
             return "tui name " + JSON.stringify(name) + " must be lower case letters, digits and dashes";
         var row = tui[name];
         if (!isPlainObject(row))
@@ -3010,13 +2752,13 @@ function tuiEntryError(at, entry) {
 }
 
 // The first defect of the core's own TUI NAME, ROW, or "": NAME matches
-// NAME_PATTERN; ROW holds every key of CORE_TUI_KEYS and no other; `argv`
+// ConfigLogic.NAME_PATTERN; ROW holds every key of CORE_TUI_KEYS and no other; `argv`
 // is a CORE_TUI_COMMAND followed by arguments tuiArgsValid accepts; the
 // window passes tuiWindowError with a `size` and `presentation` set; and
 // `entry` is null or passes tuiEntryError.
 function coreTuiError(name, row) {
     var at = "core/" + name;
-    if (!NAME_PATTERN.test(name))
+    if (!ConfigLogic.NAME_PATTERN.test(name))
         return "core TUI name " + JSON.stringify(name) + " must be lower case letters, digits and dashes";
     if (!isPlainObject(row))
         return at + " must be an object";
@@ -3426,7 +3168,7 @@ function tuiKeyValid(key) {
     if (slash === -1)
         return false;
     var owner = key.slice(0, slash);
-    return (owner === "core" || ID_PATTERN.test(owner)) && NAME_PATTERN.test(key.slice(slash + 1));
+    return (owner === "core" || ID_PATTERN.test(owner)) && ConfigLogic.NAME_PATTERN.test(key.slice(slash + 1));
 }
 
 // One exit record's TEXT, as bin/vgshell-tui writes it: { ok: true, record }
@@ -3701,7 +3443,7 @@ function menuError(menu, capabilities, schema, status) {
         if (item.description !== undefined && !isPrintableLine(item.description, MENU_DESCRIPTION_MAX))
             return at + ".description must be a printable line of 1 to " + MENU_DESCRIPTION_MAX + " characters";
         if (item.shortcut !== undefined) {
-            if (typeof item.shortcut !== "string" || !NAME_PATTERN.test(item.shortcut))
+            if (typeof item.shortcut !== "string" || !ConfigLogic.NAME_PATTERN.test(item.shortcut))
                 return at + ".shortcut must be a shortcut name, got " + JSON.stringify(item.shortcut);
             if (capabilities.indexOf("shortcut") === -1)
                 return at + ".shortcut needs capability shortcut";
@@ -3875,7 +3617,7 @@ function menuActivation(rows, registered, key, item, valuesByPlugin) {
 // `menu` (an object, {} when undeclared),
 // `defaultSection` only when declared, and
 // `hyprland` only when declared, as { binds, layerRules, appearance,
-// options } with every bind's key normalised by hyprlandKey.
+// options } with every bind's key normalised by ConfigLogic.hyprlandKey.
 function validateManifest(raw, sourceDir) {
     if (!isPlainObject(raw))
         return { ok: false, error: "manifest is not a JSON object" };
@@ -3978,8 +3720,8 @@ function validateManifest(raw, sourceDir) {
     if (raw.defaultSection !== undefined) {
         if (raw.kinds.indexOf("bar-widget") === -1)
             return { ok: false, error: "defaultSection needs kind bar-widget" };
-        if (SECTIONS.indexOf(raw.defaultSection) === -1)
-            return { ok: false, error: "defaultSection must be one of " + SECTIONS.join(", ") + ", got " + JSON.stringify(raw.defaultSection) };
+        if (ConfigLogic.SECTIONS.indexOf(raw.defaultSection) === -1)
+            return { ok: false, error: "defaultSection must be one of " + ConfigLogic.SECTIONS.join(", ") + ", got " + JSON.stringify(raw.defaultSection) };
     }
     // `alwaysOn` holds the "first-party" rule of enablementRule against
     // every disable, so only a manifest that rule serves may set it.
@@ -4065,37 +3807,8 @@ function validateManifest(raw, sourceDir) {
     return { ok: true, manifest: manifest };
 }
 
-// Merge the shipped defaults with the user file. Every top-level key in the
-// user file replaces the shipped key whole, except `plugins`, whose entries
-// merge by id with the user entry winning, and `disabledPlugins`, which is
-// the user list when present. A shipped plugin entry the user file does not
-// name still applies, which is the point of keeping two layers.
-function effectiveConfig(shipped, user) {
-    var out = clone(shipped);
-    if (!isPlainObject(user))
-        return out;
-    Object.keys(user).forEach(function (key) {
-        if (key === "plugins") {
-            var byId = {};
-            var order = [];
-            (Array.isArray(out.plugins) ? out.plugins : []).forEach(function (entry) {
-                byId[entry.id] = entry;
-                order.push(entry.id);
-            });
-            user.plugins.forEach(function (entry) {
-                if (!hasOwn(byId, entry.id)) order.push(entry.id);
-                byId[entry.id] = entry;
-            });
-            out.plugins = order.map(function (id) { return byId[id]; });
-        } else {
-            out[key] = clone(user[key]);
-        }
-    });
-    return out;
-}
-
 // The layout entries of one section, in order; [] when the section or the
-// layout is absent. Both files passed configError, so every entry is an
+// layout is absent. Both files passed ConfigLogic.configError, so every entry is an
 // object with a string id.
 function sectionEntries(config, section) {
     var layout = config && config.bar && isPlainObject(config.bar.layout) ? config.bar.layout : {};
@@ -4105,7 +3818,7 @@ function sectionEntries(config, section) {
 // Ids placed in the bar layout, in section order.
 function layoutIds(config) {
     var ids = [];
-    SECTIONS.forEach(function (section) {
+    ConfigLogic.SECTIONS.forEach(function (section) {
         sectionEntries(config, section).forEach(function (entry) { ids.push(entry.id); });
     });
     return ids;
@@ -4127,7 +3840,7 @@ function activeBarId(config, defaultBarId) {
 // null. `nth` counts entries with ID in one section, the same locator
 // withMoved receives from a mounted widget's drag.
 function layoutPositionOf(config, id, locator) {
-    if (isPlainObject(locator) && SECTIONS.indexOf(locator.section) !== -1 && Number.isInteger(locator.nth) && locator.nth >= 0) {
+    if (isPlainObject(locator) && ConfigLogic.SECTIONS.indexOf(locator.section) !== -1 && Number.isInteger(locator.nth) && locator.nth >= 0) {
         var seen = 0;
         var entries = sectionEntries(config, locator.section);
         for (var i = 0; i < entries.length; i++) {
@@ -4137,8 +3850,8 @@ function layoutPositionOf(config, id, locator) {
         }
         return null;
     }
-    for (var s = 0; s < SECTIONS.length; s++) {
-        var section = SECTIONS[s];
+    for (var s = 0; s < ConfigLogic.SECTIONS.length; s++) {
+        var section = ConfigLogic.SECTIONS[s];
         var rows = sectionEntries(config, section);
         for (var n = 0; n < rows.length; n++) {
             if (rows[n].id !== id) continue;
@@ -4199,7 +3912,7 @@ var ENTRY_RESERVED_KEYS = ["id", "keys"];
 // `pads`, `padRefusals` and the last binds.
 // `unknownKeys` lists, sorted, each name the row's `keys` gives that no bind
 // declares. A manifest without `hyprland` asks nothing: empty lists, no
-// appearance, and its row's names all unknown. CONFIG passed configError, so
+// appearance, and its row's names all unknown. CONFIG passed ConfigLogic.configError, so
 // every key it gives is well formed.
 function hyprlandSection(config, manifest) {
     var row = pluginRow(config, manifest.id);
@@ -4213,11 +3926,11 @@ function hyprlandSection(config, manifest) {
             return;
         }
         keyValues(given).forEach(function (value) {
-            var key = hyprlandKey(value);
+            var key = ConfigLogic.hyprlandKey(value);
             if (!key.ok)
                 throw new Error("hyprlandSection: key of " + manifest.id + ":" + bind.shortcut + " passed its judge but " + key.error);
             var result = Object.assign({}, bind, { key: key.key });
-            if (bind.tap === true && keyHasModifiers(key.key))
+            if (bind.tap === true && ConfigLogic.keyHasModifiers(key.key))
                 result.error = "tap key must be a lone key with no modifiers";
             binds.push(result);
         });
@@ -4229,7 +3942,7 @@ function hyprlandSection(config, manifest) {
         var setting = declared.appearance[group];
         appearance[group] = { setting: setting, enabled: settings[setting] === true };
     });
-    var pads = Pads.expand(declared.pads, manifest.schema, settings, keys, hyprlandKey, settingError);
+    var pads = Pads.expand(declared.pads, manifest.schema, settings, keys, ConfigLogic.hyprlandKey, settingError);
     var options = [];
     Object.keys(declared.options).forEach(function (setting) {
         if (row === undefined || !hasOwn(row, setting)) return;
@@ -4258,7 +3971,7 @@ function hyprlandSection(config, manifest) {
         monitors: monitors,
         pads: pads.pads,
         padRefusals: pads.refusals,
-        unknownKeys: Object.keys(keys).filter(function (name) { return names.indexOf(name) === -1 && !Pads.isPadShortcut(declared, name, NAME_PATTERN); }).sort()
+        unknownKeys: Object.keys(keys).filter(function (name) { return names.indexOf(name) === -1 && !Pads.isPadShortcut(declared, name, ConfigLogic.NAME_PATTERN); }).sort()
     };
 }
 
@@ -4400,7 +4113,7 @@ function nextFamilyName(config, barId, family) {
 function effectiveLayout(config, manifests, defaultBarId, builtinNames) {
     var out = {};
     var seenBuiltins = [];
-    SECTIONS.forEach(function (section) {
+    ConfigLogic.SECTIONS.forEach(function (section) {
         out[section] = sectionEntries(config, section).filter(function (entry) {
             var owner = builtinOwner(config, manifests, defaultBarId, builtinNames, entry.id);
             if (owner !== null) {
@@ -4445,7 +4158,7 @@ function hiddenByDisabling(manifests, config, id, defaultBarId) {
 // list.
 function withEnabled(user, manifest, enabled, effective) {
     var out = isPlainObject(user) ? clone(user) : {};
-    if (out.version === undefined) out.version = CONFIG_VERSION;
+    if (out.version === undefined) out.version = ConfigLogic.CONFIG_VERSION;
     var disabled = Array.isArray(effective.disabledPlugins) ? effective.disabledPlugins.slice() : [];
     if (!enabled) {
         if (disabled.indexOf(manifest.id) === -1) disabled.push(manifest.id);
@@ -4536,7 +4249,7 @@ function moveRefusal(config, manifest, section, index, defaultBarId, builtinName
         return "refused: moved=" + id + " reason=disabled";
     if (!placed)
         return "refused: moved=" + id + " reason=unplaced";
-    if (SECTIONS.indexOf(section) === -1)
+    if (ConfigLogic.SECTIONS.indexOf(section) === -1)
         return "refused: section=" + JSON.stringify(section) + " want=left|center|right";
     if (typeof index !== "number" || !Number.isInteger(index) || index < 0)
         return "refused: index=" + JSON.stringify(index) + " want=integer>=0";
@@ -4568,7 +4281,7 @@ function enabledRefusal(manifest, enabled) {
 function withPlaced(user, manifest, placed, effective, id, shipped) {
     id = id === undefined ? manifest.id : id;
     var out = isPlainObject(user) ? clone(user) : {};
-    if (out.version === undefined) out.version = CONFIG_VERSION;
+    if (out.version === undefined) out.version = ConfigLogic.CONFIG_VERSION;
     if (placed === (layoutPositionOf(effective, id, null) !== null))
         return out;
     if (placed) {
@@ -4579,7 +4292,7 @@ function withPlaced(user, manifest, placed, effective, id, shipped) {
     if (id === manifest.id && pluginRow(effective, id) === undefined) {
         out.plugins = (Array.isArray(out.plugins) ? out.plugins : []).concat([{ id: id }]);
     }
-    SECTIONS.forEach(function (section) {
+    ConfigLogic.SECTIONS.forEach(function (section) {
         var entries = out.bar.layout[section];
         if (Array.isArray(entries))
             out.bar.layout[section] = entries.filter(function (entry) { return entry.id !== id; });
@@ -4593,11 +4306,11 @@ function withPlaced(user, manifest, placed, effective, id, shipped) {
 function withMoved(user, manifest, from, section, index, effective, id) {
     id = id === undefined ? manifest.id : id;
     var out = isPlainObject(user) ? clone(user) : {};
-    if (out.version === undefined) out.version = CONFIG_VERSION;
+    if (out.version === undefined) out.version = ConfigLogic.CONFIG_VERSION;
     seedUserBar(out, effective);
     if (!isPlainObject(out.bar.layout)) out.bar.layout = { left: [], center: [], right: [] };
-    for (var s = 0; s < SECTIONS.length; s++)
-        if (!Array.isArray(out.bar.layout[SECTIONS[s]])) out.bar.layout[SECTIONS[s]] = [];
+    for (var s = 0; s < ConfigLogic.SECTIONS.length; s++)
+        if (!Array.isArray(out.bar.layout[ConfigLogic.SECTIONS[s]])) out.bar.layout[ConfigLogic.SECTIONS[s]] = [];
     var source = layoutPositionOf(out, id, from);
     if (source === null) return out;
     var entry = out.bar.layout[source.section].splice(source.index, 1)[0];
@@ -4613,7 +4326,7 @@ function withMoved(user, manifest, from, section, index, effective, id) {
 // that no entry holds ID first.
 function withBuiltinAt(user, id, section, index, effective) {
     var out = isPlainObject(user) ? clone(user) : {};
-    if (out.version === undefined) out.version = CONFIG_VERSION;
+    if (out.version === undefined) out.version = ConfigLogic.CONFIG_VERSION;
     seedUserBar(out, effective);
     if (!isPlainObject(out.bar.layout)) out.bar.layout = { left: [], center: [], right: [] };
     if (!Array.isArray(out.bar.layout[section])) out.bar.layout[section] = [];
@@ -4707,7 +4420,7 @@ function firstPresence(manifests, effective) {
 // object; the caller writes it when firstPresence names any.
 function withFirstPresence(user, manifests, effective) {
     var out = isPlainObject(user) ? clone(user) : {};
-    if (out.version === undefined) out.version = CONFIG_VERSION;
+    if (out.version === undefined) out.version = ConfigLogic.CONFIG_VERSION;
     firstPresence(manifests, effective).forEach(function (id) { placeWidget(out, manifests[id], effective); });
     return out;
 }
@@ -4745,19 +4458,19 @@ function keptType(value) {
 
 // Why shortcut `shortcut` of this plugin may not take `key`, or "". Only a
 // shortcut the manifest's `hyprland.binds` declares has a key. A key string
-// or non-empty list of strings hyprlandKey accepts rebinds it, null unbinds
+// or non-empty list of strings ConfigLogic.hyprlandKey accepts rebinds it, null unbinds
 // it, and undefined removes the plugins row's entry so the manifest's key
 // applies. The reply is one keyed line.
 function keyRefusal(manifest, shortcut, key) {
     var binds = manifest.hyprland === undefined ? [] : manifest.hyprland.binds;
     var bind = binds.filter(function (row) { return row.shortcut === shortcut; })[0];
-    if (bind === undefined && !Pads.isPadShortcut(manifest.hyprland, shortcut, NAME_PATTERN))
+    if (bind === undefined && !Pads.isPadShortcut(manifest.hyprland, shortcut, ConfigLogic.NAME_PATTERN))
         return "refused: key=" + shortcut + " undeclared";
     if (key === undefined || key === null)
         return "";
     if (typeof key !== "string" && !Array.isArray(key))
         return "refused: key=" + shortcut + " want=string-list-or-null";
-    var bad = keyValueError(key, "refused: key=" + shortcut, bind !== undefined && bind.tap === true);
+    var bad = ConfigLogic.keyValueError(key, "refused: key=" + shortcut, bind !== undefined && bind.tap === true);
     return bad;
 }
 
@@ -4770,7 +4483,7 @@ function keyRefusal(manifest, shortcut, key) {
 // key with keyRefusal first.
 function withKey(user, manifest, shortcut, key, effective) {
     var out = isPlainObject(user) ? clone(user) : {};
-    if (out.version === undefined) out.version = CONFIG_VERSION;
+    if (out.version === undefined) out.version = ConfigLogic.CONFIG_VERSION;
     var row = pluginRow(out, manifest.id);
     if (row === undefined) {
         var shippedRow = pluginRow(effective, manifest.id);
@@ -4873,7 +4586,7 @@ function panesHolderId(config, manifests, defaultBarId) {
 // The caller checks the value with settingRefusal first.
 function withSetting(user, manifest, key, value, effective) {
     var out = isPlainObject(user) ? clone(user) : {};
-    if (out.version === undefined) out.version = CONFIG_VERSION;
+    if (out.version === undefined) out.version = ConfigLogic.CONFIG_VERSION;
     var plugins = Array.isArray(out.plugins) ? out.plugins : [];
     var row = pluginRow(out, manifest.id);
     if (row === undefined) {
@@ -4896,7 +4609,7 @@ function withSetting(user, manifest, key, value, effective) {
 // and VALUE with ThemeLogic.appearanceRefusal first.
 function withAppearance(user, effective, key, value) {
     var out = isPlainObject(user) ? clone(user) : {};
-    if (out.version === undefined) out.version = CONFIG_VERSION;
+    if (out.version === undefined) out.version = ConfigLogic.CONFIG_VERSION;
     var appearance = isPlainObject(out.appearance) ? out.appearance
         : isPlainObject(effective) && isPlainObject(effective.appearance) ? clone(effective.appearance) : {};
     if (value === undefined) delete appearance[key];
@@ -4985,10 +4698,10 @@ function soundRows(config, manifests, defaultBarId, held) {
 }
 
 // The one keyed line a refused sound request answers:
-// `refused: sound=<event> reason=<reason>`, a name NAME_PATTERN does not
+// `refused: sound=<event> reason=<reason>`, a name ConfigLogic.NAME_PATTERN does not
 // admit written as JSON so the line stays one line.
 function soundRefusal(event, reason) {
-    return "refused: sound=" + (typeof event === "string" && NAME_PATTERN.test(event) ? event : JSON.stringify(event)) + " reason=" + reason;
+    return "refused: sound=" + (typeof event === "string" && ConfigLogic.NAME_PATTERN.test(event) ? event : JSON.stringify(event)) + " reason=" + reason;
 }
 
 // A plugin's play of its own EVENT under CONFIG: { ok: true, sound } with
@@ -5024,7 +4737,7 @@ function soundEdit(user, effective, manifest, id, event, value) {
     if (soundHeld(manifest, event))
         return { ok: true, held: true };
     var out = isPlainObject(user) ? clone(user) : {};
-    if (out.version === undefined) out.version = CONFIG_VERSION;
+    if (out.version === undefined) out.version = ConfigLogic.CONFIG_VERSION;
     var sounds = isPlainObject(out.sounds) ? out.sounds
         : isPlainObject(effective) && isPlainObject(effective.sounds) ? clone(effective.sounds) : {};
     var own = isPlainObject(sounds[id]) ? sounds[id] : {};
@@ -5052,7 +4765,7 @@ function soundArgv(directory, sound) {
 // to. A row the user file does not hold is not seeded.
 function withoutSetting(user, manifest, key) {
     var out = isPlainObject(user) ? clone(user) : {};
-    if (out.version === undefined) out.version = CONFIG_VERSION;
+    if (out.version === undefined) out.version = ConfigLogic.CONFIG_VERSION;
     var row = pluginRow(out, manifest.id);
     if (row !== undefined) {
         var index = out.plugins.indexOf(row);

@@ -31,7 +31,7 @@
 //       a plugin that lands shown is enabled, which places its widget in
 //       its default section; any other is listed in the user file's
 //       disabledPlugins when the configuration would enable it. Print
-//       `written` or `unchanged`. Either file that PluginLogic.configError
+//       `written` or `unchanged`. Either file that ConfigLogic.configError
 //       refuses is refused as `malformed`; a user file an editor keeps
 //       saving during the write is refused as `changed` (editFile).
 //   vgshell-plugin-judge requirements text|json <shipped-config> <user-config> <id>
@@ -99,7 +99,9 @@ const fs = require("fs");
 const path = require("path");
 
 const repo = path.join(__dirname, "..");
-const logic = require(path.join(__dirname, "lib", "qml-library.js")).load(path.join(repo, "shell", "Core", "PluginLogic.js"));
+const { load } = require(path.join(__dirname, "lib", "qml-library.js"));
+const logic = load(path.join(repo, "shell", "Core", "PluginLogic.js"));
+const configLogic = load(path.join(repo, "shell", "Core", "ConfigLogic.js"));
 const { refuse, main, readJson, readConfig, readUserConfig, editFile, onPath } = require(path.join(__dirname, "lib", "judge-files.js"));
 
 // What detection answers on a system where no manager is looked for.
@@ -250,7 +252,7 @@ function coreRequirements(file) {
 // `vgshell doctor`'s report: the core's rows and every enabled plugin's, in
 // id order, under the configuration SHIPPED and USER make effective.
 function doctorReport(plugins, shipped, user, core) {
-    const effective = logic.effectiveConfig(shipped, user);
+    const effective = configLogic.effectiveConfig(shipped, user);
     const defaultBarId = logic.activeBarId(shipped, "");
     const enabled = Array.from(plugins.keys()).sort().filter(id => logic.isEnabled(effective, plugins.get(id).manifest, defaultBarId));
     const owners = { [logic.CORE_OWNER]: { requirements: core.requirements } };
@@ -290,7 +292,7 @@ function doctorLines(report) {
 // write, or null to leave the file. EDIT may run twice, as editFile's may.
 function editUserConfig(userPath, edit) {
     const failure = editFile("user-config", userPath, true, current => {
-        const next = edit(current === undefined ? null : readUserConfig(logic, userPath, "user-config"));
+        const next = edit(current === undefined ? null : readUserConfig(configLogic, userPath, "user-config"));
         if (next === null) return null;
         // editFile writes one byte per character; the JSON is UTF-8.
         return Buffer.from(JSON.stringify(next, null, 2) + "\n", "utf8").toString("latin1");
@@ -395,13 +397,13 @@ main(() => {
     }
     case "land": {
         const [shippedPath, userPath, dir] = args;
-        const shipped = readConfig(logic, shippedPath, "shipped-config");
+        const shipped = readConfig(configLogic, shippedPath, "shipped-config");
         const manifest = validated(dir);
         const defaultBarId = logic.activeBarId(shipped, "");
         const shown = logic.landsShown(manifest);
         let written = false;
         editUserConfig(userPath, user => {
-            const effective = logic.effectiveConfig(shipped, user);
+            const effective = configLogic.effectiveConfig(shipped, user);
             written = shown !== logic.isEnabled(effective, manifest, defaultBarId) || (shown && !logic.isPlaced(effective, manifest));
             return written ? logic.withEnabled(user, manifest, shown, effective) : null;
         });
@@ -411,10 +413,10 @@ main(() => {
     case "requirements": {
         const [form, shippedPath, userPath, id] = args;
         const json = format(form) === "json";
-        const shipped = readConfig(logic, shippedPath, "shipped-config");
-        const user = readUserConfig(logic, userPath, "user-config");
+        const shipped = readConfig(configLogic, shippedPath, "shipped-config");
+        const user = readUserConfig(configLogic, userPath, "user-config");
         const plugin = pluginOf(registryOf(readScan()), id);
-        const enabled = logic.isEnabled(logic.effectiveConfig(shipped, user), plugin.manifest, logic.activeBarId(shipped, "")) ? [id] : [];
+        const enabled = logic.isEnabled(configLogic.effectiveConfig(shipped, user), plugin.manifest, logic.activeBarId(shipped, "")) ? [id] : [];
         const rows = reportRows(plugin.manifest.requirements, plugin.missing, systemRead({ [id]: plugin.manifest }, { [id]: plugin.missing }, enabled));
         if (json) process.stdout.write(JSON.stringify(rows) + "\n");
         else print(rows.map(rowLine));
@@ -422,10 +424,10 @@ main(() => {
     }
     case "settings": {
         const [shippedPath, userPath, id] = args;
-        const shipped = readConfig(logic, shippedPath, "shipped-config");
-        const user = readUserConfig(logic, userPath, "user-config");
+        const shipped = readConfig(configLogic, shippedPath, "shipped-config");
+        const user = readUserConfig(configLogic, userPath, "user-config");
         const manifest = pluginOf(registryOf(readScan()), id).manifest;
-        const settings = logic.settingsFor(logic.effectiveConfig(shipped, user), manifest);
+        const settings = logic.settingsFor(configLogic.effectiveConfig(shipped, user), manifest);
         for (const key of Object.keys(manifest.schema)) {
             const refusal = logic.settingRefusal(manifest, key, settings[key]);
             if (refusal !== "") refuse(refusal.slice("refused: ".length) + " id=" + id);
@@ -437,8 +439,8 @@ main(() => {
         const [form, shippedPath, userPath, corePath, graphicalSession] = args;
         const json = format(form) === "json";
         if (!Object.prototype.hasOwnProperty.call(SESSION_LINES, graphicalSession)) refuse("graphical-session=" + graphicalSession);
-        const shipped = readConfig(logic, shippedPath, "shipped-config");
-        const user = readUserConfig(logic, userPath, "user-config");
+        const shipped = readConfig(configLogic, shippedPath, "shipped-config");
+        const user = readUserConfig(configLogic, userPath, "user-config");
         const core = coreRequirements(corePath);
         const report = doctorReport(registryOf(readScan()), shipped, user, core);
         report.session = { graphicalSession };

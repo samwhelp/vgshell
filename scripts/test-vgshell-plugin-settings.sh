@@ -15,7 +15,7 @@ source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 tree="$tmp/tree"
 mkdir -p "$tree/shell/Core" "$tree/shell/Commons" "$tree/shell/Ui/icons" "$tree/shell/plugins" "$tree/config"
 cp -R -- "$repo/bin" "$tree/"
-cp -- "$repo/shell/Core/PluginLogic.js" "$repo/shell/Core/PackageManagers.js" "$repo/shell/Core/HyprlandLayer.js" "$repo/shell/Core/MonitorLogic.js" "$repo/shell/Core/Pads.js" "$tree/shell/Core/"
+cp -- "$repo/shell/Core/PluginLogic.js" "$repo/shell/Core/ConfigLogic.js" "$repo/shell/Core/PackageManagers.js" "$repo/shell/Core/HyprlandLayer.js" "$repo/shell/Core/MonitorLogic.js" "$repo/shell/Core/Pads.js" "$tree/shell/Core/"
 cp -- "$repo/shell/Commons/SettingValues.js" "$tree/shell/Commons/"
 cp -- "$repo/shell/Ui/icons/Lucide.js" "$tree/shell/Ui/icons/"
 printf '{ "version": 2, "plugins": [], "disabledPlugins": [] }\n' >"$tree/config/shell.json"
@@ -93,7 +93,7 @@ control() { # NAME FILE NEEDLE REPLACEMENT
   cp -- "$copy" "$copy_tree/$2"
   check "the $1 mutant fails a row" test "$(settings_rows "$copy_tree/bin/vgshell" quiet && echo green || echo red)" == red
 }
-control ignores-user bin/vgshell-plugin-judge 'settingsFor(logic.effectiveConfig(shipped, user)' 'settingsFor(logic.effectiveConfig(shipped, null)'
+control ignores-user bin/vgshell-plugin-judge 'settingsFor(configLogic.effectiveConfig(shipped, user)' 'settingsFor(configLogic.effectiveConfig(shipped, null)'
 control skips-schema bin/vgshell-plugin-judge 'if (refusal !== "") refuse(refusal.slice(' 'if (false) refuse(refusal.slice('
 control unmigrated bin/lib/judge-files.js 'logic.migrateConfig(config).config' 'config'
 

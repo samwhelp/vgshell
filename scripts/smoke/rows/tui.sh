@@ -22,7 +22,7 @@
 # than the ceiling, a presenter copy that writes no ended
 # record, whose run the core's `vgshell-tui wait` ends, and a disabled plugin's
 # list and hold gone.
-# inputs: scripts/smoke/fixtures/plugins/acme.tui/* shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml bin/vgshell-tui bin/lib/tui.sh bin/vgshell scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Ui/controls/RowAction.qml
+# inputs: scripts/smoke/fixtures/plugins/acme.tui/* shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml bin/vgshell-tui bin/lib/tui.sh bin/vgshell scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Registry.qml shell/Ui/controls/RowAction.qml
 set -euo pipefail
 tui_dir="$home/.config/vgshell/plugins/acme.tui"
 mkdir -p "$tui_dir"

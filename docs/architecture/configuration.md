@@ -4,7 +4,7 @@ Read before touching the configuration files, their merge, their judge or a writ
 
 ## The approach
 
-The shell's configuration is two layers of `shell.json`, the shipped layer and the user layer, and `PluginLogic.effectiveConfig` is the one merge ([D006](../decisions/D006-two-configuration-layers.md)). `shell/Core/Config.qml` is the one reader of both layers and the one writer of the user layer, and it never writes a file it has not read. The theme file, `theme.json`, is the applied package's document with no layer over it ([D025](../decisions/D025-no-theme-override-layer.md)), except the user's Appearance values in shell.json `appearance` ([D104](../decisions/D104-appearance-values-over-the-theme.md)).
+The shell's configuration is two layers of `shell.json`, the shipped layer and the user layer, and `ConfigLogic.effectiveConfig` is the one merge ([D006](../decisions/D006-two-configuration-layers.md)). `shell/Core/Config.qml` is the one reader of both layers and the one writer of the user layer, and it never writes a file it has not read. The theme file, `theme.json`, is the applied package's document with no layer over it ([D025](../decisions/D025-no-theme-override-layer.md)), except the user's Appearance values in shell.json `appearance` ([D104](../decisions/D104-appearance-values-over-the-theme.md)).
 
 ## Why
 
@@ -14,19 +14,19 @@ One file stops delivering shipped defaults the moment a user edits it, and a dee
 
 ### Layers
 
-- Do merge only through `PluginLogic.effectiveConfig`. `scripts/test-plugin-logic.js` pins each merge rule and the seeding of the user `bar` key.
+- Do merge only through `ConfigLogic.effectiveConfig`. `scripts/test-plugin-logic.js` pins each merge rule and the seeding of the user `bar` key.
 - Do start an enable or disable edit from the effective disabled list, so a user file with no list keeps the shipped exclusions; an explicit empty user list still overrides them. `scripts/test-plugin-logic.js` pins it.
 - Do read `welcome.keys` and `manager.id` from the shipped layer alone, as the shell reads the default bar; they name the product's own surfaces, not a user preference.
 
 ### Plugin settings
 
-- Do keep every setting of a plugin in its `plugins[]` row, the one place every instance of the plugin, a bar widget included, and the Settings page read it from (`PluginLogic.settingsFor`). A `bar.layout` entry places a widget and holds its `id` alone; `PluginLogic.configError` refuses any other key. `scripts/test-plugin-logic.js` pins both, and `scripts/smoke/rows/settings-unsaved.sh` reads a row written outside the page on the page and the widget.
+- Do keep every setting of a plugin in its `plugins[]` row, the one place every instance of the plugin, a bar widget included, and the Settings page read it from (`PluginLogic.settingsFor`). A `bar.layout` entry places a widget and holds its `id` alone; `ConfigLogic.configError` refuses any other key. `scripts/test-plugin-logic.js` pins both, and `scripts/smoke/rows/settings-unsaved.sh` reads a row written outside the page on the page and the widget.
 - Do declare a value the plugin keeps from one of its own surfaces in `settings` with no `schema` entry: the plugin writes it through `configure`, the Settings tab draws no field for it, and `PluginLogic.settingRefusal` takes a value of its default's JSON type, so the plugin checks the range. `scripts/test-plugin-logic.js` pins the write rule.
-- Do migrate a user file of the previous format version where it is read: `Config.qml` runs `PluginLogic.migrateConfig` before the judge and writes the result once, and the `bin/` readers run it in memory ([D107](../decisions/D107-format-change-ships-its-migration.md)). Version 1 let a layout entry carry its widget's settings; each such key moves into the plugin's row, where the row's own value wins, and of two entries with one id the first in section order wins. `scripts/test-plugin-logic.js` pins the table.
+- Do migrate a user file of the previous format version where it is read: `Config.qml` runs `ConfigLogic.migrateConfig` before the judge and writes the result once, and the `bin/` readers run it in memory ([D107](../decisions/D107-format-change-ships-its-migration.md)). Version 1 let a layout entry carry its widget's settings; each such key moves into the plugin's row, where the row's own value wins, and of two entries with one id the first in section order wins. `scripts/test-plugin-logic.js` pins the table.
 
 ### Reads and writes
 
-- Do judge each layer with `PluginLogic.configError` after every parse. A file that fails keeps its last good value, and the log names the defect.
+- Do judge each layer with `ConfigLogic.configError` after every parse. A file that fails keeps its last good value, and the log names the defect.
 - Never build anything before the configuration is ready: the shipped file has loaded once and the user file has settled, so a bar never draws from the user file alone. Gap: no row starts the shell with the user file unsettled.
 - Never write the user file unless it is `loaded` or `absent`, so an unparseable, unreadable or malformed file is never overwritten unread. After the disk refuses a write, refuse every write until the file is read again.
 - Do answer `ok` only once the file holds the edit. `scripts/smoke/rows/style.sh` stops the shell as a toggle answers and reads the file.
@@ -42,7 +42,7 @@ One file stops delivering shipped defaults the moment a user edits it, and a dee
 
 - Do judge `theme.json` with `ThemeLogic.accept` alone. An absent file publishes the defaults; a file that becomes unreadable or that the judge refuses is logged and leaves the last accepted theme.
 - Never merge a user layer over the applied theme. A lasting change is an edited copy installed as its own package ([D025](../decisions/D025-no-theme-override-layer.md)). The one exception is shell.json `appearance`: corner radius, border width, control radius, motion, the glass choice, window glass and window glow, never a colour, which `ThemeLogic.withAppearance` resolves over the theme ([D104](../decisions/D104-appearance-values-over-the-theme.md)). `scripts/test-theme-logic.js` pins it.
-- Do write `appearance` only through capability `appearance`, after `ThemeLogic.appearanceRefusal` judges the value; `PluginLogic.configError` judges the key's shape alone, so one bad member shows as Set by theme and blocks no other key. `scripts/test-plugin-logic.js` and `scripts/smoke/rows/appearance.sh` pin both.
+- Do write `appearance` only through capability `appearance`, after `ThemeLogic.appearanceRefusal` judges the value; `ConfigLogic.configError` judges the key's shape alone, so one bad member shows as Set by theme and blocks no other key. `scripts/test-plugin-logic.js` and `scripts/smoke/rows/appearance.sh` pin both.
 
 ## The canonical example
 
@@ -54,4 +54,4 @@ A third system-wide layer under `/etc` is needed, a shipped default must overrid
 
 ## Not governed
 
-Each key's shape, which `PluginLogic.configError` judges; the tokens, which are `shell/Commons/Tokens.js` and [design-system.md](design-system.md); what `vgshell theme apply` writes and when, which is [themes.md](themes.md).
+Each key's shape, which `ConfigLogic.configError` judges; the tokens, which are `shell/Commons/Tokens.js` and [design-system.md](design-system.md); what `vgshell theme apply` writes and when, which is [themes.md](themes.md).
