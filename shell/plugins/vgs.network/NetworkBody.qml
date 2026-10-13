@@ -114,16 +114,6 @@ FocusScope {
             }
         }
     }
-    // Whether the focus left the open prompt for `item` by Tab, or for the
-    // body itself, which holds it once Qt takes it from the disabled page.
-    // A Qt Quick Control records how it took the focus in focusReason (Qt 6
-    // Control reference). A host that moves the focus off the body keeps it.
-    function strayed(item) {
-        if (item === null) return false;
-        if (item.focusReason === Qt.TabFocusReason || item.focusReason === Qt.BacktabFocusReason) return true;
-        for (let at = item; at !== null; at = at.parent) if (at === root) return true;
-        return false;
-    }
     function answered(reply) {
         localProblem = reply === "ok" ? "" : reply === "busy" ? "A network change is still in progress." : "The network action is unavailable.";
         return reply;
@@ -515,19 +505,6 @@ FocusScope {
         actions: [{ label: "Cancel", role: "cancel" }, { label: "Join", role: "accept", enabled: password.text !== "" }]
         onAccepted: root.submitPassword()
         onRejected: root.cancelPassword()
-        // Tab left the dialog in the dropdown's popup: three Tabs from the
-        // field ended outside it and Delete reached the list (network smoke
-        // row, 2026-10-13), so the Shortcut that cycles Tab in Dialog did
-        // not take the key there. A Tab on the field, which Dialog takes
-        // out of Qt's focus chain, arrives here as a key (Qt 6 Keys,
-        // tabPressed and backtabPressed). A Tab on an action walks Qt's
-        // chain, and a focus that leaves the dialog that way goes to the
-        // field, the stop after the last action and before the first.
-        Keys.onTabPressed: cycle(1)
-        Keys.onBacktabPressed: cycle(-1)
-        onActiveFocusChanged: Qt.callLater(() => {
-            if (root.prompting && !prompt.activeFocus && root.strayed(root.Window.activeFocusItem)) prompt.takeFocus();
-        })
 
         Label {
             objectName: "network-prompt-reason"

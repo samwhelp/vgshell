@@ -220,6 +220,13 @@ FocusScope {
     Keys.onEnterPressed: pressFocused()
     Keys.onEscapePressed: event => { if (modal && !busy) rejected(); else event.accepted = false; }
 
+    // A Shortcut takes the key before the focused item, which would walk
+    // Qt's own chain from an action. A window Shortcut matches while its
+    // window is active (Qt 6.11.2 qquickshortcutcontext.cpp,
+    // QQuickShortcutContext::matcher, which Qt Quick Templates installs).
+    // A Quickshell popup that grabs the focus is Qt's focus window while it
+    // shows, so both match there: each Tab in the Network flyout's dialog
+    // activated this one (network smoke row with a log line here, 2026-10-13).
     Shortcut {
         sequences: ["Tab"]
         enabled: root.modal && root.activeFocus
