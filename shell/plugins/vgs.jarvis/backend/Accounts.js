@@ -23,7 +23,8 @@ const MAX_ROWS = 32; // The core's presenceList and choices ceiling.
 const MODEL_LISTS = { claude: ClaudeCode, codex: CodexHarness, copilot: CopilotHarness, pi: PiHarness };
 const MAX_BYTES = 64 * 1024;
 const PROBE_TEXT = "Reply OK.";
-// Every Verify route's bound on a stalled provider or program, not a latency budget.
+// Every Verify route and local catalog's bound on a stalled provider or
+// program, not a latency budget.
 const PROBE_MS = 30000;
 // One Codex account read: a bound on a stalled program, not a latency
 // budget. AI usage bounds its read, which adds a rate-limit request, at
@@ -75,12 +76,21 @@ function signedOut(source, state) {
  * state kind, null where none was read, as { kind: "accepted", account } or
  * { kind: "refused", cause }.
  * A signed-out CLI account is refused signed-out; its provider row must be
- * one AccountProviders.modelProvider takes.
+ * one AccountProviders.modelProvider takes. An omitted MODEL offers a local
+ * account in Settings. Selection supplies MODEL and readOffers' LISTED reply,
+ * so only an explicitly chosen model the server offers can run.
  */
-function accepted(resolved, state) {
+function accepted(resolved, state, model, listed = { kind: "none" }) {
     if (resolved === null) return { kind: "refused", cause: "account-unavailable" };
     if (signedOut(resolved.source, state)) return { kind: "refused", cause: "signed-out" };
     if (!modelProvider(provider(resolved.provider))) return { kind: "refused", cause: "model-required" };
+    if (resolved.source.kind === "local" && model !== undefined) {
+        if (model === "") return { kind: "refused", cause: "model-required" };
+        if (listed.kind === "none") return { kind: "refused", cause: "models-reading", list: resolved.id };
+        if (listed.kind !== "read") return { kind: "refused", cause: "models-unavailable" };
+        if (!listed.offers.some(offer => offer.value === model)) return { kind: "refused", cause: "model-unavailable" };
+        return { kind: "accepted", account: { ...resolved, model } };
+    }
     return { kind: "accepted", account: resolved };
 }
 // Only a label that is itself an email names an identity to compare.
@@ -442,15 +452,18 @@ class Accounts {
      * its own program from its own list, bounded, with no prompt sent:
      * { kind: "read", offers }, Harness.offers' list, MAX_ROWS at most. A
      * stored key whose row lists its models offers that list, with no
-     * command run and nothing sent. Another key and a local server have no
-     * such list, and a signed-out or unavailable account is not asked:
+     * command run and nothing sent. A local server lists its models through
+     * the outbound door, without inference. Another key has no such list,
+     * and a signed-out or unavailable account is not asked:
      * { kind: "none" }. A failed read is { kind: "failed", reason }, its
-     * program's keyed cause. The Jarvis page asks while it is open; no other
-     * reader does. It needs no discovery: of the vendor status commands only
+     * program's keyed cause. The Jarvis page asks while it is open; engine
+     * configuration also asks a local server before it accepts a model.
+     * It needs no discovery: of the vendor status commands only
      * this sign-in's runs.
      */
-    async readOffers(id) {
+    async readOffers(id, stop) {
         const resolved = this.resolve(id);
+        if (resolved?.source.kind === "local") return this.localOffers(resolved, stop);
         const listed = resolved === null || resolved.source.kind !== "keyring" ? undefined : provider(resolved.provider).models;
         if (listed !== undefined) return { kind: "read", offers: Harness.offers(listed).slice(0, MAX_ROWS) };
         if (resolved === null || resolved.source.kind !== "cli" || !Object.hasOwn(MODEL_LISTS, resolved.provider)) return { kind: "none" };
@@ -463,6 +476,65 @@ class Accounts {
             const key = /^jarvis: brain=([a-z0-9-]+)(?: |$)/.exec(error?.message ?? "");
             return { kind: "failed", reason: key === null ? "models-failed" : key[1] };
         }
+    }
+
+    // Ollama, llama-server and LM Studio document GET /v1/models, each as
+    // {data: [{id}]}. The provider table already owns each server's base:
+    // docs.ollama.com/api/openai-compatibility, llama.cpp tools/server README,
+    // lmstudio.ai/docs/developer/openai-compat/models (read 2026-10-13).
+    // No inference, credential or provider error text is read.
+    async localOffers(resolved, stop) {
+        const target = Net.endpoint(Providers.select(resolved.provider).base + "/models");
+        const account = { ...resolved, state: { operation: ++this.operation } };
+        const controller = new AbortController();
+        const deadline = AbortSignal.timeout(PROBE_MS);
+        const abort = () => controller.abort();
+        for (const signal of [stop, deadline]) {
+            if (signal?.aborted) abort();
+            else signal?.addEventListener("abort", abort, { once: true });
+        }
+        let offers;
+        try {
+            await this.released(account, resolved.provider, target.origin, "", async ({ selected, item, grants, start }) => {
+                const door = Net.create(selected);
+                let response;
+                try {
+                    response = await start(() => door.request(item, { url: target.url, method: "GET", signal: controller.signal }, grants));
+                    if (response.kind !== "response") fail("models=release-refused");
+                    if (!response.response.ok) fail("models=http");
+                    const value = await this.reply(response.response, "models");
+                    if (!Array.isArray(value?.data) || value.data.some(model => typeof model?.id !== "string")) fail("models=shape");
+                    offers = Harness.offers(value.data.map(model => ({ value: model.id, label: model.id.slice(0, 60), efforts: [], effort: "", own: false }))).slice(0, MAX_ROWS);
+                    return true;
+                } finally { response?.close(); door.close(); }
+            }, "none");
+            return { kind: "read", offers };
+        } catch (error) {
+            const key = /^jarvis(?:-accounts)?: (?:models|verify|net)=([a-z0-9-]+)$/.exec(error?.message ?? "");
+            if (key === null) throw error;
+            return { kind: "failed", reason: key[1] };
+        } finally {
+            for (const signal of [stop, deadline]) signal?.removeEventListener("abort", abort);
+        }
+    }
+
+    // One bound for the server metadata and Verify replies this owner reads.
+    async reply(response, area) {
+        if (response.body === null) fail(area + "=reply-empty");
+        const reader = response.body.getReader();
+        const chunks = [];
+        let size = 0;
+        try {
+            for (;;) {
+                let part;
+                try { part = await reader.read(); } catch { fail(area + "=reply-stream"); }
+                if (part.done) break;
+                size += part.value.byteLength;
+                if (size > MAX_BYTES) fail(area + "=reply-limit");
+                chunks.push(Buffer.from(part.value));
+            }
+        } finally { reader.releaseLock(); }
+        try { return JSON.parse(Buffer.concat(chunks)); } catch { fail(area + "=reply-json"); }
     }
 
     // Secret Service labels/attributes only. CLI login items are not API keys.
@@ -595,11 +667,13 @@ class Accounts {
      * bound, and refused pi-update below the Pi brain's floor; a version it
      * cannot read leaves the turn to report its own failure, as a status
      * command's timeout does. No other account runs a command or reads a
-     * port here.
+     * port here. A local account needs the selected model and readOffers'
+     * answer. Without that answer it asks the engine to read this account's
+     * list; only a model the answer names is accepted.
      */
-    choose(id) {
+    choose(id, model = "", listed = { kind: "none" }) {
         const resolved = this.resolve(id);
-        if (resolved === null || resolved.source.kind !== "cli") return accepted(resolved, null);
+        if (resolved === null || resolved.source.kind !== "cli") return accepted(resolved, null, model, listed);
         const account = this.cliAccount({ provider: resolved.provider, directory: resolved.source.directory, label: resolved.label }, CHOOSE_STATUS_MS);
         if (account === null) return accepted(null, null);
         if (resolved.provider === "pi") {
@@ -730,20 +804,7 @@ class Accounts {
                 response = await start(() => door.request(item, { url: target.url, headers, key, signal }, grants));
                 if (response.kind !== "response") fail("verify=release-refused");
                 if (!response.response.ok) fail("verify=http-" + response.response.status);
-                const reader = response.response.body.getReader();
-                const chunks = [];
-                let size = 0;
-                try {
-                    for (;;) {
-                        const part = await reader.read();
-                        if (part.done) break;
-                        size += part.value.byteLength;
-                        if (size > MAX_BYTES) fail("verify=reply-limit");
-                        chunks.push(Buffer.from(part.value));
-                    }
-                } finally { reader.releaseLock(); }
-                let result;
-                try { result = JSON.parse(Buffer.concat(chunks)); } catch { fail("verify=reply-json"); }
+                const result = await this.reply(response.response, "verify");
                 let text, tokens;
                 switch (row.probe.driver) {
                 case "chat":
@@ -779,26 +840,28 @@ class Accounts {
     }
 
     /**
-     * The one release and audit owner of a Verify probe. The fixed
+     * The one release and audit owner of a Verify probe or local catalog.
+     * A catalog sends no content and needs no explicit transfer grant. The fixed
      * command-labelled content passes Policy.release for the account's
      * recipient set under the user's Verify grant. transfer({selected, item,
      * grants, start}) sends it, calling start(fn) to run its first transfer
      * inside the pre-transfer audit record, and answers whether the reply
      * proved inference. Every outcome is recorded before this returns.
      */
-    async released(account, providerId, origin, content, transfer) {
+    async released(account, providerId, origin, content, transfer, confirmed = "physical") {
         const selected = Policy.recipients({ conversation: "verify:" + account.id + ":" + account.state.operation,
             profile: "standard", cloudVision: "never",
             brain: { kind: "network", provider: providerId, account: account.id, origin },
             speech: [{ kind: "local", provider: "verification-result", account: account.id }] });
         const item = Policy.item(content, ["command"]);
-        // This operation exists only after the user's explicit Verify consent.
+        // Verify has the user's explicit consent. A local catalog has none.
         const grants = [{ recipients: selected, labels: ["command"] }];
+        if (confirmed !== "physical") grants.length = 0;
         const decision = Policy.release(item, selected, grants);
         const audit = Audit.create({ state: this.directory });
         const event = { kind: "release", gen: this.epoch, op: account.state.operation, tool: "release",
             args: { labels: item.labels, recipients: selected }, effect: "external",
-            decision: decision.kind, confirmed: "physical", outcome: "pending" };
+            decision: decision.kind, confirmed, outcome: "pending" };
         try {
             if (decision.kind !== "send") {
                 const saved = audit.record({ ...event, outcome: "completed" });

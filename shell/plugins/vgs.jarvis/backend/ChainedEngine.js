@@ -188,14 +188,14 @@ function signal() {
  * holds the plan with the service's dictation cause, settings.dictation,
  * while the core's recording cannot start; its sidecar still loads.
  */
-function select(settings, accounts, directories, listed = () => ({ voices: null, known: null, reading: false })) {
+function select(settings, accounts, directories, listed = () => ({ voices: null, known: null, reading: false }), models = () => ({ kind: "none" })) {
     const { list = null, ...speech } = selectSpeech(settings, accounts, directories, listed);
     const dictation = speech.kind === "ready" && speech.dictation === true && settings.dictation !== ""
         ? unconfigured(settings.dictation) : { kind: "ready" };
-    const brain = selectBrain(settings, accounts);
+    const brain = selectBrain(settings, accounts, models);
     const failing = [speech, dictation, brain].filter(step => step.kind !== "ready");
-    if (failing.length > 0) return { ...failing[0], speech, causes: failing.map(step => step.cause), list };
-    return { kind: "ready", speech, brain: brain.brain, entries: brain.entries, list };
+    if (failing.length > 0) return { ...failing[0], speech, causes: failing.map(step => step.cause), list, modelLists: brain.modelLists };
+    return { kind: "ready", speech, brain: brain.brain, entries: brain.entries, list, modelLists: brain.modelLists };
 }
 
 // A home folder's own keyed cause, or null for any other failure.
@@ -224,7 +224,7 @@ function heldByHome(plan, home) {
     default: fail("home-state");
     }
     if (cause === null) return plan;
-    return { ...unconfigured(cause), speech: plan.speech, causes: [cause, ...(plan.kind === "ready" ? [] : plan.causes)], list: plan.list };
+    return { ...unconfigured(cause), speech: plan.speech, causes: [cause, ...(plan.kind === "ready" ? [] : plan.causes)], list: plan.list, modelLists: plan.modelLists };
 }
 
 // Always mode listens for the wake word on this computer, so it needs a row
@@ -312,12 +312,13 @@ function selectHearing(settings, accounts, directories) {
     return speech;
 }
 
-function selectedBrain(settings, accounts, id, model, primary) {
+function selectedBrain(settings, accounts, id, model, primary, models, modelLists) {
     if (id === "") return primary ? unconfigured("brain=unselected") : null;
     let judge, choice;
     try {
         judge = accounts();
-        choice = judge.choose(id);
+        choice = judge.choose(id, model ?? settings.model ?? "", models(id));
+        if (choice.list !== undefined) modelLists.push({ judge, id: choice.list });
     } catch (error) {
         // Only the account and key readers' keyed failures are a cause here.
         if (!/^jarvis-(?:accounts|keys): /.test(error?.message ?? "")) throw error;
@@ -346,18 +347,19 @@ function selectedBrain(settings, accounts, id, model, primary) {
         guidance: Guidance.compose("chained", target.loopback ? "local" : "text", LANGUAGE) };
 }
 
-function selectBrain(settings, accounts) {
-    const first = selectedBrain(settings, accounts, settings.brain, undefined, true);
+function selectBrain(settings, accounts, models) {
+    const modelLists = [];
+    const first = selectedBrain(settings, accounts, settings.brain, undefined, true, models, modelLists);
     const entries = first.kind === "unconfigured" ? [] : [first];
     if (Array.isArray(settings.fallbacks)) {
         for (const fallback of settings.fallbacks) {
             if (fallback === null || typeof fallback !== "object") continue;
-            const entry = selectedBrain(settings, accounts, fallback.brain, fallback.model, false);
+            const entry = selectedBrain(settings, accounts, fallback.brain, fallback.model, false, models, modelLists);
             if (entry !== null) entries.push(entry);
         }
     }
-    if (entries.length === 0) return first;
-    return { kind: "ready", brain: entries[0], entries };
+    if (entries.length === 0) return { ...first, modelLists };
+    return { kind: "ready", brain: entries[0], entries, modelLists };
 }
 
 /**
@@ -405,6 +407,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     // flight's owner, or null.
     let voiceList = { identity: null, voices: null, known: null, net: null };
     let listReads = 0;
+    // Only the local accounts this configure selected. A new configure or
+    // close aborts the old operation and prevents its answers from publishing.
+    let modelReads = new Map();
+    const modelOffers = id => modelReads.get(id)?.answer ?? { kind: "none" };
+    function cancelModels() {
+        for (const read of modelReads.values()) read.stop.abort();
+        modelReads = new Map();
+    }
     const listed = reference => voiceList.identity === JSON.stringify(reference)
         ? { voices: voiceList.voices, known: voiceList.known, reading: voiceList.net !== null }
         : { voices: null, known: null, reading: false };
@@ -414,7 +424,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         const cause = local && speechState.kind === "starting" ? "speech=local-loading"
             : local && speechState.kind === "refused" ? "speech=local-" + speechState.error.code.split(" ")[0] : null;
         if (plan.kind !== "ready") {
-            const { speech, list, ...answer } = plan;
+            const { speech, list, modelLists, ...answer } = plan;
             // One cause per step: the sidecar's goes before the recording's.
             return cause === null ? answer : { ...answer, cause, causes: [cause, ...answer.causes.filter(other => !other.startsWith("speech="))] };
         }
@@ -1637,7 +1647,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     }
 
     function judge(settings) {
-        plan = select(settings, accounts, directories, listed);
+        plan = select(settings, accounts, directories, listed, modelOffers);
         const selected = plan;
         plan = heldByHome(plan, home());
         homeHeld = plan !== selected;
@@ -1694,11 +1704,29 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             });
     }
 
+    function readModels(lists) {
+        for (const { judge: account, id } of lists) {
+            if (modelReads.has(id)) continue;
+            const read = { stop: new AbortController(), answer: { kind: "none" } };
+            modelReads.set(id, read);
+            account.readOffers(id, read.stop.signal).then(answer => {
+                if (closed || modelReads.get(id) !== read) return;
+                read.answer = answer;
+                try { configured(judge(lastSettings)); } catch (error) { fatal(error); }
+            }).catch(error => {
+                if (closed || modelReads.get(id) !== read) return;
+                fatal(error);
+            });
+        }
+    }
+
     return Object.freeze({
         /** Select setup admission; healthy loading can accept bounded capture. */
         configure(settings) {
+            cancelModels();
             lastSettings = settings;
             const answer = judge(settings);
+            readModels(plan.modelLists);
             if (plan.list !== null && plan.list !== undefined) readVoices(plan.list);
             return answer;
         },
@@ -1715,6 +1743,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
          * reads the list again.
          */
         voicesHeld: () => plan.speech?.kind === "unconfigured" && plan.speech.cause === "speech=elevenlabs-voice",
+        // A failed local catalog or a model no longer offered is read again
+        // by the daemon's existing Talk judgement, after the server recovers.
+        modelsHeld: () => plan.kind === "unconfigured" && plan.causes.some(cause => cause === "brain=models-unavailable" || cause === "brain=model-unavailable"),
         checkReady: () => plan.speech?.wake === true && daemonSpeech?.status().kind === "ready",
         observe(s) {
             if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === "ended")) end();
@@ -1879,6 +1910,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         close() {
             end();
             closed = true;
+            cancelModels();
             voiceList.net?.close();
             daemonSpeech?.close();
             brainText?.close();

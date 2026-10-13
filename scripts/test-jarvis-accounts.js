@@ -2,6 +2,7 @@
 "use strict";
 const { assert, fs, path, cp, tree, environment, world, mutant } = require("./fixtures/jarvis/accounts-world.js");
 const plugin = path.join(tree, "shell/plugins/vgs.jarvis");
+const http = require("node:http");
 const privateValue = "fixture-secret-private";
 
 world(async () => {
@@ -457,7 +458,7 @@ world(async () => {
     }
     cases++;
     // An Anthropic key offers its row's own list, read with no command,
-    // port or key lookup. Another key, a local server and a speech-only
+    // port or key lookup. Another key and a speech-only
     // key offer none.
     const LEVELS = ["low", "medium", "high", "xhigh", "max"];
     const keyOffers = async Judge => {
@@ -467,14 +468,11 @@ world(async () => {
         const answers = [];
         for (const account of ["chosen label", "other", "voice"])
             answers.push(await judge.readOffers(found.find(item => item.source.reference?.account === account).id));
-        const local = store.account(PROVIDERS.find(row => row.id === "ollama"), "local", { kind: "found" },
-            { kind: "local", origin: "http://127.0.0.1:11434" });
-        answers.push(await judge.readOffers(local.id));
         assert.deepEqual(answers, [{ kind: "read", offers: [
             { value: "claude-opus-5-5", label: "Claude Opus 5.5", efforts: LEVELS, effort: "medium" },
             { value: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", efforts: LEVELS, effort: "high" },
             { value: "claude-haiku-4-5", label: "Claude Haiku 4.5", efforts: [], effort: "" }] },
-        { kind: "none" }, { kind: "none" }, { kind: "none" }]);
+        { kind: "none" }, { kind: "none" }]);
         assert.deepEqual([calls("cli-calls").length, calls("port-calls").length, calls("secret-calls").length], before,
             "a key's list runs no vendor command, port read or key lookup");
     };
@@ -723,8 +721,8 @@ world(async () => {
     }
     cases++;
     // The AI model list offers only the accounts Accounts.choose takes: no
-    // key read from a variable, no local server or Cerebras key without a
-    // model, and every subscription a harness runs.
+    // key read from a variable or Cerebras key without a model. Local
+    // servers offer their models through the existing Settings reader.
     references.remember(ownReference("cerebras", "fast", "https://api.cerebras.ai"));
     const modelList = Judge => {
         const judge = new Judge(directory, { ...env, CODEX_HOME: explicit, OPENAI_API_KEY: privateValue });
@@ -745,26 +743,119 @@ world(async () => {
         for (const item of [claude, codex])
             assert.deepEqual(judge.choose(item.id), { kind: "accepted", account: { id: item.id, provider: item.provider,
                 label: item.label, source: item.source, model: "" } }, item.provider);
-        for (const item of [variable, ollama, cerebras, ...found.filter(row => row.source.kind === "local")])
+        for (const item of [variable, cerebras])
             assert.equal(offered.has(item.id), false, "not offered: " + item.provider + " " + item.source.kind);
-        for (const item of [key, claude, codex]) assert.equal(offered.has(item.id), true, "offered: " + item.provider);
+        for (const item of [key, claude, codex, ...found.filter(row => row.source.kind === "local")])
+            assert.equal(offered.has(item.id), true, "offered: " + item.provider);
     };
     modelList(Accounts);
     for (const [file, name, needle, replacement] of [
         ["backend/Accounts.js", "model-rule", 'if (!modelProvider(provider(resolved.provider))) return', "if (false) return"],
-        ["AccountProviders.js", "subscription-model", 'return row.kind === "cli" || (', "return ("],
+        ["AccountProviders.js", "subscription-model", 'row.kind === "cli" || ', ""],
+        ["AccountProviders.js", "local-model", 'row.kind === "local" || ', ""],
         ["AccountProviders.js", "probe-model", '(row.probe !== undefined && row.probe.model !== "")', "row.probe !== undefined"],
         ["backend/Accounts.js", "list-accepted", 'usable.filter(item => accepted(resolve(item.id), item.state.kind).kind === "accepted");', "usable;"]]) {
         await mutant(file, name, needle, replacement, folder => modelList(judgeIn(folder)));
         controls++;
     }
     cases++;
+    // Synthetic OpenAI-compatible model catalogs, from the server references
+    // in Accounts.localOffers. Each request uses the real outbound owner in
+    // this suite's private network. No inference or secret lookup is allowed.
+    async function localModels(folder, only) {
+        const Judge = judgeIn(folder);
+        const choices = require(path.join(folder, "AccountProviders.js"));
+        const offered = { kind: "read", offers: [
+            { value: "fixture-model", label: "fixture-model", efforts: [], effort: "" },
+            { value: "fixture-other", label: "fixture-other", efforts: [], effort: "" }] };
+        const rows = [
+            { name: "chosen", model: "fixture-model", catalog: { data: [{ id: "fixture-model" }, { id: "fixture-other" }] }, read: offered, kind: "accepted" },
+            { name: "missing", model: "", catalog: { data: [{ id: "fixture-model" }, { id: "fixture-other" }] }, read: offered, cause: "model-required" },
+            { name: "unknown", model: "absent", catalog: { data: [{ id: "fixture-model" }, { id: "fixture-other" }] }, read: offered, cause: "model-unavailable" },
+            { name: "empty", model: "fixture-model", catalog: { data: [] }, read: { kind: "read", offers: [] }, cause: "model-unavailable" },
+            { name: "http", model: "fixture-model", status: 503, catalog: privateValue, read: { kind: "failed", reason: "http" }, cause: "models-unavailable" },
+            { name: "json", model: "fixture-model", catalog: "{", read: { kind: "failed", reason: "reply-json" }, cause: "models-unavailable" },
+            { name: "shape", model: "fixture-model", catalog: { data: [{}] }, read: { kind: "failed", reason: "shape" }, cause: "models-unavailable" },
+            { name: "size", model: "fixture-model", catalog: { data: [], padding: "x".repeat(65537) }, read: { kind: "failed", reason: "reply-limit" }, cause: "models-unavailable" },
+            { name: "timeout", model: "fixture-model", timeout: true, catalog: { data: [{ id: "fixture-model" }] }, read: { kind: "failed", reason: "aborted" }, cause: "models-unavailable" },
+            { name: "narrow", model: "fixture-model", catalog: { data: [{ id: "fixture-model" }, { id: "fixture-model" }, { id: "bad\nmodel" }] },
+                read: { kind: "read", offers: offered.offers.slice(0, 1) }, kind: "accepted" }
+        ].filter(row => only === undefined || row.name === only);
+        for (const provider of PROVIDERS.filter(row => row.kind === "local")) {
+            let fixture, requests = 0, deadline;
+            const server = http.createServer(async (request, response) => {
+                assert.equal(request.method, "GET");
+                assert.equal(request.url, "/v1/models");
+                assert.equal(request.headers.authorization, undefined);
+                const chunks = [];
+                for await (const chunk of request) chunks.push(chunk);
+                assert.equal(Buffer.concat(chunks).length, 0);
+                requests++;
+                const audit = fs.readdirSync(path.join(directory, "audit")).filter(file => file.endsWith(".jsonl"))
+                    .flatMap(file => fs.readFileSync(path.join(directory, "audit", file), "utf8").trim().split("\n").map(JSON.parse));
+                assert.equal(audit.at(-1).outcome, "pending");
+                assert.equal(audit.at(-1).confirmed, "none");
+                if (fixture.timeout) deadline.abort();
+                response.writeHead(fixture.status ?? 200, { "content-type": "application/json" });
+                response.end(typeof fixture.catalog === "string" ? fixture.catalog : JSON.stringify(fixture.catalog));
+            });
+            await new Promise(resolve => server.listen(provider.port, "127.0.0.1", resolve));
+            try {
+                const judge = new Judge(directory, env);
+                const account = judge.localRows().find(item => item.row.id === provider.id);
+                const id = judge.account(account.row, account.label, { kind: "found" }, account.source).id;
+                const before = calls("secret-calls").length;
+                for (const row of rows) {
+                    fixture = row;
+                    const count = requests;
+                    const originalTimeout = AbortSignal.timeout;
+                    if (row.timeout) {
+                        deadline = new AbortController();
+                        AbortSignal.timeout = () => deadline.signal;
+                    }
+                    let read;
+                    try { read = await judge.readOffers(id); }
+                    finally { AbortSignal.timeout = originalTimeout; }
+                    assert.deepEqual(read, row.read, provider.id + " " + row.name);
+                    assert.equal(requests, count + 1);
+                    const selected = judge.choose(id, row.model, read);
+                    if (row.kind === "accepted") {
+                        assert.deepEqual(selected, { kind: "accepted", account: { id, provider: provider.id, label: "local", source: account.source, model: row.model } });
+                    } else assert.deepEqual(selected, { kind: "refused", cause: row.cause });
+                    const page = choices.modelChoice({ model: row.model, effort: "" }, read, provider.id);
+                    assert.equal(page.model, row.model, "a local model stays unset until the user selects it");
+                    if (read.kind === "read") assert.deepEqual(page.models.map(model => model.value), read.offers.map(model => model.value));
+                    safe(read);
+                    cases++;
+                }
+                assert.equal(calls("secret-calls").length, before);
+            } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+        }
+    }
+    await localModels(plugin);
+    for (const [file, name, needle, replacement, row] of [
+        ["backend/Accounts.js", "local-model-required", 'if (model === "") return { kind: "refused", cause: "model-required" };', "", "missing"],
+        ["backend/Accounts.js", "local-model-offered", '!listed.offers.some(offer => offer.value === model)', "false", "unknown"],
+        ["backend/Accounts.js", "local-catalog-state", 'if (listed.kind !== "read") return { kind: "refused", cause: "models-unavailable" };',
+            'if (listed.kind !== "read") return { kind: "accepted", account: { ...resolved, model } };', "http"],
+        ["backend/Accounts.js", "local-catalog-http", 'if (!response.response.ok) fail("models=http");', "", "http"],
+        ["backend/Accounts.js", "local-catalog-shape", 'if (!Array.isArray(value?.data) || value.data.some(model => typeof model?.id !== "string")) fail("models=shape");',
+            'if (!Array.isArray(value?.data) || value.data.some(model => typeof model?.id !== "string")) { offers = []; return true; }', "shape"],
+        ["backend/Accounts.js", "local-catalog-bound", "if (size > MAX_BYTES)", "if (false)", "size"],
+        ["backend/Accounts.js", "local-catalog-deadline", "        for (const signal of [stop, deadline]) {", "        for (const signal of [stop]) {", "timeout"],
+        ["AccountProviders.js", "local-explicit-model", 'if (local && settings.model === "") return', "if (false) return", "missing"]
+    ]) {
+        await mutant(file, name, needle, replacement, folder => localModels(folder, row));
+        controls++;
+    }
+
     // Labels: one account of a harness reads as its provider's name, more
     // read as their sign-in emails, and one with no email names no folder;
     // grouped by provider, a provider's emails in order. The words around
     // them are the label's own.
     const labelWorld = (name, folders) => {
         const own = worldOf(name);
+        fs.writeFileSync(path.join(own.env.XDG_STATE_HOME, "ports-mode"), "absent");
         const directories = folders.map(([folder, email]) => {
             const made = seed(own.env.HOME, folder);
             if (email !== null) fs.writeFileSync(path.join(made, "fixture-email"), email);

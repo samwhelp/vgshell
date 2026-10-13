@@ -507,10 +507,10 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     } else {
                         // No hello follows an edit inside the home folder, nor
                         // the network's return after a failed read of the
-                        // ElevenLabs voices. A request made while either holds
+                        // ElevenLabs voices or a local model catalog. A request made while one holds
                         // the engine judges it again first: a repaired folder
                         // takes the request, and the voices are read again.
-                        if ((message.intent === "talk-down" || message.intent === "say") && (engine.homeHeld() || engine.voicesHeld())) judgeSetup();
+                        if ((message.intent === "talk-down" || message.intent === "say") && (engine.homeHeld() || engine.voicesHeld() || engine.modelsHeld())) judgeSetup();
                         const dispatch = () => {
                             runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }
                                 : message.intent === "say" ? { type: "say", text: message.text }

@@ -78,10 +78,10 @@ function keyPresence(read) {
 
 // The one rule for a row whose account the conversation engine can run as
 // its AI model: a sign-in program, whose model modelChoice picks, or a row
-// whose probe names the model the account judge hands the engine. The
-// account judge refuses any other as model-required (Accounts.js accepted).
+// whose probe names the model the account judge hands the engine, or a
+// local server whose offered model Accounts.accepted judges.
 function modelProvider(row) {
-    return row.kind === "cli" || (row.probe !== undefined && row.probe.model !== "");
+    return row.kind === "cli" || row.kind === "local" || (row.probe !== undefined && row.probe.model !== "");
 }
 
 // An API-key row the engine can use as its AI model; a speech-only key is
@@ -185,6 +185,7 @@ function listedKeyModel(provider) {
 // and "" for the program's own. A saved model the list does not name stays
 // saved with its effort, and the core shows it as unavailable.
 function modelChoice(settings, listed, provider) {
+    var local = PROVIDERS.some(function (row) { return row.id === provider && row.kind === "local"; });
     var one = function (effort) { return effort === "" ? [] : [{ label: effortLabel(effort), value: effort }]; };
     if (listed.kind !== "read") {
         var failed = listed.kind === "failed";
@@ -192,7 +193,7 @@ function modelChoice(settings, listed, provider) {
         var mark = failed ? " (list not read)" : "";
         return { model: settings.model, effort: settings.effort,
             models: runs.model !== "" ? [{ label: runs.model + mark, value: runs.model }]
-                : failed ? [{ label: "App default" + mark, value: OWN_MODEL }] : [],
+                : failed && !local ? [{ label: "App default" + mark, value: OWN_MODEL }] : [],
             efforts: one(runs.effort) };
     }
     var offers = listed.offers;
@@ -201,6 +202,7 @@ function modelChoice(settings, listed, provider) {
     var ordered = preferred === null ? offers
         : [preferred].concat(offers.filter(function (offer) { return offer !== preferred; }));
     var models = ordered.map(function (offer) { return { label: offer.label, value: offer.value }; });
+    if (local && settings.model === "") return { model: "", effort: "", models: models, efforts: [] };
     var chosen = ordered.filter(function (offer) { return settings.model === "" || offer.value === settings.model; })[0];
     if (chosen === undefined) return { model: settings.model, effort: settings.effort, models: models, efforts: one(settings.effort) };
     var efforts = effortOffers(chosen, PREFERRED_MODELS.some(function (id) { return namesModel(chosen.value, id); }));

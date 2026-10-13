@@ -2988,6 +2988,94 @@ async function runGroupWithServer(name, run) {
     } finally { await server.close(); }
 }
 
+// The real Accounts judge and local server catalog during engine configure.
+// The LM Studio port is free beside this suite's Ollama inference fixture.
+async function localCatalog(kit, root, only) {
+    const { Accounts } = require(path.join(kit.folder, "backend/Accounts.js"));
+    const env = require("./fixtures/jarvis/accounts-world.js").environment();
+    const directory = fs.mkdtempSync(path.join(root, "catalog-"));
+    const judge = new Accounts(directory, env);
+    const local = judge.localRows().find(item => item.row.id === "lm-studio");
+    const id = judge.account(local.row, local.label, { kind: "found" }, local.source).id;
+    let reply, requests = [];
+    const server = http.createServer((request, response) => {
+        assert.equal(request.method, "GET");
+        assert.equal(request.url, "/v1/models");
+        const closed = gate();
+        response.once("close", closed.open);
+        requests.push({ response, closed });
+        if (reply.hold) return;
+        response.writeHead(reply.status ?? 200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ data: reply.data ?? [{ id: "fixture-model" }] }));
+    });
+    await new Promise(resolve => server.listen(local.row.port, "127.0.0.1", resolve));
+    try {
+        for (const row of [
+            { name: "missing", model: "", cause: "brain=model-required", count: 0 },
+            { name: "chosen", model: "fixture-model", kind: "ready" },
+            { name: "unknown", model: "absent", cause: "brain=model-unavailable" },
+            { name: "empty", model: "fixture-model", data: [], cause: "brain=model-unavailable" },
+            { name: "failed", model: "fixture-model", status: 503, cause: "brain=models-unavailable" },
+            { name: "recovered", model: "fixture-model", status: 503, cause: "brain=models-unavailable", recover: true },
+            { name: "backup", model: "absent", fallbacks: [{ brain: id, model: "fixture-model" }], kind: "ready" },
+            { name: "reconfigure", model: "fixture-model", hold: true },
+            { name: "close", model: "fixture-model", hold: true }
+        ].filter(row => only === undefined || row.name === only)) {
+            Fixture.reset({ ready: true });
+            reply = row;
+            const observed = [], faults = [];
+            const engine = kit.Engine.create({ accounts: () => judge, captionLimit: 1,
+                configured: value => observed.push(value), fatal: error => faults.push(error) });
+            const count = requests.length;
+            try {
+                const answer = engine.configure({ brain: id, model: row.model, effort: "", fallbacks: row.fallbacks ?? [] });
+                if (row.count === 0) {
+                    assert.deepEqual(answer, { kind: "unconfigured", cause: row.cause, causes: [row.cause] });
+                    assert.equal(requests.length, count);
+                    assert.equal(engine.modelsHeld(), false);
+                    continue;
+                }
+                assert.equal(answer.cause, "brain=models-reading");
+                assert.equal(engine.modelsHeld(), false, "a read in flight is not restarted by Talk");
+                await until(() => requests.length === count + 1, "one account catalog read");
+                if (row.hold) {
+                    if (row.name === "close") engine.close();
+                    else assert.equal(engine.configure({ brain: id, model: "", effort: "" }).cause, "brain=model-required");
+                    let closed = false;
+                    void requests.at(-1).closed.wait.then(() => { closed = true; });
+                    await until(() => closed, "close and reconfigure abort the catalog connection");
+                    // Complete the aborted request's promise callbacks before
+                    // judging publication. This waits on the event queue, not time.
+                    await new Promise(resolve => setImmediate(resolve));
+                    assert.deepEqual(observed, [], "an obsolete catalog answer cannot publish setup");
+                } else {
+                    await until(() => observed.length !== 0 || faults.length !== 0, "catalog answers configure");
+                    assert.equal(faults.length, 0);
+                    if (row.kind === "ready") {
+                        assert.deepEqual(observed.at(-1), { kind: "ready" });
+                        assert.equal(engine.plan().brain.model, "fixture-model");
+                    } else assert.deepEqual(observed.at(-1), { kind: "unconfigured", cause: row.cause, causes: [row.cause] });
+                    assert.equal(requests.length, count + 1, "a primary and backup on one server share their read");
+                    assert.equal(engine.modelsHeld(), row.kind !== "ready");
+                    if (row.recover) {
+                        reply = {};
+                        const daemon = fs.readFileSync(path.join(kit.folder, "backend/jarvisd.js"), "utf8");
+                        const rule = [...daemon.matchAll(/^ *(if \(\(message\.intent === "talk-down" \|\| message\.intent === "say"\) && [^\n]*judgeSetup\(\);)$/gm)];
+                        assert.equal(rule.length, 1);
+                        vm.runInNewContext(rule[0][1], { message: { intent: "talk-down" }, engine,
+                            judgeSetup: () => engine.configure({ brain: id, model: row.model, effort: "" }) });
+                        await until(() => observed.length === 2, "Talk reads the recovered catalog");
+                        assert.deepEqual(observed.at(-1), { kind: "ready" });
+                        assert.equal(engine.plan().brain.model, "fixture-model");
+                        assert.equal(engine.modelsHeld(), false);
+                    }
+                }
+                assert.equal(faults.length, 0);
+            } finally { engine.close(); }
+        }
+    } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+}
+
 async function groupSelection(root, server) {
     let controls = 0;
     // Without local setup's marker the stock table's local row is the cause.
@@ -3016,6 +3104,30 @@ async function groupSelection(root, server) {
     await assert.rejects(wait(() => false, "unobserved", 20), { operator: "until" });
     await assert.rejects(settled(() => false, () => true, "settled elsewhere"), error => error.operator === "==");
     selection(Fixture.copy(root).Engine);
+    await localCatalog(Fixture.copy(root, [PLAN]), root);
+    for (const [name, needle, replacement, scenario] of [
+        ["local-model-configured", 'judge.choose(id, model ?? settings.model ?? "", models(id))', 'judge.choose(id, "", models(id))', "chosen"],
+        ["local-catalog-read", "            readModels(plan.modelLists);", "", "chosen"],
+        ["local-catalog-cancel", "        for (const read of modelReads.values()) read.stop.abort();", "", "reconfigure"],
+        ["local-catalog-stale", "                if (closed || modelReads.get(id) !== read) return;\n                read.answer = answer;", "                read.answer = answer;", "reconfigure"],
+        ["local-catalog-held", 'modelsHeld: () => plan.kind === "unconfigured" && plan.causes.some(cause => cause === "brain=models-unavailable" || cause === "brain=model-unavailable"),',
+            'modelsHeld: () => false,', "recovered"],
+        ["local-catalog-close", "            cancelModels();\n            voiceList.net?.close();", "            voiceList.net?.close();", "close"]
+    ]) {
+        await assert.rejects(() => localCatalog(Fixture.copy(root, [PLAN, [needle, replacement]]), root, scenario),
+            assert.AssertionError, name + " must turn red");
+        console.log("control=" + name + " detected");
+        controls++;
+    }
+    const catalogRetry = Fixture.copy(root, [PLAN]);
+    const daemonFile = path.join(catalogRetry.folder, "backend/jarvisd.js");
+    const daemonSource = fs.readFileSync(daemonFile, "utf8");
+    const retryNeedle = " || engine.modelsHeld()";
+    assert.equal(daemonSource.split(retryNeedle).length - 1, 1);
+    fs.writeFileSync(daemonFile, daemonSource.replace(retryNeedle, ""));
+    await assert.rejects(() => localCatalog(catalogRetry, root, "recovered"), assert.AssertionError, "local-catalog-talk must turn red");
+    console.log("control=local-catalog-talk detected");
+    controls++;
     brainPlan(Fixture.copy(root, [PLAN]).Engine);
     assert.throws(() => brainPlan(Fixture.copy(root, [PLAN, ["unlistedChoice(settings, account.provider);",
         "{ model: settings.model, effort: settings.effort };"]]).Engine), assert.AssertionError, "brain-plan-unlisted must turn red");
@@ -3740,7 +3852,7 @@ async function groupElevenLabs(root, server) {
                 "known: voices.length !== 0 ? new Set(voices.map(voice => voice.value)) : null"]], []],
             ["elevenlabs-talk-rereads-not", "elevenlabs-voices-retried", [['voicesHeld: () => plan.speech?.kind === "unconfigured" && plan.speech.cause === "speech=elevenlabs-voice",',
                 "voicesHeld: () => false,"]], []],
-            ["elevenlabs-daemon-talk-rereads-not", "elevenlabs-voices-retried", [], [["jarvisd.js", "(engine.homeHeld() || engine.voicesHeld())", "engine.homeHeld()"]]],
+            ["elevenlabs-daemon-talk-rereads-not", "elevenlabs-voices-retried", [], [["jarvisd.js", "(engine.homeHeld() || engine.voicesHeld() || engine.modelsHeld())", "engine.homeHeld()"]]],
             ["elevenlabs-heard-uncredited", "elevenlabs-barge-in", [], [["ElevenLabs.js",
                 "yield { pcm: held, sentence: { text: item.content, frames: held.length / 2 } };", "yield { pcm: held };"]]],
             ["elevenlabs-flush-keeps-request", "elevenlabs-barge-in", [FLUSH_RETURNS], []],

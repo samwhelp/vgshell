@@ -319,8 +319,8 @@ async function inside() {
     await control("home-refusal", 'return { path: folder, state: { kind: "refused", cause } };', 'return { path: folder, state: { kind: "none" } };', homeStatus);
     await control("home-engine", "directories: context.directories, home: () => homeFolder.state, rejudge: judgeSetup });", "directories: context.directories, rejudge: judgeSetup });", homeStatus);
     await control("home-each-hello", "                judgeSetup();\n", "                if (first) judgeSetup(); else configured(engine.configure(context.settings));\n", homeStatus);
-    await control("home-rejudged", " && (engine.homeHeld() || engine.voicesHeld())) judgeSetup();", " && (engine.homeHeld() || engine.voicesHeld())) void judgeSetup;", homeStatus);
-    await control("home-rejudged-held", ' && (engine.homeHeld() || engine.voicesHeld())) judgeSetup();', ') judgeSetup();', homeStatus);
+    await control("home-rejudged", " && (engine.homeHeld() || engine.voicesHeld() || engine.modelsHeld())) judgeSetup();", " && (engine.homeHeld() || engine.voicesHeld() || engine.modelsHeld())) void judgeSetup;", homeStatus);
+    await control("home-rejudged-held", ' && (engine.homeHeld() || engine.voicesHeld() || engine.modelsHeld())) judgeSetup();', ') judgeSetup();', homeStatus);
     // Homes offered to Settings are daemon state records, never files below
     // a Jarvis home: startup publishes the saved list, an accepted home joins
     // homes.json and the homes message. A refused folder clears current
