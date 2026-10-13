@@ -85,7 +85,7 @@ function stateLabel(state, source) {
  * state, source, plan, email, whether its Pi needs an update and whether
  * the email disagrees with the folder name. A signed-out row's badge already says so, so its hint names only a
  * mismatch. A hint of one sentence ends with no full stop, and each
- * sentence of a longer one ends with one (design-system.md § Copy).
+ * sentence of a longer one ends with one (docs/architecture/design-system.md § Copy).
  */
 function accountHint(account) {
     var mismatch = account.mismatch === true ? "The email does not match the folder name" : "";

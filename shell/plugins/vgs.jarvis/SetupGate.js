@@ -185,7 +185,7 @@ var CHECKING_SUMMARY = { tone: "info", text: "Checking" };
 var LOADING_SUMMARY = { tone: "info", text: "Loading" };
 var STATUS_TEXT_MAX = 200;
 // A hint of one sentence ends with no full stop, and each sentence of a
-// longer one ends with one (design-system.md § Copy). TEXT, such a hint,
+// longer one ends with one (docs/architecture/design-system.md § Copy). TEXT, such a hint,
 // as one sentence of a longer text or of a notice: ending with a full stop.
 function sentence(text) {
     return /\.$/.test(text) ? text : text + ".";

@@ -253,7 +253,7 @@ const CLONED = [
 function sentences(text) {
     return text.split(/(?<=[.?!]) +/);
 }
-// Whether hint TEXT keeps the copy rule (design-system.md § Copy): a hint
+// Whether hint TEXT keeps the copy rule (docs/architecture/design-system.md § Copy): a hint
 // of one sentence ends with no full stop, and each sentence of a longer
 // hint ends with one.
 function hintFits(text) {
