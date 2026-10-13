@@ -53,7 +53,6 @@ check "the checker reports the manifest it used" grep_out "install-tree=ok root=
 check "the command link points into share/vgshell" test "$(readlink -- "$dest/usr/bin/vgshell")" = "../share/vgshell/bin/vgshell"
 check "the installed command reads VERSION from the install tree" test "$("$dest/usr/bin/vgshell" --version)" = "vgshell $(<"$repo/VERSION")"
 check "shell AGENTS.md is not installed" test ! -e "$dest/usr/share/vgshell/shell/AGENTS.md"
-check "shell CLAUDE.md is not installed" test ! -e "$dest/usr/share/vgshell/shell/CLAUDE.md"
 check "shell plugin README.md is not installed" test ! -e "$dest/usr/share/vgshell/shell/plugins/vgs.bar/README.md"
 check "a plugin's other Markdown is not installed" test ! -e "$dest/usr/share/vgshell/shell/plugins/vgs.updates/pipeline.md"
 check "the Updates review's instructions are installed" test -e "$dest/usr/share/vgshell/shell/plugins/vgs.updates/review/third-party.md"

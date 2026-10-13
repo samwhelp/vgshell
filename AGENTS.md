@@ -43,7 +43,7 @@ A desktop shell for Hyprland, built on Quickshell 0.3.1. A small fixed core star
 - Before touching the Jarvis daemon, its wire, a brain or a tool executor: `docs/architecture/jarvis.md`; before any path by which content or a credential leaves it: `docs/architecture/jarvis-outbound.md`.
 - Before touching `scripts/validate`, a row, its inputs or its verdict, a test's environment, the nested sandbox and its harness, a fault the smoke excuses, a latency or resident-size budget, or a Jarvis test: `docs/architecture/validation.md`.
 - Before writing a plugin, running validation, regenerating the README's plugin table or images, or changing a licence: `DEVELOPMENT.md`.
-- When working under `shell/`, `shell/plugins/`, `shell/Ui/`, `shell/Commons/` or `scripts/`: that directory's `AGENTS.md`, which Claude Code loads through the `CLAUDE.md` beside it. Pi and Codex load only the root-to-cwd chain, so an agent there reads the nested file first.
+- When working under `shell/`, `shell/plugins/`, `shell/Ui/`, `shell/Commons/` or `scripts/`: that directory's `AGENTS.md`, which Claude Code loads natively. Pi and Codex load only the root-to-cwd chain, so an agent there reads the nested file first.
 
 ## Code Review Rules
 
