@@ -251,25 +251,6 @@ FocusScope {
         }
     }
 
-    // One schema setting's row, drawn from FORM, this page, and written
-    // through its panel.
-    component SchemaField: SettingField {
-        required property string modelData
-        required property Item form
-
-        pluginId: form.row.id
-        key: modelData
-        spec: form.row.schema[modelData]
-        value: form.row.settings[modelData]
-        choices: form.row.settingChoices[modelData] || []
-        status: form.row.status
-        editable: form.editable
-        onApply: v => { if (form !== null && form.row !== null) form.panel.writeSetting(pluginId, key, v); }
-        onOpenLink: link => { if (form !== null && form.row !== null) form.panel.openLink(pluginId, link); }
-        onOpenPage: (id, tab) => { if (form !== null && form.panel !== null) form.panel.openPage(id, tab); }
-        onChoicesWanted: if (form !== null && form.row !== null) form.panel.refreshChoices(pluginId, spec.optionsFrom)
-    }
-
     // Show the page as it opens: on TAB, a tab's text, or on Settings when
     // the page has no such tab, the back button focused.
     function open(reason, tab) {
@@ -454,10 +435,21 @@ FocusScope {
                             model: ScriptModel {
                                 values: page.fields
                             }
-                            SchemaField {
+                            SettingField {
+                                required property string modelData
                                 width: switches.width
-                                form: page
+                                pluginId: page.row.id
+                                key: modelData
+                                spec: page.row.schema[modelData]
+                                value: page.row.settings[modelData]
+                                choices: page.row.settingChoices[modelData] || []
+                                status: page.row.status
+                                editable: page.editable
                                 edits: unsaved
+                                onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
+                                onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
+                                onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
+                                onChoicesWanted: if (page !== null && page.row !== null) page.panel.refreshChoices(pluginId, spec.optionsFrom)
                             }
                         }
                     }
@@ -504,10 +496,21 @@ FocusScope {
                                 model: ScriptModel {
                                     values: section.modelData.keys
                                 }
-                                SchemaField {
+                                SettingField {
+                                    required property string modelData
                                     width: section.width
-                                    form: page
+                                    pluginId: page.row.id
+                                    key: modelData
+                                    spec: page.row.schema[modelData]
+                                    value: page.row.settings[modelData]
+                                    choices: page.row.settingChoices[modelData] || []
+                                    status: page.row.status
+                                    editable: page.editable
                                     edits: unsaved
+                                    onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
+                                    onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
+                                    onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
+                                    onChoicesWanted: if (page !== null && page.row !== null) page.panel.refreshChoices(pluginId, spec.optionsFrom)
                                 }
                             }
 
