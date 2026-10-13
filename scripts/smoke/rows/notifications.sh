@@ -3019,7 +3019,7 @@ python3 "$source_repo/scripts/smoke/fixtures/ai-usage/edit.py" "$service_qml" \
   'message: "Saved notifications, Do Not Disturb, Sound and read marks were reset after this update. Your previous state was set aside as " + archive.slice(archive.lastIndexOf("/") + 1) + ".",' || fail "the previous recovery copy control could not be written"
 rescan "the previous recovery copy is published"
 expect_poll "the previous-copy service is ready" '"loaded"' note_status store.state
-recovery_archive_args="$(printf '\n' | py_reply 'import glob,json,sys; files=sorted(glob.glob(sys.argv[1])); print(json.dumps({"args": [files[-1]]}) if files else "absent")' "${note_state%.json}.set-aside-*.json")" || fail "the archived file is unreadable for the copy control"
+recovery_archive_args="$(printf '[]\n' | py_reply 'import glob,json,sys; files=sorted(glob.glob(sys.argv[1])); print(json.dumps({"args": [files[-1]]}) if files else "absent")' "${note_state%.json}.set-aside-*.json")" || fail "the archive arguments could not be built for the copy control"
 if [[ $recovery_archive_args == absent ]]; then fail "the archived file is absent for the copy control"
 else expect "the previous recovery copy is sent" "" ipc smoke invokeInstanceArgs service vgs.notifications stateRecovered "$recovery_archive_args"; fi
 expect_poll "the previous recovery copy reaches the real card" '[[2,"warning"]]' recovery_notice_rows
