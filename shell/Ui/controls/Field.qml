@@ -14,7 +14,12 @@ import qs.Ui
 // the control and the hint, such as what a setup step still needs. Form
 // feedback is this plain sentence-case line; a chip, a fill or capitals
 // mark only a state the user must act on now. An
-// inline hint starts under the value column. Width comes from the parent;
+// inline hint starts under the value column, `field.gap` under the value
+// however far the label column reaches, a label of two lines or an info
+// mark beside it, and the field ends with the lower of the hint and the row
+// box, so a label taller than the value and the hint still ends the row.
+// `inkBelow()` is how far above its bottom edge the lowest drawn part
+// ends: the row's, its lines' or its hint's. Width comes from the parent;
 // the label, the control and the hint sit `field.paddingX` in from each
 // side. The default is zero, so a field's unboxed label sits on the
 // container's content edge and its control ends on that edge. `valueX` is
@@ -46,7 +51,21 @@ Column {
     leftPadding: Theme.field.paddingX
     rightPadding: Theme.field.paddingX
     bottomPadding: Theme.subTextRoom(subText, Positioner.index, Positioner.isLastItem, parent)
-    spacing: Theme.field.gap
+    // An inline field's lines take their gap from the value, inside the
+    // slot, which starts at the row box's bottom.
+    spacing: inline ? 0 : Theme.field.gap
+
+    // No child's `y` is read, since a positioner sets it on a later polish
+    // than a page's height is read for a resize (Theme.inkBelow); the slot
+    // takes `spacing` under the row while it has height, and a Column skips
+    // a child of none.
+    function inkBelow() {
+        const room = hintSlot.visible && hintSlot.height > 0 ? spacing + hintSlot.height : 0;
+        const below = bottomPadding + room + controlRow.inkBelow();
+        if (!subText) return below;
+        const slotTop = bottomPadding + room - spacing;
+        return Math.min(below, slotTop - hintSlot.textBottom + hintSlot.textInkBelow());
+    }
 
     Item {
         id: labelLine
@@ -89,19 +108,21 @@ Column {
         id: hintSlot
         visible: root.subText
         width: root.bodyWidth
-        readonly property real slack: {
-            if (!root.inline) return 0;
-            let bottom = 0;
-            for (const child of controlRow.children) {
-                if (child.visible) bottom = Math.max(bottom, child.y + child.height);
-            }
-            return Math.max(0, controlRow.height - bottom);
-        }
+        // Where the lines start in the slot: `field.gap` under the value,
+        // which a taller label column centres lower in the row box, so
+        // above the slot's top while the box reaches more than the gap
+        // under the value.
+        readonly property real textTop: root.inline ? controlRow.valueBottom + Theme.field.gap - controlRow.height : 0
         // The lines' block, then the hint `field.gap` under it; the last
-        // of them ends the slot.
-        function inkBelow() { return hintLine.text !== "" ? hintLine.inkBelow() : Theme.inkBelow(subLines); }
+        // of them ends the text, and the text or the row box the slot.
         readonly property real linesHeight: root.lines.length > 0 ? subLines.implicitHeight + (hintLine.text !== "" ? Theme.field.gap : 0) : 0
-        height: Math.max(0, linesHeight + (hintLine.text !== "" ? hintLine.implicitHeight : 0) - slack)
+        readonly property real textBottom: textTop + linesHeight + (hintLine.text !== "" ? hintLine.implicitHeight : 0)
+        function textInkBelow() { return hintLine.text !== "" ? hintLine.inkBelow() : Theme.inkBelow(subLines); }
+        // How far the text sits below where the slot is: none while the
+        // Column places it, and the slot's stale `y` for a slot of no
+        // height, which the Column skips.
+        readonly property real shift: controlRow.y + controlRow.height + root.spacing - y
+        height: Math.max(0, textBottom)
 
         LinkText {
             id: hintLine
@@ -110,7 +131,7 @@ Column {
             link: root.error !== "" ? "" : root.hintLink
             color: root.error !== "" ? Theme.color.danger : Theme.text.hint.color
             x: controlRow.valueX
-            y: hintSlot.linesHeight - hintSlot.slack
+            y: hintSlot.shift + hintSlot.textTop + hintSlot.linesHeight
             width: parent.width - x
             wrapMode: Text.Wrap
             onActivated: root.hintLinkActivated()
@@ -120,7 +141,7 @@ Column {
         Column {
             id: subLines
             x: hintLine.x
-            y: -hintSlot.slack
+            y: hintSlot.shift + hintSlot.textTop
             width: parent.width - x
             spacing: Theme.field.gap
 

@@ -51,7 +51,9 @@ import qs.Ui
 // `labelColumn` is false the row draws no label and keeps
 // no row height: the control takes the full width at its own height, as a
 // Field whose label stands above its control does. `valueX` is where the
-// value column starts, for content that belongs under it. Width comes from
+// value column starts, for content that belongs under it, and
+// `valueBottom` where the value's box ends in the row, for content under
+// the value. Width comes from
 // the parent. `inkBelow()` is how far above its bottom edge the row's
 // lowest drawn part ends, its label, its control as drawn, its message or
 // an action on a line of its own under that message, since the control
@@ -76,6 +78,7 @@ Item {
     readonly property real messageLine: actionBelow ? message.height + Theme.field.gap + actionItem.height : message.height
     readonly property real valueX: labelColumn ? Theme.field.labelWidth + Theme.field.labelGap : 0
     readonly property real valueRoom: Math.max(0, width - valueX)
+    readonly property real valueBottom: slot.y + slot.height
     readonly property real messageRoom: warning === "" ? 0 : Theme.field.gap + messageLine
     readonly property real controlEnd: {
         let end = 0;

@@ -465,7 +465,10 @@ Item {
             verify(fields.some(item => item.pluginId === "acme.unit-clock" && item.visible));
             verify(fields.some(item => item.key === "format" && item.visible));
             verify(sections().some(item => item.title === "Bar" && descendants(item).some(child => child.key === "hidden")));
-            verify(sections().some(item => item.title === "" && descendants(item).some(child => child.key === "plain")));
+            verify(sections().every(item => !descendants(item).some(child => child.key === "plain")), "a field of no group draws in no section");
+            const plain = descendants(page).find(item => item instanceof SettingField && item.key === "plain");
+            verify(plain !== undefined && plain.visible, "a field of no group draws");
+            verify(plain.mapToItem(page, 0, 0).y < clockSections[0].mapToItem(page, 0, 0).y, "a field of no group draws above the sections");
             releasePage(page, original);
         }
 

@@ -487,7 +487,7 @@ Item {
             const row = field.children.find(child => child.objectName === "fieldRow");
             const hint = field.children.find(child => child.height > 0 && child.children.length > 0 && child.children[0].role === "hint");
             verify(row !== undefined && hint !== undefined, "the field holds its row and its hint");
-            compare(hint.y - (row.y + row.height), Theme.field.gap);
+            compare(hint.children[0].mapToItem(field, 0, 0).y - (row.y + row.valueBottom), Theme.field.gap, "the hint sits under the value");
         }
     }
 }

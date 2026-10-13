@@ -16,8 +16,9 @@ import "Steps.js" as Steps
 // switch of a plugin with a bar widget and another kind besides bar and
 // bar-widget, which stays enabled once unplaced, the switch turning only
 // while the plugin is enabled (for a widget-only plugin Enabled is the
-// placement), then one settings section
-// per schema group (entries without a group have no heading), one
+// placement), and the settings of no schema group, rows of one list
+// `stack.row` apart with no heading, then one settings section per
+// built-in and per schema group, one
 // section per `list` entry, titled with its label, and the Keys section,
 // then, for a plugin of kind `pane` while a panes holder is enabled, a
 // button named for the holder that opens the plugin's page there. A
@@ -109,23 +110,27 @@ FocusScope {
     // or null.
     readonly property var paneHolder: row === null || row.paneHolder === "" ? null : panel.plugins.find(p => p.id === row.paneHolder) || null
     // Whether the Settings page holds nothing below its switches.
-    readonly property bool bare: row !== null && row.builtins.length === 0 && sections.length === 0 && lists.length === 0 && row.binds.length === 0 && paneHolder === null
+    readonly property bool bare: row !== null && row.builtins.length === 0 && fields.length === 0 && sections.length === 0 && lists.length === 0 && row.binds.length === 0 && paneHolder === null
     // Whether a field of the page holds an unsaved edit.
     readonly property bool dirty: unsaved.edited
 
-    // Built-in placement and same-named schema fields share one section.
-    // Ungrouped fields follow built-ins, then each group in the order its
-    // first entry appears. The manifest's key order is the schema's. A `list` entry
-    // whose group exists on the page follows that group; one whose group is
-    // absent stays with ungrouped lists at the end. A `hideEmpty` field has
-    // no place while its select model is empty: nothing is offered for it.
+    // Fields of no group are rows under the switches, `fields`, before
+    // every section. Built-in placement and same-named schema fields share
+    // one section; the built-ins come first, then each group in the order
+    // its first entry appears. The manifest's key order is the schema's. A
+    // `list` entry whose group exists on the page follows that group; one
+    // whose group is absent stays with ungrouped lists at the end. A
+    // `hideEmpty` field has no place while its select model is empty:
+    // nothing is offered for it.
+    function placed(key) {
+        return row.schema[key].type !== "list" && !(row.schema[key].hideEmpty === true && (row.settingChoices[key] || []).length === 0);
+    }
+    readonly property var fields: row === null ? [] : Object.keys(row.schema).filter(key => row.schema[key].group === undefined && placed(key))
     readonly property var sections: {
         if (row === null) return [];
         const out = row.builtins.map(builtin => ({ group: builtin.name, keys: [], builtin: builtin }));
-        out.push({ group: "", keys: [], builtin: null });
-        const hidden = key => row.schema[key].hideEmpty === true && (row.settingChoices[key] || []).length === 0;
-        for (const key of Object.keys(row.schema).filter(key => row.schema[key].type !== "list" && !hidden(key))) {
-            const group = row.schema[key].group === undefined ? "" : row.schema[key].group;
+        for (const key of Object.keys(row.schema).filter(key => row.schema[key].group !== undefined && placed(key))) {
+            const group = row.schema[key].group;
             let section = out.find(s => s.group === group);
             if (section === undefined) {
                 section = { group: group, keys: [], builtin: null };
@@ -133,16 +138,15 @@ FocusScope {
             }
             section.keys.push(key);
         }
-        const kept = out.filter(s => s.builtin !== null || s.keys.length > 0);
         for (const key of Object.keys(row.schema).filter(key => row.schema[key].type === "list")) {
             const group = row.schema[key].group;
-            const section = group === undefined ? undefined : kept.find(s => s.group === group);
+            const section = group === undefined ? undefined : out.find(s => s.group === group);
             if (section !== undefined) {
                 if (section.lists === undefined) section.lists = [];
                 section.lists.push(key);
             }
         }
-        return kept;
+        return out;
     }
 
     readonly property var lists: {
@@ -245,6 +249,25 @@ FocusScope {
                 }
             }
         }
+    }
+
+    // One schema setting's row, drawn from FORM, this page, and written
+    // through its panel.
+    component SchemaField: SettingField {
+        required property string modelData
+        required property Item form
+
+        pluginId: form.row.id
+        key: modelData
+        spec: form.row.schema[modelData]
+        value: form.row.settings[modelData]
+        choices: form.row.settingChoices[modelData] || []
+        status: form.row.status
+        editable: form.editable
+        onApply: v => { if (form !== null && form.row !== null) form.panel.writeSetting(pluginId, key, v); }
+        onOpenLink: link => { if (form !== null && form.row !== null) form.panel.openLink(pluginId, link); }
+        onOpenPage: (id, tab) => { if (form !== null && form.panel !== null) form.panel.openPage(id, tab); }
+        onChoicesWanted: if (form !== null && form.row !== null) form.panel.refreshChoices(pluginId, spec.optionsFrom)
     }
 
     // Show the page as it opens: on TAB, a tab's text, or on Settings when
@@ -386,7 +409,11 @@ FocusScope {
                     id: settingsPage
                     spacing: Theme.stack.page
 
+                    // The switches, then the fields of no group, rows of
+                    // one list, so a row with a hint leaves `stack.group`
+                    // before the next (Theme.subTextRoom).
                     Column {
+                        id: switches
                         width: parent.width
                         spacing: Theme.stack.row
 
@@ -420,6 +447,17 @@ FocusScope {
                                     checked = Qt.binding(() => page.row !== null && page.row.placed);
                                     if (page.row !== null) page.panel.togglePlaced(page.row.id);
                                 }
+                            }
+                        }
+
+                        Repeater {
+                            model: ScriptModel {
+                                values: page.fields
+                            }
+                            SchemaField {
+                                width: switches.width
+                                form: page
+                                edits: unsaved
                             }
                         }
                     }
@@ -466,21 +504,10 @@ FocusScope {
                                 model: ScriptModel {
                                     values: section.modelData.keys
                                 }
-                                SettingField {
-                                    required property string modelData
+                                SchemaField {
                                     width: section.width
-                                    pluginId: page.row.id
-                                    key: modelData
-                                    spec: page.row.schema[modelData]
-                                    value: page.row.settings[modelData]
-                                    choices: page.row.settingChoices[modelData] || []
-                                    status: page.row.status
-                                    editable: page.editable
+                                    form: page
                                     edits: unsaved
-                                    onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
-                                    onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
-                                    onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
-                                    onChoicesWanted: if (page !== null && page.row !== null) page.panel.refreshChoices(pluginId, spec.optionsFrom)
                                 }
                             }
 
@@ -548,7 +575,7 @@ FocusScope {
                         width: parent.width
                         visible: page.row !== null && page.row.binds.length > 0
                         title: "Keys"
-                        description: "Select a shortcut and press its new keys."
+                        description: "Select a shortcut and press its new keys"
 
                         Repeater {
                             model: ScriptModel {

@@ -13,7 +13,9 @@ import qs.Unit
 // moves every component that follows it. A group space, `stack.group`,
 // comes before a group: a button row after text, the row after a row's
 // lines, hint or error line, and a section's first row after its
-// description.
+// description. A row's hint starts `field.gap` under its value whatever
+// its label column draws, a label of two lines or an info mark, and a
+// label taller than the value and the hint still ends the row.
 Item {
     id: root
     width: 400
@@ -89,6 +91,18 @@ Item {
         Field { id: afterLines; label: "Voice"; inline: true; width: parent.width; Badge { text: "Done" } }
         Field { id: linedHinted; label: "Browser"; lines: ["One line"]; hint: "Set up the browser."; inline: true; width: parent.width; Badge { text: "Optional" } }
         Field { id: afterBoth; label: "Input"; inline: true; width: parent.width; Badge { text: "Optional" } }
+    }
+    Column {
+        id: labelRows
+        x: 420
+        y: 0
+        width: 300
+        spacing: Theme.stack.row
+        Field { id: oneLineLabel; label: "Voice"; hint: "Get a key first"; inline: true; width: parent.width; Badge { id: oneLineChip; text: "No key" } }
+        Field { id: twoLineLabel; label: "Claude Code and the Team account"; hint: "Get a key first"; inline: true; width: parent.width; Badge { id: twoLineChip; text: "No key" } }
+        Field { id: infoLabel; label: "Cloned voice"; info: "Records your voice once."; hint: "Get a key first"; inline: true; width: parent.width; Badge { id: infoChip; text: "No key" } }
+        Field { id: tallLabel; label: "A label long enough to wrap onto more lines of the label column than the value and its hint take"; hint: "Set"; inline: true; width: parent.width; Badge { id: tallChip; text: "No key" } }
+        Field { id: afterTall; label: "Input"; inline: true; width: parent.width; Badge { text: "Optional" } }
     }
     Section {
         id: blockSection
@@ -293,6 +307,38 @@ Item {
             const hint = linedHinted.children[2].children[0];
             same(() => hint.mapToItem(linedRows, 0, 0).y - bottom(lines(linedHinted)[0], linedRows), Theme.field.gap, "the hint under the lines");
             same(() => topIn(afterBoth, linedRows) - lineBottom(linedHinted, linedRows), Theme.stack.group, "the row after lines and a hint");
+        }
+
+        // The label of a row as drawn.
+        function labelOf(field) { return field.children[1].children[0]; }
+
+        // A label of two lines or an info mark beside the value moves no
+        // hint: each starts `field.gap` under the chip, as the one-line
+        // row's does.
+        function test_a_hint_keeps_its_distance_from_the_value_data() {
+            return [
+                { tag: "a one-line label", field: oneLineLabel, chip: oneLineChip, lines: 1 },
+                { tag: "a two-line label", field: twoLineLabel, chip: twoLineChip, lines: 2 },
+                { tag: "a label with an info mark", field: infoLabel, chip: infoChip, lines: 1 }
+            ];
+        }
+        function test_a_hint_keeps_its_distance_from_the_value(data) {
+            compare(labelOf(data.field).lineCount, data.lines);
+            same(() => hintGap(data.field, data.chip), Theme.field.gap, "the hint under the chip");
+            same(() => hintGap(data.field, data.chip), hintGap(oneLineLabel, oneLineChip), "the one-line row's hint distance");
+        }
+
+        // A label that reaches below the value and the hint ends the row:
+        // the hint keeps its place under the chip, the next row starts a
+        // group space under the label, and the row's ink is the label's.
+        function test_a_tall_label_ends_its_row() {
+            const label = labelOf(tallLabel);
+            const hint = tallLabel.children[2].children[0];
+            const labelBottom = label.mapToItem(labelRows, 0, label.height).y;
+            verify(hint.mapToItem(labelRows, 0, hint.height).y < labelBottom, "the hint ends above the label's last line");
+            same(() => hintGap(tallLabel, tallChip), Theme.field.gap, "the hint under the chip");
+            same(() => topIn(afterTall, labelRows) - labelBottom, Theme.stack.group, "the row after the label");
+            same(() => Theme.inkBelow(tallLabel), tallLabel.height - (labelBottom - topIn(tallLabel, labelRows)) + label.inkBelow(), "the row's ink ends at the label's");
         }
 
         // A section of blocks, such as a state over a button row, sets its

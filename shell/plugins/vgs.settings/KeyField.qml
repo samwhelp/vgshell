@@ -137,8 +137,8 @@ BindField {
         function onTyped() { if (root.edits !== null && sent.accepted) root.edits.wrote(); }
     }
 
-    hint: removed !== null ? "Removed line " + removed.line + " of " + removed.place + "."
-        : defaultKeys.length === 0 ? "No default shortcut." : "Default shortcut: " + defaultLabel + "."
+    hint: removed !== null ? "Removed line " + removed.line + " of " + removed.place
+        : defaultKeys.length === 0 ? "No default shortcut" : "Default shortcut: " + defaultLabel
     error: problem
     hintLink: citedLine === null || citedLine.config === "" ? "" : citedLine.place + " line " + citedLine.line
     onHintLinkActivated: if (citedLine !== null) lineAsked(citedLine)
