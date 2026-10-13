@@ -185,6 +185,8 @@ No AI model can change anything in the folder but its `state/` part, except thro
 
 A size limit applies only to the text every conversation starts with: `AGENTS.md`, at 8 KB, and the list of skill names and first lines, at 8 KB for the whole list and 256 entries in `skills/own/` or in one skill's `references/` or `workflows/`. That text uses space in every conversation. Jarvis starts no conversation with a folder that is over a limit, and says which limit. A skill, a reference or a workflow uses space only in the conversation that reads it, so it has no limit.
 
+VGS supplies the Jarvis skill and no agent. An agent is a set of instructions for one kind of work, such as tax or legal work, that the skill can name. kendex installs the agents together with its Jarvis skill, for your own session in the folder. A folder without kendex has none of them, and the AI models that Jarvis starts use none.
+
 The folder gives Jarvis knowledge, never permission. A skill that says an action needs no question changes nothing: Jarvis still asks before it deletes a file, runs a command or sends something.
 
 The AI models never run inside this folder. A setting, hook or server that you keep there for your own tools does not run in Jarvis. Each app's own memory is off while Jarvis uses the app.
