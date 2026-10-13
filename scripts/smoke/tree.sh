@@ -4,10 +4,13 @@
 # tree_export CHECKOUT REV DIR: extract the product tree and its
 # installer files into DIR. Non-zero when git or tar fails.
 tree_export() {
-  local checkout="$1" rev="$2" dir="$3" package=()
-  # A revision from before VGS-1195 holds no Jarvis base package, and git
+  local checkout="$1" rev="$2" dir="$3" package=() at
+  # The Jarvis base package a revision holds: none before VGS-1195, the
+  # jarvis skill until VGS-1542, then the package's home render. git
   # archive refuses a path the revision lacks.
-  ! git -C "$checkout" cat-file -e "$rev:.agents/skills/jarvis" 2>/dev/null || package=(.agents/skills/jarvis)
+  for at in .agents/skills/jarvis packaging/jarvis-home; do
+    ! git -C "$checkout" cat-file -e "$rev:$at" 2>/dev/null || package+=("$at")
+  done
   git -C "$checkout" archive "$rev" shell bin config themes "${package[@]}" VERSION LICENSE README.md | tar -x -C "$dir"
 }
 
@@ -21,13 +24,14 @@ import pathlib, shutil, sys
 source, target, tree = map(pathlib.Path, sys.argv[1:])
 for directory in ("shell", "bin", "config", "themes"):
     shutil.copytree(tree / directory, target / directory)
-# The base package Jarvis copies into a home folder (backend/Core.js
-# basePackage): without it Jarvis refuses every home folder as home=package.
-# A tree exported from before VGS-1195 holds none.
-package = pathlib.Path(".agents/skills/jarvis")
-if (tree / package).is_dir():
-    shutil.copytree(tree / package, target / package)
 shutil.copytree(source / "packaging", target / "packaging")
+# The base package Jarvis copies into a home folder (backend/Core.js), the
+# revision's own: without it Jarvis refuses every home folder as
+# home=package. A tree exported from before VGS-1195 holds none.
+for package in map(pathlib.Path, (".agents/skills/jarvis", "packaging/jarvis-home")):
+    shutil.rmtree(target / package, ignore_errors=True)
+    if (tree / package).is_dir():
+        shutil.copytree(tree / package, target / package)
 shutil.copytree(source / "scripts", target / "scripts")
 for file_name in ("VERSION", "LICENSE", "README.md"):
     origin = tree / file_name

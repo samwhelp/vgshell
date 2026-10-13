@@ -62,15 +62,17 @@ check "Jarvis screen guidance is installed" test -e "$dest/usr/share/vgshell/she
 check "installed computer help reads its packaged files" "$node_bin" -e 'const h=require(process.argv[1]).create(); if(JSON.stringify(h.topics())!==JSON.stringify(["input","shell","vision"]))process.exit(1); h.start({id:"help",args:{topic:"input"}},r=>{if(r.outcome!=="completed"||!r.content.includes("input.text"))process.exit(1)}); h.start({id:"help",args:{topic:"shell"}},r=>{if(r.outcome!=="completed"||!r.content.includes("shell.argv"))process.exit(1)}); h.start({id:"help",args:{topic:"vision"}},r=>{if(r.outcome!=="completed"||!r.content.includes("vision.area"))process.exit(1)});' "$dest/usr/share/vgshell/shell/plugins/vgs.jarvis/backend/ComputerHelp.js"
 check "Jarvis runtime guidance is installed" test -e "$dest/usr/share/vgshell/shell/plugins/vgs.jarvis/backend/skills/voice/core.md"
 # The installed jarvis skill is the base package of every Jarvis home: the
-# checkout's kendex render, with no project-instructions block of this
-# repository's own. Only grep's no-match status passes; a read error fails.
+# checkout's kendex render of the Jarvis package, with no
+# project-instructions block of this repository's own. Only grep's no-match
+# status passes; a read error fails.
 holds_no_project_instructions() { # FILE
   local rc=0
   grep -qF -- 'kendex:project-instructions' "$1" || rc=$?
   [[ $rc == 1 ]]
 }
-installed_skill="$dest/usr/share/vgshell/.agents/skills/jarvis/SKILL.md"
-check "the installed jarvis skill equals the checkout's render" cmp -s -- "$installed_skill" "$repo/.agents/skills/jarvis/SKILL.md"
+installed_skill="$dest/usr/share/vgshell/packaging/jarvis-home/.agents/skills/jarvis/SKILL.md"
+check "the installed jarvis skill equals the checkout's render" cmp -s -- "$installed_skill" "$repo/packaging/jarvis-home/.agents/skills/jarvis/SKILL.md"
+check "the installed render keeps its lock" cmp -s -- "$dest/usr/share/vgshell/packaging/jarvis-home/.kendex-lock.json" "$repo/packaging/jarvis-home/.kendex-lock.json"
 check "the installed jarvis skill carries no project instructions" holds_no_project_instructions "$installed_skill"
 planted_skill="$tmp/planted-SKILL.md"
 cp -- "$installed_skill" "$planted_skill"
@@ -214,7 +216,6 @@ check "a failing git enumerator creates no DESTDIR file" test ! -e "$enum_dest"
 archive_source="$tmp/archive-source"
 mkdir -p -- "$archive_source"
 cp -R -- "$repo/bin" "$repo/shell" "$repo/config" "$repo/themes" "$repo/packaging" "$archive_source/"
-mkdir -p -- "$archive_source/.agents/skills" && cp -R -- "$repo/.agents/skills/jarvis" "$archive_source/.agents/skills/"
 cp -- "$repo/VERSION" "$repo/LICENSE" "$repo/README.md" "$archive_source/"
 mkdir -p -- "$archive_source/shell/unreadable"
 chmod 000 -- "$archive_source/shell/unreadable"
@@ -228,7 +229,6 @@ check "a failing archive enumerator creates no DESTDIR file" test ! -e "$tmp/arc
 readonly_source="$tmp/readonly-source"
 mkdir -p -- "$readonly_source"
 cp -R -- "$repo/bin" "$repo/shell" "$repo/config" "$repo/themes" "$repo/packaging" "$readonly_source/"
-mkdir -p -- "$readonly_source/.agents/skills" && cp -R -- "$repo/.agents/skills/jarvis" "$readonly_source/.agents/skills/"
 cp -- "$repo/VERSION" "$repo/LICENSE" "$repo/README.md" "$readonly_source/"
 chmod -R a-w -- "$readonly_source"
 run_capture "$tmp/readonly-source.out" "$tmp/readonly-source.err" status env DESTDIR="$tmp/readonly-source-install" PREFIX=/usr "$readonly_source/packaging/install-system.sh"
@@ -270,7 +270,6 @@ check "--write reports the manifest path" grep_out "install-tree=manifest-update
 source_copy="$tmp/source"
 mkdir -p -- "$source_copy"
 cp -R -- "$repo/bin" "$repo/shell" "$repo/config" "$repo/themes" "$repo/packaging" "$source_copy/"
-mkdir -p -- "$source_copy/.agents/skills" && cp -R -- "$repo/.agents/skills/jarvis" "$source_copy/.agents/skills/"
 cp -- "$repo/VERSION" "$repo/LICENSE" "$repo/README.md" "$source_copy/"
 python3 - "$source_copy/packaging/install-system.sh" <<'PY'
 import pathlib

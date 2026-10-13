@@ -913,8 +913,8 @@ fi
 # package and its installer files. The harness copies this revision's product
 # files and this checkout's smoke scripts, without starting a compositor.
 helper_repo="$tmp/helper-repo"
-mkdir -p "$helper_repo/bin/lib" "$helper_repo/shell" "$helper_repo/config" "$helper_repo/themes" "$helper_repo/.agents/skills/jarvis"
-printf 'revision persona\n' >"$helper_repo/.agents/skills/jarvis/persona.md"
+mkdir -p "$helper_repo/bin/lib" "$helper_repo/shell" "$helper_repo/config" "$helper_repo/themes" "$helper_repo/packaging/jarvis-home"
+printf 'revision persona\n' >"$helper_repo/packaging/jarvis-home/persona.md"
 printf 'module.exports = { where: "bin/lib" };\n' >"$helper_repo/bin/lib/qml-library.js"
 printf 'process.stdout.write(require(require("path").join(__dirname, "lib", "qml-library.js")).where);\n' >"$helper_repo/bin/judge"
 : >"$helper_repo/shell/shell.qml"; : >"$helper_repo/config/shell.json"; : >"$helper_repo/themes/.keep"
@@ -936,7 +936,7 @@ harness_copy_case() { # LIB
     [[ -e "$target/packaging/install-system.sh" ]] || { echo "packaging missing"; exit 1; }
     [[ -e "$target/scripts/qml-smoke.sh" ]] || { echo "scripts missing"; exit 1; }
     [[ $(node "$target/bin/judge") == bin/lib ]] || { echo "runtime helper missing"; exit 1; }
-    cmp -s -- "$helper_repo/.agents/skills/jarvis/persona.md" "$target/.agents/skills/jarvis/persona.md" || { echo "revision base package missing"; exit 1; }
+    cmp -s -- "$helper_repo/packaging/jarvis-home/persona.md" "$target/packaging/jarvis-home/persona.md" || { echo "revision base package missing"; exit 1; }
     for file in VERSION LICENSE README.md; do
       cmp -s -- "$helper_repo/$file" "$target/$file" || { echo "revision file missing: $file"; exit 1; }
     done
@@ -964,7 +964,7 @@ else
 fi
 # A control exports no base package, and one copies the checkout's.
 package_controls=(
-  'a revision exported without its base package|package=(.agents/skills/jarvis)|package=()'
+  'a revision exported without its base package|package+=("$at")|:'
   'the checkout base package|shutil.copytree(tree / package, target / package)|shutil.copytree(source / package, target / package)'
 )
 for spec in "${package_controls[@]}"; do

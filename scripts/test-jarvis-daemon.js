@@ -289,8 +289,8 @@ async function inside() {
             assert.deepEqual(offered(), [[]], "a provider whose voices cannot be read offers none");
             await step([intent("talk-down"), named("~/home-made")], [others]);
             assert.deepEqual(personality(), { kind: "missing" }, "a new AGENTS.md has no Personality section");
-            assert.deepEqual(["AGENTS.md", "CLAUDE.md", "skills/base", "skills/own", "memory/MEMORY.md", "memory/inbox", "state",
-                ".claude/settings.json", ".codex/config.toml"].filter(name => !fs.existsSync(path.join(made, name))), [], "the second hello makes the layout");
+            assert.deepEqual(["AGENTS.md", "skills/own", "memory/MEMORY.md", "memory/inbox", "state",
+                ".claude/settings.json", ".codex/config.toml", ".agents/skills/jarvis/SKILL.md", ".agents/skills/jarvis/persona.md"].filter(name => !fs.existsSync(path.join(made, name))), [], "the second hello makes the layout");
             fs.writeFileSync(path.join(made, "AGENTS.md"), "x".repeat(8193));
             await step([named("~/home-made")], [["guidance=home-too-large", ...others]]);
             assert.deepEqual(personality(), { kind: "too-large" });
@@ -1192,21 +1192,25 @@ async function inside() {
         controls++;
         console.log("test-jarvis-daemon: control=bubble-chained-caption killed");
     }
-    // A home judged ready over kendex's render holds no skills/base. The user
-    // removes the render while the service runs, and no hello follows: the
-    // first request after it gets the scripted reply, the home is judged
-    // once, and skills/base holds the shipped package again.
+    // A home kendex installed the package in is judged ready as it stands:
+    // VGS writes none of the package there. The user removes kendex's
+    // render while the service runs, and no hello follows: the first request
+    // after it gets the scripted reply, the home is judged once, and the home
+    // then holds the render VGS ships, at its own paths.
     const renderGates = path.join(root, "render-gates");
     const renderHome = path.join(fs.realpathSync(process.env.HOME), "home-render");
-    const shipped = path.join(tree, ".agents/skills/jarvis");
+    const shipped = path.join(tree, "packaging/jarvis-home");
+    // The render's harness folders, read from the render itself.
+    const HARNESS = [".agents", ".claude/skills", ".claude/agents", ".codex/agents"];
     const tracked = folder => fs.readdirSync(folder, { recursive: true }).sort()
         .map(name => [name, fs.statSync(path.join(folder, name)).isFile() ? fs.readFileSync(path.join(folder, name), "utf8") : null]);
     const renderRemoved = file => conversation(file, async w => {
         fs.rmSync(renderHome, { recursive: true, force: true });
-        fs.cpSync(shipped, path.join(renderHome, ".agents/skills/jarvis"), { recursive: true });
+        fs.cpSync(path.join(shipped, ".agents/skills/jarvis"), path.join(renderHome, ".agents/skills/jarvis"), { recursive: true });
         w.raw({ ...hello, settings: { ...hello.settings, home: "~/home-render" } });
         await w.wait(m => m.state.settings.home === "~/home-render" && m.state.gate.kind === "up");
-        assert.equal(fs.existsSync(path.join(renderHome, "skills/base")), false, "the hello reads the render, not VGS's copy");
+        assert.deepEqual(HARNESS.slice(1).filter(name => fs.existsSync(path.join(renderHome, name))), [],
+            "the hello reads kendex's render and writes none of VGS's copy");
         const judged = w.messages.filter(m => m.type === "status").length;
         fs.rmSync(path.join(renderHome, ".agents"), { recursive: true });
         w.send("talk-down");
@@ -1219,8 +1223,8 @@ async function inside() {
         assert.ok(w.messages.some(m => m.type === "transcript" && m.role === "assistant" && m.stage === "final"
             && m.text.endsWith(scriptedReply)), "the answer is the brain's reply");
         assert.equal(w.messages.filter(m => m.type === "status").length, judged + 1, "the request judges the home once");
-        assert.deepEqual(tracked(path.join(renderHome, "skills/base")), [["jarvis", null], ...tracked(shipped).map(([name, text]) => ["jarvis/" + name, text])],
-            "skills/base holds the shipped package");
+        for (const folder of HARNESS)
+            assert.deepEqual(tracked(path.join(renderHome, folder)), tracked(path.join(shipped, folder)), folder + " holds the shipped render");
         w.send("stop");
         await w.wait(m => m.state.conversation.kind === "ended" && m.state.brain.kind === "closed");
     });

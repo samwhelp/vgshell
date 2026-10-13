@@ -1,8 +1,8 @@
 // The Jarvis home folder: the one folder the user picks, whose AGENTS.md,
 // skills, memory and state every brain uses the same way. This owner creates
-// the folder's missing entries, reads the base package from kendex's render
-// where kendex is installed in the home, else keeps skills/base a copy of the
-// one VGS ships, and reads its text; it never follows a link at the home or below
+// the folder's missing entries, keeps the Jarvis package in kendex's own
+// layout, a copy of the render VGS ships, in a home kendex did not install it
+// in, and reads its text; it never follows a link at the home or below
 // it, since a link there could hand another file to every brain. Home text
 // gives knowledge, never permission: the gate stays the only source of that.
 // It also finds the two programs of the home VGS starts: the kendex mail
@@ -15,7 +15,7 @@ const path = require("node:path");
 const { createHash } = require("node:crypto");
 const Core = require("./Core.js");
 const Tools = require("./Tools.js");
-const { O_RDONLY, O_WRONLY, O_CREAT, O_EXCL, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK } = fs.constants;
+const { O_RDONLY, O_WRONLY, O_CREAT, O_EXCL, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK, S_IXUSR } = fs.constants;
 
 // The two harness files serve the user's own Claude Code or Codex session
 // started in the home; a brain Jarvis starts never runs there. Claude Code's
@@ -23,24 +23,39 @@ const { O_RDONLY, O_WRONLY, O_CREAT, O_EXCL, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK
 // features.memories and the memories table
 // (developers.openai.com/codex/config-reference).
 const LAYOUT = Object.freeze([
-    ["AGENTS.md", ""], ["CLAUDE.md", "@AGENTS.md\n"],
-    ["skills", null], ["skills/base", null], ["skills/own", null],
+    ["AGENTS.md", ""],
+    ["skills", null], ["skills/own", null],
     ["memory", null], ["memory/MEMORY.md", ""], ["memory/inbox", null],
     ["state", null],
     [".claude", null], [".claude/settings.json", "{\"autoMemoryEnabled\": false}\n"],
     [".codex", null], [".codex/config.toml", "[features]\nmemories = false\n\n[memories]\ngenerate_memories = false\nuse_memories = false\n"]
 ]);
-// skills/base holds this one folder, a copy of the shipped base package
-// (Core.basePackage); the persona is its persona.md.
+// The base package: kendex's jarvis skill; the persona is its persona.md.
 const PACKAGE = "jarvis";
-// The two sets the base package is read from. kendex renders it at
-// RENDER/PACKAGE in a home it is installed in, beside kendex's other skills,
-// which are no Jarvis skill; COPY is VGS's copy, kept only in a home without
-// that render.
+// kendex renders the package at RENDER/PACKAGE, beside the skills it
+// requires, which are no Jarvis help topic, in a home kendex installed it
+// in and in the render VGS ships (Core.homeRender) alike.
 const RENDER = ".agents/skills";
-const COPY = "skills/base";
 // The files of the package read by name: a render without one is partial.
 const RENDER_FILES = Object.freeze(["SKILL.md", "persona.md"]);
+// The render's own record of each path it wrote, by kind and harness, in
+// the lock version this reader knows.
+const LOCK = ".kendex-lock.json";
+const LOCK_VERSION = 11;
+// The kinds of the render VGS copies into a home. A hook needs its
+// harness's settings as well, which nothing here writes yet.
+const COPIED_KINDS = Object.freeze(["skill", "agent"]);
+// VGS's record of the package files it wrote in a home, {files: [path]}, so
+// it replaces and removes those files only. A home that holds RENDER/PACKAGE
+// without it is kendex's, and VGS writes no package file there.
+const RECORD = ".vgs-package.json";
+const RECORD_BYTES = 1 << 20;
+// VGS's copy of the package before the home took kendex's layout.
+const OLD_COPY = "skills/base";
+// The CLAUDE.md VGS wrote before: one line importing AGENTS.md, which Claude
+// Code reads itself, while a CLAUDE.md turns its nested loading off. The
+// open removes a regular file holding exactly this and keeps any other.
+const OLD_CLAUDE = Object.freeze(["CLAUDE.md", "@AGENTS.md\n"]);
 // The one entry of the home the gate leaves a model: Jarvis writes it
 // through files.write. Every other path in the folder, an entry this layout
 // does not name among them, is the user's and VGS's alone.
@@ -84,6 +99,14 @@ const SESSION_COMMAND = ".agents/skills/jarvis/scripts/jarvis-session";
 // A YAML block scalar's header: > or |, then an optional chomping mark and
 // indent digit in either order. Its text is on the lines below it.
 const BLOCK_SCALAR = /^[>|][-+1-9]{0,2}$/;
+// A name the package declares, which becomes a path component of the home.
+const DECLARED_NAME = /^[a-z0-9][a-z0-9-]*$/;
+// The front matter lists of the package's dependencies read, and the
+// arrays of its kendex catalog bundle table read.
+const DEPENDENCY_LISTS = Object.freeze(["required", "agents"]);
+const BUNDLE_LISTS = Object.freeze(["skills", "agents", "hooks"]);
+// A TOML table header line, which ends the table above it.
+const TABLE_HEADER = /^\[{1,2}[^\]"]+\]{1,2}\s*(?:#.*)?$/;
 
 function fail(code) { throw new Error("jarvis: home=" + code); }
 
@@ -200,10 +223,11 @@ function createFile(parent, name, content) {
     } finally { fs.unlinkSync(scratch); }
 }
 
-// Every entry below the held folder FD as [path, bytes], a folder's path
-// ending in "/" with no bytes, in no order. A link throws home=link and is
-// never followed; any entry but a folder or a regular file throws home=kind.
-// A file reads whole for a null LIMIT, else as at most LIMIT + 1 bytes.
+// Every entry below the held folder FD as [path, bytes, executable], a
+// folder's path ending in "/" with no bytes, in no order; executable is the
+// owner's execute bit of a file. A link throws home=link and is never
+// followed; any entry but a folder or a regular file throws home=kind. A
+// file reads whole for a null LIMIT, else as at most LIMIT + 1 bytes.
 function entries(fd, limit, prefix = "", out = []) {
     const child = Core.anchored().child;
     const directory = fs.opendirSync("/proc/self/fd/" + fd);
@@ -215,66 +239,225 @@ function entries(fd, limit, prefix = "", out = []) {
             const held = fs.openSync(child(fd, entry.name), (directoryKind ? O_RDONLY | O_DIRECTORY : O_RDONLY | O_NONBLOCK) | O_NOFOLLOW);
             try {
                 if (directoryKind) {
-                    out.push([prefix + entry.name + "/", Buffer.alloc(0)]);
+                    out.push([prefix + entry.name + "/", Buffer.alloc(0), false]);
                     entries(held, limit, prefix + entry.name + "/", out);
-                } else out.push([prefix + entry.name, limit === null ? fs.readFileSync(held) : bytes(held, limit)]);
+                } else out.push([prefix + entry.name, limit === null ? fs.readFileSync(held) : bytes(held, limit),
+                    (fs.fstatSync(held).mode & S_IXUSR) !== 0]);
             } finally { fs.closeSync(held); }
         }
     } finally { directory.closeSync(); }
     return out;
 }
 
-// Make skills/base, held as FD, hold exactly the shipped package: unchanged
-// when it already does, else a fresh copy swapped in for PACKAGE by one
-// rename and every other entry removed. A shipped package that cannot be
-// read throws home=package.
-function base(fd) {
-    let shipped;
-    try {
-        const root = fs.openSync(Core.basePackage(), O_RDONLY | O_DIRECTORY);
-        try { shipped = entries(root, null, PACKAGE + "/", [[PACKAGE + "/", Buffer.alloc(0)]]); }
-        finally { fs.closeSync(root); }
-    } catch { fail("package"); }
-    const order = list => list.sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
-    order(shipped);
-    // A home file past the largest shipped one differs whatever it holds.
-    const found = order(entries(fd, Math.max(...shipped.map(([, content]) => content.length))));
-    if (found.length === shipped.length && found.every(([name, content], index) =>
-        name === shipped[index][0] && content.equals(shipped[index][1]))) return;
+// The names of NAME, a relative path of plain names, or null for any other
+// value: an empty or absolute path, ".", "..", a NUL or one past PATH_BYTES.
+function plainParts(name) {
+    if (typeof name !== "string" || name === "" || Buffer.byteLength(name) > PATH_BYTES) return null;
+    const parts = name.split("/");
+    return parts.every(part => part !== "" && part !== "." && part !== ".." && !part.includes("\0")) ? parts : null;
+}
+
+// Hold each folder PARTS names below the held folder FD in turn, making a
+// missing one where MAKE, and answer what ACT answers on the descriptors,
+// FD first, or on null where a folder is absent and MAKE is false. A link
+// throws home=link and any other entry home=kind. The descriptors close
+// when ACT returns.
+function along(fd, parts, make, act) {
     const child = Core.anchored().child;
-    const fresh = "." + PACKAGE + "." + process.pid + ".new";
-    const old = "." + PACKAGE + "." + process.pid + ".old";
-    for (const name of [fresh, old]) fs.rmSync(child(fd, name), { recursive: true, force: true });
-    for (const [name, content] of shipped) {
-        const at = child(fd, fresh + name.slice(PACKAGE.length));
-        if (name.endsWith("/")) fs.mkdirSync(at);
-        else {
-            const file = fs.openSync(at, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o644);
-            try { fs.writeFileSync(file, content); } finally { fs.closeSync(file); }
+    const chain = [fd];
+    try {
+        for (const part of parts) {
+            const at = chain[chain.length - 1];
+            const kind = kindOf(at, part);
+            if (kind === "link") fail("link");
+            if (kind === "absent") {
+                if (!make) return act(null);
+                fs.mkdirSync(child(at, part));
+            } else if (kind !== "directory") fail("kind");
+            chain.push(fs.openSync(child(at, part), O_RDONLY | O_DIRECTORY | O_NOFOLLOW));
         }
+        return act(chain);
+    } finally { for (const held of chain.slice(1)) fs.closeSync(held); }
+}
+
+// The package files of the render VGS ships as [path, bytes, executable],
+// sorted by path: every file below each path its lock names for an entry of
+// COPIED_KINDS. A render that cannot be read, a lock of another version, a
+// path that is no plain path, a link, or a render without a skill or an
+// agent its package declares, throws home=package: the render is partial.
+function rendered() {
+    const child = Core.anchored().child;
+    let root;
+    try { root = fs.openSync(Core.homeRender(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW); }
+    catch { return fail("package"); }
+    try {
+        const held = fs.openSync(child(root, LOCK), O_RDONLY | O_NONBLOCK | O_NOFOLLOW);
+        let lock;
+        try { lock = JSON.parse(bytes(held, null).toString("utf8")); } finally { fs.closeSync(held); }
+        if (lock?.version !== LOCK_VERSION || typeof lock.entries !== "object" || lock.entries === null) fail("package");
+        const found = new Map();
+        const names = Object.fromEntries(COPIED_KINDS.map(kind => [kind, new Set()]));
+        for (const entry of Object.values(lock.entries)) {
+            if (!COPIED_KINDS.includes(entry?.kind)) continue;
+            names[entry.kind].add(entry.name);
+            if (!Array.isArray(entry.emitted?.paths)) fail("package");
+            for (const at of entry.emitted.paths) {
+                const parts = plainParts(at);
+                if (parts === null) fail("package");
+                along(root, parts.slice(0, -1), false, chain => {
+                    if (chain === null) fail("package");
+                    const parent = chain[chain.length - 1];
+                    const kind = kindOf(parent, parts[parts.length - 1]);
+                    if (kind !== "directory" && kind !== "file") fail("package");
+                    const opened = fs.openSync(child(parent, parts[parts.length - 1]),
+                        (kind === "directory" ? O_RDONLY | O_DIRECTORY : O_RDONLY | O_NONBLOCK) | O_NOFOLLOW);
+                    try {
+                        if (kind === "file") found.set(at, [fs.readFileSync(opened), (fs.fstatSync(opened).mode & S_IXUSR) !== 0]);
+                        else for (const [inner, content, executable] of entries(opened, null))
+                            if (!inner.endsWith("/")) found.set(at + "/" + inner, [content, executable]);
+                    } finally { fs.closeSync(opened); }
+                });
+            }
+        }
+        if (!RENDER_FILES.every(name => found.has(RENDER + "/" + PACKAGE + "/" + name))) fail("package");
+        const skill = found.get(RENDER + "/" + PACKAGE + "/SKILL.md");
+        const declared = declaration(skill[0].toString("utf8"), null);
+        if (![PACKAGE, ...declared.skills].every(name => names.skill.has(name)) || !declared.agents.every(name => names.agent.has(name)))
+            fail("package");
+        return [...found].map(([name, [content, executable]]) => [name, content, executable])
+            .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+    } catch { return fail("package"); }
+    finally { fs.closeSync(root); }
+}
+
+// The paths VGS's record in the home held as FD names, or null where the
+// home holds no record. A record in a link's place throws home=link, one of
+// another kind home=kind, and one that is no list of plain paths home=record.
+function recorded(fd) {
+    const kind = kindOf(fd, RECORD);
+    if (kind === "absent") return null;
+    if (kind === "link") fail("link");
+    if (kind !== "file") fail("kind");
+    const held = fs.openSync(Core.anchored().child(fd, RECORD), O_RDONLY | O_NONBLOCK | O_NOFOLLOW);
+    let content;
+    try { content = bytes(held, RECORD_BYTES); } finally { fs.closeSync(held); }
+    let files = null;
+    try { files = JSON.parse(content.toString("utf8"))?.files; } catch {}
+    if (content.length > RECORD_BYTES || !Array.isArray(files) || !files.every(name => plainParts(name) !== null)) fail("record");
+    return files;
+}
+
+// Write FILE in the held folder FD whole, under a scratch name it then
+// renames over FILE, with the owner's execute bit where EXECUTABLE.
+function replace(fd, file, content, executable) {
+    const child = Core.anchored().child;
+    const scratch = "." + file + "." + process.pid + ".new";
+    fs.rmSync(child(fd, scratch), { force: true });
+    const mode = executable ? 0o755 : 0o644;
+    const held = fs.openSync(child(fd, scratch), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, mode);
+    try {
+        fs.writeFileSync(held, content);
+        // The process umask can clear bits the open asked for.
+        fs.fchmodSync(held, mode);
+    } finally { fs.closeSync(held); }
+    fs.renameSync(child(fd, scratch), child(fd, file));
+}
+
+// Whether the home held as FD holds NAME, a plain path, as a regular file
+// with CONTENT and the EXECUTABLE bit. A link on the way or in its place
+// throws home=link, and an entry of another kind home=kind.
+function holds(fd, name, content, executable) {
+    const parts = name.split("/");
+    return along(fd, parts.slice(0, -1), false, chain => {
+        if (chain === null) return false;
+        const parent = chain[chain.length - 1];
+        const kind = kindOf(parent, parts[parts.length - 1]);
+        if (kind === "absent") return false;
+        if (kind === "link") fail("link");
+        if (kind !== "file") fail("kind");
+        const held = fs.openSync(Core.anchored().child(parent, parts[parts.length - 1]), O_RDONLY | O_NONBLOCK | O_NOFOLLOW);
+        try {
+            return bytes(held, content.length).equals(content) && ((fs.fstatSync(held).mode & S_IXUSR) !== 0) === executable;
+        } finally { fs.closeSync(held); }
+    });
+}
+
+// Remove NAME, a file of VGS's record, from the home held as FD, and each
+// folder above it that this leaves empty, below the home's own entries. A
+// link in its place goes, never followed; a folder throws home=kind.
+function drop(fd, name) {
+    const child = Core.anchored().child;
+    const parts = name.split("/");
+    along(fd, parts.slice(0, -1), false, chain => {
+        if (chain === null) return;
+        const kind = kindOf(chain[chain.length - 1], parts[parts.length - 1]);
+        if (kind === "directory") fail("kind");
+        if (kind !== "absent") fs.unlinkSync(child(chain[chain.length - 1], parts[parts.length - 1]));
+        for (let depth = chain.length - 1; depth > 1; depth--) {
+            try { fs.rmdirSync(child(chain[depth - 1], parts[depth - 1])); }
+            catch (error) {
+                if (error.code === "ENOTEMPTY" || error.code === "EEXIST") return;
+                throw error;
+            }
+        }
+    });
+}
+
+// Make the home held as FD, whose record named BEFORE (null for none), hold
+// the render's package files, and none of BEFORE's the render dropped; a
+// file of the home's own under a package path is replaced. The record names
+// every file before it is written, so a write cut short leaves no file of
+// VGS's out of it, and the next open finishes the work.
+function sync(fd, before) {
+    const files = rendered();
+    const names = files.map(([name]) => name);
+    const kept = before === null ? [] : before;
+    const same = kept.length === names.length && [...kept].sort().every((name, index) => name === names[index]);
+    const stale = files.filter(([name, content, executable]) => !holds(fd, name, content, executable));
+    if (before !== null && same && stale.length === 0) return;
+    record(fd, [...new Set([...kept, ...names])]);
+    for (const [name, content, executable] of stale) {
+        const parts = name.split("/");
+        along(fd, parts.slice(0, -1), true, chain => replace(chain[chain.length - 1], parts[parts.length - 1], content, executable));
     }
-    if (kindOf(fd, PACKAGE) !== "absent") fs.renameSync(child(fd, PACKAGE), child(fd, old));
-    fs.renameSync(child(fd, fresh), child(fd, PACKAGE));
-    for (const name of fs.readdirSync("/proc/self/fd/" + fd))
-        if (name !== PACKAGE) fs.rmSync(child(fd, name), { recursive: true, force: true });
+    for (const name of kept) if (!names.includes(name)) drop(fd, name);
+    record(fd, names);
+}
+
+// Write VGS's record in the home held as FD: FILES, sorted.
+function record(fd, files) {
+    replace(fd, RECORD, JSON.stringify({ files: [...files].sort() }) + "\n", false);
+}
+
+// Whether the home held as FD holds RENDER/PACKAGE, reached through no link:
+// a link on the way throws home=link.
+function rendersPackage(fd) {
+    const parts = [...RENDER.split("/"), PACKAGE];
+    return along(fd, parts.slice(0, -1), false, chain => {
+        if (chain === null) return false;
+        const kind = kindOf(chain[chain.length - 1], PACKAGE);
+        if (kind === "link") fail("link");
+        return kind !== "absent";
+    });
 }
 
 /**
- * Create the entries of LAYOUT the home lacks, and the home itself, and make
- * skills/base hold exactly the shipped base package, or, in a home holding
- * kendex's render of it (source), remove skills/base. Any other entry already
- * there is kept byte for byte. A link at the home, at any layout path or
- * inside skills/base throws jarvis: home=link and is never followed; an
- * entry of the other kind throws home=kind, a shipped package that cannot
- * be read home=package, a render source refuses as it says, and a failed
- * write home=unwritable.
+ * Create the entries of LAYOUT the home lacks, and the home itself, and,
+ * unless kendex installed the package there (RENDER/PACKAGE without VGS's
+ * record), make the home hold the package files of the render VGS ships,
+ * at their paths in it, and none of those VGS wrote that the render
+ * dropped. The open removes skills/base, VGS's copy of the package before
+ * this layout, and the CLAUDE.md VGS wrote before, byte for byte. Any other entry already there is kept byte for byte. A link
+ * at the home, at any layout or package path throws jarvis: home=link and is
+ * never followed; an entry of the other kind throws home=kind, a render that
+ * cannot be read or is partial home=package, a record VGS cannot read
+ * home=record, a package in the home that source refuses as it says, and a
+ * failed write home=unwritable.
  */
 function layout(home) {
     const held = new Map([[".", hold(home, true)]]);
     try {
-        const set = source(held.get("."));
         for (const [entry, content] of LAYOUT) {
-            if (entry === COPY && set === RENDER) continue;
             const parent = held.get(path.dirname(entry));
             const name = path.basename(entry);
             const kind = kindOf(parent, name);
@@ -286,28 +469,32 @@ function layout(home) {
             } else if (kind === "absent") createFile(parent, name, content);
             else if (kind !== "file") fail("kind");
         }
-        // The cutover: the open that first reads the render removes VGS's
-        // copy, whatever entry stands there; a link goes, never followed.
-        if (set === RENDER) fs.rmSync(Core.anchored().child(held.get("skills"), path.basename(COPY)), { recursive: true, force: true });
-        else base(held.get("skills/base"));
+        // Whatever entry stands there goes; a link goes, never followed.
+        fs.rmSync(Core.anchored().child(held.get("skills"), path.basename(OLD_COPY)), { recursive: true, force: true });
+        const [claude, shim] = OLD_CLAUDE;
+        if (kindOf(held.get("."), claude) === "file" && holds(held.get("."), claude, Buffer.from(shim), false))
+            fs.unlinkSync(Core.anchored().child(held.get("."), claude));
+        const before = recorded(held.get("."));
+        if (before !== null || !rendersPackage(held.get("."))) sync(held.get("."), before);
+        source(held.get("."));
     } catch (error) {
         if (/^jarvis: home=/.test(error.message)) throw error;
         fail("unwritable");
     } finally { for (const fd of held.values()) fs.closeSync(fd); }
 }
 
-// The set of the home held as FD that the base package is read from: RENDER
-// while the home holds RENDER/PACKAGE, else COPY. A render reached through a
-// link, holding a link or an entry neither a folder nor a regular file, or
-// without a file of RENDER_FILES throws home=link, home=kind or home=package:
-// it is refused, never passed over for the copy.
+// The set of the home held as FD that the base package is read from:
+// RENDER, once it holds RENDER/PACKAGE. A home without it throws home=absent,
+// which a reader answers by judging the home again; a render reached through
+// a link, holding a link or an entry neither a folder nor a regular file, or
+// without a file of RENDER_FILES throws home=link, home=kind or home=package.
 function source(fd) {
     const child = Core.anchored().child;
     let at = fd;
     try {
         for (const part of [...RENDER.split("/"), PACKAGE]) {
             const kind = kindOf(at, part);
-            if (kind === "absent") return COPY;
+            if (kind === "absent") return fail("absent");
             if (kind === "link") return fail("link");
             if (kind !== "directory") return fail("kind");
             const next = fs.openSync(child(at, part), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
@@ -324,10 +511,9 @@ function source(fd) {
 }
 
 /**
- * The set of the home the base package is read from: ".agents/skills",
- * kendex's render, or "skills/base", VGS's copy. source alone decides it,
- * once for each open of the home: the layout, a skill index or a skill
- * read. Throws as source does.
+ * The set of the home the base package is read from, ".agents/skills",
+ * once source has judged it, on each open of the home: the layout, a skill
+ * index or a skill read. Throws as source does.
  */
 function baseSet(home) {
     const fd = hold(home, false);
@@ -435,6 +621,102 @@ function indexLine(text) {
     return first.trim().replace(/^#+\s*/, "").replace(/[\x00-\x1f\x7f]/g, " ").slice(0, LINE_CHARS);
 }
 
+// ITEMS, the raw entries of one declared list, as plain names.
+function declaredNames(items) {
+    return items.map(item => {
+        const name = item.trim().replace(/^(["'])(.*)\1$/, "$2");
+        if (!DECLARED_NAME.test(name)) fail("declaration");
+        return name;
+    });
+}
+
+// The DEPENDENCY_LISTS of the `dependencies` map in the leading front matter
+// of TEXT, a skill file, as {required, agents}; a list it leaves out is
+// empty. A list is a one-line flow list or block items on the lines below
+// its key; any other value of those keys throws home=declaration.
+function dependencies(text) {
+    const lines = text.split("\n");
+    const end = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
+    if (lines[0].trim() !== "---" || end === -1) fail("declaration");
+    const found = Object.fromEntries(DEPENDENCY_LISTS.map(key => [key, []]));
+    let inside = false;
+    let keyIndent = null;
+    let open = null;
+    for (const line of lines.slice(1, end)) {
+        if (line.trim() === "" || line.trimStart().startsWith("#")) continue;
+        const indent = line.length - line.trimStart().length;
+        if (indent === 0 && !line.startsWith("-")) {
+            inside = /^dependencies:\s*$/.test(line);
+            keyIndent = null;
+            open = null;
+            continue;
+        }
+        if (!inside) continue;
+        const key = /^\s*([A-Za-z0-9_-]+):\s*(.*?)\s*$/.exec(line);
+        if (key && (keyIndent === null || indent === keyIndent)) {
+            keyIndent = indent;
+            open = DEPENDENCY_LISTS.includes(key[1]) ? key[1] : null;
+            if (open === null) continue;
+            const value = key[2];
+            if (value === "") continue;
+            const flow = /^\[(.*)\]$/.exec(value);
+            if (!flow) fail("declaration");
+            if (flow[1].trim() !== "") found[open].push(...declaredNames(flow[1].split(",")));
+            open = null;
+            continue;
+        }
+        if (open === null) continue;
+        const item = /^\s*-\s+(.*?)\s*$/.exec(line);
+        if (!item) fail("declaration");
+        found[open].push(...declaredNames([item[1]]));
+    }
+    return found;
+}
+
+// The BUNDLE_LISTS arrays of the [bundles.<PACKAGE>] table of CATALOG, the
+// kendex catalog's kendex.toml text, as {skills, agents, hooks}: each list
+// empty where the catalog has no such table or the table no such key. An
+// array may span lines; any other value of those keys throws home=declaration.
+function bundle(catalog) {
+    const found = Object.fromEntries(BUNDLE_LISTS.map(key => [key, []]));
+    const lines = catalog.split("\n");
+    const start = lines.findIndex(line => line.trim() === "[bundles." + PACKAGE + "]");
+    if (start === -1) return found;
+    const rest = lines.slice(start + 1);
+    const end = rest.findIndex(line => TABLE_HEADER.test(line.trim()));
+    // A comment never holds a name; the table's other values are not read.
+    const table = rest.slice(0, end === -1 ? rest.length : end).map(line => line.replace(/\s#.*$|^#.*$/, "")).join("\n");
+    for (const key of BUNDLE_LISTS) {
+        const assigned = table.match(new RegExp("^\\s*" + key + "\\s*=", "gm")) ?? [];
+        const arrays = [...table.matchAll(new RegExp("^\\s*" + key + "\\s*=\\s*\\[([^\\]]*)\\]", "gm"))];
+        if (assigned.length > 1 || arrays.length !== assigned.length) fail("declaration");
+        for (const [, items] of arrays) {
+            const entries = items.split(",").map(item => item.trim()).filter(item => item !== "");
+            if (entries.some(item => !/^"[^"]*"$/.test(item))) fail("declaration");
+            found[key].push(...declaredNames(entries));
+        }
+    }
+    return found;
+}
+
+/**
+ * What the base package declares beside its own files, read from kendex's
+ * own manifests at the shipped revision, never from a list kept in VGS:
+ * SKILL, the package's SKILL.md text, names skills in its front matter's
+ * dependencies.required and agents in dependencies.agents; CATALOG, the
+ * kendex catalog's kendex.toml text, or null where none ships, adds the
+ * skills, agents and hooks of its [bundles.<PACKAGE>] table.
+ * {skills, agents, hooks}, each sorted, once, and without PACKAGE. Throws
+ * jarvis: home=declaration for a list in another form or a name that is no
+ * plain name.
+ */
+function declaration(skill, catalog) {
+    const front = dependencies(skill);
+    const bundled = catalog === null ? bundle("") : bundle(catalog);
+    const set = (...lists) => [...new Set(lists.flat())].filter(name => name !== PACKAGE).sort();
+    return { skills: set(front.required, bundled.skills), agents: set(front.agents, bundled.agents), hooks: set(bundled.hooks) };
+}
+
 // The entries of FOLDER, a path of plain names in the home, at most
 // SET_ENTRIES of them: {entries, complete}.
 function listing(home, folder) {
@@ -467,7 +749,7 @@ function indexed(home, topic, file, optional) {
 /**
  * The home's skills in topic order: {skills: [{topic, file, line}], complete}.
  * A skill is `<name>.md` or `<name>/SKILL.md` directly in the base set
- * (baseSet: kendex's render, holding the package alone, or skills/base) or
+ * (baseSet, holding the package alone) or
  * skills/own, a regular file under a name Tools.homeTopic admits; a folder
  * skill's `references/<reference>.md` is a skill of its own under
  * "<set>/<name>/<reference>", and its `workflows/<workflow>.md` one under
@@ -653,4 +935,4 @@ function mailbox(home) {
     return held(home, MAILBOX, O_RDONLY | O_DIRECTORY, () => true) === true;
 }
 
-module.exports = { PACKAGE, resolve, relativeHome, remembered, remember, offers, layout, guard, baseSet, read, skills, skill, note, notes, mailTool, mailbox, sessionCommand, directory };
+module.exports = { PACKAGE, resolve, relativeHome, remembered, remember, offers, layout, guard, baseSet, read, declaration, skills, skill, note, notes, mailTool, mailbox, sessionCommand, directory };

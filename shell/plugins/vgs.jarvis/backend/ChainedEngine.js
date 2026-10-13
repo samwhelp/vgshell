@@ -1080,8 +1080,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
 
     // The brain's guidance with the home text as it reads now. No hello
     // follows an edit inside the folder, so an entry the layout makes can be
-    // gone from a home judged ready, skills/base after kendex's render is
-    // removed among them: that miss judges the home once and reads it again.
+    // gone from a home judged ready, the Jarvis package after kendex's render
+    // is removed among them: that miss judges the home once and reads it again.
     function guidanceNow(c) {
         const folder = homePath();
         if (folder === null) return c.plan.brain.guidance;

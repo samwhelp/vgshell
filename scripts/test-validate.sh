@@ -789,7 +789,7 @@ if area in ["cli", "offline", "all"] and command not in lines and any(fnmatch.fn
     else:
         raise AssertionError("no later consumer in expected plan: " + file)
 home = "node scripts/test-jarvis-home.js"
-home_input = (file.startswith(("shell/plugins/vgs.jarvis/backend/", "shell/Core/", ".agents/skills/jarvis/"))
+home_input = (file.startswith(("shell/plugins/vgs.jarvis/backend/", "shell/Core/", "packaging/jarvis-home/"))
               or file in {"shell/plugins/vgs.jarvis/manifest.json", "shell/plugins/vgs.jarvis/Session.js",
                           "shell/plugins/vgs.jarvis/JarvisProtocol.js", "shell/plugins/vgs.jarvis/AccountProviders.js",
                           "shell/Ui/icons/Lucide.js", "shell/Commons/SettingValues.js", "shell/Commons/DesktopLaunch.js",

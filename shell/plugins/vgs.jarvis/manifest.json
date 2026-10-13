@@ -60,7 +60,7 @@
     "home": { "type": "string", "label": "Home folder", "group": "Home",
       "optionsFrom": "homes", "allowCustom": true,
       "description": "One folder for what Jarvis knows: your instructions in AGENTS.md, skills, memory and state. Every AI model uses them.",
-      "info": "Jarvis adds the files the folder lacks and changes none it finds, but for skills/base, which holds the Jarvis skill VGS provides. Changing the folder ends the conversation." },
+      "info": "Jarvis adds the files the folder lacks and changes none it finds, but for the Jarvis package files VGS wrote there. Changing the folder ends the conversation." },
     "startAtBoot": { "type": "boolean", "label": "Start Jarvis at boot", "group": "Home",
       "description": "When VGS starts after you sign in, a tmux session starts Jarvis in your selected home folder.",
       "info": "Changing the home or account restarts Jarvis after the new selection is checked." },

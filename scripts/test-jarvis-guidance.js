@@ -117,20 +117,25 @@ world("jg", root => {
     // then its AGENTS.md after the shipped layers, the index of its skills and
     // memory/MEMORY.md, the index of its memory notes; the voice model gets
     // none, and a text over its bound refuses whole. The folder is made by
-    // hand, as a user's is.
+    // hand, as a user's is, with the package where kendex renders it.
     const tree = path.resolve(backend, "../../../..");
     const home = (name, agents, skills = {}, persona = "# Persona\nPERSONA-MARKER\n", memory = "") => {
         const folder = path.join(root, "home-" + name);
-        for (const set of ["base/jarvis", "own"]) fs.mkdirSync(path.join(folder, "skills", set), { recursive: true });
+        for (const set of [".agents/skills/jarvis", "skills/own"]) fs.mkdirSync(path.join(folder, set), { recursive: true });
         fs.mkdirSync(path.join(folder, "memory"));
         fs.writeFileSync(path.join(folder, "memory/MEMORY.md"), memory);
         fs.writeFileSync(path.join(folder, "AGENTS.md"), agents);
-        fs.writeFileSync(path.join(folder, "skills/base/jarvis/persona.md"), persona);
+        fs.writeFileSync(path.join(folder, ".agents/skills/jarvis/SKILL.md"), "# Jarvis package\n");
+        fs.writeFileSync(path.join(folder, ".agents/skills/jarvis/persona.md"), persona);
         for (const [file, text] of Object.entries(skills)) fs.writeFileSync(path.join(folder, "skills", file), text);
         return folder;
     };
-    const full = home("full", "\nHOME-MARKER persona\n", { "own/alpha.md": "# Alpha skill\nALPHA-BODY\n", "base/gamma.md": "Gamma line\n" },
+    const full = home("full", "\nHOME-MARKER persona\n", { "own/alpha.md": "# Alpha skill\nALPHA-BODY\n" },
         undefined, "\n- [Team](facts/team.md): MEMORY-MARKER\n");
+    // A persona left where VGS copied the package before kendex's layout is
+    // no persona of the home: the one the brain gets is the render's.
+    fs.mkdirSync(path.join(full, "skills/base/jarvis"), { recursive: true });
+    fs.writeFileSync(path.join(full, "skills/base/jarvis/persona.md"), "# Old persona\nOLD-PERSONA\n");
     const bare = home("bare", "  \n", {}, "\n", " \n");
     const memoryEdge = home("memory-edge", "", {}, "\n", "m".repeat(4096));
     const memoryOver = home("memory-over", "", {}, "\n", "m".repeat(4097));
@@ -140,12 +145,6 @@ world("jg", root => {
     const oversize = home("oversize", "x".repeat(8193));
     const crowded = home("crowded", "persona", Object.fromEntries(Array.from({ length: 60 }, (_, index) => ["own/s" + index + ".md", "y".repeat(200) + "\n"])));
     const many = home("many", "persona", Object.fromEntries(Array.from({ length: 257 }, (_, index) => ["own/s" + index + ".md", "z\n"])));
-    // A home kendex is installed in: the persona is its render's, never a
-    // skills/base copy beside it.
-    const rendered = home("rendered", "");
-    fs.mkdirSync(path.join(rendered, ".agents/skills/jarvis"), { recursive: true });
-    fs.writeFileSync(path.join(rendered, ".agents/skills/jarvis/SKILL.md"), "# Jarvis\n");
-    fs.writeFileSync(path.join(rendered, ".agents/skills/jarvis/persona.md"), "# Persona\nRENDER-PERSONA\n");
     const linked = home("linked", "");
     fs.rmSync(path.join(linked, "AGENTS.md"));
     fs.symlinkSync(path.join(full, "AGENTS.md"), path.join(linked, "AGENTS.md"));
@@ -171,7 +170,8 @@ world("jg", root => {
             assert.equal(added.includes("HOME-MARKER persona"), true, row.class + ": the home's AGENTS.md");
             assert.equal(added.indexOf("PERSONA-MARKER") > -1 && added.indexOf("PERSONA-MARKER") < added.indexOf("HOME-MARKER"), true,
                 row.class + ": the package's persona, before the user's AGENTS.md");
-            assert.deepEqual(["- base/gamma: Gamma line", "- own/alpha: Alpha skill"].map(line => added.split("\n").includes(line)), [true, true],
+            assert.equal(added.includes("OLD-PERSONA"), false, row.class + ": no persona of an older copy");
+            assert.deepEqual(["- base/jarvis: Jarvis package", "- own/alpha: Alpha skill"].map(line => added.split("\n").includes(line)), [true, true],
                 row.class + ": the skill index, name and first line");
             assert.equal(added.includes("ALPHA-BODY"), false, "a skill body is read on demand, never composed");
             assert.equal(stateLast(added, full, row.class).endsWith("\n\n- [Team](facts/team.md): MEMORY-MARKER"), true, row.class + ": the memory index, each line whole");
@@ -179,12 +179,16 @@ world("jg", root => {
             assert.equal(value.afterToolResult, plain.afterToolResult, "the home text is not repeated after a tool result");
             assert.equal(plain.withHome(full).instructions, value.instructions, "a composed guidance reads the home again");
             const empty = logic.compose(row.engine, row.class, row.language, bare);
-            assert.equal(stateLast(empty.instructions, bare, row.class + " empty home"), plain.instructions, "an empty home adds only its state folder");
-            assert.deepEqual(empty.layers, [...row.layers, "home/state"]);
+            // Every home holds the package, whose SKILL.md is a skill of its own.
+            const bareAdded = stateLast(empty.instructions, bare, row.class + " empty home");
+            assert.equal(bareAdded.startsWith(plain.instructions + "\n\n"), true, "an empty home keeps the shipped layers");
+            assert.equal(bareAdded.slice(plain.instructions.length).split("\n").includes("- base/jarvis: Jarvis package"), true, "the package's skill");
+            assert.deepEqual(empty.layers, [...row.layers, "home/skills", "home/state"], "an empty home adds only the package's skill and its state folder");
         }
-        assert.equal(stateLast(logic.compose("chained", "text", "en", edge).instructions, edge, "edge").endsWith("x".repeat(8192)), true, "a persona of exactly the bound is whole");
+        // A layer is whole where the blank lines around it hold it alone.
+        assert.equal(stateLast(logic.compose("chained", "text", "en", edge).instructions, edge, "edge").includes("\n\n" + "x".repeat(8192) + "\n\n"), true, "a persona of exactly the bound is whole");
         assert.throws(() => logic.compose("chained", "text", "en", oversize), { message: "jarvis: guidance=home-too-large" });
-        assert.equal(stateLast(logic.compose("chained", "text", "en", personaEdge).instructions, personaEdge, "persona edge").endsWith("p".repeat(3072)), true, "a persona of exactly its bound is whole");
+        assert.equal(stateLast(logic.compose("chained", "text", "en", personaEdge).instructions, personaEdge, "persona edge").includes("\n\n" + "p".repeat(3072) + "\n\n"), true, "a persona of exactly its bound is whole");
         assert.throws(() => logic.compose("chained", "text", "en", personaOver), { message: "jarvis: guidance=home-persona-too-large" });
         let edged;
         assert.doesNotThrow(() => { edged = logic.compose("chained", "text", "en", memoryEdge); }, "a memory index of exactly its bound composes");
@@ -193,8 +197,6 @@ world("jg", root => {
         for (const folder of [crowded, many])
             assert.throws(() => logic.compose("chained", "local", "en", folder), { message: "jarvis: guidance=home-skills-too-large" });
         assert.throws(() => logic.compose("chained", "text", "en", linked), { message: "jarvis: home=link" });
-        const persona = logic.compose("chained", "text", "en", rendered).instructions;
-        assert.deepEqual([persona.includes("RENDER-PERSONA"), persona.includes("PERSONA-MARKER")], [true, false], "a kendex home's persona is its render's");
     }
     homeText(Guidance);
     for (const [name, needle, replacement] of [
