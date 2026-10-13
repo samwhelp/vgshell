@@ -235,7 +235,9 @@ function promptReasonSuite(serviceSource, bodySource) {
         vm.runInContext(failed[0], context);
         context.failed(n, 1);
         assert.equal(context.prompt.name, "Hotel");
-        assert.equal(context.problem !== "", known);
+        // The reason states the failure alone: the line under it asks for
+        // the password, so a request here would ask twice.
+        assert.equal(context.problem, known ? "The saved password did not work." : "");
         assert.equal(reasonText({ network: { problem: context.problem } }), context.problem);
         assert.equal(visible(context.problem, { prompting: true }), false);
         assert.equal(visible(context.problem, { prompting: false }), known);
@@ -247,7 +249,10 @@ assert.throws(() => promptReasonSuite(service, body.replace('text: root.network.
 const firstTimeReason = service.replace(/(problem = pending\.known \? [^\n]* : )"";/, '$1"unexpected-reason";');
 assert.notEqual(firstTimeReason, service);
 assert.throws(() => promptReasonSuite(firstTimeReason, body));
-console.log("network-logic: control=prompt reason drawn once and absent for first join red");
+const twoRequests = service.replace('"The saved password did not work."', '"The saved password did not work. Enter the Wi-Fi password again."');
+assert.notEqual(twoRequests, service);
+assert.throws(() => promptReasonSuite(twoRequests, body));
+console.log("network-logic: control=prompt reason drawn once, asks nothing and absent for first join red");
 activateSuite(body);
 assert.equal(body.split("!row.known && Logic.supportsEnterprise").length - 1, 1);
 assert.throws(() => activateSuite(body.replace("!row.known && Logic.supportsEnterprise", "Logic.supportsEnterprise")));

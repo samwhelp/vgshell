@@ -391,7 +391,7 @@ Item {
         finishOperation("");
         if (Logic.shouldReprompt(Logic.enumName(reason, failureVariants), security, pending.known)) {
             prompt = { key: pending.key, name: n.name };
-            problem = pending.known ? "The saved password did not work. Enter the Wi-Fi password again." : "";
+            problem = pending.known ? "The saved password did not work." : "";
         } else {
             prompt = null;
             problem = security.indexOf("Eap") >= 0 ? "This network needs enterprise Wi-Fi settings." : "The network could not connect. Check that it is in range and try again.";
