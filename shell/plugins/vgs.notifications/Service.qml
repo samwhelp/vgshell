@@ -151,9 +151,12 @@ Item {
     }
 
     function stateRecovered(archive) {
+        const home = Quickshell.env("HOME");
+        let folder = archive.slice(0, archive.lastIndexOf("/"));
+        if (home !== "" && folder.indexOf(home + "/") === 0) folder = "~" + folder.slice(home.length);
         const sent = shell.notify.send({
             title: "Notification history reset",
-            message: "Saved notifications, Do Not Disturb, Sound and read marks were reset after this update. Your previous state was set aside as " + archive.slice(archive.lastIndexOf("/") + 1) + ".",
+            message: "Saved notifications and read marks reset.\nDo Not Disturb off. Sound on.\nOld file in " + folder,
             tone: "warning", urgency: "critical", transient: true
         });
         if (sent !== "ok") console.error("notifications: recovery notice " + sent);

@@ -33,7 +33,7 @@
 # `bar,hyprland-consent,plugins,capabilities,session,status,notifications,
 # device-fakes,start-order,auth-sentinel`. `--rows notifications` alone
 # lacks the server and plugins earlier rows build.
-# inputs: scripts/fixtures/notifications/state-v3.json shell/Core/Sounds.qml shell/assets/sounds/* scripts/smoke/fixtures/plugins/acme.sounds/* scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
+# inputs: scripts/fixtures/notifications/state-v3.json shell/Ui/foundation/ImageText* shell/Core/Sounds.qml shell/assets/sounds/* scripts/smoke/fixtures/plugins/acme.sounds/* scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 # The sound rule is not loaded in the sandbox's WirePlumber until the
@@ -2888,6 +2888,34 @@ notification_archives() {
 }
 skipped_version_written() { expect_poll "the skipped version is replaced with current state" 4 state_at version; }
 recovery_notice_rows() { ipc smoke modelRows vgs.notifications rows urgency,hintTone; }
+recovery_folder_matches() {
+  ipc smoke modelRows vgs.notifications rows urgency,hintTone,body | py_reply 'import html,json,pathlib,sys
+rows = [r for r in json.load(sys.stdin) if r[:2] == [2, "warning"]]
+folder = pathlib.Path(sys.argv[1]).parent
+try: expected = "~/" + str(folder.relative_to(sys.argv[2]))
+except ValueError: expected = str(folder)
+print(len(rows) == 1 and html.unescape(rows[0][2]).endswith(expected))' "$note_state" "$home"
+}
+# ImageText reports the real Text layout, not a copy of its line wrapping.
+recovery_body_fit() {
+  local cards bodies
+  cards="$(ipc smoke layerItems vgs.notifications NotificationCard hintTone,contentOpacity)" || return
+  bodies="$(ipc smoke layerItems vgs.notifications ImageText truncated,lineCount,visible,objectName)" || return
+  printf '%s\n' "$cards" | py_reply 'import json,sys
+cards = [c for c in json.load(sys.stdin) if c[2].get("hintTone") == "warning"]
+bodies = json.loads(sys.argv[1])
+if not cards: print("absent"); sys.exit()
+for screen, (x,y,w,h), values in cards:
+    if w != round(float(sys.argv[2])) or h <= 0 or values.get("contentOpacity", 0) < 1: print("pending"); sys.exit()
+    owned = [(box, text) for s,box,text in bodies if s == screen and x <= box[0] < x+w and y <= box[1] < y+h and text.get("objectName") == "notificationBodyText" and text.get("visible")]
+    if len(owned) != 1: print("body-absent"); sys.exit()
+    (bx,by,bw,bh), text = owned[0]
+    if bw <= 0 or bh <= 0 or text.get("lineCount", 0) <= 0: print("pending"); sys.exit()
+    if text.get("truncated") is not False: print("truncated"); sys.exit()
+    if bx+bw > x+w+1 or by+bh > y+h+1: print("outside-card"); sys.exit()
+print("complete")' "$bodies" "$note_card_width"
+}
+recovery_body_complete() { render expect_poll "the reset list and archive folder fit the actual card" complete recovery_body_fit; }
 
 # The old refusal is planted in a fresh plugin directory. The same current
 # file assertion must fail against its real Store before either success case.
@@ -2966,6 +2994,9 @@ for obsolete_version in 1 2; do
   }
   expect "the skipped version $obsolete_version archive keeps all original bytes" yes archived_bytes_match
   expect_poll "the skipped version $obsolete_version sends one critical warning" '[[2,"warning"]]' recovery_notice_rows
+  hover "$((mon_w - 5))" "$((mon_h - 5))" || fail "the pointer could not leave the recovery card"
+  expect_poll "the recovery notice names the actual archive folder" True recovery_folder_matches
+  recovery_body_complete
   expect_log "the skipped version $obsolete_version recovery is logged once" "$((obsolete_notices + 1))" 'notifications: state set aside: '
   expect "the recovery notice closes" ok notes dismiss-all
   restart_notes "after skipped version $obsolete_version recovery"
@@ -2978,6 +3009,30 @@ for obsolete_version in 1 2; do
 done
 expect "notifications return after the skipped-version checks" ok ipc shell setPluginEnabled vgs.notifications true
 expect_poll "notifications are ready after the skipped-version checks" '"loaded"' note_status store.state
+
+# The previous copy reached the card but hid its archive name. Publish that
+# copy in the sandbox and require the same real-layout assertion to fail.
+expect "no recovery toast remains before its layout control" 0 on_screen
+cp -- "$service_qml" "$sandbox/Service.qml.recovery-copy-kept"
+python3 "$source_repo/scripts/smoke/fixtures/ai-usage/edit.py" "$service_qml" \
+  'message: "Saved notifications and read marks reset.\nDo Not Disturb off. Sound on.\nOld file in " + folder,' \
+  'message: "Saved notifications, Do Not Disturb, Sound and read marks were reset after this update. Your previous state was set aside as " + archive.slice(archive.lastIndexOf("/") + 1) + ".",' || fail "the previous recovery copy control could not be written"
+rescan "the previous recovery copy is published"
+expect_poll "the previous-copy service is ready" '"loaded"' note_status store.state
+recovery_archive_args="$(printf '\n' | py_reply 'import glob,json,sys; files=sorted(glob.glob(sys.argv[1])); print(json.dumps({"args": [files[-1]]}) if files else "absent")' "${note_state%.json}.set-aside-*.json")" || fail "the archived file is unreadable for the copy control"
+if [[ $recovery_archive_args == absent ]]; then fail "the archived file is absent for the copy control"
+else expect "the previous recovery copy is sent" "" ipc smoke invokeInstanceArgs service vgs.notifications stateRecovered "$recovery_archive_args"; fi
+expect_poll "the previous recovery copy reaches the real card" '[[2,"warning"]]' recovery_notice_rows
+render expect_poll "the previous recovery copy elides its actual body" truncated recovery_body_fit
+recovery_copy_control() {
+  (failures=0 behaviour_failures=0; recovery_body_complete >"$sandbox/notifications-recovery-copy-control.log"; echo "$failures")
+}
+expect "control: the previous copy fails the real body-fit assertion" 1 recovery_copy_control
+expect "the previous-copy toast is dismissed" ok notes dismiss-all
+expect_poll "the previous-copy toast is gone" 0 on_screen
+cp -- "$sandbox/Service.qml.recovery-copy-kept" "$service_qml"
+rescan "the readable recovery copy is restored"
+expect_poll "the readable-copy service is ready" '"loaded"' note_status store.state
 
 # A state file the judge refuses is reported and left as it is; clearing
 # the history starts it over.
