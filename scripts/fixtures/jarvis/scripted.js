@@ -315,8 +315,8 @@ const waitingDriver = { create() {
 function dictationBrain(file) {
     fs.copyFileSync(__filename, path.join(path.dirname(file), "scripted-fixture.js"));
     edit(file, [
-        ["const brain = selectBrain(settings, accounts);",
-            'const brain = (entry => ({ kind: "ready", brain: entry, entries: [entry] }))(require("./scripted-fixture.js").waitingBrain());'],
+        ["const brain = selectBrain(settings, accounts, models);",
+            'const brain = (entry => ({ kind: "ready", brain: entry, entries: [entry], modelLists: [] }))(require("./scripted-fixture.js").waitingBrain());'],
         ['const DRIVERS = Object.freeze({ "openai-chat": OpenAIChat,',
             'const DRIVERS = Object.freeze({ waiting: require("./scripted-fixture.js").waitingDriver, "openai-chat": OpenAIChat,']
     ]);
