@@ -39,7 +39,7 @@ Item {
     }
     readonly property var audioChoices: choices("audio")
     // The language presets, and the saved value when Settings set codes no
-    // preset names, such as eng+deu, so the select shows it.
+    // preset names, such as deu+fra, so the select shows it.
     readonly property var languageChoices: {
         const presets = shell === null ? [] : schema.ocrLanguages.presets;
         const current = setting("ocrLanguages", "");
