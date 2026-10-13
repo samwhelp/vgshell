@@ -614,10 +614,19 @@ FocusScope {
                                 id: statusGroups
                                 width: statusPart.width
 
+                                // Quickshell 0.3.1's ScriptModel keeps the
+                                // old modelData of a row that one update
+                                // both changes and moves, matched by
+                                // objectProp, while a row changed in place
+                                // takes the new one: seen in sandbox-shots'
+                                // jarvis-causes scene, after-probe-timeout,
+                                // on 834123ac against f09e7df6. A step's
+                                // slot changes with its rank, so a moved
+                                // step is a new row.
                                 Repeater {
                                     model: ScriptModel {
                                         values: statusPart.modelData.items
-                                        objectProp: "key"
+                                        objectProp: "slot"
                                     }
                                     Loader {
                                         id: statusItem

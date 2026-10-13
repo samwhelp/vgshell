@@ -201,9 +201,11 @@ function inKeyedGroup(entry, keyed) {
 //   entries that declare a step, in manifest order, each but a key list a
 //   step row.
 // A section with no item and no button is left out. Each item is { key,
-// keys, entry, label, step, button }: `key` the entry's, `keys` whether it
-// draws as a key list, `step` whether its offered action draws beside it,
-// `button` that action (stepButton) or null. The page's one primary action
+// slot, keys, entry, label, step, button }: `key` the entry's, `slot` the
+// key the page matches its drawn row by, the entry's key and, for a step of
+// the Setup section, its stepRank, so a step that moves to another rank is
+// a new row; `keys` whether it draws as a key list, `step` whether its
+// offered action draws beside it, `button` that action (stepButton) or null. The page's one primary action
 // belongs to the first open required step in that order, while its action
 // is offered and not danger; an optional row action takes it only while
 // no required step is open, which a step that asks nothing (stepAsks) is
@@ -211,22 +213,22 @@ function inKeyedGroup(entry, keyed) {
 function setupSections(tuis, status) {
     var keyed = keyedGroups(status);
     var setup = status.filter(function (entry) { return entry.group === SETUP_GROUP && !listsKeys(entry); });
-    function row(entry, step) {
-        return { key: entry.key, keys: false, entry: entry, label: entry.label, step: step, button: step ? stepButton(tuis, entry) : null };
+    function row(entry, step, slot) {
+        return { key: entry.key, slot: slot, keys: false, entry: entry, label: entry.label, step: step, button: step ? stepButton(tuis, entry) : null };
     }
     function keys(entry) {
-        return { key: entry.key, keys: true, entry: entry, label: entry.label, step: false, button: null };
+        return { key: entry.key, slot: entry.key, keys: true, entry: entry, label: entry.label, step: false, button: null };
     }
     var steps = setup.slice(1).concat(status.filter(function (entry) { return entry.group === "" && declaresStep(entry); }));
     var setupItems = [0, 1, 2].map(function (rank) { return steps.filter(function (entry) { return stepRank(entry) === rank; }); })
-        .reduce(function (all, ranked) { return all.concat(ranked); }, []).map(function (entry) { return row(entry, true); })
+        .reduce(function (all, ranked) { return all.concat(ranked); }, []).map(function (entry) { return row(entry, true, entry.key + ":" + stepRank(entry)); })
         .concat(keyEntries(status).filter(function (entry) { return keyed.indexOf(entry.group) === -1; }).map(keys));
     var groups = sectionGroups(status).map(function (group) {
         return { title: group, buttons: [], items: status.filter(function (entry) { return entry.group === group && (inKeyedGroup(entry, keyed) || declaresStep(entry)); })
-            .map(function (entry) { return listsKeys(entry) ? keys(entry) : row(entry, true); }) };
+            .map(function (entry) { return listsKeys(entry) ? keys(entry) : row(entry, true, entry.key); }) };
     });
     var out = [];
-    if (setup.length > 0) out.push({ title: STATUS_TITLE, items: [row(setup[0], false)], buttons: [] });
+    if (setup.length > 0) out.push({ title: STATUS_TITLE, items: [row(setup[0], false, setup[0].key)], buttons: [] });
     var buttons = flowButtons(tuis, status, setup.length > 0 ? setup[0] : null);
     if (setupItems.length > 0 || buttons.length > 0) out.push({ title: SETUP_GROUP, items: setupItems, buttons: buttons });
     out = out.concat(groups);

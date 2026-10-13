@@ -190,6 +190,18 @@ const OPTIONAL = { tone: "info", text: "Optional", action: "key" };
 // manager's real statusRows below normalizes that state tone to success.
 const REPEAT = { tone: "ok", text: "Ready", action: "key" };
 const BROWSER_REPEAT = { tone: "ok", text: "Ready", action: true };
+// The slot the page matches a drawn row by, across one status write of the
+// Browser step: a step that stays in its rank keeps its slot, so its row
+// is updated in place, and one that moves to another rank takes a new
+// slot, so its row is drawn again: [label, the value before, the value
+// after, whether the slot stays].
+const SLOTS = [
+    ["an open step whose words change stays", TODO, { tone: "warning", text: "Setup failed", action: true }, true],
+    ["a done step whose words change stays", DONE, { tone: "ok", text: "Ready", action: false }, true],
+    ["an open step that is done moves", TODO, DONE, false],
+    ["an open step that turns optional and offered moves", TODO, { tone: "info", text: "Optional", action: true }, false],
+    ["a done step that opens moves", DONE, TODO, false]
+];
 const PRIMARY = [
     ["an open required step draws before the optional one declared first and takes the primary", { summary: { tone: "warning", text: "Not ready" }, model: OPTIONAL, browser: TODO },
         [["browser", ["Set up browser", true]], ["model", ["Add key", false]], ["keyStore", null]]],
@@ -608,6 +620,13 @@ function verify(logic) {
         same(drawn, want, "setupSections: " + label);
         same(logic.detailEntries(status).map(entry => entry.key), ["downCount", "last"], "the Setup group and a keyed group's keys and states leave Details: " + label);
     }
+    for (const [label, before, after, stays] of SLOTS) {
+        const slots = value => logic.setupSections(STEPPED_TUIS, producer.statusRows(STEPPED, { model: DONE, keyStore: NO_STEP, browser: value }, []));
+        const [was, is] = [before, after].map(value => slots(value).find(section => section.title === "Setup").items.find(item => item.key === "browser").slot);
+        same(was === is, stays, "slot: " + label);
+        for (const section of slots(before).concat(slots(after)))
+            same(new Set(section.items.map(item => item.slot)).size, section.items.length, "slot: " + label + ": each slot of section " + section.title + " is its own");
+    }
     for (const [label, values, want] of PRIMARY)
         same(logic.setupSections(STEPPED_TUIS, producer.statusRows(STEPPED, Object.assign({ keyStore: NO_STEP }, values), [])).find(section => section.title === "Setup").items
             .map(item => [item.key, item.button === null ? null : [item.button.label, item.button.primary]]), want, "primary: " + label);
@@ -673,7 +692,7 @@ const CONTROLS = [
     ["the headline's action that opens a screen draws as an act", 'status: step.name === "" ? headline.key : ""', "status: headline.key"],
     ["the headline's act names no entry", 'status: step.name === "" ? headline.key : ""', 'status: ""'],
     ["the Status row reads Status", "label: entry.label, step: step,", 'label: step ? entry.label : "Status", step: step,'],
-    ["the first Setup entry draws as a step", "items: [row(setup[0], false)]", "items: [row(setup[0], true)]"],
+    ["the first Setup entry draws as a step", "items: [row(setup[0], false, setup[0].key)]", "items: [row(setup[0], true, setup[0].key)]"],
     ["the first Setup entry draws among the steps too", "var steps = setup.slice(1).concat(", "var steps = setup.concat("],
     ["a keyed group's entries stay on Details", "        if (inKeyedGroup(entry, keyed)) return false;\n", ""],
     ["a Setup step draws on Details too", "        if (entry.group === SETUP_GROUP) return false;\n", ""],
@@ -723,7 +742,8 @@ const CONTROLS = [
     ["a tool to install gives no Setup tab", "return sections.length > 0 || requirements.some(requirementApplies);", "return sections.length > 0;"],
     ["setup material gives no Setup tab", "return sections.length > 0 || requirements.some(requirementApplies);", "return requirements.some(requirementApplies);"],
     ["no step holds the primary", "return item.button !== null && item.button.primary; });", "return false; });"],
-    ["every step action holds the primary", "return item.button !== null && item.button.primary; });", "return item.button !== null; });"]
+    ["every step action holds the primary", "return item.button !== null && item.button.primary; });", "return item.button !== null; });"],
+    ["a step's slot ignores its rank", 'return row(entry, true, entry.key + ":" + stepRank(entry)); })', "return row(entry, true, entry.key); })", "slot: an open step that is done moves"]
 ];
 
 const source = fs.readFileSync(file, "utf8");
