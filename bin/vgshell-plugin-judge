@@ -101,7 +101,9 @@ const path = require("path");
 const repo = path.join(__dirname, "..");
 const { load } = require(path.join(__dirname, "lib", "qml-library.js"));
 const logic = load(path.join(repo, "shell", "Core", "PluginLogic.js"));
-const configLogic = load(path.join(repo, "shell", "Core", "ConfigLogic.js"));
+// The configuration judgement, the ConfigLogic.js PluginLogic imports, so
+// the judge loads it once.
+const configLogic = logic.ConfigLogic;
 const { refuse, main, readJson, readConfig, readUserConfig, editFile, onPath } = require(path.join(__dirname, "lib", "judge-files.js"));
 
 // What detection answers on a system where no manager is looked for.

@@ -5,9 +5,10 @@
 // (configError), the migration of a user file of the previous format
 // version (migrateConfig), the merge of the two layers (effectiveConfig)
 // and the key grammar a plugins row's `keys` is judged by (hyprlandKey).
-// The shell loads it through PluginLogic.js and Config.qml, and the offline
-// judges load it alone, so a judge reads shell.json with the shell's own
-// rules without loading PluginLogic.js.
+// PluginLogic.js and the shell files that judge or read configuration
+// import it, and the offline judges that read shell.json load it alone, so
+// a judge reads shell.json with the shell's own rules without loading
+// PluginLogic.js.
 
 // Object helpers of its own, as Pads.js, MonitorLogic.js and ThemeLogic.js
 // keep theirs, so it imports nothing from PluginLogic.js.
