@@ -31,6 +31,12 @@ const FEATURE_PAGE = 500;
 // One page of the model list; the page's choices hold fewer.
 const MODEL_PAGE = 100;
 const NAME = /^[A-Za-z0-9_-]{1,64}$/;
+// What codex-cli 0.160.0 writes to stderr before an early exit, each with the
+// word its fault names. Its log holds no other word the fault may carry.
+const EXITS = Object.freeze([
+    // `Error: CODEX_HOME points to "<path>", but that path does not exist` (exit 1, a run on 2026-10-13).
+    [/^Error: CODEX_HOME points to .*, but that path does not exist$/m, "home-missing"]
+]);
 
 function fail(code) { throw new Error("jarvis: brain=codex-" + code); }
 function plain(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
@@ -233,6 +239,17 @@ function serverRequest(method, params) {
 }
 
 /**
+ * The keyed word for an exit, from the end of the program's stderr and
+ * whether it wrote a protocol line: a known Codex failure, `not-started`
+ * for a program that ended before its first line, as a launcher in front of
+ * Codex that refused does, or null.
+ */
+function cause(log, spoke) {
+    const known = EXITS.find(([pattern]) => pattern.test(log));
+    return known !== undefined ? known[1] : spoke ? null : "not-started";
+}
+
+/**
  * Narrow one line the program wrote: a response, a failure, a notification
  * or a server request. An unreadable line throws a keyed error.
  */
@@ -282,4 +299,4 @@ function proposal(value, announced) {
 }
 
 module.exports = { LINE_BYTES, SERVER, FEATURES_OFF, FEATURES_ENABLED, initialize, initialized, configRead,
-    threadStart, modelList, featureList, turnStart, turnInterrupt, answer, servers, thread, features, models, turnId, accept, proposal };
+    threadStart, modelList, featureList, turnStart, turnInterrupt, answer, servers, thread, features, models, turnId, accept, proposal, cause };

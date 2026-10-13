@@ -14,6 +14,8 @@ const { childEnvironment } = require("./Secrets.js");
 const CLOSE_MS = 2000;
 // One model list read: a bound on a stalled program, not a latency budget.
 const MODELS_MS = 20000;
+// The end of the program's log, in characters, a brain's cause judge reads at its exit.
+const LOG_CHARS = 4096;
 
 /**
  * The one judge of a model name: "" for the program's own default, or at
@@ -59,17 +61,21 @@ function offers(entries) {
  * variables the brain adds. accept(line) narrows one line to {kind:
  * "response", id, result}, {kind: "failure", id, ...}, {kind:
  * "notification", event} or {kind: "request", id, request}; refused(call,
- * value) is a failure's error. listener receives each notification and
- * request, and once {kind: "ended", error}. Every child, including
- * setpriv's exec of the program, ends with the daemon.
+ * value) is a failure's error. cause(log, spoke), when given, names the
+ * exit's cause in one keyed word or null, from the last LOG_CHARS of the
+ * program's stderr and whether it wrote a line. listener receives each
+ * notification and request, and once {kind: "ended", error}. Every child,
+ * including setpriv's exec of the program, ends with the daemon.
  */
-function program({ name, argv, env, extra, cwd, accept, lineBytes, refused }, listener) {
+function program({ name, argv, env, extra, cwd, accept, lineBytes, refused, cause }, listener) {
     const fail = code => { throw new Error("jarvis: brain=" + name + "-" + code); };
     const child = cp.spawn("setpriv", ["--pdeathsig", "KILL", "--", ...argv], {
         cwd, env: { ...childEnvironment(env), ...extra }, stdio: ["pipe", "pipe", "pipe"] });
     const calls = new Map();
     let next = 1;
     let tail = "";
+    let log = "";
+    let spoke = false;
     let ended = null;
     const exited = new Promise(resolve => child.once("close", resolve));
 
@@ -82,10 +88,16 @@ function program({ name, argv, env, extra, cwd, accept, lineBytes, refused }, li
         listener({ kind: "ended", error });
     }
     child.on("error", error => end(new Error("jarvis: brain=" + name + "-start cause=" + (error.code ?? "unknown"))));
-    child.on("close", (code, signal) => end(new Error("jarvis: brain=" + name + "-exited code=" + code + " signal=" + signal)));
+    child.on("close", (code, signal) => {
+        const word = cause?.(log, spoke) ?? null;
+        log = "";
+        end(new Error("jarvis: brain=" + name + "-exited code=" + code + " signal=" + signal + (word === null ? "" : " cause=" + word)));
+    });
     child.stdin.on("error", () => {});
-    // The program's log can hold conversation text or a credential; it is read and dropped.
-    child.stderr.resume();
+    // The program's log can hold conversation text or a credential: its end
+    // stays in memory for cause() alone, which turns it into a keyed word.
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", chunk => { if (cause !== undefined) log = (log + chunk).slice(-LOG_CHARS); });
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", chunk => {
         if (ended !== null) return;
@@ -95,6 +107,7 @@ function program({ name, argv, env, extra, cwd, accept, lineBytes, refused }, li
             while (ended === null && (index = tail.indexOf("\n")) >= 0) {
                 const line = tail.slice(0, index);
                 tail = tail.slice(index + 1);
+                spoke = true;
                 receive(accept(line));
             }
             if (Buffer.byteLength(tail) >= lineBytes) fail("line-size");

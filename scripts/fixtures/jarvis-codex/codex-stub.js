@@ -4,7 +4,8 @@
 // the app-server subset Jarvis uses on stdio and replays a scenario the test
 // writes to $XDG_STATE_HOME/codex-scenario.json:
 //   { servers: {name: config}, thread: {overrides}, features: [extra feature rows],
-//     reply: "text" (Verify), turns: [[step, ...], ...], hang: bool, crash: "handshake",
+//     reply: "text" (Verify), turns: [[step, ...], ...], hang: bool,
+//     crash: "handshake" | "thread" (exit 3 at that request, after writing stderr: "text"),
 //     models: a model/list result in place of the recorded one,
 //     refuse: method (answered with a JSON-RPC error),
 //     interruptBarrier: path (completion waits for this fixture file),
@@ -112,13 +113,18 @@ process.stdin.on("data", chunk => {
 });
 process.stdin.on("end", () => { if (!scenario.hang) process.exit(0); });
 
+function crash() {
+    if (scenario.stderr !== undefined) fs.writeSync(2, scenario.stderr);
+    process.exit(3);
+}
+
 function handle(message) {
     if (message.method === undefined) { answers.get(message.id)?.(message); answers.delete(message.id); return; }
     const respond = result => write({ id: message.id, result });
     if (message.method === scenario.refuse) { write({ id: message.id, error: { code: -32600, message: "fixture: refused" } }); return; }
     switch (message.method) {
     case "initialize":
-        if (scenario.crash === "handshake") process.exit(3);
+        if (scenario.crash === "handshake") crash();
         respond({ ...reply("patch", line => line.id === 1), codexHome: process.env.CODEX_HOME });
         return;
     case "initialized": return;
@@ -135,6 +141,7 @@ function handle(message) {
         return;
     }
     case "thread/start": {
+        if (scenario.crash === "thread") crash();
         servers = message.params.config.mcp_servers;
         const value = reply("patch", line => line.id === 2);
         value.thread.cwd = value.cwd = message.params.cwd;

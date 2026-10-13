@@ -349,13 +349,29 @@ world(async () => {
                 ["feature", { features: [{ name: "fixture_tool", stage: "stable", enabled: true, defaultEnabled: true }] },
                     "jarvis: brain=codex-feature name=fixture_tool"],
                 ["server-name", { servers: { vgs_jarvis: { command: "x" } } }, "jarvis: brain=codex-mcp-name"],
-                ["crash", { crash: "handshake" }, "jarvis: brain=codex-exited code=3 signal=null"]
+                ["crash", { crash: "handshake" }, "jarvis: brain=codex-exited code=3 signal=null cause=not-started"]
             ]) {
                 scenario({ ...value, turns: [[{ complete: "completed" }]] });
                 const w = make(folder);
                 await assert.rejects(drain(w.say("x")), { message }, label);
                 assert.deepEqual(received("turn/start"), [], label + " starts no turn");
                 await until(() => fs.readdirSync(w.runtime).every(name => !name.startsWith("codex-")), label + " removes its directory");
+            }
+        },
+        // An exit names its cause in one keyed word and carries no text of the program's log.
+        async exitCause(folder) {
+            const note = "dentist note fixture-secret-private";
+            for (const [label, value, message] of [
+                ["launcher", { crash: "handshake", stderr: "launcher: refused " + note + "\n" },
+                    "jarvis: brain=codex-exited code=3 signal=null cause=not-started"],
+                ["home", { crash: "handshake", stderr: "WARNING: proceeding, even though we could not create PATH aliases: "
+                    + 'CODEX_HOME points to "/gone", but that path does not exist\nError: CODEX_HOME points to "/gone", but that path does not exist\n' },
+                    "jarvis: brain=codex-exited code=3 signal=null cause=home-missing"],
+                ["started", { crash: "thread", stderr: note + "\n" }, "jarvis: brain=codex-exited code=3 signal=null"]
+            ]) {
+                scenario({ ...value, turns: [[{ complete: "completed" }]] });
+                const w = make(folder);
+                await assert.rejects(drain(w.say("x")), { message }, label);
             }
         },
         // cancel interrupts the program's turn and resolves on its acknowledgement.
@@ -707,6 +723,9 @@ world(async () => {
             ["empty-delta", "backend/CodexHarness.js", [['!prior.completed && e.delta !== ""', '!prior.completed']], "completedText"],
             ["completed-message", "backend/CodexHarness.js", [['if (e.item.kind === "message") {', 'if (false && e.item.kind === "message") {']], "completedText"],
             ["message-dedupe", "backend/CodexHarness.js", [['const remainder = e.item.text.slice(prior.value.length);', 'const remainder = e.item.text;']], "completedText"],
+            ["exit-cause", "backend/HarnessProgram.js", [["const word = cause?.(log, spoke) ?? null;", "const word = null;"]], "exitCause"],
+            ["exit-spoke", "backend/HarnessProgram.js", [["                spoke = true;\n", ""]], "exitCause"],
+            ["exit-known", "backend/CodexAppServer.js", [["[/^Error: CODEX_HOME points to", "[/^Never: CODEX_HOME points to"]], "exitCause"],
             ["environment-scrub", "backend/HarnessProgram.js", [["env: { ...childEnvironment(env), ...extra }", "env: { ...env, ...extra }"]], "turn"],
             ["account-home", "backend/CodexHarness.js", [["CODEX_HOME: directory }", "CODEX_HOME: env.HOME }"]], "turn"],
             ["home-program", "backend/CodexHarness.js", [["extra: { CODEX_HOME: directory }, cwd,", "extra: { CODEX_HOME: directory }, cwd: env.FIXTURE_JARVIS_HOME,"]], "home"],

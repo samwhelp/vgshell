@@ -27,7 +27,7 @@ function fail(code) { throw new Error("jarvis: brain=codex-" + code); }
 // The program under the shared harness shape, with its account directory.
 function program({ directory, env, cwd }, listener) {
     return Harness.program({ name: "codex", argv: ["codex", "app-server", "--listen", "stdio://"], env,
-        extra: { CODEX_HOME: directory }, cwd, accept: Codex.accept, lineBytes: Codex.LINE_BYTES,
+        extra: { CODEX_HOME: directory }, cwd, accept: Codex.accept, lineBytes: Codex.LINE_BYTES, cause: Codex.cause,
         refused: (call, value) => new Error("jarvis: brain=codex-refused method=" + call.method + " code=" + value.code) }, listener);
 }
 
