@@ -836,6 +836,7 @@ function verifyVoice(gate, serviceSource, accountsSource) {
             assert.deepEqual(plain([entry.group, entry.tone, entry.action.offered, entry.action.tui]),
                 ["Voice", { info: "info", ok: "success", warning: "warning" }[want[0]], want[1], want[1] ? "add-key" : ""], label + ": the Voice group's key row");
             assert.equal(typeof entry.hint === "string" && entry.hint !== "", true, label + ": the row says what the key unlocks");
+            assert.equal(oneSentence(entry.hint), true, label + ": the key row's hint is one sentence");
             hints[voiceProvider].add(entry.hint);
             linked[voiceProvider] = entry.link !== null && entry.hint.includes(entry.link.text) ? entry.link.url : null;
         }
@@ -846,19 +847,28 @@ function verifyVoice(gate, serviceSource, accountsSource) {
         [false, false, false, true, false], "the key row says what the selected cloud voice's key unlocks, and under Local or Auto both");
         assert.deepEqual(linked, { realtime: null, gemini: "https://aistudio.google.com/apikey", local: "https://aistudio.google.com/apikey",
             auto: "https://aistudio.google.com/apikey", elevenlabs: null }, "the key row links Google AI Studio where its hint names it");
-        // The ElevenLabs key's page is the ElevenLabs voices row's link,
-        // which the key row's hint names.
-        assert.equal(elevenHint.includes(manifest.status.elevenLabs.link.text), true, "the ElevenLabs key row names the page its voices row links");
-        // The Voice key field names both cloud voices' keys, links OpenAI's
-        // key page and points at the key row, by the label that row has, for
-        // Google AI Studio.
+        // The Voice key field names every cloud voice's key and links
+        // OpenAI's key page. It names no row of another tab and no page it
+        // cannot link: a hint sends nobody elsewhere for a link.
         const field = manifest.schema.voiceAccount;
         const row = manifest.status.voiceKey;
         const eleven = manifest.status.elevenLabs;
         assert.deepEqual([plain(field.link), ["OpenAI", "Gemini", "ElevenLabs", row.label, row.link.text, eleven.label, eleven.link.text]
             .map(words => field.description.includes(words))],
-        [{ text: "OpenAI API keys", url: "https://platform.openai.com/api-keys" }, [true, true, true, true, true, true, true]],
-        "the Voice key field names every cloud voice's key, links OpenAI API keys and points at the rows that link the others");
+        [{ text: "OpenAI API keys", url: "https://platform.openai.com/api-keys" }, [true, true, true, false, false, false, false]],
+        "the Voice key field names every cloud voice's key, links OpenAI API keys and points at no row of another tab");
+        // The key row names the page of each key it asks for. Its one link
+        // is Google AI Studio; the two other pages read in words alone.
+        const pages = [field.link.text, row.link.text, eleven.link.text];
+        assert.deepEqual([realtimeHint, geminiHint, localHint, elevenHint].map(hint => pages.map(page => hint.includes(page))),
+            [[true, false, false], [false, true, false], [true, true, false], [false, false, true]],
+            "the key row names the page of each key its hint asks for");
+        // A hint is one sentence; what it no longer says is the entry's info.
+        const worded = [field.description, manifest.schema.voice.description, row.hint, eleven.hint];
+        assert.deepEqual(worded.map(oneSentence), [true, true, true, true], "each voice hint is one sentence");
+        assert.deepEqual([field, manifest.schema.voice, row, eleven].map(entry => typeof entry.info === "string" && entry.info !== ""),
+            [true, true, true, true], "each voice entry keeps its longer help behind the info button");
+        assert.equal(row.hint, localHint, "the declared key hint is the one Local and Auto read");
         // The preview row of a cloud voice names whose key it uses.
         const preview = serviceSource.match(/^    function publishPreview\(\) \{\n[\s\S]*?^    \}/m);
         assert.ok(preview);
@@ -1191,8 +1201,9 @@ function serviceCall(serviceSource, name, root, gate) {
 
 // The ElevenLabs voices row through the shipped service's publication, one
 // state per fact: [label, facts, the row's tone and text, or "hidden"].
-// With a key chosen the row never asks for one; every state keeps the
-// row's link, whose words its hint holds.
+// With a key chosen the row never asks for one. The row's link draws
+// where its hint holds the link's words: while the key is the user's step
+// and after a failed read, the two states that send the user to that page.
 const ELEVEN_KEY_STORED = [{ value: "eleven-1", label: "ElevenLabs / personal", provider: "elevenlabs" }];
 const ELEVEN_ROWS = [
     ["another voice", { provider: "local", keys: ELEVEN_KEY_STORED, account: "eleven-1", answer: { kind: "answered", causes: [] }, voices: 3 }, "hidden"],
@@ -1224,8 +1235,10 @@ function verifyElevenLabsRow(gate, serviceSource) {
         assert.ok(row !== undefined, label + ": the ElevenLabs voices row shows");
         assert.deepEqual([row.tone, values.elevenLabs.text, row.action], [{ info: "info", ok: "success", warning: "warning" }[want[0]], want[1], null],
             label + ": the ElevenLabs voices row");
-        assert.equal(row.hint.includes(row.link.text) && new URL(row.link.url).hostname === "elevenlabs.io", true,
-            label + ": the ElevenLabs voices row keeps its link");
+        assert.equal(new URL(row.link.url).hostname, "elevenlabs.io", label + ": the ElevenLabs voices row links ElevenLabs");
+        assert.equal(row.hint.includes(row.link.text), want[1] === "Your step" || want[1] === "Could not read voices",
+            label + ": the ElevenLabs voices row draws its link only where the user needs the key page");
+        assert.equal(oneSentence(row.hint), true, label + ": the ElevenLabs voices row's hint is one sentence");
         assert.equal(facts.account !== "" && facts.keys?.length !== 0 && /Get a key/.test(row.hint), false,
             label + ": the ElevenLabs voices row asks for no key once one is chosen");
         hints.add(row.hint);
@@ -1453,6 +1466,16 @@ const CONTROLS = [
     ["the ElevenLabs voices row never shows", 'if (facts.provider !== "elevenlabs") return { hidden: true };', "return { hidden: true };", "the ElevenLabs voices row"],
     ["a stored ElevenLabs key still reads as the user's step", 'if (!chosen) return { tone: "info", text: "Your step" };', 'return { tone: "info", text: "Your step" };', "the ElevenLabs voices row"],
     ["a failed voice read reads as being read", 'if (causes.indexOf("speech=elevenlabs-voice") !== -1) return', "if (false) return", "the ElevenLabs voices row"],
+    ["listed voices still link the key page", 'var ELEVENLABS_READY = "Choose one in Settings > Voice.";', 'var ELEVENLABS_READY = "Choose one in Settings > Voice, or open ElevenLabs API keys.";',
+        "draws its link only where the user needs the key page"],
+    ["a failed voice read names no key page", "check under ElevenLabs API keys that it may read voices", "check that it may read voices",
+        "draws its link only where the user needs the key page"],
+    ["an ElevenLabs voices hint has more than one sentence", 'var ELEVENLABS_READING = "Jarvis is reading the voices of your ElevenLabs key.";',
+        'var ELEVENLABS_READING = "Jarvis is reading the voices of your ElevenLabs key. It takes a moment.";', "hint is one sentence"],
+    ["a key row hint has more than one sentence", 'gemini: "Get a Gemini key from Google AI Studio to use the Gemini Live voice."',
+        'gemini: "Get a Gemini key from Google AI Studio. It serves the Gemini Live voice."', "the key row's hint is one sentence"],
+    ["the ElevenLabs key row names no key page", "Get an ElevenLabs key from ElevenLabs API keys to speak", "Get an ElevenLabs key to speak",
+        "the key row names the page of each key its hint asks for"],
     ["every voice provider reads as Local", "var route = VOICE_ROUTES[setting];", "var route = VOICE_ROUTES.local;", "the Voice provider hint"],
     ["the ElevenLabs voice runs no dictation", 'return provider === "local" || provider === "elevenlabs";', 'return provider === "local";', "ElevenLabs"],
     ["another device is no cause", 'return otherDevice(state) ? "speech=dictation-device" : "";', 'return "";', "another device"],
@@ -1702,8 +1725,10 @@ try {
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), ',\n        { "value": "gemini", "label": "Gemini Live" }', ""],
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), ', { "value": "elevenlabs", "label": "ElevenLabs" }]', "]"],
         ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '"url": "https://platform.openai.com/api-keys" } },\n    "voice":', '"url": "https://aistudio.google.com/apikey" } },\n    "voice":'],
-        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), "Cloud voice key, on Setup", "the key row, on Setup"],
-        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), "ElevenLabs voices, on Details", "the voices row, on Details"]
+        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), "or an ElevenLabs key for ElevenLabs.\"", "or an ElevenLabs key for ElevenLabs, as ElevenLabs voices says.\""],
+        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), "for Realtime, a Gemini key for Gemini Live or", "for Realtime. A Gemini key for Gemini Live or"],
+        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '      "info": "With one stored key for the chosen voice, Jarvis picks it. Add key, on Setup, stores a new key.",\n', ""],
+        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '      "info": "Design or clone a voice on ElevenLabs\'s site, under Voices. Jarvis reads the voices of your key again each time you open this page.",\n', ""]
     ]) {
         assert.equal(original.split(needle).length, 2);
         let failure = null;

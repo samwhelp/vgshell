@@ -107,7 +107,7 @@ When a tool that Jarvis needs is missing, the VGS requirement notice installs it
 
 Home folder shows in Setup only when Jarvis cannot use the folder you chose, and says what to change. Jarvis checks the folder again when you press Talk.
 
-With the ElevenLabs voice, the Details tab shows ElevenLabs voices, which links ElevenLabs API keys, where you make a key. Until you choose a key it is your step; then it says how many voices Jarvis read, that it is reading them, or that it could not read them. You design or clone a voice on ElevenLabs's site, under Voices; Voice then lists it.
+With the ElevenLabs voice, the Details tab shows ElevenLabs voices. Until you choose a key it is your step, and it links ElevenLabs API keys, where you make a key; then it says how many voices Jarvis read, that it is reading them, or that it could not read them. You design or clone a voice on ElevenLabs's site, under Voices; Voice then lists it.
 
 With a GitHub Copilot account, Setup shows Copilot Memory. GitHub keeps that memory in your account, so only you can turn it off: open [GitHub Copilot settings](https://github.com/settings/copilot/features) and set Copilot Memory to Disabled.
 

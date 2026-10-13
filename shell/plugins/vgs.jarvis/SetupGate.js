@@ -90,7 +90,7 @@ function flooredValue(command, missing, outdated) {
 var REQUIRED = { home: "setupHome", guidance: "setupHome", speech: "setupVoice", brain: "setupModel" };
 // What the Voice step and the ElevenLabs voices row say after a failed read
 // of the key's voices (ChainedEngine voicesHeld).
-var ELEVENLABS_UNREAD = "Jarvis could not read the voices of your ElevenLabs key. Check under ElevenLabs API keys that the key may read voices. Jarvis reads them again when you press Talk.";
+var ELEVENLABS_UNREAD = "Jarvis could not read the voices of your ElevenLabs key: check under ElevenLabs API keys that it may read voices, then press Talk.";
 // The hint a required step still to do shows in place of its declared one,
 // by its cause: what the step's own action does not already say. A cause
 // named nowhere here takes its step's hint below; a step with none there,
@@ -423,14 +423,16 @@ function clonedVoiceStep(value, provider) {
     return row;
 }
 
-// What a key unlocks and where to get one (D075), by the Voice provider
-// setting: the chosen cloud voice's key, or under Local and Auto both. The
-// row's one link, Google AI Studio, draws where the hint names it.
+// Where to get a key and what it unlocks (D075), by the Voice provider
+// setting: the chosen cloud voice's key, or under Local and Auto the keys
+// of the two voices that hear you. The row's one link, Google AI Studio,
+// draws where the hint names it; another page is named in words alone.
+// `other` is the declared hint.
 var VOICE_KEY_HINTS = {
-    realtime: "An OpenAI key lets Jarvis use the Realtime voice: OpenAI hears you and speaks the reply. Get a key from OpenAI API keys.",
-    gemini: "A Gemini key lets Jarvis use the Gemini Live voice: Google hears you and speaks the reply. Get a key from Google AI Studio.",
-    elevenlabs: "An ElevenLabs key lets Jarvis speak its replies in the voices of your ElevenLabs account. Get a key from ElevenLabs API keys.",
-    other: "An OpenAI key lets Auto use the Realtime voice; a Gemini key serves Gemini Live once you choose it. Get a key from OpenAI API keys or Google AI Studio."
+    realtime: "Get an OpenAI key from OpenAI API keys to use the Realtime voice.",
+    gemini: "Get a Gemini key from Google AI Studio to use the Gemini Live voice.",
+    elevenlabs: "Get an ElevenLabs key from ElevenLabs API keys to speak in your ElevenLabs voices.",
+    other: "Get an OpenAI key from OpenAI API keys for the Realtime voice, or a Gemini key from Google AI Studio for Gemini Live."
 };
 // The Voice group's key row for OFFERED, the stored keys of the cloud voice
 // SETTINGS select (voiceKeys), or null while the account reader could not
@@ -450,11 +452,12 @@ function voiceKey(offered, settings) {
 // under another voice. With no ElevenLabs key chosen the row is the user's
 // own step, which its declared hint words (D075). With one, it follows the
 // key's voice list: offered, failed (the Voice step's cause), being read,
-// or waiting while another cause holds the Voice step. Every hint names
-// ElevenLabs API keys, so the row's link draws in each state.
-var ELEVENLABS_READY = "Voice lists them. Design or clone more on ElevenLabs's site under Voices; your key is under ElevenLabs API keys.";
-var ELEVENLABS_READING = "Jarvis is reading the voices of your ElevenLabs key. Design or clone voices on ElevenLabs's site under Voices; your key is under ElevenLabs API keys.";
-var ELEVENLABS_WAITING = "Jarvis reads the voices of your ElevenLabs key once the Voice step under Setup is done. Your key is under ElevenLabs API keys.";
+// or waiting while another cause holds the Voice step. Only the hints
+// that send the user to ElevenLabs API keys name it, the declared one and
+// the failed read's, so the row's link draws in those two states alone.
+var ELEVENLABS_READY = "Choose one in Settings > Voice.";
+var ELEVENLABS_READING = "Jarvis is reading the voices of your ElevenLabs key.";
+var ELEVENLABS_WAITING = "Jarvis reads the voices of your ElevenLabs key when the Voice step on Setup is done.";
 function elevenLabsStep(facts) {
     if (facts.provider !== "elevenlabs") return { hidden: true };
     var named = facts.account;
