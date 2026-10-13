@@ -1579,7 +1579,7 @@ for (const site of LED_LINES) {
 }
 
 const rowMeasureSource = fs.readFileSync(path.join(repo, "shell/plugins/vgs.notifications/RowMeasure.qml"), "utf8");
-const SUMMARY_ICON_TOP = /function topForLeadingIcon\(iconHeight\) \{\s*return \(summaryRow\.visible \? summaryRow\.y \+ titleText\.y : bodyText\.y\) \+ titleText\.topForLeadingIcon\(iconHeight\);/;
+const SUMMARY_ICON_TOP = /function topForLeadingIcon\(iconHeight\) \{\s*return \(rowCard\.summary\.length > 0 \? summaryRow\.y \+ titleText\.y : bodyText\.y\) \+ titleText\.topForLeadingIcon\(iconHeight\);/;
 assert.match(rowMeasureSource, SUMMARY_ICON_TOP, "notification icons use the shared label placement for summary and body-only cards");
 assert.doesNotMatch(rowMeasureSource.replace("titleText.topForLeadingIcon(iconHeight)", "Math.round((titleMetrics.height - iconHeight) / 2)"), SUMMARY_ICON_TOP,
     "control: notification icons placed on a line box must fail the check");

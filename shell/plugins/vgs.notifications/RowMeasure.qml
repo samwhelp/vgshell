@@ -55,7 +55,7 @@ ColumnLayout {
     }
     readonly property int badgeStatus: badgeImage.status
     function topForLeadingIcon(iconHeight) {
-        return (summaryRow.visible ? summaryRow.y + titleText.y : bodyText.y) + titleText.topForLeadingIcon(iconHeight);
+        return (rowCard.summary.length > 0 ? summaryRow.y + titleText.y : bodyText.y) + titleText.topForLeadingIcon(iconHeight);
     }
     readonly property real measuredHeight: (rowCard.summary.length > 0 ? Math.max(titleText.implicitHeight,
         rowCard.showsBadge ? rowCard.look.badge.size + Math.max(0, (titleMetrics.height - rowCard.look.badge.size) / 2) : 0) : 0)
@@ -157,9 +157,11 @@ ColumnLayout {
             text: rowCard.title
             color: rowCard.look.text.foreground
             font.family: rowCard.look.font.family.sans
-            // The hidden title uses the body's font for a body-only card.
-            font.pixelSize: summaryRow.visible ? rowCard.look.text.title.size : rowCard.look.text.body.size
-            font.weight: summaryRow.visible ? rowCard.look.text.title.weight : Font.Normal
+            // Qt propagates a hidden parent's visible=false to its children:
+            // https://doc.qt.io/qt-6/qml-qtquick-item.html#visible-prop
+            // The hidden measurer must select the font from content instead.
+            font.pixelSize: rowCard.summary.length > 0 ? rowCard.look.text.title.size : rowCard.look.text.body.size
+            font.weight: rowCard.summary.length > 0 ? rowCard.look.text.title.weight : Font.Normal
             // Keep the original Text's font and line box while using Label's
             // shared capital placement. No typography role changes this title.
             font.variableAxes: ({})
@@ -186,7 +188,7 @@ ColumnLayout {
         // The height left for the body under maxHeight, and so the
         // whole lines it shows; the last one elides.
         // The column's spacing is the one gap under the summary.
-        readonly property real room: rowCard.look.card.maxHeight - 2 * rowCard.pad - (summaryRow.visible ? summaryRow.implicitHeight + root.spacing : 0)
+        readonly property real room: rowCard.look.card.maxHeight - 2 * rowCard.pad - (rowCard.summary.length > 0 ? summaryRow.implicitHeight + root.spacing : 0)
         Layout.fillWidth: true
         visible: !rowCard.singleLine
         // StyledText, since the server advertises body markup. The

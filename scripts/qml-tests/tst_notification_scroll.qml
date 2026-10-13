@@ -70,6 +70,7 @@ Item {
 
     Component { id: shippedMeasure; Notifications.RowMeasure { measureOnly: true } }
     Component { id: measuredCard; Notifications.NotificationCard {} }
+    Component { id: measureParent; Item {} }
 
     // Synthetic screenshot-sized PNG. The hidden decoder, not a file-size
     // or source-text check, must retain only the painted token's pixels.
@@ -185,24 +186,69 @@ Item {
                 showsBadge: false, enrichment: null, workspace: "", workspaceIcon: "", bodySegments: [] };
         }
 
-        function unboundedMeasure(look) {
+        function alteredMeasure(look, bound, replacement) {
             const request = new XMLHttpRequest();
             request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.notifications/RowMeasure.qml"), false);
             request.send();
             const source = request.responseText;
-            const bound = "sourceSize: Qt.size(decodeSize, decodeSize)";
-            compare(source.split(bound).length, 2, "the planted decoder mutation matches once");
-            const planted = source.replace(bound, "sourceSize: Qt.size(0, 0)");
+            compare(source.split(bound).length, 2, "the planted measurement mutation matches once");
+            const planted = source.replace(bound, replacement);
             verify(planted !== source);
             const at = planted.indexOf("ColumnLayout {");
             verify(at > 0);
-            const wrapper = planted.slice(0, at) + "Item { component UnboundedMeasure: " + planted.slice(at)
-                + "\n readonly property Component measure: Component { UnboundedMeasure {} } }";
+            const wrapper = planted.slice(0, at) + "Item { component AlteredMeasure: " + planted.slice(at)
+                + "\n readonly property Component measure: Component { AlteredMeasure {} } }";
             const owner = Qt.createQmlObject(wrapper, scene, Qt.resolvedUrl("../../shell/plugins/vgs.notifications/ControlMeasure.qml"));
             verify(owner !== null);
             const measure = owner.measure.createObject(owner, { measureOnly: true, rowCard: measureCard(look) });
             verify(measure !== null);
             return { owner: owner, measure: measure };
+        }
+
+        function test_hidden_and_visible_card_measurement_data() {
+            const wrapped = "Wrapped summary with enough words to cross the text width and continue on the second line";
+            const body = "Wrapped body text with enough words to occupy more than one full line in the notification card.";
+            return [
+                { tag: "visible wrapped summary", summary: wrapped, body: body, shown: true },
+                { tag: "hidden wrapped summary", summary: wrapped, body: body, shown: false },
+                { tag: "hidden long body", summary: "Long body", body: body.repeat(8), shown: false },
+                { tag: "hidden body only", summary: "", body: body, shown: false },
+                { tag: "visibility-dependent font control", summary: wrapped, body: body, shown: false, control: true }
+            ];
+        }
+
+        function test_hidden_and_visible_card_measurement(row) {
+            const look = frame.look;
+            const parent = createTemporaryObject(measureParent, scene, { visible: row.shown });
+            verify(parent !== null);
+            const altered = row.control ? alteredMeasure(look,
+                "rowCard.summary.length > 0 ? rowCard.look.text.title.size : rowCard.look.text.body.size",
+                "summaryRow.visible ? rowCard.look.text.title.size : rowCard.look.text.body.size") : null;
+            const measure = altered !== null ? altered.measure
+                : shippedMeasure.createObject(parent, { rowCard: measureCard(look) });
+            verify(measure !== null);
+            if (altered !== null) altered.owner.visible = row.shown;
+            const entry = { app: "Measurement test", summary: row.summary, body: row.body };
+            const card = createTemporaryObject(measuredCard, scene, {
+                look: look, textColumn: frame.textColumn, app: entry.app, summary: entry.summary, body: entry.body
+            });
+            verify(card !== null);
+            try {
+                card.settleHeight();
+                const predicted = measure.measure(entry, look, card.textColumn);
+                const title = findChild(measure, "notificationTitleText");
+                verify(title !== null);
+                compare(title.visible, row.shown && row.summary.length > 0);
+                if (row.control) expectFail("", "the hidden font must not depend on inherited visibility");
+                compare(title.font.pixelSize, row.summary.length > 0 ? look.text.title.size : look.text.body.size);
+                if (row.control) return;
+                compare(title.font.weight, row.summary.length > 0 ? look.text.title.weight : Font.Normal);
+                fuzzyCompare(predicted, card.fullHeight, 0.5,
+                    "the same content has the same measured and visible card height");
+            } finally {
+                if (altered !== null) altered.owner.destroy();
+                else measure.destroy();
+            }
         }
 
         function test_hidden_decoder_data() {
@@ -216,7 +262,7 @@ Item {
 
         function test_hidden_decoder(row) {
             const look = frame.look;
-            const altered = row.control ? unboundedMeasure(look) : null;
+            const altered = row.control ? alteredMeasure(look, "sourceSize: Qt.size(decodeSize, decodeSize)", "sourceSize: Qt.size(0, 0)") : null;
             const measure = altered !== null ? altered.measure
                 : shippedMeasure.createObject(scene, { rowCard: measureCard(look) });
             verify(measure !== null);
