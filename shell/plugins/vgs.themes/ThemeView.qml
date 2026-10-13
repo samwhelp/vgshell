@@ -401,8 +401,9 @@ FocusScope {
 
             // No card to show: the list loading, no theme at all, or a
             // filter no card matches, which Clear filter, as Escape, undoes.
-            EmptyState {
-                anchors.centerIn: parent
+            BrowserEmptyState {
+                x: Math.round((parent.width - width) / 2)
+                y: Math.round((parent.height - height) / 2)
                 width: Math.min(parent.width, Theme.carousel.expandedWidth)
                 visible: root.shownCards.length === 0 && root.listReason === ""
                 iconName: !root.loaded ? "" : root.filterText === "" ? "palette" : "search-x"

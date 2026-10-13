@@ -36,7 +36,11 @@
 # plugin disabled, and rows/theme-browse.sh leaves vgs applied with Black
 # current and nord not installed; this file enables the plugin and leaves
 # all four so.
-# inputs: shell/plugins/vgs.themes/* themes/catalog/* themes/vgs/* shell/Core/HyprlandLayer.js shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* shell/Ui/layout/CardCarousel.qml shell/Ui/layout/AngledCard.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/feedback/Dialog.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/fixtures/theme-image.jpg
+# Empty states in both views read at the text floor on their drawn solid
+# plate in vgs and flexoki-light. A shared component copy drawing only the
+# scrim fails that same contrast check in both themes. The recovery button
+# remains eligible for Tab and its focus ring stays within the plate.
+# inputs: shell/plugins/vgs.themes/* themes/catalog/* themes/vgs/* shell/Core/HyprlandLayer.js shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* bin/lib/qml-library.js shell/Commons/ThemeLogic.js shell/Ui/layout/CardCarousel.qml shell/Ui/layout/AngledCard.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/controls/Button.qml shell/Ui/foundation/FocusRing.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
 view_value() { ipc smoke readDescendant overlay vgs.themes ThemeView "$1"; }
 view_names() { view_value shownCards | py_reply 'import json,sys; print(json.dumps([c["name"] for c in json.load(sys.stdin)]))'; }
@@ -1476,6 +1480,100 @@ expect_poll "SUPER+SHIFT+W on the open wallpaper view closes it" 0 layer_count v
 expect "the follow after the wallpaper rows ends" idle theme_idle
 expect "vgs applies after the wallpaper rows" "ok theme=vgs state=applied shell=applied" vgshell_theme apply vgs
 expect_poll "the shell follows vgs after the wallpaper rows" vgs ipc smoke themeName
+
+# Read the actual EmptyState label and its enclosing plate, rather than
+# theme declarations. ThemeLogic owns the contrast calculation. A scrim
+# control is judged over black and white wallpaper and must miss the floor.
+empty_plate_contrast() {
+  local text ink fill rows
+  text="$(ipc smoke readDescendant overlay vgs.themes EmptyState text | py_reply 'import json,sys; print(json.load(sys.stdin))')" || return
+  ink="$(ipc smoke readMatchingDescendant overlay vgs.themes Label text "$text" color)" || return
+  fill="$(ipc smoke readDescendant overlay vgs.themes BrowserEmptyState color)" || return
+  rows="$(ipc smoke descendantGeometry overlay vgs.themes)" || return
+  node - "$repo" "$ink" "$fill" "$rows" "$text" <<'JS'
+const { load } = require(process.argv[2] + "/bin/lib/qml-library.js");
+const logic = load(process.argv[2] + "/shell/Commons/ThemeLogic.js");
+const ink = JSON.parse(process.argv[3]), fill = JSON.parse(process.argv[4]);
+const rows = JSON.parse(process.argv[5]), text = process.argv[6];
+const plates = rows.map((r, i) => [r, i]).filter(([r]) => r.type === "BrowserEmptyState" && r.visible);
+const labels = rows.map((r, i) => [r, i]).filter(([r]) => r.type === "Label" && r.visible && r.text === text && r.box[2] > 0 && r.box[3] > 0);
+if (plates.length !== 1 || labels.length !== 1) { console.log("unreadable-geometry"); process.exit(); }
+let at = labels[0][1];
+while (at !== -1 && at !== plates[0][1]) at = rows[at].parent;
+const [x, y, w, h] = labels[0][0].box, [px, py, pw, ph] = plates[0][0].box;
+if (at === -1 || x < px || y < py || x + w > px + pw || y + h > py + ph) {
+    console.log("ink-outside-plate"); process.exit();
+}
+if (![ink, fill].every(c => c && ["r", "g", "b", "a"].every(k => typeof c[k] === "number"))) {
+    console.log("unreadable-colour"); process.exit();
+}
+const ratio = Math.min(...["#000000", "#ffffff"].map(w => {
+    const backdrop = logic.overlay(fill, logic.parseColor(w));
+    return logic.contrastRatio(logic.overlay(ink, backdrop), backdrop);
+}));
+console.error("theme-browser: empty-state ratio=" + ratio.toFixed(2) + " plate-alpha=" + fill.a);
+console.log(ratio >= 4.5 && fill.a === 1 ? "readable" : "unreadable");
+JS
+}
+empty_plate_recovery() {
+  local action tab
+  action="$(ipc smoke readDescendant overlay vgs.themes EmptyState actionText | py_reply 'import json,sys; print(json.load(sys.stdin))')" || return
+  tab="$(ipc smoke readMatchingDescendant overlay vgs.themes Button text "$action" activeFocusOnTab)" || return
+  ipc smoke descendantGeometry overlay vgs.themes | py_reply '
+import json,sys
+rows, tab = json.load(sys.stdin), sys.argv[1]
+plates = [i for i,r in enumerate(rows) if r["type"] == "BrowserEmptyState" and r["visible"]]
+def under(i, plate):
+    while i != -1:
+        if i == plate: return True
+        i = rows[i]["parent"]
+    return False
+def inside(box, plate):
+    x,y,w,h = box; px,py,pw,ph = plate
+    return w > 0 and h > 0 and x >= px and y >= py and x+w <= px+pw and y+h <= py+ph
+if len(plates) != 1: print("plates=%d" % len(plates)); sys.exit()
+p = plates[0]
+buttons = [i for i,r in enumerate(rows) if r["type"] == "Button" and r["visible"] and under(i,p)]
+rings = [r for i,r in enumerate(rows) if r["type"] == "FocusRing" and any(under(i,b) for b in buttons)]
+print("contained" if tab == "true" and len(buttons) == 1 and rings and all(inside(r["box"],rows[p]["box"]) for r in rings) else "recovery-outside-or-not-tab")' "$tab"
+}
+plant_flexoki_light "$installed" || fail "the empty-state light package could not be installed"
+for empty_mode in plate scrim; do
+  if [[ $empty_mode == scrim ]]; then
+    plugin_control BrowserEmptyState.qml "scrim-only empty state" 'color: Theme.carousel.failurePlate' 'color: Theme.color.scrim'
+  fi
+  for empty_theme in vgs flexoki-light; do
+    if [[ $empty_mode != plate || $empty_theme != vgs ]]; then
+      expect "the empty-state $empty_mode check applies $empty_theme" "ok theme=$empty_theme state=applied shell=applied" vgshell_theme apply "$empty_theme"
+    fi
+    expect_poll "the empty-state $empty_mode check follows $empty_theme" "$empty_theme" ipc smoke themeName
+    for empty_view in themes wallpapers; do
+      "press_$empty_view" || fail "opening the $empty_theme $empty_view empty-state $empty_mode check failed"
+      expect_poll "the $empty_theme $empty_view empty-state $empty_mode check opens" 1 layer_count vgs:overlay
+      empty_value=view_value; [[ $empty_view == wallpapers ]] && empty_value=wall_value
+      expect_poll "the $empty_theme $empty_view empty-state $empty_mode check read its lists" true "$empty_value" loaded
+      if [[ $empty_theme == flexoki-light && $empty_view == wallpapers ]]; then
+        expect_poll "the no-wallpaper $empty_mode state has no cards" 0 wall_count
+        empty_result=readable; [[ $empty_mode == scrim ]] && empty_result=unreadable
+        expect "the no-wallpaper $empty_mode state is judged on its drawn background" "$empty_result" empty_plate_contrast
+      fi
+      type_keys zzqx || fail "typing the $empty_theme $empty_view empty-state filter failed"
+      expect_poll "the $empty_theme $empty_view empty-state filter is set" '"zzqx"' "$empty_value" filterText
+      if [[ $empty_mode == plate ]]; then
+        expect "the $empty_theme $empty_view empty-state ink reads on its solid plate" readable empty_plate_contrast
+        geometry expect "the $empty_theme $empty_view recovery Tab stop and ring stay inside the plate" contained empty_plate_recovery
+      else
+        expect "control: the $empty_theme $empty_view scrim-only empty state fails contrast" unreadable empty_plate_contrast
+      fi
+      expect "the $empty_theme $empty_view empty-state $empty_mode check hides" ok ipc shell hide overlay vgs.themes
+      expect_poll "the $empty_theme $empty_view empty-state $empty_mode check closes" 0 layer_count vgs:overlay
+    done
+  done
+done
+plugin_restore BrowserEmptyState.qml "scrim-only empty state"
+expect "vgs applies after the empty-state checks" "ok theme=vgs state=applied shell=applied" vgshell_theme apply vgs
+expect_poll "the shell follows vgs after the empty-state checks" vgs ipc smoke themeName
+rm -r -- "$installed/flexoki-light"
 
 expect "disabling vgs.themes after the browser rows is allowed" ok ipc shell setPluginEnabled vgs.themes false
 expect_poll "disabling vgs.themes released its shortcut" '[]' lent_themes

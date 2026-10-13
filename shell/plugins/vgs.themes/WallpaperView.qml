@@ -430,8 +430,9 @@ FocusScope {
 
             // No card to show: the lists loading, or no image under the
             // source, which the source line under the rail flips.
-            EmptyState {
-                anchors.centerIn: parent
+            BrowserEmptyState {
+                x: Math.round((parent.width - width) / 2)
+                y: Math.round((parent.height - height) / 2)
                 width: Math.min(parent.width, Theme.carousel.expandedWidth)
                 visible: root.shownCards.length === 0 && root.imagesReason === ""
                 iconName: !root.loaded ? "" : root.filterText === "" ? "image-off" : "search-x"
