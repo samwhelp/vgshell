@@ -601,4 +601,4 @@ world(async () => {
     // A control's defect can leave its stand-in running; end them all.
     for (const w of worlds) if (alive(start(w.log())?.pid)) process.kill(start(w.log()).pid, "SIGKILL");
     console.log("test-jarvis-local-speech: ok cases=" + cases + " controls=" + controls);
-}, 600000);
+});

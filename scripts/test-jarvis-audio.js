@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Real Audio and reducer ports, synthetic PCM. J09 owns all processes.
 "use strict";
-const { assert, fs, path, cp, tree, world, until, unlocked, copyBackend } = require("./fixtures/jarvis/audio.js");
+const { assert, fs, path, cp, tree, world, hungWorld, until, unlocked, copyBackend } = require("./fixtures/jarvis/audio.js");
 const { Readable, Writable, PassThrough } = require("node:stream");
 const { load } = require("../bin/lib/qml-library.js");
 const Session = load(path.join(tree, "shell/plugins/vgs.jarvis/Session.js"));
@@ -604,4 +604,5 @@ async function inside() {
     console.log("test-jarvis-audio: ok triggers=6 controls=" + controls);
 }
 
+if (process.argv[2] !== "--inside") hungWorld();
 world(inside).catch(error => { console.error(error); process.exitCode = 1; });

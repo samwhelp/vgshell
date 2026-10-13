@@ -3807,7 +3807,7 @@ if (args[0] === "--group") {
     if (args.length !== 2 || !Object.hasOwn(GROUPS, name)) {
         console.error("test-jarvis-engine: unknown group=" + name);
         process.exitCode = 1;
-    } else world(() => runGroup(name), 900000).catch(error => { console.error(error); process.exitCode = 1; });
+    } else world(() => runGroup(name)).catch(error => { console.error(error); process.exitCode = 1; });
 } else if (args.length === 0) {
     roster().catch(error => { console.error(error); process.exitCode = 1; });
 } else {
