@@ -15,12 +15,14 @@
 #   - For the file $out/bin/vgshell resolves to and for bin/vgshell-tui, the PATH
 #     row: the one `# vgs-nix-path` line, run in an empty environment,
 #     resolves the mapped required commands in the core and all shipped
-#     manifests and `qs`, but
+#     manifests that are installed with VGS and `qs`, but
 #     not `hyprctl`, since the session supplies Hyprland; a second run
 #     leaves PATH unchanged.
 #   - The same two files are their source with only that line added, right
 #     after the leading comment block the usage text is read from.
 # Controls:
+#   - A required command installed on request, left in the expected list, must
+#     fail the PATH row on that command.
 #   - Removing the Keyboard catalog substitution must fail its installed reader.
 #   - flake.nix with the requirements rows cut from the runtime PATH must fail
 #     the PATH row on every requirement.
@@ -72,21 +74,37 @@ done < <(git -C "$repo" ls-files -z -co --exclude-standard) >"$tmp/files"
 tar -C "$repo" --null -T "$tmp/files" -cf - | tar -C "$tmp/src" -xf -
 
 version="$(<"$repo/VERSION")"
-commands="$(python3 - "$repo" <<'PYREQ'
-import json, pathlib, sys
-root = pathlib.Path(sys.argv[1])
-rows = json.loads((root / "config/requirements.json").read_text())
-for manifest in sorted((root / "shell/plugins").glob("*/manifest.json")):
-    rows += json.loads(manifest.read_text()).get("requirements", [])
-print(" ".join(sorted({row["command"] for row in rows if "command" in row and not row.get("optional", False) and "nix" in row.get("packages", {})})))
-PYREQ
+# The required commands with a Nix package, as two lines: those installed
+# with VGS, then those installed on request. shell/Core/PluginLogic.js states
+# which is which; its normalRequirements is the reader scripts/check-packaging.js
+# uses.
+required="$(node - "$repo" <<'JSREQ'
+const fs = require("fs");
+const path = require("path");
+const root = process.argv[2];
+const logic = require(path.join(root, "bin/lib/qml-library.js")).load(path.join(root, "shell/Core/PluginLogic.js"));
+const read = file => JSON.parse(fs.readFileSync(file, "utf8"));
+const rows = read(path.join(root, "config/requirements.json"));
+const plugins = path.join(root, "shell/plugins");
+for (const id of fs.readdirSync(plugins).sort()) {
+    const manifest = path.join(plugins, id, "manifest.json");
+    if (fs.existsSync(manifest)) rows.push(...(read(manifest).requirements || []));
+}
+const required = logic.normalRequirements(rows).filter(row => row.bus === null && !row.optional && row.packages.nix !== undefined);
+const names = asked => [...new Set(required.filter(row => row.onRequest === asked).map(row => row.name))].sort().join(" ");
+console.log(names(false) + "\n" + names(true));
+JSREQ
 )"
+# No on-request command leaves the second line empty, and its control fails.
+mapfile -t lists <<<"$required"
+commands="${lists[0]}"
+on_request="${lists[1]:-}"
 
 status=0
 "$runtime" run --rm -i \
   -v "$volume:/nix" -v "$tmp/src:/src:ro" \
   -e NIX_CONFIG='experimental-features = nix-command flakes' \
-  -e VGS_VERSION="$version" -e VGS_COMMANDS="$commands" \
+  -e VGS_VERSION="$version" -e VGS_COMMANDS="$commands" -e VGS_ON_REQUEST="$on_request" \
   "$image" bash -s <<'CONTAINER' || status=$?
 set -uo pipefail
 nix store info --store https://cache.nixos.org >/dev/null 2>&1 || exit 77
@@ -168,6 +186,11 @@ if out="$(nix build "${flags[@]}" path:/src 2>/tmp/build.log)"; then
     else fail "${source#/src/} gains only its PATH line, after its comment block"
     fi
   done
+  # Control: a command installed on request, left in the expected list.
+  if [[ -n $VGS_ON_REQUEST && $(VGS_COMMANDS="$VGS_COMMANDS $VGS_ON_REQUEST" path_holds "$vgshell") == "flake: unresolved=${VGS_ON_REQUEST// /,}" ]]; then
+    ok "control: a command installed on request, left in the expected list, fails the PATH row"
+  else fail "control: a command installed on request, left in the expected list, fails the PATH row"
+  fi
   # Control: an entry point without its PATH line.
   grep -vF -- "$marker" "$out/share/vgshell/bin/vgshell-tui" >/tmp/vgshell-tui-bare
   if [[ $(path_holds /tmp/vgshell-tui-bare) == 'flake: nix-path=missing path=/tmp/vgshell-tui-bare' ]]; then
