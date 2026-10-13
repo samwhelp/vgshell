@@ -8,8 +8,9 @@
 // A dictation engine is the chained engine whose final words come from the
 // core's dictation recording (D064), whose tones are the recording's cue.
 var SESSION_SETTINGS = ["mode", "voiceProvider", "voice", "clonedVoice", "language", "brain", "model", "effort", "fallbacks", "customBaseUrl", "home", "policy", "cloudVision", "account", "voiceAccount"];
-// A thinking turn's bound on a stalled brain: each finished tool call starts
-// a fresh interval, so a brain that keeps working outlives one interval.
+// A thinking turn's bound on a stalled brain: a running tool call holds it
+// past the call's own limit and a finished one starts a fresh interval, so a
+// brain that keeps working outlives one interval.
 var RESPONSE_TIMEOUT_MS = 60000;
 var COLLECTION_TIMEOUT_MS = 60000;
 var VOICE_CHECK_MS = 3000;
@@ -129,6 +130,13 @@ function dropApproval(s, effects, reason, at) {
         id: s.approval.id, purpose: s.approval.purpose, reason: reason });
     s.approval = { kind: "none" };
     if (s.turn.kind === "thinking") s.turn.deadline = at + RESPONSE_TIMEOUT_MS;
+}
+
+// The running action has its own limit; its turn's interval ends no sooner
+// than a full interval after that limit.
+function holdThinking(s) {
+    if (s.turn.kind === "thinking" && s.turn.op === s.action.brain)
+        s.turn.deadline = Math.max(s.turn.deadline, s.action.limit.deadline + RESPONSE_TIMEOUT_MS);
 }
 
 function requestToolCancel(s, effects) {
@@ -777,6 +785,7 @@ function reduce(state, e) {
         s.action = { kind: "running", gen: tool.gen, op: tool.op, tool: e.tool,
             brain: e.op, limit: { kind: "pending", deadline: e.at + e.timeoutMs },
             cancellation: { kind: e.cancellable ? "available" : "unavailable" } };
+        holdThinking(s);
         break;
     case "tool-done":
         if (!live(s, e, "action", ["running"])) { stale(s); break; }
@@ -839,6 +848,7 @@ function reduce(state, e) {
         s.action = { kind: "running", gen: accepted.gen, op: accepted.op, tool: approval.tool,
             brain: approval.brain, limit: { kind: "pending", deadline: e.at + approval.timeoutMs },
             cancellation: { kind: approval.cancellable ? "available" : "unavailable" } };
+        holdThinking(s);
         break;
     }
     case "approval-cancel":

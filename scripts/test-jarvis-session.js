@@ -1163,15 +1163,28 @@ const table = [
         assert.equal(r.state.turn.deadline, 62030);
         assert.deepEqual(kinds(r), ["brain-cancel"]);
     }],
-    // A finished tool call starts a fresh interval for the turn that made it.
+    // A running tool call holds its turn's interval past the call's own limit,
+    // and a finished one starts a fresh interval for the turn that made it.
     ["thinking-tool-renewal", logic => {
-        const s = acting(logic);
+        const long = { tool: "fixture", timeoutMs: 120000, cancellable: true };
+        let s = thinking(logic);
+        s = step(logic, s, callback("tool", s.turn, 40, long)).state;
+        assert.equal(s.turn.deadline, 180040);
+        assert.equal(step(logic, s, callback("deadline", s.turn, 100000)).state.turn.kind, "thinking", "a long call outlives one interval");
         const done = step(logic, s, callback("tool-done", s.action, 50000, { outcome: "completed" })).state;
         assert.equal(done.turn.deadline, 110000);
-        assert.equal(step(logic, done, callback("deadline", done.turn, 60030)).state.turn.kind, "thinking");
+        assert.equal(step(logic, done, callback("deadline", done.turn, 109999)).state.turn.kind, "thinking");
         assert.equal(step(logic, done, callback("deadline", done.turn, 110000)).state.fault.reason, "thinking-timeout");
-        // A later turn keeps its own interval when an earlier turn's tool ends.
-        const later = copy(s);
+        // A confirmed call holds the interval the same way.
+        let h = thinking(logic);
+        h = step(logic, h, callback("approval", h.turn, 40, { id: "long", digest: "a".repeat(64), physical: true,
+            text: "Run the fixture", ...long })).state;
+        h = step(logic, h, callback("shown", h.approval, 50)).state;
+        assert.equal(confirmation(logic, h, 750).state.turn.deadline, 180750);
+        // An expired call's late end still renews; a later turn keeps its own interval.
+        const expired = acting(logic);
+        assert.equal(step(logic, expired, callback("tool-done", expired.action, 50000, { outcome: "completed" })).state.turn.deadline, 110000);
+        const later = copy(expired);
         later.turn = { ...later.turn, op: later.nextOp++ };
         assert.equal(step(logic, later, callback("tool-done", later.action, 50000, { outcome: "completed" })).state.turn.deadline,
             later.turn.deadline);
@@ -1188,7 +1201,7 @@ const table = [
         assert.deepEqual(oldDeadline, { state: s, effects: [] }, "the earlier thinking deadline cannot retire a hold");
         const confirmed = step(logic, s, callback("confirm", approval, 60030, { source: "key" }));
         assert.equal(confirmed.state.action.kind, "running");
-        assert.equal(confirmed.state.turn.deadline, 120030);
+        assert.equal(confirmed.state.turn.deadline, 120130, "a full interval after the confirmed call's limit");
         const expired = step(logic, s, callback("deadline", s.turn, 70030));
         assert.equal(expired.state.approval.kind, "none");
         assert.equal(expired.state.turn.kind, "thinking");
@@ -2307,6 +2320,8 @@ try {
         ["thinking-tool-renewal", 'if (s.turn.kind === "thinking" && s.turn.op === s.action.brain) s.turn.deadline = e.at + RESPONSE_TIMEOUT_MS;',
             '', "thinking-tool-renewal"],
         ["thinking-tool-owner", ' && s.turn.op === s.action.brain) s.turn.deadline', ') s.turn.deadline', "thinking-tool-renewal"],
+        ["thinking-tool-hold", '        holdThinking(s);\n        break;\n    case "tool-done":', '        break;\n    case "tool-done":', "thinking-tool-renewal"],
+        ["thinking-confirm-hold", '        holdThinking(s);\n        break;\n    }\n    case "approval-cancel":', '        break;\n    }\n    case "approval-cancel":', "thinking-tool-renewal"],
         ["thinking-approval-expiry", 's.turn.deadline = s.approval.deadline + RESPONSE_TIMEOUT_MS;',
             's.turn.deadline = e.at;', "thinking-approval-expiry"],
         ["approval-end-reasons", 'dropApproval(s, effects, reason, at);',

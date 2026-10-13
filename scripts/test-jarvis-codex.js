@@ -371,7 +371,12 @@ world(async () => {
             ]) {
                 scenario({ ...value, turns: [[{ complete: "completed" }]] });
                 const w = make(folder);
-                await assert.rejects(drain(w.say("x")), { message }, label);
+                const written = [];
+                const write = process.stderr.write;
+                process.stderr.write = (chunk, ...rest) => { written.push(String(chunk)); return write.call(process.stderr, chunk, ...rest); };
+                try { await assert.rejects(drain(w.say("x")), { message }, label); }
+                finally { process.stderr.write = write; }
+                assert.equal(written.some(text => text.includes("fixture-secret-private")), false, label + " keeps the log off the daemon's stderr");
             }
         },
         // cancel interrupts the program's turn and resolves on its acknowledgement.
@@ -725,6 +730,7 @@ world(async () => {
             ["message-dedupe", "backend/CodexHarness.js", [['const remainder = e.item.text.slice(prior.value.length);', 'const remainder = e.item.text;']], "completedText"],
             ["exit-cause", "backend/HarnessProgram.js", [["const word = cause?.(log, spoke) ?? null;", "const word = null;"]], "exitCause"],
             ["exit-spoke", "backend/HarnessProgram.js", [["                spoke = true;\n", ""]], "exitCause"],
+            ["exit-log-kept", "backend/HarnessProgram.js", [["        log = \"\";\n", "        process.stderr.write(log);\n        log = \"\";\n"]], "exitCause"],
             ["exit-known", "backend/CodexAppServer.js", [["[/^Error: CODEX_HOME points to", "[/^Never: CODEX_HOME points to"]], "exitCause"],
             ["environment-scrub", "backend/HarnessProgram.js", [["env: { ...childEnvironment(env), ...extra }", "env: { ...env, ...extra }"]], "turn"],
             ["account-home", "backend/CodexHarness.js", [["CODEX_HOME: directory }", "CODEX_HOME: env.HOME }"]], "turn"],
