@@ -10,7 +10,7 @@ import qs.Ui
 // action; another value is logged and draws no mark. The mark names the
 // step, a click on it, or Space or Enter, calls `run`, and it is the Tab
 // stop after the toggle. With the keyboard on it, the mark shows the
-// toggle's reason; under the pointer the toggle's own reason shows, since
+// toggle's reason on the tooltip's "clear" side, as the toggle does; under the pointer the toggle's own reason shows, since
 // the mark lies inside the toggle and a second tooltip would repeat it.
 // `room` is the width the toggle keeps after its body for the mark, 0
 // without it. When the lock clears with the keyboard on the mark, as a
@@ -66,6 +66,7 @@ Loader {
         iconName: "lock-open"
         label: root.valid ? root.control.unlock.label : ""
         tooltip: visualFocus ? root.control.disabledReason : ""
+        tooltipSide: "clear"
         onClicked: root.control.unlock.run()
     }
 }

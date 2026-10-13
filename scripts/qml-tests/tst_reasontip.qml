@@ -1,0 +1,352 @@
+import QtQuick
+import QtTest
+import Quickshell
+import qs.Commons
+import qs.Ui
+import qs.Unit
+
+// A disabled control's reason (DisabledReason, Tooltip's "clear" side)
+// opens where it covers no text and no Tab stop of its window, inside the
+// box the window's content spans, and is no wider than that box. Where no
+// place is free, it takes the place that covers the least and no Tab stop.
+// Every visible item of this window is an obstacle, so each test shows
+// one fixture. The stand-in popup positions nothing: the box a tooltip
+// takes is read from the anchor the popup is handed, as the compositor
+// reads it (xdg_positioner: the anchor point on the rect's `edges`, the
+// popup grown from it toward `gravity`).
+Item {
+    id: root
+    width: 480
+    height: 260
+
+    readonly property string reason: "Sign in to your VPN account to turn on this switch"
+    readonly property int inset: 16
+
+    // A 320 px flyout: a heading, a row of a locked control and a sibling
+    // button, a hint under the control, and a button on the bottom end
+    // corner. `where` puts the control on the start edge, the end edge or
+    // the centre, and the hint's words under it.
+    Item {
+        id: narrow
+        visible: false
+        width: 320
+        height: 216
+
+        property string where: "start"
+        readonly property rect content: Qt.rect(root.inset, root.inset, width - 2 * root.inset, height - 2 * root.inset)
+
+        Label { id: heading; x: root.inset; y: root.inset; width: narrow.content.width; role: "subheading"; text: "VPN profiles" }
+        Button {
+            id: locked
+            y: 96
+            x: narrow.where === "start" ? root.inset : narrow.where === "end" ? narrow.width - root.inset - width : Math.round((narrow.width - width) / 2)
+            text: "Sign in"
+            disabledReason: root.reason
+        }
+        Button {
+            id: sibling
+            y: locked.y
+            x: narrow.where === "end" ? locked.x - Theme.stack.inline - width : locked.x + locked.width + Theme.stack.inline
+            text: "Edit"
+            variant: "secondary"
+        }
+        Label {
+            id: hint
+            x: root.inset
+            y: locked.y + locked.height + Theme.tooltip.gap
+            width: narrow.content.width
+            role: "hint"
+            text: "Routes your traffic through the VPN"
+            horizontalAlignment: narrow.where === "start" ? Text.AlignLeft : narrow.where === "end" ? Text.AlignRight : Text.AlignHCenter
+        }
+        Button {
+            id: close
+            x: narrow.width - root.inset - width
+            y: narrow.height - root.inset - height
+            text: "Close"
+            variant: "secondary"
+        }
+    }
+
+    // A flyout with a locked switch whose step is one click, so its unlock
+    // mark shows the same reason to the keyboard, and a hint under it.
+    Item {
+        id: marked
+        visible: false
+        width: 320
+        height: 216
+
+        readonly property rect content: Qt.rect(root.inset, root.inset, width - 2 * root.inset, height - 2 * root.inset)
+
+        Label { id: markedHeading; x: root.inset; y: root.inset; width: marked.content.width; role: "subheading"; text: "VPN profiles" }
+        Switch { id: markedSwitch; x: root.inset; y: 110; text: "VPN"; disabledReason: root.reason; unlock: ({ label: "Sign in", run: () => {} }) }
+        Label {
+            id: markedHint
+            x: root.inset
+            y: markedSwitch.y + markedSwitch.height + Theme.tooltip.gap
+            width: marked.content.width
+            role: "hint"
+            text: "Routes your traffic through the VPN"
+        }
+        Button {
+            id: markedClose
+            x: marked.width - root.inset - width
+            y: marked.height - root.inset - height
+            text: "Close"
+            variant: "secondary"
+        }
+    }
+
+    // A window packed with text round a locked control: lines above and
+    // under it, a label before it, and a small Tab stop after it, so every
+    // place covers something, and the place that covers the least covers
+    // the Tab stop.
+    Item {
+        id: packed
+        visible: false
+        width: 448
+        height: below.y + below.height + root.inset
+
+        readonly property rect content: Qt.rect(root.inset, root.inset, width - 2 * root.inset, height - 2 * root.inset)
+        readonly property string filler: "Account name and password and server and port and the protocol it uses"
+
+        Column {
+            id: above
+            x: root.inset
+            y: root.inset
+            Repeater {
+                model: 4
+                Label { width: packed.content.width; text: packed.filler; elide: Text.ElideRight }
+            }
+        }
+        Button {
+            id: crowded
+            x: 200
+            y: above.y + above.height + 2 * Theme.tooltip.gap
+            text: "Sign in"
+            disabledReason: "Sign in first"
+        }
+        Label {
+            id: before
+            x: root.inset
+            width: crowded.x - Theme.tooltip.gap - root.inset
+            y: crowded.y + Math.round((crowded.height - height) / 2)
+            horizontalAlignment: Text.AlignRight
+            text: "Account name"
+        }
+        IconButton {
+            id: smallStop
+            size: "sm"
+            iconName: "x"
+            label: "Clear"
+            x: crowded.x + crowded.width + 2 * Theme.tooltip.gap
+            y: crowded.y + Math.round((crowded.height - height) / 2)
+        }
+        Column {
+            id: below
+            x: root.inset
+            y: crowded.y + crowded.height + 2 * Theme.tooltip.gap
+            Repeater {
+                model: 4
+                Label { width: packed.content.width; text: packed.filler; elide: Text.ElideRight }
+            }
+        }
+    }
+
+    TestCase {
+        name: "reasontip"
+        when: windowShown
+
+        function init() {
+            UnitTheme.reset();
+            compare(UnitTheme.override({ tooltip: { delay: 50 } }), "ok");
+            root.forceActiveFocus();
+        }
+
+        function cleanup() {
+            for (const control of [locked, crowded]) {
+                const tip = reasonTip(control);
+                if (tip === null) continue;
+                tip.shown = false;
+                tryCompare(tip, "opened", false);
+            }
+            const tip = markTip();
+            if (tip !== null) {
+                tip.shown = false;
+                tryCompare(tip, "opened", false);
+            }
+            narrow.visible = false;
+            marked.visible = false;
+            packed.visible = false;
+        }
+
+        function descendants(node) {
+            let out = [];
+            for (const child of node.children) out = out.concat([child], descendants(child));
+            return out;
+        }
+
+        function reasonTip(control) { return descendants(control).find(item => item.objectName === "disabledReasonTip") || null; }
+
+        function markOf(control) { return descendants(control).find(item => item.iconName === "lock-open") || null; }
+
+        function markTip() {
+            const mark = markOf(markedSwitch);
+            return mark === null ? null : mark.data.find(child => child.anchorItem === mark && child.side !== undefined) || null;
+        }
+
+        function box(item) {
+            const at = item.mapToItem(root, 0, 0);
+            return Qt.rect(at.x, at.y, item.width, item.height);
+        }
+
+        // A text's words where its alignment puts them; the room after the
+        // words is free.
+        function words(label) {
+            const at = label.mapToItem(root, 0, 0);
+            const free = label.width - label.contentWidth;
+            const shift = label.horizontalAlignment === Text.AlignRight ? free : label.horizontalAlignment === Text.AlignHCenter ? free / 2 : 0;
+            return Qt.rect(at.x + shift, at.y, label.contentWidth, label.contentHeight);
+        }
+
+        function overlap(a, b) {
+            const width = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+            const height = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+            return width > 0 && height > 0 ? width * height : 0;
+        }
+
+        function inside(inner, outer) {
+            return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height;
+        }
+
+        function surfaceBox(surface) {
+            const at = surface.mapToItem(root, surface.content.x, surface.content.y);
+            return Qt.rect(at.x, at.y, surface.content.width, surface.content.height);
+        }
+
+        // The box the popup takes from the anchor it is handed, in the
+        // window's coordinates.
+        function placedBox(tip) {
+            const popup = tip.tracker.popup;
+            const anchor = popup.anchor;
+            const m = anchor.margins;
+            const r = { x: anchor.rect.x + m.left, y: anchor.rect.y + m.top, width: anchor.rect.width - m.left - m.right, height: anchor.rect.height - m.top - m.bottom };
+            const e = anchor.edges, g = anchor.gravity;
+            const px = e & Edges.Left ? r.x : e & Edges.Right ? r.x + r.width : r.x + r.width / 2;
+            const py = e & Edges.Top ? r.y : e & Edges.Bottom ? r.y + r.height : r.y + r.height / 2;
+            const x = g & Edges.Right ? px : g & Edges.Left ? px - popup.width : px - popup.width / 2;
+            const y = g & Edges.Bottom ? py : g & Edges.Top ? py - popup.height : py - popup.height / 2;
+            const at = anchor.item.mapToItem(root, x, y);
+            return Qt.rect(at.x, at.y, popup.width, popup.height);
+        }
+
+        // Opens the control's reason the way the keyboard does.
+        function openReason(control) {
+            control.forceActiveFocus(Qt.TabFocusReason);
+            compare(control.visualFocus, true);
+            const tip = reasonTip(control);
+            verify(tip !== null, "the locked control holds its reason");
+            tryCompare(tip, "opened", true);
+            return tip;
+        }
+
+        // What a place does wrong in the narrow flyout: the texts and the
+        // Tab stops it covers and whether it leaves the content box.
+        function narrowFaults(place) {
+            const out = [];
+            if (overlap(place, words(hint)) > 0) out.push("covers the hint");
+            if (overlap(place, words(heading)) > 0) out.push("covers the heading");
+            for (const control of [sibling, close]) if (overlap(place, box(control)) > 0) out.push("covers " + control.text);
+            if (overlap(place, box(locked)) > 0) out.push("covers its control");
+            if (!inside(place, surfaceBox(narrow))) out.push("leaves the content box");
+            return out;
+        }
+
+        function test_a_reason_covers_no_sibling_in_a_narrow_flyout_data() {
+            return [{ tag: "start edge", where: "start" }, { tag: "end edge", where: "end" }, { tag: "centre", where: "centre" }];
+        }
+
+        function test_a_reason_covers_no_sibling_in_a_narrow_flyout(data) {
+            narrow.where = data.where;
+            narrow.visible = true;
+            const tip = openReason(locked);
+            const popup = tip.tracker.popup;
+            const place = placedBox(tip);
+            compare(narrowFaults(place), [], "the reason's place " + JSON.stringify(place));
+            verify(popup.width <= narrow.content.width, "the reason is no wider than the content: " + popup.width);
+            // The handed anchor is the readback the place is judged by.
+            compare(tip.placed.width, popup.width);
+            compare(tip.placed.height, popup.height);
+            const at = locked.mapToItem(root, tip.placed.x, tip.placed.y);
+            compare(Qt.rect(at.x, at.y, tip.placed.width, tip.placed.height), place);
+
+            // The judge fails the place a tooltip under its control,
+            // centred on it, takes.
+            const a = box(locked);
+            const under = Qt.rect(a.x + (a.width - popup.width) / 2, a.y + a.height + Theme.tooltip.gap, popup.width, popup.height);
+            verify(narrowFaults(under).length > 0, "the judge refuses the place under the control");
+        }
+
+        // The unlock mark shows the switch's reason to the keyboard through
+        // the same rule: it covers no hint, heading or button, and stays
+        // inside the content box.
+        function test_an_unlock_mark_shows_its_reason_where_it_covers_no_sibling() {
+            marked.visible = true;
+            const mark = markOf(markedSwitch);
+            verify(mark !== null, "the locked switch draws its mark");
+            mark.forceActiveFocus(Qt.TabFocusReason);
+            const tip = markTip();
+            verify(tip !== null, "the mark holds its tooltip");
+            tryCompare(tip, "opened", true);
+            compare(tip.text, root.reason);
+            const place = placedBox(tip);
+            const faults = [];
+            if (overlap(place, words(markedHint)) > 0) faults.push("covers the hint");
+            if (overlap(place, words(markedHeading)) > 0) faults.push("covers the heading");
+            if (overlap(place, box(markedClose)) > 0) faults.push("covers Close");
+            if (overlap(place, box(mark)) > 0) faults.push("covers its mark");
+            if (!inside(place, surfaceBox(marked))) faults.push("leaves the content box");
+            compare(faults, [], "the mark's reason's place " + JSON.stringify(place));
+        }
+
+        // The places a model of the rule tries: below, above, right and
+        // left of the control, each centred and on either edge, held in
+        // the content box.
+        function places(a, c, w, h, gap) {
+            const hold = (at, low, size, span) => Math.max(low, Math.min(Math.round(at), low + span - size));
+            const xs = [a.x + (a.width - w) / 2, a.x, a.x + a.width - w].map(x => hold(x, c.x, w, c.width));
+            const ys = [a.y + (a.height - h) / 2, a.y, a.y + a.height - h].map(y => hold(y, c.y, h, c.height));
+            const out = [];
+            for (const y of [Math.ceil(a.y + a.height + gap), Math.floor(a.y - gap - h)]) for (const x of xs) out.push(Qt.rect(x, y, w, h));
+            for (const x of [Math.ceil(a.x + a.width + gap), Math.floor(a.x - gap - w)]) for (const y of ys) out.push(Qt.rect(x, y, w, h));
+            return out;
+        }
+
+        function test_with_no_free_place_a_reason_covers_the_least_and_no_tab_stop() {
+            packed.visible = true;
+            const tip = openReason(crowded);
+            const place = placedBox(tip);
+            const content = surfaceBox(packed);
+            const texts = descendants(packed).filter(item => item.contentWidth !== undefined && item.font !== undefined && item.visible && item.text !== "" && !descendants(crowded).includes(item) && !descendants(smallStop).includes(item));
+            verify(texts.length >= 9, "the fixture's texts are found: " + texts.length);
+            const textCover = p => texts.reduce((sum, label) => sum + overlap(p, words(label)), 0);
+
+            verify(inside(place, content), "the reason stays inside the content box: " + JSON.stringify(place));
+            compare(overlap(place, box(smallStop)), 0, "the reason covers no Tab stop");
+            compare(overlap(place, box(crowded)), 0, "the reason covers no part of its control");
+
+            const all = places(box(crowded), content, tip.tracker.popup.width, tip.tracker.popup.height, Theme.tooltip.gap).filter(p => inside(p, content));
+            verify(all.every(p => textCover(p) + overlap(p, box(smallStop)) > 0), "no place in the fixture is free");
+            const clear = all.filter(p => overlap(p, box(smallStop)) === 0);
+            const least = Math.min(...clear.map(textCover));
+            compare(textCover(place), least, "the reason covers the least text of the places that cover no Tab stop");
+
+            // Ranked by the area alone, the place that covers the Tab stop
+            // would win: it covers less than the reason's place.
+            const cover = p => textCover(p) + overlap(p, box(smallStop));
+            const byArea = all.reduce((best, p) => cover(p) < cover(best) ? p : best);
+            verify(overlap(byArea, box(smallStop)) > 0, "the least area place covers the Tab stop: " + JSON.stringify(byArea));
+            verify(cover(byArea) < cover(place), "it covers less than the reason's place");
+        }
+    }
+}

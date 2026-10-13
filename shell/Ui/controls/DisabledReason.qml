@@ -18,7 +18,8 @@ import qs.Ui
 // opacity, so the ring on it keeps its full strength, and a part with no
 // ring binds `fade`, the disabled opacity. The reason shows in the shared
 // Tooltip on hover and on keyboard focus of the control, built only while
-// locked, and is the control's accessible description. A control the
+// locked, on its "clear" side, so it covers no sibling text or control,
+// and is the control's accessible description. A control the
 // plain Qt `enabled` disables is not locked: it keeps its own fade and
 // shows no reason.
 Item {
@@ -68,6 +69,7 @@ Item {
             objectName: "disabledReasonTip"
             anchorItem: root.control
             text: root.control.disabledReason
+            side: "clear"
         }
     }
 }

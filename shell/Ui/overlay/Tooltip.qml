@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import Quickshell
 import qs.Commons
 import qs.Ui
@@ -9,9 +10,11 @@ import qs.Ui
 // value }` for a count row whose value column aligns with the other count
 // rows. After the theme's delay with the pointer resting on the item or
 // after keyboard focus reaches it, the tooltip opens in its own surface
-// on the item's `side`, "below" (the default), "right" or "belowStart",
-// under the item from its start edge, and takes no focus. It closes when the pointer leaves and
-// focus leaves, on a press on the item, when the item hides, and it does
+// on the item's `side`, "below" (the default), "right", "belowStart",
+// under the item from its start edge, or "clear", beside the item where it
+// covers no text, image or Tab stop of its window (`placed`), and takes no
+// focus. It closes when the pointer leaves and focus leaves, on a press on
+// the item, when the item hides, and it does
 // not open while another overlay is open. After a press it stays closed
 // until the pointer leaves the item, so it never covers what the press
 // opened. It opens beside `box`, a rectangle in the item's coordinates,
@@ -60,7 +63,16 @@ Item {
     // the popup on that corner; only opposing edges are refused.
     // https://quickshell.org/docs/v0.3.1/types/Quickshell/PopupAnchor/
     readonly property int anchorEdges: side === "belowStart" ? Edges.Bottom | Edges.Left : edge
-    readonly property int anchorGravity: side === "belowStart" ? Edges.Bottom | Edges.Right : edge
+    readonly property int anchorGravity: side === "belowStart" || side === "clear" ? Edges.Bottom | Edges.Right : edge
+    // What a "clear" tooltip's window draws, read once as it opens
+    // (`survey`), so no binding reads the item tree; null while closed.
+    property var scene: null
+    // The box a "clear" tooltip takes, in the item's coordinates; it moves
+    // with the item, and the window is read again only at the next open.
+    readonly property rect placed: side === "clear" && scene !== null && popup.item !== null ? placedOn(scene, popup.item.implicitWidth, popup.item.implicitHeight) : Qt.rect(0, 0, 0, 0)
+    readonly property rect anchorRect: side === "clear" ? placed : box
+    // A "clear" tooltip is no wider than the box its window's content spans.
+    readonly property real clearWidth: scene === null ? Infinity : scene.content.width
     property bool shown: false
     readonly property bool opened: popup.item !== null && popup.item.visible
     readonly property var tracker: popup.item === null ? null : popup.item.tracker
@@ -192,7 +204,135 @@ Item {
     function edgeFor(name) {
         if (name === "below" || name === "belowStart") return Edges.Bottom;
         if (name === "right") return Edges.Right;
+        if (name === "clear") return Edges.Top | Edges.Left;
         throw new Error("Tooltip: side=" + JSON.stringify(name) + " unexpected");
+    }
+
+    // The overlap of two boxes, null where they share no area.
+    function cut(a, b) {
+        const x = Math.max(a.x, b.x), y = Math.max(a.y, b.y);
+        const width = Math.min(a.x + a.width, b.x + b.width) - x;
+        const height = Math.min(a.y + a.height, b.y + b.height) - y;
+        return width > 0 && height > 0 ? { x: x, y: y, width: width, height: height } : null;
+    }
+
+    function covered(a, b) {
+        const both = cut(a, b);
+        return both === null ? 0 : both.width * both.height;
+    }
+
+    // What a drawn item is to a "clear" tooltip: a Tab stop is a
+    // "control", a Text, TextInput or TextEdit a "text", an Image an
+    // "image"; anything else draws no obstacle of its own. A Qt Quick
+    // Controls control sets activeFocusOnTab from its focusPolicy: a
+    // qml-unit run of tst_reasontip.qml read it true on Button and
+    // IconButton (2026-10-13).
+    function obstacleKind(item) {
+        if (item.activeFocusOnTab === true) return "control";
+        if (typeof item.text === "string" && item.contentWidth !== undefined && item.font !== undefined) return "text";
+        if (item.sourceSize !== undefined) return "image";
+        return "";
+    }
+
+    // The box `item` draws in `view`'s coordinates: a text's words where
+    // its alignment puts them, since the room after them is free, else
+    // the item's box.
+    function drawnBox(item, kind, view) {
+        if (kind !== "text") return item.mapToItem(view, 0, 0, item.width, item.height);
+        const roomX = item.width - item.leftPadding - item.rightPadding;
+        const roomY = item.height - item.topPadding - item.bottomPadding;
+        const across = item.effectiveHorizontalAlignment;
+        const along = item.verticalAlignment;
+        const x = item.leftPadding + (across === Text.AlignRight ? roomX - item.contentWidth : across === Text.AlignHCenter ? (roomX - item.contentWidth) / 2 : 0);
+        const y = item.topPadding + (along === Text.AlignBottom ? roomY - item.contentHeight : along === Text.AlignVCenter ? (roomY - item.contentHeight) / 2 : 0);
+        return item.mapToItem(view, x, y, item.contentWidth, item.contentHeight);
+    }
+
+    // What the item's window draws, in its content item's coordinates:
+    // `obstacles`, { x, y, width, height, control } for each drawn text,
+    // image and Tab stop, cut by every clipping item that holds it;
+    // `anchor`, the item's `box`; `origin`, the item's own corner; and
+    // `content`, the box the obstacles and the item span inside the
+    // window, on whole pixels. The item and all it holds, an unlock mark
+    // too, are no obstacle, and an item that holds the item, a Tab stop
+    // too, is read into. It walks the tree once, here, as the tooltip opens.
+    function survey() {
+        const view = anchorItem.Window.contentItem;
+        if (view === null) throw new Error("Tooltip: anchor=" + anchorItem + " has no window to place a clear tooltip in");
+        const holders = [];
+        for (let at = anchorItem.parent; at !== null; at = at.parent) holders.push(at);
+        const obstacles = [];
+        const walk = (item, held) => {
+            if (item === anchorItem || !item.visible || item.opacity <= 0) return;
+            const kind = holders.indexOf(item) === -1 ? obstacleKind(item) : "";
+            if (kind !== "") {
+                const drawn = cut(drawnBox(item, kind, view), held);
+                if (drawn !== null) obstacles.push({ x: drawn.x, y: drawn.y, width: drawn.width, height: drawn.height, control: kind === "control" });
+                return;
+            }
+            const inner = item.clip ? cut(item.mapToItem(view, 0, 0, item.width, item.height), held) : held;
+            if (inner === null) return;
+            for (const child of item.children) walk(child, inner);
+        };
+        const whole = { x: 0, y: 0, width: view.width, height: view.height };
+        walk(view, whole);
+        const mapped = anchorItem.mapToItem(view, box.x, box.y, box.width, box.height);
+        const anchor = { x: mapped.x, y: mapped.y, width: mapped.width, height: mapped.height };
+        const span = obstacles.concat([anchor]).reduce((all, each) => ({
+            x: Math.min(all.x, each.x), y: Math.min(all.y, each.y),
+            right: Math.max(all.right, each.x + each.width), bottom: Math.max(all.bottom, each.y + each.height)
+        }), { x: Infinity, y: Infinity, right: -Infinity, bottom: -Infinity });
+        const left = Math.ceil(Math.max(span.x, 0)), top = Math.ceil(Math.max(span.y, 0));
+        const right = Math.floor(Math.min(span.right, whole.width)), bottom = Math.floor(Math.min(span.bottom, whole.height));
+        const corner = anchorItem.mapToItem(view, 0, 0);
+        return {
+            obstacles: obstacles,
+            anchor: anchor,
+            origin: { x: corner.x, y: corner.y },
+            content: { x: left, y: top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) }
+        };
+    }
+
+    // The box, in the window's content item coordinates, that a "clear"
+    // tooltip `width` by `height` takes in `scene` (survey). The places
+    // lie `gap` from the item, below, above, right and left in that order,
+    // each centred on the item, then on its start and on its end edge,
+    // held inside `content`; none overlaps the item. The first place by
+    // [outside content, covers a Tab stop, the obstacle area it covers]
+    // wins: the first free place, else the one that covers the least and
+    // no Tab stop, inside the content.
+    function clearPlace(scene, width, height, gap) {
+        const a = scene.anchor, room = scene.content;
+        const w = Math.ceil(width), h = Math.ceil(height);
+        const hold = (at, low, size, span) => Math.max(low, Math.min(Math.round(at), low + span - size));
+        const across = [a.x + (a.width - w) / 2, a.x, a.x + a.width - w].map(x => hold(x, room.x, w, room.width));
+        const along = [a.y + (a.height - h) / 2, a.y, a.y + a.height - h].map(y => hold(y, room.y, h, room.height));
+        const places = [];
+        for (const y of [Math.ceil(a.y + a.height + gap), Math.floor(a.y - gap - h)])
+            for (const x of across) places.push({ x: x, y: y, width: w, height: h });
+        for (const x of [Math.ceil(a.x + a.width + gap), Math.floor(a.x - gap - w)])
+            for (const y of along) places.push({ x: x, y: y, width: w, height: h });
+        const rank = place => [
+            covered(place, room) === w * h ? 0 : 1,
+            scene.obstacles.some(each => each.control && covered(place, each) > 0) ? 1 : 0,
+            scene.obstacles.reduce((sum, each) => sum + covered(place, each), 0)
+        ];
+        const first = (one, other) => {
+            for (let i = 0; i < one.length; i++) if (one[i] !== other[i]) return one[i] < other[i];
+            return false;
+        };
+        let best = places[0], bestRank = rank(best);
+        for (const place of places.slice(1)) {
+            const placeRank = rank(place);
+            if (first(placeRank, bestRank)) { best = place; bestRank = placeRank; }
+        }
+        return best;
+    }
+
+    // The place `clearPlace` picks, in the item's coordinates.
+    function placedOn(scene, width, height) {
+        const box = clearPlace(scene, width, height, Theme.tooltip.gap);
+        return Qt.rect(box.x - scene.origin.x, box.y - scene.origin.y, box.width, box.height);
     }
 
     Component.onCompleted: {
@@ -209,7 +349,10 @@ Item {
     onPointerRestingChanged: settle()
     onReachableChanged: settle()
     onReachedChanged: settle()
-    onShownChanged: if (!shown) current = -1
+    onShownChanged: if (!shown) {
+        current = -1;
+        scene = null;
+    }
     onCurrentChanged: held = current === -1 ? null : linkAt(links[current])
     // Every assign of the text or the details makes new `links`, the same
     // lines included, so the current link is kept by what it holds.
@@ -218,7 +361,12 @@ Item {
     Timer {
         id: delay
         interval: Theme.tooltip.delay
-        onTriggered: if (root.resting && OverlayState.open === 0) root.shown = true
+        // The window is read before the popup is built, so the popup is
+        // built at the width that content box allows.
+        onTriggered: if (root.resting && OverlayState.open === 0) {
+            if (root.side === "clear") root.scene = root.survey();
+            root.shown = true;
+        }
     }
 
     // How long the pointer may take from the item to a link and back.
@@ -253,10 +401,10 @@ Item {
             id: window
 
             anchor.item: root.anchorItem
-            anchor.rect.x: root.box.x
-            anchor.rect.y: root.box.y
-            anchor.rect.width: root.box.width
-            anchor.rect.height: root.box.height
+            anchor.rect.x: root.anchorRect.x
+            anchor.rect.y: root.anchorRect.y
+            anchor.rect.width: root.anchorRect.width
+            anchor.rect.height: root.anchorRect.height
             // A negative margin grows the anchor rect past that edge, so the
             // popup opens the gap away from the item.
             anchor.edges: root.anchorEdges
@@ -273,8 +421,9 @@ Item {
             readonly property bool pointerOver: over.hovered
             color: "transparent"
             // One line up to `maxWidth`, then title and plain details
-            // wrap; never wider than the output less its gutters.
-            readonly property real paddedWidth: Math.min(Math.max(root.minWidth, content.implicitWidth + 2 * Theme.tooltip.paddingX), OverlayState.widthFor(root.anchorItem, root.maxWidth + 2 * Theme.tooltip.paddingX))
+            // wrap; never wider than the output less its gutters, nor,
+            // when "clear", than its window's content.
+            readonly property real paddedWidth: Math.min(Math.max(root.minWidth, content.implicitWidth + 2 * Theme.tooltip.paddingX), OverlayState.widthFor(root.anchorItem, Math.min(root.maxWidth + 2 * Theme.tooltip.paddingX, root.clearWidth)))
             // The room under the content: the padding, or what the last
             // line's link ring needs to stand clear of the border.
             readonly property real paddingBelow: Math.max(Theme.tooltip.paddingY, content.ringBelow + Theme.focusRing.offset + Theme.surface.border)
