@@ -1230,7 +1230,7 @@ esac
         path.write_text(source)
         env = dict(self.env, VGS_TUI_LIB=str(REPO / "bin/lib/tui.sh"), VGS_PLUGIN_DIR=str(self.plugin),
                    UV_CACHE_DIR=str(self.data / "cache"), GUM_CONFIRM_EXIT=gum_exit)
-        master, slave = pty.openpty()
+        pty_fd, slave = pty.openpty()
         cmd = shlex.join(["bash", str(path)])
         if closed:
             cmd = shlex.join(["bash", "-c", 'code=0; bash "$1" || code=$?; source "$VGS_TUI_LIB"; '
@@ -1240,16 +1240,16 @@ esac
         proc = subprocess.Popen([script_bin, "-qec", cmd, "/dev/null"], env=env, stdin=slave, stdout=slave, stderr=slave,
                                 text=False, close_fds=True)
         os.close(slave)
-        return proc, master
+        return proc, pty_fd
 
-    def read_pty_until(self, proc, master, needle, timeout=5):
+    def read_pty_until(self, proc, pty_fd, needle, timeout=5):
         out = b""
         end = time.monotonic() + timeout
         while time.monotonic() < end:
-            ready, _, _ = select.select([master], [], [], 0.05)
+            ready, _, _ = select.select([pty_fd], [], [], 0.05)
             if ready:
                 try:
-                    chunk = os.read(master, 4096)
+                    chunk = os.read(pty_fd, 4096)
                 except OSError:
                     break
                 if not chunk:
@@ -1261,14 +1261,14 @@ esac
                 break
         return out.decode(errors="replace")
 
-    def read_pty_rest(self, proc, master, timeout=5):
+    def read_pty_rest(self, proc, pty_fd, timeout=5):
         out = b""
         end = time.monotonic() + timeout
         while proc.poll() is None and time.monotonic() < end:
-            ready, _, _ = select.select([master], [], [], 0.05)
+            ready, _, _ = select.select([pty_fd], [], [], 0.05)
             if ready:
                 try:
-                    out += os.read(master, 4096)
+                    out += os.read(pty_fd, 4096)
                 except OSError:
                     break
         try:
@@ -1277,11 +1277,11 @@ esac
             proc.kill()
             proc.wait()
         while True:
-            ready, _, _ = select.select([master], [], [], 0)
+            ready, _, _ = select.select([pty_fd], [], [], 0)
             if not ready:
                 break
             try:
-                chunk = os.read(master, 4096)
+                chunk = os.read(pty_fd, 4096)
             except OSError:
                 break
             if not chunk:
@@ -1325,17 +1325,17 @@ esac
         self.reset_calls()
         source = (PLUGIN / "tui/clone-voice.sh").read_text()
         before = self.tree_without_clone_log()
-        proc, master = self.clone_tui_pty(source)
+        proc, pty_fd = self.clone_tui_pty(source)
         try:
-            output = self.read_pty_until(proc, master, "Press any key to close")
+            output = self.read_pty_until(proc, pty_fd, "Press any key to close")
             self.assertIn("Nothing was downloaded or stored.", output)
             self.assertIn("Press any key to close", output)
             self.assertIsNone(proc.poll(), "the TUI exited before the user could read the No sentence")
-            os.write(master, b"x")
-            output += self.read_pty_rest(proc, master)
+            os.write(pty_fd, b"x")
+            output += self.read_pty_rest(proc, pty_fd)
             self.assertEqual(proc.returncode, 130, output)
         finally:
-            os.close(master)
+            os.close(pty_fd)
             if proc.poll() is None:
                 proc.kill()
                 proc.wait()
@@ -1344,14 +1344,14 @@ esac
 
         control = source.replace('vgs_tui_cancelled "Nothing was downloaded or stored."', 'printf "Nothing was downloaded or stored.\\n"')
         self.assertNotEqual(control, source)
-        proc, master = self.clone_tui_pty(control)
+        proc, pty_fd = self.clone_tui_pty(control)
         try:
-            output = self.read_pty_until(proc, master, "Press any key to close", timeout=1)
-            output += self.read_pty_rest(proc, master)
+            output = self.read_pty_until(proc, pty_fd, "Press any key to close", timeout=1)
+            output += self.read_pty_rest(proc, pty_fd)
             self.assertNotIn("Press any key to close", output)
             self.assertEqual(proc.returncode, 130)
         finally:
-            os.close(master)
+            os.close(pty_fd)
             if proc.poll() is None:
                 proc.kill()
                 proc.wait()
@@ -1365,14 +1365,14 @@ esac
         source = (PLUGIN / "tui/clone-voice.sh").read_text()
 
         def closed(text):
-            proc, master = self.clone_tui_pty(text, closed=True)
+            proc, pty_fd = self.clone_tui_pty(text, closed=True)
             try:
-                output = self.read_pty_until(proc, master, "Press any key to close")
+                output = self.read_pty_until(proc, pty_fd, "Press any key to close")
                 self.assertIsNone(proc.poll(), "the window closed before its key: " + output)
-                os.write(master, b"x")
-                output += self.read_pty_rest(proc, master)
+                os.write(pty_fd, b"x")
+                output += self.read_pty_rest(proc, pty_fd)
             finally:
-                os.close(master)
+                os.close(pty_fd)
                 if proc.poll() is None:
                     proc.kill()
                     proc.wait()
