@@ -740,17 +740,18 @@ function addRecord(records, record) {
 
 // rclone v1.75.1's lines about one Drive file, after its date and time, as
 // the journal of a run with a dangling shortcut and a doubled name holds
-// them: the file's error, the line that ends each attempt with the count
-// of errors in that attempt, and the notice of a name Drive holds twice,
-// of which rclone copies one.
+// them: the file's error, whatever its cause, the line that ends each
+// attempt with the count of errors in that attempt, and the notice of a
+// name Drive holds twice, of which rclone copies one.
 const FILE_ERROR = /^\S+ \S+ ERROR : (.+?): Failed to copy: (.+)$/;
 const ATTEMPT_END = /^\S+ \S+ ERROR : Attempt \d+\/\d+ failed with (\d+) errors and: /;
 const DUPLICATE = /^\S+ \S+ NOTICE: (.+): Duplicate object found in source - ignoring$/;
 // The record kinds a download leg alone decides, each run afresh.
 const DRIVE_KINDS = ["unreadable-on-drive", "duplicate-on-drive"];
 
-// The Drive files the download leg RESULT leaves for review, or null when
-// the copy could not run. rclone "will accumulate errors as it goes along,
+// The files the download leg RESULT leaves for review, each one it could
+// not copy and each name Drive holds twice, or null when the copy could
+// not run. rclone "will accumulate errors as it goes along,
 // and only exit with a non-zero exit code if (after retries) there were
 // still failed transfers", with a log line for every error counted that
 // names its file (rclone.org/docs/#exit-code, `man rclone` of v1.75.1). So
@@ -812,8 +813,10 @@ function pruneConflictStorage(id, records) {
         }
         if (ms < cutoff) fs.rmSync(path.join(root, dir.name), { recursive: true, force: true });
     }
+    // A download decides its own kinds afresh (withDriveRecords), so their
+    // age removes none: a file that stays unreadable keeps its first time.
     return records.filter(r => {
-        if (Date.parse(r.since) < cutoff) return false;
+        if (DRIVE_KINDS.indexOf(r.kind) === -1 && Date.parse(r.since) < cutoff) return false;
         return typeof r.stored !== "string" || fs.existsSync(path.join(root, r.stored));
     });
 }
@@ -939,11 +942,18 @@ function removeEmptyDirs(dir) {
     }
 }
 
-function nextInventory(pair, listing, before) {
+// HELD names the paths whose download failed this run: the copy here is
+// still the one BEFORE describes, so each keeps that baseline, or none,
+// and counts as no change.
+function nextInventory(pair, listing, before, held) {
     const entries = {};
     let added = 0;
     let updated = 0;
     for (const item of listing) {
+        if (held.has(item.Path)) {
+            if (hasOwn(before, item.Path)) entries[item.Path] = before[item.Path];
+            continue;
+        }
         let st;
         try {
             st = fs.lstatSync(path.join(pair.local, item.Path));
@@ -1029,6 +1039,7 @@ function runPairSync(pair, state, env, secrets, lock) {
     // --backup-dir moves every local file the copy replaces into conflict
     // storage first. A copy that ran to its end with files rclone could not
     // open is a sync with those files to review, not a failure.
+    const held = new Set();
     if (emptyRemote) {
         state.records = withDriveRecords(state.records, []);
     } else {
@@ -1037,9 +1048,10 @@ function runPairSync(pair, state, env, secrets, lock) {
         const review = downloadReview(downloaded);
         if (review === null) return rcloneFailed(state, downloaded);
         state.records = withDriveRecords(state.records, review);
+        for (const record of review) if (record.kind === "unreadable-on-drive") held.add(record.path);
         // If a later leg fails, the downloaded mirror still agrees with
         // Drive's first listing, so keep that baseline.
-        writeJson(path.join(pairDir(pair.id), "inventory.json"), { entries: nextInventory(pair, listing, inventory).entries });
+        writeJson(path.join(pairDir(pair.id), "inventory.json"), { entries: nextInventory(pair, listing, inventory, held).entries });
     }
     const excludes = writeExportExcludeFile(pair, exportPaths(listing, inventory));
     const uploadArgs = ["copy", "--update", pair.local, remotePath(pair)].concat(filterArgs());
@@ -1055,7 +1067,7 @@ function runPairSync(pair, state, env, secrets, lock) {
     } catch (_e) {
         return failed(state, "listing-unreadable");
     }
-    const next = nextInventory(pair, nextListing, inventory);
+    const next = nextInventory(pair, nextListing, inventory, held);
     writeJson(path.join(pairDir(pair.id), "inventory.json"), { entries: next.entries });
     return Object.assign(state, { state: "idle", lastSuccess: now(), lastError: null, records: state.records, changes: next.changes });
 }
@@ -1265,7 +1277,11 @@ function conflictsOf(pair, stored) {
     const found = [];
     const root = path.join(pairDir(pair.id), "conflicts");
     for (const r of stored.records || []) {
-        const out = { kind: r.kind, pair: pair.id, pairLabel: pair.label, path: r.path, localPath: path.join(pair.local, r.path), since: r.since };
+        const localPath = path.join(pair.local, r.path);
+        const out = { kind: r.kind, pair: pair.id, pairLabel: pair.label, path: r.path, since: r.since };
+        // A file the download could not copy has a folder here only while
+        // an older copy of it is here.
+        if (r.kind !== "unreadable-on-drive" || fs.existsSync(localPath)) out.localPath = localPath;
         if (typeof r.stored === "string" && fs.existsSync(path.join(root, r.stored))) out.storedPath = path.join(root, r.stored);
         if (typeof r.to === "string") out.to = r.to;
         if (typeof r.reason === "string") out.reason = r.reason;

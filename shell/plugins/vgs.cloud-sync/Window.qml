@@ -13,7 +13,7 @@ import "CloudSyncLogic.js" as Logic
 // offers the reset TUI, which keeps the damaged list and starts an empty
 // one. To review lists each file Cloud Sync kept or restored,
 // a change on both sides, a local deletion, a Drive deletion or a Drive rename, and each file
-// Drive could not open or holds twice, under its folder
+// it could not copy from Drive or Drive holds twice, under its folder
 // pair's label, with what happened, the folder that holds the copy it
 // speaks of, and Open folders, which opens the folders that hold its
 // versions and shows only for a file with a folder here. The footer holds Sync now, enabled only when a sync can
@@ -175,7 +175,7 @@ FocusScope {
             Section {
                 visible: root.known && root.cloud.conflictCount > 0
                 title: "To review"
-                description: "Cloud Sync kept older copies on this computer, restored removed files, and deleted nothing. It did not copy a file that Google Drive could not open. Open folders shows the folders that hold each version."
+                description: "Cloud Sync kept older copies on this computer, restored removed files, and deleted nothing. It also lists each file it could not copy from Google Drive. Open folders shows the folders that hold each version."
                 // A pair's label on its own line over its files. Each file's
                 // row wraps its name, what happened and the folder line at
                 // the window's width, so no line is cut as a ListItem's

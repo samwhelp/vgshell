@@ -17,10 +17,10 @@
 | `removed-locally` | The file was removed on this computer. | The file returns from Drive. |
 | `removed-on-drive` | The file was removed on Drive. | The file returns to Drive. |
 | `renamed` | Drive's object id shows that the file has a new name. | Both names exist: the old name returns to Drive. |
-| `unreadable-on-drive` | Drive could not open the file, such as a shortcut whose target is gone. The record holds rclone's reason. | The file is not copied. The rest of the pair is synced. |
+| `unreadable-on-drive` | The download of the file failed, such as for a shortcut whose target is gone. The record holds rclone's reason. | The file is not copied and keeps its last baseline. The rest of the pair is synced. |
 | `duplicate-on-drive` | Drive holds two files with this name in one folder. | One of them is copied. |
 
-The last two records stand only while the last download met the file: a sync where the file copies removes its record.
+The last two records stand only while the last download met the file: a sync where the file copies removes its record, and the 30-day removal does not apply to them.
 
 A pair that another run holds reads `busy` and copies nothing.
 

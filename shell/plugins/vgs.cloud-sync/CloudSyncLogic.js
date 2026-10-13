@@ -79,14 +79,15 @@ var CONFLICT_TEXT = {
     "removed-locally": "Removed here. Cloud Sync copied it back from Google Drive.",
     "removed-on-drive": "Removed from Google Drive. The copy here stays.",
     renamed: "Renamed on Google Drive. The old name was copied back to Google Drive.",
-    "unreadable-on-drive": "Google Drive could not open this file, so Cloud Sync did not copy it.",
+    "unreadable-on-drive": "Cloud Sync could not copy this file from Google Drive.",
     "duplicate-on-drive": "Google Drive holds two files with this name. Cloud Sync copied one of them."
 };
 // The line that names the folder of the copy CONFLICT_TEXT speaks of,
 // before that folder's path: the kept older copy, or the copy here.
 var CONFLICT_FOLDER_TEXT = {
     "both-changed": "The older copy is in this folder: ",
-    "removed-on-drive": "The copy here is in this folder: "
+    "removed-on-drive": "The copy here is in this folder: ",
+    "unreadable-on-drive": "The older copy here is in this folder: "
 };
 
 var PAIR_RULE_TEXT = {
@@ -159,7 +160,7 @@ function pairOk(p) {
 
 function conflictOk(c) {
     return isObject(c) && CONFLICT_KINDS.indexOf(c.kind) !== -1 && isText(c.pairLabel) && isText(c.path)
-        && isText(c.localPath) && c.localPath.charAt(0) === "/"
+        && ((c.kind === "unreadable-on-drive" && !hasOwn(c, "localPath")) || (isText(c.localPath) && c.localPath.charAt(0) === "/"))
         && (c.kind !== "both-changed" || !hasOwn(c, "storedPath") || (isText(c.storedPath) && c.storedPath.charAt(0) === "/"))
         && (c.kind !== "renamed" || isText(c.to)) && (c.kind !== "unreadable-on-drive" || isText(c.reason)) && isTime(c.since);
 }
@@ -278,9 +279,9 @@ function problemText(operation, firstLine) {
 
 // The folders Open folders opens for CONFLICT: the mirror's folder, and
 // for a local edit also the folder that keeps the local version. A file
-// Drive could not open has no copy here, so it has no folder.
+// the runner names no local path for has no copy here, so no folder.
 function reviewDirs(conflict) {
-    if (conflict.kind === "unreadable-on-drive") return [];
+    if (conflict.localPath === undefined) return [];
     var dirs = [dirname(conflict.localPath)];
     if (conflict.kind === "both-changed" && conflict.storedPath !== undefined) dirs.push(dirname(conflict.storedPath));
     return dirs;
@@ -529,8 +530,8 @@ function pairRow(pair, now) {
 }
 
 // One conflict's row in the window: { label, detail, folder, dirs }, its
-// path, what happened, with rclone's own reason for a file Drive could not
-// open, the line that names the folder of the copy the detail speaks of
+// path, what happened, with rclone's own reason for a file it could not
+// copy, the line that names the folder of the copy the detail speaks of
 // ("" for none), and the folders Open folders opens. The window wraps
 // each line, so none is cut.
 function conflictRow(conflict) {
@@ -542,9 +543,10 @@ function conflictRow(conflict) {
 
 // The folder line of CONFLICT: a change on both sides names the folder
 // that keeps the older copy, reviewDirs' second, when the runner kept
-// one; a Drive deletion names the local folder, reviewDirs' first.
+// one; a Drive deletion and a file not copied name the local folder,
+// reviewDirs' first, the latter only while an older copy is here.
 function conflictFolder(conflict) {
-    var dir = conflict.kind === "both-changed" ? conflict.dirs[1] : conflict.kind === "removed-on-drive" ? conflict.dirs[0] : undefined;
+    var dir = conflict.kind === "both-changed" ? conflict.dirs[1] : hasOwn(CONFLICT_FOLDER_TEXT, conflict.kind) ? conflict.dirs[0] : undefined;
     return dir === undefined ? "" : CONFLICT_FOLDER_TEXT[conflict.kind] + dir;
 }
 

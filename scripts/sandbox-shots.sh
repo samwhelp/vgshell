@@ -6135,6 +6135,23 @@ unset RCLONE_CONFIG_VGSDRIVE_CLIENT_ID RCLONE_CONFIG_VGSDRIVE_CLIENT_SECRET RCLO
 if [[ -f "$cs/block" ]]; then for _ in \$(seq 1 300); do [[ -f "$cs/release" ]] && break; sleep 0.2; done; fi
 if [[ -f "$cs/fail" ]]; then echo "Failed to copy: stand-in sync error" >&2; exit 1; fi
 cd "$drive" || exit 9
+# While \`unreadable\` names files of the Documents folder, one a line, its
+# download copies the rest, then prints rclone v1.75.1's lines for files it
+# could not open and a name Drive holds twice, and exits 1 as rclone did.
+if [[ -f "$cs/unreadable" && \${3:-} == copy && \${5:-} == vgsdrive:Documents ]]; then
+  mapfile -t gone <"$cs/unreadable"
+  skip=()
+  for rel in "\${gone[@]}"; do skip+=(--exclude "/\$rel"); done
+  "$host_rclone" "\$@" "\${skip[@]}" || exit 9
+  why="failed to open source object: can't read dangling shortcut"
+  for n in 1 2 3; do
+    printf '2026/10/13 00:03:27 NOTICE: %s: Duplicate object found in source - ignoring\\n' "Plans/Budget copy.xlsx" >&2
+    for rel in "\${gone[@]}"; do printf '2026/10/13 00:04:59 ERROR : %s: Failed to copy: %s\\n' "\$rel" "\$why" >&2; done
+    printf '2026/10/13 00:04:59 ERROR : Attempt %s/3 failed with %s errors and: %s\\n' "\$n" "\${#gone[@]}" "\$why" >&2
+  done
+  printf '2026/10/13 00:04:59 NOTICE: Failed to copy with %s errors: last error was: %s\\n' "\${#gone[@]}" "\$why" >&2
+  exit 1
+fi
 list= remote=
 for a in "\$@"; do
   case "\$a" in
@@ -6248,6 +6265,21 @@ SH
   mv -- "$drive/VGS/Uploads/report.md" "$drive/VGS/Uploads/October-planning-meeting-report-with-every-agent-task-its-owner-and-its-due-date.md"
   csr run || fail "cloudsync scene: review run"
   cs_shots "$m" 8-review review
+  # Two Drive files the download cannot open and a name Drive holds twice.
+  # A runner that reads rclone's lines for them ends the pair synced with
+  # the files to review; one that does not ends it as a failed sync.
+  mkdir -p -- "$drive/Documents/Plans"
+  printf 'plan\n' >"$drive/Documents/Plans/Launch plan – final.pdf"
+  printf 'offsite\n' >"$drive/Documents/Plans/Team offsite.pdf"
+  printf 'budget copy\n' >"$drive/Documents/Plans/Budget copy.xlsx"
+  printf '%s\n' "Plans/Launch plan – final.pdf" "Plans/Team offsite.pdf" >"$cs/unreadable"
+  csr run || true
+  if tree_has shell/plugins/vgs.cloud-sync/bin/cloud-sync '"unreadable-on-drive"'; then
+    cs_shots "$m" 8-unreadable review
+  else
+    cs_shots "$m" 8-unreadable error
+  fi
+  rm -f -- "$cs/unreadable"
   # The folder pair list cut short, so it is not JSON.
   pairs_file="$home/.config/vgshell/cloud-sync/pairs.json"
   printf '{"pairs": [{"id": "documents", "label": "Documents", "direction": "pull",' >"$pairs_file"
