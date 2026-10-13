@@ -191,9 +191,11 @@ sys.exit(0 if "\033[3J\033[38;2;255;90;54m" + " " * int(sys.argv[4]) + sys.argv[
 check "the logo is drawn in the theme accent" logo_accent
 # One blank row stands between the logo and a script's first header: the
 # row present draws under the logo and hands the library, and no second.
-stub headed 'exec bash -c '\''source "$VGS_TUI_LIB"; vgs_tui_header Title'\'''
+# headed exits 130, which takes no prompt, so the run types no key the
+# terminal could echo between the rows.
+stub headed 'exec bash -c '\''source "$VGS_TUI_LIB"; vgs_tui_header Title; exit 130'\'''
 logo_gap_row() { # BIN
-  on_tty "$1" present -- headed
+  timeout 30 "${tui_env[@]}" script -qec "$(printf '%q ' "$1" present -- headed)" /dev/null </dev/null >"$tmp/out" 2>&1 || :
   python3 -c 'import re,sys; o = open(sys.argv[1], encoding="utf-8").read()
 sys.exit(0 if re.search(re.escape(sys.argv[2]) + r"\r?\n\033\[0m\r?\n(?:\033\[[0-9;?]*[A-Za-z])*┌", o) else 1)' "$tmp/out" "${logo_lines[-1]}"
 }
