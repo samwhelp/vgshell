@@ -16,7 +16,10 @@ import qs.Ui
 // opened. It opens beside `box`, a rectangle in the item's coordinates,
 // the item's own box unless set, and wraps its text past `maxWidth`,
 // `tooltip.maxWidth` unless set, and is no narrower than `minWidth`, so a
-// caller can have it span a row. The declaring item is an invisible,
+// caller can have it span a row. Under its item from the start edge it
+// is a band of help under a form row: it draws `band`, a neutral plate
+// with no outline, since an input shows by its outline and a band with
+// one read as an empty input. The declaring item is an invisible,
 // sizeless member of its parent.
 Item {
     id: root
@@ -29,6 +32,8 @@ Item {
     property rect box: Qt.rect(0, 0, anchorItem === null ? 0 : anchorItem.width, anchorItem === null ? 0 : anchorItem.height)
     property real maxWidth: Theme.tooltip.maxWidth
     property real minWidth: 0
+    // A fill lifted off the surface it lies on, its border in that fill.
+    readonly property var band: ({ background: Theme.color.surfaceHover, border: Theme.color.surfaceHover, radius: Theme.tooltip.radius })
     readonly property int edge: edgeFor(side)
     // A corner of the box with the gravity of the opposite corner starts
     // the popup on that corner; only opposing edges are refused.
@@ -133,7 +138,7 @@ Item {
 
             GlassSurface {
                 anchors.fill: parent
-                standard: Theme.tooltip
+                standard: root.side === "belowStart" ? root.band : Theme.tooltip
                 elevation: "tight"
             }
 

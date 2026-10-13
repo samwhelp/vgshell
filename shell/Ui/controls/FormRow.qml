@@ -29,7 +29,12 @@ import qs.Ui
 // row, so it covers the whole of a line it lies on: on the first line under the
 // value, the row's message or text its owner draws there while
 // `textBelow` holds, which it covers from that line's top, else
-// `tooltip.gap` under the row box. `warning` is the row's message:
+// `tooltip.gap` under the row box. It stays clear of the label's focus
+// ring, which draws outside the label's box: under a row with no such
+// line it starts `tooltip.gap` under the ring where the ring ends lower
+// than the row box, and where the ring reaches that line, as under a
+// label of two lines, it starts on the value column, beside the ring, and
+// still covers the line from its top. `warning` is the row's message:
 // text in the role `warningRole` names, `hint` unless set, under the value
 // column, `field.gap` below the row box and
 // wrapped to the column, in the colour `warningTone` names, `warning`,
@@ -103,8 +108,13 @@ Item {
     // Whether the explainer, centred on the label's box, ends above that line.
     readonly property bool besideClear: underText < 0 ? true : (labelBox + besideHeight) / 2 <= underText
     readonly property bool explainBeside: besideWrap > 0 && besideHeight <= labelBox + 2 * Theme.stack.row && besideClear
-    // Where the explainer starts under the row.
-    readonly property real underTop: Math.max(labelText.y + labelText.height - labelText.inkBelow(), underText < 0 ? boxHeight + Theme.tooltip.gap : underText)
+    // Where the label's focus ring ends: it draws outside the label's box.
+    readonly property real ringBottom: labelText.y + labelText.height + labelRing.extent
+    // Whether that ring reaches the first line under the value.
+    readonly property bool ringAtUnderText: underText >= 0 && ringBottom + Theme.tooltip.gap > underText
+    // Where the explainer starts under the row, clear of that ring.
+    readonly property real underX: ringAtUnderText ? valueX : 0
+    readonly property real underTop: underText < 0 ? Math.max(ringBottom, boxHeight) + Theme.tooltip.gap : underText
     readonly property real subTextRoom: Theme.subTextRoom(warning !== "", Positioner.index, Positioner.isLastItem, parent)
     // Where the message's line ends, above the room under it.
     readonly property real messageBottom: height - subTextRoom
@@ -166,12 +176,12 @@ Item {
                 text: root.labelTooltip
                 side: root.explainBeside ? "right" : "belowStart"
                 // The side's gap from this box's end puts the tooltip at `besideX`.
-                box: root.explainBeside ? Qt.rect(0, -labelText.y, root.besideX - Theme.tooltip.gap, root.labelBox) : Qt.rect(0, -labelText.y, root.width, root.underTop - Theme.tooltip.gap)
-                maxWidth: root.explainBeside ? root.besideWrap : root.width - 2 * Theme.tooltip.paddingX
-                minWidth: root.explainBeside ? 0 : root.width
+                box: root.explainBeside ? Qt.rect(0, -labelText.y, root.besideX - Theme.tooltip.gap, root.labelBox) : Qt.rect(root.underX, -labelText.y, root.width - root.underX, root.underTop - Theme.tooltip.gap)
+                maxWidth: root.explainBeside ? root.besideWrap : root.width - root.underX - 2 * Theme.tooltip.paddingX
+                minWidth: root.explainBeside ? 0 : root.width - root.underX
             }
         }
-        FocusRing { target: labelFocus; outside: true }
+        FocusRing { id: labelRing; target: labelFocus; outside: true }
         role: "label"
         text: root.label
         visible: root.labelColumn
