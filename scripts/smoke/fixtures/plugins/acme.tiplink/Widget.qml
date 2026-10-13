@@ -59,7 +59,7 @@ BarWidget {
         iconName: "flask-conical"
         label: "Tip link"
         tooltip: "Idle is not set up"
-        tooltipDetails: [root.linked ? "Finish on its [Details](page:acme.idle/Details)." : "Finish on its page."]
+        tooltipDetails: [root.linked ? "Finish on its [Setup](page:acme.idle/Setup)." : "Finish on its page."]
         onTooltipPageActivated: (page, tab) => root.opened = root.frame.openPage(page, tab)
     }
 }

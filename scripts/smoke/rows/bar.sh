@@ -1598,7 +1598,7 @@ expect_poll "the restored profile holds no spacer" "$spacer_none" spacer_layout
 
 # A bar item's tooltip link, through the real pointer and the real keys.
 # Two row-time copies of the acme.tiplink fixture stand in the bar. Each
-# one's item tooltip names acme.idle's Details tab, the plugin this row
+# one's item tooltip names acme.idle's Setup tab, the plugin this row
 # installed disabled above; the second copy, the control, has no
 # onTooltipPageActivated. The pointer rests on the item, crosses the gap
 # onto the link's words and stays there past the tooltip's grace, which
@@ -1743,7 +1743,7 @@ then
   expect_poll "Tab makes the link current" 1 tiplink_read acme.tiplink currentLine
   expect "Tab left the focus on the item" true tiplink_read acme.tiplink itemFocused
   type_keys -k Return || fail "sending Enter to the bar failed"
-  expect_poll "Enter on the link opens Settings on the page and tab it names" '"acme.idle/Details"' tiplink_shown
+  expect_poll "Enter on the link opens Settings on the page and tab it names" '"acme.idle/Setup"' tiplink_shown
   expect_poll "Enter closes the tooltip" false tiplink_read acme.tiplink tooltipOpen
   tiplink_hide_settings "the keyboard's link"
   expect "the bar window gives the keyboard back" ok tiplink_call acme.tiplink holdKeyboard false
@@ -1755,7 +1755,7 @@ then
   tiplink_hover acme.tiplink linkGeometry || fail "moving the pointer onto the link for the click failed"
   expect_poll "the pointer reaches the link again" true tiplink_read acme.tiplink tooltipHovered
   tiplink_click acme.tiplink linkGeometry || fail "the click on the link failed"
-  expect_poll "a click on the link opens Settings on the page and tab it names" '"acme.idle/Details"' tiplink_shown
+  expect_poll "a click on the link opens Settings on the page and tab it names" '"acme.idle/Setup"' tiplink_shown
   expect "the frame answered the link ok" '"ok"' tiplink_read acme.tiplink opened
   expect_poll "the click closes the tooltip" false tiplink_read acme.tiplink tooltipOpen
   tiplink_hide_settings "the pointer's link"

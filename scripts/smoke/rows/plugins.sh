@@ -55,7 +55,7 @@ expect "enabling the bare fixture is allowed" ok ipc shell setPluginEnabled acme
 # enabling the fixture raises no requirement notice over the later rows.
 bare_requirements() { ipc shell listPlugins | py_reply 'import json,sys; print(json.dumps([[r["name"], r["state"]] for p in json.load(sys.stdin)["plugins"] if p["id"] == "acme.bare" for r in p["requirements"]]))'; }
 expect_poll "listPlugins reports each declared command's state" '[["sh", "present"], ["vgs-smoke-absent", "missing"]]' bare_requirements
-bare_missing_line() { "${shell_env[@]}" "$repo/bin/vgshell" plugin list | grep -F 'missing acme.' || true; }
+bare_missing_line() { "${shell_env[@]}" "$repo/bin/vgshell" plugin list | grep -F 'missing acme.bare ' || true; }
 expect "vgshell plugin list names the missing command" "missing acme.bare vgs-smoke-absent optional" bare_missing_line
 # A command that appears on the shell's PATH is present after the next
 # rescan, and missing again once it goes; the plugin's files did not
