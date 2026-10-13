@@ -89,6 +89,14 @@ var CONFLICT_FOLDER_TEXT = {
     "removed-on-drive": "The copy here is in this folder: ",
     "unreadable-on-drive": "The older copy here is in this folder: "
 };
+// rclone's reason for a file it could not copy, as the words the review
+// row gives for it. The dangling shortcut row reads rclone v1.75.1's
+// "failed to open source object: can't read dangling shortcut". The raw
+// reason stays in the runner's record and log.
+var REASON_TEXT = [
+    { pattern: /dangling shortcut/, text: "It is a Google Drive shortcut to a file that no longer exists." }
+];
+var REASON_DEFAULT = "Google Drive did not let Cloud Sync read it.";
 
 var PAIR_RULE_TEXT = {
     shape: "Folder pair {id} is not a valid folder pair.",
@@ -159,7 +167,7 @@ function pairOk(p) {
 }
 
 function conflictOk(c) {
-    return isObject(c) && CONFLICT_KINDS.indexOf(c.kind) !== -1 && isText(c.pairLabel) && isText(c.path)
+    return isObject(c) && CONFLICT_KINDS.indexOf(c.kind) !== -1 && isText(c.pair) && isText(c.pairLabel) && isText(c.path)
         && ((c.kind === "unreadable-on-drive" && !hasOwn(c, "localPath")) || (isText(c.localPath) && c.localPath.charAt(0) === "/"))
         && (c.kind !== "both-changed" || !hasOwn(c, "storedPath") || (isText(c.storedPath) && c.storedPath.charAt(0) === "/"))
         && (c.kind !== "renamed" || isText(c.to)) && (c.kind !== "unreadable-on-drive" || isText(c.reason)) && isTime(c.since);
@@ -270,6 +278,11 @@ function conflictText(kind) {
     return CONFLICT_TEXT[kind];
 }
 
+function reasonText(reason) {
+    var row = REASON_TEXT.find(function (r) { return r.pattern.test(reason); });
+    return row === undefined ? REASON_DEFAULT : row.text;
+}
+
 function problemText(operation, firstLine) {
     if (operation === "") return "";
     if (operation === "start" && firstLine.indexOf("units=absent") !== -1) return "Set up hourly sync first.";
@@ -302,13 +315,15 @@ function pairListValid(cloud) {
 }
 
 // The published `cloud` data the widget and the window draw: the record
-// with times as epoch milliseconds, the review list capped, each conflict
-// with the folders Open folders opens, and the last failed request.
+// with times as epoch milliseconds, each pair with `review`, the count of
+// its own files to review, the review list capped, each conflict with the
+// folders Open folders opens, a file not copied with `why`, its reason in
+// plain words, and the last failed request.
 function cloudValue(record, problem) {
     var conflicts = record.conflicts.slice(0, CONFLICTS_MAX).map(function (c) {
         var out = { kind: c.kind, pairLabel: c.pairLabel, path: c.path, since: msOf(c.since), dirs: reviewDirs(c) };
         if (c.kind === "renamed") out.to = c.to;
-        if (c.kind === "unreadable-on-drive") out.reason = c.reason;
+        if (c.kind === "unreadable-on-drive") out.why = reasonText(c.reason);
         return out;
     });
     var value = {
@@ -319,7 +334,8 @@ function cloudValue(record, problem) {
         staleAfter: msOf(record.staleAfter),
         lastError: publishedError(record.lastError),
         pairs: record.pairs.map(function (p) {
-            return { id: p.id, label: p.label, remote: p.remote, state: p.state, lastSuccess: msOf(p.lastSuccess), staleAfter: msOf(p.staleAfter), lastError: publishedError(p.lastError) };
+            var review = record.conflicts.filter(function (c) { return c.pair === p.id; }).length;
+            return { id: p.id, label: p.label, remote: p.remote, state: p.state, lastSuccess: msOf(p.lastSuccess), staleAfter: msOf(p.staleAfter), lastError: publishedError(p.lastError), review: review };
         }),
         conflicts: conflicts,
         conflictCount: record.conflicts.length,
@@ -338,9 +354,8 @@ function reviewLine(count) {
 // set up comes first, then no folder pair, then Connect needed or a
 // failed sync, of the whole sync or of any pair, since the runner ranks a
 // running pair above another pair's failure; then files to review, then
-// the state, an idle one by the data's age. "Up to date" is a pair's word
-// while files wait for review. `cause` is the state, `no-pairs` or
-// `review`.
+// the state, an idle one by the data's age. `cause` is the state,
+// `no-pairs` or `review`.
 function headline(cloud, now) {
     if (cloud === undefined || cloud === null) return null;
     if (cloud.state === "not-set-up")
@@ -369,11 +384,19 @@ function headlineHint(cloud, head) {
     return "";
 }
 
+// What PAIR reads as wherever a pair shows, the window's badge, the
+// tooltip and the Settings status: its state, and an idle pair by its own
+// files to review before the data's age, in the headline's review tone.
+function pairView(pair, now) {
+    if (pair.state === "idle" && pair.review > 0) return { text: reviewLine(pair.review), tone: "warning", icon: "cloud-alert" };
+    return stateView(pair.state, pair.staleAfter, now);
+}
+
 // Each pair's line as the Settings status and the tooltip show it: its
-// label and state, never a file name.
+// label and pairView, never a file name.
 function pairLines(pairs, now) {
     return pairs.map(function (p) {
-        return p.label + ": " + stateView(p.state, p.staleAfter, now).text;
+        return p.label + ": " + pairView(p, now).text;
     });
 }
 
@@ -522,22 +545,22 @@ function windowStatus(cloud, now, timeText) {
 
 // One folder pair's row in the window: { id, label, secondary, icon, text,
 // tone }, its pairDrive line, since a ListItem's secondary line elides and
-// the long form does not fit beside the state and Remove, and its state as
-// a Badge tone.
+// the long form does not fit beside the state and Remove, and its pairView
+// as a Badge tone.
 function pairRow(pair, now) {
-    var view = stateView(pair.state, pair.staleAfter, now);
+    var view = pairView(pair, now);
     return { id: pair.id, label: pair.label, secondary: pairDrive(pair), icon: "folder-sync", text: view.text, tone: badgeTone(view.tone) };
 }
 
 // One conflict's row in the window: { label, detail, folder, dirs }, its
-// path, what happened, with rclone's own reason for a file it could not
-// copy, the line that names the folder of the copy the detail speaks of
+// path, what happened, with the reason in plain words for a file it could
+// not copy, the line that names the folder of the copy the detail speaks of
 // ("" for none), and the folders Open folders opens. The window wraps
 // each line, so none is cut.
 function conflictRow(conflict) {
     var what = conflictText(conflict.kind);
     if (conflict.kind === "renamed") what += " New name: " + conflict.to + ".";
-    if (conflict.kind === "unreadable-on-drive") what += " Reason: " + conflict.reason + ".";
+    if (conflict.kind === "unreadable-on-drive") what += " " + conflict.why;
     return { label: conflict.path, detail: what, folder: conflictFolder(conflict), dirs: conflict.dirs };
 }
 

@@ -8,7 +8,7 @@ import "CloudSyncLogic.js" as Logic
 // the bar and the Settings page also read) in its tone's colour, then the
 // last complete sync, the first file to review, the pause and the last
 // problem. Folder pairs lists
-// each pair by its label, Google Drive folder and state, with Remove, which opens
+// each pair by its label, Google Drive folder and state, an idle pair by its own files to review, with Remove, which opens
 // the remove TUI for that pair; while the folder pair list is invalid, it
 // offers the reset TUI, which keeps the damaged list and starts an empty
 // one. To review lists each file Cloud Sync kept or restored,

@@ -393,7 +393,7 @@ SH
   check_removed_locally
   check_export
   check_prune
-  expect_poll "the service publishes the pair's state" '["Documents: Up to date"]' cs_value sync.lines
+  expect_poll "the service publishes the pair's state" '["Documents: 1 file to review"]' cs_value sync.lines
   expect_poll "the service publishes the pair and its Drive folder" '["Documents: Docs"]' cs_value pairs.lines
   expect_poll "the service publishes the last sync" set cs_last_sync
   cs_local_edit_records='[["both-changed", "a.txt"], ["removed-locally", "local-gone.txt"]]' check_local_edit
@@ -408,7 +408,7 @@ SH
 
   # The widget names the pair and its state, never a file.
   expect "with a folder pair the widget shows" true cs_widget_shown
-  expect_poll "the widget's tooltip leads with the files to review and names the pair" '["Cloud Sync: 3 files to review", ["Documents: Up to date"]]' cs_widget
+  expect_poll "the widget's tooltip leads with the files to review and names the pair" '["Cloud Sync: 3 files to review", ["Documents: 3 files to review"]]' cs_widget
   expect "the widget's tooltip names no file" False cs_widget_names_files
 
   # The window, and Sync now through the one service.

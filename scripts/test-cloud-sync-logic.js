@@ -206,7 +206,7 @@ function verify(L) {
     const presence = L.parseProbe(JSON.stringify(probe())).presence;
     const values = L.statusValues(good.record, presence, "", NOW);
     same(Object.keys(values).sort(), ["account", "cloud", "keys", "lastSync", "pairs", "schedule", "sync"]);
-    same(values.sync.lines, ["Documents: Up to date", "Agent uploads: Connect needed"], "a line per pair, up to date on its own line");
+    same(values.sync.lines, ["Documents: 3 files to review", "Agent uploads: Connect needed"], "a line per pair, each by its own state and files");
     assert.equal(values.lastSync, NOW - HOUR);
     same(Object.keys(L.statusValues(null, null, "", NOW)), [], "nothing is published before the first answers");
     same(Object.keys(L.statusValues(null, presence, "", NOW)).sort(), ["account", "keys"]);
@@ -315,8 +315,8 @@ function verify(L) {
     // The tooltip: pairs and states, never a file name; the count of files
     // to review when the headline does not say it.
     const tip = L.widgetTooltip(cloud, NOW, Timestamp.text);
-    same(tip.details.split("\n"), ["Documents: Up to date", "Agent uploads: Connect needed", "4 files to review", "Last sync " + Timestamp.text(NOW - HOUR, NOW)]);
-    same(L.widgetTooltip(L.cloudValue(well({ conflicts: CONFLICTS.slice(0, 2) }), ""), NOW, Timestamp.text).details.split("\n"), ["Documents: Up to date", "Last sync " + Timestamp.text(NOW - HOUR, NOW)], "the headline says the count once");
+    same(tip.details.split("\n"), ["Documents: 3 files to review", "Agent uploads: Connect needed", "4 files to review", "Last sync " + Timestamp.text(NOW - HOUR, NOW)]);
+    same(L.widgetTooltip(L.cloudValue(well({ conflicts: CONFLICTS.slice(0, 2) }), ""), NOW, Timestamp.text).details.split("\n"), ["Documents: 2 files to review", "Last sync " + Timestamp.text(NOW - HOUR, NOW)], "the headline says the whole count once");
     same(L.widgetTooltip(undefined, NOW, Timestamp.text), { title: "Cloud Sync", details: "" });
     for (const text of [tip.title, tip.details].concat(values.sync.lines))
         for (const c of CONFLICTS) assert.ok(!text.includes(c.path) && !text.includes(c.localPath), "a file name shows: " + text);
@@ -336,7 +336,15 @@ function verify(L) {
         ["Last complete sync " + Timestamp.text(NOW - HOUR, NOW), ""], ["First file to review: taxes/2025.xlsx", ""], ["Paused. The hourly sync copies nothing until you resume it.", ""]
     ], "files to review while paused say the pause");
     same(L.windowStatus(L.cloudValue(well({ state: "offline", lastError: { kind: "offline" } }), ""), NOW, Timestamp.text).lines[1], { text: "Google Drive cannot be reached. Cloud Sync tries again at the next sync.", tone: "" });
-    same(L.pairRow(cloud.pairs[0], NOW), { id: "docs", label: "Documents", secondary: "Docs", icon: "folder-sync", text: "Up to date", tone: "success" });
+    // A pair's badge: its own files to review, a state that needs the
+    // user or stops the sync before them, and Up to date only with none.
+    same(L.pairRow(cloud.pairs[0], NOW), { id: "docs", label: "Documents", secondary: "Docs", icon: "folder-sync", text: "3 files to review", tone: "warning" });
+    same(L.cloudValue(good.record, "").pairs.map(p => p.review), [3, 1]);
+    const badge = rec => { const p = L.pairRow(L.cloudValue(rec, "").pairs[0], NOW); return [p.text, p.tone]; };
+    same(badge(well()), ["Up to date", "success"]);
+    same(badge(well({ conflicts: DRIVE_CONFLICTS.slice(0, 1) })), ["1 file to review", "warning"]);
+    same(badge(well({ conflicts: CONFLICTS.slice(2, 3) })), ["Up to date", "success"], "another pair's file");
+    same(badge(well({ state: "paused", paused: true, pairs: [PAUSED_DOCS], conflicts: CONFLICTS.slice(0, 1) })), ["Paused", "info"]);
     same(L.pairRow(cloud.pairs[1], NOW), { id: "inbox", label: "Agent uploads", secondary: "Inbox", icon: "folder-sync", text: "Connect needed", tone: "danger" });
     // The footer: one primary, Resume while paused; Pause or Resume and
     // Add a folder pair only while a folder pair exists, since the empty
@@ -373,12 +381,17 @@ function verify(L) {
     const driveCloud = L.cloudValue(driveSide.record, "");
     same(L.conflictGroups(driveCloud.conflicts), [
         { label: "Documents", rows: [
-            { label: DRIVE_CONFLICTS[0].path, detail: "Cloud Sync could not copy this file from Google Drive. Reason: failed to open source object: can't read dangling shortcut.", folder: "", dirs: [] },
-            { label: DRIVE_CONFLICTS[1].path, detail: "Cloud Sync could not copy this file from Google Drive. Reason: failed to open source object: can't read dangling shortcut.", folder: "The older copy here is in this folder: /home/me/gdrive/reports", dirs: ["/home/me/gdrive/reports"] },
+            { label: DRIVE_CONFLICTS[0].path, detail: "Cloud Sync could not copy this file from Google Drive. It is a Google Drive shortcut to a file that no longer exists.", folder: "", dirs: [] },
+            { label: DRIVE_CONFLICTS[1].path, detail: "Cloud Sync could not copy this file from Google Drive. It is a Google Drive shortcut to a file that no longer exists.", folder: "The older copy here is in this folder: /home/me/gdrive/reports", dirs: ["/home/me/gdrive/reports"] },
             { label: DRIVE_CONFLICTS[2].path, detail: "Google Drive holds two files with this name. Cloud Sync copied one of them.", folder: "", dirs: ["/home/me/gdrive/reports"] }
         ] }
     ]);
     same(L.headline(driveCloud, NOW).text, "3 files to review");
+    // A reason the table does not know reads in the default words, and no
+    // published value holds rclone's text.
+    const unknown = L.cloudValue(well({ conflicts: [Object.assign({}, DRIVE_CONFLICTS[0], { reason: "failed to open source object: stand-in cause" })] }), "");
+    same(L.conflictRow(unknown.conflicts[0]).detail, "Cloud Sync could not copy this file from Google Drive. Google Drive did not let Cloud Sync read it.");
+    for (const value of [driveCloud, unknown]) assert.ok(!JSON.stringify(value).includes("failed to open source object"), "rclone's text is published");
     same(subtitle(L.windowStatus(driveCloud, NOW, Timestamp.text))[1], ["First file to review: " + DRIVE_CONFLICTS[0].path, ""]);
     // A change on both sides with no kept copy names no folder.
     same(L.conflictRow(L.cloudValue(well({ conflicts: [Object.assign({}, CONFLICTS[0], { storedPath: undefined })] }), "").conflicts[0]).folder, "");
@@ -455,7 +468,13 @@ const controls = [
     ["a file not copied with no copy here needs no local path", "(c.kind === \"unreadable-on-drive\" && !hasOwn(c, \"localPath\")) || ", ""],
     ["only a file not copied may lack its local path", "c.kind === \"unreadable-on-drive\" && !hasOwn(c, \"localPath\")", "!hasOwn(c, \"localPath\")"],
     ["a file not copied names its older copy's folder", "hasOwn(CONFLICT_FOLDER_TEXT, conflict.kind) ? conflict.dirs[0]", "conflict.kind === \"removed-on-drive\" ? conflict.dirs[0]"],
-    ["a review row gives rclone's reason", "if (conflict.kind === \"unreadable-on-drive\") what += ", "if (false) what += "],
+    ["a review row gives the reason", "if (conflict.kind === \"unreadable-on-drive\") what += ", "if (false) what += "],
+    ["a known reason reads in its own words", "return row === undefined ? REASON_DEFAULT : row.text;", "return REASON_DEFAULT;"],
+    ["an unknown reason reads in the default words", "return row === undefined ? REASON_DEFAULT : row.text;", "return row === undefined ? reason : row.text;"],
+    ["a pair with files to review does not read up to date", "if (pair.state === \"idle\" && pair.review > 0) return {", "if (false) return {"],
+    ["a pair counts its own files", "return c.pair === p.id;", "return true;"],
+    ["a paused pair reads its pause", "if (pair.state === \"idle\" && pair.review > 0) return {", "if (pair.review > 0) return {"],
+    ["the pair lines read the pair's view", "return p.label + \": \" + pairView(p, now).text;", "return p.label + \": \" + stateView(p.state, p.staleAfter, now).text;"],
     ["a review group holds each pair's files", "if (group === undefined) {", "if (true) {"],
     ["a change on both sides names the kept copy's folder", "conflict.kind === \"both-changed\" ? conflict.dirs[1] : ", ""],
     ["a connection notifies first", "if (reasons.indexOf(\"authorization-required\") !== -1)\n", "if (false)\n"],
