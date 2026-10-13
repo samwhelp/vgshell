@@ -206,7 +206,8 @@ function inKeyedGroup(entry, keyed) {
 // `button` that action (stepButton) or null. The page's one primary action
 // belongs to the first open required step in that order, while its action
 // is offered and not danger; an optional row action takes it only while
-// no required step is open (markPrimary). Flow screens stay secondary.
+// no required step is open, which a step that asks nothing (stepAsks) is
+// not (markPrimary). Flow screens stay secondary.
 function setupSections(tuis, status) {
     var keyed = keyedGroups(status);
     var setup = status.filter(function (entry) { return entry.group === SETUP_GROUP && !listsKeys(entry); });
@@ -229,7 +230,7 @@ function setupSections(tuis, status) {
     var buttons = flowButtons(tuis, status, setup.length > 0 ? setup[0] : null);
     if (setupItems.length > 0 || buttons.length > 0) out.push({ title: SETUP_GROUP, items: setupItems, buttons: buttons });
     out = out.concat(groups);
-    markPrimary(out);
+    markPrimary(out, keyed);
     return out;
 }
 
@@ -239,6 +240,15 @@ function setupSections(tuis, status) {
 // done one success, and a disabled plugin reports none.
 function stepOpen(entry) {
     return entry.tone === "warning" || entry.tone === "danger";
+}
+
+// Whether ENTRY, a headline or step that is not done, asks its user for
+// anything, for KEYED, its status rows' keyedGroups: always in SETUP_GROUP
+// and in a keyed group, and outside them only while its value offers its
+// action, since an entry there may read warning for a fault no step of its
+// own mends. setupNeeds and markPrimary both judge an open step by it.
+function stepAsks(entry, keyed) {
+    return entry.group === SETUP_GROUP || inKeyedGroup(entry, keyed) || (declaresStep(entry) && statusStep(entry).offered);
 }
 
 // Where step ENTRY draws among the Setup section's steps: 0 while it is
@@ -255,19 +265,17 @@ function stepRank(entry) {
 // manager row's status and requirement rows, and ENABLED, whether it is
 // on: { open, optional }. `open` holds while a required tool is missing or
 // outdated (requirementApplies) or a headline or step of the Setup tab is
-// open (stepOpen), a step outside SETUP_GROUP and the keyed groups only
-// while its value offers its action too, since an entry there may read
-// warning for a fault no step of its own mends; the plugin list then draws
-// Setup needed on the row and a click on the row opens Setup. `optional`
-// counts the optional tools
-// that are missing, which the list marks with its warning icon. A plugin
-// that is off asks nothing: both read as none until it is turned on.
+// open (stepOpen) and asks (stepAsks); the plugin list then draws Setup
+// needed on the row and a click on the row opens Setup. `optional` counts
+// the optional tools that are missing, which the list marks with its
+// warning icon. A plugin that is off asks nothing: both read as none until
+// it is turned on.
 function setupNeeds(status, requirements, enabled) {
     if (!enabled) return { open: false, optional: 0 };
     var keyed = keyedGroups(status);
     return {
         open: requirements.some(function (requirement) { return !requirement.optional && requirementApplies(requirement); })
-            || status.some(function (entry) { return stepOpen(entry) && !listsKeys(entry) && (entry.group === SETUP_GROUP || inKeyedGroup(entry, keyed) || (declaresStep(entry) && statusStep(entry).offered)); }),
+            || status.some(function (entry) { return stepOpen(entry) && !listsKeys(entry) && stepAsks(entry, keyed); }),
         optional: requirements.filter(function (requirement) { return requirement.optional && requirement.state === "missing"; }).length
     };
 }
@@ -341,15 +349,17 @@ function freeScreens(tuis, status, setup) {
     });
 }
 
-// Choose the first open required step before inspecting its action. An
-// actionless step cannot hand its primary to a later step or Flow screen.
+// Choose the first open required step of SECTIONS before inspecting its
+// action, for KEYED, the page's keyedGroups. An actionless step that asks
+// (stepAsks) cannot hand its primary to a later step or Flow screen; one
+// that asks nothing is no open step, so it withholds no primary.
 // The core's success tone marks completion and info marks optional steps.
 // Each Flow button keeps its drawing key, with secondary weight.
-function markPrimary(sections) {
+function markPrimary(sections, keyed) {
     var first = null;
     sections.some(function (section) {
         return section.items.some(function (item) {
-            if (!item.step || item.entry.tone === "info" || item.entry.tone === "success") return false;
+            if (!item.step || item.entry.tone === "info" || item.entry.tone === "success" || !stepAsks(item.entry, keyed)) return false;
             first = item;
             return true;
         });

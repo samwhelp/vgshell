@@ -93,6 +93,19 @@ Item {
     readonly property var movedOpen: ({ health: { tone: "ok", text: "Good" }, capture: { tone: "warning", text: "Not allowed", action: true }, apple: { tone: "warning", text: "No access", action: true } })
     readonly property var movedIdle: ({ health: { tone: "ok", text: "Good" }, capture: { tone: "warning", text: "Not allowed" }, apple: { tone: "ok", text: "Allowed" } })
 
+    // Every required step done: an optional step that offers its action,
+    // and a step of a group of its own that reads warning and offers none.
+    readonly property var settled: ({
+        requirements: [],
+        tui: { connect: { requires: [] }, start: { requires: [] } },
+        status: {
+            summary: { type: "state", label: "Setup", group: "Setup" },
+            account: { type: "state", label: "Account", group: "Setup", action: { label: "Sign in", tui: "connect" } },
+            session: { type: "state", label: "Session", group: "Home", action: { label: "Start", tui: "start" } }
+        }
+    })
+    readonly property var settledValues: ({ summary: { tone: "ok", text: "Ready" }, account: { tone: "info", text: "Optional", action: true }, session: { tone: "warning", text: "Cannot start" } })
+
     readonly property var plain: ({ requirements: tools, tui: ({}), status: ({ health: { type: "state", label: "Health" } }) })
     // One listed screen no entry declares, as the manager row lists it,
     // marked as a setup screen or not, WITHHELD the core's reason while it
@@ -113,6 +126,7 @@ Item {
         ["acme.loose", plain, {}, [], { source: "installed" }],
         ["acme.moved", moved, movedOpen, [], {}],
         ["acme.idle", moved, movedIdle, [], {}],
+        ["acme.settled", settled, settledValues, [], {}],
         ["acme.tasks", plain, {}, [], listed(false, "")],
         ["acme.held", plain, {}, [], listed(false, "Needs acme-tool. Install all missing first.")],
         ["acme.screen", plain, {}, [], listed(true, "")]
@@ -399,6 +413,17 @@ Item {
             window.openPlugin("acme.optional", Qt.OtherFocusReason);
             fakeManager.plugins = root.rows({ "acme.optional": [] });
             compare(pageOf(window).tab, "Settings", "Settings stays shown");
+        }
+
+        // A step outside the Setup group that reads warning and offers no
+        // action is no open step: the first offered optional step draws
+        // the page's filled button.
+        function test_an_actionless_step_outside_setup_withholds_no_primary() {
+            const window = opened();
+            window.openPlugin("acme.settled", Qt.OtherFocusReason, "Setup");
+            compare(pageOf(window).tab, "Setup");
+            verify(shownSections(window).indexOf("Home") !== -1, "the page draws the actionless step's section");
+            compare(descendants(pageOf(window)).filter(item => item instanceof Button && item.visible && item.variant === "primary").map(button => button.text), ["Sign in"]);
         }
 
         // The page's one primary action: a step's while one holds it, else

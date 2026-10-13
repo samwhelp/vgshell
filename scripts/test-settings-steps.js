@@ -229,6 +229,30 @@ const VOICE_SETUP = {
     }
 };
 
+// Jarvis's Setup tab with every required step done, as its page draws it:
+// optional steps that offer their actions, in the Setup group and in none,
+// the stored keys' list, and the Home group's Jarvis session, which
+// declares actions and reads warning with none offered while no home
+// folder is chosen, a fault no step of its own mends.
+const SETTLED = {
+    requirements: [],
+    tui: {
+        "sign-in": { script: "tui/sign-in.sh", title: "Sign in", size: "default", presentation: "full", entry: null, requires: null },
+        "setup-browser": { script: "tui/setup-browser.sh", title: "Set up browser", size: "default", presentation: "full", entry: null, requires: null },
+        "start-session": { script: "tui/start-session.sh", title: "Start session", size: "default", presentation: "full", entry: null, requires: null }
+    },
+    status: {
+        setup: { type: "state", label: "Setup", group: "Setup" },
+        keys: { type: "presenceList", label: "Provider keys", group: "Setup" },
+        browser: { type: "state", label: "Browser", action: { label: "Set up browser", tui: "setup-browser" } },
+        sessionStart: { type: "state", label: "Jarvis session", group: "Home", actions: { start: { label: "Start", tui: "start-session" }, retry: { label: "Retry", tui: "start-session" } } },
+        setupSignIn: { type: "state", label: "Sign in", group: "Setup", action: { label: "Sign in", tui: "sign-in" } },
+        setupModel: { type: "state", label: "AI model", group: "Setup", action: { label: "Sign in", tui: "sign-in" } }
+    }
+};
+const SETTLED_VALUES = { setup: { tone: "ok", text: "Ready" }, keys: [{ label: "Fixture", value: "present" }], browser: { tone: "info", text: "Browser needs setup", action: true },
+    sessionStart: { tone: "warning", text: "Cannot start" }, setupSignIn: { tone: "info", text: "Optional", action: true }, setupModel: { tone: "ok", text: "Done" } };
+
 // A plugin whose keys the core stores in two groups of their own, each
 // with its sign-in step, beside a Setup group with a headline and a step,
 // and a key list of no group.
@@ -456,6 +480,16 @@ function verify(logic) {
     same(jarvisSetup.items.filter(item => item.key === "localRuntime").map(item => [item.step, item.button.name, item.button.label, item.button.primary]),
         [[true, "setup-local", "Set up local voice", false]], "Jarvis's optional local voice offers its screen on its own Setup step");
     same(logic.detailEntries(producer.statusRows(VOICE_SETUP, ready, [])), [], "Jarvis's local voice leaves Details with its action");
+    // The settled page: its one step that is neither optional nor done is
+    // the Home group's, which offers no action, so it is no open step and
+    // the first offered optional step takes the primary. The stored keys'
+    // list is no step and stops nothing.
+    const settled = logic.setupSections([], producer.statusRows(SETTLED, SETTLED_VALUES, [])).flatMap(section => section.items);
+    same(settled.filter(item => item.step && item.entry.tone !== "info" && item.entry.tone !== "success").map(item => [item.key, item.entry.group, item.entry.tone, item.button]),
+        [["sessionStart", "Home", "warning", null]], "the settled page: the one step that could withhold the primary");
+    same(settled.map(item => [item.key, item.step, item.button === null ? null : item.button.primary]),
+        [["setup", false, null], ["setupSignIn", true, true], ["browser", true, false], ["setupModel", true, null], ["keys", false, null], ["sessionStart", true, null]],
+        "the settled page: the first offered optional step holds the primary");
     // An entry that declares an action is a Setup step under every value,
     // and Details holds the entries that declare none.
     for (const [label, values, want] of MOVES) {
@@ -654,6 +688,7 @@ const CONTROLS = [
     ["a completed repeat is primary", ' || item.entry.tone === "success"', ""],
     ["a non-step summary claims the primary", "!item.step || ", ""],
     ["a first actionless required step hands primary to another action", "if (!item.step ||", "if (item.button === null || !item.step ||"],
+    ["an actionless open step outside the Setup group withholds the primary", " || !stepAsks(item.entry, keyed)", "", "the settled page"],
     ["an optional step claims the primary", ' || item.entry.tone === "info"', ""],
     ["an optional row loses primary while no required step is open", "if (first === null) sections.some", "if (false) sections.some"],
     ["an optional danger row blocks the next optional row", ' && item.button.tone !== "danger"', ""],
@@ -672,15 +707,15 @@ const CONTROLS = [
     ["a missing optional tool raises Setup needed", "return !requirement.optional && requirementApplies(requirement);", "return requirementApplies(requirement);"],
     ["a missing required tool raises no Setup needed", "return !requirement.optional && requirementApplies(requirement); })\n            || ", "return false; })\n            || "],
     ["an open step raises no Setup needed", "status.some(function (entry) { return stepOpen(entry) && !listsKeys(entry)", "status.some(function (entry) { return false && !listsKeys(entry)"],
-    ["a state on Details raises Setup needed", " && (entry.group === SETUP_GROUP || inKeyedGroup(entry, keyed) || (declaresStep(entry) && statusStep(entry).offered)); }),", "; }),"],
-    ["a keyed group's state raises no Setup needed", "(entry.group === SETUP_GROUP || inKeyedGroup(entry, keyed) || (", "(entry.group === SETUP_GROUP || ("],
+    ["a state on Details raises Setup needed", " && stepAsks(entry, keyed); }),", "; }),"],
+    ["a keyed group's state raises no Setup needed", "return entry.group === SETUP_GROUP || inKeyedGroup(entry, keyed) || (", "return entry.group === SETUP_GROUP || ("],
     ["an entry with an action stays on Details", "        if (declaresStep(entry)) return false;\n", ""],
     ["an entry that declares no action draws as a step", "return entry.action !== null;", "return true;"],
     ["a step of no group draws in no section", '.concat(status.filter(function (entry) { return entry.group === "" && declaresStep(entry); }))', ""],
     ["a group that holds steps and no key is no section", "return listsKeys(entry) || declaresStep(entry); });", "return listsKeys(entry); });"],
     ["a group's section drops its steps", "(inKeyedGroup(entry, keyed) || declaresStep(entry)); })", "inKeyedGroup(entry, keyed); })"],
-    ["a moved step that offers no action raises Setup needed", " && statusStep(entry).offered)); }),", ")); }),"],
-    ["a moved step that is open and offered raises no Setup needed", " || (declaresStep(entry) && statusStep(entry).offered)); }),", "); }),"],
+    ["a moved step that offers no action raises Setup needed", " && statusStep(entry).offered);", ");"],
+    ["a moved step that is open and offered raises no Setup needed", " || (declaresStep(entry) && statusStep(entry).offered);", ";"],
     ["a required tool is counted as optional", 'return requirement.optional && requirement.state === "missing";', 'return requirement.state === "missing";'],
     ["an outdated optional tool is counted as missing", 'return requirement.optional && requirement.state === "missing";', "return requirement.optional && requirementApplies(requirement);"],
     ["no missing optional tool is counted", 'return requirement.optional && requirement.state === "missing"; }).length', 'return requirement.optional && requirement.state === "missing"; }).length * 0'],
