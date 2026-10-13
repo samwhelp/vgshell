@@ -47,7 +47,13 @@
 # vgs.system enabled or disabled as it found them, discovery confirming,
 # the follow off and no planted systemctl answer, whichever step it
 # returns from.
-# inputs: shell/plugins/vgs.bluetooth/* shell/plugins/vgs.system/* shell/Ui/layout/Pane.qml shell/Ui/layout/DeviceList.qml shell/Ui/controls/RowAction.qml shell/Ui/feedback/Spinner.qml scripts/smoke/fixtures/devices/* shell/Core/BluetoothAgent.qml shell/Core/BluetoothAgentModel.js shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh
+# Nearby: 32 fake radios publish Alias, Name and RSSI changes every 50 ms.
+# The actual listsChanged observer checks stable keys and presentation,
+# publications at the configured 500 ms cadence, and the held middle
+# scroll offset through 10 s of churn, including loss of the focused tail.
+# Each rule has its own disposable production mutation. Cadence is a view
+# contract, not a machine latency budget. State polling uses expect_poll.
+# inputs: shell/plugins/vgs.bluetooth/* shell/plugins/vgs.system/* shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/layout/DeviceList.qml shell/Ui/controls/RowAction.qml shell/Ui/feedback/Spinner.qml scripts/smoke/Probe.qml scripts/smoke/fixtures/devices/* shell/Core/BluetoothAgent.qml shell/Core/BluetoothAgentModel.js shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
 
 bt_keyboard=00:1B:66:AA:BB:02
@@ -165,6 +171,138 @@ bt_lists() { # HOST_KEY ID
   ipc smoke readDescendant "$1" "$2" DeviceSections lists | py_reply 'import json,sys; print(json.dumps([[r["text"], r["connected"]] for r in json.load(sys.stdin)["mine"]]))'
 }
 bt_mine() { bt_lists window vgs.bluetooth; }
+bt_nearby_count() {
+  ipc smoke readDescendant "$1" "$2" DeviceSections lists | py_reply 'import json,sys; print(len(json.load(sys.stdin)["nearby"]))'
+}
+bt_observation_rule() {
+  ipc smoke bluetoothObservation | py_reply 'import json,sys
+d=json.load(sys.stdin); samples=d["samples"]; times=d["publications"]; rule=sys.argv[1]
+if not samples or len(samples[0]["keys"]) < 32 or len(times) < 2:
+    print("not-observed"); raise SystemExit
+base=samples[0]; expected=base["keys"]; names=dict(zip(expected, base["names"]))
+if rule == "order":
+    good=all(s["keys"] == [k for k in expected if k in s["keys"]] and all(names.get(k)==n for k,n in zip(s["keys"],s["names"])) for s in samples)
+elif rule == "cadence":
+    good=all(b-a >= 500 for a,b in zip(times,times[1:]))
+elif rule == "scroll":
+    good=base["contentY"] > 0 and samples[-1]["at"]-base["at"] >= 10000 and all(s["contentY"]==base["contentY"] for s in samples)
+else:
+    print("unknown-rule"); raise SystemExit
+print("kept" if good else "rejected")
+' "$1"
+}
+bt_trace_ready() {
+  ipc smoke bluetoothObservation | py_reply 'import json,sys; d=json.load(sys.stdin); print("ready" if len(d["publications"])>=3 else "waiting")'
+}
+bt_churn_run() { # HOST ID MODE DURATION
+  local host="$1" id="$2" mode="$3" duration="$4" pid middle
+  expect "the Nearby observer attaches to $id" observing ipc smoke bluetoothObserve "$host" "$id"
+  if [[ $mode == remove-tail ]]; then
+    expect "the last Nearby row receives keyboard focus" 02:56:00:00:00:1F ipc smoke bluetoothFocus 31
+    middle="$(ipc smoke scrollTo window vgs.system 0 | py_reply 'import json,sys; y,total,height=json.load(sys.stdin); print(round(max(0,(total-height)/2)))')" || { fail "Bluetooth scroll extent is unreadable"; return; }
+    ipc smoke scrollTo window vgs.system "$middle" >/dev/null || fail "Bluetooth middle scrolling failed"
+    expect "the scroll observer starts after focus and scrolling" observing ipc smoke bluetoothObserve "$host" "$id"
+  fi
+  spawn "$tmp/bt-churn-$id-$mode.log" "${shell_env[@]}" python3 "$devices_fixtures/world.py" "unix:path=$rt_dir/system-bus" churn-nearby 32 "$duration" "$mode"
+  pid="$spawn_pid"
+  expect_poll "the production list publishes while the fake changes" ready bt_trace_ready
+  wait "$pid" || fail "Bluetooth churn producer failed: $id"
+  # A publication after the producer finished establishes the full window.
+  expect_poll "the producer interval reaches the observer" ready bt_trace_after "$duration"
+}
+bt_trace_after() {
+  ipc smoke bluetoothObservation | py_reply 'import json,sys; d=json.load(sys.stdin); s=d["samples"]; print("ready" if len(s)>1 and s[-1]["at"]-s[0]["at"] >= float(sys.argv[1])*1000 else "waiting")' "$1"
+}
+bt_stability() {
+  local id host rule copy source root_copy
+  expect "32 nearby radios join the mock" nearby=32 bluez add-nearby 32
+  expect "the Bluetooth expanded section opens for churn" ok ipc shell summon window vgs.system '{"pane":"vgs.bluetooth"}'
+  expect_poll "the expanded section lists 32 radios" 32 bt_nearby_count window vgs.bluetooth
+  bt_churn_run window vgs.bluetooth remove-tail 10
+  expect "Nearby order and names stay stable under churn" kept bt_observation_rule order
+  expect "list publication stays within its cadence" kept bt_observation_rule cadence
+  expect "expanded scroll stays unchanged through focused tail expiry" kept bt_observation_rule scroll
+  expect "the expired focused tail selects its predecessor" '["02:56:00:00:00:1E", "02:56:00:00:00:1E"]' bt_focused_keys
+  expect "a row above the focused device disappears" removed bluez remove-device 02:56:00:00:00:00
+  expect_poll "the row above expires" 30 bt_nearby_count window vgs.bluetooth
+  expect "the moving selection keeps the same focused device" '["02:56:00:00:00:1E", "02:56:00:00:00:1E"]' bt_focused_keys
+  expect "a middle Nearby row receives keyboard focus" 02:56:00:00:00:10 ipc smoke bluetoothFocus 15
+  expect "the focused middle device disappears" removed bluez remove-device 02:56:00:00:00:10
+  expect_poll "the focused middle row expires" 29 bt_nearby_count window vgs.bluetooth
+  expect "the departing middle selection gives focus to its next device" '["02:56:00:00:00:11", "02:56:00:00:00:11"]' bt_focused_keys
+  expect "the production observer ends" ended ipc smoke bluetoothObserveEnd
+  expect "29 remaining radios leave the mock" removed=29 bluez remove-nearby 32
+  expect "the expanded section closes after churn" ok ipc shell hide window vgs.system
+  expect "32 radios join for the flyout" nearby=32 bluez add-nearby 32
+  expect "the flyout opens for churn" ok ipc shell summon panel vgs.bluetooth '{}'
+  expect_poll "the flyout lists 32 radios" 32 bt_nearby_count panel vgs.bluetooth
+  bt_churn_run panel vgs.bluetooth steady 2
+  expect "the flyout Nearby order and names stay stable" kept bt_observation_rule order
+  expect "the flyout publication stays within its cadence" kept bt_observation_rule cadence
+  # Call the real close hook while the disposable host still holds the item.
+  # This proves the timer stops, without destruction hiding a live timer.
+  expect "the flyout close hook runs" closed ipc smoke bluetoothViewOpened panel vgs.bluetooth false
+  expect "the closed-view observer starts" observing ipc smoke bluetoothObserve panel vgs.bluetooth
+  bluez churn-nearby 32 1.5 >/dev/null
+  expect "the closed view publishes nothing" 0 bt_publication_count
+  expect "the closed observer ends" ended ipc smoke bluetoothObserveEnd
+  expect "the flyout closes after churn" ok ipc shell hide panel vgs.bluetooth
+  expect "the flyout radios leave the mock" removed=32 bluez remove-nearby 32
+
+  # A fresh plugin directory for each rule avoids QML directory-cache reuse.
+  for rule in order cadence scroll closed; do
+    id="acme.bluetooth-$rule-control"
+    copy="$home/.config/vgshell/plugins/$id"
+    cp -R -- "$repo/shell/plugins/vgs.bluetooth" "$copy"
+    python3 - "$copy" "$id" "$rule" <<'PY'
+import json, pathlib, sys
+root=pathlib.Path(sys.argv[1]); ident,rule=sys.argv[2:]
+p=root/"manifest.json"; d=json.loads(p.read_text()); d["id"]=ident; d["name"]=ident; p.write_text(json.dumps(d))
+edits={
+    "order": [("BluetoothLogic.js", "            fresh.text = old.text;", "            fresh.text = fresh.text;"), ("BluetoothLogic.js", "    return { mine: mine, nearby: held };", "    held.sort(byName);\n    return { mine: mine, nearby: held };")],
+    "cadence": [("BluetoothLogic.js", "var DEVICE_REFRESH_MS = 500;", "var DEVICE_REFRESH_MS = 1;")],
+    "scroll": [("DeviceSections.qml", "                view.contentY = Math.max(0, Math.min(offset, view.contentHeight - view.height));", "                void offset;")],
+    "closed": [("DeviceSections.qml", "running: root.opened && root.visible && root.powerOn", "running: root.visible && root.powerOn")]
+}
+for name,old,new in edits[rule]:
+    p=root/name; text=p.read_text(); assert text.count(old)==1, old; p.write_text(text.replace(old,new))
+PY
+    rescan "the $rule control plugin is scanned"
+    expect_poll "the $rule control is enabled" True plugin_enabled "$id"
+    expect "32 radios join for $rule control" nearby=32 bluez add-nearby 32
+    if [[ $rule == scroll ]]; then
+      host=window
+      expect "the scroll control section opens" ok ipc shell summon window vgs.system "{\"pane\":\"$id\"}"
+    else
+      host=panel
+      expect "the $rule control flyout opens" ok ipc shell summon panel "$id" '{}'
+    fi
+    expect_poll "the $rule control lists 32 radios" 32 bt_nearby_count "$host" "$id"
+    if [[ $rule == scroll ]]; then bt_churn_run "$host" "$id" remove-tail 10; else bt_churn_run "$host" "$id" steady 2; fi
+    if [[ $rule == closed ]]; then
+      expect "the timer control close hook runs" closed ipc smoke bluetoothViewOpened "$host" "$id" false
+      expect "the timer control observer starts after close" observing ipc smoke bluetoothObserve "$host" "$id"
+      bluez churn-nearby 32 1.5 >/dev/null
+      expect "control: a timer left running after close publishes again" rejected bt_closed_rule
+    else
+      expect "control: the production $rule defect is rejected" rejected bt_observation_rule "$rule"
+    fi
+    expect "the $rule control observer ends" ended ipc smoke bluetoothObserveEnd
+    if [[ $rule == scroll ]]; then
+      expect "the scroll control closes" ok ipc shell hide window vgs.system
+      expect "the remaining control radios leave" removed=31 bluez remove-nearby 31
+    else
+      expect "the $rule control closes" ok ipc shell hide panel "$id"
+      expect "the control radios leave" removed=32 bluez remove-nearby 32
+    fi
+    expect "the $rule control is disabled" ok ipc shell setPluginEnabled "$id" false
+    rm -rf -- "${copy:?}"
+    rescan "the $rule control copy is removed"
+  done
+}
+bt_publication_count() { ipc smoke bluetoothObservation | py_reply 'import json,sys; print(len(json.load(sys.stdin)["publications"]))'; }
+bt_focused_keys() { ipc smoke bluetoothObservation | py_reply 'import json,sys; d=json.load(sys.stdin)["current"]; print(json.dumps([d["focusedKey"],d["focusedRowKey"]]))'; }
+bt_closed_rule() { ipc smoke bluetoothObservation | py_reply 'import json,sys; print("kept" if not json.load(sys.stdin)["publications"] else "rejected")'; }
 bt_phase() { ipc smoke readDescendant window "${1:-vgs.bluetooth}" Pairing current | py_reply 'import json,sys; print(json.load(sys.stdin)["phase"])'; }
 bt_prompt() { ipc smoke readDescendant window "${2:-vgs.bluetooth}" Prompt "$1"; }
 bt_field() { ipc smoke readDescendant window vgs.bluetooth TextField text; }
@@ -550,6 +688,7 @@ PY
   hypr_lua_restore bluetooth || fail "hyprland.lua is put back after the Bluetooth keyboard path"
   expect "the nested instance reloads hyprland.lua as the row found it" ok hypr reload config-only
 
+  bt_stability
   if [[ $bt_was_system == False ]]; then expect "vgs.system is disabled again as the row found it" ok ipc shell setPluginEnabled vgs.system false; fi
 }
 

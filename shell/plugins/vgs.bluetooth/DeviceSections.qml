@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell.Bluetooth
 import qs.Commons
 import qs.Ui
+import qs.Ui as Ui
 import "BluetoothLogic.js" as Logic
 
 // The two device lists the flyout and the pane share, each a qs.Ui
@@ -16,6 +17,7 @@ Column {
     id: root
 
     property bool powerOn: false
+    property bool opened: false
     property bool manage: false
     property bool pairBusy: false
     property var attempts: ({})
@@ -23,11 +25,13 @@ Column {
     // and BluetoothDeviceState.toString returns the four state names.
     readonly property var states: Logic.stateMap(Bluetooth.devices.values, root.stateOf)
     onStatesChanged: root.attempts = Logic.settleAttempts(root.attempts, root.states)
-    readonly property var lists: Logic.deviceRows(Bluetooth.devices.values, root.stateOf, root.attempts)
+    property var lists: ({ mine: [], nearby: [] })
+    property real lastPublication: 0
     readonly property var failures: root.lists.mine.filter(r => r.failed).map(r => Logic.failureText(r.text))
     readonly property var adapter: Bluetooth.defaultAdapter
     readonly property bool searching: adapter !== null && adapter.discovering
     readonly property alias mine: mineList
+    readonly property alias nearby: nearbyList
 
     signal pairRequested(string address)
     signal renameRequested(string address)
@@ -36,6 +40,51 @@ Column {
 
     function deviceFor(address) { return Logic.deviceAt(Bluetooth.devices.values, address); }
     function stateOf(device) { return BluetoothDeviceState.toString(device.state); }
+
+    function refresh() {
+        const now = Date.now();
+        // Qt Timer follows animation ticks. This clock check holds the
+        // publication bound even when adjacent ticks are slightly early.
+        // https://doc.qt.io/qt-6/qml-qtqml-timer.html
+        if (now - root.lastPublication < Logic.DEVICE_REFRESH_MS) return;
+        const mineKey = mineList.currentKey, nearbyKey = nearbyList.currentKey;
+        const mineIndex = mineList.current, nearbyIndex = nearbyList.current;
+        const focused = mineList.activeFocus ? mineList : nearbyList.activeFocus ? nearbyList : null;
+        // Pane.scrollArea is the shared container's public scroll owner.
+        // Qt Item.parent is the visual parent, including the mounted pane:
+        // https://doc.qt.io/qt-6/qml-qtquick-item.html#parent-prop
+        let pane = root.parent;
+        while (pane !== null && !(pane instanceof Ui.Pane)) pane = pane.parent;
+        const view = pane === null ? null : pane.scrollArea;
+        const offset = view === null ? 0 : view.contentY;
+        const next = Logic.deviceRows(Bluetooth.devices.values, root.stateOf, root.attempts, root.lists, now);
+        root.lastPublication = Date.now();
+        root.lists = next;
+        function restore(list, key, index) {
+            const at = list.rows.findIndex(row => row.key === key);
+            list.current = at >= 0 ? at : Math.max(0, Math.min(index, list.rows.length - 1));
+            if (focused === list && list.currentKey !== key) list.focusCurrent(Qt.TabFocusReason);
+            else if (focused === list && list.current !== index) list.focusCurrent(Qt.TabFocusReason);
+        }
+        restore(mineList, mineKey, mineIndex);
+        restore(nearbyList, nearbyKey, nearbyIndex);
+        // Focus transfer can make ScrollArea reveal a different row. Restore
+        // the held offset after layout, within the remaining scroll extent.
+        Qt.callLater(() => {
+            if (root !== null && view !== null && root.opened)
+                view.contentY = Math.max(0, Math.min(offset, view.contentHeight - view.height));
+        });
+    }
+
+    Timer {
+        // At most one list publication every 500 ms (2 per second), while
+        // this view is open. Qt Timer stops when running becomes false:
+        // https://doc.qt.io/qt-6/qml-qtqml-timer.html#running-prop
+        interval: Logic.DEVICE_REFRESH_MS
+        repeat: true
+        running: root.opened && root.visible && root.powerOn
+        onTriggered: root.refresh()
+    }
 
     function toggle(address) {
         const device = deviceFor(address);
@@ -108,6 +157,7 @@ Column {
         visible: root.powerOn
         width: parent.width
         DeviceList {
+            id: nearbyList
             width: parent.width
             rows: root.lists.nearby
             actionOf: row => Logic.nearbyAction(row, root.pairBusy)

@@ -17,6 +17,37 @@ import "Commons/ThemeLogic.js" as ThemeLogic
 Scope {
     id: root
     property var rememberedBarWidgets: []
+    // The Bluetooth row observes actual production list publications.
+    // This reader lives only in the disposable sandbox shell.
+    property var bluetoothObserved: null
+    property var bluetoothView: null
+    property var bluetoothTrace: []
+    property var bluetoothPublications: []
+    function bluetoothFacts() {
+        const item = root.bluetoothObserved;
+        if (item === null) return { state: "absent" };
+        return {
+            at: Date.now(),
+            keys: item.lists.nearby.map(row => row.key),
+            names: item.lists.nearby.map(row => row.text),
+            focusedKey: item.nearby.activeFocus ? item.nearby.currentKey : "",
+            focusedRowKey: item.nearby.activeFocus && item.nearby.rowAt(item.nearby.current) !== null
+                ? item.nearby.rowAt(item.nearby.current).modelData.key : "",
+            contentY: root.bluetoothView === null ? null : root.bluetoothView.contentY
+        };
+    }
+    Connections {
+        target: root.bluetoothObserved
+        function onListsChanged() {
+            root.bluetoothPublications = root.bluetoothPublications.concat([Date.now()]);
+            // The production refresh restores scroll after layout. Read
+            // after that queued operation, before the next publication.
+            Qt.callLater(() => Qt.callLater(() => {
+                if (root.bluetoothObserved !== null && root.bluetoothTrace.length < 4096)
+                    root.bluetoothTrace = root.bluetoothTrace.concat([root.bluetoothFacts()]);
+            }));
+        }
+    }
     // Scoped install observations. Millisecond stamps come from Date.now;
     // they separate core state changes from the row's IPC observer cost.
     property string runTraceKey: ""
@@ -2558,6 +2589,44 @@ Scope {
             if (found === undefined) return "absent";
             const json = root.json(found[property]);
             return json === undefined ? "undefined" : json;
+        }
+        function bluetoothObserve(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            const sections = root.descendants(item).find(child => root.typeName(child) === "DeviceSections");
+            if (sections === undefined) return "absent";
+            let pane = sections.parent;
+            while (pane !== null && !(pane instanceof Ui.Pane)) pane = pane.parent;
+            root.bluetoothView = pane === null ? null : pane.scrollArea;
+            root.bluetoothObserved = sections;
+            root.bluetoothPublications = [];
+            root.bluetoothTrace = [root.bluetoothFacts()];
+            return "observing";
+        }
+        function bluetoothObservation(): string {
+            return root.json({ samples: root.bluetoothTrace, publications: root.bluetoothPublications, current: root.bluetoothFacts() });
+        }
+        function bluetoothObserveEnd(): string {
+            root.bluetoothObserved = null;
+            root.bluetoothView = null;
+            root.bluetoothTrace = [];
+            root.bluetoothPublications = [];
+            return "ended";
+        }
+        function bluetoothFocus(index: int): string {
+            if (root.bluetoothObserved === null) return "absent";
+            const list = root.bluetoothObserved.nearby;
+            if (index < 0 || index >= list.rows.length) return "index-absent";
+            list.current = index;
+            list.focusCurrent(Qt.TabFocusReason);
+            return list.currentKey;
+        }
+        function bluetoothViewOpened(hostKey: string, id: string, opened: bool): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            if (opened) item.open("{}");
+            else item.close();
+            return opened ? "opened" : "closed";
         }
         function readMatchingDescendant(hostKey: string, id: string, type: string, key: string, value: string, property: string): string {
             const item = root.instance(hostKey, id);

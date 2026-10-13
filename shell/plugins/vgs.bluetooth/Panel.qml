@@ -16,10 +16,11 @@ Item {
     // The core assigns the plugin's scoped shell object after creation, and
     // again when the plugin's settings change.
     property var shell: null
+    property bool opened: false
     property Item initialFocus: layout.headerSwitch
 
-    function open(payloadJson) { power.problem = ""; }
-    function close() {}
+    function open(payloadJson) { opened = true; power.problem = ""; }
+    function close() { opened = false; }
 
     // Open the Bluetooth section on ADDRESS, which pairs it there.
     function pairInPane(address) {
@@ -81,6 +82,7 @@ Item {
 
         DeviceSections {
             width: layout.contentWidth
+            opened: root.opened
             powerOn: power.powerOn
             onPairRequested: address => root.pairInPane(address)
         }

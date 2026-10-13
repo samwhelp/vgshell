@@ -594,7 +594,7 @@ function deviceAt(devices, address) {
 }
 
 // Plain rows of DEVICES, Quickshell BluetoothDevice objects, for the lists:
-// { mine, nearby }, each sorted by name, in the shape a qs.Ui DeviceList
+// { mine, nearby }, My Devices sorted by name, in the shape a qs.Ui DeviceList
 // takes ({ key, text, secondary, iconName, battery }) plus `connected`,
 // `trusted`, `pairing`, `state`, `failed` and `busy`. A row holds
 // primitives alone, so no delegate keeps a device object BlueZ may remove
@@ -602,7 +602,17 @@ function deviceAt(devices, address) {
 // is every paired, bonded or trusted device; `nearby` every other device
 // that names itself and is not the LE twin of a listed device, so one
 // device shows one row.
-function deviceRows(devices, stateOf, attempts) {
+// A vanished Nearby row stays for 3 s. Retained presentation holds at most
+// 256 rows; discovery beyond that joins after a row leaves. These are view
+// policy, tested with injected time in scripts/test-bluetooth-logic.js.
+var NEARBY_GRACE_MS = 3000;
+var NEARBY_LIMIT = 256;
+var DEVICE_REFRESH_MS = 500;
+
+function deviceRows(devices, stateOf, attempts, previous, now) {
+    var oldRows = previous.nearby;
+    var oldByKey = {};
+    for (var p = 0; p < oldRows.length; p++) oldByKey[oldRows[p].key] = oldRows[p];
     var mine = [], nearby = [], names = {};
     for (var n = 0; n < devices.length; n++)
         if (devices[n] !== null && devices[n] !== undefined) names[deviceName(devices[n])] = true;
@@ -610,7 +620,7 @@ function deviceRows(devices, stateOf, attempts) {
         var d = devices[i];
         if (d === null || d === undefined) continue;
         var known = d.paired || d.bonded || d.trusted;
-        if (!known && !namesItself(d)) continue;
+        if (!known && !namesItself(d) && !own(oldByKey, String(d.address))) continue;
         if (!known && leTwin(d, names)) continue;
         var address = String(d.address);
         var state = String(stateOf(d));
@@ -631,8 +641,33 @@ function deviceRows(devices, stateOf, attempts) {
     }
     var byName = function (a, b) { return a.text.localeCompare(b.text) || a.key.localeCompare(b.key); };
     mine.sort(byName);
-    nearby.sort(byName);
-    return { mine: mine, nearby: nearby };
+    // A batch of new devices has a fixed address order; existing rows
+    // retain their slots when this batch joins below them.
+    nearby.sort(function (a, b) { return a.key.localeCompare(b.key); });
+    var current = {}, yours = {}, held = [];
+    for (var c = 0; c < nearby.length; c++) current[nearby[c].key] = nearby[c];
+    for (var m = 0; m < mine.length; m++) yours[mine[m].key] = true;
+    for (var o = 0; o < oldRows.length; o++) {
+        var old = oldRows[o], fresh = current[old.key];
+        if (own(yours, old.key)) continue;
+        if (fresh !== undefined) {
+            // BlueZ aliases and icons can churn during discovery. Keep the
+            // presented identity until the row leaves; action state stays live.
+            fresh.text = old.text;
+            fresh.iconName = old.iconName;
+            held.push(fresh);
+            delete current[old.key];
+        } else {
+            var missingSince = old.missingSince === undefined ? now : old.missingSince;
+            if (now - missingSince < NEARBY_GRACE_MS) {
+                var missing = Object.assign({}, old, { missingSince: missingSince });
+                held.push(missing);
+            }
+        }
+    }
+    for (var a = 0; a < nearby.length && held.length < NEARBY_LIMIT; a++)
+        if (own(current, nearby[a].key)) held.push(nearby[a]);
+    return { mine: mine, nearby: held };
 }
 
 // The secondary line of a device row.

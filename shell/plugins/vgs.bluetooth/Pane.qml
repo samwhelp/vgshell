@@ -29,6 +29,7 @@ FocusScope {
     id: root
 
     property var shell: null
+    property bool opened: false
     readonly property bool powerOn: power.powerOn
     readonly property var adapter: Bluetooth.defaultAdapter
     readonly property bool discoverable: adapter !== null && adapter.discoverable
@@ -54,6 +55,7 @@ FocusScope {
     focus: true
 
     function open(payloadJson) {
+        opened = true;
         const payload = payloadJson === "" ? {} : JSON.parse(payloadJson);
         if (payload === null || typeof payload !== "object" || Array.isArray(payload))
             throw new Error("bluetooth: payload must be a JSON object, got " + payloadJson);
@@ -62,7 +64,7 @@ FocusScope {
         pairing.start(payload.pair);
     }
 
-    function close() { setDiscoverable(false); }
+    function close() { opened = false; setDiscoverable(false); }
 
     Component.onDestruction: setDiscoverable(false)
 
@@ -198,6 +200,7 @@ FocusScope {
 
         DeviceSections {
             width: parent.width
+            opened: root.opened
             powerOn: root.powerOn
             manage: true
             pairBusy: pairing.active

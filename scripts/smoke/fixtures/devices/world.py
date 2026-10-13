@@ -26,6 +26,14 @@ one line and exiting 1 with `world=failed reason=<key>` on a D-Bus error:
                               change, as BlueZ does. Prints `updated`.
   props PATH IFACE            the properties as one JSON object.
   calls PATH METHOD           how many times METHOD was called on PATH.
+  add-nearby COUNT            plant COUNT named radios at 02:56:00:00:00:XX.
+                              Prints `nearby=COUNT`.
+  churn-nearby COUNT SECONDS [remove-tail]
+                              change Alias, Name and RSSI every 50 ms for
+                              SECONDS. Prints JSON with rounds and seconds.
+                              `remove-tail` removes the last radio after 2 s.
+  remove-nearby COUNT         remove those radios. Prints `removed=COUNT`.
+  remove-device MAC           remove one device. Prints `removed`.
 
 The templates lack members Quickshell 0.3.1 reads, which the line
 QS_DBUS_PROPERTY_BINDING names in src/bluetooth/adapter.hpp,
@@ -171,6 +179,49 @@ def wire(value):
 
 def drive(bus, verb, args):
     adapter_path = "/org/bluez/" + ADAPTER_ID
+    if verb in ("add-nearby", "remove-nearby", "churn-nearby"):
+        count = int(args[0])
+        root = dbus.Interface(bus.get_object(BLUEZ, "/"), "org.bluez.Mock")
+        addresses = [f"02:56:00:00:00:{i:02X}" for i in range(count)]
+        if verb == "add-nearby":
+            for i, address in enumerate(addresses):
+                path = root.AddDevice(ADAPTER_ID, address, f"Nearby Radio {i:02d}")
+                fill_device(bus, path, True)
+            return f"nearby={count}"
+        adapter = dbus.Interface(bus.get_object(BLUEZ, adapter_path), ADAPTER)
+        paths = [adapter_path + "/dev_" + address.replace(":", "_") for address in addresses]
+        if verb == "remove-nearby":
+            objects = dbus.Interface(bus.get_object(BLUEZ, "/"), "org.freedesktop.DBus.ObjectManager").GetManagedObjects()
+            removed = 0
+            for path in paths:
+                if path in objects:
+                    adapter.RemoveDevice(dbus.ObjectPath(path))
+                    removed += 1
+            return f"removed={removed}"
+        targets = [dbus.Interface(bus.get_object(BLUEZ, path), MOCK) for path in paths]
+        duration = float(args[1])
+        started = time.monotonic()
+        rounds = 0
+        removed = False
+        while time.monotonic() - started < duration:
+            if args[2:] == ["remove-tail"] and not removed and time.monotonic() - started >= 2:
+                adapter.RemoveDevice(dbus.ObjectPath(paths[-1]))
+                removed = True
+            # Name ranks alternate, while the phase increases so captures
+            # one second apart cannot accidentally show the same labels.
+            for i, target in enumerate(targets):
+                if removed and i == count - 1:
+                    continue
+                rank = i if rounds % 2 else count - i
+                label = f"Nearby {rank:02d} phase {rounds:04d}"
+                target.UpdateProperties(DEVICE, {"Alias": dbus.String(label), "Name": dbus.String(label), "RSSI": dbus.Int16(-40 - rounds % 40)})
+            rounds += 1
+            time.sleep(0.05)
+        return json.dumps({"rounds": rounds, "seconds": time.monotonic() - started})
+    if verb == "remove-device" and len(args) == 1:
+        path = adapter_path + "/dev_" + args[0].replace(":", "_")
+        dbus.Interface(bus.get_object(BLUEZ, adapter_path), ADAPTER).RemoveDevice(dbus.ObjectPath(path))
+        return "removed"
     if verb == "add-device" and len(args) in (2, 3) and args[2:] in ([], ["held"]):
         root = dbus.Interface(bus.get_object(BLUEZ, "/"), "org.bluez.Mock")
         path = root.AddDevice(ADAPTER_ID, args[0], args[1])
