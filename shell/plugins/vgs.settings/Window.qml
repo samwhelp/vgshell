@@ -37,10 +37,13 @@ import "Steps.js" as Steps
 // a plugin's service re-reads its own state on.
 //
 // The payload is a JSON object: `{}` opens the list, `{"plugin":"<id>"}`
-// that plugin's page on its Settings tab, and an id no plugin has opens the
-// list with a notice naming it. A row of the list opens its plugin's page
-// on Setup while the plugin asks for a setup step (Steps.setupNeeds), else
-// on Settings, and the row's warning icon opens it on Setup. Any other key, or a payload that is no object, throws out of
+// that plugin's page on its Settings tab, `{"plugin":"<id>","tab":"<tab>"}`
+// on that tab, or on Settings when the page has no such tab, and an id no
+// plugin has opens the list with a notice naming it. A row of the list
+// opens its plugin's page on Setup while the plugin asks for a setup step
+// (Steps.setupNeeds), else on Settings, and the row's warning icon opens it
+// on Setup. Any other key,
+// a tab without a plugin, or a payload that is no object, throws out of
 // open(), which refuses the summon. A plugin that leaves the manager's rows
 // while its page is shown, as a removal's rescan does, returns the window
 // to the list with a notice naming it.
@@ -320,15 +323,18 @@ FocusScope {
         if (payload === null || typeof payload !== "object" || Array.isArray(payload))
             throw new Error("payload must be a JSON object, got " + payloadJson);
         for (const key of Object.keys(payload))
-            if (key !== "plugin") throw new Error("payload key " + JSON.stringify(key) + " unknown, want plugin");
+            if (key !== "plugin" && key !== "tab") throw new Error("payload key " + JSON.stringify(key) + " unknown, want plugin or tab");
         if (payload.plugin !== undefined && typeof payload.plugin !== "string")
             throw new Error("payload plugin must be a plugin id, got " + JSON.stringify(payload.plugin));
+        if (payload.tab !== undefined && (payload.plugin === undefined || typeof payload.tab !== "string"))
+            throw new Error("payload tab must be a tab's text beside a plugin, got " + payloadJson);
         // Each open reads the system again: a scan asked for while one runs
         // starts when it ends, so `ok` and `busy` both mean a fresh one.
         shell.manager.rescan();
-        // A summon of the page already shown leaves nothing.
+        // A summon of the page already shown leaves nothing; it shows the
+        // tab the summon names.
         if (page !== "" && payload.plugin === page) {
-            show(page, Qt.OtherFocusReason);
+            show(page, Qt.OtherFocusReason, payload.tab);
             return;
         }
         leave(() => {
@@ -338,7 +344,7 @@ FocusScope {
             else if (rowOf(payload.plugin) === null) {
                 showList(Qt.OtherFocusReason);
                 notice = "No plugin named " + payload.plugin + " is available.";
-            } else show(payload.plugin, Qt.OtherFocusReason);
+            } else show(payload.plugin, Qt.OtherFocusReason, payload.tab);
             Qt.callLater(() => { root.sliding = true; });
         });
     }

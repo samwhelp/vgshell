@@ -179,6 +179,7 @@ Column {
         inline: true
         onHintLinkActivated: root.openDescriptionLink()
         onHintPageActivated: (page, tab) => root.openDescriptionPage(page, tab)
+        onInfoPageActivated: (page, tab) => root.openDescriptionPage(page, tab)
 
         Loader {
             id: loader
