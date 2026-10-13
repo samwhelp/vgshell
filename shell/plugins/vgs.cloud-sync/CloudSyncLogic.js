@@ -14,7 +14,7 @@
 var STATES = ["idle", "running", "paused", "offline", "authorization-required", "error", "not-set-up"];
 var PAIR_STATES = ["idle", "running", "paused", "offline", "authorization-required", "error"];
 var UNITS = ["installed", "absent", "stale"];
-var CONFLICT_KINDS = ["both-changed", "removed-locally", "removed-on-drive", "renamed"];
+var CONFLICT_KINDS = ["both-changed", "removed-locally", "removed-on-drive", "renamed", "unreadable-on-drive", "duplicate-on-drive"];
 var PRESENCES = ["present", "absent", "locked", "unavailable"];
 // The credential accounts of the manifest's `secrets`, in the order the
 // Setup section lists them (bin/cloud-sync probe prints the same set).
@@ -78,7 +78,9 @@ var CONFLICT_TEXT = {
     "both-changed": "Changed here and on Google Drive. The older copy is kept for 30 days.",
     "removed-locally": "Removed here. Cloud Sync copied it back from Google Drive.",
     "removed-on-drive": "Removed from Google Drive. The copy here stays.",
-    renamed: "Renamed on Google Drive. The old name was copied back to Google Drive."
+    renamed: "Renamed on Google Drive. The old name was copied back to Google Drive.",
+    "unreadable-on-drive": "Google Drive could not open this file, so Cloud Sync did not copy it.",
+    "duplicate-on-drive": "Google Drive holds two files with this name. Cloud Sync copied one of them."
 };
 // The line that names the folder of the copy CONFLICT_TEXT speaks of,
 // before that folder's path: the kept older copy, or the copy here.
@@ -159,7 +161,7 @@ function conflictOk(c) {
     return isObject(c) && CONFLICT_KINDS.indexOf(c.kind) !== -1 && isText(c.pairLabel) && isText(c.path)
         && isText(c.localPath) && c.localPath.charAt(0) === "/"
         && (c.kind !== "both-changed" || !hasOwn(c, "storedPath") || (isText(c.storedPath) && c.storedPath.charAt(0) === "/"))
-        && (c.kind !== "renamed" || isText(c.to)) && isTime(c.since);
+        && (c.kind !== "renamed" || isText(c.to)) && (c.kind !== "unreadable-on-drive" || isText(c.reason)) && isTime(c.since);
 }
 
 // The one judge of the runner's status record, status.json or `status`'s
@@ -275,8 +277,10 @@ function problemText(operation, firstLine) {
 
 
 // The folders Open folders opens for CONFLICT: the mirror's folder, and
-// for a local edit also the folder that keeps the local version.
+// for a local edit also the folder that keeps the local version. A file
+// Drive could not open has no copy here, so it has no folder.
 function reviewDirs(conflict) {
+    if (conflict.kind === "unreadable-on-drive") return [];
     var dirs = [dirname(conflict.localPath)];
     if (conflict.kind === "both-changed" && conflict.storedPath !== undefined) dirs.push(dirname(conflict.storedPath));
     return dirs;
@@ -303,6 +307,7 @@ function cloudValue(record, problem) {
     var conflicts = record.conflicts.slice(0, CONFLICTS_MAX).map(function (c) {
         var out = { kind: c.kind, pairLabel: c.pairLabel, path: c.path, since: msOf(c.since), dirs: reviewDirs(c) };
         if (c.kind === "renamed") out.to = c.to;
+        if (c.kind === "unreadable-on-drive") out.reason = c.reason;
         return out;
     });
     var value = {
@@ -501,10 +506,12 @@ function widgetTooltip(cloud, now, timeText) {
 
 // The window's subtitle: { text, tone, lines }, the headline, then
 // [{ text, tone }] lines, tone "" or "danger": the last complete sync,
-// the pause, the last error and the last failed request.
+// the first file to review, the pause, the last error and the last failed
+// request.
 function windowStatus(cloud, now, timeText) {
     var head = headline(cloud, now);
     var lines = [{ text: cloud.lastSuccess === null ? "No complete sync yet" : "Last complete sync " + timeText(cloud.lastSuccess, now), tone: "" }];
+    if (cloud.conflicts.length > 0) lines.push({ text: "First file to review: " + cloud.conflicts[0].path, tone: "" });
     if (cloud.paused)
         lines.push({ text: (head.cause === "paused" ? "" : "Paused. ") + "The hourly sync copies nothing until you resume it.", tone: "" });
     if (cloud.lastError !== null) lines.push({ text: errorText(cloud.lastError), tone: head.tone === "danger" ? "danger" : "" });
@@ -522,12 +529,14 @@ function pairRow(pair, now) {
 }
 
 // One conflict's row in the window: { label, detail, folder, dirs }, its
-// path, what happened, the line that names the folder of the copy the
-// detail speaks of ("" for none), and the folders Open folders opens. The
-// window wraps each line, so none is cut.
+// path, what happened, with rclone's own reason for a file Drive could not
+// open, the line that names the folder of the copy the detail speaks of
+// ("" for none), and the folders Open folders opens. The window wraps
+// each line, so none is cut.
 function conflictRow(conflict) {
     var what = conflictText(conflict.kind);
     if (conflict.kind === "renamed") what += " New name: " + conflict.to + ".";
+    if (conflict.kind === "unreadable-on-drive") what += " Reason: " + conflict.reason + ".";
     return { label: conflict.path, detail: what, folder: conflictFolder(conflict), dirs: conflict.dirs };
 }
 

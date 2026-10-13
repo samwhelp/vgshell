@@ -41,6 +41,12 @@ const CONFLICTS = [
     { kind: "renamed", pair: "inbox", pairLabel: "Agent uploads", path: "a.txt", to: RENAMED_TO, localPath: "/home/me/outbox/a.txt", since: iso(NOW - HOUR) },
     { kind: "removed-locally", pair: "docs", pairLabel: "Documents", path: "taxes/receipts.pdf", localPath: "/home/me/gdrive/taxes/receipts.pdf", since: iso(NOW - HOUR) }
 ];
+// The two kinds a download leg records: a file Drive could not open, with
+// rclone's reason, and a name Drive holds twice.
+const DRIVE_CONFLICTS = [
+    { kind: "unreadable-on-drive", pair: "docs", pairLabel: "Documents", path: "reports/Plan \u2013 first draft.pdf", localPath: "/home/me/gdrive/reports/Plan \u2013 first draft.pdf", reason: "failed to open source object: can't read dangling shortcut", since: iso(NOW - HOUR) },
+    { kind: "duplicate-on-drive", pair: "docs", pairLabel: "Documents", path: "reports/Twice listed.txt", localPath: "/home/me/gdrive/reports/Twice listed.txt", since: iso(NOW - HOUR) }
+];
 function record(over) {
     return Object.assign({
         state: "authorization-required",
@@ -127,6 +133,7 @@ function verify(L) {
         ["a time that is no time", JSON.stringify(record({ lastSuccess: "yesterday" })), "status=time"],
         ["a pair of no direction", JSON.stringify(record({ pairs: [Object.assign({}, DOCS, { direction: "both" })] })), "status=pairs"],
         ["a conflict with a relative path", JSON.stringify(record({ conflicts: [Object.assign({}, CONFLICTS[1], { localPath: "gdrive/old.txt" })] })), "status=conflicts"],
+        ["a file Drive could not open with no reason", JSON.stringify(record({ conflicts: [Object.assign({}, DRIVE_CONFLICTS[0], { reason: undefined })] })), "status=conflicts"],
         ["a local edit with no kept copy", JSON.stringify(record({ conflicts: [Object.assign({}, CONFLICTS[0], { storedPath: "relative" })] })), "status=conflicts"],
         ["attention with no key", JSON.stringify(record({ attention: { reasons: [], notified: false } })), "status=attention"],
         ["attention with no notified", JSON.stringify(record({ attention: { reasons: [], key: "k" } })), "status=attention"]
@@ -316,13 +323,14 @@ function verify(L) {
     const subtitle = w => w.lines.map(l => [l.text, l.tone]);
     same(subtitle(L.windowStatus(cloud, NOW, Timestamp.text)), [
         ["Last complete sync " + Timestamp.text(NOW - HOUR, NOW), ""],
+        ["First file to review: taxes/2025.xlsx", ""],
         ["Google Drive did not accept Connect. Select Connect again on the Cloud Sync page in Settings.", "danger"]
     ]);
     same(subtitle(L.windowStatus(L.cloudValue(well({ state: "paused", paused: true, lastSuccess: null, staleAfter: null }), "VGS could not pause Cloud Sync."), NOW, Timestamp.text)), [
         ["No complete sync yet", ""], ["The hourly sync copies nothing until you resume it.", ""], ["VGS could not pause Cloud Sync.", "danger"]
     ], "a paused headline");
     same(subtitle(L.windowStatus(L.cloudValue(well({ state: "paused", paused: true, conflicts: CONFLICTS.slice(0, 1) }), ""), NOW, Timestamp.text)), [
-        ["Last complete sync " + Timestamp.text(NOW - HOUR, NOW), ""], ["Paused. The hourly sync copies nothing until you resume it.", ""]
+        ["Last complete sync " + Timestamp.text(NOW - HOUR, NOW), ""], ["First file to review: taxes/2025.xlsx", ""], ["Paused. The hourly sync copies nothing until you resume it.", ""]
     ], "files to review while paused say the pause");
     same(L.windowStatus(L.cloudValue(well({ state: "offline", lastError: { kind: "offline" } }), ""), NOW, Timestamp.text).lines[1], { text: "Google Drive cannot be reached. Cloud Sync tries again at the next sync.", tone: "" });
     same(L.pairRow(cloud.pairs[0], NOW), { id: "docs", label: "Documents", secondary: "Docs", icon: "folder-sync", text: "Up to date", tone: "success" });
@@ -355,6 +363,19 @@ function verify(L) {
             { label: "a.txt", detail: "Renamed on Google Drive. The old name was copied back to Google Drive. New name: " + RENAMED_TO + ".", folder: "", dirs: ["/home/me/outbox"] }
         ] }
     ]);
+    // A file Drive could not open reads with rclone's reason and has no
+    // folder to open; a doubled name opens the folder of the copy here.
+    const driveSide = L.parseStatus(JSON.stringify(well({ conflicts: DRIVE_CONFLICTS })));
+    assert.equal(driveSide.ok, true, driveSide.error);
+    const driveCloud = L.cloudValue(driveSide.record, "");
+    same(L.conflictGroups(driveCloud.conflicts), [
+        { label: "Documents", rows: [
+            { label: DRIVE_CONFLICTS[0].path, detail: "Google Drive could not open this file, so Cloud Sync did not copy it. Reason: failed to open source object: can't read dangling shortcut.", folder: "", dirs: [] },
+            { label: DRIVE_CONFLICTS[1].path, detail: "Google Drive holds two files with this name. Cloud Sync copied one of them.", folder: "", dirs: ["/home/me/gdrive/reports"] }
+        ] }
+    ]);
+    same(L.headline(driveCloud, NOW).text, "2 files to review");
+    same(subtitle(L.windowStatus(driveCloud, NOW, Timestamp.text))[1], ["First file to review: " + DRIVE_CONFLICTS[0].path, ""]);
     // A change on both sides with no kept copy names no folder.
     same(L.conflictRow(L.cloudValue(well({ conflicts: [Object.assign({}, CONFLICTS[0], { storedPath: undefined })] }), "").conflicts[0]).folder, "");
 
@@ -425,6 +446,10 @@ const controls = [
     ["Pause needs a folder pair", "var pause = !hasPairs ||", "var pause = !known ||"],
     ["Set up hourly sync while the units are not installed", "var primary = known && cloud.units !== \"installed\"", "var primary = false"],
     ["the window says a pause", "    if (cloud.paused)\n", "    if (false)\n"],
+    ["the window names the first file to review", "if (cloud.conflicts.length > 0) lines.push({ text: \"First file to review: \"", "if (false) lines.push({ text: \"First file to review: \""],
+    ["a file Drive could not open carries its reason", " && (c.kind !== \"unreadable-on-drive\" || isText(c.reason))", ""],
+    ["a file Drive could not open has no folder", "if (conflict.kind === \"unreadable-on-drive\") return [];", ""],
+    ["a review row gives rclone's reason", "if (conflict.kind === \"unreadable-on-drive\") what += ", "if (false) what += "],
     ["a review group holds each pair's files", "if (group === undefined) {", "if (true) {"],
     ["a change on both sides names the kept copy's folder", "conflict.kind === \"both-changed\" ? conflict.dirs[1] : ", ""],
     ["a connection notifies first", "if (reasons.indexOf(\"authorization-required\") !== -1)\n", "if (false)\n"],

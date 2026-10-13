@@ -709,17 +709,18 @@ function failureKind(status, stderr) {
 }
 
 // Runs rclone ARGS holding LOCK, the pair's lock descriptor, as its fd 3:
-// { ok, stdout } or { ok: false, kind, exit }. Its stderr reaches this
-// runner's stderr, the journal, with every secret value replaced.
+// { ok, stdout, stderr } or { ok: false, kind, exit, stderr }. Its stderr
+// reaches this runner's stderr, the journal, with every secret value
+// replaced.
 function rclone(args, env, secrets, lock) {
     const bin = which("rclone");
-    if (bin === null) return { ok: false, kind: "rclone-missing", exit: null };
+    if (bin === null) return { ok: false, kind: "rclone-missing", exit: null, stderr: "" };
     const out = run(bin, ["--config", "/dev/null"].concat(args), { env: env, maxBuffer: 1 << 30, stdio: ["ignore", "pipe", "pipe", lock] });
     let stderr = String(out.stderr || "");
     for (const secret of secrets) stderr = stderr.split(secret).join("[secret]");
     if (stderr.trim() !== "") process.stderr.write(stderr.length > 65536 ? stderr.slice(-65536) : stderr);
-    if (out.status === 0) return { ok: true, stdout: out.stdout };
-    return { ok: false, kind: failureKind(out.status, stderr), exit: out.status };
+    if (out.status === 0) return { ok: true, stdout: out.stdout, stderr: stderr };
+    return { ok: false, kind: failureKind(out.status, stderr), exit: out.status, stderr: stderr };
 }
 
 // ------------------------------------------------------- conflict records
@@ -733,7 +734,63 @@ function addRecord(records, record) {
     const kept = { kind: record.kind, path: record.path, since: record.since || now() };
     if (typeof record.stored === "string") kept.stored = record.stored;
     if (typeof record.to === "string") kept.to = record.to;
+    if (typeof record.reason === "string") kept.reason = record.reason;
     records.push(kept);
+}
+
+// rclone v1.75.1's lines about one Drive file, after its date and time, as
+// the journal of a run with a dangling shortcut and a doubled name holds
+// them: the file's error, the line that ends each attempt with the count
+// of errors in that attempt, and the notice of a name Drive holds twice,
+// of which rclone copies one.
+const FILE_ERROR = /^\S+ \S+ ERROR : (.+?): Failed to copy: (.+)$/;
+const ATTEMPT_END = /^\S+ \S+ ERROR : Attempt \d+\/\d+ failed with (\d+) errors and: /;
+const DUPLICATE = /^\S+ \S+ NOTICE: (.+): Duplicate object found in source - ignoring$/;
+// The record kinds a download leg alone decides, each run afresh.
+const DRIVE_KINDS = ["unreadable-on-drive", "duplicate-on-drive"];
+
+// The Drive files the download leg RESULT leaves for review, or null when
+// the copy could not run. rclone "will accumulate errors as it goes along,
+// and only exit with a non-zero exit code if (after retries) there were
+// still failed transfers", with a log line for every error counted that
+// names its file (rclone.org/docs/#exit-code, `man rclone` of v1.75.1). So
+// a copy ran to its end when every error its last attempt counted is one
+// file's error: the files that attempt names are as many as its count. An
+// unreadable source file ends rclone v1.75.1 with exit 1 (a local-backend
+// copy of a mode 000 file, 2026-10-13). Exit 7 is that page's "Fatal
+// error", which stops the copy, and a credential or network cause
+// (failureKind) keeps its kind even when it shows as file errors.
+function downloadReview(result) {
+    const lines = result.stderr.split("\n");
+    const found = [];
+    for (const line of lines) {
+        const twice = DUPLICATE.exec(line);
+        if (twice !== null) addRecord(found, { kind: "duplicate-on-drive", path: twice[1] });
+    }
+    if (result.ok) return found;
+    if (result.kind !== "rclone-failed" || result.exit === 7) return null;
+    const ends = lines.map((line, at) => ATTEMPT_END.test(line) ? at : -1).filter(at => at !== -1);
+    if (ends.length === 0) return null;
+    const last = ends[ends.length - 1];
+    const reasons = new Map();
+    for (const line of lines.slice(ends.length > 1 ? ends[ends.length - 2] + 1 : 0, last)) {
+        const error = FILE_ERROR.exec(line);
+        if (error !== null) reasons.set(error[1], error[2]);
+    }
+    if (reasons.size !== Number(ATTEMPT_END.exec(lines[last])[1])) return null;
+    for (const [rel, reason] of reasons) addRecord(found, { kind: "unreadable-on-drive", path: rel, reason: reason });
+    return found;
+}
+
+// RECORDS with the download leg's kinds replaced by REVIEW, so a file that
+// copies now leaves no record; one that stands keeps its first time.
+function withDriveRecords(records, review) {
+    const kept = records.filter(r => DRIVE_KINDS.indexOf(r.kind) === -1);
+    for (const record of review) {
+        const old = records.find(r => recordKey(r) === recordKey(record));
+        addRecord(kept, old === undefined ? record : Object.assign({}, record, { since: old.since }));
+    }
+    return kept;
 }
 
 function stampMs(name) {
@@ -970,11 +1027,16 @@ function runPairSync(pair, state, env, secrets, lock) {
     // rclone's own atomic download, a `.partial` name renamed when whole,
     // keeps a cut-off run from leaving a half file in the mirror;
     // --backup-dir moves every local file the copy replaces into conflict
-    // storage first.
-    if (!emptyRemote) {
+    // storage first. A copy that ran to its end with files rclone could not
+    // open is a sync with those files to review, not a failure.
+    if (emptyRemote) {
+        state.records = withDriveRecords(state.records, []);
+    } else {
         const downloaded = rclone(["copy", "--update", remotePath(pair), pair.local, "--backup-dir", backup].concat(common), env, secrets, lock);
         state.records = classifyDisplaced(pair.id, inventory, state.records);
-        if (!downloaded.ok) return rcloneFailed(state, downloaded);
+        const review = downloadReview(downloaded);
+        if (review === null) return rcloneFailed(state, downloaded);
+        state.records = withDriveRecords(state.records, review);
         // If a later leg fails, the downloaded mirror still agrees with
         // Drive's first listing, so keep that baseline.
         writeJson(path.join(pairDir(pair.id), "inventory.json"), { entries: nextInventory(pair, listing, inventory).entries });
@@ -1206,6 +1268,7 @@ function conflictsOf(pair, stored) {
         const out = { kind: r.kind, pair: pair.id, pairLabel: pair.label, path: r.path, localPath: path.join(pair.local, r.path), since: r.since };
         if (typeof r.stored === "string" && fs.existsSync(path.join(root, r.stored))) out.storedPath = path.join(root, r.stored);
         if (typeof r.to === "string") out.to = r.to;
+        if (typeof r.reason === "string") out.reason = r.reason;
         if (r.kind !== "both-changed" || out.storedPath !== undefined || r.stored === undefined) found.push(out);
     }
     return found;

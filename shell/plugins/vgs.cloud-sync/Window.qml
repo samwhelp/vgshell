@@ -6,15 +6,17 @@ import "CloudSyncLogic.js" as Logic
 // The Cloud Sync window: where the sync stands, from the status the service
 // publishes. Its subtitle is the headline (CloudSyncLogic.headline, which
 // the bar and the Settings page also read) in its tone's colour, then the
-// last complete sync, the pause and the last problem. Folder pairs lists
+// last complete sync, the first file to review, the pause and the last
+// problem. Folder pairs lists
 // each pair by its label, Google Drive folder and state, with Remove, which opens
 // the remove TUI for that pair; while the folder pair list is invalid, it
 // offers the reset TUI, which keeps the damaged list and starts an empty
 // one. To review lists each file Cloud Sync kept or restored,
-// a change on both sides, a local deletion, a Drive deletion or a Drive rename, under its folder
+// a change on both sides, a local deletion, a Drive deletion or a Drive rename, and each file
+// Drive could not open or holds twice, under its folder
 // pair's label, with what happened, the folder that holds the copy it
 // speaks of, and Open folders, which opens the folders that hold its
-// versions. The footer holds Sync now, enabled only when a sync can
+// versions and shows only for a file with a folder here. The footer holds Sync now, enabled only when a sync can
 // start, Resume while the sync is paused, or Set up hourly sync while the
 // hourly sync is not set up, over Pause or Resume and Add a folder pair
 // while a folder pair exists (CloudSyncLogic.footerView).
@@ -173,12 +175,13 @@ FocusScope {
             Section {
                 visible: root.known && root.cloud.conflictCount > 0
                 title: "To review"
-                description: "Cloud Sync kept older copies on this computer, restored removed files, and deleted nothing. Open folders shows the folders that hold each version."
+                description: "Cloud Sync kept older copies on this computer, restored removed files, and deleted nothing. It did not copy a file that Google Drive could not open. Open folders shows the folders that hold each version."
                 // A pair's label on its own line over its files. Each file's
                 // row wraps its name, what happened and the folder line at
                 // the window's width, so no line is cut as a ListItem's
                 // elided lines would be. The icon and Open folders sit level
-                // with the name's first line.
+                // with the name's first line; a row with no folder to open
+                // keeps the button's room, so every row's text has one width.
                 Repeater {
                     model: root.known ? Logic.conflictGroups(root.cloud.conflicts) : []
                     Column {
@@ -245,6 +248,7 @@ FocusScope {
                                     x: parent.width - Theme.listItem.paddingX - width
                                     y: Math.round(conflictLines.y + conflictName.capCentre - height / 2)
                                     text: "Open folders"
+                                    visible: conflictRow.modelData.dirs.length > 0
                                     onClicked: root.review(conflictRow.modelData.dirs)
                                 }
                             }

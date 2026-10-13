@@ -8,7 +8,9 @@
 // run killed mid-copy reads as interrupted; pause persists across processes
 // and a paused run copies nothing; an edit saved as a copy ends is kept as
 // `both-changed` by the next run; offline and authorization failures keep
-// the last success; the exclusions; pair validation; install, start, probe
+// the last success; a download that ran to its end past a file Drive could
+// not open ends synced with that file and a doubled name to review, while
+// a network cause in the same lines stays a failure; the exclusions; pair validation; install, start, probe
 // and status; the probe names a token's account; authorize stores the
 // token Google's consent returns through secret-tool's stdin as the
 // account's one item, named for the account Drive's about read returns,
@@ -88,6 +90,11 @@ const SEEN = [];
 // rclone v1.75.1's own lines: the first from a drive remote with a fake
 // token under `unshare -rn` (no network), the second from an empty token.
 const OFFLINE_LINE = "2026/10/10 11:53:47 CRITICAL: Failed to create file system for \"vgsdrive:Docs\": couldn't find root directory ID: Get \"https://www.googleapis.com/drive/v3/files/root?alt=json&fields=id&prettyPrint=false&supportsAllDrives=true\": couldn't fetch token: Post \"https://oauth2.googleapis.com/token\": dial tcp [2607:f8b0:400e:c0d::5f]:443: connect: cannot assign requested address";
+// The reason rclone v1.75.1 gave for a Drive shortcut whose target is gone.
+const DANGLING_REASON = "failed to open source object: can't read dangling shortcut";
+// OFFLINE_LINE's cause as the reason of one file's error: the file form is
+// rclone's, the pairing with this cause is composed here.
+const OFFLINE_REASON = OFFLINE_LINE.slice(OFFLINE_LINE.indexOf("couldn't fetch token"));
 const AUTH_LINE = "2026/10/10 11:53:57 CRITICAL: Failed to create file system for \"vgsdrive:Docs\": drive: failed when making oauth client: failed to create oauth client: empty token found - please run \"rclone config reconnect vgsdrive{XLZpn}:\"";
 
 // ------------------------------------------------------------ the world
@@ -265,6 +272,28 @@ if [[ $3 == copy && $4 == --update && $6 == vgsdrive:* ]]; then leg=upload; fold
 if [[ $leg == upload && -f $stub/fail-upload && ! -e $stub/failed-upload ]]; then
   : >"$stub/failed-upload"
   printf 'Failed to copy: stand-in upload error\n' >&2
+  exit 1
+fi
+# A Drive file rclone cannot open and a name Drive holds twice, in the
+# lines rclone v1.75.1 printed for them over its three attempts: the copy
+# leaves out the file \`unreadable\` names and exits 1, as rclone did. The
+# file \`recovered\` names fails in the first attempt alone.
+if [[ $leg == download && -f $stub/unreadable ]]; then
+  gone=$(<"$stub/unreadable")
+  reason=$(<"$stub/unreadable-reason")
+  ${JSON.stringify(HOST.rclone)} "$@" --exclude "/$gone" || exit 9
+  for attempt in 1 2 3; do
+    errors=1
+    if [[ $attempt == 1 && -f $stub/recovered ]]; then
+      errors=2
+      printf '2026/10/13 00:04:58 ERROR : %s: Failed to copy: %s\n' "$(<"$stub/recovered")" "$reason" >&2
+    fi
+    printf '2026/10/13 00:03:27 NOTICE: %s: Duplicate object found in source - ignoring\n' "$(<"$stub/duplicate")" >&2
+    printf '2026/10/13 00:04:59 NOTICE: Dangling shortcut "%s" detected\n' "\${gone##*/}" >&2
+    printf '2026/10/13 00:04:59 ERROR : %s: Failed to copy: %s\n' "$gone" "$reason" >&2
+    printf '2026/10/13 00:04:59 ERROR : Attempt %s/3 failed with %s errors and: %s\n' "$attempt" "$errors" "$reason" >&2
+  done
+  printf '2026/10/13 00:04:59 NOTICE: Failed to copy: %s\n' "$reason" >&2
   exit 1
 fi
 if [[ $3 == lsjson && ( -f $stub/ids || -f $stub/exports ) ]]; then
@@ -1281,6 +1310,70 @@ function caseFailedUploadKeepsBaseline(runner) {
     assert.deepEqual(status(w, runner).conflicts, []);
 }
 
+// A name with a space, an en dash and a no-break space, as Drive allows.
+const UNREADABLE = "reports/Plan \u2013 first\u00a0draft.pdf";
+const DUPLICATE = "reports/Twice listed.txt";
+
+function plantUnreadable(w, reason) {
+    drive(w, "a.txt", "one\n", 1700000000);
+    drive(w, UNREADABLE, "a shortcut to nothing\n", 1700000000);
+    drive(w, DUPLICATE, "listed twice\n", 1700000000);
+    write(path.join(w.stub, "unreadable"), UNREADABLE);
+    write(path.join(w.stub, "unreadable-reason"), reason);
+    write(path.join(w.stub, "duplicate"), DUPLICATE);
+}
+
+// A download that copied every file but one Drive could not open, and met
+// a name Drive holds twice: the pair is synced, the run exits 0, and both
+// files wait for review, once each for rclone's three attempts. A file
+// that failed in the first attempt alone and then copied is not one.
+function caseUnreadableOnDrive(runner) {
+    const w = world();
+    assert.equal(cli(w, ["install"], runner).status, 0);
+    addPair(w, runner);
+    plantUnreadable(w, DANGLING_REASON);
+    write(path.join(w.stub, "recovered"), "a.txt");
+    const out = cli(w, ["run"], runner);
+    assert.equal(out.stdout, "pair=docs result=idle\n", out.stderr);
+    assert.equal(out.status, 0);
+    assert.deepEqual(mirrorFiles(w), ["a.txt", DUPLICATE]);
+    const s = status(w, runner);
+    assert.equal(s.pairs[0].state, "idle");
+    assert.equal(s.pairs[0].lastError, null);
+    assert.notEqual(s.pairs[0].lastSuccess, null);
+    assert.deepEqual(s.conflicts.map(c => [c.kind, c.path, c.reason]), [["duplicate-on-drive", DUPLICATE, undefined], ["unreadable-on-drive", UNREADABLE, DANGLING_REASON]]);
+    assert.deepEqual(s.attention.reasons, ["conflicts"]);
+    return w;
+}
+
+// The same file failing again keeps its record's time, so the attention
+// key stands; once it copies, no record of it or of the doubled name stays.
+function caseUnreadableClears(runner) {
+    const w = caseUnreadableOnDrive(runner);
+    const first = status(w, runner);
+    runOk(w, runner);
+    assert.deepEqual(status(w, runner).conflicts, first.conflicts);
+    assert.equal(status(w, runner).attention.key, first.attention.key);
+    fs.unlinkSync(path.join(w.stub, "unreadable"));
+    runOk(w, runner);
+    assert.deepEqual(mirrorFiles(w), ["a.txt", UNREADABLE, DUPLICATE].sort());
+    assert.deepEqual(status(w, runner).conflicts, []);
+}
+
+// A network cause that shows as one file's error is still a failed sync.
+function caseUnreadableOffline(runner) {
+    const w = world();
+    addPair(w, runner);
+    plantUnreadable(w, OFFLINE_REASON);
+    const out = cli(w, ["run"], runner);
+    assert.equal(out.stdout, "pair=docs result=offline\n", out.stderr);
+    assert.equal(out.status, 1);
+    const s = status(w, runner);
+    assert.equal(s.pairs[0].lastError.kind, "offline");
+    assert.equal(s.pairs[0].lastSuccess, null);
+    assert.deepEqual(s.conflicts, []);
+}
+
 // Two Drive-newer conflicts on one path keep two copies and two records.
 function caseRepeatedConflict(runner) {
     const w = world();
@@ -1590,6 +1683,12 @@ async function controls() {
     await mustFail("pause", mutant("pause", "if (isPaused(control, pair.id)) return \"paused\";", ""), casePause);
     await mustFail("exclusions", mutant("exclusions", "return [].concat(...EXCLUDES.map(pattern => [\"--exclude\", pattern]));", "return [];"), caseExclusions);
     await mustFail("renamed", mutant("renamed", "if (item.ID) pathOfId[item.ID] = item.Path;", ""), caseRemovedAndRenamed);
+    await mustFail("file errors alone end synced", mutant("file errors alone end synced", "if (review === null) return rcloneFailed(state, downloaded);", "if (!downloaded.ok) return rcloneFailed(state, downloaded);"), caseUnreadableOnDrive);
+    await mustFail("one record per file", mutant("one record per file", "if (error !== null) reasons.set(error[1], error[2]);", "if (error !== null) reasons.set(error[1] + reasons.size, error[2]);"), caseUnreadableOnDrive);
+    await mustFail("the last attempt counts", mutant("the last attempt counts", "ends.length > 1 ? ends[ends.length - 2] + 1 : 0, last)", "0, last)"), caseUnreadableOnDrive);
+    await mustFail("drive records cleared", mutant("drive records cleared", "const kept = records.filter(r => DRIVE_KINDS.indexOf(r.kind) === -1);", "const kept = records.slice();"), caseUnreadableClears);
+    await mustFail("a standing record keeps its time", mutant("a standing record keeps its time", "old === undefined ? record : Object.assign({}, record, { since: old.since })", "record"), caseUnreadableClears);
+    await mustFail("a network cause stays a failure", mutant("a network cause stays a failure", "if (result.kind !== \"rclone-failed\" || result.exit === 7) return null;", "if (result.exit === 7) return null;"), caseUnreadableOffline);
     await mustFail("failure table", mutant("failure table", "const row = FAILURES.find(r => r.pattern.test(stderr));", "const row = undefined;"), caseFailures);
     await mustFail("authorize store", mutant("authorize store", "{ input: value, encoding", "{ input: value + \"\\n\", encoding"), caseAuthorize);
     await mustFail("authorize scope", mutant("authorize scope", "RCLONE_DRIVE_SCOPE: DRIVE_SCOPE", "RCLONE_DRIVE_SCOPE: \"drive.file\""), caseAuthorize);
@@ -1663,6 +1762,9 @@ async function main() {
     caseExportRenamedOnDrive();
     caseFailedUploadKeepsBaseline();
     caseRepeatedConflict();
+    caseUnreadableOnDrive();
+    caseUnreadableClears();
+    caseUnreadableOffline();
     caseSamePathNoBaseline();
     casePairListMigrationRefused();
     caseStateMigrationKeepsCopies();
