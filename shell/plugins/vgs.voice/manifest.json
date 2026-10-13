@@ -72,7 +72,8 @@
       "packages": {
         "aur": "voxtype-bin"
       },
-      "optional": true,
+      "optional": false,
+      "install": "on-request",
       "purpose": "Captures speech and inserts dictated text"
     },
     {
@@ -80,7 +81,8 @@
       "packages": {
         "aur": "voxtype-bin"
       },
-      "optional": true,
+      "optional": false,
+      "install": "on-request",
       "purpose": "Reads voice levels for the on-screen display"
     },
     {

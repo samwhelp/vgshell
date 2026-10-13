@@ -25,9 +25,10 @@
 # after their own declared dependencies install in this container. Then
 # build vgshell and vgshell-git with makepkg as an unprivileged user and no network.
 # Install vgshell with `pacman -U`: `vgshell --version` must print `vgshell
-# <VERSION>`, /usr/bin/vgshell must link to ../share/vgshell/bin/vgshell, pacman's
-# output must hold every line of the first-install text, and the browser
-# theme writer /usr/bin/vgshell-browser-policy must be a regular file root:root
+# <VERSION>`, `vgshell doctor` must read present every required command
+# whose declared package the recipe's depends list, /usr/bin/vgshell must
+# link to ../share/vgshell/bin/vgshell, pacman's output must hold every
+# line of the first-install text, and the browser theme writer /usr/bin/vgshell-browser-policy must be a regular file root:root
 # 0755 beside the rule /etc/sudoers.d/vgshell-theme-browser, root:root 0440,
 # that `visudo -cf` accepts and that grants every user the writer with six
 # hex classes; `vgshell theme setup` must read the chromium setup not-detected
@@ -69,7 +70,7 @@ not_measured() { # REASON [DETAIL...]
 
 case "${1:-}" in
   "") ;;
-  -h|--help) sed -n '2,46{s/^# \{0,1\}//;p}' "$self"; exit 0 ;;
+  -h|--help) sed -n '2,50{s/^# \{0,1\}//;p}' "$self"; exit 0 ;;
   *) refuse 2 "argument=$1" ;;
 esac
 [[ $# -le 1 ]] || refuse 2 "argument=$2"
@@ -251,10 +252,19 @@ doctor_holds() { # PACKAGE
   kill "$bus_pid"
   [[ $status -eq 0 ]] || refuse "doctor=failed package=$1" "$(cat /tmp/doctor.err)"
   python -c 'import json,sys
+import re
 report=json.loads(sys.argv[1])
-missing=[row["name"] for rows in [report["core"], *report["plugins"].values()] for row in rows if not row["optional"] and row["state"] == "missing"]
+# The required commands judged are those whose declared package the
+# recipe depends on; one it leaves to optdepends installs from the
+# Requirements section of its plugin, so the package leaves it missing.
+depends={re.split(r"[<>=]", line.split(" = ", 1)[1])[0] for line in open(sys.argv[2]).read().splitlines() if line.startswith("\tdepends = ")}
+if not depends: sys.exit("no depends read from " + sys.argv[2])
+packaged=lambda row: row["packages"].get("pacman", row["packages"].get("aur")) in depends
+judged=[row for rows in [report["core"], *report["plugins"].values()] for row in rows if not row["optional"] and packaged(row)]
+if not judged: sys.exit("no required command is packaged")
+missing=[row["name"] for row in judged if row["state"] == "missing"]
 if missing: sys.exit("missing required: " + ",".join(missing))
-if not report["plugins"]: sys.exit("doctor plugin discovery is empty")' "$report" || refuse "doctor=required-missing package=$1"
+if not report["plugins"]: sys.exit("doctor plugin discovery is empty")' "$report" "/in/$1/.SRCINFO" || refuse "doctor=required-missing package=$1"
 }
 
 # pacman printed every line of the installed first-install text when it

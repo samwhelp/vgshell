@@ -256,6 +256,7 @@ function verifyRequirements(raw) {
   for (const name of VOXTYPE_TUIS) {
     same(pluginLogic.tuiMissingRequirements(judged.manifest, name, missing), ["voxtype"], `${name} without voxtype asks for it before its script`);
     same(pluginLogic.tuiMissingRequirements(judged.manifest, name, ["systemctl"]), [], `${name} without systemctl runs its script`);
+    same(pluginLogic.tuiMissingRequirements(judged.manifest, name, ["wtype", "wl-copy"]), [], `${name} without the typing tools runs its script`);
     same(pluginLogic.tuiMissingRequirements(judged.manifest, name, []), [], `${name} with voxtype present runs its script`);
     same(pluginLogic.tuiRunFor(judged.manifest, true, "/src", runner, name, missing).kind, "install", `the ${name} press raises the requirement notice`);
   }

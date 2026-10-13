@@ -5,7 +5,9 @@
     "vsys": "no official package",
     "mise": "no official package",
     "checkupdates": "no official package",
-    "ttfx": "no official package"
+    "ttfx": "no official package",
+    "voxtype": "no official package",
+    "voxtype-audio-bridge": "no official package"
   },
   "nix": {
     "vsys": "no official package",
@@ -15,6 +17,8 @@
       "revision": "7a0f122f5090cf4c2ade2a13a0e229d4e19ba71f",
       "failure": "native::actions::tests::test_build_fetch_patterns_with_routes"
     },
-    "ttfx": "no official package"
+    "ttfx": "no official package",
+    "voxtype": "no official package",
+    "voxtype-audio-bridge": "no official package"
   }
 }

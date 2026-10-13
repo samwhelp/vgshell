@@ -104,6 +104,11 @@ function suite(ctx, check) {
         ["a floor of two numbers", { requirements: [{ command: "gum", floor: "0.14", purpose: "p" }] }, "requirements.0.floor must be a version of three dotted numbers, got \"0.14\""],
         ["a floor with a leading zero", { requirements: [{ command: "gum", floor: "0.014.5", purpose: "p" }] }, "requirements.0.floor must be a version of three dotted numbers"],
         ["a floor that is a list of one version", { requirements: [{ command: "gum", floor: ["0.14.5"], purpose: "p" }] }, "requirements.0.floor must be a version of three dotted numbers, got [\"0.14.5\"]"],
+        ["a required requirement installed on request", { requirements: [{ command: "gum", packages: { aur: "gum-bin" }, install: "on-request", purpose: "p" }] }, null],
+        ["an install value other than on-request", { requirements: [{ command: "gum", packages: { aur: "gum-bin" }, install: "always", purpose: "p" }] }, "requirements.0.install must be \"on-request\" when present, got \"always\""],
+        ["an optional requirement installed on request", { requirements: [{ command: "gum", packages: { aur: "gum-bin" }, optional: true, install: "on-request", purpose: "p" }] }, "requirements.0.install needs a required entry"],
+        ["a requirement installed on request with no packages", { requirements: [{ command: "gum", install: "on-request", purpose: "p" }] }, "requirements.0.install needs packages"],
+        ["a requirement installed on request with a floor", { requirements: [{ command: "gum", packages: { aur: "gum-bin" }, floor: "0.14.5", install: "on-request", purpose: "p" }] }, "requirements.0.install cannot stand beside a floor"],
         ["a shortcut bind without a default key", { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "start", key: null }] } }, null],
         ["appearance naming a .js file", { appearance: "Appearance.js" }, null],
         ["appearance naming a nested .js file", { appearance: "look/Appearance.js" }, null],
@@ -463,7 +468,8 @@ function suite(ctx, check) {
     }
     const required = ctx.validateManifest(Object.assign({}, bar, { requirements: [{ command: "gum", purpose: "Dialogs" }, { command: "checkupdates", packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates" }, { dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles" }, packages: { dnf: "ppd-service" }, purpose: "Switches the power profile" }] }), "/p").manifest;
     check("validateManifest gives every requirement its packages and optional", required.requirements,
-        [{ name: "gum", bus: null, packages: {}, optional: false, purpose: "Dialogs", floor: null }, { name: "checkupdates", bus: null, packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates", floor: null }, { name: "org.freedesktop.UPower.PowerProfiles", bus: "system", packages: { dnf: "ppd-service" }, optional: false, purpose: "Switches the power profile", floor: null }]);
+        [{ name: "gum", bus: null, packages: {}, optional: false, purpose: "Dialogs", floor: null, onRequest: false }, { name: "checkupdates", bus: null, packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates", floor: null, onRequest: false }, { name: "org.freedesktop.UPower.PowerProfiles", bus: "system", packages: { dnf: "ppd-service" }, optional: false, purpose: "Switches the power profile", floor: null, onRequest: false }]);
+    check("validateManifest carries an on-request install as a required entry", ctx.validateManifest(Object.assign({}, bar, { requirements: [{ command: "gum", packages: { aur: "gum-bin" }, install: "on-request", purpose: "Dialogs" }] }), "/p").manifest.requirements.map(r => [r.name, r.optional, r.onRequest]), [["gum", false, true]]);
     check("requirementRows: a command the scan did not find is missing, every other present", ctx.requirementRows(required, ["checkupdates", "vsys"], {}).map(r => [r.name, r.bus, r.state]), [["gum", null, "present"], ["checkupdates", null, "missing"], ["org.freedesktop.UPower.PowerProfiles", "system", "present"]]);
     check("requirementRows: a bus name the scan did not find is missing", ctx.requirementRows(required, ["org.freedesktop.UPower.PowerProfiles"], {}).map(r => [r.name, r.state]), [["gum", "present"], ["checkupdates", "present"], ["org.freedesktop.UPower.PowerProfiles", "missing"]]);
     check("requirementRows: every requirement is present when the scan missed none", ctx.requirementRows(required, [], {}).map(r => r.state), ["present", "present", "present"]);
@@ -2071,7 +2077,13 @@ const CONTROLS = [
     ["a floor is three dotted numbers", "!REQUIREMENT_FLOOR.test(requirement.floor)", "false"],
     ["a floor is a string", "typeof requirement.floor !== \"string\" || ", ""],
     ["a floor needs a command", "if (requirement.floor !== undefined && requirement.command === undefined)", "if (false)"],
-    ["floor is a requirement key", "\"optional\", \"purpose\", \"floor\"];", "\"optional\", \"purpose\"];"],
+    ["floor is a requirement key", "\"optional\", \"purpose\", \"floor\", \"install\"];", "\"optional\", \"purpose\", \"install\"];"],
+    ["install is a requirement key", "\"floor\", \"install\"];", "\"floor\"];"],
+    ["any install value is accepted", "if (requirement.install !== REQUIREMENT_ON_REQUEST)\n", "if (false)\n"],
+    ["an optional requirement may be installed on request", "if (requirement.optional === true)\n                return at + \".install needs a required entry", "if (false)\n                return at + \".install needs a required entry"],
+    ["an on-request requirement needs no packages", "if (requirement.packages === undefined)\n                return at + \".install needs packages", "if (false)\n                return at + \".install needs packages"],
+    ["an on-request requirement may carry a floor", "if (requirement.floor !== undefined)\n                return at + \".install cannot stand", "if (false)\n                return at + \".install cannot stand"],
+    ["an on-request install is not normalized", "onRequest: entry.install === REQUIREMENT_ON_REQUEST", "onRequest: false"],
     ["an absent floor is normalized", "floor: entry.floor === undefined ? null : entry.floor", "floor: entry.floor"],
     ["a disabled plugin's version is not read", "if (id !== CORE_OWNER && enabled.indexOf(id) === -1) return;", ""],
     ["a missing command's version is not read", "entry.floor !== null && lacking.indexOf(entry.name) === -1 && out.indexOf", "entry.floor !== null && out.indexOf"],

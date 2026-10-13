@@ -213,7 +213,7 @@ row_requirements() {
 row_requirements_json() {
   req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/needs.git"
   req "$1" plain "" "$2" "$rt_empty" -- plugin requirements --json acme.needs
-  [[ $status == 0 ]] && json_is "$tmp/out" 'd[0] == {"name": "vgs-need-one", "bus": None, "packages": {"pacman": "need-one", "apt": "need-one-deb"}, "optional": False, "purpose": "First", "floor": None, "state": "missing", "package": {"manager": "pacman", "name": "need-one"}} and d[1]["package"] == {"manager": "aur", "name": "need-two"} and d[2]["package"] is None and d[4]["state"] == "present" and len(d) == 7'
+  [[ $status == 0 ]] && json_is "$tmp/out" 'd[0] == {"name": "vgs-need-one", "bus": None, "packages": {"pacman": "need-one", "apt": "need-one-deb"}, "optional": False, "purpose": "First", "floor": None, "onRequest": False, "state": "missing", "package": {"manager": "pacman", "name": "need-one"}} and d[1]["package"] == {"manager": "aur", "name": "need-two"} and d[2]["package"] is None and d[4]["state"] == "present" and len(d) == 7'
 }
 # A plugin add lands disabled is left out; enabled, it is reported beside
 # the core, whose commands this PATH lacks apart from node and python3.
@@ -386,6 +386,8 @@ packaged="$tmp/packaged"
 mkdir -p "$packaged"
 cp -R -- "$repo/bin" "$repo/config" "$repo/shell" "$packaged/"
 cp -- "$repo/packaging/arch/vgshell/.SRCINFO" "$packaged/dependencies"
+# A stub on PATH_DIR for each command whose declared package DEPENDENCY_FILE
+# depends on, and PATH_DIR.packaged.json naming every such command.
 provider_path() { # DEPENDENCY_FILE PATH_DIR
   mkdir -p "$2"
   python3 - "$packaged" "$1" "$2" <<'PY'
@@ -397,21 +399,34 @@ assert packages, "package dependency extractor is empty"
 rows = json.loads((root / "config/requirements.json").read_text())
 for manifest in sorted((root / "shell/plugins").glob("*/manifest.json")):
     rows += json.loads(manifest.read_text()).get("requirements", [])
+packaged = set()
 for row in rows:
     package = row.get("packages", {}).get("pacman", row.get("packages", {}).get("aur"))
     command = row.get("command") or row["dbus"]["name"]
+    if package in packages:
+        packaged.add(command)
     if package in packages and command not in {"node", "python3", "bash", "readlink", "systemctl"}:
         file = farm / command
         file.write_text("#!/bin/sh\nexit 0\n")
         file.chmod(0o755)
+pathlib.Path(str(farm) + ".packaged.json").write_text(json.dumps(sorted(packaged)))
 PY
+}
+# The doctor report in FILE meets EXPR, read on `d`, the report, and `P`,
+# the commands the recipe's own depends provide: a required command whose
+# package the recipe leaves to optdepends is installed from its plugin's
+# Requirements section, so the package leaves it missing.
+packaged_is() { # FILE EXPR
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); P=set(json.load(open(sys.argv[2]))); sys.exit(0 if eval(sys.argv[3]) else 1)' "$1" "$tmp/package-path.packaged.json" "$2"
 }
 provider_path "$packaged/dependencies" "$tmp/package-path"
 REQ_PATH="$tmp/package-path:$tools" req "$packaged/bin/vgshell" plain "" "$tmp/packaged-config" "$rt_empty" -- doctor --json
 check "an installed package's providers leave doctor with no missing required program" \
   test "$status" = 0
-check "doctor reads all shipped required providers from the package list" json_is "$tmp/out" \
-  '"vgs.capture" in d["plugins"] and "vgs.jarvis" in d["plugins"] and all(r["state"] == "present" for rows in [d["core"], *d["plugins"].values()] for r in rows if not r["optional"])'
+check "doctor reads all shipped required providers from the package list" packaged_is "$tmp/out" \
+  '"vgs.capture" in d["plugins"] and "vgs.jarvis" in d["plugins"] and all(r["state"] == "present" for rows in [d["core"], *d["plugins"].values()] for r in rows if not r["optional"] and r["name"] in P)'
+check "the package leaves missing exactly the required commands its depends do not provide" packaged_is "$tmp/out" \
+  '"vgs.voice" in d["plugins"] and {r["name"] for r in d["plugins"]["vgs.voice"] if not r["optional"] and r["name"] not in P} == {r["name"] for r in d["plugins"]["vgs.voice"] if not r["optional"] and r["state"] == "missing"} != set()'
 provider_controls=(
   "tesseract|vgs.capture|tesseract"
   "pipewire-audio|vgs.jarvis|pw-record,pw-cat"
@@ -430,8 +445,8 @@ PYCONTROL
   REQ_PATH="$tmp/package-path-control-$package:$tools" req "$packaged/bin/vgshell" plain "" "$tmp/packaged-config" "$rt_empty" -- doctor --json
   check "control: removing $package makes real doctor report $commands missing" \
     test "$status" = 0
-  check "the missing package removes exactly its required command providers" json_is "$tmp/out" \
-    "set('$commands'.split(',')) == {r['name'] for r in d['plugins']['$owner'] if r['state'] == 'missing' and not r['optional']}"
+  check "the missing package removes exactly its required command providers" packaged_is "$tmp/out" \
+    "set('$commands'.split(',')) == {r['name'] for r in d['plugins']['$owner'] if r['state'] == 'missing' and not r['optional'] and r['name'] in P}"
 done
 
 rows_done test-vgshell-requirements

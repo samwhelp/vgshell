@@ -101,8 +101,9 @@
 # names what breaks and the entry to log in with, "Hyprland
 # (uwsm-managed)". --json prints the rows as
 # one JSON line, each `{ name, bus, packages, optional, purpose, floor,
-# state, package }` with package `{ manager, name }` or null and floor the
-# lowest version the plugin works with or null: a list for `plugin
+# onRequest, state, package }` with package `{ manager, name }` or null,
+# floor the lowest version the plugin works with or null, and onRequest
+# whether the requirement's package installs on request: a list for `plugin
 # requirements`, and `{ core: [rows], plugins: { <id>: [rows] }, session:
 # { graphicalSession } }` for `doctor`. Both read the plugin directories,
 # PATH, D-Bus names and versions as the shell's scan does, and change

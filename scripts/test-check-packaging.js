@@ -233,6 +233,19 @@ const ROWS = [
         edit(t, SRC, "^\\tdepends = tesseract\\n", "");
         edit(t, SRC, "^(pkgbase = vgshell\\n)", "$1\toptdepends = tesseract: planted\n");
     }, 1, () => refused("requirement=tesseract package=tesseract want=depends channel=pacman recipe=vgshell scope=vgs.capture")],
+    // A required requirement installed on request keeps its package an
+    // optional dependency.
+    ["Arch: an on-request package moved into depends is refused", t => {
+        edit(t, SRC, "^\\toptdepends = voxtype-bin: .*\\n", "");
+        edit(t, SRC, "^(pkgbase = vgshell\\n)", "$1\tdepends = voxtype-bin\n");
+    }, 1, () => refused("on-request=voxtype-bin field=depends channel=pacman recipe=vgshell scope=vgs.voice")],
+    ["a required requirement without its on-request flag wants its package in depends", t => edit(t, "shell/plugins/vgs.voice/manifest.json",
+        '("optional": false,)\\n      "install": "on-request",(\\n      "purpose": "Captures speech)', "$1$2"),
+        1, () => refused("requirement=voxtype package=voxtype-bin want=depends channel=pacman recipe=vgshell scope=vgs.voice")],
+    ["Arch: an on-request package dropped from optdepends is refused", t => edit(t, SRC, "^\\toptdepends = voxtype-bin: .*\\n", ""),
+        1, () => refused("requirement=voxtype package=voxtype-bin want=optdepends channel=pacman recipe=vgshell scope=vgs.voice")],
+    ["a floor on an on-request command is refused", t => edit(t, "bin/vgshell", "^(preflight_floor='\\n)", "$1voxtype    1.0     ^([0-9.]+)   voxtype --version\n"),
+        1, () => refused("floor=on-request command=voxtype tool=voxtype scope=vgs.voice")],
     ["Arch: a hardware option promoted to required is refused", t => {
         edit(t, SRC, "^(pkgbase = vgshell\\n)", "$1\tdepends = ddcutil\n");
     }, 1, () => refused("extra=ddcutil field=depends channel=pacman recipe=vgshell")],

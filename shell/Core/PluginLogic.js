@@ -122,9 +122,14 @@ var MANIFEST_KEYS = ["schemaVersion", "id", "name", "version", "author", "descri
 // config/requirements.json, may carry: an external command the plugin runs
 // or a D-Bus name it reaches, the package that provides it per manager id of
 // PackageManagers.js, whether the plugin works without it, and one line
-// saying what it is for, and for a command the `floor`, the lowest version
-// the plugin works with. The states a probed requirement is reported in.
-var REQUIREMENT_KEYS = ["command", "dbus", "packages", "optional", "purpose", "floor"];
+// saying what it is for, for a command the `floor`, the lowest version
+// the plugin works with, and `install`, how the package recipes carry its
+// package. The states a probed requirement is reported in.
+var REQUIREMENT_KEYS = ["command", "dbus", "packages", "optional", "purpose", "floor", "install"];
+// The one `install` value: the requirement stays required, and its package
+// is an optional dependency of every recipe, which its plugin's
+// Requirements section installs (scripts/check-packaging.js).
+var REQUIREMENT_ON_REQUEST = "on-request";
 var REQUIREMENT_DBUS_KEYS = ["bus", "name"];
 var REQUIREMENT_BUSES = ["system", "session"];
 var REQUIREMENT_PURPOSE_MAX = 120;
@@ -2113,7 +2118,11 @@ function requirementIdentity(requirement, at) {
 // `optional`, when present, is a boolean; `purpose` is one printable line
 // of 1 to REQUIREMENT_PURPOSE_MAX characters; `floor`, when present, is a
 // version REQUIREMENT_FLOOR accepts, on a `command` alone, since a bus name
-// prints none.
+// prints none. `install`, when present, is REQUIREMENT_ON_REQUEST, on a
+// required entry with `packages` and no `floor`: an optional entry's
+// package is an optional dependency already, an entry with no package has
+// none to carry, and a floor is checked at start, before any Requirements
+// section can install the package.
 function requirementsError(requirements) {
     if (!Array.isArray(requirements))
         return "requirements must be a list";
@@ -2153,16 +2162,26 @@ function requirementsError(requirements) {
             return at + ".floor needs a command, whose version the scan reads";
         if (requirement.floor !== undefined && (typeof requirement.floor !== "string" || !REQUIREMENT_FLOOR.test(requirement.floor)))
             return at + ".floor must be a version of three dotted numbers, got " + JSON.stringify(requirement.floor);
+        if (requirement.install !== undefined) {
+            if (requirement.install !== REQUIREMENT_ON_REQUEST)
+                return at + ".install must be " + JSON.stringify(REQUIREMENT_ON_REQUEST) + " when present, got " + JSON.stringify(requirement.install);
+            if (requirement.optional === true)
+                return at + ".install needs a required entry: an optional one's package is an optional dependency already";
+            if (requirement.packages === undefined)
+                return at + ".install needs packages, the package the recipes carry on request";
+            if (requirement.floor !== undefined)
+                return at + ".install cannot stand beside a floor, which is checked before the package can be installed on request";
+        }
     }
     return "";
 }
 
 // A `requirements` list requirementsError accepted, each entry with every
-// key: `name`, `bus`, `packages` {}, `optional` false and `floor` null when
-// absent.
+// key: `name`, `bus`, `packages` {}, `optional` false, `floor` null and
+// `onRequest` false when absent.
 function normalRequirements(requirements) {
     return requirements.map(function (entry) {
-        return { name: requirementName(entry), bus: entry.dbus === undefined ? null : entry.dbus.bus, packages: entry.packages === undefined ? {} : clone(entry.packages), optional: entry.optional === true, purpose: entry.purpose, floor: entry.floor === undefined ? null : entry.floor };
+        return { name: requirementName(entry), bus: entry.dbus === undefined ? null : entry.dbus.bus, packages: entry.packages === undefined ? {} : clone(entry.packages), optional: entry.optional === true, purpose: entry.purpose, floor: entry.floor === undefined ? null : entry.floor, onRequest: entry.install === REQUIREMENT_ON_REQUEST };
     });
 }
 

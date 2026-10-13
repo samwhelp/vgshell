@@ -22,9 +22,13 @@
 //     the row's probe command, else it adds one. A row makes its
 //     requirement required, and names its package: the declared package for
 //     a manager, else the row's tool name. `present` sets no version.
-// Each entry is { scope, command, packages, optional, floor, tool }: scope
-// `core` or the plugin id, command is the requirement name, packages keyed by manager id, floor a dotted
-// version or null, tool the preflight row's tool or null.
+// Each entry is { scope, command, packages, optional, onRequest, floor,
+// tool }: scope `core` or the plugin id, command is the requirement name,
+// packages keyed by manager id, onRequest whether the requirement declares
+// `"install": "on-request"`, floor a dotted version or null, tool the
+// preflight row's tool or null. A preflight row that lands on an on-request
+// requirement is refused: `vgshell run` checks the floor before any
+// Requirements section can install the package.
 //
 // CHANNELS holds one entry per channel whose recipes live here, keyed by
 // the package manager id. An entry names its recipes and reads each one
@@ -34,9 +38,11 @@
 // shared rules, per recipe, in this order:
 //   requirement  each requirement's package (the first of the entry's
 //                `managers` it names) is a hard dependency when it has a
-//                floor or is required; any other one is
-//                a soft dependency when the entry is `exact`, else hard or
-//                soft; `requiredOnly` channels install no optional packages
+//                floor or is required and not on request; an on-request
+//                one is a soft dependency, which its plugin's Requirements
+//                section installs; any other one is a soft dependency when
+//                the entry is `exact`, else hard or soft; `requiredOnly`
+//                channels install no soft dependency
 //   floor        a floored hard dependency is constrained `>=` the floor:
 //                exactly the floor when the entry is `floorExact`, else at
 //                or above it; under `floorExact` a hard dependency with no
@@ -44,6 +50,8 @@
 //                constraint's epoch is the package's epoch there, else 0
 //   portal       every backend named by the shipped Hyprland portals.conf is
 //                a hard dependency of the system package recipes that ship it
+//   on-request   no hard dependency is the package of an on-request
+//                requirement
 //   extra        no hard dependency the required union and portal route do not
 //                ask for; an `exact` channel also refuses extra soft dependencies
 //   agree        every recipe of the channel declares the same hard and the
@@ -238,7 +246,7 @@ function readRequirements() {
     const coreError = ctx.requirementsError(core);
     if (coreError !== "") refuse("requirements=refused path=" + coreRel, coreError);
     if (core.length === 0) refuse("requirements=empty scope=core", "the core list is never empty, so the reader is broken");
-    const entry = (scope, r) => ({ scope, command: r.name, packages: r.packages, optional: r.optional, floor: null, tool: null });
+    const entry = (scope, r) => ({ scope, command: r.name, packages: r.packages, optional: r.optional, onRequest: r.onRequest, floor: null, tool: null });
     const list = ctx.normalRequirements(core).map(r => entry("core", r));
 
     const base = path.join(root, "shell", "plugins");
@@ -259,9 +267,11 @@ function readRequirements() {
     }
 
     for (const { tool, need, probe } of readFloors()) {
+        const asked = list.find(e => e.command === probe && e.onRequest);
+        if (asked !== undefined) refuse(`floor=on-request command=${probe} tool=${tool} scope=${asked.scope}`, "a floor tool must be installed with VGS, before vgshell run checks it");
         let floored = list.find(e => e.command === probe);
         if (floored === undefined) {
-            floored = { scope: "core", command: probe, packages: {}, optional: false, floor: null, tool: null };
+            floored = { scope: "core", command: probe, packages: {}, optional: false, onRequest: false, floor: null, tool: null };
             list.push(floored);
         }
         floored.optional = false;
@@ -283,7 +293,7 @@ function readRequirements() {
                 || Object.entries(row.packages).some(([manager, pkg]) => !["pacman", "dnf", "nix"].includes(manager)
                     || typeof pkg !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9+_.-]*$/.test(pkg))) refuse("libraries=shape");
         seen.add(row.id);
-        list.push({ scope: "core", command: "library:" + row.id, packages: row.packages, optional: false, floor: null, tool: null });
+        list.push({ scope: "core", command: "library:" + row.id, packages: row.packages, optional: false, onRequest: false, floor: null, tool: null });
     }
     return list;
 }
@@ -583,7 +593,7 @@ const CHANNELS = {
 
 function sharedRules(id, channel, recipe, read, requirements, gaps, portalBackends) {
     const where = r => ` channel=${id} recipe=${recipe.name} scope=${r.scope}`;
-    const hardWant = new Map(), softWant = new Map();
+    const hardWant = new Map(), softWant = new Map(), onRequest = new Map();
     for (const r of requirements) {
         const pkg = packageOf(r, channel.managers);
         if (pkg === undefined) {
@@ -591,7 +601,12 @@ function sharedRules(id, channel, recipe, read, requirements, gaps, portalBacken
             if (!r.optional) refuse(`requirement=${r.command} package=unmapped want=${channel.hardField}` + where(r));
             continue;
         }
-        if (r.tool !== null || !r.optional) {
+        if (r.onRequest) {
+            if (!onRequest.has(pkg)) {
+                onRequest.set(pkg, r);
+                softWant.set(pkg, r);
+            }
+        } else if (r.tool !== null || !r.optional) {
             if (!hardWant.has(pkg)) hardWant.set(pkg, r);
         } else if (!softWant.has(pkg)) {
             softWant.set(pkg, r);
@@ -626,10 +641,14 @@ function sharedRules(id, channel, recipe, read, requirements, gaps, portalBacken
         }
     }
     for (const pkg of hard.keys())
+        if (!hardWant.has(pkg) && onRequest.has(pkg))
+            refuse(`on-request=${pkg} field=${channel.hardField} channel=${id} recipe=${recipe.name} scope=${onRequest.get(pkg).scope}`,
+                "its requirement declares \"install\": \"on-request\": list it as " + channel.softField + ", which its plugin's Requirements section installs");
+    for (const pkg of hard.keys())
         if (!hardWant.has(pkg)) refuse(`extra=${pkg} field=${channel.hardField} channel=${id} recipe=${recipe.name}`);
     for (const [pkg, r] of softWant) {
         if (channel.requiredOnly) continue;
-        if (channel.exact) {
+        if (channel.exact || onRequest.has(pkg)) {
             if (!soft.has(pkg)) refuse(`requirement=${r.command} package=${pkg} want=${channel.softField}` + where(r));
         } else if (!hard.has(pkg) && !soft.has(pkg)) {
             refuse(`requirement=${r.command} package=${pkg} want=${channel.hardField}-or-${channel.softField}` + where(r));
