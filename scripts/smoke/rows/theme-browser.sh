@@ -9,9 +9,9 @@
 # entry, and answer the wallpaper offer both ways. Holding SUPER+D, the
 # user's focus bind, steps the rail as holding Right does; a layer whose
 # captured focus bind does not repeat is its control. akane's card draws its
-# package preview. A failed apply shows its line under the pane and leaves
-# the rail in place; a copy of the theme view whose caption grows with the
-# failures is its control. The old keys, SUPER+T
+# package preview. A typed filter, in either view, and a failed apply show
+# their lines under the pane and leave the rail in place; a copy of the
+# theme view whose caption grows with those lines is their control. The old keys, SUPER+T
 # and SUPER+W, open nothing, and each view's key moves an open browser to
 # that view; a manifest copy still bound to SUPER+T is their control. The sandbox copy's
 # catalog pins nord's wallpapers to an archive this row builds, served from
@@ -47,7 +47,8 @@ offer_name() { view_value offer | py_reply 'import json,sys; o=json.load(sys.std
 # sorted and once each; rest_has TEXT: whether TEXT is one of them. At rest
 # the theme view draws the selected name and its search hint, and
 # the wallpaper view that hint beside its source line and, with two
-# screens, its scope words. A typed filter shows in place of the hint.
+# screens, its scope words. A typed filter shows under the pane, the hint
+# kept.
 rest_texts() {
   ipc smoke descendantGeometry overlay vgs.themes | py_reply '
 import json, sys
@@ -58,6 +59,19 @@ def under(j):
         j = rows[j]["parent"]
     return False
 print(json.dumps(sorted({r["text"] for i, r in enumerate(rows) if isinstance(r.get("text"), str) and r["text"] != "" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0 and not under(i)})))'
+}
+# rail_top: the top of the rail on the output, to a hundredth of a pixel.
+# rail_held TOP: `held` while the rail's top is TOP, else `moved` with both.
+rail_top() {
+  ipc smoke descendantGeometry overlay vgs.themes | py_reply '
+import json, sys
+rails = [r["box"] for r in json.load(sys.stdin) if r["type"] == "CardCarousel" and r["box"][2] > 0 and r["box"][3] > 0]
+print("%.2f" % rails[0][1] if len(rails) == 1 else "rails=%d" % len(rails))'
+}
+rail_held() { # TOP
+  local now
+  now="$(rail_top)" || return
+  if [[ $now == "$1" ]]; then echo held; else echo "moved from=$1 to=$now"; fi
 }
 rest_has() { rest_texts | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }
 # search_field: whether the shown view draws a search field, `absent`
@@ -592,7 +606,9 @@ expect_poll "Ctrl+PageDown switches to the wallpaper view" '"wallpapers"' ipc sm
 type_keys -M ctrl -k Page_Up -m ctrl || fail "sending Ctrl+PageUp failed"
 expect_poll "Ctrl+PageUp switches back to the theme view" '"themes"' ipc smoke readInstance overlay vgs.themes view
 
-# The filter and the scope.
+# The filter and the scope. The typed filter lies under the pane, so the
+# rail keeps its place while it shows.
+filter_rail="$(rail_top)" || fail "the rail's top before the filter is unreadable"
 type_keys "nor" || fail "typing the filter failed"
 expect_poll "typing reaches the filter" '"nor"' view_value filterText
 type_keys -M ctrl -k u -m ctrl || fail "sending Ctrl+U failed"
@@ -608,7 +624,8 @@ type_keys -k BackSpace || fail "sending BackSpace failed"
 expect_poll "BackSpace erases a character" '"no"' view_value filterText
 type_keys "rd" || fail "typing the rest of the filter failed"
 expect_poll "the filter leaves nord alone" '["nord"]' view_names
-expect_poll "the footer shows the typed filter in place of the hint" '["Nord", "nord"]' rest_texts
+expect_poll "the typed filter shows under the pane and the hint stays" '["Nord", "Type a theme name to search", "nord"]' rest_texts
+expect "a typed filter leaves the rail where it was" held rail_held "$filter_rail"
 expect "the selection moves to the one match" '"nord"' view_value selectedName
 # Control: scripts/test-qml-unit.sh deletes CardCarousel's modelData rebind and tst_carousel.qml fails.
 expect "the drawn centre theme card matches the selected name after filtering" '"nord"' ipc smoke currentThemeCardName overlay vgs.themes
@@ -669,10 +686,13 @@ clear_filter() { # LABEL
   press_themes || { fail "$1: typing SUPER+SHIFT+T failed"; return 1; }
   expect_poll "$1: SUPER+SHIFT+T opens the browser" 1 layer_count vgs:overlay
   expect_poll "$1: the browser read its cards" true view_value loaded
+  local rail
+  rail="$(rail_top)" || { fail "$1: the rail's top before the filter is unreadable"; return 1; }
   type_keys zzqx || { fail "$1: typing the filter failed"; return 1; }
   expect_poll "$1: a filter no card matches empties the rail" 0 view_count
-  expect "$1: the footer shows the filter no card matches" True rest_has zzqx
-  expect "$1: the footer hides the hint while the filter shows" False rest_has "Type a theme name to search"
+  expect "$1: the browser shows the filter no card matches" True rest_has zzqx
+  expect "$1: the footer keeps the hint while the filter shows" True rest_has "Type a theme name to search"
+  expect "$1: a filter no card matches leaves the rail where it was" held rail_held "$rail"
   click_in vgs:overlay overlay vgs.themes Button "Clear filter" || { fail "$1: the click on Clear filter failed"; return 1; }
 }
 clear_filter "Clear filter"
@@ -707,19 +727,6 @@ expect "a payload naming no view is refused" "refused: open-failed=vgs.themes" i
 expect "a payload with an unknown key is refused" "refused: open-failed=vgs.themes" ipc shell summon overlay vgs.themes '{"view":"themes","source":"all"}'
 expect_poll "a refused summon leaves no browser" 0 layer_count vgs:overlay
 
-# rail_top: the top of the rail on the output, to a hundredth of a pixel.
-# rail_held TOP: `held` while the rail's top is TOP, else `moved` with both.
-rail_top() {
-  ipc smoke descendantGeometry overlay vgs.themes | py_reply '
-import json, sys
-rails = [r["box"] for r in json.load(sys.stdin) if r["type"] == "CardCarousel" and r["box"][2] > 0 and r["box"][3] > 0]
-print("%.2f" % rails[0][1] if len(rails) == 1 else "rails=%d" % len(rails))'
-}
-rail_held() { # TOP
-  local now
-  now="$(rail_top)" || return
-  if [[ $now == "$1" ]]; then echo held; else echo "moved from=$1 to=$now"; fi
-}
 # An install whose apply fails leaves the theme installed: the cards are
 # read again, so Enter retries the apply and not the install. The failure
 # line lies under the pane, so the rail keeps its place when it shows.
@@ -954,17 +961,20 @@ expect "control: a band that takes the press leaves the browser open" 1 layer_co
 expect "the rail band control browser hides" ok ipc shell hide overlay vgs.themes
 expect_poll "the rail band control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeView.qml "rail band"
-# Control for the rail's place under a failure: a copy of the theme view
-# whose caption grows with the failures, as a failure line in the pane's
-# footer grew it. akane's apply answers busy once more, and the centred
-# pane moves the rail up when the line shows.
-plugin_control ThemeView.qml "growing column" $'                id: caption\n' $'                id: caption\n                bottomPadding: failures.height\n'
+# Control for the rail's place under a typed filter and a failure: a copy
+# of the theme view whose caption grows with the lines under the pane, as
+# a filter or a failure line in the pane's footer grew it. The centred pane
+# moves the rail up when the filter shows; akane's apply answers busy once
+# more, and it moves the rail up again when the failure shows.
+plugin_control ThemeView.qml "growing column" $'                id: caption\n' $'                id: caption\n                bottomPadding: under.height\n'
 rm -- "$akane_refused" || fail "the growing column control's busy answer is not armed"
 press_themes || fail "typing SUPER+SHIFT+T for the growing column control failed"
 expect_poll "SUPER+SHIFT+T opens the growing column control browser" 1 layer_count vgs:overlay
 expect_poll "the growing column control read its cards" true view_value loaded
+grown_rail="$(rail_top)" || fail "the rail's top before the growing column control's filter is unreadable"
 type_keys "akane" || fail "typing akane for the growing column control failed"
 expect_poll "the growing column control's filter selects akane" '"akane"' view_value selectedName
+expect "control: a caption that grows with the typed filter moves the rail" moved bash -c 'echo "${1%% *}"' _ "$(rail_held "$grown_rail")"
 grown_rail="$(rail_top)" || fail "the rail's top before the growing column control's failure is unreadable"
 type_keys -k Return || fail "sending Return for the growing column control failed"
 expect_poll "the growing column control's apply fails" '"Could not apply Akane. Another theme action is running. Wait for it to finish."' view_value problem
@@ -1064,20 +1074,23 @@ expect "the wallpaper view draws no search field" absent search_field
 # The wallpaper filter: text reaches the filter, filters the rail, Space
 # stays text, Ctrl+U clears, Clear filter works from the empty state, and
 # Escape clears before it closes.
+wall_rail="$(rail_top)" || fail "the wallpaper rail's top before the filter is unreadable"
 type_keys "b." || fail "typing the wallpaper filter failed"
 expect_poll "typing reaches the wallpaper filter" '"b."' wall_value filterText
 expect_poll "the wallpaper filter keeps b.jpg alone" "[\"$nord_b\"]" wall_keys
-expect_poll "the wallpaper footer shows the typed filter in place of the hint" '["All monitors", "Show all", "This monitor", "b."]' rest_texts
+expect_poll "the typed wallpaper filter shows under the pane and the hint stays" '["All monitors", "Show all", "This monitor", "Type a wallpaper or image file name to search |", "b."]' rest_texts
+expect "a typed wallpaper filter leaves the rail where it was" held rail_held "$wall_rail"
 type_keys -k space || fail "sending Space to the wallpaper filter failed"
 expect_poll "Space in the wallpaper filter stays text" '"b. "' wall_value filterText
 type_keys -M ctrl -k u -m ctrl || fail "clearing the wallpaper filter failed"
 expect_poll "Ctrl+U clears the wallpaper filter" '""' wall_value filterText
 type_keys "zzqx" || fail "typing the empty wallpaper filter failed"
 expect_poll "a wallpaper filter no card matches empties the rail" 0 wall_count
-expect "the wallpaper footer shows the filter no card matches" True rest_has zzqx
+expect "the wallpaper browser shows the filter no card matches" True rest_has zzqx
+expect "a wallpaper filter no card matches leaves the rail where it was" held rail_held "$wall_rail"
 click_in vgs:overlay overlay vgs.themes Button "Clear filter" || fail "the wallpaper Clear filter click failed"
 expect_poll "Clear filter clears the wallpaper filter" '""' wall_value filterText
-expect_poll "Clear filter puts the wallpaper hint back" True rest_has "Type a wallpaper or image file name to search |"
+expect_poll "Clear filter takes the typed wallpaper filter away" False rest_has zzqx
 type_keys "b." || fail "typing the wallpaper filter before Escape failed"
 expect_poll "the wallpaper filter is set before Escape" '"b."' wall_value filterText
 type_keys -k Escape || fail "sending Escape with a wallpaper filter failed"

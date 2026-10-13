@@ -999,7 +999,10 @@ var TOKENS = {
     // 4.5:1 on the scrim over both a white and a black wallpaper: nord's
     // `hintActive` reads 3.91:1 over white (the same reading). It draws
     // `typed`: the theme's heading colour where it reads 4.5:1 on the
-    // plate, and the theme's text colour where it does not. The open tab's
+    // plate, and the theme's text colour where it does not. The search
+    // hint under the rail rests on that plate as well and draws
+    // `searchHint`: the theme's faint text where it reads 4.5:1 there, and
+    // the theme's text colour where it does not. The open tab's
     // indicator draws `tabIndicator`: the theme's accent where it reads
     // 3:1 on that backdrop, and `hintActive` where it does not.
     carousel: {
@@ -1021,6 +1024,7 @@ var TOKENS = {
         failurePlate: color("alpha({color.surface}, 1)"),
         hintDanger: color("readable({color.danger}, {carousel.failurePlate}, {color.text})"),
         typed: color("readable({color.textHeading}, {carousel.failurePlate}, {color.text})"),
+        searchHint: color("readable({color.textFaint}, {carousel.failurePlate}, {color.text})"),
         tabIndicator: color("discernible({color.accent}, {carousel.backdrop}, {carousel.hintActive})"),
         sliceName: {
             role: textRole("h2"),

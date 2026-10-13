@@ -340,7 +340,7 @@ FocusScope {
     Keys.onPressed: event => root.handleKey(event)
 
     // One inset box centred on the output: the tabs in the header, the rail
-    // in the body, and the typed filter or its hint in the footer.
+    // in the body, and the selected name and the search hint in the footer.
     Pane {
         id: layout
         anchors.centerIn: parent
@@ -427,67 +427,90 @@ FocusScope {
                     horizontalAlignment: Text.AlignHCenter
                     elide: Text.ElideRight
                     color: Theme.carousel.hintActive
-                    visible: root.selected !== null
+                    // With no card selected the name is empty and keeps its
+                    // line: QQuickText lays an empty text out one line high,
+                    // so a filter no card matches moves nothing.
                     text: root.selected === null ? "" : root.selected.label
                 }
 
-                // The typed filter rests on a solid plate of the theme's
-                // surface, as a failure does: no one colour reads 4.5:1 on
-                // the scrim over both a light and a dark wallpaper.
+                // The search hint rests on the plate the typed filter and
+                // a failure rest on, so it reads 4.5:1 over any wallpaper.
                 Rectangle {
-                    id: typedPlate
+                    id: hintPlate
                     anchors.horizontalCenter: parent.horizontalCenter
-                    visible: root.filterText !== ""
-                    width: typed.width + 2 * typedInset.inset
-                    height: typed.height + 2 * Theme.surface.padding
+                    width: hintLine.width + 2 * hintInset.inset
+                    height: hintLine.height + 2 * Theme.surface.padding
                     radius: Theme.surface.radius
                     color: Theme.carousel.failurePlate
 
+                    // The wallpaper view's hint without its source line.
                     Label {
-                        id: typed
-                        x: typedInset.inset
-                        y: BrowserLogic.inkCentredTop(typedPlate.height, capTop(), lastBaseline())
-                        role: "h3"
-                        width: Math.min(implicitWidth, caption.width - 2 * typedInset.inset)
-                        elide: Text.ElideMiddle
-                        color: Theme.carousel.typed
-                        text: root.filterText
+                        id: hintLine
+                        x: hintInset.inset
+                        y: BrowserLogic.inkCentredTop(hintPlate.height, capTop(), lastBaseline())
+                        role: "itemHint"
+                        text: "Type a theme name to search"
+                        color: Theme.carousel.searchHint
                     }
 
                     ClearingInset {
-                        id: typedInset
+                        id: hintInset
                         pad: Theme.surface.padding
-                        radius: typedPlate.radius
+                        radius: hintPlate.radius
                         width: caption.width
-                        height: typedPlate.height
+                        height: hintPlate.height
                         top: Theme.surface.padding
                     }
-                }
-
-                // The wallpaper view's hint without its source line, hidden
-                // while the typed filter shows above it.
-                Label {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    visible: root.filterText === ""
-                    role: "itemHint"
-                    text: "Type a theme name to search"
-                    color: Theme.carousel.hint
                 }
             }
 
         ]
     }
 
-    // The failures lie under the pane, in the room it leaves on the output,
-    // and outside its footer: a centred pane that grew with a failure would
-    // move the rail and the caption under the pointer. On an output with no
-    // room under the pane they lie over its foot.
+    // The typed filter and the failures lie under the pane, in the room it
+    // leaves on the output, and outside its footer: a centred pane that
+    // grew with a filter or a failure would move the rail and the caption
+    // under the pointer. On an output with no room under the pane they lie
+    // over its foot.
     Column {
-        id: failures
+        id: under
         x: (root.width - width) / 2
         y: Math.min(layout.y + layout.height - layout.contentInset + Theme.stack.group, root.height - height)
         width: caption.width
         spacing: Theme.stack.group
+
+        // The typed filter rests on a solid plate of the theme's surface,
+        // as a failure does: no one colour reads 4.5:1 on the scrim over
+        // both a light and a dark wallpaper.
+        Rectangle {
+            id: typedPlate
+            anchors.horizontalCenter: parent.horizontalCenter
+            visible: root.filterText !== ""
+            width: typed.width + 2 * typedInset.inset
+            height: typed.height + 2 * Theme.surface.padding
+            radius: Theme.surface.radius
+            color: Theme.carousel.failurePlate
+
+            Label {
+                id: typed
+                x: typedInset.inset
+                y: BrowserLogic.inkCentredTop(typedPlate.height, capTop(), lastBaseline())
+                role: "h3"
+                width: Math.min(implicitWidth, caption.width - 2 * typedInset.inset)
+                elide: Text.ElideMiddle
+                color: Theme.carousel.typed
+                text: root.filterText
+            }
+
+            ClearingInset {
+                id: typedInset
+                pad: Theme.surface.padding
+                radius: typedPlate.radius
+                width: caption.width
+                height: typedPlate.height
+                top: Theme.surface.padding
+            }
+        }
 
         Repeater {
             model: [

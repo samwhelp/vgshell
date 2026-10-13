@@ -330,8 +330,8 @@ FocusScope {
     }
 
     // One inset box centred on the output, as the theme view's: the tabs and
-    // the scope words in the header, the rail in the body, and the typed
-    // filter, the hint line and a download's progress in the footer.
+    // the scope words in the header, the rail in the body, and the hint
+    // line and a download's progress in the footer.
     Pane {
         id: layout
         anchors.centerIn: parent
@@ -451,87 +451,75 @@ FocusScope {
                 width: Math.min(layout.contentWidth, Theme.carousel.expandedWidth)
                 spacing: Theme.stack.group
 
-                // The typed filter rests on a solid plate of the theme's
-                // surface, as a failure does: no one colour reads 4.5:1 on
-                // the scrim over both a light and a dark wallpaper.
+                // The search hint rests on the plate the typed filter and
+                // a failure rest on, so it reads 4.5:1 over any wallpaper.
                 Rectangle {
-                    id: typedPlate
+                    id: hintPlate
                     anchors.horizontalCenter: parent.horizontalCenter
-                    visible: root.filterText !== ""
-                    width: typed.width + 2 * typedInset.inset
-                    height: typed.height + 2 * Theme.surface.padding
+                    width: hintLine.width + 2 * hintInset.inset
+                    height: hintLine.height + 2 * Theme.surface.padding
                     radius: Theme.surface.radius
                     color: Theme.carousel.failurePlate
 
-                    Label {
-                        id: typed
-                        x: typedInset.inset
-                        y: BrowserLogic.inkCentredTop(typedPlate.height, capTop(), lastBaseline())
-                        role: "h3"
-                        width: Math.min(implicitWidth, caption.width - 2 * typedInset.inset)
-                        elide: Text.ElideMiddle
-                        color: Theme.carousel.typed
-                        text: root.filterText
+                    Row {
+                        id: hintLine
+                        x: hintInset.inset
+                        y: BrowserLogic.inkCentredTop(hintPlate.height, searchText.y + searchText.capTop(), searchText.y + searchText.lastBaseline())
+                        spacing: Theme.stack.inline
+
+                        Label {
+                            id: searchText
+                            anchors.verticalCenter: parent.verticalCenter
+                            role: "itemHint"
+                            text: "Type a wallpaper or image file name to search |"
+                            color: Theme.carousel.searchHint
+                        }
+
+                        // The source line names the source a click shows, its eye
+                        // open while it offers every image and shut while it offers
+                        // the theme's alone. A MouseArea takes no focus, so the view
+                        // keeps the keyboard.
+                        // keyboard-path: Alt+S flips the source as a click does
+                        MouseArea {
+                            id: sourceLine
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: sourceRow.implicitWidth
+                            height: sourceRow.implicitHeight
+                            hoverEnabled: true
+                            Accessible.role: Accessible.Button
+                            Accessible.name: sourceText.text
+                            onClicked: root.flipSource()
+                            PointerCursor {}
+
+                            Row {
+                                id: sourceRow
+                                spacing: Theme.stack.inline
+
+                                Icon {
+                                    y: Math.round(sourceText.y) + sourceText.topForLeadingIcon(height)
+                                    name: BrowserLogic.WALLPAPER_SOURCES[root.sourceIndex].icon
+                                    size: Theme.icon.size.sm
+                                    color: sourceText.color
+                                }
+                                Label {
+                                    id: sourceText
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    role: "itemHint"
+                                    text: BrowserLogic.WALLPAPER_SOURCES[root.sourceIndex].switchLabel
+                                    color: sourceLine.containsMouse ? Theme.carousel.typed : Theme.carousel.searchHint
+                                    font.underline: sourceLine.containsMouse
+                                }
+                            }
+                        }
                     }
 
                     ClearingInset {
-                        id: typedInset
+                        id: hintInset
                         pad: Theme.surface.padding
-                        radius: typedPlate.radius
+                        radius: hintPlate.radius
                         width: caption.width
-                        height: typedPlate.height
+                        height: hintPlate.height
                         top: Theme.surface.padding
-                    }
-                }
-
-                Row {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: Theme.stack.inline
-
-                    // Hidden while the typed filter shows above it.
-                    Label {
-                        anchors.verticalCenter: parent.verticalCenter
-                        visible: root.filterText === ""
-                        role: "itemHint"
-                        text: "Type a wallpaper or image file name to search |"
-                        color: Theme.carousel.hint
-                    }
-
-                    // The source line names the source a click shows, its eye
-                    // open while it offers every image and shut while it offers
-                    // the theme's alone. A MouseArea takes no focus, so the view
-                    // keeps the keyboard.
-                    // keyboard-path: Alt+S flips the source as a click does
-                    MouseArea {
-                        id: sourceLine
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: sourceRow.implicitWidth
-                        height: sourceRow.implicitHeight
-                        hoverEnabled: true
-                        Accessible.role: Accessible.Button
-                        Accessible.name: sourceText.text
-                        onClicked: root.flipSource()
-                        PointerCursor {}
-
-                        Row {
-                            id: sourceRow
-                            spacing: Theme.stack.inline
-
-                            Icon {
-                                y: Math.round(sourceText.y) + sourceText.topForLeadingIcon(height)
-                                name: BrowserLogic.WALLPAPER_SOURCES[root.sourceIndex].icon
-                                size: Theme.icon.size.sm
-                                color: sourceText.color
-                            }
-                            Label {
-                                id: sourceText
-                                anchors.verticalCenter: parent.verticalCenter
-                                role: "itemHint"
-                                text: BrowserLogic.WALLPAPER_SOURCES[root.sourceIndex].switchLabel
-                                color: sourceLine.containsMouse ? Theme.carousel.hintActive : Theme.carousel.hint
-                                font.underline: sourceLine.containsMouse
-                            }
-                        }
                     }
                 }
 
@@ -557,16 +545,50 @@ FocusScope {
         ]
     }
 
-    // The failures lie under the pane, in the room it leaves on the output,
-    // and outside its footer: a centred pane that grew with a failure would
-    // move the rail and the caption under the pointer. On an output with no
-    // room under the pane they lie over its foot.
+    // The typed filter and the failures lie under the pane, in the room it
+    // leaves on the output, and outside its footer: a centred pane that
+    // grew with a filter or a failure would move the rail and the caption
+    // under the pointer. On an output with no room under the pane they lie
+    // over its foot.
     Column {
-        id: failures
+        id: under
         x: (root.width - width) / 2
         y: Math.min(layout.y + layout.height - layout.contentInset + Theme.stack.group, root.height - height)
         width: caption.width
         spacing: Theme.stack.group
+
+        // The typed filter rests on a solid plate of the theme's surface,
+        // as a failure does: no one colour reads 4.5:1 on the scrim over
+        // both a light and a dark wallpaper.
+        Rectangle {
+            id: typedPlate
+            anchors.horizontalCenter: parent.horizontalCenter
+            visible: root.filterText !== ""
+            width: typed.width + 2 * typedInset.inset
+            height: typed.height + 2 * Theme.surface.padding
+            radius: Theme.surface.radius
+            color: Theme.carousel.failurePlate
+
+            Label {
+                id: typed
+                x: typedInset.inset
+                y: BrowserLogic.inkCentredTop(typedPlate.height, capTop(), lastBaseline())
+                role: "h3"
+                width: Math.min(implicitWidth, caption.width - 2 * typedInset.inset)
+                elide: Text.ElideMiddle
+                color: Theme.carousel.typed
+                text: root.filterText
+            }
+
+            ClearingInset {
+                id: typedInset
+                pad: Theme.surface.padding
+                radius: typedPlate.radius
+                width: caption.width
+                height: typedPlate.height
+                top: Theme.surface.padding
+            }
+        }
 
         Repeater {
             model: [
