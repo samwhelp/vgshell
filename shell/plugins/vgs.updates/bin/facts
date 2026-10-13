@@ -99,7 +99,9 @@ function isObject(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function logic() {
-    return require(loaderPath).load(path.join(__dirname, "..", "UpdatesLogic.js"));
+    const { load } = require(loaderPath);
+    const PageReference = load(path.join(path.dirname(loaderPath), "..", "..", "shell", "Commons", "PageReference.js"));
+    return load(path.join(__dirname, "..", "UpdatesLogic.js"), { "qs.Commons 1.0": { PageReference } });
 }
 // The ids of the review agents on PATH.
 function agentsFound(table) {

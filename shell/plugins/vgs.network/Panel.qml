@@ -22,7 +22,7 @@ Item {
         const reply = shell.surfaces.summon("pane", "{}");
         if (reply !== "ok") {
             console.warn("network panel: pane " + reply);
-            body.localProblem = "System Settings is not available. Turn it on in Plugins.";
+            body.localProblem = "System Settings is not available. Turn it on in [Plugins](page:vgs.system).";
             return reply;
         }
         shell.surfaces.hide("panel");

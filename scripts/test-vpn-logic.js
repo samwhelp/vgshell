@@ -176,6 +176,7 @@ function suite(logic, service = serviceSource) {
         const written = logic.statusWrites({ tone: "ok", text: "" }, shown, logic.unread(), logic.emptyProfiles())[1][1];
         assert.equal(written.hint, shown.hint === "" ? undefined : shown.hint, "the published setup value keeps the hint");
     }
+    assert.equal(logic.setup({ missing: true }).hint, "Tailscale is optional. Install it under [Requirements](page:vgs.vpn/Setup) to use it.");
     const unoffered = ["absent", "denied", "unknown"].map(service => logic.setup({ missing: false, state: "service-off", service: service, operator: "unknown" }).hint);
     assert.equal(new Set(unoffered).size, unoffered.length, "each service state that offers no step names its own why");
 

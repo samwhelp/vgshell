@@ -289,11 +289,12 @@ Item {
                     }
                 }
 
-                Label {
+                LinkText {
                     width: parent.width
                     role: "hint"
                     wrapMode: Text.Wrap
-                    text: "More options are in Settings."
+                    onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
+                    text: "More options are in [Settings](page:vgs.capture/Settings)."
                 }
             }
         }

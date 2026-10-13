@@ -1,4 +1,5 @@
 import QtQuick
+import qs.Commons
 import qs.Ui
 
 // One row of the Dev Tools window, drawn from a ViewLogic row: the tool's
@@ -24,6 +25,7 @@ Item {
     required property var look
 
     signal acted(var action, string channel)
+    signal pageActivated(string page, string tab)
 
     // What the row draws: `row`, or an empty row once it went.
     readonly property var view: row !== null ? row : ({ icon: "", brand: "", tile: "neutral", name: "", secondary: "", chips: [], channels: [], actions: [], lines: [] })
@@ -37,7 +39,7 @@ Item {
     readonly property bool clipped: {
         for (let i = 0; i < lineRepeater.count; i++) {
             const line = lineRepeater.itemAt(i);
-            if (line !== null && line.truncated) return true;
+            if (line !== null && !line.linked && line.truncated) return true;
         }
         return false;
     }
@@ -85,17 +87,33 @@ Item {
         Repeater {
             id: lineRepeater
             model: root.view.lines
-            Label {
+            Item {
                 required property string modelData
+                readonly property bool linked: PageReference.parse(modelData).page !== ""
+                readonly property bool truncated: plain.truncated
                 width: texts.width
-                role: "hint"
-                text: modelData
-                visible: !root.detailsOpen
-                elide: Text.ElideRight
+                implicitHeight: linked ? link.implicitHeight : plain.visible ? plain.implicitHeight : 0
+                Label {
+                    id: plain
+                    width: parent.width
+                    role: "hint"
+                    text: parent.modelData
+                    visible: !parent.linked && !root.detailsOpen
+                    elide: Text.ElideRight
+                }
+                LinkText {
+                    id: link
+                    width: parent.width
+                    role: "hint"
+                    text: parent.modelData
+                    visible: parent.linked
+                    wrapMode: Text.Wrap
+                    onPageActivated: (page, tab) => root.pageActivated(page, tab)
+                }
             }
         }
         Repeater {
-            model: root.detailsOpen ? root.view.lines : []
+            model: root.detailsOpen ? root.view.lines.filter(line => PageReference.parse(line).page === "") : []
             CodeLine {
                 required property string modelData
                 width: texts.width

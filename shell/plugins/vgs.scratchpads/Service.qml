@@ -182,7 +182,7 @@ Item {
             toggle(pad, null);
             return;
         case "no-pad":
-            notice("Pad " + name + " cannot open", "Another pad uses its window class, " + pad["class"] + ". Give each pad its own window class in Plugins, and an app that opens its window with it.");
+            notice("Pad " + name + " cannot open", "Another pad uses its window class, " + pad["class"] + ". Give each pad its own window class in [Plugins](page:vgs.scratchpads/Settings), and an app that opens its window with it.");
             return;
         default:
             console.warn("scratchpads: pad=" + name + " toggle answered " + JSON.stringify(answer));
@@ -283,7 +283,7 @@ Item {
             state.phase = "idle";
             state.wanted = false;
             const pad = padOf(name);
-            notice("Pad " + name + " did not open", "Its app showed no window of class " + (pad === undefined ? "" : pad["class"]) + ". Check the app and window class of the pad in Plugins.");
+            notice("Pad " + name + " did not open", "Its app showed no window of class " + (pad === undefined ? "" : pad["class"]) + ". Check the app and window class of the pad in [Plugins](page:vgs.scratchpads/Settings).");
         }
         armDeadline();
     }

@@ -40,12 +40,7 @@ command:
                 page reference, `[words](page:<plugin id>)`, or of a
                 manifest entry's `link`. A TUI line cannot link and names
                 the button that opens the page instead. Markdown is not
-                read for it. The references of a plugin PAGE_PENDING names
-                are listed and not refused, one line each,
-                `page-reference-pending <plugin> <file>:<line> <excerpt>`,
-                then `check-user-commands: page-references-pending=<n>
-                plugins=<ids>`; a plugin named there with none left is
-                refused, so the tuple only shrinks.
+                read for it.
   page-reference-target  a complete literal page reference whose plugin id
                 names no plugin directory under the root's plugins/. A
                 target completed by concatenation is not judged. With
@@ -110,11 +105,6 @@ PAGE_LINK = re.compile(r"\[[^\[\]\n]+\]\(page:")
 # Only complete literal targets can be judged. An empty id opens the
 # plugin list; a template argument or unfinished concatenation is unknown.
 PAGE_TARGET = re.compile(PAGE_LINK.pattern + r"([^\s()/$]+)(?:/[^\s()/$]+)?\)")
-# The plugins whose page references are not links yet, one conversion a
-# plugin (VGS-1507). The check lists theirs; every other plugin's and the
-# core's are refused.
-PAGE_PENDING = ("vgs.ai-usage", "vgs.capture", "vgs.devtools", "vgs.greeter", "vgs.launcher", "vgs.mouse", "vgs.network",
-                "vgs.notifications", "vgs.scratchpads", "vgs.sound", "vgs.updates", "vgs.vpn")
 HEADS_FLOOR = 20
 # Members the head extractors must yield: the core's own command and an
 # elevator. A set without them came from a broken extractor.
@@ -352,14 +342,6 @@ def link_words(doc, where):
     return link["text"] if isinstance(link, dict) and isinstance(link.get("text"), str) else ""
 
 
-def plugin_of(path, dirs):
-    """The name of the plugin directory of DIRS that holds PATH, or "core"."""
-    for d in dirs:
-        if path.startswith(d + os.sep):
-            return os.path.basename(d)
-    return "core"
-
-
 def check_markdown(path, heads, findings):
     text = blank(read(path), DETAILS)
     for fence in FENCE.finditer(text):
@@ -500,21 +482,8 @@ def main(argv):
         for target in PAGE_TARGET.finditer(text):
             if target.group(1) not in targets:
                 findings.append(("page-reference-target", path, where, text.strip()[:120]))
-    pending = {}
     for path, where, excerpt in pages:
-        plugin = plugin_of(path, dirs)
-        if plugin in PAGE_PENDING:
-            pending.setdefault(plugin, []).append((path, where, excerpt))
-        else:
-            findings.append(("page-reference", path, where, excerpt))
-    for d in dirs:
-        if os.path.basename(d) in PAGE_PENDING and os.path.basename(d) not in pending:
-            findings.append(("page-reference", d, "PAGE_PENDING", "no plain page reference is left: take this plugin out of PAGE_PENDING"))
-    for plugin in sorted(pending):
-        for path, where, excerpt in pending[plugin]:
-            print(f"page-reference-pending {plugin} {os.path.relpath(path, REPO)}:{where} {excerpt}")
-    if pending:
-        print(f"check-user-commands: page-references-pending={sum(len(v) for v in pending.values())} plugins={','.join(sorted(pending))}")
+        findings.append(("page-reference", path, where, excerpt))
     for rule, path, where, excerpt in findings:
         print(f"{rule} {os.path.relpath(path, REPO)}:{where} {excerpt}")
     if findings:

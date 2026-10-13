@@ -56,7 +56,7 @@ function isPlainObject(value) {
 // The launcher's helper and core capabilities produce these fields.
 // QML logs the raw reply and shows only the matching sentence.
 var FILE_ERRORS = [
-    [/missing=/, "File search tools are missing. Install them in Plugins."],
+    [/missing=/, "File search tools are missing. Install them in [Plugins](page:vgs.launcher/Setup)."],
     [/refresh=busy/, "File search is updating. Try again shortly."],
     [/vanished=/, "The file no longer exists. Choose another file."],
     [/mime=/, "VGS could not find applications for this file. Choose another file."],

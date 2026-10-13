@@ -1,4 +1,5 @@
 .pragma library
+.import qs.Commons 1.0 as Commons
 
 // Pure decisions for vgs.updates: probe normalization, snapshot judging,
 // status derivation, publish diffs, check cadence, failure retry and TUI run
@@ -230,7 +231,7 @@ var CHECK_ERRORS = [
     [/unparseable|not-json|output-unreadable|cache=|^sources|^checkedAt$/, "The update result could not be read. Select Refresh to try again."],
     [/timeout/, "The update check took too long. Select Refresh to try again."],
     [/fetch|remote|unreachable|release=http/, "The update source could not be reached. Check your connection and select Refresh."],
-    [/missing|reason=absent/, "A tool needed for this check is missing. Install it in Plugins."]
+    [/missing|reason=absent/, "A tool needed for this check is missing. Install it in [Plugins](page:vgs.updates/Setup)."]
 ];
 
 function errorText(reason) {
@@ -842,7 +843,7 @@ function windowRows(values) {
             source: row.source,
             label: row.label,
             icon: sourceIcon(row.source),
-            secondary: error !== "" ? errorText(error) : failed ? "Could not count updates" : row.count === 0 ? "Up to date" : countText(row.count, "update"),
+            secondary: error !== "" ? Commons.PageReference.plain(errorText(error)) : failed ? "Could not count updates" : row.count === 0 ? "Up to date" : countText(row.count, "update"),
             badge: failed ? "Failed" : badgeText(row.count),
             badgeTone: error !== "" ? "warning" : !failed && row.count > 0 ? "accent" : "neutral",
             updatable: !failed && row.count > 0,

@@ -30,7 +30,7 @@
     "pads": {
       "type": "list",
       "label": "Pads",
-      "description": "Each pad holds one app. Set its key under Keys.",
+      "description": "Each pad holds one app. Set its key under [Keys](page:vgs.scratchpads/Settings).",
       "items": {
         "command": {
           "type": "string",

@@ -213,6 +213,7 @@ function verify(logic) {
         same({ tone: shown.tone, text: shown.text, action: shown.action }, want, label);
         assert.equal(typeof shown.hint === "string" && shown.hint !== "", hinted, "a hint stands under the chip: " + label);
     }
+    assert.equal(logic.stepState({ state: "absent", reason: "greetd-missing" }).hint, "Needs greetd. Install it under [Requirements](page:vgs.greeter/Setup) to use the login screen.");
     const hints = STEPS.filter(([label, step]) => step !== null && step.state !== "unknown" && step.reason !== "other").map(([label, step]) => logic.stepState(step).hint).filter(hint => hint !== undefined);
     assert.equal(new Set(hints).size, hints.length, "each reason names its own why");
     assert.throws(() => logic.stepState({ state: "odd", reason: "x" }), /step state "odd"/, "an unknown state throws");

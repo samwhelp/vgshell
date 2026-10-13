@@ -47,7 +47,7 @@
 # back at its end.
 # No latency is measured; each reading polls every 200 ms for up to 5 s,
 # the notification reading every 200 ms for up to 25 s.
-# inputs: shell/plugins/vgs.scratchpads/* shell/plugins/vgs.settings/* shell/Core/Pads.js shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Capabilities.qml shell/Hosts/BackgroundHost.qml bin/lib/qml-library.js shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
+# inputs: shell/plugins/vgs.scratchpads/* shell/plugins/vgs.settings/* shell/Core/Pads.js shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Capabilities.qml shell/Hosts/BackgroundHost.qml bin/lib/qml-library.js shell/Core/Notifier.qml shell/plugins/vgs.notifications/* shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Ui/layout/SectionHeader.qml shell/Ui/layout/Section.qml
 set -euo pipefail
 
 sp_id=vgs.scratchpads
@@ -234,6 +234,15 @@ sp_card_within() {
   done
   echo absent
 }
+sp_page_drawn() {
+  ipc smoke layerItems vgs.notifications NotificationCard summary,linkWords | py_reply 'import json,sys; print(str(any(r[2].get("summary") == "Pad 2 cannot open" and r[2].get("linkWords") == "Plugins" for r in json.load(sys.stdin))).lower())'
+}
+sp_page_check() {
+  expect_poll "the no-pad notice draws its page link" true sp_page_drawn
+  click_item vgs:layer vgs.notifications NotificationCard summary "Pad 2 cannot open" 24 - || fail "the no-pad notice was not pressed"
+  expect_poll "the no-pad notice opens the Scratchpads page" '"vgs.scratchpads/Settings"' ipc smoke readInstance window vgs.settings shownPage
+}
+
 # sp_window_workspace: `special` while a window of the pad's class is in a
 # special workspace, `regular` while every one is in a regular one, `none`
 # with none.
@@ -289,11 +298,42 @@ expect_poll "the refused pad keeps its Keys row" drawn sp_key_row 2
 expect "pad 2's app logs its start" applied sp_field command "\"echo start >>$sandbox/pad-starts-2\"" 2
 expect_poll "pad 2's app reaches shell.json" same sp_drawn_same
 notes_on "scratchpads refused pad"
+settings_page_close "Scratchpads"
+expect "Settings is absent before the no-pad notice" absent ipc smoke readInstance window vgs.settings shownPage
 expect "pad 2's shortcut is pressed" ok hypr dispatch 'hl.dsp.global("vgs.scratchpads:pad-2")'
 expect "the refused pad's press says why" shown sp_card_within "Pad 2 cannot open"
 expect "the refused pad's press sends one notification" 1 sp_card_count "Pad 2 cannot open"
 expect "the refused pad's press starts no app" absent sp_started_2
+sp_page_check
 notes_off "scratchpads refused pad"
+
+# A plugin copy keeps the sentence but removes its page reference.
+sp_copy="$home/.config/vgshell/plugins/vgs.scratchpads"
+[[ ! -e $sp_copy ]] || fail "a user Scratchpads copy exists before the page control"
+cp -R -- "$repo/shell/plugins/vgs.scratchpads" "$sp_copy"
+python3 - "$sp_copy/Service.qml" <<'PYEDIT'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+s = p.read_text()
+a = "window class in [Plugins](page:vgs.scratchpads/Settings),"
+assert s.count(a) == 1
+p.write_text(s.replace(a, "window class in Plugins,"))
+PYEDIT
+rescan "the Scratchpads page control is scanned"
+expect_poll "the page control's Scratchpads service is built" True record_exists "$sp_id"
+notes_on "scratchpads page control"
+settings_page_close "Scratchpads"
+expect "Settings is absent before the no-link control" absent ipc smoke readInstance window vgs.settings shownPage
+expect "control: pad 2's shortcut is pressed" ok hypr dispatch 'hl.dsp.global("vgs.scratchpads:pad-2")'
+expect "control: the refused pad's notice shows" shown sp_card_within "Pad 2 cannot open"
+sp_page_control() { (failures=0 behaviour_failures=0; sp_page_check >"$sandbox/scratchpads-page-control.log"; echo "$failures"); }
+expect "control: a no-pad notice with plain page words fails both link checks" 2 sp_page_control
+sed 's/^/  CONTROL  /' "$sandbox/scratchpads-page-control.log"
+notes_off "scratchpads page control"
+rm -rf -- "${sp_copy:?}"
+rescan "the shipped Scratchpads service returns after the page control"
+expect_poll "the shipped Scratchpads service is built after the page control" True record_exists "$sp_id"
+settings_page_open "$sp_id"
 expect "pad 1's Remove button is clicked" clicked sp_remove 1
 expect_poll "Remove leaves pad 2 alone" '["2"]' sp_drawn
 expect "the page's Add button is clicked after Remove" clicked sp_add

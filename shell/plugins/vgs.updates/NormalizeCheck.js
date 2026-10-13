@@ -17,7 +17,8 @@ const logicPath = process.argv[3];
 const stateDir = process.argv[4];
 const prefix = process.argv[5];
 const { load } = require(loaderPath);
-const logic = load(logicPath);
+const PageReference = load(path.join(path.dirname(loaderPath), "..", "..", "shell", "Commons", "PageReference.js"));
+const logic = load(logicPath, { "qs.Commons 1.0": { PageReference } });
 
 function read(name) {
   return {

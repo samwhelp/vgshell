@@ -22,6 +22,7 @@ Column {
     property string title: ""
     property string description: ""
     property string info: ""
+    signal pageActivated(string page, string tab)
     property real headerInset: 0
     property real rowSpacing: Theme.stack.row
     default property alias rows: content.data
@@ -50,6 +51,7 @@ Column {
         text: root.title
         description: root.description
         info: root.info
+        onPageActivated: (page, tab) => root.pageActivated(page, tab)
         leftPadding: root.headerInset
         rightPadding: root.headerInset
         width: root.width

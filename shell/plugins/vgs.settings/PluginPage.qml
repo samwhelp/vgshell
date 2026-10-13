@@ -537,6 +537,7 @@ FocusScope {
                                     width: section.width
                                     title: page.row.schema[modelData].label
                                     description: page.row.schema[modelData].description === undefined ? "" : page.row.schema[modelData].description
+                                    onPageActivated: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
                                     info: page.row.schema[modelData].info === undefined ? "" : page.row.schema[modelData].info
 
                                     ListField {
@@ -568,6 +569,7 @@ FocusScope {
                             width: body.width
                             title: page.row.schema[modelData].label
                             description: page.row.schema[modelData].description === undefined ? "" : page.row.schema[modelData].description
+                            onPageActivated: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
                             info: page.row.schema[modelData].info === undefined ? "" : page.row.schema[modelData].info
 
                             ListField {

@@ -101,6 +101,7 @@ const PAYLOAD_REFUSED = [
 ];
 
 function verify(model, menu = shippedMenu) {
+    assert.equal(model.fileErrorText("file-search: missing=fd,fzf"), "File search tools are missing. Install them in [Plugins](page:vgs.launcher/Setup).");
     assert.equal(model.actionErrorText("refused: tui=core/pkg-install reason=launcher-missing"), "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it.");
     assert.equal(model.actionErrorText("refused: tui=core/pkg-install reason=launcher-failed"), "VGS could not open this action. Try again.");
     // Producer diagnostics never cross the display boundary.

@@ -73,7 +73,7 @@
 # and VGS only hands it the core's `system apply reboot-notice`, which the
 # stand-in terminal replaces with `true`; the service clears the setting
 # after each choice.
-# inputs: shell/plugins/vgs.updates/* shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/vgshell-system bin/lib/qml-library.js shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/capabilities.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml
+# inputs: shell/plugins/vgs.updates/* shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/vgshell-system bin/lib/qml-library.js shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/capabilities.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml shell/Commons/PageReference.js
 set -euo pipefail
 updates_dir="$home/.config/vgshell/plugins/vgs.updates"
 updates_state="$home/.local/state/vgshell/updates-smoke"
@@ -109,7 +109,8 @@ use_identity arch
 # The wrapper the service copy runs as its vgshell. bin/check finds the core's
 # library loader beside the vgshell it is given, so the loader is linked in.
 updates_vgshell="$updates_state/vgshell-bin/vgshell"
-mkdir -p "$updates_state/vgshell-bin/lib"
+mkdir -p "$updates_state/vgshell-bin/lib" "$updates_state/shell/Commons"
+cp -- "$repo/shell/Commons/PageReference.js" "$updates_state/shell/Commons/"
 ln -sf -- "$repo/bin/lib/qml-library.js" "$updates_state/vgshell-bin/lib/qml-library.js"
 cat >"$updates_vgshell" <<EOF
 #!/usr/bin/env bash

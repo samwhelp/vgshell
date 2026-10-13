@@ -608,7 +608,9 @@ Item {
             return;
         case "unavailable":
         case "notice":
-            caret.nudge();
+            const reference = PageReference.parse(row.detail);
+            if (reference.page !== "") shell.surfaces.openPage(reference.page, reference.tab);
+            else caret.nudge();
             return;
         }
         console.error("launcher: row kind " + row.kind + " has no action");

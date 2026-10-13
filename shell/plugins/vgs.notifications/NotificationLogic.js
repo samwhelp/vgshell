@@ -1345,7 +1345,7 @@ function openNotice(reason) {
     case "launcher-missing":
         return { title: "The file did not open", message: "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it.", tone: "danger", icon: "square-terminal" };
     case "disabled":
-        return { title: "The file did not open", message: "Enable Notifications in Plugins and try again.", tone: "danger", icon: "file-x" };
+        return { title: "The file did not open", message: "Enable Notifications in [Plugins](page:vgs.notifications) and try again.", tone: "danger", icon: "file-x" };
     case "undeclared":
         return { title: "The file did not open", message: "VGS cannot open notification files. Reinstall VGS to restore this feature.", tone: "danger", icon: "file-x" };
     case "args":

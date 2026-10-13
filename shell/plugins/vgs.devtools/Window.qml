@@ -181,6 +181,7 @@ Item {
                                     target: root
                                     function onSummoned() { toolRow.focusIfTarget(); }
                                 }
+                                onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
                                 onActed: (action, channel) => root.act(modelData, action, channel)
                             }
                         }
@@ -247,6 +248,7 @@ Item {
                                 width: infoSection.width
                                 row: modelData
                                 look: root.look
+                                onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
                                 onActed: (action, channel) => root.act(modelData, action, channel)
                             }
                         }

@@ -879,6 +879,31 @@ PYHOME
   row "control: the omitted Home input loses selection for $home_input" "$d" 0 "" "!node scripts/test-jarvis-home.js"
 done
 
+# Updates readers load the shipped page-reference module in their core tree.
+d="$tmp/plan-updates-page-reference"; fresh "$d"
+mkdir -p "$d/shell/Commons"
+printf 'changed\n' >"$d/shell/Commons/PageReference.js"
+test_area=cli
+test_args=(--changed HEAD --list)
+row "the page-reference module selects both Updates readers" "$d" 0 "" \
+  "scripts/test-updates-check.sh" "scripts/test-updates-pipeline.sh"
+for consumer in "updates check helper:scripts/test-updates-check.sh" "updates pipeline controls:scripts/test-updates-pipeline.sh"; do
+  label="${consumer%%:*}" command="${consumer#*:}"
+  python3 - "$d/scripts/validate" "$label" <<'PYEDGE'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1]); source = p.read_text()
+prefix = '  "cli|' + sys.argv[2] + '|'
+rows = [line for line in source.splitlines() if line.startswith(prefix)]
+edge = ' shell/Commons/PageReference.js'
+assert len(rows) == 1 and rows[0].count(edge) == 1
+p.write_text(source.replace(rows[0], rows[0].replace(edge, '', 1)))
+PYEDGE
+  "${base_env[@]}" git -C "$d" add scripts/validate
+  "${base_env[@]}" git -C "$d" commit -q -m control
+  row "control: omitting PageReference skips $label" "$d" 0 "" "!$command"
+done
+
 # Settings' projection is also a consumer boundary for Jarvis recovery.
 d="$tmp/plan-jarvis-settings-steps-control"; fresh "$d"
 mkdir -p "$d/shell/plugins/vgs.settings"

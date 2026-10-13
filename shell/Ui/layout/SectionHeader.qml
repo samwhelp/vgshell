@@ -16,6 +16,7 @@ Column {
     property string text: ""
     property string description: ""
     property string info: ""
+    signal pageActivated(string page, string tab)
     // The width the eyebrow and the description share: the column's own,
     // less its padding, since a positioner does not narrow its children.
     readonly property real bodyWidth: width - leftPadding - rightPadding
@@ -53,11 +54,12 @@ Column {
             }
         }
     }
-    Label {
+    LinkText {
         role: "hint"
         text: root.description
         visible: root.description !== ""
         width: root.bodyWidth
         wrapMode: Text.Wrap
+        onPageActivated: (page, tab) => root.pageActivated(page, tab)
     }
 }

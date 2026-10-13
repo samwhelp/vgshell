@@ -21,6 +21,6 @@ case "$result" in
   0) vgs_tui_step "The VGS screen sharing picker is ready." ;;
   73) vgs_tui_error "$said" ;;
   75) vgs_tui_warn "Setup could not apply the picker to the running portal. The picker takes effect at the next portal start." ;;
-  *) vgs_tui_failed "$log" "Screen sharing setup failed. Open Capture settings to try again." ;;
+  *) vgs_tui_failed "$log" "Screen sharing setup failed. Select Set up screen sharing on the Capture page to try again." ;;
 esac
 exit "$result"

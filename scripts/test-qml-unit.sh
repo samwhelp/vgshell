@@ -64,6 +64,9 @@ fi
 # shipped themes by a relative path. The replacement keeps the text around the
 # behaviour and removes the behaviour. A field holds no `|`, the separator.
 mutations=(
+  "section descriptions keep the hint metrics|layout/SectionHeader.qml|        role: \"hint\"|        role: \"body\"|tst_sectionheader.qml"
+  "section descriptions forward the link|layout/SectionHeader.qml|onPageActivated: (page, tab) => root.pageActivated(page, tab)|onPageActivated: (page, tab) => {}|tst_sectionheader.qml"
+  "sections forward their header link|layout/Section.qml|onPageActivated: (page, tab) => root.pageActivated(page, tab)|onPageActivated: (page, tab) => {}|tst_sectionheader.qml"
   "a sticky header keeps half-gap padding|layout/Pane.qml|y: root.contentInset + root.headerHeight + Math.min(root.contentInset, root.headerGap - root.ringRoom - height)|y: root.contentInset + root.headerHeight + Math.round((root.headerGap - height) / 2)|tst_pane.qml"
   "a title divider covers its scrolling body|layout/Pane.qml|y: root.contentInset + root.headerHeight + Math.min(root.contentInset, root.headerGap - root.ringRoom - height)|y: root.contentInset + root.headerHeight + root.contentInset|tst_title_space.qml"
   "a sticky footer keeps half-gap padding|layout/Pane.qml|y: footerSlot.y - root.contentInset - height|y: footerSlot.y - root.footerGap + Math.round((root.footerGap - height) / 2)|tst_pane.qml"

@@ -9,6 +9,8 @@ rm -rf -- "$root"
 mkdir -p -- "$root/bin" "$root/state" "$root/runtime" "$root/home"
 mkdir -p -- "$root/bin/lib"
 ln -s -- "$repo/bin/lib/qml-library.js" "$root/bin/lib/qml-library.js"
+mkdir -p -- "$root/shell/Commons"
+cp -- "$repo/shell/Commons/PageReference.js" "$root/shell/Commons/"
 trap 'chmod -R u+rwx -- "${root:?}" 2>/dev/null; rm -rf -- "${root:?}"' EXIT
 failures=0
 ok() { printf '  ok    %s\n' "$*"; }
@@ -69,6 +71,17 @@ start_ms=$(( $(date +%s%N) / 1000000 ))
 elapsed=$(( $(date +%s%N) / 1000000 - start_ms ))
 if [[ $elapsed -lt 3000 ]]; then ok "check runs independent probes concurrently"; else fail "check runs independent probes concurrently: elapsed=${elapsed}ms"; fi
 if [[ $(wc -l <"$root/state/vgshell/updates-test/calls") -eq 4 ]]; then ok "check runs four probes once"; else fail "check runs four probes once"; fi
+missing_tree="$root/missing-page-reference"
+mkdir -p -- "$missing_tree/bin/lib"
+ln -s -- "$repo/bin/lib/qml-library.js" "$missing_tree/bin/lib/qml-library.js"
+module_status=0
+"${run_env[@]}" node "$repo/shell/plugins/vgs.updates/NormalizeCheck.js" "$missing_tree/bin/lib/qml-library.js" \
+  "$repo/shell/plugins/vgs.updates/UpdatesLogic.js" "$root/state" missing >"$root/module.out" 2>"$root/module.err" || module_status=$?
+if [[ $module_status == 2 ]] && grep -qxF "qml-library: refused: unreadable path=$missing_tree/shell/Commons/PageReference.js error=ENOENT" "$root/module.err"; then
+  ok "normalizer refuses a missing page-reference module"
+else
+  fail "normalizer refuses a missing page-reference module: exit=$module_status"
+fi
 # Process groups: each probe's vgshell leaves a grandchild in its group. TERM
 # to bin/check must reach it; the control signals each probe's pid alone
 # and leaves the grandchild running.

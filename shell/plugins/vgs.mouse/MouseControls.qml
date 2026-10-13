@@ -346,12 +346,13 @@ Column {
         }
     }
 
-    Label {
+    LinkText {
         visible: root.problem !== ""
         width: parent.width
         role: "hint"
         color: Theme.color.danger
         text: root.problem
         wrapMode: Text.Wrap
+        onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
     }
 }

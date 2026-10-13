@@ -198,13 +198,14 @@ Column {
         }
     }
 
-    Label {
+    LinkText {
         width: root.width
         role: "hint"
         visible: root.problem !== ""
         text: root.problem
         color: Theme.color.danger
         wrapMode: Text.Wrap
+        onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
     }
 
     PwNodePeakMonitor {

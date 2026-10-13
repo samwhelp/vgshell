@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import qs.Commons
 import qs.Ui
 
 // One row of the launcher's list: an icon tile or an application's own
@@ -42,6 +43,7 @@ Item {
     readonly property bool imageShown: imageIcon && image.source.toString().length > 0 && image.status !== Image.Error && !(image.status === Image.Ready && image.implicitWidth === 0)
     readonly property string fallbackGlyph: kind === "folder" ? "folder" : kind === "file" ? "file" : "app-window"
     readonly property bool isMenu: kind === "menu" || kind === "link"
+    readonly property var detailReference: PageReference.parse(detail)
     readonly property bool showsDetail: live && (launcher.filterText.length > 0 || kind === "option" || kind === "notice" || kind === "unavailable") && detail.length > 0
     // The row's own flyout opens over the hint, so the hint steps aside.
     readonly property bool openWithHintShown: live && hasCursor && (kind === "file" || kind === "folder") && launcher.flyoutPath !== path
@@ -132,11 +134,20 @@ Item {
                 textFormat: Text.PlainText
                 width: row.openWithHintShown ? Math.max(0, parent.width - hint.implicitWidth - parent.spacing) : parent.width
                 text: row.detail
+                visible: row.detailReference.page === ""
                 color: row.look.text.foreground
                 opacity: row.look.text.detail.opacity
                 font.family: row.look.font.family.sans
                 font.pixelSize: row.look.text.detail.size
                 elide: Text.ElideRight
+            }
+            LinkText {
+                visible: row.detailReference.page !== ""
+                width: parent.width
+                role: "hint"
+                text: row.detail
+                color: row.look.text.foreground
+                onPageActivated: (page, tab) => row.launcher.shell.surfaces.openPage(page, tab)
             }
             Row {
                 id: hint

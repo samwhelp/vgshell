@@ -314,7 +314,7 @@ FocusScope {
                 onClicked: root.action("check-connectivity", null)
             }
         }
-        Label {
+        LinkText {
             objectName: "network-problem"
             width: parent.width
             visible: text !== "" && !root.prompting
@@ -322,6 +322,7 @@ FocusScope {
             color: Theme.color.danger
             text: root.localProblem || root.network.problem || ""
             wrapMode: Text.Wrap
+            onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
         }
         Label {
             objectName: "network-permission-notice"

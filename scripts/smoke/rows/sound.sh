@@ -51,7 +51,7 @@
 # outputs, vgs.system's and vgs.sound's enablement, the shell's PATH
 # directory and the pactl stand-in's replies as it found them, a shell
 # started from the repository running, and the private PipeWire up.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.sound/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/LevelSlider.qml shell/Ui/feedback/LevelLabel.qml shell/Ui/feedback/LevelOsd.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Hosts/PaneHost.qml shell/Hosts/LayerHost.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/Notices.qml shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* bin/vgshell scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/hyprland-consent.sh shell/Ui/controls/RowAction.qml
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.sound/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/LevelSlider.qml shell/Ui/feedback/LevelLabel.qml shell/Ui/feedback/LevelOsd.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Hosts/PaneHost.qml shell/Hosts/LayerHost.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/Notices.qml shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* bin/vgshell scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/hyprland-consent.sh shell/Ui/controls/RowAction.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js
 set -euo pipefail
 devices_ready sound || return 0
 
@@ -171,6 +171,51 @@ for i in range(0, len(edits), 3):
 PY
 }
 
+snd_page_text='System Settings is not available. Turn it on in [Plugins](page:vgs.system).'
+snd_page_click() {
+  local rect spans link_box layer pitch x y last="" settled=false
+  # The error line changes the flyout's height. Read its final placement.
+  for _ in $(seq 1 50); do
+    rect="$(ipc smoke windowGeometry panel vgs.sound LinkText "$snd_page_text")" || return 1
+    if [[ $rect == \[* && $rect == "$last" ]]; then settled=true; break; fi
+    last="$rect"
+    sleep 0.1
+  done
+  [[ $settled == true ]] || { echo "sound-page: unsettled line=$rect" >&2; return 1; }
+  spans="$(ipc smoke readMatchingDescendant panel vgs.sound LinkText text "$snd_page_text" underlined)" || return 1
+  layer="$(surface_box vgs:panel)" || return 1
+  pitch="$(ipc smoke readMatchingDescendant panel vgs.sound LinkText text "$snd_page_text" linePitch)" || return 1
+  link_box="$(ipc smoke readMatchingDescendant panel vgs.sound LinkText text "$snd_page_text" linkBox)" || return 1
+  printf '  sound-page line=%s spans=%s linkBox=%s layer=%s pitch=%s\n' "$rect" "$spans" "$link_box" "$layer" "$pitch"
+  [[ $rect == \[* && $spans == \[* && $layer == \[* ]] || return 1
+  read -r x y < <(python3 -c 'import json,sys; r,s,l=map(json.loads,sys.argv[1:4]); p=float(sys.argv[4]); print("pending" if not s else "%d %d" % (l[0]+r[0]+(s[0]["left"]+s[0]["right"])/2, l[1]+r[1]+(s[0]["line"]+0.5)*p))' "$rect" "$spans" "$layer" "$pitch") || return 1
+  [[ $x != pending && -n $y ]] || return 1
+  printf '  sound-page click=%s,%s\n' "$x" "$y"
+  hover "$x" "$y" || return 1
+  printf '  sound-page after-hover line=%s pointer=%s\n' "$(ipc smoke windowGeometry panel vgs.sound LinkText "$snd_page_text")" "$(hypr cursorpos)"
+  expect_poll "the pointer reaches Sound's page words" true ipc smoke readMatchingDescendant panel vgs.sound LinkText text "$snd_page_text" hoveredLink
+  click "$x" "$y"
+}
+snd_page_open() {
+  expect "System turns off before its page reference" ok ipc shell setPluginEnabled vgs.system false
+  expect_poll "System is off before its page reference" False plugin_enabled vgs.system
+  expect "Sound opens with System off" ok ipc shell summon panel vgs.sound '{}'
+  expect_poll "the Sound panel maps with System off" 1 layer_count vgs:panel
+  summon_drawn panel vgs.sound || fail "the Sound panel never drew"
+  click_in vgs:panel panel vgs.sound Button "Sound settings" || fail "the Sound settings button was not pressed"
+  expect_poll "Sound draws the System page reference as a link" true ipc smoke readMatchingDescendant panel vgs.sound LinkText text "$snd_page_text" linked
+}
+snd_page_check() {
+  snd_page_click || fail "the Sound page link was not pressed"
+  expect_poll "Sound's link opens the System plugin page" '"vgs.system"' ipc smoke readInstance window vgs.settings page
+}
+snd_page_close() {
+  expect "Settings hides after the Sound page reference" ok ipc shell hide window vgs.settings
+  expect "Sound hides after its page reference" ok ipc shell hide panel vgs.sound
+  expect "System turns on after its page reference" ok ipc shell setPluginEnabled vgs.system true
+}
+expected_errors+=('WARN qml: sound panel: pane ')
+
 # The recorders: each name in the shell's PATH directory records its argv
 # as one JSON line, then runs the host's command when there is one.
 : >"$snd_spawns"
@@ -194,6 +239,9 @@ expect "the speakers start as WirePlumber's default" '"vgs-smoke-speakers"' snd_
 
 expect "enabling the System window is allowed" ok ipc shell setPluginEnabled vgs.system true
 expect "enabling Sound is allowed" ok ipc shell setPluginEnabled vgs.sound true
+snd_page_open
+snd_page_check
+snd_page_close
 expect_poll "the Sound widget is placed in the bar" True snd_placed
 snd_all_binds='[["XF86AUDIOLOWERVOLUME", "vgs.sound:volume-down"], ["XF86AUDIOMICMUTE", "vgs.sound:mic-mute"], ["XF86AUDIOMUTE", "vgs.sound:mute"], ["XF86AUDIORAISEVOLUME", "vgs.sound:volume-up"]]'
 expect_poll "the Hyprland layer binds the four audio keys to the Sound shortcuts" "$snd_all_binds" snd_binds
@@ -391,6 +439,7 @@ expect "System hides" ok ipc shell hide window vgs.system
 
 # Controls on one user copy of the plugin, each defect reaching one rule.
 snd_plugin_copy \
+  SoundControls.qml 'onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)' 'onPageActivated: (page, tab) => {}' \
   Widget.qml 'return answered("mute", shell.ipc.call("mute", ""));' 'Quickshell.execDetached(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]); return "ok";' \
   Widget.qml 'import qs.Commons' $'import Quickshell\nimport qs.Commons' \
   Service.qml 'if (!lister.running) root.list();' '' \
@@ -405,6 +454,11 @@ snd_plugin_copy \
 rescan "rescan picks the Sound copy"
 expect_poll "the copy's widget is placed" True snd_placed
 expect_log "the copy is the one built" 1 'plugins: hidden by a higher-precedence plugin with the same id: vgs.sound'
+snd_page_open
+snd_page_control() { (failures=0 behaviour_failures=0; snd_page_check >"$sandbox/sound-page-control.log"; echo "$failures"); }
+expect "control: a Sound link with no page handler fails the page check" 1 snd_page_control
+sed 's/^/  CONTROL  /' "$sandbox/sound-page-control.log"
+snd_page_close
 snd_dsp_step "control"
 read -r eq sp <<<"$snd_dsp_was"
 expect_poll "control: an Audio with no DSP resolution moves the filter's own volume" "$((eq - 5)) $sp" snd_dsp_now

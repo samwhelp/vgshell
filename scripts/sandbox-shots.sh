@@ -6976,8 +6976,9 @@ text = path.read_text()
 marker = "    Item {\n        id: container\n"
 assert text.count(marker) == 1, "the menu anchor container must occur once"
 handler = "        onWarningPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)\n" if sys.argv[3] == "true" else ""
-row = "    FormRow {\n        width: parent.width\n        labelColumn: false\n        warning: " + repr(sys.argv[2]).replace("'", '"') + "\n        warningTone: \"muted\"\n" + handler + "    }\n"
-path.write_text(text.replace(marker, row + marker, 1))
+row = "    FormRow {\n        id: pageLinkRow\n        width: parent.width\n        labelColumn: false\n        warning: " + repr(sys.argv[2]).replace("'", '"') + "\n        warningTone: \"muted\"\n" + handler + "    }\n"
+surface = "    Surface { anchors.fill: parent; z: -1 }\n"
+path.write_text(text.replace(marker, surface + row + "    SectionHeader { y: pageLinkRow.height + Theme.stack.section; width: parent.width; text: \"Probe\" }\n" + marker, 1))
 PYEDIT
       tree_rescan "the page link fixtures are scanned"
       for id in acme.probe acme.surfaces vgs.settings; do

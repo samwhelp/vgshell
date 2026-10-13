@@ -13,6 +13,7 @@ const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.updates", "UpdatesLogic.js");
+const commons = { "qs.Commons 1.0": { PageReference: load(path.join(__dirname, "../shell/Commons/PageReference.js")) } };
 // The shell's one wording of a past moment, which the widget and the window
 // hand the checked line.
 const Timestamp = load(path.join(__dirname, "..", "shell", "Commons", "Timestamp.js"));
@@ -113,6 +114,10 @@ post_remove() {
 `;
 
 function verify(logic) {
+    const missing = "A tool needed for this check is missing. Install it in [Plugins](page:vgs.updates/Setup).";
+    assert.equal(logic.errorText("helper-missing=checkupdates"), missing);
+    assert.equal(logic.checkState(null, false, 0, 0, "helper-missing=checkupdates").hint, missing);
+    assert.equal(logic.windowRows({ sources: [{ source: "pacman", label: "System", count: null, error: "helper-missing=checkupdates" }] })[0].secondary, "A tool needed for this check is missing. Install it in Plugins.");
     // Producer diagnostics never cross the display boundary.
     for (const diagnostic of ["spawn=failed", "unparseable pkg", "timeout=120", "fetch=failed", "helper-missing=checkupdates", "unexpected: key=value"]) {
         const text = logic.errorText(diagnostic);
@@ -473,7 +478,7 @@ function verifyView(logic) {
   for (const [request, value, want] of requestRows) assert.equal(logic.rebootNoticeRequested(request, value), want, "reboot notice request: " + request + " " + JSON.stringify(value));
 }
 
-verify(load(file));
+verify(load(file, commons));
 
 const controls = [
   ["a missing launcher needs installation repair", 'if (/reason=launcher-missing/.test(reply))', 'if (false)'],
@@ -582,7 +587,7 @@ try {
     const mutant = path.join(scratch, "UpdatesLogic.js");
     fs.writeFileSync(mutant, source.replace(needle, replacement));
     let red = false;
-    try { verify(load(mutant)); } catch (e) { red = true; }
+    try { verify(load(mutant, commons)); } catch (e) { red = true; }
     assert.equal(red, true, "control fails without rule: " + label);
   }
 } finally {
