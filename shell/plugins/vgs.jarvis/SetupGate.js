@@ -118,9 +118,11 @@ var TIMED_OUT = "Timed out";
 // The shell's own causes (LocalRuntime.qml setupCause), by their hint. The
 // daemon never reads one, and Session's gate follows the daemon alone
 // (jarvisd.js configured), so Jarvis still takes a request: the summary
-// stays ready with the cause as a caution, and no step turns to do.
+// stays ready with the cause as a caution, and no step turns to do. The
+// hint says what the cause means beside Ready and asks for nothing: the
+// check runs again after each setup run and requirement scan.
 var CAUTION = {
-    "setup=probe-timeout": "Jarvis setup check timed out. Turn Jarvis off and on again in Settings > Jarvis."
+    "setup=probe-timeout": "Jarvis answers, but its check of the local voice did not finish."
 };
 // The dictation causes (dictationCause), by the Voice step's value. The
 // core's dictation setup copies voxtype's defaults and downloads its model;
@@ -185,8 +187,7 @@ var START_CAUSES = [
     [/^jarvis: node=[^ ]+ need=22$/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", action: "Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis." }],
     [/^jarvis: daemon=exit code=78 status=/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", action: "Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis." }],
     [/^jarvis: daemon=(exit|ended)/, { kind: "daemon-exit", title: "Jarvis daemon stopped", action: START_RESTART }],
-    [/^jarvis: protocol=/, { kind: "wire-defect", title: "Jarvis message error", action: START_RESTART }],
-    [/^(jarvis: )?setup=probe-timeout$/, { kind: "probe-timeout", title: "Jarvis setup check timed out", action: START_RESTART, line: "jarvis: setup=probe-timeout" }]
+    [/^jarvis: protocol=/, { kind: "wire-defect", title: "Jarvis message error", action: START_RESTART }]
 ];
 var DAEMON_EXIT = { kind: "daemon-exit", title: "Jarvis daemon stopped", action: START_RESTART };
 var RETRYING_START = "Jarvis is trying again by itself.";
@@ -200,7 +201,7 @@ function startCause(cause) {
     for (var i = 0; i < START_CAUSES.length; i++) {
         if (START_CAUSES[i][0].test(cause)) {
             var words = START_CAUSES[i][1];
-            return { kind: words.kind, title: words.title, action: words.action, lines: [statusCauseLine(words.line || line)] };
+            return { kind: words.kind, title: words.title, action: words.action, lines: [line] };
         }
     }
     return { kind: DAEMON_EXIT.kind, title: DAEMON_EXIT.title, action: DAEMON_EXIT.action, lines: [line] };
@@ -664,19 +665,16 @@ function localVoiceStep(value, provider, voice) {
 // answer that is no status, "timeout" for a check past its deadline.
 // ENTRY is the reader's manifest status entry, whose setup action the hint
 // names: its one action, or its named setup action. A timeout is no step
-// to do: the daemon judges setup without the check (CAUTION), so the row
-// is not open under a Ready summary, it offers no setup, since its hint's
-// action is the one that mends it, and it draws no keyed cause, which the
-// reader logs (LocalRuntime.qml).
+// to do: the daemon judges setup without the check, so the row is not
+// open under a Ready summary, offers no setup and says what the Ready
+// summary says (CAUTION); it draws no keyed cause, which the reader logs
+// (LocalRuntime.qml).
 var CHECK_FAILURES = {
     failed: { text: "Setup check failed", reason: "Jarvis could not check this setup." },
     unreadable: { text: "Setup check returned invalid status", reason: "Jarvis could not read the answer of the setup check." }
 };
 function checkFailure(kind, entry) {
-    if (kind === "timeout") {
-        var problem = startCause("setup=probe-timeout");
-        return { tone: "info", text: problem.title, hint: problem.action, action: false };
-    }
+    if (kind === "timeout") return { tone: "info", text: "Check did not finish", hint: CAUTION["setup=probe-timeout"], action: false };
     if (!Object.prototype.hasOwnProperty.call(CHECK_FAILURES, kind)) throw new Error("jarvis-setup: check-failure=" + kind + " unexpected");
     var label = entry.action !== undefined ? entry.action.label : entry.actions.setup.label;
     return { tone: "warning", text: CHECK_FAILURES[kind].text,

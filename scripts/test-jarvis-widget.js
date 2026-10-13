@@ -58,12 +58,11 @@ const START_CAUSES = [
     ["jarvis: hello=timeout", "Jarvis did not answer in time", "Turn Jarvis off and on again in Settings > Jarvis."],
     ["jarvis: node=20.19.5 need=22", "Jarvis needs Node 22 or later", "Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis."],
     ["jarvis: daemon=exit code=1 status=0", "Jarvis daemon stopped", "Turn Jarvis off and on again in Settings > Jarvis."],
-    ["jarvis: protocol=identity", "Jarvis message error", "Turn Jarvis off and on again in Settings > Jarvis."],
-    ["jarvis: setup=probe-timeout", "Jarvis setup check timed out", "Turn Jarvis off and on again in Settings > Jarvis."]
+    ["jarvis: protocol=identity", "Jarvis message error", "Turn Jarvis off and on again in Settings > Jarvis."]
 ];
 const SETTING_CAUSES = [
     ["speech=local-ready-timeout", "off", "Jarvis needs local voice", ["Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis.", "Click or press Super+Shift+Right Alt to mute."]],
-    ["setup=probe-timeout", "ready", "Jarvis is ready", ["Hold Super+Right Alt and speak.", "Jarvis setup check timed out. Turn Jarvis off and on again in Settings > Jarvis.", "Click or press Super+Shift+Right Alt to mute."]]
+    ["setup=probe-timeout", "ready", "Jarvis is ready", ["Hold Super+Right Alt and speak.", "Jarvis answers, but its check of the local voice did not finish.", "Click or press Super+Shift+Right Alt to mute."]]
 ];
 const OVERFLOW = { tone: "danger", text: "capture-overflow" };
 const ARMED = { capture: { kind: "open", gen: 1, op: 2, mode: "armed" } };

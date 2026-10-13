@@ -326,16 +326,17 @@ widget = json.loads(sys.argv[2])
 row = status.get("localRuntime", {})
 setup = status.get("setup", {})
 voice = status.get("setupVoice", {})
-# The row is no open step under the ready summary: it offers no setup and
-# draws no keyed cause, which the log keeps.
-ok = row.get("tone") == "info" and row.get("text") == "Jarvis setup check timed out"
+# The row is no open step under the ready summary: it offers no setup,
+# draws no keyed cause, which the log keeps, and says what the summary says.
+ok = row.get("tone") == "info" and row.get("text") == "Check did not finish"
 ok = ok and row.get("action") is False and "lines" not in row
+ok = ok and row.get("hint", "") != "" and row.get("hint") in setup.get("hint", "")
 # The daemon never reads the probe timeout: the bar and the Setup status
 # state the readiness of the daemon's own causes, the summary draws no
 # keyed line, a ready bar shows it as a caution, and no step claims it.
 ready = widget.get("state") == "ready"
 ok = ok and ready == (setup.get("tone") == "ok") and "lines" not in setup
-ok = ok and "jarvis: setup=probe-timeout" not in voice.get("lines", []) and "Jarvis setup check timed out" not in voice.get("hint", "")
+ok = ok and "jarvis: setup=probe-timeout" not in voice.get("lines", []) and row.get("hint") not in voice.get("hint", "")
 ok = ok and (not ready or setup.get("hint", "") in widget.get("tooltipDetails", []))
 print("probe-timeout" if ok else "pending")
 PY

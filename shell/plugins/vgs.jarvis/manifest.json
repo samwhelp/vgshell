@@ -37,7 +37,7 @@
       "description": "Who Jarvis sounds like, from the voices of the selected voice provider.",
       "info": "With ElevenLabs, these are the voices of your account. Changing this ends the conversation." },
     "localTier": { "type": "string", "label": "Local voice model", "group": "Local voice", "optionsFrom": "localTiers",
-      "description": "Auto is the model that runs best on this computer. Choosing another model downloads it now. This choice changes the voice Jarvis speaks with. Dictation uses voxtype's model: change it with Choose model in Voice." },
+      "description": "Auto is the model that runs best on this computer. Choosing another model downloads it now. This choice changes the voice Jarvis speaks with. Dictation uses voxtype's model: change it with Choose model in [Settings > Voice](page:vgs.voice/Details)." },
     "clonedVoice": { "type": "boolean", "label": "Cloned voice", "group": "Local voice",
       "description": "Jarvis speaks in a voice recorded on this computer: yours, or one you have permission to use. The recording and the model stay on this computer. The model is Chatterbox Turbo by Resemble AI, under the MIT licence. It needs the Large local voice model on an NVIDIA graphics card.",
       "info": "Changing this ends the conversation." },

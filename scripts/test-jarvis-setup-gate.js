@@ -377,8 +377,7 @@ const START_CAUSES = [
     ["Node exit", "jarvis: daemon=exit code=78 status=0", "node-too-old"],
     ["daemon exit", "jarvis: daemon=exit code=1 status=0", "daemon-exit"],
     ["daemon ended", "jarvis: daemon=ended", "daemon-exit"],
-    ["wire defect", "jarvis: protocol=identity", "wire-defect"],
-    ["probe timeout", "jarvis: setup=probe-timeout", "probe-timeout"]
+    ["wire defect", "jarvis: protocol=identity", "wire-defect"]
 ];
 const ARBITRARY_STDERR = "SyntaxError: fixture";
 // The widest start cause title the VGS-1228 sheets show whole in the Setup
@@ -1490,12 +1489,11 @@ const CONTROLS = [
     ["Local voice does not say where its setup is", "value.action === true && value.hint === undefined ? [VOICE_STEP_SETS_UP] : []", "[]", "not set up: its line count"],
     ["Local voice says where its setup is while it runs", "value.action === true && value.hint === undefined ? [VOICE_STEP_SETS_UP] : []", "[VOICE_STEP_SETS_UP]", "setting up: its line count"],
     ["a Voice step with any action takes the local setup", 'if (voice.action === "setup") {', "if (voice.action) {", "one row offers Set up local voice"],
-    ["a timed-out check is an open step", 'return { tone: "info", text: problem.title, hint: problem.action, action: false };',
-        'return { tone: "warning", text: problem.title, hint: problem.action, action: false };', "timeout: the row is no open step"],
-    ["a timed-out check offers setup", 'return { tone: "info", text: problem.title, hint: problem.action, action: false };',
-        'return { tone: "info", text: problem.title, hint: problem.action, action: true };', "the row offers its setup only while setup mends it"],
-    ["a timed-out check draws its keyed cause", 'return { tone: "info", text: problem.title, hint: problem.action, action: false };',
-        'return { tone: "info", text: problem.title, hint: problem.lines[0], action: false };', "timeout: the row draws no keyed cause"],
+    ["a timed-out check is an open step", 'if (kind === "timeout") return { tone: "info",', 'if (kind === "timeout") return { tone: "warning",', "timeout: the row is no open step"],
+    ["a timed-out check offers setup", 'hint: CAUTION["setup=probe-timeout"], action: false };', 'hint: CAUTION["setup=probe-timeout"], action: true };',
+        "the row offers its setup only while setup mends it"],
+    ["a timed-out check draws its keyed cause", 'hint: CAUTION["setup=probe-timeout"], action: false };', 'hint: "setup=probe-timeout", action: false };',
+        "timeout: the row draws no keyed cause"],
     ["the Local voice row names a setup the Voice step does not offer", 'if (voice.action === "setup") {', 'if (voice.action === "setup" || voice.tone === "warning") {',
         "the Local voice row names no Voice step setup"],
     ["a home hint names a path with no page", '"home=path": "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Jarvis > Home folder."',
@@ -1583,6 +1581,10 @@ const CONTROLS = [
     ["a caution reads not ready", 'blocking.length === 0 ? { tone: "ok", text: "Ready", hint:', 'false ? { tone: "ok", text: "Ready", hint:', "the bar and the Setup status state one readiness"],
     ["a caution turns its step to do", 'var blocking = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });\n        var out',
         'var blocking = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });\n        REQUIRED.setup = "setupVoice"; TODO["setup=probe-timeout"] = CAUTION["setup=probe-timeout"]; blocking = answer.causes;\n        var out'],
+    ["the timed-out Local voice row asks for a restart", 'hint: CAUTION["setup=probe-timeout"], action: false };', "hint: START_RESTART, action: false };",
+        "probe timeout: the Local voice row reads the summary's judgement"],
+    ["the probe timeout caution asks for a restart", '"setup=probe-timeout": "Jarvis answers, but its check of the local voice did not finish."',
+        '"setup=probe-timeout": "Jarvis setup check timed out. Turn Jarvis off and on again in Settings > Jarvis."', "probe timeout: the caution asks for no restart beside Ready"],
     ["a wire-defect title overflows the chip", 'title: "Jarvis message error"', 'title: "Jarvis and its daemon could not understand each other"', "fits the Setup status chip"],
     ["a home cause marks no step", 'if (REQUIRED[step] === "setupHome") {', 'if (false) {'],
     ["a home text cause marks the voice step", 'guidance: "setupHome", ', 'guidance: "setupVoice", '],
@@ -2109,6 +2111,14 @@ function verifyCheckFailures(gate) {
             assert.deepEqual(keyedCauses(value, ["text", "hint", "lines"]), [], key + " timeout: the row draws no keyed cause");
         }
     }
+    // Jarvis takes a request while its setup check has timed out, so the
+    // summary is Ready, and the Local voice row and the caution say what
+    // that means: no restart beside Ready (VGS-1520's one judgement).
+    const probeTimeout = plain(gate.readiness({ kind: "answered", causes: ["setup=probe-timeout"] })).setup;
+    const timedOutRow = plain(gate.localVoiceStep(gate.checkFailure("timeout", manifest.status.localRuntime), "local", voiceDone));
+    assert.deepEqual([probeTimeout.tone, probeTimeout.text], ["ok", "Ready"], "probe timeout: the summary is Ready");
+    assert.equal(timedOutRow.hint, probeTimeout.hint, "probe timeout: the Local voice row reads the summary's judgement");
+    assert.equal(probeTimeout.hint.includes(gate.START_RESTART), false, "probe timeout: the caution asks for no restart beside Ready");
     assert.throws(() => gate.checkFailure("lost", manifest.status.localRuntime), /^Error: jarvis-setup: check-failure=lost unexpected/);
 }
 // Every cause the Setup table knows states one readiness on the bar and in
