@@ -170,7 +170,7 @@ expect_poll "Return on a description link opens its address" '["open https://exa
 # leaves the fixture's page shown. It is read after the pointer has left
 # the link, a motion the window takes after the click.
 page_link_fixture="$home/.config/vgshell/plugins/acme.page-link"
-page_link_text='[Bare page](page:acme.bare/Details) holds the rest.'
+page_link_text='[Bare page](page:acme.bare/Details) holds the rest'
 page_info_text='[Probe details](page:acme.probe/Details) explain it.'
 page_link_add() {
   mkdir -- "$page_link_fixture" || return 1
