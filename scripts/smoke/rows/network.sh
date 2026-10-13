@@ -566,7 +566,7 @@ expect_poll "the connected portal offers sign-in" True net_portal_available
 expect "portal detection waits for the user to open the browser" '[]' net_portal_calls
 expect "the sign-in dropdown opens" ok ipc shell summon panel vgs.network '{}'
 expect_poll "the sign-in dropdown is mounted" shown net_shown panel
-click_in "panel:Network" panel vgs.network RowAction 'Sign in' || fail "network: sign-in action was not clickable"
+click_in vgs:panel panel vgs.network RowAction 'Sign in' || fail "network: sign-in action was not clickable"
 expect_poll "Sign in opens the fixed HTTP page through the browser stand-in" "[[\"$net_portal_url\"]]" net_portal_calls
 device_reply nmcli 0 "full" --wait 10 networking connectivity check
 net_expect_fixture "the portal grants internet access" full || return 0
