@@ -423,6 +423,7 @@ for latency_control_bound in 150 240 292; do
   expect "slow reading at the load limit fails: $latency_control_bound" over latency_verdict "{\"drawn\":$latency_control_slow,\"contention\":{\"cpu_some_pct\":0.0,\"load_per_core\":1.00}}" "$latency_control_bound"
   expect "slow reading above the load limit is not measured: $latency_control_bound" unmeasured latency_verdict "{\"drawn\":$latency_control_slow,\"contention\":{\"cpu_some_pct\":0.0,\"load_per_core\":1.01}}" "$latency_control_bound"
   expect "slow reading with missing load is unread: $latency_control_bound" unread latency_verdict "{\"drawn\":$latency_control_slow,\"contention\":{\"cpu_some_pct\":0.0}}" "$latency_control_bound"
+  expect "missing reading above the load limit is unread: $latency_control_bound" unread latency_verdict '{"contention":{"cpu_some_pct":0.0,"load_per_core":1.01}}' "$latency_control_bound"
 done
 # Keep pressure attached to each sample. A busy sample excludes only itself.
 expect "slow busy theme makes the batch not measured" unmeasured latency_theme_bound '[{"drawn":293,"stamped":293,"contention":{"cpu_some_pct":30.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}}]'
