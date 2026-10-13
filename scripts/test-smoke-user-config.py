@@ -66,6 +66,20 @@ def mutant_writer(scratch, old, new):
     return mutant
 
 
+def writer_progressed(config, destination):
+    if destination.read_bytes() != BEFORE:
+        return True
+    for staged in config.glob(".shell.json.*"):
+        try:
+            if staged.stat().st_size:
+                return True
+        except FileNotFoundError:
+            # A rename published this staging file after the glob listed it;
+            # the next poll reads the destination it became.
+            pass
+    return False
+
+
 def concurrent_read(writer, scratch, start):
     home = scratch / "home"
     config = home / ".config/vgshell"
@@ -92,13 +106,17 @@ def concurrent_read(writer, scratch, start):
         os.write(fd, AFTER[:1])
         # A non-empty staging file or a changed destination proves the writer
         # made progress. The source stays open until after the concurrent read.
-        while not (any(p.stat().st_size for p in config.glob(".shell.json.*"))
-                   or destination.read_bytes() != BEFORE):
+        while not writer_progressed(config, destination):
             assert child.poll() is None, "restore stopped before copying the prefix"
             assert time.monotonic() < deadline, "restore never copied the prefix"
             time.sleep(0.01)
         assert child.poll() is None, "restore ended before the source finished"
-        observed = json.loads(destination.read_bytes())
+        # An empty or partial destination is the same broken publish as a
+        # replaced one, so every mutant fails with one exception type.
+        try:
+            observed = json.loads(destination.read_bytes())
+        except json.JSONDecodeError as error:
+            raise AssertionError("unfinished restore published a broken document") from error
         assert observed == {"version": 2, "plugins": []}, "unfinished restore replaced the document"
         os.write(fd, AFTER[1:])
         os.close(fd)
@@ -147,8 +165,22 @@ class RestoreTests(unittest.TestCase):
                 '"$@" >"$staged" || return',
                 '"$@" >"$destination" || return',
             )
-            with self.assertRaises(json.JSONDecodeError):
+            with self.assertRaises(AssertionError):
                 concurrent_read(mutant, scratch, restore)
+
+    def test_empty_publish_control_fails_same_contract(self):
+        # The truncation lands before the source's first byte is staged, so
+        # the reader always meets an empty destination with the writer alive.
+        with scratch_dir() as scratch:
+            scratch = Path(scratch)
+            mutant = mutant_writer(
+                scratch,
+                '"$@" >"$staged" || return',
+                ': >"$destination"; "$@" >"$staged" || return',
+            )
+            with self.assertRaises(AssertionError) as raised:
+                concurrent_read(mutant, scratch, restore)
+            self.assertIsInstance(raised.exception.__cause__, json.JSONDecodeError)
 
     def test_failed_command_keeps_document_and_removes_staging(self):
         with scratch_dir() as scratch:
