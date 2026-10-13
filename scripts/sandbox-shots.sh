@@ -2450,14 +2450,17 @@ scene_notifications() { # MODE
   expect "the history clears" ok notes clear-history
   expect_poll "no toast is left" 0 on_screen
   # Icons: a card whose icon the theme lacks, sent as notify-send --icon
-  # sends it, and two VGS plugin notices with no icon of their own, one
-  # line and two, with the hints the core's shell.notify.send adds; then
-  # the same cards in the inbox.
+  # sends it, and four VGS plugin notices with no icon of their own, with
+  # the hints the core's shell.notify.send adds: no tone, danger, success
+  # and warning, so the bell and each tone's icon show; then the same
+  # cards in the inbox.
   ids=()
   ids+=("$(notify smoke-power "Battery caution" "15% left, plug in soon" '[]' '{"image-path": <"vgs-smoke-themeless">}')")
+  ids+=("$(notify Updates "Updates are ready" "" '[]' '{"x-vgs-plugin": <"vgs.updates">, "x-vgs-click": <"none">}')")
+  ids+=("$(notify Power "Battery critical" "Suspending in 2 minutes" '[]' '{"x-vgs-plugin": <"vgs.power">, "x-vgs-tone": <"danger">, "x-vgs-click": <"none">}')")
   ids+=("$(notify Power "Charging resumed" "" '[]' '{"x-vgs-plugin": <"vgs.power">, "x-vgs-tone": <"success">, "x-vgs-click": <"none">}')")
   ids+=("$(notify Power "Battery saver is on" "Background sync pauses until you plug in" '[]' '{"x-vgs-plugin": <"vgs.power">, "x-vgs-tone": <"warning">, "x-vgs-click": <"none">}')")
-  expect_poll "three icon toasts are on screen" 3 on_screen
+  expect_poll "five icon toasts are on screen" 5 on_screen
   take "notifications-$1-icons"
   expect "the inbox opens on the icon cards" ok notes inbox
   expect_poll "the panel is the inbox for the icon cards" '"inbox"' ipc smoke readInstance service vgs.notifications panelMode
