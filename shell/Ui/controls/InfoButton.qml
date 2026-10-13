@@ -1,12 +1,13 @@
 import QtQuick
 import QtQuick.Window
+import Quickshell
 import qs.Commons
 import qs.Ui
 
 // A small info icon for one explanation. Hover or keyboard focus shows the
 // explanation in the icon's tooltip; pointer, Space, Enter or Return opens
-// it in a dialog. Close, Escape or a press outside closes the dialog and
-// returns focus to the icon.
+// it in a modal dialog centred over the icon's window. Close, Escape or a
+// press outside the dialog closes it and returns focus to the icon.
 IconButton {
     id: root
 
@@ -67,23 +68,73 @@ IconButton {
     onInfoChanged: if (info === "") destroyPopup()
     Component.onDestruction: destroyPopup()
 
+    // The dialog draws the one frame. Its popup lies on the icon's window,
+    // anchored at that window's top-left (PopupAnchor's default edges and
+    // gravity, Quickshell 0.3.1 src/core/popupanchor.hpp) and as large, so
+    // its scrim washes every row of the window and the dialog sits centred
+    // in it, `dialog.margin` inside the window's edges.
     Component {
         id: infoComponent
 
-        Popover {
-            id: pop
+        Item {
+            id: host
 
-            width: OverlayState.widthFor(root, Theme.dialog.width)
-            onOpenedChanged: if (!opened) root.infoClosed()
+            readonly property bool opened: window.visible
+            readonly property Item covered: root.Window.window === null ? null : root.Window.window.contentItem
+            readonly property AnchorTracker tracker: AnchorTracker { popup: window; anchor: root }
 
-            Dialog {
-                width: pop.width
-                modal: true
-                availableHeight: pop.availableHeight
-                title: root.title
-                message: root.info
-                actions: [{ label: "Close", role: "cancel", focused: true }]
-                onRejected: root.closeInfo()
+            visible: false
+
+            function open() {
+                window.visible = true;
+                Qt.callLater(() => dialog.forceActiveFocus(Qt.OtherFocusReason));
+            }
+            function close() { window.visible = false; }
+
+            // The dialog's share of OverlayState, taken as Popover takes its own.
+            property bool counted: false
+            function share(open) {
+                if (open === counted) return;
+                counted = open;
+                if (open) OverlayState.opened(); else OverlayState.closed();
+            }
+            Component.onDestruction: share(false)
+
+            PopupWindow {
+                id: window
+
+                anchor.item: host.covered
+                // A slide or a flip would move the scrim off the window.
+                anchor.adjustment: PopupAdjustment.None
+                grabFocus: true
+                visible: false
+                color: "transparent"
+                implicitWidth: Math.max(1, host.covered === null ? 0 : host.covered.width)
+                implicitHeight: Math.max(1, host.covered === null ? 0 : host.covered.height)
+                onVisibleChanged: {
+                    host.share(visible);
+                    if (!visible) root.infoClosed();
+                }
+
+                DismissScope {
+                    popup: window
+                    anchor: root
+
+                    Scrim { onClicked: root.closeInfo() }
+
+                    Dialog {
+                        id: dialog
+                        anchors.centerIn: parent
+                        width: Math.min(implicitWidth, parent.width - 2 * Theme.dialog.margin)
+                        availableHeight: parent.height - 2 * Theme.dialog.margin
+                        focus: true
+                        modal: true
+                        title: root.title
+                        message: root.info
+                        actions: [{ label: "Close", role: "cancel", focused: true }]
+                        onRejected: root.closeInfo()
+                    }
+                }
             }
         }
     }

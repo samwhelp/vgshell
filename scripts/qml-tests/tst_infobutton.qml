@@ -7,8 +7,9 @@ import qs.Unit
 // InfoButton shows its explanation in its tooltip on hover and on keyboard
 // focus, and its label there when it has none. It opens a dialog by click,
 // Return and Space; the dialog closes by Escape, its Close button and a
-// press outside, and focus returns to the icon. A Field draws the icon only
-// when `info` is set.
+// press outside, and focus returns to the icon. The open dialog draws one
+// frame, centred inside the window's dialog margin over a scrim that washes
+// every row of the window. A Field draws the icon only when `info` is set.
 Item {
     id: root
     width: 520
@@ -196,6 +197,76 @@ Item {
             tryCompare(info, "infoOpen", false);
             tryCompare(info, "activeFocus", true);
             compare(outside.activeFocus, false);
+            info.destroyPopup();
+        }
+
+        // The frames the open help draws: every GlassSurface in its popup.
+        function frames(of) {
+            return descendants(popup(of).contentItem).filter(child => child.glassSurface === true && child.visible);
+        }
+        // Open the help by pointer and wait for its surface to take the
+        // window's size, which the platform applies once the surface shows.
+        function openHelp() {
+            mouseClick(info);
+            tryCompare(info, "infoOpen", true);
+            const covered = root.Window.window.contentItem;
+            tryCompare(popup(info).contentItem, "width", covered.width);
+            tryCompare(popup(info).contentItem, "height", covered.height);
+            return popup(info);
+        }
+        function boxIn(item, within) {
+            const at = item.mapToItem(within, 0, 0);
+            return { x: at.x, y: at.y, width: item.width, height: item.height };
+        }
+
+        function test_the_help_draws_one_frame() {
+            mouseClick(info);
+            tryCompare(info, "infoOpen", true);
+            const drawn = frames(info);
+            compare(drawn.length, 1, "the help draws one frame");
+            compare(drawn[0].parent, dialog(info), "the one frame is the dialog's");
+            info.closeInfo();
+            tryCompare(info, "activeFocus", true);
+            info.destroyPopup();
+        }
+
+        // A theme dialog wider than the window shows the cap: the dialog
+        // takes the window's width less the margin on each side.
+        function test_the_help_stays_inside_the_content_edge_data() {
+            return [
+                { tag: "theme width", width: 0 },
+                { tag: "wider than the window", width: 900 }
+            ];
+        }
+
+        function test_the_help_stays_inside_the_content_edge(data) {
+            if (data.width > 0) compare(UnitTheme.override({ dialog: { width: data.width } }), "ok");
+            const window = openHelp();
+            const margin = Theme.dialog.margin;
+            const box = boxIn(dialog(info), window.contentItem);
+            verify(box.x >= margin && box.x + box.width <= window.width - margin, "the dialog spans x " + box.x + "+" + box.width + " in a window " + window.width + " wide");
+            verify(box.y >= margin && box.y + box.height <= window.height - margin, "the dialog spans y " + box.y + "+" + box.height + " in a window " + window.height + " tall");
+            fuzzyCompare(box.x, window.width - box.x - box.width, 1, "the dialog is centred across the window");
+            fuzzyCompare(box.y, window.height - box.y - box.height, 1, "the dialog is centred down the window");
+            info.closeInfo();
+            tryCompare(info, "activeFocus", true);
+            info.destroyPopup();
+        }
+
+        // Every row of the window lies under the help's scrim, so none is
+        // drawn undimmed beside the dialog, and a press on one closes the
+        // help without reaching that row.
+        function test_the_help_covers_no_row_undimmed() {
+            const window = openHelp();
+            const scrim = descendants(window.contentItem).find(child => child.scrim === true && child.visible);
+            verify(scrim !== undefined, "the help draws a scrim");
+            const wash = boxIn(scrim, window.contentItem);
+            for (const row of [info, bare, explained, plain, outside]) {
+                const box = boxIn(row, root);
+                verify(box.x >= wash.x && box.y >= wash.y && box.x + box.width <= wash.x + wash.width && box.y + box.height <= wash.y + wash.height, "a row at " + box.x + "," + box.y + " lies outside the scrim");
+            }
+            info.closeInfo();
+            tryCompare(info, "activeFocus", true);
             info.destroyPopup();
         }
 
