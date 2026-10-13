@@ -256,9 +256,9 @@ def open_folder(part, parent, configured, walked):
         raise
     if linked:
         target = os.fstat(child)
-        # A linked folder gets the trust an unlinked one on the path has: yours,
-        # or root's with no group or other write, as Fedora Atomic's /home links
-        # to var/home. A folder others can write, as /tmp, lets them swap files.
+        # A linked folder must be yours, or root's with no group or other
+        # write, as Fedora Atomic's /home links to var/home. A folder others
+        # can write, as /tmp, lets them swap files.
         whose = ("" if target.st_uid == os.geteuid()
                  or target.st_uid == 0 and not target.st_mode & 0o022
                  else "other users can write" if target.st_uid == 0 else "another user owns")

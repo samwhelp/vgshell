@@ -628,7 +628,7 @@ class PickerTests(unittest.TestCase):
                 self.assertEqual(owned_file.read_text(), "")
                 self.assertEqual(self.restarts(), [])
 
-    def test_configure_trusts_a_linked_folder_as_an_unlinked_one(self):
+    def test_configure_trusts_a_linked_folder_only_its_owner_or_root_controls(self):
         # The fixture reports the link target's owner and mode, so no real
         # root-owned folder is read. The test owns the target, so a missing
         # check would write into it.
