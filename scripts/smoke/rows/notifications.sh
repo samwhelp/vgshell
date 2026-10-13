@@ -2868,6 +2868,116 @@ tail -n +"$((third_version_log_from + 1))" -- "$instance_log" >"$sandbox/notific
 check_unexpected_log "the shell's log over the version 3 file" "$sandbox/notifications-third-version.log"
 expect "Sound turns on after the version 3 file" on notes sound on
 
+restart_notes() {
+  expect "the notifications stop $1" ok ipc shell setPluginEnabled vgs.notifications false
+  expect_poll "the notification service is gone $1" False record_exists vgs.notifications
+  expect "the notifications start $1" ok ipc shell setPluginEnabled vgs.notifications true
+  expect_poll "the notification service is built $1" True record_exists vgs.notifications
+}
+
+# A second store reads the migrated current file without another migration.
+restart_notes "after the version 3 migration"
+expect_poll "the next start reads the migrated file" '"loaded"' note_status store.state
+expect "the next start keeps the migrated history" '["Third version newest", "Third version middle", "Third version oldest"]' history_summaries
+expect "the next start performs no second migration" 1 log_lines 'notifications: state migrated: '
+
+notification_archives() {
+  local file count=0
+  for file in "${note_state%.json}".set-aside-*.json; do [[ ! -f $file ]] || count=$((count + 1)); done
+  printf '%s\n' "$count"
+}
+skipped_version_written() { expect_poll "the skipped version is replaced with current state" 4 state_at version; }
+recovery_notice_rows() { ipc smoke modelRows vgs.notifications rows urgency,hintTone; }
+
+# The old refusal is planted in a fresh plugin directory. The same current
+# file assertion must fail against its real Store before either success case.
+expect "notifications stop before the old-refusal control" ok ipc shell setPluginEnabled vgs.notifications false
+expect_poll "the store is gone before the old-refusal control" False record_exists vgs.notifications
+plant_state 'd["version"] = 1; d.pop("boot", None)'
+obsolete_copy="$home/.config/vgshell/plugins/vgs.notifications"
+mkdir -p -- "$(dirname -- "$obsolete_copy")"
+cp -R -- "$repo/shell/plugins/vgs.notifications" "$obsolete_copy"
+python3 "$source_repo/scripts/smoke/fixtures/ai-usage/edit.py" "$obsolete_copy/Store.qml" 'if (Logic.obsoleteState(text)) {' 'if (false && Logic.obsoleteState(text)) {' || fail "the old refusal control could not be written"
+expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.notifications' 'notifications: state refused: file=.*state\.json reason=version want=4' 'notifications: state held in memory: file=.*state\.json state=corrupt')
+rescan "the old-refusal control is discovered"
+expect "notifications start over the old-refusal control" ok ipc shell setPluginEnabled vgs.notifications true
+expect_poll "the control refuses the old version" '"corrupt"' note_status store.state
+old_refusal_control() {
+  (failures=0 behaviour_failures=0; skipped_version_written >"$sandbox/notifications-old-refusal-control.log"; echo "$failures")
+}
+expect "control: the old refusal fails the current-file assertion" 1 old_refusal_control
+expect "notifications stop after the old-refusal control" ok ipc shell setPluginEnabled vgs.notifications false
+expect_poll "the control store is gone" False record_exists vgs.notifications
+rm -rf -- "${obsolete_copy:?}"
+rescan "the shipped notification store returns"
+
+for obsolete_version in 1 2; do
+  plant_state "d['version'] = $obsolete_version; d['sound'] = False; d['dnd'] = True; d['readBefore'] = 123; d['history'] = [entry('Skipped version history', 908, now - 1000)]; d['live'] = []; d.pop('boot', None) if $obsolete_version == 1 else None; d.pop('sound', None) if $obsolete_version == 2 else None"
+  cp -- "$note_state" "$sandbox/notifications-old-$obsolete_version.json"
+  obsolete_archives="$(notification_archives)"
+  obsolete_notices="$(log_lines 'notifications: state set aside: ')"
+  if [[ $obsolete_version == 1 ]]; then
+    obsolete_identity="$(stat -c '%Y-%i' -- "$note_state")"
+    obsolete_archive="${note_state%.json}.set-aside-$(date -u -d "@${obsolete_identity%%-*}" +%Y-%m-%dT%H-%M-%SZ)-${obsolete_identity#*-}.json"
+    printf 'unrelated archive' >"$obsolete_archive"
+    expected_errors+=('notifications-images: error=archive-link path=' 'notifications: state not set aside: file=' 'notifications: state held in memory: file=.*state\.json state=unreadable')
+    expect "the store starts over a blocked archive" ok ipc shell setPluginEnabled vgs.notifications true
+    expect_poll "a blocked archive holds the store unreadable" '"unreadable"' note_status store.state
+    expect "a blocked archive keeps the old current file" 1 state_at version
+    expect "a blocked archive sends no reset notice" "$obsolete_notices" log_lines 'notifications: state set aside: '
+    expect "the store stops before archive recovery" ok ipc shell setPluginEnabled vgs.notifications false
+    expect_poll "the blocked store is gone" False record_exists vgs.notifications
+    rm -f -- "$obsolete_archive"
+  else
+    # Make the real atomic replacement fail after the real archive link.
+    # The next store must reuse that link and complete the replacement.
+    cp -- "$repo/shell/plugins/vgs.notifications/images.sh" "$sandbox/images.sh.recovery-kept"
+    python3 "$source_repo/scripts/smoke/fixtures/ai-usage/edit.py" "$repo/shell/plugins/vgs.notifications/images.sh" \
+      $'    printf \'%s\\n\' "$archive"\n    ;;' $'    chmod u-w -- "${file%/*}"\n    printf \'%s\\n\' "$archive"\n    ;;' || fail "the replacement-failure fixture could not be written"
+    expected_errors+=('notifications: state not written: file=.*state\.json error=' 'notifications-images: error=remove path=')
+    obsolete_write_failures="$(log_lines 'notifications: state not written: ')"
+    expect "the store starts over a failed replacement" ok ipc shell setPluginEnabled vgs.notifications true
+    expect_log "the atomic replacement reports its failure" "$((obsolete_write_failures + 1))" 'notifications: state not written: '
+    expect_poll "the failed replacement leaves the old version" '"absent"' note_status store.state
+    expect "the failed replacement keeps the old file" 2 state_at version
+    expect "the failed replacement keeps one archive" "$((obsolete_archives + 1))" notification_archives
+    expect "the failed replacement sends no reset notice" "$obsolete_notices" log_lines 'notifications: state set aside: '
+    expect "the store stops before retrying the replacement" ok ipc shell setPluginEnabled vgs.notifications false
+    expect_poll "the failed-replacement store is gone" False record_exists vgs.notifications
+    chmod u+w -- "${note_state%/*}"
+    cp -- "$sandbox/images.sh.recovery-kept" "$repo/shell/plugins/vgs.notifications/images.sh"
+  fi
+  expect "notifications start over skipped version $obsolete_version" ok ipc shell setPluginEnabled vgs.notifications true
+  expect_poll "the skipped version $obsolete_version store is writable" '"loaded"' note_status store.state
+  skipped_version_written
+  expect "the skipped version $obsolete_version history is reset" 0 history_count
+  expect "the skipped version $obsolete_version Sound starts on" true state_at sound
+  expect "the skipped version $obsolete_version Do Not Disturb starts off" false state_at dnd
+  expect "the skipped version $obsolete_version read marks reset" 0 state_at readBefore
+  expect "the skipped version $obsolete_version has one dated archive" "$((obsolete_archives + 1))" notification_archives
+  archived_bytes_match() {
+    local file
+    for file in "${note_state%.json}".set-aside-*.json; do
+      if cmp -s -- "$file" "$sandbox/notifications-old-$obsolete_version.json"; then echo yes; return; fi
+    done
+    echo no
+  }
+  expect "the skipped version $obsolete_version archive keeps all original bytes" yes archived_bytes_match
+  expect_poll "the skipped version $obsolete_version sends one critical warning" '[[2, "warning"]]' recovery_notice_rows
+  expect "the recovery notice is transient" '[]' live_summaries
+  expect_log "the skipped version $obsolete_version recovery is logged once" "$((obsolete_notices + 1))" 'notifications: state set aside: '
+  expect "the recovery notice closes" ok notes dismiss-all
+  restart_notes "after skipped version $obsolete_version recovery"
+  expect_poll "the next start reads skipped version $obsolete_version as current" '"loaded"' note_status store.state
+  expect "the next start reports no store problem" '""' note_status store.problem
+  expect "the next start keeps the same archive count" "$((obsolete_archives + 1))" notification_archives
+  expect "the next start sends no repeated recovery" "$((obsolete_notices + 1))" log_lines 'notifications: state set aside: '
+  expect "notifications stop before the next state fixture" ok ipc shell setPluginEnabled vgs.notifications false
+  expect_poll "the store is gone before the next state fixture" False record_exists vgs.notifications
+done
+expect "notifications return after the skipped-version checks" ok ipc shell setPluginEnabled vgs.notifications true
+expect_poll "notifications are ready after the skipped-version checks" '"loaded"' note_status store.state
+
 # A state file the judge refuses is reported and left as it is; clearing
 # the history starts it over.
 expect "disabling the notifications before the corrupt file is allowed" ok ipc shell setPluginEnabled vgs.notifications false
@@ -2963,12 +3073,6 @@ for item in items.split(";"):
     drawn += [labels[account]] + steps[state]
 print(json.dumps([["Slack tokens", "reported", "", rows]]) if what == "rows" else json.dumps([drawn]))
 PY
-}
-restart_notes() {
-  expect "the notifications are disabled to read the tokens $1" ok ipc shell setPluginEnabled vgs.notifications false
-  expect_poll "the service is gone before the tokens $1 are read" False record_exists vgs.notifications
-  expect "the notifications are enabled to read the tokens $1" ok ipc shell setPluginEnabled vgs.notifications true
-  expect_poll "the service is built to read the tokens $1" True record_exists vgs.notifications
 }
 # change_offered ACCOUNT_LABEL: whether that account's line draws Replace.
 change_offered() { [[ $(ipc smoke scopedWindowGeometry window vgs.settings StatusLine "$1" RowAction "Replace") == \[* ]] && echo true || echo false; }

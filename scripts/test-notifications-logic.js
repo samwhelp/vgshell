@@ -684,6 +684,13 @@ function verify(logic) {
     same(logic.migrateState(stateText({})), { text: stateText({}), migrated: false }, "this version's file is read as it is");
     const broken = logic.migrateState(stateText({ version: 3, history: {} }));
     same([broken.migrated, logic.parseState(broken.text)], [true, { ok: false, error: "history want=list" }], "a version 3 file with a defect is refused by the same judge");
+    for (const [text, want] of [
+        [JSON.stringify({ version: 1 }), true], [JSON.stringify({ version: 2 }), true],
+        [STATE_V3, false], [stateText({}), false], [stateText({ version: 5 }), false],
+        [JSON.stringify({ version: 0 }), false], [JSON.stringify({ version: -1 }), false],
+        [JSON.stringify({ version: 1.5 }), false], [JSON.stringify({ version: "1" }), false],
+        ["{ nope", false], ["[]", false], ["null", false], ["{}", false]
+    ]) same(logic.obsoleteState(text), want, "only skipped VGS format versions are set aside");
 
     // A start after a reboot: the same boot keeps everything; another boot
     // clears the toasts and the history and keeps Sound, Silence and Mark
@@ -1277,6 +1284,10 @@ const CONTROLS = [
     ["a version 3 file is migrated", " || parsed.version !== 3) return same;", " || true) return same;"],
     ["only version 3 is migrated", " || parsed.version !== 3) return same;", ") return same;"],
     ["a migrated file takes this version", "    parsed.version = STATE_VERSION;\n", ""],
+    ["skipped versions are set aside", "parsed.version > 0 && parsed.version < STATE_VERSION - 1", "false"],
+    ["the previous version keeps its migration", "parsed.version < STATE_VERSION - 1", "parsed.version < STATE_VERSION"],
+    ["only integral versions are set aside", "Number.isInteger(parsed.version)", "typeof parsed.version === \"number\""],
+    ["nonpositive versions stay refused", "parsed.version > 0 && ", ""],
     ["an Inbox dismissal keeps the entry", 'var kept = mode === "inbox" ? [Object', "var kept = false ? [Object"],
     ["a History dismissal deletes the entry", 'var kept = mode === "inbox" ? [Object', "var kept = true ? [Object"],
     ["a dismissal with no panel open deletes the entry", 'var kept = mode === "inbox" ? [Object', 'var kept = mode !== "history" ? [Object'],

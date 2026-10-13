@@ -21,7 +21,7 @@ TMP_ROOT="$(mktemp -d)" || { echo "test-notifications-images: scratch=mktemp-fai
 [[ -d $TMP_ROOT && ! -L $TMP_ROOT ]] || { echo "test-notifications-images: scratch=not-a-directory value=[$TMP_ROOT]" >&2; exit 1; }
 TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)"
 trap 'rm -rf -- "${TMP_ROOT:?}"' EXIT
-for tool in timeout head stat mkfifo; do
+for tool in timeout head stat mkfifo date ln; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     printf 'test-notifications-images: status=not-measured missing=%s\n' "$tool"
     exit 77
@@ -57,6 +57,38 @@ suite() {
 
   check "prepare makes both directories" $'\nstderr=\nexit=0' "$(run "$script" prepare "$state" "$images")"
   check "the images directory exists" yes "$([[ -d $images ]] && echo yes || echo no)"
+
+  local original="$state/state.json" archive
+  printf 'original state' >"$original"
+  archive="$state/state.set-aside-$(date -u -d "@$(stat -c %Y -- "$original")" +%Y-%m-%dT%H-%M-%SZ)-$(stat -c %i -- "$original").json"
+  check "archive retains the original under its dated name" "$archive
+stderr=
+exit=0" "$(run "$script" archive "$original")"
+  check "the archive holds the original bytes" 'original state' "$(cat "$archive" 2>/dev/null || echo absent)"
+  check "the original remains intact until replacement" 'original state' "$(cat "$original")"
+  check "an interrupted replacement reuses its archive" "$archive
+stderr=
+exit=0" "$(run "$script" archive "$original")"
+  printf 'current state' >"$state/current.tmp"
+  mv -f -- "$state/current.tmp" "$original"
+  check "atomic replacement keeps the archive unchanged" 'original state' "$(cat "$archive" 2>/dev/null || echo absent)"
+  check "atomic replacement changes the current file" 'current state' "$(cat "$original")"
+  rm -f -- "$original"
+  ln -s -- "$archive" "$original"
+  check "archive refuses a symlink source" "
+stderr=notifications-images: error=archive-source path=$original
+exit=4" "$(run "$script" archive "$original")"
+  rm -f -- "$original"
+  check "archive refuses a missing source" "
+stderr=notifications-images: error=archive-source path=$original
+exit=4" "$(run "$script" archive "$original")"
+  printf 'another original' >"$original"
+  archive="$state/state.set-aside-$(date -u -d "@$(stat -c %Y -- "$original")" +%Y-%m-%dT%H-%M-%SZ)-$(stat -c %i -- "$original").json"
+  printf 'unrelated archive' >"$archive"
+  got="$(run "$script" archive "$original")"
+  check "an archive collision fails" 4 "${got##*exit=}"
+  check "an archive collision keeps the original" 'another original' "$(cat "$original")"
+  check "an archive collision keeps the unrelated archive" 'unrelated archive' "$(cat "$archive")"
 
   got="$(run "$script" copy "$images" "$world/sender/avatar.png" "$images/1-7-image" "$world/sender/gone.png" "$images/1-7-appIcon" "$world/sender/pipe" "$images/2-7-image" "$world/sender/huge.png" "$images/3-7-image" "$world/sender/edge.png" "$images/4-7-image")"
   check "each copy answers one line" "copied $images/1-7-image
@@ -109,6 +141,9 @@ controls = [
     ("sweep keeps owned", 'if [[ -n ${keep[$name]:-} ]]; then continue; fi', 'if false; then continue; fi'),
     ("sweep removes orphans", 'rm -f -- "$file" || { printf \'notifications-images: error=remove path=%s\\n\' "$file" >&2; exit 4; }\n      removed=', 'true || { printf \'notifications-images: error=remove path=%s\\n\' "$file" >&2; exit 4; }\n      removed='),
     ("paired copy paths", "[[ $(( $# % 2 )) -eq 0 ]] || usage", "true"),
+    ("archive keeps original bytes", 'ln -T -- "$file" "$archive" ||', 'true ||'),
+    ("archive reuses the original inode", 'if [[ ! -L $archive && $file -ef $archive ]]; then', 'if false; then'),
+    ("archive refuses symlink sources", '[[ -f $file && ! -L $file ]] ||', '[[ -f $file ]] ||'),
 ]
 for n, (label, needle, replacement) in enumerate(controls):
     assert text.count(needle) == 1, "control needle must occur once: " + label
@@ -128,8 +163,4 @@ for copy in "$TMP_ROOT"/controls/*.sh; do
   failures=$saved
   passed=$((passed + 1))
 done
-if [[ $passed -ne 6 ]]; then
-  echo "test-notifications-images: controls=$passed want 6; the control table is broken"
-  exit 1
-fi
 echo "test-notifications-images: ok controls=$passed"

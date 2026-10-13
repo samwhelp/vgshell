@@ -1552,6 +1552,19 @@ function migrateState(text) {
     return { text: JSON.stringify(parsed), migrated: true };
 }
 
+// D107: skipped upgrades set older files aside without reading their form.
+// Only a positive integer format version identifies a VGS-written file.
+function obsoleteState(text) {
+    var parsed;
+    try {
+        parsed = JSON.parse(String(text));
+    } catch (e) {
+        return false;
+    }
+    return isPlainObject(parsed) && Number.isInteger(parsed.version)
+        && parsed.version > 0 && parsed.version < STATE_VERSION - 1;
+}
+
 // A stored entry with every hint role, "" for one it leaves out.
 function withHintRoles(entry) {
     var out = {};
