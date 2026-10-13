@@ -19,7 +19,7 @@
 #
 
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
-# notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
+# notifications, bar, panels, devtools, system, network, vpn, vpn-locked, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, cloudsync, tooltips, capture,
 # keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-audit, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
@@ -49,7 +49,11 @@
 # widget menu and panel source menu; bluetooth is
 # its Bluetooth section, then the Bluetooth dropdown, over the device
 # fakes; vpn is its VPN section, then the VPN dropdown, over the
-# tailscale and nmcli stand-ins; power is its flyout over the sandbox's fake
+# tailscale and nmcli stand-ins; vpn-locked, taken only when named, is the
+# VPN dropdown while Tailscale's access step is offered: at rest, its
+# header switch under the pointer and under keyboard focus, the switch's
+# unlock mark under keyboard focus, and Sign in under the pointer over a
+# signed-out tailnet; power is its flyout over the sandbox's fake
 # battery and power profile daemon; keyhints is the
 # Key Hints window over the Launcher's, Settings' and Themes' shortcuts and
 # its own; ai-usage is AI Usage's dropdown opened from its bar widget over
@@ -361,7 +365,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice) scenes+=("$1"); shift ;;
+    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -517,6 +521,7 @@ scene_ships() {
     sounds) ships_plugin vgs.system vgs.sounds vgs.notifications vgs.voice vgs.jarvis ;;
     network) ships_plugin vgs.system vgs.network ;;
     vpn) ships_plugin vgs.system vgs.vpn ;;
+    vpn-locked) ships_plugin vgs.vpn ;;
     bluetooth) ships_plugin vgs.system vgs.bluetooth ;;
     printers) ships_plugin vgs.system vgs.printers ;;
     power) ships_plugin vgs.power ;;
@@ -5880,6 +5885,137 @@ vpn_shot_shown() { [[ $(ipc smoke instanceGeometry window vgs.vpn) != absent ]] 
 vpn_shot_read() { ipc smoke readDescendant window vgs.vpn VpnBody vpn | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v["state"], len(v["accounts"])]))'; }
 vpn_shot_profiles() { ipc smoke readDescendant "$1" vgs.vpn VpnBody profileRows | py_reply 'import json,sys; print(json.dumps([[r["name"],r["type"],r["active"]] for r in json.load(sys.stdin)]))'; }
 vpn_shot_reveal() { ipc smoke revealText "$1" "$2" SectionHeader "VPN profiles" | py_reply 'import sys; s=sys.stdin.read().strip(); print("scrolled" if s.replace(".", "", 1).isdigit() else s)'; }
+# The VPN flyout while Tailscale's access step is offered: no operator, so
+# the core's tailscale-operator step reads needed through the stand-in
+# linked into the fakes' system tree, as rows/vpn.sh links it. A tree whose
+# flyout hands its header switch the unlock step (Panel.qml's
+# switchUnlock) is held to the reason's tooltip and the mark's focus; an
+# older tree, whose switch and Sign in are plainly disabled, takes the
+# same shots in the same poses and logs what it reads instead.
+scene_vpn-locked() { # MODE
+  local locked=false link="$devices_system_root/usr/bin/tailscale"
+  tree_has shell/plugins/vgs.vpn/Panel.qml switchUnlock && locked=true
+  devices_ready vpn-locked-shot || return 0
+  device_reply nmcli 0 "" -t -f NAME,TYPE,STATE connection show
+  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/vpn/mullvad.json")" status --json
+  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/vpn/accounts.txt")" switch --list
+  device_reply tailscale 0 "" get operator
+  device_reply systemctl 0 "" is-active --quiet tailscaled.service
+  expect "the core's system steps resolve in the fakes' tree for the locked VPN shot" prefixed devices_system_tree
+  ln -sfn -- "$shim/tailscale" "$link"
+  expect "VPN enables for its locked shot" ok ipc shell setPluginEnabled vgs.vpn true
+  expect_poll "VPN's widget is built for its locked shot" True record_exists vgs.vpn
+  tree_rescan "a scan probes Tailscale's access step for the locked VPN shot"
+  expect_poll "an unset operator offers Allow for the locked VPN shot" allow vpn_locked_setup
+  click_centre "$(bar_key)" vgs.vpn || fail "the click on the VPN widget failed for its locked shot"
+  expect_poll "the VPN widget opens its locked dropdown" shown vpn_shot_panel
+  expect_poll "the locked dropdown reads the running tailnet" '"running"' vpn_locked_state
+  take "vpn-locked-$1-flyout"
+
+  if vpn_locked_hover "the pointer rests on the locked header switch" Switch ""; then
+    vpn_locked_wait "$locked" "the pointer opens the switch's reason" open vpn_locked_tip
+    take_posed "vpn-locked-$1-switch-hover"
+  fi
+
+  park_pointer
+  if vpn_locked_tab_to '["Switch",""]'; then
+    vpn_locked_wait "$locked" "Tab reaches the locked header switch" '["Switch",""]' ipc smoke activeFocusItem panel vgs.vpn
+    vpn_locked_wait "$locked" "keyboard focus opens the switch's reason" open vpn_locked_tip
+    take_posed "vpn-locked-$1-switch-focus"
+    if type_keys -k Tab; then
+      vpn_locked_wait "$locked" "Tab reaches the switch's unlock mark" '["IconButton","Let my login control Tailscale"]' ipc smoke activeFocusItem panel vgs.vpn
+      take_posed "vpn-locked-$1-mark-focus"
+    else
+      fail "Tab from the locked header switch failed"
+    fi
+  fi
+
+  expect "the locked dropdown hides before sign-in" ok ipc shell hide panel vgs.vpn
+  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/vpn/logged-out.json")" status --json
+  expect "VPN refreshes over the signed-out stand-in" ok ipc vgs.vpn invoke refresh ""
+  expect_poll "VPN publishes the signed-out tailnet" '"signed-out"' vpn_locked_published
+  click_centre "$(bar_key)" vgs.vpn || fail "the click on the VPN widget failed for its locked sign-in shot"
+  expect_poll "the VPN widget opens its signed-out dropdown" shown vpn_shot_panel
+  expect_poll "the locked dropdown reads the signed-out tailnet" '"signed-out"' vpn_locked_state
+  if vpn_locked_hover "the pointer rests on the locked Sign in" Button vpn-sign-in; then
+    vpn_locked_wait "$locked" "the pointer opens Sign in's reason" open vpn_locked_tip
+    take_posed "vpn-locked-$1-sign-in-hover"
+  fi
+
+  park_pointer
+  expect "the signed-out dropdown hides" ok ipc shell hide panel vgs.vpn
+  expect "VPN disables after its locked shot" ok ipc shell setPluginEnabled vgs.vpn false
+  rm -f -- "$link"
+  device_reply_clear tailscale
+  device_reply_clear nmcli
+  device_reply_clear systemctl
+  tree_rescan "a scan finds no Tailscale after the locked VPN shot"
+}
+vpn_locked_setup() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("setup"); print("unpublished" if v is None else v.get("action", "none"))'; }
+vpn_locked_published() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("vpn"); print("unpublished" if v is None else json.dumps(v["state"]))'; }
+vpn_locked_state() { ipc smoke readDescendant panel vgs.vpn VpnBody vpn | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["state"]))'; }
+vpn_locked_tip() { [[ $(shot_chrome_read) == *tooltip* ]] && echo open || echo closed; }
+# vpn_locked_point TYPE NAME: `X Y`, where the pointer rests on the first
+# shown TYPE under the VPN flyout whose objectName is NAME, enabled or not:
+# itemGeometry finds enabled controls alone, and an older tree disables
+# these. A Switch is pointed on its track, the Rectangle child that
+# leaves out the unlock mark the switch is wider by; another item on its
+# centre. descendantGeometry's boxes are mapToGlobal's, the frame
+# itemGeometry hands point_item for a panel item, so they are layout
+# positions; `absent` without such an item.
+vpn_locked_point() { # TYPE NAME
+  ipc smoke descendantGeometry panel vgs.vpn | py_reply '
+import json, sys
+items, (kind, name) = json.load(sys.stdin), sys.argv[1:]
+at = next((i for i, item in enumerate(items) if item["type"] == kind and item.get("name", "") == name and item["visible"]), None)
+box = None if at is None else items[at]["box"]
+if box is not None and kind == "Switch":
+    box = next((item["box"] for item in items if item["parent"] == at and item["type"].endswith("Rectangle")), None)
+print("absent" if box is None else "%d %d" % (box[0] + box[2] / 2, box[1] + box[3] / 2))' "$1" "$2"
+}
+# vpn_locked_hover LABEL TYPE NAME: the pointer on vpn_locked_point's
+# point by two motions, without reading a hover state, which a plainly
+# disabled control never reports.
+vpn_locked_hover() { # LABEL TYPE NAME
+  local at x y
+  settle_hold || { fail "$1: the held mode could not be taken again"; return 1; }
+  at="$(vpn_locked_point "$2" "$3")" || at=unreadable
+  [[ $at =~ ^[0-9]+\ [0-9]+$ ]] || { fail "$1: no shown $2 \"$3\" in the VPN flyout: $at"; return 1; }
+  read -r x y <<<"$at"
+  if hover "$((x - 6))" "$y" && hover "$x" "$y"; then ok "$1"; else fail "$1: the hover failed"; return 1; fi
+}
+# vpn_locked_tab_to WANT: Tab, up to 8 presses, until the flyout's focused
+# item reads WANT; each press waits up to 1 s for the reading to move, so
+# a reading taken before the key landed never adds a press. An older
+# tree's disabled switch takes no focus, so this ends at the bound there.
+vpn_locked_tab_to() { # WANT
+  local at before
+  at="$(ipc smoke activeFocusItem panel vgs.vpn)" || at=unreadable
+  for _ in $(seq 1 8); do
+    [[ $at == "$1" ]] && return 0
+    before="$at"
+    type_keys -k Tab || { fail "Tab in the locked VPN dropdown failed"; return 1; }
+    for _ in $(seq 1 10); do
+      at="$(ipc smoke activeFocusItem panel vgs.vpn)" || at=unreadable
+      [[ $at != "$before" ]] && break
+      sleep 0.1
+    done
+  done
+}
+# vpn_locked_wait LOCKED LABEL WANT CMD...: expect_poll on a tree that draws
+# the lock; on an older tree, which may never reach WANT, 25 reads 0.2 s
+# apart that end at WANT or log the last reading.
+vpn_locked_wait() { # LOCKED LABEL WANT CMD...
+  local locked="$1" label="$2" want="$3" got=unread
+  shift 3
+  if "$locked"; then expect_poll "$label" "$want" "$@"; return; fi
+  for _ in $(seq 1 25); do
+    got="$("$@")" || got=unreadable
+    [[ $got == "$want" ]] && return 0
+    sleep 0.2
+  done
+  printf 'sandbox-shots: vpn-locked tree=%s step=%s want=%s read=%s\n' "${rev:-checkout}" "$label" "$want" "$got"
+}
 network_shot_shown() { [[ $(ipc smoke instanceGeometry window vgs.network) != absent ]] && echo shown || echo hidden; }
 network_shot_other_reveal() { ipc smoke revealText window vgs.system Button 'Other Network…' | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
 network_shot_cancel_reveal() { ipc smoke revealText window vgs.system Button Cancel | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
