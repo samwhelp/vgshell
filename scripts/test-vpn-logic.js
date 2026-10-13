@@ -196,6 +196,24 @@ function suite(logic, service = serviceSource) {
     assert.equal(logic.published(false, running, denied, live).writable, false);
     assert.equal(logic.published(true, running, logic.setup({ missing: true, state: "running", service: "ready", operator: "ready" }), live).writable, false,
         "a missing command takes no change, though it offers no step");
+    // Each locked value says why in one sentence, names the step the core
+    // offers, and tells its cause apart even with no step.
+    const steps = manifest.status.setup.actions;
+    const locked = [
+        [plain(logic.published(true, running, logic.setup({ missing: true, state: "running", service: "ready", operator: "ready" }), live)), ""],
+        [plain(logic.published(false, logic.emptySnapshot("service-off"), logic.setup({ missing: false, state: "service-off", service: "needed", operator: "unknown" }), live)), steps.enable.label],
+        [plain(logic.published(false, running, denied, live)), steps.allow.label]
+    ];
+    assert.equal(logic.lockReason(shown, steps.allow.label), "", "a writable value gives no reason");
+    for (const [vpn, step] of locked) {
+        const reason = logic.lockReason(vpn, step);
+        assert.equal(vpn.writable, false, vpn.state);
+        assert.ok(/^[A-Z][^.!?]*\.$/.test(reason), "one sentence: " + JSON.stringify(reason));
+        assert.ok(!/\btailscale |sudo|vgshell|systemctl/.test(reason), "no command: " + JSON.stringify(reason));
+        assert.ok(step === "" || reason.includes(step), "names the step: " + JSON.stringify(reason));
+    }
+    const causes = locked.map(([vpn]) => logic.lockReason(vpn, ""));
+    assert.equal(new Set(causes).size, causes.length, "each cause says its own why");
     assert.equal(plain(logic.unread()).state, "checking");
     for (const [vpn, want] of [
         [null, { shown: false }], [plain(logic.published(true, running, ready, live)), { shown: false }],
@@ -397,6 +415,9 @@ try {
         ["active profiles survive list limits", 'const activeCount = rows.filter(row => row.active).length;', 'const activeCount = rows.slice(0, PROFILE_MAX).filter(row => row.active).length;'],
         ["inactive Tailscale does not hide an active VPN", 'if (profiles.activeCount > 0)', 'if (vpn.state === "missing" && profiles.activeCount > 0)'],
         ["a missing command takes no change", 'writable: !missing && setupLine.action === "",', 'writable: setupLine.action === "",'],
+        ["a writable value gives no reason", 'if (vpn.writable) return "";', ''],
+        ["a service that is off is told apart", 'vpn.state === "service-off" ? "The', 'false ? "The'],
+        ["the reason names the step", 'step === "" ? cause + "." :', 'true ? cause + "." :'],
         ["VPN profiles exclude other types", 'fields[1] !== "vpn" && fields[1] !== "wireguard"', 'false'],
         ["profile argv names id", '"down", "id", row.id]', '"down", row.id]'],
         ["profile lists are bounded", 'const retained = rows.slice(0, PROFILE_MAX);', 'const retained = rows.slice(0);'],

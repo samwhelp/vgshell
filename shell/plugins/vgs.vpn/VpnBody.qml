@@ -8,7 +8,9 @@ import "VpnLogic.js" as Logic
 // plugin's own IPC; it starts no process. While it is open it holds a
 // lease, which makes the service's poll fast. The setup step, Enable or
 // Allow, is the `setup` status entry's action as the core's
-// status rows offer it (`status.rows`), run through `status.act`.
+// status rows offer it (`status.rows`), run through `status.act`. While
+// Tailscale takes no change, its controls say why (`lockReason`), and the
+// connection switch's unlock mark runs the same step.
 //
 // Tab moves from the connection switch to the exit nodes and, in the
 // pane, the accounts. Up and Down move inside a list, and Enter chooses.
@@ -36,6 +38,10 @@ FocusScope {
         const row = shell.status.rows.find(r => r.key === "setup");
         return row === undefined || row.action === null || !row.action.offered ? null : { label: row.action.label, hint: row.hint };
     }
+    // Why the controls cannot change Tailscale now, "" while they can, and
+    // the switch's unlock mark, the setup step, null while none is offered.
+    readonly property string lockReason: Logic.lockReason(vpn, setupAction === null ? "" : setupAction.label)
+    readonly property var unlock: setupAction === null ? null : ({ label: setupAction.label, run: () => root.runSetup() })
     readonly property var exitRows: [{ key: "", text: "None", secondary: "Use this computer's own connection", iconName: "globe-off",
         badge: vpn.exit === null ? "In use" : "", badgeTone: "success" }].concat(vpn.exitNodes.map(node => ({
             key: node.id, text: node.place !== "" ? node.place : node.name,
@@ -46,8 +52,9 @@ FocusScope {
     readonly property var pollChoices: [10, 30, 60]
     // The connection switch while it can be used, else the body, from
     // which Tab reaches the setup step: no view opens on a step that
-    // changes the system (design-system.md § Keyboard).
-    readonly property Item initialFocus: connectField.visible && toggle.enabled ? toggle : root
+    // changes the system (design-system.md § Keyboard), nor on a locked
+    // switch.
+    readonly property Item initialFocus: connectField.visible && toggle.enabled && root.lockReason === "" ? toggle : root
 
     implicitHeight: content.implicitHeight
 
@@ -77,6 +84,9 @@ FocusScope {
     }
     function request(kind, id) {
         return answered(shell.ipc.call("action", JSON.stringify({ kind: kind, id: id })), "Tailscale cannot do this now.");
+    }
+    function runSetup() {
+        return answered(shell.status.act("setup"), "VGS could not open the setup step.");
     }
 
     Column {
@@ -116,7 +126,7 @@ FocusScope {
             objectName: "vpn-setup"
             visible: root.vpn.state !== "missing" && root.setupAction !== null
             text: root.setupAction === null ? "" : root.setupAction.label
-            onClicked: root.answered(root.shell.status.act("setup"), "VGS could not open the setup step.")
+            onClicked: root.runSetup()
         }
         Field {
             id: connectField
@@ -131,7 +141,9 @@ FocusScope {
                 size: "sm"
                 Accessible.name: "Tailscale"
                 checked: root.vpn.state !== "stopped"
-                enabled: root.vpn.writable && !root.busy
+                enabled: !root.busy
+                disabledReason: root.lockReason
+                unlock: root.unlock
                 onToggled: {
                     const wanted = checked;
                     checked = Qt.binding(() => root.vpn.state !== "stopped");
@@ -142,7 +154,7 @@ FocusScope {
         Button {
             objectName: "vpn-sign-in"
             visible: root.vpn.state === "signed-out" && root.vpn.login === "idle"
-            enabled: root.vpn.writable
+            disabledReason: root.lockReason
             text: "Sign in"
             iconName: "log-in"
             onClicked: root.request("login", "")

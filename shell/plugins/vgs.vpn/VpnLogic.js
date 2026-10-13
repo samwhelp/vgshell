@@ -334,6 +334,19 @@ function unread() {
     return published(false, emptySnapshot("checking"), { action: "" }, { accounts: [], action: "", login: "idle", problem: "" });
 }
 
+// Why the controls `vpn.writable` enables cannot change Tailscale now, as
+// the one sentence each shows while disabled (its `disabledReason`), ""
+// while they can. VPN is the published `vpn` value, and STEP the words of
+// the setup step the core offers now, "" for none. A value that is not
+// writable has one cause (published, setup): the command is missing, the
+// service is off, or only the administrator can change Tailscale.
+function lockReason(vpn, step) {
+    if (vpn.writable) return "";
+    if (vpn.state === "missing") return "Tailscale is not installed, so install it under Requirements to use it.";
+    var cause = vpn.state === "service-off" ? "The Tailscale service is off" : "Only the administrator can change Tailscale";
+    return step === "" ? cause + "." : cause + " until you choose " + step + ".";
+}
+
 // The bar icon for the published `vpn` value, null before the first
 // write. Saved profiles can keep the icon visible without Tailscale.
 function barView(vpn, profiles) {

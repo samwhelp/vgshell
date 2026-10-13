@@ -9,7 +9,8 @@ Item {
 
     property var shell: null
     property var payload: ({})
-    readonly property Item initialFocus: layout.headerSwitch !== null && layout.headerSwitch.enabled ? layout.headerSwitch : body.initialFocus
+    // The header switch while it can be used, else where the body opens.
+    readonly property Item initialFocus: layout.headerSwitch !== null && layout.headerSwitch.enabled && body.lockReason === "" ? layout.headerSwitch : body.initialFocus
 
     implicitWidth: Theme.size.panel.lg
     implicitHeight: layout.implicitHeight
@@ -37,7 +38,9 @@ Item {
         title: "VPN"
         switchShown: body.switchable
         switchChecked: body.vpn.state !== "stopped"
-        switchEnabled: body.vpn.writable && !body.busy
+        switchEnabled: !body.busy
+        switchDisabledReason: body.lockReason
+        switchUnlock: body.unlock
         switchName: "Tailscale"
         onSwitchToggled: checked => body.request(checked ? "connect" : "disconnect", "")
 

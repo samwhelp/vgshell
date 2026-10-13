@@ -11,9 +11,13 @@
 # text, or prints a sign-in address and waits.
 #
 # Rows: the service publishes the fixture's state to the widget, the
-# flyout and the pane; an unset operator offers Allow, which the keyboard
-# presses and which hands the terminal `vgshell system apply
-# tailscale-operator`; keys alone then toggle the connection, `down` and
+# flyout and the pane; an unset operator offers Allow and locks the
+# connection switch, whose reason opens on hover in the flyout and on
+# keyboard focus in the pane; Space on the locked switch starts no change;
+# the keyboard reaches Allow and then the switch's unlock mark, which runs
+# the same step and hands the terminal `vgshell system apply
+# tailscale-operator`, after which no reason is left; keys alone then
+# toggle the connection, `down` and
 # `up`, and choose an exit node, `set --exit-node=<dns name>`, with no peer
 # id in any argv; a change that ends with a plain exit 1, a change the CLI
 # denies and a sign-in it denies each leave a problem, the denied ones
@@ -26,13 +30,15 @@
 # refresh restarts the watchdog and which does not know the access-denied
 # text: the stand-in records a call the service did not start, the held
 # poll outlives 20 s of refreshes, and the denied change leaves the plain
-# one's problem.
+# one's problem. The pointer off the locked switch reads its reason
+# closed, and the lock's Space reads no change, so neither reader always
+# passes.
 #
 # The held poll's wait is the service's own 10 s watchdog, read on the
 # wall clock with a refresh every second; the row accepts 9 s to 20 s,
 # since a refresh that moved the deadline would hold it past any bound.
 # Every other reading is expect_poll's: 25 reads 0.2 s apart.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/* scripts/fixtures/vpn/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/* scripts/fixtures/vpn/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/Switch.qml shell/Ui/controls/DisabledReason.qml shell/Ui/controls/UnlockMark.qml shell/Ui/layout/Pane.qml
 set -euo pipefail
 devices_ready vpn || return 0
 vpn_saved="$sandbox/vpn-shell-before.json"
@@ -85,6 +91,21 @@ vpn_setup() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json
 vpn_step() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["system"]["steps"][sys.argv[1]]; print(s["state"] + " " + s["reason"])' "$1"; }
 vpn_shown() { [[ $(ipc smoke instanceGeometry "$1" vgs.vpn) != absent ]] && echo shown || echo hidden; }
 vpn_body() { ipc smoke readDescendant "$1" vgs.vpn VpnBody "$2"; }
+vpn_reason_names() { vpn_body "$1" lockReason | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$2"; }
+vpn_mark() { [[ $(ipc smoke labelledGeometry "$1" vgs.vpn IconButton "$2") != absent ]] && echo drawn || echo absent; }
+vpn_tip() { ipc smoke itemValues "$1" vgs.vpn Tooltip text,opened | py_reply 'import json,sys; print(next((json.dumps(v["text"]) for v in json.load(sys.stdin) if v["opened"]), "closed"))'; }
+# The pointer on the flyout's header switch, 4 px in from its start edge,
+# away from the unlock mark after it, then the tooltip open there. A locked
+# switch reports no hover, so point_item cannot settle on it; each call
+# reads the box again, as the flyout may still move.
+vpn_switch_tip() {
+  local rect x y
+  rect="$(ipc smoke itemGeometry panel vgs.vpn Switch "")" || return 1
+  [[ $rect == \[* ]] || { echo absent; return 0; }
+  read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x + 4), int(y + h / 2))' "$rect") || return 1
+  hover "$x" "$y" || return 1
+  vpn_tip panel
+}
 vpn_setup_label() { ipc smoke setupRows window vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); r=[x["label"] for x in (json.loads(t) if t.startswith("[") else []) if x["key"]=="setup"]; print(json.dumps(r))'; }
 vpn_body_state() { vpn_body "$1" vpn | py_reply 'import json,sys; print(json.load(sys.stdin)["state"])'; }
 vpn_exit_rows() { vpn_body window exitRows | py_reply 'import json,sys; print(json.dumps([[r["text"], r["badge"]] for r in json.load(sys.stdin)]))'; }
@@ -322,6 +343,19 @@ settings_setup
 expect_poll "the Setup tab names the step for the Tailscale service" '["Tailscale service"]' vpn_setup_label
 settings_page_close vgs.vpn
 expect "changes wait for Allow" false vpn_value writable
+# The flyout's header switch is locked until Allow: it says why on hover.
+rest_pointer || fail "vpn: moving the pointer off the flyout failed"
+expect "the flyout opens on a locked switch" ok ipc shell summon panel vgs.vpn '{"source":"smoke"}'
+expect_poll "VPN's flyout is shown on a locked switch" shown vpn_shown panel
+expect_poll "the locked switch draws its unlock mark named for Allow" drawn vpn_mark panel "Let my login control Tailscale"
+expect "the locked switch's reason names Allow's step" True vpn_reason_names panel "Let my login control Tailscale"
+vpn_reason="$(vpn_body panel lockReason)" || vpn_reason=unread
+expect_poll "the pointer on the locked switch opens its reason" "$vpn_reason" vpn_switch_tip
+rest_pointer || fail "vpn: moving the pointer off the switch failed"
+expect_poll "the pointer off the locked switch closes its reason" closed vpn_tip panel
+expect "the flyout closes before System" ok ipc shell hide panel vgs.vpn
+expect_poll "the locked flyout is gone" hidden vpn_shown panel
+expect_poll "the closed locked flyout gives the poll its 30 s back" 30000 vpn_interval
 expect "System enables for the VPN section" ok ipc shell setPluginEnabled vgs.system true
 expect "the VPN section opens in System" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn","source":"smoke"}'
 expect_poll "VPN's pane is mounted" shown vpn_shown window
@@ -342,10 +376,17 @@ vpn_enter_pane "Allow"
 expect "the section opens on its body while the switch waits for Allow" '["VpnBody",null]' ipc smoke activeFocusItem window vgs.vpn
 type_keys -k Tab
 expect_poll "Tab reaches Allow" '["RowAction","Let my login control Tailscale"]' ipc smoke activeFocusItem window vgs.vpn
+type_keys -k Tab
+expect_poll "Tab reaches the locked connection switch" '["Switch",""]' ipc smoke activeFocusItem window vgs.vpn
+expect_poll "keyboard focus on the locked switch opens its reason" "$vpn_reason" vpn_tip window
+type_keys -k space
+type_keys -k Tab
+expect_poll "Tab reaches the switch's unlock mark" '["IconButton","Let my login control Tailscale"]' ipc smoke activeFocusItem window vgs.vpn
 forget_record
 type_keys -k Return
-expect_poll "Allow hands the terminal vgshell system apply tailscale-operator" \
+expect_poll "the unlock mark hands the terminal vgshell system apply tailscale-operator" \
   "$(core_words core/system "System setup" org.vgs.tui system apply tailscale-operator)" recorded
+expect "Space on the locked switch starts no change" '[]' vpn_changes "$vpn_calls_before"
 device_reply tailscale 0 "$(id -un)" get operator
 expect_run_end "the Allow core/system run ends" core/system
 forget_record
@@ -353,6 +394,7 @@ rescan "a scan probes the operator again"
 expect_poll "the core reads the operator step ready" "ready granted" vpn_step tailscale-operator
 expect_poll "a granted operator offers no step" none vpn_setup
 expect_poll "changes are open once the operator is granted" true vpn_value writable
+expect_poll "a granted operator leaves the switch no reason" '""' vpn_body window lockReason
 # The setup run's window took the keys, so System closes by its IPC here.
 expect "System closes after Allow" ok ipc shell hide window vgs.system
 expect_poll "System is closed after Allow" hidden vpn_shown window
