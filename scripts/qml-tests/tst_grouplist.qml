@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Templates as T
 import QtTest
 import qs.Commons
 import qs.Ui
@@ -223,6 +224,30 @@ Item {
         }
     }
 
+    // A padded control whose content is the list, as the Jarvis console's
+    // audit records: each record takes the list's width and wraps in it,
+    // and the control's height follows the list's.
+    Component {
+        id: paddedFrame
+        T.Control {
+            id: padded
+            property var records: []
+            readonly property alias list: paddedList
+            x: 460
+            y: 900
+            width: 400
+            padding: Theme.listItem.paddingX
+            implicitHeight: implicitContentHeight + topPadding + bottomPadding
+            contentItem: GroupList {
+                id: paddedList
+                Repeater {
+                    model: padded.records
+                    Label { required property string modelData; width: paddedList.width; role: "body"; textFormat: Text.PlainText; wrapMode: Text.Wrap; text: modelData }
+                }
+            }
+        }
+    }
+
     // Status lines with a step: a short chip keeps the step beside it, a
     // chip too long for both puts the step under it.
     StatusLine { id: shortStep; x: 0; y: 760; width: 400; label: "Token"; tone: "warning"; text: "Absent"; actionLabel: "Set up token"; actionOffered: true }
@@ -415,6 +440,27 @@ Item {
             const out = offCentre(frame, frame.list, 1);
             if (data.control) compare(out.length, 1, "the centring refuses a descent reading");
             else compare(out, [], "the hairline is centred under the last line's glyphs");
+        }
+
+        // The list keeps the one width its control gives it, inside the
+        // padding, while records arrive and the control narrows, so no
+        // binding of its layout runs again inside itself. A list that
+        // follows the control's whole width is written two widths, and
+        // logs a binding loop.
+        function test_a_list_in_a_padded_control_takes_the_width_inside_the_padding() {
+            failOnWarning(/Binding loop detected/);
+            const frame = createTemporaryObject(paddedFrame, root);
+            verify(frame !== null);
+            verify(frame.padding > 0, "the control pads its content");
+            frame.records = ["A record long enough to wrap onto a second line once its control narrows to half its width", "Next"];
+            tryVerify(() => shownGroups(frame.list).length === 2, 1000, "the list lays out its two records");
+            compare(frame.list.width, frame.availableWidth);
+            const wide = frame.height;
+            frame.width = 200;
+            compare(frame.list.width, frame.availableWidth);
+            tryVerify(() => frame.height > wide, 1000, "the narrower control grows with its wrapped record");
+            compare(frame.height, frame.list.implicitHeight + 2 * frame.padding);
+            checkDivided(frame.list);
         }
 
         // The ink a hairline reads of the group under it, the line's own

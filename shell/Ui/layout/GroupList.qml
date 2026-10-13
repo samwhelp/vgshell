@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
 
@@ -41,7 +42,13 @@ Item {
         return Math.round((above + column.tops[i + 1] + Theme.inkAbove(child) - Theme.divider.thickness) / 2);
     })
 
-    width: parent ? parent.width : implicitWidth
+    // A Control sets its contentItem's width to its availableWidth, inside
+    // its padding, each time its own size changes. Bound to the Control's
+    // whole width, this list would hold a second width: its groups' heights
+    // and so the Control's height follow the one, and the Control writes
+    // the other while those bindings still run.
+    // https://doc.qt.io/qt-6/qml-qtquick-controls-control.html#availableWidth-prop
+    width: parent instanceof T.Control ? parent.availableWidth : parent ? parent.width : implicitWidth
     implicitWidth: column.implicitWidth
     implicitHeight: column.implicitHeight
 

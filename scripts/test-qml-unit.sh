@@ -1187,6 +1187,7 @@ mutations=(
   "a section ignores its row spacing|layout/Section.qml|spacing: root.rowSpacing|spacing: Theme.stack.row|tst_spacing.qml"
   "a group list keeps a row's gap|layout/GroupList.qml|if (i > 0) y += Theme.groupList.gap - root.headingLift(child);|if (i > 0) y += Theme.stack.row - root.headingLift(child);|tst_grouplist.qml"
   "a heading over its files keeps its box gap|layout/GroupList.qml|if (i > 0) y += Theme.groupList.gap - root.headingLift(child);|if (i > 0) y += Theme.groupList.gap;|tst_grouplist.qml"
+  "a group list in a padded control follows the control's whole width|layout/GroupList.qml|width: parent instanceof T.Control ? parent.availableWidth : parent ? parent.width : implicitWidth|width: parent ? parent.width : implicitWidth|tst_grouplist.qml"
   "a group list draws no hairline|layout/GroupList.qml|readonly property var hairlines: column.shown.slice(1).map(|readonly property var hairlines: column.shown.slice(column.shown.length).map(|tst_grouplist.qml"
   "a hidden group takes a hairline|layout/GroupList.qml|readonly property var shown: children.filter(child => child.visible && child.width > 0 && child.height > 0)|readonly property var shown: children.filter(child => child.width > 0)|tst_grouplist.qml"
   "a group list's hairline ignores the ink below|layout/GroupList.qml|column.tops[i + 1] + Theme.inkAbove(child) - Theme.divider.thickness|column.tops[i + 1] - Theme.divider.thickness|tst_grouplist.qml"
