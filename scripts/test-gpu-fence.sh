@@ -716,7 +716,7 @@ entry_words() {
     sandbox-shots.sh) words=(--out "o ut" --scale 2 gallery) ;;
     measure-shader.sh) words=(--calibrate "out file.json" --keep) ;;
     qml-unit.sh) words=(--ui "$TMP_ROOT/u i") ;;
-    jarvis-selftest.sh) words=(--type "two words" --brain stand-in) ;;
+    jarvis-selftest.sh) words=(--type "two words" --brain stand-in --model "test model") ;;
     *) printf '        no words for entry point: %s\n' "$1"; return 1 ;;
   esac
 }

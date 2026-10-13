@@ -112,17 +112,34 @@ for word in sys.argv[2:]:
 json.dump(rows, open(sys.argv[1], "w"))
 PY
 }
-account_id() { # KIND LABEL
+account_id() { # KIND LABEL [PROVIDER]
   env -i PATH="$tmp/empty" HOME="$world" "$node_bin" "$repo/shell/plugins/vgs.jarvis/backend/accounts.js" --tree "$repo" list |
-    python3 -c 'import json,sys; print(next(r["id"] for r in json.load(sys.stdin) if r["source"]["kind"] == sys.argv[1] and r["label"] == sys.argv[2]))' "$1" "$2"
+    python3 -c 'import json,sys; print(next(r["id"] for r in json.load(sys.stdin) if r["source"]["kind"] == sys.argv[1] and r["label"] == sys.argv[2] and (not sys.argv[3] or r["provider"] == sys.argv[3])))' "$1" "$2" "${3:-}"
 }
 saved_keys openai/selftest anthropic/other
 sign_in="$(account_id cli default)"
 saved_key="$(account_id keyring selftest)"
-mkdir -p "$world/.copilot"
-copilot_id="$(env -i PATH="$tmp/empty" HOME="$world" "$node_bin" "$repo/shell/plugins/vgs.jarvis/backend/accounts.js" --tree "$repo" list |
-  python3 -c 'import json,sys; print(next(r["id"] for r in json.load(sys.stdin) if r["provider"] == "copilot"))')"
+mkdir -p "$world/.copilot" "$world/.codex" "$world/.pi/agent"
+copilot_id="$(account_id cli default copilot)"
+codex_id="$(account_id cli default codex)"
+pi_id="$(account_id cli default pi)"
 local_id="$(account_id local local)"
+# A caller's account wrapper is first on PATH. mise resolves each provider
+# into a separate installation whose program prints its selected account.
+# No program here reaches a vendor or a real account.
+cat >"$tmp/bin/mise" <<SH
+#!/usr/bin/env bash
+[[ \$1 == which && ! -e "$tmp/brain-lookup-fails" ]] || exit 1
+printf '%s\n' "$tmp/vendor/\$2/\$2"
+SH
+chmod +x "$tmp/bin/mise"
+for pair in claude:CLAUDE_CONFIG_DIR codex:CODEX_HOME copilot:COPILOT_HOME pi:PI_CODING_AGENT_DIR; do
+  command_name="${pair%:*}" account_name="${pair#*:}"
+  mkdir -p "$tmp/vendor/$command_name"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "${%s:-}"\n' "$account_name" >"$tmp/vendor/$command_name/$command_name"
+  printf '#!/usr/bin/env bash\necho wrapper-replaced-account\n' >"$tmp/bin/$command_name"
+  chmod +x "$tmp/vendor/$command_name/$command_name" "$tmp/bin/$command_name"
+done
 
 # The prepared local voice, and one whose interpreter is another setup's.
 prepared() { # HOME
@@ -186,7 +203,7 @@ echo instrumented >"\$repo/shell/plugins/vgs.jarvis/Service.qml"
 echo '{"version": 2, "plugins": [{"id": "vgs.settings"}], "disabledPlugins": ["vgs.jarvis"]}' >"\$home/.config/vgshell/shell.json"
 failures=0 instance_log="" devices_state=down auth_log="\$sandbox/auth.calls" shell_env=()
 rt_dir="$tmp/rt" shim="\$sandbox/shim" sentinels_saved="\$sandbox/sentinels" sentinels_stood="\$sandbox/sentinels.stood" pgids=()
-shell_start_path="\$shim:$path"
+shell_start_path="\$shim:\$PATH"
 rm -rf -- "\${rt_dir:?}"
 mkdir -p "\$rt_dir" "\$shim" "\$sentinels_saved"
 ln -s -- "$repo/config" "\$repo/config"
@@ -365,6 +382,15 @@ holds "a second input is refused" refused "jarvis-selftest: refused: argument=--
 holds "no input is refused" refused "jarvis-selftest: refused: argument=input reason=missing want=--wav|--tts|--type" --brain "$sign_in"
 holds "a local server without a model is refused before the sandbox starts" refused "jarvis-selftest: refused: argument=--model reason=missing-local-model" --type hello --brain "$local_id"
 holds "an empty model argument is refused" refused "jarvis-selftest: refused: argument=--model value=" --type hello --brain "$local_id" --model ""
+brain_lookup_refused() {
+  touch "$tmp/brain-lookup-fails"
+  local held=0
+  ends 77 'selftest=brain-program-unavailable command=claude' --type hello --brain "$sign_in" || held=1
+  rm -- "${tmp:?}/brain-lookup-fails"
+  return "$held"
+}
+holds "a failed installed-program lookup never uses the account wrapper" brain_lookup_refused
+control plant "a failed installed-program lookup that selects the account wrapper" '      brain_program="$(mise which "$brain_provider" 2>/dev/null)" || unavailable brain-program-unavailable "command=$brain_provider"' '      brain_program="$(mise which "$brain_provider" 2>/dev/null)" || brain_program="$(command -v -- "$brain_provider")"' brain_lookup_refused
 holds "a WAV that is not there is refused" refused "jarvis-selftest: refused: argument=--wav value=$tmp/absent.wav reason=unreadable" --wav "$tmp/absent.wav" --brain "$sign_in"
 bad_wav_refused() {
   python3 - "$tmp/bad.wav" <<'PY'
@@ -1083,7 +1109,7 @@ SH
 import json, sys
 search, locked = (json.load(open(p))["data"] for p in sys.argv[1:3])
 mode = sys.argv[3]
-sys.exit(bool(search[0]) != (mode == "present") or bool(search[1]) != (mode == "locked") or locked["data"] != (mode == "locked"))
+sys.exit(bool(search[0]) != (mode == "present") or bool(search[1]) != (mode == "locked") or locked[0]["data"] != (mode == "locked"))
 PY
     [[ $? -eq 0 ]] || return 1
     if [[ $1 == present ]]; then [[ $(<"$tmp/native.status") == 0 ]]; else [[ $(<"$tmp/native.status") != 0 ]]; fi
@@ -1094,6 +1120,17 @@ PY
   control plant "a Copilot filter that drops its native lock-state read" "        '--call=org.freedesktop.secrets=org.freedesktop.DBus.Properties.Get@/org/freedesktop/secrets/collection/*'" '' copilot_reads present
   control plant "a Copilot filter that permits item writes" "        '--call=org.freedesktop.secrets=org.freedesktop.Secret.Item.GetSecret@/org/freedesktop/secrets/collection/*'" "        '--call=org.freedesktop.secrets=org.freedesktop.Secret.Item.*@/org/freedesktop/secrets/collection/*'" copilot_reads present
 
+  provider_program() { # PROVIDER BRAIN ACCOUNT_DIRECTORY
+    printf 'env -i PATH="$shell_start_path" HOME="$home" "${@:4}" %q >%q\n' "$1" "$tmp/program-account" >"$tmp/at-start.sh"
+    key_run present --type hello --brain "$2"
+    [[ $status -eq 0 && $(<"$tmp/program-account") == "$3" ]]
+  }
+  provider_rows=("claude|$sign_in|$world/.claude" "codex|$codex_id|$world/.codex" "copilot|$copilot_id|$world/.copilot" "pi|$pi_id|$world/.pi/agent")
+  for provider_row in "${provider_rows[@]}"; do
+    IFS='|' read -r provider brain_id account_directory <<<"$provider_row"
+    holds "$provider executes its installed program and keeps the selected account" provider_program "$provider" "$brain_id" "$account_directory"
+  done
+  control plant "a runner whose sandbox PATH keeps the account-changing wrapper first" '[[ -z $brain_program ]] || export PATH="$(dirname -- "$brain_program"):$PATH"' ':' provider_program codex "$codex_id" "$world/.codex"
   session_bus=()
   rm -f -- "$tmp/at-start.sh"
 }

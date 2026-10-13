@@ -41,6 +41,9 @@
 # environment that enters the sandbox.
 # Copilot also receives a filtered session bus for its native keyring read.
 # The filter refuses unlocks and writes. No token enters a file or log.
+# A sign-in brain uses its installed program directory first on PATH,
+# resolved by mise when installed, otherwise by the caller's command lookup.
+# A failed lookup ends the run before the sandbox starts.
 # --model NAME sets the sandbox's model before the turn. A local server
 # brain requires it: the account reader offers no local-server model list.
 # --voice realtime listens and speaks through OpenAI's Realtime session with
@@ -166,7 +169,7 @@ selftest_cpuinfo=/proc/cpuinfo
 # selftest_accounts TREE BRAIN VOICE: two lines from TREE's own account
 # judge over the caller's folders and saved references, with no vendor
 # command and no keyring call. The first is the account BRAIN names:
-# `cli<TAB>VARIABLE<TAB>DIRECTORY` for a sign-in, VARIABLE its harness's
+# `cli<TAB>VARIABLE<TAB>DIRECTORY<TAB>PROVIDER` for a sign-in, VARIABLE its harness's
 # directory variable; `keyring<TAB>REFERENCE` for a saved key, REFERENCE its
 # reference as JSON, which holds no secret; `local` for a model server on
 # this computer; `unknown`. The second is the key of the voice VOICE: `local`
@@ -189,7 +192,7 @@ selftest_accounts() { # TREE BRAIN VOICE
     const line = (...words) => console.log(words.join("\t"));
     const found = judge.resolve(id);
     if (found === null) line("unknown");
-    else if (found.source.kind === "cli") line("cli", Core.accounts().harness(found.provider).variable, found.source.directory);
+    else if (found.source.kind === "cli") line("cli", Core.accounts().harness(found.provider).variable, found.source.directory, found.provider);
     else if (found.source.kind === "keyring") line("keyring", JSON.stringify(found.source.reference));
     else line(found.source.kind);
     const provider = { gemini: "gemini", elevenlabs: "elevenlabs" }[voice] ?? "openai";
@@ -1440,8 +1443,9 @@ fi
 # environment that is not the caller's; a child runs the binary itself.
 selftest_node="$(node -e 'process.stdout.write(process.execPath)')" || unavailable account-judge-unavailable missing=node
 accounts="$(selftest_accounts "$repo" "$brain" "$voice")" || stopped account-unread
-{ IFS=$'\t' read -r brain_kind brain_first brain_second; IFS=$'\t' read -r voice_kind voice_account voice_reference; } <<<"$accounts"
+{ IFS=$'\t' read -r brain_kind brain_first brain_second brain_provider; IFS=$'\t' read -r voice_kind voice_account voice_reference; } <<<"$accounts"
 account_word=()
+brain_program=""
 key_references=()
 copilot_keyring=false
 copilot_rules=()
@@ -1449,6 +1453,15 @@ case "$brain_kind" in
   unknown) refuse "argument=--brain value=$brain reason=unknown-account" ;;
   cli)
     account_word=("$brain_first=$brain_second")
+    # Resolve under the caller's HOME. A host account wrapper can replace
+    # the selected account under the sandbox HOME. mise which names its
+    # installed program; a lookup failure never selects that wrapper.
+    if command -v mise >/dev/null; then
+      brain_program="$(mise which "$brain_provider" 2>/dev/null)" || unavailable brain-program-unavailable "command=$brain_provider"
+    else
+      brain_program="$(command -v -- "$brain_provider")" || unavailable brain-program-unavailable "command=$brain_provider"
+    fi
+    [[ $brain_program == /* && -f $brain_program && -x $brain_program ]] || unavailable brain-program-unavailable "command=$brain_provider"
     if [[ $brain_first == COPILOT_HOME ]]; then
       copilot_keyring=true
       # Copilot 1.0.91's runtime uses secret-service 5.2.0's Item.get_secret
@@ -1512,6 +1525,11 @@ fi
 # No process this run starts may open an amdgpu node, so the run goes on
 # only where none is visible: scripts/smoke/gpu-fence.sh.
 selftest_gpu_fence
+
+# The harness puts its command sentinels before this host PATH. Keep the
+# install's bin directory, not a symlink target's directory: npm's codex
+# executable can link to codex.js, whose directory holds no codex command.
+[[ -z $brain_program ]] || export PATH="$(dirname -- "$brain_program"):$PATH"
 
 # shellcheck disable=SC2034 # the harness sourced below reads both
 keep=false timeout_s=60
