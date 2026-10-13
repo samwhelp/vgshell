@@ -1128,6 +1128,17 @@ function suite(ctx, check) {
         check("a stored enum value reads unchanged: " + id + " " + key + (field === null ? "" : "." + field), got, values);
     }
 
+    // Capture drew a Settings field for `delay` and declared `timeout`. A
+    // row of that time keeps its delay, which the capture window now
+    // writes, and its time limit has no reader and leaves at the next write.
+    const capture = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.capture", "manifest.json"), "utf8")), "/p").manifest;
+    if (capture === undefined) throw new Error("manifest refused: vgs.capture");
+    const captured = { version: 2, plugins: [{ id: "vgs.capture", delay: 5, timeout: 30, cursor: true }] };
+    const capturedRead = ctx.settingsFor(ctx.migrateConfig(captured).config, capture);
+    check("capture: a stored delay is read and a stored time limit is not", [capturedRead.delay, "timeout" in capturedRead, "delay" in capture.schema, "timeout" in capture.schema], [5, false, false, false]);
+    check("capture: the window may write its delay", ctx.settingRefusal(capture, "delay", 3), "");
+    check("capture: a delay write drops the stored time limit", ctx.withSetting(captured, capture, "delay", 3, captured).plugins, [{ id: "vgs.capture", delay: 3, cursor: true }]);
+
     // A plugin with a settings schema, for the setting rows.
     const tunable = ctx.validateManifest({ schemaVersion: 1, id: "acme.tune", name: "T", version: "1", author: "a", description: "d", kinds: ["service", "bar-widget"], entryPoints: { service: "S.qml", "bar-widget": "W.qml" },
         settings: { label: "x", size: 2, on: true, mode: "a", free: 1, limit: 8 },
@@ -1199,7 +1210,10 @@ function suite(ctx, check) {
         ["a number fits a number entry", "size", 3.5, ""],
         ["a boolean fits a boolean entry", "on", false, ""],
         ["an option fits an enum entry", "mode", "b", ""],
-        ["a key outside the schema is undeclared", "free", 2, "refused: setting=free undeclared"],
+        ["a setting with no schema entry takes a value of its default's type", "free", 2, ""],
+        ["a setting with no schema entry refuses another type", "free", "2", "refused: setting=free want=number"],
+        ["a setting with no schema entry refuses a number JSON cannot hold", "free", Infinity, "refused: setting=free want=number"],
+        ["a key the manifest does not declare is undeclared", "absent", 2, "refused: setting=absent undeclared"],
         ["a prototype name is undeclared", "constructor", 1, "refused: setting=constructor undeclared"],
         ["a number is not a string", "label", 1, "refused: setting=label want=string"],
         ["a numeric string is not a number", "size", "3", "refused: setting=size want=number"],
@@ -1216,6 +1230,12 @@ function suite(ctx, check) {
     for (const [name, key, value, want] of refusalRows) {
         check("settingRefusal: " + name, ctx.settingRefusal(tunable, key, value), want);
     }
+    // A row from a manifest that drew a field for `free` and declared
+    // `gone`: the stored `free` is still the value read, and `gone` leaves
+    // at the row's next write.
+    const earlier = { version: 2, plugins: [{ id: "acme.tune", free: 5, gone: 30, on: false }] };
+    check("a stored setting with no schema entry is read and a key the manifest dropped is not", ctx.settingsFor(earlier, tunable), { label: "x", size: 2, on: false, mode: "a", free: 5, limit: 8 });
+    check("a write of a setting with no schema entry drops the key the manifest dropped", ctx.withSetting(earlier, tunable, "free", 3, earlier).plugins, [{ id: "acme.tune", free: 3, on: false }]);
     const presetManifest = ctx.validateManifest({ schemaVersion: 1, id: "acme.presets", name: "P", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" },
         settings: { mode: "short", delay: 60, clock: "HH:mm" },
         schema: {
@@ -1782,6 +1802,9 @@ const CONTROLS = [
     ["a sudo read that fails is unknown", 'completion.code !== 0)\n        return failed("sudo: read=failed', 'completion.code !== 0 && false)\n        return failed("sudo: read=failed'],
     ["a sudo deadline is an ISO time", "(indefinite|[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)", "(indefinite|[^ ]+)"],
     ["no sudo root half reads absent", 'return { state: "absent", until: "", rootHalf: "absent", line: "" };', 'return { state: "inactive", until: "", rootHalf: "absent", line: "" };'],
+    ["a setting with no schema entry takes only its default's type", 'return keptType(value) === want ? "" : "refused: setting=" + key + " want=" + want;', 'return "";'],
+    ["a key the manifest does not declare is not writable", '        if (!hasOwn(manifest.settings, key))\n            return "refused: setting=" + key + " undeclared";\n', ""],
+    ["a number JSON cannot hold is no number", '    if (typeof value === "number" && !isFinite(value)) return "non-finite";\n', ""],
     ["undeclared settings never reach runtime or ordinary writes", "if (hasOwn(manifest.settings, k) || (stored && ENTRY_RESERVED_KEYS.indexOf(k) !== -1))", "if (stored || ENTRY_RESERVED_KEYS.indexOf(k) === -1)"],
     ["stored entries retain reserved keys", "stored && ENTRY_RESERVED_KEYS.indexOf(k) !== -1", "false && stored && ENTRY_RESERVED_KEYS.indexOf(k) !== -1"],
     ["builtin placement needs the active catalogue", 'builtinNames.indexOf(id.slice(prefix.length)) !== -1', 'true'],

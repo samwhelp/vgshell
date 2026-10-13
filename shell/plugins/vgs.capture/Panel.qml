@@ -28,7 +28,9 @@ Item {
         { label: "Copy only", value: "copy" },
         { label: "Save only", value: "save" }
     ]
-    // The usual delays, and the saved one when Settings set another.
+    // The usual delays, and the kept one when it is none of them. The
+    // manifest gives `delay` no schema entry: the choice made here is kept
+    // for the next open, and Settings draws no field for it.
     readonly property var delayChoices: {
         const current = setting("delay", 0);
         const seconds = [0, 3, 5, 10];

@@ -953,8 +953,8 @@ Singleton {
     }
 
     // Write one setting of one plugin into its plugins[] row, which every
-    // instance of the plugin reads. The value is checked against the
-    // manifest's schema first. The reply is one keyed line: `ok` (the file
+    // instance of the plugin reads. settingRefusal judges the value
+    // first. The reply is one keyed line: `ok` (the file
     // holds it), `unknown: <id>` or a refusal.
     function writeSetting(id, key, value) {
         if (!Registry.has(id)) return "unknown: " + id;

@@ -9,6 +9,7 @@ import json
 import ctypes
 import os
 from pathlib import Path
+import re
 import signal
 import select
 import shutil
@@ -87,6 +88,57 @@ console.log(JSON.stringify([
     assert not query_control, "omitting the drawn-window query must fail the same candidate readback"
     assert not delegate_control, "bypassing Dispatch.onScreen must fail the same candidate readback"
     assert not model_control, "reading Hyprland.toplevels must fail the same candidate readback"
+
+
+def delay_choice():
+    """The window keeps the screenshot delay; Settings draws no field for it or a time limit."""
+    plugin = HELPER.parent.parent
+    manifest = json.loads((plugin / "manifest.json").read_text())
+    panel = (plugin / "Panel.qml").read_text()
+    service = (plugin / "Service.qml").read_text()
+
+    def fields(manifest):
+        # The Settings page draws one field per schema entry.
+        return [key for key in ("delay", "timeout") if key in manifest["schema"]]
+
+    def kept(manifest, panel, service):
+        # The Delay row saves one key, which the manifest stores with no
+        # schema entry and the service hands the worker as its delay.
+        saved = re.findall(r'root\.save\("(\w+)", root\.delayChoices\[index\]\.value\)', panel)
+        return len(saved) == 1 and saved[0] in manifest["settings"] and saved[0] not in manifest["schema"] and f" delay: s.{saved[0]}," in service
+
+    assert fields(manifest) == [] and "timeout" not in manifest["settings"], "Settings draws no delay or time limit field"
+    assert kept(manifest, panel, service), "the window's delay reaches the worker"
+    drawn = {**manifest, "schema": {**manifest["schema"], "delay": {"type": "number", "label": "Delay"}, "timeout": {"type": "number", "label": "Limit"}}}
+    assert fields(drawn) == ["delay", "timeout"] and not kept(drawn, panel, service), "control did not fail: delay-field-drawn"
+    for name, source, before, after in [
+        ("delay-unsaved", panel, 'root.save("delay", root.delayChoices[index].value);', ""),
+        ("delay-saved-elsewhere", panel, 'root.save("delay", root.delayChoices[index].value);', 'root.save("cursor", root.delayChoices[index].value);'),
+        ("delay-unread", service, " delay: s.delay,", " delay: 0,"),
+    ]:
+        assert source.count(before) == 1, name
+        changed = source.replace(before, after)
+        assert not (kept(manifest, changed, service) if source is panel else kept(manifest, panel, changed)), "control did not fail: " + name
+    # The service writes only a delay the worker accepts: [value, written].
+    writes = [[0, True], [3, True], [60, True], [61, False], [-1, False], [1.5, False], ["3", False], [True, False], [None, False]]
+    program = '''
+const input = JSON.parse(process.argv[1]);
+const written = [];
+const shell = { configure: { set: (key, value) => { written.push([key, value]); return "ok"; } } };
+const setFromRequest = new Function("shell", input.body + "; return setFromRequest;")(shell);
+const replies = input.values.map(value => setFromRequest(JSON.stringify({ key: "delay", value: value })) === "ok");
+console.log(JSON.stringify([replies, written, setFromRequest(JSON.stringify({ key: "cursor", value: true }))]));
+'''
+    def written(source):
+        result = subprocess.run(["node", "-e", program, json.dumps({"body": service_function(source, "setFromRequest"), "values": [value for value, _ in writes]})],
+                                stdin=subprocess.DEVNULL, capture_output=True, text=True, env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)
+    wanted = [[ok for _, ok in writes], [["delay", value] for value, ok in writes if ok] + [["cursor", True]], "ok"]
+    assert written(service) == wanted, "the service writes only a delay in range"
+    before = 'if (request.key === "delay" && !(Number.isInteger(request.value) && request.value >= 0 && request.value <= 60)) return "refused: setting=delay want=0..60";'
+    assert service.count(before) == 1, "delay-unchecked"
+    assert written(service.replace(before, "")) != wanted, "control did not fail: delay-unchecked"
 
 
 def plant(root, config):
@@ -386,9 +438,7 @@ def held_grim_cancel_holds(root, payload, helper):
 
 
 def timeout_holds(root, helper, action):
-    payload = request(root, action)
-    payload["timeout"] = 1
-    code, messages, err = worker(root, payload, helper, timeout=3)
+    code, messages, err = worker(root, request(root, action), helper, timeout=3)
     return (code == 1 and messages[-1].get("reason") == "timeout" and not alive(root, "grim")
             and not alive(root, "hyprpicker") and not list((root / "pictures").glob("*.png")))
 
@@ -459,7 +509,6 @@ def screenshot_choices(base, source):
         assert refusal_holds(root, HELPER, payload, "no-targets"), action
     invalid_settings = [
         ("delay", -1, "invalid-delay"), ("delay", 61, "invalid-delay"), ("delay", 1.5, "invalid-delay"), ("delay", True, "invalid-delay"),
-        ("timeout", 0, "invalid-timeout"), ("timeout", 61, "invalid-timeout"), ("timeout", float("nan"), "invalid-timeout"), ("timeout", True, "invalid-timeout"),
         ("processing", "edit", "invalid-processing"),
     ]
     for index, (setting, value, reason) in enumerate(invalid_settings):
@@ -467,14 +516,20 @@ def screenshot_choices(base, source):
         payload = request(root, "screenshot")
         payload[setting] = value
         assert refusal_holds(root, HELPER, payload, reason), (setting, value)
+    # The helper's fixed bound at one second, so a wait it must end fits
+    # the deadline of its case. The capture row waits out the shipped bound.
+    bound = "CAPTURE_TIMEOUT = 10\n"
+    assert source.count(bound) == 1, "tool bound"
+    quick = base / "quick-bound.py"
+    quick.write_text(source.replace(bound, "CAPTURE_TIMEOUT = 1\n"))
     for name, cancel, acknowledge in [("delay", False, True), ("delay-cancel", True, True), ("delay-ack", False, False)]:
         root = world(name)
         payload = request(root, "screenshot-area")
-        payload.update(delay=1, timeout=1)
-        assert delay_holds(root, payload, HELPER, cancel=cancel, acknowledge=acknowledge), name
+        payload["delay"] = 1
+        assert delay_holds(root, payload, HELPER if acknowledge else quick, cancel=cancel, acknowledge=acknowledge), name
     for action in ("screenshot", "screenshot-area"):
         root = world("timeout-" + action, grimHold=True)
-        assert timeout_holds(root, HELPER, action), action
+        assert timeout_holds(root, quick, action), action
     # A cancel while the selection settles, its first grim run, or while the
     # file is written, the run after two equal settle frames.
     for kind, (action, call) in HELD_CANCELS.items():
@@ -482,7 +537,6 @@ def screenshot_choices(base, source):
         assert held_grim_cancel_holds(root, request(root, action), HELPER), kind
     mutations = [
         ("invalid-delay-accepted", 'if type(delay) is not int or not 0 <= delay <= 60:', 'if False:', "invalid-delay"),
-        ("invalid-timeout-accepted", 'if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or not 1 <= timeout <= 60:', 'if False:', "invalid-timeout"),
         ("invalid-processing-accepted", 'if processing not in ("save-copy", "copy", "save"):', 'if False:', "invalid-processing"),
         ("empty-selection-accepted", 'if mode in ("window", "display") and not boxes:', 'if False:', "empty-selection"),
         ("empty-displays-accepted", 'if not outputs:', 'if False:', "empty-displays"),
@@ -495,7 +549,7 @@ def screenshot_choices(base, source):
         ("no-cursor", 'args = args + (["-c"] if request.get("cursor", False) else [])', 'args = args', "cursor"),
         ("copy-saves", 'if processing == "copy":', 'if False:', "copy"),
         ("save-copies", 'if processing != "save":', 'if True:', "save"),
-        ("no-delay", 'if not self.countdown(delay, timeout):', 'if False:', "delay"),
+        ("no-delay", 'if not self.countdown(delay):', 'if False:', "delay"),
         ("delay-ignores-cancel", 'ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))\n                if ready and sys.stdin.readline().strip() in ("", "cancel"):\n                    return False', 'ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))\n                if ready and sys.stdin.readline().strip() == "":\n                    return False', "cancel"),
         ("no-timeout", 'child.communicate(timeout=timeout)', 'child.communicate()', "timeout"),
         ("settle-ignores-cancel", 'if self.cancelled(interval):\n                raise CaptureCancelled()', 'if False:\n                raise CaptureCancelled()', "settle-cancel"),
@@ -507,20 +561,20 @@ def screenshot_choices(base, source):
         changed = source.replace(before, after)
         assert changed != source
         helper = base / (name + ".py")
-        helper.write_text(changed)
+        helper.write_text(changed.replace(bound, "CAPTURE_TIMEOUT = 1\n") if kind == "timeout" else changed)
         root = world(name, **({"geometry": "30,40 1x1"} if kind == "smart" else {"grimHold": True} if kind == "timeout"
                               else {"grimHeldCall": HELD_CANCELS[kind][1]} if kind in HELD_CANCELS
                               else {"hold": True} if kind == "selector-cancel" else {}))
         payload = request(root, "screenshot")
         if kind.startswith("invalid-"):
-            setting, value = {"invalid-delay": ("delay", 1.5), "invalid-timeout": ("timeout", 0), "invalid-processing": ("processing", "edit")}[kind]
+            setting, value = {"invalid-delay": ("delay", 1.5), "invalid-processing": ("processing", "edit")}[kind]
             payload[setting] = value
             holds = refusal_holds(root, helper, payload, kind)
         elif kind.startswith("empty-"):
             payload.update(action="screenshot-window" if kind == "empty-selection" else "screenshot-all", windows=[], outputs=[])
             holds = refusal_holds(root, helper, payload, "no-targets")
         elif kind in ("delay", "cancel"):
-            payload.update(action="screenshot-area", delay=1, timeout=1)
+            payload.update(action="screenshot-area", delay=1)
             holds = delay_holds(root, payload, helper, cancel=kind == "cancel")
         elif kind == "timeout":
             holds = timeout_holds(root, helper, "screenshot")
@@ -1309,6 +1363,7 @@ def main():
         config = {"real": {"grim": real}, "display": display, "runtime": runtime}
         dimensions = (int(width), int(height))
     service_rectangles()
+    delay_choice()
     with tempfile.TemporaryDirectory(prefix="capture-test-", dir=REPO / "tmp") as temp:
         base = Path(temp).resolve()
         def world(name, **extra):
@@ -1489,7 +1544,7 @@ def main():
         assert not killed_owner_holds(root, request(root, "record"), config, helper), "control did not fail: unowned child"
     if unmeasured is None:
         recording_controls += ",no-trim"
-    controls = ("undrawn-windows,drawn-window-delegate,model-windows,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,slept-freeze,listed-freeze,unowned-child,invalid-delay-accepted,invalid-timeout-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,settle-ignores-cancel,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
+    controls = ("delay-field-drawn,delay-unsaved,delay-saved-elsewhere,delay-unread,delay-unchecked,undrawn-windows,drawn-window-delegate,model-windows,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,slept-freeze,listed-freeze,unowned-child,invalid-delay-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,settle-ignores-cancel,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
     if unmeasured is not None:
         # The rest passed, but the real post-process could not run: not a pass.
         print(f"test-capture: status=not-measured cause={unmeasured}; controls={controls}")

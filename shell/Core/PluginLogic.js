@@ -4619,17 +4619,34 @@ function withFirstPresence(user, manifests, effective) {
 }
 
 // Why `value` may not be written to setting `key` of this plugin, or "".
-// Only a key the manifest's schema declares is writable, and only with a
-// value of its type. The reply is one keyed line.
+// A key the manifest's schema declares takes a value of its type. A key
+// `settings` declares with no schema entry is a choice the plugin keeps
+// from one of its own surfaces, which the Settings page draws no field
+// for: it takes a value of its default's type. No other key is writable.
+// The reply is one keyed line.
 function settingRefusal(manifest, key, value) {
     if (manifest.hyprland !== undefined && manifest.hyprland.monitors === key) {
         var badMonitors = MonitorLogic.rulesError(value, null);
         return badMonitors === "" ? "" : badMonitors.replace("refused: monitors", "refused: setting=" + key);
     }
-    if (!hasOwn(manifest.schema, key))
-        return "refused: setting=" + key + " undeclared";
+    if (!hasOwn(manifest.schema, key)) {
+        if (!hasOwn(manifest.settings, key))
+            return "refused: setting=" + key + " undeclared";
+        var want = keptType(manifest.settings[key]);
+        return keptType(value) === want ? "" : "refused: setting=" + key + " want=" + want;
+    }
     var bad = settingError(manifest.schema[key], value);
     return bad === "" ? "" : "refused: setting=" + key + " " + bad;
+}
+
+// The JSON type of VALUE, as settingRefusal names it for a setting with no
+// schema entry. NaN and the infinities, which JSON cannot hold, are no
+// number.
+function keptType(value) {
+    if (value === null) return "null";
+    if (Array.isArray(value)) return "list";
+    if (typeof value === "number" && !isFinite(value)) return "non-finite";
+    return typeof value;
 }
 
 // Why shortcut `shortcut` of this plugin may not take `key`, or "". Only a

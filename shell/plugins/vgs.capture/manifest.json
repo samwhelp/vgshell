@@ -28,15 +28,13 @@
     { "command": "satty", "packages": { "pacman": "satty", "nix": "satty" }, "optional": true, "purpose": "Edits a saved screenshot from its notification" },
     { "command": "mpv", "packages": { "pacman": "mpv", "dnf": "mpv", "nix": "mpv" }, "optional": true, "purpose": "Plays a saved recording from its notification" }
   ],
-  "settings": { "folder": "", "recordFolder": "", "audio": "desktop", "smart": true, "delay": 0, "cursor": false, "processing": "save-copy", "timeout": 10,
+  "settings": { "folder": "", "recordFolder": "", "audio": "desktop", "smart": true, "delay": 0, "cursor": false, "processing": "save-copy",
     "quality": "very_high", "frameRate": 60, "codec": "auto", "constantFrameRate": true, "recordCursor": false, "audioSources": [], "webcam": false, "webcamDevice": "", "postProcess": true, "ocrLanguages": "eng",
     "viewer": "imv %f", "editor": "satty --filename %f --output-filename %f", "player": "mpv %f" },
   "schema": {
     "smart": { "type": "boolean", "label": "Click to select a window or display", "group": "Screenshots" },
-    "delay": { "type": "number", "label": "Screenshot delay", "min": 0, "max": 60, "step": 1, "unit": "seconds", "group": "Screenshots" },
     "cursor": { "type": "boolean", "label": "Include pointer", "group": "Screenshots" },
     "processing": { "type": "enum", "label": "Screenshot result", "options": [{ "value": "save-copy", "label": "Save and copy" }, { "value": "copy", "label": "Copy" }, { "value": "save", "label": "Save" }], "group": "Screenshots" },
-    "timeout": { "type": "number", "label": "Capture time limit", "min": 1, "max": 60, "step": 1, "unit": "seconds", "group": "Screenshots" },
     "folder": { "type": "string", "label": "Screenshot folder", "description": "Empty uses Screenshots in your Pictures folder", "presets": [{ "value": "", "label": "Pictures / Screenshots" }], "allowCustom": true, "group": "Folders" },
     "recordFolder": { "type": "string", "label": "Recording folder", "description": "Empty uses Screencasts in your Videos folder", "presets": [{ "value": "", "label": "Videos / Screencasts" }], "allowCustom": true, "group": "Folders" },
     "audio": { "type": "enum", "label": "Recording audio", "options": [{ "value": "none", "label": "None" }, { "value": "desktop", "label": "Desktop" }, { "value": "microphone", "label": "Microphone" }, { "value": "both", "label": "Both" }], "group": "Recording" },

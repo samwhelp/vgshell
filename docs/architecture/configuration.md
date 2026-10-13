@@ -21,6 +21,7 @@ One file stops delivering shipped defaults the moment a user edits it, and a dee
 ### Plugin settings
 
 - Do keep every setting of a plugin in its `plugins[]` row, the one place every instance of the plugin, a bar widget included, and the Settings page read it from (`PluginLogic.settingsFor`). A `bar.layout` entry places a widget and holds its `id` alone; `PluginLogic.configError` refuses any other key. `scripts/test-plugin-logic.js` pins both, and `scripts/smoke/rows/settings-unsaved.sh` reads a row written outside the page on the page and the widget.
+- Do declare a value the plugin keeps from one of its own surfaces in `settings` with no `schema` entry: the plugin writes it through `configure`, the Settings tab draws no field for it, and `PluginLogic.settingRefusal` takes a value of its default's JSON type, so the plugin checks the range. `scripts/test-plugin-logic.js` pins the write rule.
 - Do migrate a user file of the previous format version where it is read: `Config.qml` runs `PluginLogic.migrateConfig` before the judge and writes the result once, and the `bin/` readers run it in memory ([D107](../decisions/D107-format-change-ships-its-migration.md)). Version 1 let a layout entry carry its widget's settings; each such key moves into the plugin's row, where the row's own value wins, and of two entries with one id the first in section order wins. `scripts/test-plugin-logic.js` pins the table.
 
 ### Reads and writes

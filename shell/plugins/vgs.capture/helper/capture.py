@@ -56,6 +56,11 @@ FREEZE = ["hyprpicker", "-r", "-z", "-d", "-q"]
 # How long hyprpicker may take to map its layer on every output before the
 # freeze counts as failed.
 FREEZE_TIMEOUT = 10
+# How long one grim run, and the service's answer that its countdown left the
+# screen, may take before the screenshot counts as failed. It is the default
+# of the setting this replaced, and FREEZE_TIMEOUT's bound for the same kind
+# of wait: a tool or a reply that hangs. No measured grim time sets it.
+CAPTURE_TIMEOUT = 10
 # slurp's default wash, white at 25%, shows on a dark desktop where a dark dim
 # does not: on host cachy on 2026-10-04 grim read DP-1's mean level 16 -> 76
 # under the default and 14 -> 8 under -b #00000066.
@@ -204,7 +209,7 @@ class Capture:
                         raise RuntimeError("No capture target contains the selected point")
                     picked = rectangle_geometry(target), tuple(str(target[k]) for k in ("x", "y", "width", "height"))
             if picked is not None:
-                self.settle(picked[0], request.get("timeout", 10) if request is not None else None)
+                self.settle(picked[0], CAPTURE_TIMEOUT if request is not None else None)
             if request is not None:
                 emit("selection-ended")
                 ended = True
@@ -288,9 +293,6 @@ class Capture:
         delay = request.get("delay", 0)
         if type(delay) is not int or not 0 <= delay <= 60:
             raise CaptureFailure("invalid-delay", "Invalid screenshot delay")
-        timeout = request.get("timeout", 10)
-        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or not 1 <= timeout <= 60:
-            raise CaptureFailure("invalid-timeout", "Invalid screenshot time limit")
         processing = request.get("processing", "save-copy")
         if processing not in ("save-copy", "copy", "save"):
             raise CaptureFailure("invalid-processing", "Invalid screenshot processing choice")
@@ -317,7 +319,7 @@ class Capture:
             if not delay:
                 path, child = self.deliver(request, args)
         if delay:
-            if not self.countdown(delay, timeout):
+            if not self.countdown(delay):
                 emit("cancelled")
                 return
             # Spaced samples cover presentation after the service removes its
@@ -326,7 +328,7 @@ class Capture:
             geometry = args[2] if args[1] == "-g" else next((rectangle_geometry(r) for r in outputs if r.get("name") == request["output"]), None)
             if geometry is None:
                 raise RuntimeError("The focused display has no capture rectangle")
-            self.settle(geometry, timeout, interval=0.05)
+            self.settle(geometry, CAPTURE_TIMEOUT, interval=0.05)
             path, child = self.deliver(request, args)
         if path is None:
             emit("copied")
@@ -335,7 +337,7 @@ class Capture:
         if child is not None:
             self.clipboard_exit(child)
 
-    def countdown(self, delay, timeout):
+    def countdown(self, delay):
         for remaining in range(delay, 0, -1):
             emit("countdown", remaining=remaining)
             deadline = time.monotonic() + 1
@@ -345,7 +347,7 @@ class Capture:
                     return False
         emit("countdown", remaining=0)
         # The service replies after it removes the countdown surfaces.
-        deadline = time.monotonic() + timeout
+        deadline = time.monotonic() + CAPTURE_TIMEOUT
         while time.monotonic() < deadline:
             ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))
             if ready:
@@ -380,7 +382,7 @@ class Capture:
             folder = capture_folder(request["folder"], "PICTURES", "Screenshots")
         path = new_file(folder, "screenshot", ".png")
         try:
-            self.run(args + [str(path)], timeout=request.get("timeout", 10), stderr=subprocess.PIPE)
+            self.run(args + [str(path)], timeout=CAPTURE_TIMEOUT, stderr=subprocess.PIPE)
             if path.stat().st_size == 0:
                 raise RuntimeError("grim wrote no image")
             if self.cancelled():

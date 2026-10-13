@@ -31,7 +31,6 @@ Images come from `scripts/readme-shots.sh` in the nested sandbox.
 | Setting | What it changes |
 | --- | --- |
 | Screenshot result | Save and copy, copy only, or save only. |
-| Screenshot delay | Seconds before the screenshot, with a countdown in the bar. |
 | Screenshot folder | Empty uses Screenshots in your Pictures folder. A custom folder is an absolute path or starts with `~/`. |
 | Recording folder | Empty uses Screencasts in your Videos folder. |
 | Recording audio | None, desktop, microphone or both. |

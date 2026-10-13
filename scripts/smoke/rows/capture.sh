@@ -6,10 +6,11 @@
 # reading. Late in the row it is enabled for the notification readings, and
 # shell.json's restore at the end puts it back as found.
 # SUPER+SHIFT+S is typed on the bind hyprland-consent's wired layer holds.
-# inputs: shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/plugins/vgs.sysmon/* shell/plugins/vgs.launcher/* shell/Core/HyprlandLayer.* scripts/smoke/rows/hyprland-consent.sh shell/Core/NotificationHub.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Notifier.qml shell/Core/TuiRecords.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/*
+# inputs: shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/plugins/vgs.sysmon/* shell/plugins/vgs.launcher/* shell/Core/HyprlandLayer.* scripts/smoke/rows/hyprland-consent.sh shell/Core/NotificationHub.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Notifier.qml shell/Core/TuiRecords.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/* shell/plugins/vgs.settings/*
 # Expected rectangles come from Hyprland. Disposable copies remove each
 # screenshot choice and the owned tool deadline, and
-# the panel's mode and target choices, its press and its opening focus.
+# the panel's mode and target choices, its press, its opening focus and its
+# kept delay; a manifest copy declares the delay and time limit fields.
 # Readbacks use the harness's state poll, with no capture latency budget.
 set -euo pipefail
 capture_state="$sandbox/capture-world"
@@ -244,11 +245,12 @@ path = Path(sys.argv[1])
 print(path.is_file() and path.stat().st_mtime - float(sys.argv[2]) >= float(sys.argv[3]))
 CONTROL
 }
+# The worker ends a held tool at 10 seconds; 12 is past that.
 capture_grim_past_limit() { python3 - "$capture_state/grim-ready" <<'CONTROL'
 from pathlib import Path
 import sys, time
 path = Path(sys.argv[1])
-print(path.is_file() and time.time() - path.stat().st_mtime >= 2)
+print(path.is_file() and time.time() - path.stat().st_mtime >= 12)
 CONTROL
 }
 capture_delay_held() { [[ $(capture_phase) == delaying && $(capture_counts) == "$capture_before" ]] && echo True || echo False; }
@@ -840,7 +842,6 @@ for capture_cancel in key widget; do
 done
 capture_setting delay 0
 capture_config frame '""'
-capture_setting timeout 1
 capture_config grimHold true
 capture_before="$(capture_counts)"
 rm -f -- "${capture_state:?}/grim-ready"
@@ -848,7 +849,6 @@ expect "capture starts a tool held beyond its time limit" ok ipc vgs.capture inv
 expect_poll "the held screenshot reaches grim" True capture_marker grim-ready
 expect_poll "the time limit ends the held capture and owned tool" True capture_timeout_clean
 capture_config grimHold false
-capture_setting timeout 10
 capture_setting delay 0
 capture_config slurpRelease true
 capture_config real "{\"grim\": \"$capture_real_grim\"}"
@@ -955,7 +955,7 @@ capture_shot_initial='["Button", "Take screenshot", false, false, true]'
 capture_shot_focus='["Button", "Take screenshot", true, true, true]'
 capture_record_focus='["Button", "Start recording", true, true, true]'
 capture_panel_file="$repo/shell/plugins/vgs.capture/Panel.qml"
-capture_panel_plant() { # walk | focus | original
+capture_panel_plant() { # walk | focus | delay | original
   expect "capture stops before the $1 panel copy" ok ipc shell setPluginEnabled vgs.capture false
   expect_poll "the $1 panel copy releases the service" False record_exists vgs.capture
   python3 - "$capture_panel_file" "$sandbox" "$rt_dir" "$capture_state/panel-original.qml" "$1" <<'PY'
@@ -974,6 +974,7 @@ changes = {
         ("onClicked: root.invoke(root.primaryActionName)", 'onClicked: root.invoke("screenshot")'),
     ],
     "focus": [("property Item initialFocus: primaryAction", "property Item initialFocus: modeSwitch")],
+    "delay": [('root.save("delay", root.delayChoices[index].value);', "")],
     "original": [],
 }
 changed = source
@@ -987,12 +988,28 @@ PY
   expect "capture enables the $1 panel copy" ok ipc shell setPluginEnabled vgs.capture true
   expect_poll "the $1 panel copy's service is built" True record_exists vgs.capture
 }
-capture_setting delay 3
+# The Delay select is the second option under the primary action. Its
+# choice is kept in the plugin's row, counts down the panel's next shot and
+# shows again in a panel built later.
+capture_row_delay() { python3 -c 'import json,sys; rows=[r for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"] == "vgs.capture"]; print(json.dumps(rows[0].get("delay", "absent")) if rows else "no-row")' "$home/.config/vgshell/shell.json"; }
+capture_delay_kept() { capture_setting_value delay; }
+capture_delay_choose() { # LABEL: Tab, Tab, Down from the primary action, and back
+  capture_key Tab
+  expect_poll "$1Tab reaches the options" Select capture_focus_type
+  capture_key Tab
+  capture_key Down
+  capture_back
+  capture_back
+  expect_poll "$1Shift+Tab returns to the primary action" Button capture_focus_type
+}
 expect "capture opens its panel" ok ipc vgs.capture invoke toggle ''
 expect_poll "capture panel maps" false capture_panel
 expect_poll "capture panel has a drawn layer with geometry" True capture_panel_geometry
 expect_poll "the panel opens on Take screenshot without its ring" "$capture_shot_initial" capture_focus
 expect "the primary action screenshots an area" screenshot-area capture_primary
+capture_delay_choose ""
+expect_poll "Down on the Delay select keeps 3 seconds" 3 capture_delay_kept
+expect "the kept delay is in the plugin's row" 3 capture_row_delay
 capture_back
 expect_poll "Shift+Tab reaches the target tiles" TileGroup capture_focus_type
 capture_key Right
@@ -1021,6 +1038,7 @@ expect_poll "Tab reaches the primary action" Button capture_focus_type
 capture_pressed="$(capture_primary)"
 capture_key Return
 expect_poll "the pressed primary action reaches its countdown" delaying capture_phase
+expect "the shot counts down the delay the panel kept" True capture_countdown
 expect "the press starts the panel's own action" "$capture_pressed" capture_action
 expect_poll "the started action closes the panel" absent capture_panel
 expect "the same action cancels the panel's countdown" ok ipc vgs.capture invoke "$(capture_action)" ''
@@ -1028,6 +1046,7 @@ expect_poll "the cancelled countdown leaves capture idle" idle capture_phase
 capture_panel_plant walk
 expect "capture opens the walk copy's panel" ok ipc vgs.capture invoke toggle ''
 expect_poll "control: the walk copy opens on Take screenshot" "$capture_shot_initial" capture_focus
+expect "a panel built later shows the kept delay" 1 ipc smoke readMatchingDescendant panel vgs.capture Select currentText "3 seconds" currentIndex
 capture_back
 expect_poll "control: Shift+Tab reaches the walk copy's tiles" TileGroup capture_focus_type
 capture_key Right
@@ -1055,7 +1074,60 @@ expect_poll "control: the focus copy opens on the mode switch" SegmentedControl 
 expect "control: opening on the mode switch fails the Take screenshot readback" False capture_is capture_focus "$capture_shot_initial"
 expect "capture closes the focus copy's panel" ok ipc vgs.capture invoke toggle ''
 expect_poll "the focus copy's panel unmaps" absent capture_panel
+capture_setting delay 0
+capture_panel_plant delay
+expect "capture opens the delay copy's panel" ok ipc vgs.capture invoke toggle ''
+expect_poll "control: the delay copy opens on Take screenshot" "$capture_shot_initial" capture_focus
+capture_delay_choose "control: "
+expect "control: a delay choice the panel drops fails the kept-delay readback" False capture_is capture_delay_kept 3
+expect "capture closes the delay copy's panel" ok ipc vgs.capture invoke toggle ''
+expect_poll "the delay copy's panel unmaps" absent capture_panel
 capture_panel_plant original
+# The Settings page draws a field for each schema entry: none for the delay
+# or a time limit. The manifest copy declares both again.
+capture_field() {
+  local reply
+  reply="$(ipc smoke invokeInstance window vgs.settings fieldBoolean "{\"id\":\"vgs.capture\",\"key\":\"$1\"}")" || return 1
+  case "$reply" in absent) echo absent ;; no-switch) echo number ;; *) echo switch ;; esac
+}
+capture_manifest_file="$repo/shell/plugins/vgs.capture/manifest.json"
+capture_manifest_plant() { # fields | original
+  expect "capture stops before the $1 manifest copy" ok ipc shell setPluginEnabled vgs.capture false
+  expect_poll "the $1 manifest copy releases the service" False record_exists vgs.capture
+  python3 - "$capture_manifest_file" "$sandbox" "$rt_dir" "$capture_state/manifest-original.json" "$1" <<'PY'
+from pathlib import Path
+import json, sys
+manifest, sandbox, runtime, original, control = sys.argv[1:]
+manifest, original = Path(manifest), Path(original)
+assert any(manifest.resolve().is_relative_to(Path(root).resolve()) for root in (sandbox, runtime)), "manifest control must stay inside the sandbox or its private runtime"
+if not original.exists():
+    original.write_text(manifest.read_text())
+value = json.loads(original.read_text())
+if control == "fields":
+    assert "delay" not in value["schema"] and "timeout" not in value["schema"] and "timeout" not in value["settings"], control
+    value["settings"]["timeout"] = 10
+    for key in ("delay", "timeout"):
+        value["schema"][key] = {"type": "number", "label": key.title(), "min": 0, "max": 60, "step": 1, "group": "Screenshots"}
+    manifest.write_text(json.dumps(value))
+else:
+    manifest.write_text(original.read_text())
+PY
+  rescan "the $1 manifest copy is rescanned"
+  expect "capture enables the $1 manifest copy" ok ipc shell setPluginEnabled vgs.capture true
+  expect_poll "the $1 manifest copy's service is built" True record_exists vgs.capture
+}
+settings_page_open vgs.capture
+expect_poll "Capture's Settings page draws its window choice switch" switch capture_field smart
+expect "Capture's Settings page draws no delay field" absent capture_field delay
+expect "Capture's Settings page draws no time limit field" absent capture_field timeout
+settings_page_close vgs.capture
+capture_manifest_plant fields
+settings_page_open vgs.capture
+expect_poll "control: the fields copy's page draws its window choice switch" switch capture_field smart
+expect "control: a manifest that declares the delay field fails the absent readback" number capture_field delay
+expect "control: a manifest that declares the time limit field fails the absent readback" number capture_field timeout
+settings_page_close vgs.capture
+capture_manifest_plant original
 capture_setting delay 0
 expect_poll "capture panel leaves no layer" 0 layer_count vgs:panel
 rm -f -- "${shim:?}/tesseract"
@@ -1106,7 +1178,7 @@ changes = {
     # the displays' own, each one pixel in.
     "display": ('boxes = outputs\n', 'boxes = [dict(r, x=r["x"] + 1, y=r["y"] + 1, width=r["width"] - 2, height=r["height"] - 2) for r in outputs]\n', 1),
     "all": ('args = ["grim", "-g", f"{left},{top} {right - left}x{bottom - top}"]', 'args = ["grim", "-o", ""]', 1),
-    "delay": ('if not self.countdown(delay, timeout):', 'if False:', 1),
+    "delay": ('if not self.countdown(delay):', 'if False:', 1),
     "cancel-delay": ('ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))\n                if ready and sys.stdin.readline().strip() in ("", "cancel"):\n                    return False', 'ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))\n                if ready and sys.stdin.readline().strip() == "":\n                    return False', 1),
     "cursor": ('args = args + (["-c"] if request.get("cursor", False) else [])', 'args = args', 1),
     "copy-only": ('if processing == "copy":', 'if False:', 1),
@@ -1215,13 +1287,12 @@ for capture_control in smart window display all cursor copy-only save-only delay
       ;;
     timeout)
       capture_config real '{}'
-      capture_setting timeout 1
       capture_config grimHold true
       capture_before="$(capture_counts)"
       rm -f -- "${capture_state:?}/grim-ready"
       expect "control: the screenshot starts without its tool deadline" ok ipc vgs.capture invoke screenshot ''
       expect_poll "control: the unbounded tool has started" True capture_marker grim-ready
-      expect_poll "control: the held tool crosses the configured deadline" True capture_grim_past_limit
+      expect_poll "control: the held tool crosses the worker's deadline" True capture_grim_past_limit
       expect "control: dropping the deadline fails the bounded cleanup readback" False capture_timeout_clean
       cp -- "$capture_state/helper-original.py" "$capture_helper"
       expect "control: disabling capture ends the unbounded tool" ok ipc shell setPluginEnabled vgs.capture false
@@ -1229,7 +1300,6 @@ for capture_control in smart window display all cursor copy-only save-only delay
       capture_config grimHold false
       expect "capture is enabled after the timeout control" ok ipc shell setPluginEnabled vgs.capture true
       expect_poll "capture is idle after the timeout control" idle capture_phase
-      capture_setting timeout 10
       ;;
   esac
   cp -- "$capture_state/helper-original.py" "$capture_helper"

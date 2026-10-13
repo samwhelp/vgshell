@@ -137,6 +137,9 @@ Item {
         let request;
         try { request = JSON.parse(arg); } catch (error) { return "refused: setting=unparsed"; }
         if (request === null || typeof request !== "object" || !Object.prototype.hasOwnProperty.call(request, "key") || !Object.prototype.hasOwnProperty.call(request, "value")) return "refused: setting=malformed";
+        // `delay` has no schema entry, so the core judges its JSON type
+        // alone; the range the worker accepts is held here.
+        if (request.key === "delay" && !(Number.isInteger(request.value) && request.value >= 0 && request.value <= 60)) return "refused: setting=delay want=0..60";
         return shell.configure.set(request.key, request.value);
     }
 
@@ -221,7 +224,7 @@ Item {
         const selection = ["screenshot-area", "screenshot-window", "screenshot-display", "record", "record-window", "record-display"].indexOf(name) >= 0;
         const focused = selection ? Hyprland.activeToplevel : null;
         const s = shell.settings;
-        const request = { action: name, output: output, folder: s.folder, recordFolder: s.recordFolder, audio: s.audio, smart: s.smart, delay: s.delay, cursor: s.cursor, processing: s.processing, timeout: s.timeout,
+        const request = { action: name, output: output, folder: s.folder, recordFolder: s.recordFolder, audio: s.audio, smart: s.smart, delay: s.delay, cursor: s.cursor, processing: s.processing,
             quality: s.quality, frameRate: s.frameRate, codec: s.codec, constantFrameRate: s.constantFrameRate, recordCursor: s.recordCursor, audioSources: s.audioSources, webcam: s.webcam, webcamDevice: s.webcamDevice,
             postProcess: s.postProcess, ocrLanguages: s.ocrLanguages, editor: s.editor, viewer: s.viewer, player: s.player, stateDir: Paths.stateDir, windows: windows, outputs: outputRectangles() };
         const job = workerComponent.createObject(root, { actionName: name, focusAddress: focused === null ? "" : focused.address, command: ["python3", helperPath, JSON.stringify(request)] });
@@ -457,7 +460,9 @@ Item {
 
     Timer {
         id: windowDeadline
-        interval: root.shell === null ? 0 : root.shell.settings.timeout * 1000
+        // Hyprland's reply gets as long as the worker's CAPTURE_TIMEOUT
+        // gives one tool.
+        interval: 10000
         onTriggered: root.windowsUnread()
     }
 }
