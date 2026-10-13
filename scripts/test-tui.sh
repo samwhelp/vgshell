@@ -104,13 +104,14 @@ check "a header with no terminal writes nothing on stderr" test ! -s "$tmp/err"
 command_rows() { # QUIET: the same contract also judges the old-form control
   local columns kind row command snippet red=0 token rows=() commands=()
   printf -v token '%100s' ''; token="${token// /x}"
-  rows=("80|normal" "120|normal" "80|wide-word")
+  rows=("80|normal" "120|normal" "80|wide-word" "80|heredoc" "120|heredoc")
   for row in "${rows[@]}"; do
     IFS='|' read -r columns kind <<<"$row"
     commands=("sudo install -m 0644 -o root -g root -T -- /usr/share/vgshell/config/system/udev/60-vgs-apple-displays.rules /etc/udev/rules.d/60-vgs-apple-displays.rules"
       "sudo mv -fT -- /var/lib/vgshell/system/.tailscale-operator /var/lib/vgshell/system/tailscale-operator"
       "printf %s \$(touch commands-ran); \`touch commands-ran\`; * > file")
     [[ $kind != wide-word ]] || commands=("curl https://example.invalid/$token --output file")
+    [[ $kind != heredoc ]] || commands=($'sudo tee -- /var/lib/vgshell/system/.tailscale-operator <<\'VGS_SYSTEM_INPUT\'\nuid=1000\noperator=method\n\n  previous=\n'"a body line with enough words to wrap at both terminal widths $(printf '%s ' {a..y})z"$'\nVGS_SYSTEM_INPUT')
     printf -v snippet 'stty cols %s; cd %q; vgs_tui_commands ' "$columns" "$tmp"
     for command in "${commands[@]}"; do printf -v snippet '%s%q ' "$snippet" "$command"; done
     on_tty_capture "$snippet"
@@ -124,6 +125,7 @@ assert lines[0] != "   │" and lines[-1] != "   │"
 assert sum(line == "   │" for line in lines) == len(expected) - 1
 commands, current = [], ""
 continued = False
+input_rows = []
 for line in lines:
     if line == "   │":
         commands.append(current)
@@ -136,13 +138,21 @@ for line in lines:
         current += " " + text[2:]
         continued = True
     else:
-        assert not current
-        current = text
-    if kind == "normal":
+        if current:
+            assert kind == "heredoc"
+            current += "\n" + text
+            input_rows.append(text)
+        else:
+            current = text
+    if kind != "wide-word":
         assert len(line) <= columns - 3
 commands.append(current)
 assert commands == expected, (commands, expected)
 assert continued
+if kind == "heredoc":
+    assert input_rows[:4] == ["uid=1000", "operator=method", "", "  previous="]
+    assert input_rows[-1] == "VGS_SYSTEM_INPUT"
+    assert len(input_rows) == len(expected[0].split("\n")) - 1
 if kind == "wide-word":
     assert any(len(line) > columns for line in lines)
 PY
@@ -896,6 +906,8 @@ control() { # NAME NEEDLE REPLACEMENT: LIB names the copy
 }
 control bare-commands "printf '%s│ %s%s\\n'" "printf '%s%s%s\\n'"
 check "the old bare form fails the command block contract" test "$(command_rows quiet && echo green || echo red)" == red
+control single-command-mark '[[ ${_vgs_tui_wrapped[i]} == 1 ]]' '[[ $i != 0 ]]'
+check "marking input as wrapped fails the command block contract" test "$(command_rows quiet && echo green || echo red)" == red
 control no-terminal-check '_vgs_tui_has_terminal() { : 2>/dev/null <>/dev/tty; }' '_vgs_tui_has_terminal() { true; }'
 rm -f -- "$tmp/gum"
 run 'vgs_tui_choose a b'

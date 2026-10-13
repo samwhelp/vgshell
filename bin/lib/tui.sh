@@ -159,16 +159,18 @@ _vgs_tui_visible() { # VAR TEXT: TEXT's columns, its SGR escapes taking none
 # fits. The spaces at a break are dropped, so no continuation starts with
 # one; a line's own leading spaces stay, and a word wider than WIDTH breaks
 # inside it, unless MODE is commands, which keeps each word whole.
+# _vgs_tui_wrapped records which rows continue a width break.
 _vgs_tui_lines() { # ARRAY WIDTH TEXT [MODE]
   local -n _vgs_tui_out="$1"
-  local width="$2" text="$3" line rest lead word gap cur cur_n word_n started more=1
+  local width="$2" text="$3" line rest lead word gap cur cur_n word_n started wrapped more=1
   _vgs_tui_out=()
+  _vgs_tui_wrapped=()
   while (( more )); do
     line="${text%%$'\n'*}"
     if [[ $text == *$'\n'* ]]; then text="${text#*$'\n'}"; else more=0; fi
     lead="${line%%[! ]*}"
     rest="${line#"$lead"}"
-    cur="$lead" cur_n=${#lead} started="" gap=""
+    cur="$lead" cur_n=${#lead} started="" gap="" wrapped=0
     while [[ -n $rest ]]; do
       word="${rest%% *}"
       rest="${rest#"$word"}"
@@ -176,12 +178,14 @@ _vgs_tui_lines() { # ARRAY WIDTH TEXT [MODE]
       if [[ -n $started ]] && (( cur_n + ${#gap} + word_n <= width )); then
         cur+="$gap$word" cur_n=$(( cur_n + ${#gap} + word_n ))
       else
+        if [[ -n $started ]]; then _vgs_tui_wrapped+=("$wrapped"); wrapped=1; fi
         if [[ -n $started ]]; then _vgs_tui_out+=("$cur"); cur="" cur_n=0; fi
         while [[ ${4:-text} != commands ]] && (( cur_n + word_n > width )); do
           if [[ $word =~ ^$_vgs_tui_sgr_rule ]]; then
             cur+="${BASH_REMATCH[0]}" word="${word#"${BASH_REMATCH[0]}"}"
           elif (( cur_n == width )); then
             _vgs_tui_out+=("$cur"); cur="" cur_n=0
+            _vgs_tui_wrapped+=("$wrapped"); wrapped=1
           else
             cur+="${word:0:1}" word="${word:1}" cur_n=$(( cur_n + 1 )) word_n=$(( word_n - 1 ))
           fi
@@ -193,6 +197,7 @@ _vgs_tui_lines() { # ARRAY WIDTH TEXT [MODE]
       rest="${rest#"$gap"}"
     done
     _vgs_tui_out+=("$cur")
+    _vgs_tui_wrapped+=("$wrapped")
   done
 }
 
@@ -234,7 +239,7 @@ vgs_tui_text() { # TEXT
 }
 
 vgs_tui_commands() { # COMMAND...
-  local lines=() command line width first=1 continued pad
+  local lines=() command line i width first=1 continued pad
   width=$(( $(_vgs_tui_width) - 4 ))
   (( width > 0 )) || width=1
   printf -v pad '%*s' "$_vgs_tui_edge" ''
@@ -243,9 +248,10 @@ vgs_tui_commands() { # COMMAND...
     (( first )) || printf '%s│\n' "$pad"
     first=0 continued=""
     _vgs_tui_lines lines "$width" "$command" commands
-    for line in "${lines[@]}"; do
+    for i in "${!lines[@]}"; do
+      line="${lines[i]}" continued=""
+      [[ ${_vgs_tui_wrapped[i]} == 1 ]] && continued='↳ '
       printf '%s│ %s%s\n' "$pad" "$continued" "$line"
-      continued='↳ '
     done
   done
 }
