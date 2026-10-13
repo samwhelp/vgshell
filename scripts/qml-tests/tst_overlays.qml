@@ -29,7 +29,9 @@ import qs.Unit
 // exactly while the bar shows. Under a rounded theme a list is cut to its
 // window's rounded interior, so a filled row half scrolled past the top and
 // the bar's thumb at the top stay inside the curve; a square list draws no
-// layer. A short menu is as wide as its longest entry, with equal side
+// layer. An open select list covers a field under it whose bottom border
+// ends 1 to 4 px below its entries, read from the page's and the list's
+// images in a dark and a light theme. A short menu is as wide as its longest entry, with equal side
 // gaps, and only a menu of one short word takes the minimum width; an
 // entry's icon is as tall as its text's capitals. A menu entry's text and
 // shortcut draw a pixel under a field's, a select's and a list item's.
@@ -96,6 +98,20 @@ Item {
     }
     Component { id: transientTooltip; Tooltip { text: "Transient" } }
     Component { id: scaledWindow; Window { width: 400; height: 120; color: "black" } }
+    // A select whose list opens over a field, as over a settings page's
+    // next row.
+    Component {
+        id: coverScene
+        Window {
+            readonly property Item select: coverSelect
+            readonly property Item field: coverField
+            width: 320
+            height: 260
+            color: Theme.color.surface
+            Select { id: coverSelect; x: 20; y: 20; model: ["one", "two", "three"] }
+            TextField { id: coverField; x: coverSelect.x; width: coverSelect.width }
+        }
+    }
     property int chosen: 4
     Select { id: select; y: 40; model: ["one", "two", "three"] }
     Select { id: roled; y: 80; textRole: "name"; model: [{ name: "alpha" }, { name: "beta" }] }
@@ -916,6 +932,52 @@ Item {
             select.choose(select.currentIndex);
         }
 
+        function test_an_open_list_covers_the_field_under_it_data() {
+            const out = [];
+            for (const [mode, theme] of [["dark", {}], ["light", { scheme: { mode: "light" } }]])
+                for (let below = 1; below <= 4; below++)
+                    out.push({ tag: mode + " " + below + "px", theme: theme, below: below });
+            return out;
+        }
+
+        // A field whose bottom border ends 1 to 4 px below the edge the
+        // entries alone put the list at, their height inside its inset,
+        // draws none of its rows outside the list: the composite of the
+        // page's image and the list's, placed where the popup's anchor puts
+        // it, shows the list's opaque fill over each of them.
+        function test_an_open_list_covers_the_field_under_it(data) {
+            compare(UnitTheme.override(data.theme), "ok");
+            const scene = createTemporaryObject(coverScene, root);
+            scene.visible = true;
+            const select = scene.select, field = scene.field;
+            select.openList();
+            const popup = windowOf(select);
+            const list = selectList(select);
+            tryVerify(() => list.itemAtIndex(2) !== null && list.height > 0, 1000, "the list builds its entries");
+            const listTop = select.y + select.height - popup.anchor.margins.bottom;
+            const edge = listTop + 2 * select.listInset + list.contentHeight;
+            field.y = edge + data.below - field.height;
+            verify(field.y > listTop, "the field starts under the list's top");
+            const page = grabImage(scene.contentItem);
+            const shown = grabImage(popup.contentItem);
+            const background = Qt.color(Theme.color.surface);
+            const middle = Math.round(field.x + field.width / 2);
+            const drawn = y => Math.abs(page.red(middle, y) - background.r * 255) + Math.abs(page.green(middle, y) - background.g * 255) + Math.abs(page.blue(middle, y) - background.b * 255) > 6;
+            let lowest = Math.ceil(field.y + field.height) + 2;
+            while (lowest > field.y && !drawn(lowest)) lowest--;
+            compare(lowest, Math.ceil(edge + data.below) - 1, "the page image draws the field's bottom border " + data.below + " px under the entries' edge");
+            const out = [];
+            for (let y = Math.floor(field.y); y <= lowest; y++) {
+                const row = y - listTop;
+                for (let x = Math.ceil(field.x); x < field.x + field.width; x++) {
+                    const column = x - select.x;
+                    if (row >= shown.height || column >= shown.width || shown.alpha(column, row) < 255) { out.push(x + "," + y); break; }
+                }
+            }
+            select.choose(select.currentIndex);
+            compare(out, [], "every row of the field lies under the list's opaque fill");
+        }
+
         // The window of an overlay that declares it.
         function windowOf(owner) {
             for (let i = 0; i < owner.resources.length; i++)
@@ -1037,7 +1099,7 @@ Item {
             longSelect.openList();
             const window = windowOf(longSelect);
             const list = selectList(longSelect);
-            tryVerify(() => list.itemAtIndex(1) !== null && list.height === window.height - 2 * longSelect.listInset, 1000, "the list builds its entries and takes its window's height");
+            tryVerify(() => list.itemAtIndex(1) !== null && list.height === window.height - 2 * longSelect.listInset - longSelect.listCover, 1000, "the list builds its entries and takes its window's height");
             compare(list.overflowing, true);
             return [window, list];
         }
@@ -1094,7 +1156,7 @@ Item {
             tryVerify(() => list.contentHeight - list.height > 0.2, 1000, "the content passes the view by a fraction: " + (list.contentHeight - list.height));
             compare(bar.visible, false, "no bar for a fraction of a pixel");
             compare(list.itemAtIndex(0).rightPadding, select.sidePadding - Theme.border.thin, "no strip without a bar");
-            list.anchors.bottomMargin = Qt.binding(() => select.listInset);
+            list.anchors.bottomMargin = Qt.binding(() => select.listInset + select.listCover);
             select.choose(select.currentIndex);
         }
 

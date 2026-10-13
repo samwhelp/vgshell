@@ -17,7 +17,12 @@ import qs.Ui
 // and its entries fill it inside the menu's border, so a highlight or the
 // chosen entry's fill meets the border at the top and both sides
 // (Theme.menuListInset); an entry's side padding is the control's less
-// that border, so its text starts where the control's does. A list taller
+// that border, so its text starts where the control's does. Under its last
+// entry the list's own fill runs `listCover` further, the gap above the
+// list plus a field's border, before its bottom border. The entry count,
+// not the page, sets where the entries end, so a field drawn under the list
+// can end just below them; the fill covers that field's edge, which would
+// otherwise show as a second line under the list's border. A list taller
 // than `menu.maxHeight` scrolls under the module's embedded bar, which
 // draws over the strip each entry keeps clear at its end while the bar
 // shows. Under a rounded corner the list is cut to the window's rounded
@@ -67,9 +72,10 @@ T.AbstractButton {
     Component.onDestruction: share(false)
     readonly property color outline: focusRing.visible || list.visible ? Theme.textField.focus : hovered ? Theme.textField.hover : Theme.textField.borderColor
     readonly property real sidePadding: Theme.controlPadding(Theme.textField.paddingX, Theme.textField.radius, Math.max(Theme.textField.height, height), implicitContentHeight)
-    // The list's top and bottom inset inside its window; its side inset is
-    // the border.
+    // The list's top inset inside its window, and its bottom inset with
+    // `listCover` added; its side inset is the border.
     readonly property real listInset: Theme.menuListInset(list.width)
+    readonly property real listCover: Theme.select.gap + Theme.textField.border
 
     function textAt(index) {
         if (index < 0 || index >= count) return "";
@@ -170,7 +176,7 @@ T.AbstractButton {
         color: "transparent"
         // The field's width, never wider than the output's room.
         implicitWidth: Math.max(1, OverlayState.widthFor(root, root.width))
-        implicitHeight: Math.max(1, Math.min(Theme.menu.maxHeight, entries.contentHeight) + 2 * root.listInset)
+        implicitHeight: Math.max(1, Math.min(Theme.menu.maxHeight, entries.contentHeight) + 2 * root.listInset + root.listCover)
         onVisibleChanged: root.share(visible)
 
         DismissScope {
@@ -187,7 +193,7 @@ T.AbstractButton {
                 id: entries
                 anchors.fill: parent
                 anchors.topMargin: root.listInset
-                anchors.bottomMargin: root.listInset
+                anchors.bottomMargin: root.listInset + root.listCover
                 anchors.leftMargin: Theme.border.thin
                 anchors.rightMargin: Theme.border.thin
                 model: root.model
