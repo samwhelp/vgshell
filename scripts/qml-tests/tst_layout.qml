@@ -17,6 +17,7 @@ Item {
 
     ScrollArea { id: scroll; width: 100; height: 50; Column { Repeater { model: 10; Rectangle { width: 80; height: 20; color: "transparent" } } } }
     Tabs { id: tabs; model: ["Installed", "Available"]; y: 60 }
+    Tabs { id: handedTabs; model: ["Themes", "Wallpapers"]; y: 580; foreground: "#204060"; hover: "#406080"; active: "#6080a0" }
     KeyHints { id: hints; y: 90; hints: [{ key: "Left/Right", text: "Move" }, { key: "Ctrl+Tab", text: "Tabs" }] }
     ListItem { id: row; text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; width: 300; y: 100 }
     ListItem { id: bare; text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; y: 300 }
@@ -97,6 +98,13 @@ Item {
             tabs.enabled = false;
             compare(tabs.opacity, Theme.opacity.disabled);
             tabs.enabled = true;
+        }
+
+        // A row handed label colours draws its closed and open tabs in them.
+        function test_tabs_draw_handed_colours() {
+            handedTabs.currentIndex = 0;
+            compare(handedTabs.itemAt(0).contentItem.color, Qt.color("#6080a0"));
+            tryCompare(handedTabs.itemAt(1).contentItem, "color", Qt.color("#204060"));
         }
 
         function test_list_item_highlights_and_clicks() {

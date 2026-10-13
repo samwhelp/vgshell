@@ -7,13 +7,18 @@ import qs.Ui
 // one. The template owns the index, the left and right keys and the click;
 // this file draws each tab, its label centred `tabs.paddingX` in from each
 // side, and the indicator under the open one. Hover lifts a closed tab's
-// label, a press fills the tab, and a disabled row fades. While the row
+// label, a press fills the tab, and a disabled row fades. A view that
+// draws the row on something other than a resting surface hands it
+// `foreground`, `hover` and `active` label colours. While the row
 // holds the keyboard, Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageDown and
 // Ctrl+PageUp step the open tab, round the ends.
 T.TabBar {
     id: root
 
     property var model: []
+    property color foreground: Theme.tabs.foreground
+    property color hover: Theme.tabs.hover
+    property color active: Theme.tabs.active
 
     implicitWidth: contentItem.implicitWidth
     implicitHeight: Theme.tabs.height
@@ -82,7 +87,7 @@ T.TabBar {
             contentItem: Label {
                 role: "button"
                 text: tab.text
-                color: tab.checked ? Theme.tabs.active : tab.hovered || tab.down ? Theme.tabs.hover : Theme.tabs.foreground
+                color: tab.checked ? root.active : tab.hovered || tab.down ? root.hover : root.foreground
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
                 Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }

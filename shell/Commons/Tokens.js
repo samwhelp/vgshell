@@ -960,10 +960,11 @@ var TOKENS = {
     // `sliceName.foreground` over a `sliceName.shadow` shadow at
     // `sliceName.shadowOpacity`, blurred `sliceName.blur` pixels and
     // dropped `sliceName.shadowOffset` pixels down and right on screen,
-    // the same in every mode. Text beside the rail sits on the scrim over
-    // any wallpaper, not on a resting surface, and a black wallpaper leaves
-    // the darkest backdrop: the scrim's colour moved toward black by one
-    // minus its 0.6 opacity, made opaque. A chosen word draws
+    // the same in every mode. Text beside the rail, the browser's tabs
+    // included, sits on the scrim over any wallpaper, not on a resting
+    // surface, and a black wallpaper leaves the darkest backdrop: the
+    // scrim's colour moved toward black by one minus its 0.6 opacity,
+    // made opaque. A chosen word or an open tab draws
     // `hintActive`, the white or black that contrasts more with that
     // backdrop, 4.58:1 or more on any colour; other text draws `hint`,
     // that colour moved 0.06 toward the theme's text, at least 4.66:1 in

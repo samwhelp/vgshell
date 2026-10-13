@@ -354,8 +354,12 @@ FocusScope {
             Column {
                 width: layout.contentWidth
 
+                // The tabs sit on the scrim, as the rail's text does.
                 Tabs {
                     anchors.horizontalCenter: parent.horizontalCenter
+                    foreground: Theme.carousel.hint
+                    hover: Theme.carousel.hintActive
+                    active: Theme.carousel.hintActive
                     model: BrowserLogic.VIEWS.map(v => v.label)
                     currentIndex: 0
                     onActiveFocusChanged: if (activeFocus) Qt.callLater(root.focusRail)

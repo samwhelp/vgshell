@@ -76,6 +76,7 @@ mutations=(
   "accepted navigation keeps the initial reason|foundation/KeyNav.qml|if (keyboard === true) Logic.focusNavigation(focusTarget);|if (false) Logic.focusNavigation(focusTarget);|tst_navigation_focus.qml"
   "a programmatic movement gains a keyboard reason|foundation/KeyNav.qml|if (keyboard === true) Logic.focusNavigation(focusTarget);|Logic.focusNavigation(focusTarget);|tst_navigation_focus.qml"
   "a forwarded navigator marks another focus owner|foundation/KeyNavLogic.js|target.activeFocus && \"focusReason\" in target|\"focusReason\" in target|tst_navigation_focus.qml"
+  "a closed tab ignores its handed colour|layout/Tabs.qml|? root.hover : root.foreground|? root.hover : Theme.tabs.foreground|tst_layout.qml"
   "navigation leaves Tabs unmarked|layout/Tabs.qml|focusTarget: root|focusTarget: null|tst_navigation_focus.qml"
   "navigation leaves SegmentedControl unmarked|controls/SegmentedControl.qml|focusTarget: root|focusTarget: null|tst_navigation_focus.qml"
   "navigation leaves TileGroup unmarked|controls/TileGroup.qml|focusTarget: root|focusTarget: null|tst_navigation_focus.qml"
