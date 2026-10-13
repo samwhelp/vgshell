@@ -41,25 +41,42 @@ expected_errors+=('WARN qml: voice: start refused: dictation=busy holder=vgs[.]j
 
 # Read the actual daemon below the Process-owned J09 launcher. PIDs come
 # only from that launcher's /proc descendants, never a name-based search.
+# The launcher exists before its daemon does, so the read polls every 20 ms
+# until it finds exactly one daemon, for jarvis_daemon_bound_ms at most:
+# the service's hello deadline (Service.qml helloDeadline), past which the
+# service ends that launcher. It prints the PID, or exits 1 with a named
+# cause on stderr: daemon-wait=launcher-ended or daemon-wait=timeout.
+jarvis_daemon_bound_ms=5000
 jarvis_descendants() { # LAUNCHER_PID
-  python3 - "$1" <<'PY'
-import pathlib, sys
-pending = [int(sys.argv[1])]
-found = []
-while pending:
-    pid = pending.pop()
-    try:
-        children = pathlib.Path(f"/proc/{pid}/task/{pid}/children").read_text().split()
-        pending.extend(map(int, children))
-        args = pathlib.Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
-        executable = pathlib.Path(f"/proc/{pid}/exe").resolve().name
-    except FileNotFoundError:
-        continue
-    if executable == "node" and any(arg.endswith(b"/backend/jarvisd.js") for arg in args):
-        found.append(pid)
-if len(found) != 1:
-    sys.exit(f"jarvis-row: daemon-count={len(found)}")
-print(found[0])
+  python3 - "$1" "$jarvis_daemon_bound_ms" <<'PY'
+import pathlib, sys, time
+launcher, bound_ms = int(sys.argv[1]), int(sys.argv[2])
+deadline = time.monotonic() + bound_ms / 1000
+def daemons():
+    pending = [launcher]
+    found = []
+    while pending:
+        pid = pending.pop()
+        try:
+            children = pathlib.Path(f"/proc/{pid}/task/{pid}/children").read_text().split()
+            pending.extend(map(int, children))
+            args = pathlib.Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+            executable = pathlib.Path(f"/proc/{pid}/exe").resolve().name
+        except FileNotFoundError:
+            continue
+        if executable == "node" and any(arg.endswith(b"/backend/jarvisd.js") for arg in args):
+            found.append(pid)
+    return found
+while True:
+    found = daemons()
+    if len(found) == 1:
+        print(found[0])
+        break
+    if not pathlib.Path(f"/proc/{launcher}").exists():
+        sys.exit(f"jarvis-row: daemon-wait=launcher-ended daemon-count={len(found)} launcher={launcher}")
+    if time.monotonic() >= deadline:
+        sys.exit(f"jarvis-row: daemon-wait=timeout daemon-count={len(found)} bound_ms={bound_ms} launcher={launcher}")
+    time.sleep(0.02)
 PY
 }
 
@@ -175,9 +192,14 @@ jarvis_disable() {
   local answer launcher daemon_pid
   answer="$(ipc smoke jarvisProcess)"
   launcher="$(jarvis_launcher_pid <<<"$answer")" || return 1
-  daemon_pid="$(jarvis_descendants "$launcher")"
+  # A daemon that does not start fails the row, not the run: Jarvis still
+  # disables, so the rows after this one start with it off.
+  if ! daemon_pid="$(jarvis_descendants "$launcher" 2>&1)"; then
+    fail "the Jarvis daemon is unreadable before disable: $daemon_pid"
+    daemon_pid=""
+  fi
   expect "Jarvis disables" ok ipc shell setPluginEnabled vgs.jarvis false
-  expect "disable releases the real daemon" absent jarvis_no_pid "$daemon_pid"
+  [[ -z $daemon_pid ]] || expect "disable releases the real daemon" absent jarvis_no_pid "$daemon_pid"
   expect "disable releases the namespace launcher" absent jarvis_no_pid "$launcher"
   expect "disable drops the service" absent ipc smoke jarvisProcess
 }
@@ -187,7 +209,7 @@ jarvis_exhaust() {
   for ((crash = 0; crash <= 5; crash++)); do
     answer="$(ipc smoke jarvisProcess)"
     launcher="$(jarvis_launcher_pid <<<"$answer")" || return 1
-    daemon_pid="$(jarvis_descendants "$launcher")"
+    daemon_pid="$(jarvis_descendants "$launcher" 2>&1)" || { printf '%s\n' "$daemon_pid"; return 1; }
     kill -KILL "$daemon_pid"
     # Wait for the service to observe this child exit, not just /proc loss.
     for ((attempt = 0; attempt < 300; attempt++)); do

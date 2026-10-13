@@ -162,6 +162,24 @@ jarvis_shortcut_control() {
    jarvis_shortcut_assertion >"$sandbox/jarvis-home-shortcut-control.log"
    echo "$failures")
 }
+jarvis_key_launcher() { ipc smoke jarvisProcess | py_reply 'import json,sys; print("launcher" if isinstance(json.load(sys.stdin)["pid"], int) else "pending")'; }
+jarvis_key_kind() { ipc smoke readInstance service vgs.jarvis lifetime | py_reply 'import json,sys; print(json.load(sys.stdin)["kind"])'; }
+# A held daemon start: a launcher this row starts and holds, with no daemon
+# below it. The daemon read waits its whole bound, then names the cause and
+# returns, so the caller decides; it ends no run.
+jarvis_daemon_wait_control() {
+  local standin started got status=0 elapsed waited=early
+  sleep 30 </dev/null >/dev/null 2>&1 &
+  standin=$!
+  started="$(now_ms)"
+  got="$(jarvis_descendants "$standin" 2>&1)" || status=$?
+  elapsed=$(( $(now_ms) - started ))
+  kill "$standin"
+  wait "$standin" || true
+  # The bound plus one poll and a Python start.
+  if (( elapsed > jarvis_daemon_bound_ms + 2000 )); then waited=unbounded; elif (( elapsed >= jarvis_daemon_bound_ms )); then waited=bounded; fi
+  printf 'status=%s waited=%s cause=%s\n' "$status" "$waited" "${got% launcher=*}"
+}
 # The Jarvis cards that say Mute was not saved for TITLE, the words of its cause.
 jarvis_key_refusals() { # TITLE
   plugin_card_count Jarvis "Jarvis mute not saved" "$1"
@@ -242,12 +260,24 @@ assert source.count(needle)==1
 p.write_text(source.replace(needle, '            // The home registration control removes this effect.'))
 PYSHORTCUTS
 jarvis_rescan
+# A seen file an earlier start left would answer before this daemon exists.
+rm -f -- "$jarvis_seen"
 expect "the missing-home shortcut control enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "the shortcut control's daemon consumes hello" seen jarvis_seen_hello
 expect "removing the home registration breaks the shipped shortcut assertion" 1 jarvis_shortcut_control
 jarvis_disable
 cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
 jarvis_rescan
+
+# A disable issued during a daemon start: with no gate the daemon's hello
+# answer is held, and the launcher can exist before its daemon does.
+rm -f -- "$jarvis_gate" "$jarvis_seen"
+expect "the held start enables" ok ipc shell setPluginEnabled vgs.jarvis true
+expect_poll "the held start has its launcher" launcher jarvis_key_launcher
+expect "the disable comes while the service is starting" starting jarvis_key_kind
+jarvis_disable
+expect "a launcher whose daemon never starts fails the daemon read with its named cause" \
+  "status=1 waited=bounded cause=jarvis-row: daemon-wait=timeout daemon-count=0 bound_ms=$jarvis_daemon_bound_ms" jarvis_daemon_wait_control
 
 # Every startup Mute sends its pending notice, so vgs.notifications draws
 # them from the first one on.
