@@ -2686,7 +2686,7 @@ scene_traffic() { # MODE
   rm -- "${shim:?}/bandwhich"
   tree_rescan "Traffic's missing optional tool is scanned for Settings"
   expect "Traffic's absent capture fixture publishes for Settings" ok ipc vgs.traffic invoke scene no-bandwhich
-  ipc smoke revealText "$settings_kind" vgs.settings Button "Install all missing" >/dev/null || fail "Traffic's optional requirement was not revealed"
+  ipc smoke revealText "$settings_kind" vgs.settings RowAction "Install optional tools" >/dev/null || fail "Traffic's optional requirement was not revealed"
   take "traffic-$1-settings-requirements"
   settings_close
   cp -- "$checkout/scripts/smoke/fixtures/traffic/allow.sh" "$shim/bandwhich"
