@@ -352,10 +352,17 @@ for line in text.splitlines():
     elif line.startswith("   │ ↳ "):
         current += " " + line[7:]
     elif line.startswith("   │ "):
-        current = line[5:]
+        current += ("\n" if current else "") + line[5:]
 if current:
     print(current)
 PY
+}
+shown_greeter_configuration() {
+  local preview body header
+  preview="$(shown_commands)" || return
+  body="$(cat -- "$greeter_toml")" || return
+  header="sudo $(p tee) -- $root/etc/greetd/.vgshell.toml <<'VGS_SYSTEM_INPUT'"
+  [[ $preview == *"$header"$'\n'"$body"$'\n''VGS_SYSTEM_INPUT'* ]]
 }
 description_precedes_commands() { # VERB STEP: copy is present before the block
   python3 - "$source_file" "$tmp/out" "$1:$2" <<'PY'
@@ -868,7 +875,7 @@ check "greeter writes its files, makes its directories, reloads and enables gree
   "-- $(p install) -d -m 0700 -o 958 -g 958 -- $greeter_dir/state" \
   "-- $(p systemctl) daemon-reload" \
   "-- $(p systemctl) enable greetd.service")"
-check "apply shows the greetd configuration it writes before asking" grep -qF -- "sudo $(p tee) -- $root/etc/greetd/.vgshell.toml <<'VGS_SYSTEM_INPUT'" < <(shown_commands)
+check "apply shows the greetd configuration it writes before asking" shown_greeter_configuration
 check "the greetd configuration names the VGS PAM service, the greeter account and the greeter's command" holds_text "$greeter_toml" "$want_toml"
 check "the PAM service is the shipped file byte for byte" cmp -s -- "$greeter_src/vgs-greeter.pam" "$greeter_pam"
 check "the drop-in runs greetd with the VGS configuration" holds_text "$greeter_dropin" "$want_dropin"
@@ -1245,6 +1252,9 @@ run_tty "the unused-description control runs the step" 0 apply tailscale-operato
 check "the unused-description control fails the popup check" test "$(description_precedes_commands apply tailscale-operator && echo green || echo red)" == red
 control flattened-stdin '      line="sudo$(printf '\'' %q'\'' "$@") <<'\''VGS_SYSTEM_INPUT'\''"$'\''\n'\''"$text"$'\''\n'\'''\''VGS_SYSTEM_INPUT'\''' '      line="sudo$(printf '\'' %q'\'' "$@") <<<$(printf '\''%q'\'' "$text")"'
 check "the old flattened stdin control fails the physical-row contract" test "$(stdin_preview_rows "$helper" && echo green || echo red)" == red
+control empty-preview-body '      line="sudo$(printf '\'' %q'\'' "$@") <<'\''VGS_SYSTEM_INPUT'\''"$'\''\n'\''"$text"$'\''\n'\'''\''VGS_SYSTEM_INPUT'\''' '      line="sudo$(printf '\'' %q'\'' "$@") <<'\''VGS_SYSTEM_INPUT'\''"$'\''\n'\''""$'\''\n'\'''\''VGS_SYSTEM_INPUT'\'''
+run_tty "the empty-preview-body control writes the greeter configuration" 0 apply greeter
+check "the empty-preview-body control fails the greetd preview check" test "$(shown_greeter_configuration && echo green || echo red)" == red
 control writes-before-question '  # A root command is never answered for the user, unattended or not.' '  vgs_tui_sudo_session start; mode=run; plan "$verb" "$step"; mode=show
   # A root command is never answered for the user, unattended or not.'
 printf '1\n' >"$tmp/gum-answer"
