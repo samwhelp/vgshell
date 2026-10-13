@@ -649,6 +649,11 @@ Scope {
                 try {
                     if (type === "Tooltip" && child.opened === true && root.chromeShown(child)) add("tooltip");
                     if (type === "FocusRing" && child.visible === true && root.chromeShown(child)) add("focus-ring");
+                    // ScrollBar.qml holds full opacity while `active` and
+                    // then fades to Theme.scrollArea.idleOpacity, so a bar
+                    // short of that opacity has not settled.
+                    if (type === "ScrollBar" && child.thumb !== undefined && child.visible === true && root.chromeShown(child)
+                        && (child.active === true || child.opacity !== Theme.scrollArea.idleOpacity)) add("scroll-bar");
                 } catch (e) {}
             }
         }
@@ -1718,6 +1723,11 @@ Scope {
                 target: root.windowBox(bar[drag.section + "Section"]) });
         }
 
+        // The chrome a shot would show beside the surfaces, as
+        // comma-separated words, or `clean` for none: `tooltip` for an
+        // open tooltip, `focus-ring` for a drawn focus ring and
+        // `scroll-bar` for a shown embedded scroll bar that has not faded
+        // to its idle opacity. CLEAR first drops every visual focus.
         function shotChrome(clear: bool): string { return root.chromeWord(clear); }
         // The core's session lock, taken and released without a password,
         // for rows/lock.sh: a sandbox row never runs PAM against the real

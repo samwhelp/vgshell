@@ -705,9 +705,13 @@ settle_hold() {
 }
 shot_chrome_read() { ipc smoke shotChrome false; }
 shot_chrome_clear() { ipc smoke shotChrome true; }
+# clean_shot_chrome: the shot chrome cleared and polled until it reads
+# `clean`, else its last word. The 5 s bound outlasts a scroll bar's
+# settling, Theme.scrollArea.fadeDelay (800 ms) after the last scroll plus
+# its Theme.scrollArea.fade.
 clean_shot_chrome() {
   local state=unreadable
-  for _ in $(seq 1 10); do
+  for _ in $(seq 1 50); do
     state="$(shot_chrome_clear)" || state=unreadable
     [[ $state == clean ]] && return 0
     sleep 0.1
@@ -957,6 +961,34 @@ settings_menu_open() { ipc smoke menus "$settings_kind" vgs.settings | python3 -
 settings_menu_pointed() { ipc smoke menus "$settings_kind" vgs.settings | py_reply 'import json,sys; m=json.load(sys.stdin); print(len(m) == 1 and m[0]["current"] is not None and m[0]["current"] not in m[0]["checked"])'; }
 # The page's one scroll area as the probe reads it.
 settings_scroll() { ipc smoke scrollAreas "$settings_kind" vgs.settings | python3 -c 'import json,sys; a=json.load(sys.stdin); print(json.dumps(a[0]) if len(a) == 1 else "areas=%d" % len(a))'; }
+# settings_scroll_set Y: the page's scroll area moved to contentY Y through
+# the probe's scrollTo, held inside its content; prints where it landed.
+settings_scroll_set() { # Y
+  ipc smoke scrollTo "$settings_kind" vgs.settings "$1" | py_reply 'import json,sys; print(int(json.load(sys.stdin)[0]))'
+}
+# settings_bar_box AREA: the bar of AREA, a settings_scroll reading, on
+# the output as [x, y, w, h]: its window box plus the window's place.
+settings_bar_box() { # AREA
+  local box
+  box="$(surface_box "$settings_surface")" && [[ $box == \[* ]] || { echo "window=${box:-unread}"; return 1; }
+  python3 -c 'import json,sys; o=json.loads(sys.argv[1]); b=json.loads(sys.argv[2])["bar"]; print(json.dumps([o[0] + b[0], o[1] + b[1], b[2], b[3]]))' "$box" "$1"
+}
+# shot_region_same A B BOX: `same` when shots A and B, PNGs under SHOT_DIR,
+# hold the same pixels in BOX, [x, y, w, h] in logical pixels of the
+# output, in device pixels with its edges rounded outward as record_item
+# rounds them; else `differ pixels=N`.
+shot_region_same() { # A B BOX
+  python3 -c 'import json,math,sys
+from PIL import Image
+x, y, w, h = json.loads(sys.argv[3]); s = int(sys.argv[4])
+left, top = math.floor(x * s), math.floor(y * s)
+box = (left, top, math.ceil((x + w) * s), math.ceil((y + h) * s))
+a, b = (Image.open(path).convert("RGBA").crop(box).tobytes() for path in sys.argv[1:3])
+if a == b:
+    print("same")
+else:
+    print("differ pixels=%d" % sum(a[i:i + 4] != b[i:i + 4] for i in range(0, len(a), 4)))' "$SHOT_DIR/$1.png" "$SHOT_DIR/$2.png" "$3" "$scale"
+}
 settings_drag_page_down() { # LABEL
   local area tx ty
   if area="$(settings_scroll)" && [[ $area == \{* ]]; then
@@ -1172,7 +1204,7 @@ scene_setup_steps() { # MODE
 settings_empty() { [[ $(ipc smoke itemGeometry "$settings_kind" vgs.settings Label 'No plugin matches "zzqxv"') == \[* ]] && echo shown || echo hidden; }
 scene_settings() { # MODE
   # A section shot keeps its heading margin px below the area's top edge.
-  local area at tx ty title x y section start end height half margin=12
+  local area at bar tx ty title x y section start end height half margin=12
   click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
   expect_poll "the gear opens the Settings window" 1 settings_count
   expect_poll "the Settings window holds the keyboard" true ipc smoke activeFocusIn "$settings_kind" vgs.settings
@@ -1231,6 +1263,18 @@ scene_settings() { # MODE
     drag "$tx" "$ty" "$tx" "$((ty + 120))" || fail "the drag on the page's thumb failed"
     hover "$tx" "$((ty + 120))" || fail "the hover on the dragged thumb failed"
     take "settings-$1-page-scrolled"
+    # The page moved one pixel and back restarts the bar's fade delay;
+    # take waits for the bar to settle, so both captures match on its
+    # region.
+    if area="$(settings_scroll)" && [[ $area == \{* ]] && at="$(python3 -c 'import json,sys; print(int(json.loads(sys.argv[1])["contentY"]))' "$area")" \
+      && bar="$(settings_bar_box "$area")"; then
+      expect "the page moves one pixel up" "$((at - 1))" settings_scroll_set "$((at - 1))"
+      expect "the page moves back" "$at" settings_scroll_set "$at"
+      take "settings-$1-page-scrolled-again"
+      expect "the two page-scrolled captures match on the scroll bar's region" same shot_region_same "settings-$1-page-scrolled" "settings-$1-page-scrolled-again" "$bar"
+    else
+      fail "the scrolled probe's page bar is unreadable: ${area:-} ${bar:-}"
+    fi
   else
     fail "the probe's page scroll area is unreadable: ${area:-}"
   fi
@@ -1712,7 +1756,8 @@ hover_card() {
 # tooltip. Then Probe's page, which has no Setup tab, Bare's Setup tab with
 # its Requirements, and Jarvis: its Settings tab, its Setup tab on a fresh
 # profile, and its Setup tab with an AI model chosen and the local voice
-# ready, as rows/jarvis-setup.sh plants them.
+# ready, as rows/jarvis-setup.sh plants them. The fresh tab's Local voice is
+# planted not set up and read back before its shot.
 setup_tab_ready=false
 setup_tab_prepare() {
   local fixture
@@ -1737,6 +1782,11 @@ setup_tab_page() { # ID
   expect_poll "the $1 page is shown" "\"$1\"" settings_page
 }
 setup_tab_headline() { ipc smoke setupRows "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); r=json.loads(t) if t.startswith("[") else []; print(r[0]["chips"][0][1] if r and r[0]["chips"] else "none")'; }
+# The first chip text of the setup row whose key is KEY, `none` when the
+# row draws no chip, `absent` when no such row shows.
+setup_tab_step_chip() { # KEY
+  ipc smoke setupRows "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); r=[x for x in (json.loads(t) if t.startswith("[") else []) if x["key"]==sys.argv[1]]; print("absent" if not r else r[0]["chips"][0][0] if r[0]["chips"] else "none")' "$1"
+}
 setup_tab_jarvis_on() { # LABEL
   expect "enabling vgs.jarvis $1 is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
   expect_poll "the Jarvis daemon answers hello $1" ready jarvis_started
@@ -1749,7 +1799,8 @@ setup_tab_jarvis_off() {
 }
 scene_setup-tab() { # MODE
   local rect x y brain
-  local state="$home/.local/state/vgshell/jarvis" data="$home/.local/share/vgshell/jarvis" codex="$home/setup-codex" config="$home/.config/vgshell/shell.json"
+  local state="$home/.local/state/vgshell/jarvis" data="$home/.local/share/vgshell/jarvis" codex="$home/setup-codex" config="$home/.config/vgshell/shell.json" world="$sandbox/jarvis-world"
+  cp -- "$world/local-mode" "$sandbox/setup-tab-local-mode" 2>/dev/null || printf 'absent\n' >"$sandbox/setup-tab-local-mode"
   setup_tab_prepare
   expect "the Settings window opens for the setup tab shots" ok ipc shell summon "$settings_kind" vgs.settings '{}'
   expect_poll "the Settings window maps for the setup tab shots" 1 settings_count
@@ -1771,12 +1822,14 @@ scene_setup-tab() { # MODE
   setup_tab_page acme.bare
   settings_setup
   take "setup-tab-$1-requirements"
-  # Jarvis on a fresh profile: steps open.
+  # Jarvis on a fresh profile: steps open, the local voice not set up.
+  printf 'absent\n' >"$world/local-mode"
   setup_tab_jarvis_on "for its fresh Setup tab"
   setup_tab_page vgs.jarvis
   take "setup-tab-$1-jarvis-settings"
   settings_setup
   expect_poll "the fresh Jarvis Setup tab reads not ready" warning setup_tab_headline
+  expect_poll "the fresh Jarvis Setup tab draws Local voice Not set up" "Not set up" setup_tab_step_chip localRuntime
   park_pointer
   take "setup-tab-$1-jarvis-partial"
   setup_tab_jarvis_off
@@ -1800,7 +1853,7 @@ scene_setup-tab() { # MODE
   python3 -c 'import json,os,sys
 tier=next(iter(json.load(open(sys.argv[1]))["tiers"]))
 open(sys.argv[3],"w").write(json.dumps({"tier": tier, "data": os.path.realpath(sys.argv[2])}))' "$repo/shell/plugins/vgs.jarvis/artifacts.json" "$data/local" "$state/local-ready.json"
-  printf 'ready\n' >"$sandbox/jarvis-world/local-mode"
+  printf 'ready\n' >"$world/local-mode"
   cp -- "$config" "$sandbox/setup-tab-config"
   python3 -c 'import json,sys
 value=json.load(open(sys.argv[1]))
@@ -1820,7 +1873,8 @@ open(sys.argv[1],"w").write(json.dumps(value))' "$config" "$brain"
   setup_tab_jarvis_off
   cp -- "$sandbox/setup-tab-config" "$config"
   expect "the Jarvis AI model setting is put back" ok ipc shell reloadConfig
-  rm -f -- "${state:?}/accounts.json" "${state:?}/local-ready.json" "${sandbox:?}/jarvis-world/local-mode"
+  rm -f -- "${state:?}/accounts.json" "${state:?}/local-ready.json"
+  cp -- "$sandbox/setup-tab-local-mode" "$world/local-mode"
   rm -f -- "${shim:?}/voxtype" "${shim:?}/wtype" "${sandbox:?}/voxtype-daemon.log" "${sandbox:?}/voxtype-follow.log"
   jarvis_restore_requirements
 }
@@ -4209,14 +4263,14 @@ EOF
 # which the scene enables with Silence off for it; an older one after a
 # bounded wait. Voice's Settings page is shot without voxtype and once the
 # stand-ins report the model installed and a systemctl stand-in the
-# service enabled and running, scrolled so its whole Setup section is in
-# view. A tree whose Voice dictates through the core (voice_dictates) has
-# no Set up screen of its own: its setup entry's step raises the notice
-# without voxtype and opens the core's dictation setup with it, over the
-# smoke's voxtype stand-in, and its page reads Ready once that stand-in
-# reports the model. A tree whose Voice hides its setup state without
-# voxtype offers no step then: the Requirements section's Install all
-# missing raises the notice, and the page draws no chip. A
+# service enabled and running, scrolled so the Setup tab's sections are
+# whole in view. A tree whose Voice dictates through the core
+# (voice_dictates) has no Set up screen of its own: its setup entry's step
+# raises the notice without voxtype and opens the core's dictation setup
+# with it, over the smoke's voxtype stand-in, and its page reads Ready
+# once that stand-in reports the model. A tree whose Voice hides its setup
+# state without voxtype offers no step then: the Requirements section's
+# Install all missing raises the notice, and the page draws no chip. A
 # tree whose Voice puts its setup state in the Setup group is shot once
 # the section draws its chip. Enablement, stand-ins and the package script
 # are put back, and the Settings window is hidden again.
@@ -4431,8 +4485,8 @@ voice_install_press() { # LABEL
   settings_close
 }
 # voice_setup_page LABEL SHOT CHIP: the Settings window opened on Voice's
-# page, scrolled so its whole Setup section, the button row included, is in
-# view once every status row is reported, shot as SHOT with the pointer
+# page, scrolled so the Setup tab's sections, the button row included, are
+# in view once every status row is reported, shot as SHOT with the pointer
 # parked, then hidden. On a tree whose Voice puts its setup
 # state in the Setup group, the shot waits for the section's chip to read
 # CHIP; an older tree draws none.
@@ -4451,25 +4505,47 @@ voice_setup_page() { # LABEL SHOT CHIP
   if grep -qF '"group": "Setup"' "$tree/shell/plugins/vgs.voice/manifest.json"; then
     expect_poll "$1: the Setup section's chip reads $3" "$3" voice_setup_chip
   fi
-  voice_setup_reveal || fail "$1: the Setup section could not be scrolled into view"
-  expect_poll "$1: the whole Setup section, its buttons included, is in view" in-view voice_setup_in_view
+  voice_setup_reveal || fail "$1: the Setup tab's sections could not be scrolled into view"
+  expect_poll "$1: the Setup tab's sections, their buttons included, are in view" in-view voice_setup_in_view
   park_pointer
   take "$2"
   settings_close
 }
+# voice_setup_span: the Setup tab's shown sections, Status, Setup and
+# Requirements, as one span, [top, bottom, contentY, height] as the
+# probe's sectionSpan reads each: the least top and the greatest bottom;
+# `absent` while none shows.
+voice_setup_span() {
+  local title span spans=()
+  for title in Status Setup Requirements; do
+    span="$(ipc smoke sectionSpan "$settings_kind" vgs.settings "$title")" || return 1
+    [[ $span == \[* ]] && spans+=("$span")
+  done
+  python3 -c 'import json,sys
+s = [json.loads(v) for v in sys.argv[1:]]
+print(json.dumps([min(v[0] for v in s), max(v[1] for v in s), s[0][2], s[0][3]]) if s else "absent")' "${spans[@]}"
+}
 # voice_setup_reveal: the page's scroll area moved, through the probe's
-# scrollTo, so the Setup section's top and its bottom, the button row, both
-# lie in view: as far as its bottom needs, never past its top.
+# scrollTo, so the Setup tab's sections' top and their bottom, the button
+# row, both lie in view: as far as their bottom needs, never past their top.
 voice_setup_reveal() {
   local span y
-  span="$(ipc smoke sectionSpan "$settings_kind" vgs.settings Setup)" && [[ $span == \[* ]] || return 1
+  span="$(voice_setup_span)" && [[ $span == \[* ]] || return 1
   y="$(python3 -c 'import json,sys; top, bottom, _, height = json.loads(sys.argv[1]); print(int(min(top, max(0, bottom - height))))' "$span")" || return 1
   ipc smoke scrollTo "$settings_kind" vgs.settings "$y" >/dev/null
 }
-# `in-view` once the Setup section lies whole in the page's view, else
-# its span.
-voice_setup_in_view() { ipc smoke sectionSpan "$settings_kind" vgs.settings Setup | py_reply 'import json,sys; t=sys.stdin.read(); s=json.loads(t) if t.startswith("[") else None; print("in-view" if s is not None and s[0] >= s[2] - 0.5 and s[1] <= s[2] + s[3] + 0.5 else t.strip())'; }
-voice_setup_chip() { ipc smoke setupSection "$settings_kind" vgs.settings | py_reply 'import json,sys; c=json.load(sys.stdin)["chips"]; print(c[0][0] if c else "none")'; }
+# `in-view` once the Setup tab's sections lie whole in the page's view,
+# else their span.
+voice_setup_in_view() { voice_setup_span | py_reply 'import json,sys; t=sys.stdin.read(); s=json.loads(t) if t.startswith("[") else None; print("in-view" if s is not None and s[0] >= s[2] - 0.5 and s[1] <= s[2] + s[3] + 0.5 else t.strip())'; }
+# The first chip text of the page's Status and Setup sections, `none`
+# when they draw none: the probe's setupSection answers `absent` while
+# neither shows, as Voice's page draws only Requirements then.
+voice_setup_chip() {
+  local reply
+  reply="$(ipc smoke setupSection "$settings_kind" vgs.settings)" || return 1
+  if [[ $reply == absent ]]; then echo none; return 0; fi
+  py_reply 'import json,sys; c=json.load(sys.stdin)["chips"]; print(c[0][0] if c else "none")' <<<"$reply"
+}
 # Whether Voice's own setup state offers Set up, as its service holds it.
 voice_setup_wanted() { ipc smoke readInstance service vgs.voice setupValue | py_reply 'import json,sys; a=json.load(sys.stdin).get("action"); print("none" if a == "" else a)'; }
 voice_setup_requirement() { ipc shell listPlugins | py_reply 'import json,sys; print([r["state"] for p in json.load(sys.stdin)["plugins"] if p["id"] == "vgs.voice" for r in p["requirements"] if r["name"] == sys.argv[1]][0])' "$1"; }
