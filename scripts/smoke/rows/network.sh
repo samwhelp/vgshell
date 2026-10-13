@@ -1150,9 +1150,10 @@ open(p,"w").write(s.replace(old,'if (false && Logic.shouldReprompt(Logic.enumNam
 PY
 rescan "the reprompt control is discovered"
 expect_poll "the control's service is built" True record_exists vgs.network
-net_expect_fixture "the control re-adds a saved profile" prepare || return 0
+expect_poll "the reprompt control retains the saved profile" True net_known
 expect "the control's flyout opens" ok ipc shell summon panel vgs.network '{}'
 expect_poll "the control's flyout is shown" shown net_shown panel
+expect_poll "the reprompt control lists its saved disconnected network" '[["VGS Smoke Wi-Fi", 82, true, false]]' net_rows panel
 expect_poll "the reprompt control finishes its backend probes" '"offline"' net_state
 expect "the control connects the saved profile" ok net_do connect
 expect_poll "the control has an activation to fail" connect net_action
