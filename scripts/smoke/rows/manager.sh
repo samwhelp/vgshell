@@ -161,7 +161,7 @@ gear_centred() {
   key="$(bar_key)" || return
   bar_box="$(ipc smoke instanceGeometry "$key" vgs.bar)" || return
   gear="$(ipc smoke descendantGeometry "$key" vgs.settings)" || return
-  python3 - "$bar_box" "$gear" <<'PY'
+  py_dumps "$bar_box" "$gear" <<'PY'
 import json, sys
 bar, rows = (json.loads(a) for a in sys.argv[1:])
 centre = bar[1] + bar[3] / 2

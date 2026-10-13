@@ -60,7 +60,7 @@ bar_alignment() {
   pad="$(ipc smoke themeValue bar.item.paddingX)" || return
   gap="$(ipc smoke themeValue bar.item.gap)" || return
   floor="$(ipc smoke themeValue bar.item.height)" || return
-  python3 - "$bar_box" "$ws" "$clock" "$pad" "$gap" "$floor" <<'PY'
+  py_dumps "$bar_box" "$ws" "$clock" "$pad" "$gap" "$floor" <<'PY'
 import json, sys
 values = []
 for raw in sys.argv[1:]:
@@ -158,7 +158,7 @@ calendar_off() {
   local rows bar_box
   rows="$(ipc smoke descendantGeometry panel vgs.bar)" || return
   bar_box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar)" || return
-  python3 - "$rows" "$bar_box" <<'PY'
+  py_dumps "$rows" "$bar_box" <<'PY'
 import json, sys
 if sys.argv[1] == "absent":
     print("closed")
@@ -191,7 +191,7 @@ calendar_off_centre() {
   local rows inks
   rows="$(ipc smoke descendantGeometry panel vgs.bar)" || return
   inks="$(ipc smoke textInk panel vgs.bar Label)" || return
-  python3 - "$rows" "$inks" <<'PY'
+  py_dumps "$rows" "$inks" <<'PY'
 import json, sys
 if "absent" in sys.argv[1:]:
     print("closed")
@@ -255,7 +255,7 @@ calendar_header() {
   labels="$(ipc smoke itemValues panel vgs.bar Label objectName,text,baselineOffset)" || return
   inks="$(ipc smoke textInk panel vgs.bar Label)" || return
   padding="$(ipc smoke themeValue surface.padding)" || return
-  python3 - "$rows" "$prev" "$next" "$gear" "$labels" "$inks" "$padding" <<'PY2'
+  py_dumps "$rows" "$prev" "$next" "$gear" "$labels" "$inks" "$padding" <<'PY2'
 import json, sys
 rows, prev, next_, gear, labels, inks, padding = sys.argv[1:]
 if "absent" in (rows, prev, next_, labels, inks):
@@ -359,7 +359,7 @@ clock_third() {
   key="$(bar_key)" || return
   bar_box="$(ipc smoke instanceGeometry "$key" vgs.bar)" || return
   clock="$(ipc smoke descendantGeometry "$key" vgs.bar/center-clock)" || return
-  python3 - "$bar_box" "$clock" <<'PY'
+  py_dumps "$bar_box" "$clock" <<'PY'
 import json, sys
 bar, rows = (json.loads(a) for a in sys.argv[1:])
 box = next(r["box"] for r in rows if r["type"] == "BarItem")

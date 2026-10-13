@@ -504,7 +504,7 @@ expect_poll "a click on a row lists its packages" 2 updates_package_lines
 updates_geometry() {
   local rows
   rows="$(ipc smoke descendantGeometry window vgs.updates)" || return
-  python3 - "$rows" "${1:-}" <<'PY'
+  py_dumps "$rows" "${1:-}" <<'PY'
 import json, sys
 # A failure word from the probe is the answer, never a traceback.
 if not sys.argv[1].startswith("["):

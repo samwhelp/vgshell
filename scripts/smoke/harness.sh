@@ -1464,6 +1464,16 @@ ipc_oversize_check() { # ROW
 # the raw reply. Every row reader that parses JSON from its stdin runs
 # through this: scripts/check-smoke-readers.py refuses one that python3
 # runs itself, in the forms its header names.
+py_dumps() { # DUMP...; Python program on stdin
+  local program
+  program="$(cat)" || return
+  # Bash's builtin printf sends each complete dump through stdin. Only
+  # the program crosses exec, so growing geometry never fills an argv word.
+  printf '%s\0' "$@" | python3 -c 'import sys
+program = sys.argv[1]
+sys.argv = ["-"] + sys.stdin.read().split("\0")[:-1]
+exec(compile(program, "<smoke-dumps>", "exec"))' "$program"
+}
 py_reply() { # PROGRAM [ARG...]
   local reply status
   reply="$(cat)" || return
@@ -1480,10 +1490,7 @@ py_reply() { # PROGRAM [ARG...]
   else
     status=$?
   fi
-  python3 - "$reply" <<'PY' >&2
-import sys
-print("py_reply: the reply was: " + repr(sys.argv[1][:200]))
-PY
+  python3 -c 'import sys; print("py_reply: the reply was: " + repr(sys.stdin.read()[:200]))' <<<"$reply" >&2
   return "$status"
 }
 # jarvis_ready, jarvis_wait_ready and jarvis_devices: the Jarvis child's

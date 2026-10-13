@@ -37,7 +37,7 @@ share_area_fits() {
   window="$(surface_box window:Capture)" || return
   monitor="$(hypr -j monitors)" || return
   border="$(window_border_size)" || return
-  python3 - "$rows" "$scroll" "$aspect" "$current" "$window" "$monitor" "$border" <<'PY'
+  py_dumps "$rows" "$scroll" "$aspect" "$current" "$window" "$monitor" "$border" <<'PY'
 import json,sys
 rows,scroll,aspect,current,window,monitors,border=map(json.loads,sys.argv[1:])
 monitor=next(m for m in monitors if m['name']==current['name'])
@@ -193,7 +193,7 @@ share_drag_plan() {
   rows="$(ipc smoke descendantGeometry window vgs.capture)" || return
   box="$(surface_box window:Capture)" || return
   current="$(share_read current)" || return
-  python3 - "$rows" "$box" "$current" "$share_world/drag-plan.json" <<'PY'
+  py_dumps "$rows" "$box" "$current" "$share_world/drag-plan.json" <<'PY'
 import json,math,pathlib,sys
 rows,window,screen=map(json.loads,sys.argv[1:4])
 preview=next(r for r in rows if r['type']=='ScreencopyPreview')

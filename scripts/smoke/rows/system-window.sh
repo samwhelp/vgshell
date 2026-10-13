@@ -116,7 +116,7 @@ sys_pane_fits() { # ID
   box="$(ipc smoke instanceGeometry window "$1")" && implicit="$(ipc smoke readInstance window "$1" implicitHeight)" && rows="$(ipc smoke descendantGeometry window vgs.system)" || return 1
   [[ $box == \[* && $rows == \[* ]] || { echo "pane=$box window=${rows:0:20}"; return; }
   ring="$(( $(ipc smoke themeValue focusRing.width) + $(ipc smoke themeValue focusRing.offset) ))" || return 1
-  python3 - "$box" "$implicit" "$rows" "$ring" <<'PY'
+  py_dumps "$box" "$implicit" "$rows" "$ring" <<'PY'
 import json, sys
 box, implicit, rows, ring = json.loads(sys.argv[1]), float(sys.argv[2]), json.loads(sys.argv[3]), float(sys.argv[4])
 side = [i for i, r in enumerate(rows) if r["type"] == "Sidebar"]
@@ -334,7 +334,7 @@ sys_edges() {
   local rows inset pane
   rows="$(ipc smoke descendantGeometry window vgs.system)" && inset="$(ipc smoke themeValue inset.window)" && pane="$(ipc smoke instanceGeometry window acme.pane)" || return 1
   [[ $rows == \[* && $pane == \[* ]] || { echo "window=${rows:0:20} pane=$pane"; return; }
-  python3 - "$rows" "$inset" "$pane" <<'PY'
+  py_dumps "$rows" "$inset" "$pane" <<'PY'
 import json, sys
 rows, inset, pane = (json.loads(a) for a in sys.argv[1:])
 out = []

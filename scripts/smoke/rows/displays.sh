@@ -348,7 +348,8 @@ for disp_layout in PaneLayout PaneNotModal PaneNotCentered PaneVrrOutside PaneNo
     disp_page_before="$(ipc smoke viewHolding window vgs.system 'Dimmed brightness')"
     # Use the blank left gutter. The former bottom-right point landed on
     # Dimmed brightness's Select, not a blank part of the scrolling page.
-    disp_wheel_evidence="$(python3 -c 'import json,sys
+    disp_wheel_evidence="$(py_dumps "$disp_page_before" "$(surface_box 'window:System Settings')" "$(surface_box vgs:dialog)" "$(disp_modal_read PaneLayout)" "$(ipc smoke descendantGeometry window vgs.displays)" <<'PY'
+import json,sys
 page,window,surface,card,items=[json.loads(a) for a in sys.argv[1:]]
 x,y,w,h=page["box"]; px,py=x+2,y+h-20
 sx,sy=window[0]+px,window[1]+py
@@ -356,7 +357,9 @@ cx,cy=surface[0]+card["x"],surface[1]+card["y"]
 assert x<px<x+w and y<py<y+h
 assert not(cx<=sx<cx+card["width"] and cy<=sy<cy+card["height"])
 assert not any(i["type"]=="Select" and i["visible"] and i["box"][0]<=px<i["box"][0]+i["box"][2] and i["box"][1]<=py<i["box"][1]+i["box"][3] for i in items)
-print(json.dumps({"point":[int(sx),int(sy)],"page":page["box"],"card":[cx,cy,card["width"],card["height"]],"outsideCard":True,"outsideSelects":True}))' "$disp_page_before" "$(surface_box 'window:System Settings')" "$(surface_box vgs:dialog)" "$(disp_modal_read PaneLayout)" "$(ipc smoke descendantGeometry window vgs.displays)")"
+print(json.dumps({"point":[int(sx),int(sy)],"page":page["box"],"card":[cx,cy,card["width"],card["height"]],"outsideCard":True,"outsideSelects":True}))
+PY
+)"
     printf '  display-background-point=%s\n' "$disp_wheel_evidence"
     read -r disp_wheel_x disp_wheel_y < <(py_reply 'import json,sys; print(*json.load(sys.stdin)["point"])' <<<"$disp_wheel_evidence")
     wheel "$disp_wheel_x" "$disp_wheel_y" -2 || fail "wheeling behind the trial failed"
@@ -375,7 +378,13 @@ print(json.dumps({"point":[int(sx),int(sy)],"page":page["box"],"card":[cx,cy,car
       hover "$disp_wheel_x" "$disp_wheel_y" || fail "resting on the masked wheel gutter failed"
       geometry expect_poll "control: the masked modal remains mapped before its wheel" True disp_modal_matches "$disp_layout"
       wheel "$disp_wheel_x" "$disp_wheel_y" -2 || fail "the masked modal wheel control failed"
-      disp_masked_page_moved() { ipc smoke viewHolding window vgs.system 'Dimmed brightness' | py_reply 'import json,sys; before=json.loads(sys.argv[1]); after=json.load(sys.stdin); print(abs(before["contentY"]-after["contentY"])>=1)' "$disp_masked_before"; }
+      disp_masked_page_moved() {
+        py_dumps "$disp_masked_before" "$(ipc smoke viewHolding window vgs.system 'Dimmed brightness')" <<'PY'
+import json,sys
+before,after=map(json.loads,sys.argv[1:])
+print(abs(before["contentY"]-after["contentY"])>=1)
+PY
+      }
       expect_poll "control: a card-only input region lets the same wheel move the page" True disp_masked_page_moved
       ipc smoke revealText window vgs.system FormRow 'Dimmed brightness' >/dev/null
       geometry expect_poll "control: the masked modal retains its real card after scrolling" True disp_modal_matches "$disp_layout"
@@ -858,13 +867,14 @@ disp_bl_points() {
   row="$(ipc smoke windowGeometry window vgs.displays DisplayRow "Built-in display")" || return 1
   level="$(ipc smoke scopedWindowGeometry window vgs.displays DisplayRow "Built-in display" Label "$1")" || return 1
   for box in "$window" "$row" "$level"; do [[ $box == \[* ]] || { echo "$box"; return 1; }; done
-  python3 -c '
+  py_dumps "$window" "$row" "$level" <<'PY'
 import json, sys
 w, r, l = (json.loads(a) for a in sys.argv[1:4])
 y = l[1] + l[3] / 2
 if not 0 < y < w[3]:
     print("outside"); sys.exit(1)
-print(int(w[0] + l[0] - 24), int(w[1] + y), int(w[0] + r[0] + 4), int(w[1] + y))' "$window" "$row" "$level"
+print(int(w[0] + l[0] - 24), int(w[1] + y), int(w[0] + r[0] + 4), int(w[1] + y))
+PY
 }
 disp_bl_at="$(disp_bl_points 50%)" || { fail "displays: the panel's slider is unreadable: $disp_bl_at"; return 0; }
 read -r disp_x disp_y disp_x2 disp_y2 <<<"$disp_bl_at"
