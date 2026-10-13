@@ -101,6 +101,11 @@ class Secrets {
     // No secret-value field can be persisted by this API.
     remember(value) {
         const { ref, bytes } = this.#referenceUpdate(value);
+        this.#write(bytes);
+        return ref;
+    }
+
+    #write(bytes) {
         let temporary;
         try {
             fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
@@ -115,7 +120,6 @@ class Secrets {
                 catch { fail("references=cleanup-failed"); }
             }
         }
-        return ref;
     }
 
     attributes(ref) { return Object.entries(reference(ref).attributes).flat(); }
@@ -148,6 +152,28 @@ class Secrets {
             ...this.attributes(own)], { stdio: ["inherit", "pipe", "pipe"], timeout: 0 });
         output.fill(0);
         this.remember(own);
+    }
+
+    // Removes the one remembered key PROVIDER and ACCOUNT name, and answers
+    // whether the key was Jarvis's own, which the keyring then holds no
+    // longer. Jarvis clears only an item it stored itself; an item another
+    // program stored, which Use keyring item remembered, stays in the
+    // keyring and is only forgotten. secret-tool clear takes attributes and
+    // reads no secret; it has no time limit, as a locked keyring asks the
+    // user to unlock it. An item already absent takes no clear, so a key
+    // deleted elsewhere still leaves the list. The item goes first: a
+    // failed clear keeps the reference, and the page still lists the key.
+    removeKey(provider, account) {
+        const refs = this.references();
+        const found = refs.filter(item => item.provider === provider && item.account === account);
+        if (found.length !== 1) fail("key=unknown");
+        const ref = found[0];
+        const sorted = attributes => JSON.stringify(Object.entries(attributes).sort());
+        const own = sorted(ref.attributes) === sorted(ownReference(provider, account, ref.origin).attributes);
+        if (own && this.presence(ref).value !== "absent")
+            this.run("secret-tool", ["clear", ...this.attributes(ref)], { timeout: 0 }).fill(0);
+        this.#write(JSON.stringify(refs.filter(item => item !== ref)) + "\n");
+        return own;
     }
 
     // No cache and no CLI verb for lookup: adapters get the Buffer directly.

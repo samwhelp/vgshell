@@ -4,7 +4,8 @@ import Quickshell.Io
 import qs.Commons
 import "AccountStatus.js" as Words
 
-// One presence reader, refreshed after the core reports an add-key TUI end.
+// One presence reader, refreshed after the core reports the end of a TUI
+// that changes the keys: add-key, remove-key or accounts.
 // It publishes the key list and the keyring's outcome in the page's words; a
 // failure's cause goes to the log alone.
 Item {
@@ -15,11 +16,14 @@ Item {
     property string output: ""
     readonly property var tuiState: shell === null ? null : shell.tui.state["add-key"]
     readonly property var endedAt: tuiState === null || tuiState === undefined ? null : tuiState.endedAt
+    readonly property var removeState: shell === null ? null : shell.tui.state["remove-key"]
+    readonly property var removeEndedAt: removeState === null || removeState === undefined ? null : removeState.endedAt
     readonly property var accountsState: shell === null ? null : shell.tui.state["accounts"]
     readonly property var accountsEndedAt: accountsState === null || accountsState === undefined ? null : accountsState.endedAt
     readonly property string program: String(Qt.resolvedUrl("backend/keys.js")).replace(/^file:\/\//, "")
     onShellChanged: refresh()
     onEndedAtChanged: if (endedAt !== null) refresh()
+    onRemoveEndedAtChanged: if (removeEndedAt !== null) refresh()
     onAccountsEndedAtChanged: if (accountsEndedAt !== null) refresh()
     // Emitted once each check has published, whatever it read.
     signal refreshed()

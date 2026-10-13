@@ -45,9 +45,14 @@ Item {
     onChoiceChanged: publishChoice()
     readonly property var tuiState: shell === null ? null : shell.tui.state["accounts"]
     readonly property var keyState: shell === null ? null : shell.tui.state["add-key"]
+    readonly property var removeState: shell === null ? null : shell.tui.state["remove-key"]
     readonly property var signInState: shell === null ? null : shell.tui.state["sign-in"]
     readonly property var endedAt: tuiState === null || tuiState === undefined ? null : tuiState.endedAt
     readonly property var keyEndedAt: keyState === null || keyState === undefined ? null : keyState.endedAt
+    readonly property var removeEndedAt: removeState === null || removeState === undefined ? null : removeState.endedAt
+    // The Voice keys the last read offered when Remove key ended, until the
+    // read that end starts has published; undefined otherwise.
+    property var removedFrom: undefined
     readonly property var signInEndedAt: signInState === null || signInState === undefined ? null : signInState.endedAt
     readonly property var missing: shell === null ? [] : shell.requirements.missing
     onMissingChanged: publishRequirements()
@@ -65,6 +70,11 @@ Item {
     onShellChanged: refresh()
     onEndedAtChanged: if (endedAt !== null) refresh()
     onKeyEndedAtChanged: if (keyEndedAt !== null) refresh()
+    onRemoveEndedAtChanged: {
+        if (removeEndedAt === null) return;
+        removedFrom = voiceKeys;
+        refresh();
+    }
     onSignInEndedAtChanged: if (signInEndedAt !== null) refresh()
     // Emitted once each check has published, whatever it read.
     signal refreshed()
@@ -146,7 +156,18 @@ Item {
     // key Jarvis selects for the user. KEYS holds only present references.
     // configure.set writes the plugin's row through the core writer. A
     // queued refresh can publish status, but cannot select a stale key.
+    // After Remove key, a Voice key offered before it (removedFrom) that
+    // KEYS no longer holds is the removed key: the choice is cleared in the
+    // same step, never left naming a key that is gone, and the sole key
+    // left, if any, is then selected.
     function publishVoice(keys) {
+        if (removedFrom !== undefined && !pending) {
+            const named = key => key.value === shell.settings.voiceAccount;
+            const gone = removedFrom.some(named) && !keys.some(named);
+            removedFrom = undefined;
+            if (gone && shell.configure.set("voiceAccount", "") !== "ok")
+                console.warn("jarvis-accounts: voice-selection=refused");
+        }
         const voiceChoices = Gate.voiceKeys(keys, shell.settings);
         if (shell.status.set("voiceAccounts", voiceChoices) !== "ok"
             || shell.status.set("voiceKey", Gate.voiceKey(voiceChoices, shell.settings)) !== "ok") throw new Error("jarvis-accounts: status=refused");

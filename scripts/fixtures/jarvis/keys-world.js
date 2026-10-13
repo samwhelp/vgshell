@@ -47,6 +47,8 @@ elif args[0] == "store":
         print(key)
         sys.exit(6)
     print(key)  # A noisy storage helper must still expose no value.
+elif args[0] == "clear":
+    (root / "bus-mode").write_text("absent")  # The one item busctl answers for is gone.
 else:
     print("test-key-must-stay-private")
     print("test-key-must-stay-private", file=sys.stderr)

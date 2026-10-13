@@ -1,10 +1,12 @@
-// Only add-key, providers and presence are public CLI verbs. A key never
-// reaches stdout. providers WIDTH prints Add key's provider choices,
-// AccountProviders.choiceLine lines with each provider's key page.
+// Only add-key, remove-key, providers, stored and presence are public CLI
+// verbs. A key never reaches stdout. providers WIDTH prints Add key's
+// provider choices, AccountProviders.choiceLine lines with each provider's
+// key page; stored WIDTH prints Remove key's, each remembered key with the
+// provider and name remove-key takes.
 "use strict";
 const path = require("node:path");
 const { Secrets, ownReference } = require("./Secrets.js");
-const { PROVIDERS, storedKeyProvider, parseWidth, providerChoices } = require("../AccountProviders.js");
+const { PROVIDERS, storedKeyProvider, parseWidth, providerChoices, choiceLine } = require("../AccountProviders.js");
 
 function main() {
     const directory = path.join(process.env.XDG_STATE_HOME || path.join(process.env.HOME, ".local/state"), "vgshell/jarvis");
@@ -31,6 +33,19 @@ function main() {
         const ref = ownReference(row.id, account, row.origin);
         store.addKey(ref);
         process.stdout.write("jarvis-keys: stored=libsecret\n");
+        break;
+    }
+    case "stored": {
+        const width = process.argv.length === 4 ? parseWidth(process.argv[3]) : null;
+        if (width === null) throw new Error("jarvis-keys: arguments=width");
+        process.stdout.write(store.references().map(ref =>
+            choiceLine(ref.provider + " / " + ref.account, ref.provider + "\t" + ref.account, width) + "\n").join(""));
+        break;
+    }
+    case "remove-key": {
+        if (process.argv.length !== 5) throw new Error("jarvis-keys: arguments=metadata");
+        const own = store.removeKey(process.argv[3], process.argv[4]);
+        process.stdout.write("jarvis-keys: removed=" + (own ? "libsecret" : "reference") + "\n");
         break;
     }
     default: throw new Error("jarvis-keys: arguments=verb");

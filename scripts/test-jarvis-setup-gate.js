@@ -725,7 +725,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
             values[key] = value;
             return "ok";
         } } };
-        const root = { shell, modelAccess: { kind: "checking" }, pending: false,
+        const root = { shell, modelAccess: { kind: "checking" }, pending: false, removedFrom: undefined,
             completion: { kind: "exited", code: row.code ?? 0 }, diagnostic: { kind: "collected", text: "" },
             output: JSON.stringify({ accounts: row.apps.map(app => ({ label: "Fixture app", value: "present", plan: "", email: "", mismatch: false, signIn: false, ...app })),
                 brains: [], voiceAccounts: [], search: { found: row.apps.length, partial: "" } }), refreshed: () => {} };
@@ -835,7 +835,7 @@ function verifyVoice(gate, serviceSource, accountsSource) {
                 values[key] = value;
                 return "ok";
             } } };
-            const root = { shell, modelAccess: { kind: "checking" }, voiceKeys: "unread", providers: "unread", pending: false, completion: { kind: "exited", code: offered === null ? 1 : 0 },
+            const root = { shell, modelAccess: { kind: "checking" }, voiceKeys: "unread", providers: "unread", pending: false, removedFrom: undefined, completion: { kind: "exited", code: offered === null ? 1 : 0 },
                 diagnostic: { kind: "collected", text: "" }, refreshed: () => {},
                 output: JSON.stringify({ accounts: [], brains: [], providers: { "claude-team": "claude" }, voiceAccounts: offered ?? [], search: { found: 0, partial: "" } }) };
             vm.runInNewContext(publishAccounts[0],

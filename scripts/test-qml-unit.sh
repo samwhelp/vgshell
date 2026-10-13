@@ -518,6 +518,7 @@ mutations=(
   "the Jarvis reader saves a read list inside its binding's update|../plugins/vgs.jarvis/Accounts.qml|Qt.callLater(save);|save();|tst_jarvis_accounts.qml"
   "the Jarvis reader drops a changed sign-in's model inside its binding's update|../plugins/vgs.jarvis/Accounts.qml|onBrainChanged: Qt.callLater(save)|onBrainChanged: save()|tst_jarvis_accounts.qml"
   "the Jarvis reader ends a running list read|../plugins/vgs.jarvis/Accounts.qml|lister.dropped = true;|lister.dropped = true; lister.running = false;|tst_jarvis_accounts.qml"
+  "the Jarvis reader keeps a removed Voice key as the choice|../plugins/vgs.jarvis/Accounts.qml|removedFrom = voiceKeys;|removedFrom = undefined;|tst_jarvis_accounts.qml"
   "the Jarvis widget draws working in the accent|../plugins/vgs.jarvis/Widget.qml|case \"info\": return Theme.color.info;|case \"info\": return Theme.color.accent;|tst_jarvis_widget.qml"
   "the Jarvis widget draws listening in the badge foreground|../plugins/vgs.jarvis/Widget.qml|case \"accent\": return Theme.color.accent;|case \"accent\": return Theme.badge.tone.accent.foreground;|tst_jarvis_widget.qml"
   "the Agent Warden widget draws look in the badge foreground|../plugins/vgs.agent-warden/Widget.qml|case \"warning\": return Theme.color.warning;|case \"warning\": return Theme.badge.tone.warning.foreground;|tst_agent_warden_widget.qml"

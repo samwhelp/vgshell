@@ -486,6 +486,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/tui/clone-voice-remove.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/clone-voice.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/edit-personality.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/preview-voice.sh
+f share/vgshell/shell/plugins/vgs.jarvis/tui/remove-key.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-browser.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-fleet.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-input.sh

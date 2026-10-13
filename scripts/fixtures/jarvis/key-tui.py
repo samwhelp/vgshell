@@ -1,6 +1,7 @@
-# Drive the actual add-key script on a private terminal. The provider and
-# name come from the caller's gum stand-in; the key waits for its prompt, so
-# secret bytes are never sent while the terminal still echoes.
+# Drive the actual add-key or remove-key script on a private terminal. The
+# answers come from the caller's gum stand-in; the key waits for its prompt,
+# so secret bytes are never sent while the terminal still echoes, and a
+# --no-key run sends none.
 import errno
 import argparse
 import os
@@ -15,6 +16,7 @@ arguments.add_argument("script")
 arguments.add_argument("library")
 arguments.add_argument("plugin")
 arguments.add_argument("--expect-metadata-refusal", action="store_true")
+arguments.add_argument("--no-key", action="store_true", help="the script asks for no key")
 arguments.add_argument("--columns", type=int, help="size the terminal COLUMNS wide")
 args = arguments.parse_args()
 master, slave = pty.openpty()
@@ -36,7 +38,7 @@ def terminal():
 child = subprocess.Popen(["bash", args.script], stdin=slave, stdout=slave,
                          stderr=slave, env=env, preexec_fn=terminal)
 os.close(slave)
-steps = [(b"Password: ", b"test-key-must-stay-private\n")]
+steps = [] if args.no_key else [(b"Password: ", b"test-key-must-stay-private\n")]
 output = b""
 deadline = time.monotonic() + 10  # Bound an interactive fixture that misses a prompt.
 try:

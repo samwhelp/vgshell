@@ -210,6 +210,8 @@
       "entry": { "label": "Sign in", "icon": "log-in", "group": "Jarvis" } },
     "add-key": { "script": "tui/add-key.sh", "title": "Add Jarvis key", "requires": ["gum", "node", "secret-tool", "busctl"],
       "entry": { "label": "Add key", "icon": "key-round", "group": "Jarvis" } },
+    "remove-key": { "script": "tui/remove-key.sh", "title": "Remove Jarvis key", "requires": ["gum", "node", "secret-tool", "busctl"],
+      "entry": { "label": "Remove key", "icon": "trash", "group": "Jarvis", "setup": true } },
     "setup-browser": { "script": "tui/setup-browser.sh", "title": "Set up Jarvis browser",
       "entry": { "label": "Set up browser", "icon": "globe", "group": "Jarvis" } },
     "setup-local": { "script": "tui/setup-local.sh", "title": "Set up Jarvis local voice",

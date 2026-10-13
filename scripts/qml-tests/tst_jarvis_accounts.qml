@@ -11,7 +11,7 @@ import "../../shell/plugins/vgs.jarvis"
 // made from the change handler of a binding that reads `shell` updates that
 // binding inside its own update: Qt logs a binding loop and keeps the old
 // value, and the runner fails a file on any warning. The Process stand-in
-// runs nothing: a test ends the list read by hand.
+// runs nothing: a test ends the list read and the account read by hand.
 Item {
     id: top
 
@@ -32,6 +32,10 @@ Item {
             // The plugin's row of the user file, and each key written to it.
             property var user: ({ brain: "claude-a", model: "", effort: "" })
             property var writes: []
+            // The core's TUI records and the status values the reader set.
+            property var tuiState: ({})
+            onTuiStateChanged: shell = build()
+            property var published: ({})
             // The manifest's voice defaults under the user's row, as the
             // core merges them.
             readonly property var effective: Object.assign({ voiceProvider: "local", voiceAccount: "", mode: "hold" }, user)
@@ -45,9 +49,13 @@ Item {
             readonly property string stored: user.brain + " " + user.model + " " + user.effort
 
             function build() {
-                return { settings: effective, tui: { state: ({}) }, requirements: { missing: [] },
-                    status: { get viewed() { return host.viewed; }, set: (key, value) => "ok" },
+                return { settings: effective, tui: { state: tuiState }, requirements: { missing: [] },
+                    status: { get viewed() { return host.viewed; }, set: (key, value) => host.publish(key, value) },
                     configure: { set: (key, value) => host.write(key, value) } };
+            }
+            function publish(key, value) {
+                published[key] = value;
+                return "ok";
             }
             function write(key, value) {
                 writes.push(key + "=" + value);
@@ -84,6 +92,48 @@ Item {
             process.stdout.text = JSON.stringify(answer);
             process.stdout.streamFinished();
             process.running = false;
+        }
+
+        // Each account read that runs, a queued one included, ends with
+        // VOICE as the stored cloud voice keys.
+        function read(host, voice) {
+            const found = ProcessRegistry.processes.filter(process => process.command.length === 6 && process.command[4] === "presence");
+            compare(found.length, 1, "one account read process");
+            verify(found[0].running, "an account read runs");
+            while (found[0].running) {
+                found[0].stdout.text = JSON.stringify({ accounts: [], brains: [], providers: {}, voiceAccounts: voice, search: { found: 0, partial: "" } });
+                found[0].stdout.streamFinished();
+                found[0].exited(0, 0);
+                found[0].running = false;
+                wait(0);
+            }
+            return host.published.voiceAccounts.map(choice => choice.value);
+        }
+
+        readonly property var work: ({ value: "key-work", label: "OpenAI / work", provider: "openai" })
+        readonly property var home: ({ value: "key-home", label: "OpenAI / home", provider: "openai" })
+
+        // Remove key ended and the read it starts no longer holds the
+        // Voice key: the choices lose it, and the choice goes to the key
+        // that is left.
+        function test_removed_voice_key_leaves_the_choices_and_the_choice() {
+            const host = open({ voiceProvider: "realtime", voiceAccount: "key-work" });
+            compare(read(host, [work, home]), ["key-work", "key-home"]);
+            compare(host.writes, [], "a stored Voice key is kept");
+            host.tuiState = { "remove-key": { endedAt: 1 } };
+            compare(read(host, [home]), ["key-home"], "the Voice key choices");
+            compare(host.writes, ["voiceAccount=", "voiceAccount=key-home"]);
+            compare(host.user.voiceAccount, "key-home");
+        }
+
+        // The control: a Remove key screen that ends with the key still
+        // stored, as after Cancel, changes neither.
+        function test_kept_voice_key_keeps_the_choice() {
+            const host = open({ voiceProvider: "realtime", voiceAccount: "key-work" });
+            read(host, [work, home]);
+            host.tuiState = { "remove-key": { endedAt: 1 } };
+            compare(read(host, [work, home]), ["key-work", "key-home"]);
+            compare(host.writes, []);
         }
 
         function test_list_read_saves_its_default() {

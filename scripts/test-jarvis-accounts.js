@@ -70,7 +70,9 @@ world(async () => {
     // keys; voice is the Voice
     // provider setting, and switchTo the one the user changes it to after
     // the read. The selected cloud voice's keys are offered, and its sole key
-    // is chosen for the user unless they named one of their own.
+    // is chosen for the user unless they named one of their own. removed is
+    // the OpenAI keys offered when Remove key ended before this read: a
+    // named key the read no longer holds is cleared, one it holds is kept.
     const publicationCases = [
         { name: "sole", choices: ["key-a"], writes: ["key-a"] },
         { name: "gemini", choices: ["key-a"], gemini: ["key-g"], voice: "gemini", writes: ["key-g"] },
@@ -86,6 +88,8 @@ world(async () => {
         { name: "failed", choices: ["key-a"], code: 1, writes: [] },
         { name: "invalid", choices: ["key-a"], invalid: true, writes: [] },
         { name: "stale", choices: ["key-a"], pending: true, writes: [] },
+        { name: "removed", choices: ["key-b"], selected: "key-a", removed: ["key-a", "key-b"], writes: ["", "key-b"] },
+        { name: "removal-cancelled", choices: ["key-a", "key-b"], selected: "key-a", removed: ["key-a", "key-b"], writes: [] },
         { name: "refused", choices: ["key-a"], refuseWrite: true, writes: ["key-a"] },
         ...["accounts", "brains", "voiceAccounts", "accountSearch"].map(key =>
             ({ name: "status-" + key, choices: ["key-a"], refuseStatus: key, writes: [] }))
@@ -98,7 +102,7 @@ world(async () => {
         const writes = [], reports = new Map(), warnings = [];
         let refreshed = 0;
         const initial = row.selected ?? "";
-        const root = { pending: row.pending ?? false, completion: { kind: "exited", code: row.code ?? 0 },
+        const root = { pending: row.pending ?? false, removedFrom: row.removed?.map(value => ({ value, provider: "openai" })), completion: { kind: "exited", code: row.code ?? 0 },
             diagnostic: { kind: "collected", text: "" },
             output: row.invalid ? "broken" : JSON.stringify({ accounts: [], brains: [],
                 voiceAccounts: [...row.choices.map(value => ({ value, label: "Fixture " + value, provider: "openai" })),
@@ -141,7 +145,9 @@ world(async () => {
         ["invalid", "JSON.parse(output)", 'JSON.parse(output === "broken" ? JSON.stringify({accounts: [], brains: [], voiceAccounts: [{value: "key-a", label: "Fixture"}], search: {found: 1, partial: ""}}) : output)'],
         ["stale", "const chosen = pending ? null : ", "const chosen = "],
         ["stale", 'const code = completion.kind === "exited" ? completion.code : -1;', 'if (pending) return; const code = completion.kind === "exited" ? completion.code : -1;'],
-        ["refused", 'console.warn("jarvis-accounts: voice-selection=refused");', "void 0;"],
+        ["refused", 'console.warn("jarvis-accounts: voice-selection=refused");\n    }', "void 0;\n    }"],
+        ["removed", "const gone = removedFrom.some(named) && !keys.some(named);", "const gone = false;"],
+        ["removal-cancelled", "const gone = removedFrom.some(named) && !keys.some(named);", "const gone = removedFrom.some(named);"],
         ["switch", "if (shell !== null && voiceKeys !== undefined) publishVoice(voiceKeys);", "void voiceKeys;"]
     ];
     for (const key of ["accounts", "brains", "voiceAccounts", "accountSearch"]) {

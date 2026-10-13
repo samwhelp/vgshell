@@ -246,11 +246,73 @@ console.log(wanted);
         const result = cp.spawnSync("node", [path.join(folder, "backend/keys.js"), "providers", "0"], { env, encoding: "utf8" });
         assert.deepEqual([result.status, result.stderr], [1, "jarvis-keys: arguments=width\n"]);
     };
+    // Remove key takes the chosen key out of the keyring and out of
+    // Jarvis's key list, by its provider and name alone. The fake keyring
+    // holds one item, which busctl answers for: secret-tool clear takes it
+    // out. A key the keyring already lost only leaves the list, and an
+    // item another program stored is only forgotten.
+    const removal = (folder, script = path.join(plugin, "tui/remove-key.sh")) => {
+        const listed = fs.readFileSync(store.file);
+        const stored = [ref, external, openai];
+        const run = (...args) => cp.spawnSync("node", [path.join(folder, "backend/keys.js"), ...args], { env, encoding: "utf8" });
+        const keyring = before => calls("secret-calls").slice(before.length).trim().split("\n").filter(Boolean)
+            .map(line => JSON.parse(line).argv);
+        const clear = ["clear", "service", "vgs-jarvis", "provider", "openai", "account", "test", "origin", "https://api.openai.com"];
+        const gone = (target, label) => {
+            assert.deepEqual(store.references(), stored.filter(item => item !== target), label + ": key list");
+            assert.equal(run("stored", "80").stdout.includes(target.provider + "\t" + target.account + "\n"), false, label + ": choices");
+        };
+        try {
+            for (const [label, bus, target, answer, argv, after] of [
+                ["a stored key", "present", openai, "libsecret", [clear], "absent"],
+                ["a key the keyring lost", "absent", openai, "libsecret", [], "absent"],
+                ["another program's item", "present", external, "reference", [], "present"]
+            ]) {
+                fs.writeFileSync(store.file, JSON.stringify(stored));
+                mode(bus);
+                assert.ok(run("stored", "80").stdout.includes(target.provider + "\t" + target.account + "\n"), label + ": offered");
+                const before = calls("secret-calls");
+                const result = run("remove-key", target.provider, target.account);
+                assert.deepEqual([result.status, result.stdout, result.stderr], [0, "jarvis-keys: removed=" + answer + "\n", ""], label);
+                assert.deepEqual(keyring(before), argv, label + ": keyring calls");
+                assert.equal(store.presence(target).value, after, label + ": keyring");
+                gone(target, label);
+                cases++;
+            }
+            fs.writeFileSync(store.file, JSON.stringify(stored));
+            mode("present");
+            let before = calls("secret-calls");
+            const absent = run("remove-key", "openai", "nobody");
+            assert.deepEqual([absent.status, absent.stdout, absent.stderr], [1, "", "jarvis-keys: key=unknown\n"]);
+            assert.deepEqual([keyring(before), store.references()], [[], stored], "an unknown key changes nothing");
+            cases++;
+            // The screen asks once, naming the key, before the verb runs.
+            provider("openai\ttest");
+            before = calls("secret-calls");
+            const result = tui(folder, script, ["--no-key"]);
+            assert.equal(result.status, 0, result.stdout + result.stderr);
+            const asked = calls("gum-calls").trim().split("\n").map(JSON.parse).filter(args => args[0] === "confirm");
+            assert.equal(asked.length, 1, "one question");
+            assert.ok(asked[0].at(-1).includes("openai / test"), "the question names the key");
+            assert.match(logged(), /jarvis-keys: removed=libsecret/);
+            assert.doesNotMatch(result.stdout, /jarvis-keys:/);
+            safe(result.stdout + result.stderr + logged());
+            assert.deepEqual(keyring(before), [clear], "the screen's keyring calls");
+            assert.equal(store.presence(openai).value, "absent", "the screen's keyring");
+            gone(openai, "the screen");
+            cases++;
+        } finally {
+            fs.writeFileSync(store.file, listed);
+            mode("present");
+            provider("openai");
+        }
+    };
     keyProviders(plugin);
     chosen(plugin);
     unknown(plugin);
     fitted(plugin);
     widthRefused(plugin);
+    removal(plugin);
     cases += 2;
 
     // Removing each stand-in must break its own behavioral assertion.
@@ -366,7 +428,19 @@ console.log(wanted);
     fs.writeFileSync(wideCopy, scriptSource.replace(widthNeedle, "keys providers 1000"));
     assert.throws(() => fitted(path.dirname(backend), wideCopy), assert.AssertionError, "choices must fit the terminal");
     controls++;
+    const removeSource = fs.readFileSync(path.join(plugin, "tui/remove-key.sh"), "utf8");
+    const confirmNeedle = 'vgs_tui_confirm "Remove the key $provider / $account?" || { vgs_tui_cancelled "The key stays."; exit 130; }';
+    assert.equal(removeSource.split(confirmNeedle).length - 1, 1);
+    const unaskedCopy = path.join(root, "unasked-removal.sh");
+    fs.writeFileSync(unaskedCopy, removeSource.replace(confirmNeedle, ""));
+    assert.throws(() => removal(plugin, unaskedCopy), assert.AssertionError, "removal must ask first");
+    controls++;
     for (const [name, file, needle, replacement, check] of [
+        ["removal-leaves-keyring-item", "backend/Secrets.js", 'this.run("secret-tool", ["clear", ...this.attributes(ref)], { timeout: 0 }).fill(0);', "void 0;", removal],
+        ["removal-leaves-reference", "backend/Secrets.js", "refs.filter(item => item !== ref)", "refs", removal],
+        ["removal-clears-absent", "backend/Secrets.js", 'if (own && this.presence(ref).value !== "absent")', "if (own)", removal],
+        ["removal-clears-foreign", "backend/Secrets.js", "const own = sorted(ref.attributes) === sorted(ownReference(provider, account, ref.origin).attributes);", "const own = true;", removal],
+        ["removal-cli", "backend/keys.js", "store.removeKey(process.argv[3], process.argv[4])", "true", removal],
         ["unknown-provider", "backend/keys.js", 'if (row === undefined) throw new Error("jarvis-keys: provider=unknown");', "", unknown],
         ["provider-origin", "backend/keys.js", "ownReference(row.id, account, row.origin)", 'ownReference(row.id, account, "https://api.openai.com")', chosen],
         ["model-providers", "AccountProviders.js", 'return row.kind === "key" && modelProvider(row);', 'return row.kind === "key";', unknown],
