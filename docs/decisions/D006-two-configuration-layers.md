@@ -6,7 +6,7 @@
 **Status**: Active
 **Research**: —
 
-**Decision**: Configuration is a shipped layer and a user layer. A user key replaces the shipped key whole, except `plugins`, merged by entry id with the user entry winning, and `disabledPlugins`, which is the user's list alone. `shell/Core/PluginLogic.js` is the one merge.
+**Decision**: Configuration is a shipped layer and a user layer. A user key replaces the shipped key whole, except `plugins`, merged by entry id with the user entry winning, and `disabledPlugins`, which is the user's list alone. `shell/Core/ConfigLogic.js` is the one merge.
 
 **Why**: One file stops delivering shipped defaults the moment a user edits it, and a deep merge makes the effective value unreadable. Merging by id keeps what is running readable from two files.
 
