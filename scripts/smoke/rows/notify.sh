@@ -9,12 +9,14 @@
 # transient message's card leaves a History entry as a lasting one's
 # does. Under Silence a critical message still draws its card, as the
 # x-vgs-plugin hint the core adds lets it, and a normal one goes to History
-# unseen. Each malformed option is refused with its key, and a burst past
+# unseen. A message holding a page reference draws its words with no
+# markup, and a click on its card opens Settings on the page and tab the
+# reference names. Each malformed option is refused with its key, and a burst past
 # the run ceiling is refused as busy. With vgs.notifications disabled the
 # fixture's own subscription keeps the core's server up and the fixture
 # receives the message; with no plugin holding the `notifications` role,
 # acme.notifier's message is dropped and the shell logs one unsent line.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.notifier/* shell/Core/Notifier.qml shell/Core/PluginLogic.js shell/Commons/PageReference.js shell/Core/ConfigLogic.js shell/Core/Capabilities.qml shell/Core/NotificationHub.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/plugins.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.notifier/* shell/Core/Notifier.qml shell/Core/PluginLogic.js shell/Commons/PageReference.js shell/Core/ConfigLogic.js shell/Core/Capabilities.qml shell/Core/NotificationHub.qml shell/Core/Plugins.qml shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* scripts/smoke/rows/plugins.sh
 set -euo pipefail
 notify_send() { ipc acme.probe invoke notify "$1"; }
 # notify_refused_key OPTIONS_JSON: the key a refusal names, the word after
@@ -29,6 +31,18 @@ notify_refused_key() {
 # probe_card SUMMARY: the fixture's card with SUMMARY as plugin_cards reads
 # it, less the summary, or none.
 probe_card() { plugin_cards Probe | py_reply 'import json,sys; print(json.dumps(next((r[1:] for r in json.load(sys.stdin) if r[0] == sys.argv[1]), "none")))' "$1"; }
+# probe_page SUMMARY: the fixture's card with SUMMARY as [body, hintPage,
+# hintClick], or none.
+probe_page() {
+  local raw
+  raw="$(ipc smoke modelRows vgs.notifications rows app,summary,body,hintPage,hintClick,leaving)" || return 1
+  if [[ $raw == absent ]]; then echo '"none"'; return; fi
+  py_reply 'import json,sys; print(json.dumps(next((r[2:5] for r in json.load(sys.stdin) if r[0] == "Probe" and r[1] == sys.argv[1] and r[5] == ""), "none")))' "$1" <<<"$raw"
+}
+# click_probe_card SUMMARY: one click on the fixture's card SUMMARY, left of
+# any pill its hover shows.
+click_probe_card() { click_item vgs:layer vgs.notifications NotificationCard summary "$1" 24 -; }
+settings_shown() { ipc smoke readInstance window vgs.settings shownPage; }
 probe_heard() { ipc smoke readInstance service acme.probe lastSummary; }
 notify_server() { ipc shell lent | py_reply 'import json,sys; print(json.load(sys.stdin)["notificationServer"])'; }
 # in_probe_history SUMMARY: whether History holds the fixture's SUMMARY;
@@ -67,6 +81,28 @@ expect_poll "its card is normal urgency with no tone and the bell icon" '["", 1,
   --method org.freedesktop.Notifications.Notify Probe 0 "" "Probe planted" "a<b> & c" '[]' '{"urgency": <byte 2>}' 0 >/dev/null \
   || fail "notify: the planted card was not sent"
 expect_poll "control: a card sent around the route reads without its hints" '["a<b> & c", 2, "", "", ""]' probe_card "Probe planted"
+
+# A page reference: the core sends its words in the body and the reference
+# in the x-vgs-page hint, and a click on the card opens Settings on the page
+# and tab it names, and the card leaves. Control, first: the same message
+# with the hint stripped, sent around the route, draws a card whose click
+# only dismisses it, and Settings stays closed.
+expect "Settings is closed before the page link cards" 0 window_count Plugins
+"${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+  --method org.freedesktop.Notifications.Notify Probe 0 "" "Probe unlinked" "Open Details for the rest." '[]' \
+  '{"urgency": <byte 2>, "x-vgs-click": <"none">, "x-vgs-plugin": <"acme.probe">}' 0 >/dev/null \
+  || fail "notify: the card without its page hint was not sent"
+expect_poll "control: the card without its page hint keeps a click that only dismisses" '["Open Details for the rest.", "", "none"]' probe_page "Probe unlinked"
+click_probe_card "Probe unlinked" || fail "notify: the click on the card without its page hint failed"
+expect_poll "control: the card without its page hint leaves on its click" '"none"' probe_page "Probe unlinked"
+expect "control: a click on the card without its page hint leaves Settings closed" 0 window_count Plugins
+expect "a message with a page reference is sent" ok notify_send '{"title": "Probe linked", "message": "Open [Details](page:acme.probe/Details) for the rest.", "urgency": "critical"}'
+expect_poll "its card holds the words with no markup and keeps the reference" '["Open Details for the rest.", "[Details](page:acme.probe/Details)", "none"]' probe_page "Probe linked"
+click_probe_card "Probe linked" || fail "notify: the click on the page link card failed"
+expect_poll "a click on the card opens Settings on the page and tab it names" '"acme.probe/Details"' settings_shown
+expect_poll "the page link card leaves on its click" '"none"' probe_page "Probe linked"
+expect "Settings is hidden after the page link" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone after the page link" 0 window_count Plugins
 
 # Refusals, one per option, each naming its key.
 expect "options that are no object are refused" options notify_refused_key '"Probe"'

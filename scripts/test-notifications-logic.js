@@ -29,6 +29,8 @@ const { load } = require("../bin/lib/qml-library.js");
 process.env.TZ = "America/Los_Angeles";
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.notifications", "NotificationLogic.js");
+// The module the logic imports, bound as the shell binds it.
+const commons = { "qs.Commons 1.0": { PageReference: load(path.join(__dirname, "..", "shell", "Commons", "PageReference.js")) } };
 // The plugin's look, whose face tints the logic names.
 const appearance = load(path.join(__dirname, "..", "shell", "plugins", "vgs.notifications", "Appearance.js"));
 // The theme judge, which resolves the look and reads a contrast ratio.
@@ -43,7 +45,7 @@ const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(
 
 // An entry as the state file stores it.
 function stored(timestamp, id, extra) {
-    return Object.assign({ key: timestamp + "-" + id, originalId: id, app: "app", appIcon: "", summary: "s" + id, body: "", image: "", desktopEntry: "", urgency: 1, expireTimeout: 0, timestamp: timestamp, hintIcon: "", hintTone: "", hintOpen: "", hintClick: "" }, extra || {});
+    return Object.assign({ key: timestamp + "-" + id, originalId: id, app: "app", appIcon: "", summary: "s" + id, body: "", image: "", desktopEntry: "", urgency: 1, expireTimeout: 0, timestamp: timestamp, hintIcon: "", hintTone: "", hintOpen: "", hintClick: "", hintPage: "" }, extra || {});
 }
 const BOOT = "4b1c0e2a-6d55-4d2e-9a0f-3f1b2c4d5e6f";
 function stateText(value) {
@@ -118,19 +120,21 @@ const STATE_REFUSED = [
     ["a stored hint role that is no string", stateText({ history: [stored(5, 1, { hintIcon: 3 })] }), "history.0.hintIcon want=string"],
     ["a stored hint tone outside the tones", stateText({ history: [stored(5, 1, { hintTone: "red" })] }), "history.0.hintTone refused"],
     ["a stored hint path that is relative", stateText({ history: [stored(5, 1, { hintOpen: "runs/a.log" })] }), "history.0.hintOpen refused"],
-    ["a stored open click with nothing to open", stateText({ history: [stored(5, 1, { hintClick: "open" })] }), "history.0.hintClick open without hintOpen"]
+    ["a stored open click with nothing to open", stateText({ history: [stored(5, 1, { hintClick: "open" })] }), "history.0.hintClick open without hintOpen"],
+    ["a stored page hint that is no reference", stateText({ history: [stored(5, 1, { hintPage: "Setup" })] }), "history.0.hintPage refused"]
 ];
 
 // The VGS hints: [label, hints map, the roles an entry keeps, the names
 // refused, what a click does]. shell/plugins/vgs.notifications/developer.md § Hints.
-const NO_HINTS = { hintIcon: "", hintTone: "", hintOpen: "", hintClick: "" };
+const NO_HINTS = { hintIcon: "", hintTone: "", hintOpen: "", hintClick: "", hintPage: "" };
+const SETUP = "[Setup](page:acme.probe/Setup)";
 const HINT_ROWS = [
     ["no hints", {}, NO_HINTS, [], "default"],
     ["hints that are not a map", "x-vgs-icon", NO_HINTS, [], "default"],
     ["an automation's error", { "x-vgs-icon": "circle-x", "x-vgs-tone": "danger", "x-vgs-open": "/state/runs/a@1.log", "x-vgs-click": "open" },
-        { hintIcon: "circle-x", hintTone: "danger", hintOpen: "/state/runs/a@1.log", hintClick: "open" }, [], "open"],
+        { hintIcon: "circle-x", hintTone: "danger", hintOpen: "/state/runs/a@1.log", hintClick: "open", hintPage: "" }, [], "open"],
     ["an automation's start", { "x-vgs-icon": "play", "x-vgs-tone": "warning", "x-vgs-click": "none" },
-        { hintIcon: "play", hintTone: "warning", hintOpen: "", hintClick: "none" }, [], "dismiss"],
+        { hintIcon: "play", hintTone: "warning", hintOpen: "", hintClick: "none", hintPage: "" }, [], "dismiss"],
     ["a file with no click hint keeps the default click", { "x-vgs-open": "/tmp/a.log" }, Object.assign({}, NO_HINTS, { hintOpen: "/tmp/a.log" }), [], "default"],
     ["an icon outside the grammar", { "x-vgs-icon": "Circle X" }, NO_HINTS, ["x-vgs-icon"], "default"],
     ["an icon past its length", { "x-vgs-icon": "a".repeat(65) }, NO_HINTS, ["x-vgs-icon"], "default"],
@@ -142,7 +146,32 @@ const HINT_ROWS = [
     ["a click hint outside the clicks", { "x-vgs-click": "run" }, NO_HINTS, ["x-vgs-click"], "default"],
     ["a hint that is no string", { "x-vgs-icon": 5 }, NO_HINTS, ["x-vgs-icon"], "default"],
     ["an empty hint", { "x-vgs-tone": "" }, NO_HINTS, ["x-vgs-tone"], "default"],
-    ["another sender's hint", { "x-other": "circle-x", "urgency": 2 }, NO_HINTS, [], "default"]
+    ["another sender's hint", { "x-other": "circle-x", "urgency": 2 }, NO_HINTS, [], "default"],
+    // The core's plugin notice: a page reference, and a click that would
+    // otherwise only dismiss.
+    ["a plugin notice naming a page", { "x-vgs-page": SETUP, "x-vgs-click": "none" }, Object.assign({}, NO_HINTS, { hintClick: "none", hintPage: SETUP }), [], "page"],
+    ["a page reference with no tab", { "x-vgs-page": "[Cloud Sync](page:vgs.cloud-sync)" }, Object.assign({}, NO_HINTS, { hintPage: "[Cloud Sync](page:vgs.cloud-sync)" }), [], "page"],
+    ["a page reference to no page", { "x-vgs-page": "[Setup](page:)" }, NO_HINTS, ["x-vgs-page"], "default"],
+    ["two page references", { "x-vgs-page": SETUP + SETUP }, NO_HINTS, ["x-vgs-page"], "default"],
+    ["a page reference inside text", { "x-vgs-page": "Open " + SETUP }, NO_HINTS, ["x-vgs-page"], "default"],
+    ["plain text for a page", { "x-vgs-page": "Setup" }, NO_HINTS, ["x-vgs-page"], "default"],
+    ["a page reference past the bound", { "x-vgs-page": "[" + "a".repeat(240) + "](page:acme.probe/Setup)" }, NO_HINTS, ["x-vgs-page"], "default"],
+    ["a page reference with a line break", { "x-vgs-page": "[Set\nup](page:acme.probe)" }, NO_HINTS, ["x-vgs-page"], "default"]
+];
+// A page reference at the bound is kept.
+const AT_BOUND = "[" + "a".repeat(231) + "](page:acme.probe/Setup)";
+
+// A body drawing its x-vgs-page words as a link: [label, body, hint, what
+// the card renders].
+const LINK = "#ff5a36";
+const LINKED = words => '<font color="' + LINK + '"><u>' + words + "</u></font>";
+const LINKED_BODIES = [
+    ["the words drawn as a link", "Open Setup to finish.", SETUP, "Open " + LINKED("Setup") + " to finish."],
+    ["only the first place the words stand", "Setup, then Setup again.", SETUP, LINKED("Setup") + ", then Setup again."],
+    ["the words in a tag's attribute stay as they are", '<b title="Setup">Go</b> to Setup', SETUP, '<b title="Setup">Go</b> to ' + LINKED("Setup")],
+    ["the words across a line break", "Open Set\nup", SETUP, "Open Set<br/>up"],
+    ["a body without the words", "Sync failed.", SETUP, "Sync failed."],
+    ["no hint", "Open Setup to finish.", "", "Open Setup to finish."]
 ];
 
 // Senders a rule reads, in the title forms Slack's web client builds:
@@ -295,6 +324,10 @@ function verify(logic) {
         same(logic.toastMotion(durations, glass), want, "toast motion " + (glass ? "with" : "without") + " glass over " + JSON.stringify(durations));
     for (const [label, body, app, want] of BODIES)
         assert.equal(logic.styledBody(body, app, ""), want, "styled body: " + label);
+    for (const [label, body, page, want] of LINKED_BODIES)
+        assert.equal(logic.styledBody(body, "acme.probe", "", page, LINK), want, "linked body: " + label);
+    same(logic.pageTarget(SETUP), { page: "acme.probe", tab: "Setup" }, "a page hint opens its page on its tab");
+    same(logic.pageTarget("[Cloud Sync](page:vgs.cloud-sync)"), { page: "vgs.cloud-sync", tab: "" }, "a page hint with no tab opens the page");
     assert.equal(logic.sanitizeBody("", "app", ""), "", "an empty body stays empty");
     assert.equal(logic.summaryStartsWithGlyph("\u{f0e0}  Mail"), true, "a glyph and two spaces open the summary");
     assert.equal(logic.summaryStartsWithGlyph("M  ail"), true, "any first character counts, as the reference reads it");
@@ -566,7 +599,7 @@ function verify(logic) {
 
     // Entries.
     const fields = { id: 7, appName: "Chat", appIcon: "chat", summary: "Hi", body: "b", image: "image://icon//tmp/a.png", desktopEntry: "chat", urgency: U.critical, expireTimeout: 4000 };
-    same(logic.entryOf(fields, 1000, null), { key: "1000-7", originalId: 7, app: "Chat", appIcon: "chat", summary: "Hi", body: "b", image: "file:///tmp/a.png", desktopEntry: "chat", urgency: 2, expireTimeout: 4000, timestamp: 1000, hintIcon: "", hintTone: "", hintOpen: "", hintClick: "" });
+    same(logic.entryOf(fields, 1000, null), { key: "1000-7", originalId: 7, app: "Chat", appIcon: "chat", summary: "Hi", body: "b", image: "file:///tmp/a.png", desktopEntry: "chat", urgency: 2, expireTimeout: 4000, timestamp: 1000, hintIcon: "", hintTone: "", hintOpen: "", hintClick: "", hintPage: "" });
 
     // Hints: an entry keeps the ones the judge accepts, and a click follows them.
     for (const [label, hints, roles, refused, route] of HINT_ROWS) {
@@ -574,11 +607,18 @@ function verify(logic) {
         same(read.roles, roles, "hint roles: " + label);
         same(read.refused, refused, "hints refused: " + label);
         const made = logic.entryOf(Object.assign({}, fields, { hints: hints }), 1000, null);
-        same([made.hintIcon, made.hintTone, made.hintOpen, made.hintClick], [roles.hintIcon, roles.hintTone, roles.hintOpen, roles.hintClick], "entry hints: " + label);
+        same([made.hintIcon, made.hintTone, made.hintOpen, made.hintClick, made.hintPage], [roles.hintIcon, roles.hintTone, roles.hintOpen, roles.hintClick, roles.hintPage], "entry hints: " + label);
         assert.equal(logic.clickRoute("open", made), route, "click: " + label);
         assert.equal(logic.clickRoute("action:reply", made), "default", "a pill ignores the click hints: " + label);
         assert.equal(logic.clickRoute("dismiss", made), "default", "dismiss ignores the click hints: " + label);
         same(logic.parseState(stateText({ history: [logic.persistable(made, IMAGES).entry] })).ok, true, "a stored hinted entry reads back: " + label);
+    }
+    same(logic.readHints({ "x-vgs-page": AT_BOUND }), { roles: Object.assign({}, NO_HINTS, { hintPage: AT_BOUND }), refused: [] }, "a page reference at the bound is kept");
+    // An entry stored before the page hint reads back with none, and one
+    // that names a page with it.
+    for (const [label, entry, want] of [["no page hint", (({ hintPage, ...entry }) => entry)(stored(5, 1)), ""], ["a page hint", stored(5, 1, { hintPage: SETUP }), SETUP]]) {
+        const read = logic.parseState(stateText({ history: [entry] }));
+        same([read.ok, read.ok && read.state.history[0].hintPage], [true, want], "a stored entry with " + label);
     }
     // An open click's reply: ok lets the card leave; a refusal keeps it and
     // says why in a transient notification whose options the core's judge
@@ -664,7 +704,7 @@ function verify(logic) {
     same(logic.parseState(JSON.stringify(good)), { ok: true, state: { boot: BOOT, sound: false, dnd: true, readBefore: 50, live: good.live, history: good.history } });
     // An entry stored before senders could add hints has no hint roles,
     // and reads back with each one empty.
-    const unhinted = (timestamp, id) => (({ hintIcon, hintTone, hintOpen, hintClick, ...rest }) => rest)(stored(timestamp, id));
+    const unhinted = (timestamp, id) => (({ hintIcon, hintTone, hintOpen, hintClick, hintPage, ...rest }) => rest)(stored(timestamp, id));
     same(logic.parseState(stateText({ live: [unhinted(8, 4)], history: [unhinted(7, 3)] })), { ok: true, state: { boot: BOOT, sound: true, dnd: false, readBefore: 0, live: [stored(8, 4)], history: [stored(7, 3)] } }, "entries without hint roles read back with each empty");
     same(logic.parseState(logic.serializeState(logic.emptyState(BOOT))), { ok: true, state: { boot: BOOT, sound: true, dnd: false, readBefore: 0, live: [], history: [] } }, "an empty state reads back");
     same(logic.parseState(logic.serializeState({ boot: BOOT, sound: false, dnd: true, readBefore: 50, live: good.live, history: good.history })).state, { boot: BOOT, sound: false, dnd: true, readBefore: 50, live: good.live, history: good.history }, "a state reads back as written");
@@ -674,9 +714,11 @@ function verify(logic) {
     const third = JSON.parse(STATE_V3);
     same([third.version, third.sound, third.dnd, third.history.length], [3, true, true, 100], "the fixture is the version 3 file");
     const moved = logic.migrateState(STATE_V3);
+    // Its entries name no page hint and read back with none.
+    const paged = third.history.map(entry => Object.assign({}, entry, { hintPage: "" }));
     same(moved.migrated, true, "a version 3 file is migrated");
-    same(logic.parseState(moved.text), { ok: true, state: { boot: third.boot, sound: true, dnd: true, readBefore: third.readBefore, live: [], history: third.history } }, "a migrated file reads with its history, Silence and Sound");
-    same(JSON.parse(logic.serializeState(logic.fromBoot(logic.parseState(moved.text).state, third.boot).state)), Object.assign({}, third, { version: 4 }), "a migrated file is written as version 4 with every other value kept");
+    same(logic.parseState(moved.text), { ok: true, state: { boot: third.boot, sound: true, dnd: true, readBefore: third.readBefore, live: [], history: paged } }, "a migrated file reads with its history, Silence and Sound");
+    same(JSON.parse(logic.serializeState(logic.fromBoot(logic.parseState(moved.text).state, third.boot).state)), Object.assign({}, third, { version: 4, history: paged }), "a migrated file is written as version 4 with every other value kept");
     for (const [label, text, want] of STATE_UNMIGRATED) {
         same(logic.migrateState(text), { text: text, migrated: false }, "unmigrated: " + label);
         same(logic.parseState(logic.migrateState(text).text), { ok: false, error: want }, "unmigrated and refused: " + label);
@@ -819,6 +861,7 @@ function verify(logic) {
         ["nothing offered, the sender's window shows", {}, [], true, true],
         ["only an action with no identifier", {}, [""], false, false],
         ["a hinted file opens with nothing offered", { hintClick: "open", hintOpen: "/tmp/report.txt" }, [], false, true],
+        ["a hinted page opens over a click that only dismisses", { hintClick: "none", hintPage: SETUP }, [], false, true],
         ["a click that only dismisses", { hintClick: "none" }, ["default"], true, false],
         ["an open hint with no file runs the sender's action", { hintClick: "open", hintOpen: "" }, ["default"], false, true]
     ])
@@ -1232,7 +1275,7 @@ function verify(logic) {
         same(got, want, "in sequence: " + label);
     }
 }
-verify(load(file));
+verify(load(file, commons));
 
 // Each control removes one rule from a copy of the logic and keeps the text
 // around it. The suite must fail on every copy.
@@ -1242,7 +1285,7 @@ const CONTROLS = [
     ["the plain close is the medium3 duration", "close: d.medium3,", "close: d.medium4,"],
     ["a refused open's notice is transient", "notice: Object.assign(openNotice(match === null ? \"\" : match[1]), { transient: true })", "notice: openNotice(match === null ? \"\" : match[1])"],
     ["image tag", 'return !!name && name[1].toLowerCase() === "img";', "return false;"],
-    ["strip after the newline rewrite", 'return stripImageTags(sanitizeBody(body, app, appIcon).replace(/\\r\\n|\\r|\\n/g, "<br/>"));', 'return sanitizeBody(body, app, appIcon).replace(/\\r\\n|\\r|\\n/g, "<br/>");'],
+    ["strip after the newline rewrite", 'var styled = stripImageTags(sanitizeBody(body, app, appIcon).replace(/\\r\\n|\\r|\\n/g, "<br/>"));', 'var styled = sanitizeBody(body, app, appIcon).replace(/\\r\\n|\\r|\\n/g, "<br/>");'],
     ["Chromium address", "if (!chromium && String(app || \"\") !== \"\") return none;", "return none;"],
     ["a named sender that is no browser keeps its address", "if (!chromium && String(app || \"\") !== \"\") return none;", ""],
     ["an unnamed sender's address needs a blank line", "/^[ \\t]*\\r?\\n[ \\t]*\\r?\\n\\s*/", "/^\\s+/"],
@@ -1336,7 +1379,7 @@ const CONTROLS = [
     ["the act target reads the history", "var all = live.concat(history.filter(", "var all = live.concat([].filter("],
     ["the act target skips an Inbox dismissal", "history.filter(function (e) { return e.read !== true; })", "history"],
     ["a toast wins an act tie", "if (all[i].timestamp > newest) {", "if (all[i].timestamp >= newest) {"],
-    ["the act shortcut follows a hinted click", 'if (route !== "default") return route === "open";', ""],
+    ["the act shortcut follows a hinted click", 'if (route !== "default") return route !== "dismiss";', ""],
     ["the act shortcut needs a primary action", 'return primaryAction(offered) !== "" || canRaise;', "return true;"],
     ["the act shortcut shows the sender's window", 'return primaryAction(offered) !== "" || canRaise;', 'return primaryAction(offered) !== "";'],
     ["an expired toast is held", 'if (reason === "expire") return transient ? "expire" : "keep";', 'if (reason === "expire") return "expire";'],
@@ -1432,6 +1475,16 @@ const CONTROLS = [
     ["unknown open replies do not leak", 'message: "Try this notification again.",', 'message: text.slice(0, 200),'],
     ["unknown history states do not leak", 'default: return "Saved history is unavailable";', 'default: return "History unavailable: " + storeState;'],
     ["damaged history differs from unreadable history", 'case "corrupt": return "Saved history is damaged";', 'case "corrupt": return "Saved history cannot be read";'],
+    ["the hints include the page hint", ', "x-vgs-page": "hintPage" };', " };"],
+    ["a page hint is one whole reference", "return reference.reference === value && reference.page !== \"\";", "return reference.page !== \"\";"],
+    ["a page hint names a page", "return reference.reference === value && reference.page !== \"\";", "return reference.reference === value;"],
+    ["a page hint keeps the bound", "if (value.length > HINT_OPEN_MAX || /", "if (/"],
+    ["a page hint has no control characters", " || /[\\u0000-\\u001f\\u007f]/.test(value)) return false;", ") return false;"],
+    ["a page click comes before the click hints", "    if (row.hintPage) return \"page\";\n", ""],
+    ["a page click reaches its page", "if (route !== \"default\") return route !== \"dismiss\";", "if (route !== \"default\") return route === \"open\";"],
+    ["a page hint opens its tab", "return { page: reference.page, tab: reference.tab };", "return { page: reference.page, tab: \"\" };"],
+    ["a body draws the page words as a link", "return styled.slice(0, at) + \"<font", "return styled; (\"<font"],
+    ["the link words are read between tags", "var end = open === -1 ? styled.length : open;", "var end = styled.length;"],
     ["the state judge reads the hint values", "if (!hintValueFits(HINT_ROLES[h], hint)) return where + \".\" + HINT_ROLES[h] + \" refused\";", "if (false) return \"\";"],
     ["the state judge refuses a hint role that is no string", "if (typeof hint !== \"string\") return where + \".\" + HINT_ROLES[h] + \" want=string\";", "if (false) return \"\";"],
     ["the state judge refuses an open click with no file", "if (value.hintClick === \"open\" && !value.hintOpen) return where + \".hintClick open without hintOpen\";", "if (false) return \"\";"],
@@ -1502,7 +1555,7 @@ try {
         fs.writeFileSync(mutant, source.replace(needle, () => replacement));
         let failed = false;
         try {
-            verify(load(mutant));
+            verify(load(mutant, commons));
         } catch (e) {
             failed = true;
         }

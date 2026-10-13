@@ -88,7 +88,7 @@ ColumnLayout {
         const badge = enrichment !== null && (entry.workspace || "").length > 0 && imageStatus(entry.workspaceIcon || "", true) === Image.Ready;
         rowCard = { look: look, pad: look.card.pad, summary: entry.summary || "", title: badge ? enrichment.title : entry.summary || "",
             singleLine: single, showsBadge: badge, enrichment: enrichment, workspace: entry.workspace || "", workspaceIcon: entry.workspaceIcon || "",
-            bodySegments: Logic.emojiSegments(Logic.styledBody(entry.body || "", entry.app || "", entry.appIcon || ""), entry.emoji || null) };
+            bodySegments: Logic.emojiSegments(Logic.styledBody(entry.body || "", entry.app || "", entry.appIcon || "", entry.hintPage || "", look.palette.accent), entry.emoji || null) };
         const compactWidth = look.card.width - look.card.pad - look.media.compact.size - look.card.gapIcon - textColumn - (badge ? look.badge.size + look.badge.gap : 0);
         const lines = (rowCard.summary.length > 0 ? (rowCard.title.indexOf("\n") === -1 && titleMeasure.advanceWidth <= compactWidth ? 1 : 2) : 0) + (single ? 0 : 1);
         const mediaHeight = hasMedia ? look.media[Logic.mediaTier(lines)].size : 0;

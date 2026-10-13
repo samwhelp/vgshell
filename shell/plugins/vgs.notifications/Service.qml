@@ -842,13 +842,14 @@ Item {
     }
 
     // A choice on a card, a toast's or an inbox row's: open, action:<id> or
-    // dismiss. An open on a card whose VGS hints name a click
-    // (NotificationLogic.clickRoute) opens the hinted file in the `open` TUI
-    // or only dismisses; every other choice goes as
-    // NotificationLogic.choicePlan says: an open runs the primary action,
-    // the sender's default, else its first. Then the row leaves, bar an
-    // open the TUI refuses, which keeps the row and shows why
-    // (NotificationLogic.openOutcome); its history entry stays
+    // dismiss. An open on a card whose VGS hints name a page or a click
+    // (NotificationLogic.clickRoute) opens the hinted Settings page, opens
+    // the hinted file in the `open` TUI or only dismisses; every other
+    // choice goes as NotificationLogic.choicePlan says: an open runs the
+    // primary action, the sender's default, else its first. Then the row
+    // leaves, bar a page the core refuses, which keeps the row (the core
+    // logs its reply), and an open the TUI refuses, which keeps the row and
+    // shows why (NotificationLogic.openOutcome); its history entry stays
     // (leaveChosen).
     // The sender's window comes into view through the core's reveal, which
     // after a delivered action first gives the sender the chance to raise
@@ -860,6 +861,12 @@ Item {
         const entry = at === -1 ? entryFor(key) : rowModel.get(at);
         if (entry === null) return false;
         const route = Logic.clickRoute(choice, entry);
+        if (route === "page") {
+            const target = Logic.pageTarget(entry.hintPage);
+            if (shell.surfaces.openPage(target.page, target.tab) !== "ok") return false;
+            leaveChosen(key, "invoke");
+            return true;
+        }
         if (route === "open") {
             const reply = shell.tui.run("open", [entry.hintOpen]);
             const outcome = Logic.openOutcome(reply);

@@ -32,6 +32,8 @@ Item {
     // "".
     property string hintIcon: ""
     property string hintTone: ""
+    // The x-vgs-page hint, whose words the body draws as a link.
+    property string hintPage: ""
     // The workspace the card belongs to: the one `enrichment` names, or the
     // one the service resolved for it (NotificationLogic.slackWorkspaceFor),
     // or "".
@@ -87,9 +89,10 @@ Item {
     readonly property string iconSource: image.length > 0 ? image : iconPath(appIcon)
     readonly property string sanitizedBody: Logic.sanitizeBody(body, app, appIcon)
     // The body as ImageText segments: StyledText with every image tag
-    // stripped (NotificationLogic.styledBody), and the workspace's custom
-    // emoji as images (emojiSegments).
-    readonly property var bodySegments: Logic.emojiSegments(Logic.styledBody(body, app, appIcon), emoji)
+    // stripped and the page hint's words drawn as a link
+    // (NotificationLogic.styledBody), and the workspace's custom emoji as
+    // images (emojiSegments).
+    readonly property var bodySegments: Logic.emojiSegments(Logic.styledBody(body, app, appIcon, hintPage, look.palette.accent), emoji)
     readonly property bool singleLine: sanitizedBody.length === 0
     readonly property bool iconInSummary: singleLine && Logic.summaryStartsWithGlyph(summary)
     // NotificationLogic.enrich's reading of this sender, or null.

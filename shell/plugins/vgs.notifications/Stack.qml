@@ -103,6 +103,7 @@ Item {
                         urgency: Logic.URGENCY.normal
                         hintIcon: ""
                         hintTone: ""
+                        hintPage: ""
                         leaving: ""
                         refusal: stack.service !== null ? stack.service.refusalCaption : ""
                     }

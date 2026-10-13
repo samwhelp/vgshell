@@ -1,4 +1,5 @@
 .pragma library
+.import qs.Commons 1.0 as Commons
 
 // The notifications' decisions, with no QML objects and no I/O, so
 // scripts/test-notifications-logic.js runs every function under node: what a
@@ -39,7 +40,7 @@ var STATE_VERSION = 4;
 // entry, named <key>-<role> in the images directory.
 var IMAGE_ROLES = ["appIcon", "image"];
 // Every role of a toast row, the model's and the state file's, in order.
-var ENTRY_ROLES = ["key", "originalId", "app", "appIcon", "summary", "body", "image", "desktopEntry", "urgency", "expireTimeout", "timestamp", "hintIcon", "hintTone", "hintOpen", "hintClick"];
+var ENTRY_ROLES = ["key", "originalId", "app", "appIcon", "summary", "body", "image", "desktopEntry", "urgency", "expireTimeout", "timestamp", "hintIcon", "hintTone", "hintOpen", "hintClick", "hintPage"];
 
 // The urgency values Quickshell's NotificationUrgency enum takes, which the
 // state file stores as numbers.
@@ -139,9 +140,28 @@ function sanitizeBody(body, app, appIcon) {
 
 // What the card renders, stripped once more after the newline rewrite: a
 // kept tag may hold a `<` of its own, and inserting `<br/>` can split it
-// into a live image tag the input never held.
-function styledBody(body, app, appIcon) {
-    return stripImageTags(sanitizeBody(body, app, appIcon).replace(/\r\n|\r|\n/g, "<br/>"));
+// into a live image tag the input never held. With an x-vgs-page hint,
+// `page`, the first place its words stand whole in the text between tags
+// draws as LinkText draws a link, underlined in `linkColor`; a body without
+// them draws as it would with no hint.
+function styledBody(body, app, appIcon, page, linkColor) {
+    var styled = stripImageTags(sanitizeBody(body, app, appIcon).replace(/\r\n|\r|\n/g, "<br/>"));
+    var words = page ? Commons.PageReference.parse(page).words : "";
+    if (words === "") return styled;
+    var i = 0;
+    while (i < styled.length) {
+        var open = styled.indexOf("<", i);
+        var end = open === -1 ? styled.length : open;
+        var at = styled.slice(i, end).indexOf(words);
+        if (at !== -1) {
+            at += i;
+            return styled.slice(0, at) + "<font color=\"" + linkColor + "\"><u>" + words + "</u></font>" + styled.slice(at + words.length);
+        }
+        if (open === -1) break;
+        var close = styled.indexOf(">", open);
+        i = close === -1 ? styled.length : close + 1;
+    }
+    return styled;
 }
 
 // A summary that opens with one glyph and two spaces already carries its
@@ -1217,14 +1237,19 @@ function lifetimeFor(urgency, expireTimeout, normal) {
 //   x-vgs-click  open (a click opens x-vgs-open) or none (a click only
 //                dismisses); without it a click runs the sender's default
 //                action or shows its window
+//   x-vgs-page   one page reference, `[words](page:<plugin id>[/<tab>])`
+//                (Commons.PageReference): the card draws the words in its
+//                body as a link and a click opens that Settings page, ahead
+//                of x-vgs-click. The core adds it from a reference in a
+//                plugin notice's message.
 // The core adds a fifth, x-vgs-plugin, the sending plugin's id, which
 // bypassesSilence reads and no card keeps.
 // A hint of another shape is refused whole: its role stays "" and the
 // service logs its name.
-var HINTS = { "x-vgs-icon": "hintIcon", "x-vgs-tone": "hintTone", "x-vgs-open": "hintOpen", "x-vgs-click": "hintClick" };
+var HINTS = { "x-vgs-icon": "hintIcon", "x-vgs-tone": "hintTone", "x-vgs-open": "hintOpen", "x-vgs-click": "hintClick", "x-vgs-page": "hintPage" };
 // The hint roles, which a stored entry may leave out: an entry stored
 // before a sender could add hints has none, and reads back with each "".
-var HINT_ROLES = ["hintIcon", "hintTone", "hintOpen", "hintClick"];
+var HINT_ROLES = ["hintIcon", "hintTone", "hintOpen", "hintClick", "hintPage"];
 var HINT_TONES = ["success", "warning", "danger", "info"];
 // The Lucide icon a VGS plugin's notice draws when it names none, by its
 // x-vgs-tone hint, "" for a notice with no tone.
@@ -1235,8 +1260,15 @@ var HINT_CLICKS = ["open", "none"];
 var HINT_ICON = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 var HINT_ICON_MAX = 64;
 // The longest argument shell.tui.run hands a script, so the open TUI takes
-// every path the judge accepts.
+// every path the judge accepts; a page reference keeps the same bound.
 var HINT_OPEN_MAX = 256;
+
+// Whether VALUE is one whole page reference that names a page.
+function pageReferenceFits(value) {
+    if (value.length > HINT_OPEN_MAX || /[\u0000-\u001f\u007f]/.test(value)) return false;
+    var reference = Commons.PageReference.parse(value);
+    return reference.reference === value && reference.page !== "";
+}
 
 function hintValueFits(role, value) {
     switch (role) {
@@ -1244,15 +1276,16 @@ function hintValueFits(role, value) {
     case "hintTone": return value === "" || HINT_TONES.indexOf(value) !== -1;
     case "hintOpen": return value === "" || (value.charAt(0) === "/" && value.length <= HINT_OPEN_MAX && !/[\u0000-\u001f\u007f]/.test(value));
     case "hintClick": return value === "" || HINT_CLICKS.indexOf(value) !== -1;
+    case "hintPage": return value === "" || pageReferenceFits(value);
     default: throw new Error("notifications: hint role " + JSON.stringify(role) + " unjudged");
     }
 }
 
 // The hint roles a notification's hints map gives, and the names of the
-// VGS hints it refused: { roles: { hintIcon, hintTone, hintOpen, hintClick },
-// refused }. `x-vgs-click: open` without an x-vgs-open to open is refused.
+// VGS hints it refused: { roles: { hintIcon, hintTone, hintOpen, hintClick,
+// hintPage }, refused }. `x-vgs-click: open` without an x-vgs-open to open is refused.
 function readHints(hints) {
-    var roles = { hintIcon: "", hintTone: "", hintOpen: "", hintClick: "" };
+    var roles = { hintIcon: "", hintTone: "", hintOpen: "", hintClick: "", hintPage: "" };
     var refused = [];
     var map = isPlainObject(hints) ? hints : {};
     var names = Object.keys(HINTS);
@@ -1270,15 +1303,23 @@ function readHints(hints) {
 }
 
 // What a choice on a card does once its hints are read: for `open`, a
-// click on the card or invoke-latest, `open` opens its x-vgs-open file
-// through the plugin's open TUI and `dismiss` only dismisses it; every
-// other choice, and an `open` on a card without a click hint, is `default`,
-// the plan choicePlan makes.
+// click on the card or invoke-latest, `page` opens its x-vgs-page page
+// (pageTarget), `open` opens its x-vgs-open file through the plugin's open
+// TUI and `dismiss` only dismisses it; every other choice, and an `open` on
+// a card without a click hint, is `default`, the plan choicePlan makes.
 function clickRoute(choice, row) {
     if (choice !== "open") return "default";
+    if (row.hintPage) return "page";
     if (row.hintClick === "open" && row.hintOpen !== "") return "open";
     if (row.hintClick === "none") return "dismiss";
     return "default";
+}
+
+// The arguments of shell.surfaces.openPage for a card's x-vgs-page hint:
+// { page, tab }, tab "" for none.
+function pageTarget(hintPage) {
+    var reference = Commons.PageReference.parse(hintPage);
+    return { page: reference.page, tab: reference.tab };
 }
 
 // What the service does with shell.tui.run's reply to an `open` click:
@@ -1360,7 +1401,8 @@ function entryOf(fields, timestamp, taken) {
         hintIcon: hintIcon,
         hintTone: hints.hintTone,
         hintOpen: hints.hintOpen,
-        hintClick: hints.hintClick
+        hintClick: hints.hintClick,
+        hintPage: hints.hintPage
     };
 }
 
@@ -1784,13 +1826,13 @@ function newestKey(live, history) {
 }
 
 // Whether the act shortcut runs a click on ROW's card: true when that click
-// reaches something, its hinted file (clickRoute), the sender's primary
-// action among `offered` while the service holds the notification, or,
-// as the card's Show does, the sender's open window (`canRaise`); false
+// reaches something, its hinted page or file (clickRoute), the sender's
+// primary action among `offered` while the service holds the notification,
+// or, as the card's Show does, the sender's open window (`canRaise`); false
 // for a card whose click only dismisses or would reach nothing.
 function actReaches(row, offered, canRaise) {
     var route = clickRoute("open", row);
-    if (route !== "default") return route === "open";
+    if (route !== "default") return route !== "dismiss";
     return primaryAction(offered) !== "" || canRaise;
 }
 

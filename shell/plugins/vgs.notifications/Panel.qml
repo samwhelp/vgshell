@@ -639,6 +639,7 @@ FocusScope {
                                     urgency: slot.entry.urgency === undefined ? Logic.URGENCY.normal : slot.entry.urgency
                                     hintIcon: slot.entry.hintIcon || ""
                                     hintTone: slot.entry.hintTone || ""
+                                    hintPage: slot.entry.hintPage || ""
                                     workspace: slot.entry.workspace || ""
                                     workspaceIcon: slot.entry.workspaceIcon || ""
                                     faceImages: slot.entry.faceImages || []

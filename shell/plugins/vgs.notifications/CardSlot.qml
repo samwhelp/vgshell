@@ -34,6 +34,7 @@ Item {
     required property int urgency
     required property string hintIcon
     required property string hintTone
+    required property string hintPage
     required property string leaving
     // The caption of a caption-only toast, the stack's refusal toast; ""
     // for a notification's toast.
@@ -152,6 +153,7 @@ Item {
         urgency: slot.urgency
         hintIcon: slot.hintIcon
         hintTone: slot.hintTone
+        hintPage: slot.hintPage
         glassChoice: slot.service !== null && slot.service.glassChoice
         workspace: slot.service !== null ? slot.service.workspaceOf(face.card.enrichment) : ""
         workspaceIcon: slot.service !== null && face.card.enrichment !== null ? slot.service.workspaceIcon(face.card.enrichment.rule, face.card.workspace) : ""
