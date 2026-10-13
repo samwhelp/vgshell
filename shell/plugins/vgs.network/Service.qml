@@ -81,8 +81,10 @@ Item {
     // The native connectivity property can still describe the previous link.
     // nmcli's check waits for a fresh result; only its current link may publish.
     // https://networkmanager.dev/docs/api/latest/nmcli.html#networking
+    // NetworkManager answers a check without network-control access with
+    // "Not authorized to recheck connectivity" (NetworkManager 1.58).
     function checkConnectivity() {
-        if (portalConnectionKey === "" || !Networking.canCheckConnectivity || !Networking.connectivityCheckEnabled || !nmcliPresent) return;
+        if (portalConnectionKey === "" || access === "denied" || !Networking.canCheckConnectivity || !Networking.connectivityCheckEnabled || !nmcliPresent) return;
         if (connectivityProbe.running || connectivityRequest !== null) return;
         connectivityRequest = { key: portalConnectionKey, generation: connectivityGeneration };
         connectivityProbe.running = true;
@@ -159,6 +161,7 @@ Item {
         running: root.portalConnectionKey !== "" && (root.checkedConnectivity === "Unknown"
             || root.connectivityProblem !== "" || ["portal", "limited"].includes(root.state))
             && Networking.canCheckConnectivity && Networking.connectivityCheckEnabled
+            && root.access !== "denied" && root.nmcliPresent
         onTriggered: root.checkConnectivity()
     }
 

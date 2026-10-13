@@ -65,7 +65,7 @@ function portalSuite(source) {
         ["wlan0", true, true, true, false, {}, false]
     ]) {
         const probe = { running };
-        const context = { portalConnectionKey: key, connectivityGeneration: 3, connectivityRequest: pending,
+        const context = { portalConnectionKey: key, access: "allowed", connectivityGeneration: 3, connectivityRequest: pending,
             nmcliPresent: present, connectivityProbe: probe,
             Networking: { canCheckConnectivity: supported, connectivityCheckEnabled: enabled } };
         vm.createContext(context);
@@ -74,6 +74,15 @@ function portalSuite(source) {
         assert.equal(probe.running, running || expected);
         assert.deepEqual(JSON.parse(JSON.stringify(context.connectivityRequest)), expected ? { key, generation: 3 } : pending);
     }
+    const deniedProbe = { running: false };
+    const denied = { portalConnectionKey: "wlan0", access: "denied", connectivityGeneration: 3, connectivityRequest: null,
+        nmcliPresent: true, connectivityProbe: deniedProbe,
+        Networking: { canCheckConnectivity: true, connectivityCheckEnabled: true } };
+    vm.createContext(denied);
+    vm.runInContext(check[0], denied);
+    denied.checkConnectivity();
+    assert.equal(deniedProbe.running, false);
+    assert.equal(denied.connectivityRequest, null);
     const logic = load(file, commons);
     for (const [text, code, expected] of [["portal\n", 0, "Portal"], ["full\n", 0, "Full"],
         ["limited", 0, "Limited"], ["none", 0, "None"], ["unknown", 0, "Unknown"],
@@ -122,8 +131,11 @@ function portalSuite(source) {
         ["", "Unknown", "connected", true, true, false],
         ["wlan0", "Portal", "portal", false, false, false]
     ]) assert.equal(polls({ portalConnectionKey: key, checkedConnectivity: value, state,
-        connectivityProblem: failed ? "unavailable" : "" },
+        connectivityProblem: failed ? "unavailable" : "", access: "allowed", nmcliPresent: true },
         { canCheckConnectivity: true, connectivityCheckEnabled: enabled }), expected);
+    for (const [access, present] of [["denied", true], ["allowed", false]]) assert.equal(polls({ portalConnectionKey: "wlan0",
+        checkedConnectivity: "Unknown", state: "connected", connectivityProblem: "unavailable", access, nmcliPresent: present },
+        { canCheckConnectivity: true, connectivityCheckEnabled: true }), false);
 }
 portalSuite(service);
 for (const [before, after] of [
@@ -133,6 +145,9 @@ for (const [before, after] of [
     ["!Networking.canCheckConnectivity ||", ""],
     ["!Networking.connectivityCheckEnabled ||", ""],
     ["|| !nmcliPresent", ""],
+    ['access === "denied" ||', ""],
+    ['root.access !== "denied" && ', ""],
+    ["&& root.nmcliPresent", ""],
     ["connectivityProbe.running ||", ""],
     ["connectivityRequest !== null", "false"],
     ["pending.key !== portalConnectionKey ||", ""],
