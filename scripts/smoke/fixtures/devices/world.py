@@ -200,6 +200,15 @@ def main():
         bus = dbus.bus.BusConnection(sys.argv[1])
     except dbus.DBusException as error:
         refuse(f"bus-unreachable error={error.get_dbus_name()}")
+    if sys.argv[2:] == ["check"]:
+        try:
+            for name in (BLUEZ, NM):
+                if not bus.name_has_owner(name):
+                    refuse("stand-in-missing name=" + name)
+        except dbus.DBusException as error:
+            refuse(f"bus-unreachable error={error.get_dbus_name()}")
+        print("world=ready")
+        return
     if len(sys.argv) > 2:
         try:
             print(drive(bus, sys.argv[2], sys.argv[3:]))

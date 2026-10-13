@@ -54,6 +54,9 @@ def main():
     if not address.startswith("unix:path=") or pathlib.Path(address[len("unix:path="):]).name != "system-bus" or not pathlib.Path(address[len("unix:path="):]).parent.name.startswith("vs."):
         raise ValueError("network fixture requires the sandbox bus")
     bus = dbus.bus.BusConnection(address)
+    if not bus.name_has_owner(NM):
+        print("network-fixture=unavailable stand-in=" + NM)
+        sys.exit(69)
     root = dbus.Interface(bus.get_object(NM, ROOT), MOCK)
     manager = dbus.Interface(bus.get_object(NM, MANAGER), MOCK)
     device = dbus.Interface(bus.get_object(NM, DEVICE), MOCK)
@@ -133,4 +136,8 @@ next_device.AddProperty("{WIFI}", "ActiveAccessPoint", dbus.ObjectPath("/"))
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except dbus.DBusException as error:
+        print("network-fixture=unavailable stand-in=" + NM + " error=" + error.get_dbus_name())
+        sys.exit(69)

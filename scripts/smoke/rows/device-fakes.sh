@@ -298,5 +298,62 @@ missing_control() {
 }
 expect "control: a host without python-dbusmock reads not measured" "1 probe:missing=python-dbusmock" missing_control
 
+# A separate bus keeps the loss controls out of the shared device world.
+devices_loss_control() (
+  local control="$sandbox/vs.device-loss" network_pid bluez_pid bus_pid status=0 started=$EPOCHSECONDS
+  mkdir -p -- "$control"
+  sandbox="$control"
+  rt_dir="$control"
+  devices_dir="$control/devices"
+  mkdir -p -- "$devices_dir"
+  shell_env+=(DBUS_SYSTEM_BUS_ADDRESS="unix:path=$rt_dir/system-bus")
+  bus_config "$rt_dir/system-bus" >"$control/bus.xml"
+  spawn "$control/system-bus.log" "${shell_env[@]}" dbus-daemon --nofork --config-file="$control/bus.xml"
+  bus_pid="$spawn_pid"
+  for _ in $(seq 1 50); do [[ -S $rt_dir/system-bus ]] && break; sleep 0.1; done
+  spawn "$devices_dir/bluez.log" "${shell_env[@]}" python3 -m dbusmock --system --template bluez5
+  bluez_pid="$spawn_pid"
+  devices_pid[bluez]="$bluez_pid"
+  spawn "$devices_dir/network.log" "${shell_env[@]}" python3 -m dbusmock --system --template networkmanager
+  network_pid="$spawn_pid"
+  devices_pid[network]="$network_pid"
+  trap 'kill -TERM "$network_pid" "$bluez_pid" "$bus_pid" 2>/dev/null || true; wait "$network_pid" "$bluez_pid" "$bus_pid" 2>/dev/null || true' EXIT
+  "${shell_env[@]}" python3 "$devices_fixtures/world.py" "unix:path=$rt_dir/system-bus" >"$control/planted.log" || exit 1
+  devices_check loss-ready >"$control/ready.log" || exit 1
+  # A live dbusmock can lose its name when another owner replaces it.
+  "${shell_env[@]}" python3 - "unix:path=$rt_dir/system-bus" <<'PYLOSS'
+import dbus,sys
+bus=dbus.bus.BusConnection(sys.argv[1])
+root=dbus.Interface(bus.get_object("org.bluez", "/"), "org.freedesktop.DBus.Mock")
+root.AddMethod("org.vgs.Smoke", "ReleaseName", "", "", 'self.bus_name.get_bus().release_name("org.bluez")')
+dbus.Interface(bus.get_object("org.bluez", "/"), "org.vgs.Smoke").ReleaseName()
+PYLOSS
+  failures=0
+  behaviour_failures=0
+  smoke_row hidpi >"$control/name-loss.log"
+  [[ $failures == 1 ]] || exit 1
+  grep -q 'world=unavailable .*name=org.bluez .*since=.*last-ready=' "$control/name-loss.log" || exit 1
+  kill -KILL "$network_pid" || exit 1
+  wait "$network_pid" 2>/dev/null || true
+  failures=0
+  behaviour_failures=0
+  smoke_row network >"$control/killed.log"
+  [[ $failures == 1 ]] || exit 1
+  grep -q 'world=unavailable stand-in=network reason=process-ended exit=137 since=' "$control/killed.log" || exit 1
+  if grep -q 'shell.*log.*holds errors' "$control/name-loss.log" "$control/killed.log"; then exit 1; fi
+  python3 "$devices_fixtures/network.py" "unix:path=$rt_dir/system-bus" prepare >"$control/fixture.log" 2>&1 || status=$?
+  [[ $status == 69 ]] || exit 1
+  [[ $(wc -l <"$control/fixture.log") == 1 ]] || exit 1
+  grep -qx 'network-fixture=unavailable stand-in=org.freedesktop.NetworkManager' "$control/fixture.log" || exit 1
+  [[ $((EPOCHSECONDS - started)) -lt 60 ]] || exit 1
+  printf 'device-loss-control: verdict=pass secs=%s failures=1 fixture-status=%s\n' "$((EPOCHSECONDS - started))" "$status"
+)
+if devices_loss_control >"$sandbox/device-loss-control.log" 2>&1; then
+  ok "control: a killed NetworkManager fails its row before any shell-log check or fixture timeout"
+else
+  fail "control: the missing stand-in row did not fail at once"
+fi
+control_output "$sandbox/device-loss-control.log"
+
 expect "disabling the device reader is allowed" ok ipc shell setPluginEnabled acme.devices false
 expect_poll "the device reader is gone" False record_exists acme.devices

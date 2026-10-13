@@ -8,6 +8,17 @@
 # inputs: scripts/smoke/user-config.sh shell/plugins/vgs.network/* shell/Commons/Nmcli.js shell/Commons/qmldir shell/plugins/vgs.system/* shell/Core/* shell/Hosts/* shell/Ui/* shell/Commons/* shell/shell.qml config/shell.json bin/vgshell-scan bin/vgshell-plugin-judge bin/lib/check-manifests.js bin/lib/qml-library.js scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/overlay-capture.sh
 set -euo pipefail
 devices_ready network || return 0
+net_fixture() { python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" "$1"; }
+net_expect_fixture() { # LABEL ACTION
+  local reply status=0
+  reply="$(net_fixture "$2" 2>&1)" || status=$?
+  if [[ $status -ne 0 || $reply != ok ]]; then
+    fail "network: fixture=$2 status=$status $reply"
+    return 1
+  fi
+  ok "$1"
+}
+net_expect_fixture "the mock has a saved Wi-Fi profile" prepare || return 0
 net_saved="$sandbox/network-shell-before.json"
 cp -- "$home/.config/vgshell/shell.json" "$net_saved"
 # Sharing stands over only the two CLI readers it owns. Every other nmcli
@@ -67,7 +78,6 @@ else:
     else: print("running")
 PYSTOP
 }
-net_fixture() { python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" "$1"; }
 net_unit() { device_reply systemctl 0 "$1" show --property=LoadState --property=ActiveState NetworkManager.service; }
 net_permission() { device_reply nmcli 0 "org.freedesktop.NetworkManager.network-control:$1" -t -f PERMISSION,VALUE general permissions; }
 net_state() { ipc smoke readInstance service vgs.network state; }
@@ -95,7 +105,6 @@ net_do() { ipc vgs.network invoke action "{\"kind\":\"$1\",\"key\":\"[\\\"wlan0\
 net_refresh() { ipc vgs.network invoke refresh ""; }
 net_unit $'LoadState=loaded\nActiveState=active'
 net_permission yes
-expect "the mock has a saved Wi-Fi profile" ok net_fixture prepare
 rescan "the private sharing commands are discovered"
 expect "Network enables over the private mock" ok ipc shell setPluginEnabled vgs.network true
 expect_poll "Network's service is built" True record_exists vgs.network
@@ -200,7 +209,7 @@ form)
 expect "Cancel is visible during activation" scrolled net_join_cancel_reveal
 click_in 'window:System Settings' window vgs.network Button Cancel || fail "the pending form could not close"
 ;;
-device) expect "the join adapter is replaced" ok net_fixture replace ;;
+device) net_expect_fixture "the join adapter is replaced" replace || return 0 ;;
 disable)
 expect "Network disables during held activation" ok ipc shell setPluginEnabled vgs.network false
 expect_poll "disabling destroys the service" False record_exists vgs.network
@@ -216,7 +225,7 @@ if [[ ${3:-form} != disable ]]; then expect_poll "closing during activation read
 if [[ $1 == private-cleaned ]]; then expect_poll "cancellation reaps the network command" stopped net_join_child_stopped; fi
 case ${3:-form} in
 device)
-expect "the join adapter returns" ok net_fixture restore
+net_expect_fixture "the join adapter returns" restore || return 0
 expect_poll "the restored adapter is selected" '{"leases":1,"device":"wlan0","scanning":true}' ipc smoke networkScan
 ;;
 disable)
@@ -231,7 +240,7 @@ if [[ ${3:-form} != form ]]; then expect_poll "the replacement service is ready"
 net_join_close_test private-cleaned idle
 net_join_close_test private-cleaned idle device
 net_join_close_test private-cleaned idle disable
-expect "the mock adds a scanned enterprise network" ok net_fixture enterprise
+net_expect_fixture "the mock adds a scanned enterprise network" enterprise || return 0
 net_enterprise_seen() { net_snapshot | py_reply 'import json,sys; print(any(r["name"]=="VGS Enterprise Wi-Fi" and r["security"]=="Wpa2Eap" for r in json.load(sys.stdin)["network"]["wifi"]))'; }
 net_enterprise_reveal() { ipc smoke revealText window vgs.system DeviceRow 'VGS Enterprise Wi-Fi' | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
 expect_poll "the scanned enterprise row uses its security kind" True net_enterprise_seen
@@ -283,7 +292,7 @@ for net_enterprise_method in peap ttls; do
 net_enterprise_submit_test "$net_enterprise_hidden" "$net_enterprise_method" private-cleaned
 done
 done
-expect "the mock removes its scanned enterprise network" ok net_fixture unenterprise
+net_expect_fixture "the mock removes its scanned enterprise network" unenterprise || return 0
 expect "the flyout opens over the pane" ok ipc shell summon panel vgs.network '{"source":"smoke"}'
 expect_poll "Network's flyout is shown" shown net_shown panel
 expect "the flyout receives its payload" '{"source":"smoke"}' ipc smoke readInstance panel vgs.network payload
@@ -330,39 +339,39 @@ expect_poll "the flyout Details menu action draws its result" '{"visible":true,"
 expect "the flyout closes" ok ipc shell hide panel vgs.network
 expect_poll "closing the flyout keeps the pane's scan" '{"leases":1,"device":"wlan0","scanning":true}' ipc smoke networkScan
 expect "the scanner observer retains the first fake device" ok ipc smoke networkRememberDevice
-expect "the mock replaces the Wi-Fi device" ok net_fixture replace
+net_expect_fixture "the mock replaces the Wi-Fi device" replace || return 0
 expect_poll "the lease moves to the replacement" '{"leases":1,"device":"wlan1","scanning":true}' ipc smoke networkScan
 expect "the replaced device stops scanning" false ipc smoke networkRememberedScanning
-expect "the mock restores the first device" ok net_fixture restore
+net_expect_fixture "the mock restores the first device" restore || return 0
 expect_poll "the lease returns to the restored device" '{"leases":1,"device":"wlan0","scanning":true}' ipc smoke networkScan
 expect "System closes the pane" ok ipc shell hide window vgs.system
 expect_poll "both closed views release the scanner" '{"leases":0,"device":null,"scanning":false}' ipc smoke networkScan
 
 # Native methods can refuse with no frontend failure signal. The sandbox
 # probe only shortens the real service watchdog; its triggered handler runs.
-expect "the connect refusal is installed" ok net_fixture refuse-connect
+net_expect_fixture "the connect refusal is installed" refuse-connect || return 0
 expect "a refused connect starts one operation" ok net_do connect
 expect "the operation has a bounded running watchdog" '{"running":true,"bounded":true}' ipc smoke networkWatchdog false
 expect "the sandbox advances the connect watchdog" ok ipc smoke networkWatchdog true
 expect_poll "a silent connect refusal releases the operation" idle net_action
 expect "a silent refusal has a retry message" '"The network change did not complete. Try again."' net_problem
-expect "normal network requests are restored" ok net_fixture normal
+net_expect_fixture "normal network requests are restored" normal || return 0
 expect "connect can retry after refusal" ok net_do connect
 expect_poll "the retry reaches a native transition" True net_changing
-expect "a noncredentials terminal failure removes activation" ok net_fixture drop-active
+net_expect_fixture "a noncredentials terminal failure removes activation" drop-active || return 0
 expect_poll "terminal connect failure releases the operation" idle net_action
 expect "terminal failure can retry" ok net_do connect
 expect_poll "the retry is connecting before radio cancellation" True net_changing
 expect "radio off cancels the pending operation" ok ipc vgs.network invoke action '{"kind":"radio"}'
 expect_poll "radio cancellation releases the operation" idle net_action
-expect "the canceled mock activation is removed" ok net_fixture drop-active
+net_expect_fixture "the canceled mock activation is removed" drop-active || return 0
 expect "radio on restores the connection path" ok ipc vgs.network invoke action '{"kind":"radio"}'
 expect "connect retries after radio cancellation" ok net_do connect
 expect_poll "the source-loss request is connecting" True net_changing
-expect "the pending source is replaced" ok net_fixture replace
+net_expect_fixture "the pending source is replaced" replace || return 0
 expect_poll "device loss releases the operation" idle net_action
-expect "the pending source is restored" ok net_fixture restore
-expect "the source-loss activation is removed" ok net_fixture drop-active
+net_expect_fixture "the pending source is restored" restore || return 0
+net_expect_fixture "the source-loss activation is removed" drop-active || return 0
 
 # Keyboard-only join and forget, through the actual NM failure signal.
 hypr_lua_save network
@@ -380,26 +389,26 @@ type_keys -k Return
 expect_poll "Enter starts the saved profile" connect net_action
 expect "an unrelated network failure is ignored" ok ipc smoke networkBackgroundFailure true
 expect "the unrelated failure keeps the matching operation" connect net_action
-expect "the mock emits a wrong saved password failure" ok net_fixture fail
+net_expect_fixture "the mock emits a wrong saved password failure" fail || return 0
 expect_poll "a wrong saved password reprompts" prompt net_prompt
 expect_poll "the reprompt is a masked focused field" '{"masked":true,"length":0,"focused":true}' ipc smoke networkField window
-expect "the failed activation is removed before retry" ok net_fixture drop-active
+net_expect_fixture "the failed activation is removed before retry" drop-active || return 0
 type_keys partial
 expect "an idle background failure is ignored" ok ipc smoke networkBackgroundFailure false
 expect "the password prompt keeps its typed value" '{"masked":true,"length":7,"focused":true}' ipc smoke networkField window
 type_keys -M ctrl -k a -m ctrl -k BackSpace
-expect "the PSK update refusal is installed" ok net_fixture refuse-psk
+net_expect_fixture "the PSK update refusal is installed" refuse-psk || return 0
 type_keys network-smoke-joined-secret
 type_keys -k Return
 expect "the sandbox advances the PSK watchdog" ok ipc smoke networkWatchdog true
 expect_poll "a refused PSK update releases the operation" idle net_action
 expect "the field clears after the refused PSK update" '{"masked":true,"length":0,"focused":false}' ipc smoke networkField window
-expect "normal PSK requests are restored" ok net_fixture normal
+net_expect_fixture "normal PSK requests are restored" normal || return 0
 type_keys -k Return
 expect_poll "connect retries after a refused PSK" connect net_action
-expect "the retry requests a password again" ok net_fixture fail
+net_expect_fixture "the retry requests a password again" fail || return 0
 expect_poll "the retry reprompts for the password" prompt net_prompt
-expect "the retry activation is removed" ok net_fixture drop-active
+net_expect_fixture "the retry activation is removed" drop-active || return 0
 type_keys network-smoke-joined-secret
 type_keys -k Return
 expect_poll "the supplied PSK joins the network" True net_joined
@@ -433,26 +442,26 @@ instance_log="$net_secret_control"
 expect "control: the leak reader catches a PSK in a log" leaked net_no_secret
 instance_log="$net_real_log"
 rm -f -- "${net_secret_control:?}"
-expect "the disconnect refusal is installed" ok net_fixture refuse-disconnect
+net_expect_fixture "the disconnect refusal is installed" refuse-disconnect || return 0
 expect "a refused disconnect starts one operation" ok net_do disconnect
 expect "the sandbox advances the disconnect watchdog" ok ipc smoke networkWatchdog true
 expect_poll "a refused disconnect releases the operation" idle net_action
 expect "the joined network remains after refused disconnect" True net_joined
-expect "normal disconnect requests are restored" ok net_fixture normal
+net_expect_fixture "normal disconnect requests are restored" normal || return 0
 expect "disconnect retries after refusal" ok net_do disconnect
 expect_poll "the disconnect retry completes" False net_joined
 expect_poll "the successful disconnect releases the operation" idle net_action
 expect "the saved exact PSK can reconnect" ok net_do connect
 expect_poll "the exact saved PSK reconnects" True net_joined
-expect "the forget refusal is installed" ok net_fixture refuse-forget
+net_expect_fixture "the forget refusal is installed" refuse-forget || return 0
 expect "a refused forget starts one operation" ok net_do forget
 expect "the sandbox advances the forget watchdog" ok ipc smoke networkWatchdog true
 expect_poll "a refused forget releases the operation" idle net_action
 expect "the saved profile remains after refused forget" True net_known
-expect "normal forgetting is restored" ok net_fixture normal
+net_expect_fixture "normal forgetting is restored" normal || return 0
 type_keys -k Delete
 expect_poll "Delete forgets the Wi-Fi profile" False net_known
-expect "the joined activation disconnects after forget" ok net_fixture drop-active
+net_expect_fixture "the joined activation disconnects after forget" drop-active || return 0
 expect "radio off uses the in-process control" ok ipc vgs.network invoke action '{"kind":"radio"}'
 expect_poll "the radio is off" False net_radio
 expect_poll "radio-off has its own state" '"radio-off"' net_state
@@ -541,7 +550,7 @@ net_details_layout() {
   elif [[ $after == "$before" ]]; then net_layout="never-moved before=$before after=$after"
   else net_layout=steady; fi
 }
-expect "the mock adds two Ethernet devices" ok net_fixture wired
+net_expect_fixture "the mock adds two Ethernet devices" wired || return 0
 expect_poll "Network publishes each wired device's state" '[["enp10s0", "connected"], ["enp11s0", "no-cable"]]' net_wired
 expect_poll "the connected wired device connects the computer" '"connected"' net_state
 net_widget_click || fail "the click on the Network widget failed"
@@ -643,7 +652,7 @@ net_details_layout "Details control"
 expect "control: a line drawn while loading moves the row under it" moved-while-loading printf '%s\n' "${net_layout%% *}"
 rm -rf -- "${net_copy:?}"
 rescan "the shipped plugin is restored after the dropdown controls"
-expect "the mock removes the Ethernet devices" ok net_fixture unwired
+net_expect_fixture "the mock removes the Ethernet devices" unwired || return 0
 expect_poll "Network lists no wired device" '[]' net_wired
 expect_poll "Network is disconnected again" '"offline"' net_state
 
@@ -665,10 +674,10 @@ rescan "the enterprise field mapping control is discovered"
 expect_poll "the enterprise mapping control is ready" '"offline"' net_state
 expect "System remounts the enterprise mapping control" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
 expect_poll "the enterprise mapping control pane is mounted" shown net_shown window
-expect "the control adds scanned enterprise input" ok net_fixture enterprise
+net_expect_fixture "the control adds scanned enterprise input" enterprise || return 0
 expect_poll "the control sees the scanned enterprise network" True net_enterprise_seen
 net_enterprise_submit_test no peap invalid
-expect "the control removes its enterprise input" ok net_fixture unenterprise
+net_expect_fixture "the control removes its enterprise input" unenterprise || return 0
 cp -- "$repo/shell/plugins/vgs.network/NetworkJoin.qml" "$net_copy/NetworkJoin.qml"
 python3 - "$net_copy/Service.qml" <<'PYCANCELCONTROL'
 import pathlib,sys
@@ -701,16 +710,16 @@ open(p,"w").write(s.replace(old,'if (false && Logic.shouldReprompt(Logic.enumNam
 PY
 rescan "the reprompt control is discovered"
 expect_poll "the control's service is built" True record_exists vgs.network
-expect "the control re-adds a saved profile" ok net_fixture prepare
+net_expect_fixture "the control re-adds a saved profile" prepare || return 0
 expect "the control's flyout opens" ok ipc shell summon panel vgs.network '{}'
 expect_poll "the control's flyout is shown" shown net_shown panel
 expect_poll "the reprompt control finishes its backend probes" '"offline"' net_state
 expect "the control connects the saved profile" ok net_do connect
 expect_poll "the control has an activation to fail" connect net_action
-expect "the control emits the wrong password failure" ok net_fixture fail
+net_expect_fixture "the control emits the wrong password failure" fail || return 0
 expect_poll "control: a bare retry provides no password prompt" none net_prompt
 expect "the control closes" ok ipc shell hide panel vgs.network
-expect "the failed control activation is removed" ok net_fixture drop-active
+net_expect_fixture "the failed control activation is removed" drop-active || return 0
 # An empty submitted PSK must not satisfy the mock's exact secret check.
 cp -- "$repo/shell/plugins/vgs.network/Service.qml" "$net_copy/Service.qml"
 python3 - "$net_copy/NetworkBody.qml" <<'PYEMPTY'
@@ -724,15 +733,15 @@ expect "the empty-PSK control opens" ok ipc shell summon panel vgs.network '{}'
 expect_poll "the empty-PSK control finishes its backend probes" '"offline"' net_state
 expect "the empty-PSK control first uses the saved profile" ok net_do connect
 expect_poll "the empty-PSK control reaches Connecting" True net_changing
-expect "the empty-PSK control needs a password" ok net_fixture fail
+net_expect_fixture "the empty-PSK control needs a password" fail || return 0
 expect_poll "the empty-PSK control has a password field" prompt net_prompt
-expect "the empty-PSK control removes its failed activation" ok net_fixture drop-active
+net_expect_fixture "the empty-PSK control removes its failed activation" drop-active || return 0
 type_keys network-smoke-joined-secret
 type_keys -k Return
 expect_poll "control: an empty submitted PSK stays Connecting" True net_changing
 expect "control: an empty PSK does not join" False net_joined
-expect "the empty-PSK control ends its failed request" ok net_fixture fail
-expect "the empty-PSK control removes the activation" ok net_fixture drop-active
+net_expect_fixture "the empty-PSK control ends its failed request" fail || return 0
+net_expect_fixture "the empty-PSK control removes the activation" drop-active || return 0
 expect "the empty-PSK control cancels its prompt" ok ipc vgs.network invoke action '{"kind":"cancel"}'
 expect "the empty-PSK control closes" ok ipc shell hide panel vgs.network
 # These mutations make the production scanner and keyboard checks red.

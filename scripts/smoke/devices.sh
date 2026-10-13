@@ -208,6 +208,36 @@ PY
 # which the teardown stops.
 devices_state=down
 declare -gA devices_pid=()
+devices_last_ready=not-started
+devices_missing_since=""
+devices_check() { # ROW
+  [[ $devices_state == up ]] || return 0
+  local name status=0 reading="" cause=""
+  for name in pipewire wireplumber bluez network hid cups; do
+    if ! kill -0 "${devices_pid[$name]}" 2>/dev/null; then
+      wait "${devices_pid[$name]}" 2>/dev/null || status=$?
+      cause="stand-in=$name reason=process-ended exit=$status"
+      break
+    fi
+  done
+  if [[ -z $cause ]]; then
+    if ! reading="$("${shell_env[@]}" python3 "$devices_fixtures/world.py" "unix:path=$rt_dir/system-bus" check 2>&1)"; then
+      cause="$reading"
+    fi
+  fi
+  if [[ -n $cause ]]; then
+    [[ -n $devices_missing_since ]] || devices_missing_since="$EPOCHREALTIME"
+    local row_class=behaviour
+    fail "$1: world=unavailable $cause since=$devices_missing_since last-ready=$devices_last_ready"
+    for name in "$devices_dir"/*.log "$sandbox/system-bus.log"; do
+      [[ -f $name ]] || continue
+      printf '        world-log=%s\n' "$name"
+      tail -n 20 -- "$name" | sed 's/^/        /'
+    done
+    return 1
+  fi
+  devices_last_ready="$1@$EPOCHREALTIME"
+}
 devices_up() {
   local missing=() name planted
   case "$devices_state" in
@@ -247,6 +277,7 @@ devices_up() {
     if ! kill -0 "${devices_pid[$name]}" 2>/dev/null; then devices_failed "$name" "$log"; return 1; fi
   done
   devices_state=up
+  devices_last_ready="startup@$EPOCHREALTIME"
 }
 # devices_audio_spawn: the private PipeWire, once its socket is there,
 # then its WirePlumber, recorded in devices_pid. PIPEWIRE_CONFIG_DIR names

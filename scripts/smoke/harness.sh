@@ -3174,6 +3174,10 @@ smoke_row() { # NAME [DIR]
   local smoke_row_out="$sandbox/rows/$1.out" smoke_row_result="$sandbox/rows/$1.result" smoke_row_started=$EPOCHSECONDS
   smoke_row_marker="qml-smoke: row-end $1 $$ $SRANDOM"
   mkdir -p -- "$sandbox/rows"
+  if ! devices_check "$smoke_row_name"; then
+    printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"
+    return 0
+  fi
   if ! smoke_row_pong="$(ipc shell ping 2>/dev/null)" || [[ $smoke_row_pong != ok ]]; then
     fail "$smoke_row_name: shell=not-answering before the row"
     printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"
