@@ -136,7 +136,8 @@
 # shell/Core/Toasts.qml and else its card in vgs.notifications with
 # Silence off: the clipboard's paste failure, a transient message, its
 # unsaved history, a lasting one, a lasting one whose message holds a page
-# reference, and the lock's warning that the computer slept unlocked, sent
+# reference and, where its card draws the reference as a link, Settings on
+# that page after a click on the card, and the lock's warning that the computer slept unlocked, sent
 # through the lock's own unlock path, taken only when named; page-links is
 # the acme.surfaces panel with a FormRow message holding a page reference
 # to the probe fixture, then, where the tree's FormRow forwards the
@@ -5960,6 +5961,16 @@ scene_plugin-messages() { # MODE
   expect_poll "the page reference message shows" 1 messages_shown
   park_pointer
   take "plugin-messages-$1-page-reference"
+  # A click on the card opens Settings on the page its link names, and the
+  # card leaves.
+  if ! "$messages_toasts"; then
+    click_item vgs:layer vgs.notifications NotificationCard summary "Clipboard history is off" 24 - || fail "the click on the page reference card failed"
+    expect_poll "the page reference card opens Settings on the Clipboard page" '"vgs.clipboard"' settings_page
+    expect_poll "the page reference card leaves" 0 messages_shown
+    park_pointer
+    take "plugin-messages-$1-page-reference-opened"
+    settings_close
+  fi
   messages_clear vgs.clipboard
   probe="$(plugin_enabled acme.probe)" || probe=unreadable
   [[ $probe != True ]] || expect "disabling the probe fixture, which holds lock, is allowed" ok ipc shell setPluginEnabled acme.probe false

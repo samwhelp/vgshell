@@ -33,7 +33,7 @@
 # `bar,hyprland-consent,plugins,capabilities,session,status,notifications,
 # device-fakes,start-order,auth-sentinel`. `--rows notifications` alone
 # lacks the server and plugins earlier rows build.
-# inputs: scripts/fixtures/notifications/state-v3.json shell/Ui/foundation/ImageText* shell/Core/Sounds.qml shell/assets/sounds/* scripts/smoke/fixtures/plugins/acme.sounds/* scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
+# inputs: scripts/fixtures/notifications/state-v3.json bin/lib/qml-library.js shell/Commons/PageReference.js shell/Ui/foundation/ImageText* shell/Core/Sounds.qml shell/assets/sounds/* scripts/smoke/fixtures/plugins/acme.sounds/* scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 # The sound rule is not loaded in the sandbox's WirePlumber until the
@@ -4322,7 +4322,7 @@ panel_sheet_sweep() { # MODE FRAME RECT DY OWNER
 # opens, at mid-scroll with the pointer off the cards, a hover over a card
 # in the top band and in the bottom band, and three frames of the pointer
 # crossing the gap between two cards: low in the upper card, in the gap,
-# and high in the lower card, where the slot under the gap is the lower
+# and high in the lower card, where the slot under the gap is the upper
 # card's. Each is taken once its state reads back and the layout rests.
 panel_sheet() { # MODE
   local upper lower rect next points x y at edge
@@ -4343,7 +4343,8 @@ panel_sheet() { # MODE
 rows=json.load(sys.stdin)["rows"];print(rows[6]["summary"]+"\t"+rows[7]["summary"])' <<<"$fade_inventory_json") || return
   # A hover can grow a card as its actions show, so each point is read in
   # the layout its frame shows: low in the upper card while it holds the
-  # pointer, then the gap and high in the lower card while that one does.
+  # pointer, the gap while the lower card does, and high in the lower card
+  # once the gap's hover has grown the upper one.
   panel_sheet_card "$1" "$upper" || return
   rect="$(ipc smoke itemGeometry panel vgs.notifications NotificationCard "$upper")" || return
   [[ $rect == \[* ]] || { echo 'panel-sheet: sweep-card-absent' >&2; return 1; }
@@ -4355,10 +4356,11 @@ rows=json.load(sys.stdin)["rows"];print(rows[6]["summary"]+"\t"+rows[7]["summary
   [[ $rect == \[* && $next == \[* ]] || { echo 'panel-sheet: sweep-cards-absent' >&2; return 1; }
   points="$(python3 -c 'import json,sys
 u=json.loads(sys.argv[1]);l=json.loads(sys.argv[2]);bottom=u[1]+u[3]
-print(bottom+(l[1]-bottom)/2-u[1], l[1]-u[1]+3)' "$rect" "$next")" || return
-  read -r at next <<<"$points"
-  panel_sheet_sweep "$1" 2 "$rect" "$at" "$lower" || return
-  panel_sheet_sweep "$1" 3 "$rect" "$next" "$lower" || return
+print(bottom+(l[1]-bottom)/2-u[1])' "$rect" "$next")" || return
+  panel_sheet_sweep "$1" 2 "$rect" "$points" "$upper" || return
+  next="$(ipc smoke itemGeometry panel vgs.notifications NotificationCard "$lower")" || return
+  [[ $next == \[* ]] || { echo 'panel-sheet: sweep-lower-absent' >&2; return 1; }
+  panel_sheet_sweep "$1" 3 "$next" 3 "$lower" || return
   for edge in top bottom; do
     hover 1 1 || return
     fade_position_active "$edge" || return
@@ -4843,14 +4845,14 @@ print(json.dumps([sys.argv[1] in (h.get("apps") or []), comm, ppid == sys.argv[2
   rule_phase() { note_status soundRule.phase; }
   # Replay both stdout delivery orders through the shipped removal handler.
   # This checks its dispatch decision; the restart below checks the real hold.
-  node - "$repo/shell/plugins/vgs.notifications" <<'JS'
+  node - "$repo/shell/plugins/vgs.notifications" "$repo" <<'JS'
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const dir = process.argv[2];
-const logic = {};
-vm.createContext(logic);
-vm.runInContext(fs.readFileSync(dir + '/NotificationLogic.js', 'utf8').replace(/^\.pragma library\s*/, ''), logic);
+// The logic imports qs.Commons, bound as the shell binds it.
+const { load } = require(process.argv[3] + '/bin/lib/qml-library.js');
+const logic = load(dir + '/NotificationLogic.js', { 'qs.Commons 1.0': { PageReference: load(process.argv[3] + '/shell/Commons/PageReference.js') } });
 const qml = fs.readFileSync(dir + '/SoundRule.qml', 'utf8');
 const match = qml.match(/id: removalWatch[\s\S]*?onLine: text => \{([\s\S]*?)\n        \}/);
 assert.ok(match, 'removal callback must be exercised');
