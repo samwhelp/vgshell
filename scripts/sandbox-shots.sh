@@ -154,7 +154,7 @@
 # a refused card's failure line, on the chosen catalog card, on it
 # installed and with its wallpaper offer; the wallpaper view on its Theme
 # source, with the pointer on a card, with a typed filter, on its download
-# card and on All.
+# card, on All and with a missing image's failure line.
 # Each leaves vgs and the mode's theme applied. The default is every
 # other scene the tree ships, or gallery and the manager's scene with
 # --rev; the manager's scene is `settings` for a tree that ships
@@ -1774,6 +1774,14 @@ theme_view_count() { ipc smoke readDescendant overlay vgs.themes ThemeView shown
 theme_view_problem() { ipc smoke readDescendant overlay vgs.themes ThemeView problem | py_reply 'import json,sys; print(json.load(sys.stdin) != "")'; }
 theme_view_offer() { ipc smoke readDescendant overlay vgs.themes ThemeView offer | py_reply 'import json,sys; o=json.load(sys.stdin); print(json.dumps(None if o is None else o["name"]))'; }
 wallpaper_selected_kind() { ipc smoke readDescendant overlay vgs.themes WallpaperView selected | py_reply 'import json,sys; s=json.load(sys.stdin); print(json.dumps(None if s is None else s["kind"]))'; }
+wallpaper_failure_shown() {
+  local problem
+  problem="$(ipc smoke readDescendant overlay vgs.themes WallpaperView problem)" || return
+  ipc smoke descendantGeometry overlay vgs.themes | py_reply 'import json,sys
+problem=json.loads(sys.argv[1]); rows=json.load(sys.stdin)
+print(isinstance(problem,str) and bool(problem) and isinstance(rows,list) and any(
+    r["type"] == "Label" and r.get("text") == problem and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0 for r in rows))' "$problem"
+}
 # sandbox_vgshell ARGS...: bin/vgshell in the sandbox on the PATH every sandbox
 # shell starts with, so the runner meets the commands the shell meets. The
 # host's PATH can hold the browser-policy writer the run hides from every
@@ -2333,6 +2341,20 @@ scene_wallpaper-browser() { # MODE
   expect_poll "Alt+S shows every source's images" '"all"' ipc smoke readDescendant overlay vgs.themes WallpaperView source
   wallpaper_look "$name" "$look"
   take "wallpaper-browser-$1-all"
+  type_keys -M alt -k s -m alt || fail "Alt+S back to the wallpaper theme source failed"
+  expect_poll "the wallpaper browser returns to the theme source" '"theme"' ipc smoke readDescendant overlay vgs.themes WallpaperView source
+  type_keys -k Home || fail "Home in the wallpaper browser failed"
+  expect_poll "Home selects the first wallpaper image card" '"image"' wallpaper_selected_kind
+  # Keep the loaded card while its file disappears, so Enter reaches the
+  # real runner's missing-image refusal without changing the view's state.
+  mv -- "$theme_dir/backgrounds" "$theme_dir/backgrounds-missing" || { fail "wallpaper-browser-$1-failure: backgrounds move failed"; return; }
+  type_keys -k Return || fail "Enter on the missing wallpaper image failed"
+  expect_poll "wallpaper-browser-$1-failure: the failure line is visible" True wallpaper_failure_shown
+  if [[ $(wallpaper_failure_shown) == True ]]; then
+    wallpaper_look "$name" "$look"
+    take "wallpaper-browser-$1-failure"
+  fi
+  mv -- "$theme_dir/backgrounds-missing" "$theme_dir/backgrounds" || { fail "wallpaper-browser-$1-failure: backgrounds restore failed"; return; }
   expect "the wallpaper browser hides" ok ipc shell hide overlay vgs.themes
   expect_poll "the wallpaper browser is gone" 0 layer_count vgs:overlay
   expect "the wallpaper browser shot's monitor is removed" ok hypr output remove "$wallpaper_output"
