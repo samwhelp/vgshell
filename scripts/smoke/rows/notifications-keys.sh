@@ -12,7 +12,7 @@
 # leaves the inbox open on the second press.
 # A long inbox, forty rows whose newest carries actions, opened by the
 # key eight times, shows its first card whole each time: panel_fit
-# (rows/notifications.sh) reads its top below the gutter under the header.
+# (rows/notifications.sh) reads its top at or below the header's edge.
 # rows/hidpi.sh reads the same opens at scale 2. The same
 # opens hold on the first monitor at a scale that leaves a room shorter
 # than the panel's
@@ -232,7 +232,7 @@ long_inbox_settled() {
 # long_inbox_cut TOGGLE...: eight opens of the long inbox by the command
 # TOGGLE, which also closes it, each read with long_inbox_settled once
 # long_inbox_shown. Prints the one reading every open gave, such as `fits`
-# or `cut-top=card in-gutter=card under-header=card`, `mixed` when the opens differ, or
+# or `cut-top=card under-header=card`, `mixed` when the opens differ, or
 # `open=<n> <failure>` at the first open the instrument could not read:
 # long_inbox_shown's failure, `unread`, or a toggle that failed, and
 # `close=<n> still-open` at the first close that left the panel's layer. Each
@@ -399,7 +399,7 @@ PY_DISTINCT
 nk_estimate_fixture_remove() {
   local cache
   cache="$(ipc smoke readInstance panel vgs.notifications measuredRows)" || return 1
-  python3 - "$cache" "$nk_estimate_key" "$nk_estimate_image" "$home" "$(look_at media.compact.size)" "$(look_at card.pad)" "$(look_at card.gap)" <<'PY_REMOVE'
+  python3 - "$cache" "$nk_estimate_key" "$nk_estimate_image" "$home" "$(look_at media.size)" "$(look_at card.pad)" "$(look_at card.gap)" <<'PY_REMOVE'
 import json,os,sys
 cache=json.loads(sys.argv[1]);key,path,home=sys.argv[2:5]
 row=cache.get(key)

@@ -273,13 +273,6 @@ function enrich(app, desktopEntry, appIcon, summary, body) {
     };
 }
 
-// The media slot's tier for a card whose text runs to `lines` lines at
-// the compact tier's text width: `compact` for one line, `regular` for
-// more. Appearance's `media` group holds each tier's sizes.
-function mediaTier(lines) {
-    return lines <= 1 ? "compact" : "regular";
-}
-
 function fold(name) {
     return String(name).trim().toLowerCase();
 }

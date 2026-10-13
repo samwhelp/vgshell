@@ -53,7 +53,7 @@ The script owns the PipeWire metadata `vgs-notification-sounds`. It publishes `v
 
 The edge light, the bead and the pills are the plugin's own files, drawn from its own table: a plugin imports no other plugin's files. The header's icons are the `IconButton` of `qs.Ui`, which draws the shared tokens. The glass is VGlass, `GlassSurface` of `qs.Ui` over `Theme.glass`, handed the table's own fill, rounding and the `tight` shadow ([D023](../../../docs/decisions/D023-plugin-owned-appearance.md)). The edge light and the toast's spin to a circle show only while a card draws glass; without it a toast fades in and out as a plain panel.
 
-Where a card's text and media sit, and how the media slot's tier is chosen: `mediaTier` in `NotificationLogic.js` and the media rows of `Appearance.js`.
+Where a card's text and media sit: the `media` slot of `Appearance.js`, one size for every card.
 
 The toast stack draws on the core's passive layer, `vgs:layer` ([vgs-plugin `references/api.md` § Passive layer content](../../../.agents/skills/vgs-plugin/references/api.md#passive-layer-content)). The Inbox and History draw as the plugin's summoned `panel`, because the passive layer does not take keyboard focus; summoned with `SUPER+N`, the panel is the summon host's `vgs:panel` layer, and a press beside it over a window or the desktop closes it; a press on the bar leaves it open. A window that takes the keyboard closes it; a layer that takes it, such as a capture's selector or another panel, leaves it open beneath, so a capture shows it. Hyprland blurs what is behind the glass only when a layer rule asks it to. The manifest declares one rule for each layer, and the Hyprland layer writes them as:
 

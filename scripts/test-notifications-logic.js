@@ -932,9 +932,6 @@ function verify(logic) {
         assert.equal(logic.faceTint(name), want, "tint of " + JSON.stringify(name));
     same(Object.keys(appearance.TOKENS.face.tint), ["coral", "amber", "green", "blue", "indigo", "magenta", "teal", "rose"], "the look holds every tint");
     same(logic.FACE_TINTS, ["coral", "amber", "green", "blue", "indigo", "magenta", "teal", "rose"]);
-    // The media slot's tier: one line is compact, anything more regular.
-    for (const [lines, want] of [[0, "compact"], [1, "compact"], [2, "regular"], [5, "regular"]])
-        assert.equal(logic.mediaTier(lines), want, "tier of " + lines + " lines");
     // A card's QML uses this step when it places rectangular text past a
     // rounded end.
     assert.equal(appearance.TOKENS.radius.clearance.type, "length");
@@ -1398,7 +1395,6 @@ const CONTROLS = [
     ["paused clocks wait", "if (c.since === null) continue;", ""],
     ["rule by desktop entry", 'var wanted = [String(desktopEntry || "").toLowerCase(), String(app || "").toLowerCase()];\n    for (var r = 0;', 'var wanted = [String(app || "").toLowerCase()];\n    for (var r = 0;'],
     ["faces cap", "faces: read.people.slice(0, FACES_MAX),", "faces: read.people,"],
-    ["one line is compact", 'return lines <= 1 ? "compact" : "regular";', 'return lines <= 2 ? "compact" : "regular";'],
     ["workspace prefix", "workspace = bracket[1];\n        rest = bracket[2];", "workspace = bracket[1];"],
     ["group members", 'var members = within[1].indexOf(",") === -1 ? [] :', "var members = true ? [] :"],
     ["sender once", "if (sender === \"\" || fold(members[i]) !== fold(sender)) people.push(members[i]);", "people.push(members[i]);"],

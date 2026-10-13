@@ -160,7 +160,7 @@ var TOKENS = {
         // for 94; scripts/test-notifications-logic.js holds the table to it.
         pad: length(14),
         maxHeight: length(94),
-        // Between the media slot and the text, at either tier.
+        // Between the media slot and the text.
         gapIcon: length(12),
         // The stroke of the Lucide icon an x-vgs-icon hint names, in pixels.
         glyphStroke: length(2),
@@ -179,20 +179,14 @@ var TOKENS = {
     },
 
     // The slot a card's image, people or application icon sits in, square
-    // and `size` wide at each tier NotificationLogic.mediaTier names:
-    // `compact` for a card of one line, `regular` for every other. The
-    // tier alone places the text, `card.pad + size + card.gapIcon` in, so
-    // every card of a tier starts its text at the same x. An image is
-    // cropped to the square with corners of `radius`, an application icon
-    // is drawn `icon` wide in the middle, a hinted Lucide icon `glyph` wide
-    // in the middle, and people fill it as faces.
-    // `regular` is a 40 px icon slot, the one slot every image and icon is
-    // drawn in; `compact` is 28, so a one-line card with
-    // media is 28 plus twice `card.pad` tall.
-    media: {
-        compact: { size: length(28), icon: length(24), radius: length(6), glyph: length(20) },
-        regular: { size: length(40), icon: length(40), radius: length(8), glyph: length(28) }
-    },
+    // and `size` wide on every card, one line or more, so every card with
+    // media starts its text at the same x, `card.pad + size + card.gapIcon`
+    // in, and a one-line card is as tall as a card of a summary and one
+    // body line. An image is cropped to the square with corners of
+    // `radius`, an application icon is drawn `icon` wide in the middle, a
+    // hinted Lucide icon `glyph` wide in the middle, and people fill it as
+    // faces.
+    media: { size: length(40), icon: length(40), radius: length(8), glyph: length(28) },
 
     // The people a notification names, as faces in the media slot, laid
     // out by the AvatarGroup of qs.Ui: one alone fills the slot; two to

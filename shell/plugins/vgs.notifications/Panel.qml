@@ -130,7 +130,7 @@ FocusScope {
     // As wide as the column: the cards with their side room, where the
     // scroll bar sits, wider than the header they sit under.
     implicitWidth: Math.max(header.implicitWidth, listScroll.implicitWidth) + 2 * column.contentInset
-    readonly property real panelMaxHeight: column.contentInset + look.header.height + Math.max(column.headerBodyGap, column.stickyGap) + look.panel.rowCap * (look.card.maxHeight + look.card.gap) + look.stack.tail
+    readonly property real panelMaxHeight: column.contentInset + look.header.height + listScroll.topGutter + look.panel.rowCap * (look.card.maxHeight + look.card.gap) + look.stack.tail
     implicitHeight: Math.min(column.contentInset + column.headerHeight + listScroll.implicitHeight, panelMaxHeight)
 
     onCurrentIndexChanged: {
@@ -445,8 +445,6 @@ FocusScope {
         container: "panel"
         padding: 0
         cornerRadius: 0
-        // The gutter under the header is the shared sticky header region,
-        // `bodyGap`, which the list's first card starts below.
         gap: 0
 
         header: [
@@ -499,7 +497,9 @@ FocusScope {
             scrollObjectName: "notificationPanelScrollBar"
             look: root.look
             maxHeight: root.panelMaxHeight - column.contentInset - column.headerHeight
-            topGutter: column.bodyGap
+            // The first card stands the card gap under the header, as each
+            // card stands it under the one before.
+            topGutter: root.look.card.gap
 
             Label {
                 Layout.preferredWidth: root.look.card.width
@@ -509,7 +509,7 @@ FocusScope {
                 horizontalAlignment: Text.AlignHCenter
             }
 
-            // focus-indicator: the selected notification card lifts and shows its actions
+            // focus-indicator: the selected notification card shows its edge light and its actions
             Column {
                 id: list
                 Layout.preferredWidth: root.look.card.width
@@ -557,11 +557,12 @@ FocusScope {
                     id: rowRepeater
                     model: panelModel
 
-                    // The slot, the gap above its card and the card, is the
-                    // card's hover area: the slots tile the list with no
-                    // gap and no overlap, so the pointer is on exactly one,
-                    // and the card's lift under the pointer moves no edge
-                    // of it.
+                    // The slot, the card and the gap below it, is the card's
+                    // hover area: the slots tile the list with no gap and
+                    // no overlap, so the pointer is on exactly one, and the
+                    // card's lift under the pointer moves no edge of it.
+                    // Only the pointer lifts a card: the selection lifts
+                    // none, so the open list keeps every gap even.
                     Item {
                         id: slot
                         required property string payload
@@ -612,7 +613,7 @@ FocusScope {
                                     && slot.viewY + y + slot.height - root.look.card.gap > 0)
                                     || slot.holdsTray)
                             width: parent.width
-                            y: root.look.card.gap - root.look.card.lift * slot.hover
+                            y: pointer.hovered ? -root.look.card.lift : 0
                             onItemChanged: {
                                 Qt.callLater(slot.reportHeight);
                                 Qt.callLater(slot.updateTrayRetention);

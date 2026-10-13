@@ -7,8 +7,9 @@ import "../../shell/plugins/vgs.notifications/Appearance.js" as Appearance
 
 // The shipped scroll frame fades each edge while more content lies beyond it.
 // Both the notification panel and toast stack instantiate this component.
-// In the panel the list's view starts at the header's bottom edge and its
-// first card below the gutter under the header; the top edge fades across
+// In the panel the list's view starts at the header's bottom edge, its
+// first card stands the card gap under the header and each card the card
+// gap above the next, the selected one included; the top edge fades across
 // the look's header band, which has no strength while the view rests at its
 // start and its whole strength once the first card meets the header, so
 // every card crosses the same band; nothing lifts the fade from a hovered or keyboard-selected card, a
@@ -100,8 +101,7 @@ Item {
         // The shipped panel's parts, read through the names it ships and
         // its structure: the scroll frame, its view, the header and the
         // card faces with the slots that hold them, in list order. The
-        // gutter is the header's inset, the divider and the focus ring's
-        // room, read from the tokens, independent of the Pane's own sum.
+        // gutter is the look's card gap.
         function panelParts() {
             const scrollbar = findChild(panel, "notificationPanelScrollBar");
             verify(scrollbar !== null);
@@ -111,14 +111,13 @@ Item {
             const view = scrollbar.flickable;
             const slots = descendants(view.contentItem).filter(child => child.extent !== undefined && child.entry !== undefined);
             const cardFaces = () => descendants(view.contentItem).filter(child => child.reportHover !== undefined && child.card !== undefined);
-            const headerInset = header.mapToItem(panel, 0, 0).y;
             return {
                 scroll: scrollbar.parent, view: view, header: header, slots: slots,
                 get faces() { return cardFaces(); },
                 faceAt: index => cardFaces().find(face => face.key === panel.rows[index].key),
                 slotOf: face => slots.find(slot => slot.entry.key === face.key),
                 headerBottom: header.mapToItem(panel, 0, header.height).y,
-                gutter: headerInset + Theme.divider.thickness + Theme.focusRing.width + Theme.focusRing.offset
+                gutter: panel.look.card.gap
             };
         }
 
@@ -145,7 +144,7 @@ Item {
         function waitViewport(parts) {
             tryVerify(() => {
                 const visible = parts.slots.filter(slot => {
-                    const y = slot.mapToItem(parts.view, 0, panel.look.card.gap - panel.look.card.lift * slot.hover).y;
+                    const y = slot.mapToItem(parts.view, 0, 0).y;
                     return y < parts.view.height && y + slot.height - panel.look.card.gap > 0;
                 });
                 return visible.length > 0 && visible.every(slot => {
@@ -227,8 +226,7 @@ Item {
                 verify(image !== undefined && !image.visible && !image.cache);
                 tryCompare(image, "status", Image.Ready);
                 verify(image.implicitWidth > 0 && image.implicitHeight > 0, "positive decoded pixels reach the judge");
-                const cap = (row.badge ? look.badge.size : Math.max(look.media.compact.size,
-                    look.media.regular.size, look.media.compact.icon, look.media.regular.icon)) * scene.Screen.devicePixelRatio;
+                const cap = (row.badge ? look.badge.size : Math.max(look.media.size, look.media.icon)) * scene.Screen.devicePixelRatio;
                 if (row.control) {
                     compare(image.implicitWidth, 2560, "the mutation decoded the actual original screenshot");
                     compare(image.implicitHeight, 1440);
@@ -252,8 +250,7 @@ Item {
                         "bounded resource readiness preserves actual card geometry");
                     const resized = Object.assign({}, look, {
                         badge: Object.assign({}, look.badge, { size: look.badge.size * 2 }),
-                        media: { compact: Object.assign({}, look.media.compact, { size: look.media.compact.size * 2, icon: look.media.compact.icon * 2 }),
-                            regular: Object.assign({}, look.media.regular, { size: look.media.regular.size * 2, icon: look.media.regular.icon * 2 }) }
+                        media: Object.assign({}, look.media, { size: look.media.size * 2, icon: look.media.icon * 2 })
                     });
                     card.look = resized;
                     measure.measure(entry, resized, card.textColumn);
@@ -306,8 +303,15 @@ Item {
             view.contentY = row.offset !== undefined ? row.offset : travel * row.progress;
             const rest = view.contentY === 0;
             if (!rest) verify(view.contentY > 0 && view.contentY < travel);
-            if (rest) fuzzyCompare(parts.slots[0].mapToItem(panel, 0, 0).y, parts.headerBottom + parts.gutter, 0.5,
-                "at rest the first card's slot starts where the gutter ends");
+            if (rest) {
+                const first = parts.faceAt(0);
+                const second = parts.faceAt(1);
+                verify(first !== undefined && second !== undefined);
+                fuzzyCompare(first.mapToItem(panel, 0, 0).y, parts.headerBottom + parts.gutter, 0.5,
+                    "at rest the selected first card stands the card gap under the header");
+                fuzzyCompare(second.mapToItem(panel, 0, 0).y, first.mapToItem(panel, 0, first.height).y + panel.look.card.gap, 0.5,
+                    "the selected first card stands the card gap above the next");
+            }
             // Test ink crosses the shipped clip in the side room, beside
             // the cards and the header. This proves actual clipped and
             // faded paint without relying on card colours.

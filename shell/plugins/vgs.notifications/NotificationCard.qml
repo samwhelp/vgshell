@@ -106,13 +106,6 @@ Item {
     // media, and Icon logs it.
     readonly property string mediaKind: showsFaces ? "faces" : iconInSummary ? "" : image.length > 0 ? "thumbnail" : hintIcon.length > 0 ? "glyph" : iconSource.length > 0 ? "icon" : ""
     readonly property bool showsSlot: mediaKind !== "" && mediaSlot.drawable
-    // The lines the text runs to at the compact tier's width, which no
-    // tier changes, so the tier the judge reads from it moves no line: a
-    // summary that fits that width is one line, a longer one or one with a
-    // line break two, and a body adds at least one.
-    readonly property real compactTitleWidth: fullWidth - pad - look.media.compact.size - look.card.gapIcon - textColumn - (showsBadge ? look.badge.size + look.badge.gap : 0)
-    readonly property int compactLines: (summary.length > 0 ? (title.indexOf("\n") === -1 && textBlock.titleAdvance <= compactTitleWidth ? 1 : 2) : 0) + (singleLine ? 0 : 1)
-    readonly property string mediaTier: Logic.mediaTier(compactLines)
     readonly property real contentLeftInset: showsSlot ? pad : textColumn
     readonly property real contentWidth: Math.max(0, fullWidth - contentLeftInset - textColumn)
     readonly property real contentOffset: contentLeftInset - (fullWidth - contentWidth) / 2
@@ -174,7 +167,6 @@ Item {
             Layout.alignment: Qt.AlignVCenter
             visible: card.showsSlot
             look: card.look
-            tier: card.mediaTier
             kind: card.mediaKind
             source: card.iconSource
             names: card.showsFaces ? card.enrichment.faces : []

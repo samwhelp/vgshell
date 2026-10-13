@@ -225,8 +225,7 @@ note_radius_clearance="$(look_at radius.clearance)" || fail "the notification ra
 note_header_height="$(look_at header.height)" || fail "the notification header height token is unreadable"
 note_header_gap="$(look_at header.gap)" || fail "the notification header gap token is unreadable"
 note_scrollbar_width="$(look_at scrollbar.width)" || fail "the notification scrollbar width token is unreadable"
-note_media_compact_size="$(look_at media.compact.size)" || fail "the notification compact media size is unreadable"
-note_media_regular_size="$(look_at media.regular.size)" || fail "the notification regular media size is unreadable"
+note_media_size="$(look_at media.size)" || fail "the notification media size is unreadable"
 # rest_on_card SUMMARY: the pointer left on the centre of the card
 # SUMMARY once the card reports it, through point_item.
 rest_on_card() { point_item vgs:layer vgs.notifications NotificationCard summary "$1" >/dev/null; }
@@ -1447,15 +1446,14 @@ note_card_reading "Slack faces card geometry measured" "[acme] in ada, grace, al
 note_header_reading
 expect "the inbox closes after header geometry" ok notes close
 
-# Media tiers: a card of one line takes the compact media slot and every
-# other card the regular one, and every card of a tier starts its text at
-# the same x, whatever its media: an image, one person or a group. The
-# people fit the slot, two to four as a cluster and seven as three faces
-# and a chip. The fixture set runs on a clear screen. Summary-only cards
-# reach the title measure the tier is judged from: a title that fits the
-# compact text width stays compact, and one that wraps there or holds a
-# line break is regular. The fixtures are critical so their cards run no
-# clock and stay readable until the dismiss under slow host load.
+# The media slot: every card, of one line or more, draws one slot the
+# size of the look's `media.size` and starts its text at one x, whatever
+# its media: an image, one person or a group. The people fit the slot,
+# two to four as a cluster and seven as three faces and a chip. The
+# fixture set runs on a clear screen. Summary-only cards run to one line,
+# to two where the title wraps, and to two where it holds a line break.
+# The fixtures are critical so their cards run no clock and stay readable
+# until the dismiss under slow host load.
 tier_image="$repo/scripts/smoke/fixtures/theme-image.jpg"
 tier_fits_person="[acme] from Edsger Dijkstra"
 tier_wraps_image="Tier wrapping title: a screenshot saved to the clipboard and to the pictures folder"
@@ -1463,8 +1461,8 @@ tier_wraps_person="[acme] from Barbara Liskov, Frances Allen and Margaret Hamilt
 tier_break_image=$'Tier break\nsecond line'
 expect "clearing the screen before the media tiers is allowed" ok notes dismiss-all
 expect_poll "the screen is clear before the media tiers" 0 note_status onScreen
-tier_compact=("Tier image" "[acme] from Grace Hopper" "[acme] in edsger, barbara" "$tier_fits_person")
-tier_regular=("$tier_wraps_image" "$tier_wraps_person" "$tier_break_image" "Tier image saved" "[acme] from Alan Turing" "[acme] in ada, grace" "[acme] in ada, grace, alan" "[acme] in ada, grace, alan, edsger" "[acme] in ada, grace, alan, edsger, barbara, ken, linus" "New message in tier-room")
+tier_one_line=("Tier image" "[acme] from Grace Hopper" "[acme] in edsger, barbara" "$tier_fits_person")
+tier_more_lines=("$tier_wraps_image" "$tier_wraps_person" "$tier_break_image" "Tier image saved" "[acme] from Alan Turing" "[acme] in ada, grace" "[acme] in ada, grace, alan" "[acme] in ada, grace, alan, edsger" "[acme] in ada, grace, alan, edsger, barbara, ken, linus" "New message in tier-room")
 notify smoke-shot 0 "Tier image" "" '[]' "{\"image-path\": <\"$tier_image\">, \"urgency\": <byte 2>}" 0 >/dev/null
 notify Slack 0 "[acme] from Grace Hopper" "" '[]' '{"desktop-entry": <"slack">, "urgency": <byte 2>}' 0 >/dev/null
 notify Slack 0 "[acme] in edsger, barbara" "" '[]' '{"desktop-entry": <"slack">, "urgency": <byte 2>}' 0 >/dev/null
@@ -1502,15 +1500,15 @@ tier_held() { # SUMMARY...
   clocks="$(read_notes clocks)" || return
   tier_held_value "$rows" "$clocks" "$@"
 }
-expect_poll "every media tier card is on screen with no clock, so it stays until dismissed" ok tier_held "${tier_compact[@]}" "${tier_regular[@]}"
-# One card's tier, where its text block starts and its slot's size, as
-# `tier=<tier> left=<px> slot=<px>x<px>`: the block starts at its title,
+expect_poll "every media slot card is on screen with no clock, so it stays until dismissed" ok tier_held "${tier_one_line[@]}" "${tier_more_lines[@]}"
+# Where one card's text block starts and its slot's size, as
+# `left=<px> slot=<px>x<px>`: the block starts at its title,
 # its body or the workspace icon before the title, whichever is leftmost.
 # `absent` before the card and `no-text` or `no-slot` before its text or
 # slot shows.
 tier_reading() { # SUMMARY
   local cards texts badges slots
-  cards="$(ipc smoke layerItems vgs.notifications NotificationCard summary,mediaTier)" || return
+  cards="$(ipc smoke layerItems vgs.notifications NotificationCard summary)" || return
   texts="$(ipc smoke layerItems vgs.notifications QQuickText text,visible,objectName)" || return
   badges="$(ipc smoke layerItems vgs.notifications ClippingRectangle visible,objectName)" || return
   slots="$(ipc smoke layerItems vgs.notifications MediaSlot visible)" || return
@@ -1525,34 +1523,34 @@ lines += [r for s, r, v in badges if s == screen and v["visible"] and v["objectN
 slot = next((r for s, r, v in slots if s == screen and v["visible"] and inside(r)), None)
 if not lines: print("no-text"); sys.exit()
 if slot is None: print("no-slot"); sys.exit()
-print("tier=%s left=%d slot=%dx%d" % (values["mediaTier"], min(r[0] for r in lines) - x, slot[2], slot[3]))' "$1" "$cards" "$texts" "$badges" "$slots"
+print("left=%d slot=%dx%d" % (min(r[0] for r in lines) - x, slot[2], slot[3]))' "$1" "$cards" "$texts" "$badges" "$slots"
 }
-# Every reading is of TIER, and they share one text x and one slot size.
-tier_contract_value() { # TIER READING...
+# The readings share one text x within a pixel, and every slot is SIZE
+# square within a pixel.
+tier_contract_value() { # SIZE READING...
   python3 -c 'import re,sys
-tier, readings = sys.argv[1], sys.argv[2:]
-parsed = [re.fullmatch(r"tier=(\w+) left=(\d+) slot=(\d+)x(\d+)", t) for t in readings]
+size, readings = sys.argv[1], sys.argv[2:]
+parsed = [re.fullmatch(r"left=(\d+) slot=(\d+)x(\d+)", t) for t in readings]
 bad = [t for t, m in zip(readings, parsed) if not m]
 if bad: print(bad[0]); sys.exit()
 problems = []
-if any(m.group(1) != tier for m in parsed): problems.append("tier")
-if max(int(m.group(2)) for m in parsed) - min(int(m.group(2)) for m in parsed) > 1: problems.append("x")
-if len({(m.group(3), m.group(4)) for m in parsed}) != 1 or any(m.group(3) != m.group(4) for m in parsed): problems.append("slot")
+if max(int(m.group(1)) for m in parsed) - min(int(m.group(1)) for m in parsed) > 1: problems.append("x")
+if any(abs(int(m.group(n)) - float(size)) > 1 for m in parsed for n in (2, 3)): problems.append("slot")
 print("ok" if not problems else "violation " + ",".join(problems))' "$@"
 }
-checked_tier() { # TIER SUMMARY...
-  local tier="$1" summary t readings=()
+checked_tier() { # SIZE SUMMARY...
+  local size="$1" summary t readings=()
   shift
   for summary in "$@"; do
     t="$(tier_reading "$summary")" || return
     readings+=("$t")
   done
-  tier_contract_value "$tier" "${readings[@]}"
+  tier_contract_value "$size" "${readings[@]}"
 }
 note_tier_reading() { # SUMMARY
   local t
-  t="$(tier_reading "$1")" || { fail "$1: no tier reading"; return; }
-  ok "media tier measured: $1: $t"
+  t="$(tier_reading "$1")" || { fail "$1: no media slot reading"; return; }
+  ok "media slot measured: $1: $t"
 }
 # The faces in one card's slot, as JSON: the slot's rectangle and each
 # visible face's rectangle and label, the label the chip's "+N" or the
@@ -1591,32 +1589,22 @@ checked_group() { # PLACES CHIP SUMMARY
   t="$(group_reading "$3")" || return
   group_fit_value "$1" "$2" "$t"
 }
-expect "the tier predicate rejects two text starts in one tier" "violation x" tier_contract_value compact "tier=compact left=54 slot=${note_media_compact_size}x${note_media_compact_size}" "tier=compact left=66 slot=${note_media_compact_size}x${note_media_compact_size}"
-expect "the tier predicate rejects a card of another tier" "violation tier" tier_contract_value compact "tier=compact left=54 slot=${note_media_compact_size}x${note_media_compact_size}" "tier=regular left=54 slot=${note_media_compact_size}x${note_media_compact_size}"
+# The controls plant a layout of two slot sizes: a one-line
+# card's text 12 px further left, and its slot 28 px square.
+expect "control: the slot predicate rejects a one-line card's text at another x" "violation x" tier_contract_value "$note_media_size" "left=66 slot=${note_media_size}x${note_media_size}" "left=54 slot=${note_media_size}x${note_media_size}"
+expect "control: the slot predicate rejects a one-line card's smaller slot" "violation slot" tier_contract_value "$note_media_size" "left=66 slot=${note_media_size}x${note_media_size}" "left=66 slot=28x28"
 expect "the hold predicate rejects a tier card with a clock" "violation clock" tier_held_value '[["k1", "A"]]' '{"k1": {"since": 1, "remaining": 8000}}' A
 expect "the hold predicate rejects a missing tier card" "violation absent" tier_held_value '[]' '{}' A
 # The planted faces use the regular slot from Appearance.js and its 0.6 face share.
 expect "the group predicate rejects a face outside the slot" "violation outside" group_fit_value 2 "" '{"slot": [0, 0, 40, 40], "faces": [[[0, 0, 24, 24], "A"], [[30, 16, 24, 24], "B"]]}'
 expect "the group predicate rejects a missing face" "violation count" group_fit_value 3 "" '{"slot": [0, 0, 40, 40], "faces": [[[0, 0, 24, 24], "A"], [[16, 16, 24, 24], "B"]]}'
 expect "the group predicate rejects a chip that counts wrong" "violation chip" group_fit_value 4 "+4" '{"slot": [0, 0, 40, 40], "faces": [[[0, 0, 24, 24], "A"], [[16, 0, 24, 24], "B"], [[16, 16, 24, 24], "C"], [[0, 16, 24, 24], "+3"]]}'
-# A card's tier and slot size alone, from tier_reading.
-tier_and_slot() { # SUMMARY
-  local t
-  t="$(tier_reading "$1")" || return
-  [[ $t == tier=* ]] || { echo "$t"; return; }
-  echo "${t%% left=*} slot=${t##* slot=}"
-}
-expect_poll "a summary-only person card whose title fits the compact width is compact" "tier=compact slot=${note_media_compact_size}x${note_media_compact_size}" tier_and_slot "$tier_fits_person"
-expect_poll "a summary-only image card whose title wraps at the compact width is regular" "tier=regular slot=${note_media_regular_size}x${note_media_regular_size}" tier_and_slot "$tier_wraps_image"
-expect_poll "a summary-only person card whose title wraps at the compact width is regular" "tier=regular slot=${note_media_regular_size}x${note_media_regular_size}" tier_and_slot "$tier_wraps_person"
-expect_poll "a summary-only image card whose short title holds a line break is regular" "tier=regular slot=${note_media_regular_size}x${note_media_regular_size}" tier_and_slot "$tier_break_image"
-expect_poll "every compact card starts its text at one x, whatever its media" ok checked_tier compact "${tier_compact[@]}"
-expect_poll "every regular card starts its text at one x, whatever its media" ok checked_tier regular "${tier_regular[@]}"
+expect_poll "every card of one line or more draws one slot size and starts its text at one x, whatever its media" ok checked_tier "$note_media_size" "${tier_one_line[@]}" "${tier_more_lines[@]}"
 expect_poll "two people fit the slot on its diagonal" ok checked_group 2 "" "[acme] in ada, grace"
 expect_poll "three people fit the slot as a triangle" ok checked_group 3 "" "[acme] in ada, grace, alan"
 expect_poll "four people fit the slot as a 2 by 2 cluster" ok checked_group 4 "" "[acme] in ada, grace, alan, edsger"
 expect_poll "seven people fit the slot as three faces and a +4 chip" ok checked_group 4 "+4" "[acme] in ada, grace, alan, edsger, barbara, ken, linus"
-for tier_summary in "${tier_compact[@]}" "${tier_regular[@]}"; do note_tier_reading "$tier_summary"; done
+for tier_summary in "${tier_one_line[@]}" "${tier_more_lines[@]}"; do note_tier_reading "$tier_summary"; done
 # A face's image is cut to a circle: in a slot grab, the point a tenth of
 # the side in from the top left, outside the slot's inscribed circle and
 # inside a corner radius under a fifth of the side, is clear, and the
@@ -2083,9 +2071,8 @@ expect_poll "the restored notification service is built" True record_exists vgs.
 # The inbox's content against the panel's own box, the size the panel asks
 # for: the header, the card list and its scroll bar inside
 # it, every card inside the list and the panel across, the list from the
-# header's bottom edge, so its cards pass behind the header through the
-# gutter under it, the shared sticky header region, and the first card of
-# a list just opened below that gutter. The list clips
+# header's bottom edge, so its cards pass behind the header, and the
+# first card of a list just opened at or below that edge. The list clips
 # its scrolling cards. The list reaches the panel bottom at every scroll.
 # No hint row remains.
 # panel_fit_value reads the panel box and full descendant geometry.
@@ -2134,21 +2121,16 @@ for n, card in enumerate(cards):
     cx, cy, cw, ch = card["box"]
     if cx < vx - 0.5 or cx + cw > vx + vw + 0.5: bad.append("clipped=%s-in-list" % name)
 header_bottom = header["box"][1] + header["box"][3]
-# The gutter is the measured header inset below the header, then the
-# thickness of the divider and the shared focus-ring room. Read theme
-# tokens independently.
-gutter = header["box"][1] - py + sum(map(float, sys.argv[2:5]))
 if vy < header_bottom - 0.5: bad.append("under-header=list")
 if vy > header_bottom + 0.5: bad.append("header-gap=list")
 top = min(cards, key=lambda c: c["box"][1])
 if mode == "top" and top["box"][1] < header_bottom - 0.5: bad.append("under-header=card")
 if mode == "top" and top["box"][1] < view["box"][1] - 0.5: bad.append("cut-top=card")
-if mode == "top" and top["box"][1] < header_bottom + gutter - 0.5: bad.append("in-gutter=card")
 if mode == "selected":
     sx, sy, sw, sh = json.loads(selected)
     if sy < vy - 0.5: bad.append("cut-top=selected")
     if sy + sh > vy + vh + 0.5: bad.append("cut-bottom=selected")
-print(" ".join(sorted(set(bad))) if bad else "fits")' "${1:-top}" "$(ipc smoke themeValue divider.thickness)" "$(ipc smoke themeValue focusRing.width)" "$(ipc smoke themeValue focusRing.offset)"
+print(" ".join(sorted(set(bad))) if bad else "fits")' "${1:-top}"
 }
 panel_fit() {
   local panel items selected=""
@@ -2164,13 +2146,12 @@ panel_fit() {
 # panel as it drew before its width followed its column; Appearance.js
 # `card.width`, `stack.pad`, `header.height`, `card.gap` and
 # `scrollbar.width` provide the planted dimensions. The second puts the
-# first card into the header; the third puts it in the gutter, above
-# where a list at rest starts. The fourth starts the list below the gutter, where its
-# cards cut off at its top edge rather than passing behind the header. A
+# first card into the header. The third starts the list a card gap below
+# the header, where its cards cut off at its top edge rather than passing
+# behind the header. A
 # reserved footer space must fail the bottom check. The selected mode
 # passes the second planted card as the selected one, refuses it one pixel
 # past the view's bottom or above its top, and reads no selection as unread.
-panel_fit_header_gap="$(( $(ipc smoke themeValue divider.thickness) + $(ipc smoke themeValue focusRing.width) + $(ipc smoke themeValue focusRing.offset) ))"
 panel_fit_view_h="$((303 - note_header_height))"
 panel_fit_reading() { # PANEL_W HEADER_X CARD_Y VIEW_H [VIEW_Y]
   printf '[0, 0, %s, 303]\n' "$1"
@@ -2180,13 +2161,58 @@ panel_fit_reading() { # PANEL_W HEADER_X CARD_Y VIEW_H [VIEW_Y]
   printf '{"type":"NotificationCard","name":"","box":[%s,129,%s,61],"visible":true}]\n' "$note_stack_pad" "$note_card_width"
 }
 panel_fit_width="$((note_card_width + 2 * note_stack_pad))"
-panel_fit_first_card_y="$((note_header_height + panel_fit_header_gap + note_card_gap - note_card_gap / 4))"
+panel_fit_first_card_y="$((note_header_height + note_card_gap))"
 expect "the fit check passes the panel drawn whole" fits panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" "$panel_fit_view_h")
 expect "control: the fit check refuses the clipped panel" "clipped=card0 clipped=card1 clipped=header clipped=list" panel_fit_value < <(panel_fit_reading "$note_card_width" "$note_stack_pad" "$panel_fit_first_card_y" "$panel_fit_view_h")
-expect "control: the fit check refuses a first card under the header" "cut-top=card in-gutter=card under-header=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height - note_stack_pad / 4))" "$panel_fit_view_h")
-expect "control: the fit check refuses a first card at rest in the gutter" "in-gutter=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height + panel_fit_header_gap - panel_fit_header_gap / 2))" "$panel_fit_view_h")
-expect "control: the fit check refuses a list that starts below the gutter" "header-gap=list" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" "$((panel_fit_view_h - panel_fit_header_gap))" "$((note_header_height + panel_fit_header_gap))")
+expect "control: the fit check refuses a first card under the header" "cut-top=card under-header=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height - note_stack_pad / 4))" "$panel_fit_view_h")
+expect "control: the fit check refuses a list that starts below the header" "header-gap=list" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((panel_fit_first_card_y + note_card_gap))" "$((panel_fit_view_h - note_card_gap))" "$((note_header_height + note_card_gap))")
 expect "control: reserved footer space fails the bottom check" "bottom-gap=list" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" "$((panel_fit_view_h - 20))")
+# The open inbox's gaps, from the header's bottom edge to the first card
+# and from each card to the next, for the cards the list holds whole, in
+# order down the view: `even` when each is GAP within half a pixel, else
+# `uneven gaps=<px>,...`; `unread` with what it lacked when the reading
+# holds no header, no list or fewer than two whole cards. Its input is
+# panel_fit's: the panel's box, then its descendants.
+panel_gaps_value() { # GAP
+  py_reply 'import json,sys
+lines = sys.stdin.read().splitlines()
+items = [i for i in json.loads(lines[1]) if i["visible"]]
+header = next((i for i in items if i["type"] == "InboxHeader"), None)
+views = [i for i in items if i["type"] == "QQuickFlickable"]
+view = views[-1]["box"] if views else None
+cards = [] if view is None else sorted((i["box"] for i in items if i["type"] == "NotificationCard"
+    and i["box"][1] >= view[1] - 0.5 and i["box"][1] + i["box"][3] <= view[1] + view[3] + 0.5), key=lambda b: b[1])
+if header is None or view is None or len(cards) < 2:
+    print("unread header=%s list=%s cards=%d" % (header is not None, view is not None, len(cards)))
+    sys.exit()
+edges = [header["box"][1] + header["box"][3]] + [b[1] + b[3] for b in cards[:-1]]
+gaps = [b[1] - edge for edge, b in zip(edges, cards)]
+even = all(abs(g - float(sys.argv[1])) <= 0.5 for g in gaps)
+print("even" if even else "uneven gaps=" + ",".join("%g" % g for g in gaps))' "$1"
+}
+panel_gaps() {
+  local panel items
+  panel="$(ipc smoke instanceGeometry panel vgs.notifications)" || return 1
+  items="$(ipc smoke descendantGeometry panel vgs.notifications)" || return 1
+  printf '%s\n%s\n' "$panel" "$items" | panel_gaps_value "$note_card_gap"
+}
+# A planted inbox of three cards 68 px tall: FIRST under the header, then
+# BETWEEN, then the card gap.
+panel_gaps_reading() { # FIRST BETWEEN
+  local y1="$((note_header_height + $1))" y2 y3
+  y2="$((y1 + 68 + $2))"
+  y3="$((y2 + 68 + note_card_gap))"
+  printf '[0, 0, %s, 400]\n' "$panel_fit_width"
+  printf '[{"type":"InboxHeader","name":"","box":[%s,0,%s,%s],"visible":true},' "$note_stack_pad" "$note_card_width" "$note_header_height"
+  printf '{"type":"QQuickFlickable","name":"","box":[0,%s,%s,%s],"visible":true},' "$note_header_height" "$panel_fit_width" "$((400 - note_header_height))"
+  printf '{"type":"NotificationCard","name":"","box":[%s,%s,%s,68],"visible":true},' "$note_stack_pad" "$y1" "$note_card_width"
+  printf '{"type":"NotificationCard","name":"","box":[%s,%s,%s,68],"visible":true},' "$note_stack_pad" "$y2" "$note_card_width"
+  printf '{"type":"NotificationCard","name":"","box":[%s,%s,%s,68],"visible":true}]\n' "$note_stack_pad" "$y3" "$note_card_width"
+}
+expect "the gap check passes an inbox whose gaps are all the card gap" even panel_gaps_value "$note_card_gap" < <(panel_gaps_reading "$note_card_gap" "$note_card_gap")
+# The control is the layout the sheets showed: the first card 19 px under
+# the header, lifted 2 px as the selection, and so 10 px above the next.
+expect "control: the gap check refuses a wide first gap and a lifted selection" "uneven gaps=19,10,${note_card_gap}" panel_gaps_value "$note_card_gap" < <(panel_gaps_reading 19 10)
 panel_fit_selected_reading() { # CARD_Y
   panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" "$panel_fit_view_h"
   printf '[%s, %s, %s, 61]\n' "$note_stack_pad" "$1" "$note_card_width"
@@ -2202,7 +2228,11 @@ expect_poll "the fit toasts are listed" True has_row live "Fit 8"
 expect "the inbox shortcut opens the panel for the fit check" ok hypr dispatch 'hl.dsp.global("vgs.notifications:inbox")'
 expect_poll "the fit inbox is open" '"inbox"' read_notes panelMode
 expect_poll "the fit inbox lists the eight toasts" True has_row panel "Fit 1"
-geometry expect_poll "the inbox draws whole inside its own box, its list from the header's edge and its first card below the gutter" fits panel_fit
+geometry expect_poll "the inbox draws whole inside its own box, its list from the header's edge" fits panel_fit
+# The pointer rests beside the panel, so only the selection could lift a
+# card.
+hover 40 "$((mon_h - 40))" || fail "resting the pointer beside the inbox failed"
+geometry expect_poll "the open inbox stands its first card, the selected one, the card gap under the header and each card the card gap above the next" even panel_gaps
 
 # A press beside the panel closes it, on the desktop and over a client
 # window (SummonLayer's catcher; rows/surfaces.sh holds the control); a
@@ -5501,8 +5531,8 @@ for state in ('loaded','refused'):
         # The shared helper accepts <=; integer medians must stay strictly <.
         checks.append((f'{state}-{action}-median',median,median_pressure,bound-1))
         # Recorded Main geometry for this exact mixed-height fixture:
-        # hundred rows94*68+6*62, fifty rows49*68+1*62, gap8, gutter13, tail24.
-        expected_height = 3831 if action == 'inbox' else 7601
+        # hundred rows94*68+6*62, fifty rows49*68+1*62, gap8, gutter8, tail24.
+        expected_height = 3826 if action == 'inbox' else 7596
         if any(v.get('firstContentHeight')!=expected_height for v in readings):failed.append(f'{state}-{action}-scroll-height')
         if any(v.get('retained') is not True for v in readings):failed.append(f'{state}-{action}-retention')
         if any(v.get('firstConstructed')!=v.get('firstVisible') for v in readings):failed.append(f'{state}-{action}-offscreen')

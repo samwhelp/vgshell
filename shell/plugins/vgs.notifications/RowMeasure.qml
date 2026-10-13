@@ -20,8 +20,7 @@ ColumnLayout {
             // https://doc.qt.io/qt-6/qml-qtquick-image.html#sourceSize-prop
             // Status probes need no more pixels than the painted owners.
             readonly property real decodeSize: (badge ? root.rowCard.look.badge.size
-                : Math.max(root.rowCard.look.media.compact.size, root.rowCard.look.media.compact.icon,
-                    root.rowCard.look.media.regular.size, root.rowCard.look.media.regular.icon)) * Screen.devicePixelRatio
+                : Math.max(root.rowCard.look.media.size, root.rowCard.look.media.icon)) * Screen.devicePixelRatio
             sourceSize: Qt.size(decodeSize, decodeSize)
             visible: false
             asynchronous: true
@@ -55,7 +54,6 @@ ColumnLayout {
         }
     }
     readonly property int badgeStatus: badgeImage.status
-    readonly property real titleAdvance: titleMeasure.advanceWidth
     readonly property real measuredHeight: (rowCard.summary.length > 0 ? Math.max(titleText.implicitHeight,
         rowCard.showsBadge ? rowCard.look.badge.size + Math.max(0, (titleMetrics.height - rowCard.look.badge.size) / 2) : 0) : 0)
         + (rowCard.singleLine ? 0 : bodyText.implicitHeight)
@@ -89,9 +87,7 @@ ColumnLayout {
         rowCard = { look: look, pad: look.card.pad, summary: entry.summary || "", title: badge ? enrichment.title : entry.summary || "",
             singleLine: single, showsBadge: badge, enrichment: enrichment, workspace: entry.workspace || "", workspaceIcon: entry.workspaceIcon || "",
             bodySegments: Logic.emojiSegments(Logic.styledBody(entry.body || "", entry.app || "", entry.appIcon || "", entry.hintPage || "", look.palette.accent), entry.emoji || null) };
-        const compactWidth = look.card.width - look.card.pad - look.media.compact.size - look.card.gapIcon - textColumn - (badge ? look.badge.size + look.badge.gap : 0);
-        const lines = (rowCard.summary.length > 0 ? (rowCard.title.indexOf("\n") === -1 && titleMeasure.advanceWidth <= compactWidth ? 1 : 2) : 0) + (single ? 0 : 1);
-        const mediaHeight = hasMedia ? look.media[Logic.mediaTier(lines)].size : 0;
+        const mediaHeight = hasMedia ? look.media.size : 0;
         const textWidth = look.card.width - (hasMedia ? look.card.pad : textColumn) - textColumn - (hasMedia ? mediaHeight + look.card.gapIcon : 0);
         titleText.width = textWidth - (badge ? look.badge.size + look.badge.gap : 0);
         bodyText.width = textWidth;
@@ -170,12 +166,6 @@ ColumnLayout {
         FontMetrics {
             id: titleMetrics
             font: titleText.font
-        }
-
-        TextMetrics {
-            id: titleMeasure
-            font: titleText.font
-            text: rowCard.title
         }
     }
 
