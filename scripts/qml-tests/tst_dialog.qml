@@ -19,7 +19,8 @@ import qs.Unit
 // an initial focus field taking the focus and the typing, its Enter and
 // Escape answering and Tab cycling through it; a Select listed in
 // `tabItems` taking Tab and Backtab ahead of the field, and skipped while
-// hidden; the card taking the press, the hover and the wheel from what lies
+// hidden; the same cycle in a popup window that grabs the focus as in the
+// test's own window; the card taking the press, the hover and the wheel from what lies
 // under it, and passing the wheel on while not modal; actions too wide
 // for one line wrapping in order, flush right, inside the text's edges and
 // clear of a busy spinner; and a theme change reaching the card and the
@@ -237,6 +238,52 @@ Item {
             }
         }
 
+
+        // The window that hosts the dialog: the test's own, or a popup
+        // that grabs the focus, as the Network flyout is. The offscreen
+        // platform makes a popup it shows Qt's focus window
+        // (qoffscreenwindow.cpp, setVisible), as the grab does in the
+        // shell. A stop before the dialog and one after it stand in that
+        // window, where Qt's own chain would go from a field or an action.
+        function test_tab_and_shift_tab_cycle_inside_a_modal_dialog_in_each_window_data() {
+            return [
+                { tag: "toplevel", host: "" },
+                { tag: "popup", host: "import Quickshell\nPopupWindow { grabFocus: true; implicitWidth: 500; implicitHeight: 400; visible: true }" }
+            ];
+        }
+
+        function test_tab_and_shift_tab_cycle_inside_a_modal_dialog_in_each_window(data) {
+            const host = data.host === "" ? null : Qt.createQmlObject(data.host, root);
+            const fixture = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nItem { width: 500; height: 400; property alias before: before; property alias card: card; property alias field: field; property alias after: after; Button { id: before; text: "Before" } Dialog { id: card; y: 60; title: "Wi-Fi password"; initialFocus: field; actions: [{ label: "Cancel", role: "cancel" }, { label: "Join", role: "accept" }]; TextField { id: field; width: parent.width } } Button { id: after; y: 340; text: "After" } }', host === null ? root : host.contentItem);
+            try {
+                const window = fixture.Window.window;
+                tryCompare(window, "active", true);
+                compare(window.flags & Qt.Popup, host === null ? Qt.Window : Qt.Popup);
+                const [cancel, join] = fixture.card.buttons();
+                const holder = () => [fixture.before, fixture.field, cancel, join, fixture.after].findIndex(item => item.activeFocus);
+                fixture.card.takeFocus();
+                compare(holder(), 1);
+                const steps = [
+                    [Qt.Key_Tab, Qt.NoModifier, 2], [Qt.Key_Tab, Qt.NoModifier, 3], [Qt.Key_Tab, Qt.NoModifier, 1],
+                    [Qt.Key_Backtab, Qt.ShiftModifier, 3], [Qt.Key_Tab, Qt.ShiftModifier, 2], [Qt.Key_Backtab, Qt.ShiftModifier, 1]
+                ];
+                for (const [key, modifiers, stop] of steps) {
+                    keyClick(key, modifiers);
+                    compare(holder(), stop);
+                }
+                keyClick(Qt.Key_A);
+                compare(fixture.field.text, "a");
+            } finally {
+                fixture.destroy();
+                if (host !== null) {
+                    // The offscreen platform gives the focus back to no
+                    // window when the popup closes.
+                    host.destroy();
+                    root.Window.window.requestActivate();
+                    tryCompare(root.Window.window, "active", true);
+                }
+            }
+        }
 
         // A us keyboard reports Shift+Tab as Backtab with Shift held; a
         // keymap whose Tab key has one level, as wtype's, as Tab with Shift.
