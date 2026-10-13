@@ -68,7 +68,7 @@ var PRESET_LABEL_MAX = 40;
 // an optional port, and a path, query or fragment of printable ASCII, so
 // the desktop open route hands the browser nothing else: no other scheme,
 // no user part, no space and no control character.
-var LINK_KEYS = ["text", "url", "pane"];
+var LINK_KEYS = ["text", "url"];
 var LINK_TEXT_MAX = 60;
 var LINK_URL_MAX = 2048;
 var LINK_URL_PATTERN = /^https:\/\/[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*(:[0-9]{1,5})?([/?#][!-~]*)?$/;
@@ -568,10 +568,8 @@ function infoError(info, at) {
 
 // The first defect of an entry's optional `link`, or "": an object of
 // `text`, words the entry's FIELD holds, a flat schema entry's
-// `description` or a status entry's `hint`, and exactly one of `url`, an
-// address LINK_URL_PATTERN admits, and `pane`, a plugin id. Only a
-// description link takes `pane`: a status row carries its link's
-// address alone (statusRows).
+// `description` or a status entry's `hint`, and `url`, an address
+// LINK_URL_PATTERN admits. A VGS page uses a page reference in the text.
 function linkError(entry, at, field) {
     var link = entry.link;
     if (link === undefined)
@@ -589,13 +587,6 @@ function linkError(entry, at, field) {
         return at + ".link.text must be a printable line of 1 to " + LINK_TEXT_MAX + " characters";
     if (typeof entry[field] !== "string" || entry[field].indexOf(link.text) === -1)
         return at + ".link.text must be words of its " + field;
-    if ((link.url === undefined) === (link.pane === undefined))
-        return at + ".link must declare exactly one of url and pane";
-    if (link.pane !== undefined) {
-        if (field !== "description")
-            return at + ".link.pane needs a setting description";
-        return typeof link.pane === "string" && ID_PATTERN.test(link.pane) ? "" : at + ".link.pane must be a plugin id";
-    }
     if (typeof link.url !== "string" || link.url.length > LINK_URL_MAX || !LINK_URL_PATTERN.test(link.url))
         return at + ".link.url must be an https address of at most " + LINK_URL_MAX + " characters";
     return "";

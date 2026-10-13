@@ -137,7 +137,7 @@ function verify(logic) {
 // Like the Dev Tools handler test, execute the QML source under Node with
 // capability doubles. No second implementation or QML parsing library.
 function windowContext(logic, source) {
-    const names = ["stepKey", "replyOf", "keep", "secretStep", "listStep", "addPlugin", "resetVgs", "storeSecret", "clearSecret", "tuiKey", "openTui"];
+    const names = ["stepKey", "replyOf", "keep", "secretStep", "listStep", "addPlugin", "resetVgs", "storeSecret", "clearSecret", "tuiKey", "openTui", "openPage", "openPane"];
     const functions = names.map(name => {
         const found = [...source.matchAll(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{\\n[\\s\\S]*?^    \\}", "gm"))];
         assert.equal(found.length, 1, `extractor: one actual Window.${name}`);
@@ -218,6 +218,35 @@ function verifyCallers(logic, source, page) {
         const drawn = vm.runInNewContext(bindings[0][1], { Reply: logic, modelData });
         assert.equal(drawn, logic.line(modelData), "the actual delegate maps its current error");
     }
+}
+
+function verifyPageRoutes(logic, source) {
+    const { ctx } = windowContext(logic, source);
+    ctx.Qt = { OtherFocusReason: "other" };
+    ctx.rowOf = id => id === "vgs.sounds" ? { kinds: ["pane"] } : id === "acme.setup" ? { kinds: ["service"] } : null;
+    for (const [id, tab, route, reply] of [
+        ["vgs.sounds", "", "pane", "ok"],
+        ["vgs.sounds", "Setup", "pane", "refused: disabled=vgs.sounds"],
+        ["acme.setup", "", "settings", "ok"],
+        ["acme.setup", "Details", "settings", "ok"],
+        ["vgs.nosuch", "", "settings", "unknown: vgs.nosuch"]
+    ]) {
+        const calls = [];
+        ctx.shell.manager.openPane = target => { calls.push(["pane", target]); return reply; };
+        ctx.openPlugin = (target, reason, selectedTab) => { calls.push(["settings", target, reason, selectedTab]); return reply; };
+        assert.equal(ctx.openPage(id, tab), reply);
+        same(calls, route === "pane" ? [["pane", id]] : [["settings", id, "other", tab === "" ? null : tab]]);
+        if (route === "pane") assert.equal(ctx.replyOf(id), logic.line(reply));
+    }
+    const jarvis = JSON.parse(fs.readFileSync(path.join(dir, "..", "vgs.jarvis", "manifest.json"), "utf8"));
+    const reference = load(path.join(core, "..", "Commons", "PageReference.js")).parse(jarvis.schema.microphone.description);
+    assert.equal(jarvis.schema.microphone.link, undefined);
+    assert.equal(reference.page, "vgs.sounds");
+    assert.equal(reference.tab, "");
+    const calls = [];
+    ctx.shell.manager.openPane = id => { calls.push(id); return "ok"; };
+    assert.equal(ctx.openPage(reference.page, reference.tab), "ok");
+    same(calls, ["vgs.sounds"]);
 }
 
 // The actual SecretWriter functions under Node, with doubles for its two
@@ -334,11 +363,16 @@ verifyKeys(shotsSource, keySource);
 const logic = load(file);
 verify(logic);
 verifyCallers(logic, windowSource, pageSource);
+verifyPageRoutes(logic, windowSource);
 verifyWriter(writerSource);
 const source = fs.readFileSync(file, "utf8");
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "settings-reply-control-"));
 let controls = 0;
 try {
+    const paneRoute = '        if (row !== null && row.kinds.indexOf("pane") !== -1) return openPane(id);\n';
+    assert.equal(windowSource.split(paneRoute).length, 2);
+    assert.throws(() => verifyPageRoutes(logic, windowSource.replace(paneRoute, "")));
+    controls++;
     const patterns = source.match(/^    \[\/.*$/gm);
     assert.ok(patterns.length >= 30, "extractor: mapper pattern table incomplete");
     for (const row of patterns) {

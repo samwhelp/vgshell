@@ -464,18 +464,20 @@ FocusScope {
     }
 
     // Open `link`, a setting description's or a status hint's link, which
-    // the manager judged (PluginLogic.linkError): a `pane` link opens that
-    // plugin's page in the panes holder over this window, as openPane does,
-    // and a `url` link its https address in the default browser through
-    // the desktop open route. Plugin `id`'s page shows the reply.
+    // the manager judged (PluginLogic.linkError): its https address opens
+    // in the default browser through the desktop open route. Plugin `id`'s
+    // page shows the reply.
     function openLink(id, link) {
-        return keep(id, link.pane !== undefined ? shell.manager.openPane(link.pane) : shell.run.detached(DesktopLaunch.open(link.url)));
+        return keep(id, shell.run.detached(DesktopLaunch.open(link.url)));
     }
 
     // Open the page a hint's page reference names (LinkText): plugin
     // `id`'s page on `tab`, Settings for "", as openPlugin does; answers
-    // its reply. A reference to a plugin that is not listed opens nothing.
+    // its reply. A pane plugin opens in the panes holder over this window.
+    // A reference to a plugin that is not listed opens nothing.
     function openPage(id, tab) {
+        const row = rowOf(id);
+        if (row !== null && row.kinds.indexOf("pane") !== -1) return openPane(id);
         const reply = openPlugin(id, Qt.OtherFocusReason, tab === "" ? undefined : tab);
         if (reply.startsWith("unknown: ")) console.warn("settings: page link " + reply);
         return reply;

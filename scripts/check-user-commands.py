@@ -35,7 +35,7 @@ command:
   page-reference  prose that names a VGS page, tab or section in plain words
                 (PAGE_REFERENCE), as "in Settings > AI model", "under
                 Requirements" or "Open Capture settings" does, in a manifest
-                string, a string literal or a TUI's drawn text. Such words
+                string or a string literal. Such words
                 are a link that opens the page: the words of LinkText's
                 page reference, `[words](page:<plugin id>)`, or of a
                 manifest entry's `link`. A TUI line cannot link and names
@@ -46,6 +46,10 @@ command:
                 then `check-user-commands: page-references-pending=<n>
                 plugins=<ids>`; a plugin named there with none left is
                 refused, so the tuple only shrinks.
+  page-reference-target  a complete literal page reference whose plugin id
+                names no plugin directory under the root's plugins/. A
+                target completed by concatenation is not judged. With
+                --plugin, the target directories are that plugin's siblings.
 A string literal is a quoted one or a template literal, whose `${...}`
 parts read as the argument $ARG.
 The text read is every Markdown file and every manifest.json of each plugin
@@ -103,6 +107,9 @@ PAGE_REFERENCE = re.compile(r"\bSettings >|\b(?:in|from) (?:Settings|Plugins)\b|
 # The words of the page reference LinkText draws as a link. In a string
 # literal its target may come from the next literal a concatenation adds.
 PAGE_LINK = re.compile(r"\[[^\[\]\n]+\]\(page:")
+# Only complete literal targets can be judged. An empty id opens the
+# plugin list; a template argument or unfinished concatenation is unknown.
+PAGE_TARGET = re.compile(PAGE_LINK.pattern + r"([^\s()/$]+)(?:/[^\s()/$]+)?\)")
 # The plugins whose page references are not links yet, one conversion a
 # plugin (VGS-1507). The check lists theirs; every other plugin's and the
 # core's are refused.
@@ -197,8 +204,7 @@ def read(path):
         unreadable(path, getattr(exc, "strerror", None) or str(exc))
 
 
-def plugin_dirs(root):
-    base = os.path.join(root, "plugins")
+def plugin_dirs(base):
     try:
         names = sorted(os.listdir(base))
     except OSError as exc:
@@ -229,7 +235,7 @@ def command_heads(root, manifests):
         unreadable(os.path.join(REPO, "bin"), exc.strerror)
     core = os.path.join(REPO, "config", "requirements.json")
     shipped = []
-    for d in plugin_dirs(os.path.join(REPO, "shell")):
+    for d in plugin_dirs(os.path.join(REPO, "shell", "plugins")):
         path = os.path.join(d, "manifest.json")
         if os.path.exists(path):
             try:
@@ -388,9 +394,10 @@ def tui_scripts(root, dirs, core):
     return out
 
 
-def check_tui_script(path, heads, findings, pages):
+def check_tui_script(path, heads, findings):
     """Each quoted argument of a TUI_DRAW call in the script at PATH, read
-    as instruction and for a page reference; the count of words read."""
+    as instruction; the count of words read. A terminal line cannot draw
+    a page link, so it names the page and the button in words."""
     code = blank(read(path), SH_COMMENT)
     words = 0
     for call in TUI_DRAW.finditer(code):
@@ -398,8 +405,6 @@ def check_tui_script(path, heads, findings, pages):
             words += 1
             for _index, excerpt in instructions(word.group(0)[1:-1], heads, True):
                 findings.append(("instruction", path, line_of(code, call.start()), excerpt))
-            for excerpt in page_references(word.group(0)[1:-1]):
-                pages.append((path, line_of(code, call.start()), excerpt))
     return words
 
 
@@ -430,7 +435,7 @@ def main(argv):
         core = False
     elif len(argv) <= 2 and (len(argv) == 1 or not argv[1].startswith("-")):
         root = os.path.realpath(argv[1]) if len(argv) == 2 else os.path.join(REPO, "shell")
-        dirs = plugin_dirs(root)
+        dirs = plugin_dirs(os.path.join(root, "plugins"))
     else:
         print("usage: check-user-commands.py [ROOT | --plugin DIR]")
         return 2
@@ -445,20 +450,23 @@ def main(argv):
         for current, subdirs, files in os.walk(d, onerror=lambda e: unreadable(e.filename, e.strerror)):
             subdirs.sort()
             markdown.extend(os.path.join(current, f) for f in sorted(files) if f.endswith(".md"))
+    targets = {os.path.basename(d) for d in plugin_dirs(os.path.join(root, "plugins") if core else os.path.dirname(root))}
     heads = command_heads(root, manifests)
     findings = []
     pages = []
+    references = []
     strings = 0
     for path in markdown:
         check_markdown(path, heads, findings)
     scripts = tui_scripts(root, dirs, core)
     for path in scripts:
-        strings += check_tui_script(path, heads, findings, pages)
+        strings += check_tui_script(path, heads, findings)
     for path, doc in manifests:
         for where, text in manifest_strings(doc):
             strings += 1
             for _index, excerpt in instructions(text, heads, True):
                 findings.append(("instruction", path, where, excerpt))
+            references.append((path, where, text))
             for excerpt in page_references(text, link_words(doc, where)):
                 pages.append((path, where, excerpt))
     code_files = 0
@@ -474,6 +482,7 @@ def main(argv):
                 line = line_of(code, literal.start())
                 for _index, excerpt in instructions(value, heads, True):
                     findings.append(("instruction", path, line, excerpt))
+                references.append((path, line, value))
                 for excerpt in page_references(value):
                     pages.append((path, line, excerpt))
                 start = statement_start(masked, literal.start())
@@ -487,6 +496,10 @@ def main(argv):
     files = len(markdown) + len(manifests) + len(scripts) + code_files
     if files == 0:
         unreadable(root, "no file to read: an empty walk certifies nothing")
+    for path, where, text in references:
+        for target in PAGE_TARGET.finditer(text):
+            if target.group(1) not in targets:
+                findings.append(("page-reference-target", path, where, text.strip()[:120]))
     pending = {}
     for path, where, excerpt in pages:
         plugin = plugin_of(path, dirs)

@@ -103,10 +103,18 @@ ROWS = [
     ("a string naming a section of a page", {"Logic.js": '.pragma library\nvar NOTE = "Install it under Requirements to use it.";\n'}, "page-reference", "Logic.js:2"),
     ("a string naming the Plugins window as a place", {"Logic.js": '.pragma library\nvar NOTE = "Turn it on in Plugins.";\n'}, "page-reference", "Logic.js:2"),
     ("a string naming a page by its name", {"Service.qml": qml('    Label { text: "Select Connect on the Token Store page." }')}, "page-reference", "Service.qml:3"),
-    ("a TUI line naming a plugin's settings", {"tui/setup.sh": "#!/usr/bin/env bash\nsource \"$VGS_TUI_LIB\"\nvgs_tui_error \"Setup failed. Open Setup settings to try again.\"\n"}, "page-reference", "tui/setup.sh:3"),
+    ("a TUI line naming a page and its button", {"tui/setup.sh": "#!/usr/bin/env bash\nsource \"$VGS_TUI_LIB\"\nvgs_tui_error \"Setup failed. Open Setup settings and select Set up to try again.\"\n"}, None, None),
     ("a page named by the words of a page reference", {"manifest.json": manifest(capabilities='["status"]', status='{ "a": { "type": "text", "label": "A", "hint": "Choose a model on the [Setup page in Settings](page:acme.setup)." } }')}, None, None),
     ("a page reference whose target the next literal adds", {"Service.qml": qml('    Label { text: "Turn it on [in Plugins](page:" + id + ")." }')}, None, None),
-    ("a page named by the words of a manifest link", {"manifest.json": manifest(schema='{ "a": { "type": "boolean", "label": "A", "description": "Tones are set in Settings > Sounds.", "link": { "text": "in Settings > Sounds", "pane": "acme.sounds" } } }')}, None, None),
+    ("a page named by the words of a manifest link", {"manifest.json": manifest(schema='{ "a": { "type": "boolean", "label": "A", "description": "Open the Account page.", "link": { "text": "Account page", "url": "https://example.org/account" } } }')}, None, None),
+    ("a nonexistent bare page target in a manifest", {"manifest.json": manifest(description='"Open [w](page:vgs.nosuch)."')}, "page-reference-target", "manifest.json:description"),
+    ("a nonexistent tab target in a manifest", {"manifest.json": manifest(description='"Open [w](page:vgs.nosuch/Setup)."')}, "page-reference-target", "manifest.json:description"),
+    ("a nonexistent page target in QML", {"Service.qml": qml('    Label { text: "[w](page:vgs.nosuch)" }')}, "page-reference-target", "Service.qml:3"),
+    ("a nonexistent tab target in JavaScript", {"Logic.js": '.pragma library\nvar NOTE = "[w](page:vgs.nosuch/Setup)";\n'}, "page-reference-target", "Logic.js:2"),
+    ("an existing page target with a tab", {"Service.qml": qml('    Label { text: "[Setup page](page:acme.setup/Setup)" }')}, None, None),
+    ("a target completed after a literal plugin prefix", {"Service.qml": qml('    Label { text: "[Setup page](page:vgs.nosuch" + id + ")" }')}, None, None),
+    ("a template argument target", {"Service.qml": qml('    Label { text: `[Setup page](page:${id}/Setup)` }')}, None, None),
+    ("an empty target opens the plugin list", {"Service.qml": qml('    Label { text: "[Plugins](page:)" }')}, None, None),
 ]
 
 
@@ -276,6 +284,23 @@ def plugin_argument_failures():
         return [f"--plugin: want the README's instruction and exit 1, got exit {done.returncode}: {done.stdout.strip()}"]
     return []
 
+
+def plugin_target_failures():
+    failures = []
+    for target, status in (("acme.sibling", 0), ("vgs.nosuch", 1)):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build(tmp, {"Service.qml": qml('    Label { text: "[w](page:' + target + '/Setup)" }')})
+            os.mkdir(os.path.join(root, "plugins", "acme.sibling"))
+            # A file with the target's name is not a plugin directory.
+            with open(os.path.join(root, "plugins", "vgs.nosuch"), "w") as file:
+                file.write("")
+            done = run_command([sys.executable, CHECK, "--plugin", os.path.join(root, "plugins", "acme.setup")], capture_output=True, text=True, env=ENV)
+        targets = [line for line in done.stdout.splitlines() if line.startswith("page-reference-target ")]
+        if done.returncode != status or bool(targets) != (status == 1):
+            failures.append(f"--plugin target={target}: want exit {status}, got exit {done.returncode}: {done.stdout.strip()}")
+    return failures
+
+
 def pending_failures(check):
     """What CHECK does for a plugin its PAGE_PENDING names, as lines: one
     page reference of it is listed and passes, and none left is refused.
@@ -334,7 +359,9 @@ CONTROLS = [
     ("the page-reference rule", "            findings.append((\"page-reference\", path, where, excerpt))", "            pass"),
     ("a manifest string's page reference", "                pages.append((path, where, excerpt))", "                pass"),
     ("a string literal's page reference", "                    pages.append((path, line, excerpt))", "                    pass"),
-    ("a TUI line's page reference", "                pages.append((path, line_of(code, call.start()), excerpt))", "                pass"),
+    ("a literal target needs a plugin directory", "            if target.group(1) not in targets:", "            if False:"),
+    ("a tab target needs a plugin directory", r'(?:/[^\s()/$]+)?\)', r'\)'),
+    ("a terminal line is not a page link", "            words += 1\n", '            words += 1\n            for excerpt in page_references(word.group(0)[1:-1]):\n                findings.append(("page-reference", path, line_of(code, call.start()), excerpt))\n'),
     ("a page reference's words are a link", "    plain = blank(text, PAGE_LINK)", "    plain = text"),
     ("a manifest link's words are a link", "        plain = plain.replace(linked, \" \" * len(linked))", "        pass"),
     ("a pending plugin's page references are listed", "        if plugin in PAGE_PENDING:", "        if False:"),
@@ -431,6 +458,7 @@ def main():
         unreadable_json_failures,
         missing_root_failures,
         plugin_argument_failures,
+        plugin_target_failures,
         lambda: pending_failures(CHECK),
     ] + rooted_tasks
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
