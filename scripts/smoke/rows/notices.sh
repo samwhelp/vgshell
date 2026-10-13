@@ -7,8 +7,9 @@
 # window closed throughout. Rows: `vgshell plugin add` raises the notice
 # through pluginInstalled, which maps one surface on the focused monitor
 # holding the keyboard and drawing one chip per package its step handles,
-# with its state beside it and the purposes under it, and counting in its
-# message the required packages a later step installs; the surface fills the monitor less the bar's reserved space less
+# with its state beside it and the purposes under it, counting in its
+# title and naming in its message, each with its manager, the required
+# packages a later step installs; the surface fills the monitor less the bar's reserved space less
 # `dialog.margin`, clears the bar by that margin and centres the dialog; a
 # click on the bar's acme.tick widget reaches it while the notice shows; a
 # click beside the dialog lands on the scrim, which fills the surface in
@@ -23,7 +24,7 @@
 # declare and for a value that is no list of commands; Install hands the
 # terminal `vgshell pkg run install` with the primary's package, the notice
 # has no surface while the run is live, and comes back with the keyboard,
-# naming the command the run left missing, when the rescan after the run
+# naming the package the run left missing, when the rescan after the run
 # still misses it; a scan that finds
 # the command while the run is live keeps the installing notice in front of
 # a second plugin's waiting one, and the scan after the run closes it and
@@ -36,15 +37,17 @@
 # package of the same manager beside it,
 # which hands the terminal `vgshell pkg run update` for the manager that
 # owns the command path; a run that ends with code 0 and leaves the command
-# below its floor brings the notice back with a line naming the command, the
-# version read and the floor, and the read after a run that reaches the
+# below its floor brings the notice back with a line naming its package,
+# the version read and the floor, and the read after a run that reaches the
 # floor closes it, while the same offer of a command at its floor answers
-# satisfied, which is that state's control; a
+# satisfied, which is that state's control; the Install and update notice
+# draws its two entries as a GroupList whose hairline is centred by ink
+# between them, and its run that changes nothing names both packages; a
 # detection that fails shows the commands
 # alone with Close. The enable trigger's control is
 # scripts/smoke/rows/notices-control.sh, the suite's last row: a shell copy
 # without the trigger raises no notice.
-# inputs: scripts/smoke/fixtures/plugins/acme.needs/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/foundation/Scrim.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/layers.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui bin/vgshell-scan shell/Core/Registry.qml shell/Core/Capabilities.qml
+# inputs: scripts/smoke/fixtures/plugins/acme.needs/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/foundation/Scrim.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Ui/layout/GroupList.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/layers.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui bin/vgshell-scan shell/Core/Registry.qml shell/Core/Capabilities.qml
 set -euo pipefail
 needs_src="$sandbox/src/acme.needs"
 mkdir -p "$needs_src"
@@ -144,9 +147,12 @@ install_words() {
 group_shape() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.dumps([[g[0], len(g[1])] for g in json.load(sys.stdin)["groups"]]))'; }
 group_states() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.dumps([g[2] for g in json.load(sys.stdin)["groups"]]))'; }
 needs_groups='[["vgs-smoke-needs-pkg", 1]]'
-# The number of packages the drawn message counts for a later step: its
-# number before "more", "One" as 1, and 0 when it counts none.
-message_later() { ipc smoke noticeDrawn | py_reply 'import json,re,sys; m=re.search(r"(One|\d+) more ", json.load(sys.stdin)["message"]); print(0 if m is None else 1 if m.group(1) == "One" else int(m.group(1)))'; }
+# The packages the drawn message names for a later step, each as [package,
+# manager] from its "PACKAGE from MANAGER", in the order it names them; []
+# when it names none.
+message_later() { ipc smoke noticeDrawn | py_reply 'import json,re,sys
+m = re.search(r"After this step, VGS offers (.*)\.$", json.load(sys.stdin)["message"])
+print(json.dumps([] if m is None else [n.split(" from ") for n in re.split(r", | and ", m.group(1))]))'; }
 rows_hold() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(str(any(sys.argv[1] in r for r in json.load(sys.stdin)["rows"])).lower())' "$1"; }
 row_drawn() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(str(sys.argv[1] in json.load(sys.stdin)["rows"]).lower())' "$1"; }
 all_needs='["vgs-smoke-needs", "vgs-smoke-extra", "vgs-smoke-unmapped"]'
@@ -213,7 +219,7 @@ expect_poll "the notice holds the keyboard after the clicks" true ipc smoke noti
 expect "the notice draws one chip per package its step handles" "$needs_groups" group_shape
 expect "the chip's package reads missing" '[["Missing"]]' group_states
 expect "the title counts the package the step handles" '"Acme Sync needs one package"' drawn title
-expect "the message counts nothing for later: the notice closes once its one required command is found" 0 message_later
+expect "the message names nothing for later: the notice closes once its one required command is found" '[]' message_later
 expect "no line names a command whose package is known" false row_drawn "vgs-smoke-needs"
 expect "control: the same reading finds the package's chip" true row_drawn "vgs-smoke-needs-pkg"
 expect "no line marks a requirement optional" false rows_hold "optional"
@@ -254,7 +260,8 @@ expect "an offer of a present command is satisfied" satisfied needs offer "sh"
 expect "an offer of a command the manifest does not declare is refused" "refused: requirement=pacman reason=undeclared" needs offer "vgs-smoke-needs|pacman"
 expect "an offer that is not a list is refused" "refused: requirements=malformed" needs offer-json '"vgs-smoke-needs"'
 expect "the merged notice is still the one notice" "[\"acme.needs\", $all_needs, [\"vgs-smoke-needs\", \"vgs-smoke-extra\"], false]" notice_shown
-expect_poll "the merged notice counts the required AUR package for a later step, and not the command no manager provides" 1 message_later
+expect_poll "the merged notice names the required AUR package for a later step, and not the command no manager provides" '[["vgs-smoke-extra-git", "aur"]]' message_later
+expect "the merged notice's title counts the step's package and the later one" '"Acme Sync needs 2 packages"' drawn title
 expect_poll "the notice holds the keyboard again" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes the enabled notice" null notice_shown
@@ -302,7 +309,7 @@ release_runs
 expect_run_end "the install run ends" core/requirements-install
 expect_within "the scan after the install run settles the notice" install_settle settled "$install_settle_ceiling_ms" install_settled
 expect "the rescan after an install that left the command missing keeps the notice" "[\"acme.needs\", $all_needs, [\"vgs-smoke-needs\"], false]" notice_shown
-expect "the kept notice names the command the install left missing" '{"kind": "missing", "name": "vgs-smoke-needs"}' notice_failure
+expect "the kept notice names the package the install left missing" '{"kind": "unchanged", "left": [{"kind": "missing", "name": "vgs-smoke-needs-pkg"}]}' notice_failure
 expect_poll "the kept notice maps its surface again" 1 layer_count vgs:notice
 expect_poll "the kept notice holds the keyboard after the install" true ipc smoke noticeFocused
 expect "the notice still offers Install" '["Install", "Not now"]' drawn actions
@@ -443,7 +450,7 @@ expect "the update notice counts its update" '"Acme Sync needs one update"' draw
 expect "the update notice draws the package as its chip" '[["vgs-smoke-old-pkg", 1]]' group_shape
 expect "the update notice offers Update" '["Update", "Not now"]' drawn actions
 expect "the notice names no run before one ended" null notice_failure
-expect "control: no line holds the command, its version and its floor before a run" false line_holds vgs-smoke-old 1.9.0 2.0.0
+expect "control: no line holds the package, its version and its floor before a run" false line_holds vgs-smoke-old-pkg 1.9.0 2.0.0
 expect "no update ran before the rows" idle key_idle core/requirements-update
 # An update that changes nothing: the stand-in terminal runs the core's
 # command as `true`, which ends with code 0, and the command stays at 1.9.0,
@@ -458,10 +465,10 @@ release_runs
 expect_run_end "the update run that changes nothing ends" core/requirements-update
 expect_poll "the read after that run settles the notice" settled install_settled
 expect "an update that left the command below its floor keeps the notice" "$floor_shown, false]" notice_shown
-expect "the kept notice names the command, the version read and the floor" '{"kind": "outdated", "name": "vgs-smoke-old", "version": "1.9.0", "floor": "2.0.0"}' notice_failure
+expect "the kept notice names the package, the version read and the floor" '{"kind": "unchanged", "left": [{"kind": "outdated", "name": "vgs-smoke-old-pkg", "version": "1.9.0", "floor": "2.0.0"}]}' notice_failure
 expect_poll "the kept update notice maps its surface again" 1 layer_count vgs:notice
 expect_poll "the kept update notice holds the keyboard" true ipc smoke noticeFocused
-expect "one line of the notice holds the command, its version and its floor" true line_holds vgs-smoke-old 1.9.0 2.0.0
+expect "one line of the notice holds the package, its version and its floor" true line_holds vgs-smoke-old-pkg 1.9.0 2.0.0
 expect "no line of the notice draws a command line" false rows_hold "pkg run"
 expect "the kept notice still offers Update" '["Update", "Not now"]' drawn actions
 # The same press with a run that reaches the floor: no line, and no notice.
@@ -498,7 +505,7 @@ expect "the held-manager update notice closes" null notice_shown
 # A notice that holds an outdated command and a missing one of the same
 # manager, the AUR helper here, runs both in one press: the update, then
 # the missing package after --install (VGS-1490). The stand-in run changes
-# nothing, so the notice comes back naming the manager's first requirement.
+# nothing, so the notice comes back naming both packages.
 old_version 1.9.0 || fail "the stand-in below the floor is written for the mixed notice"
 rescan "a rescan with the command below its floor starts for the mixed notice"
 expect_poll "the command reads outdated for the mixed notice" '["outdated"]' floor_state
@@ -508,6 +515,37 @@ expect_poll "the mixed notice offers one step for both" '["Install and update", 
 expect "the mixed notice draws both packages" '[["vgs-smoke-old-aur", 1], ["vgs-smoke-extra-git", 1]]' group_shape
 expect "the mixed notice marks one outdated and one missing" '[["Outdated"], ["Missing"]]' group_states
 expect "the mixed notice counts both packages" '"Acme Sync needs 2 packages"' drawn title
+# The mixed notice's two entries are groups of a GroupList: its one
+# hairline is centred between the lowest drawn pixel of the entry above and
+# the highest of the entry below, within a pixel. One control plants the
+# same reading with the hairline 3 px low and one with it gone, which the
+# check refuses on each rule. `[]` is the pass.
+entry_hairlines() { # [low|line]
+  local ink
+  ink="$(ipc smoke noticeEntryInk)" || return
+  python3 - "$ink" "${1:-}" <<'PY'
+import json, sys
+if not sys.argv[1].startswith("{"):
+    print(json.dumps(["ink=%s" % sys.argv[1]])); sys.exit()
+d, plant = json.loads(sys.argv[1]), sys.argv[2]
+entries, lines = d["entries"], d["hairlines"]
+if plant == "low" and lines: lines[0] = dict(lines[0], y=lines[0]["y"] + 3)
+if plant == "line": lines = lines[1:]
+out = []
+if len(entries) < 2: out.append("entries=%d" % len(entries))
+elif len(lines) != len(entries) - 1: out.append("hairlines=%d entries=%d" % (len(lines), len(entries)))
+else:
+    for k in range(1, len(entries)):
+        centre = lines[k - 1]["y"] + lines[k - 1]["height"] / 2
+        want = (entries[k - 1]["bottom"] + entries[k]["top"]) / 2
+        if abs(centre - want) > 1: out.append("hairline%d=%.2f want=%.2f" % (k, centre, want))
+print(json.dumps(out))
+PY
+}
+geometry expect_poll "the mixed notice's hairline is centred by ink between its two entries" '[]' entry_hairlines
+hairline_planted() { entry_hairlines "$1" | py_reply 'import json,sys; o=json.load(sys.stdin); print(any(sys.argv[1] in e for e in o))' "$2"; }
+expect "control: a hairline 3 px low is refused" True hairline_planted low hairline1=
+expect "control: a missing hairline is refused" True hairline_planted line hairlines=
 expect_poll "the mixed notice holds the keyboard" true ipc smoke noticeFocused
 hold_runs
 forget_record
@@ -516,7 +554,8 @@ expect_poll "one press hands the terminal the update and the install" "$(update_
 release_runs
 expect_run_end "the mixed run ends" core/requirements-update
 expect_poll "the read after the mixed run settles the notice" settled install_settled
-expect "a mixed run that changed nothing names the outdated command" '{"kind": "outdated", "name": "vgs-smoke-old", "version": "1.9.0", "floor": "2.0.0"}' notice_failure
+expect "a mixed run that changed nothing names both packages" '{"kind": "unchanged", "left": [{"kind": "outdated", "name": "vgs-smoke-old-aur", "version": "1.9.0", "floor": "2.0.0"}, {"kind": "missing", "name": "vgs-smoke-extra-git"}]}' notice_failure
+expect "one line of the kept mixed notice names the missing package beside the outdated one" true line_holds vgs-smoke-old-aur 1.9.0 vgs-smoke-extra-git
 expect_poll "the kept mixed notice maps its surface again" 1 layer_count vgs:notice
 expect_poll "the kept mixed notice holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape to the mixed notice failed"

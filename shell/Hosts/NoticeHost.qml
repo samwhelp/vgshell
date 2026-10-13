@@ -42,11 +42,14 @@ Scope {
     readonly property Item scrim: loader.item === null ? null : loader.item.scrim
 
     // "<Name> needs one package" or "<Name> needs N packages", counting
-    // the shown notice's groups (PluginLogic.noticeGroups); requirements
-    // when no group has a package, and updates when every group is one.
+    // every package the notice asks for: its step's and the later steps'
+    // (PluginLogic.noticeView's `groups` and `later`, noticeGroups
+    // entries); requirements when no entry has a package, and updates when
+    // every entry is one.
     function title(shown) {
-        const noun = shown.groups.every(g => g.update) ? "update" : shown.groups.some(g => g.packaged) ? "package" : "requirement";
-        return shown.name + " needs " + (shown.groups.length === 1 ? "one " + noun : shown.groups.length + " " + noun + "s");
+        const asked = shown.groups.concat(shown.later);
+        const noun = asked.every(g => g.update) ? "update" : asked.some(g => g.packaged) ? "package" : "requirement";
+        return shown.name + " needs " + (asked.length === 1 ? "one " + noun : asked.length + " " + noun + "s");
     }
 
     // The label of the step the notice runs, PluginLogic.noticeView's
@@ -59,21 +62,39 @@ Scope {
 
     // The line under SHOWN's entries for FAILURE, Notices.failure: why its
     // last run did not finish, or what a run that finished left as it was,
-    // the command still missing or still below the floor its owner needs.
+    // one leftLine for each package it left.
     function failureLine(shown, failure) {
         switch (failure.kind) {
         case "failed":
             return "The last " + step(shown).toLowerCase() + " did not finish: " + failure.reason;
-        case "missing":
-            return failure.name + " is still missing after the install.";
-        case "outdated":
-            return failure.name + " is still version " + failure.version + " after the update. " + shown.name + " needs version " + failure.floor + " or later.";
+        case "unchanged":
+            return failure.left.map(entry => leftLine(shown, entry)).join(" ");
         }
         throw new Error("notices: failure kind " + JSON.stringify(failure.kind) + " has no line");
     }
 
+    // What a run left of one package, ENTRY of PluginLogic.noticeUnchanged:
+    // still missing, or still below the floor SHOWN's owner needs.
+    function leftLine(shown, entry) {
+        switch (entry.kind) {
+        case "missing":
+            return entry.name + " is still missing after the install.";
+        case "outdated":
+            return entry.name + " is still version " + entry.version + " after the update. " + shown.name + " needs version " + entry.floor + " or later.";
+        }
+        throw new Error("notices: unchanged kind " + JSON.stringify(entry.kind) + " has no line");
+    }
+
+    // ITEMS as one phrase: "a", "a and b" or "a, b and c".
+    function spoken(items) {
+        return items.length < 2 ? items.join("") : items.slice(0, -1).join(", ") + " and " + items[items.length - 1];
+    }
+
+    // The dialog's message for SHOWN: what its step does and each package a
+    // later step offers, named with its manager, or how to install its
+    // requirements when no manager here installs them.
     function message(shown) {
-        if (step(shown) !== "") return step(shown) + " opens a terminal. The package manager asks for your password there." + (shown.later === 0 ? "" : shown.later === 1 ? " One more remains after this step." : " " + shown.later + " more remain after this step.");
+        if (step(shown) !== "") return step(shown) + " opens a terminal. The package manager asks for your password there." + (shown.later.length === 0 ? "" : " After this step, VGS offers " + spoken(shown.later.map(e => e.chip + " from " + e.manager)) + ".");
         if (shown.byHand.length > 0) return "Add these packages to the system configuration: " + shown.byHand.map(g => g.manager + " " + g.names.join(" ")).join(", ") + ".";
         if (Notices.detection === "failed") return "VGS could not detect this system's package manager. Install these requirements by hand.";
         return "No package manager here provides these requirements. Install them by hand.";
@@ -187,60 +208,46 @@ Scope {
                 // and its state beside it, a chip that elides before the
                 // state leaves the dialog,
                 // with each purpose under it as a hint, as a Field draws a
-                // label's hint. Between two entries a divider sits in a band
-                // that holds `dialog.gap` above it and below it, so the break
-                // reads as the one between the dialog's blocks.
-                Column {
-                    width: parent.width
+                // label's hint. The entries are groups of the shared
+                // GroupList, which spaces them and centres the hairline
+                // between two of them by their drawn ink.
+                GroupList {
+                    id: entryList
                     visible: !win.consentMode
                     Repeater {
                         model: win.consentMode ? [] : win.shown.groups
                         Column {
                             required property var modelData
-                            required property int index
-                            width: parent.width
-                            Item {
+                            width: entryList.width
+                            spacing: Theme.field.gap
+                            Row {
+                                id: entryHead
                                 width: parent.width
-                                height: 2 * Theme.dialog.gap + entryBreak.height
-                                visible: index > 0
-                                Divider {
-                                    id: entryBreak
-                                    width: parent.width
-                                    y: Theme.dialog.gap
+                                spacing: Theme.stack.inline
+                                // A package or command name is case-sensitive,
+                                // so the chip draws it as written.
+                                Badge {
+                                    width: Math.min(implicitWidth, entryHead.width - entryHead.spacing - entryState.width)
+                                    text: modelData.chip
+                                    tone: "neutral"
+                                    size: "sm"
+                                    verbatim: true
+                                }
+                                Badge {
+                                    id: entryState
+                                    text: modelData.update ? "Outdated" : "Missing"
+                                    tone: "warning"
+                                    size: "sm"
                                 }
                             }
-                            Column {
-                                width: parent.width
-                                spacing: Theme.field.gap
-                                Row {
-                                    id: entryHead
+                            Repeater {
+                                model: modelData.purposes
+                                Label {
+                                    required property string modelData
+                                    role: "hint"
                                     width: parent.width
-                                    spacing: Theme.stack.inline
-                                    // A package or command name is case-sensitive,
-                                    // so the chip draws it as written.
-                                    Badge {
-                                        width: Math.min(implicitWidth, entryHead.width - entryHead.spacing - entryState.width)
-                                        text: modelData.chip
-                                        tone: "neutral"
-                                        size: "sm"
-                                        verbatim: true
-                                    }
-                                    Badge {
-                                        id: entryState
-                                        text: modelData.update ? "Outdated" : "Missing"
-                                        tone: "warning"
-                                        size: "sm"
-                                    }
-                                }
-                                Repeater {
-                                    model: modelData.purposes
-                                    Label {
-                                        required property string modelData
-                                        role: "hint"
-                                        width: parent.width
-                                        wrapMode: Text.Wrap
-                                        text: modelData
-                                    }
+                                    wrapMode: Text.Wrap
+                                    text: modelData
                                 }
                             }
                         }

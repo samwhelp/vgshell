@@ -57,8 +57,9 @@ Singleton {
     property string installingId: ""
     // Why the shown notice's last run left it open, or null: { kind:
     // "failed", reason } for a run that did not start or did not end with
-    // code 0, or what a run that ended with code 0 left as it was,
-    // PluginLogic.noticeUnchanged's answer, of kind `missing` or `outdated`.
+    // code 0, or { kind: "unchanged", left } for a run that ended with
+    // code 0 and left a package of its press as it was, `left` the
+    // PluginLogic.noticeUnchanged entries, one per such package.
     property var failure: null
     // Plugin id -> the name of its own TUI a press asked for while a
     // command it needs was missing: opened once that plugin's notice
@@ -408,8 +409,9 @@ Singleton {
     // RESULT. A run that did not end with code 0 says why at once. One
     // rescan follows, and its version read settles the notice, since only
     // that read says whether an update reached the floor; a run that ended
-    // with code 0 and left a package of its own step owed is judged then
-    // (PluginLogic.noticeUnchanged), so the notice that comes back says why.
+    // with code 0 and left packages of its own step owed is judged then
+    // (PluginLogic.noticeUnchanged), so the notice that comes back names
+    // each of them.
     function installEnded(id, ran, result) {
         const ended = result.code === 0;
         if (!ended && root.current !== null && root.current.id === id)
@@ -419,8 +421,10 @@ Singleton {
             if (root.installingId !== id) return;
             root.installingId = "";
             root.settle();
-            if (ended && root.current !== null && root.current.id === id)
-                root.failure = Logic.noticeUnchanged(Registry.requirementOwners[id], root.missingOf(id), Registry.commandVersions, root.current, root.managers, ran);
+            if (ended && root.current !== null && root.current.id === id) {
+                const left = Logic.noticeUnchanged(Registry.requirementOwners[id], root.missingOf(id), Registry.commandVersions, root.current, root.managers, ran);
+                root.failure = left.length === 0 ? null : { kind: "unchanged", left: left };
+            }
         });
     }
 

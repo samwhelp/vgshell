@@ -1279,6 +1279,28 @@ Scope {
             while (top.parent !== null) top = top.parent;
             return root.json({ dialog: dialog.height, surface: top.height, overflowing: root.shownScrollAreas(dialog).filter(area => area.overflowing).length });
         }
+        // The requirement notice's entry list, in its GroupList's
+        // coordinates: each shown entry's ink top and ink bottom
+        // (Theme.inkAbove, Theme.inkBelow) and each shown hairline's y and
+        // height, in drawn order, or "absent" while no notice draws a
+        // GroupList.
+        function noticeEntryInk(): string {
+            const dialog = Plugins.hosts.notice === undefined ? null : Plugins.hosts.notice.dialog;
+            if (dialog === null) return "absent";
+            const list = root.descendants(dialog).find(child => root.typeName(child) === "GroupList" && child.visible);
+            if (list === undefined) return "absent";
+            // The list's own column holds the entries; its other children
+            // are the hairlines and their Repeater.
+            const column = list.children.find(child => root.typeName(child) === "QQuickColumn");
+            if (column === undefined) return "absent";
+            const byY = (a, b) => a.y - b.y;
+            const entries = column.children.filter(child => child.visible && child.width > 0 && child.height > 0).map(child => {
+                const y = child.mapToItem(list, 0, 0).y;
+                return { y: y, top: y + Theme.inkAbove(child), bottom: y + child.height - Theme.inkBelow(child) };
+            }).sort(byY);
+            const hairlines = list.children.filter(child => root.typeName(child) === "Divider" && child.visible).map(line => ({ y: line.y, height: line.height })).sort(byY);
+            return root.json({ entries: entries.map(e => ({ top: e.top, bottom: e.bottom })), hairlines: hairlines });
+        }
         function noticeDrawn(): string {
             const dialog = Plugins.hosts.notice === undefined ? null : Plugins.hosts.notice.dialog;
             if (dialog === null) return "absent";
