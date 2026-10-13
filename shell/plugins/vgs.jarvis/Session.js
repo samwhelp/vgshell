@@ -8,6 +8,8 @@
 // A dictation engine is the chained engine whose final words come from the
 // core's dictation recording (D064), whose tones are the recording's cue.
 var SESSION_SETTINGS = ["mode", "voiceProvider", "voice", "clonedVoice", "language", "brain", "model", "effort", "fallbacks", "customBaseUrl", "home", "policy", "cloudVision", "account", "voiceAccount"];
+// A thinking turn's bound on a stalled brain: each finished tool call starts
+// a fresh interval, so a brain that keeps working outlives one interval.
 var RESPONSE_TIMEOUT_MS = 60000;
 var COLLECTION_TIMEOUT_MS = 60000;
 var VOICE_CHECK_MS = 3000;
@@ -782,6 +784,7 @@ function reduce(state, e) {
             throw new Error("jarvis: session=tool-outcome");
         effect(s, effects, "tool-outcome", { gen: s.action.gen, target: s.action.brain,
             source: s.action.op, tool: s.action.tool, outcome: e.outcome });
+        if (s.turn.kind === "thinking" && s.turn.op === s.action.brain) s.turn.deadline = e.at + RESPONSE_TIMEOUT_MS;
         s.action = { kind: "none" };
         break;
     case "approval":

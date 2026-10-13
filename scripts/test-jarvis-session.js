@@ -1163,6 +1163,19 @@ const table = [
         assert.equal(r.state.turn.deadline, 62030);
         assert.deepEqual(kinds(r), ["brain-cancel"]);
     }],
+    // A finished tool call starts a fresh interval for the turn that made it.
+    ["thinking-tool-renewal", logic => {
+        const s = acting(logic);
+        const done = step(logic, s, callback("tool-done", s.action, 50000, { outcome: "completed" })).state;
+        assert.equal(done.turn.deadline, 110000);
+        assert.equal(step(logic, done, callback("deadline", done.turn, 60030)).state.turn.kind, "thinking");
+        assert.equal(step(logic, done, callback("deadline", done.turn, 110000)).state.fault.reason, "thinking-timeout");
+        // A later turn keeps its own interval when an earlier turn's tool ends.
+        const later = copy(s);
+        later.turn = { ...later.turn, op: later.nextOp++ };
+        assert.equal(step(logic, later, callback("tool-done", later.action, 50000, { outcome: "completed" })).state.turn.deadline,
+            later.turn.deadline);
+    }],
     ["thinking-approval-expiry", logic => {
         let s = thinking(logic);
         s = step(logic, s, callback("approval", s.turn, 10030, { id: "late-hold", digest: "a".repeat(64),
@@ -2291,6 +2304,9 @@ try {
             's.turn = { kind: "none" };\n        s.fault = { kind: "error", reason: e.reason, retry: 0 };\n        end(s, effects, e.at, e.reason, false);', "brain-ended"],
         ["think-bound", 's.turn.kind === "thinking" && s.approval.kind !== "held" && at >= s.turn.deadline',
             's.turn.kind === "thinking" && s.approval.kind !== "held" && false && at >= s.turn.deadline', "thinking-timeout"],
+        ["thinking-tool-renewal", 'if (s.turn.kind === "thinking" && s.turn.op === s.action.brain) s.turn.deadline = e.at + RESPONSE_TIMEOUT_MS;',
+            '', "thinking-tool-renewal"],
+        ["thinking-tool-owner", ' && s.turn.op === s.action.brain) s.turn.deadline', ') s.turn.deadline', "thinking-tool-renewal"],
         ["thinking-approval-expiry", 's.turn.deadline = s.approval.deadline + RESPONSE_TIMEOUT_MS;',
             's.turn.deadline = e.at;', "thinking-approval-expiry"],
         ["approval-end-reasons", 'dropApproval(s, effects, reason, at);',
