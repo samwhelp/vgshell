@@ -9,7 +9,8 @@ import qs.Ui
 // measure whether the message stayed on one line, `inkAbove()` is the
 // label's (Label.qml), and `inkBelow()` is the
 // label's over the last line's text, which the plain twin
-// lays out at the same width. Use it where a consumer
+// lays out at the same width, or the link's underline where an
+// occurrence reaches that line and the underline ends lower. Use it where a consumer
 // surface cites a file that the core can open through `vgshell edit`.
 // A page reference in the text, `[words](page:<plugin id>)` or
 // `[words](page:<plugin id>/<tab>)`, draws its words alone, as a link while
@@ -115,9 +116,19 @@ T.Control {
 
     function inkAbove() { return label.y + label.inkAbove(); }
 
+    // Qt Quick draws an underline from its line's baseline plus the font's
+    // underline position, rounded, as tall as the font's line thickness
+    // (Qt 6.11 qquicktextnodeengine.cpp, addTextDecorations and
+    // processCurrentLine, from QRawFont::underlinePosition and lineThickness,
+    // which read the same font engine values as FontMetrics). Every
+    // occurrence is underlined, so the underline reaches the last line when
+    // the last occurrence ends past that line's start.
     function inkBelow() {
-        const lastLine = twin.length === plain.length ? plain.slice(twin.positionAt(0, twin.contentHeight - 1)) : undefined;
-        return height - label.y - label.height + label.inkBelow(lastLine);
+        const lastStart = twin.length === plain.length ? twin.positionAt(0, twin.contentHeight - 1) : -1;
+        const glyphs = label.inkBelow(lastStart < 0 ? undefined : plain.slice(lastStart));
+        const underlined = linked && lastStart >= 0 && plain.lastIndexOf(words) + words.length > lastStart;
+        const underlineBottom = Math.round(label.lastBaseline() + underline.underlinePosition) + underline.lineWidth;
+        return height - label.y - label.height + (underlined ? Math.min(glyphs, label.height - underlineBottom) : glyphs);
     }
 
     implicitWidth: label.implicitWidth
@@ -156,6 +167,11 @@ T.Control {
         id: lastGlyph
         font: label.font
         text: root.plain.charAt(root.run[1] - 1)
+    }
+
+    FontMetrics {
+        id: underline
+        font: label.font
     }
 
     TextMetrics {

@@ -22,9 +22,9 @@ import qs.Commons
 // line's ink ends: its glyphs' lowest ink (FontMetrics.tightBoundingRect,
 // whose origin is the baseline) for a one-line label or a caller that
 // names the last line's text, else the baseline in capitals and the
-// descent in mixed case. Lines of one label share one line box, so the
-// last baseline is the first one `baselineOffset` places, moved down by
-// every line box but the last.
+// descent in mixed case. `lastBaseline()` is the last line's baseline from
+// the label top: lines of one label share one line box, so it is the first
+// one `baselineOffset` places, moved down by every line box but the last.
 Text {
     id: root
 
@@ -62,12 +62,17 @@ Text {
         return baselineOffset + metrics.tightBoundingRect(typography.uppercase ? text.toUpperCase() : text).y;
     }
 
+    function lastBaseline() {
+        const lines = Math.max(1, lineCount);
+        return baselineOffset + contentHeight * (lines - 1) / lines;
+    }
+
     function inkBelow(lastLine) {
         const lines = Math.max(1, lineCount);
         const known = lastLine !== undefined ? lastLine : lines === 1 ? text : null;
         const ink = known === null ? null : metrics.tightBoundingRect(typography.uppercase ? known.toUpperCase() : known);
         const below = ink !== null ? Math.max(0, ink.y + ink.height) : typography.uppercase ? 0 : metrics.descent;
-        return height - baselineOffset - contentHeight * (lines - 1) / lines - below;
+        return height - lastBaseline() - below;
     }
 
     function topForCapCenter(boxHeight) {

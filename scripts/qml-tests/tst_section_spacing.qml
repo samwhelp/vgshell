@@ -14,7 +14,8 @@ import "../../shell/plugins/vgs.settings"
 // with descenders or, planted, one without. The same holds on the Setup
 // tab of a Jarvis-like plugin with its steps open and with them done,
 // where a step with no hint whose primary button overhangs its row ends a
-// section. The settings of no group draw no heading: they follow the
+// section, and after a status hint whose link's underline, not its
+// glyphs, ends the ink. The settings of no group draw no heading: they follow the
 // Enabled switch at the space rows of one list leave. A
 // section spaced by its box, as before `stack.heading`, is the control the
 // reading must refuse.
@@ -137,6 +138,7 @@ Item {
         Column {
             id: statusPage
             property string hint: ""
+            property string hintLink: ""
             width: 400
             spacing: 0
             Section {
@@ -144,7 +146,7 @@ Item {
                 GroupList {
                     Loader {
                         width: parent.width
-                        sourceComponent: Field { label: "Setup"; inline: true; hint: statusPage.hint; Label { role: "item"; text: "Ready" } }
+                        sourceComponent: Field { label: "Setup"; inline: true; hint: statusPage.hint; hintLink: statusPage.hintLink; Label { role: "item"; text: "Ready" } }
                     }
                 }
             }
@@ -369,6 +371,36 @@ Item {
             verify(waitForRendering(page));
             const gap = gapAbove(grabImage(root), headings(page)[1]);
             verify(Math.abs(gap - Theme.stack.heading) <= root.tolerance, "the heading sits " + gap + " px under the hint, not " + Theme.stack.heading);
+        }
+
+        // At 40 px a link's underline ends 9 px under the glyphs of a last
+        // line with no descender, past the reading's tolerance: with
+        // LinkText.inkBelow() reading the glyphs alone, "one line" and
+        // "last of two" read 23 blank rows, not 32, under scripts/qml-unit.sh
+        // on a65ec0a61. "last of two" holds the link on both lines, so it
+        // fails when only the first occurrence counts; "first of two" holds
+        // it on the first line alone and fails, at 41, when the underline
+        // counts there.
+        function test_heading_space_after_an_underlined_link_data() {
+            return [
+                { tag: "one line", hint: "The manual", link: "manual", lines: 1 },
+                { tag: "last of two", hint: "The manual, a manual", link: "manual", lines: 2 },
+                { tag: "first of two", hint: "The manual, then the hint", link: "manual", lines: 2 }
+            ];
+        }
+
+        function test_heading_space_after_an_underlined_link(data) {
+            compare(UnitTheme.override({ text: { hint: { size: 40 } } }), "ok");
+            const page = createTemporaryObject(statusThenSection, root, { hint: data.hint, hintLink: data.link });
+            verify(page !== null);
+            tryVerify(() => headings(page).length === 2, 2000, "the page heads two groups");
+            const hints = descendants(page).filter(child => child instanceof LinkText && child.text === data.hint);
+            compare(hints.length, 1);
+            verify(hints[0].linked);
+            compare(hints[0].lineCount, data.lines);
+            verify(waitForRendering(page));
+            const gap = gapAbove(grabImage(root), headings(page)[1]);
+            verify(Math.abs(gap - Theme.stack.heading) <= root.tolerance, "the heading sits " + gap + " px under the link, not " + Theme.stack.heading);
         }
 
         // The control: a section spaced by its box under a switch row.

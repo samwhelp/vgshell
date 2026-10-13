@@ -6,7 +6,11 @@ import qs.Ui
 // no matter which Column owns it or what stands above: measured from the
 // lowest drawn pixel of the item placed above (Theme.inkBelow) to the
 // heading's capital top, less the parent's spacing, so a switch, a select
-// and a help line all leave the same space. The first item takes no top
+// and a help line all leave the same space. Ink is drawn in whole pixel
+// rows on whole-pixel item edges: the lowest inked row ends floor(inkBelow)
+// above the item's bottom and the first capital row starts floor(capTop)
+// below the padding, so the padding counts whole rows and leaves exactly
+// `stack.heading` blank rows between them. The first item takes no top
 // padding. Rows inside the section
 // are spaced by `rowSpacing`, `stack.row`; a section of blocks, such as a
 // line of buttons and a code line, sets it to `stack.group`. The heading
@@ -38,7 +42,7 @@ Column {
     }
 
     width: parent ? parent.width : implicitWidth
-    topPadding: Positioner.isFirstItem ? 0 : Math.max(0, Theme.stack.heading - parentSpacing - Theme.inkBelow(above) - header.capTop())
+    topPadding: Positioner.isFirstItem ? 0 : Math.max(0, Theme.stack.heading - parentSpacing - Math.floor(Theme.inkBelow(above)) - Math.floor(header.capTop()))
     spacing: 0
 
     SectionHeader {
